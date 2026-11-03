@@ -12,6 +12,7 @@ import { TREE } from "../../lib/command-tree-def.ts";
 import { LAYOUT_HOLD, type SyncDeps, type SyncReport } from "../../lib/skills/sync.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as out from "../../lib/ui/out.ts";
+import { RELOAD_NEEDED } from "../../lib/skills/sync.ts";
 import { deriveEngine, skillsSync, manifestTarget, syncBlocks, syncCheckOf, syncFailure, syncMaterializeVerdict, syncOptions, syncRefusal } from "../skills-sync.ts";
 import { checkPack } from "../skills.ts";
 import * as syncCommand from "../skills-sync.ts";
@@ -230,6 +231,17 @@ describe("syncBlocks", () => {
       ].join("\n"),
     );
     expect(text).not.toContain("pull-engine");
+  });
+
+  test("a no-op sync that put disabled skills back still names /reload-plugins", () => {
+    const text = renderPlain(syncBlocks(report({ steps: [{ name: "disable-model-invocation", status: "ran", detail: "reapplied to 2 skills", [RELOAD_NEEDED]: true }] })));
+    expect(text).toContain("[ok] Already current");
+    expect(text).toContain("next: Run /reload-plugins in any Claude session that is already running");
+  });
+
+  test("a no-op sync that found nothing to put back names nothing", () => {
+    const text = renderPlain(syncBlocks(report({ steps: [{ name: "disable-model-invocation", status: "ran", detail: "nothing needed changing" }] })));
+    expect(text).not.toContain("/reload-plugins");
   });
 
   test("nothing to do is one summary", () => {

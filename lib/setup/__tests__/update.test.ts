@@ -8,58 +8,73 @@ const INTENT = "/fake-home/.mattstack/rt/setup-intent.json";
 
 describe("decideUpdate", () => {
   test("a Mac with no daemon.json was never set up", () => {
-    expect(decideUpdate(fakeProbes(), "2.15.0", false)).toEqual({ kind: "not-set-up" });
+    expect(decideUpdate(fakeProbes(), "2.15.0", false, [])).toEqual({ kind: "not-set-up" });
   });
 
   test("daemon.json present and no setup-state.json at all runs", () => {
     const p = fakeProbes({ files: { [DAEMON]: "{}" } });
-    expect(decideUpdate(p, "2.15.0", false)).toEqual({ kind: "run" });
+    expect(decideUpdate(p, "2.15.0", false, [])).toEqual({ kind: "run" });
   });
 
   test("a stamp for the running version skips as current", () => {
     const p = fakeProbes({ files: { [DAEMON]: "{}", [STATE]: JSON.stringify({ v: 1, lastUpdate: { version: "2.15.0", at: "x" } }) } });
-    expect(decideUpdate(p, "2.15.0", false)).toEqual({ kind: "current", version: "2.15.0" });
+    expect(decideUpdate(p, "2.15.0", false, [])).toEqual({ kind: "current", version: "2.15.0" });
+  });
+
+  test("a stamp for the running version runs again, as a retry, while a migration is still unrecorded", () => {
+    const p = fakeProbes({ files: { [DAEMON]: "{}", [STATE]: JSON.stringify({ v: 1, lastUpdate: { version: "2.15.0", at: "x" }, migrations: ["2026-01-01-a"] }) } });
+    expect(decideUpdate(p, "2.15.0", false, ["2026-01-01-a", "2026-01-02-b"])).toEqual({ kind: "run", retry: true });
+  });
+
+  test("a stamp for the running version is current once every migration is recorded", () => {
+    const p = fakeProbes({ files: { [DAEMON]: "{}", [STATE]: JSON.stringify({ v: 1, lastUpdate: { version: "2.15.0", at: "x" }, migrations: ["2026-01-01-a", "2026-01-02-b"] }) } });
+    expect(decideUpdate(p, "2.15.0", false, ["2026-01-01-a", "2026-01-02-b"])).toEqual({ kind: "current", version: "2.15.0" });
+  });
+
+  test("a stamp for another version runs as a release run, not a retry, whatever is pending", () => {
+    const p = fakeProbes({ files: { [DAEMON]: "{}", [STATE]: JSON.stringify({ v: 1, lastUpdate: { version: "2.14.0", at: "x" } }) } });
+    expect(decideUpdate(p, "2.15.0", false, ["2026-01-01-a"])).toEqual({ kind: "run" });
   });
 
   test("a stamp for another version runs", () => {
     const p = fakeProbes({ files: { [DAEMON]: "{}", [STATE]: JSON.stringify({ v: 1, lastUpdate: { version: "2.14.0", at: "x" } }) } });
-    expect(decideUpdate(p, "2.15.0", false)).toEqual({ kind: "run" });
+    expect(decideUpdate(p, "2.15.0", false, [])).toEqual({ kind: "run" });
   });
 
   test("--force runs over a current stamp", () => {
     const p = fakeProbes({ files: { [DAEMON]: "{}", [STATE]: JSON.stringify({ v: 1, lastUpdate: { version: "2.15.0", at: "x" } }) } });
-    expect(decideUpdate(p, "2.15.0", true)).toEqual({ kind: "run" });
+    expect(decideUpdate(p, "2.15.0", true, [])).toEqual({ kind: "run" });
   });
 
   test("a dev build always runs, even over a dev stamp", () => {
     const p = fakeProbes({ files: { [DAEMON]: "{}", [STATE]: JSON.stringify({ v: 1, lastUpdate: { version: "dev", at: "x" } }) } });
-    expect(decideUpdate(p, "dev", false)).toEqual({ kind: "run" });
+    expect(decideUpdate(p, "dev", false, [])).toEqual({ kind: "run" });
   });
 
   test("never set up wins over --force", () => {
-    expect(decideUpdate(fakeProbes(), "2.15.0", true)).toEqual({ kind: "not-set-up" });
+    expect(decideUpdate(fakeProbes(), "2.15.0", true, [])).toEqual({ kind: "not-set-up" });
   });
 
   test("a Mac mid-setup, with the daemon installed and a team choice still pending, is not set up", () => {
     const p = fakeProbes({ files: { [DAEMON]: "{}", [INTENT]: "{}" } });
-    expect(decideUpdate(p, "2.15.0", false)).toEqual({ kind: "not-set-up" });
-    expect(decideUpdate(p, "2.15.0", true)).toEqual({ kind: "not-set-up" });
+    expect(decideUpdate(p, "2.15.0", false, [])).toEqual({ kind: "not-set-up" });
+    expect(decideUpdate(p, "2.15.0", true, [])).toEqual({ kind: "not-set-up" });
   });
 
   test("a current-format state file with no Finish on record is not set up, daemon or not, forced or not", () => {
     const p = fakeProbes({ files: { [DAEMON]: "{}", [STATE]: JSON.stringify({ v: 2, lastApplyAt: "x" }) } });
-    expect(decideUpdate(p, "2.15.0", false)).toEqual({ kind: "not-set-up" });
-    expect(decideUpdate(p, "2.15.0", true)).toEqual({ kind: "not-set-up" });
+    expect(decideUpdate(p, "2.15.0", false, [])).toEqual({ kind: "not-set-up" });
+    expect(decideUpdate(p, "2.15.0", true, [])).toEqual({ kind: "not-set-up" });
   });
 
   test("an older state file whose Install ran is still not set up while a team choice is pending", () => {
     const p = fakeProbes({ files: { [DAEMON]: "{}", [INTENT]: "{}", [STATE]: JSON.stringify({ v: 1, lastApplyAt: "x" }) } });
-    expect(decideUpdate(p, "2.15.0", false)).toEqual({ kind: "not-set-up" });
+    expect(decideUpdate(p, "2.15.0", false, [])).toEqual({ kind: "not-set-up" });
   });
 
   test("a Finish on record runs even when daemon.json is gone", () => {
     const p = fakeProbes({ files: { [STATE]: JSON.stringify({ v: 2, finishedAt: "2026-09-30T00:00:00.000Z" }) } });
-    expect(decideUpdate(p, "2.15.0", false)).toEqual({ kind: "run" });
+    expect(decideUpdate(p, "2.15.0", false, [])).toEqual({ kind: "run" });
   });
 });
 

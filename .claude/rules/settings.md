@@ -48,8 +48,11 @@ source and live docs.
 The branch an org clone has checked out is the branch rt reads, syncs and
 publishes on that Mac (`orgBranch` in `lib/team/org-branch.ts`), so an admin
 can try a breaking change on a branch while every other member stays on the
-org's data branch. From layout 4 that branch is the marker's `dataBranch`
-(`mattstack` by default; `dataBranchOf` in `lib/team/org-branch.ts`) and
+org's data branch. Team pack installs are the exception: they always read
+the data branch (`generatedMarketplaceRef`), so a clone on a trial branch
+keeps its packs at the data branch's last local commit. From layout 4 the
+data branch is the marker's `dataBranch` (`mattstack` by default;
+`dataBranchOf` in `lib/team/org-branch.ts`) and
 `main` keeps only a pointer (`lib/team/main-pointer.ts`): the root file
 `.mattstack.jsonc` (`POINTER_REL`, with a header saying what the data
 branch is), or on an org that moved before it existed the old
@@ -112,10 +115,19 @@ data branch or the recorded trial (`approvedBranches` in
 Each Mac's sparse cone follows its role (`coneFor` in `lib/team/org-cone.ts`):
 org owners and admins hold `.claude-plugin` and `mattstack`, everyone else
 the org files and their teams. The one shared `.claude-plugin/marketplace.json`
-still lists every team's pack: Claude Code's `plugin marketplace add`,
-`marketplace update` and `plugin install` of a pack the clone holds succeed
-when other entries' folders are missing (checked on Claude Code 2.1.301), so
-no per-Mac marketplace file is written. A dropped team folder with changes stays, and
+still lists every team's pack as `./mattstack/teams/<team>/plugin` and is
+never edited for an install. Claude Code loads a directory-source plugin from
+its source folder, so rt registers a per-Mac generated folder instead:
+`~/.mattstack/rt/marketplaces/<org>/.claude-plugin/marketplace.json`
+(`generatedMarketplaceDir` in `lib/rt-paths.ts`, written by
+`writeGeneratedMarketplace` in `lib/setup/generated-marketplace.ts`). It keeps
+the org file's `name` and turns each entry into a `git-subdir` source (a
+`file://` URL to this Mac's org clone, the pack's path, `ref` = the data
+branch), built from `git show <ref>:.claude-plugin/marketplace.json`, so it
+lists only what is committed there and a sparse cone missing other teams'
+folders does not matter. Claude then loads the cache copy. Re-registering it
+is a same-name `claude plugin marketplace add`, never `marketplace remove`,
+which uninstalls every plugin. A dropped team folder with changes stays, and
 the `org.sparse` row names it.
 The org marker carries a layout version (`layout` in `mattstack/mattstack.jsonc`;
 an explicit positive integer wins, and absent reads as 2 for `role: "org"` and 1

@@ -478,7 +478,7 @@ interface UpdateItem {
 
 const LEADS_UPDATE: readonly StepId[] = ["org.folder", "org.pull"];
 
-function updateItems(steps: StepDef[], migrations: MigrationDef[], applied: readonly string[]): UpdateItem[] {
+function updateItems(steps: StepDef[], migrations: MigrationDef[], applied: readonly string[], retry: boolean): UpdateItem[] {
   const item = (s: StepDef): UpdateItem => ({ id: s.id, title: s.title, run: (ctx) => s.run(ctx) });
   const safe = steps.filter((s) => s.updateSafe && s.id !== "verify");
   const leads = safe.filter((s) => LEADS_UPDATE.includes(s.id)).map(item);
@@ -495,6 +495,7 @@ function updateItems(steps: StepDef[], migrations: MigrationDef[], applied: read
     },
     migrationId: m.id,
   }));
+  if (retry) return [...leads, ...pending];
   const rest = safe.filter((s) => !LEADS_UPDATE.includes(s.id) && s.id !== RUN_END_STEP).map(item);
   const verify = steps.find((s) => s.id === "verify" && s.updateSafe);
   return [...leads, ...pending, ...rest, ...(verify ? [item(verify)] : [])];
@@ -509,12 +510,15 @@ function updateItems(steps: StepDef[], migrations: MigrationDef[], applied: read
  * is a bug: the run stops there and rethrows after `done`. Migrations that
  * end done or skipped are recorded one at a time, so a crash mid-run loses
  * nothing already recorded. The setup intent is never cleared: an update is
- * not an install.
+ * not an install. A `retry` run (a stamped version with a migration still
+ * pending) runs only the leads and the pending migrations: a Mac stuck on one
+ * migration pays little per launch and never restarts its apps.
  */
-export async function runUpdateWith(steps: StepDef[], migrations: MigrationDef[], ctx: ApplyContext): Promise<UpdateRunResult> {
+export async function runUpdateWith(steps: StepDef[], migrations: MigrationDef[], ctx: ApplyContext, opts: { retry?: boolean } = {}): Promise<UpdateRunResult> {
   settleLegacyFinish(ctx);
-  const items = updateItems(steps, migrations, readSetupState(ctx.p).migrations);
-  const endStep = steps.find((s) => s.id === RUN_END_STEP && s.updateSafe);
+  const retry = opts.retry === true;
+  const items = updateItems(steps, migrations, readSetupState(ctx.p).migrations, retry);
+  const endStep = retry ? undefined : steps.find((s) => s.id === RUN_END_STEP && s.updateSafe);
   const planned = [...items, ...(endStep ? [endStep] : [])];
   ctx.emit({ event: "plan", steps: planned.map((i) => ({ id: i.id, title: i.title, kind: "rt" as const })) });
 

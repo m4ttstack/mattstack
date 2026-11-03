@@ -4,8 +4,8 @@
  * the set is rescanned on an orgs/ watch event, never fixed at boot.
  */
 
-import { existsSync, readdirSync, readFileSync, watch as fsWatch } from "fs";
-import { join } from "path";
+import { existsSync, readdirSync, readFileSync, realpathSync, watch as fsWatch } from "fs";
+import { join, resolve } from "path";
 import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
 
@@ -13,13 +13,24 @@ import { getSetting } from "../settings/resolve.ts";
 import type { Value } from "../settings/registry-schemas.ts";
 import { orgsDir } from "../rt-paths.ts";
 import { createRealProbes, type Probes } from "../setup/probes.ts";
-import { convergePackCache } from "../setup/pack-cache.ts";
+import { claudeMessage, convergePackCache, isAlready, PACK_EXEC_TIMEOUT_MS } from "../setup/pack-cache.ts";
+import { generatedMarketplaceRef, writeGeneratedMarketplace } from "../setup/generated-marketplace.ts";
+import { parseMarketplaceList } from "../setup/marketplace-list.ts";
+import { claudeConfigDirs } from "../setup/tools-install.ts";
+import { resolveTool } from "../deps/resolve.ts";
+import { cswapConfigDirs } from "../cswap.ts";
+import { checkedOutBranch } from "../team/org-branch.ts";
+import { pickedCloneReady, pickOrgClone } from "../team/org-layout.ts";
+import { markerState } from "../team/org-marker.ts";
+import { ORG_STORE_REL } from "../../packages/rt-client/src/settings/paths.ts";
+import { warn } from "../ui/warn.ts";
 import { hasKvValue, setKvValue } from "../state/kv-blob.ts";
 import { parseOriginUrl } from "../setup/team-settings.ts";
 import { UserActionableError } from "../errors.ts";
 import { ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
 import { applyRoleCone } from "../team/org-cone.ts";
 import { convergeDataBranch, type ConvergeResult } from "../team/org-data-branch.ts";
+import { disableModelInvocationConfigDirs, readDisableModelInvocationChoices, reconcileDisableModelInvocation } from "../skills/disable-model-invocation.ts";
 import { roleFor } from "../team/roles.ts";
 import {
   startSnapshot,
@@ -86,15 +97,152 @@ function originOf(dir: string): string | null {
   }
 }
 
-/** The converge first, then the clone's cone follows the role, then the post-pull hooks; the cone and the hooks run even when the converge threw, and a cone that failed never fails the pull. */
+const parkedWarned = new Set<string>();
+export function __resetParkedWarnings(): void {
+  parkedWarned.clear();
+}
+
+/** Orgs whose generated folder changed and some config dir has not yet been re-pointed at it: an unchanged pull would otherwise never try again. */
+const registrationPending = new Set<string>();
+export function __resetPendingRegistrations(): void {
+  registrationPending.clear();
+}
+
+/** Claude may record the path it was given or its realpath (macOS tmp folders differ). */
+function real(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+function samePath(a: string, b: string): boolean {
+  return real(a) === real(b);
+}
+
+/** cswap accounts usually share one `plugins/` folder through a symlink, and that folder is what Claude registers into. */
+function distinctConfigDirs(dirs: string[]): string[] {
+  const seen = new Set<string>();
+  return dirs.filter((dir) => {
+    const key = real(join(dir, "plugins"));
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * Registering the generated folder the first time belongs to setup, which
+ * also reinstalls the packs from it. The daemon only re-points a config dir
+ * whose registration of the name still names another source, so a pull that
+ * adds a team reaches a Mac setup has not migrated; a name a config dir does
+ * not register at all may be one the member removed, and stays removed.
+ * Never throws.
+ */
+async function refreshGeneratedMarketplace(p: Probes, org: string, log: Logger, write: typeof writeGeneratedMarketplace): Promise<void> {
+  let written: Awaited<ReturnType<typeof writeGeneratedMarketplace>>;
+  try {
+    written = await write(p, org);
+  } catch (err) {
+    log.warn({ err }, `generated marketplace: could not rewrite it: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+  if (written.skipped) {
+    log.debug({ skipped: written.skipped }, "generated marketplace: not written");
+    return;
+  }
+  if (written.changed) {
+    registrationPending.add(org);
+    log.info({ path: written.path, dropped: written.dropped }, "generated marketplace: rewritten");
+  }
+  if (!registrationPending.has(org)) return;
+
+  const generatedFile = join(written.path, ".claude-plugin", "marketplace.json");
+  const raw = p.readFile(generatedFile);
+  let name: string | null = null;
+  try {
+    const parsed = raw === null ? null : (JSON.parse(raw) as { name?: unknown } | null);
+    name = typeof parsed?.name === "string" ? parsed.name : null;
+  } catch {
+    name = null;
+  }
+  if (name === null) {
+    log.warn({ path: generatedFile, read: raw !== null }, "generated marketplace: could not read its name back, so registration is retried on the next pull");
+    return;
+  }
+  const claude = resolveTool(p, "claude");
+  if (name === null || !claude.exec) return;
+
+  const stale: string[] = [];
+  for (const configDir of distinctConfigDirs(claudeConfigDirs(p, cswapConfigDirs(p)))) {
+    const listed = await p.exec([...claude.exec, "plugin", "marketplace", "list", "--json"], { env: { CLAUDE_CONFIG_DIR: configDir }, timeoutMs: PACK_EXEC_TIMEOUT_MS });
+    const known = listed.code === 0 ? parseMarketplaceList(listed.stdout) : null;
+    if (known === null) {
+      log.warn({ configDir, code: listed.code }, "generated marketplace: could not read Claude's marketplace list, so registering it is left to setup");
+      return;
+    }
+    const named = known.filter((m) => m.name === name);
+    if (named.length === 0) continue;
+    if (named.some((m) => m.source !== null && samePath(m.source, written.path))) continue;
+    stale.push(configDir);
+  }
+  let failed = false;
+  for (const configDir of stale) {
+    const added = await p.exec([...claude.exec, "plugin", "marketplace", "add", written.path], { env: { CLAUDE_CONFIG_DIR: configDir }, timeoutMs: PACK_EXEC_TIMEOUT_MS });
+    if (added.code !== 0 && !isAlready(added)) {
+      log.warn({ path: written.path, configDir, detail: claudeMessage(added, `exited ${added.code}`) }, "generated marketplace: claude plugin marketplace add failed");
+      failed = true;
+      continue;
+    }
+    log.info({ path: written.path, marketplace: name, configDir }, "generated marketplace: registered");
+  }
+  if (!failed) registrationPending.delete(org);
+}
+
+/**
+ * The layout of the clone this pull moved when it is one this rt does not read, else null. orgLayoutState classifies
+ * only the clone it picks, which with several clones under orgs/ need not be this one.
+ */
+function cloneWaitingLayout(p: Probes, slug: string, dir: string): number | null {
+  const picked = pickOrgClone([
+    { slug, isClone: p.exists(join(dir, ".git", "config")), marker: markerState(p, dir), hasStore: p.exists(join(dir, ORG_STORE_REL)) },
+  ]);
+  return picked !== null && !pickedCloneReady(picked) ? picked.layout : null;
+}
+
+/**
+ * A clone parked off the ref keeps the ref's packs, so every pull would otherwise look like a no-op update; one warning per org per daemon. Never throws.
+ * `main` is never parked: a clone sits there until the data-branch move runs.
+ */
+async function warnIfParked(p: Probes, org: string, dir: string): Promise<void> {
+  if (parkedWarned.has(org)) return;
+  try {
+    const ref = generatedMarketplaceRef(p, dir);
+    const branch = await checkedOutBranch(p, dir, { timeoutMs: PACK_EXEC_TIMEOUT_MS });
+    if (branch === null || branch === ref || branch === "main") return;
+    parkedWarned.add(org);
+    warn("team-snapshots", `The ${org} org clone is on ${branch}, not ${ref}, so its team packs stay at ${ref}'s versions until it is back on ${ref}`, {
+      context: { org, branch, ref },
+    });
+  } catch {
+    /* a branch git cannot name is not a parked clone */
+  }
+}
+
+/** The generated marketplace is rewritten first (a pull can add a team), then the converge, then a pack it changed gets the member's disabled skills back, then the clone's cone follows the role, then the post-pull hooks; the cone and the hooks run even when the converge threw, and a cone that failed never fails the pull. On an org layout this rt does not read, only the cone and the hooks run. */
 export function createOnPulled(opts: {
   probes: Probes;
   slug: string;
   dir: string;
   log: Logger;
   converge: typeof convergePackCache;
+  /** Injectable so a test can order it against the converge. */
+  writeMarketplace?: typeof writeGeneratedMarketplace;
   afterPull?: (slug: string) => Promise<void>;
   applyCone?: typeof applyRoleCone;
+  /** Injectable so a test can stand in for a daemon whose settings will not read. */
+  readChoices?: () => Record<string, string[]>;
   /** Remembers which held pack versions were already logged; defaults to the state db's kv table. */
   holds?: { has(key: string): boolean; mark(key: string): void };
 }): () => Promise<void> {
@@ -110,9 +258,29 @@ export function createOnPulled(opts: {
       opts.log.warn({ err }, "cone: could not apply the role's sparse checkout");
     }
   };
+  // An empty read means the store is absent or unreadable, and either way there is nothing to put back.
+  const reapplyDisabledSkills = (): void => {
+    try {
+      const choices = (opts.readChoices ?? readDisableModelInvocationChoices)();
+      if (Object.keys(choices).length === 0) return;
+      const { warnings } = reconcileDisableModelInvocation({ configDirs: disableModelInvocationConfigDirs(opts.probes.env, opts.probes.home), choices });
+      for (const warning of warnings) opts.log.warn({ warning }, `disable-model-invocation: ${warning}`);
+    } catch (err) {
+      opts.log.warn({ err }, `disable-model-invocation: could not reapply after a pack update: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
   return async () => {
     try {
+      // The pull gate holds only a tip above the readable layouts, so a clone below them still reaches here.
+      const waitingLayout = cloneWaitingLayout(opts.probes, opts.slug, opts.dir);
+      if (waitingLayout !== null) {
+        opts.log.debug({ layout: waitingLayout }, "team packs: left as they are; the org is on a layout this rt does not read");
+        return;
+      }
+      await refreshGeneratedMarketplace(opts.probes, opts.slug, opts.log, opts.writeMarketplace ?? writeGeneratedMarketplace);
+      await warnIfParked(opts.probes, opts.slug, opts.dir);
       const result = await opts.converge(opts.probes, opts.slug, opts.log);
+      if (result.updated.length > 0 || result.installed.length > 0) reapplyDisabledSkills();
       for (const h of result.held) {
         const key = `${h.id}@${h.to}`;
         let seen = false;

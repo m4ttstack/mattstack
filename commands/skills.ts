@@ -30,6 +30,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSy
 import { applyEdits, findNodeAtLocation, getNodeValue, modify, parseTree } from "jsonc-parser";
 import { homedir } from "os";
 import { basename, dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "path";
+import { registeredSkillRoots } from "../lib/skills/skill-roots.ts";
 import { otherOrgRefusal, packOrg } from "../lib/skills/pack-org.ts";
 import { readOrgRoles } from "../packages/rt-client/src/settings/active-team.ts";
 import { readForgeUsername } from "../packages/rt-client/src/settings/team-local-read.ts";
@@ -68,6 +69,9 @@ import { isBasePack, readZonesFrom, zonePackDir, type InitFs } from "../lib/skil
 import { readManifestDropped, readManifestProvenance, type DroppedOverride } from "../lib/skills/manifest-merge.ts";
 import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../lib/skills/manifest-paths.ts";
 import { dropProvenanceLine, removePipelineOverride } from "../lib/skills/pipeline-edit.ts";
+import { DISABLE_MODEL_INVOCATION_SETTING, neverDisabled, disableModelInvocationConfigDirs, disableModelInvocationHome, providesContract, readDisableModelInvocationChoices, reconcileDisableModelInvocation, withInstalledPlugins } from "../lib/skills/disable-model-invocation.ts";
+import { sourceSetsDisableModelInvocation } from "../lib/skills/disable-model-invocation-line.ts";
+import { setSetting, userStoreUnreadableFor } from "../lib/settings/write.ts";
 import { discoverPacks, findEnclosingPack, solePack, surfaceFileFor, whichPackWhy, type PackInfo } from "../lib/skills/packs.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
 import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } from "../lib/skills/mcp-lint.ts";
@@ -269,7 +273,8 @@ function packRootDir(mattstackRoot: string, team: string): string | null {
   return zone ? zonePackDir(zone) : null;
 }
 
-type PackTarget = { team: string; packDir: string };
+/** `pack` is set only when discovery chose it, so a caller can read its marketplace without discovering again. */
+type PackTarget = { team: string; packDir: string; pack?: PackInfo };
 
 /**
  * Which pack a command acts on, in resolution order: an explicit --pack-dir
@@ -332,7 +337,7 @@ async function resolvePack(flags: { team: string | null; packDir: string | null;
   const packs = flags.mattstackDir ? [] : discoverPacks();
   if (flags.team) {
     const pack = packs.find((p) => p.name === flags.team);
-    if (pack) return { team: pack.name, packDir: pack.dir };
+    if (pack) return { team: pack.name, packDir: pack.dir, pack };
     const byFolder = packRootDir(mattstackRoot, flags.team);
     if (byFolder && existsSync(byFolder)) return { team: flags.team, packDir: byFolder };
     throw new SkillsUsageError(
@@ -342,7 +347,7 @@ async function resolvePack(flags: { team: string | null; packDir: string | null;
   }
 
   const sole = solePack(packs);
-  if (sole) return { team: sole.name, packDir: sole.dir };
+  if (sole) return { team: sole.name, packDir: sole.dir, pack: sole };
   if (packs.length === 0) {
     throw new SkillsUsageError("no packs discovered (no directory marketplace plugin, team folder or org folder carries a surface.jsonc); pass --pack <name>", {
       title: "No packs found",
@@ -360,7 +365,7 @@ async function resolvePack(flags: { team: string | null; packDir: string | null;
   }
   const picked = await pickPack(packs);
   if (!picked) process.exit(0);
-  return { team: picked.name, packDir: picked.dir };
+  return { team: picked.name, packDir: picked.dir, pack: picked };
 }
 
 async function pickPack(packs: PackInfo[]): Promise<PackInfo | null> {
@@ -437,49 +442,6 @@ function enumerateSkillEntries(root: string, into: Map<string, SkillEntry> = new
     if (!sawLeaf) add({ name: top, group: null, dir: topDir });
   }
   return into;
-}
-
-/**
- * A plugin may register more than one skills root (plugin.json `skills`, e.g.
- * ["./skills/review", "./plugin/skills"]); the registered surface is the union
- * of those roots, defaulting to skills/ when the manifest lists none.
- */
-function registeredSkillRoots(packDir: string): string[] {
-  const manifestPath = join(packDir, ".claude-plugin", "plugin.json");
-  if (existsSync(manifestPath)) {
-    try {
-      const parsed = JSON.parse(readFileSync(manifestPath, "utf8")) as { skills?: unknown };
-      if (Array.isArray(parsed.skills) && parsed.skills.length > 0) {
-        // A root is only honored inside the pack: a manifest value like "../x" or an
-        // absolute path would otherwise let the surface verbs enumerate (and move) dirs
-        // that belong to some other tree.
-        const canonical = (p: string) => {
-          try {
-            return realpathSync(p);
-          } catch {
-            return resolvePath(p);
-          }
-        };
-        const packRoot = canonical(packDir);
-        const roots = parsed.skills
-          .filter((s): s is string => typeof s === "string")
-          .map((s) => canonical(resolvePath(packDir, s)))
-          .filter((root) => {
-            const rel = relativePath(packRoot, root);
-            if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolutePath(rel)) return false;
-            try {
-              return statSync(root).isDirectory();
-            } catch {
-              return false;
-            }
-          });
-        if (roots.length > 0) return roots;
-      }
-    } catch {
-      // an unreadable manifest falls back to the conventional root below
-    }
-  }
-  return [join(packDir, "skills")];
 }
 
 function enumerateRegistered(packDir: string): Map<string, SkillEntry> {
@@ -3194,7 +3156,14 @@ type SurfaceFlags = {
   json: boolean;
 };
 
-export type SurfaceRow = { name: string; kind: "compiled" | "hand-authored" | "missing"; status: "public" | "internal"; base?: string; path?: string };
+export type SurfaceRow = {
+  name: string;
+  kind: "compiled" | "hand-authored" | "missing";
+  status: "public" | "internal";
+  base?: string;
+  path?: string;
+  disableModelInvocation?: "on" | "off" | "locked";
+};
 
 /** A skill rt installs exactly as it sits in the pack reads as standard; --json keeps `hand-authored`. */
 function kindLabel(kind: SurfaceRow["kind"]): string {
@@ -3231,11 +3200,11 @@ function parseSurfaceFlags(args: string[]): { flags: SurfaceFlags; rest: string[
 }
 
 /** Pins the pack on the flags so the compile delegation and the printed header name the same pack the user picked. */
-async function resolveSurfacePaths(flags: SurfaceFlags): Promise<{ packDir: string }> {
+async function resolveSurfacePaths(flags: SurfaceFlags): Promise<{ packDir: string; pack?: PackInfo }> {
   const target = await resolvePack(flags);
   flags.team = target.team;
   flags.packDir = target.packDir;
-  return { packDir: target.packDir };
+  return { packDir: target.packDir, pack: target.pack };
 }
 
 /** A block tree is engine source, never compile output, so it is never swept as a stale compiled dir. */
@@ -3426,11 +3395,18 @@ export function surfaceBlocks(team: string | null, source: string, rows: Surface
 }
 
 async function runList(flags: SurfaceFlags): Promise<void> {
-  const { packDir } = await resolveSurfacePaths(flags);
+  const { packDir, pack } = await resolveSurfacePaths(flags);
   const verbNames = new Set(readVerbRoster(packDir).map((v) => v.name));
   const surface = readSurface(packDir);
   const stageNames = stageNamesFor(flags, packDir);
-  const { source, rows } = computeRows(packDir, verbNames, surface, stageNames);
+  const computed = computeRows(packDir, verbNames, surface, stageNames);
+  const { source } = computed;
+  let rows = computed.rows;
+  try {
+    rows = withDisableModelInvocation(rows, disableModelInvocationPlugin(packDir, flags, pack)?.key ?? null);
+  } catch {
+    // the listing is the Console's whole view of the pack: a skill's choice is decoration and never fails it
+  }
 
   if (flags.json) {
     out.json({ pack: flags.team, packDir, rows });
@@ -3776,6 +3752,260 @@ export async function skillsSurface(args: string[]): Promise<void> {
       return;
     }
     await runPalette(flags);
+  });
+}
+
+// ─── rt skills disable-model-invocation -- a member's own choices of skills to disable model invocation on, kept in the user setting and applied to the installed copy ──
+
+/** The `<plugin>@<marketplace>` the pack installs as, or null for a pack Claude Code never installs. */
+function disableModelInvocationPlugin(packDir: string, flags: SurfaceFlags, discovered?: PackInfo): { key: string } | null {
+  let pack = discovered;
+  if (!pack && !flags.mattstackDir) {
+    const real = canonicalPath(packDir);
+    const packs = discoverPacks();
+    pack = packs.find((p) => p.dir === real) ?? packs.find((p) => p.name === flags.team);
+  }
+  return pack?.marketplace ? { key: `${pack.name}@${pack.marketplace}` } : null;
+}
+
+function disableModelInvocationEligible(row: SurfaceRow): boolean {
+  return row.status === "public" && row.base === undefined && row.path !== undefined;
+}
+
+const pluginOf = (key: string): string => key.slice(0, key.lastIndexOf("@"));
+
+function withDisableModelInvocation(rows: SurfaceRow[], key: string | null): SurfaceRow[] {
+  if (key === null) return rows;
+  let chosen: string[] = [];
+  try {
+    chosen = readDisableModelInvocationChoices()[key] ?? [];
+  } catch {
+    // an unreadable setting shows every skill as off
+  }
+  return rows.map((row) => {
+    if (!disableModelInvocationEligible(row) || neverDisabled(pluginOf(key), row.name)) return row;
+    let locked = false;
+    try {
+      const source = readFileSync(row.path!, "utf8");
+      if (providesContract(source)) return row;
+      locked = sourceSetsDisableModelInvocation(source);
+    } catch {
+      // a source that cannot be read is not locked
+    }
+    return { ...row, disableModelInvocation: locked ? "locked" : chosen.includes(row.name) ? "on" : "off" };
+  });
+}
+
+function skillOfWarning(warning: string): string | null {
+  return /[\\/]([^\\/]+)[\\/]SKILL\.md: /.exec(warning)?.[1] ?? null;
+}
+
+function warningLines(warnings: string[]): Block[] {
+  const seen = new Set<string>();
+  const lines: Block[] = [];
+  for (const w of warnings) {
+    const name = skillOfWarning(w);
+    const text = name ? `The installed copy of ${name} could not be changed` : w;
+    const reason = name ? w.slice(w.indexOf("SKILL.md: ") + "SKILL.md: ".length) : undefined;
+    const id = `${text}|${reason ?? ""}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    lines.push(out.line("warn", text, reason));
+  }
+  return lines;
+}
+
+function disableModelInvocationRefusal(title: string, why?: string): SkillsRefusal {
+  return new SkillsRefusal(why ? `${title}. ${why}` : title, { title, ...(why ? { why } : {}) });
+}
+
+type DisableModelInvocationTarget = { key: string; rows: SurfaceRow[]; source: string };
+
+async function disableModelInvocationTarget(flags: SurfaceFlags): Promise<DisableModelInvocationTarget> {
+  const { packDir, pack } = await resolveSurfacePaths(flags);
+  const plugin = disableModelInvocationPlugin(packDir, flags, pack);
+  if (plugin === null) {
+    throw disableModelInvocationRefusal("This pack is not installed from a marketplace", "Only an installed pack's skills can have model invocation disabled.");
+  }
+  const verbNames = new Set(readVerbRoster(packDir).map((v) => v.name));
+  const { source, rows } = computeRows(packDir, verbNames, readSurface(packDir), stageNamesFor(flags, packDir));
+  return { key: plugin.key, rows: withDisableModelInvocation(rows, plugin.key), source };
+}
+
+function sourceProvidesContract(path: string): boolean {
+  try {
+    return providesContract(readFileSync(path, "utf8"));
+  } catch {
+    return false;
+  }
+}
+
+function refuseDisableModelInvocationName(name: string, row: SurfaceRow | undefined, key: string): SkillsRefusal | null {
+  if (!row) return disableModelInvocationRefusal(`${name} is not a skill in this pack`);
+  if (neverDisabled(pluginOf(key), name) || (row.path !== undefined && sourceProvidesContract(row.path))) return disableModelInvocationRefusal(`${name} cannot have model invocation disabled`, "It stays invocable because other skills name it.");
+  if (row.base !== undefined) return disableModelInvocationRefusal(`${name} comes from ${row.base}`, "The org base pack decides how it runs.");
+  if (row.status !== "public") return disableModelInvocationRefusal(`${name} is an internal skill`, "Only public skills can have model invocation disabled.");
+  if (row.path === undefined) return disableModelInvocationRefusal(`${name} has no files in this pack`);
+  if (row.disableModelInvocation === "locked") return disableModelInvocationRefusal(`${name} already has model invocation disabled`, "The pack sets that itself, so you cannot change it here.");
+  return null;
+}
+
+async function runDisableModelInvocationList(args: string[]): Promise<void> {
+  const { flags, rest } = parseSurfaceFlags(args);
+  if (rest.length) throw new SkillsUsageError(`unrecognized argument "${rest[0]}"`);
+  const { rows, source } = await disableModelInvocationTarget(flags);
+  const shown = rows.filter((r) => r.disableModelInvocation !== undefined).map((r) => ({ name: r.name, disableModelInvocation: r.disableModelInvocation! }));
+  if (flags.json) {
+    out.json({ pack: flags.team, rows: shown });
+    return;
+  }
+  if (shown.length === 0) {
+    out.print(out.line("pending", "This pack has no public skills to choose from"));
+    return;
+  }
+  const label = { on: "model invocation disabled", off: "Claude can invoke it", locked: "set by the pack" } as const;
+  out.print(out.section(`Pack ${flags.team ?? ""}`.trim(), source, out.table(shown.map((r) => [out.strong(r.name), r.disableModelInvocation === "off" ? label.off : out.dim(label[r.disableModelInvocation])]), ["Skill", "Runs"])));
+}
+
+const setNeedsName = () => new SkillsUsageError("set requires a skill name", usageFailure("Which skill?", "rt skills disable-model-invocation set <name> --on --pack <pack>"));
+
+/** The palette over the skills a member may change, with each one's current state; null when they cancel. */
+async function pickDisableModelInvocationNames(rows: SurfaceRow[], on: boolean): Promise<string[] | null> {
+  const choices = rows.filter((r) => r.disableModelInvocation === "on" || r.disableModelInvocation === "off");
+  if (choices.length === 0) throw setNeedsName();
+  const { filterableMultiselect } = await import("../lib/pick-wrappers.ts");
+  return filterableMultiselect({
+    message: on ? "Disable model invocation" : "Let Claude invoke them again",
+    breadcrumb: ["rt", "skills", "disable-model-invocation"],
+    options: choices.map((r) => ({ value: r.name, label: r.name, hint: r.disableModelInvocation === "on" ? "model invocation disabled" : "Claude can invoke it" })),
+  });
+}
+
+/** Reapply only helps a file that was read-only; any other reason needs the file itself fixed. */
+function unappliedCallouts(warnings: string[], names: string[]): Block[] {
+  const blocking = warnings.filter((w) => {
+    const skill = skillOfWarning(w);
+    return skill !== null && names.includes(skill);
+  });
+  const readOnly = blocking.some((w) => /SKILL\.md: read-only/.test(w));
+  return [
+    out.callout("why", "Your choice is saved. Claude still sees the installed copy as it was."),
+    ...(readOnly ? [out.callout("next", ["After the file can be written, run ", out.cmd("rt skills disable-model-invocation reapply")])] : []),
+  ];
+}
+
+async function runDisableModelInvocationSet(args: string[]): Promise<void> {
+  const { flags, rest } = parseSurfaceFlags(args);
+  let names: string[] = [];
+  let on = false;
+  let off = false;
+  for (const a of rest) {
+    if (a === "--on") on = true;
+    else if (a === "--off") off = true;
+    else if (a.startsWith("--")) throw new SkillsUsageError(`unrecognized argument "${a}"`);
+    else names.push(a);
+  }
+  const canPick = process.stdin.isTTY === true && !flags.json && !process.env.RT_BATCH;
+  if (names.length === 0 && !canPick) throw setNeedsName();
+  if (on === off) {
+    throw new SkillsUsageError(
+      "set requires one of --on and --off",
+      usageFailure("Should model invocation be disabled?", "rt skills disable-model-invocation set <name> --on --pack <pack>", "Say which with --on or --off."),
+    );
+  }
+  const duplicate = names.find((n, i) => names.indexOf(n) !== i);
+  if (duplicate) throw new SkillsUsageError(`"${duplicate}" named more than once`);
+  if (flags.dryRun) throw new SkillsUsageError("set does not take --dry-run", usageFailure("This does not have a dry run", "rt skills disable-model-invocation set <name> --on --pack <pack>", "Leave out --dry-run."));
+
+  try {
+    const { key, rows } = await disableModelInvocationTarget(flags);
+    if (names.length === 0) {
+      const picked = await pickDisableModelInvocationNames(rows, on);
+      if (picked === null) return;
+      if (picked.length === 0) {
+        out.print(out.line("skipped", "No changes made"));
+        return;
+      }
+      names = picked;
+    }
+    for (const name of names) {
+      const refusal = refuseDisableModelInvocationName(name, rows.find((r) => r.name === name), key);
+      if (refusal) throw refusal;
+    }
+    if (userStoreUnreadableFor(DISABLE_MODEL_INVOCATION_SETTING)) {
+      throw disableModelInvocationRefusal("Your settings file could not be read", "Nothing was changed, so your other choices are safe. Fix the file, then try again.");
+    }
+
+    const choices = readDisableModelInvocationChoices();
+    const before = choices[key] ?? [];
+    const after = on ? [...before, ...names.filter((n) => !before.includes(n))] : before.filter((n) => !names.includes(n));
+    const changedSetting = after.length !== before.length || after.some((n, i) => n !== before[i]);
+    if (changedSetting) setSetting(DISABLE_MODEL_INVOCATION_SETTING, { ...choices, [key]: after }, "user");
+
+    const result = reconcileDisableModelInvocation({ configDirs: disableModelInvocationConfigDirs(process.env, disableModelInvocationHome()), choices: { [key]: after } });
+    const applied = !result.warnings.some((w) => {
+      const skill = skillOfWarning(w);
+      return skill === null ? w.startsWith(`${key}: `) : names.includes(skill);
+    });
+
+    if (flags.json) {
+      out.json({ names, on, applied, warnings: result.warnings });
+      return;
+    }
+    const subject = names.join(", ");
+    out.print(
+      out.line("done", on ? `${subject} has model invocation disabled` : `Claude can invoke ${subject} again`),
+      ...warningLines(result.warnings),
+      ...(applied ? [] : unappliedCallouts(result.warnings, names)),
+      ...(result.changed.length > 0 ? [reloadPluginsCallout()] : []),
+    );
+  } catch (err) {
+    if (!(err instanceof SkillsRefusal) || !flags.json) throw err;
+    out.json({ ok: false, error: skillsFailure(err).title });
+    process.exit(2);
+  }
+}
+
+export const reloadPluginsCallout = (): Block => out.callout("next", ["Run ", out.cmd("/reload-plugins"), " in any Claude session that is already running"]);
+
+function runDisableModelInvocationReapply(args: string[]): void {
+  let json = false;
+  for (const a of args) {
+    if (a === "--json") json = true;
+    else throw new SkillsUsageError(`unrecognized argument "${a}"`);
+  }
+  let choices: Record<string, string[]> | null = null;
+  try {
+    // An unreadable store reads as empty, which must not strip marks a good store still chooses.
+    if (!userStoreUnreadableFor(DISABLE_MODEL_INVOCATION_SETTING)) choices = readDisableModelInvocationChoices();
+  } catch {
+    // a session-start hook runs this: a broken settings store must not fail it
+  }
+  const configDirs = disableModelInvocationConfigDirs(process.env, disableModelInvocationHome());
+  const result = choices === null
+    ? { changed: [], warnings: [] }
+    : reconcileDisableModelInvocation({ configDirs, choices: withInstalledPlugins(configDirs, choices) });
+  if (json) {
+    out.json({ changed: result.changed, warnings: result.warnings });
+    return;
+  }
+  if (result.warnings.length > 0) out.note(...warningLines(result.warnings));
+}
+
+export const skillsDisableModelInvocationList = (args: string[]): Promise<void> => skillsDisableModelInvocation(["list", ...args]);
+export const skillsDisableModelInvocationSet = (args: string[]): Promise<void> => skillsDisableModelInvocation(["set", ...args]);
+export const skillsDisableModelInvocationReapply = (args: string[]): Promise<void> => skillsDisableModelInvocation(["reapply", ...args]);
+
+export async function skillsDisableModelInvocation(args: string[]): Promise<void> {
+  await withCleanErrors(args, async () => {
+    const mode = args[0];
+    if (mode === "list") return runDisableModelInvocationList(args.slice(1));
+    if (mode === "set") return runDisableModelInvocationSet(args.slice(1));
+    if (mode === "reapply") return runDisableModelInvocationReapply(args.slice(1));
+    throw new SkillsUsageError(
+      mode ? `unrecognized subcommand "${mode}" (expected list, set, or reapply)` : "disable-model-invocation needs a mode: list, set, or reapply",
+      usageFailure("What should it do?", "rt skills disable-model-invocation list --pack <pack>", "Use list, set or reapply."),
+    );
   });
 }
 

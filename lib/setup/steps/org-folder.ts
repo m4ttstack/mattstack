@@ -1,7 +1,8 @@
 /**
  * The org clone's folder follows the org's name (the marker's `org`). This
  * step runs on every update and every full apply: it checks each piece
- * (records, folder, repo index, Claude marketplace) against the clone as it
+ * (records, folder, repo index, this Mac's generated Claude marketplace and
+ * its registration) against the clone as it
  * stands and does only what is off, so a run that stopped halfway finishes at
  * the next one. The folder piece runs in the daemon (`org:move`) when one is
  * up, because the daemon owns the registry the move rewrites; it never
@@ -268,6 +269,7 @@ export async function convergeOrgFolder(ctx: ApplyContext): Promise<StepOutcome>
     const line = `${clone.org}: ${market.detail}${commands.length ? `. Run: ${commands.join(", then ")}` : ""}`;
     ctx.log("org.folder", `marketplace ${market.state}: ${line}`);
     if (market.state === "partial") partials.push({ detail: `${clone.org}: ${market.detail}`, commands, line });
+    else if (market.note) notes.push(`${clone.org}: ${market.note}`);
   }
 
   // A running daemon makes the same move under its git lock on org.pull's round trip; moving here too would race it.

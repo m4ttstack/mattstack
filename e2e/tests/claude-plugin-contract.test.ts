@@ -2,15 +2,23 @@
  * The claude CLI behaviors pack-cache.ts is built on, asserted against the real
  * binary. Opt-in because no CI workflow installs claude: RT_CLAUDE_PLUGIN_E2E=1.
  * Every branch in settlePack keys off one of these, so a claude behavior change
- * must fail loudly here rather than silently in production.
+ * must fail loudly here rather than silently in production. The second block
+ * pins the git-subdir install team packs use: what reaches the cache and when.
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdirSync, writeFileSync, readFileSync } from "fs";
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from "fs";
 import { join } from "path";
+import { pathToFileURL } from "url";
 import { execFileSync } from "child_process";
 import { createTestHome } from "../harness.ts";
+import { childEnv } from "../../lib/subprocess.ts";
 
-const enabled = process.env.RT_CLAUDE_PLUGIN_E2E === "1";
+const enabled = process.env.RT_CLAUDE_PLUGIN_E2E === "1" && Bun.which("claude") !== null;
+
+// describe.skipIf prints no reason, so a placeholder carries it.
+if (!enabled) {
+  test.skip("claude plugin contract: needs RT_CLAUDE_PLUGIN_E2E=1 and claude on PATH", () => {});
+}
 
 describe.skipIf(!enabled)("claude plugin contract", () => {
   let home: string;
@@ -98,5 +106,156 @@ describe.skipIf(!enabled)("claude plugin contract", () => {
     expect(res.code).not.toBe(0);
     // isAlreadyGone is the one matcher that reads both streams, so this probe does too.
     expect(`${res.stdout}\n${res.stderr}`).toMatch(/not installed|not found/i);
+  });
+});
+
+describe.skipIf(!enabled)("claude git-subdir install contract", () => {
+  const marketplace = "gitmkt";
+  const id = `plug@${marketplace}`;
+  let home: string;
+  let config: string;
+  let repo: string;
+  let cleanup: () => void;
+
+  function claude(args: string[], configDir = config): { code: number; output: string } {
+    const env = { ...childEnv(), HOME: home, CLAUDE_CONFIG_DIR: configDir } as NodeJS.ProcessEnv;
+    try {
+      return { code: 0, output: execFileSync("claude", args, { encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] }) };
+    } catch (err) {
+      const e = err as { status: number; stdout?: string; stderr?: string };
+      return { code: e.status ?? 1, output: `${e.stdout ?? ""}\n${e.stderr ?? ""}` };
+    }
+  }
+
+  function git(cwd: string, args: string[]): string {
+    const env = { ...childEnv(), HOME: home, GIT_CONFIG_GLOBAL: "/dev/null" } as NodeJS.ProcessEnv;
+    return execFileSync("git", ["-C", cwd, "-c", "user.name=probe", "-c", "user.email=probe@example.test", "-c", "commit.gpgsign=false", ...args], { encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] });
+  }
+
+  function writePack(version: string, description: string): void {
+    writeFileSync(join(repo, "packs/plug/.claude-plugin/plugin.json"), JSON.stringify({ name: "plug", version }));
+    writeFileSync(join(repo, "packs/plug/skills/ping/SKILL.md"), `---\nname: ping\ndescription: ${description}\n---\nhi\n`);
+  }
+
+  function commitPack(version: string, description: string): void {
+    writePack(version, description);
+    git(repo, ["add", "-A"]);
+    git(repo, ["commit", "-qm", `pack ${version}`]);
+  }
+
+  /** A marketplace folder named `gitmkt` whose one entry is a git-subdir source on `url`. */
+  function writeMarketplace(dir: string, url: string): string {
+    mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+    const source = { source: "git-subdir", url, path: "packs/plug", ref: "data" };
+    writeFileSync(join(dir, ".claude-plugin/marketplace.json"), JSON.stringify({ name: marketplace, owner: { name: "probe" }, plugins: [{ name: "plug", source }] }));
+    return dir;
+  }
+
+  function registered(configDir = config): { version: string; installPath: string }[] {
+    const file = join(configDir, "plugins/installed_plugins.json");
+    if (!existsSync(file)) return [];
+    return JSON.parse(readFileSync(file, "utf8")).plugins[id] ?? [];
+  }
+
+  function cacheVersions(): string[] {
+    const dir = join(config, "plugins/cache", marketplace, "plug");
+    return existsSync(dir) ? readdirSync(dir).sort() : [];
+  }
+
+  function cachedSkill(version: string): string {
+    return readFileSync(join(config, "plugins/cache", marketplace, "plug", version, "skills/ping/SKILL.md"), "utf8");
+  }
+
+  beforeAll(() => {
+    ({ path: home, cleanup } = createTestHome());
+    config = join(home, "claude-config");
+    mkdirSync(config, { recursive: true });
+    repo = join(home, "orgrepo");
+    mkdirSync(join(repo, "packs/plug/.claude-plugin"), { recursive: true });
+    mkdirSync(join(repo, "packs/plug/skills/ping"), { recursive: true });
+    git(repo, ["init", "-q", "-b", "data"]);
+    commitPack("1.0.0", "first");
+  });
+
+  afterAll(() => cleanup?.());
+
+  test("a git-subdir file:// install lands in the cache folder the registry names", () => {
+    const folder = writeMarketplace(join(home, "mkt-a"), pathToFileURL(repo).href);
+    expect(claude(["plugin", "marketplace", "add", folder]).code).toBe(0);
+    expect(claude(["plugin", "install", id]).code).toBe(0);
+    const entries = registered();
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.version).toBe("1.0.0");
+    expect(entries[0]!.installPath).toBe(join(config, "plugins/cache", marketplace, "plug", "1.0.0"));
+    expect(cachedSkill("1.0.0")).toContain("description: first");
+  });
+
+  test("an uncommitted version bump never lands", () => {
+    writePack("1.0.9", "edited, uncommitted");
+    try {
+      claude(["plugin", "update", id, "-y"]);
+      expect(cacheVersions()).toEqual(["1.0.0"]);
+      expect(registered()[0]!.version).toBe("1.0.0");
+      expect(cachedSkill("1.0.0")).toContain("description: first");
+    } finally {
+      git(repo, ["checkout", "--", "."]);
+    }
+  });
+
+  test("a committed version bump lands as a new cache folder", () => {
+    commitPack("1.0.1", "second");
+    expect(claude(["plugin", "update", id, "-y"]).code).toBe(0);
+    expect(cacheVersions()).toContain("1.0.1");
+    const entries = registered();
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.version).toBe("1.0.1");
+    expect(entries[0]!.installPath).toBe(join(config, "plugins/cache", marketplace, "plug", "1.0.1"));
+    expect(cachedSkill("1.0.1")).toContain("description: second");
+  });
+
+  test("a committed content change at an unchanged version is not picked up by update", () => {
+    commitPack("1.0.1", "third, same version");
+    claude(["plugin", "update", id, "-y"]);
+    expect(cacheVersions()).toEqual(["1.0.0", "1.0.1"]);
+    expect(registered()[0]!.version).toBe("1.0.1");
+    expect(cachedSkill("1.0.1")).toContain("description: second");
+  });
+
+  test("ref reads the local branch, not origin/<ref>", () => {
+    const bare = join(home, "origin.git");
+    const other = join(home, "other");
+    git(home, ["init", "-q", "--bare", bare]);
+    git(repo, ["remote", "add", "origin", bare]);
+    git(repo, ["push", "-q", "origin", "data"]);
+    git(home, ["clone", "-q", "--branch", "data", bare, other]);
+    writeFileSync(join(other, "packs/plug/.claude-plugin/plugin.json"), JSON.stringify({ name: "plug", version: "1.0.2" }));
+    git(other, ["commit", "-qam", "ahead on the remote"]);
+    git(other, ["push", "-q", "origin", "data"]);
+    git(repo, ["fetch", "-q", "origin"]);
+    expect(git(repo, ["rev-parse", "origin/data"])).not.toBe(git(repo, ["rev-parse", "data"]));
+
+    expect(claude(["plugin", "update", id, "-y"]).code).toBe(0);
+    expect(registered()[0]!.version).toBe("1.0.1");
+    expect(cacheVersions()).not.toContain("1.0.2");
+  });
+
+  test("a same-name marketplace add from another folder is accepted and keeps installed plugins registered", () => {
+    const folder = writeMarketplace(join(home, "mkt-b"), pathToFileURL(repo).href);
+    expect(claude(["plugin", "marketplace", "add", folder]).code).toBe(0);
+    const known = JSON.parse(readFileSync(join(config, "plugins/known_marketplaces.json"), "utf8"));
+    expect(JSON.stringify(known[marketplace].source)).toContain("mkt-b");
+    expect(registered().map((e) => e.version)).toEqual(["1.0.1"]);
+    expect(claude(["plugin", "list", "--json"]).output).toContain(id);
+  });
+
+  test("a relative git-subdir url is refused at install", () => {
+    const fresh = join(home, "claude-config-relative");
+    mkdirSync(fresh, { recursive: true });
+    const folder = writeMarketplace(join(home, "mkt-relative"), ".");
+    claude(["plugin", "marketplace", "add", folder], fresh);
+    const res = claude(["plugin", "install", id], fresh);
+    expect(res.code).not.toBe(0);
+    expect(res.output).toMatch(/invalid git url/i);
+    expect(registered(fresh)).toEqual([]);
   });
 });

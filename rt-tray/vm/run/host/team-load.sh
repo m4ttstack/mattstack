@@ -39,6 +39,18 @@ if [ -d "$FIX/plugins" ]; then
   jq --slurpfile add "$FIX/marketplace.plugins.json" '.plugins = ((.plugins // []) + $add[0])' \
     "$TEAM/.claude-plugin/marketplace.json" > "$TEAM/.claude-plugin/marketplace.json.new"
   mv "$TEAM/.claude-plugin/marketplace.json.new" "$TEAM/.claude-plugin/marketplace.json"
+  # Setup installs team plugins through git-subdir sources pinned to the org's
+  # data branch (the branch the clone has checked out), and a git-subdir
+  # install only sees committed work. Commit the plugins and the listing now,
+  # before anything installs them, and fail here rather than at the install.
+  git -C "$TEAM" add plugins .claude-plugin/marketplace.json
+  git -C "$TEAM" diff --cached --quiet \
+    || git -C "$TEAM" -c user.name=vmtest -c user.email=vmtest@example.invalid commit -q -m "team: add fixture plugins"
+  for d in "$FIX"/plugins/*/; do
+    p="plugins/$(basename "$d")"
+    git -C "$TEAM" cat-file -e "HEAD:$p/.claude-plugin/plugin.json" \
+      || { echo "fixture plugin $p is not committed on $(git -C "$TEAM" branch --show-current)" >&2; exit 1; }
+  done
 fi
 if [ -f "$FIX/settings.team.json" ]; then
   # Object values deep-merge over the team's current value (fixture wins):

@@ -127,6 +127,12 @@ function probes(): Probes {
         const file = remoteTree === null ? null : join(remoteTree, rel);
         return file !== null && existsSync(file) ? ok(readFileSync(file, "utf8")) : { code: 128, stdout: "", stderr: `fatal: path '${rel}' does not exist in 'FETCH_HEAD'` };
       }
+      if (bin === "git" && argv[1] === "-C" && argv[3] === "show") {
+        // The clone's working tree stands in for its committed ref.
+        const rel = argv[4]!.slice(argv[4]!.indexOf(":") + 1);
+        const file = join(argv[2]!, rel);
+        return existsSync(file) ? ok(readFileSync(file, "utf8")) : { code: 128, stdout: "", stderr: `fatal: path '${rel}' does not exist` };
+      }
       if (bin === "git" && argv.includes("symbolic-ref")) return ok("main\n");
       if (bin === "git" && argv[1] === "remote" && argv[2] === "get-url" && argv[3] === "origin") return ok(`${REMOTE}\n`);
       if (bin === "git" && argv[1] === "remote" && argv[2] === "get-url") {
@@ -444,7 +450,7 @@ describe("onboarding in an org", () => {
     expect(readForgeUsername("acme")).toBe("dev2");
     expect(activeTeam()).toMatchObject({ team: "gadgets", reason: "first-team" });
 
-    const expectedOrder = ["org.pull", "migration.2026-10-01-board-peer-trigger", "migration.2026-10-01-unset-board-default-pack", "migration.2026-10-02-retire-switchboard-url", "migration.2026-10-07-sdm-resources-key", "migration.2026-10-10-board-cron-by-tool", "migration.2026-10-10-import-legacy-settings", "migration.2026-10-11-import-app-settings", "migration.2026-10-17-enable-team-pack", "migration.2026-10-22-retire-old-bg-server", "migration.2026-10-29-board-cwds-follow-board-repo", "team.identity", "plugins.install", "verify"];
+    const expectedOrder = ["org.pull", "migration.2026-10-01-board-peer-trigger", "migration.2026-10-01-unset-board-default-pack", "migration.2026-10-02-retire-switchboard-url", "migration.2026-10-07-sdm-resources-key", "migration.2026-10-10-board-cron-by-tool", "migration.2026-10-10-import-legacy-settings", "migration.2026-10-11-import-app-settings", "migration.2026-10-17-enable-team-pack", "migration.2026-10-22-retire-old-bg-server", "migration.2026-10-29-board-cwds-follow-board-repo", "migration.2026-11-02-team-packs-from-git", "team.identity", "plugins.install", "verify"];
     const order = events.filter((e) => e.event === "step" && e.state === "running").map((e) => (e as { id: string }).id);
     expect(order).toEqual(expectedOrder);
     expect(events.find((e) => e.event === "plan")).toMatchObject({ steps: expectedOrder.map((id) => ({ id })) });

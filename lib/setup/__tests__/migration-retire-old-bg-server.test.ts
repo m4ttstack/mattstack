@@ -16,7 +16,8 @@ const silent: Snapshot = { ok: false, code: "herdr unavailable", message: "conne
 
 describe("2026-10-22-retire-old-bg-server", () => {
   test("runs right before the board.cwds migration, so ids stay in date order", () => {
-    expect(MIGRATIONS.at(-2)?.id).toBe("2026-10-22-retire-old-bg-server");
+    const ids = MIGRATIONS.map((m) => m.id);
+    expect(ids.indexOf("2026-10-22-retire-old-bg-server")).toBe(ids.indexOf("2026-10-29-board-cwds-follow-board-repo") - 1);
   });
 
   test("no old socket: nothing to do", async () => {

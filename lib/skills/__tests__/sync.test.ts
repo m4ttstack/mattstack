@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import type { PackInfo } from "../packs.ts";
@@ -7,7 +7,7 @@ import { heldCopy, refusalCopy } from "../../engine-floor.ts";
 import { execFileSync } from "child_process";
 import { createHash } from "crypto";
 import { childEnv, runCapture } from "../../subprocess.ts";
-import { bumpPatchVersion, LAYOUT_HOLD, type RunResult, type SyncDeps, syncPack } from "../sync.ts";
+import { bumpPatchVersion, LAYOUT_HOLD, RELOAD_NEEDED, type RunResult, type SyncDeps, syncPack } from "../sync.ts";
 import { skillsChanges } from "../../../commands/skills.ts";
 import { captureSkills } from "./helpers.ts";
 import { orgSettingsPath } from "../../../packages/rt-client/src/settings/paths.ts";
@@ -85,6 +85,8 @@ type World = {
   originRootPointer?: Record<string, string | null>;
   /** What `git show` at an origin ref prints to stderr when it fails for another reason. */
   originShowFail?: string;
+  /** Local branches besides main that `git show <ref>:<path>` reads; `mainVersions` answers for each. */
+  showRefs?: string[];
 };
 
 /**
@@ -163,7 +165,7 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
       }
       if (args[0] === "show") {
         const [ref, path] = args[1]!.split(/:(.*)/s);
-        if (ref !== "main") return { code: 128, stdout: "", stderr: `unknown ref ${ref}` };
+        if (ref !== "main" && !(world.showRefs ?? []).includes(ref!)) return { code: 128, stdout: "", stderr: `unknown ref ${ref}` };
         if (path!.endsWith("pack/requires.json")) {
           const floor = world.mainFloors?.[path!.replace(/\/?pack\/requires\.json$/, "")];
           if (floor) return { code: 0, stdout: JSON.stringify({ minEngine: floor }), stderr: "" };
@@ -284,7 +286,7 @@ function stepNames(steps: { name: string }[]): string[] {
 }
 
 describe("syncPack", () => {
-  test("1: no-op ends the chain at check", async () => {
+  test("1: no-op ends the chain at check, then reapplies disable-model-invocation choices", async () => {
     const pack = fixturePack("acme", "local", "1.0.0");
     const engine = fixturePack("beacon", "local", "2.0.0");
     const calls: Call[] = [];
@@ -296,7 +298,7 @@ describe("syncPack", () => {
 
     const report = await syncPack(pack, engine, deps);
 
-    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "pull-pack", "update-engine", "materialize", "check"]);
+    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "pull-pack", "update-engine", "materialize", "check", "disable-model-invocation"]);
     expect(report.ok).toBe(true);
     expect(report.restartNeeded).toBe(false);
     expect(calls.some((c) => c.args.includes("update"))).toBe(false);
@@ -406,7 +408,7 @@ describe("syncPack", () => {
     const report = await syncPack(pack, engine, deps);
 
     expect(report.steps[0]!.status).toBe("refused");
-    expect(report.steps[0]!.detail).toContain("The acme pack was not installed from a directory marketplace");
+    expect(report.steps[0]!.detail).toContain("The acme pack was not installed from a marketplace, so rt has nothing to sync it from");
     expect(report.steps[0]!.detail).toContain("marketplace");
     expect(calls).toEqual([]);
   });
@@ -1279,6 +1281,80 @@ describe("pull-pack in an org clone", () => {
   });
 });
 
+describe("an org clone's pack installs from the data branch", () => {
+  const PACK_REL = "mattstack/teams/widgets/plugin";
+  const dataBranchClone = (): { clone: string; pack: PackInfo } => {
+    const made = orgClonePack();
+    writeFileSync(join(made.clone, "mattstack", "mattstack.jsonc"), `{ "role": "org", "org": "acme", "layout": 4, "dataBranch": "mattstack" }\n`);
+    return made;
+  };
+  const depsOn = (clone: string, pack: PackInfo, engine: PackInfo, calls: Call[], branch: string, world: Partial<World> = {}): SyncDeps => ({
+    ...makeDeps(pack, engine, {
+      calls,
+      drift: [false],
+      branchByDir: { [engine.dir]: "main", [clone]: branch, [pack.dir]: branch },
+      originMarker: { [clone]: null },
+      installed: { [pluginId(pack)]: "0.9.0", [pluginId(engine)]: "2.0.0" },
+      showRefs: ["mattstack"],
+      ...world,
+    }),
+    orgsRoot: dirname(clone),
+    orgInstallRef: () => "mattstack",
+  });
+
+  test("on a trial branch, one warning names the data branch and update-pack and verify-installed are skipped", async () => {
+    const { clone, pack } = dataBranchClone();
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+
+    const report = await syncPack(pack, engine, depsOn(clone, pack, engine, calls, "mattstack-trial"));
+
+    const reason = "the org clone is on mattstack-trial, not mattstack, and only work committed on mattstack installs";
+    expect(report.steps.find((s) => s.name === "update-pack")).toEqual({ name: "update-pack", status: "skipped", detail: reason });
+    expect(report.steps.find((s) => s.name === "verify-installed")).toEqual({ name: "verify-installed", status: "skipped", detail: reason });
+    expect(report.warnings.filter((w) => w.includes("mattstack-trial"))).toEqual([
+      `The org clone at ${clone} is on mattstack-trial, not mattstack. Only work committed on mattstack installs, so the installed pack stays as it is until the clone is back on mattstack`,
+    ]);
+    expect(report.ok).toBe(true);
+    expect(calls.some((c) => c.args[0] === "plugin" && c.args[1] === "update")).toBe(false);
+  });
+
+  test("on the data branch, verify-installed reads the version committed there", async () => {
+    const { clone, pack } = dataBranchClone();
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+
+    const report = await syncPack(pack, engine, depsOn(clone, pack, engine, calls, "mattstack", { mainVersions: { [PACK_REL]: "0.9.5" } }));
+
+    expect(report.steps.find((s) => s.name === "update-pack")!.status).toBe("ran");
+    expect(report.steps.find((s) => s.name === "verify-installed")).toEqual({ name: "verify-installed", status: "failed", detail: "The installed copy is at 1.0.0, but the source is at 0.9.5" });
+    expect(calls).toContainEqual({ cmd: "git", args: ["show", `mattstack:${PACK_REL}/.claude-plugin/plugin.json`], cwd: clone });
+    expect(report.warnings.some((w) => w.includes("not mattstack"))).toBe(false);
+  });
+
+  test("on the data branch, an installed copy that matches the committed version passes", async () => {
+    const { clone, pack } = dataBranchClone();
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+
+    const report = await syncPack(pack, engine, depsOn(clone, pack, engine, calls, "mattstack"));
+
+    expect(report.steps.find((s) => s.name === "verify-installed")).toEqual({ name: "verify-installed", status: "ran", detail: "the installed copy matches the source at 1.0.0" });
+    expect(report.ok).toBe(true);
+  });
+
+  test("a worktrees folder in an org clone's pack does not refuse, since git never carries it", async () => {
+    const { clone, pack } = dataBranchClone();
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    mkdirSync(join(pack.dir, ".worktrees"), { recursive: true });
+    const calls: Call[] = [];
+
+    const report = await syncPack(pack, engine, depsOn(clone, pack, engine, calls, "mattstack"));
+
+    expect(report.steps[0]!.status).toBe("ran");
+  });
+});
+
 describe("a block pack on an org below layout 5", () => {
   const V2 = { bindings: { "mattstack:ship/flow/gate-ship": { rules: "widgets:ship-rules/gate" } } };
   const OLD = { bindings: { "mattstack:ship": { domain: "widgets:ship-domain" } } };
@@ -1773,7 +1849,7 @@ describe("commit-pending", () => {
 
     expect(report.ok).toBe(true);
     expect(byName(report.steps)["commit-pending"]).toMatchObject({ status: "skipped" });
-    expect(stepNames(report.steps).at(-1)).toBe("check");
+    expect(stepNames(report.steps).at(-1)).toBe("disable-model-invocation");
     expect(world.calls.some((c) => c.cmd === "git" && ["add", "commit", "push"].includes(c.args[0]!))).toBe(false);
   });
 
@@ -3224,5 +3300,169 @@ describe("hand-written skill failures", () => {
     expect(check.detail).toContain(BAD_YAML);
     expect(stepNames(report.steps)).not.toContain("bump");
     expect(readVersion(engine.dir)).toBe("1.2.3");
+  });
+});
+
+describe("disable-model-invocation choices after a sync", () => {
+  const KEY = "widgets@market";
+  const plain = "---\nname: alpha\ndescription: d\n---\nbody\n";
+
+  function installedSkill(): { config: string; file: string } {
+    const config = tmp("rt-sync-do-config-");
+    const dir = join(config, "plugins", "cache", "market", "widgets", "1.0.0");
+    mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+    mkdirSync(join(dir, "skills", "alpha"), { recursive: true });
+    const file = join(dir, "skills", "alpha", "SKILL.md");
+    writeFileSync(file, plain);
+    return { config, file };
+  }
+
+  function world(pack: PackInfo, engine: PackInfo, installedPack: string): SyncDeps {
+    return makeDeps(pack, engine, { calls: [], installed: { [pluginId(pack)]: installedPack, [pluginId(engine)]: "2.0.0" }, drift: [false] });
+  }
+
+  /** The real update lands a new version folder whose SKILL.md has no line yet. */
+  function updatingInto(deps: SyncDeps, config: string, packId: string): { deps: SyncDeps; file: string } {
+    const file = join(config, "plugins", "cache", "market", "widgets", "1.1.0", "skills", "alpha", "SKILL.md");
+    const run: SyncDeps["run"] = async (cmd, args, opts) => {
+      if (args[0] === "plugin" && args[1] === "update" && args[2] === packId) {
+        mkdirSync(join(file, ".."), { recursive: true });
+        writeFileSync(file, plain);
+      }
+      return deps.run(cmd, args, opts);
+    };
+    return { deps: { ...deps, run }, file };
+  }
+
+  test("a sync that updates the pack puts the line on the version the update lands and reports the step as ran", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const config = tmp("rt-sync-do-config-");
+    mkdirSync(join(config, "plugins"), { recursive: true });
+    const landed = updatingInto(world(pack, engine, "0.9.0"), config, pluginId(pack));
+    const deps = { ...landed.deps, disableModelInvocation: { configDirs: () => [config], choices: () => ({ [KEY]: ["alpha"] }) } };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "disable-model-invocation")!.status).toBe("ran");
+    expect(readFileSync(landed.file, "utf8")).toContain("# rt: personal");
+    expect(stepNames(report.steps).indexOf("disable-model-invocation")).toBe(stepNames(report.steps).indexOf("verify-installed") + 1);
+  });
+
+  test("a read-only skill is reported as left alone, never as in place", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const { config, file } = installedSkill();
+    chmodSync(file, 0o444);
+    const deps = { ...world(pack, engine, "1.0.0"), disableModelInvocation: { configDirs: () => [config], choices: () => ({ [KEY]: ["alpha"] }) } };
+
+    const report = await syncPack(pack, engine, deps);
+
+    const detail = report.steps.find((s) => s.name === "disable-model-invocation")!.detail;
+    expect(detail).toContain("left alone");
+    expect(detail).not.toContain("in place");
+  });
+
+  test("a no-op sync that put a skill back asks for a reload, in a way --json never carries", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const { config } = installedSkill();
+    const deps = { ...world(pack, engine, "1.0.0"), disableModelInvocation: { configDirs: () => [config], choices: () => ({ [KEY]: ["alpha"] }) } };
+
+    const report = await syncPack(pack, engine, deps);
+
+    const step = report.steps.find((s) => s.name === "disable-model-invocation")!;
+    expect(step[RELOAD_NEEDED]).toBe(true);
+    expect(report.restartNeeded).toBe(false);
+    expect(JSON.parse(JSON.stringify(step))).toEqual({ name: "disable-model-invocation", status: "ran", detail: "reapplied to 1 skill" });
+  });
+
+  test("a sync with nothing to put back asks for no reload", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const { config } = installedSkill();
+    const deps = { ...world(pack, engine, "1.0.0"), disableModelInvocation: { configDirs: () => [config], choices: () => ({ "gadgets@market": ["alpha"] }) } };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "disable-model-invocation")![RELOAD_NEEDED]).toBeUndefined();
+  });
+
+  test("a chosen plugin that is not installed says nothing was changed", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const { config } = installedSkill();
+    const deps = { ...world(pack, engine, "1.0.0"), disableModelInvocation: { configDirs: () => [config], choices: () => ({ "gadgets@market": ["alpha"] }) } };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "disable-model-invocation")!.detail).toBe("nothing needed changing");
+  });
+
+  test("no Claude config folders says nothing was changed", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const deps = { ...world(pack, engine, "1.0.0"), disableModelInvocation: { configDirs: () => [], choices: () => ({ [KEY]: ["alpha"] }) } };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "disable-model-invocation")!.detail).toBe("no Claude config folders found, nothing changed");
+  });
+
+  test("an already-current pack still gets its choices reapplied", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const { config, file } = installedSkill();
+    const deps = { ...world(pack, engine, "1.0.0"), disableModelInvocation: { configDirs: () => [config], choices: () => ({ [KEY]: ["alpha"] }) } };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "disable-model-invocation")!.status).toBe("ran");
+    expect(readFileSync(file, "utf8")).toContain("# rt: personal");
+  });
+
+  test("with no choices the step is skipped and nothing is touched", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const { config, file } = installedSkill();
+    const deps = { ...world(pack, engine, "0.9.0"), disableModelInvocation: { configDirs: () => [config], choices: () => ({}) } };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "disable-model-invocation")!.status).toBe("skipped");
+    expect(readFileSync(file, "utf8")).toBe(plain);
+  });
+
+  test("a reconcile warning lands in the report and the run still succeeds", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const { config, file } = installedSkill();
+    chmodSync(file, 0o444);
+    const deps = { ...world(pack, engine, "0.9.0"), disableModelInvocation: { configDirs: () => [config], choices: () => ({ [KEY]: ["alpha"] }) } };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.ok).toBe(true);
+    expect(report.warnings.some((w) => w.includes("read-only"))).toBe(true);
+    expect(stepNames(report.steps)).toContain("cswap-sweep");
+  });
+
+  test("a step that throws becomes a warning and never fails the run", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const deps = {
+      ...world(pack, engine, "0.9.0"),
+      disableModelInvocation: {
+        configDirs: (): string[] => {
+          throw new Error("boom");
+        },
+        choices: () => ({ [KEY]: ["alpha"] }),
+      },
+    };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.ok).toBe(true);
+    expect(report.warnings.some((w) => w.includes("boom"))).toBe(true);
   });
 });

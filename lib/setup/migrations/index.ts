@@ -13,6 +13,7 @@ import { importLegacySettingsMigration } from "./import-legacy-settings.ts";
 import { retireOldBgServerMigration } from "./retire-old-bg-server.ts";
 import { retireSwitchboardUrlMigration } from "./retire-switchboard-url.ts";
 import { sdmResourcesKeyMigration } from "./sdm-resources-key.ts";
+import { teamPacksFromGitMigration } from "./team-packs-from-git.ts";
 import { unsetSetting } from "../../settings/write.ts";
 import type { ApplyContext, StepOutcome } from "../apply.ts";
 import type { MigrationEventId } from "../contract.ts";
@@ -20,7 +21,7 @@ import type { MigrationEventId } from "../contract.ts";
 export interface MigrationDef {
   id: string;
   title: string;
-  /** `done` changed something, `skipped` found nothing to fix; both are recorded. `failed` is not, so it runs again next time. */
+  /** `done` changed something, `skipped` found nothing to fix; both are recorded. Any other state is not, so it runs again at the next launch's update. */
   run(ctx: ApplyContext): Promise<StepOutcome>;
 }
 
@@ -50,6 +51,7 @@ export const MIGRATIONS: MigrationDef[] = [
   enableTeamPackMigration,
   retireOldBgServerMigration,
   boardCwdsFollowBoardRepoMigration,
+  teamPacksFromGitMigration,
 ];
 
 export function migrationEventId(id: string): MigrationEventId {

@@ -199,7 +199,8 @@ describe("2026-10-29-board-cwds-follow-board-repo", () => {
     expect(readSetupState(p).boardRestartPending).toBe(true);
   });
 
-  test("it runs last among the migrations", () => {
-    expect(MIGRATIONS.at(-1)!.id).toBe("2026-10-29-board-cwds-follow-board-repo");
+  test("it runs after every older migration, so ids stay in date order", () => {
+    const ids = MIGRATIONS.map((m) => m.id);
+    expect(ids.indexOf("2026-10-29-board-cwds-follow-board-repo")).toBe(ids.indexOf("2026-11-02-team-packs-from-git") - 1);
   });
 });

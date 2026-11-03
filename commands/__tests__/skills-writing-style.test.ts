@@ -263,6 +263,23 @@ describe("new", () => {
     expect(text).not.toContain("\r\n");
   });
 
+  for (const [label, line, kept] of [
+    ["the rt line", "disable-model-invocation: true # rt: personal\n", ""],
+    ["a replaced false", "disable-model-invocation: true # rt: personal (was false)\n", "disable-model-invocation: false\n"],
+  ] as const) {
+    test(`a preset with ${label} yields a copy with the source's own frontmatter`, async () => {
+      homeRepo();
+      const installPath = join(home, "cache", "mattstack");
+      const dir = join(installPath, "skills", "writing-style-sparse");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "SKILL.md"), `---\nname: writing-style-sparse\n${line}---\n# Sparse\n`);
+      const list = JSON.stringify([{ id: "mattstack@mattstack", enabled: true, installPath }]);
+      await writingStyleNew(["team-voice", "--from", "sparse", "--json"], {}, fakeDeps({ pluginListStdout: async () => list }));
+      const text = readFileSync(join(home, ".mattstack", "user", "skills", "team-voice", "SKILL.md"), "utf8");
+      expect(text).toBe(`---\nname: team-voice\n${kept}---\n# Sparse\n`);
+    });
+  }
+
   test("preset SKILL.md with no frontmatter refuses no-plugin and leaves no directory", async () => {
     homeRepo();
     const installPath = join(home, "cache", "mattstack");

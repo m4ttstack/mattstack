@@ -255,6 +255,8 @@ interface SkillsSurfaceRow {
   base?: string;
   /** The row's SKILL.md. Optional because an rt older than the field answers without it. */
   path?: string;
+  /** Absent on a row that cannot have model invocation disabled. */
+  disableModelInvocation?: 'on' | 'off' | 'locked';
 }
 interface SkillsSurfaceResponse {
   pack: string;
@@ -769,6 +771,26 @@ const discardBody = validator(
     };
   }
 );
+
+/** Both strings reach rt's argv, so the route checks them against `VERB_NAME`. */
+const disableModelInvocationBody = validator(
+  'json',
+  (value): { pack?: string; name?: string; on?: boolean } => {
+    const v = value as { pack?: unknown; name?: unknown; on?: unknown };
+    return {
+      pack: typeof v?.pack === 'string' ? v.pack : undefined,
+      name: typeof v?.name === 'string' ? v.name : undefined,
+      on: typeof v?.on === 'boolean' ? v.on : undefined,
+    };
+  }
+);
+
+/** `rt skills disable-model-invocation set --json`: the choice is saved
+    whenever this answers; `applied` says whether the installed copy took it.
+    A refusal saves nothing and carries `error`. */
+type SkillsDisableModelInvocationReport =
+  | { names: string[]; on: boolean; applied: boolean; warnings: string[] }
+  | { ok: false; error: string };
 
 /** A skill name as rt and the apps spell it; a board skill carries its app's prefix, as in `board:respond`. */
 const SKILL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
@@ -1790,5 +1812,50 @@ export function mountSkills(
         }
         return c.json({ error: (err as Error).message }, 502);
       }
-    });
+    })
+    .post(
+      '/api/skills/disable-model-invocation',
+      disableModelInvocationBody,
+      async c => {
+        const { pack, name, on } = c.req.valid('json');
+        if (!pack || !VERB_NAME.test(pack)) {
+          return c.json({ error: 'pack is required' }, 400);
+        }
+        if (!name || !VERB_NAME.test(name)) {
+          return c.json({ error: `invalid name: ${name ?? ''}` }, 400);
+        }
+        if (on === undefined) {
+          return c.json({ error: 'on must be true or false' }, 400);
+        }
+        const rt = heldOpen(c.env, c.req.raw);
+        try {
+          const { stdout, stderr } = await rt(
+            [
+              'skills',
+              'disable-model-invocation',
+              'set',
+              name,
+              on ? '--on' : '--off',
+              '--pack',
+              pack,
+              '--json',
+            ],
+            WRITE
+          ).finally(() => dropCachedReads(pack));
+          const payload = parseJsonPayload(stdout);
+          if (payload === undefined) {
+            return c.json(
+              { error: stderr.trim() || 'rt produced no output' },
+              502
+            );
+          }
+          return c.json(payload as SkillsDisableModelInvocationReport, 200);
+        } catch (err) {
+          if (err instanceof RtNotFoundError) {
+            return c.json({ error: err.message }, 503);
+          }
+          return c.json({ error: (err as Error).message }, 502);
+        }
+      }
+    );
 }

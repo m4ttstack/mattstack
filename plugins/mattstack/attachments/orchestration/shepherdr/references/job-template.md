@@ -150,10 +150,11 @@ call.
 
 ## Pipeline runs
 When your Method runs a pipeline verb (`work`, `ship`, `review`, ...),
-load its skill and walk its graph. The verb opens its own run: its first
-call is `run_enter`, the one start the run gets, and to that call you add
-`spawnedBy: "herd:<HERD_ID>"`, with `skillDir` the base directory of the
-pipeline verb's skill you just loaded (an absolute path), where
+read its skill file at the path your Method gives, or load the skill when
+your Method gives only its name, and walk its graph. The verb opens its own
+run: its first call is `run_enter`, the one start the run gets, and to that
+call you add `spawnedBy: "herd:<HERD_ID>"`, with `skillDir` the absolute
+folder that skill file sits in, where
 `<HERD_ID>` is the value of `HERD_ID` in this pane's environment
 (`printenv HERD_ID` prints it). The
 `spawnedBy` field makes the verb's run take its unattended branch, so the run's gated

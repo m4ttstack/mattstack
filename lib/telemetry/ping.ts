@@ -108,8 +108,9 @@ export async function collectPing(p: Probes): Promise<TelemetryPing> {
     }),
   );
 
-  const packs = await field("packs", [] as TelemetryPing["packs"], () => {
-    const ids = new Set(slugs.flatMap((slug) => readServedPacks(p, slug).packs.map((pack) => pack.id)));
+  const packs = await field("packs", [] as TelemetryPing["packs"], async () => {
+    const served = await Promise.all(slugs.map((slug) => readServedPacks(p, slug)));
+    const ids = new Set(served.flatMap((s) => s.packs.map((pack) => pack.id)));
     return [...ids].sort().map((id) => ({ id, version: installedVersion(id) }));
   });
 

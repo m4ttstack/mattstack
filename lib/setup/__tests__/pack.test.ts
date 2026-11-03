@@ -7,7 +7,7 @@ import type { SecretsSeams } from "../../secrets/store.ts";
 import type { RelayClient } from "../../team/relay-client.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { PackRequirements } from "../requirements.ts";
-import { fakeProbes } from "./fakes.ts";
+import { fakeProbes, gitShowFromFiles } from "./fakes.ts";
 import { materializeWorld } from "./materialize-world.ts";
 import type { Probes } from "../probes.ts";
 
@@ -211,15 +211,16 @@ describe("readServedPacks filter", () => {
     { name: "widgets", source: "./mattstack/teams/widgets/plugin" },
     { name: "gadgets", source: "./mattstack/teams/gadgets/plugin" },
   ] });
-  const p = fakeProbes({ home: "/h", files: { "/h/.mattstack/orgs/acme/.claude-plugin/marketplace.json": market } });
+  const files = { "/h/.mattstack/orgs/acme/.claude-plugin/marketplace.json": market };
+  const p = fakeProbes({ home: "/h", files, exec: (argv) => gitShowFromFiles(files, argv) ?? { code: 1, stdout: "", stderr: "" } });
 
-  test("with no filter every entry is served", () => {
-    expect(readServedPacks(p, "acme").packs.map((x) => x.name)).toEqual(["widgets", "gadgets"]);
+  test("with no filter every entry is served", async () => {
+    expect((await readServedPacks(p, "acme")).packs.map((x) => x.name)).toEqual(["widgets", "gadgets"]);
   });
-  test("only names the one pack this Mac installs", () => {
-    expect(readServedPacks(p, "acme", { only: "gadgets" }).packs.map((x) => x.id)).toEqual(["gadgets@acme"]);
+  test("only names the one pack this Mac installs", async () => {
+    expect((await readServedPacks(p, "acme", { only: "gadgets" })).packs.map((x) => x.id)).toEqual(["gadgets@acme"]);
   });
-  test("null means no active team, so nothing is served", () => {
-    expect(readServedPacks(p, "acme", { only: null }).packs).toEqual([]);
+  test("null means no active team, so nothing is served", async () => {
+    expect((await readServedPacks(p, "acme", { only: null })).packs).toEqual([]);
   });
 });

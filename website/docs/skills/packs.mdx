@@ -26,7 +26,7 @@ $ claude
 
 `mattstack:creating-a-pack` runs the checks above and stops on any miss, naming the fix. Then it runs `rt skills init`, which writes the pack in your team's folder of the org clone, compiles it, checks it and installs it on your machine. The pack starts with no rules, and every stage runs its generic path.
 
-Init also publishes the pack: it commits the new files in the org clone and pushes them. When that falls short, `rt team publish` finishes it. Your team's members receive the pack through `rt setup`, and a machine installs only its active team's pack.
+Init publishes the pack before it installs it: it commits the new files in the org clone, pushes them, then installs the pack from that commit. When the push is rejected, init installs nothing: run `rt team publish`, then `rt setup update --force` to install the pack (a plain `rt setup update` does nothing on a Mac already at this version). If `claude plugin list --json` still does not list `<pack>@<marketplace>`, run `claude plugin install <pack>@<marketplace>`. Your team's members receive the pack through `rt setup`, and a machine installs only its active team's pack.
 
 ## Prove it
 

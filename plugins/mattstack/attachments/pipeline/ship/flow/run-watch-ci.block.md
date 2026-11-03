@@ -9,7 +9,8 @@ props:
 
 # Run watch-ci inheriting this run
 
-Invoke the `watch-ci` verb with this run's `runDb`, so it inherits the run
+Follow the pack's compiled `watch-ci` verb (`{{verb.path:watch-ci}}`) with this
+run's `runDb`, so it inherits the run
 and fires no gate beyond `ci` and its off-script gates. Hand it `mr` (its
 URL), `sha` (`git_push`'s, or the HEAD a confirmed human push carries),
 and `git_push`'s `priorPipelineId` only when the push moved the branch:

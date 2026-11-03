@@ -20,3 +20,6 @@ export function installArgs(_a: Admitted, id: string, extra: string[] = []): str
 export function updateArgs(_a: Admitted, id: string, extra: string[] = []): string[] {
   return ["plugin", "update", id, ...extra];
 }
+
+/** Here, not in pack-cache.ts, because generated-marketplace.ts needs it and pack-cache.ts imports that module. */
+export const PACK_EXEC_TIMEOUT_MS = 60_000;

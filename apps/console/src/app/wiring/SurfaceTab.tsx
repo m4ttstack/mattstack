@@ -8,6 +8,7 @@ import {
   Collapse,
   GenericError,
   Group,
+  Menu,
   Paper,
   Stack,
   Switch,
@@ -35,6 +36,7 @@ import type { SkillsSurfaceRow } from './useWiring';
 import {
   guardedWrite,
   useCompositionSnapshot,
+  useDisableModelInvocation,
   useSkillsApply,
   useSurface,
 } from './useWiring';
@@ -207,9 +209,7 @@ const FILTER_CHIPS: { key: SurfaceFilterKind; label: string }[] = [
   { key: 'compiled', label: 'Compiled' },
 ];
 
-/** Surface.dc.html's `.rrow` gap (11px) and radius (8px) -- `lg` is the
-    theme's 8px step, but no spacing step lands on 11. */
-const ROW_GAP = 11;
+/** Surface.dc.html's `.rrow` radius (8px), the theme's `lg` step. */
 const ROW_RADIUS = 'var(--mantine-radius-lg)';
 
 interface FilterChipProps {
@@ -264,6 +264,96 @@ interface SurfaceGridRowProps {
       it has no on-disk source to open (e.g. a `missing` row). */
   sourcePath: string | null;
   health: SkillHealth | null;
+  onSetModelInvocation: (name: string, on: boolean) => void;
+}
+
+const MODEL_INVOCATION_INFO =
+  'Can only be invoked by typing the skill call directly. Agents will not auto-discover this skill, or be able to invoke it themselves.';
+
+/** The second line of a row with model invocation disabled. */
+function ModelInvocationNote({ locked }: { locked: boolean }) {
+  return (
+    <div className={legendClasses.rowNote}>
+      <span>Model invocation disabled</span>
+      {locked && (
+        <>
+          <Icon name="lock" size={11} />
+          <span>Set by the pack</span>
+        </>
+      )}
+      <Tooltip
+        label={MODEL_INVOCATION_INFO}
+        multiline
+        maw={298}
+        events={{ hover: true, focus: true, touch: true }}
+      >
+        <span
+          role="img"
+          aria-label={MODEL_INVOCATION_INFO}
+          tabIndex={0}
+          className={legendClasses.rowNoteInfo}
+        >
+          <Icon name="info" size={12} />
+        </span>
+      </Tooltip>
+    </div>
+  );
+}
+
+/** The row's gear: a menu of one, which posts when clicked. */
+function ModelInvocationMenu({
+  name,
+  state,
+  onSet,
+}: {
+  name: string;
+  state: 'on' | 'off' | 'locked';
+  onSet: (name: string, on: boolean) => void;
+}) {
+  return (
+    <Menu position="bottom-end" width={220} withinPortal>
+      <Menu.Target>
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          size="sm"
+          aria-label={`settings for ${name}`}
+          data-testid={`surface-settings-${name}`}
+          className={legendClasses.rowEdit}
+          style={{ flex: 'none' }}
+        >
+          <Icons.settings size={14} />
+        </ActionIcon>
+      </Menu.Target>
+      <Menu.Dropdown>
+        <Menu.CheckboxItem
+          checked={state !== 'off'}
+          disabled={state === 'locked'}
+          closeMenuOnClick
+          checkIcon={
+            state === 'locked' ? (
+              <Icon
+                name="lock"
+                size={12}
+                color="var(--tk-text-3)"
+                data-testid="dmi-lock"
+              />
+            ) : (
+              <Icon
+                name="check"
+                size={12}
+                color="var(--tk-text-accent)"
+                data-testid="dmi-check"
+              />
+            )
+          }
+          onChange={on => onSet(name, on)}
+        >
+          Disable model invocation
+        </Menu.CheckboxItem>
+      </Menu.Dropdown>
+    </Menu>
+  );
 }
 
 const GROUPS: Record<
@@ -361,12 +451,14 @@ function SurfaceGridRow({
   onToggle,
   sourcePath,
   health,
+  onSetModelInvocation,
 }: SurfaceGridRowProps) {
   const { bg, text, border } = useSchemeColors();
   const editorHref = useEditorHref();
   const staged = next !== row.status;
   const locked = row.base !== undefined;
   const badge = KIND_BADGE[row.kind];
+  const modelInvocation = row.disableModelInvocation;
   const toggle = (
     <Switch
       checked={next === 'public'}
@@ -378,9 +470,7 @@ function SurfaceGridRow({
   );
 
   return (
-    <Group
-      gap={ROW_GAP}
-      wrap="nowrap"
+    <Box
       px="sm"
       py={6}
       className={legendClasses.row}
@@ -403,65 +493,77 @@ function SurfaceGridRow({
       ) : (
         toggle
       )}
-      <Text size="sm" fw={600} style={{ flex: 'none' }}>
-        {row.name}
-      </Text>
-      {locked ? (
-        <KeyedBadge meaning="From the parent pack. Edit it there">
-          <Badge size="sm" variant="default" c={text.muted}>
-            from {row.base}
-          </Badge>
-        </KeyedBadge>
-      ) : (
-        <KeyedBadge meaning={KIND_MEANING[row.kind]}>
-          <Badge
-            size="sm"
-            variant="light"
-            color={badge.color}
-            className={legendClasses.kindBadge}
-          >
-            {badge.label}
-          </Badge>
-        </KeyedBadge>
-      )}
-      {health && (
-        <span
-          className={legendClasses.rowHealth}
-          data-health={health}
-          data-testid={`surface-health-${row.name}`}
-        >
-          {health === 'stale' ? 'source newer' : 'never compiled'}
-        </span>
-      )}
-      <div style={{ flex: 1, minWidth: 0 }} />
-      {staged ? (
-        <Text
-          size="xs"
-          c={text.highContrast(next === 'internal' ? 'warn' : 'accent')}
-          truncate
-          style={{ flex: 'none', maxWidth: 220 }}
-        >
-          {effectLine(row, next)}
+      <div className={legendClasses.rowLine}>
+        <Text size="sm" fw={600} style={{ flex: 'none' }}>
+          {row.name}
         </Text>
-      ) : null}
-      {sourcePath && !locked && (
-        <Tooltip label="Open in editor" openDelay={300}>
-          <ActionIcon
-            component="a"
-            href={editorHref(sourcePath)}
-            variant="subtle"
-            color="gray"
-            size="sm"
-            aria-label={`open ${row.name} in editor`}
-            data-testid={`surface-open-${row.name}`}
-            className={legendClasses.rowEdit}
-            style={{ flex: 'none' }}
+        {locked ? (
+          <KeyedBadge meaning="From the parent pack. Edit it there">
+            <Badge size="sm" variant="default" c={text.muted}>
+              from {row.base}
+            </Badge>
+          </KeyedBadge>
+        ) : (
+          <KeyedBadge meaning={KIND_MEANING[row.kind]}>
+            <Badge
+              size="sm"
+              variant="light"
+              color={badge.color}
+              className={legendClasses.kindBadge}
+            >
+              {badge.label}
+            </Badge>
+          </KeyedBadge>
+        )}
+        {health && (
+          <span
+            className={legendClasses.rowHealth}
+            data-health={health}
+            data-testid={`surface-health-${row.name}`}
           >
-            <Icons.edit size={14} />
-          </ActionIcon>
-        </Tooltip>
+            {health === 'stale' ? 'source newer' : 'never compiled'}
+          </span>
+        )}
+        <div style={{ flex: 1, minWidth: 0 }} />
+        {staged ? (
+          <Text
+            size="xs"
+            c={text.highContrast(next === 'internal' ? 'warn' : 'accent')}
+            truncate
+            style={{ flex: 'none', maxWidth: 220 }}
+          >
+            {effectLine(row, next)}
+          </Text>
+        ) : null}
+        {sourcePath && !locked && (
+          <Tooltip label="Open in editor" openDelay={300}>
+            <ActionIcon
+              component="a"
+              href={editorHref(sourcePath)}
+              variant="subtle"
+              color="gray"
+              size="sm"
+              aria-label={`open ${row.name} in editor`}
+              data-testid={`surface-open-${row.name}`}
+              className={legendClasses.rowEdit}
+              style={{ flex: 'none' }}
+            >
+              <Icons.edit size={14} />
+            </ActionIcon>
+          </Tooltip>
+        )}
+        {modelInvocation && (
+          <ModelInvocationMenu
+            name={row.name}
+            state={modelInvocation}
+            onSet={onSetModelInvocation}
+          />
+        )}
+      </div>
+      {(modelInvocation === 'on' || modelInvocation === 'locked') && (
+        <ModelInvocationNote locked={modelInvocation === 'locked'} />
       )}
-    </Group>
+    </Box>
   );
 }
 
@@ -495,6 +597,7 @@ export function SurfaceTab({
   const { show: held, bind: heldBind } = useStepLoading(surfaceQuery.isPending);
   useReportReady(!surfaceQuery.isPending && !held);
   const { surfaceApply, writing } = useSkillsApply(pack);
+  const modelInvocationSet = useDisableModelInvocation(pack);
   const queryClient = useQueryClient();
   // Memoized so the `?? []` fallback isn't a fresh array reference on every
   // render -- `useSurfaceStaging` and the memos below key off this identity.
@@ -681,6 +784,9 @@ export function SurfaceTab({
                       health={health?.get(row.name) ?? null}
                       next={staged.get(row.name) ?? row.status}
                       onToggle={toggle}
+                      onSetModelInvocation={(name, on) =>
+                        modelInvocationSet.mutate({ name, on })
+                      }
                       sourcePath={
                         row.path ?? sourceByName.get(row.name) ?? null
                       }

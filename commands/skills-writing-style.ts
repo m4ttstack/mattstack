@@ -11,6 +11,7 @@ import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, userErrorPayload } from "../lib/errors.ts";
 import { execWithTimeout } from "../lib/setup/probes.ts";
 import { setSetting } from "../lib/settings/write.ts";
+import { removeDisableModelInvocation } from "../lib/skills/disable-model-invocation-line.ts";
 import { isValidSkillId, presetById, resolveWritingStyle, WRITING_STYLE_KEY, WRITING_STYLE_SOURCE_LABEL, type ResolvedWritingStyle } from "../lib/skills/writing-style.ts";
 import { isStyleUsable, linkPersonalSkills, listWritingStyles, parsePluginEntries, personalSkillsDir, pluginSkillRoots, readSkillInventory } from "../lib/skills/writing-style-sources.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
@@ -178,7 +179,7 @@ function stripCompilerComments(text: string): string {
 
 /** Normalizes CRLF to LF, then renames the frontmatter `name` and preset id so the copy is a skill of its own. */
 function retarget(text: string, presetId: string, name: string): string | null {
-  const normalized = text.replace(/\r\n/g, "\n");
+  const normalized = removeDisableModelInvocation(text.replace(/\r\n/g, "\n"));
   const end = normalized.indexOf("\n---", 4);
   if (!normalized.startsWith("---\n") || end === -1) return null;
   const frontmatter = normalized

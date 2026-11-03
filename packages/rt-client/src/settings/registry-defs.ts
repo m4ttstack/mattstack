@@ -1124,6 +1124,14 @@ const ROWS: readonly SettingDef[] = [
     merge: "replace",
     description: "Skill id that sets the voice for prose posted under your name (reviews, replies, PR descriptions). A team value is the default a member's user value overrides.",
   },
+  {
+    key: "rt.skills.disableModelInvocation",
+    type: "object",
+    scopes: ["user"],
+    default: {},
+    merge: "replace",
+    description: "Pack skills that have model invocation disabled, by pack (plugin@marketplace) to skill names.",
+  },
 ];
 
 /** `org` goes after `team` so a key's first scope, which the apps group their settings pages by, does not change. */
