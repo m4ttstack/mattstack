@@ -92,9 +92,10 @@ update` runs once per version, and then the notification blames the update. The
 fix applies to any new required tool, from a pack or the org, since both come
 through the same reader. Mock: `docs/apps/design/setup/setup.pen`, section T.
 
-**Notification.** The daemon's `afterPull` hook runs after each team pull on a
-finished Mac, and stands down while a setup run or `rt setup update` is going,
-trying again at the next pull. It reads the merged requirements and judges each
+**Notification.** The daemon checks after each team pull on a finished Mac,
+through `afterPull` when the pull moved the clone and `afterUpToDatePull` when it
+did not, and stands down while a setup run or `rt setup update` is going, trying
+again at the next pull. It reads the merged requirements and judges each
 required tool with `teamToolRow`, the same builder the plan uses, so the notice
 and the screen cannot disagree. Only status `missing` counts: an error or a
 timeout is unknown, and unknown is not missing. A tool must read missing on two

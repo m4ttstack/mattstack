@@ -101,9 +101,14 @@ export async function runToolNotices(p: Probes, slug: string, notify: (title: st
 
   const record = readToolNotices(p);
   const { notice, record: next } = toolNotice(missing, record);
-  if (notice) {
-    const names = next.told.filter((name) => !record.told.includes(name)).sort();
-    notify(notice.title, notice.message, `${SETUP_UPDATE_CATEGORY}:tools:${names.join(",")}`);
-  }
+  // Written before the send: this runs every pull interval, so a record that will not write would otherwise repeat the notice forever.
   writeToolNotices(p, next);
+  if (!notice) return;
+  const names = next.told.filter((name) => !record.told.includes(name)).sort();
+  try {
+    notify(notice.title, notice.message, `${SETUP_UPDATE_CATEGORY}:tools:${names.join(",")}`);
+  } catch (err) {
+    writeToolNotices(p, record);
+    throw err;
+  }
 }

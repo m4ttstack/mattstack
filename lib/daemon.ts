@@ -1132,14 +1132,16 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         // Never awaited here: `ready` only settles boot-time scan/watch
         // arming and always resolves (never rejects), so awaiting it would
         // just delay boot for no signal this path needs.
+        const toolNoticeHook = createToolNoticePullHook({ log: loggerHandle.childLogger("tool-notices") });
         teamSnapshots = startTeamSnapshots({
           log: loggerHandle.childLogger("team-snapshots"),
           broadcast: emit,
           afterPull: composePullHooks([
             createInterceptPullHook({ log: loggerHandle.childLogger("intercepts") }),
             createMaterializePullHook({ log: loggerHandle.childLogger("materialize") }),
-            createToolNoticePullHook({ log: loggerHandle.childLogger("tool-notices") }),
+            toolNoticeHook,
           ]),
+          afterUpToDatePull: toolNoticeHook,
         });
 
         // Herdr agent-status transitions write no run event, so the mirror on

@@ -1,4 +1,4 @@
-/** Runs after a team pull moved the clone: tells the member once about a tool their team newly requires. */
+/** Runs after each team pull, moved or not: tells the member once about a tool their team newly requires. */
 import type { Logger } from "pino";
 import { notifyEnabled } from "../notifier.ts";
 import { createRealProbes, type Probes } from "../setup/probes.ts";
@@ -20,7 +20,7 @@ export function createToolNoticePullHook(deps: ToolNoticePullHookDeps): (slug: s
         send(SETUP_UPDATE_CATEGORY, title, message, undefined, undefined, id);
       });
     } catch (err) {
-      deps.log.warn({ err, team: slug }, "team pull moved the clone, but the required-tool notice failed; the next pull tries again");
+      deps.log.warn({ err, team: slug }, "team pull: the required-tool notice failed; the next pull tries again");
     }
   };
 }

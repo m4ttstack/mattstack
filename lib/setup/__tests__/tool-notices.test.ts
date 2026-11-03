@@ -207,6 +207,14 @@ describe("runToolNotices", () => {
     await expect(runToolNotices(p, "acme", () => { throw new Error("no socket"); })).rejects.toThrow("no socket");
     expect(readToolNotices(p)).toEqual(rec({ pending: ["doppler"] }));
   });
+
+  test("a record that will not write sends nothing", async () => {
+    const p = finishedMac({ extra: { [RECORD]: JSON.stringify(rec({ pending: ["doppler"] })) } });
+    p.rename = () => { throw new Error("disk full"); };
+    const { sent, notify } = collector();
+    await expect(runToolNotices(p, "acme", notify)).rejects.toThrow("disk full");
+    expect(sent).toEqual([]);
+  });
 });
 
 describe("createToolNoticePullHook", () => {
