@@ -199,14 +199,14 @@ git commit -m "setup: pack readers skip an org-only entry; org errors get a stat
 
 **Files:**
 - Create: `lib/setup/tool-notices.ts`
-- Modify: `lib/setup/state.ts`, the `afterPull` wiring passed to `lib/daemon/team-snapshots.ts`
+- Modify: `lib/setup/validators/tools.ts` (export `teamToolRow`), the `afterPull` wiring passed to `lib/daemon/team-snapshots.ts`
 - Test: `lib/setup/__tests__/tool-notices.test.ts`
 
 **Interfaces:**
 - Consumes: `readPackRequirements` from Task 1.
 - Produces:
-  - `SetupState.toolNotices?: string[]`
-  - `export function toolNotice(missing: { name: string; title: string }[], told: string[]): { notice: { title: string; message: string } | null; told: string[] }`, pure.
+  - `export interface ToolNotices { pending: string[]; told: string[]; acked: string[] }`, stored at `~/.mattstack/rt/tool-notices.json`, read and written through `readToolNotices(p)` and `writeToolNotices(p, value)`.
+  - `export function toolNotice(missing: { name: string; title: string }[], record: ToolNotices): { notice: { title: string; message: string } | null; record: ToolNotices }`, pure.
   - `export async function runToolNotices(p: Probes, slug: string, notify: (title: string, message: string, id: string) => void): Promise<void>`
 
 - [ ] **Step 1: Write the failing tests**
@@ -215,27 +215,36 @@ git commit -m "setup: pack readers skip an org-only entry; org errors get a stat
 const dop = { name: "doppler", title: "Doppler" };
 const ld = { name: "ldcli", title: "ldcli" };
 
-test("one new tool names it", () => {
-  expect(toolNotice([dop], [])).toEqual({
+const rec = (r: Partial<ToolNotices> = {}): ToolNotices => ({ pending: [], told: [], acked: [], ...r });
+
+test("the first missing read only marks it pending", () => {
+  expect(toolNotice([dop], rec())).toEqual({ notice: null, record: rec({ pending: ["doppler"] }) });
+});
+test("a second missing read names the tool", () => {
+  expect(toolNotice([dop], rec({ pending: ["doppler"] }))).toEqual({
     notice: { title: "Your team needs Doppler", message: "Open setup to install it" },
-    told: ["doppler"],
+    record: rec({ told: ["doppler"] }),
   });
 });
 test("several tools count and list", () => {
-  expect(toolNotice([dop, ld], []).notice).toEqual({ title: "Your team needs 2 new tools", message: "Doppler and ldcli" });
+  expect(toolNotice([dop, ld], rec({ pending: ["doppler", "ldcli"] })).notice).toEqual({ title: "Your team needs 2 new tools", message: "Doppler and ldcli" });
 });
 test("a tool already told sends nothing", () => {
-  expect(toolNotice([dop], ["doppler"])).toEqual({ notice: null, told: ["doppler"] });
+  expect(toolNotice([dop], rec({ told: ["doppler"] })).notice).toBeNull();
 });
-test("a tool no longer missing drops off, so it can notify again", () => {
-  expect(toolNotice([], ["doppler"])).toEqual({ notice: null, told: [] });
+test("a read that is no longer missing clears pending, so one bad read never notifies", () => {
+  expect(toolNotice([], rec({ pending: ["doppler"] })).record).toEqual(rec());
+});
+test("a resolved tool stays told until acked, then drops off", () => {
+  expect(toolNotice([], rec({ told: ["doppler"] })).record).toEqual(rec({ told: ["doppler"] }));
+  expect(toolNotice([], rec({ told: ["doppler"], acked: ["doppler"] })).record).toEqual(rec());
 });
 test("only the new name counts toward the notice", () => {
-  expect(toolNotice([dop, ld], ["doppler"]).notice?.title).toBe("Your team needs ldcli");
+  expect(toolNotice([dop, ld], rec({ told: ["doppler"], pending: ["ldcli"] })).notice?.title).toBe("Your team needs ldcli");
 });
 ```
 
-`runToolNotices`, with `fakeProbes`: `"an unfinished Mac sends nothing"`, `"an optional tool sends nothing"`, `"a sent notice records its names in setup-state"`, `"a notify that throws records nothing"`.
+`runToolNotices`, with `fakeProbes`: `"an unfinished Mac sends nothing"`, `"an optional tool sends nothing"`, `"a tool whose row reads error or a timeout is not missing"`, `"a live setup run or update lock skips the pass and writes nothing"`, `"a sent notice records in tool-notices.json and leaves setup-state untouched"`, `"a notify that throws leaves the names pending"`.
 
 `title` is `integrationDef(connect.integration).title` when the tool connects an integration, otherwise its `name` as written.
 
@@ -246,7 +255,7 @@ Expected: FAIL, module not found.
 
 - [ ] **Step 3: Implement**
 
-`runToolNotices` returns unless `isSetupFinished`, reads the merged requirements, filters to non-optional tools, finds missing binaries with the same check `prepare.ts` uses (export `missingBinary`), calls `toolNotice`, sends with id `setup_update:tools:<sorted names>`, then writes `toolNotices`. Wire it into the daemon's `afterPull`, using `notifyEnabled(SETUP_UPDATE_CATEGORY, ...)`, and keep any existing `afterPull` work running first. A failure logs and never breaks the pull.
+`runToolNotices` returns unless `isSetupFinished`, and returns while `setup-update.lock` is held, `setup-intent.json` exists, or the run record has no `endedAt`. It reads the merged requirements, filters to non-optional tools, and builds each with `teamToolRow`; a tool is missing only when the row's status is `missing`. It calls `toolNotice`, sends with id `setup_update:tools:<sorted names>`, then writes the record. Wire it into the daemon's `afterPull` using `notifyEnabled(SETUP_UPDATE_CATEGORY, ...)`, which keeps the member's notification setting and never asks for permission. Keep any existing `afterPull` work running first. A failure logs and never breaks the pull.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -256,7 +265,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/setup/tool-notices.ts lib/setup/state.ts lib/setup/prepare.ts lib/setup/__tests__/tool-notices.test.ts lib/daemon
+git add lib/setup/tool-notices.ts lib/setup/validators/tools.ts lib/setup/__tests__/tool-notices.test.ts lib/daemon
 git commit -m "setup: notify once when a required tool arrives on a finished Mac"
 ```
 
@@ -271,12 +280,17 @@ git commit -m "setup: notify once when a required tool arrives on a finished Mac
 - Produces:
   - `FormStage` gains `"tools"`.
   - `rt setup form --section tools` returns `{ heading: string; rows: FormRow[]; allDone: boolean }`.
+  - `rt setup form --ack-tools` adds every `told` name to `acked`.
 
 - [ ] **Step 1: Write the failing tests**
 
 - `"a finished Mac with only a missing team tool lands on tools"`: `formStage` returns `"tools"`.
 - `"a team tool's own account counts as the tool"`: a missing `tool.team.doppler` plus an unconnected `account.doppler` still lands on `tools`.
 - `"any other blocker keeps today's stage"`: a missing `account.slack` plus a team tool returns `"connect"`.
+- `"a pack row beside a team tool keeps this-mac"`: a blocking `pack.widgets` plus a team tool never returns `"tools"`.
+- `"a sign-in-only blocker lands on tools and offers the sign-in"`.
+- `"a told name not yet acked holds tools after the rows clear"`, and `"--ack-tools then reads ready"`.
+- `"a read on tools never records Finish"`.
 - `"an unfinished Mac never lands on tools"`.
 - `"a run still going outranks tools"`.
 - `"the tools section draws an Install row for a missing tool"`, with state `todo` and action `install`.
@@ -291,7 +305,7 @@ Expected: FAIL on the new tests.
 
 - [ ] **Step 3: Implement**
 
-`StageInputs` gains `onlyTeamTools: boolean`, true when the blocking set is non-empty and every id is `tool.team.*` or the `account.<session>` of a sign-in tool. `finishedStage` returns `"tools"` after its `macos` check and before `connect`. Keep the copy in `FORM_COPY`. Add `tools` to the section list and `USAGE`. The section lists the blocking tools plus those named in `toolNotices`, so a resolved tool stays on screen as a done row, and "You're all set" can show before the window closes. Once nothing blocks, the stage reads `ready`; the tray holds the screen until Done.
+`StageInputs` gains `onlyTeamTools: boolean`, true when the blocking set is non-empty and every id is `tool.team.*` or the `account.<session>` of a sign-in tool, and `toolsUnacked: boolean`, true when `told` holds a name outside `acked`. `finishedStage` returns `"tools"` on either, after its `macos` check and before `connect`. Keep the copy in `FORM_COPY`. Add `tools` to the section list and `USAGE`. The section lists the blocking tools plus those named in `toolNotices`, so a resolved tool stays on screen as a done row, and "You're all set" can show before the window closes.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -318,7 +332,7 @@ git commit -m "setup: a tools stage for a new tool on a finished Mac"
 
 - [ ] **Step 1: Write the failing test**
 
-`FastSetupFlow`: `land(on: .tools)` shows `.tools`, and a read returning `.ready` while the screen is `.tools` holds it there until Done.
+`FastSetupFlow`: `land(on: .tools)` shows `.tools`, and Done runs `rt setup form --ack-tools` before the window closes.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
@@ -327,7 +341,7 @@ Expected: FAIL, no `tools` case.
 
 - [ ] **Step 3: Implement `ToolsScreen`**
 
-Follow `ConnectScreen.swift`, reusing `FormCard`, `FormRowView` and `FastFooter`. Heading from the section, no sub line, step label "Setup status", footer note "Find this later in Setup status". Later closes the window. Done is off until `allDone`, then closes it. No decision in Swift about which rows show. Add snapshot pages for T2, T3, T4, T5, T6 and T7, in both schemes.
+Follow `ConnectScreen.swift`, reusing `FormCard`, `FormRowView` and `FastFooter`. Heading from the section, no sub line, step label "Setup status", footer note "Find this later in Setup status". Later closes the window and writes nothing. Done is off until `allDone`, then runs the ack and closes. The stage comes from rt: no hold in Swift, and no decision about which rows show. Add snapshot pages for T2, T3, T4, T5, T6 and T7, in both schemes.
 
 - [ ] **Step 4: Run the test and render both schemes**
 

@@ -93,28 +93,39 @@ fix applies to any new required tool, from a pack or the org, since both come
 through the same reader. Mock: `docs/apps/design/setup/setup.pen`, section T.
 
 **Notification.** The daemon's `afterPull` hook runs after each team pull on a
-finished Mac. It reads the merged requirements, finds required tools whose binary
-is missing, and sends one notification for those not yet told. Category
-`setup_update`, so a click opens Setup status and the member's notification
-setting applies.
+finished Mac, and stands down while a setup run or `rt setup update` is going,
+trying again at the next pull. It reads the merged requirements and judges each
+required tool with `teamToolRow`, the same builder the plan uses, so the notice
+and the screen cannot disagree. Only status `missing` counts: an error or a
+timeout is unknown, and unknown is not missing. A tool must read missing on two
+pulls in a row before it notifies, because a false result reaches every member at
+once. Category `setup_update`, so a click opens Setup status and the member's
+notification setting applies. It never asks for notification permission.
 
 - One tool: "Your team needs Doppler", "Open setup to install it".
 - Several: "Your team needs 2 new tools", "Doppler and ldcli".
 
-`setup-state.json` gains `toolNotices: string[]`, the names already told. A name
-drops off once the tool is no longer required and missing, so a tool removed and
-added back notifies again. Later never re-notifies; the update run's existing
-"Setup needs you" notification stays as the per-release reminder.
+The record lives in its own file, `~/.mattstack/rt/tool-notices.json`, holding
+`pending`, `told` and `acked` name lists. It stays out of `setup-state.json`
+because `updateSetupState` has no lock, and a daemon write during a run could lose
+a migration id. A name drops off once the tool is no longer required and missing,
+so a tool removed and added back notifies again. Later never re-notifies; the
+update run's existing "Setup needs you" notification stays as the per-release
+reminder.
 
-**Screen (T2).** `finishedStage` returns a new stage `tools` when every blocking
-row is a `tool.team.*` row and its account. Any other blocker keeps today's route,
-so a broken Mac is not reduced to one tool. `rt setup form --section tools`
+**Screen (T2).** rt owns the stage. `finishedStage` returns a new stage `tools`
+while every blocking row is a `tool.team.*` row or that tool's account, or while
+`told` holds a name not yet in `acked`. A `pack.*` row or any other blocker keeps
+today's route, because this screen cannot fix them. `rt setup form --section tools`
 returns the rows, built by the connect section's `signInRow` and `extraRow`, so
 Install, Download, Show steps and sign-in behave as they do on the connect screen.
+The stage never records Finish.
 
 - Heading: "One new tool for your team", or "2 new tools for your team".
 - Footer: "Find this later in Setup status", with Later and Done.
-- Later closes the window. Done is off until every row is done, then closes it.
+- Later closes the window and writes nothing, so Setup status lands here again.
+- Done is off until every row is done. It runs `rt setup form --ack-tools`, which
+  adds the names to `acked`, then closes the window.
 - Once the rows clear, the heading reads "You're all set".
 - The tray's step label reads "Setup status". There is no sub line.
 
