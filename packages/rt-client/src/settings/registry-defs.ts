@@ -139,9 +139,9 @@ const ROWS: readonly SettingDef[] = [
     key: "rt.notify.sounds",
     type: "object",
     scopes: ["machine"],
-    default: { neutral: "original", positive: "original", warning: "original" },
+    default: { neutral: "sober/102", positive: "sober/103", warning: "macos/Sosumi" },
     merge: "deep",
-    description: "Which sound the mattstack app plays on this Mac for each kind of notification: neutral, positive (passed, approved, merged) and warning (failed, conflicts). Each is a sound id: original (that tier's own tone), sober/101 to sober/104, macos/<name> for a sound in /System/Library/Sounds, custom/<file> for a file added in Settings > Notifications, or none for silence. Set it from the app's Notifications tab.",
+    description: "Which sound the mattstack app plays on this Mac for each kind of notification: neutral, positive (passed, approved, merged) and warning (failed, conflicts). Each is a sound id: original (that tier's own tone), sober/101 to sober/104, macos/<name> for a sound in /System/Library/Sounds, custom/<file> for a file added in Settings > Notifications, or none for silence. The default is the Calm preset; the Lively preset is original for all three. Set it from the app's Notifications tab.",
   },
   {
     key: "rt.cron",

@@ -41,7 +41,21 @@ let notificationSoundsModelChecks: [Check] = [
         await m.settle()
         c.expectEqual(await MainActor.run { m.picks.warning }, "macos/Tink", "the stale launch read must not restore Original")
     },
-    Check("NotificationSoundsModel is all Original until rt answers, then reflects the stored picks") { c in
+    Check("NotificationSoundsModel applies a preset to every tier at once and saves it in one write") { c in
+        let rt = ScriptedRt()
+        rt.answers["settings set rt.notify.sounds"] = (0, "")
+        let m = await MainActor.run { NotificationSoundsModel(saveDelay: .zero) }
+        await MainActor.run {
+            m.pick(.warning, "macos/Glass", rt: rt)
+            m.apply(.lively, rt: rt)
+            c.expectEqual(m.picks, SoundPreset.lively.picks, "the preset shows before any write")
+        }
+        await m.settle()
+        try c.require(rt.calls.count == 1, "expected one coalesced write; got \(rt.calls.map(\.args))")
+        c.expectEqual(rt.calls[0].args, ["settings", "set", "rt.notify.sounds",
+                                         #"{"neutral":"original","positive":"original","warning":"original"}"#, "--scope", "machine"])
+    },
+    Check("NotificationSoundsModel is on Calm until rt answers, then reflects the stored picks") { c in
         let rt = ScriptedRt()
         rt.answers["settings get rt.notify.sounds"] = (0, #"{"ok":true,"key":"rt.notify.sounds","value":{"neutral":"none","positive":"sober/102","warning":"macos/Glass"}}"#)
         let m = await MainActor.run { NotificationSoundsModel() }
@@ -63,7 +77,7 @@ let notificationSoundsModelChecks: [Check] = [
         await m.settle()
         try c.require(rt.calls.count == 1, "expected one coalesced write; got \(rt.calls.map(\.args))")
         c.expectEqual(rt.calls[0].args, ["settings", "set", "rt.notify.sounds",
-                                         #"{"neutral":"original","positive":"original","warning":"macos/Tink"}"#, "--scope", "machine"])
+                                         #"{"neutral":"sober/102","positive":"sober/103","warning":"macos/Tink"}"#, "--scope", "machine"])
         c.expectEqual(await MainActor.run { m.error }, nil)
     },
     Check("NotificationSoundsModel keeps the pick for this run and says it wasn't saved when the write fails") { c in

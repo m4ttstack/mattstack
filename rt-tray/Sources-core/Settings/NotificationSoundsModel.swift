@@ -43,10 +43,20 @@ public final class NotificationSoundsModel: ObservableObject {
     /// Takes effect at once; the save waits for picks to settle and writes
     /// only the last state, after any write already running.
     public func pick(_ tier: SoundTier, _ id: String, rt: RtRunning) {
-        guard picks[tier] != id else { return }
+        var next = picks
+        next[tier] = id
+        set(next, rt: rt)
+    }
+
+    public func apply(_ preset: SoundPreset, rt: RtRunning) {
+        set(preset.picks, rt: rt)
+    }
+
+    private func set(_ next: SoundPicks, rt: RtRunning) {
+        guard picks != next else { return }
         generation += 1
         error = nil
-        picks[tier] = id
+        picks = next
         let previous = pendingSave
         previous?.cancel()
         saveCount += 1

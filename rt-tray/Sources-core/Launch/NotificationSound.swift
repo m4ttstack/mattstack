@@ -70,7 +70,7 @@ public struct SoundPicks: Equatable, Sendable, Codable {
     public var positive: String
     public var warning: String
 
-    public static let defaults = SoundPicks(neutral: SoundID.original, positive: SoundID.original, warning: SoundID.original)
+    public static let defaults = SoundPreset.calm.picks
 
     public init(neutral: String, positive: String, warning: String) {
         self.neutral = neutral
@@ -78,12 +78,13 @@ public struct SoundPicks: Equatable, Sendable, Codable {
         self.warning = warning
     }
 
-    /// A tier the stored object leaves out keeps its Original.
+    /// A tier the stored object leaves out keeps its default.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        neutral = try c.decodeIfPresent(String.self, forKey: .neutral) ?? SoundID.original
-        positive = try c.decodeIfPresent(String.self, forKey: .positive) ?? SoundID.original
-        warning = try c.decodeIfPresent(String.self, forKey: .warning) ?? SoundID.original
+        let d = SoundPicks.defaults
+        neutral = try c.decodeIfPresent(String.self, forKey: .neutral) ?? d.neutral
+        positive = try c.decodeIfPresent(String.self, forKey: .positive) ?? d.positive
+        warning = try c.decodeIfPresent(String.self, forKey: .warning) ?? d.warning
     }
 
     public subscript(tier: SoundTier) -> String {
@@ -104,6 +105,34 @@ public struct SoundPicks: Equatable, Sendable, Codable {
     }
 }
 
+/// A named set of picks that sets every tier at once. Keep `calm` in step
+/// with the `rt.notify.sounds` default in rt-client's registry.
+public enum SoundPreset: String, CaseIterable, Sendable {
+    case calm
+    case lively
+
+    public var title: String {
+        switch self {
+        case .calm: return "Calm"
+        case .lively: return "Lively"
+        }
+    }
+
+    public var picks: SoundPicks {
+        switch self {
+        case .calm:
+            return SoundPicks(neutral: SoundID.sober("102"), positive: SoundID.sober("103"), warning: SoundID.macos("Sosumi"))
+        case .lively:
+            return SoundPicks(neutral: SoundID.original, positive: SoundID.original, warning: SoundID.original)
+        }
+    }
+
+    /// Nil when the picks are a custom mix.
+    public static func matching(_ picks: SoundPicks) -> SoundPreset? {
+        allCases.first { $0.picks == picks }
+    }
+}
+
 /// Sound ids: `original`, `none`, `sober/<n>`, `macos/<name>`, `custom/<file>`.
 public enum SoundID {
     public static let original = "original"
@@ -114,8 +143,9 @@ public enum SoundID {
     public static func macos(_ name: String) -> String { "macos/\(name)" }
     public static func custom(_ file: String) -> String { "custom/\(file)" }
 
-    public static func displayName(_ id: String) -> String {
-        if id == original { return "Original" }
+    /// `original` is a different tone on each tier, so its name carries the tier.
+    public static func displayName(_ id: String, tier: SoundTier) -> String {
+        if id == original { return "\(SoundPreset.lively.title) \(tier.title)" }
         if id == none { return "None" }
         let (source, rest) = split(id)
         switch source {
