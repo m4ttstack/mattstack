@@ -15,10 +15,17 @@ Every run's deliverable is `artifacts/<run-id>/` (screenshots, logs,
 
 ## Status
 
-The runs named below drove the setup wizard that fast setup replaced. The
-fast setup drivers (`run/guest/screens.sh`) pass their model test
-(`run/helpers/__tests__/wizard-pages.test.sh`) but have not yet run against a
-golden image.
+The fast setup drivers (`run/guest/screens.sh`) have run against the
+`mattstack-golden-26` image on build 2.27.1-ci173 with `VM_CLAUDE_STANDIN=1`,
+so Claude's sign-in was not exercised:
+
+- `--scenario create` and `--scenario join` are green.
+- The update leg (`--start-ref v2.27.0`, the 2.27.0 DMG updating to ci173)
+  is green.
+- `--scenario solo` passes its `screens` and `assert` phases. Its
+  `team-upgrade` phase fails on an app bug, not a harness one.
+
+The runs named below drove the setup wizard that fast setup replaced.
 
 `--scenario create` is green end to end on the `mattstack-golden-26` image
 on GitHub (run `20260901-232641`) and GitLab (run `20260902-110714`):
@@ -289,9 +296,9 @@ run/second-user.sh run --artifact ~/Downloads/mattstack-2.9.0.zip
 ../../scripts/e2e-cleanroom.sh --tag v2.9.0   # refuses on a user that already runs mattstack
 ../../scripts/e2e-cleanroom.sh ~/Downloads/mattstack-2.9.0.zip --home "$(mktemp -d)"   # local run: --home keeps this off your real ~ (release.yml passes no --home; its runner IS the throwaway machine)
 ```
-Today, the first line's `screens` phase and both lines' `update` phase report `fail`/`skip` honestly (see Status above). `--scenario headless` (line 2) is no longer blocked by anything known, but no scenario has yet been run end to end against a golden image, so none is *known* green either. `--dry-run` exercises the whole orchestrator (phase ledger, report) against any golden name without Tart or a real DMG/app.
+Status above says which scenarios are green today; a failed or skipped phase is reported as such, never as green. `--dry-run` exercises the whole orchestrator (phase ledger, report) against any golden name without Tart or a real DMG/app.
 
-The update leg starts from the latest release, whose setup screens can predate today's driver. `--start-ref <tag>` names the tag `--dmg` was built from: that tag's own `drive-setup.sh`, `screens.sh`, `ax.sh` and `assert-installed.sh` run the `screens` and `assert` phases, staged under `~/vmrun/start`, and the `update` phase runs today's `trigger-update.sh`. Its create pastes a repo, so `--fresh-team-repo` mints one. `MATTSTACK_APPCAST_URL` reaches the app through the guest session's environment (`launchctl setenv`), because `open --env` did not deliver it. Green on `v2.27.0` to ci172: run `20261102-183923`.
+The update leg starts from the latest release, whose setup screens can predate today's driver. `--start-ref <tag>` names the tag `--dmg` was built from: that tag's own `drive-setup.sh`, `screens.sh`, `ax.sh` and `assert-installed.sh` run the `screens` and `assert` phases, staged under `~/vmrun/start`, and the `update` phase runs today's `trigger-update.sh`. It takes only `--scenario create`, since an older tag's `assert-installed.sh` would ignore `--join`, `--board-repo` and `--solo`. A tag from before fast setup pastes a repo on create, so `--fresh-team-repo` mints one; a later tag's Create team makes its own repo, and teardown deletes it as on any create run. `MATTSTACK_APPCAST_URL` reaches the app through the guest session's environment (`launchctl setenv`), because `open --env` did not deliver it.
 
 Phases: preflight · invite (join with `--fresh-team-repo` only) · clone · boot · stage · install · chrome · launch · screens · assert · update · teardown. Each is `pass|fail|skip` with a reason in `artifacts/<run>/phases.jsonl`; `report.md` is the human summary; `screenshots/` are numbered per screen (`00-first-launch`, `01-macos`, `01b-fda-toggled`, `01c-fda-relaunched`, `01d-fancy-urls-*`, `02-path`, `03-invite` or `03-create-team`, `04-waiting`, `05-connect`, `06-this-mac`, `07-running`, `07-paused` and `07-paused-log` on a paused run, `08-ready`, `clt-installed`, `claude-installed`, `upgrade-*` for the team-upgrade leg, `06-update-*`); `logs/` holds guest logs (`~/.mattstack/rt/logs`, unified log slice for mattstack/smd/backgroundtaskmanagementd, `launchctl print` grep, sshd's own log, `rt verify --json`, tray `/version`). Exit 1 iff any phase failed; skips are reported, never counted green.
 
