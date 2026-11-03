@@ -11,7 +11,7 @@ public enum FastSetupScreen: String, CaseIterable, Sendable {
     case createTeam = "create-team"
     case restore, waiting, connect
     case thisMac = "this-mac"
-    case running, paused, ready
+    case tools, running, paused, ready
 
     /// The `rt setup form --section` this screen draws; nil for a screen with no rows.
     public var section: String? {
@@ -22,6 +22,7 @@ public enum FastSetupScreen: String, CaseIterable, Sendable {
         case .restore: return "restore"
         case .connect: return "connect"
         case .thisMac: return "this-mac"
+        case .tools: return "tools"
         case .loading, .path, .waiting, .running, .paused, .ready: return nil
         }
     }
@@ -55,7 +56,8 @@ public struct SetupFinishLedger: Equatable, Sendable {
     public mutating func entered(_ screen: FastSetupScreen) {
         switch screen {
         case .ready: if sawUnfinished { owed = true }
-        case .loading: break
+        // Only a finished Mac reaches tools, so showing it says nothing about setup being unfinished.
+        case .loading, .tools: break
         default: sawUnfinished = true
         }
     }
@@ -89,6 +91,27 @@ public enum FastSetupLaunch {
         switch requested {
         case .status, .firstRun: return finished ? .status : .firstRun
         case .upgrade: return .upgrade
+        }
+    }
+
+    /// A window already up is only brought forward, except Setup status on ready: nothing is in hand there, and a
+    /// `setup_update` click must reach a stage that has moved since the window opened.
+    public static func relands(_ entry: SetupEntry, showing screen: FastSetupScreen) -> Bool {
+        entry == .status && screen == .ready
+    }
+
+    private static let ackToolsArguments = ["setup", "form", "--ack-tools", "--json"]
+
+    private struct ToolsAck: Decodable { let ok: Bool }
+
+    /// `close` runs only once rt has the names, and rt's sentence comes back when it does not.
+    public static func ackTools(rt: RtRunning, then close: @MainActor () -> Void) async -> String? {
+        switch await rt.runJSON(ackToolsArguments, verb: "setup form --ack-tools", as: ToolsAck.self) {
+        case .success:
+            await close()
+            return nil
+        case .failure(let failure):
+            return failure.copy
         }
     }
 
@@ -139,6 +162,7 @@ public final class FastSetupFlow: ObservableObject {
         case .waiting: return .waiting
         case .connect: return .connect
         case .thisMac: return .thisMac
+        case .tools: return .tools
         case .running: return .running
         case .paused: return .paused
         case .ready: return .ready

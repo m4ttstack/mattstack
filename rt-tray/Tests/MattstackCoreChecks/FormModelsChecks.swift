@@ -191,6 +191,28 @@ let formModelsChecks: [Check] = [
         c.expect(rt.calls.allSatisfy { $0.args == ["setup", "form", "--section", "connect", "--json"] })
         c.expectEqual(await m.form?.sections.connect?.first?.state, .done)
     },
+    Check("SetupForm: a tools read carries the stage, its rows and rt's heading") { c in
+        let home = #""continueReady":false,"startReady":false,"start":null,"paused":null,"home":{"label":"Open the board","url":"https://board.mattstack"}"#
+        let whole = #"{"contract":1,"at":"x","path":"join","team":null,"stage":"tools","sections":{"tools":[\#(row("tool.team.doppler"))]},\#(home),"tools":{"heading":"One new tool for your team","allDone":false}}"#
+        let rt = ScriptedRt()
+        rt.answers = ["setup form --json": (0, whole)]
+        let m = await SetupFormModel(rt: rt)
+        let read = await m.load(section: nil)
+        c.expectEqual(read?.stage, .tools)
+        c.expectEqual(read?.tools, FormTools(heading: "One new tool for your team", allDone: false))
+        c.expectEqual(await m.rows(for: "tools")?.map(\.id), ["tool.team.doppler"], "the model keeps the section by the name --section takes")
+        c.expectEqual(await m.read(carrying: "tools")?.tools?.allDone, false)
+        c.expectEqual(read?.sections.all.map(\.id), ["tool.team.doppler"], "the action runner reconciles these rows too")
+        let cleared = #"{"contract":1,"at":"x","path":"join","team":null,"stage":null,"sections":{"tools":[]},\#(home),"tools":{"heading":"You're all set","allDone":true}}"#
+        rt.answers = ["setup form --section tools --json": (0, cleared)]
+        await m.load(section: "tools")
+        c.expectEqual(await m.rows(for: "tools"), [], "an empty section is rows, not a missing read")
+        c.expectEqual(await m.read(carrying: "tools")?.tools?.heading, "You're all set")
+    },
+    Check("SetupForm: a read of any other screen has no tools object") { c in
+        let read = try JSONDecoder().decode(SetupForm.self, from: Data(wholeFormJSON.utf8))
+        c.expectEqual(read.tools, nil)
+    },
     Check("SetupForm: a section read keeps the other sections, and hands back its own read") { c in
         let rt = ScriptedRt()
         rt.answers = ["setup form --json": (0, wholeFormJSON)]

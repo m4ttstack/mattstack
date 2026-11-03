@@ -23,7 +23,7 @@ public enum FormRowTone: String, Decodable, Sendable {
 }
 
 public enum FormStage: String, Decodable, Sendable {
-    case macos, path, invite, waiting, connect, running, paused, ready
+    case macos, path, invite, waiting, connect, tools, running, paused, ready
     case thisMac = "this-mac"
 }
 
@@ -67,10 +67,11 @@ public struct FormSections: Decodable, Equatable, Sendable {
     public var create: [FormRow]?
     public var connect: [FormRow]?
     public var thisMac: [FormRow]?
+    public var tools: [FormRow]?
     public init(macos: [FormRow]? = nil, invite: [FormRow]? = nil, restore: [FormRow]? = nil,
-                create: [FormRow]? = nil, connect: [FormRow]? = nil, thisMac: [FormRow]? = nil) {
+                create: [FormRow]? = nil, connect: [FormRow]? = nil, thisMac: [FormRow]? = nil, tools: [FormRow]? = nil) {
         self.macos = macos; self.invite = invite; self.restore = restore
-        self.create = create; self.connect = connect; self.thisMac = thisMac
+        self.create = create; self.connect = connect; self.thisMac = thisMac; self.tools = tools
     }
 
     /// `section` is the name `rt setup form --section` takes.
@@ -82,12 +83,13 @@ public struct FormSections: Decodable, Equatable, Sendable {
         case "create": return create
         case "connect": return connect
         case "this-mac": return thisMac
+        case "tools": return tools
         default: return nil
         }
     }
 
     public var all: [FormRow] {
-        [macos, invite, restore, create, connect, thisMac].compactMap { $0 }.flatMap { $0 }
+        [macos, invite, restore, create, connect, thisMac, tools].compactMap { $0 }.flatMap { $0 }
     }
 }
 
@@ -129,6 +131,13 @@ public struct FormStart: Decodable, Equatable, Sendable {
     public init(label: String, note: String) { self.label = label; self.note = note }
 }
 
+/// The tools screen's heading and whether Done is on. `allDone` also hides Later, so the two cannot disagree.
+public struct FormTools: Decodable, Equatable, Sendable {
+    public var heading: String
+    public var allDone: Bool
+    public init(heading: String, allDone: Bool) { self.heading = heading; self.allDone = allDone }
+}
+
 /// `rt setup form --json`. A section read carries only that section, with
 /// `stage` and `paused` null; a whole read carries every section but create.
 public struct SetupForm: Decodable, Equatable, Sendable {
@@ -144,12 +153,16 @@ public struct SetupForm: Decodable, Equatable, Sendable {
     public var start: FormStart?
     public var paused: FormPaused?
     public var home: FormHome
+    /// Only on a `--section tools` read, or a whole read whose stage is tools.
+    public var tools: FormTools?
     public init(path: String? = nil, team: FormTeam? = nil, stage: FormStage? = nil, sections: FormSections = FormSections(),
-                continueReady: Bool = false, startReady: Bool = false, start: FormStart? = nil, paused: FormPaused? = nil, home: FormHome) {
+                continueReady: Bool = false, startReady: Bool = false, start: FormStart? = nil, paused: FormPaused? = nil, home: FormHome,
+                tools: FormTools? = nil) {
         self.path = path; self.team = team; self.stage = stage; self.sections = sections
         self.continueReady = continueReady; self.startReady = startReady; self.start = start; self.paused = paused; self.home = home
+        self.tools = tools
     }
-    private enum CodingKeys: String, CodingKey { case path, team, stage, sections, continueReady, startReady, start, paused, home }
+    private enum CodingKeys: String, CodingKey { case path, team, stage, sections, continueReady, startReady, start, paused, home, tools }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         path = try c.decodeIfPresent(String.self, forKey: .path)
@@ -161,5 +174,6 @@ public struct SetupForm: Decodable, Equatable, Sendable {
         start = try c.decodeIfPresent(FormStart.self, forKey: .start)
         paused = try c.decodeIfPresent(FormPaused.self, forKey: .paused)
         home = try c.decode(FormHome.self, forKey: .home)
+        tools = try c.decodeIfPresent(FormTools.self, forKey: .tools)
     }
 }

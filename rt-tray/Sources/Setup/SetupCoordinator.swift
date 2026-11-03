@@ -118,8 +118,8 @@ final class SetupCoordinator {
     func showSetup(entry requested: SetupEntry = .firstRun, choice: TeamChoice? = nil, joinCode: String? = nil) {
         let window = setupWindow ?? makeWindow()
         let asked = choice != nil || joinCode != nil
-        if window.isVisible, !asked { window.show(); return }
         let entry = FastSetupLaunch.entry(requested, finished: setupIsComplete)
+        if window.isVisible, !asked, !FastSetupLaunch.relands(entry, showing: flow.screen) { window.show(); return }
         flow.entry = entry
         flow.requested = entry == .upgrade ? choice : nil
         team.enter(entry, choice: choice, joinCode: joinCode)
@@ -150,7 +150,8 @@ final class SetupCoordinator {
                                     retry: { [weak self] in self?.retry() },
                                     pausedAction: { [weak self] in self?.pausedAction($0) },
                                     openHome: { [weak self] in self?.openHome() },
-                                    readAgain: { [weak self] in Task { await self?.landOnRtStage() } }))
+                                    readAgain: { [weak self] in Task { await self?.landOnRtStage() } },
+                                    toolsDone: { [weak self] in Task { await self?.toolsDone() } }))
         let wc = SetupWindowController(flow: flow, root: host.decorate(AnyView(view)), title: host.windowTitle,
                                        tracksSession: !host.isTestDrive, chromeHeight: host.chromeHeight)
         wc.onClose = { [weak self] in self?.windowClosed() }
@@ -230,6 +231,9 @@ final class SetupCoordinator {
             Task { await refreshSection() }
         case .connect:
             prepare.start("accounts")
+            Task { await refreshSection() }
+        case .tools:
+            status.failures[.tools] = nil
             Task { await refreshSection() }
         case .waiting:
             Task { await keepCheckingApproval() }
@@ -499,6 +503,17 @@ final class SetupCoordinator {
     private func pausedAction(_ action: RowAction) {
         let row = FormRow(id: "paused", title: action.label, subtext: "", state: .todo, detail: "", action: action)
         Task { await actions.perform(row) }
+    }
+
+    // MARK: - Tools
+
+    /// Closes on a Mac that stays finished: nothing here touches Finish.
+    private func toolsDone() async {
+        guard status.busy == nil else { return }
+        status.busy = .tools
+        defer { status.busy = nil }
+        status.failures[.tools] = nil
+        status.failures[.tools] = await FastSetupLaunch.ackTools(rt: rt) { [weak self] in self?.setupWindow?.close() }
     }
 
     // MARK: - P7 and closing

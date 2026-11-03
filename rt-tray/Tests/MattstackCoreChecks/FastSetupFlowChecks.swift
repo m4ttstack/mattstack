@@ -12,7 +12,7 @@ let fastSetupFlowChecks: [Check] = [
     Check("FastSetupFlow: each rt stage lands on its screen") { c in
         let pairs: [(FormStage, FastSetupScreen)] = [
             (.macos, .macos), (.path, .path), (.invite, .invite), (.waiting, .waiting), (.connect, .connect),
-            (.thisMac, .thisMac), (.running, .running), (.paused, .paused), (.ready, .ready),
+            (.thisMac, .thisMac), (.tools, .tools), (.running, .running), (.paused, .paused), (.ready, .ready),
         ]
         for (stage, screen) in pairs { c.expectEqual(FastSetupFlow.screen(for: stage), screen, "\(stage)") }
         await MainActor.run {
@@ -462,6 +462,60 @@ let fastSetupFlowChecks: [Check] = [
         ]
         for (screen, section) in pairs { c.expectEqual(screen.section, section, "\(screen)") }
     },
+    Check("FastSetupFlow: tools lands directly, even with an upgrade's Join or Create still requested") { c in
+        await MainActor.run {
+            c.expectEqual(flow(.status, on: .tools).screen, .tools)
+            c.expectEqual(flow(.upgrade, on: .tools, requested: .join).screen, .tools, "only ready gives way to a requested screen")
+            c.expectEqual(flow(.upgrade, on: .tools, requested: .create).screen, .tools)
+            c.expect(!flow(.status, on: .tools).canGoBack)
+            c.expect(!flow(.status, on: .tools).hidesOnPrimary, "Done closes only once rt has the ack")
+        }
+        c.expectEqual(FastSetupScreen.tools.section, "tools")
+        c.expectEqual(FastSetupScreen.tools.rawValue, "tools")
+    },
+    Check("FastSetupScreen.drawn: tools waits for its rows like any screen with a section") { c in
+        c.expectEqual(FastSetupScreen.drawn(next: .tools, shown: .loading, rowsLanded: false, readFailed: false), .loading)
+        c.expectEqual(FastSetupScreen.drawn(next: .tools, shown: .loading, rowsLanded: true, readFailed: false), .tools)
+    },
+    Check("SetupFinishLedger: the tools screen never owes a Finish, and leaves one already owed alone") { c in
+        var status = SetupFinishLedger()
+        status.opened(as: .status)
+        status.entered(.tools)
+        status.entered(.ready)
+        c.expect(!status.settle(), "a finished Mac that passes through tools onto ready stays finished")
+        var owed = SetupFinishLedger()
+        owed.opened(as: .firstRun)
+        owed.entered(.ready)
+        owed.opened(as: .status)
+        owed.entered(.tools)
+        c.expect(owed.settle(), "tools does not clear a Finish an earlier opening owes")
+    },
+    Check("FastSetupLaunch: Setup status re-lands a window showing ready, so a new tool reaches a finished Mac") { c in
+        c.expect(FastSetupLaunch.relands(.status, showing: .ready), "nothing is in hand on ready")
+        c.expect(!FastSetupLaunch.relands(.status, showing: .thisMac), "a member mid-screen is only brought forward")
+        c.expect(!FastSetupLaunch.relands(.status, showing: .tools))
+        c.expect(!FastSetupLaunch.relands(.firstRun, showing: .ready), "a first run's ready owes its Finish, and stays put")
+        c.expect(!FastSetupLaunch.relands(.upgrade, showing: .ready))
+    },
+    Check("FastSetupLaunch: Done acks with rt before the window closes") { c in
+        let rt = ScriptedRt()
+        rt.answers = ["setup form --ack-tools --json": (0, #"{"contract":1,"at":"2026-01-01T00:00:00.000Z","ok":true}"#)]
+        let closed = ToolsClosed()
+        let failure = await FastSetupLaunch.ackTools(rt: rt) {
+            c.expectEqual(rt.calls.map(\.args), [["setup", "form", "--ack-tools", "--json"]], "rt has the ack by the time it closes")
+            closed.on = true
+        }
+        c.expectEqual(failure, nil)
+        c.expect(closed.on, "a good ack closes the window")
+    },
+    Check("FastSetupLaunch: an ack rt refused keeps the window open and says why") { c in
+        let rt = ScriptedRt()
+        rt.answers = ["setup form --ack-tools --json": (1, "")]
+        let closed = ToolsClosed()
+        let failure = await FastSetupLaunch.ackTools(rt: rt) { closed.on = true }
+        c.expect(!closed.on, "the window stays open")
+        c.expect(failure != nil, "the screen has a sentence to show")
+    },
     Check("FastStep: each path counts its own screens, paused counts as the bar") { c in
         let join: [FastSetupScreen] = [.macos, .path, .invite, .waiting, .connect, .thisMac, .running]
         for (i, screen) in join.enumerated() { c.expectEqual(FastStep.counter(for: screen, path: "join"), "\(i + 1) of 7", "\(screen)") }
@@ -476,6 +530,14 @@ let fastSetupFlowChecks: [Check] = [
         c.expectEqual(FastStep.counter(for: .ready, path: "join"), "Done")
         c.expectEqual(FastStep.counter(for: .ready, path: nil), "Done")
         c.expectEqual(FastStep.counter(for: .loading, path: "join"), nil, "loading shows nothing")
+    },
+    Check("FastStep: tools carries Setup status, the one label a status window shows") { c in
+        c.expectEqual(FastStep.counter(for: .tools, path: "join"), "Setup status")
+        c.expectEqual(FastStep.counter(for: .tools, path: nil), "Setup status")
+        c.expectEqual(FastStep.label(for: .tools, path: "join", entry: .status), "Setup status")
+        c.expectEqual(FastStep.label(for: .ready, path: "join", entry: .status), nil, "Setup status is not a step in setup")
+        c.expectEqual(FastStep.label(for: .thisMac, path: "join", entry: .status), nil)
+        c.expectEqual(FastStep.label(for: .thisMac, path: "join", entry: .firstRun), "6 of 7")
     },
     Check("FastStep: before rt names a path, join counts, unless the screen names its own") { c in
         c.expectEqual(FastStep.counter(for: .macos, path: nil), "1 of 7")
@@ -495,4 +557,8 @@ private func wholeForm(stage: String?, paused: String = "null") -> String {
 
 private func macosRow(_ id: String, _ state: FormRowState, optional: Bool = false) -> FormRow {
     FormRow(id: id, title: id, subtext: "", state: state, detail: "", optional: optional)
+}
+
+private final class ToolsClosed: @unchecked Sendable {
+    var on = false
 }
