@@ -194,6 +194,8 @@ Make and test the change, then merge `org-trial` into the data branch on your fo
 rt team branch use mattstack
 ```
 
+Your installed packs stay on the data branch's version while you work on the trial. To try a pack change from the trial, start a session with `claude --plugin-dir <pack folder>`.
+
 `rt team status` names the branch when your clone is not on `main`. `rt team invite` refuses on a trial branch, because the people you invite clone the data branch.
 
 An org that still keeps its data on `main` has no data branch to start from, so there `rt team branch use` switches only to a branch that already holds the org's data, such as one the move script made. `rt team branch use main` switches back.
@@ -439,7 +441,7 @@ rt team pull
 
 Asks the daemon to pull the org clone immediately instead of waiting for its periodic pull. When the pull moves HEAD, your team's pack converges exactly as above.
 
-`rt skills sync` is for a pack's author: it pulls the pack and engine checkouts, recompiles and pushes a new version when the compiled skills have drifted, and updates the installed plugins. When the mattstack engine is installed from its marketplace rather than a local checkout, sync first updates that installed copy from its marketplace, stops if the update fails, and compiles the pack against it. When the engine on main needs a newer app than yours, sync stops and tells you to update the app first.
+`rt skills sync` is for a pack's author: it pulls the pack and engine checkouts, recompiles and pushes a new version when the compiled skills have drifted, and updates the installed plugins. Installed packs come from what is committed on the org's data branch, so an edit you have not committed there never reaches a session; try it with `claude --plugin-dir <pack folder>`. When the mattstack engine is installed from its marketplace rather than a local checkout, sync first updates that installed copy from its marketplace, stops if the update fails, and compiles the pack against it. When the engine on main needs a newer app than yours, sync stops and tells you to update the app first.
 
 ## Quick reference
 
