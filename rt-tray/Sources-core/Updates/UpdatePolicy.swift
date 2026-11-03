@@ -26,10 +26,6 @@ public enum UpdatePolicy {
         windowRunning || runInFlight
     }
 
-    public static func allowsImmediateInstall(setupRunning: Bool, windowsOpen: Int) -> Bool {
-        hold(setupRunning: setupRunning, windowsOpen: windowsOpen) == nil
-    }
-
     public static func hold(setupRunning: Bool, windowsOpen: Int) -> UpdateHold? {
         if setupRunning { return .setupRunning }
         if windowsOpen > 0 { return .windowsOpen }

@@ -18,11 +18,6 @@ let updatePolicyChecks: [Check] = [
         c.expectEqual(UpdatePolicy.shouldStartUpdater(isDevBuild: true, publicEDKey: "abc", feedURL: nil, feedOverride: "http://127.0.0.1:8000/appcast.xml"), true)
         c.expectEqual(UpdatePolicy.shouldStartUpdater(isDevBuild: true, publicEDKey: UpdatePolicy.placeholderKey, feedURL: nil, feedOverride: "http://127.0.0.1:8000/appcast.xml"), false)
     },
-    Check("immediate install only when idle: no setup running, no windows") { c in
-        c.expectEqual(UpdatePolicy.allowsImmediateInstall(setupRunning: false, windowsOpen: 0), true)
-        c.expectEqual(UpdatePolicy.allowsImmediateInstall(setupRunning: true, windowsOpen: 0), false)
-        c.expectEqual(UpdatePolicy.allowsImmediateInstall(setupRunning: false, windowsOpen: 1), false)
-    },
     Check("UpdatePolicy.hold names what keeps an update from installing, setup first") { c in
         c.expectEqual(UpdatePolicy.hold(setupRunning: false, windowsOpen: 0), nil)
         c.expectEqual(UpdatePolicy.hold(setupRunning: false, windowsOpen: 2), .windowsOpen)
