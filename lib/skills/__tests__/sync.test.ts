@@ -85,6 +85,8 @@ type World = {
   originRootPointer?: Record<string, string | null>;
   /** What `git show` at an origin ref prints to stderr when it fails for another reason. */
   originShowFail?: string;
+  /** Local branches besides main that `git show <ref>:<path>` reads; `mainVersions` answers for each. */
+  showRefs?: string[];
 };
 
 /**
@@ -163,7 +165,7 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
       }
       if (args[0] === "show") {
         const [ref, path] = args[1]!.split(/:(.*)/s);
-        if (ref !== "main") return { code: 128, stdout: "", stderr: `unknown ref ${ref}` };
+        if (ref !== "main" && !(world.showRefs ?? []).includes(ref!)) return { code: 128, stdout: "", stderr: `unknown ref ${ref}` };
         if (path!.endsWith("pack/requires.json")) {
           const floor = world.mainFloors?.[path!.replace(/\/?pack\/requires\.json$/, "")];
           if (floor) return { code: 0, stdout: JSON.stringify({ minEngine: floor }), stderr: "" };
@@ -406,7 +408,7 @@ describe("syncPack", () => {
     const report = await syncPack(pack, engine, deps);
 
     expect(report.steps[0]!.status).toBe("refused");
-    expect(report.steps[0]!.detail).toContain("The acme pack was not installed from a directory marketplace");
+    expect(report.steps[0]!.detail).toContain("The acme pack was not installed from a marketplace, so rt has nothing to sync it from");
     expect(report.steps[0]!.detail).toContain("marketplace");
     expect(calls).toEqual([]);
   });
@@ -1276,6 +1278,80 @@ describe("pull-pack in an org clone", () => {
     expect(report.steps.find((s) => s.name === "pull-pack")).toEqual({ name: "pull-pack", status: "refused", detail: `Pulling ${pack.dir} failed: fatal: unable to access origin. Sort it out by hand, then run this again` });
     expect(calls.some((c) => c.args[0] === "show" && c.cwd === clone)).toBe(false);
     expect(pulls(calls, pack.dir)).toEqual([]);
+  });
+});
+
+describe("an org clone's pack installs from the data branch", () => {
+  const PACK_REL = "mattstack/teams/widgets/plugin";
+  const dataBranchClone = (): { clone: string; pack: PackInfo } => {
+    const made = orgClonePack();
+    writeFileSync(join(made.clone, "mattstack", "mattstack.jsonc"), `{ "role": "org", "org": "acme", "layout": 4, "dataBranch": "mattstack" }\n`);
+    return made;
+  };
+  const depsOn = (clone: string, pack: PackInfo, engine: PackInfo, calls: Call[], branch: string, world: Partial<World> = {}): SyncDeps => ({
+    ...makeDeps(pack, engine, {
+      calls,
+      drift: [false],
+      branchByDir: { [engine.dir]: "main", [clone]: branch, [pack.dir]: branch },
+      originMarker: { [clone]: null },
+      installed: { [pluginId(pack)]: "0.9.0", [pluginId(engine)]: "2.0.0" },
+      showRefs: ["mattstack"],
+      ...world,
+    }),
+    orgsRoot: dirname(clone),
+    orgInstallRef: () => "mattstack",
+  });
+
+  test("on a trial branch, one warning names the data branch and update-pack and verify-installed are skipped", async () => {
+    const { clone, pack } = dataBranchClone();
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+
+    const report = await syncPack(pack, engine, depsOn(clone, pack, engine, calls, "mattstack-trial"));
+
+    const reason = "the org clone is on mattstack-trial, not mattstack, and only work committed on mattstack installs";
+    expect(report.steps.find((s) => s.name === "update-pack")).toEqual({ name: "update-pack", status: "skipped", detail: reason });
+    expect(report.steps.find((s) => s.name === "verify-installed")).toEqual({ name: "verify-installed", status: "skipped", detail: reason });
+    expect(report.warnings.filter((w) => w.includes("mattstack-trial"))).toEqual([
+      `The org clone at ${clone} is on mattstack-trial, not mattstack. Only work committed on mattstack installs, so the installed pack stays as it is until the clone is back on mattstack`,
+    ]);
+    expect(report.ok).toBe(true);
+    expect(calls.some((c) => c.args[0] === "plugin" && c.args[1] === "update")).toBe(false);
+  });
+
+  test("on the data branch, verify-installed reads the version committed there", async () => {
+    const { clone, pack } = dataBranchClone();
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+
+    const report = await syncPack(pack, engine, depsOn(clone, pack, engine, calls, "mattstack", { mainVersions: { [PACK_REL]: "0.9.5" } }));
+
+    expect(report.steps.find((s) => s.name === "update-pack")!.status).toBe("ran");
+    expect(report.steps.find((s) => s.name === "verify-installed")).toEqual({ name: "verify-installed", status: "failed", detail: "The installed copy is at 1.0.0, but the source is at 0.9.5" });
+    expect(calls).toContainEqual({ cmd: "git", args: ["show", `mattstack:${PACK_REL}/.claude-plugin/plugin.json`], cwd: clone });
+    expect(report.warnings.some((w) => w.includes("not mattstack"))).toBe(false);
+  });
+
+  test("on the data branch, an installed copy that matches the committed version passes", async () => {
+    const { clone, pack } = dataBranchClone();
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+
+    const report = await syncPack(pack, engine, depsOn(clone, pack, engine, calls, "mattstack"));
+
+    expect(report.steps.find((s) => s.name === "verify-installed")).toEqual({ name: "verify-installed", status: "ran", detail: "the installed copy matches the source at 1.0.0" });
+    expect(report.ok).toBe(true);
+  });
+
+  test("a worktrees folder in an org clone's pack does not refuse, since git never carries it", async () => {
+    const { clone, pack } = dataBranchClone();
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    mkdirSync(join(pack.dir, ".worktrees"), { recursive: true });
+    const calls: Call[] = [];
+
+    const report = await syncPack(pack, engine, depsOn(clone, pack, engine, calls, "mattstack"));
+
+    expect(report.steps[0]!.status).toBe("ran");
   });
 });
 

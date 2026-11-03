@@ -27,6 +27,7 @@ import { runSkillsOrigin, spawnCapture } from "../lib/skills/origin-git.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
 import { readDevModeConfig } from "./settings.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
+import { generatedMarketplaceRef } from "../lib/setup/generated-marketplace.ts";
 import { orgsDir } from "../lib/rt-paths.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
@@ -259,6 +260,7 @@ export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]
     cswapSessionsDir: join(homedir(), ".claude-swap-backup", "sessions"),
     inTreeRoot: resolveSharedCheckout(homedir(), existsSync, readDevModeConfig().sourcePath ?? null),
     orgsRoot: orgsDir(),
+    orgInstallRef: (cloneDir) => generatedMarketplaceRef(createRealProbes(), cloneDir),
   };
 
   const needsInstalled = !packs.some((p) => p.name === "mattstack") && pack!.name !== "mattstack";
