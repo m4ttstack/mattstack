@@ -131,8 +131,12 @@ export interface PeerReviewInfo {
   reviewer: string;
   status: string;
   outcome?: string;
+  /** The peer's own words for an error. */
+  reason?: string;
   updatedAt: number;
   receivedAt?: number;
+  /** When this board's owner dismissed an errored review from the row. */
+  dismissedAt?: number;
 }
 /** The re-review this board asked a peer for, and where that ask now stands.
     `reason` only comes with a rejection (the peer's own words for the refusal). */
@@ -419,7 +423,7 @@ export interface RowContext {
       kind of ask to the same teammate again. */
   onAskRetry: (mr: BoardMRWithReview) => void;
   /** The sent-ask band's dismiss: drops the board's record of the ask. */
-  onAskDismiss: (mr: BoardMR) => void;
+  onAskDismiss: (mr: BoardMRWithReview) => void;
   /** Row menu's "never diagnose this stack" toggle: mutes auto-doctor for
       this MR and every descendant (server-enforced), and on -> true clears
       whatever's currently on this row -- see POST /triage/stand-down. */

@@ -5,7 +5,9 @@ import { Button, ContextMenu, Spinner } from '@mattstack/tui-kit';
 import type { BoardMRWithReview, RowContext } from '../types.ts';
 import {
   askBandModel,
+  bandSource,
   clock,
+  peerFailureBandModel,
   type AskAction,
   type AskBand,
 } from './ask-band.ts';
@@ -17,8 +19,10 @@ const ACTION: Record<AskAction, string> = {
   dismiss: 'Dismiss',
 };
 
-const FOOTER =
+const SENT_FOOTER =
   'Dismiss clears it now. Retry drops the old ask and sends a fresh one.';
+const peerFooter = (who: string) =>
+  `Dismiss clears it now. Retry asks ${who} to review again.`;
 
 /** The trail: what the row knows of the ask's life, oldest first, in the
     kit's anchored menu surface (it clamps to the viewport and closes on
@@ -26,10 +30,12 @@ const FOOTER =
     clips its own overflow. */
 function Trail({
   band,
+  foot,
   rect,
   onClose,
 }: {
   band: AskBand;
+  foot: string;
   rect: DOMRect;
   onClose: () => void;
 }) {
@@ -67,17 +73,17 @@ function Trail({
         </div>
       ))}
       {band.actions.length > 0 && (
-        <div className="tui-ask-trail-foot">{FOOTER}</div>
+        <div className="tui-ask-trail-foot">{foot}</div>
       )}
     </ContextMenu>,
     document.body
   );
 }
 
-/** This board's own ask of a teammate's agent, on its own line at the foot of
-    the row. Retry and dismiss write through the local board, so a remote
-    viewer sees the band without them. The left side is the click target that
-    opens the trail. */
+/** A teammate's agent on this MR, on its own line at the foot of the row:
+    this board's own ask, or a review their board lost. Retry and dismiss
+    write through the local board, so a remote viewer sees the band without
+    them. The left side is the click target that opens the trail. */
 export function AskBand({
   mr,
   ctx,
@@ -88,9 +94,17 @@ export function AskBand({
   const [rect, setRect] = useState<DOMRect | null>(null);
   const bar = useRef<HTMLDivElement>(null);
   const people = usePeople(mr);
-  const sent = mr.sentNudge;
-  if (!sent) return null;
-  const band = askBandModel(sent, Date.now(), people.short(sent.reviewer));
+  const source = bandSource(mr);
+  if (!source) return null;
+  const band =
+    source.kind === 'sent'
+      ? askBandModel(
+          source.sent,
+          Date.now(),
+          people.short(source.sent.reviewer)
+        )
+      : peerFailureBandModel(source.peer, people.short(source.peer.reviewer));
+  const foot = source.kind === 'sent' ? SENT_FOOTER : peerFooter(band.who);
   const run = (action: AskAction) =>
     action === 'retry' ? ctx.onAskRetry(mr) : ctx.onAskDismiss(mr);
   const open = rect !== null;
@@ -99,7 +113,7 @@ export function AskBand({
       ref={bar}
       className="tui-ask"
       data-ask-tone={band.tone}
-      data-ask={sent.display}
+      data-ask={source.kind === 'sent' ? source.sent.display : 'peer-failed'}
     >
       <button
         type="button"
@@ -152,7 +166,14 @@ export function AskBand({
             {ACTION[action]}
           </Button>
         ))}
-      {rect && <Trail band={band} rect={rect} onClose={() => setRect(null)} />}
+      {rect && (
+        <Trail
+          band={band}
+          foot={foot}
+          rect={rect}
+          onClose={() => setRect(null)}
+        />
+      )}
     </div>
   );
 }

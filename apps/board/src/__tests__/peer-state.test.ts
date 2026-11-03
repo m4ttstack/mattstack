@@ -36,6 +36,7 @@ import {
 } from '../peer/nudges.ts';
 import {
   attachPeerReviews,
+  dismissPeerReview,
   importPeerReviewFiles,
   peerReviewFilePath,
   peerReviewKey,
@@ -145,6 +146,44 @@ describe('writePeerReview', () => {
   test('writes nothing to the legacy folder', () => {
     writePeerReview(base(), db);
     expect(existsSync(peerReviewFilePath(URL_A, 'grace', dir))).toBe(false);
+  });
+});
+
+describe('dismissPeerReview', () => {
+  const errored = (over: Partial<PeerReviewState> = {}): PeerReviewState => ({
+    mrUrl: URL_A,
+    iid: 4821,
+    reviewer: 'grace',
+    status: 'error',
+    reason: 'pane closed',
+    updatedAt: 1000,
+    ...over,
+  });
+
+  test('stamps dismissedAt on one reviewer state and leaves the rest', () => {
+    writePeerReview(errored(), db);
+    writePeerReview(errored({ reviewer: 'ada' }), db);
+    dismissPeerReview(URL_A, 'grace', 5000, db);
+    const byReviewer = new Map(
+      (readPeerReviews(db).get(URL_A) ?? []).map(p => [p.reviewer, p])
+    );
+    expect(byReviewer.get('grace')?.dismissedAt).toBe(5000);
+    expect(byReviewer.get('grace')?.reason).toBe('pane closed');
+    expect(byReviewer.get('ada')?.dismissedAt).toBeUndefined();
+  });
+
+  test('is a no-op for a reviewer with no state', () => {
+    dismissPeerReview(URL_A, 'grace', 5000, db);
+    expect(readPeerReviews(db).size).toBe(0);
+  });
+
+  test('a redelivery of the same state keeps the dismissal; a newer state clears it', () => {
+    writePeerReview(errored(), db);
+    dismissPeerReview(URL_A, 'grace', 5000, db);
+    writePeerReview(errored(), db);
+    expect(readPeerReviews(db).get(URL_A)?.[0]?.dismissedAt).toBe(5000);
+    writePeerReview(errored({ updatedAt: 2000, status: 'reviewing' }), db);
+    expect(readPeerReviews(db).get(URL_A)?.[0]?.dismissedAt).toBeUndefined();
   });
 });
 
