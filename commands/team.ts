@@ -67,6 +67,7 @@ import { MembersKeyError, MembersSyncAbortedError, membersAddToTeam, membersDrop
 import { peerOwnBoard, realPeerSeams, type PeerResult, type PeerSeams } from "../lib/team/peer.ts";
 import { publishTeam } from "../lib/team/publish.ts";
 import { renameOrg, type ConvergeOutcome, type RenameResult, type RenameSeams } from "../lib/team/rename.ts";
+import { writeGeneratedMarketplace } from "../lib/setup/generated-marketplace.ts";
 import { commitPendingPackShares, droppedShareBlocks, droppedShares, packShareBlocks, rememberPackShare, sharePack } from "../lib/team/share-pack.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
 import { createRelayClient } from "../lib/team/relay-client.ts";
@@ -251,6 +252,7 @@ export async function teamAdd(args: string[], _ctx: CommandContext = {}, deps: T
     const sharePaths = [`mattstack/teams/${team}`, ".claude-plugin/marketplace.json"];
     rememberPackShare(deps.probes, org, team, sharePaths);
     const published = await sharePack(deps.probes, org, team, sharePaths, deps.forgeToken ?? storedForgeToken);
+    if (published.pushed) await writeGeneratedMarketplace(deps.probes, org);
     if (json) {
       deps.print(JSON.stringify(envelope({ ...result, published })));
       return;

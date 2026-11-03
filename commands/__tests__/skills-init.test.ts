@@ -55,17 +55,19 @@ describe("init outcome", () => {
     expect(text).not.toContain("restart");
   });
 
-  test("a pack that is not shared yet says so and names the publish command", () => {
-    const text = renderPlain(initOutcomeBlocks({ ...okOutcome, published: { pushed: false, reason: "rt could not push the team repo", next: "rt team publish" } }));
-    expect(text.split("\n")[0]).toBe(`[ok] Created the ${okOutcome.pack.name} pack  ${okOutcome.pack.dir}`);
-    expect(text).toContain("[not yet] The acme pack is not shared with your org yet  rt could not push the team repo\n");
-    expect(text).toContain(`  next: Share it with rt team publish, then run /reload-plugins in your Claude session and try ${okOutcome.tryNext}\n`);
-    expect(text.match(/next:/g)).toHaveLength(1);
-  });
-
-  test("a share that needs a pull first folds the reload into its one next", () => {
-    const text = renderPlain(initOutcomeBlocks({ ...okOutcome, published: { pushed: false, reason: "The org repo has changes this Mac does not have yet", next: "rt team pull --team acme", thenRun: "rt team publish --team acme" } }));
-    expect(text).toContain(`  next: Run rt team pull --team acme, then share it with rt team publish --team acme, then run /reload-plugins in your Claude session and try ${okOutcome.tryNext}\n`);
+  test("a pack that is not shared names the share, then the install, in one next", () => {
+    const text = renderPlain([ui.failure(initFailure({
+      ok: false,
+      refused: false,
+      code: "share-failed",
+      detail: "The acme pack is not shared with your org yet, so rt did not install it",
+      why: "rt could not push the team repo",
+      wrote: [],
+      remedy: { commands: ["rt team publish --team acme", "claude plugin marketplace add /h/.mattstack/rt/marketplaces/acme", "claude plugin install acme@acme"] },
+    }))]);
+    expect(text).toContain("The acme pack is not shared with your org yet, so rt did not install it");
+    expect(text).toContain("rt could not push the team repo");
+    expect(text).toContain("Run rt team publish --team acme, then claude plugin marketplace add /h/.mattstack/rt/marketplaces/acme, then claude plugin install acme@acme");
     expect(text.match(/next:/g)).toHaveLength(1);
   });
 
@@ -330,6 +332,7 @@ function stubDeps(overrides: Partial<InitDeps> = {}): InitDeps {
     check: async () => ({ drift: false }),
     sharePack: async () => ({ pushed: true, remote: "https://gitlab.example.com/acme/org.git" }),
     rememberShare: () => {},
+    writeMarketplace: async () => ({ path: "/h/.mattstack/rt/marketplaces/acme" }),
     ...overrides,
   };
 }
@@ -531,7 +534,7 @@ describe("skillsInit", () => {
     expect(process.exitCode).toBe(2);
   });
 
-  test("--json: success carries the share outcome beside the existing keys", async () => {
+  function shareWorld(overrides: Partial<InitDeps> = {}): InitDeps {
     const HOME = "/h";
     const fs = memFs({
       [`${HOME}/.mattstack/orgs/acme/.git/config`]: "",
@@ -540,7 +543,7 @@ describe("skillsInit", () => {
       [`${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/settings.team.jsonc`]: `{}`,
       [`${HOME}/.mattstack/orgs/acme/.claude-plugin/marketplace.json`]: `{ "name": "acme-market", "owner": { "name": "acme" }, "plugins": [] }`,
     });
-    await skillsInit(["--json"], {}, stubDeps({
+    return stubDeps({
       fs,
       home: HOME,
       gitRemote: async () => ({ kind: "ok", url: "git@gitlab.com:acme/api.git" }),
@@ -550,13 +553,30 @@ describe("skillsInit", () => {
         fs.writeFile(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acme/skills.jsonc`, "{}");
         return { ok: true, detail: "merged" };
       },
-      sharePack: async () => ({ pushed: false, reason: "rt could not push the team repo", next: "rt team publish" }),
-    }));
+      ...overrides,
+    });
+  }
+
+  test("--json: success carries the share outcome beside the existing keys", async () => {
+    await skillsInit(["--json"], {}, shareWorld());
     const printed = JSON.parse(io.lines()[0]!);
     expect(printed.ok).toBe(true);
     expect(printed.tryNext).toBe("/acme:work <ticket>");
-    expect(printed.published).toEqual({ pushed: false, reason: "rt could not push the team repo", next: "rt team publish" });
+    expect(printed.published).toEqual({ pushed: true, remote: "https://gitlab.example.com/acme/org.git" });
     expect(process.exitCode).toBe(0);
+  });
+
+  test("--json: a share that failed is a failure envelope, with nothing installed", async () => {
+    const claudeCalls: string[][] = [];
+    await skillsInit(["--json"], {}, shareWorld({
+      sharePack: async () => ({ pushed: false, reason: "rt could not push the team repo", next: "rt team publish --team acme" }),
+      claude: async (args) => { claudeCalls.push(args); return { code: 0, stdout: "", stderr: "" }; },
+    }));
+    const printed = JSON.parse(io.lines()[0]!);
+    expect(printed.error.code).toBe("share-failed");
+    expect(printed.error.refused).toBe(false);
+    expect(claudeCalls.some((a) => a[1] === "install" || a[2] === "add")).toBe(false);
+    expect(process.exitCode).toBe(1);
   });
 
   test("--json: a post-write compile failure envelope carries the wrote list", async () => {

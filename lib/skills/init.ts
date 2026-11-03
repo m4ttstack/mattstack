@@ -12,7 +12,7 @@ import { packManifestPath, repoSlug } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
 import type { MissingMarker } from "./team-params.ts";
 import type { PackShare } from "../team/share-pack.ts";
-import { orgsDirUnder } from "../rt-paths.ts";
+import { generatedMarketplaceDir, orgsDirUnder } from "../rt-paths.ts";
 import { readFloor, refusalCopy, runnableEngine, type Floor } from "../engine-floor.ts";
 import { admit, installArgs } from "../setup/plugin-calls.ts";
 import { parseMarker } from "../team/org-marker.ts";
@@ -381,6 +381,8 @@ export type InitDeps = {
   check(packDir: string, manifestPath: string): Promise<{ drift: boolean; handErrors?: string[]; pointerErrors?: string[] }>;
   /** `paths` are relative to the org clone. */
   sharePack(zone: ZoneInfo, paths: string[]): Promise<PackShare>;
+  /** Rewrites this Mac's git-subdir copy of the org marketplace from the committed data branch; `skipped` when it could not. */
+  writeMarketplace(zone: ZoneInfo): Promise<{ path: string; skipped?: string }>;
   /** Remembers a share for `rt team publish` to finish if init stops before its own share. */
   rememberShare(zone: ZoneInfo, paths: string[]): void;
   /** The engine version this rt runs; null when it cannot tell. */
@@ -399,7 +401,7 @@ export type InitRefusalCode =
   | "not-a-repo" | "no-remote" | "zone-ambiguous" | "zone-missing" | "zone-mismatch" | "zone-no-host" | "base-missing"
   | "pack-exists" | "mattstack-missing" | "claude-missing" | "team-marketplace-conflict" | "needs-newer-app" | "params-missing" | "extends-conflict" | "base-chained";
 
-export type FailureCode = "write-failed" | "materialize-failed" | "compile-failed" | "check-drift" | "hand-skill-failed" | "pointer-failed" | "install-failed";
+export type FailureCode = "write-failed" | "materialize-failed" | "compile-failed" | "check-drift" | "hand-skill-failed" | "pointer-failed" | "share-failed" | "install-failed";
 
 export type InitRemedy = { commands: string[]; folder?: string };
 
@@ -412,7 +414,7 @@ export type InitOutcome =
       installed: { plugin: string; version: string };
       restartNeeded: true;
       tryNext: string;
-      published: PackShare;
+      published: Extract<PackShare, { pushed: true }>;
     }
   | { ok: false; refused: true; code: InitRefusalCode; detail: string; next?: string; why?: string; wrote?: string[] }
   | { ok: false; refused: false; code: FailureCode; detail: string; wrote: string[]; remedy?: InitRemedy; why?: string; next?: string };
@@ -472,18 +474,6 @@ function seedMissing(fs: InitFs, packDir: string, missing: MissingMarker[]): str
 /** Anchored to the CLI's own "already ..." phrasings so a failing call that merely mentions the word does not read as success. */
 function isAlreadyDone(res: RunResult): boolean {
   return /already (on disk|added|installed|exists)/i.test(`${res.stdout}\n${res.stderr}`);
-}
-
-async function marketplaceNames(claude: NonNullable<InitDeps["claude"]>): Promise<Set<string> | null> {
-  const res = await claude(["plugin", "marketplace", "list", "--json"]);
-  if (res.code !== 0) return null;
-  try {
-    const parsed: unknown = JSON.parse(res.stdout);
-    if (!Array.isArray(parsed)) return null;
-    return new Set(parsed.map((m) => (m as { name?: unknown })?.name).filter((n): n is string => typeof n === "string"));
-  } catch {
-    return null;
-  }
 }
 
 const SHELL_SAFE = /^[\w./~@%+=:,-]+$/;
@@ -631,6 +621,12 @@ export async function initPack(opts: { repoDir: string; repoFlag?: string | null
   const wrote: string[] = [];
 
   const share = `rt team publish --team ${zone.org}`;
+  const generatedDir = generatedMarketplaceDir(deps.home, zone.org);
+  const installSteps = (): string[] => {
+    const admission = admit(readFloor(deps.fs.readFile, packDir), (deps.engine ?? runnableEngine)());
+    const install = admission.ok ? [`claude ${installArgs(admission, pluginId).join(" ")}`] : [];
+    return [`claude plugin marketplace add ${generatedDir}`, ...install];
+  };
   const remedyFor = (code: FailureCode): InitRemedy => {
     if (code === "write-failed") return { commands: [retry("")], folder: packDir };
     if (code === "materialize-failed") return { commands: [`rt skills materialize --dir ${opts.repoDir}`, share] };
@@ -638,13 +634,11 @@ export async function initPack(opts: { repoDir: string; repoFlag?: string | null
     if (code === "compile-failed" || code === "check-drift" || code === "pointer-failed") {
       return { commands: [`rt skills compile --pack-dir ${packDir}`, `rt skills check --pack-dir ${packDir}`, share] };
     }
-    const admission = admit(readFloor(deps.fs.readFile, packDir), (deps.engine ?? runnableEngine)());
-    const install = admission.ok ? [`claude ${installArgs(admission, pluginId).join(" ")}`] : [];
-    return { commands: [`claude plugin marketplace add ${zone.orgDir}`, ...install, share] };
+    return { commands: [share, ...installSteps()] };
   };
 
-  const failed = (code: FailureCode, detail: string, from?: { why?: string; next?: string }): InitOutcome => ({
-    ok: false, refused: false, code, detail, wrote, remedy: remedyFor(code),
+  const failed = (code: FailureCode, detail: string, from?: { why?: string; next?: string }, remedy: InitRemedy = remedyFor(code)): InitOutcome => ({
+    ok: false, refused: false, code, detail, wrote, remedy,
     ...(from?.why ? { why: from.why } : {}),
     ...(from?.next ? { next: from.next } : {}),
   });
@@ -729,22 +723,32 @@ export async function initPack(opts: { repoDir: string; repoFlag?: string | null
     return refuse("needs-newer-app", refusalCopy(admission.engine, `the ${pack} pack`, admission.floor), undefined, "The pack is written, but rt will not install or share it until the app updates.");
   }
 
-  const known = await attempt("install-failed", () => marketplaceNames(claude));
-  if ("outcome" in known) return known.outcome;
-  if (!known.value || !known.value.has(marketplace)) {
-    const added = await attempt("install-failed", () => claude(["plugin", "marketplace", "add", zone.orgDir]));
-    if ("outcome" in added) return added.outcome;
-    if (added.value.code !== 0 && !isAlreadyDone(added.value)) {
-      return failed("install-failed", `Adding the team's marketplace to Claude Code failed (exit ${added.value.code}): ${added.value.stderr.trim() || added.value.stdout.trim()}`);
-    }
+  // Claude installs the pack from the data branch's commit, so it must be shared before the install.
+  const published = await deps.sharePack(zone, sharePathsFor(zone, packDir, wrote));
+  if (!published.pushed) {
+    return failed(
+      "share-failed",
+      `The ${pack} pack is not shared with your org yet, so rt did not install it`,
+      { why: published.reason },
+      { commands: [published.next, ...(published.thenRun ? [published.thenRun] : []), ...installSteps()] },
+    );
+  }
+
+  const generated = await attempt("install-failed", () => deps.writeMarketplace(zone));
+  if ("outcome" in generated) return generated.outcome;
+  if (generated.value.skipped) {
+    return failed("install-failed", `rt could not write this Mac's copy of the team marketplace: ${generated.value.skipped}`);
+  }
+  const added = await attempt("install-failed", () => claude(["plugin", "marketplace", "add", generated.value.path]));
+  if ("outcome" in added) return added.outcome;
+  if (added.value.code !== 0 && !isAlreadyDone(added.value)) {
+    return failed("install-failed", `Adding the team's marketplace to Claude Code failed (exit ${added.value.code}): ${added.value.stderr.trim() || added.value.stdout.trim()}`);
   }
   const installed = await attempt("install-failed", () => claude(installArgs(admission, pluginId)));
   if ("outcome" in installed) return installed.outcome;
   if (installed.value.code !== 0 && !isAlreadyDone(installed.value)) {
     return failed("install-failed", `Installing ${pluginId} in Claude Code failed (exit ${installed.value.code}): ${installed.value.stderr.trim() || installed.value.stdout.trim()}`);
   }
-
-  const published = await deps.sharePack(zone, sharePathsFor(zone, packDir, wrote));
 
   return {
     ok: true,

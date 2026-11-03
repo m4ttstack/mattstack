@@ -3,7 +3,8 @@ import type { MembersSeams } from "../../lib/team/members.ts";
 import type { InviteResult, MintInviteOpts } from "../../lib/team/invite.ts";
 import { afterEach, beforeEach, describe, test, expect, spyOn } from "bun:test";
 import { execFileSync } from "child_process";
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { generatedMarketplaceDir } from "../../lib/rt-paths.ts";
 import { childEnv } from "../../lib/subprocess.ts";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -862,6 +863,22 @@ describe("teamAdd", () => {
       expect(files).toContain(".claude-plugin/marketplace.json");
       expect(files).toContain("mattstack/teams/gadgets/plugin/pack/skills.jsonc");
       expect(JSON.parse(w.atOrigin("show", "main:.claude-plugin/marketplace.json")).plugins).toEqual([expect.objectContaining({ name: "gadgets" })]);
+    });
+
+    test("a shared team is in this Mac's generated marketplace", async () => {
+      const w = orgWorld();
+      const deps = baseDeps({ probes: w.p, addTeamSeams: realSeams, forgeToken: async () => null });
+      await teamAdd(["gadgets", "--owner", "dev2", "--team", "acme", "--json"], {}, deps);
+      const generated = JSON.parse(readFileSync(join(generatedMarketplaceDir(w.home, "acme"), ".claude-plugin", "marketplace.json"), "utf8"));
+      expect(generated.plugins).toEqual([expect.objectContaining({ name: "gadgets", source: expect.objectContaining({ source: "git-subdir", path: "mattstack/teams/gadgets/plugin" }) })]);
+    });
+
+    test("a team whose share failed leaves the generated marketplace unwritten", async () => {
+      const w = orgWorld();
+      w.git("remote", "set-url", "origin", join(w.home, "missing.git"));
+      const deps = baseDeps({ probes: w.p, addTeamSeams: realSeams, forgeToken: async () => null });
+      await teamAdd(["gadgets", "--owner", "dev2", "--team", "acme", "--json"], {}, deps);
+      expect(existsSync(generatedMarketplaceDir(w.home, "acme"))).toBe(false);
     });
 
     test("a failed push still adds the team and names the publish command", async () => {

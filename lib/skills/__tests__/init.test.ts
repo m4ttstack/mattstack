@@ -4,6 +4,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { cleanupOrgWorlds, orgWorld } from "../../team/__tests__/org-world.ts";
 import { rememberPackShare, sharePack } from "../../team/share-pack.ts";
 import { readTeamLocal } from "../../team/team-local.ts";
+import { generatedMarketplaceDir } from "../../rt-paths.ts";
+import { writeGeneratedMarketplace } from "../../setup/generated-marketplace.ts";
 import { teamPublish } from "../../../commands/team.ts";
 import { chooseZone, packIsCompiled, parseRemote, readZones, readZonesFrom, type InitFs, type ZoneInfo, addMarketplacePlugin, zoneTeamConfigReads, packDescription, PIPELINE_STAGES, renderPackFiles, initPack, POLICY_REFUSALS, readOrgSlugs, type InitDeps, type RunResult } from "../init.ts";
 import { UserActionableError } from "../../errors.ts";
@@ -400,16 +402,17 @@ describe("addMarketplacePlugin", () => {
   });
 });
 
-type Calls = { claude: string[][]; registered: string[]; materialized: string[]; compiled: string[]; checked: string[]; claims: [string, string[]][]; shared: [string, string[]][]; remembered: [string, string[]][] };
+type Calls = { claude: string[][]; registered: string[]; materialized: string[]; compiled: string[]; checked: string[]; claims: [string, string[]][]; shared: [string, string[]][]; remembered: [string, string[]][]; steps: string[] };
 
 const ok = (stdout: string): RunResult => ({ code: 0, stdout, stderr: "" });
 const REPO = "/work/api";
 const TEAM_DIR = (team: string) => `${ORG_ROOT("acme")}/mattstack/teams/${team}`;
 const ACME_PACK = `${TEAM_DIR("acme")}/plugin`;
 const GITLAB = { "board.gitlabHost": "gitlab.com" };
+const GENERATED = (org: string) => generatedMarketplaceDir(HOME, org);
 
 function world(overrides: Partial<InitDeps> & { files?: Record<string, string>; marketplaces?: string[]; noOrg?: boolean } = {}) {
-  const calls: Calls = { claude: [], registered: [], materialized: [], compiled: [], checked: [], claims: [], shared: [], remembered: [] };
+  const calls: Calls = { claude: [], registered: [], materialized: [], compiled: [], checked: [], claims: [], shared: [], remembered: [], steps: [] };
   const files: Record<string, string> = {
     ...(overrides.noOrg ? {} : orgFiles("acme", GITLAB, { acme: {} })),
     ...(overrides.files ?? {}),
@@ -430,6 +433,7 @@ function world(overrides: Partial<InitDeps> & { files?: Record<string, string>; 
     engineDescription: (e) => (e === "work" ? "Use when running a unit of work." : null),
     claude: async (args) => {
       calls.claude.push(args);
+      calls.steps.push(`claude ${args.slice(0, 3).join(" ")}`);
       if (args[1] === "marketplace" && args[2] === "list") return ok(JSON.stringify(marketplaces.map((name) => ({ name }))));
       if (args[1] === "marketplace" && args[2] === "add") return ok("Marketplace already on disk");
       return ok("");
@@ -443,8 +447,9 @@ function world(overrides: Partial<InitDeps> & { files?: Record<string, string>; 
     },
     compile: async (dir) => { calls.compiled.push(dir); return { ok: true, errors: [] }; },
     check: async (dir) => { calls.checked.push(dir); return { drift: false }; },
-    sharePack: async (zone, paths) => { calls.shared.push([zone.slug, paths]); return { pushed: true, remote: "https://gitlab.example.com/acme/org.git" }; },
+    sharePack: async (zone, paths) => { calls.shared.push([zone.slug, paths]); calls.steps.push("share"); return { pushed: true, remote: "https://gitlab.example.com/acme/org.git" }; },
     rememberShare: (zone, paths) => { calls.remembered.push([zone.slug, paths]); },
+    writeMarketplace: async (zone) => { calls.steps.push("write marketplace"); return { path: GENERATED(zone.org) }; },
     ...overrides,
   };
   return { deps, calls, fs };
@@ -729,7 +734,8 @@ describe("initPack", () => {
     expect(calls.materialized).toEqual(["gitlab.com/acme/api"]);
     expect(calls.compiled).toEqual([ACME_PACK]);
     expect(calls.checked).toEqual([ACME_PACK]);
-    expect(calls.claude).toContainEqual(["plugin", "marketplace", "add", ORG_ROOT("acme")]);
+    expect(calls.claude).toContainEqual(["plugin", "marketplace", "add", GENERATED("acme")]);
+    expect(calls.claude.some((a) => a[2] === "add" && a[3] === ORG_ROOT("acme"))).toBe(false);
     expect(calls.claude).toContainEqual(["plugin", "install", "acme@acme-market"]);
     expect(out.repo).toEqual({ slug: "gitlab.com-acme-api", manifest: `${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acme/skills.jsonc` });
     expect(out.tryNext).toBe("/acme:work <ticket>");
@@ -755,11 +761,36 @@ describe("initPack", () => {
     expect(calls.shared).toEqual([["acme/acme", ["mattstack/teams/acme/plugin", "mattstack/teams/acme/settings.team.jsonc"]]]);
   });
 
-  test("a pack that could not be shared is still created, and says what to run", async () => {
-    const { deps, fs } = world({ sharePack: async () => ({ pushed: false, reason: "rt could not push the team repo", next: "rt team publish" }) });
+  test("shares the pack, then writes the generated marketplace, adds it, then installs", async () => {
+    const { deps, calls } = world();
+    expect((await initPack({ repoDir: REPO, zone: null, team: null }, deps)).ok).toBe(true);
+    expect(calls.steps).toEqual(["share", "write marketplace", "claude plugin marketplace add", "claude plugin install acme@acme-market"]);
+  });
+
+  test("a pack that could not be shared is written but not installed, and names the share then the install", async () => {
+    const { deps, calls, fs } = world({ sharePack: async () => ({ pushed: false, reason: "rt could not push the team repo", next: "rt team publish --team acme" }) });
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
-    expect(out).toMatchObject({ ok: true, published: { pushed: false, reason: "rt could not push the team repo", next: "rt team publish" } });
+    expect(out).toMatchObject({ ok: false, refused: false, code: "share-failed", why: "rt could not push the team repo" });
+    if (out.ok || out.refused) return;
+    expect(out.remedy?.commands).toEqual(["rt team publish --team acme", `claude plugin marketplace add ${GENERATED("acme")}`, "claude plugin install acme@acme-market"]);
+    expect(calls.steps).toEqual([]);
     expect(fs.exists(`${ACME_PACK}/pack/stubs.jsonc`)).toBe(true);
+  });
+
+  test("a share that needs a pull first names the pull, the share, then the install", async () => {
+    const { deps } = world({ sharePack: async () => ({ pushed: false, reason: "The org repo has changes this Mac does not have yet", next: "rt team pull --team acme", thenRun: "rt team publish --team acme" }) });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    if (out.ok || out.refused) throw new Error("expected a failure");
+    expect(out.remedy?.commands).toEqual(["rt team pull --team acme", "rt team publish --team acme", `claude plugin marketplace add ${GENERATED("acme")}`, "claude plugin install acme@acme-market"]);
+  });
+
+  test("a generated marketplace that could not be written is an install failure, and nothing is added", async () => {
+    const { deps, calls } = world({ writeMarketplace: async (zone) => ({ path: GENERATED(zone.org), skipped: "the org repo has no .claude-plugin/marketplace.json on mattstack" }) });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out).toMatchObject({ ok: false, refused: false, code: "install-failed" });
+    if (out.ok || out.refused) return;
+    expect(out.detail).toContain("the org repo has no .claude-plugin/marketplace.json on mattstack");
+    expect(calls.claude.some((a) => a[2] === "add" || a[1] === "install")).toBe(false);
   });
 
   test("a pack that did not compile is never shared", async () => {
@@ -808,6 +839,7 @@ describe("initPack", () => {
       check: async () => ({ drift: false }),
       sharePack: async () => ({ pushed: true, remote: "https://gitlab.example.com/acme/org.git" }),
       rememberShare: () => {},
+      writeMarketplace: async (zone) => ({ path: GENERATED(zone.org) }),
     };
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out.ok).toBe(true);
@@ -816,10 +848,20 @@ describe("initPack", () => {
     expect(JSON.parse(written!).plugins).toContainEqual({ name: "acme", source: "./mattstack/teams/acme/plugin", description: packDescription("acme") });
   });
 
-  test("a marketplace already listed is not re-added", async () => {
+  test("a marketplace already listed under the same name is re-added from the generated folder", async () => {
     const { deps, calls } = world({ marketplaces: ["acme-market"] });
     await initPack({ repoDir: REPO, zone: null, team: null }, deps);
-    expect(calls.claude.some((a) => a[2] === "add")).toBe(false);
+    expect(calls.claude).toContainEqual(["plugin", "marketplace", "add", GENERATED("acme")]);
+  });
+
+  test("an install that fails names the share, the marketplace add of the generated folder, then the install", async () => {
+    const { deps } = world({
+      claude: async (args) => (args[1] === "install" ? { code: 1, stdout: "", stderr: "boom" } : ok("")),
+    });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    if (out.ok || out.refused) throw new Error("expected a failure");
+    expect(out.code).toBe("install-failed");
+    expect(out.remedy?.commands).toEqual(["rt team publish --team acme", `claude plugin marketplace add ${GENERATED("acme")}`, "claude plugin install acme@acme-market"]);
   });
 
   test("a marketplace add that exits non-zero with already wording still installs", async () => {
@@ -1363,6 +1405,7 @@ describe("initPack against a real org clone", () => {
       check: async () => ({ drift: false }),
       sharePack: (zone, paths) => sharePack(w.p, zone.org, zone.team, paths, async () => null),
       rememberShare: (zone, paths) => rememberPackShare(w.p, zone.org, zone.team, paths),
+      writeMarketplace: (zone) => writeGeneratedMarketplace(w.p, zone.org),
       ...overrides,
     };
   }
@@ -1414,5 +1457,16 @@ describe("initPack against a real org clone", () => {
     expect(files).toContain("mattstack/teams/widgets/plugin/skills/work/SKILL.md");
     expect(files).toContain("mattstack/teams/widgets/settings.team.jsonc");
     expect(JSON.parse(w.atOrigin("show", "main:.claude-plugin/marketplace.json")).plugins).toEqual([expect.objectContaining({ name: "widgets", source: "./mattstack/teams/widgets/plugin" })]);
+  });
+
+  test("the generated marketplace it adds lists the shared pack as a git-subdir entry", async () => {
+    const w = orgWorld("dev1", { settings: { "board.gitlabHost": "gitlab.com" } });
+    const added: string[][] = [];
+    const out = await initPack({ repoDir: REPO, zone: null, team: "widgets" }, realCloneDeps(w, { claude: async (args) => { added.push(args); return ok(""); } }));
+    expect(out.ok).toBe(true);
+    const dir = generatedMarketplaceDir(w.home, "acme");
+    expect(added).toContainEqual(["plugin", "marketplace", "add", dir]);
+    const generated = JSON.parse(readFileSync(join(dir, ".claude-plugin", "marketplace.json"), "utf8"));
+    expect(generated.plugins).toEqual([expect.objectContaining({ name: "widgets", source: expect.objectContaining({ source: "git-subdir", path: "mattstack/teams/widgets/plugin" }) })]);
   });
 });
