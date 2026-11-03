@@ -236,26 +236,31 @@ export function parseHookStdin(raw: string): ParsedStdin {
   return { event: "invalid" };
 }
 
-/** Only a tree's own root counts, never a folder inside one: EnterWorktree switches the session to the path as given. */
-export function isRegisteredWorktreePath(
-  path: unknown,
-  deps: { treeByPath: (p: string) => unknown; realpath: (p: string) => string } = { treeByPath: realTreeGuardDeps.treeByPath, realpath: realpathSync },
-): boolean {
-  if (typeof path !== "string" || !isAbsolute(path)) return false;
+type TreeGuardDeps = { treeByPath: (p: string) => unknown; realpath: (p: string) => string };
+const REAL_TREE_GUARD_DEPS: TreeGuardDeps = { treeByPath: realTreeGuardDeps.treeByPath, realpath: realpathSync };
+
+/** Only a tree's own root counts, never a folder inside one: EnterWorktree switches the session to the path as given. `missing` is a path that does not exist, such as a tree disposed after its PR merged. */
+export function worktreePathState(path: unknown, deps: TreeGuardDeps = REAL_TREE_GUARD_DEPS): "registered" | "unregistered" | "missing" {
+  if (typeof path !== "string" || !isAbsolute(path)) return "unregistered";
   let real: string;
   try {
     real = deps.realpath(path);
-  } catch {
-    return false;
+  } catch (err) {
+    const code = (err as { code?: unknown }).code;
+    return code === "ENOENT" || code === "ENOTDIR" ? "missing" : "unregistered";
   }
-  return deps.treeByPath(path) !== null || deps.treeByPath(real) !== null;
+  return deps.treeByPath(path) !== null || deps.treeByPath(real) !== null ? "registered" : "unregistered";
 }
 
-/** Never call directly: the mattstack plugin's EnterWorktree `tool.check` mod runs it. The mod trusts only this stdout word, since an older rt without the verb, or one not set up, exits nonzero too. */
+export function isRegisteredWorktreePath(path: unknown, deps: TreeGuardDeps = REAL_TREE_GUARD_DEPS): boolean {
+  return worktreePathState(path, deps) === "registered";
+}
+
+/** Never call directly: the mattstack plugin's EnterWorktree `tool.check` mod runs it. The mod trusts only this stdout word (registered, unregistered or missing), since an older rt without the verb, or one not set up, exits nonzero too. */
 export async function isRegisteredCommand(args: string[]): Promise<void> {
-  const registered = isRegisteredWorktreePath(args[0]);
-  out.payload(registered ? "registered\n" : "unregistered\n");
-  process.exit(registered ? 0 : 1);
+  const state = worktreePathState(args[0]);
+  out.payload(`${state}\n`);
+  process.exit(state === "registered" ? 0 : 1);
 }
 
 /**

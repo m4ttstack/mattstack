@@ -33,10 +33,11 @@ Logging is structural, not per-feature. Outcomes are logged at central seams; fe
 Claude Code asks before `EnterWorktree` moves a session into a tree outside
 `.claude/worktrees`, as a safety check no allow rule or classic hook can
 answer. The mattstack plugin's `tool.check` hooks module
-(`plugins/mattstack/hooks/enter-worktree-check.ts`) answers it: it turns the
-ask into an allow only when the hidden `rt worktree is-registered <path>`
-prints `registered`, stops on `unregistered`, and on any other output tries
-the next `rt`, then leaves the ask for the person. The exit code settles
+(`plugins/mattstack/hooks/enter-worktree-check.ts`) answers it, so no agent
+waits on a person: an allow when the hidden `rt worktree is-registered <path>`
+prints `registered`, a deny whose reason says what to do instead when it
+prints `missing` or `unregistered`, and on any other output it tries the next
+`rt`, then leaves the ask for the person. The exit code settles
 nothing, since an rt without the verb, or one not set up, also exits
 nonzero; a change to either word must change the mod with it. The daemon reads and presses nothing
 on that dialog. Do not bring back a screen-reading accept for it: the last
