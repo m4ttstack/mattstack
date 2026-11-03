@@ -25,6 +25,7 @@ own changes.
 | e2e | `e2e-tests` | macOS | anything the compiled binary or the e2e run can reach (below) |
 | e2e | `glitter-pty` | macOS | the paths in `GLITTER_TRIGGERS` (the board's inputs, `e2e.yml`, the scope script) |
 | purity | `purity` | ubuntu | always |
+| unit-linux-probe | `probe` | ubuntu | its own workflow file, or by hand; advisory, never fails a PR |
 
 ## The unit shards' modes
 
