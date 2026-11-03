@@ -55,14 +55,14 @@ describe("runCheck", () => {
   test("runs the command from the tree root with the base, head, tree and full env", async () => {
     const { deps, execCalls } = harness();
     await runCheck("/tree", {}, deps);
-    expect(execCalls[0].argv).toEqual(["/bin/sh", "-c", "bun x"]);
-    expect(execCalls[0].opts?.cwd).toBe("/tree");
-    expect(execCalls[0].opts?.env?.RT_CHECK_BASE).toBe("base456");
-    expect(execCalls[0].opts?.env?.RT_CHECK_HEAD).toBe("abc123");
-    expect(execCalls[0].opts?.env?.RT_CHECK_TREE).toBe("/tree");
-    expect(execCalls[0].opts?.env?.RT_CHECK_FULL).toBeUndefined();
+    expect(execCalls[0]!.argv).toEqual(["/bin/sh", "-c", "bun x"]);
+    expect(execCalls[0]!.opts?.cwd).toBe("/tree");
+    expect(execCalls[0]!.opts?.env?.RT_CHECK_BASE).toBe("base456");
+    expect(execCalls[0]!.opts?.env?.RT_CHECK_HEAD).toBe("abc123");
+    expect(execCalls[0]!.opts?.env?.RT_CHECK_TREE).toBe("/tree");
+    expect(execCalls[0]!.opts?.env?.RT_CHECK_FULL).toBeUndefined();
     await runCheck("/tree", { full: true }, deps);
-    expect(execCalls[1].opts?.env?.RT_CHECK_FULL).toBe("1");
+    expect(execCalls[1]!.opts?.env?.RT_CHECK_FULL).toBe("1");
   });
 
   test("exit 0 with a summary line is green", async () => {
@@ -95,7 +95,7 @@ describe("runCheck", () => {
     const r = await runCheck("/tree", {}, deps);
     expect(r.configured && r.verdict).toBe("error");
     if (r.configured) expect(r.reason).toBe("timed out after 600s");
-    expect(execCalls[0].opts?.timeoutMs).toBe(600_000);
+    expect(execCalls[0]!.opts?.timeoutMs).toBe(600_000);
   });
 
   test("a command that cannot start is an error", async () => {
@@ -117,14 +117,14 @@ describe("runCheck", () => {
     const calls: string[] = [];
     const { deps, execCalls } = harness({}, fakeGit({}, calls));
     await runCheck("/tree", { base: "origin/feat" }, deps);
-    expect(execCalls[0].opts?.env?.RT_CHECK_BASE).toBe("origin/feat");
+    expect(execCalls[0]!.opts?.env?.RT_CHECK_BASE).toBe("origin/feat");
     expect(calls.some((c) => c.startsWith("merge-base"))).toBe(false);
   });
 
   test("the default branch falls back to main", async () => {
     const { deps, execCalls } = harness({}, fakeGit({ "symbolic-ref refs/remotes/origin/HEAD": { code: 1 } }));
     await runCheck("/tree", {}, deps);
-    expect(execCalls[0].opts?.env?.RT_CHECK_BASE).toBe("base456");
+    expect(execCalls[0]!.opts?.env?.RT_CHECK_BASE).toBe("base456");
   });
 });
 
