@@ -9,7 +9,7 @@ import { MIGRATIONS } from "../migrations/index.ts";
 import { teamPacksFromGitMigration } from "../migrations/team-packs-from-git.ts";
 import { readSetupState, updateSetupState, type PendingMarketplaceMove } from "../state.ts";
 import type { ExecResult } from "../probes.ts";
-import { fakeProbes, ok } from "./fakes.ts";
+import { fakeProbes, gitShowFromFiles, ok } from "./fakes.ts";
 
 type Listed = { id: string; scope?: string; enabled: boolean; projectPath?: string };
 type Call = { argv: string[]; dir?: string };
@@ -72,7 +72,7 @@ describe("2026-11-02-team-packs-from-git", () => {
       statPaths,
       exec: async (argv, execOpts) => {
         const dir = execOpts?.env?.CLAUDE_CONFIG_DIR;
-        if (argv[0] === "git") return argv.includes("show") ? ok(ORG_FILE) : ok("");
+        if (argv[0] === "git") return argv[4]?.endsWith(":.claude-plugin/marketplace.json") ? ok(ORG_FILE) : gitShowFromFiles(files, argv) ?? ok("");
         calls.push({ argv: argv.slice(1), dir });
         opts.onExec?.(argv.slice(1), dir);
         const failed = opts.fail?.(argv.slice(1), dir);

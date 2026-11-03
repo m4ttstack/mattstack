@@ -109,7 +109,7 @@ export const teamPacksFromGitMigration: MigrationDef = {
       if (generated.skipped !== undefined) continue;
       const name = marketplaceName(ctx.p, generated.path);
       if (name === null) continue;
-      const served = readServedPacks(ctx.p, slug).packs;
+      const served = (await readServedPacks(ctx.p, slug)).packs;
       const admissionFor = (id: string): Admission => {
         const pack = served.find((x) => x.id === id);
         return pack ? admit(pack.floor, engine) : ADMIT_UNFLOORED;
