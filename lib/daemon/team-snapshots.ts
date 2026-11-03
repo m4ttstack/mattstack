@@ -158,11 +158,19 @@ async function refreshGeneratedMarketplace(p: Probes, org: string, log: Logger, 
   }
   if (!registrationPending.has(org)) return;
 
+  const generatedFile = join(written.path, ".claude-plugin", "marketplace.json");
+  const raw = p.readFile(generatedFile);
   let name: string | null = null;
   try {
-    const parsed = JSON.parse(p.readFile(join(written.path, ".claude-plugin", "marketplace.json")) ?? "null") as { name?: unknown } | null;
+    const parsed = raw === null ? null : (JSON.parse(raw) as { name?: unknown } | null);
     name = typeof parsed?.name === "string" ? parsed.name : null;
-  } catch {}
+  } catch {
+    name = null;
+  }
+  if (name === null) {
+    log.warn({ path: generatedFile, read: raw !== null }, "generated marketplace: could not read its name back, so registration is retried on the next pull");
+    return;
+  }
   const claude = resolveTool(p, "claude");
   if (name === null || !claude.exec) return;
 
