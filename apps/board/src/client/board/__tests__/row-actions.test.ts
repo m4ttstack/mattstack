@@ -1121,6 +1121,19 @@ test('one person with nothing open is a redo that names the next round', () => {
   });
 });
 
+test('a redo names the person the way resume does, not by handle', () => {
+  const { respond } = respondRows({
+    respondRounds: { dk42: 3 },
+    reviews: {
+      isApproved: false,
+      required: 1,
+      given: 0,
+      reviewers: [{ username: 'dk42', name: 'Dana Kerr' }],
+    },
+  });
+  expect(respond?.label).toBe('redo response to Dana (round 4)');
+});
+
 test('several people: one picker item, an option per person, sorted by name', () => {
   const { respond } = respondRows({
     respondTargets: [
