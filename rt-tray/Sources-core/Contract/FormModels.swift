@@ -122,6 +122,13 @@ public struct FormHome: Decodable, Equatable, Sendable {
     public init(label: String, url: String) { self.label = label; self.url = url }
 }
 
+/// The this-mac footer's button and the note beside it.
+public struct FormStart: Decodable, Equatable, Sendable {
+    public var label: String
+    public var note: String
+    public init(label: String, note: String) { self.label = label; self.note = note }
+}
+
 /// `rt setup form --json`. A section read carries only that section, with
 /// `stage` and `paused` null; a whole read carries every section but create.
 public struct SetupForm: Decodable, Equatable, Sendable {
@@ -133,14 +140,16 @@ public struct SetupForm: Decodable, Equatable, Sendable {
     public var sections: FormSections
     public var continueReady: Bool
     public var startReady: Bool
+    /// nil from an rt older than the field.
+    public var start: FormStart?
     public var paused: FormPaused?
     public var home: FormHome
     public init(path: String? = nil, team: FormTeam? = nil, stage: FormStage? = nil, sections: FormSections = FormSections(),
-                continueReady: Bool = false, startReady: Bool = false, paused: FormPaused? = nil, home: FormHome) {
+                continueReady: Bool = false, startReady: Bool = false, start: FormStart? = nil, paused: FormPaused? = nil, home: FormHome) {
         self.path = path; self.team = team; self.stage = stage; self.sections = sections
-        self.continueReady = continueReady; self.startReady = startReady; self.paused = paused; self.home = home
+        self.continueReady = continueReady; self.startReady = startReady; self.start = start; self.paused = paused; self.home = home
     }
-    private enum CodingKeys: String, CodingKey { case path, team, stage, sections, continueReady, startReady, paused, home }
+    private enum CodingKeys: String, CodingKey { case path, team, stage, sections, continueReady, startReady, start, paused, home }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         path = try c.decodeIfPresent(String.self, forKey: .path)
@@ -149,6 +158,7 @@ public struct SetupForm: Decodable, Equatable, Sendable {
         sections = try c.decode(FormSections.self, forKey: .sections)
         continueReady = try c.decode(Bool.self, forKey: .continueReady)
         startReady = try c.decode(Bool.self, forKey: .startReady)
+        start = try c.decodeIfPresent(FormStart.self, forKey: .start)
         paused = try c.decodeIfPresent(FormPaused.self, forKey: .paused)
         home = try c.decode(FormHome.self, forKey: .home)
     }

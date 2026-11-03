@@ -12,6 +12,8 @@ struct ThisMacScreenBody: View {
     let waiting: [String: String]
     let errors: [String: String]
     let startReady: Bool
+    /// rt's footer button and note; nil from an rt older than the field.
+    var start: FormStart? = nil
     let onAction: FormRowPerform
     let onBack: (() -> Void)?
     let onStart: () -> Void
@@ -41,8 +43,9 @@ struct ThisMacScreenBody: View {
             if !cards.repos.isEmpty || !cards.settings.isEmpty { mainCard(cards.repos + cards.settings) }
             if solo { soloNote }
         } footer: {
-            FastFooter(screen: FastSetupScreen.thisMac.rawValue, note: solo ? "About 5 minutes once you start" : "About 10 minutes once you start",
-                       secondary: onBack.map { ("Back", $0) }, primary: ("Set up this Mac", startReady, onStart),
+            FastFooter(screen: FastSetupScreen.thisMac.rawValue,
+                       note: start?.note ?? (solo ? "About 5 minutes once you start" : "About 10 minutes once you start"),
+                       secondary: onBack.map { ("Back", $0) }, primary: (start?.label ?? "Set up this Mac", startReady, onStart),
                        insets: Self.footerInsets, quietSecondary: true)
         }
         .accessibilityElement(children: .contain)

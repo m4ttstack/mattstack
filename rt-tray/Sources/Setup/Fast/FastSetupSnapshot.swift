@@ -307,11 +307,13 @@ enum FastSetupSnapshot {
     @MainActor
     private static func thisMacPages() -> [(String, AnyView)] {
         typealias T = ThisMacRows
-        func page(team: String? = "Mithrandir", _ rows: [FormRow], ready: Bool) -> AnyView {
-            window(ThisMacScreenBody(teamName: team, solo: team == nil, rows: rows, waiting: [:], errors: [:], startReady: ready,
+        func page(team: String? = "Mithrandir", _ rows: [FormRow], ready: Bool, start: FormStart? = nil) -> AnyView {
+            window(ThisMacScreenBody(teamName: team, solo: team == nil, rows: rows, waiting: [:], errors: [:], startReady: ready, start: start,
                                      onAction: { _, _, _ in }, onBack: {}, onStart: {}),
                    .thisMac, path: team == nil ? "solo" : "join")
         }
+        /// `startButton` in lib/setup/form.ts after an ok run whose only open rows are leftovers.
+        let finish = FormStart(label: "Finish setup", note: "Complete the steps above first")
         return [
             ("this-mac", page([T.boardFound, T.widgetsClone, T.backupLocal], ready: true)),
             ("this-mac-as-mock", page([T.mockWidgetsFound, T.mockApiClone, T.backupLocal], ready: true)),
@@ -324,8 +326,8 @@ enum FastSetupSnapshot {
             ("this-mac-remote", page([T.boardFound, T.widgetsClone, T.backupRemote, T.remoteTodo], ready: false)),
             ("this-mac-solo", page(team: nil, [Rows.cltInstalling, T.repoRoot, T.backupSolo], ready: false)),
             ("this-mac-repo-problem", page([T.boardFound, T.widgetsMoved, T.backupLocal], ready: false)),
-            ("this-mac-leftover", page([T.boardFoundAfterRun, T.widgetsFoundAfterRun, T.backupLocal, T.shellLeftover], ready: false)),
-            ("this-mac-backup-leftover", page([T.boardFoundAfterRun, T.widgetsFoundAfterRun, T.backupLocal, T.backupLeftover], ready: false)),
+            ("this-mac-leftover", page([T.boardFoundAfterRun, T.widgetsFoundAfterRun, T.backupLocal, T.shellLeftover], ready: false, start: finish)),
+            ("this-mac-backup-leftover", page([T.boardFoundAfterRun, T.widgetsFoundAfterRun, T.backupLocal, T.backupLeftover], ready: false, start: finish)),
         ]
     }
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { finalizePlan, row, type Action, type OrgRef, type Plan, type Row } from "../contract.ts";
-import { allAnswered, composeForm, thisMacRows, type FormRow, type ThisMacInputs } from "../form.ts";
+import { allAnswered, composeForm, startButton, thisMacRows, type FormRow, type ThisMacInputs } from "../form.ts";
 import type { PrepareRecord } from "../prepare.ts";
 import { HOME_BACKUP_PUSH_ACTION } from "../validators/rt-health.ts";
 import type { Probes } from "../probes.ts";
@@ -253,6 +253,24 @@ describe("thisMacRows", () => {
     const sdm = r("tool.team.sdm", "missing", "sdm is not installed", { finishGated: true, waivable: false, action: { type: "install", label: "Install", tool: "sdm", via: "brew" }, waitsForInstall: true });
     const list = thisMacRows(inputs({ ranOk: true, signIn: [{ name: "sdm", why: "", connect: { integration: "sdm" } }], plan: plan([placeRow(WIDGETS, "ready"), sdm]) }));
     expect(list.some((x) => x.id === "tool.team.sdm")).toBe(false);
+  });
+});
+
+describe("startButton", () => {
+  const open = (id: string): FormRow => ({ id, title: id, subtext: "", state: "todo", detail: "", action: null, waiting: null, watch: false, optional: false });
+  const leftovers = new Set(["tool.extension"]);
+
+  test("before a run it offers Set up this Mac, with Just me's shorter estimate", () => {
+    expect(startButton("join", false, [open("settings.backup")], leftovers)).toEqual({ label: "Set up this Mac", note: "About 10 minutes once you start" });
+    expect(startButton("solo", false, [], leftovers).note).toBe("About 5 minutes once you start");
+  });
+
+  test("after an ok run with only leftovers open, it names what unlocks Finish", () => {
+    expect(startButton("join", true, [open("tool.extension")], leftovers)).toEqual({ label: "Finish setup", note: "Complete the steps above first" });
+  });
+
+  test("after an ok run with an answer still open, the run is still what is next", () => {
+    expect(startButton("join", true, [open("tool.extension"), open("settings.backup")], leftovers).label).toBe("Set up this Mac");
   });
 });
 

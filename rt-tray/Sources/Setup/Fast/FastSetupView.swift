@@ -103,7 +103,7 @@ struct FastSetupView: View {
         case .thisMac:
             let read = form.read(carrying: "this-mac")
             ThisMacScreenBody(teamName: teamPath ? latest?.team?.name : nil, solo: stepPath == "solo", rows: form.rows(for: "this-mac") ?? [],
-                              waiting: actions.waiting, errors: actions.errors, startReady: read?.startReady ?? false,
+                              waiting: actions.waiting, errors: actions.errors, startReady: read?.startReady ?? false, start: read?.start,
                               onAction: perform, onBack: back, onStart: handlers.start)
         case .running:
             RunScreen(model: install, startedAt: status.runStartedAt, paused: nil, onHide: handlers.hide,

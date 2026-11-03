@@ -84,6 +84,8 @@ export interface SetupForm {
   sections: { macos?: FormRow[]; invite?: FormRow[]; restore?: FormRow[]; connect?: FormRow[]; thisMac?: FormRow[]; create?: FormRow[] };
   continueReady: boolean;
   startReady: boolean;
+  /** The this-mac footer's button and the note beside it. */
+  start: { label: string; note: string };
   paused: FormPaused | null;
   home: { label: string; url: string };
 }
@@ -181,7 +183,10 @@ export const FORM_COPY = {
       declined: "GitHub sign-in was declined. Sign in again",
     },
     footer: "About 10 minutes once you start",
+    soloFooter: "About 5 minutes once you start",
     start: "Set up this Mac",
+    finish: "Finish setup",
+    finishNote: "Complete the steps above first",
   },
   home: {
     board: { label: "Open the board", url: "https://board.mattstack" },
@@ -854,6 +859,14 @@ export function allAnswered(rows: FormRow[] | undefined): boolean {
   return rows !== undefined && rows.every((r) => r.optional || r.state === "done");
 }
 
+/** After an ok run whose only open rows are leftovers, a run is not what is next: each leftover's own action is, and the form records Finish once they are done. */
+export function startButton(path: FormPath | null, ranOk: boolean, rows: FormRow[], leftoverIds: ReadonlySet<string>): { label: string; note: string } {
+  const c = FORM_COPY.thisMac;
+  const open = rows.filter((r) => !r.optional && r.state !== "done");
+  if (ranOk && open.length > 0 && open.every((r) => leftoverIds.has(r.id))) return { label: c.finish, note: c.finishNote };
+  return { label: c.start, note: path === "solo" ? c.soloFooter : c.footer };
+}
+
 /**
  * The choice from the four cards while it is pending. A run that ends ok
  * clears it, so the team on disk answers after that, and a Mac with no team
@@ -1105,6 +1118,12 @@ export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupFo
     sections,
     continueReady: allAnswered(sections.connect),
     startReady: allAnswered(sections.thisMac),
+    start: startButton(
+      path,
+      state.run?.ok === true && intent === null,
+      sections.thisMac ?? [],
+      new Set(sections.thisMac ? planRows(await plan()).filter(runFixes).map((r) => r.id) : []),
+    ),
     paused: null,
     home: homeApp(path),
   };
