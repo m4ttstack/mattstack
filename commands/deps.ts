@@ -75,6 +75,10 @@ export async function depsResolve(args: string[], _ctx: CommandContext = {}, p: 
       out.diagnostic(`${t} is neither bundled nor on PATH\n`);
       process.exit(1);
     }
+    if (resolution.exec && resolution.exec.length > 1) {
+      out.diagnostic(`${t} runs through ${resolution.exec.length} entries; --json carries the full exec array\n`);
+      process.exit(1);
+    }
     out.payload(`${isAbsolute(resolution.chosen) ? resolution.chosen : resolve(resolution.chosen)}\n`);
     return;
   }
