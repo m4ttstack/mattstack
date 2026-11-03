@@ -191,6 +191,72 @@ test('a stopped ask renders its reason and offers retry and dismiss', async () =
   );
 });
 
+test('a review a peer board lost renders as a band with retry and dismiss, and its trail names their board', async () => {
+  const calls: string[] = [];
+  const mr = {
+    ...mrWith(),
+    peerReviews: [
+      {
+        mrUrl: 'https://gitlab.example.com/acme/webapp/-/merge_requests/1418',
+        iid: 1418,
+        reviewer: 'grace',
+        status: 'error',
+        reason: 'pane closed',
+        updatedAt: NOW - 60_000,
+      },
+    ],
+  } as unknown as BoardMRWithReview;
+  await render(
+    mr,
+    ctx({
+      onAskRetry: m => calls.push(`retry ${m.iid}`),
+      onAskDismiss: m => calls.push(`dismiss ${m.iid}`),
+    })
+  );
+  const band = container.querySelector('.tui-ask')!;
+  expect(band.getAttribute('data-ask-tone')).toBe('bad');
+  expect(band.getAttribute('data-ask')).toBe('peer-failed');
+  expect(band.textContent).toContain("grace's agent");
+  expect(container.querySelector('.tui-ask-label')?.textContent).toBe(
+    'stopped: pane closed'
+  );
+  expect(buttons()).toEqual(['Retry', 'Dismiss']);
+  await React.act(async () => {
+    container.querySelector<HTMLButtonElement>('.tui-ask-trigger')!.click();
+  });
+  const trail = document.querySelector('.tui-ask-trail')!;
+  expect(trail.textContent).toContain('Review from grace');
+  expect(trail.textContent).toContain("grace's board");
+  expect(trail.textContent).not.toContain('Requested');
+  expect(trail.textContent).toContain(
+    "Retry asks grace's agent to review again."
+  );
+  const [retry, dismiss] = [
+    ...container.querySelectorAll<HTMLButtonElement>('.tui-ask-btn'),
+  ];
+  await React.act(async () => retry!.click());
+  await React.act(async () => dismiss!.click());
+  expect(calls).toEqual(['retry 1418', 'dismiss 1418']);
+});
+
+test('a dismissed peer failure renders nothing', async () => {
+  const mr = {
+    ...mrWith(),
+    peerReviews: [
+      {
+        mrUrl: 'https://gitlab.example.com/acme/webapp/-/merge_requests/1418',
+        iid: 1418,
+        reviewer: 'grace',
+        status: 'error',
+        updatedAt: NOW - 60_000,
+        dismissedAt: NOW,
+      },
+    ],
+  } as unknown as BoardMRWithReview;
+  await render(mr, ctx());
+  expect(container.querySelector('.tui-ask')).toBeNull();
+});
+
 test('a quiet ask renders no update with retry, dismiss and its history trail', async () => {
   const calls: string[] = [];
   await render(
