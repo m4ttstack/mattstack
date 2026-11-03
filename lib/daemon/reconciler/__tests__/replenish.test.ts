@@ -11,7 +11,7 @@ import { loadRegistry, saveRegistry, GOLDEN_BRANCH, type TreeRecord } from "../.
 import { branchExistsLocalAsync } from "../../../worktree/git-async.ts";
 import { tryLockTree } from "../../../worktree/locks.ts";
 import type { WorktreeAppConfig } from "../../../worktree/config.ts";
-import { clonePath, cloneExitCode } from "../../../worktree/clonefile.ts";
+import { inProcessClone } from "../../../worktree/__tests__/in-process-clone.ts";
 import type { CloneRunner } from "../../../worktree/hydrate.ts";
 import {
   withCreateLock,
@@ -240,11 +240,6 @@ describe("replenish.ts: per-instance backoff", () => {
     expect(b.get(repoName)?.failures).toBe(1);
   });
 });
-
-const inProcessClone: CloneRunner = async (src, dst) => {
-  const r = clonePath(src, dst);
-  return { exitCode: cloneExitCode(r), stderr: r.ok ? "" : `clonefile: ${r.message}` };
-};
 
 describe("replenish.ts: chooseCreateMode", () => {
   const same = () => true;
