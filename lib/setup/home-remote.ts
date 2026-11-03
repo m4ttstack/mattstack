@@ -14,6 +14,7 @@ import { createGitHubRepo, githubCreateAccess, readStoredGitHubToken } from "./g
 import type { Probes } from "./probes.ts";
 import { readSetupState, updateSetupState, type HomeBackupChoice } from "./state.ts";
 import { homeGitDir } from "./home-paths.ts";
+import { homeRepoTarget } from "../home/home-repo.ts";
 import { rtCredentialHelper } from "./steps/repos.ts";
 
 export type { HomeBackupChoice } from "./state.ts";
@@ -69,6 +70,9 @@ export async function setHomeRemote(
   let created = false;
   let pushToken: string | null = null;
   if (!url) {
+    if ((await homeOrigin(p)) !== null) {
+      throw new UserActionableError("origin-exists", "Your home repo already has a remote, so rt did not create another. Give its url instead");
+    }
     const stored = await (hooks.githubToken ?? (() => readStoredGitHubToken(p)))();
     const access = stored === null ? null : await githubCreateAccess(p, stored);
     // gh would hit the same outage, and a failed gh create reads as a gh problem.
@@ -131,6 +135,13 @@ export async function setHomeRemote(
   return { url, remote, pushed: true, created };
 }
 
+/** The home repo's origin url, or null when there is no home repo or it has no origin. */
+export async function homeOrigin(p: Pick<Probes, "exists" | "exec" | "home">): Promise<string | null> {
+  if (!p.exists(homeGitDir(p.home))) return null;
+  const origin = await p.exec(["git", "-C", join(p.home, ".mattstack", "user"), "remote", "get-url", "origin"]);
+  return (origin.code === 0 && origin.stdout.trim()) || null;
+}
+
 type StateProbes = Parameters<typeof updateSetupState>[0];
 
 export function stageHomeRemote(p: StateProbes, input: HomeRemoteInput): HomeBackupChoice {
@@ -153,6 +164,23 @@ export function pendingHomeRemote(p: Pick<Probes, "readFile" | "exists" | "home"
   if (url !== undefined) return { url };
   if (create) return { create, ...(name !== undefined ? { name } : {}) };
   return null;
+}
+
+/** True when `rt home restore` can open this origin on another Mac: the same parser restore uses decides. */
+export function isRestorableOrigin(origin: string): boolean {
+  if (!GIT_REMOTE_URL_PATTERN.test(origin)) return false;
+  try {
+    homeRepoTarget(origin);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The home repo's origin when another Mac can restore from it. */
+export async function homeBackupOrigin(p: Pick<Probes, "exists" | "exec" | "home">): Promise<string | null> {
+  const origin = await homeOrigin(p);
+  return origin !== null && isRestorableOrigin(origin) ? origin : null;
 }
 
 /** Written only after a push lands, so the remote is no longer staged. */

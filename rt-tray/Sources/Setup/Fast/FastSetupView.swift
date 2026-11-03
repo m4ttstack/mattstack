@@ -50,7 +50,8 @@ struct FastSetupView: View {
 
     var body: some View {
         let drawn = drawn
-        FastWindowChrome(step: FastStep.counter(for: drawn, path: stepPath)) { screen(drawn) }
+        // Setup status is not a step in setup, so it shows no counter.
+        FastWindowChrome(step: flow.entry == .status ? nil : FastStep.counter(for: drawn, path: stepPath)) { screen(drawn) }
             .onAppear { shown = drawn }
             .onChange(of: drawn) { _, now in shown = now }
             .frame(width: SetupWindowController.width)
@@ -103,7 +104,7 @@ struct FastSetupView: View {
         case .thisMac:
             let read = form.read(carrying: "this-mac")
             ThisMacScreenBody(teamName: teamPath ? latest?.team?.name : nil, solo: stepPath == "solo", rows: form.rows(for: "this-mac") ?? [],
-                              waiting: actions.waiting, errors: actions.errors, startReady: read?.startReady ?? false,
+                              waiting: actions.waiting, errors: actions.errors, startReady: read?.startReady ?? false, start: read?.start, status: flow.entry == .status,
                               onAction: perform, onBack: back, onStart: handlers.start)
         case .running:
             RunScreen(model: install, startedAt: status.runStartedAt, paused: nil, onHide: handlers.hide,

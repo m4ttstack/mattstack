@@ -23,6 +23,7 @@ import {
   type AppSwapSeams,
 } from "./app-swap.ts";
 import { publishDevApp } from "./dev-publish.ts";
+import { packageEditorExtensions } from "./editor-extensions.ts";
 
 export type LegId = "prod-app" | "dev-bundle" | "dev-publish" | "checkout-sync" | "daemon" | "served-suite" | "verify";
 export type LegStatus = "ok" | "skipped" | "aborted" | "error" | "planned";
@@ -473,7 +474,15 @@ async function runDevBundleLeg(
   const buildApps = await seams.exec(["bun", "scripts/build-apps.ts", "--arch", "arm64"], { cwd: bundleDir });
   if (buildApps.exitCode !== 0) return errorLeg("dev-bundle", DEV_BUNDLE_LABEL, `scripts/build-apps.ts failed: ${execTail(buildApps)}`);
 
-  const build = await seams.exec(["rt-tray/build.sh", "dev"], { cwd: bundleDir, ...(release ? { env: { MS_DEV_RELEASE_BUILD: "1" } } : {}) });
+  let vsixEnv: Record<string, string>;
+  try {
+    vsixEnv = await packageEditorExtensions(seams.exec, bundleDir);
+  } catch (err) {
+    if (!(err instanceof UserActionableError)) throw err;
+    return errorLeg("dev-bundle", DEV_BUNDLE_LABEL, err.message);
+  }
+
+  const build = await seams.exec(["rt-tray/build.sh", "dev"], { cwd: bundleDir, env: { ...vsixEnv, ...(release ? { MS_DEV_RELEASE_BUILD: "1" } : {}) } });
   if (build.exitCode !== 0) return errorLeg("dev-bundle", DEV_BUNDLE_LABEL, `build.sh dev failed: ${execTail(build)}`);
 
   // Opening the dev app by hand takes the Mac over from mattstack.app, so it

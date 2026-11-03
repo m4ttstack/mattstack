@@ -13,7 +13,7 @@ import { INIT_OUTPUT_CAPTION, INIT_STEP_FAILED } from "../../home/init-exec.ts";
 import { UserActionableError } from "../../errors.ts";
 import type { ApplyContext } from "../apply.ts";
 import { homeGitDir } from "../home-paths.ts";
-import { markHomeRemoteApplied, pendingHomeRemote, setHomeRemote, stageHomeRemote } from "../home-remote.ts";
+import { homeBackupOrigin, markHomeRemoteApplied, pendingHomeRemote, setHomeRemote, stageHomeRemote } from "../home-remote.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
@@ -106,8 +106,13 @@ async function homeInitRun(ctx: ApplyContext): Promise<StepOutcome> {
 
 /** The staged choice stays on a failure, so the next run tries the push again. */
 async function pushToStagedRemote(ctx: ApplyContext, created: StepOutcome & { state: "done" }): Promise<StepOutcome> {
-  const staged = pendingHomeRemote(ctx.p);
+  let staged = pendingHomeRemote(ctx.p);
   if (staged === null) return created;
+  // A create staged before the home repo had an origin pushes to that origin instead, and is recorded only once the push lands.
+  if (staged.url === undefined) {
+    const origin = await homeBackupOrigin(ctx.p);
+    if (origin !== null) staged = { url: origin };
+  }
   try {
     // A created repo is restaged by its url first, so a Retry after a failed push never creates a second one.
     const result = await setHomeRemote(ctx.p, staged, { onCreated: (url) => stageHomeRemote(ctx.p, { url }) });

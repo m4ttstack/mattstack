@@ -12,6 +12,10 @@ struct ThisMacScreenBody: View {
     let waiting: [String: String]
     let errors: [String: String]
     let startReady: Bool
+    /// rt's footer button and note; nil from an rt older than the field.
+    var start: FormStart? = nil
+    /// Opened from the menu's Setup status… on a finished Mac.
+    var status = false
     let onAction: FormRowPerform
     let onBack: (() -> Void)?
     let onStart: () -> Void
@@ -35,14 +39,15 @@ struct ThisMacScreenBody: View {
     var body: some View {
         let cards = Self.cards(rows)
         FastScreen(insets: Self.insets, spacing: 18) {
-            FastScreenHeader(title: "Last bit: this Mac", subtitle: subtitle, spacing: 18)
+            FastScreenHeader(title: status ? "Setup status" : "Last bit: this Mac", subtitle: subtitle, spacing: 18)
             // Leftovers lead: they are why a finished run came back here, and they hold Set up this Mac.
             if !cards.leftover.isEmpty { card("Still to do", cards.leftover) }
             if !cards.repos.isEmpty || !cards.settings.isEmpty { mainCard(cards.repos + cards.settings) }
             if solo { soloNote }
         } footer: {
-            FastFooter(screen: FastSetupScreen.thisMac.rawValue, note: solo ? "About 5 minutes once you start" : "About 10 minutes once you start",
-                       secondary: onBack.map { ("Back", $0) }, primary: ("Set up this Mac", startReady, onStart),
+            FastFooter(screen: FastSetupScreen.thisMac.rawValue,
+                       note: start?.note ?? (solo ? "About 5 minutes once you start" : "About 10 minutes once you start"),
+                       secondary: onBack.map { ("Back", $0) }, primary: (start?.label ?? "Set up this Mac", startReady, onStart),
                        insets: Self.footerInsets, quietSecondary: true)
         }
         .accessibilityElement(children: .contain)

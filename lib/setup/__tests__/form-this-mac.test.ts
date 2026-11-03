@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { finalizePlan, row, type Action, type OrgRef, type Plan, type Row } from "../contract.ts";
-import { allAnswered, composeForm, thisMacRows, type FormRow, type ThisMacInputs } from "../form.ts";
+import { allAnswered, composeForm, startButton, thisMacRows, type FormRow, type ThisMacInputs } from "../form.ts";
 import type { PrepareRecord } from "../prepare.ts";
 import { HOME_BACKUP_PUSH_ACTION } from "../validators/rt-health.ts";
 import type { Probes } from "../probes.ts";
@@ -256,6 +256,24 @@ describe("thisMacRows", () => {
   });
 });
 
+describe("startButton", () => {
+  const open = (id: string): FormRow => ({ id, title: id, subtext: "", state: "todo", detail: "", action: null, waiting: null, watch: false, optional: false });
+  const leftovers = new Set(["tool.extension"]);
+
+  test("before a run it offers Set up this Mac, with Just me's shorter estimate", () => {
+    expect(startButton("join", false, [open("settings.backup")], leftovers)).toEqual({ label: "Set up this Mac", note: "About 10 minutes once you start" });
+    expect(startButton("solo", false, [], leftovers).note).toBe("About 5 minutes once you start");
+  });
+
+  test("after an ok run with only leftovers open, it names what unlocks Finish", () => {
+    expect(startButton("join", true, [open("tool.extension")], leftovers)).toEqual({ label: "Finish setup", note: "Complete the steps above first" });
+  });
+
+  test("after an ok run with an answer still open, the run is still what is next", () => {
+    expect(startButton("join", true, [open("tool.extension"), open("settings.backup")], leftovers).label).toBe("Set up this Mac");
+  });
+});
+
 describe("composeForm", () => {
   const NO_SECRETS = { has: async () => null, hasAdmin: async () => null, ownAgeKey: async () => null };
   const MAC_ANSWERS: Record<string, string> = { sw_vers: "26.0", uname: "arm64", rt: "rt 2.30.0" };
@@ -285,6 +303,30 @@ describe("composeForm", () => {
     });
     const form = await composeForm(p, { sections: ["this-mac"], secrets: NO_SECRETS, orgs: [] });
     expect(pick(form.sections.thisMac ?? [], "settings.remote")).toMatchObject({ state: "done", detail: url });
+  });
+
+  test("a home repo with an origin and no recorded choice reads as backed up there", async () => {
+    const origin = "https://github.com/janedoe/mattstack-home.git";
+    const p = fakeProbes({
+      home: "/fake-home",
+      now: NOW,
+      dirs: { "/fake-home/.mattstack/user/.git": [] },
+      exec: (argv) => (argv.includes("get-url") ? { code: 0, stdout: `${origin}\n`, stderr: "" } : exec(argv)),
+    });
+    const list = (await composeForm(p, { sections: ["this-mac"], secrets: NO_SECRETS, orgs: [] })).sections.thisMac ?? [];
+    expect(pick(list, "settings.backup")).toMatchObject({ state: "done", action: { selected: "remote" } });
+    expect(pick(list, "settings.remote")).toMatchObject({ state: "done", detail: origin });
+  });
+
+  test("a home repo whose origin is a local path is not a backup, so the choice stays open", async () => {
+    const p = fakeProbes({
+      home: "/fake-home",
+      now: NOW,
+      dirs: { "/fake-home/.mattstack/user/.git": [] },
+      exec: (argv) => (argv.includes("get-url") ? { code: 0, stdout: "/tmp/home.git\n", stderr: "" } : exec(argv)),
+    });
+    const list = (await composeForm(p, { sections: ["this-mac"], secrets: NO_SECRETS, orgs: [] })).sections.thisMac ?? [];
+    expect(pick(list, "settings.backup").state).toBe("todo");
   });
 
   describe("a team created after a Just me run ended ok", () => {
@@ -328,6 +370,14 @@ describe("the remote repo row signs in to GitHub", () => {
   const remote = (over: Partial<ThisMacInputs>) => pick(thisMacRows(inputs({ backup: { mode: "remote" }, githubClientId: "acme-client", ...over })), "settings.remote");
   const SIGN_IN = ["setup", "github", "sign-in"];
   const live = { userCode: "ABCD-1234", url: "https://github.com/login/device", expiresAt: "2026-10-30T10:10:00.000Z", pid: 4242 };
+
+  test("an origin restore cannot open asks for a url, never offers a create or sign-in it cannot use", () => {
+    for (const over of [{ ghSignedIn: true }, { githubReady: true }, {}]) {
+      expect(remote({ originUnsupported: true, ...over }).action).toMatchObject({ type: "form", verb: ["home", "remote", "set"] });
+    }
+    const staged = pick(thisMacRows(inputs({ backup: { mode: "remote", create: true }, originUnsupported: true })), "settings.remote");
+    expect(staged).toMatchObject({ state: "todo", action: { type: "form", verb: ["home", "remote", "set"] } });
+  });
 
   test("a staged url or create is done and shows no action", () => {
     expect(remote({ homeRemote: "git@github.com:janedoe/mattstack-home.git" })).toMatchObject({ state: "done", detail: "git@github.com:janedoe/mattstack-home.git", action: null });

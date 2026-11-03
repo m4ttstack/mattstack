@@ -115,7 +115,7 @@ export function checkRtContextExtension(
     else bare.push(editor.name);
   }
 
-  const name = "rt-context extension";
+  const name = "Editor extensions";
   const uncheckedNote = unchecked.length > 0 ? `. rt can't check ${unchecked.join(", ")}` : "";
   if (partial.length > 0 || bare.length > 0) {
     const gaps = [...partial, ...(bare.length > 0 ? [`${partial.length > 0 ? "not" : "Not"} installed in ${bare.join(", ")}`] : [])];
@@ -321,10 +321,10 @@ function extensionRow(p: Probes): Row {
   const base = {
     id: "tool.extension",
     kind: "tool" as const,
-    title: "rt-context extension",
-    why: "Gives your editor rt-aware context.",
+    title: "Editor extensions",
+    why: "Skill blocks and rt context in your editor.",
     required: false,
-    optionalNote: "Works without this; your editor just won't have rt-aware context.",
+    optionalNote: "Works without this; your editor just won't show skill blocks or rt context.",
   };
   const result = checkRtContextExtension(p);
   if (result.status === "pass") return row({ ...base, status: "ready", detail: result.detail });

@@ -6,6 +6,7 @@
  */
 import { UserActionableError } from "../errors.ts";
 import type { RunResult } from "../subprocess.ts";
+import { packageEditorExtensions } from "./editor-extensions.ts";
 import {
   dropCachedEntry,
   findCachedBuild,
@@ -181,6 +182,8 @@ export async function stageLocalDevApp(seams: StageSeams, cwd: string): Promise<
     );
   }
 
+  const vsixEnv = Object.entries(await packageEditorExtensions(seams.exec, scratch)).map(([k, v]) => `${k}=${v}`);
+
   const identityEnv = buildIdentity
     ? [
         `MS_BUILD_TREE=${buildIdentity.tree}`,
@@ -190,7 +193,7 @@ export async function stageLocalDevApp(seams: StageSeams, cwd: string): Promise<
       ]
     : [];
   const build = await seams.exec(
-    ["env", `MS_BUILD_STAMP=${stamp}`, ...identityEnv, `RT_VERSION=${version}`, "rt-tray/build.sh", "dev"],
+    ["env", `MS_BUILD_STAMP=${stamp}`, ...identityEnv, ...vsixEnv, `RT_VERSION=${version}`, "rt-tray/build.sh", "dev"],
     { cwd: scratch, timeoutMs: 1_800_000 },
   );
   if (build.exitCode !== 0) throw new UserActionableError("dev-app-build-failed", `build.sh dev failed: ${tail(build)}`);

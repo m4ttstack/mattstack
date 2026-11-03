@@ -229,6 +229,23 @@ describe("stageLocalDevApp", () => {
     expect(build).toBeGreaterThan(buildApps);
   });
 
+  test("both editor extensions are packaged in the scratch copy and handed to build.sh", async () => {
+    const { seams, calls, cwds } = fakeSeams({ sourceDeps: "none" });
+    await stageLocalDevApp(seams, "/src/tree/rt-tray");
+    const packaged = calls.flatMap((c, i) => (c.startsWith("bunx vsce package") ? [cwds[i]] : []));
+    expect(packaged).toEqual(["/scratch/extensions/vscode/rt-context", "/scratch/extensions/vscode/skill-blocks"]);
+    const build = calls.find((c) => c.includes("rt-tray/build.sh dev"))!;
+    expect(build).toContain(" RT_VSIX=/scratch/extensions/vscode/rt-context/rt-context.vsix ");
+    expect(build).toContain(" RT_SKILL_BLOCKS_VSIX=/scratch/extensions/vscode/skill-blocks/skill-blocks.vsix ");
+  });
+
+  test("an extension that fails to package fails the stage before build.sh", async () => {
+    const { seams, calls } = fakeSeams({ sourceDeps: "none", failCmd: "bunx vsce package" });
+    const err = await stageLocalDevApp(seams, "/src/tree/rt-tray").catch((e: unknown) => e);
+    expect((err as Error).message).toContain("rt-context");
+    expect(calls.some((c) => c.includes("rt-tray/build.sh dev"))).toBe(false);
+  });
+
   test("a failed bun install in the scratch copy fails the stage and never runs build-apps or build.sh", async () => {
     const { seams, calls } = fakeSeams({ sourceDeps: "none", failCmd: "bun install --frozen-lockfile" });
     const err = await stageLocalDevApp(seams, "/src/tree").catch((e: unknown) => e);

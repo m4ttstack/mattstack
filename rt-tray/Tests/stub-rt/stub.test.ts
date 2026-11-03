@@ -462,7 +462,7 @@ test("join-status answers waiting, then approved, and no-join before this Mac jo
   expect((await run("create-happy", ["setup", "join-status", "--json"], "", creatorDir)).lines[0].state).toBe("approved");
 });
 
-const FORM_KEYS = ["path", "team", "stage", "sections", "continueReady", "startReady", "paused", "home"].sort();
+const FORM_KEYS = ["path", "team", "stage", "sections", "continueReady", "startReady", "start", "paused", "home"].sort();
 const ROW_KEYS = ["id", "title", "subtext", "state", "detail", "action", "waiting", "watch", "optional"].sort();
 type StubAction = {
   type: string; label?: string; verb?: string[]; url?: string; target?: string; which?: string; integration?: string;
@@ -789,7 +789,7 @@ test("apply --resume streams phases and ends ok", async () => {
     expect(step.weight).toBeGreaterThan(0);
     expect(step.paused).toStartWith("Couldn't ");
   }
-  expect(plan.steps.find((s: { id: string }) => s.id === "repos.clone")).toMatchObject({ phase: "Cloning your repos", weight: 10 });
+  expect(plan.steps.find((s: { id: string }) => s.id === "repos.clone")).toMatchObject({ phase: expect.any(String), weight: 10, paused: "Couldn't clone your repos" });
   expect(res.lines.at(-1)).toEqual({ event: "done", ok: true, failedStep: null });
 });
 

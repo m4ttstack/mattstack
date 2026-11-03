@@ -35,6 +35,14 @@ describe("applyExpectations", () => {
     expect(out).toMatchObject({ required: false, finishGated: true, waivable: false, optionalNote: null, action: ADD_LINEAR_MCP });
   });
 
+  test("a missing editor extension never holds Finish, so a finished Mac is not sent back to setup", () => {
+    for (const id of ["tool.extension", "tool.vsix"]) {
+      const out = one(rowOf(id, "needs-you"));
+      expect(out).toMatchObject({ required: false, optionalNote: "Works without this." });
+      expect(out.finishGated).toBeUndefined();
+    }
+  });
+
   test("board peering waiting on the org admin stays a task, but never holds Finish", () => {
     const steps: Action = { type: "steps", label: "Show steps…", steps: ["Ask your org admin"] };
     const out = one(rowOf("account.board-peering", "needs-you", { action: steps }));
