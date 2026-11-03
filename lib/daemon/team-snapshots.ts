@@ -4,8 +4,8 @@
  * the set is rescanned on an orgs/ watch event, never fixed at boot.
  */
 
-import { existsSync, readdirSync, readFileSync, watch as fsWatch } from "fs";
-import { join } from "path";
+import { existsSync, readdirSync, readFileSync, realpathSync, watch as fsWatch } from "fs";
+import { join, resolve } from "path";
 import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
 
@@ -13,7 +13,14 @@ import { getSetting } from "../settings/resolve.ts";
 import type { Value } from "../settings/registry-schemas.ts";
 import { orgsDir } from "../rt-paths.ts";
 import { createRealProbes, type Probes } from "../setup/probes.ts";
-import { convergePackCache } from "../setup/pack-cache.ts";
+import { claudeMessage, convergePackCache, isAlready, PACK_EXEC_TIMEOUT_MS } from "../setup/pack-cache.ts";
+import { generatedMarketplaceRef, writeGeneratedMarketplace } from "../setup/generated-marketplace.ts";
+import { parseMarketplaceList } from "../setup/marketplace-list.ts";
+import { claudeConfigDirs } from "../setup/tools-install.ts";
+import { resolveTool } from "../deps/resolve.ts";
+import { cswapConfigDirs } from "../cswap.ts";
+import { checkedOutBranch } from "../team/org-branch.ts";
+import { warn } from "../ui/warn.ts";
 import { hasKvValue, setKvValue } from "../state/kv-blob.ts";
 import { parseOriginUrl } from "../setup/team-settings.ts";
 import { UserActionableError } from "../errors.ts";
@@ -87,13 +94,94 @@ function originOf(dir: string): string | null {
   }
 }
 
-/** The converge first, then a pack it changed gets the member's disabled skills back, then the clone's cone follows the role, then the post-pull hooks; the cone and the hooks run even when the converge threw, and a cone that failed never fails the pull. */
+const parkedWarned = new Set<string>();
+export function __resetParkedWarnings(): void {
+  parkedWarned.clear();
+}
+
+/** Claude may record the path it was given or its realpath (macOS tmp folders differ). */
+function samePath(a: string, b: string): boolean {
+  const real = (path: string): string => {
+    try {
+      return realpathSync(path);
+    } catch {
+      return resolve(path);
+    }
+  };
+  return real(a) === real(b);
+}
+
+/**
+ * Registering the generated folder the first time belongs to setup, which
+ * also reinstalls the packs from it; the daemon adds it only when no config
+ * dir knows it yet, so a pull that adds a team still reaches a Mac setup has
+ * not migrated. Never throws.
+ */
+async function refreshGeneratedMarketplace(p: Probes, org: string, log: Logger, write: typeof writeGeneratedMarketplace): Promise<void> {
+  let written: Awaited<ReturnType<typeof writeGeneratedMarketplace>>;
+  try {
+    written = await write(p, org);
+  } catch (err) {
+    log.warn({ err }, `generated marketplace: could not rewrite it: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+  if (written.skipped) {
+    log.debug({ skipped: written.skipped }, "generated marketplace: not written");
+    return;
+  }
+  if (!written.changed) return;
+  log.info({ path: written.path, dropped: written.dropped }, "generated marketplace: rewritten");
+
+  let name: string | null = null;
+  try {
+    const parsed = JSON.parse(p.readFile(join(written.path, ".claude-plugin", "marketplace.json")) ?? "null") as { name?: unknown } | null;
+    name = typeof parsed?.name === "string" ? parsed.name : null;
+  } catch {}
+  const claude = resolveTool(p, "claude");
+  if (name === null || !claude.exec) return;
+
+  for (const configDir of claudeConfigDirs(p, cswapConfigDirs(p))) {
+    const listed = await p.exec([...claude.exec, "plugin", "marketplace", "list", "--json"], { env: { CLAUDE_CONFIG_DIR: configDir }, timeoutMs: PACK_EXEC_TIMEOUT_MS });
+    const known = listed.code === 0 ? parseMarketplaceList(listed.stdout) : null;
+    if (known === null) {
+      log.warn({ configDir, code: listed.code }, "generated marketplace: could not read Claude's marketplace list, so registering it is left to setup");
+      return;
+    }
+    if (known.some((m) => m.name === name && m.source !== null && samePath(m.source, written.path))) return;
+  }
+  const added = await p.exec([...claude.exec, "plugin", "marketplace", "add", written.path], { timeoutMs: PACK_EXEC_TIMEOUT_MS });
+  if (added.code !== 0 && !isAlready(added)) {
+    log.warn({ path: written.path, detail: claudeMessage(added, `exited ${added.code}`) }, "generated marketplace: claude plugin marketplace add failed");
+    return;
+  }
+  log.info({ path: written.path, marketplace: name }, "generated marketplace: registered");
+}
+
+/** A clone parked off the ref keeps the ref's packs, so every pull would otherwise look like a no-op update; one warning per org per daemon. Never throws. */
+async function warnIfParked(p: Probes, org: string, dir: string): Promise<void> {
+  if (parkedWarned.has(org)) return;
+  try {
+    const ref = generatedMarketplaceRef(p, dir);
+    const branch = await checkedOutBranch(p, dir);
+    if (branch === null || branch === ref) return;
+    parkedWarned.add(org);
+    warn("team-snapshots", `The ${org} org clone is on ${branch}, not ${ref}, so its team packs stay at ${ref}'s versions until it is back on ${ref}`, {
+      context: { org, branch, ref },
+    });
+  } catch {
+    /* a branch git cannot name is not a parked clone */
+  }
+}
+
+/** The generated marketplace is rewritten first (a pull can add a team), then the converge, then a pack it changed gets the member's disabled skills back, then the clone's cone follows the role, then the post-pull hooks; the cone and the hooks run even when the converge threw, and a cone that failed never fails the pull. */
 export function createOnPulled(opts: {
   probes: Probes;
   slug: string;
   dir: string;
   log: Logger;
   converge: typeof convergePackCache;
+  /** Injectable so a test can order it against the converge. */
+  writeMarketplace?: typeof writeGeneratedMarketplace;
   afterPull?: (slug: string) => Promise<void>;
   applyCone?: typeof applyRoleCone;
   /** Injectable so a test can stand in for a daemon whose settings will not read. */
@@ -126,6 +214,8 @@ export function createOnPulled(opts: {
   };
   return async () => {
     try {
+      await refreshGeneratedMarketplace(opts.probes, opts.slug, opts.log, opts.writeMarketplace ?? writeGeneratedMarketplace);
+      await warnIfParked(opts.probes, opts.slug, opts.dir);
       const result = await opts.converge(opts.probes, opts.slug, opts.log);
       if (result.updated.length > 0 || result.installed.length > 0) reapplyDisabledSkills();
       for (const h of result.held) {

@@ -3,7 +3,8 @@ import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { createOnMoved, createOnPulled, PAUSE_SETTLE_MS, startTeamSnapshots } from "../team-snapshots.ts";
+import { __resetParkedWarnings, createOnMoved, createOnPulled, PAUSE_SETTLE_MS, startTeamSnapshots } from "../team-snapshots.ts";
+import { __test__ as warnTest, setWarningLog } from "../../ui/warn.ts";
 import type { SnapshotSpec } from "../home-snapshot.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { createRealProbes } from "../../setup/probes.ts";
@@ -395,6 +396,114 @@ describe("startTeamSnapshots", () => {
     await onPulled();
     expect(order).toEqual(["after"]);
     expect(warned(log, "could not apply the role")).toBe(true);
+  });
+
+  describe("createOnPulled and the generated marketplace", () => {
+    const home = "/h";
+    const generated = "/h/.mattstack/rt/marketplaces/acme";
+    const nothing = { held: [], updated: [], installed: [] };
+
+    /** `registered` maps a config dir to the marketplace list Claude answers there; any `git` call answers as a clone on `branch`. */
+    function harness(opts: { changed: boolean; registered?: Record<string, unknown[]>; branch?: string; listFails?: boolean }) {
+      const calls: { argv: string[]; configDir: string | undefined }[] = [];
+      const probes = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/claude": "bin", [`${generated}/.claude-plugin/marketplace.json`]: JSON.stringify({ name: "acme", plugins: [] }) },
+        exec: (argv, o) => {
+          if (argv[0] === "git") return { code: 0, stdout: `${opts.branch ?? "main"}\n`, stderr: "" };
+          const configDir = o?.env?.CLAUDE_CONFIG_DIR;
+          calls.push({ argv: argv.slice(1), configDir });
+          if (argv.includes("list")) {
+            if (opts.listFails) return { code: 1, stdout: "", stderr: "boom" };
+            return { code: 0, stdout: JSON.stringify(opts.registered?.[configDir ?? ""] ?? []), stderr: "" };
+          }
+          return { code: 0, stdout: "", stderr: "" };
+        },
+      });
+      const order: string[] = [];
+      const log = fakeLog();
+      const onPulled = createOnPulled({
+        probes,
+        slug: "acme",
+        dir: "/h/.mattstack/orgs/acme",
+        log,
+        converge: (async () => { order.push("converge"); return nothing; }) as never,
+        writeMarketplace: async () => { order.push("write"); return { path: generated, changed: opts.changed, dropped: [] }; },
+        applyCone: async () => ({ applied: [], kept: [] }),
+        readChoices: () => ({}),
+      });
+      return { onPulled, calls, order, log };
+    }
+
+    test("the folder is rewritten before the converge", async () => {
+      const { onPulled, order } = harness({ changed: false });
+      await onPulled();
+      expect(order).toEqual(["write", "converge"]);
+    });
+
+    test("an unchanged folder asks Claude nothing", async () => {
+      const { onPulled, calls } = harness({ changed: false });
+      await onPulled();
+      expect(calls).toEqual([]);
+    });
+
+    test("a changed folder no config dir knows is added once, bare", async () => {
+      const { onPulled, calls } = harness({ changed: true, registered: { "/h/.claude": [{ name: "acme", source: "directory", path: "/h/.mattstack/orgs/acme" }] } });
+      await onPulled();
+      expect(calls.filter((c) => c.argv.includes("add"))).toEqual([{ argv: ["plugin", "marketplace", "add", generated], configDir: undefined }]);
+    });
+
+    test("a changed folder already registered somewhere is left to setup", async () => {
+      const { onPulled, calls } = harness({ changed: true, registered: { "/h/.claude": [{ name: "acme", source: "directory", path: generated }] } });
+      await onPulled();
+      expect(calls.map((c) => c.argv.join(" "))).toEqual(["plugin marketplace list --json"]);
+    });
+
+    test("an unreadable marketplace list adds nothing and still converges", async () => {
+      const { onPulled, calls, order, log } = harness({ changed: true, listFails: true });
+      await onPulled();
+      expect(calls.some((c) => c.argv.includes("add"))).toBe(false);
+      expect(order).toEqual(["write", "converge"]);
+      expect(warned(log, "left to setup")).toBe(true);
+    });
+
+    test("a rewrite that throws is logged and the converge still runs", async () => {
+      const log = fakeLog();
+      const order: string[] = [];
+      const onPulled = createOnPulled({
+        probes: fakeProbes({ home }),
+        slug: "acme",
+        dir: "/h/.mattstack/orgs/acme",
+        log,
+        converge: (async () => { order.push("converge"); return nothing; }) as never,
+        writeMarketplace: async () => { throw new Error("disk full"); },
+        applyCone: async () => ({ applied: [], kept: [] }),
+        readChoices: () => ({}),
+      });
+      await onPulled();
+      expect(order).toEqual(["converge"]);
+      expect(warned(log, "disk full")).toBe(true);
+    });
+
+    test("a clone parked off the data branch warns once per org, and still converges every pull", async () => {
+      __resetParkedWarnings();
+      const seen: { module: string; message: string }[] = [];
+      setWarningLog((module, message) => { seen.push({ module, message }); });
+      try {
+        const { onPulled, order } = harness({ changed: false, branch: "trial" });
+        await onPulled();
+        await onPulled();
+        expect(order).toEqual(["write", "converge", "write", "converge"]);
+        expect(seen).toEqual([{ module: "team-snapshots", message: "The acme org clone is on trial, not main, so its team packs stay at main's versions until it is back on main" }]);
+        const other = harness({ changed: false, branch: "main" });
+        await other.onPulled();
+        expect(seen).toHaveLength(1);
+      } finally {
+        warnTest.reset();
+        __resetParkedWarnings();
+      }
+    });
   });
 
   describe("createOnPulled keeps model invocation disabled", () => {
