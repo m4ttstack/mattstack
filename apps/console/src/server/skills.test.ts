@@ -2,7 +2,12 @@
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { RtNotFoundError, WRITE_TIMEOUT_MS } from './rt-bin';
+import {
+  READ_TIMEOUT_MS,
+  RtNotFoundError,
+  RtTimeoutError,
+  WRITE_TIMEOUT_MS,
+} from './rt-bin';
 import { mountSkills, type ReadPackFile } from './skills';
 
 const fakeRt = (result: { code: number; stdout: string; stderr: string }) => {
@@ -222,6 +227,104 @@ describe('skills routes', () => {
     await app.request('/api/skills/surface?pack=demo');
 
     expect(rt.run).toHaveBeenCalledTimes(1);
+  });
+
+  it('shares one spawn between concurrent requests for the same read', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(r => (release = r));
+    const run = vi.fn(async () => {
+      await gate;
+      return {
+        code: 0,
+        stdout: JSON.stringify({ pack: 'demo', verbs: [] }),
+        stderr: '',
+      };
+    });
+    const app = mountSkills(new Hono(), run);
+
+    const first = app.request('/api/skills/composition?pack=demo');
+    const second = app.request('/api/skills/composition?pack=demo');
+    release();
+    const [a, b] = await Promise.all([first, second]);
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+  });
+
+  it('shares a read still in flight past the cache TTL instead of spawning again', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(r => (release = r));
+    const run = vi.fn(async () => {
+      await gate;
+      return {
+        code: 0,
+        stdout: JSON.stringify({ pack: 'demo', verbs: [] }),
+        stderr: '',
+      };
+    });
+    const now = vi.spyOn(Date, 'now').mockReturnValue(0);
+    const app = mountSkills(new Hono(), run);
+
+    const first = app.request('/api/skills/composition?pack=demo');
+    now.mockReturnValue(60_000);
+    const second = app.request('/api/skills/composition?pack=demo');
+    release();
+    await Promise.all([first, second]);
+    now.mockRestore();
+
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('never serves an empty-output read from the cache', async () => {
+    const rt = fakeRt({ code: 1, stdout: '', stderr: 'boom' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    await app.request('/api/skills/composition?pack=demo');
+    await app.request('/api/skills/composition?pack=demo');
+
+    expect(rt.run).toHaveBeenCalledTimes(2);
+  });
+
+  it('answers a timed-out read with a JSON 502 naming the timeout, and never caches it', async () => {
+    const run = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new RtTimeoutError(['skills', 'composition'], READ_TIMEOUT_MS)
+      )
+      .mockResolvedValue({
+        code: 0,
+        stdout: JSON.stringify({ pack: 'demo', verbs: [] }),
+        stderr: '',
+      });
+    const app = mountSkills(new Hono(), run);
+
+    const failed = await app.request('/api/skills/composition?pack=demo');
+    expect(failed.status).toBe(502);
+    await expect(failed.json()).resolves.toEqual({
+      error: expect.stringContaining('took longer than 30s'),
+    });
+
+    const retried = await app.request('/api/skills/composition?pack=demo');
+    expect(retried.status).toBe(200);
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it("holds a read open past its spawn timeout, past Bun's 10s idle drop", async () => {
+    const rt = fakeRt({
+      code: 0,
+      stdout: JSON.stringify({ pack: 'demo', verbs: [] }),
+      stderr: '',
+    });
+    const timeout = vi.fn();
+    const app = mountSkills(new Hono(), rt.run);
+
+    await app.request('/api/skills/composition?pack=demo', {}, { timeout });
+
+    expect(timeout).toHaveBeenCalledWith(
+      expect.any(Request),
+      READ_TIMEOUT_MS / 1000 + 10
+    );
   });
 
   it('does not share a cache entry across different packs', async () => {
@@ -1974,7 +2077,9 @@ describe('write routes', () => {
           );
         return handler(argv);
       });
-      const timeout = vi.fn(() => order.push('arm'));
+      const timeout = vi.fn((_req: Request, seconds: number) => {
+        if (seconds === WRITE_TIMEOUT_MS / 1000 + 10) order.push('arm');
+      });
       const app = mountSkills(new Hono(), rt.run);
 
       const res = await app.request(

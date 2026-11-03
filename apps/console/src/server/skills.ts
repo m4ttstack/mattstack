@@ -17,6 +17,7 @@ import { runGit as liveRunGit, type RunGit } from './git-bin';
 import { GIT_LOG_FORMAT, parseGitLog, type GitCommit } from './gitLog';
 import {
   runRt as liveRunRt,
+  READ_TIMEOUT_MS,
   RtNotFoundError,
   WRITE_TIMEOUT_MS,
   type RunRt,
@@ -855,9 +856,20 @@ const WRITE = { timeoutMs: WRITE_TIMEOUT_MS };
     this call, so a route arms it again before each spawn: armed once, a
     read and two writes would outlast it. */
 function holdOpenForWrite(env: unknown, request: Request): void {
+  holdOpen(env, request, WRITE_TIMEOUT_MS);
+}
+
+/** Bun's 10s idle drop reaches the browser as the proxy's HTML 502, which
+    the page cannot parse; a read stays open past its own spawn timeout so
+    the route answers with its JSON error instead. */
+function holdOpenForRead(env: unknown, request: Request): void {
+  holdOpen(env, request, READ_TIMEOUT_MS);
+}
+
+function holdOpen(env: unknown, request: Request, spawnMs: number): void {
   (
     env as { timeout?: (request: Request, seconds: number) => void } | undefined
-  )?.timeout?.(request, WRITE_TIMEOUT_MS / 1000 + 10);
+  )?.timeout?.(request, spawnMs / 1000 + 10);
 }
 
 /** An app-owned skill's installed name: `<app>:<skill>`, no path in it. */
@@ -884,7 +896,9 @@ export function mountSkills(
   realpath: (path: string) => Promise<string> = path => fsRealpath(path),
   skillsDir: () => string = installedSkillsDir
 ) {
-  const cache = new Map<string, { at: number; result: RtRunResult }>();
+  /** `at` is null while the spawn is in flight. */
+  type CacheEntry = { at: number | null; result: Promise<RtRunResult> };
+  const cache = new Map<string, CacheEntry>();
 
   /** Where an app installed a skill the pack fills (`board:review`), by the
       name rt reports for it; never a name from the request. */
@@ -970,13 +984,25 @@ export function mountSkills(
     }
   }
 
-  async function cachedRun(argv: string[]): Promise<RtRunResult> {
+  /** Concurrent identical reads share one spawn: the rail and the page ask
+      for the same composition at once, and every extra rt competes for the
+      same CPU on a cold load. A read in flight is shared however long it
+      runs; only a settled one with output is served from cache. */
+  function cachedRun(argv: string[]): Promise<RtRunResult> {
     const key = JSON.stringify(argv);
     const hit = cache.get(key);
-    if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.result;
-    const result = await runRt(argv);
-    cache.set(key, { at: Date.now(), result });
-    return result;
+    if (hit && (hit.at === null || Date.now() - hit.at < CACHE_TTL_MS))
+      return hit.result;
+    const entry: CacheEntry = { at: null, result: runRt(argv) };
+    cache.set(key, entry);
+    const forget = () => {
+      if (cache.get(key) === entry) cache.delete(key);
+    };
+    entry.result.then(result => {
+      if (result.stdout.trim()) entry.at = Date.now();
+      else forget();
+    }, forget);
+    return entry.result;
   }
 
   /** Every cached read whose argv names this pack: a write to the pack makes
@@ -992,6 +1018,11 @@ export function mountSkills(
       if (Array.isArray(argv) && argv.includes(pack)) cache.delete(key);
     }
   }
+
+  app.use('/api/skills/*', async (c, next) => {
+    holdOpenForRead(c.env, c.req.raw);
+    await next();
+  });
 
   return app
     .get('/api/skills/packs', async c => {

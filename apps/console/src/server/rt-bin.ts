@@ -47,13 +47,26 @@ export function resolveRtBin():
   return { path: null, searched };
 }
 
-/** A wedged `claude` subprocess inside a wedged `rt` must surface as a 502, not a hung page. */
-export const READ_TIMEOUT_MS = 10_000;
+export class RtTimeoutError extends Error {
+  constructor(argv: string[], timeoutMs: number) {
+    super(
+      `rt ${argv.join(' ')} took longer than ${timeoutMs / 1000}s and was stopped`
+    );
+    this.name = 'RtTimeoutError';
+  }
+}
+
+/** A wedged `claude` subprocess inside a wedged `rt` must surface as a 502,
+    not a hung page. A cold pack read takes 2-6s alone and the Packs page
+    starts five at once, so 10s was not enough headroom. */
+export const READ_TIMEOUT_MS = 30_000;
 
 /** A write recompiles the pack (a bind regenerates its manifest first), and a
     sync also pushes and refreshes the installed cache: tens of seconds on a
     large pack, where a read takes a second or two. */
 export const WRITE_TIMEOUT_MS = 120_000;
+
+const KILL_GRACE_MS = 2_000;
 
 /**
  * The one Bun-only call in this module -- unreachable from vitest's Node
@@ -72,16 +85,29 @@ export const runRt: RunRt = async (
     stdout: 'pipe',
     stderr: 'pipe',
   });
-  const timeout = setTimeout(() => proc.kill(), timeoutMs);
+  // Settles on the deadline itself, not on exit: a grandchild that keeps
+  // rt's pipes open, or an rt that ignores SIGTERM, would otherwise hold the
+  // read past every timeout above it.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      proc.kill();
+      setTimeout(() => proc.kill('SIGKILL'), KILL_GRACE_MS).unref?.();
+      reject(new RtTimeoutError(argv, timeoutMs));
+    }, timeoutMs);
+  });
 
   try {
-    const [stdout, stderr, code] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
+    const [stdout, stderr, code] = await Promise.race([
+      Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]),
+      deadline,
     ]);
     return { code, stdout, stderr };
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(timer);
   }
 };
