@@ -1,0 +1,5 @@
+commands/__tests__/worktree-hydrate-clone.test.ts
+lib/worktree/__tests__/clonefile.test.ts
+rt-tray/vm/run/helpers/__tests__/install-chrome.test.ts
+scripts/__tests__/fetch-deps-make-src.test.ts
+scripts/__tests__/render-launchagents.test.ts
