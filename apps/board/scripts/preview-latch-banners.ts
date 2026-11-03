@@ -68,12 +68,16 @@ function write(name: string, bytes: Uint8Array): string {
   return `gifs/${name}`;
 }
 
-function card(src: string, sentence: string, caption?: string): string {
+function card(
+  src: string,
+  sentence: string | undefined,
+  caption?: string
+): string {
   return `<figure class="card">
   ${caption ? `<figcaption>${esc(caption)}</figcaption>` : ''}
   <div class="note-head"><span class="avatar"></span><b>Board reviewer</b> <span class="muted">@reviewer, just now</span></div>
   <img src="${src}" alt="">
-  ${markdown(sentence)}
+  ${sentence ? markdown(sentence) : ''}
 </figure>`;
 }
 
