@@ -33,7 +33,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
 
     // ── Process panel ──────────────────────────────────────────────────────
     private var processPopover: NSPopover?
+    private var processPopoverPolling: WindowScopedPolling?
     private var processWindow: NSWindow?
+    private var processWindowPolling: WindowScopedPolling?
     private var keyboardConflictWindow: NSWindow?
 
     // ── Worktree panel ─────────────────────────────────────────────────────
@@ -973,7 +975,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
         menu.addItem(.separator())
         menu.addItem(ActionMenuItem("Processes…", axid: AXID.trayProcesses) { [weak self] in
-            self?.detachProcessPanel()
+            MainActor.assumeIsolated { self?.detachProcessPanel() }
         })
         let worktrees = ActionMenuItem("Worktrees…", axid: AXID.trayWorktrees) { [weak self] in
             MainActor.assumeIsolated { self?.showWorktreePanel() }
@@ -1634,13 +1636,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         updater.checkForUpdatesFromMenu()
     }
 
-    @objc private func showProcessPanel() {
+    @objc @MainActor private func showProcessPanel() {
         if processPopover == nil {
             let popover = NSPopover()
             popover.contentSize = NSSize(width: 900, height: 600)
-            popover.contentViewController = NSHostingController(rootView: ProcessPanelView())
+            let controller = ProcessPanelController()
+            popover.contentViewController = NSHostingController(rootView: ProcessPanelView(controller: controller))
             popover.behavior = .transient
             processPopover = popover
+            processPopoverPolling = WindowScopedPolling(window: popover, closing: NSPopover.didCloseNotification,
+                                                        start: { controller.startPolling() }, stop: { controller.stopPolling() })
         }
 
         if let popover = processPopover {
@@ -1650,16 +1655,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                 NSApp.activate(ignoringOtherApps: true)
                 popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
                 popover.contentViewController?.view.window?.makeKey()
+                processPopoverPolling?.show()
             }
         }
     }
 
-    @objc private func detachProcessPanel() {
+    @objc @MainActor private func detachProcessPanel() {
         processPopover?.performClose(nil)
 
         if let window = processWindow {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+            processWindowPolling?.show()
             return
         }
 
@@ -1670,7 +1677,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             defer: false
         )
         window.title = "mattstack processes"
-        window.contentViewController = NSHostingController(rootView: ProcessPanelView(isDetached: true))
+        let controller = ProcessPanelController()
+        window.contentViewController = NSHostingController(rootView: ProcessPanelView(isDetached: true, controller: controller))
+        processWindowPolling = WindowScopedPolling(window: window, closing: NSWindow.willCloseNotification,
+                                                   visibilityChanged: NSWindow.didChangeOcclusionStateNotification,
+                                                   isVisible: { [weak window] in window?.occlusionState.contains(.visible) ?? false },
+                                                   start: { controller.startPolling() }, stop: { controller.stopPolling() })
         // Setting contentViewController shrinks the window to the SwiftUI
         // view's fitting size (its 600x400 minimum); re-apply the intended
         // size after. The autosave name then keeps the user's own size and

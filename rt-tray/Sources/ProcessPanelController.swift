@@ -79,7 +79,7 @@ class ProcessPanelController: ObservableObject {
         pollTimer?.invalidate()
         refresh()
         // Poll fast (2s) — this timer only runs while the panel is on-screen
-        // (started in .onAppear, invalidated in .onDisappear), so the daemon's
+        // (the host's WindowScopedPolling starts and stops it), so the daemon's
         // matching scan-on-read cost is paid only while the user is watching.
         // The daemon's own background scan stays at 10s for runaway detection.
         // .common mode so polls don't stall while a menu is open or the
@@ -94,6 +94,11 @@ class ProcessPanelController: ObservableObject {
     func stopPolling() {
         pollTimer?.invalidate()
         pollTimer = nil
+    }
+
+    deinit {
+        pollTimer?.invalidate()
+        killWatchTimer?.invalidate()
     }
 
     func refresh(userInitiated: Bool = false) {
