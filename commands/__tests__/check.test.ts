@@ -113,6 +113,19 @@ describe("rt check", () => {
     expect(calls[0]).toEqual(["/tree", { full: true, post: true, base: "origin/dev" }]);
   });
 
+  test("--base=<ref> reaches the run like --base <ref>", async () => {
+    const { d, calls } = deps({ result: result(), status: posted });
+    await checkCommand(["--base=origin/dev"], ctx, d);
+    expect(calls[0]).toEqual(["/tree", { full: false, post: true, base: "origin/dev" }]);
+  });
+
+  test("--base= with no ref asks for one and runs nothing", async () => {
+    const { d, calls } = deps({ result: result(), status: posted });
+    await checkCommand(["--base="], ctx, d);
+    expect(io.stderr()).toStartWith("Which ref should the check diff against?");
+    expect(calls).toHaveLength(0);
+  });
+
   test("--base without a ref asks for one and runs nothing", async () => {
     const { d, calls } = deps({ result: result(), status: posted });
     await checkCommand(["--base"], ctx, d);

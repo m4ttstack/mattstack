@@ -17,7 +17,8 @@ export type CheckDeps = RunDeps &
   };
 
 export const realCheckDeps: CheckDeps = {
-  git: realGitRunner,
+  // Resolved at call time: git-tools.ts imports this module, so a by-value capture hits the cycle.
+  git: (args, cwd) => realGitRunner(args, cwd),
   exec: runCapture,
   setting: realSetting,
   now: () => Date.now(),

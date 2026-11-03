@@ -106,13 +106,21 @@ function report(run: CheckRun, machine: string, label: string): void {
   process.exitCode = 1;
 }
 
+function parseBase(args: string[]): string | null | undefined {
+  const joined = args.find((a) => a.startsWith("--base="));
+  if (joined !== undefined) return joined.slice("--base=".length) || null;
+  const at = args.indexOf("--base");
+  if (at === -1) return undefined;
+  const value = args[at + 1];
+  return value === undefined || value.startsWith("--") ? null : value;
+}
+
 export async function checkCommand(args: string[], ctx: CommandContext, deps: CheckCommandDeps = realDeps): Promise<void> {
   const json = args.includes("--json");
   if (json) out.payloadOnStdout();
 
-  const baseAt = args.indexOf("--base");
-  const base = baseAt === -1 ? undefined : args[baseAt + 1];
-  if (baseAt !== -1 && (base === undefined || base.startsWith("--"))) {
+  const baseArg = parseBase(args);
+  if (baseArg === null) {
     out.fail(usageFailure("Which ref should the check diff against?", USAGE));
     process.exitCode = 1;
     return;
@@ -123,7 +131,7 @@ export async function checkCommand(args: string[], ctx: CommandContext, deps: Ch
     deps.run(identity.repoRoot, {
       full: args.includes("--full"),
       post: !args.includes("--no-status"),
-      ...(base ? { base } : {}),
+      ...(baseArg ? { base: baseArg } : {}),
     }),
   );
 
