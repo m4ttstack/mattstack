@@ -363,9 +363,10 @@ describe('bandSource', () => {
 
   test('a sent ask wins the band', () => {
     const s = sent({});
-    expect(
-      bandSource(mr({ sentNudge: s, peerReviews: [errored()] }))
-    ).toEqual({ kind: 'sent', sent: s });
+    expect(bandSource(mr({ sentNudge: s, peerReviews: [errored()] }))).toEqual({
+      kind: 'sent',
+      sent: s,
+    });
   });
 
   test('an errored peer review nobody dismissed takes the band when nothing was sent', () => {
