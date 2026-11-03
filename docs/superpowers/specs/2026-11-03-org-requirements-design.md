@@ -82,7 +82,9 @@ with a sign-in land on the connect screen through `signInTools`. Others show as
 **Finished Macs.** A required org tool makes every member's finished Mac read
 unfinished at their next `org.pull`, all at once, from one org edit. The footer
 reads "Finish setup", and fixing the row finishes setup. A team adding a tool to
-its pack does the same today, for one team.
+its pack does the same today, for one team. Org tools default to required, the
+same rule as a pack (Matt's pick): an admin writes `optional: true` for a tool
+that should not block.
 
 **Older apps.** They ignore the org file and `excludeOrg`, so nothing breaks.
 
