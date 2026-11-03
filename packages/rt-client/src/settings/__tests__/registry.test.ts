@@ -191,6 +191,7 @@ describe("settings/registry", () => {
         "board.codeowners",
         "chat.autoSignIn",
         "rt.branchNaming",
+        "rt.check",
         "rt.dopplerTemplate",
         "rt.hooks",
         "rt.ignoredMrs",
@@ -414,12 +415,13 @@ describe("settings/registry", () => {
         "sdm.resources",
         "rt.hooks",
         "rt.branchNaming",
+        "rt.check",
         "telemetry.enabled",
         "rt.evidence.foldScreenshots",
         "rt.notify.sounds",
         "review.ruleSelector",
       ];
-      expect(suiteKeys).toHaveLength(102);
+      expect(suiteKeys).toHaveLength(103);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),

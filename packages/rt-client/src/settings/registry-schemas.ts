@@ -189,6 +189,10 @@ export const SCHEMAS = {
   "sdm.carriers": z.record(z.string(), z.looseObject({ label: z.string() })).meta({ labels: { key: "tenant tag", value: "carrier" } }),
   "rt.gitStatus": z.looseObject({ sweep: z.boolean(), sweepIntervalSec: z.number(), fetchIntervalSec: z.number() }),
   "rt.hooks": z.looseObject({ enabled: z.boolean().optional(), hooks: z.record(z.string(), z.boolean()).optional() }),
+  "rt.check": z.looseObject({
+    command: z.string().min(1).optional().meta({ title: "Command", description: "Run from the tree root by the shell; exit 0 is green" }),
+    timeoutSeconds: z.number().int().positive().optional().meta({ title: "Timeout (seconds)", description: "A run past this posts error and refuses the push; default 600" }),
+  }),
   "rt.trustedBrowserOrigins": z.array(z.string()),
   "rt.mcp.uploadRoots": z.array(z.string()),
   "rt.picker.hidden": z.array(z.string()),

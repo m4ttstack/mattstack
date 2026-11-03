@@ -1175,6 +1175,29 @@
       "additionalProperties": {}
     }
   },
+  "rt.check": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "command": {
+          "title": "Command",
+          "description": "Run from the tree root by the shell; exit 0 is green",
+          "type": "string",
+          "minLength": 1
+        },
+        "timeoutSeconds": {
+          "title": "Timeout (seconds)",
+          "description": "A run past this posts error and refuses the push; default 600",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": {}
+    }
+  },
   "rt.cron": {
     "storeVersion": 1,
     "schema": {
