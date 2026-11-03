@@ -2,11 +2,11 @@ import type { EngineInterface, Register } from 'claude-code'
 
 // Claude Code asks before EnterWorktree moves the session into a tree outside
 // .claude/worktrees, and no allow rule or classic hook can answer that ask.
-// rt keeps its trees elsewhere, so this lifts the ask to an allow only for a
-// path rt's worktree registry holds, and refuses a path that does not exist
-// (an unattended agent would otherwise wait on a person for a call that can
-// only fail). Anything else, or any failure to ask rt, leaves the engine's
-// own decision standing.
+// rt keeps its trees elsewhere, so this lifts the ask to an allow for a path
+// rt's worktree registry holds, and for a path that does not exist, which the
+// call itself then reports (an unattended agent would otherwise wait on a
+// person for it). Anything else, or any failure to ask rt, leaves the
+// engine's own decision standing.
 export const register: Register = on => {
   on('tool.check', { tool: 'EnterWorktree' }, async ($, e, next) => {
     const core = await next(e)
@@ -15,12 +15,7 @@ export const register: Register = on => {
     if (typeof path !== 'string') return core
     const state = await worktreeState($, path)
     if (state === 'registered') return { decision: 'allow', reason: `${path} is an rt worktree` }
-    if (state === 'missing') {
-      return {
-        decision: 'deny',
-        reason: `No worktree at ${path}. It may have been removed after its PR merged. Provision a new tree, or branch in the current one.`,
-      }
-    }
+    if (state === 'missing') return { decision: 'allow', reason: `${path} does not exist; the call reports it` }
     return core
   }).catch(($, e, next) => next(e))
 }
