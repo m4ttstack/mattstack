@@ -458,14 +458,19 @@ describe("workflow wiring", () => {
     return (job.steps ?? []).map((step) => step.run ?? "").join("\n");
   }
 
-  test("unit runs on ubuntu and leaves out every test on the macOS list", () => {
-    const unit = jobs("checks.yml").unit!;
-    expect(unit["runs-on"]).toBe("ubuntu-latest");
-    expect(runs(unit)).toContain("sed 's/^/--path-ignore-patterns=/' scripts/ci/macos-only-tests.txt");
-  });
+  describe.each([
+    ["checks.yml", "unit"],
+    ["timings.yml", "timings"],
+  ])("%s %s", (file, name) => {
+    test("runs on ubuntu and leaves out every test on the macOS list", () => {
+      const job = jobs(file)[name]!;
+      expect(job["runs-on"]).toBe("ubuntu-latest");
+      expect(runs(job)).toContain("sed 's/^/--path-ignore-patterns=/' scripts/ci/macos-only-tests.txt");
+    });
 
-  test("the unit job's git identity is at system scope: the preload moves HOME, so a global one never reaches a test", () => {
-    expect(runs(jobs("checks.yml").unit!)).toContain("git config --system user.name");
+    test("sets its git identity at system scope: the preload moves HOME, so a global one never reaches a test", () => {
+      expect(runs(jobs(file)[name]!)).toContain("git config --system user.name");
+    });
   });
 
   test("unit-macos runs on macOS, only when scope names tests", () => {
