@@ -31,8 +31,8 @@ describe('bodies', () => {
     expect(body).toContain(IMG);
   });
 
-  test('spent body defaults to the approved wording', () => {
-    expect(spentLatchBody(IMG)).toContain('Approved, so this latch is spent');
+  test('spent body is the image alone, with no sentence', () => {
+    expect(spentLatchBody(IMG)).toBe(`${LATCH_MARKER_SPENT}\n\n${IMG}\n`);
   });
 
   test('neither body uses an em dash or en dash', () => {
@@ -62,6 +62,12 @@ describe('latchBody', () => {
   test('marker, blank, image, blank, sentence', () => {
     expect(latchBody('running', GIF, 'In progress.')).toBe(
       `${LATCH_MARKER_RUNNING}\n\n${GIF}\n\nIn progress.\n`
+    );
+  });
+
+  test('no sentence: marker, blank, image', () => {
+    expect(latchBody('running', GIF)).toBe(
+      `${LATCH_MARKER_RUNNING}\n\n${GIF}\n`
     );
   });
 });

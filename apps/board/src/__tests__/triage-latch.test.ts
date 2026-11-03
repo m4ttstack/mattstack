@@ -9,7 +9,6 @@ import {
 } from '../latch/latch-state.ts';
 import { armedLatchBody, latchBody, spentLatchBody } from '../latch/markers.ts';
 import type { LatchGateway } from '../latch/post.ts';
-import { copyFor } from '../latch/variants.ts';
 import type { ReviewState } from '../review-state.ts';
 import type { AuditEntry } from '../triage/audit.ts';
 import { parseTriageBlock } from '../triage/config.ts';
@@ -20,6 +19,7 @@ import {
   latchInScope,
   runLatchPass,
   runStamp,
+  STUCK_REPLY,
   waitReasonOf,
   type LatchMrFacts,
   type LatchPassDeps,
@@ -663,9 +663,7 @@ describe('dedupe', () => {
       ),
     });
     await runLatchPass(deps);
-    expect(noteBodies.get(1)).toContain(
-      'Superseded by a newer latch on this MR'
-    );
+    expect(noteBodies.get(1)).toContain('![Replaced. Use the newer thread](');
     expect(noteBodies.get(1)).not.toContain('Approved');
   });
 });
@@ -1668,7 +1666,7 @@ describe('error, retry and stuck', () => {
     expect((await runLatchPass(deps)).stuck).toBe(1);
     expect(uploads).toEqual(['latch-2317-error-stuck.gif']);
     expect(calls).toEqual(['upload', 'updateNote:1', 'reply:d1']);
-    expect(replies).toEqual([copyFor({ state: 'error-stuck' }).sentence]);
+    expect(replies).toEqual([STUCK_REPLY]);
     expect(stuckNotices).toEqual([
       {
         title: 'Follow-up review stuck on !2317',
@@ -1804,7 +1802,7 @@ describe('error, retry and stuck', () => {
     expect((await runLatchPass(h.deps)).repaired).toBe(1);
     expect(h.calls).toEqual(['upload', 'updateNote:1', 'reply:d1']);
     expect(h.noteBodies.get(1)).toStartWith(ERROR);
-    expect(h.replies).toEqual([copyFor({ state: 'error-stuck' }).sentence]);
+    expect(h.replies).toEqual([STUCK_REPLY]);
     expect(h.stuckNotices).toHaveLength(1);
     expect(readLatchRow(MR, db)?.variant).toBe('error-stuck');
 
@@ -1824,7 +1822,7 @@ describe('error, retry and stuck', () => {
         detail(disc('d1', note, '2026-09-01T10:00:00Z', true)),
     });
     failNextReply(h.deps.gateway);
-    const stuck = copyFor({ state: 'error-stuck' }).sentence;
+    const stuck = STUCK_REPLY;
     expect((await runLatchPass(h.deps)).stuck).toBe(1);
     expect(h.stuckNotices).toHaveLength(1);
     expect(h.replies).toEqual([]);
@@ -1857,9 +1855,7 @@ describe('error, retry and stuck', () => {
     });
     failNextReply(h.deps.gateway);
     expect((await runLatchPass(h.deps)).stuck).toBe(1);
-    expect(readLatchRow(MR, db)?.replyDue).toBe(
-      copyFor({ state: 'error-stuck' }).sentence
-    );
+    expect(readLatchRow(MR, db)?.replyDue).toBe(STUCK_REPLY);
 
     note = errorBody();
     lane = { ...commented, status: 'reviewing', runStartedAt: NOW };
@@ -1878,7 +1874,7 @@ describe('error, retry and stuck', () => {
 
   test('a stuck latch that gets spent never posts its stuck reply', async () => {
     const db = tempDb();
-    const stuck = copyFor({ state: 'error-stuck' }).sentence;
+    const stuck = STUCK_REPLY;
     putLatchRow(
       errorRow({
         failures: 3,
@@ -1948,7 +1944,7 @@ describe('error, retry and stuck', () => {
       detail: detail(disc('d1', errorBody(), '2026-09-01T10:00:00Z', true)),
     });
     expect((await runLatchPass(deps)).stuck).toBe(1);
-    expect(replies).toEqual([copyFor({ state: 'error-stuck' }).sentence]);
+    expect(replies).toEqual([STUCK_REPLY]);
     expect(stuckNotices).toHaveLength(1);
     expect(memory.mrs[MR]?.attemptsToday ?? 0).toBe(0);
     expect(readLatchRow(MR, db)).toMatchObject({
@@ -2053,7 +2049,7 @@ describe('error, retry and stuck', () => {
       return update(p, i, id, body);
     };
     expect((await runLatchPass(h.deps)).failed).toBe(1);
-    expect(h.replies).toEqual([copyFor({ state: 'error-stuck' }).sentence]);
+    expect(h.replies).toEqual([STUCK_REPLY]);
     expect(readLatchRow(MR, db)?.variant).toBe('error-stuck');
   });
 });

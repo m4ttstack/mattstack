@@ -1,11 +1,11 @@
 /**
  * Every banner the latch can show, keyed so each one maps to a committed
  * text strip (assets/latch/<key>.png), plus the copy painted on the strip
- * and the plain sentence posted under it.
+ * and, when the author has something to do, the sentence posted under it.
  */
 
 import type { WaitReason } from './latch-state.ts';
-import { ARMED_COPY, DUPLICATE_COPY, SPENT_COPY } from './markers.ts';
+import { ARMED_COPY } from './markers.ts';
 
 export type BannerState =
   | 'armed'
@@ -31,7 +31,7 @@ export interface VariantCopy {
   sub: string;
   accent: string;
   indicator: Indicator;
-  sentence: string;
+  sentence?: string;
 }
 
 const STATES: BannerState[] = [
@@ -47,16 +47,16 @@ const STATES: BannerState[] = [
 ];
 
 const QUEUED_SUB: Record<WaitReason, string> = {
-  'next-sweep': 'Starts on the next sweep',
-  cooldown: 'Waiting out the cooldown',
-  budget: 'Daily limit hit; starts tomorrow',
-  'review-in-flight': 'Waiting for the running review',
+  'next-sweep': 'Starts in a few minutes',
+  cooldown: 'Waiting between reviews',
+  budget: 'Daily limit reached. Starts tomorrow',
+  'review-in-flight': 'Waiting on another review',
 };
 
 const RETRY_SUB: Partial<Record<WaitReason, string>> = {
-  'next-sweep': 'Retrying on the next sweep',
-  cooldown: 'Retrying after the cooldown',
-  budget: 'Daily limit hit; retrying tomorrow',
+  'next-sweep': 'Trying again in a few minutes',
+  cooldown: 'Trying again after a pause',
+  budget: 'Daily limit reached. Trying again tomorrow',
 };
 
 const WAITS = Object.keys(QUEUED_SUB) as WaitReason[];
@@ -136,6 +136,12 @@ function doneCommentsSub(raw: number | null | undefined): string {
   return `${count} new comments. Resolve when ready`;
 }
 
+/** The banner's alt text: what the image says, for a reader who can't see it. */
+export function bannerAlt(v: BannerVariant): string {
+  const { title, sub } = copyFor(v);
+  return `${title}${/[.?!]$/.test(title) ? '' : '.'} ${sub}`;
+}
+
 export function copyFor(v: BannerVariant): VariantCopy {
   switch (v.state) {
     case 'armed':
@@ -152,7 +158,6 @@ export function copyFor(v: BannerVariant): VariantCopy {
         sub: QUEUED_SUB[v.wait ?? 'next-sweep'],
         accent: '#e6b860',
         indicator: 'dots',
-        sentence: "Follow-up review requested. I'll start it as soon as I can.",
       };
     case 'running':
       return {
@@ -160,16 +165,13 @@ export function copyFor(v: BannerVariant): VariantCopy {
         sub: 'Results post here when done',
         accent: '#7fbfe8',
         indicator: 'ring',
-        sentence:
-          "Follow-up review in progress. I'll reply here when it's done.",
       };
     case 'error-retrying':
       return {
         title: 'Follow-up review hit a snag',
-        sub: (v.wait && RETRY_SUB[v.wait]) || 'Retrying on the next sweep',
+        sub: (v.wait && RETRY_SUB[v.wait]) || 'Trying again in a few minutes',
         accent: '#f2917e',
         indicator: 'dots',
-        sentence: "The follow-up review didn't finish. I'll try again.",
       };
     case 'error-stuck':
       return {
@@ -177,8 +179,6 @@ export function copyFor(v: BannerVariant): VariantCopy {
         sub: 'Reviewer notified',
         accent: '#f2917e',
         indicator: 'none',
-        sentence:
-          "The follow-up review didn't finish after 3 tries. The reviewer has been told.",
       };
     case 'done-comments':
       return {
@@ -195,7 +195,6 @@ export function copyFor(v: BannerVariant): VariantCopy {
         sub: 'Approved. Nothing more to do',
         accent: '#86cfa0',
         indicator: 'none',
-        sentence: 'Follow-up review done and approved, so this latch is spent.',
       };
     case 'approved':
       return {
@@ -203,15 +202,13 @@ export function copyFor(v: BannerVariant): VariantCopy {
         sub: 'Nothing more to do',
         accent: '#86cfa0',
         indicator: 'none',
-        sentence: SPENT_COPY,
       };
     case 'superseded':
       return {
-        title: 'Superseded',
-        sub: 'A newer latch is live',
+        title: 'Replaced',
+        sub: 'Use the newer thread',
         accent: '#8e88a0',
         indicator: 'none',
-        sentence: DUPLICATE_COPY,
       };
   }
 }

@@ -29,11 +29,6 @@ export const ARMED_COPY = [
   "Leave it open while there's still work in flight.",
 ].join('\n');
 
-export const SPENT_COPY =
-  'Approved, so this latch is spent. Nothing further to do here.';
-export const DUPLICATE_COPY =
-  'Superseded by a newer latch on this MR; nothing to do here.';
-
 // Typed by LatchKind, not latch-state's LatchPhase: the client bundle reaches
 // this file, and latch-state pulls in bun:sqlite.
 const PHASE_MARKER: Record<LatchKind, string> = {
@@ -47,9 +42,11 @@ const PHASE_MARKER: Record<LatchKind, string> = {
 export function latchBody(
   phase: LatchKind,
   imageMarkdown: string,
-  sentence: string
+  sentence?: string
 ): string {
-  return `${PHASE_MARKER[phase]}\n\n${imageMarkdown}\n\n${sentence}\n`;
+  const parts = [PHASE_MARKER[phase], imageMarkdown];
+  if (sentence) parts.push(sentence);
+  return `${parts.join('\n\n')}\n`;
 }
 
 export function armedLatchBody(imageMarkdown: string): string {
@@ -57,7 +54,7 @@ export function armedLatchBody(imageMarkdown: string): string {
 }
 
 export function spentLatchBody(imageMarkdown: string): string {
-  return latchBody('spent', imageMarkdown, SPENT_COPY);
+  return latchBody('spent', imageMarkdown);
 }
 
 /** Unsized on purpose: GitLab stretches the image to the comment column. */

@@ -15,7 +15,12 @@ import {
   type LatchPhase,
 } from './latch-state.ts';
 import { imageMarkdownFor, latchBody } from './markers.ts';
-import { copyFor, variantKey, type BannerVariant } from './variants.ts';
+import {
+  bannerAlt,
+  copyFor,
+  variantKey,
+  type BannerVariant,
+} from './variants.ts';
 
 export interface LatchGateway {
   uploadFile(
@@ -84,16 +89,19 @@ export async function bannerMarkdown(
   db: Database = getStateDb()
 ): Promise<string> {
   const key = variantKey(variant);
+  const alt = bannerAlt(variant);
   const cached = cachedUpload(mrUrl, key, db);
-  // A sized row is a pre-3x upload; it is replaced, not reused.
-  if (cached && !cached.includes('{width=')) return cached;
+  // A row whose alt text no longer matches was drawn with older copy (or is a
+  // sized pre-3x upload): it is replaced, not reused.
+  if (cached?.startsWith(`![${alt}](`) && !cached.includes('{width='))
+    return cached;
   const up = await gw.uploadFile(
     projectId,
     `latch-${iid}-${key}.gif`,
     latchBannerGif(mrUrl, variant),
     'image/gif'
   );
-  const markdown = imageMarkdownFor(copyFor(variant).title, up.markdown);
+  const markdown = imageMarkdownFor(alt, up.markdown);
   rememberUpload(mrUrl, key, markdown, db);
   return markdown;
 }

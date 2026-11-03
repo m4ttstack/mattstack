@@ -41,7 +41,6 @@ import {
   type LatchTarget,
 } from '../latch/post.ts';
 import {
-  copyFor,
   variantKey,
   variantOfKey,
   type BannerVariant,
@@ -157,7 +156,8 @@ export const LATCH_MAX_FAILURES = 3;
 export const LATCH_REPLY_GIVE_UP_MS = 24 * 60 * 60_000;
 
 const STUCK: BannerVariant = { state: 'error-stuck' };
-const STUCK_REPLY = copyFor(STUCK).sentence;
+export const STUCK_REPLY =
+  "The follow-up review didn't finish after 3 tries. The reviewer has been told.";
 
 /** The wait a decision maps to, or null for a refusal that never clears by
     itself. */
