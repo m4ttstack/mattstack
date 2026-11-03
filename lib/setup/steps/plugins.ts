@@ -48,6 +48,7 @@ import { claudeConfigDirs } from "../tools-install.ts";
 import { disableModelInvocationConfigDirs, readDisableModelInvocationChoices, reconcileDisableModelInvocation } from "../../skills/disable-model-invocation.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 import { orgDirUnder } from "../../rt-paths.ts";
+import { writeGeneratedMarketplace } from "../generated-marketplace.ts";
 
 export const MATTSTACK_MARKETPLACE_SOURCE = "https://github.com/m4ttstack/mattstack-marketplace.git";
 /** The source plugins.install adds the mattstack marketplace from on this machine. */
@@ -152,8 +153,28 @@ function readTeamMarketplace(ctx: ApplyContext, slug: string): TeamMarketplaceFi
   }
 }
 
-function teamMarketplaceDir(p: Pick<Probes, "home">, slug: string): string {
-  return orgDirUnder(p.home, slug);
+interface TeamSource {
+  /** The folder rt generated for this Mac, the one `claude plugin marketplace add` takes. */
+  path: string;
+  /** The org clone, which an older rt registered and recorded instead. */
+  orgDir: string;
+  name: string;
+}
+
+/**
+ * Team packs install from the marketplace rt generates for this Mac, never the org clone itself: a directory source
+ * loads from the clone and ignores the cache. Rewritten here as well as in org.folder because `rt setup pack` runs
+ * this step alone. Null when there is no team marketplace yet or the folder could not be written.
+ */
+async function teamSource(ctx: ApplyContext, teamMarketplace: TeamMarketplaceFile | null): Promise<TeamSource | null> {
+  if (!ctx.team.slug || !teamMarketplace) return null;
+  const generated = await writeGeneratedMarketplace(ctx.p, ctx.team.slug);
+  if (generated.skipped !== undefined) {
+    ctx.log("plugins.install", `the team marketplace was not added: ${generated.skipped}`);
+    return null;
+  }
+  for (const dropped of generated.dropped) ctx.log("plugins.install", `generated marketplace left out ${dropped}`);
+  return { path: generated.path, orgDir: orgDirUnder(ctx.p.home, ctx.team.slug), name: teamMarketplace.name ?? ctx.team.slug };
 }
 
 /** An item is the org's or a team's only when no layer of your own lists it too; one with no layer at all fails closed. */
@@ -171,12 +192,10 @@ export const __test__ = { sharedOnly };
  * substituting the attacker's source for every BASE_PLUGINS install that
  * follows.
  */
-function computeMarketplaces(ctx: ApplyContext, teamMarketplace: TeamMarketplaceFile | null): string[] {
+function computeMarketplaces(ctx: ApplyContext, team: TeamSource | null): string[] {
   const userSet = stringSettingArray(ctx, "claude.marketplaces", getSetting<unknown>("claude.marketplaces").value);
   const mattstackSource = mattstackMarketplaceSource(ctx.p.env);
-  // Before team.join clones the team, its folder does not exist and claude refuses the add.
-  const teamSource = ctx.team.slug && teamMarketplace ? [teamMarketplaceDir(ctx.p, ctx.team.slug)] : [];
-  return dedupe([mattstackSource, OFFICIAL_MARKETPLACE_SOURCE, ...teamSource, ...userSet]);
+  return dedupe([mattstackSource, OFFICIAL_MARKETPLACE_SOURCE, ...(team ? [team.path] : []), ...userSet]);
 }
 
 interface ComputedPlugins {
@@ -242,7 +261,8 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   }
 
   const teamMarketplace = ctx.team.slug ? readTeamMarketplace(ctx, ctx.team.slug) : null;
-  const marketplaces = computeMarketplaces(ctx, teamMarketplace);
+  const team = await teamSource(ctx, teamMarketplace);
+  const marketplaces = computeMarketplaces(ctx, team);
   const mattstackSource = mattstackMarketplaceSource(ctx.p.env);
   const { trusted: trustedPlugins, teamAuthored: teamAuthoredPlugins, activeTeamPack } = computePlugins(ctx, teamMarketplace);
   const allPlugins = dedupe([...trustedPlugins, ...teamAuthoredPlugins]);
@@ -269,6 +289,8 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   // added. Anything already present belongs to the member, and uninstall
   // removing it could orphan every plugin that marketplace serves.
   const addedMarketplaces: string[] = [];
+  /** Once the team's name points at the generated folder, an org clone setup-state recorded follows it, so `rt uninstall` still finds it. */
+  let teamRegistered = false;
   const installedPlugins: string[] = [];
   // A team pack rt lands, other than the active team's own, is left disabled;
   // one already enabled wherever it settled needs nothing more from the member.
@@ -283,8 +305,15 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
     let known = await listMarketplaces(runIn);
     for (const src of marketplaces) {
       const key = marketplaceSourceKey(src);
-      if (known?.some((m) => m.source !== null && marketplaceSourceKey(m.source) === key)) continue;
-      if (recorded?.marketplaces.includes(src)) {
+      const isTeam = team !== null && src === team.path;
+      if (known?.some((m) => m.source !== null && marketplaceSourceKey(m.source) === key)) {
+        if (isTeam) teamRegistered = true;
+        continue;
+      }
+      // A registration of the team's name elsewhere (the org clone, before the generated folder) takes the same-name add, which re-points it and keeps its plugins.
+      const repoint = isTeam && known?.some((m) => m.name === team.name) === true;
+      const recordedAs = isTeam ? [src, team.orgDir] : [src];
+      if (!repoint && recordedAs.some((s) => recorded?.marketplaces.includes(s))) {
         ctx.log("plugins.install", `marketplace ${src}: removed since rt added it, left alone`);
         continue;
       }
@@ -307,6 +336,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
       const after = known ? await listMarketplaces(runIn) : null;
       const created = known && after ? after.some((m) => !known!.some((k) => k.name === m.name)) : !addFoundExisting(res);
       if (created) addedMarketplaces.push(src);
+      if (isTeam && res.code === 0) teamRegistered = true;
       known = after;
     }
 
@@ -420,7 +450,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
 
   updateSetupState(ctx.p, (s) => ({
     ...s,
-    marketplaces: [...new Set([...s.marketplaces, ...addedMarketplaces])],
+    marketplaces: [...new Set([...s.marketplaces.map((m) => (team && teamRegistered && m === team.orgDir ? team.path : m)), ...addedMarketplaces])],
     plugins: [...new Set([...s.plugins, ...installedPlugins])],
   }));
 

@@ -471,6 +471,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect((await pluginsInstallStep.run(ctx)).state).toBe("done");
       const marketSrcs = execCalls.filter((a) => a.includes("marketplace") && a.includes("add")).map((a) => a.at(-1));
       expect(marketSrcs).not.toContain(join(home, ".mattstack", "orgs", "acme"));
+      expect(marketSrcs).not.toContain(join(home, ".mattstack", "rt", "marketplaces", "acme"));
     });
 
     // Replies captured from the real CLI (2.1.280): a repeat add exits 0 and
@@ -547,15 +548,18 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
     test("happy path: one custom marketplace + team marketplace/plugin, one config dir — full argv sequence, setup-state recorded", async () => {
       const teamDir = join(home, ".mattstack", "orgs", "acme");
+      const generatedDir = join(home, ".mattstack", "rt", "marketplaces", "acme");
       const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
+      const orgFile = JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills", source: "./mattstack/teams/acme-skills/plugin" }] });
       setSetting("claude.marketplaces", ["https://example.com/extra-market"], "user");
 
       const execCalls: { argv: string[]; env?: Record<string, string> }[] = [];
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin" },
-        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
+        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: orgFile },
         exec: async (argv, opts) => {
+          if (argv[0] === "git") return ok(orgFile);
           execCalls.push({ argv, env: opts?.env });
           return argv[2] === "list" ? ok("[]") : ok("");
         },
@@ -583,7 +587,9 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       // otherwise squat the "mattstack" name before rt's own add runs.
       const marketSrcs = marketAdds.map((c) => c.argv.at(-1) ?? "");
       expect(marketSrcs[0]).toBe(MATTSTACK_MARKETPLACE_SOURCE);
-      expect(marketSrcs).toEqual(expect.arrayContaining(["https://example.com/extra-market", MATTSTACK_MARKETPLACE_SOURCE, teamDir]));
+      expect(marketSrcs).toEqual(expect.arrayContaining(["https://example.com/extra-market", MATTSTACK_MARKETPLACE_SOURCE, generatedDir]));
+      expect(marketSrcs).not.toContain(teamDir);
+      expect(JSON.parse(p.readFile(join(generatedDir, ".claude-plugin", "marketplace.json"))!).plugins[0].source).toMatchObject({ source: "git-subdir", path: "mattstack/teams/acme-skills/plugin" });
 
       const pluginNames = installs.map((c) => c.argv.at(-1) ?? "");
       expect(pluginNames).toEqual(expect.arrayContaining(["mattstack@mattstack", "fast-browser@mattstack", "chat@mattstack", "superpowers@claude-plugins-official", "acme-skills@acme-market"]));
@@ -591,6 +597,73 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const state = readSetupState(p);
       expect([...state.marketplaces].sort()).toEqual([...marketSrcs].sort());
       expect([...state.plugins].sort()).toEqual([...pluginNames].sort());
+    });
+
+    describe("the team marketplace is this Mac's generated folder", () => {
+      const teamDir = () => join(home, ".mattstack", "orgs", "acme");
+      const generatedDir = () => join(home, ".mattstack", "rt", "marketplaces", "acme");
+      const orgFile = JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills", source: "./mattstack/teams/acme-skills/plugin" }] });
+
+      /** A claude whose `marketplace list` answers from what is registered so far; `teamAt` is where the team's name starts out, if anywhere. */
+      function member(teamAt: string | null, opts: { committed?: string | null } = {}) {
+        const adds: string[] = [];
+        const registered = new Map<string, string>(teamAt === null ? [] : [["acme-market", teamAt]]);
+        const p = fakeProbes({
+          home,
+          env: { PATH: "/usr/local/bin" },
+          files: { "/usr/local/bin/claude": "bin", [join(teamDir(), ".claude-plugin", "marketplace.json")]: orgFile },
+          exec: async (argv) => {
+            if (argv[0] === "git") return opts.committed === null ? { code: 128, stdout: "", stderr: "fatal: invalid object name 'main'" } : ok(opts.committed ?? orgFile);
+            const [, , verb, sub, target] = argv;
+            if (verb === "marketplace" && sub === "list") return ok(JSON.stringify([...registered].map(([name, path]) => ({ name, source: "directory", path }))));
+            if (verb === "marketplace" && sub === "add" && target) {
+              adds.push(target);
+              registered.set(target === generatedDir() || target === teamDir() ? "acme-market" : target, target);
+            }
+            return argv[2] === "list" ? ok("[]") : ok("");
+          },
+        });
+        return { p, adds };
+      }
+      const teamCtx = (p: Probes, overrides: Partial<ApplyContext> = {}) => makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills", ...overrides });
+
+      test("a registration already at the generated folder is current: neither it nor the org clone is added again", async () => {
+        const { p, adds } = member(generatedDir());
+        const outcome = await pluginsInstallStep.run(teamCtx(p).ctx);
+        expect(outcome.state).toBe("done");
+        expect(adds).not.toContain(generatedDir());
+        expect(adds).not.toContain(teamDir());
+      });
+
+      test("a registration still at the org clone is re-pointed with one add of the generated folder, and setup-state's record follows it", async () => {
+        const { p, adds } = member(teamDir());
+        updateSetupState(p, (s) => ({ ...s, marketplaces: [teamDir()] }));
+        const outcome = await pluginsInstallStep.run(teamCtx(p, { update: true }).ctx);
+        expect(outcome.state).toBe("done");
+        expect(adds.filter((a) => a === generatedDir())).toEqual([generatedDir()]);
+        expect(adds).not.toContain(teamDir());
+        expect(readSetupState(p).marketplaces).toContain(generatedDir());
+        expect(readSetupState(p).marketplaces).not.toContain(teamDir());
+      });
+
+      test("an update leaves alone a team marketplace the member removed since rt added it as the org clone", async () => {
+        const { p, adds } = member(null);
+        updateSetupState(p, (s) => ({ ...s, marketplaces: [teamDir()] }));
+        const { ctx, logs } = teamCtx(p, { update: true });
+        await pluginsInstallStep.run(ctx);
+        expect(adds).not.toContain(generatedDir());
+        expect(adds).not.toContain(teamDir());
+        expect(logs.some((l) => l.line.includes("removed since rt added it, left alone"))).toBe(true);
+      });
+
+      test("a clone with no marketplace on its ref adds no team marketplace, the org clone included, and says why in the log", async () => {
+        const { p, adds } = member(null, { committed: null });
+        const { ctx, logs } = teamCtx(p);
+        await pluginsInstallStep.run(ctx);
+        expect(adds).not.toContain(generatedDir());
+        expect(adds).not.toContain(teamDir());
+        expect(logs.some((l) => l.line.includes("the team marketplace was not added: the org repo has no .claude-plugin/marketplace.json on main"))).toBe(true);
+      });
     });
 
     test("runs materializeSkills AFTER a successful install, honest tally when the engine pack exists", async () => {

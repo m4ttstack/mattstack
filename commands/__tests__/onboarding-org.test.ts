@@ -127,6 +127,12 @@ function probes(): Probes {
         const file = remoteTree === null ? null : join(remoteTree, rel);
         return file !== null && existsSync(file) ? ok(readFileSync(file, "utf8")) : { code: 128, stdout: "", stderr: `fatal: path '${rel}' does not exist in 'FETCH_HEAD'` };
       }
+      if (bin === "git" && argv[1] === "-C" && argv[3] === "show") {
+        // The clone's working tree stands in for its committed ref.
+        const rel = argv[4]!.slice(argv[4]!.indexOf(":") + 1);
+        const file = join(argv[2]!, rel);
+        return existsSync(file) ? ok(readFileSync(file, "utf8")) : { code: 128, stdout: "", stderr: `fatal: path '${rel}' does not exist` };
+      }
       if (bin === "git" && argv.includes("symbolic-ref")) return ok("main\n");
       if (bin === "git" && argv[1] === "remote" && argv[2] === "get-url" && argv[3] === "origin") return ok(`${REMOTE}\n`);
       if (bin === "git" && argv[1] === "remote" && argv[2] === "get-url") {

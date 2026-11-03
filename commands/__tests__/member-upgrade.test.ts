@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
+import { fileURLToPath } from "url";
 import { basename, dirname, join, resolve } from "path";
 import { getSetting, serializeIdentity } from "../../packages/rt-client/src/index.ts";
 import { childEnv } from "../../lib/subprocess.ts";
@@ -37,6 +38,8 @@ const SDM_RESOURCES = { "acme-db-qa": { label: "QA" } };
 let home: string;
 let origin: string;
 const marketplaces = new Map<string, string>();
+/** Where rt writes this Mac's copy of the org marketplace, the folder Claude registers. */
+const generatedMarketplace = () => join(home, ".mattstack", "rt", "marketplaces", "acme");
 const installed = new Map<string, { enabled: boolean; version: string }>();
 const GIT_ENV = { ...childEnv(), GIT_AUTHOR_NAME: "dev1", GIT_AUTHOR_EMAIL: "dev1@example.com", GIT_COMMITTER_NAME: "dev1", GIT_COMMITTER_EMAIL: "dev1@example.com" };
 const gitEnv = () => ({ ...GIT_ENV, HOME: home });
@@ -131,7 +134,9 @@ function expectMaterialized(bindings: string): void {
   expect(manifest.bindings[BOARD_ENGINE]).toEqual({ review: "widgets:board-review" });
 }
 
-function marketplaceDoc(dir: string): { name: string; plugins: { name: string; source: string }[] } | null {
+type PluginSource = string | { source: string; url: string; path: string };
+
+function marketplaceDoc(dir: string): { name: string; plugins: { name: string; source: PluginSource }[] } | null {
   try {
     return JSON.parse(readFileSync(join(dir, ".claude-plugin", "marketplace.json"), "utf8"));
   } catch {
@@ -147,7 +152,9 @@ function servedVersion(id: string): string | null {
   const entry = doc?.plugins.find((pl) => pl.name === plugin);
   if (!dir || !entry) return null;
   try {
-    return (JSON.parse(readFileSync(join(dir, entry.source, ".claude-plugin", "plugin.json"), "utf8")) as { version: string }).version;
+    // A git-subdir entry (rt's generated marketplace) reads the clone it names; the working tree stands in for its ref.
+    const root = typeof entry.source === "string" ? join(dir, entry.source) : join(fileURLToPath(entry.source.url), entry.source.path);
+    return (JSON.parse(readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8")) as { version: string }).version;
   } catch {
     return null;
   }
@@ -268,7 +275,7 @@ describe("member upgrade: app first, org main converts later", () => {
     expect(existsSync(join(moved, ".git"))).toBe(true);
     expect(existsSync(join(home, ".mattstack", "rt", "teams", "acme.json"))).toBe(true);
     expect(existsSync(join(home, ".mattstack", "rt", "teams", "widgets.json"))).toBe(false);
-    expect(marketplaces.get("widgets")).toBe(moved);
+    expect(marketplaces.get("widgets")).toBe(generatedMarketplace());
     expect(installed.get("widgets@widgets")?.version).toBe("0.1.0");
     expect(readFileSync(bindings, "utf8")).toBe(before);
     expect(existsSync(`${bindings}.stale`)).toBe(false);
@@ -314,7 +321,7 @@ describe("member upgrade: app first, org main converts later", () => {
     expect(run2.outcomes.some((o) => o.id.startsWith("migration."))).toBe(false);
     expect(readFileSync(bindings, "utf8")).toBe(materialized);
     expect(installed.get("widgets@widgets")).toEqual({ enabled: true, version: "0.1.1" });
-    expect(marketplaces.get("widgets")).toBe(moved);
+    expect(marketplaces.get("widgets")).toBe(generatedMarketplace());
     expect(readSetupState(p).migrations).toContain(SDM_MIGRATION);
   });
 });
@@ -342,7 +349,7 @@ describe("member upgrade: org main converts first, app updates later", () => {
     expect(existsSync(join(moved, "mattstack", "teams", "widgets", "plugin"))).toBe(true);
     expect(existsSync(join(home, ".mattstack", "rt", "teams", "acme.json"))).toBe(true);
     expect(existsSync(join(home, ".mattstack", "rt", "teams", "widgets.json"))).toBe(false);
-    expect(marketplaces.get("widgets")).toBe(moved);
+    expect(marketplaces.get("widgets")).toBe(generatedMarketplace());
     expect(installed.get("widgets@widgets")).toEqual({ enabled: true, version: "0.1.1" });
     expectMaterialized(bindings);
     expect(existsSync(`${bindings}.stale`)).toBe(false);
@@ -401,7 +408,7 @@ describe("member upgrade: v2.21.1 held the pull, then the app updates", () => {
     expect(git(moved, ["rev-parse", "refs/remotes/origin/main"])).toBe(fetched);
     expect(existsSync(join(home, ".mattstack", "rt", "teams", "acme.json"))).toBe(true);
     expect(existsSync(join(home, ".mattstack", "rt", "teams", "widgets.json"))).toBe(false);
-    expect(marketplaces.get("widgets")).toBe(moved);
+    expect(marketplaces.get("widgets")).toBe(generatedMarketplace());
     expect(readFileSync(bindings, "utf8")).toBe(before);
     expect(readSetupState(p).migrations).toContain(SDM_MIGRATION);
     const rows = await rtHealthRows(p, { ci: false });
@@ -450,7 +457,7 @@ describe("member upgrade: v2.21.1 held the pull, then the app updates", () => {
     expect(run2.outcomes.some((o) => o.id.startsWith("migration."))).toBe(false);
     expect(readFileSync(bindings, "utf8")).toBe(materialized);
     expect(installed.get("widgets@widgets")).toEqual({ enabled: true, version: "0.1.1" });
-    expect(marketplaces.get("widgets")).toBe(moved);
+    expect(marketplaces.get("widgets")).toBe(generatedMarketplace());
     expect(readSetupState(p).migrations).toContain(SDM_MIGRATION);
     const drawn = (await composePlan({ p, secrets: { has: async () => null }, ci: false, mode: "status", orgs: ["acme"] })).groups.flatMap((g) => g.rows);
     expect(drawn.filter((r) => ["team.identity", "team.none"].includes(r.id) && r.status === "needs-you").map((r) => r.id)).toEqual([]);
@@ -491,7 +498,7 @@ describe("member upgrade: the member also has a working checkout of the org repo
     expect(existsSync(join(moved, "mattstack", "teams", "widgets", "plugin"))).toBe(true);
     expect(existsSync(join(home, ".mattstack", "rt", "teams", "acme.json"))).toBe(true);
     expect(existsSync(join(home, ".mattstack", "rt", "teams", "widgets.json"))).toBe(false);
-    expect(marketplaces.get("widgets")).toBe(moved);
+    expect(marketplaces.get("widgets")).toBe(generatedMarketplace());
     expect(servedVersion("widgets@widgets")).toBe("0.1.1");
     expect(installed.get("widgets@widgets")).toEqual({ enabled: true, version: "0.1.1" });
     expect(readSetupState(p).marketplaces).not.toContain(clone);
