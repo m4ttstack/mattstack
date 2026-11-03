@@ -375,6 +375,8 @@ describe("the remote repo row signs in to GitHub", () => {
     for (const over of [{ ghSignedIn: true }, { githubReady: true }, {}]) {
       expect(remote({ originUnsupported: true, ...over }).action).toMatchObject({ type: "form", verb: ["home", "remote", "set"] });
     }
+    const staged = pick(thisMacRows(inputs({ backup: { mode: "remote", create: true }, originUnsupported: true })), "settings.remote");
+    expect(staged).toMatchObject({ state: "todo", action: { type: "form", verb: ["home", "remote", "set"] } });
   });
 
   test("a staged url or create is done and shows no action", () => {

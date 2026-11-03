@@ -737,11 +737,11 @@ function remoteRow(i: ThisMacInputs): FormRow | null {
   const c = FORM_COPY.thisMac.remote;
   const base = { id: "settings.remote", title: c.title, subtext: c.subtext, waiting: null, watch: false, optional: false };
   if (i.homeRemote !== null) return { ...base, state: "done", detail: i.homeRemote, action: null };
+  // An origin restore cannot open is replaced by a url; a staged create, a create or a sign-in would only meet that origin again.
+  if (i.originUnsupported) return urlRow(base, c);
   if (i.backup.create) return { ...base, state: "done", detail: c.creates, action: null };
   const signInVerb = ["setup", "github", "sign-in"];
   const sign = i.githubSignIn;
-  // An origin restore cannot open is replaced by a url; creating or signing in would only meet that origin again.
-  if (i.originUnsupported) return urlRow(base, c);
   if (sign && sign.outcome === undefined) {
     const t = FORM_COPY.connect.teamTool;
     return { ...base, state: "waiting", detail: t.code(sign.userCode), action: { type: "open-url", label: t.openAgain, url: sign.url }, watch: true };
