@@ -49,6 +49,7 @@ Also in this release: the board says "follow-up review" everywhere and lets you 
 - the comments drawer is wider, keeps thread cards from squashing, and ends with the same reached-the-end marker as the gates
 - the row menu leads with set auto-merge when only CI is left, and a respond-again row sits under respond
 - a teammate's agent review that was lost shows in the ask band, with retry and dismiss (#984)
+- the ask band's trail opens above the row when it's near the bottom edge
 
 ### Menu bar app
 
