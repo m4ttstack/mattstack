@@ -239,6 +239,11 @@ export function orgDirUnder(home: string, org: string): string {
   return join(orgsDirUnder(home), org);
 }
 
+/** The per-Mac marketplace rt generates for an org's team packs: ~/.mattstack/rt/marketplaces/<org>. */
+export function generatedMarketplaceDir(home: string, org: string): string {
+  return join(home, ".mattstack", "rt", "marketplaces", org);
+}
+
 export function orgMarkerPath(org: string): string {
   return join(orgDir(org), "mattstack", "mattstack.jsonc");
 }
