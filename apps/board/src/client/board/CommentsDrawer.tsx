@@ -14,6 +14,7 @@ import { getDiscussions, postThreadWrite } from '../api.ts';
 import type { CommentNote, CommentThread, GeneralComment } from '../types.ts';
 import { ago, cleanTitle, THREAD_ICON, THREAD_LABEL } from './format.ts';
 import { MessageGlyph } from './icons.tsx';
+import { SheetEnd } from './SheetParts.tsx';
 
 /** The facts line's threads token, the drawer's entry. A status outranks
     the count and takes its place, with the total in the tooltip: `awaitYou`
@@ -638,6 +639,7 @@ function CommentsDrawer({
                 ))}
               </section>
             )}
+            <SheetEnd>You've reached the end of the comments.</SheetEnd>
           </>
         )}
       </div>
