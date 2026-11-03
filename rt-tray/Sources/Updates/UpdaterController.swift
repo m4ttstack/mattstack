@@ -4,17 +4,22 @@ import MattstackCore
 
 /// Sparkle for an LSUIElement app: gentle reminders instead of a window
 /// stealing focus, a menu item bound to canCheckForUpdates, silent install
-/// when idle, and nothing at all in the dev flavor.
+/// once idle (held while a window is open or setup runs), and nothing at all
+/// in the dev flavor.
 final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPUStandardUserDriverDelegate, @unchecked Sendable {
     @objc dynamic private(set) var canCheckForUpdates = false
     var onUpdateAvailable: ((String) -> Void)?
+    /// Called on the main queue once per downloaded update that cannot install yet.
+    var onUpdateHeld: ((String, UpdateHold) -> Void)?
     /// Called on the main thread, synchronously, so the flag it sets is in
     /// place before Sparkle's installer sends its quit event.
     var onUpdateInstallingChanged: ((Bool) -> Void)?
-    private let isBusy: () -> Bool
     private let enabled: Bool
     private var controller: SPUStandardUpdaterController?
     private var observation: NSKeyValueObservation?
+    private let installer: HeldUpdateInstaller
+    private var retryTimer: Timer?
+    private static let retryInterval: TimeInterval = 60
 
     private let feedOverride: String?
 
@@ -26,7 +31,11 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
     ]
 
     init(isDevBuild: Bool, isBusy: @escaping () -> Bool) {
-        self.isBusy = isBusy
+        // NSStatusBarWindow is always present and always isVisible for this
+        // LSUIElement app -- canBecomeKey excludes it while still counting
+        // real content windows (process panel, settings, setup).
+        installer = HeldUpdateInstaller(setupRunning: isBusy,
+                                        windowsOpen: { NSApp.windows.filter { $0.isVisible && $0.canBecomeKey }.count })
         let info = Bundle.main.infoDictionary
         feedOverride = UpdatePolicy.feedOverride(environment: ProcessInfo.processInfo.environment,
                                                  arguments: CommandLine.arguments, isDevBuild: isDevBuild)
@@ -58,7 +67,39 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
             TrayLog.info("update check skipped (dev build)", ["source": "menu"])
             return
         }
+        // A held update stalls Sparkle's session, so its own check would do nothing.
+        if let version = installer.heldVersion {
+            let started = installer.installNow()
+            TrayLog.info(started ? "held update installing" : "held update waits for setup", ["version": version, "source": "menu"])
+            return
+        }
         c.checkForUpdates(nil)
+    }
+
+    /// The version a previous run was installing, once it is the one running.
+    func takeInstalledVersion() -> String? {
+        let defaults = UserDefaults.standard
+        let running = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+        switch UpdateNotice.launch(pendingVersion: defaults.string(forKey: UpdateNotice.pendingVersionKey), runningVersion: running) {
+        case .installed(let version):
+            defaults.removeObject(forKey: UpdateNotice.pendingVersionKey)
+            return version
+        case .none, .stillPending:
+            return nil
+        }
+    }
+
+    private func recordPending(_ item: SUAppcastItem) {
+        UserDefaults.standard.set(item.displayVersionString, forKey: UpdateNotice.pendingVersionKey)
+    }
+
+    private func startRetrying() {
+        retryTimer?.invalidate()
+        retryTimer = Timer.scheduledTimer(withTimeInterval: Self.retryInterval, repeats: true) { [weak self] timer in
+            guard let self, self.installer.retry() else { return }
+            timer.invalidate()
+            TrayLog.info("held update installing", ["version": self.installer.heldVersion ?? "", "source": "idle"])
+        }
     }
 
     func checkForUpdates() async -> Bool {
@@ -97,6 +138,7 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
     // is retried, so the flag must hold until the cycle ends.
     func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
         TrayLog.info("update installing", ["version": item.displayVersionString])
+        recordPending(item)
         onUpdateInstallingChanged?(true)
     }
 
@@ -106,12 +148,14 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
 
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem,
                  immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
-        // NSStatusBarWindow is always present and always isVisible for this
-        // LSUIElement app -- canBecomeKey excludes it while still counting
-        // real content windows (process panel, settings, setup).
-        let idle = UpdatePolicy.allowsImmediateInstall(setupRunning: isBusy(),
-                                                       windowsOpen: NSApp.windows.filter { $0.isVisible && $0.canBecomeKey }.count)
-        if idle { DispatchQueue.main.async { immediateInstallHandler() } }
-        return idle
+        recordPending(item)
+        let version = item.displayVersionString
+        let hold = installer.offer(version: version) { DispatchQueue.main.async { immediateInstallHandler() } }
+        if let hold {
+            TrayLog.info("update held", ["version": version, "hold": String(describing: hold)])
+            startRetrying()
+            DispatchQueue.main.async { self.onUpdateHeld?(version, hold) }
+        }
+        return true
     }
 }

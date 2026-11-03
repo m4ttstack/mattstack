@@ -21,6 +21,9 @@ public enum NotificationClick {
     /// Setup moved on while its window may be hidden ("You're in"): the
     /// click brings fast setup back on whatever screen rt says is next.
     public static let setupProgressCategory = "setup_progress"
+    /// An app update is waiting to install, or just installed: the banner
+    /// only informs, so a click routes nowhere.
+    public static let appUpdateCategory = "app_update"
 
     public enum Route: Equatable, Sendable {
         case showKeyboardConflict

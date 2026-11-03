@@ -2,6 +2,12 @@ import Foundation
 @testable import MattstackCore
 
 let notificationClickChecks: [Check] = [
+    Check("app_update banner click routes nowhere and leaves the shell window alone") { c in
+        c.expectEqual(NotificationClick.appUpdateCategory, "app_update")
+        let r = NotificationClick.bannerRoute(category: NotificationClick.appUpdateCategory, url: nil, paneId: nil)
+        c.expectEqual(r, .none)
+        c.expect(r.suppressesActivationShow)
+    },
     Check("member_joined banner click asks to confirm the members sync for that team and handle") { c in
         let r = NotificationClick.bannerRoute(category: NotificationClick.memberJoinedCategory, url: nil, paneId: nil, team: "acme", handle: "ed")
         c.expectEqual(r, .confirmMembersSync(team: "acme", handle: "ed"))

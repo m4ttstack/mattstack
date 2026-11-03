@@ -207,6 +207,11 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
                 actions: [],
                 intentIdentifiers: []
             ),
+            UNNotificationCategory(
+                identifier: NotificationClick.appUpdateCategory,
+                actions: [],
+                intentIdentifiers: []
+            ),
         ]
 
         center.setNotificationCategories(Set(categories))
@@ -442,6 +447,27 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         center.add(request) { error in
             if let error = error {
                 TrayLog.error("setup progress notification error", ["err": String(describing: error)])
+            }
+        }
+    }
+
+    // MARK: - App update
+
+    /// One identifier, so "updated" replaces the "ready" banner for the same release.
+    func fireAppUpdate(_ copy: UpdateNotice.Copy) {
+        let category = NotificationClick.appUpdateCategory
+        let content = UNMutableNotificationContent()
+        content.title = copy.title
+        content.body = copy.body
+        content.sound = nil
+        content.categoryIdentifier = category
+
+        Self.playSound(for: category)
+
+        let request = UNNotificationRequest(identifier: category, content: content, trigger: nil)
+        center.add(request) { error in
+            if let error = error {
+                TrayLog.error("app update notification error", ["err": String(describing: error)])
             }
         }
     }
