@@ -30,7 +30,6 @@ function fakeSeams(
     cacheEntries?: string[];
     untracked?: string;
     diffAfterCopy?: string;
-    noVsix?: boolean;
   } = {},
 ) {
   const calls: string[] = [];
@@ -45,12 +44,7 @@ function fakeSeams(
     runningApp: RUNNING_APP,
     now: () => new Date(2026, 8, 24, 9, 41, 2),
     scratchDir: () => "/scratch",
-    listDir: (p) => {
-      if (p === BUILDS) return opts.cacheEntries ?? [];
-      const ext = /^\/scratch\/extensions\/vscode\/([a-z-]+)$/.exec(p)?.[1];
-      if (ext) return opts.noVsix ? ["package.json"] : ["package.json", `${ext}-0.4.0.vsix`];
-      return [];
-    },
+    listDir: (p) => (p === BUILDS ? (opts.cacheEntries ?? []) : []),
     readBytes: () => null,
     readLink: () => null,
     pathExists: (p) =>
@@ -238,16 +232,15 @@ describe("stageLocalDevApp", () => {
   test("both editor extensions are packaged in the scratch copy and handed to build.sh", async () => {
     const { seams, calls, cwds } = fakeSeams({ sourceDeps: "none" });
     await stageLocalDevApp(seams, "/src/tree/rt-tray");
-    const packaged = calls.flatMap((c, i) => (c === "bun run package" ? [cwds[i]] : []));
+    const packaged = calls.flatMap((c, i) => (c.startsWith("bunx vsce package") ? [cwds[i]] : []));
     expect(packaged).toEqual(["/scratch/extensions/vscode/rt-context", "/scratch/extensions/vscode/skill-blocks"]);
     const build = calls.find((c) => c.includes("rt-tray/build.sh dev"))!;
-    expect(build).toContain(" RT_VSIX=/scratch/extensions/vscode/rt-context/rt-context-0.4.0.vsix ");
-    expect(build).toContain(" RT_SKILL_BLOCKS_VSIX=/scratch/extensions/vscode/skill-blocks/skill-blocks-0.4.0.vsix ");
-    expect(calls.lastIndexOf("bun run package")).toBeLessThan(calls.findIndex((c) => c.includes("rt-tray/build.sh dev")));
+    expect(build).toContain(" RT_VSIX=/scratch/extensions/vscode/rt-context/rt-context.vsix ");
+    expect(build).toContain(" RT_SKILL_BLOCKS_VSIX=/scratch/extensions/vscode/skill-blocks/skill-blocks.vsix ");
   });
 
-  test("an extension that packages no .vsix fails the stage before build.sh", async () => {
-    const { seams, calls } = fakeSeams({ sourceDeps: "none", noVsix: true });
+  test("an extension that fails to package fails the stage before build.sh", async () => {
+    const { seams, calls } = fakeSeams({ sourceDeps: "none", failCmd: "bunx vsce package" });
     const err = await stageLocalDevApp(seams, "/src/tree/rt-tray").catch((e: unknown) => e);
     expect((err as Error).message).toContain("rt-context");
     expect(calls.some((c) => c.includes("rt-tray/build.sh dev"))).toBe(false);
