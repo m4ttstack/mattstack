@@ -35,42 +35,65 @@ fix the org's data.
 `settings.org.jsonc`, in the pack format. The org file reads `tools` and
 `integrations`; its `chrome` and `workType` are ignored (my call).
 
-**Merge.** It happens inside `readPackRequirements`, so every caller gets it
-unchanged, and it returns one entry rather than a second one. A separate org
-entry would draw a false `pack.<name>` row, and would keep its integrations
-required after a team made the tool optional, since `declaredIntegrations` lets
-a required source win.
+**Merge.** It happens inside `readPackRequirements`, so plan, form, prepare,
+apply and `rt tools` all get it unchanged. Org tools fold into the team's one
+entry. A second entry is not safe: `pack.ts` reads `reqs[0]` for the pack's
+error, name and work type, and `toolRows` draws a `pack.<name>` row for every
+entry, which would be an install row nothing can clear.
 
 - Team tools come first, then org tools the team does not name.
 - A team entry replaces the org tool whole. The integration the org tool
-  connected goes with it, so the team's entry alone decides whether that
-  integration is required.
+  connected goes with it, because `declaredIntegrations` lets a required source
+  win over an optional one, and the team's entry alone must decide.
 - Integrations are the union of both files, minus anything removed.
+- The entry keeps the team's `pack`, `error`, `chrome` and `workType`.
+
+**A team with no pack file.** Today that reads as `[]`. With an org file it
+gains an entry, marked `orgOnly: true`. `pack.ts` and the `pack.*` names in
+`toolRows` skip an `orgOnly` entry, so such a team behaves as it does today:
+no false `pack.<team>` row, and the pack stage takes the same path.
 
 **Removing a tool.** A pack's `requirements.jsonc` gains an optional
 `excludeOrg` string array (the name is my call). Each entry removes the org tool
 of that name, the integration it connects, and an org integration of that name.
-A name that matches nothing is reported through `error`, so a typo does not
-quietly keep a tool required.
+A name that matches nothing is ignored, because a tool the org later drops would
+otherwise turn a team's old entry into an error.
 
-**No active team.** The reader returns the org's tools with `pack` set to the
-org name, and `toolRows` draws no `pack.<org>` row for it. An org with no org
-file still returns `[]`.
+**No active team, or no org.** The reader returns `[]`, as it does today, and
+says so explicitly for an empty slug, which plan and form pass on a Just me Mac.
+Org tools appear once a team is active. This changes the ticket, which asked for
+org tools on a Mac with no active team (my call, from Lawson's review): it keeps
+reads during the waiting and approval stages unchanged, and it keeps the
+Just me branch in `accounts.ts`, which tests `reqs.length === 0`.
 
-**Errors.** Org file errors travel in a new `orgError` field, separate from
-`error`, and draw a row `org.requirements` with `required: false` and status
-`error`. Entries that parsed still apply. The row is not required and not
-finish-gated, so it needs no setup screen and blocks nothing. The same applies
-when the file cannot be read. An `excludeOrg` typo stays in the pack's `error`.
+**Errors.** Org file errors travel in a new `orgError` field, never in `error`:
+`pack.ts` fails the whole pack stage on `reqs[0].error`, and a member cannot fix
+the org's data. `toolRows` draws a row `org.requirements` from it, with
+`required: false` and status `error`, homed under Team in `regroup.ts`. Entries
+that parsed still apply. The row has no `ROW_TARGETS` entry and blocks nothing,
+so the fast screens do not draw it. It shows under Setup status only.
 
-**Unchanged.** Row ids stay `tool.team.<name>`, so a stored waiver or a tray
-reading a row sees no difference, and `PlanModels.swift` needs no new field.
+**Unchanged.** Row ids stay `tool.team.<name>`, so stored waivers and the tray
+see no difference, and `PlanModels.swift` needs no new field. The prepare stage
+builds its list from the same reader, so it installs org tools too. Org tools
+with a sign-in land on the connect screen through `signInTools`. Others show as
+"Before you finish" rows while they block.
+
+**Finished Macs.** A required org tool makes every member's finished Mac read
+unfinished at their next `org.pull`, all at once, from one org edit. The footer
+reads "Finish setup", and fixing the row finishes setup. A team adding a tool to
+its pack does the same today, for one team.
+
+**Older apps.** They ignore the org file and `excludeOrg`, so nothing breaks.
 
 ## Left to the builder
 
 - Whether `readPackRequirements` is renamed now that it reads two files.
 - Tests in `lib/setup/__tests__/requirements.test.ts` and the tool rows' suite,
-  covering each acceptance bullet on RT-527 plus removal.
+  covering each acceptance bullet on RT-527 plus removal. Required cases: org
+  and team declare the same tool (team wins in `signInTools` and the rows), a
+  null team, a team with no pack file, and a malformed org file with the pack
+  stage still installing.
 - `.claude/rules/setup.md`, and a docs site line where team requirements are
   described.
 
