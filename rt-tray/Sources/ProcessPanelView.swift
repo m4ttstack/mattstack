@@ -10,7 +10,9 @@ struct ProcessPanelView: View {
     /// button would be a no-op pointing at itself.
     var isDetached: Bool = false
 
-    @StateObject private var controller = ProcessPanelController()
+    /// Owned by the host, which starts and stops its polling with the popover
+    /// or window: a kept window never fires `onDisappear` on close.
+    @ObservedObject var controller: ProcessPanelController
     @StateObject private var columnSettings = ColumnSettings()
     @ObservedObject private var trayState = TrayState.shared
     @State private var showColumnPicker = false
@@ -43,8 +45,6 @@ struct ProcessPanelView: View {
         }
         .frame(minWidth: 600, idealWidth: 900, maxWidth: .infinity,
                minHeight: 400, idealHeight: 600, maxHeight: .infinity)
-        .onAppear { controller.startPolling() }
-        .onDisappear { controller.stopPolling() }
     }
 
     // MARK: - Status Strip
