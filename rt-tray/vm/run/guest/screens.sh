@@ -152,7 +152,7 @@ screen_row_fancy_urls() {
   ax_log "Fancy URLs done through the row's own button"
 }
 
-# P2: four cards, and the card is the answer.
+# P2: four cards to pick from, then Continue moves on.
 screen_path() {
   local card
   screen_wait path 60
@@ -163,6 +163,8 @@ screen_path() {
     *) ax_fail "no card for scenario $SCENARIO" ;;
   esac
   ax_click "setup.fast.path.card.$card"
+  ax_wait_enabled setup.fast.path.primary 10 || ax_fail "setup.fast.path.primary stayed off after picking $card"
+  ax_click setup.fast.path.primary
 }
 
 # The rows a screen draws are answered once each, the way a member would,
@@ -197,6 +199,7 @@ screen_row() {  # <rowId> → 1 when the walkthrough has no answer for it
     fast-browser) screen_row_fast_browser ;;
     repos.root) screen_row_repo_root ;;
     repos.place:*) screen_row_repo_place "$1" ;;
+    settings.backup) screen_row_backup ;;
     *) return 1 ;;
   esac
 }
@@ -288,12 +291,30 @@ screen_row_repo_root() {
   ax_wait_row_done repos.root 30 || ax_fail "repos.root not answered after taking the suggested folder"
 }
 
-# A tracked repo nobody placed yet holds Set up this Mac: accept the location
-# the row shows with its one-click button (the run clones there).
+# A tracked repo nobody placed yet asks "Clone it fresh" or "Already on this
+# Mac" before anything else: the clean room has no checkout, so the first tile
+# is the answer, and it records rt's suggested clone location. A row that is
+# already answered (a found checkout is pre-picked) draws no tiles, and takes
+# the location its one-click button shows instead.
 screen_row_repo_place() {  # <repos.place:<identity>>
-  ax_find "setup.fast.row.$1.action.oneClick" >/dev/null 2>&1 || ax_fail "$1 needs a placement but offers no one-click button"
-  ax_click "setup.fast.row.$1.action.oneClick"
-  ax_wait_row_done "$1" 60 || ax_fail "$1 not placed after its one-click button"
+  local p="setup.fast.row.$1" ids; ids=$(ax_dump_ids || true)
+  if ax_ids_have "$ids" "$p.segment.clone"; then
+    ax_click "$p.segment.clone"
+  else
+    ax_find "$p.action.oneClick" >/dev/null 2>&1 || ax_fail "$1 needs a placement but offers no clone tile and no one-click button"
+    ax_click "$p.action.oneClick"
+  fi
+  ax_wait_row_done "$1" 60 || ax_fail "$1 not placed after its answer"
+}
+
+# Where settings live asks until picked, and Set up this Mac stays locked
+# until then. The clean room has no GitHub browser sign-in to confirm a
+# remote, so the answer is always the local tile; settings.remote never shows.
+screen_row_backup() {
+  local p=setup.fast.row.settings.backup
+  ax_find "$p.action.local" >/dev/null 2>&1 || ax_fail "settings.backup offers no local tile ($p.action.local)"
+  ax_click "$p.action.local"
+  ax_wait_row_done settings.backup 60 || ax_fail "settings.backup not answered after the local tile"
 }
 
 # P3: the invite code, then rt's invite rows (git, the forge token), then Join.
@@ -313,13 +334,16 @@ screen_invite() {
 # P3c: the team's name, its forge, the owner or group from --team-remote,
 # then rt's create rows, then Create team, which makes and pushes the repo.
 screen_create_team() {
-  local group label deadline
+  local group label owner read_as deadline
   [ -n "$TEAM_REMOTE" ] || ax_fail "create needs --team-remote (its owner or group is where Create team makes the team's repo)"
   group=$(screen_remote_group "$TEAM_REMOTE") || ax_fail "no owner or group in --team-remote $TEAM_REMOTE"
-  case "$FORGE" in github) label=GitHub ;; gitlab) label=GitLab ;; *) ax_fail "unknown forge: $FORGE" ;; esac
+  case "$FORGE" in github) label=GitHub; owner=Owner ;; gitlab) label=GitLab; owner=Group ;; *) ax_fail "unknown forge: $FORGE" ;; esac
   screen_wait create-team 30
   ax_set_field setup.fast.create-team.name "$SLUG"
   ax_pick_segment setup.fast.create-team.forge "$label" || ax_fail "could not pick $label in setup.fast.create-team.forge"
+  # The forge's options may expose no selected state, so the owner field's label is what shows the pick took.
+  read_as=$(ax_title setup.fast.create-team.group || true)
+  [ "$read_as" = "$owner" ] || ax_fail "picked $label, but setup.fast.create-team.group reads '${read_as}', not $owner"
   ax_set_field setup.fast.create-team.group "$group"
   screen_answer_rows create-team 1500
   screen_shot 03-create-team
@@ -381,8 +405,8 @@ screen_connect() {
   ax_click setup.fast.connect.primary
 }
 
-# P5b: the repos folder, any tracked repo to place, where settings live (kept
-# on this Mac), then Set up this Mac, pressed only while it reads so.
+# P5b: the repos folder, each tracked repo's clone tile, where settings live
+# (the local tile), then Set up this Mac, pressed only while it reads so.
 screen_this_mac() {
   screen_wait this-mac 30
   screen_answer_rows this-mac 1500

@@ -46,6 +46,17 @@ t "walkthrough --dry-run"        env VM_ARTIFACTS=/tmp/vmcheck-art bash run/walk
 t "walkthrough --dry-run ledgers teardown once" bash -c \
   'rm -rf /tmp/vmcheck-art-td; env VM_ARTIFACTS=/tmp/vmcheck-art-td bash run/walkthrough.sh --ver 26 --app ../mattstack.app --dry-run >/dev/null 2>&1 \
    && [ "$(cat /tmp/vmcheck-art-td/*/phases.jsonl | grep -c "\"phase\":\"teardown\"")" -eq 1 ]; rc=$?; rm -rf /tmp/vmcheck-art-td; exit $rc'
+t "walkthrough --start-ref --dry-run" env VM_ARTIFACTS=/tmp/vmcheck-art bash run/walkthrough.sh --ver 26 --app ../mattstack.app --start-ref HEAD --scenario create --fresh-team-repo --dry-run
+t "walkthrough --start-ref refuses any scenario but create" bash -c \
+  '! env VM_ARTIFACTS=/tmp/vmcheck-art bash run/walkthrough.sh --ver 26 --app ../mattstack.app --start-ref HEAD --scenario join --fresh-team-repo --dry-run >/dev/null 2>&1'
+# A start ref with fast setup makes its own repo, so teardown must own it; an
+# older one pastes the minted repo. A clone without the v2.27.0 tag checks only the first.
+t "walkthrough --start-ref picks cleanup from the ref's create" bash -c '
+  out=$(env VM_ARTIFACTS=/tmp/vmcheck-art bash run/walkthrough.sh --ver 26 --app ../mattstack.app --start-ref HEAD --scenario create --dry-run 2>&1) \
+    && printf "%s" "$out" | grep -q "Create team makes .*mattstack-team-vmtest-" || exit 1
+  git rev-parse -q --verify "v2.27.0^{commit}" >/dev/null || exit 0
+  out=$(env VM_ARTIFACTS=/tmp/vmcheck-art bash run/walkthrough.sh --ver 26 --app ../mattstack.app --start-ref v2.27.0 --scenario create --fresh-team-repo --dry-run 2>&1) \
+    && ! printf "%s" "$out" | grep -q "Create team makes"'
 t "walkthrough usage"            bash -c '! bash run/walkthrough.sh >/dev/null 2>&1'
 t "walkthrough --fresh-team-repo --dry-run creates nothing" bash -c \
   'out=$(env VM_ARTIFACTS=/tmp/vmcheck-art bash run/walkthrough.sh --ver 26 --app ../mattstack.app --fresh-team-repo --dry-run 2>&1) && ! printf "%s" "$out" | grep -q "unknown arg"'
@@ -351,6 +362,7 @@ t "screen_create_team picks the forge segment and the group from the remote" env
   'source run/guest/ax.sh; source run/guest/screens.sh; calls=""
    ax_wait_screen() { :; }; ax_shot() { :; }; screen_answer_rows() { :; }; ax_find() { [ "$1" = setup.fast.connect ]; }
    ax_click() { calls="$calls click:$1"; }; ax_set_field() { calls="$calls set:$1=$2"; }; ax_pick_segment() { calls="$calls pick:$1=$2"; }
+   ax_title() { [ "$1" = setup.fast.create-team.group ] && echo Group; }
    screen_create_team; [ "$calls" = " set:setup.fast.create-team.name=widgets pick:setup.fast.create-team.forge=GitLab set:setup.fast.create-team.group=acme/platform click:setup.fast.create-team.primary" ] || { echo "$calls"; exit 1; }'
 t "screen_create_team refuses a remote with no owner" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x SCENARIO=create TEAM_REMOTE=https://github.com/widgets SLUG=widgets FORGE=github bash -c \
   'source run/guest/ax.sh; source run/guest/screens.sh; ax_dump_ids() { :; }; ax_shot() { :; }; ax_click() { exit 9; }

@@ -17,6 +17,8 @@ const STUBS: Record<string, string> = {
   hdiutil: `#!/bin/bash\necho "hdiutil $*" >> "$CALLS"\nif [ "$1" = attach ]; then while [ $# -gt 0 ]; do [ "$1" = -mountpoint ] && { mkdir -p "$2/Google Chrome.app/Contents"; echo stub > "$2/Google Chrome.app/Contents/Info.plist"; }; shift; done; fi\n`,
   sudo: `#!/bin/bash\necho "sudo $*" >> "$CALLS"\n"$@"\n`,
   chown: `#!/bin/bash\necho "chown $*" >> "$CALLS"\n`,
+  install: `#!/bin/bash\necho "install $*" >> "$CALLS"\nwhile [ $# -gt 2 ]; do shift; done\ncp "$1" "$2"\n`,
+  killall: `#!/bin/bash\necho "killall $*" >> "$CALLS"\n`,
   open: `#!/bin/bash\necho "open $*" >> "$CALLS"\n[ -e "$HOME/no-extension" ] || mkdir -p "$HOME/Library/Application Support/Google/Chrome/Default/Extensions/${ID}/1.0_0"\n`,
   sleep: `#!/bin/bash\n:\n`,
 };
@@ -52,7 +54,7 @@ describe("install-chrome.sh", () => {
     const plist = join(r.root, "root", "Library", "Managed Preferences", "com.google.Chrome.plist");
     const read = Bun.spawnSync(["/usr/bin/defaults", "read", plist, "ExtensionInstallForcelist"]).stdout.toString();
     expect(read).toContain(`${ID};${UPDATE}`);
-    expect(r.calls.some((c) => c.startsWith("sudo defaults write") && c.includes("ExtensionInstallForcelist"))).toBe(true);
+    expect(r.calls.some((c) => c.startsWith("sudo install -o root -g wheel -m 644") && c.endsWith("com.google.Chrome.plist"))).toBe(true);
     expect(r.calls.some((c) => c.startsWith("hdiutil detach"))).toBe(true);
   });
 

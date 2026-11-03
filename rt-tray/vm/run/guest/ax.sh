@@ -83,12 +83,13 @@ ax_shot() {
   ax_log "shot $name: host did not respond within 20s"; return 0
 }
 ax_fail() {
-  ax_log "FAIL: $*"
   # Screenshots are host-side and can fail on their own; the identifiers on
   # screen are the evidence that survives that.
   ax_log "windows: $(ax_osa "tell application \"System Events\" to tell process \"$AX_APP\" to get name of every window" 2>/dev/null)"
   ax_log "axids on screen: $(ax_dump_ids | tr '\n' ' ')"
   ax_shot "fail-$(date +%s)"
+  # Last, because the screens phase ledgers the log's last line as its reason.
+  ax_log "FAIL: $*"
   exit 1
 }
 
@@ -191,22 +192,7 @@ ax_click() {  # <axid>
 # Picks one option of a segmented control by its wording: the control carries
 # the id, its options only their names.
 ax_pick_segment() {  # <axid> <option name>
-  local id nm; id=$(ax_esc "$1"); nm=$(ax_esc "$2")
-  ax_osa "$AX_WALK_AS
-    tell application \"System Events\" to tell process \"$AX_APP\"
-      set frontmost to true
-      set r to my walk(window 1, \"$id\")
-      if r is missing value then error \"axid not found: $id\"
-      repeat with c in UI elements of r
-        try
-          if (name of c as text) is \"$nm\" or (description of c as text) is \"$nm\" or (title of c as text) is \"$nm\" then
-            click c
-            return
-          end if
-        end try
-      end repeat
-      error \"no option $nm in $id\"
-    end tell" >/dev/null || return 1
+  ax_button pick "$1" "$2" >/dev/null || return 1
   ax_log "picked $2 in $1"
 }
 
@@ -351,8 +337,10 @@ ax_fast_status() {  # <rowId> → ready, needs-you, checking...
 # done, waiting, error or todo: a done row draws its check, a running one its
 # spinner, a refused one its error line. A spinner beside a field waits on the
 # member (a code to paste), so it reads todo. A settings choice (where your
-# settings live) draws its segment and never a check, and rt always sends it
-# with a selection, so it reads done. Any other segment reads by its own children.
+# settings live) never draws a check: unanswered it draws its tiles
+# (.action.<option>) and reads todo; answered it draws its chip, whose Change
+# is .action.change, and reads done. A two-option segment without tile lines
+# still reads done by its radio group. Any other segment reads by its own children.
 ax_fast_row_state() {  # <ax_dump_ids output> <rowId>
   local p="setup.fast.row.$2" s
   if ax_ids_have "$1" "$p.done"; then echo done
@@ -362,6 +350,7 @@ ax_fast_row_state() {  # <ax_dump_ids output> <rowId>
   elif ax_ids_have "$1" "$p.waiting" && ax_ids_have "$1" "$p.field"; then echo todo
   elif ax_ids_have "$1" "$p.waiting"; then echo waiting
   elif ax_ids_have "$1" "$p.error"; then echo error
+  elif case "$2" in settings.*) true ;; *) false ;; esac && ax_ids_have "$1" "$p.action.change"; then echo done
   elif case "$2" in settings.*) true ;; *) false ;; esac && ax_ids_have "$1" "$p.action" \
       && [ "$(ax_find_raw "$p.action" 2>/dev/null || true)" = "radio group" ]; then echo done
   else echo todo

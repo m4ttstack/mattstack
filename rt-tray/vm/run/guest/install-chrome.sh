@@ -39,10 +39,15 @@ case "$cmd" in
     hdiutil detach "$TMP/m" -quiet
     say "Chrome copied to $APP"
     sudo mkdir -p "$(dirname "$POLICY")"
-    sudo defaults write "$POLICY" ExtensionInstallForcelist -array "$ID;$URL"
-    sudo chown root:wheel "$POLICY.plist"
-    sudo chmod 644 "$POLICY.plist"
-    defaults read "$POLICY" ExtensionInstallForcelist 2>/dev/null | grep -qF "$ID;$URL" \
+    # Written as a file, not through defaults: cfprefsd holds a defaults write
+    # back from disk, and only a root-owned file here counts as managed.
+    plutil -create xml1 "$TMP/policy.plist"
+    plutil -insert ExtensionInstallForcelist -array "$TMP/policy.plist"
+    plutil -insert ExtensionInstallForcelist.0 -string "$ID;$URL" "$TMP/policy.plist"
+    sudo install -o root -g wheel -m 644 "$TMP/policy.plist" "$POLICY.plist"
+    # cfprefsd caches the managed domain as absent until it restarts.
+    sudo killall cfprefsd 2>/dev/null || true
+    plutil -extract ExtensionInstallForcelist.0 raw -o - "$POLICY.plist" 2>/dev/null | grep -qF "$ID;$URL" \
       || { say "the ExtensionInstallForcelist policy did not read back"; exit 1; }
     say "Chrome policy force-installs $ID"
     ;;
