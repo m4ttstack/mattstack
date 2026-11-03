@@ -286,6 +286,42 @@ describe("composeForm", () => {
     const form = await composeForm(p, { sections: ["this-mac"], secrets: NO_SECRETS, orgs: [] });
     expect(pick(form.sections.thisMac ?? [], "settings.remote")).toMatchObject({ state: "done", detail: url });
   });
+
+  describe("a team created after a Just me run ended ok", () => {
+    const CREATE: OrgRef = { slug: "acme", name: "Acme", mode: "create" };
+    const ENDED_OK = { startedAt: "2026-10-30T08:00:00.000Z", done: [], endedAt: "2026-10-30T08:10:00.000Z", ok: true };
+    const neverPublished = r("team.sync", "needs-you", "acme: fetches are failing: fatal: couldn't find remote ref mattstack", {
+      required: false,
+      finishGated: true,
+      waivable: false,
+      action: { type: "run", label: "Re-check", verb: ["setup", "status"] },
+    });
+    const teamPlan = plan([r("tool.clt", "ready", "installed"), neverPublished], CREATE);
+    const intent = { v: 1, at: "2026-10-30T09:00:00.000Z", mode: "create", team: { slug: "acme", name: "Acme", remote: "https://github.com/janedoe/mattstack-team-acme.git", others: false } };
+    const files = (withIntent: boolean) => ({
+      "/fake-home/.mattstack/rt/setup-state.json": JSON.stringify({ homeBackup: { mode: "local" }, run: ENDED_OK }),
+      ...(withIntent ? { "/fake-home/.mattstack/rt/setup-intent.json": JSON.stringify(intent) } : {}),
+    });
+    const thisMac = (withIntent: boolean) =>
+      composeForm(fakeProbes({ home: "/fake-home", now: NOW, files: files(withIntent), exec }), {
+        sections: ["this-mac"],
+        secrets: NO_SECRETS,
+        orgs: ["acme"],
+        plan: async () => teamPlan,
+      });
+
+    test("the team rows the coming run sets up never hold Set up this Mac", async () => {
+      const form = await thisMac(true);
+      expect((form.sections.thisMac ?? []).some((x) => x.id === "team.sync")).toBe(false);
+      expect(form.startReady).toBe(true);
+    });
+
+    test("once that run has ended ok, the same row is a leftover again", async () => {
+      const form = await thisMac(false);
+      expect(pick(form.sections.thisMac ?? [], "team.sync")).toMatchObject({ state: "todo", optional: false });
+      expect(form.startReady).toBe(false);
+    });
+  });
 });
 
 describe("the remote repo row signs in to GitHub", () => {
