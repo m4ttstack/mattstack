@@ -33,7 +33,7 @@ final class SetupCoordinator {
     private let host: SetupHost
     private lazy var actions = FormActionRunner(rt: rt, needs: needs,
                                                 effects: host.effects(permissions, { [weak self] in await self?.refreshSection() }),
-                                                reload: { [weak self] in await self?.refreshSection() })
+                                                reload: { [weak self] in await self?.afterAction() })
     private let teamSettings: TeamSettingsModel
     private let devLogins: DevLoginsModel
     private let appsSettings: AppsSettingsModel
@@ -246,6 +246,12 @@ final class SetupCoordinator {
     private func landOnRtStage() async {
         guard let read = await flow.land(reading: form), let stage = read.stage else { return }
         startBarIfNeeded(stage: stage)
+    }
+
+    /// This-mac follows rt's stage after an action: clearing the last leftover after an ok run is rt's ready, and the
+    /// screen would otherwise sit there offering a run nobody needs.
+    private func afterAction() async {
+        if flow.screen == .thisMac { await landOnRtStage() } else { await refreshSection() }
     }
 
     /// Re-reads the current screen's own section, then watches it while a row's answer is landing outside the app.

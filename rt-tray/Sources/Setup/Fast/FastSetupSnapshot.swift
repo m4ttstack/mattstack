@@ -307,8 +307,8 @@ enum FastSetupSnapshot {
     @MainActor
     private static func thisMacPages() -> [(String, AnyView)] {
         typealias T = ThisMacRows
-        func page(team: String? = "Mithrandir", _ rows: [FormRow], ready: Bool, start: FormStart? = nil) -> AnyView {
-            window(ThisMacScreenBody(teamName: team, solo: team == nil, rows: rows, waiting: [:], errors: [:], startReady: ready, start: start,
+        func page(team: String? = "Mithrandir", _ rows: [FormRow], ready: Bool, start: FormStart? = nil, status: Bool = false) -> AnyView {
+            window(ThisMacScreenBody(teamName: team, solo: team == nil, rows: rows, waiting: [:], errors: [:], startReady: ready, start: start, status: status,
                                      onAction: { _, _, _ in }, onBack: {}, onStart: {}),
                    .thisMac, path: team == nil ? "solo" : "join")
         }
@@ -328,6 +328,7 @@ enum FastSetupSnapshot {
             ("this-mac-repo-problem", page([T.boardFound, T.widgetsMoved, T.backupLocal], ready: false)),
             ("this-mac-leftover", page([T.boardFoundAfterRun, T.widgetsFoundAfterRun, T.backupLocal, T.shellLeftover], ready: false, start: finish)),
             ("this-mac-backup-leftover", page([T.boardFoundAfterRun, T.widgetsFoundAfterRun, T.backupLocal, T.backupLeftover], ready: false, start: finish)),
+            ("this-mac-status", page([T.boardFoundAfterRun, T.widgetsFoundAfterRun, T.backupLocal, T.shellLeftover], ready: false, start: finish, status: true)),
         ]
     }
 
