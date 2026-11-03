@@ -165,11 +165,10 @@ export function pendingHomeRemote(p: Pick<Probes, "readFile" | "exists" | "home"
   return null;
 }
 
-/** A home repo that already has an origin is backed up there: recorded as applied, so no run creates another repo. */
-export function adoptHomeOrigin(p: StateProbes, url: string): HomeBackupChoice {
-  const choice: HomeBackupChoice = { mode: "remote", url, appliedAt: p.now().toISOString() };
-  updateSetupState(p, (s) => ({ ...s, homeBackup: choice }));
-  return choice;
+/** The home repo's origin when it is an address another Mac can restore from; a local path or a url with a password is not. */
+export async function homeBackupOrigin(p: Pick<Probes, "exists" | "exec" | "home">): Promise<string | null> {
+  const origin = await homeOrigin(p);
+  return origin !== null && GIT_REMOTE_URL_PATTERN.test(origin) && !hasUrlCredentials(origin) ? origin : null;
 }
 
 /** Written only after a push lands, so the remote is no longer staged. */

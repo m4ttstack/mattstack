@@ -318,6 +318,17 @@ describe("composeForm", () => {
     expect(pick(list, "settings.remote")).toMatchObject({ state: "done", detail: origin });
   });
 
+  test("a home repo whose origin is a local path is not a backup, so the choice stays open", async () => {
+    const p = fakeProbes({
+      home: "/fake-home",
+      now: NOW,
+      dirs: { "/fake-home/.mattstack/user/.git": [] },
+      exec: (argv) => (argv.includes("get-url") ? { code: 0, stdout: "/tmp/home.git\n", stderr: "" } : exec(argv)),
+    });
+    const list = (await composeForm(p, { sections: ["this-mac"], secrets: NO_SECRETS, orgs: [] })).sections.thisMac ?? [];
+    expect(pick(list, "settings.backup").state).toBe("todo");
+  });
+
   describe("a team created after a Just me run ended ok", () => {
     const CREATE: OrgRef = { slug: "acme", name: "Acme", mode: "create" };
     const ENDED_OK = { startedAt: "2026-10-30T08:00:00.000Z", done: [], endedAt: "2026-10-30T08:10:00.000Z", ok: true };

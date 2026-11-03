@@ -292,7 +292,7 @@ describe("home.init", () => {
     expect(readSetupState(p).homeBackup).toMatchObject({ mode: "remote", url: `${created}.git`, appliedAt: p.now().toISOString() });
   });
 
-  test("a staged create on a home repo that already has an origin keeps that origin and creates nothing", async () => {
+  test("a staged create on a home repo that already has an origin pushes there and creates nothing", async () => {
     const origin = "https://github.com/janedoe/mattstack-home.git";
     const gitDir = "/fake-home/.mattstack/user/.git";
     const p = fakeProbes({
@@ -305,7 +305,8 @@ describe("home.init", () => {
 
     expect(await homeInitStep.run(ctx)).toMatchObject({ state: "done" });
 
-    expect(p.calls.exec.filter((a) => a[0] === "gh" || a.includes("push") || a.includes("set-url") || a.includes("add"))).toEqual([]);
+    expect(p.calls.exec.filter((a) => a[0] === "gh")).toEqual([]);
+    expect(p.calls.exec.some((a) => a.includes("push") && a.includes("origin"))).toBe(true);
     expect(readSetupState(p).homeBackup).toEqual({ mode: "remote", url: origin, appliedAt: p.now().toISOString() });
   });
 

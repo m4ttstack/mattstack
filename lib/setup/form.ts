@@ -15,7 +15,7 @@ import { readLogin, FINISH_IN_BROWSER, type LoginSession, type LoginTool } from 
 import { applyStepAction, REPO_PLACE_ROW_PREFIX, type Action, type Plan, type Row } from "./contract.ts";
 import { fancyUrlsState, type FancyUrls } from "./fancy-urls.ts";
 import { createCapableGitHubToken, GITHUB_OAUTH_CLIENT_ID, readGitHubSignIn, readStoredGitHubToken, type GitHubSignIn } from "./github-signin.ts";
-import { homeOrigin } from "./home-remote.ts";
+import { homeBackupOrigin } from "./home-remote.ts";
 import { isValidHostname } from "./host-validate.ts";
 import { integrationDef } from "./integrations.ts";
 import { readIntent, type SetupIntent } from "./intent.ts";
@@ -1027,7 +1027,7 @@ async function thisMacSection(
   clientId: string,
 ): Promise<FormRow[]> {
   const rows = new Map(planRows(plan).map((r) => [r.id, r]));
-  const origin = await homeOrigin(p);
+  const origin = await homeBackupOrigin(p);
   // A Mac set up before the choice existed already backs up to its origin, so it is not asked again.
   const backup: HomeBackupChoice | undefined = state.homeBackup ?? (origin !== null ? { mode: "remote", url: origin } : undefined);
   const remote = homeRemote(origin, backup);

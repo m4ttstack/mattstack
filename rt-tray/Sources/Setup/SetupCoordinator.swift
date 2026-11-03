@@ -251,7 +251,10 @@ final class SetupCoordinator {
     /// This-mac follows rt's stage after an action: clearing the last leftover after an ok run is rt's ready, and the
     /// screen would otherwise sit there offering a run nobody needs.
     private func afterAction() async {
-        if flow.screen == .thisMac { await landOnRtStage() } else { await refreshSection() }
+        guard flow.screen == .thisMac else { await refreshSection(); return }
+        await landOnRtStage()
+        // Still here: a row the action left waiting (a GitHub sign-in) needs its watch, which only a section read starts.
+        if flow.screen == .thisMac { await refreshSection() }
     }
 
     /// Re-reads the current screen's own section, then watches it while a row's answer is landing outside the app.

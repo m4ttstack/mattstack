@@ -67,7 +67,7 @@ import { STEPS } from "../lib/setup/steps/index.ts";
 import { appsRestartOwed, appsRestartStep, oweAppsRestart, restartServedApps } from "../lib/setup/steps/apps-restart.ts";
 import { homeGitDir } from "../lib/setup/steps/home.ts";
 import { clearGitHubSignIn, createCapableGitHubToken, readStoredGitHubToken } from "../lib/setup/github-signin.ts";
-import { adoptHomeOrigin, assertRemoteUrl, homeOrigin, markHomeRemoteApplied, setHomeRemote, stageHomeRemote, writeHomeBackup, type HomeRemoteInput } from "../lib/setup/home-remote.ts";
+import { assertRemoteUrl, homeBackupOrigin, homeOrigin, markHomeRemoteApplied, setHomeRemote, stageHomeRemote, writeHomeBackup, type HomeRemoteInput } from "../lib/setup/home-remote.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import { readStagedSecret, stageSecret } from "../lib/setup/staging.ts";
 import { markSetupFinished } from "../lib/setup/state.ts";
@@ -1117,9 +1117,11 @@ export async function setupHomeBackup(args: string[], _ctx: CommandContext = {},
   let homeBackup = writeHomeBackup(deps.probes, choice);
   if (homeBackup.mode === "local") clearGitHubSignIn(deps.probes);
   // With gh signed in or a token that can create repos, GitHub needs nothing more from the member: rt creates the private repo when setup runs.
+  // An existing origin is staged by its url, so the run pushes there; it is never a reason to create a second repo.
   if (homeBackup.mode === "remote" && homeBackup.url === undefined) {
-    const origin = await homeOrigin(deps.probes);
-    if (origin !== null) homeBackup = adoptHomeOrigin(deps.probes, origin);
+    const backupOrigin = await homeBackupOrigin(deps.probes);
+    if (backupOrigin !== null) homeBackup = stageHomeRemote(deps.probes, { url: backupOrigin });
+    else if ((await homeOrigin(deps.probes)) !== null) homeBackup = stageHomeRemote(deps.probes, {});
     else if (!homeBackup.create && (await canCreateGitHubRepo(deps))) homeBackup = stageHomeRemote(deps.probes, { create: true });
   }
   if (json) deps.json(envelope({ homeBackup }, deps.probes.now()));
