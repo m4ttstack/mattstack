@@ -873,6 +873,26 @@ describe("teamAdd", () => {
       expect(generated.plugins).toEqual([expect.objectContaining({ name: "gadgets", source: expect.objectContaining({ source: "git-subdir", path: "mattstack/teams/gadgets/plugin" }) })]);
     });
 
+    test("a generated marketplace that cannot be written warns and still adds the team", async () => {
+      const w = orgWorld();
+      mkdirSync(join(generatedMarketplaceDir(w.home, "acme"), ".."), { recursive: true });
+      writeFileSync(generatedMarketplaceDir(w.home, "acme"), "not a folder\n");
+      const deps = baseDeps({ probes: w.p, addTeamSeams: realSeams, forgeToken: async () => null });
+      const io = captureOut();
+      ui.__test__.setHuman(() => false);
+      warnTest.reset();
+      setWarningLog(() => {});
+      try {
+        await teamAdd(["gadgets", "--owner", "dev2", "--team", "acme"], {}, deps);
+        expect(io.stdout()).toContain("Added the gadgets team");
+        expect(io.stderr()).toContain("The gadgets team is added, but rt could not update this Mac's team marketplace");
+        expect(io.stderr()).toContain("rt setup update");
+      } finally {
+        warnTest.reset();
+        io.restore();
+      }
+    });
+
     test("a team whose share failed leaves the generated marketplace unwritten", async () => {
       const w = orgWorld();
       w.git("remote", "set-url", "origin", join(w.home, "missing.git"));

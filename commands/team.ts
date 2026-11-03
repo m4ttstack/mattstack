@@ -252,7 +252,15 @@ export async function teamAdd(args: string[], _ctx: CommandContext = {}, deps: T
     const sharePaths = [`mattstack/teams/${team}`, ".claude-plugin/marketplace.json"];
     rememberPackShare(deps.probes, org, team, sharePaths);
     const published = await sharePack(deps.probes, org, team, sharePaths, deps.forgeToken ?? storedForgeToken);
-    if (published.pushed) await writeGeneratedMarketplace(deps.probes, org);
+    if (published.pushed) {
+      try {
+        await writeGeneratedMarketplace(deps.probes, org);
+      } catch (err) {
+        warn("team", `generated marketplace after team add: ${err instanceof Error ? err.message : String(err)}`, {
+          show: { title: `The ${team} team is added, but rt could not update this Mac's team marketplace`, hint: "rt setup update will write it", next: out.cmd("rt setup update") },
+        });
+      }
+    }
     if (json) {
       deps.print(JSON.stringify(envelope({ ...result, published })));
       return;

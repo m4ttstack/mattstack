@@ -12,7 +12,7 @@ import { packManifestPath, repoSlug } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
 import type { MissingMarker } from "./team-params.ts";
 import type { PackShare } from "../team/share-pack.ts";
-import { generatedMarketplaceDir, orgsDirUnder } from "../rt-paths.ts";
+import { orgsDirUnder } from "../rt-paths.ts";
 import { readFloor, refusalCopy, runnableEngine, type Floor } from "../engine-floor.ts";
 import { admit, installArgs } from "../setup/plugin-calls.ts";
 import { parseMarker } from "../team/org-marker.ts";
@@ -621,11 +621,10 @@ export async function initPack(opts: { repoDir: string; repoFlag?: string | null
   const wrote: string[] = [];
 
   const share = `rt team publish --team ${zone.org}`;
-  const generatedDir = generatedMarketplaceDir(deps.home, zone.org);
   const installSteps = (): string[] => {
     const admission = admit(readFloor(deps.fs.readFile, packDir), (deps.engine ?? runnableEngine)());
     const install = admission.ok ? [`claude ${installArgs(admission, pluginId).join(" ")}`] : [];
-    return [`claude plugin marketplace add ${generatedDir}`, ...install];
+    return ["rt setup update", ...install];
   };
   const remedyFor = (code: FailureCode): InitRemedy => {
     if (code === "write-failed") return { commands: [retry("")], folder: packDir };

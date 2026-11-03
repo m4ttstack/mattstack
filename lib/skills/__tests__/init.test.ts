@@ -772,7 +772,7 @@ describe("initPack", () => {
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: false, code: "share-failed", why: "rt could not push the team repo" });
     if (out.ok || out.refused) return;
-    expect(out.remedy?.commands).toEqual(["rt team publish --team acme", `claude plugin marketplace add ${GENERATED("acme")}`, "claude plugin install acme@acme-market"]);
+    expect(out.remedy?.commands).toEqual(["rt team publish --team acme", "rt setup update", "claude plugin install acme@acme-market"]);
     expect(calls.steps).toEqual([]);
     expect(fs.exists(`${ACME_PACK}/pack/stubs.jsonc`)).toBe(true);
   });
@@ -781,7 +781,7 @@ describe("initPack", () => {
     const { deps } = world({ sharePack: async () => ({ pushed: false, reason: "The org repo has changes this Mac does not have yet", next: "rt team pull --team acme", thenRun: "rt team publish --team acme" }) });
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     if (out.ok || out.refused) throw new Error("expected a failure");
-    expect(out.remedy?.commands).toEqual(["rt team pull --team acme", "rt team publish --team acme", `claude plugin marketplace add ${GENERATED("acme")}`, "claude plugin install acme@acme-market"]);
+    expect(out.remedy?.commands).toEqual(["rt team pull --team acme", "rt team publish --team acme", "rt setup update", "claude plugin install acme@acme-market"]);
   });
 
   test("a generated marketplace that could not be written is an install failure, and nothing is added", async () => {
@@ -854,14 +854,14 @@ describe("initPack", () => {
     expect(calls.claude).toContainEqual(["plugin", "marketplace", "add", GENERATED("acme")]);
   });
 
-  test("an install that fails names the share, the marketplace add of the generated folder, then the install", async () => {
+  test("an install that fails names the share, rt setup update, then the install", async () => {
     const { deps } = world({
       claude: async (args) => (args[1] === "install" ? { code: 1, stdout: "", stderr: "boom" } : ok("")),
     });
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     if (out.ok || out.refused) throw new Error("expected a failure");
     expect(out.code).toBe("install-failed");
-    expect(out.remedy?.commands).toEqual(["rt team publish --team acme", `claude plugin marketplace add ${GENERATED("acme")}`, "claude plugin install acme@acme-market"]);
+    expect(out.remedy?.commands).toEqual(["rt team publish --team acme", "rt setup update", "claude plugin install acme@acme-market"]);
   });
 
   test("a marketplace add that exits non-zero with already wording still installs", async () => {
