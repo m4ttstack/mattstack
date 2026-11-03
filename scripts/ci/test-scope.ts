@@ -25,6 +25,8 @@ export type ScopeInput = {
   preloadImports: Set<string>;
   tests?: string[];
   graph?: Map<string, string[]>;
+  // Every tracked file, so a source's bare name is known to be unique or not.
+  tracked?: Set<string>;
 };
 
 const PRELOAD = "test-setup.ts";
@@ -312,7 +314,7 @@ export function existingPluginDirs(root: string = ROOT): string[] {
 // README.md, index.ts) are common enough to false-positive. A no-* guard
 // never counts: the guards job runs every one whenever the shards do not
 // run in full.
-function readBy(sources: Map<string, string>, f: string, opts: { fullPathOnly?: boolean } = {}): string[] {
+function readBy(sources: Map<string, string>, f: string, opts: { fullPathOnly?: boolean; testsOnly?: boolean } = {}): string[] {
   const fullOnly = opts.fullPathOnly || isPluginTree(f) || GENERIC_NAMES.has(basename(f));
   const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const patterns = [new RegExp(`(["'\`]|\\}/|\\.\\./)${escape(f)}["'\`]`)];
@@ -325,12 +327,37 @@ function readBy(sources: Map<string, string>, f: string, opts: { fullPathOnly?: 
   const readers: string[] = [];
   for (const [source, text] of sources) {
     if (/^no-.*\.test\.tsx?$/.test(basename(source))) continue;
-    if (patterns.some((p) => p.test(text))) readers.push(source);
+    if (opts.testsOnly && !isTestFile(source)) continue;
+    if (patterns.some((p) => p.test(text)) || readsRelative(source, text, f)) readers.push(source);
   }
   return readers;
 }
 
+// A path built from the reader's own directory: join(import.meta.dir, "..",
+// "..", "daemon.ts") or `${import.meta.dir}/../x.ts`, resolved against the
+// reader and compared whole, so a shared basename never false-positives.
+function readsRelative(source: string, text: string, f: string): boolean {
+  const dir = dirname(source);
+  const joins = text.matchAll(/join\(\s*import\.meta\.dir((?:\s*,\s*["'`][^"'`$]+["'`])+)\s*\)/g);
+  for (const m of joins) {
+    const parts = [...(m[1] ?? "").matchAll(/["'`]([^"'`]+)["'`]/g)].map((p) => p[1] ?? "");
+    if (join(dir, ...parts) === f) return true;
+  }
+  const templates = text.matchAll(/\$\{import\.meta\.dir\}\/([^"'`$\s]+)/g);
+  for (const m of templates) if (join(dir, m[1] ?? "") === f) return true;
+  return false;
+}
+
 const isTestFile = (f: string) => /\.test\.tsx?$/.test(basename(f));
+
+function uniqueBasename(input: ScopeInput, f: string): boolean {
+  const name = basename(f);
+  const universe = input.tracked ?? new Set([...input.sources.keys(), ...(input.tests ?? [])]);
+  for (const other of universe) {
+    if (other !== f && basename(other) === name) return false;
+  }
+  return true;
+}
 
 // The tests a changed run must add so every reader of f runs: a reader that
 // is a test runs itself; one that is not runs the tests importing it.
@@ -412,6 +439,14 @@ export function decide(input: ScopeInput): Decision {
       continue;
     }
     if (input.sources.has(f) || !outsideShards(input, f)) {
+      // A test that reads a source file as text (a guard over daemon.ts's
+      // wording) is not its importer, so --changed never selects it. Only a
+      // test's own read counts here: the module registry names every command
+      // file, and its importers are not about this one. The bare name counts
+      // only when no other source shares it ("setup.ts" is five files).
+      // An importer is left out: --changed already runs it.
+      const readers = readBy(input.sources, f, { fullPathOnly: !uniqueBasename(input, f), testsOnly: true });
+      for (const t of readers) if (!(input.graph?.get(t) ?? []).includes(f)) extra.add(t);
       rest.push(f);
       continue;
     }
@@ -484,6 +519,7 @@ export function collectSources(): {
   preloadImports: Set<string>;
   tests: string[];
   graph: Map<string, string[]>;
+  tracked: Set<string>;
 } {
   const preloadImports = new Set(walk([PRELOAD]).keys());
   preloadImports.delete(PRELOAD);
@@ -492,7 +528,13 @@ export function collectSources(): {
   const graph = walk([PRELOAD, ...tests]);
   const sources = new Map<string, string>();
   for (const rel of graph.keys()) sources.set(rel, readFileSync(join(ROOT, rel), "utf8"));
-  return { sources, preloadImports, tests, graph };
+  return { sources, preloadImports, tests, graph, tracked: trackedFiles() };
+}
+
+function trackedFiles(): Set<string> {
+  const ls = spawnSync("git", ["ls-files", "-z"], { cwd: ROOT, encoding: "utf8" });
+  if (ls.status !== 0) throw new Error(`git ls-files failed: ${ls.stderr}`);
+  return new Set(ls.stdout.split("\0").filter(Boolean));
 }
 
 // Every TypeScript file the e2e job's compiled binary and its test run can

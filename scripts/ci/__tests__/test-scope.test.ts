@@ -125,6 +125,27 @@ describe("decide", () => {
     expect(decision.extra).toEqual(["lib/__tests__/a.test.ts"]);
   });
 
+  test("a source file a test reads as text, without importing it, adds that test to the changed run", () => {
+    const decision = decide(prInput(["lib/daemon.ts"]));
+    expect(decision.mode).toBe("changed");
+    expect(decision.extra).toContain("lib/daemon/__tests__/gate-push.test.ts");
+  });
+
+  test("a source file named by a non-test source adds nothing: only a test's own read counts in the shards", () => {
+    const reading = new Map(sources);
+    reading.set("lib/orphan.ts", `readFileSync(join(ROOT, "lib/daemon.ts"))`);
+    const decision = decide({ event: "pull_request", changed: ["lib/daemon.ts"], sources: reading, preloadImports, tests: [], graph: new Map() });
+    expect(decision.mode).toBe("changed");
+    expect(decision.extra).not.toContain("lib/orphan.ts");
+  });
+
+  test("a source file whose basename other files share is matched by path, not name", () => {
+    const reading = new Map(sources);
+    reading.set("lib/__tests__/names.test.ts", `const where = "setup.ts";`);
+    const decision = decide({ event: "pull_request", changed: ["commands/setup.ts"], sources: reading, preloadImports, tracked: real.tracked });
+    expect(decision.extra ?? []).not.toContain("lib/__tests__/names.test.ts");
+  });
+
   test("a read file whose reader is not a test runs full when no import graph is at hand", () => {
     const reading = new Map(sources);
     reading.set("lib/helper.ts", `readFileSync(join(ROOT, "docs/strongdm.md"))`);
@@ -536,7 +557,9 @@ describe("files the shards never run, beside typescript", () => {
   test("a snapshot runs its own test as an extra, not the full suite", () => {
     const decision = decide(prInput(["commands/__tests__/__snapshots__/setup-copy.test.ts.snap", "commands/setup.ts"]));
     expect(decision.mode).toBe("changed");
-    expect(decision.extra).toEqual(["commands/__tests__/setup-copy.test.ts"]);
+    expect(decision.extra).toContain("commands/__tests__/setup-copy.test.ts");
+    // Tests that name commands/setup.ts only as "setup.ts" are not readers of it.
+    expect(decision.extra?.length).toBeLessThan(4);
   });
 
   test("a snapshot alone is a changed run of its test", () => {
