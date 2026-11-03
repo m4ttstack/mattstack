@@ -72,6 +72,16 @@ describe("cachedPluginList", () => {
     expect(f.spawns()).toBe(1);
   });
 
+  it("treats a cached list with a malformed record as a miss", () => {
+    const f = fakeDeps({});
+    cachedPluginList("/cache.json", inputs, f.deps);
+    const stored = JSON.parse(f.files.get("/cache.json")!);
+    f.files.set("/cache.json", JSON.stringify({ ...stored, list: [null] }));
+
+    expect(cachedPluginList("/cache.json", inputs, f.deps)).toEqual([ENTRY]);
+    expect(f.spawns()).toBe(2);
+  });
+
   it("still answers when the cache cannot be written", () => {
     const f = fakeDeps({});
     f.deps.write = () => {

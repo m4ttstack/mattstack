@@ -35,6 +35,13 @@ export function pluginListInputs(configDir: string, cwd: string, claudeBin: stri
   return paths;
 }
 
+function isPluginList(value: unknown): value is PluginListEntry[] {
+  return (
+    Array.isArray(value) &&
+    value.every((e) => typeof e === "object" && e !== null && typeof e.id === "string" && typeof e.installPath === "string")
+  );
+}
+
 export function cachedPluginList(file: string, inputs: string[], deps: PluginListCacheDeps): PluginListEntry[] {
   const key = JSON.stringify(inputs.map((p) => [p, deps.stamp(p)]));
   const raw = deps.read(file);
@@ -42,7 +49,7 @@ export function cachedPluginList(file: string, inputs: string[], deps: PluginLis
     try {
       const hit = JSON.parse(raw) as { key?: unknown; at?: unknown; list?: unknown };
       const fresh = typeof hit.at === "number" && deps.now() - hit.at < PLUGIN_LIST_CACHE_TTL_MS;
-      if (hit.key === key && fresh && Array.isArray(hit.list)) return hit.list as PluginListEntry[];
+      if (hit.key === key && fresh && isPluginList(hit.list)) return hit.list;
     } catch {
       // an unreadable cache is a miss
     }
