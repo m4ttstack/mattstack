@@ -1230,3 +1230,29 @@ test("legacy state with no person keeps today's wording", () => {
     request: { kind: 'launch', flow: 'respond' },
   });
 });
+
+test('approved and only waiting on ci: set auto-merge leads the menu', () => {
+  const waiting = (over: Record<string, unknown> = {}) =>
+    mrx(1418, {
+      ...ownIdle,
+      reviews: { isApproved: true, required: 1, given: 1, reviewers: [] },
+      blockers: { any: false, pipelineRunning: true },
+      mergeButton: { visible: true, disabled: true, loading: false },
+      ...over,
+    } as never);
+  expect(sections(waiting(), ownEnv).slice(0, 2)).toEqual([
+    'top:setAutoMerge',
+    'top:post-slack',
+  ]);
+  expect(sections(waiting(), ownEnv)).not.toContain('gitlab:setAutoMerge');
+
+  const notApproved = waiting({
+    reviews: { isApproved: false, required: 1, given: 0, reviewers: [] },
+  });
+  expect(sections(notApproved, ownEnv)).toContain('gitlab:setAutoMerge');
+  const ciDone = waiting({ blockers: { any: false } });
+  expect(sections(ciDone, ownEnv)).toContain('gitlab:setAutoMerge');
+
+  const bulk = bulkActions([waiting()], actionEnvOf(ownEnv, waiting()));
+  expect(bulk.find(e => e.key === 'setAutoMerge')?.section).toBe('gitlab');
+});
