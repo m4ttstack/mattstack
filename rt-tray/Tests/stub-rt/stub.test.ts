@@ -900,3 +900,42 @@ test("github sign-in: picking local clears the sign-in, so a later remote pick s
   await run("join-happy", ["setup", "home-backup", "remote", "--json"], "", changed);
   expect(await restartedRemote()).toMatchObject({ state: "todo", action: { label: "Sign in to GitHub" } });
 });
+
+test("new-tool: tools holds through install and sign-in, and only --ack-tools moves it on", async () => {
+  const state = mkdtempSync(join(tmpdir(), "stub-"));
+  const whole = async () => (await run("new-tool", ["setup", "form", "--json"], "", state)).lines[0];
+  const section = async () => (await run("new-tool", ["setup", "form", "--section", "tools", "--json"], "", state)).lines[0];
+
+  const first = await whole();
+  expect(first.stage).toBe("tools");
+  expect(first.sections.tools.map((r: { id: string }) => r.id)).toEqual(["tool.team.doppler"]);
+  expect(first.sections.tools[0].action).toMatchObject({ type: "install", label: "Install", tool: "doppler" });
+  expect(first.tools).toEqual({ heading: "One new tool for your team", allDone: false });
+
+  expect((await run("new-tool", ["tools", "install", "doppler", "--json"], "", state)).code).toBe(0);
+  const installed = await section();
+  expect(installed.stage).toBe(null);
+  expect(installed.sections.tools[0]).toMatchObject({ id: "tool.team.doppler", state: "todo", action: { label: "Sign in" } });
+
+  await run("new-tool", ["setup", "doppler", "connect", "--json"], "", state);
+  await section();
+  await section();
+  const signedIn = await section();
+  expect(signedIn.sections.tools[0]).toMatchObject({ id: "tool.team.doppler", state: "done" });
+  expect(signedIn.tools).toEqual({ heading: "You're all set", allDone: true });
+  expect((await whole()).stage).toBe("tools");
+
+  expect((await run("new-tool", ["setup", "form", "--ack-tools", "--json"], "", state)).lines[0].ok).toBe(true);
+  const after = await whole();
+  expect(after.stage).toBe("ready");
+  expect(after.tools).toBeUndefined();
+});
+
+test("a --section tools read in any other scenario is empty, and a whole read carries no tools", async () => {
+  const empty = (await run("join-happy", ["setup", "form", "--section", "tools", "--json"])).lines[0];
+  expect(empty.sections.tools).toEqual([]);
+  expect(empty.tools).toEqual({ heading: "You're all set", allDone: true });
+  const whole = (await run("join-happy", ["setup", "form", "--json"])).lines[0];
+  expect(whole.sections.tools).toBeUndefined();
+  expect(whole.tools).toBeUndefined();
+});

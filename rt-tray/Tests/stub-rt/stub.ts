@@ -15,7 +15,7 @@ import { AFTER_INSTALL_ROW } from "../../../lib/setup/plan.ts";
 import { isFinishGatedRowId, WAIVABLE_ROW_IDS } from "../../../lib/setup/contract.ts";
 import { WAIVED_NOTES } from "../../../lib/setup/finish-gate.ts";
 import { CLAUDE_SIGNIN_ACTION, FAST_BROWSER_ADD_ACTION } from "../../../lib/setup/validators/tools.ts";
-import { allAnswered, FORM_COPY, FORM_SECTIONS, homeApp, macosRows, startButton, type FormPath, type FormRow, type FormSection, type FormStage, type SetupForm } from "../../../lib/setup/form.ts";
+import { allAnswered, FORM_COPY, FORM_SECTIONS, homeApp, macosRows, startButton, toolsForm, type FormPath, type FormRow, type FormSection, type FormStage, type SetupForm } from "../../../lib/setup/form.ts";
 import type { Action, Row, StepId } from "../../../lib/setup/contract.ts";
 import { FINISH_IN_BROWSER } from "../../../lib/setup/cli-login.ts";
 import { FANCY_URLS_DETAIL } from "../../../lib/setup/fancy-urls.ts";
@@ -519,6 +519,18 @@ function dopplerRow(): FormRow {
   return formRow({ ...base, state: "todo", detail: "Not signed in to doppler", action: { type: "run", label: c.label, verb: ["setup", "doppler", "connect"] } });
 }
 
+/** The new-tool scenario's one row, through install and sign-in, as `toolsRows` draws a sign-in tool on a finished Mac. */
+function newToolRows(): FormRow[] {
+  if (scenario !== "new-tool") return [];
+  const c = FORM_COPY.connect.teamTool;
+  const base = { id: "tool.team.doppler", title: integrationDef("doppler").title, subtext: c.subtext, watch: true };
+  if (preparing("tool")) return [formRow({ ...base, state: "busy", detail: FORM_COPY.installing, action: null })];
+  if (!stateGet("prepare-tool-until")) {
+    return [formRow({ ...base, state: "todo", detail: "doppler is not installed", action: { type: "install", label: "Install", tool: "doppler", via: "brew" } })];
+  }
+  return [{ ...dopplerRow(), id: base.id }];
+}
+
 function linearRow(): FormRow {
   const c = FORM_COPY.connect.linear;
   const base = { id: "linear", title: c.title, subtext: c.subtext };
@@ -678,6 +690,7 @@ function thisMacSection(path: FormPath | null): FormRow[] {
 }
 
 function formStage(path: FormPath | null, sections: SetupForm["sections"]): FormStage {
+  if (scenario === "new-tool") return stateGet("tools-acked") > 0 ? "ready" : "tools";
   if (!allAnswered(sections.macos)) return "macos";
   if (stateGet("run-live") > 0) return "running";
   if (runFailure()) return "paused";
@@ -707,12 +720,14 @@ function setupForm(): SetupForm {
   if (wanted.includes("connect")) sections.connect = connectSection(path);
   if (wanted.includes("this-mac")) sections.thisMac = thisMacSection(path);
   if (wanted.includes("create")) sections.create = createSection(at("--forge") === "github" ? "github" : "gitlab");
+  const stage = section ? null : formStage(path, sections);
+  if (section === "tools" || stage === "tools") sections.tools = newToolRows();
   const team = path === "join" ? { slug: "acme", name: "Acme", invitedBy: INVITER } : path === "create" ? { ...createdTeam(), invitedBy: null } : null;
   const failed = runFailure();
   return {
     path,
     team,
-    stage: section ? null : formStage(path, sections),
+    stage,
     sections,
     continueReady: allAnswered(sections.connect),
     startReady: allAnswered(sections.thisMac),
@@ -720,6 +735,7 @@ function setupForm(): SetupForm {
     paused: section || !failed ? null : { step: failed.step, title: STEP_PHASES[failed.step as StepId]?.paused ?? failed.detail,
                                           detail: failed.detail, remedy: failed.remedy, log: failed.log, action: null },
     home: homeApp(path),
+    ...(sections.tools ? { tools: toolsForm(sections.tools) } : {}),
   };
 }
 
@@ -734,7 +750,14 @@ else if (a0 === "setup" && a1 === "github" && a2 === "status") {
 }
 else if (a0 === "setup" && a1 === "intent" && a2 === "restore") emit({ ok: true, intent: "restore", repo: args[3] });
 else if (a0 === "setup" && a1 === "intent" && a2 === "solo") { choosePath("solo"); emit({ mode: "solo" }); }
+else if (a0 === "setup" && a1 === "form" && args.includes("--ack-tools")) { stateSet("tools-acked", 1); emit({ ok: true }); }
 else if (a0 === "setup" && a1 === "form") emit(setupForm());
+else if (a0 === "tools" && a1 === "install" && a2) {
+  const ms = prepareMs();
+  stateSet("prepare-tool-until", Date.now() + ms);
+  await sleep(ms);
+  emit({ tool: a2, installed: true });
+}
 else if (a0 === "setup" && a1 === "prepare") {
   const stage = PREPARE_STAGES.find((s) => s === a2);
   if (!stage) fail("bad-stage", `${a2 ?? "(none)"} is not a part of setup that installs anything. Use macos or accounts`);

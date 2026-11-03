@@ -491,11 +491,17 @@ let fastSetupFlowChecks: [Check] = [
         c.expect(owed.settle(), "tools does not clear a Finish an earlier opening owes")
     },
     Check("FastSetupLaunch: Setup status re-lands a window showing ready, so a new tool reaches a finished Mac") { c in
-        c.expect(FastSetupLaunch.relands(.status, showing: .ready), "nothing is in hand on ready")
-        c.expect(!FastSetupLaunch.relands(.status, showing: .thisMac), "a member mid-screen is only brought forward")
-        c.expect(!FastSetupLaunch.relands(.status, showing: .tools))
-        c.expect(!FastSetupLaunch.relands(.firstRun, showing: .ready), "a first run's ready owes its Finish, and stays put")
-        c.expect(!FastSetupLaunch.relands(.upgrade, showing: .ready))
+        c.expect(FastSetupLaunch.relands(requested: .status, window: .status, showing: .ready), "nothing is in hand on ready")
+        c.expect(!FastSetupLaunch.relands(requested: .status, window: .status, showing: .thisMac), "a member mid-screen is only brought forward")
+        c.expect(!FastSetupLaunch.relands(requested: .status, window: .status, showing: .tools))
+    },
+    Check("FastSetupLaunch: a first run's or an upgrade's ready stays put, though rt has already recorded Finish") { c in
+        let resolved = FastSetupLaunch.entry(.firstRun, finished: true)
+        c.expectEqual(resolved, .status, "Finish lands on disk before the run ends, so a first run's P7 already resolves as status")
+        c.expect(!FastSetupLaunch.relands(requested: resolved, window: .firstRun, showing: .ready), "P7 keeps its Done and the Finish it owes")
+        c.expect(!FastSetupLaunch.relands(requested: .status, window: .firstRun, showing: .ready), "a setup_update click only raises it")
+        c.expect(!FastSetupLaunch.relands(requested: .status, window: .upgrade, showing: .ready), "closing it still reads as an upgrade")
+        c.expect(!FastSetupLaunch.relands(requested: .firstRun, window: .status, showing: .ready), "only Setup status asks for a new read")
     },
     Check("FastSetupLaunch: Done acks with rt before the window closes") { c in
         let rt = ScriptedRt()

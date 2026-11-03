@@ -94,10 +94,11 @@ public enum FastSetupLaunch {
         }
     }
 
-    /// A window already up is only brought forward, except Setup status on ready: nothing is in hand there, and a
-    /// `setup_update` click must reach a stage that has moved since the window opened.
-    public static func relands(_ entry: SetupEntry, showing screen: FastSetupScreen) -> Bool {
-        entry == .status && screen == .ready
+    /// A window already up is only brought forward, except Setup status on a status window's ready: nothing is in hand
+    /// there, and a `setup_update` click must reach a stage that has moved since it opened. `window` is the entry it
+    /// opened as, never a new resolve: rt records Finish before a first run's P7, which would resolve as status too.
+    public static func relands(requested: SetupEntry, window: SetupEntry, showing screen: FastSetupScreen) -> Bool {
+        requested == .status && window == .status && screen == .ready
     }
 
     private static let ackToolsArguments = ["setup", "form", "--ack-tools", "--json"]

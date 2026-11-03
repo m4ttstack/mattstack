@@ -113,13 +113,16 @@ final class SetupCoordinator {
 
     /// Opens setup and lands on rt's stage. A window already on screen is only
     /// brought forward unless the caller asks for something new (a Join or
-    /// Create from Settings, a join link): re-landing it could pull a member
-    /// off a card they picked before rt has recorded it.
+    /// Create from Settings, a join link) or `FastSetupLaunch.relands` says so:
+    /// re-landing it could pull a member off a card they picked before rt has recorded it.
     func showSetup(entry requested: SetupEntry = .firstRun, choice: TeamChoice? = nil, joinCode: String? = nil) {
         let window = setupWindow ?? makeWindow()
         let asked = choice != nil || joinCode != nil
+        if window.isVisible, !asked, !FastSetupLaunch.relands(requested: requested, window: flow.entry, showing: flow.screen) {
+            window.show()
+            return
+        }
         let entry = FastSetupLaunch.entry(requested, finished: setupIsComplete)
-        if window.isVisible, !asked, !FastSetupLaunch.relands(entry, showing: flow.screen) { window.show(); return }
         flow.entry = entry
         flow.requested = entry == .upgrade ? choice : nil
         team.enter(entry, choice: choice, joinCode: joinCode)

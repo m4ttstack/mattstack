@@ -41,9 +41,9 @@ let testDriveChecks: [Check] = [
         c.expect(gate.upperBound < item.lowerBound && between.split(separator: "\n").count <= 2,
                  "the item must sit directly inside the isAvailable gate")
     },
-    Check("Test drive: six scenarios, each one the stub rt knows") { c in
+    Check("Test drive: seven scenarios, each one the stub rt knows") { c in
         c.expectEqual(TestDriveScenario.allCases.map(\.title),
-                      ["Join a team", "Create a team", "Just me", "Move from another Mac", "A run that pauses", "Slow installs"])
+                      ["Join a team", "Create a team", "Just me", "Move from another Mac", "A run that pauses", "Slow installs", "A new team tool"])
         let stub = try source("Tests/stub-rt/stub.ts")
         for scenario in TestDriveScenario.allCases {
             c.expect(stub.contains("\"\(scenario.stubScenario)\""), "stub.ts has no scenario \(scenario.stubScenario)")
