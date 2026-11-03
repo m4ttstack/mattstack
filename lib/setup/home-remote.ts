@@ -69,6 +69,9 @@ export async function setHomeRemote(
   let created = false;
   let pushToken: string | null = null;
   if (!url) {
+    if ((await homeOrigin(p)) !== null) {
+      throw new UserActionableError("origin-exists", "Your home repo already has a remote, so rt did not create another. Give its url instead");
+    }
     const stored = await (hooks.githubToken ?? (() => readStoredGitHubToken(p)))();
     const access = stored === null ? null : await githubCreateAccess(p, stored);
     // gh would hit the same outage, and a failed gh create reads as a gh problem.
@@ -131,6 +134,13 @@ export async function setHomeRemote(
   return { url, remote, pushed: true, created };
 }
 
+/** The home repo's origin url, or null when there is no home repo or it has no origin. */
+export async function homeOrigin(p: Pick<Probes, "exists" | "exec" | "home">): Promise<string | null> {
+  if (!p.exists(homeGitDir(p.home))) return null;
+  const origin = await p.exec(["git", "-C", join(p.home, ".mattstack", "user"), "remote", "get-url", "origin"]);
+  return (origin.code === 0 && origin.stdout.trim()) || null;
+}
+
 type StateProbes = Parameters<typeof updateSetupState>[0];
 
 export function stageHomeRemote(p: StateProbes, input: HomeRemoteInput): HomeBackupChoice {
@@ -153,6 +163,13 @@ export function pendingHomeRemote(p: Pick<Probes, "readFile" | "exists" | "home"
   if (url !== undefined) return { url };
   if (create) return { create, ...(name !== undefined ? { name } : {}) };
   return null;
+}
+
+/** A home repo that already has an origin is backed up there: recorded as applied, so no run creates another repo. */
+export function adoptHomeOrigin(p: StateProbes, url: string): HomeBackupChoice {
+  const choice: HomeBackupChoice = { mode: "remote", url, appliedAt: p.now().toISOString() };
+  updateSetupState(p, (s) => ({ ...s, homeBackup: choice }));
+  return choice;
 }
 
 /** Written only after a push lands, so the remote is no longer staged. */

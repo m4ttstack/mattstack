@@ -6,7 +6,6 @@
  * connect section is built from the full plan, which one call composes at most
  * once and shares between sections.
  */
-import { join } from "path";
 import { approvalState, type ApprovalState } from "../team/approval.ts";
 import { mayOfferTokenToHost } from "../team/forge-token.ts";
 import { readTeamLocal, type TeamLocalRecord } from "../team/team-local.ts";
@@ -16,7 +15,7 @@ import { readLogin, FINISH_IN_BROWSER, type LoginSession, type LoginTool } from 
 import { applyStepAction, REPO_PLACE_ROW_PREFIX, type Action, type Plan, type Row } from "./contract.ts";
 import { fancyUrlsState, type FancyUrls } from "./fancy-urls.ts";
 import { createCapableGitHubToken, GITHUB_OAUTH_CLIENT_ID, readGitHubSignIn, readStoredGitHubToken, type GitHubSignIn } from "./github-signin.ts";
-import { homeGitDir } from "./home-paths.ts";
+import { homeOrigin } from "./home-remote.ts";
 import { isValidHostname } from "./host-validate.ts";
 import { integrationDef } from "./integrations.ts";
 import { readIntent, type SetupIntent } from "./intent.ts";
@@ -988,11 +987,8 @@ async function connectSection(p: Probes, plan: Plan, orgs: string[], path: FormP
 }
 
 /** A url staged before Install still counts once the Join page has made the repo without an origin. */
-async function homeRemote(p: Probes, backup: HomeBackupChoice | undefined): Promise<string | null> {
-  const staged = backup?.mode === "remote" ? (backup.url ?? null) : null;
-  if (!p.exists(homeGitDir(p.home))) return staged;
-  const origin = await p.exec(["git", "-C", join(p.home, ".mattstack", "user"), "remote", "get-url", "origin"]);
-  return (origin.code === 0 && origin.stdout.trim()) || staged;
+function homeRemote(origin: string | null, backup: HomeBackupChoice | undefined): string | null {
+  return origin ?? (backup?.mode === "remote" ? (backup.url ?? null) : null);
 }
 
 /** Read only while the remote row is open: the store and the network are not touched on every form read. */
@@ -1018,8 +1014,10 @@ async function thisMacSection(
   clientId: string,
 ): Promise<FormRow[]> {
   const rows = new Map(planRows(plan).map((r) => [r.id, r]));
-  const backup = state.homeBackup;
-  const remote = await homeRemote(p, backup);
+  const origin = await homeOrigin(p);
+  // A Mac set up before the choice existed already backs up to its origin, so it is not asked again.
+  const backup: HomeBackupChoice | undefined = state.homeBackup ?? (origin !== null ? { mode: "remote", url: origin } : undefined);
+  const remote = homeRemote(origin, backup);
   const githubSignIn = readGitHubSignIn(p);
   const signedInThroughGh = ghSignedIn(rows);
   const liveSignIn = githubSignIn !== null && githubSignIn.outcome === undefined;

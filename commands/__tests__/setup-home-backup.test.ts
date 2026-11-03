@@ -56,6 +56,25 @@ describe("setupHomeBackup", () => {
     expect(readGitHubSignInRaw(d.probes)).toBeNull();
   });
 
+  test("backup remote on a home repo that already has an origin records that origin and stages no create", async () => {
+    const origin = "https://github.com/janedoe/mattstack-home.git";
+    const d = deps({ gh: 0 });
+    const probes = fakeProbes({
+      home: HOME,
+      dirs: { [`${HOME}/.mattstack/user/.git`]: [] },
+      exec: (argv) => (argv.includes("get-url") ? { code: 0, stdout: `${origin}\n`, stderr: "" } : { code: 0, stdout: "", stderr: "" }),
+    });
+    d.probes = probes;
+    updateSetupState(probes, (s) => ({ ...s, homeBackup: { mode: "remote", create: true } }));
+
+    await setupHomeBackup(["remote", "--json"], {}, d);
+
+    const recorded = readSetupState(probes).homeBackup;
+    expect(recorded).toMatchObject({ mode: "remote", url: origin });
+    expect(recorded && "create" in recorded).toBe(false);
+    expect(recorded && "appliedAt" in recorded && typeof recorded.appliedAt).toBe("string");
+  });
+
   test("backup remote keeps a staged url", async () => {
     const d = deps();
     updateSetupState(d.probes, (s) => ({ ...s, homeBackup: { mode: "remote", url: URL } }));

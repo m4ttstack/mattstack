@@ -287,6 +287,19 @@ describe("composeForm", () => {
     expect(pick(form.sections.thisMac ?? [], "settings.remote")).toMatchObject({ state: "done", detail: url });
   });
 
+  test("a home repo with an origin and no recorded choice reads as backed up there", async () => {
+    const origin = "https://github.com/janedoe/mattstack-home.git";
+    const p = fakeProbes({
+      home: "/fake-home",
+      now: NOW,
+      dirs: { "/fake-home/.mattstack/user/.git": [] },
+      exec: (argv) => (argv.includes("get-url") ? { code: 0, stdout: `${origin}\n`, stderr: "" } : exec(argv)),
+    });
+    const list = (await composeForm(p, { sections: ["this-mac"], secrets: NO_SECRETS, orgs: [] })).sections.thisMac ?? [];
+    expect(pick(list, "settings.backup")).toMatchObject({ state: "done", action: { selected: "remote" } });
+    expect(pick(list, "settings.remote")).toMatchObject({ state: "done", detail: origin });
+  });
+
   describe("a team created after a Just me run ended ok", () => {
     const CREATE: OrgRef = { slug: "acme", name: "Acme", mode: "create" };
     const ENDED_OK = { startedAt: "2026-10-30T08:00:00.000Z", done: [], endedAt: "2026-10-30T08:10:00.000Z", ok: true };
