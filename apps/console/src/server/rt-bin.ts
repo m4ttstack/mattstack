@@ -47,8 +47,19 @@ export function resolveRtBin():
   return { path: null, searched };
 }
 
-/** A wedged `claude` subprocess inside a wedged `rt` must surface as a 502, not a hung page. */
-export const READ_TIMEOUT_MS = 10_000;
+export class RtTimeoutError extends Error {
+  constructor(argv: string[], timeoutMs: number) {
+    super(
+      `rt ${argv.join(' ')} took longer than ${timeoutMs / 1000}s and was stopped`
+    );
+    this.name = 'RtTimeoutError';
+  }
+}
+
+/** A wedged `claude` subprocess inside a wedged `rt` must surface as a 502,
+    not a hung page. A cold pack read takes 2-6s alone and the Packs page
+    starts five at once, so 10s was not enough headroom. */
+export const READ_TIMEOUT_MS = 30_000;
 
 /** A write recompiles the pack (a bind regenerates its manifest first), and a
     sync also pushes and refreshes the installed cache: tens of seconds on a
@@ -72,7 +83,11 @@ export const runRt: RunRt = async (
     stdout: 'pipe',
     stderr: 'pipe',
   });
-  const timeout = setTimeout(() => proc.kill(), timeoutMs);
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    proc.kill();
+  }, timeoutMs);
 
   try {
     const [stdout, stderr, code] = await Promise.all([
@@ -80,6 +95,7 @@ export const runRt: RunRt = async (
       new Response(proc.stderr).text(),
       proc.exited,
     ]);
+    if (timedOut) throw new RtTimeoutError(argv, timeoutMs);
     return { code, stdout, stderr };
   } finally {
     clearTimeout(timeout);
