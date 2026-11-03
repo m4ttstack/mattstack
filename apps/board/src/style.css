@@ -6515,8 +6515,8 @@ a.tui-id-card-ref:focus-visible {
     margin-right: 0;
   }
 }
-/* The trail's content, inside the kit's menu surface (which owns the card,
-   shadow, clamping and entry motion). */
+/* The trail, inside the kit's popover (which owns the card, shadow, edge
+   flipping and entry motion). */
 .tui-ask-trail {
   display: flex;
   flex-direction: column;
@@ -6525,6 +6525,20 @@ a.tui-id-card-ref:focus-visible {
   max-width: calc(100vw - 24px);
   padding-bottom: 12px;
   font-size: 0.76rem;
+  /* The page's line height: the popover renders inside the band, whose
+     fixed 20px would otherwise reach the trail's text. */
+  line-height: 1.55;
+}
+/* Only there to keep clicks off the row; the trail lays out its children. */
+.tui-ask-trail-body {
+  display: contents;
+}
+.tui-ask-trail-title {
+  padding: var(--spacing-px5) var(--spacing-px8) var(--spacing-px6);
+  margin-bottom: var(--spacing-px4);
+  font-size: var(--font-size-px11);
+  color: var(--text-4);
+  border-bottom: 1px solid var(--border-soft);
 }
 @media (prefers-reduced-motion: reduce) {
   .tui-ask-caret {

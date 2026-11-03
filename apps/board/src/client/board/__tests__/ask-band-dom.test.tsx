@@ -109,16 +109,38 @@ test('hovering the band opens nothing; clicking its trigger opens the trail, cli
   expect(document.querySelector('.tui-ask-trail')).toBeNull();
 });
 
-test('the open trail closes on an outside click (Escape is the kit menu own)', async () => {
+test('the trail is a popover anchored to its trigger, not a menu, and clicks inside it stay off the row', async () => {
+  const rowClicks: string[] = [];
+  container.addEventListener('click', () => rowClicks.push('row'));
+  await render(mrWith({ kind: 're-review' }), ctx());
+  const trigger =
+    container.querySelector<HTMLButtonElement>('.tui-ask-trigger')!;
+  await React.act(async () => trigger.click());
+  const trail = document.querySelector<HTMLElement>('.tui-ask-trail')!;
+  expect(trail.getAttribute('role')).toBe('dialog');
+  expect(trail.getAttribute('aria-label')).toBe('Follow-up review from Grace');
+  expect(document.querySelector('[role="menu"]')).toBeNull();
+  rowClicks.length = 0;
+  await React.act(async () => {
+    trail.querySelector<HTMLElement>('.tui-ask-trail-step')!.click();
+  });
+  expect(rowClicks).toEqual([]);
+});
+
+test('the open trail closes on an outside click (Escape is the kit popover own)', async () => {
   await render(mrWith({}), ctx());
   const trigger =
     container.querySelector<HTMLButtonElement>('.tui-ask-trigger')!;
   await React.act(async () => trigger.click());
   expect(document.querySelector('.tui-ask-trail')).not.toBeNull();
   await React.act(async () => {
-    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup'])
+      document.body.dispatchEvent(
+        new PointerEvent(type, { bubbles: true, button: 0 })
+      );
+    document.body.click();
   });
-  expect(document.querySelector('.tui-ask-trail')).toBeNull();
+  expect(trigger.getAttribute('aria-expanded')).toBe('false');
 });
 
 test('a running ask shows the spinner and offers dismiss', async () => {
