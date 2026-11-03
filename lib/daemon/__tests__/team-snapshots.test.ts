@@ -6,7 +6,8 @@ import { dirname, join } from "path";
 import { __resetParkedWarnings, createOnMoved, createOnPulled, PAUSE_SETTLE_MS, startTeamSnapshots } from "../team-snapshots.ts";
 import { __test__ as warnTest, setWarningLog } from "../../ui/warn.ts";
 import type { SnapshotSpec } from "../home-snapshot.ts";
-import { fakeProbes } from "../../setup/__tests__/fakes.ts";
+import { fakeProbes, gitShowFromFiles } from "../../setup/__tests__/fakes.ts";
+import { convergePackCache } from "../../setup/pack-cache.ts";
 import { createRealProbes } from "../../setup/probes.ts";
 import { setSetting, unsetSetting } from "../../settings/write.ts";
 import { openStateDb } from "../../state/db.ts";
@@ -643,6 +644,54 @@ describe("startTeamSnapshots", () => {
       try {
         await onPulledWith(home, { ...nothing, installed: ["widgets@market"] })();
         expect(readFileSync(file, "utf8")).toContain("disable-model-invocation: true");
+      } finally {
+        unsetSetting(SETTING, "user");
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+
+    test("another team's installed pack the real converge updates gets the member's choice back too", async () => {
+      const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-team-snapshots-dmi-")));
+      const clone = join(home, ".mattstack", "orgs", "acme");
+      const files: Record<string, string> = {
+        "/usr/local/bin/claude": "bin",
+        [join(clone, ".claude-plugin", "marketplace.json")]: JSON.stringify({ name: "market", plugins: [{ name: "widgets", source: "./w" }, { name: "gadgets", source: "./g" }] }),
+        [join(clone, "w", ".claude-plugin", "plugin.json")]: JSON.stringify({ version: "1.0.0" }),
+        [join(clone, "g", ".claude-plugin", "plugin.json")]: JSON.stringify({ version: "2.0.0" }),
+      };
+      const landed = join(home, ".claude", "plugins", "cache", "market", "gadgets", "2.0.0", "skills", "beta", "SKILL.md");
+      const updates: string[] = [];
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files,
+        exec: async (argv) => {
+          const shown = gitShowFromFiles(files, argv);
+          if (shown) return shown;
+          const [, , verb, id] = argv;
+          if (verb === "list") return { code: 0, stdout: JSON.stringify([{ id: "widgets@market", version: "1.0.0", enabled: true }, { id: "gadgets@market", version: "1.0.0", enabled: false }]), stderr: "" };
+          if (verb === "update") {
+            updates.push(id!);
+            mkdirSync(dirname(landed), { recursive: true });
+            writeFileSync(landed, "---\nname: beta\ndescription: d\n---\nbody\n");
+          }
+          return { code: 0, stdout: "", stderr: "" };
+        },
+      });
+      setSetting(SETTING, { "gadgets@market": ["beta"] }, "user");
+      try {
+        await createOnPulled({
+          probes: p,
+          slug: "acme",
+          dir: clone,
+          log: fakeLog(),
+          converge: (probes, slug, log) => convergePackCache(probes, slug, log, { activeTeam: () => "widgets", engine: () => null }),
+          writeMarketplace: (async () => ({ path: "", changed: false, dropped: [] })) as never,
+          applyCone: async () => ({ applied: [], kept: [] }),
+          holds: { has: () => false, mark: () => {} },
+        })();
+        expect(updates).toEqual(["gadgets@market"]);
+        expect(readFileSync(landed, "utf8")).toContain("disable-model-invocation: true");
       } finally {
         unsetSetting(SETTING, "user");
         rmSync(home, { recursive: true, force: true });

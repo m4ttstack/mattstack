@@ -295,9 +295,10 @@ export function isNotFound(res: ExecResult): boolean {
  * Brings the Claude plugin cache in line with what the team clone serves.
  * Never installs a pack whose served version it cannot read: that version is
  * the only evidence the pack is a local directory copy, which is what the
- * settlement's timeouts were measured against. Only the active team's pack is
- * converged, and one it newly installs is turned on; a Mac on no team
- * converges none.
+ * settlement's timeouts were measured against. Every pack the org serves that
+ * a config dir already has is updated, whichever team it belongs to; only the
+ * active team's pack is installed when absent, and turned on when it is. A Mac
+ * on no team installs none.
  */
 export async function convergePackCache(
   p: Probes,
@@ -316,7 +317,7 @@ export async function convergePackCache(
   }
 
   const team = (opts.activeTeam ?? (() => activeTeamFor(p, slug).team))();
-  const servedPacks = await readServedPacks(p, slug, { only: team });
+  const servedPacks = await readServedPacks(p, slug);
   if (servedPacks.error) {
     result.failed.push({ id: "*", detail: servedPacks.error });
     return result;
@@ -352,11 +353,12 @@ export async function convergePackCache(
     const byId = new Map(installed.map((entry) => [entry.id, entry]));
 
     for (const pack of servedPacks.packs) {
+      const entry = byId.get(pack.id);
+      if (!entry && pack.name !== team) continue;
       if (pack.servedVersion === null) {
         result.skipped.push({ id: pack.id, reason: "version unknown" });
         continue;
       }
-      const entry = byId.get(pack.id);
       if (entry && entry.version === null) {
         result.skipped.push({ id: pack.id, reason: "version unknown" });
         continue;
