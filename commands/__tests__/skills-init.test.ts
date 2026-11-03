@@ -63,11 +63,11 @@ describe("init outcome", () => {
       detail: "The acme pack is not shared with your org yet, so rt did not install it",
       why: "rt could not push the team repo",
       wrote: [],
-      remedy: { commands: ["rt team publish --team acme", "rt setup update", "claude plugin install acme@acme"] },
+      remedy: { commands: ["rt team publish --team acme", "rt setup update --force", "claude plugin install acme@acme"] },
     }))]);
     expect(text).toContain("The acme pack is not shared with your org yet, so rt did not install it");
     expect(text).toContain("rt could not push the team repo");
-    expect(text).toContain("Run rt team publish --team acme, then rt setup update, then claude plugin install acme@acme");
+    expect(text).toContain("Run rt team publish --team acme, then rt setup update --force, then claude plugin install acme@acme");
     expect(text.match(/next:/g)).toHaveLength(1);
   });
 

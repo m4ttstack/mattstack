@@ -19,8 +19,8 @@ successful init shares the new pack before it installs it: it commits the
 pack, the team's claim and the marketplace entry in one commit, pushes the
 org clone, and only then installs the pack from that shared commit. A
 rejected push stops init with `share-failed` and nothing installed: publish
-with `rt team publish --team <org>`, then `rt setup update` installs the
-pack, then reload. Every other failure after init wrote the pack ends its
+with `rt team publish --team <org>`, then `rt setup update --force` installs
+the pack, then reload. Every other failure after init wrote the pack ends its
 remedy with that same publish: init remembered the share on this Mac before
 it compiled.
 
@@ -49,7 +49,7 @@ digraph create_pack {
     publish_envelope [label="Publish envelope?" shape=diamond];
     pulled_for_share [label="Pulled for this share already?" shape=diamond];
     rt_team_pull [label="rt team pull --team <org> --json" shape=plaintext];
-    rt_setup_update [label="rt setup update" shape=plaintext];
+    rt_setup_update [label="rt setup update --force" shape=plaintext];
     pack_installed [label="claude plugin list --json lists <pack>@<marketplace>?" shape=diamond];
     claude_plugin_install [label="claude plugin install <pack>@<marketplace>" shape=plaintext];
     install_landed [label="Install landed?" shape=diamond];
@@ -238,8 +238,9 @@ a commit the org has. Say so, then do these in order:
    with `{ "error": { "code", "message" } }`. `org-moved` means someone
    else pushed first: pull with `rt team pull --team <org> --json`, then
    publish again, once.
-2. `rt setup update` installs the shared pack on this Mac (it is the active
-   team's pack). When `claude plugin list --json` still lists no
+2. `rt setup update --force` installs the shared pack on this Mac (it is the
+   active team's pack; a plain update does nothing on a Mac already at this
+   version). When `claude plugin list --json` still lists no
    `<pack>@<marketplace>`, run `claude plugin install <pack>@<marketplace>`
    (the marketplace name is the `name` in the org clone's
    `.claude-plugin/marketplace.json`).

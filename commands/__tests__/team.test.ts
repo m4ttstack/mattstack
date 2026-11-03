@@ -886,7 +886,81 @@ describe("teamAdd", () => {
         await teamAdd(["gadgets", "--owner", "dev2", "--team", "acme"], {}, deps);
         expect(io.stdout()).toContain("Added the gadgets team");
         expect(io.stderr()).toContain("The gadgets team is added, but rt could not update this Mac's team marketplace");
-        expect(io.stderr()).toContain("rt setup update");
+        expect(io.stderr()).toContain("rt setup update --force");
+      } finally {
+        warnTest.reset();
+        io.restore();
+      }
+    });
+
+    /** The org file reads as absent at the ref, so the generated marketplace is skipped rather than written. */
+    function withoutOrgFileAtRef(p: Probes): Probes {
+      const exec = p.exec.bind(p);
+      return { ...p, exec: (argv, opts) => (argv.includes("show") && String(argv.at(-1)).endsWith(":.claude-plugin/marketplace.json")
+        ? Promise.resolve({ code: 128, stdout: "", stderr: "fatal: path '.claude-plugin/marketplace.json' does not exist in 'main'" })
+        : exec(argv, opts)) } as Probes;
+    }
+
+    test("a generated marketplace rt skipped warns too", async () => {
+      const w = orgWorld();
+      const deps = baseDeps({ probes: withoutOrgFileAtRef(w.p), addTeamSeams: realSeams, forgeToken: async () => null });
+      const io = captureOut();
+      ui.__test__.setHuman(() => false);
+      warnTest.reset();
+      setWarningLog(() => {});
+      try {
+        await teamAdd(["gadgets", "--owner", "dev2", "--team", "acme"], {}, deps);
+        expect(io.stdout()).toContain("Added the gadgets team");
+        expect(io.stderr()).toContain("The gadgets team is added, but rt could not update this Mac's team marketplace");
+        expect(io.stderr()).toContain("rt setup update --force");
+      } finally {
+        warnTest.reset();
+        io.restore();
+      }
+    });
+
+    test("a publish that pushes an owed pack writes it into this Mac's generated marketplace", async () => {
+      const w = orgWorld();
+      w.git("remote", "set-url", "origin", join(w.home, "missing.git"));
+      await teamAdd(["gadgets", "--owner", "dev2", "--team", "acme", "--json"], {}, baseDeps({ probes: w.p, addTeamSeams: realSeams, forgeToken: async () => null }));
+      expect(existsSync(generatedMarketplaceDir(w.home, "acme"))).toBe(false);
+      w.git("remote", "set-url", "origin", w.remote);
+
+      await teamPublish(["--team", "acme", "--json"], {}, baseDeps({ probes: w.p, forgeToken: async () => null }));
+
+      const generated = JSON.parse(readFileSync(join(generatedMarketplaceDir(w.home, "acme"), ".claude-plugin", "marketplace.json"), "utf8"));
+      expect(generated.plugins).toEqual([expect.objectContaining({ name: "gadgets", source: expect.objectContaining({ source: "git-subdir" }) })]);
+    });
+
+    test("a publish whose generated marketplace cannot be written warns and still reports the push", async () => {
+      const w = orgWorld();
+      mkdirSync(join(generatedMarketplaceDir(w.home, "acme"), ".."), { recursive: true });
+      writeFileSync(generatedMarketplaceDir(w.home, "acme"), "not a folder\n");
+      const io = captureOut();
+      ui.__test__.setHuman(() => false);
+      warnTest.reset();
+      setWarningLog(() => {});
+      try {
+        await teamPublish(["--team", "acme"], {}, baseDeps({ probes: w.p, forgeToken: async () => null }));
+        expect(io.stdout()).toContain("Pushed the acme team");
+        expect(io.stderr()).toContain("rt could not update this Mac's team marketplace");
+        expect(io.stderr()).toContain("rt setup update --force");
+      } finally {
+        warnTest.reset();
+        io.restore();
+      }
+    });
+
+    test("a publish rt skipped the generated marketplace for warns", async () => {
+      const w = orgWorld();
+      const io = captureOut();
+      ui.__test__.setHuman(() => false);
+      warnTest.reset();
+      setWarningLog(() => {});
+      try {
+        await teamPublish(["--team", "acme"], {}, baseDeps({ probes: withoutOrgFileAtRef(w.p), forgeToken: async () => null }));
+        expect(io.stdout()).toContain("Pushed the acme team");
+        expect(io.stderr()).toContain("rt could not update this Mac's team marketplace");
       } finally {
         warnTest.reset();
         io.restore();

@@ -621,10 +621,12 @@ export async function initPack(opts: { repoDir: string; repoFlag?: string | null
   const wrote: string[] = [];
 
   const share = `rt team publish --team ${zone.org}`;
+  // Forced: a plain update stops at "current" on a Mac already at this
+  // version, and the install needs the generated marketplace it rewrites.
   const installSteps = (): string[] => {
     const admission = admit(readFloor(deps.fs.readFile, packDir), (deps.engine ?? runnableEngine)());
     const install = admission.ok ? [`claude ${installArgs(admission, pluginId).join(" ")}`] : [];
-    return ["rt setup update", ...install];
+    return ["rt setup update --force", ...install];
   };
   const remedyFor = (code: FailureCode): InitRemedy => {
     if (code === "write-failed") return { commands: [retry("")], folder: packDir };
