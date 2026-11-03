@@ -15,6 +15,7 @@ import type { spawnSync as realSpawnSync } from "child_process";
 import { installFakePick, type PickFakeStep, type PickFakeCall } from "../../lib/ui/pick-fake.ts";
 import { __test__ as pickTest } from "../../lib/ui/pick.ts";
 import type { PickCallbacks, PickHandle, PickImpl } from "../../lib/ui/pick.ts";
+import * as out from "../../lib/ui/out.ts";
 import type { PickEvent, PickRequest, PickResult, PickRow } from "../../lib/ui/protocol.ts";
 import { navigate, type NavDeps } from "../nav.ts";
 import type { DirWatchOpts } from "../../lib/nav-fs.ts";
@@ -24,6 +25,7 @@ let fake: ReturnType<typeof installFakePick> | undefined;
 afterEach(() => {
   fake?.restore();
   fake = undefined;
+  out.__test__.reset();
 });
 
 function eventStep(action: string, value: string | null, query = ""): PickFakeStep {

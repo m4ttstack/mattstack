@@ -16,6 +16,8 @@ import * as out from "../../lib/ui/out.ts";
 import { worktreePicker } from "../cd.ts";
 import { __test__ as pickImplTest, type PickImpl } from "../../lib/ui/pick.ts";
 
+afterEach(() => out.__test__.reset());
+
 describe("SHELL_FUNCTION", () => {
   test("carries no branch for the retired rt settings dev-mode", async () => {
     const { SHELL_FUNCTION } = await import("../cd.ts");
