@@ -1,5 +1,9 @@
 import { describe, test, expect } from "bun:test";
+import { rowsToChecks } from "../../../commands/verify.ts";
+import { finalizePlan } from "../contract.ts";
+import { applyExpectations } from "../expectations.ts";
 import { fetchPermissions, permissionRows, type PermissionsReply } from "../permissions.ts";
+import { outcomeFromChecks } from "../steps/verify.ts";
 import { fakeTray } from "./fakes.ts";
 import type { Action } from "../contract.ts";
 
@@ -115,11 +119,11 @@ describe("permissionRows — perm.login-items", () => {
 });
 
 describe("permissionRows — perm.notifications", () => {
-  test("authorized -> ready, optional row with a note", () => {
+  test("authorized -> ready, optional row with no note", () => {
     const r = pickRow(permissionRows(reply({ notifications: { status: "authorized" } }), null), "perm.notifications");
     expect(r.status).toBe("ready");
     expect(r.required).toBe(false);
-    expect(r.optionalNote).toBe("Works without this; you'll see menu-bar badges instead.");
+    expect(r.optionalNote).toBeNull();
   });
 
   test("provisional -> ready", () => {
@@ -145,5 +149,44 @@ describe("permissionRows — perm.notifications", () => {
     expect(r.status).toBe("skipped");
     expect(r.detail).toBe("Not checked: mattstack.app is not running");
     expect(r.required).toBe(false);
+  });
+});
+
+describe("perm.notifications through the plan and verify", () => {
+  function planFor(status: PermissionsReply["notifications"]["status"]) {
+    const rows = permissionRows(reply({ notifications: { status } }), null);
+    const plan = finalizePlan({ slug: "acme", name: "Acme", mode: "join" }, applyExpectations([{ id: "mac", title: "Your Mac", rows }]));
+    const notifications = plan.groups.flatMap((g) => g.rows).find((r) => r.id === "perm.notifications")!;
+    return { plan, rows, notifications, outcome: outcomeFromChecks(rowsToChecks(plan, { ci: false }), rows) };
+  }
+
+  test("denied is an answer: verify passes and neither Install nor Finish waits on it", () => {
+    const { plan, notifications, outcome } = planFor("denied");
+    expect(outcome.state).toBe("done");
+    expect(plan.canInstall).toBe(true);
+    expect(plan.requiredMissing).toEqual([]);
+    expect(plan.finishBlockedBy).toEqual([]);
+    expect(notifications).toMatchObject({ status: "needs-you", detail: "Denied", required: false, optionalNote: "Works without this; you'll see menu-bar badges instead." });
+    expect(notifications.finishGated).toBeUndefined();
+    expect(notifications.action).toEqual({ type: "open-settings", label: "Open Notification Settings…", target: "notifications" });
+  });
+
+  test("denied still shows up in verify as a warning", () => {
+    const { plan } = planFor("denied");
+    expect(rowsToChecks(plan, { ci: false }).find((c) => c.name === "perm.notifications")).toMatchObject({ status: "warn", severity: "warning" });
+  });
+
+  test("nobody has answered yet: Install still waits and verify still fails", () => {
+    const { plan, notifications, outcome } = planFor("notDetermined");
+    expect(outcome.state).toBe("failed");
+    expect(plan.requiredMissing).toEqual(["perm.notifications"]);
+    expect(notifications).toMatchObject({ status: "needs-you", detail: "Not requested", required: true, optionalNote: null });
+    expect(notifications.action).toEqual({ type: "request-permission", label: "Allow", which: "notifications" });
+  });
+
+  test("allowed reads ready with no note", () => {
+    const { plan, notifications } = planFor("authorized");
+    expect(plan.requiredMissing).toEqual([]);
+    expect(notifications).toMatchObject({ status: "ready", required: false, optionalNote: null });
   });
 });
