@@ -214,11 +214,14 @@ jobs:
           halves=$((TOTAL * 2))
           a=$((SHARD * 2 - 1))
           b=$((SHARD * 2))
+          # Two processes share three cores, and a git-heavy worktree test
+          # that takes two seconds alone has hit bun's 5s default beside its
+          # neighbour; the limit is for a hang, not a slow runner.
           # shellcheck disable=SC2086
-          bun test $DIRS --shard="$a/$halves" --timings=test-timings.json $changed > "$RUNNER_TEMP/half-a.log" 2>&1 &
+          bun test $DIRS --shard="$a/$halves" --timings=test-timings.json --timeout 20000 $changed > "$RUNNER_TEMP/half-a.log" 2>&1 &
           pid_a=$!
           # shellcheck disable=SC2086
-          bun test $DIRS --shard="$b/$halves" --timings=test-timings.json $changed > "$RUNNER_TEMP/half-b.log" 2>&1 &
+          bun test $DIRS --shard="$b/$halves" --timings=test-timings.json --timeout 20000 $changed > "$RUNNER_TEMP/half-b.log" 2>&1 &
           pid_b=$!
           status=0
           wait "$pid_a" || status=1
