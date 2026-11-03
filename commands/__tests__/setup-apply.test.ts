@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, test, expect } from "bun:test";
+import { afterEach, beforeEach, describe, test, expect, spyOn } from "bun:test";
+import { PHASE_WORDS } from "../../lib/setup/run-phases.ts";
 import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
@@ -1144,17 +1145,19 @@ describe("setupApply: hard-precondition gate", () => {
 describe("setup apply --json bytes", () => {
   test("the NDJSON stream is one compact object per line, newline-terminated, nothing else on stdout", async () => {
     const cap = capturePlain();
+    const random = spyOn(Math, "random").mockReturnValue(0);
     try {
       const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "done", detail: "ok" })], json: realJson });
       await setupApply(["--json"], {}, deps);
       expect(cap.stdout()).toBe(
-        '{"event":"plan","steps":[{"id":"path.link","title":"path.link","kind":"rt","phase":"Setting up rt","weight":1,"paused":"Couldn\'t set up rt"}]}\n' +
+        `{"event":"plan","steps":[{"id":"path.link","title":"path.link","kind":"rt","phase":"${PHASE_WORDS[0]}","weight":1,"paused":"Couldn't set up rt"}]}\n` +
           '{"event":"step","id":"path.link","state":"running"}\n' +
           '{"event":"step","id":"path.link","state":"done","detail":"ok"}\n' +
           '{"event":"done","ok":true}\n',
       );
       expect(cap.stderr()).toBe("");
     } finally {
+      random.mockRestore();
       cap.restore();
     }
   });
