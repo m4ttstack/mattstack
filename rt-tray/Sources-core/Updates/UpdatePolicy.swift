@@ -26,7 +26,20 @@ public enum UpdatePolicy {
         windowRunning || runInFlight
     }
 
-    public static func allowsImmediateInstall(setupRunning: Bool, windowsOpen: Int) -> Bool {
-        !setupRunning && windowsOpen == 0
+    /// A minimized window reports isVisible false but is still open. The
+    /// status bar window is always visible and never key, so it never holds.
+    public static func windowHoldsUpdate(isVisible: Bool, isMiniaturized: Bool, canBecomeKey: Bool) -> Bool {
+        (isVisible || isMiniaturized) && canBecomeKey
     }
+
+    public static func hold(setupRunning: Bool, windowsOpen: Int) -> UpdateHold? {
+        if setupRunning { return .setupRunning }
+        if windowsOpen > 0 { return .windowsOpen }
+        return nil
+    }
+}
+
+public enum UpdateHold: Equatable, Sendable {
+    case setupRunning
+    case windowsOpen
 }

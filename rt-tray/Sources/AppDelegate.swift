@@ -1763,6 +1763,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         updater.onUpdateInstallingChanged = { [weak self] installing in
             self?.updateInstalling = installing
         }
+        let notifications = notificationManager
+        updater.onUpdateHeld = { version, hold in
+            MainActor.assumeIsolated {
+                TrayState.shared.updateAvailable = version
+            }
+            notifications.fireAppUpdate(UpdateNotice.waiting(version: version, hold: hold))
+        }
+        if let version = updater.takeInstalledVersion() {
+            TrayLog.info("update installed", ["version": version])
+            notificationManager.fireAppUpdate(UpdateNotice.installed(version: version))
+        }
     }
 
     // MARK: - Polling
