@@ -486,7 +486,7 @@ async function missionControlRow(p: Probes): Promise<Row> {
 // ─── tool.team.<name> — team-declared tools from pack requirements.jsonc ───
 
 /** First occurrence wins across packs — two packs declaring the same tool name collapse to one row rather than one per pack. */
-function dedupeTeamTools(reqs: PackRequirements[]): ToolRequirement[] {
+export function dedupeTeamTools(reqs: PackRequirements[]): ToolRequirement[] {
   const seen = new Map<string, ToolRequirement>();
   for (const req of reqs) {
     for (const tool of req.tools) {
@@ -520,7 +520,7 @@ function teamToolRemedyAction(req: ToolRequirement, hasBrew: boolean, verb: "Ins
   return { type: "steps", label: "Show steps…", steps: [step, "Then re-run rt setup status"] };
 }
 
-async function teamToolRow(p: Probes, req: ToolRequirement, hasBrew: boolean): Promise<Row> {
+export async function teamToolRow(p: Probes, req: ToolRequirement, hasBrew: boolean): Promise<Row> {
   const base = {
     id: `tool.team.${req.name}`,
     kind: "tool" as const,
