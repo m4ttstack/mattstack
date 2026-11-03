@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { join } from "path";
-import { fakeProbes } from "./fakes.ts";
+import { fakeProbes, gitShowFromFiles } from "./fakes.ts";
 import { convergePackCache, CONVERGE_BUDGET_MS, PACK_EXEC_TIMEOUT_MS } from "../pack-cache.ts";
 import type { ExecResult } from "../probes.ts";
 
@@ -27,6 +27,8 @@ function probesWith(files: Record<string, string>, reply: (argv: string[]) => Ex
     env: { PATH: "/usr/local/bin" },
     files: { "/usr/local/bin/claude": "bin", ...files },
     exec: async (argv: string[], opts) => {
+      const shown = gitShowFromFiles(files, argv);
+      if (shown) return shown;
       execs.push(argv);
       timeouts.push(opts?.timeoutMs);
       return reply(argv);
@@ -93,6 +95,19 @@ describe("convergePackCache", () => {
       { ...served([{ name: "acme-skills", source: "./packs/acme-skills" }]), ...pluginJson("acme-skills", "0.5.28") },
       () => listing([{ id: "acme-skills@acme-market", version: "0.5.28", enabled: false }]),
     );
+    const result = await convergePackCache(p, "acme", quietLog, ACTIVE);
+    expect(result.current).toEqual(["acme-skills@acme-market"]);
+    expect(execs.filter((a) => a.includes("update"))).toEqual([]);
+  });
+
+  test("a working tree ahead of the data branch issues no update: the installed pack matches the branch", async () => {
+    const atBranch = pluginJson("acme-skills", "0.5.28");
+    const { p, execs } = probesWith(
+      { ...served([{ name: "acme-skills", source: "./packs/acme-skills" }]), ...pluginJson("acme-skills", "0.6.0") },
+      () => listing([{ id: "acme-skills@acme-market", version: "0.5.28", enabled: false }]),
+    );
+    const exec = p.exec.bind(p);
+    p.exec = async (argv, o) => gitShowFromFiles(atBranch, argv) ?? exec(argv, o);
     const result = await convergePackCache(p, "acme", quietLog, ACTIVE);
     expect(result.current).toEqual(["acme-skills@acme-market"]);
     expect(execs.filter((a) => a.includes("update"))).toEqual([]);

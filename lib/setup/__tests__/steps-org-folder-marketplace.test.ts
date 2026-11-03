@@ -6,7 +6,7 @@ import type { ApplyContext } from "../apply.ts";
 import type { Probes } from "../probes.ts";
 import { readSetupState, updateSetupState } from "../state.ts";
 import { convergeMarketplace, marketplaceName } from "../steps/org-folder-marketplace.ts";
-import { fakeProbes, ok, type ExecScript } from "./fakes.ts";
+import { fakeProbes, gitShowFromFiles, ok, type ExecScript } from "./fakes.ts";
 
 let home: string;
 beforeEach(() => { home = mkdtempSync(join(tmpdir(), "rt-org-mkt-")); });
@@ -41,7 +41,7 @@ function probes(exec: ExecScript | undefined, files: Record<string, string> = {}
     env: exec ? { PATH: "/usr/local/bin" } : {},
     files: { ...(exec ? { [CLAUDE]: "bin" } : {}), [join(clone(), ".claude-plugin", "marketplace.json")]: '{ "name": "acme", "plugins": [] }', ...files },
   });
-  if (exec) p.exec = (argv, o) => Promise.resolve(exec(argv, o));
+  if (exec) p.exec = (argv, o) => Promise.resolve(gitShowFromFiles(files, argv) ?? exec(argv, o));
   return p;
 }
 
@@ -309,7 +309,7 @@ describe("convergeMarketplace", () => {
         files: { [CLAUDE]: "bin", [join(clone(), ".claude-plugin", "marketplace.json")]: '{ "name": "acme", "plugins": [] }', [join(sessions(), "notes.txt")]: "x", ...opts.files },
         dirs: { [sessions()]: ["2-dev2_acme.test", "1-dev1_acme.test", "notes.txt"], [dev1()]: [], [dev2()]: [] },
       });
-      p.exec = (argv, o) => Promise.resolve(exec(argv, o));
+      p.exec = (argv, o) => Promise.resolve(gitShowFromFiles(opts.files ?? {}, argv) ?? exec(argv, o));
       return { p, seen };
     }
 
@@ -399,7 +399,7 @@ describe("convergeMarketplace", () => {
       expect(readSetupState(p).orgMarketplaceMoves).toEqual([recordOf([widgets])]);
 
       const next = claudeFake({ registeredAt: clone(), plugins: [{ id: "gadgets@acme", enabled: false }] });
-      p.exec = (argv, o) => Promise.resolve(next.exec(argv, o));
+      p.exec = (argv, o) => Promise.resolve(gitShowFromFiles(heldFiles(), argv) ?? next.exec(argv, o));
       const after = await convergeMarketplace({ ...ctxFor(p), engine: () => "0.31.0" } as ApplyContext, { dir: clone(), stalePaths: [] });
       expect(after.state).toBe("done");
       expect(next.commands()).toEqual(["plugin marketplace list --json", "plugin list --json", "plugin install widgets@acme --scope user"]);
@@ -418,7 +418,7 @@ describe("convergeMarketplace", () => {
       expect(readSetupState(p).orgMarketplaceMoves).toEqual([recordOf([widgets])]);
 
       const next = claudeFake({ registeredAt: clone(), plugins: [{ id: "gadgets@acme", enabled: false }] });
-      p.exec = (argv, o) => Promise.resolve(next.exec(argv, o));
+      p.exec = (argv, o) => Promise.resolve(gitShowFromFiles(heldFiles(), argv) ?? next.exec(argv, o));
       const after = await convergeMarketplace({ ...ctxFor(p), engine: () => "0.31.0" } as ApplyContext, { dir: clone(), stalePaths: [] });
       expect(after.state).toBe("done");
       expect(next.commands()).toEqual(["plugin marketplace list --json", "plugin list --json", "plugin install widgets@acme --scope user"]);

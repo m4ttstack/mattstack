@@ -6,7 +6,7 @@
 
 import { execSync } from "child_process";
 import { mkdirSync } from "fs";
-import { basename, dirname } from "path";
+import { basename, dirname, join } from "path";
 import type { TrayClient } from "../../daemon-client.ts";
 import { MEMBER_PATH_SENTINEL } from "../member-path.ts";
 import { createRealProbes, type ExecResult, type Probes } from "../probes.ts";
@@ -361,6 +361,17 @@ export function gitRepo(path: string, remotes: Record<string, string>, extraConf
   execSync(`git init -q ${JSON.stringify(path)}`);
   for (const [name, url] of Object.entries(remotes)) execSync(`git -C ${JSON.stringify(path)} remote add ${name} ${url}`);
   for (const [key, value] of extraConfig) execSync(`git -C ${JSON.stringify(path)} config ${key} ${value}`);
+}
+
+/** Answers `git -C <dir> show <ref>:<path>` from `files` at `<dir>/<path>`, every ref reading as the working tree; null for any other argv. */
+export function gitShowFromFiles(files: Record<string, string>, argv: string[]): ExecResult | null {
+  if (argv.length !== 5 || argv[0] !== "git" || argv[1] !== "-C" || argv[3] !== "show") return null;
+  const spec = argv[4]!;
+  const at = spec.indexOf(":");
+  const path = spec.slice(at + 1);
+  const content = files[join(argv[2]!, path)];
+  if (content === undefined) return { code: 128, stdout: "", stderr: `fatal: path '${path}' does not exist in '${spec.slice(0, at)}'` };
+  return { code: 0, stdout: content, stderr: "" };
 }
 
 /** Real filesystem probes rooted at `home`, with a fake exec that records any clone attempt instead of running it. */

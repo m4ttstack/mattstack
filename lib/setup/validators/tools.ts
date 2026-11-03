@@ -811,7 +811,7 @@ export async function toolRows(
   rows.push(skillsOverridesRowFor(p));
 
   const only = opts.activeTeam !== undefined ? opts.activeTeam : opts.teamSlug ? activeTeamFor(p, opts.teamSlug).team : null;
-  const served = opts.teamSlug ? readServedPacks(p, opts.teamSlug, { only }) : { packs: [], error: null };
+  const served = opts.teamSlug ? await readServedPacks(p, opts.teamSlug, { only }) : { packs: [], error: null };
   if (served.error) {
     // `team.marketplace`, NOT `pack.marketplace`: isInstallSatisfied matches any
     // id starting with "pack.", and an error row can never become ready, so a

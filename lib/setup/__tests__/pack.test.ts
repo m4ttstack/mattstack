@@ -213,13 +213,13 @@ describe("readServedPacks filter", () => {
   ] });
   const p = fakeProbes({ home: "/h", files: { "/h/.mattstack/orgs/acme/.claude-plugin/marketplace.json": market } });
 
-  test("with no filter every entry is served", () => {
-    expect(readServedPacks(p, "acme").packs.map((x) => x.name)).toEqual(["widgets", "gadgets"]);
+  test("with no filter every entry is served", async () => {
+    expect((await readServedPacks(p, "acme")).packs.map((x) => x.name)).toEqual(["widgets", "gadgets"]);
   });
-  test("only names the one pack this Mac installs", () => {
-    expect(readServedPacks(p, "acme", { only: "gadgets" }).packs.map((x) => x.id)).toEqual(["gadgets@acme"]);
+  test("only names the one pack this Mac installs", async () => {
+    expect((await readServedPacks(p, "acme", { only: "gadgets" })).packs.map((x) => x.id)).toEqual(["gadgets@acme"]);
   });
-  test("null means no active team, so nothing is served", () => {
-    expect(readServedPacks(p, "acme", { only: null }).packs).toEqual([]);
+  test("null means no active team, so nothing is served", async () => {
+    expect((await readServedPacks(p, "acme", { only: null })).packs).toEqual([]);
   });
 });

@@ -7,7 +7,7 @@ import { setSetting } from "../../settings/write.ts";
 import { DONE_ACTION_TYPES, FINISH_GATED_ROW_IDS, STEP_IDS } from "../contract.ts";
 import { toolRows, extractVersion } from "../validators/tools.ts";
 import type { ToolsSeams } from "../validators/tools.ts";
-import { fakeProbes, ok, missing } from "./fakes.ts";
+import { fakeProbes, gitShowFromFiles, ok, missing } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import type { PackRequirements } from "../requirements.ts";
 import type { ToolResolution } from "../../deps/resolve.ts";
@@ -1685,9 +1685,9 @@ async function toolRowsFor(opts: {
   const p = fakeProbes({
     home: "/fake-home",
     files,
-    exec: async (argv) => argv.includes("marketplace") && opts.mattstackFloor
+    exec: async (argv) => gitShowFromFiles(files, argv) ?? (argv.includes("marketplace") && opts.mattstackFloor
       ? { code: 0, stdout: JSON.stringify([{ name: "mattstack", installLocation: "/ms-market" }]), stderr: "" }
-      : (argv.includes("list") ? { code: 0, stdout: JSON.stringify(opts.pluginList), stderr: "" } : { code: 0, stdout: "", stderr: "" }),
+      : (argv.includes("list") ? { code: 0, stdout: JSON.stringify(opts.pluginList), stderr: "" } : { code: 0, stdout: "", stderr: "" })),
   });
   const engine = opts.engine === undefined ? "0.30.28" : opts.engine;
   return toolRows(p, [], { hasBrew: false, secrets: NO_SECRETS, teamSlug: "acme", activeTeam: opts.activeTeam ?? null }, { ...NOOP_SEAMS, engine: () => engine });

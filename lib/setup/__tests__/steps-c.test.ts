@@ -16,7 +16,7 @@ import { readSetupState, updateSetupState } from "../state.ts";
 import type { TeamSnapshot } from "../team-settings.ts";
 import type { ToolsInstallSeams } from "../tools-install.ts";
 import type { ToolResolution } from "../../deps/resolve.ts";
-import { fakeProbes, fakeTray, ok } from "./fakes.ts";
+import { fakeProbes, fakeTray, gitShowFromFiles, ok } from "./fakes.ts";
 import type { Probes } from "../probes.ts";
 
 import { MATTSTACK_MARKETPLACE_SOURCE, OFFICIAL_MARKETPLACE_SOURCE, __test__ as pluginsTest, computePlugins, pluginsInstallStep } from "../steps/plugins.ts";
@@ -341,6 +341,8 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           env: { PATH: "/usr/local/bin" },
           files: { "/usr/local/bin/claude": "bin", ...files },
           exec: async (argv) => {
+            const shown = gitShowFromFiles(files, argv);
+            if (shown) return shown;
             execCalls.push(argv);
             const [, , verb, sub] = argv;
             if (verb === "list") return ok(JSON.stringify(installed));

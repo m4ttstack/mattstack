@@ -260,7 +260,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   }
 
   const engine = ctx.engine ? ctx.engine() : runnableEngine();
-  const served = ctx.team.slug ? readServedPacks(ctx.p, ctx.team.slug).packs : [];
+  const served = ctx.team.slug ? (await readServedPacks(ctx.p, ctx.team.slug)).packs : [];
   const servedById = new Map(served.map((pack) => [pack.id, pack]));
   const held = new Set<string>();
 

@@ -144,7 +144,7 @@ export async function convergeMarketplace(ctx: ApplyContext, clone: { dir: strin
   }
 
   const engine = ctx.engine ? ctx.engine() : runnableEngine();
-  const served = readServedPacks(ctx.p, basename(clone.dir)).packs;
+  const served = (await readServedPacks(ctx.p, basename(clone.dir))).packs;
   const admissionFor = (pl: InstalledPlugin): Admission => {
     const pack = served.find((x) => x.id === pl.id);
     return pack ? admit(pack.floor, engine) : ADMIT_UNFLOORED;
