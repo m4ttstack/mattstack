@@ -50,7 +50,7 @@ export function createRunsHandlers(
       // out for pre-cutover runs.
       const payload = rawPayload as Commands["runs:list"]["payload"] | undefined;
       try {
-        return { ok: true as const, data: { runs: listRuns(payload?.repo || undefined, await getRunLiveness()) } };
+        return { ok: true as const, data: { runs: listRuns(payload?.repo || undefined, await getRunLiveness(), { includeTests: payload?.includeTests === true }) } };
       } catch (err) {
         ctx.log.warn({ err }, "runs:list failed");
         return { ok: false as const, error: String(err) };

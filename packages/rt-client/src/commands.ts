@@ -425,6 +425,8 @@ export interface RunSummary {
       the run has not produced that field yet. */
   ticket: string | null;
   branch: string | null;
+  /** The run's `test` field, recorded from `RT_RUN_TEST` when a validation harness started it. `runs:list` leaves these runs out unless asked. */
+  test?: string | null;
   /** The run's `claude-session` field; always set by the daemon, null when unrecorded. */
   session?: string | null;
   /** The run's own MR url (latest `mr` field, produced by a work stage, an http(s) url); null when none or cleared. */
@@ -845,7 +847,7 @@ export interface Commands {
   "events:wait": { payload: { pattern: string; after?: number; waitMs?: number }; data: { events: EventsBusEvent[]; cursor: number } };
   "events:list": { payload: { pattern: string; after?: number; limit?: number }; data: { events: EventsBusEvent[]; cursor: number } };
   "events:head": { payload: Record<string, never>; data: { cursor: number } };
-  "runs:list": { payload: { repo?: string }; data: { runs: RunSummary[] } };
+  "runs:list": { payload: { repo?: string; includeTests?: boolean }; data: { runs: RunSummary[] } };
   "runs:get": { payload: { runId: string; repo?: string }; data: RunDetail };
   "runs:abandon": { payload: { runId: string; repo?: string; reason?: string }; data: { ok: boolean } };
   "runs:evidence": { payload: { runId: string; repo?: string } & ({ key: EvidenceImageKey | EvidenceTextKey } | EvidenceAddress); data: { mime: string; base64?: string; text?: string } };

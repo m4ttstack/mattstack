@@ -6,6 +6,7 @@ export function recordIdentity(db: Database, env: NodeJS.ProcessEnv, now: number
   const pairs: [string, string | undefined][] = [
     ["claude-session", env.CLAUDE_CODE_SESSION_ID],
     ["herdr-pane", env.HERDR_PANE_ID],
+    ["test", env.RT_RUN_TEST],
   ];
   for (const [key, value] of pairs) {
     if (!value) continue;

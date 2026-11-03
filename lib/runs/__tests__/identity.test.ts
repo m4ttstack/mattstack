@@ -34,6 +34,13 @@ describe("recordIdentity", () => {
     db.close();
   });
 
+  test("records RT_RUN_TEST as the test field", () => {
+    const db = dbWithRun();
+    recordIdentity(db, { RT_RUN_TEST: "replay" }, 100);
+    expect(field(db, "test")).toEqual({ value: "replay", produced_by: "run", at: 100 });
+    db.close();
+  });
+
   test("absent env vars record nothing", () => {
     const db = dbWithRun();
     recordIdentity(db, {}, 100);
