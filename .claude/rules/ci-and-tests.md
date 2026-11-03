@@ -11,10 +11,13 @@ paths:
 
 # CI shards and test scope
 
-CI runs the unit suite as three macOS shards (`bun test --shard=i/3
+CI runs the unit suite as three macOS shards, each runner taking two
+halves of its shard in parallel (`bun test --shard=i/6
 --timings=test-timings.json`, balanced by the committed timings file,
-which the Timings workflow regenerates) and runs the non-Mac gates on
-ubuntu. `scripts/ci/test-scope.ts` decides a PR's scope from its diff, for
+which the Timings workflow regenerates), and runs the non-Mac gates on
+ubuntu. Two bun processes share a runner safely because the preload keys
+HOME, the socket dir and tmp by pid; a test that binds a fixed port or
+path outside them will flake under this and must be fixed, not serialized. `scripts/ci/test-scope.ts` decides a PR's scope from its diff, for
 the shards and for every path-gated job (`go`, `deck-macos`, `e2e-tests`,
 `glitter-pty`, `website`, the plugin jobs); `docs/ci.md` has the table.
 Its "The unit shards' modes" section says which diffs skip the shards,

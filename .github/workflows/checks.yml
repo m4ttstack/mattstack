@@ -204,10 +204,28 @@ jobs:
           start=$(date +%s)
           changed=""
           if [ "$MODE" = changed ]; then changed="--changed=HEAD^1"; fi
+          # bun runs test files one after another in a single process, so
+          # each runner takes two halves of its shard at once: the preload
+          # gives every process its own HOME, socket dir and tmp by pid.
+          # Output is captured per half and printed whole, not interleaved.
+          halves=$((TOTAL * 2))
+          a=$((SHARD * 2 - 1))
+          b=$((SHARD * 2))
           # shellcheck disable=SC2086
-          bun test $DIRS --shard="$SHARD/$TOTAL" --timings=test-timings.json $changed
-          # A snapshot's own test, which --changed cannot select. Path
-          # arguments intersect with --changed, so it is its own call.
+          bun test $DIRS --shard="$a/$halves" --timings=test-timings.json $changed > "$RUNNER_TEMP/half-a.log" 2>&1 &
+          pid_a=$!
+          # shellcheck disable=SC2086
+          bun test $DIRS --shard="$b/$halves" --timings=test-timings.json $changed > "$RUNNER_TEMP/half-b.log" 2>&1 &
+          pid_b=$!
+          status=0
+          wait "$pid_a" || status=1
+          wait "$pid_b" || status=1
+          echo "::group::half $a of $halves"; cat "$RUNNER_TEMP/half-a.log"; echo "::endgroup::"
+          echo "::group::half $b of $halves"; cat "$RUNNER_TEMP/half-b.log"; echo "::endgroup::"
+          [ "$status" = 0 ] || { echo "a half of shard $SHARD failed; its log is above"; exit 1; }
+          # A snapshot's own test and the tests reading a changed file by
+          # path, which --changed cannot select. Path arguments intersect
+          # with --changed, so it is its own call.
           if [ "$MODE" = changed ] && [ "$SHARD" = 1 ] && [ -n "$EXTRA" ]; then
             # shellcheck disable=SC2086
             bun test $EXTRA
