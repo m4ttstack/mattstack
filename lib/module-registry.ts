@@ -56,6 +56,7 @@ export const MODULE_REGISTRY: Record<string, () => Promise<any>> = {
   "./commands/state-backup-init.ts": () => import("../commands/state-backup-init.ts"),
   "./commands/state-backup-status.ts": () => import("../commands/state-backup-status.ts"),
   "./commands/sync.ts": () => import("../commands/sync.ts"),
+  "./commands/check.ts": () => import("../commands/check.ts"),
   "./commands/git/rebase.ts": () => import("../commands/git/rebase.ts"),
   "./commands/git/reset.ts": () => import("../commands/git/reset.ts"),
   "./commands/git/backup.ts": () => import("../commands/git/backup.ts"),
