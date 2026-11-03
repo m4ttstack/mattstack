@@ -7,8 +7,8 @@ SERVED_JQ_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/jq"
 : "${SERVED_LAUNCHCTL:=launchctl}"
 : "${SERVED_POLL_S:=5}"
 : "${SERVED_PROXY_WAIT_S:=30}"
-[[ "$SERVED_PROXY_WAIT_S" =~ ^[0-9]+$ ]] || SERVED_PROXY_WAIT_S=30
-[[ "$SERVED_POLL_S" =~ ^[0-9]+$ ]] || SERVED_POLL_S=5
+[[ "$SERVED_PROXY_WAIT_S" =~ ^0*[1-9][0-9]*$ ]] || SERVED_PROXY_WAIT_S=30
+[[ "$SERVED_POLL_S" =~ ^0*[1-9][0-9]*$ ]] || SERVED_POLL_S=5
 SERVED_PROXY_WAIT_S=$((10#$SERVED_PROXY_WAIT_S)) SERVED_POLL_S=$((10#$SERVED_POLL_S))
 SERVED_JQ="$SERVED_APP/Contents/Helpers/jq"
 
