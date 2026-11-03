@@ -32,7 +32,8 @@ there? Read its rule file first.
 | `.claude/rules/daemon.md` | Logging seams, the EnterWorktree check, the trust dialog parser | `lib/daemon/**`, `lib/daemon.ts`, `lib/daemon-logger.ts`, more in the file |
 | `.claude/rules/mcp-and-gates.md` | `rt_verb`, the tool roster and its guards, decision gates, baseline permissions | `lib/mcp/**`, `commands/mcp.ts`, `commands/gate.ts`, more in the file |
 | `.claude/rules/team-switchboard.md` | Invite, join, peer and the board-peering row | `lib/team/**`, `packages/rt-client/src/switchboard.ts`, `lib/setup/validators/accounts.ts`, more in the file |
-| `.claude/rules/setup.md` | Writing-style presets, checklist rows, setup after an update, migrations | `lib/setup/**`, `lib/skills/writing-style.ts`, `commands/setup.ts`, more in the file |
+| `.claude/rules/setup.md` | Checklist rows, setup after an update, migrations | `lib/setup/**`, `commands/setup.ts`, more in the file |
+| `.claude/rules/writing-style.md` | Writing-style presets: resolution, the setup row, the new-Mac seed | `lib/skills/writing-style.ts`, `commands/skills-writing-style.ts`, `lib/setup/validators/writing-style.ts`, more in the file |
 | `.claude/rules/state.md` | State backup, claiming `SCHEMA_VERSION` | `lib/state/**`, `commands/state*.ts` |
 | `.claude/rules/dev-app.md` | How a change reaches the dev app: served apps, manifests, tray rebuilds | `rt-tray/**`, `apps/deck/**`, `apps/*/mattstack.deck.json`, more in the file |
 | `.claude/rules/ci-and-tests.md` | How CI shards and scopes the unit suite, `no-*` naming, timings | `scripts/ci/**`, `.github/workflows/checks.yml`, `test-timings.json`, more in the file |

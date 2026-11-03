@@ -68,7 +68,7 @@ digraph create_pack {
     gate_write_failed [label="Gate: write failed after cleanup" shape=box];
     remove_pack_dir [label="Remove the pack dir" shape=box];
     stop_rerun_init [label="STOP: never re-run init on a written pack" shape=octagon style=filled fillcolor=red fontcolor=white];
-    follow_remedy [label="Follow the printed remedy" shape=box];
+    follow_remedy [label="Run the remedy for error.code" shape=box];
     remedy_completed [label="The remedy completed the pack?" shape=diamond];
     gate_remedy_failed [label="Gate: remedy did not complete the pack" shape=box];
     in_herdr_pane [label="In a herdr pane?" shape=diamond];
@@ -146,6 +146,7 @@ digraph create_pack {
     relay_error_wrote -> failure_code;
     failure_code -> pack_dir_removed [label="write-failed"];
     failure_code -> say_not_shared [label="share-failed"];
+    failure_code -> rt_setup_update [label="install-failed: shared, not installed"];
     failure_code -> follow_remedy [label="any other code"];
     failure_code -> stop_rerun_init [label="tempted to re-run init"];
     stop_rerun_init -> follow_remedy;
@@ -244,7 +245,9 @@ a commit the org has. Say so, then do these in order:
    `<pack>@<marketplace>`, run `claude plugin install <pack>@<marketplace>`
    (the marketplace name is the `name` in the org clone's
    `.claude-plugin/marketplace.json`).
-3. Reload, as the graph goes on.
+3. Reload, as the graph goes on. A failed init returns no `tryNext`: it is
+   `/<pack>:work <ticket>`, with `<pack>` the pack's name (the team's
+   folder name), the same value a successful init returns.
 
 ### Gate: share did not land
 
@@ -318,12 +321,29 @@ Only after `write-failed`: that code's remedy is to remove the pack dir and
 run init again. Remove the pack dir the `error.wrote` paths sit in, and
 nothing else in the org clone.
 
-### Follow the printed remedy
+### Run the remedy for error.code
 
-Do exactly what the printed remedy says. Never re-run init on a written
-pack. Once the pack compiles, the remedy's last step is
-`rt team publish --team <org>`, which shares the pack with its entry; run
-it with `--json`, read its envelope and install the pack as `Say the pack is
+The `--json` failure envelope carries no remedy commands, so run the one
+for its `error.code`, in order. `<pack dir>` is the folder the
+`error.wrote` paths sit in. The compile runs on Bash: `rt_verb` refuses
+`--pack-dir` on compile.
+
+| `error.code` | remedy |
+| --- | --- |
+| `materialize-failed` | `rt skills materialize --dir <repo-path>`, then publish |
+| `hand-skill-failed` | `rt_verb {args: ["skills", "check", "--pack-dir", "<pack dir>"]}`, then publish |
+| `compile-failed`, `check-drift`, `pointer-failed` | `rt skills compile --pack-dir <pack dir>`, `rt_verb {args: ["skills", "check", "--pack-dir", "<pack dir>"]}`, then publish |
+| a code this table does not name | relay `error.message`, then go to `Gate: remedy did not complete the pack` |
+
+Never re-run init on a written pack. Publish is
+`rt team publish --team <org> --json`, which shares the pack with its entry;
+read its envelope and install the pack as `Say the pack is not shared or
+installed yet` says.
+
+`install-failed` skips this step: init had already shared the pack, and
+only this Mac's install failed. Go straight to `rt setup update --force`,
+then the `claude plugin list --json` check and, when the pack is missing,
+`claude plugin install <pack>@<marketplace>`, as step 2 of `Say the pack is
 not shared or installed yet` says.
 
 ### End the turn
