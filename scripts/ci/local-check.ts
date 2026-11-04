@@ -9,6 +9,7 @@
 import { availableParallelism } from "os";
 import { spawnSync } from "child_process";
 import { join } from "path";
+import { boundedTestNames } from "../../lib/check/summary.ts";
 import { childEnv } from "../../lib/subprocess.ts";
 import {
   collectSources,
@@ -21,8 +22,6 @@ import {
 
 const MAX_PROCESSES = 6;
 const TEST_TIMEOUT_MS = "20000";
-export const MAX_FAILED_TESTS = 20;
-export const MAX_TEST_NAME_LENGTH = 200;
 
 export type Plan = {
   mode: Mode;
@@ -121,15 +120,11 @@ export function judgeRun(exitCode: number, stderr: string): Ran {
   return { red, passed: parsed.passed, failed: red ? Math.max(1, parsed.failed) : parsed.failed, failures: parsed.failures, failedTests: parsed.failedTests };
 }
 
-function clipTestName(name: string): string {
-  return name.length <= MAX_TEST_NAME_LENGTH ? name : `${name.slice(0, MAX_TEST_NAME_LENGTH - 3)}...`;
-}
-
 export function summarise(mode: Mode, ran: Ran[], durationMs: number): Summary {
   const passed = ran.reduce((n, r) => n + r.passed, 0);
   const failed = ran.reduce((n, r) => n + r.failed, 0);
   const selected = passed + failed;
-  const failedTests = [...new Set(ran.flatMap((r) => r.failedTests))].slice(0, MAX_FAILED_TESTS).map(clipTestName);
+  const failedTests = boundedTestNames([...new Set(ran.flatMap((r) => r.failedTests))]);
   return {
     mode: selected === 0 ? "skip" : mode,
     selected,

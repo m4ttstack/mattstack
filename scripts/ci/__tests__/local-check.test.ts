@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { availableParallelism } from "os";
-import { judgeRun, MAX_FAILED_TESTS, MAX_TEST_NAME_LENGTH, parseTestOutput, planLocalCheck, processCount, runPlan, stopGroups, summarise, type Plan } from "../local-check.ts";
+import { MAX_FAILED_TESTS, MAX_TEST_NAME_LENGTH } from "../../../lib/check/summary.ts";
+import { judgeRun, parseTestOutput, planLocalCheck, processCount, runPlan, stopGroups, summarise, type Plan } from "../local-check.ts";
 import { unitDirs } from "../test-scope.ts";
 
 const BASE = "abc123";

@@ -1,5 +1,5 @@
 import { describe as group, expect, test } from "bun:test";
-import { describe, parseSummary } from "../summary.ts";
+import { describe, MAX_FAILED_TESTS, MAX_TEST_NAME_LENGTH, parseSummary } from "../summary.ts";
 
 group("parseSummary", () => {
   test("reads the last stdout line as the summary", () => {
@@ -18,6 +18,28 @@ group("parseSummary", () => {
   test("a summary with no names has no failedTests key", () => {
     expect(parseSummary('{"mode":"full","failed":2,"failedTests":[]}', 1, 50)).not.toHaveProperty("failedTests");
     expect(parseSummary('{"mode":"full","failed":2}', 1, 50)).not.toHaveProperty("failedTests");
+  });
+  test("another repo's command cannot put an unbounded list in the summary", () => {
+    const names = Array.from({ length: MAX_FAILED_TESTS + 5 }, (_, i) => `name ${i} ${"x".repeat(MAX_TEST_NAME_LENGTH * 2)}`);
+    const files = Array.from({ length: MAX_FAILED_TESTS + 5 }, (_, i) => `lib/${i}.test.ts`);
+    const s = parseSummary(JSON.stringify({ mode: "full", failed: 25, failures: files, failedTests: names }), 1, 50);
+    expect(s.failedTests).toHaveLength(MAX_FAILED_TESTS);
+    expect(s.failedTests![0]).toHaveLength(MAX_TEST_NAME_LENGTH);
+    expect(s.failedTests![0]).toEndWith("...");
+    expect(s.failures).toEqual(files.slice(0, MAX_FAILED_TESTS));
+  });
+  test("a list inside the cap keeps every name as it came", () => {
+    const files = Array.from({ length: MAX_FAILED_TESTS }, (_, i) => `lib/${i}.test.ts`);
+    const name = "x".repeat(MAX_TEST_NAME_LENGTH);
+    const s = parseSummary(JSON.stringify({ mode: "full", failed: 20, failures: files, failedTests: [name] }), 1, 50);
+    expect(s.failures).toEqual(files);
+    expect(s.failedTests).toEqual([name]);
+  });
+  test("redaction runs before the clip, so a long name cannot cut a token out of its shape", () => {
+    const token = "ghp_notarealtokennotarealtoken";
+    const name = `${"x".repeat(MAX_TEST_NAME_LENGTH - 10)} ${token}`;
+    const s = parseSummary(JSON.stringify({ mode: "full", failed: 1, failedTests: [name] }), 1, 50);
+    expect(s.failedTests![0]).not.toContain("ghp_");
   });
   test("no summary line is a green exit", () => {
     expect(parseSummary("ran fine\n", 0, 12_000)).toEqual({ mode: "exit", selected: null, passed: null, failed: null, durationMs: 12_000, failures: [] });
