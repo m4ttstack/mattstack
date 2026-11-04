@@ -129,7 +129,10 @@ diff would run, and runs the same unit selection the shards use:
 processes) with `test-timings.json`, then the tests CI reads by path in their
 own call. A diff the scope script would skip runs nothing, and a diff it would
 make full runs the whole suite. The `no-*` guards are left to the `guards` job
-unless the run is full, which `RT_CHECK_FULL=1` forces. The exit code is the
+unless the run is full, which `RT_CHECK_FULL=1` forces. A full run builds
+`packages/rt-client` first, as CI's postinstall does, since the suite checks
+that `dist/` is fresh; a scoped run does not. This runs on your Mac, so it
+takes every selected test, the Mac-only list included. The exit code is the
 verdict, and the last stdout line is a JSON summary (`mode`, `selected`,
 `passed`, `failed`, `durationMs`, `failures`), printed on red too. `selected`
 counts the tests that ran, and a run that ran none reports `skip`. A failure

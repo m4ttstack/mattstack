@@ -47,7 +47,8 @@ check `rt check` and `git_push` run. It asks `test-scope.ts` what a PR with
 the diff `RT_CHECK_BASE..RT_CHECK_HEAD` would run, then runs `--changed` over
 the unit directories in `cores / 2` processes (at most six) and the `extra`
 tests in a separate call, as the `unit` job does; a `skip` runs nothing and
-`RT_CHECK_FULL=1` or a `full` decision runs the whole suite. Stdout carries
+`RT_CHECK_FULL=1` or a `full` decision builds `packages/rt-client` and runs
+the whole suite. Stdout carries
 only the last-line JSON summary (`mode: "error"` when it throws before running), so anything printed there by a change to
 this script breaks `rt check`. It reads bun's `N pass` / `N fail` lines and
 the file header before each `(fail)`, so keep `parseTestOutput` in step with

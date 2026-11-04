@@ -236,7 +236,10 @@ the files, then `bun test <dirs> --changed=<base>` plus the `extra` tests,
 split across `cores / 2` processes with the committed timings file, as the
 CI halves do. The `no-*` guards are left out of the default run (CI's
 `guards` job owns them; they are what the ubuntu probe timed at a minute)
-and included with `RT_CHECK_FULL`. It prints the JSON summary line last, with
+and included with `RT_CHECK_FULL`. A full run builds `packages/rt-client`
+first (Matt's ruling), since the suite checks that `dist/` is fresh; the build
+writes only ignored files, and a failed build is a `mode: "error"` summary. It
+prints the JSON summary line last, with
 `selected` as `passed` plus `failed`, so the counts are all tests.
 
 ### Trust
