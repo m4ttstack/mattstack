@@ -45,9 +45,11 @@ already ended, and a running one is left to its owner. `failed` belongs to
 `runPrepare` and `pressFailed` to the press; `installFailure` reads only
 `failed`, so connect rows never change for a press, `toolRow` reads
 `pressFailed` first, and `runPrepare` re-reads `pressFailed` right before its
-first write and carries it across the rest. The press write has no lock, so two
-presses or a starting run can lose an entry, and the worst result is a plain
-Install row. Neither list counts once the tool reads ready. A tools row whose action is an install
+first write and carries it across the rest. The press write has no lock. Two
+presses or a starting run can lose an entry, which leaves a plain Install row.
+A press landing on a run's first write can also make the record read ended
+until the run's next write. The window is a few file calls, and the tools screen
+starts no run. Neither list counts once the tool reads ready. A tools row whose action is an install
 also carries `waiting`, so a press shows Installing. `detail` is a string in the tray, never null: a plain tools row (a
 tool simply missing or signed out) sends an empty one, so no reason repeats
 its button. `toolsRows` does that itself, since `extraRow` and `signInRow`

@@ -367,7 +367,7 @@ let formActionRunnerChecks: [Check] = [
         c.expectEqual(await MainActor.run { runner.sheet }, nil)
         c.expectEqual(log.all, ["reload"])
     },
-    Check("FormActionRunner: a failed row's read drops the app's error for good and keeps its wait") { c in
+    Check("FormActionRunner: a failed row's read drops the app's error for good") { c in
         let rt = ScriptedRt()
         let (runner, _) = await makeRunner(rt, log: EventLog())
         var row = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: "", state: .todo, detail: "",
