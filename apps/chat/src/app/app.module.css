@@ -4,22 +4,23 @@
   display: contents;
 }
 
+/* The sidebar and room share one rounded panel, inset on the top bar's colour.
+   The top margin pulls back the inset PageShell reserves, so the height nets
+   to zero. */
 @media (min-width: 48em) {
-  .sheet :global(#page-shell-main) {
-    background: var(--tk-card);
-    /* Net zero height: the top pulls back the inset PageShell reserves. */
-    /* Above the sidebar, which would otherwise paint over the shadow. */
-    position: relative;
-    z-index: 1;
-    margin: -8px 8px 8px 0;
-    box-shadow:
-      0 1px 3px rgba(0, 0, 0, 0.12),
-      0 4px 16px rgba(0, 0, 0, 0.1);
-    border-radius: var(--mantine-radius-lg);
-    overflow: hidden;
+  .sheet :global(#page-shell-root) {
+    background: var(--chat-bar) !important;
   }
 
-  .sheet :global(:has(> #page-shell-main)) {
+  .sheet :global(#page-shell-root > .mantine-Group-root) {
+    width: calc(100% - 16px);
+    margin: -8px 8px 8px;
+    border-radius: var(--mantine-radius-lg);
+    overflow: hidden;
     background: var(--chat-chrome);
+  }
+
+  .sheet :global(#page-shell-main) {
+    background: var(--tk-card);
   }
 }

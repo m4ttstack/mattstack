@@ -73,8 +73,8 @@ export function PageBar({
         </Box>
       )}
       <Text
-        fw={600}
-        size="md"
+        fw={700}
+        size="lg"
         truncate
         data-testid="page-bar-title"
         style={{ flex: 'none', maxWidth: '45%', minWidth: 0 }}

@@ -57,7 +57,7 @@ import { latestActiveRoom, visibleRooms } from './visible-rooms';
 export type Buddy = RosterBuddy;
 
 const SIDEBAR_BOUNDS = { initial: 340, min: 260, max: 520 };
-const PAGE_ROW_HEIGHT = 44;
+const PAGE_ROW_HEIGHT = 52;
 const SHELL_HEADER_HEIGHT = 48;
 /** Matches the sheet's margin in app.module.css; PageShell takes it off the
     content height through its top offset. */
@@ -419,7 +419,7 @@ function ChatPage({
           style={{
             position: 'fixed',
             top: SHELL_HEADER_HEIGHT,
-            left: sidebarWidth - 4,
+            left: sidebarWidth + SHEET_INSET - 4,
             zIndex: 11,
           }}
         />

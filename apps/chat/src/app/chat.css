@@ -13,7 +13,7 @@
   );
   --chat-chrome-selected: color-mix(
     in srgb,
-    var(--chat-hue) 22%,
+    var(--chat-hue) 13%,
     var(--chat-chrome)
   );
 }
