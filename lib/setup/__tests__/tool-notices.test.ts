@@ -225,6 +225,18 @@ describe("runToolNotices", () => {
     expect(sent).toEqual([]);
   });
 
+  test("a team file error prunes nothing", async () => {
+    const p = finishedMac({ extra: { [TEAM_FILE]: "{ not json", [RECORD]: JSON.stringify(rec({ told: ["doppler"] })) } });
+    const { sent, notify } = collector();
+    await runToolNotices(p, "acme", notify);
+    expect(readToolNotices(p).told).toEqual(["doppler"]);
+
+    p.writeFile(TEAM_FILE, requirements([{ name: "doppler", why: "secrets" }]));
+    await runToolNotices(p, "acme", notify);
+    await runToolNotices(p, "acme", notify);
+    expect(sent).toEqual([]);
+  });
+
   test("a sent notice records in tool-notices.json and leaves setup-state untouched", async () => {
     const p = finishedMac({ extra: { [RECORD]: JSON.stringify(rec({ pending: ["doppler"] })) } });
     const { notify } = collector();

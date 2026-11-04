@@ -106,8 +106,8 @@ export async function runToolNotices(p: Probes, slug: string, notify: (title: st
   }
 
   const record = readToolNotices(p);
-  // An org file that did not read says nothing about what was dropped, and pruning on it would re-notify every member once it is fixed.
-  const current = reqs.some((req) => req.orgError) ? record : withoutDroppedTools(record, required);
+  // A file that did not read says nothing about what was dropped, and pruning on it would re-notify every member once it is fixed.
+  const current = reqs.some((req) => req.orgError || req.error) ? record : withoutDroppedTools(record, required);
   const { notice, record: next } = toolNotice(missing, current);
   // Written before the send: this runs every pull interval, so a record that will not write would otherwise repeat the notice forever.
   writeToolNotices(p, next);
