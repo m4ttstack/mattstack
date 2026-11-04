@@ -44,13 +44,17 @@ function clip(text: string): string {
   return text.length <= MAX_LENGTH ? text : `${text.slice(0, MAX_LENGTH - 3)}...`;
 }
 
+export function testCount(n: number): string {
+  return `${n} ${n === 1 ? "test" : "tests"}`;
+}
+
 export function describe(verdict: CheckVerdict, summary: CheckSummary, machine: string, reason?: string): string {
   if (verdict === "error") return clip(`error: ${reason ?? "check did not complete"}`);
   const time = duration(summary.durationMs);
   if (verdict === "green") {
     if (summary.mode === "skip") return clip("skip: nothing to run for this diff");
     if (summary.mode === "exit") return clip(`exit 0 in ${time} on ${machine}`);
-    return clip(`${summary.mode}: ${summary.selected ?? 0} tests in ${time} on ${machine}`);
+    return clip(`${summary.mode}: ${testCount(summary.selected ?? 0)} in ${time} on ${machine}`);
   }
   if (summary.failed === null) return clip(`red: command failed in ${time} on ${machine}`);
   const of = summary.selected === null ? "" : ` of ${summary.selected}`;

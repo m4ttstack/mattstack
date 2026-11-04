@@ -5,7 +5,7 @@
  *   rt check [--full] [--no-status] [--base <ref>] [--json]
  */
 import { checkTree, realCheckDeps, type CheckRun } from "../lib/check/index.ts";
-import { describe } from "../lib/check/summary.ts";
+import { describe, testCount } from "../lib/check/summary.ts";
 import type { CheckResult } from "../lib/check/run.ts";
 import type { StatusOutcome } from "../lib/check/status.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
@@ -47,7 +47,7 @@ function statusBlock(status: StatusOutcome | null, sha: string): Block {
 function failureCount(r: Configured): string {
   const { failed, selected } = r.summary;
   if (failed === null) return "The check failed";
-  return selected === null ? `${failed} tests failed` : `${failed} of ${selected} tests failed`;
+  return selected === null ? `${testCount(failed)} failed` : `${failed} of ${testCount(selected)} failed`;
 }
 
 function tailLines(r: Configured): string[] {

@@ -85,6 +85,13 @@ describe("rt check", () => {
     expect(process.exitCode).toBe(1);
   });
 
+  test("one failing test with no selection reads singular", async () => {
+    const r = result({ verdict: "red", summary: { mode: "changed", selected: null, passed: null, failed: 1, durationMs: 1000, failures: [] } });
+    const { d } = deps({ result: r, status: null });
+    await checkCommand([], ctx, d);
+    expect(io.stderr()).toStartWith("1 test failed");
+  });
+
   test("an error shows the reason and the output tail", async () => {
     const r = result({ verdict: "error", reason: "timed out after 600s", outputTail: "last line one\nlast line two" });
     const { d } = deps({ result: r, status: null });

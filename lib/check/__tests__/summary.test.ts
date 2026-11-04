@@ -26,6 +26,9 @@ group("describe", () => {
   test("full and long runs read in minutes and seconds", () => {
     expect(describe("green", { ...green, mode: "full", selected: 22236, durationMs: 372_000 }, "hilbert")).toBe("full: 22236 tests in 6m12s on hilbert");
   });
+  test("one test reads singular", () => {
+    expect(describe("green", { ...green, selected: 1, passed: 1 }, "hilbert")).toBe("changed: 1 test in 41s on hilbert");
+  });
   test("skip says nothing ran", () => {
     expect(describe("green", { ...green, mode: "skip", selected: 0 }, "hilbert")).toBe("skip: nothing to run for this diff");
   });

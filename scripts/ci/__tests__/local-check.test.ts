@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { availableParallelism } from "os";
-import { judgeRun, parseTestOutput, planLocalCheck, processCount } from "../local-check.ts";
+import { judgeRun, parseTestOutput, planLocalCheck, processCount, summarise } from "../local-check.ts";
 import { unitDirs } from "../test-scope.ts";
 
 const BASE = "abc123";
@@ -182,5 +182,29 @@ describe("judgeRun", () => {
 
   test("a red summary keeps bun's own count", () => {
     expect(judgeRun(1, loadFailure)).toMatchObject({ red: true, passed: 1, failed: 1, failures: ["lib/__tests__/bad-import.test.ts"] });
+  });
+});
+
+describe("summarise", () => {
+  // Bun's stderr tail from a green shard: `56` files ran 2047 tests, so the two counts differ.
+  const greenShard = " 2047 pass\n 0 fail\n 5120 expect() calls\nRan 2047 tests across 56 files. [87.00s]\n";
+  const redShard = "lib/__tests__/cart.test.ts:\n(fail) cart totals > rounds up [0.09ms]\n\n 41 pass\n 3 fail\nRan 44 tests across 9 files. [3.00ms]\n";
+
+  test("selected counts the tests that ran, not the files picked", () => {
+    expect(summarise("changed", [judgeRun(0, greenShard)], 87_000)).toEqual({ mode: "changed", selected: 2047, passed: 2047, failed: 0, durationMs: 87_000, failures: [] });
+  });
+
+  test("a red run never fails more tests than it selected", () => {
+    const s = summarise("changed", [judgeRun(1, redShard), judgeRun(0, greenShard)], 90_000);
+    expect(s).toMatchObject({ selected: 2091, passed: 2088, failed: 3, failures: ["lib/__tests__/cart.test.ts"] });
+  });
+
+  test("a run that ran nothing reports skip", () => {
+    expect(summarise("changed", [judgeRun(0, " 0 pass\n 0 fail\nRan 0 tests across 0 files. [1.00ms]\n")], 10)).toMatchObject({ mode: "skip", selected: 0 });
+    expect(summarise("full", [], 10)).toMatchObject({ mode: "skip", selected: 0 });
+  });
+
+  test("a process that died with no summary is not a skip", () => {
+    expect(summarise("changed", [judgeRun(137, "bun test v1.4.3\n")], 10)).toMatchObject({ mode: "changed", selected: 1, failed: 1 });
   });
 });

@@ -110,6 +110,20 @@ export function judgeRun(exitCode: number, stderr: string): Ran {
   return { red, passed: parsed.passed, failed: red ? Math.max(1, parsed.failed) : parsed.failed, failures: parsed.failures };
 }
 
+export function summarise(mode: Mode, ran: Ran[], durationMs: number): Summary {
+  const passed = ran.reduce((n, r) => n + r.passed, 0);
+  const failed = ran.reduce((n, r) => n + r.failed, 0);
+  const selected = passed + failed;
+  return {
+    mode: selected === 0 ? "skip" : mode,
+    selected,
+    passed,
+    failed,
+    durationMs,
+    failures: [...new Set(ran.flatMap((r) => r.failures))],
+  };
+}
+
 // Each test process leads its own group, so a cancel reaches the processes its
 // tests spawned, not only bun.
 const live = new Set<ReturnType<typeof Bun.spawn>>();
@@ -143,8 +157,8 @@ async function main(started: number): Promise<number> {
   const changed = changedFiles(base, head, cwd);
   const plan = planLocalCheck(base, head, full, scope, changed);
   const reached = plan.mode === "changed" ? selectedTests(changed, scope.tests, scope.graph) : plan.mode === "full" ? scope.tests : [];
-  const selected = new Set([...reached, ...plan.extra.map((f) => f.replace(/^\.\//, ""))]).size;
-  console.error(`local-check: ${plan.mode}, ${selected} test file(s), ${plan.processes} process(es)`);
+  const files = new Set([...reached, ...plan.extra.map((f) => f.replace(/^\.\//, ""))]).size;
+  console.error(`local-check: ${plan.mode}, ${files} test file(s), ${plan.processes} process(es)`);
 
   const ran: Ran[] = [];
   if (plan.mode !== "skip") {
@@ -161,16 +175,7 @@ async function main(started: number): Promise<number> {
     if (plan.extra.length) ran.push(await runBun([...plan.extra, "--timeout", TEST_TIMEOUT_MS], "read-by-path tests", cwd));
   }
 
-  const failures = [...new Set(ran.flatMap((r) => r.failures))];
-  const summary: Summary = {
-    mode: plan.mode,
-    selected,
-    passed: ran.reduce((n, r) => n + r.passed, 0),
-    failed: ran.reduce((n, r) => n + r.failed, 0),
-    durationMs: Date.now() - started,
-    failures,
-  };
-  printSummary(summary);
+  printSummary(summarise(plan.mode, ran, Date.now() - started));
   return ran.some((r) => r.red) ? 1 : 0;
 }
 
