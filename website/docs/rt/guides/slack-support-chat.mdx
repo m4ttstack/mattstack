@@ -20,13 +20,13 @@ Do this once for your Slack app and once on each Mac that opens chats.
    rt setup slack connect --support-chat
    ```
 
-3. Link the herdr chat plugin so the new controls show up:
+3. Install the herdr chat plugin, or reinstall it if you already have it, so the new controls show up:
 
    ```bash
-   herdr plugin link
+   herdr plugin install m4ttstack/mattstack/plugins/herdr-chat
    ```
 
-The pane must also be signed in to rt chat. See the [chat guide](/rt/guides/chat).
+You don't need to sign the pane in to rt chat first: `/slack-support` signs it in. See the [chat guide](/rt/guides/chat).
 
 ## Open a chat
 
@@ -38,7 +38,7 @@ In the pane, type:
 
 The pane writes a short brief, then sends the teammate a first message. Only you can open a chat: no model tool does it, and a teammate cannot ask for one.
 
-You can also use the **On** control in the pane's chat actions, which types the command for you. **Off** closes the chat.
+You can also use the **On** control in the pane's Slack support action, which types the command for you. **Off** closes the chat. That action isn't in the herdr chat launcher, so [bind it to a key](/skills/herdr-chat#bind-keys).
 
 ## During a chat
 
