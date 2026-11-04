@@ -40,6 +40,8 @@ export {
   chatSlackOpen,
   chatSlackPending,
   chatSlackPeople,
+  chatSlackAvatarFile,
+  chatSlackAvatars,
   chatSlackStatus,
   chatSlackTicket,
   eventsHead,

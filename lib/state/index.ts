@@ -156,6 +156,7 @@ export {
   conversationForAgent,
   conversationForRoom,
   conversationForSlackUser,
+  listLatestClosedConversations,
   enqueueItem,
   lastDeliveredAt,
   latestConversationForRoom,

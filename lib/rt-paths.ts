@@ -47,6 +47,11 @@ export function evidenceDir(): string {
   return join(mattstackHome(), "evidence");
 }
 
+/** Slack profile pictures, kept by the daemon so the apps never fetch them themselves. */
+export function slackAvatarsDir(): string {
+  return join(rtDir(), "slack-avatars");
+}
+
 /** rt's state dir before RT-33, as rc files spell it; shell-integration.ts recognises the history hook rt wrote there. */
 export const LEGACY_RT_DIR_IN_RC = "~/.rt";
 

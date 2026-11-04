@@ -17,8 +17,14 @@ export interface SlackUser {
   displayName: string;
   realName: string;
   title: string;
+  /** The profile picture's https URL, absent when Slack gives none. */
+  avatar?: string;
   deleted: boolean;
   isBot: boolean;
+}
+
+function httpsAvatar(url: unknown): { avatar?: string } {
+  return typeof url === "string" && url.startsWith("https://") ? { avatar: url } : {};
 }
 
 export interface SlackClient {
@@ -126,6 +132,7 @@ export function createSlackClient(token: string, fetchImpl: typeof fetch = fetch
     async listUsers() {
       const members = await pages("users.list", { limit: "200" }, "members");
       return members.map((u) => ({
+        ...httpsAvatar(u.profile?.image_192),
         id: String(u.id),
         name: String(u.name ?? ""),
         displayName: String(u.profile?.display_name ?? ""),

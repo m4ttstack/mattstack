@@ -94,6 +94,7 @@ const SELECT_OPEN_BY_ROOM_SQL = `SELECT * FROM slack_conversations WHERE room = 
 const SELECT_LATEST_BY_ROOM_SQL = `SELECT * FROM slack_conversations WHERE room = ? ORDER BY id DESC LIMIT 1;`;
 const SELECT_BY_ID_SQL = `SELECT * FROM slack_conversations WHERE id = ?;`;
 const SELECT_OPEN_SQL = `SELECT * FROM slack_conversations WHERE closed_at IS NULL ORDER BY id;`;
+const SELECT_LATEST_CLOSED_SQL = `SELECT * FROM slack_conversations WHERE closed_at IS NOT NULL AND id IN (SELECT MAX(id) FROM slack_conversations GROUP BY room) ORDER BY id;`;
 
 function toConversation(r: ConversationRow): SlackConversation {
   return {
@@ -199,6 +200,11 @@ export function latestConversationForRoom(room: string, db: Database = getStateD
 export function conversationById(id: number, db: Database = getStateDb()): SlackConversation | undefined {
   const row = db.query(SELECT_BY_ID_SQL).get(id) as ConversationRow | null;
   return row ? toConversation(row) : undefined;
+}
+
+/** Each room's newest conversation, when that one has closed. */
+export function listLatestClosedConversations(db: Database = getStateDb()): SlackConversation[] {
+  return (db.query(SELECT_LATEST_CLOSED_SQL).all() as ConversationRow[]).map(toConversation);
 }
 
 export function listOpenConversations(db: Database = getStateDb()): SlackConversation[] {
