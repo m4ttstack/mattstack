@@ -29,6 +29,7 @@ import {
   readDiscussions,
   chatSlackAvatarFile,
   chatSlackAvatars,
+  matchSlackFaces,
   readProjectMRs,
   rtCommand,
   setSetting,
@@ -36,11 +37,11 @@ import {
   type ForgeFileDiffData,
   type ForgeGetData,
   type GateRow,
+  type SlackPerson,
 } from '@mattstack/rt-client';
 import { settingsHandler } from '@mattstack/settings-kit/server';
 import pkg from '../package.json';
 import { resumeAgentPane } from './agent-launch.ts';
-import { slackFaces, type SlackPerson } from './slack-faces.ts';
 import { signalEmoji, type AgentSignal } from './agent-signal.ts';
 import {
   AGENT_STATUS_PATTERN,
@@ -1849,7 +1850,7 @@ function refreshSlackPeople(): void {
 
 function currentSlackFaces(mrs: readonly BoardMR[]): Record<string, string> {
   const authors = mrs.map(mr => [mr.author.username, mr.author.name] as const);
-  const matched = slackFaces([...authors, ...memberNames], slackPeople);
+  const matched = matchSlackFaces([...authors, ...memberNames], slackPeople);
   const versions = new Map(slackPeople.map(p => [p.id, p.version]));
   for (const [username, id] of Object.entries(matched))
     knownSlackFaces.set(

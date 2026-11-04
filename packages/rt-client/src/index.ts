@@ -276,3 +276,4 @@ export {
   LATCH_MARKER, LATCH_MARKER_ERROR, LATCH_MARKER_QUEUED, LATCH_MARKER_RUNNING, LATCH_MARKER_SPENT, latchKindOf,
 } from "./latch.ts";
 export type { LatchKind } from "./latch.ts";
+export { matchSlackFaces, type SlackPerson } from "./slack-faces.ts";

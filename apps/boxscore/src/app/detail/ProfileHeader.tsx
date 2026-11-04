@@ -1,6 +1,7 @@
 import { ActionIcon, Avatar, Button, Menu } from '@mattstack/app-kit/core';
 import { Link } from '@mattstack/app-kit/router';
 import type { MetricKey, UserRow } from '../../shared/types';
+import { useSlackFace } from '../hooks/useSlackFace';
 import { initials } from '../model/labels';
 import { previewHref, usePersonHref } from '../preview/preview';
 import { Glyph } from '../ui/Glyph';
@@ -71,6 +72,7 @@ export function ProfileHeader({
 }) {
   const personHref = usePersonHref();
   const name = displayName(person);
+  const face = useSlackFace(name);
   const at = people.findIndex(u => u.username === person.username);
   const you = person.isCurrentUser;
   return (
@@ -94,6 +96,7 @@ export function ProfileHeader({
       <div className={classes.profileHeader} data-parity="Profile Header">
         <div className={classes.profile}>
           <Avatar
+            src={face}
             size={56}
             color={you ? 'accent' : undefined}
             variant={you ? 'filled' : 'default'}
