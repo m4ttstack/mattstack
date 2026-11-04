@@ -101,7 +101,7 @@ function faceSeed(handle: string): string {
 }
 
 function HandleSprite({ handle, size }: { handle: string; size: number }) {
-  const name = useBuddies()?.selfName(handle) ?? faceSeed(handle);
+  const name = faceSeed(handle);
   const avatar = useSlackAvatar(handle);
   const [failed, setFailed] = useState<string>();
   const [zoom, setZoom] = useState(1);

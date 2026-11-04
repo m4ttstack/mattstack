@@ -91,6 +91,13 @@ export interface AppInitialState {
  * still owns status, always -- but it is worth refreshing before the next
  * scheduled poll.
  */
+/** A daemon failure is a 502 with an `{ error }` body, which must not read as
+    an empty list: callers keep what they already show. */
+async function jsonOrThrow<T>(res: Response): Promise<T> {
+  if (!res.ok) throw new Error(`${res.url}: ${res.status}`);
+  return res.json() as Promise<T>;
+}
+
 function useBuddies(seed: Buddy[] | undefined): {
   buddies: Buddy[];
   refetchBuddies: () => void;
@@ -99,8 +106,8 @@ function useBuddies(seed: Buddy[] | undefined): {
 
   const fetchBuddies = useCallback(() => {
     fetch('/api/chat/buddies')
-      .then(res => res.json())
-      .then((data: { buddies?: Buddy[] }) => setBuddies(data.buddies ?? []))
+      .then(res => jsonOrThrow<{ buddies?: Buddy[] }>(res))
+      .then(data => setBuddies(data.buddies ?? []))
       .catch(() => {});
   }, []);
 
@@ -136,7 +143,7 @@ function useRooms(seed: FleetRoom[] | undefined) {
   const refetchRooms = useCallback(async (): Promise<FleetRoom[]> => {
     try {
       const res = await fetch('/api/chat/rooms');
-      const data = (await res.json()) as { rooms?: FleetRoom[] };
+      const data = await jsonOrThrow<{ rooms?: FleetRoom[] }>(res);
       const next = data.rooms ?? [];
       setRooms(next);
       setLoaded(true);
@@ -212,8 +219,8 @@ function useMessages(
     setMessages([]);
     let cancelled = false;
     fetch(`/api/chat/messages/${room}?limit=${PAGE_SIZE}`)
-      .then(res => res.json())
-      .then((data: { messages?: ChatMessage[] }) => {
+      .then(res => jsonOrThrow<{ messages?: ChatMessage[] }>(res))
+      .then(data => {
         if (cancelled) return;
         setMessages(data.messages ?? []);
         setLoadedRoom(room);
@@ -251,8 +258,8 @@ function useRoomMembers(
   const fetchMembers = useCallback(() => {
     if (!room) return;
     fetch(`/api/chat/who/${room}`)
-      .then(res => res.json())
-      .then((data: { members?: ChatMember[] }) => {
+      .then(res => jsonOrThrow<{ members?: ChatMember[] }>(res))
+      .then(data => {
         if (roomRef.current === room) setMembers(data.members ?? []);
       })
       .catch(() => {});
@@ -545,6 +552,7 @@ function ChatPage({
                       <Composer
                         ref={composerRef}
                         phone={isMobile}
+                        humanHandle={me.handle}
                         room={activeRoom}
                         roomMembers={roomMembers}
                         buddies={buddies}

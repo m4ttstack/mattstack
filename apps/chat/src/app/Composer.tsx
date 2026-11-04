@@ -251,7 +251,7 @@ function HereOption({
           size="xs"
           style={{ color: MUTED_SMALL, marginLeft: 'auto' }}
         >
-          wakes {count} agents
+          wakes {count} {count === 1 ? 'agent' : 'agents'}
         </Text>
       </Text>
     </UnstyledButton>
