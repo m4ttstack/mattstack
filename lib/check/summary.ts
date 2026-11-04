@@ -7,15 +7,21 @@ export type CheckSummary = {
   failed: number | null;
   durationMs: number;
   failures: string[];
+  /** Absent on an exit 0, so a green result and its frozen --json never carry the key. */
+  failedTests?: string[];
 };
 
 export type CheckVerdict = "green" | "red" | "error";
 
 const MAX_LENGTH = 140;
+export const MAX_FAILED_TESTS = 20;
+export const MAX_TEST_NAME_LENGTH = 200;
 
 const num = (v: unknown): number | null => (typeof v === "number" ? v : null);
 
-export function parseSummary(stdout: string, _exitCode: number, wallMs: number): CheckSummary {
+const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : []);
+
+export function parseSummary(stdout: string, exitCode: number, wallMs: number): CheckSummary {
   const fallback: CheckSummary = { mode: "exit", selected: null, passed: null, failed: null, durationMs: wallMs, failures: [] };
   const last = stdout.split("\n").map((l) => l.trim()).filter(Boolean).pop();
   if (!last) return fallback;
@@ -27,13 +33,15 @@ export function parseSummary(stdout: string, _exitCode: number, wallMs: number):
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return fallback;
   const o = parsed as Record<string, unknown>;
+  const failedTests = exitCode === 0 ? [] : boundedTestNames(strings(o.failedTests));
   return {
     mode: typeof o.mode === "string" ? o.mode : "exit",
     selected: num(o.selected),
     passed: num(o.passed),
     failed: num(o.failed),
     durationMs: typeof o.durationMs === "number" ? o.durationMs : wallMs,
-    failures: Array.isArray(o.failures) ? o.failures.filter((f): f is string => typeof f === "string") : [],
+    failures: strings(o.failures).slice(0, MAX_FAILED_TESTS),
+    ...(failedTests.length > 0 ? { failedTests } : {}),
   };
 }
 
@@ -43,9 +51,13 @@ function duration(ms: number): string {
 }
 
 // Redaction comes first: a clip can cut a token short of the shape the redactor knows.
-function clip(text: string): string {
+function clip(text: string, max = MAX_LENGTH): string {
   const safe = redactCredentials(text);
-  return safe.length <= MAX_LENGTH ? safe : `${safe.slice(0, MAX_LENGTH - 3)}...`;
+  return safe.length <= max ? safe : `${safe.slice(0, max - 3)}...`;
+}
+
+export function boundedTestNames(names: string[]): string[] {
+  return names.slice(0, MAX_FAILED_TESTS).map((name) => clip(name, MAX_TEST_NAME_LENGTH));
 }
 
 export function testCount(n: number): string {

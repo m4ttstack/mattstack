@@ -85,6 +85,48 @@ describe("rt check", () => {
     expect(process.exitCode).toBe(1);
   });
 
+  test("red names the failing tests beside their files", async () => {
+    const r = result({
+      verdict: "red",
+      outputTail: "tail that stays dropped",
+      summary: { mode: "changed", selected: 95, passed: 93, failed: 2, durationMs: 41_200, failures: ["lib/a.test.ts"], failedTests: ["cart > rounds up", "cart > names the total"] },
+    });
+    const { d } = deps({ result: r, status: null });
+    await checkCommand([], ctx, d);
+    const stderr = io.stderr();
+    expect(stderr).toContain("Failing files");
+    expect(stderr).toContain("lib/a.test.ts");
+    expect(stderr).toContain("Failing tests");
+    expect(stderr).toContain("cart > rounds up");
+    expect(stderr).toContain("cart > names the total");
+    expect(stderr).not.toContain("tail that stays dropped");
+  });
+
+  test("a red with test names but no files still names them and drops the tail", async () => {
+    const r = result({
+      verdict: "red",
+      outputTail: "tail that stays dropped",
+      summary: { mode: "changed", selected: 95, passed: 94, failed: 1, durationMs: 41_200, failures: [], failedTests: ["cart > rounds up"] },
+    });
+    const { d } = deps({ result: r, status: null });
+    await checkCommand([], ctx, d);
+    expect(io.stderr()).toContain("Failing tests");
+    expect(io.stderr()).not.toContain("Failing files");
+    expect(io.stderr()).not.toContain("tail that stays dropped");
+  });
+
+  test("a red with no names at all falls back to the output tail", async () => {
+    const r = result({
+      verdict: "red",
+      outputTail: "the last line it printed",
+      summary: { mode: "exit", selected: null, passed: null, failed: null, durationMs: 1000, failures: [] },
+    });
+    const { d } = deps({ result: r, status: null });
+    await checkCommand([], ctx, d);
+    expect(io.stderr()).toContain("Last output");
+    expect(io.stderr()).toContain("the last line it printed");
+  });
+
   test("a red with no failures counted reads as the check failing, never 0 tests", async () => {
     for (const failed of [0, null]) {
       io.restore();

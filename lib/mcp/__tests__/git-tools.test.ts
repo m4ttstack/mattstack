@@ -398,6 +398,11 @@ describe("git_push runs the repo's check", () => {
     expect(pushes(t.calls)).toEqual([]);
     expect(t.posts).toEqual([]);
   });
+  test("a red refusal's check names the failing tests", async () => {
+    const summary = { mode: "changed", selected: 3, passed: 2, failed: 1, durationMs: 1000, failures: ["lib/a.test.ts"], failedTests: ["cart > rounds up"] };
+    const t = setup(checkReturning(run({ verdict: "red", summary })));
+    expect((await t.call()).body).toMatchObject({ refusal: "check-red", check: { result: { summary: { failures: ["lib/a.test.ts"], failedTests: ["cart > rounds up"] } } } });
+  });
   test("an error check refuses with check-error", async () => {
     const t = setup(checkReturning(run({ verdict: "error", reason: "timed out after 600s" })));
     const r = await t.call();
