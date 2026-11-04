@@ -34,8 +34,9 @@ export function outputTail(output: string, maxChars: number): string {
 }
 
 /**
- * Run argv and capture stdout. Never throws: spawn failures and timeouts
- * surface as a non-zero exitCode with whatever stdout was collected.
+ * Run argv and capture stdout. Never throws: a spawn failure surfaces as
+ * exitCode -1, and a timeout as exitCode -1 with empty stdout and stderr and
+ * `timedOut: true`.
  *
  * stderr is discarded by default (`opts.stderr` defaults to `"ignore"`); pass
  * `"pipe"` to capture it for callers that need failure detail (e.g. git).
