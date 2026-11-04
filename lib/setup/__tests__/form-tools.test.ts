@@ -23,10 +23,13 @@ function plan(rows: Row[]): Plan {
 }
 
 function inputs(rows: Row[], over: Partial<ToolsInputs> = {}): ToolsInputs {
-  return { plan: plan(rows), signIn: [], unacked: [], prepare: null, logins: {}, ...over };
+  return { plan: plan(rows), tools: [], signIn: [], unacked: [], prepare: null, logins: {}, ...over };
 }
 
 const widgetMissing = (action: Action = INSTALL) => r("tool.team.widget-cli", "missing", "widget-cli is not installed", { action });
+
+const RUNNING: PrepareRecord & { running: boolean } = { stage: "accounts", startedAt: "2026-10-30T09:50:00.000Z", pid: 4242, items: [], failed: [], running: true };
+const FAILED = { ...RUNNING, running: false, failed: [{ tool: "widget-cli", detail: "brew said no" }] };
 
 function only(i: ToolsInputs): FormRow {
   const rows = toolsRows(i);
@@ -76,7 +79,21 @@ describe("unackedTools", () => {
 
 describe("toolsRows", () => {
   test("the tools section draws an Install row for a missing tool", () => {
-    expect(only(inputs([widgetMissing()]))).toMatchObject({ id: "tool.team.widget-cli", title: "widget-cli", subtext: "why tool.team.widget-cli", state: "todo", detail: "widget-cli is not installed", action: INSTALL, optional: false, watch: true });
+    expect(only(inputs([widgetMissing()]))).toMatchObject({ id: "tool.team.widget-cli", title: "widget-cli", subtext: "why tool.team.widget-cli", state: "todo", detail: "", action: INSTALL, optional: false, watch: true });
+  });
+
+  test("a row whose detail would repeat its button carries an empty detail, never null, which the tray's String field cannot decode", () => {
+    const signedOut = [r("tool.team.doppler", "ready", "doppler 3.70.0"), r("account.doppler", "invalid", "Not signed in to Doppler", { required: false })];
+    expect(only(inputs(signedOut, { signIn: [DOPPLER], unacked: ["doppler"] })).detail).toBe("");
+    expect(only(inputs([r("tool.team.doppler", "missing", "doppler is not installed", { action: { ...INSTALL, tool: "doppler" } }), r("account.doppler", "invalid", "no", { required: false })], { signIn: [DOPPLER] })).detail).toBe("");
+    expect(only(inputs([r("tool.team.acme-api", "ready", "acme-api 1.0.0")], { signIn: [ACME_LOGIN], unacked: ["acme-api"] })).detail).toBe("");
+  });
+
+  test("a real fault keeps its text", () => {
+    expect(only(inputs([r("tool.team.widget-cli", "error", "widget-cli did not answer in time")])).detail).toBe("widget-cli did not answer in time");
+    expect(only(inputs([r("tool.team.widget-cli", "invalid", "widget-cli 1.0.0 is older than 2.0.0", { action: { ...INSTALL, label: "Upgrade" } })])).detail).toBe("widget-cli 1.0.0 is older than 2.0.0");
+    const unreachable = [r("tool.team.doppler", "ready", "doppler 3.70.0"), r("account.doppler", "error", "doppler did not answer", { required: false })];
+    expect(only(inputs(unreachable, { signIn: [DOPPLER], unacked: ["doppler"] })).detail).toBe("doppler did not answer");
   });
 
   test("a tool with no sign-in and no brew offers Download or Show steps", () => {
@@ -103,11 +120,49 @@ describe("toolsRows", () => {
     expect(toolsForm([drawn]).allDone).toBe(true);
   });
 
-  test("an install under way reads busy and a failed one keeps its reason", () => {
-    const running: PrepareRecord & { running: boolean } = { stage: "accounts", startedAt: "2026-10-30T09:50:00.000Z", pid: 4242, items: ["widget-cli"], failed: [], running: true };
-    expect(only(inputs([widgetMissing()], { prepare: running }))).toMatchObject({ state: "busy", action: null });
-    const failed = { ...running, items: [], running: false, failed: [{ tool: "widget-cli", detail: "brew said no" }] };
-    expect(only(inputs([widgetMissing()], { prepare: failed }))).toMatchObject({ state: "todo", detail: "brew said no", action: INSTALL });
+  test("an install under way reads busy", () => {
+    expect(only(inputs([widgetMissing()], { prepare: { ...RUNNING, items: ["widget-cli"] } }))).toMatchObject({ state: "busy", action: null });
+  });
+
+  test("a failed install reads failed: Retry runs the same install, Show steps carries the manual route", () => {
+    const drawn = only(inputs([widgetMissing()], { prepare: FAILED, tools: [{ ...WIDGET, install: { brew: "widget-cli" } }] }));
+    expect(drawn).toMatchObject({ state: "todo", tone: "failed", detail: "brew said no", action: { ...INSTALL, label: "Retry" }, waiting: "Installing…", optional: false });
+    expect(drawn.secondary).toEqual({ type: "steps", label: "Show steps…", steps: ["brew install widget-cli", "Then re-run rt setup status"] });
+  });
+
+  test("a tool the team only links for download shows that link as its steps", () => {
+    const drawn = only(inputs([widgetMissing()], { prepare: FAILED, tools: [{ ...WIDGET, install: { url: "https://example.com/widget-cli" } }] }));
+    expect(drawn.secondary).toEqual({ type: "steps", label: "Show steps…", steps: ["Download it from https://example.com/widget-cli", "Then re-run rt setup status"] });
+  });
+
+  test("a failed sign-in tool's install reads failed too", () => {
+    const missing = r("tool.team.doppler", "missing", "doppler is not installed", { action: { ...INSTALL, tool: "doppler" } });
+    const prepare = { ...FAILED, failed: [{ tool: "doppler", detail: "brew said no" }] };
+    expect(only(inputs([missing, r("account.doppler", "invalid", "no", { required: false })], { signIn: [DOPPLER], prepare }))).toMatchObject({ tone: "failed", detail: "brew said no", action: { label: "Retry", tool: "doppler" } });
+  });
+
+  test("a failed tool with no steps to show has Retry alone", () => {
+    const drawn = only(inputs([widgetMissing()], { prepare: FAILED, tools: [WIDGET] }));
+    expect(drawn).toMatchObject({ tone: "failed", action: { label: "Retry" } });
+    expect("secondary" in drawn).toBe(false);
+    expect("secondary" in only(inputs([widgetMissing()], { prepare: FAILED }))).toBe(false);
+  });
+
+  test("a failed row holds Done", () => {
+    expect(toolsForm(toolsRows(inputs([widgetMissing()], { prepare: FAILED }))).allDone).toBe(false);
+  });
+
+  test("a failure on a row with no install to re-run keeps its text and its action, with no failed mark", () => {
+    const drawn = only(inputs([widgetMissing(DOWNLOAD)], { prepare: FAILED }));
+    expect(drawn).toMatchObject({ detail: "brew said no", action: DOWNLOAD });
+    expect(drawn.tone).toBeUndefined();
+  });
+
+  test("a stale failure on a tool that is now installed marks nothing", () => {
+    const rows = [r("tool.team.doppler", "ready", "doppler 3.70.0"), r("account.doppler", "invalid", "Not signed in to Doppler", { required: false })];
+    const drawn = only(inputs(rows, { signIn: [DOPPLER], unacked: ["doppler"], prepare: { ...FAILED, failed: [{ tool: "doppler", detail: "brew said no" }] } }));
+    expect(drawn).toMatchObject({ detail: "", action: { label: "Sign in" } });
+    expect(drawn.tone).toBeUndefined();
   });
 
   test("a resolved told tool stays as a done row beside the one still missing", () => {

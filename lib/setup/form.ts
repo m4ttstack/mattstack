@@ -36,7 +36,7 @@ import { connectHostSteps } from "./validators/access.ts";
 import { accountRows, type SecretPresence } from "./validators/accounts.ts";
 import { macRows } from "./validators/mac.ts";
 import { PLACE_REPO_LABELS } from "./validators/repos.ts";
-import { CLAUDE_SIGNIN_ACTION, FAST_BROWSER_ADD_ACTION, dedupeTeamTools } from "./validators/tools.ts";
+import { CLAUDE_SIGNIN_ACTION, FAST_BROWSER_ADD_ACTION, dedupeTeamTools, teamToolManualSteps } from "./validators/tools.ts";
 
 export type FormSection = "macos" | "invite" | "restore" | "connect" | "this-mac" | "tools" | "create";
 /** A whole read's sections. The create section needs a forge picked first, and a whole read adds tools only on its own stage. */
@@ -44,18 +44,23 @@ export const FORM_SECTIONS: readonly FormSection[] = ["macos", "invite", "restor
 export const SECTION_READS: readonly FormSection[] = [...FORM_SECTIONS, "tools", "create"];
 
 export type FormRowState = "done" | "todo" | "busy" | "waiting";
-/** `off`: answered, and the answer was no (notifications turned off), so the app draws no green check. */
-export type FormRowTone = "off";
+/**
+ * `off`: a done row answered no (notifications turned off), so the app draws no green check.
+ * `failed`: a tools row whose install failed, so the app draws the detail as the failure beside the buttons.
+ */
+export type FormRowTone = "off" | "failed";
 
 export interface FormRow {
   id: string;
   title: string;
   subtext: string;
   state: FormRowState;
-  /** Only on a done row whose answer is not a yes. */
+  /** Absent on a row that reads the plain way for its state. */
   tone?: FormRowTone;
   detail: string;
   action: Action | null;
+  /** Drawn after `action`. An app older than the field draws `action` alone. */
+  secondary?: Action;
   /** The line the app shows while this row's action runs. */
   waiting: string | null;
   /** Re-read the form unprompted while this row is waiting or busy: its answer lands outside the app. */
@@ -197,6 +202,7 @@ export const FORM_COPY = {
     one: "One new tool for your team",
     many: (count: number) => `${count} new tools for your team`,
     allSet: "You're all set",
+    retry: "Retry",
   },
   orgNotice: "Your org's setup file has an error. Ask an admin to fix it",
   home: {
@@ -692,16 +698,35 @@ export function unackedTools(notices: ToolNotices, tools: readonly ToolRequireme
 
 export interface ToolsInputs extends Pick<ConnectInputs, "prepare" | "logins"> {
   plan: Plan;
+  tools: readonly ToolRequirement[];
   signIn: readonly ToolRequirement[];
   /** Told and not yet acknowledged, so a resolved tool stays on screen as done until Done. */
   unacked: readonly string[];
 }
 
+/** The button already says a tool is missing or signed out; any other reason a row is open is news. */
+function repeatsItsButton(rows: ReadonlyMap<string, Row>, r: Row, tool: ToolRequirement | undefined): boolean {
+  if (r.status === "missing") return true;
+  if (r.status !== "ready") return false;
+  const session = tool ? sessionIntegration(tool) : null;
+  return session === null || rows.get(`account.${session}`)?.status !== "error";
+}
+
+function failedInstallRow(drawn: FormRow, install: Action, tool: ToolRequirement | undefined): FormRow {
+  const steps = tool ? teamToolManualSteps(tool) : null;
+  return { ...drawn, tone: "failed", action: { ...install, label: FORM_COPY.tools.retry }, waiting: FORM_COPY.installing, ...(steps ? { secondary: steps } : {}) };
+}
+
 function toolRow(i: ToolsInputs, rows: ReadonlyMap<string, Row>, r: Row): FormRow {
-  const tool = i.signIn.find((t) => r.id === `${TEAM_TOOL_PREFIX}${t.name}`);
-  if (tool) return settle({ ...signInRow(i, rows, tool), id: r.id });
-  const drawn = extraRow(r, i.prepare);
-  return r.status === "ready" ? { ...drawn, state: "done", detail: r.detail, action: null, optional: false } : drawn;
+  const name = r.id.slice(TEAM_TOOL_PREFIX.length);
+  const signIn = i.signIn.find((t) => t.name === name);
+  const drawn = signIn ? settle({ ...signInRow(i, rows, signIn), id: r.id }) : extraRow(r, i.prepare);
+  if (!signIn && r.status === "ready") return { ...drawn, state: "done", detail: r.detail, action: null, optional: false };
+  if (drawn.state !== "todo") return drawn;
+  // The record outlives the failure, so a tool installed by hand since then has nothing to report.
+  const failure = r.status === "ready" ? null : installFailure(i.prepare, name);
+  if (failure === null) return repeatsItsButton(rows, r, signIn) ? { ...drawn, detail: "" } : drawn;
+  return drawn.action?.type === "install" ? failedInstallRow(drawn, drawn.action, i.tools.find((t) => t.name === name)) : drawn;
 }
 
 export function toolsRows(i: ToolsInputs): FormRow[] {
@@ -1090,8 +1115,9 @@ async function connectSection(p: Probes, plan: Plan, orgs: string[], path: FormP
 function toolsSection(p: Probes, plan: Plan): { rows: FormRow[]; stage: Pick<StageInputs, "onlyTeamTools" | "toolsOpen" | "toolsUnacked"> } {
   const reqs = readPackRequirements(p, plan.team.slug);
   const signIn = signInTools(reqs);
-  const unacked = unackedTools(readToolNotices(p), dedupeTeamTools(reqs));
-  const rows = toolsRows({ plan, signIn, unacked, prepare: readPrepare(p, "accounts", undefined, () => p.now()), logins: liveLogins(p) });
+  const tools = dedupeTeamTools(reqs);
+  const unacked = unackedTools(readToolNotices(p), tools);
+  const rows = toolsRows({ plan, tools, signIn, unacked, prepare: readPrepare(p, "accounts", undefined, () => p.now()), logins: liveLogins(p) });
   return { rows, stage: { onlyTeamTools: onlyTeamToolsBlock(plan, signIn), toolsOpen: !allAnswered(rows), toolsUnacked: unacked.length > 0 } };
 }
 
