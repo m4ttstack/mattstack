@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { availableParallelism } from "os";
-import { judgeRun, parseTestOutput, planLocalCheck, processCount, stopGroups, summarise } from "../local-check.ts";
+import { judgeRun, parseTestOutput, planLocalCheck, processCount, runPlan, stopGroups, summarise, type Plan } from "../local-check.ts";
 import { unitDirs } from "../test-scope.ts";
 
 const BASE = "abc123";
@@ -45,7 +45,7 @@ Ran 2 tests across 2 files. [5.00ms]
 describe("planLocalCheck", () => {
   test("a docs-only diff plans skip and nothing runs", () => {
     const plan = planLocalCheck(BASE, HEAD, false, scope, ["docs/architecture.md"]);
-    expect(plan).toEqual({ mode: "skip", dirs: [], changedArg: null, extra: [], processes: 0 });
+    expect(plan).toEqual({ mode: "skip", buildClient: false, dirs: [], changedArg: null, extra: [], processes: 0 });
   });
 
   test("a typescript diff plans --changed=<base> plus the read-by-path extras", () => {
@@ -59,7 +59,7 @@ describe("planLocalCheck", () => {
 
   test("a typescript change no test reaches, with no extras, plans skip", () => {
     const plan = planLocalCheck(BASE, HEAD, false, scope, ["lib/orphan.ts"]);
-    expect(plan).toEqual({ mode: "skip", dirs: [], changedArg: null, extra: [], processes: 0 });
+    expect(plan).toEqual({ mode: "skip", buildClient: false, dirs: [], changedArg: null, extra: [], processes: 0 });
   });
 
   test("a change reached only by path plans the extras with one process", () => {
@@ -82,6 +82,13 @@ describe("planLocalCheck", () => {
     const plan = planLocalCheck(BASE, HEAD, false, scope, [".github/workflows/checks.yml"]);
     expect(plan.mode).toBe("full");
     expect(plan.changedArg).toBeNull();
+  });
+
+  test("only a full run builds rt-client first", () => {
+    expect(planLocalCheck(BASE, HEAD, true, scope, ["docs/architecture.md"]).buildClient).toBe(true);
+    expect(planLocalCheck(BASE, HEAD, false, scope, [".github/workflows/checks.yml"]).buildClient).toBe(true);
+    expect(planLocalCheck(BASE, HEAD, false, scope, ["lib/cart.ts"]).buildClient).toBe(false);
+    expect(planLocalCheck(BASE, HEAD, false, scope, ["docs/architecture.md"]).buildClient).toBe(false);
   });
 });
 
@@ -223,5 +230,69 @@ describe("stopGroups", () => {
       if (pid === -1) throw Object.assign(new Error("kill ESRCH"), { code: "ESRCH" });
     });
     expect(sent).toEqual([-1, -2]);
+  });
+});
+
+describe("runPlan", () => {
+  const green = { red: false, passed: 1, failed: 0, failures: [] };
+  const plan = (over: Partial<Plan> = {}): Plan => ({ mode: "full", buildClient: true, dirs: ["lib/"], changedArg: null, extra: [], processes: 2, ...over });
+
+  test("the build finishes before any test process starts", async () => {
+    const order: string[] = [];
+    let finishBuild = () => {};
+    const steps = {
+      build: () => {
+        order.push("build started");
+        return new Promise<void>((resolve) => {
+          finishBuild = () => {
+            order.push("build finished");
+            resolve();
+          };
+        });
+      },
+      test: async (_args: string[], label: string) => {
+        order.push(label);
+        return green;
+      },
+    };
+    const running = runPlan(plan(), steps);
+    await Bun.sleep(0);
+    expect(order).toEqual(["build started"]);
+    finishBuild();
+    await running;
+    expect(order).toEqual(["build started", "build finished", "shard 1/2", "shard 2/2"]);
+  });
+
+  test("a failed build rejects, so no test starts and guarded prints the error summary", async () => {
+    let tests = 0;
+    const steps = {
+      build: async () => {
+        throw new Error("rt-client build exited 1");
+      },
+      test: async () => {
+        tests += 1;
+        return green;
+      },
+    };
+    await expect(runPlan(plan(), steps)).rejects.toThrow("rt-client build exited 1");
+    expect(tests).toBe(0);
+  });
+
+  test("a scoped run does not build, and a skip runs nothing", async () => {
+    let builds = 0;
+    const labels: string[] = [];
+    const steps = {
+      build: async () => {
+        builds += 1;
+      },
+      test: async (_args: string[], label: string) => {
+        labels.push(label);
+        return green;
+      },
+    };
+    await runPlan(plan({ mode: "changed", buildClient: false, changedArg: "--changed=abc", processes: 1, extra: ["./x.test.ts"] }), steps);
+    expect(labels).toEqual(["shard 1/1", "read-by-path tests"]);
+    expect(await runPlan(plan({ mode: "skip", buildClient: false, dirs: [], processes: 0 }), steps)).toEqual([]);
+    expect(builds).toBe(0);
   });
 });

@@ -8,6 +8,7 @@
  */
 import { availableParallelism } from "os";
 import { spawnSync } from "child_process";
+import { join } from "path";
 import { childEnv } from "../../lib/subprocess.ts";
 import {
   collectSources,
@@ -23,6 +24,7 @@ const TEST_TIMEOUT_MS = "20000";
 
 export type Plan = {
   mode: Mode;
+  buildClient: boolean;
   dirs: string[];
   changedArg: string | null;
   extra: string[];
@@ -52,15 +54,16 @@ export function planLocalCheck(
   const decision = decide({ event: "pull_request", changed, ...scope });
   const processes = processCount(availableParallelism());
   if (full || decision.mode === "full") {
-    return { mode: "full", dirs: unitDirs(), changedArg: null, extra: [], processes };
+    return { mode: "full", buildClient: true, dirs: unitDirs(), changedArg: null, extra: [], processes };
   }
   const extra = (decision.extra ?? []).map((f) => `./${f}`);
   const reached = selectedTests(changed, scope.tests, scope.graph).length;
   if (decision.mode === "skip" || (reached === 0 && extra.length === 0)) {
-    return { mode: "skip", dirs: [], changedArg: null, extra: [], processes: 0 };
+    return { mode: "skip", buildClient: false, dirs: [], changedArg: null, extra: [], processes: 0 };
   }
   return {
     mode: "changed",
+    buildClient: false,
     dirs: unitDirs(),
     changedArg: `--changed=${base}`,
     extra,
@@ -124,17 +127,50 @@ export function summarise(mode: Mode, ran: Ran[], durationMs: number): Summary {
   };
 }
 
-// Each test process leads its own group, so a cancel reaches the processes its
-// tests spawned, not only bun.
+// Each child leads its own group, so a cancel reaches the processes it spawned,
+// not only bun.
 const live = new Set<ReturnType<typeof Bun.spawn>>();
 
-async function runBun(args: string[], label: string, cwd: string): Promise<Ran> {
-  const proc = Bun.spawn([process.execPath, "test", ...args], { cwd, env: childEnv(), stdout: "pipe", stderr: "pipe", detached: true });
+async function inOwnGroup(args: string[], cwd: string): Promise<{ code: number; output: string; stderr: string }> {
+  const proc = Bun.spawn([process.execPath, ...args], { cwd, env: childEnv(), stdout: "pipe", stderr: "pipe", detached: true });
   live.add(proc);
   const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
   live.delete(proc);
-  process.stderr.write(`--- ${label} (exit ${code})\n${out}${err}\n`);
-  return judgeRun(code, err);
+  return { code, output: `${out}${err}`, stderr: err };
+}
+
+async function runBun(args: string[], label: string, cwd: string): Promise<Ran> {
+  const { code, output, stderr } = await inOwnGroup(["test", ...args], cwd);
+  process.stderr.write(`--- ${label} (exit ${code})\n${output}\n`);
+  return judgeRun(code, stderr);
+}
+
+// The full suite includes dist-freshness, and CI's postinstall builds the same dist.
+async function buildRtClient(cwd: string): Promise<void> {
+  const { code, output } = await inOwnGroup(["run", "build"], join(cwd, "packages", "rt-client"));
+  process.stderr.write(`--- rt-client build (exit ${code})\n${output}\n`);
+  if (code !== 0) throw new Error(`the rt-client build exited ${code}`);
+}
+
+export type Steps = {
+  build: () => Promise<void>;
+  test: (args: string[], label: string) => Promise<Ran>;
+};
+
+export async function runPlan(plan: Plan, steps: Steps): Promise<Ran[]> {
+  if (plan.mode === "skip") return [];
+  if (plan.buildClient) await steps.build();
+  const shardArgs = (i: number) => [
+    ...plan.dirs,
+    `--shard=${i}/${plan.processes}`,
+    "--timings=test-timings.json",
+    "--timeout",
+    TEST_TIMEOUT_MS,
+    ...(plan.changedArg ? [plan.changedArg] : []),
+  ];
+  const ran = await Promise.all(Array.from({ length: plan.processes }, (_, i) => steps.test(shardArgs(i + 1), `shard ${i + 1}/${plan.processes}`)));
+  if (plan.extra.length) ran.push(await steps.test([...plan.extra, "--timeout", TEST_TIMEOUT_MS], "read-by-path tests"));
+  return ran;
 }
 
 function changedFiles(base: string, head: string, cwd: string): string[] {
@@ -160,21 +196,7 @@ async function main(started: number): Promise<number> {
   const files = new Set([...reached, ...plan.extra.map((f) => f.replace(/^\.\//, ""))]).size;
   console.error(`local-check: ${plan.mode}, ${files} test file(s), ${plan.processes} process(es)`);
 
-  const ran: Ran[] = [];
-  if (plan.mode !== "skip") {
-    const shardArgs = (i: number) => [
-      ...plan.dirs,
-      `--shard=${i}/${plan.processes}`,
-      "--timings=test-timings.json",
-      "--timeout",
-      TEST_TIMEOUT_MS,
-      ...(plan.changedArg ? [plan.changedArg] : []),
-    ];
-    const shards = Array.from({ length: plan.processes }, (_, i) => runBun(shardArgs(i + 1), `shard ${i + 1}/${plan.processes}`, cwd));
-    ran.push(...(await Promise.all(shards)));
-    if (plan.extra.length) ran.push(await runBun([...plan.extra, "--timeout", TEST_TIMEOUT_MS], "read-by-path tests", cwd));
-  }
-
+  const ran = await runPlan(plan, { build: () => buildRtClient(cwd), test: (args, label) => runBun(args, label, cwd) });
   printSummary(summarise(plan.mode, ran, Date.now() - started));
   return ran.some((r) => r.red) ? 1 : 0;
 }
@@ -199,7 +221,7 @@ async function guarded(): Promise<number> {
   for (const [signal, code] of [["SIGTERM", 143], ["SIGINT", 130]] as const) {
     process.on(signal, () => {
       stopGroups([...live].map((proc) => proc.pid));
-      console.error(`local-check: ${signal}, stopped ${live.size} test process(es)`);
+      console.error(`local-check: ${signal}, stopped ${live.size} process(es)`);
       printSummary({ mode: "error", selected: 0, passed: 0, failed: 0, durationMs: Date.now() - started, failures: [] });
       process.exit(code);
     });
