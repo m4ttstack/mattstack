@@ -254,13 +254,21 @@ function RowMenu({
   children: React.ReactElement;
 }) {
   return (
-    <Menu onChange={onChange} radius="md" shadow="md" withinPortal>
+    <Menu
+      onChange={onChange}
+      position="bottom-start"
+      offset={2}
+      width={200}
+      radius="md"
+      shadow="md"
+      withinPortal
+      transitionProps={{ duration: 0 }}
+      classNames={{ item: classes.menuItem }}
+    >
       <Menu.ContextMenu>{children}</Menu.ContextMenu>
       <Menu.Dropdown data-testid={testId}>
-        <Menu.Label>{roomLabel(room)}</Menu.Label>
         <Menu.Item
           data-testid="room-context-close"
-          leftSection={<Icon name="close" size={14} />}
           onClick={() => onClose(room.room)}
         >
           Close

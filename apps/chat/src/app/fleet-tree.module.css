@@ -123,3 +123,13 @@
   flex: 1;
   min-width: 0;
 }
+
+.menuItem {
+  padding: 6px 12px;
+  font-size: var(--mantine-font-size-md);
+}
+
+.menuItem[data-hovered] {
+  background: var(--chat-bar);
+  color: white;
+}
