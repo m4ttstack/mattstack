@@ -1039,7 +1039,7 @@ export function createChatHandlers(opts: {
   const deliveryChains = opts.deliveryChains ?? new Map<string, Promise<void>>();
   const slackClient = opts.slackClient ?? slackClientFromSecrets;
   const slackSleep = opts.slackSleep ?? ((ms: number) => Bun.sleep(ms));
-  const resolveMention =(m: string): string => (m === "here" ? m : resolveHandle(m, db));
+  const resolveMention = (m: string): string => (m === "here" ? m : resolveHandle(m, db));
   const namesOf = (ids: string[]): string[] => {
     const names = identityNames(ids, db);
     return ids.map((id) => names.get(id) ?? id);
@@ -1476,7 +1476,8 @@ export function createChatHandlers(opts: {
       if (!posted) return { ok: false, error: "chat: dm failed (retry budget exhausted)" };
       if (conversation) {
         markDelivered(room, toId, posted.id, db);
-        touchConversation(conversation.id, Date.now(), db);
+        // The pane answers every check-in, so its reply can't count as activity, or a teammate who left is asked forever.
+        if (conversation.checkedInAt === null) touchConversation(conversation.id, Date.now(), db);
       }
       const data = { room, id: posted.id, recipients: posted.recipients, recipientNames: namesOf(posted.recipients) };
       return { ok: true, data: sent?.redacted ? { ...data, redacted: true } : data };

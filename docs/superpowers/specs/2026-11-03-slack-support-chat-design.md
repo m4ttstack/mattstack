@@ -317,7 +317,10 @@ operator. A new problem is a new chat, and only the operator starts one.
 
 ### Timeouts
 
-The timer resets on a message from either side.
+The timer resets on a message from either side, except that a pane's message
+after a check-in doesn't reset it: the pane answers every check-in, so counting
+that reply would ask a teammate who has left the same question every 30 minutes.
+Only the teammate or the operator can move the clock from there.
 
 | Quiet for | What happens |
 |---|---|

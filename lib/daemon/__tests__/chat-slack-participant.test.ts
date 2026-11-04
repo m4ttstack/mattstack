@@ -11,16 +11,21 @@ import { herdrRequest } from "../../herdr/client.ts";
 import { SlackError, type SlackClient } from "../../slack/client.ts";
 import {
   closeConversation,
+  conversationById,
   conversationForRoom,
   dmRoomFor,
   ensureSlackIdentity,
+  listOpenConversations,
+  markWatcherSeen,
   openConversation,
   openStateDb,
+  pendingItems,
   postMessage,
   stalePendingPairs,
   type RegistryDeps,
 } from "../../state/index.ts";
 import { createChatDeliverySweep, createChatHandlers, planSweepTargets, postAndNotify, type InboxDeps } from "../handlers/chat.ts";
+import { SLACK_CHECK_IN_MS, SLACK_FAREWELL_MS, SLACK_IDLE_MS, tickSlackLifecycle } from "../slack-lifecycle.ts";
 
 const log = { warn: () => {}, info: () => {}, debug: () => {}, error: () => {} } as unknown as Logger;
 const SLACK_ID = "slack.u0test";
@@ -71,7 +76,7 @@ function harness(post: (p: Post) => Promise<{ ts: string }> = async () => ({ ts:
   const sweep = createChatDeliverySweep({ db, deliveryChains, inboxDeps, registryDeps, log, retryDelayMs: 0 });
   const fromSlack = (room: string, handle: string, body: string) =>
     postAndNotify(db, () => 0, { room, handle, body, fromSlack: true }, inboxDeps, herdrRequest, deliveryChains, log, 0);
-  return { db, handlers, posts, pushed, slept, sweep, fromSlack };
+  return { db, handlers, client, posts, pushed, slept, sweep, fromSlack };
 }
 
 type Harness = ReturnType<typeof harness>;
@@ -132,7 +137,6 @@ test("the sweep never targets a Slack identity", async () => {
 test("a chat_dm into an open conversation posts to Slack once with the prefix, then records it", async () => {
   const h = harness();
   const { agent, room, conversation } = await openChat(h);
-  h.db.run("UPDATE slack_conversations SET checked_in_at = 5 WHERE id = ?", [conversation.id]);
 
   const res = await h.handlers["chat:dm"]({ from: agent, to: "alex-slack", body: "[Claude 🤖]: try restarting", sessionId: PANE_SESSION });
 
@@ -143,9 +147,44 @@ test("a chat_dm into an open conversation posts to Slack once with the prefix, t
   expect(h.posts).toEqual([{ channel: "D0TEST", text: "[Claude 🤖]: try restarting" }]);
   expect(messages(h, room)).toEqual([{ handle: agent, body: "try restarting" }]);
   expect(cursor(h, room, SLACK_ID)).toBe(res.data.id);
-  const touched = conversationForRoom(room, h.db)!;
-  expect(touched.lastActiveAt).toBeGreaterThan(conversation.lastActiveAt);
-  expect(touched.checkedInAt).toBeNull();
+  expect(conversationForRoom(room, h.db)!.lastActiveAt).toBeGreaterThan(conversation.lastActiveAt);
+});
+
+test("a pane's message after a check-in leaves the clock alone", async () => {
+  const h = harness();
+  const { agent, room, conversation } = await openChat(h);
+  h.db.run("UPDATE slack_conversations SET checked_in_at = 5 WHERE id = ?", [conversation.id]);
+
+  await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "Still need help?", sessionId: PANE_SESSION });
+
+  const row = conversationForRoom(room, h.db)!;
+  expect(row.lastActiveAt).toBe(conversation.lastActiveAt);
+  expect(row.checkedInAt).toBe(5);
+});
+
+test("a teammate who walks away after a check-in reply still reaches the idle close", async () => {
+  const h = harness();
+  const { agent, conversation } = await openChat(h);
+  let clock = conversation.openedAt;
+  const deps = { db: h.db, client: async () => h.client, notify: () => {}, post: () => ({ id: 1 }), now: () => clock };
+  const run = async (ms: number) => {
+    for (const end = clock + ms; clock < end; ) {
+      clock += 15_000;
+      for (const open of listOpenConversations(h.db)) markWatcherSeen(open.id, clock, h.db);
+      await tickSlackLifecycle(deps);
+    }
+  };
+
+  await run(SLACK_CHECK_IN_MS);
+  expect(pendingItems(conversation.id, h.db).map((i) => i.kind)).toEqual(["check-in"]);
+  const reply = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "Still need help? I'll close this soon.", sessionId: PANE_SESSION });
+  expect(reply.ok).toBe(true);
+
+  await run(SLACK_IDLE_MS - SLACK_CHECK_IN_MS);
+  expect(pendingItems(conversation.id, h.db).map((i) => i.kind)).toEqual(["check-in", "close-request"]);
+
+  await run(SLACK_FAREWELL_MS);
+  expect(conversationById(conversation.id, h.db)!.closeReason).toBe("idle");
 });
 
 test("a Slack failure leaves no chat row and fails the tool with the reason", async () => {
