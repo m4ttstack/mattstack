@@ -88,6 +88,7 @@ const INSERT_CONVERSATION_SQL = `INSERT INTO slack_conversations
 const SELECT_OPEN_BY_USER_SQL = `SELECT * FROM slack_conversations WHERE slack_user_id = ? AND closed_at IS NULL;`;
 const SELECT_OPEN_BY_AGENT_SQL = `SELECT * FROM slack_conversations WHERE agent_handle = ? AND closed_at IS NULL;`;
 const SELECT_OPEN_BY_ROOM_SQL = `SELECT * FROM slack_conversations WHERE room = ? AND closed_at IS NULL;`;
+const SELECT_LATEST_BY_ROOM_SQL = `SELECT * FROM slack_conversations WHERE room = ? ORDER BY id DESC LIMIT 1;`;
 const SELECT_OPEN_SQL = `SELECT * FROM slack_conversations WHERE closed_at IS NULL ORDER BY id;`;
 
 function toConversation(r: ConversationRow): SlackConversation {
@@ -174,6 +175,12 @@ export function conversationForAgent(agentHandle: string, db: Database = getStat
 
 export function conversationForRoom(room: string, db: Database = getStateDb()): SlackConversation | undefined {
   const row = db.query(SELECT_OPEN_BY_ROOM_SQL).get(room) as ConversationRow | null;
+  return row ? toConversation(row) : undefined;
+}
+
+/** The room's newest conversation, closed or not. */
+export function latestConversationForRoom(room: string, db: Database = getStateDb()): SlackConversation | undefined {
+  const row = db.query(SELECT_LATEST_BY_ROOM_SQL).get(room) as ConversationRow | null;
   return row ? toConversation(row) : undefined;
 }
 

@@ -219,6 +219,7 @@ const CHAT_REFUSALS: Record<string, (message: string) => Block[]> = {
     out.line("refused", message),
     out.callout("why", "A reply to a name nobody is signed in as never reaches anyone."),
   ],
+  "slack-chat": (message) => [out.line("refused", message)],
 };
 
 function unwrap<T>(res: RtResponse<T>, label: string): T {
@@ -1168,6 +1169,7 @@ async function runDm(args: string[]): Promise<void> {
     return;
   }
   say(`dm → ${data.recipientNames?.[0] ?? to} #${data.id}`);
+  if (data.redacted) say("redacted: something shaped like a credential was removed before this went to Slack");
   const url = chatViewerUrl(readChatViewerUrlSetting(), data.room, data.id);
   if (url) say(`posted → ${url}`);
 }

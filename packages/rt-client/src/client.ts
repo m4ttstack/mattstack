@@ -350,7 +350,10 @@ export function chatDm(
   const payload: Record<string, unknown> = { from: a.from, to: a.to, body: a.body };
   if (a.sessionId !== undefined) payload.sessionId = a.sessionId;
   if (a.pane !== undefined) payload.pane = a.pane;
-  return rtCommand<Commands["chat:dm"]["data"]>("chat:dm", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+  // A dm into a Slack conversation waits on Slack, up to one Retry-After and two
+  // requests. Timing out sooner reports a failure for a message that still lands,
+  // and the sender resends it.
+  return rtCommand<Commands["chat:dm"]["data"]>("chat:dm", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 60_000 });
 }
 
 export function chatArchive(

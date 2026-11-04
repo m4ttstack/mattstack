@@ -12,6 +12,7 @@ import {
   conversationForAgent,
   conversationForRoom,
   enqueueItem,
+  latestConversationForRoom,
   listOpenConversations,
   markCheckedIn,
   markItemDelivered,
@@ -48,6 +49,17 @@ function capture(fn: () => unknown): unknown {
     return e;
   }
 }
+
+test("latestConversationForRoom sees a closed row, and the newest row wins", () => {
+  const db = fresh();
+  expect(latestConversationForRoom(base.room, db)).toBeUndefined();
+  const first = openConversation(base, db);
+  closeConversation(first.id, "idle", 5, db);
+  expect(conversationForRoom(base.room, db)).toBeUndefined();
+  expect(latestConversationForRoom(base.room, db)?.closedAt).toBe(5);
+  const second = openConversation(base, db);
+  expect(latestConversationForRoom(base.room, db)?.id).toBe(second.id);
+});
 
 test("opens a conversation and finds it by agent and room", () => {
   const db = fresh();
