@@ -2677,9 +2677,17 @@ body {
    it shares the sentence's baseline. */
 .tui-slack-face {
   display: inline-block;
-  object-fit: cover;
+  overflow: hidden;
   border-radius: 50%;
   flex-shrink: 0;
+}
+.tui-slack-face img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Faces sit high in a portrait, so a zoom keeps them in the frame. */
+  transform-origin: 50% 30%;
 }
 .tui-comment-avatar .tui-slack-face {
   width: 100%;

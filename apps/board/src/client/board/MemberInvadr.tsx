@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { Invadr } from 'invadrs/react';
 
+import { faceZoom } from './face-zoom.ts';
 import type { MemberLook } from './invadr-colors.ts';
 
 const FACE_RETRY_MS = 60_000;
@@ -27,6 +28,7 @@ export function MemberInvadr({
 }) {
   const look = useMemberLook(id);
   const [failed, setFailed] = useState<string>();
+  const [zoom, setZoom] = useState(1);
   useEffect(() => {
     if (!failed) return;
     const retry = setTimeout(() => setFailed(undefined), FACE_RETRY_MS);
@@ -35,12 +37,15 @@ export function MemberInvadr({
   className = className ? `tui-invadr ${className}` : 'tui-invadr';
   if (look?.face && look.face !== failed) {
     return (
-      <img
-        src={look.face}
-        alt=""
-        className={`tui-slack-face ${className}`}
-        onError={() => setFailed(look.face)}
-      />
+      <span className={`tui-slack-face ${className}`}>
+        <img
+          src={look.face}
+          alt=""
+          style={zoom === 1 ? undefined : { transform: `scale(${zoom})` }}
+          onLoad={event => setZoom(faceZoom(event.currentTarget))}
+          onError={() => setFailed(look.face)}
+        />
+      </span>
     );
   }
   return look ? (
