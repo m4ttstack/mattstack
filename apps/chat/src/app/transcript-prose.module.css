@@ -2,61 +2,56 @@
   width: 100%;
 }
 
-/* Time in a gutter, name inline with the first line. */
+/* Slack's default layout: sprite in a gutter, name and time above the text.
+   Posts here run long, so messages need clear space between them. */
 .msg {
   display: flex;
-  gap: 10px;
-  padding: 4px 24px 4px 16px;
+  gap: 12px;
+  padding: 8px 24px 8px 20px;
   min-width: 0;
 }
 
-.gutter {
-  flex: none;
-  width: 52px;
-  padding-top: 2px;
-  text-align: right;
+.msg[data-grouped] {
+  padding-top: 0;
 }
 
-.msg[data-grouped] .gutter {
+.gutter {
+  position: relative;
+  flex: none;
+  width: 28px;
+  padding-top: 2px;
+}
+
+.hoverTime {
+  position: absolute;
+  top: 3px;
+  right: 0;
+  white-space: nowrap;
   visibility: hidden;
 }
 
-.msg[data-grouped]:hover .gutter {
+.msg:hover .hoverTime {
   visibility: visible;
 }
 
 .content {
   flex: 1;
   min-width: 0;
-}
-
-.lead {
-  float: left;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 1.47em;
-  margin-right: 7px;
-  font-size: var(--mantine-font-size-lg);
-}
-
-.lead .who {
-  font-size: inherit;
-  font-weight: 600;
+  max-width: 860px;
 }
 
 .hdr {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
-  margin-bottom: 3px;
+  margin-bottom: 2px;
 }
 
 .who {
   flex: none;
-  font-size: var(--mantine-font-size-xs);
-  font-weight: 600;
+  font-size: var(--mantine-font-size-md);
+  font-weight: 700;
 }
 
 .meta {
@@ -65,11 +60,9 @@
   color: var(--tk-text-4);
 }
 
-/* Slack's rhythm: a 22px line and one 8px step between every line of the
-   list, whether it is a new message or the next paragraph. */
 .prose {
   font-size: var(--mantine-font-size-lg);
-  line-height: 1.47;
+  line-height: 1.5;
   min-width: 0;
   color: var(--tk-text-1);
   overflow-wrap: anywhere;
@@ -77,11 +70,6 @@
 
 .prose > * + * {
   margin-top: 8px !important;
-}
-
-/* A list, table or fence can't flow beside the name, so it starts below it. */
-.prose > :first-child:not(p) {
-  clear: left;
 }
 
 .col[data-compact] .msg {
@@ -92,6 +80,17 @@
 
 .col[data-compact] .msg[data-grouped] {
   padding-top: 0;
+}
+
+.col[data-compact] .hdr {
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+
+.col[data-compact] .who {
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 600;
 }
 
 .col[data-compact] .prose {

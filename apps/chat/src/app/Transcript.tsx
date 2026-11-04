@@ -297,17 +297,23 @@ function MessageRow({
         </div>
       ) : (
         <>
-          <div className={prose.gutter}>{time}</div>
+          <div className={prose.gutter}>
+            {grouped ? (
+              <span className={prose.hoverTime}>{time}</span>
+            ) : (
+              <HandleAvatar
+                handle={message.handle}
+                variant="inline"
+                size={26}
+              />
+            )}
+          </div>
           <div className={prose.content}>
             {!grouped && (
-              <span className={prose.lead}>
-                <HandleAvatar
-                  handle={message.handle}
-                  variant="inline"
-                  size={15}
-                />
+              <div className={prose.hdr}>
                 {name}
-              </span>
+                {time}
+              </div>
             )}
             {body}
           </div>
