@@ -36,7 +36,8 @@ const { FakeCfDns } = await import('../../test/fixture/remote.ts');
 const { reloadRegistry, getRecord, putRecord, deleteRecord } =
   await import('../registry/records.ts');
 const { reloadPlatformSettings } = await import('./platform-settings.ts');
-const { setLive, clearLive } = await import('../../core/settings.ts');
+const { setLive, clearLive, setPublished } =
+  await import('../../core/settings.ts');
 
 const PORT = 18917;
 let server: ReturnType<typeof startApi>;
@@ -1817,4 +1818,33 @@ test('a record with no route yet carries its bundled icon URL', async () => {
     setBundledResourcesDir(undefined);
     deleteRecord('bundled-only');
   }
+});
+
+test('an untouched app reads private, and a saved on is ignored for a mattstack app', async () => {
+  putRecord({
+    name: 'untouched-user',
+    managedBy: 'user',
+    port: 18096,
+    kind: 'service',
+    createdAt: '',
+  });
+  putRecord({
+    name: 'saved-owned',
+    managedBy: 'rt',
+    port: 18095,
+    kind: 'service',
+    createdAt: '',
+  });
+  await setPublished('saved-owned', true);
+  writeFileSync(
+    process.env.LOCAL_APPS_ROUTES_PATH!,
+    JSON.stringify([
+      { hostname: 'untouched-user.localhost', port: 18096, pid: 0 },
+      { hostname: 'saved-owned.localhost', port: 18095, pid: 0 },
+    ])
+  );
+  const status = await (await api('/api/v1/status')).json();
+  const row = (name: string) => status.apps.find((a: any) => a.name === name);
+  expect(row('untouched-user').published).toBe(false);
+  expect(row('saved-owned').published).toBe(false);
 });

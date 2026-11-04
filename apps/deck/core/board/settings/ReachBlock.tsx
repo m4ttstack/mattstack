@@ -49,10 +49,12 @@ function PublicItem({
         </>
       }
       note={
-        row.published
-          ? `On: ${host} is reachable through the tunnel`
-          : needsDomain
-            ? 'Off: no domain connected'
+        !data.publicDomainBound
+          ? row.published
+            ? 'On once a domain is connected'
+            : 'Off: no domain connected'
+          : row.published
+            ? `On: ${host} is reachable through the tunnel`
             : "Off: visitors get the tunnel's 404 page"
       }
       end={

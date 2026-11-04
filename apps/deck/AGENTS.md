@@ -167,6 +167,8 @@ its identity in `deck.platform`, writes the config, upserts the wildcard DNS via
 the Cloudflare API, installs+supervises the launchd unit
 (`com.mattstack.deck.tunnel`), and confirms the connector. `deck domain` shows
 the bound domain + live `/ready` health; `deck domain unbind` tears it all down.
+Apps are private until published, and the gateway never serves a mattstack app
+(`core/publish.ts`).
 It self-heals on the reconcile tick (`src/edge/edge-reconcile.ts`). Health is
 read locally from the connector's metrics `/ready`, never a CF API call per poll.
 Edge code is behind seams with fakes: `TunnelDriver` (`src/edge/tunnel.ts`),

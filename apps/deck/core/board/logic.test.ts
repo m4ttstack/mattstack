@@ -91,6 +91,7 @@ function makeData(overrides: Partial<StatusData> = {}): StatusData {
     orphans: [],
     nextPort: null,
     proxyStale: false,
+    publicDomainBound: true,
     autoHeal: null,
     ...overrides,
   };
@@ -98,14 +99,12 @@ function makeData(overrides: Partial<StatusData> = {}): StatusData {
 
 // ---- constants ----
 
-test('canOfferPublish: user apps yes, mattstack apps only to turn it off', () => {
-  const row = (managedBy: string | null, published: boolean) =>
-    ({ managedBy, published }) as Row;
-  expect(canOfferPublish(row(null, false))).toBe(true);
-  expect(canOfferPublish(row('user', false))).toBe(true);
-  expect(canOfferPublish(row('rt', false))).toBe(false);
-  expect(canOfferPublish(row('deck', false))).toBe(false);
-  expect(canOfferPublish(row('rt', true))).toBe(true);
+test('canOfferPublish: user apps only', () => {
+  const row = (managedBy: string | null) => ({ managedBy }) as Row;
+  expect(canOfferPublish(row(null))).toBe(true);
+  expect(canOfferPublish(row('user'))).toBe(true);
+  expect(canOfferPublish(row('rt'))).toBe(false);
+  expect(canOfferPublish(row('deck'))).toBe(false);
 });
 
 test('canOfferRemote: user apps yes, mattstack apps only to turn it off', () => {

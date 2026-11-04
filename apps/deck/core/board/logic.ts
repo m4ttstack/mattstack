@@ -129,15 +129,14 @@ function isUserApp(row: Row): boolean {
   return row.managedBy == null || row.managedBy === 'user';
 }
 
-/** Mattstack apps are never public; one that already is keeps its switch so
-    it can be turned off. */
+/** Mattstack apps are never public; one already on Railway keeps its switch
+    so it can be turned off. */
 export function canOfferRemote(row: Row): boolean {
   return row.remote != null || isUserApp(row);
 }
 
-/** Same rule as canOfferRemote, for the tunnel. */
 export function canOfferPublish(row: Row): boolean {
-  return row.published || isUserApp(row);
+  return isUserApp(row);
 }
 export type RestartingMap = Record<
   string,
@@ -155,7 +154,9 @@ export function liveCount(data: StatusData): number {
 
 export function subline(data: StatusData | null): string {
   if (!data) return 'loading…';
-  const pub = data.apps.filter(r => r.published).length;
+  const pub = data.publicDomainBound
+    ? data.apps.filter(r => r.published).length
+    : 0;
   const prot = data.apps.filter(r => r.hasPassword).length;
   const live = liveCount(data);
   const parts = [healthyFraction(data)];

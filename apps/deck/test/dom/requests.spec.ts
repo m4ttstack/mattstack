@@ -124,9 +124,7 @@ function modalBlock(dlg: Locator, id: string): Locator {
 }
 
 async function drivePublish(page: Page): Promise<void> {
-  await rowFor(page, 'forecast')
-    .locator('[data-part="switch-control"]')
-    .click();
+  await rowFor(page, 'orbit').locator('[data-part="switch-control"]').click();
   await waitFor(sawRequest('PUT /api/v1/apps/:app/publish'));
 }
 

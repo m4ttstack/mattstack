@@ -1104,10 +1104,9 @@ export async function editApp(
 
   if (renaming) {
     deleteRecord(oldName);
-    // Settings are keyed by app name, and an unknown name reads as
-    // published:true with no password — so the entry has to travel with the
-    // record, or renaming quietly publishes a private, password-protected app
-    // the moment the new hostname goes live.
+    // Settings are keyed by app name, and an unknown name reads as private
+    // with no password, so the entry has to travel with the record or a
+    // rename drops the app's published state and password.
     renameAppSettings(oldName, next.name);
     // The sign-in rule is keyed by name too, and an unknown name reads as
     // { mode: "off" } — without this the emails/domains allowlist is silently

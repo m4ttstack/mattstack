@@ -100,7 +100,6 @@ test("deck url <service> prints the service's local url and exits 0", async () =
 
 test('deck url --public errors when the app is not published', async () => {
   seedRouted('chatb', 11004);
-  // Apps default to published:true, so turn it off to exercise the gate.
   expect(await runCommand(['publish', 'chatb', 'off'], io())).toBe(0);
   const x = io();
   const code = await runCommand(['url', 'chatb', '--public'], x);

@@ -65,7 +65,7 @@
         "unmanaged": null,
         "stderr": []
       },
-      "published": true,
+      "published": false,
       "hasPassword": false,
       "isTunnel": false,
       "override": {

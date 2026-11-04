@@ -567,9 +567,9 @@ test('edit rename: a teardown driver failure lands a visible issue on the rename
   expect(rec!.issues![0]!.source).toBe('launchd');
 });
 
-test("edit rename: the app's settings move with it — a private, password-protected app cannot go public by being renamed", async () => {
+test("edit rename: the app's settings move with it — a public, password-protected app keeps both", async () => {
   await registerApp(input, drivers);
-  await setPublished('myapp', false);
+  await setPublished('myapp', true);
   await setPassword('myapp', 'hunter2');
   setOverride('myapp', { devPort: 3000, basePort: 11000 });
   setPublicFollowsOverride('myapp', true);
@@ -581,7 +581,7 @@ test("edit rename: the app's settings move with it — a private, password-prote
   ).toBe(200);
 
   const after = getAppSettings('renamed');
-  expect(after.published).toBe(false);
+  expect(after.published).toBe(true);
   // Moved verbatim: setPassword can only re-hash a plaintext, so the EXISTING
   // hash (and its version) has to survive the move byte-for-byte.
   expect(after.passwordHash).toBe(before.passwordHash!);
@@ -592,7 +592,7 @@ test("edit rename: the app's settings move with it — a private, password-prote
   // And nothing lingers under the old name: it reads exactly like a name the
   // settings store has never heard of.
   expect(getAppSettings('myapp')).toEqual(getAppSettings('never-registered'));
-  expect(getAppSettings('myapp').published).toBe(true);
+  expect(getAppSettings('myapp').published).toBe(false);
   expect(getAppSettings('myapp').passwordHash).toBeUndefined();
 });
 

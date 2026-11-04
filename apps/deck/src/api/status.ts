@@ -13,6 +13,7 @@ import {
   type Health,
   type LaunchdService,
 } from '../../core/discover.ts';
+import { isPublished } from '../../core/publish.ts';
 import { getAppSettings, type PortOverride } from '../../core/settings.ts';
 import { TUNNEL_LABEL } from '../edge/domain.ts';
 import { tunnelRowHealth } from '../edge/edge-health.ts';
@@ -387,7 +388,7 @@ export async function buildStatus(opts: BuildStatusOpts): Promise<Status> {
             : a.service
               ? serviceJson(a.service, health, unmanaged)
               : null,
-        published: settings.published,
+        published: isPublished(a.name),
         hasPassword: !!settings.passwordHash,
         isTunnel: false,
         override: settings.override ?? null,

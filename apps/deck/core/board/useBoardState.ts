@@ -442,15 +442,19 @@ export function useBoardState(
   const onPublish = useCallback(
     async (row: Row) => {
       try {
-        await apiPut(`/api/v1/apps/${row.name}/publish`, {
+        const res = await apiPut(`/api/v1/apps/${row.name}/publish`, {
           published: !row.published,
         });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}) as { error?: string });
+          notice('bad', body.error || 'the board rejected that change.', 10000);
+        }
       } catch {
         /* transient -- the next refresh shows the true state */
       }
       await refresh();
     },
-    [refresh]
+    [refresh, notice]
   );
 
   const postPort = useCallback(

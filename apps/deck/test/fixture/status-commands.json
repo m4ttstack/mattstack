@@ -28,7 +28,7 @@
         "unmanaged": null,
         "stderr": []
       },
-      "published": true,
+      "published": false,
       "hasPassword": true,
       "isTunnel": false,
       "override": null,
@@ -66,7 +66,7 @@
         "unmanaged": null,
         "stderr": []
       },
-      "published": true,
+      "published": false,
       "hasPassword": false,
       "isTunnel": false,
       "override": {

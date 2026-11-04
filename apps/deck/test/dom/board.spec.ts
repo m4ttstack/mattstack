@@ -172,7 +172,7 @@ test('ownership chip: this board vs managed by', async () => {
 test('publish switch carries the parity aria-label and fires PUT then a refresh GET', async () => {
   await withBoard(async page => {
     let putBody: unknown = null;
-    await page.route('**/api/v1/apps/forecast/publish', async route => {
+    await page.route('**/api/v1/apps/orbit/publish', async route => {
       putBody = route.request().postDataJSON();
       await route.fulfill({
         status: 200,
@@ -186,12 +186,10 @@ test('publish switch carries the parity aria-label and fires PUT then a refresh 
       await route.continue();
     });
 
-    const toggle = rowFor(page, 'forecast').locator(
+    const toggle = rowFor(page, 'orbit').locator(
       '[data-part="switch-control"]'
     );
-    expect(await toggle.getAttribute('aria-label')).toBe(
-      'make forecast private'
-    );
+    expect(await toggle.getAttribute('aria-label')).toBe('make orbit private');
 
     const before = statusRequests;
     await toggle.click();
@@ -307,9 +305,9 @@ test('issues render a bad badge and the raw message', async () => {
 
 test('external-link anchor appears only when publicUrl differs, with parity aria-label', async () => {
   await withBoard(async page => {
-    const atlasExtLink = rowFor(page, 'atlas').locator('a[target="_blank"]');
-    expect(await atlasExtLink.getAttribute('aria-label')).toBe(
-      'open atlas.mattstack'
+    const orbitExtLink = rowFor(page, 'orbit').locator('a[target="_blank"]');
+    expect(await orbitExtLink.getAttribute('aria-label')).toBe(
+      'open orbit.mattstack'
     );
 
     const ledgerExtLink = rowFor(page, 'ledger').locator('a[target="_blank"]');
@@ -730,20 +728,39 @@ test('with no domain connected an unpublished app has a disabled publish switch'
 test('with no domain connected a published app can still go private', async () => {
   await withBoard(
     async page => {
-      const sw = rowFor(page, 'forecast').locator('[role="switch"]');
+      const sw = rowFor(page, 'atlas').locator('[role="switch"]');
       expect(await sw.isDisabled()).toBe(false);
     },
     { fixture: 'status-no-domain.json' }
   );
 });
 
-test('an unpublished mattstack app has no publish switch; a published one keeps it', async () => {
+test('a mattstack app has no publish switch', async () => {
   await withBoard(async page => {
-    expect(
-      await rowFor(page, 'ledger').locator('[role="switch"]').count()
-    ).toBe(0);
-    expect(await rowFor(page, 'atlas').locator('[role="switch"]').count()).toBe(
-      1
-    );
+    for (const name of ['forecast', 'atlas', 'ledger']) {
+      expect(await rowFor(page, name).locator('[role="switch"]').count()).toBe(
+        0
+      );
+    }
   });
+});
+
+test('an unpublished app publishes from off to on', async () => {
+  await withBoard(
+    async page => {
+      let putBody: unknown = null;
+      await page.route('**/api/v1/apps/orbit/publish', async route => {
+        putBody = route.request().postDataJSON();
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true }),
+        });
+      });
+      await rowFor(page, 'orbit').locator('[role="switch"]').click();
+      await poll(() => putBody !== null);
+      expect(putBody).toEqual({ published: true });
+    },
+    { fixture: 'status-private.json' }
+  );
 });

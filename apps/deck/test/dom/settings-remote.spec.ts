@@ -211,12 +211,12 @@ test('an already-remote password-only row keeps its Railway switch enabled, so i
 test('the publish switch in the modal carries the parity aria-label and fires PUT then a refresh GET', async () => {
   await withBoard(async page => {
     let putBody: unknown = null;
-    await page.route('**/api/v1/apps/forecast/publish', async route => {
+    await page.route('**/api/v1/apps/orbit/publish', async route => {
       putBody = route.request().postDataJSON();
       await route.fulfill(ok);
     });
 
-    const reach = await openReach(page, 'forecast');
+    const reach = await openReach(page, 'orbit');
     let statusRequests = 0;
     await page.route('**/api/v1/status', async route => {
       statusRequests++;
@@ -224,7 +224,7 @@ test('the publish switch in the modal carries the parity aria-label and fires PU
     });
 
     const sw = reach.getByRole('switch', {
-      name: 'make forecast private',
+      name: 'make orbit private',
       exact: true,
     });
     expect(await sw.isChecked()).toBe(true);
