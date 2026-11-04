@@ -72,7 +72,7 @@ enum SettingsExtrasSnapshot {
     private static func slackSupport(_ name: String, height: CGFloat, status: RowStatus, detail: String, action: RowAction?) -> (String, String, CGFloat, PlanRow) {
         (name, "Accounts", height, PlanRow(
             id: SettingsExtras.slackSupportChat, kind: .account, title: "Slack support chat",
-            why: "Lets this token read your DMs. Only people running support chats need it.", required: false,
+            why: "Lets your Slack token read your DMs. Only people running support chats need it.", required: false,
             status: status, detail: detail, action: action, recheck: .onChange))
     }
 
@@ -81,7 +81,7 @@ enum SettingsExtrasSnapshot {
         slackSupport("slack-support-not-connected", height: 150, status: .skipped, detail: "Connect Slack first", action: nil),
         slackSupport("slack-support-offer", height: 150, status: .skipped, detail: "Off. Connect to approve it in Slack", action: slackConnect),
         slackSupport("slack-support-short", height: 190, status: .needsYou,
-                     detail: "The team's Slack app does not list these yet. Ask its owner to add im:history, im:read, im:write, users:read under User Token Scopes at https://api.slack.com/apps/A0TEAM/oauth, then connect again",
+                     detail: "Slack app is missing scopes. Ask its owner to add im:history, im:read, im:write, users:read under User Token Scopes at https://api.slack.com/apps/A0TEAM/oauth, then connect again",
                      action: slackConnect),
         slackSupport("slack-support-ready", height: 150, status: .ready, detail: "Ready for support chats", action: nil),
     ]

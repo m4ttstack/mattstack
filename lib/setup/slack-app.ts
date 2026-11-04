@@ -63,6 +63,16 @@ export class SlackCallbackTimeoutError extends Error {
   }
 }
 
+/** Slack redirected back with an error parameter instead of a code. */
+export class SlackCallbackError extends Error {
+  readonly code: string;
+  constructor(code: string) {
+    super(`Slack sent back an error: ${code}`);
+    this.name = "SlackCallbackError";
+    this.code = code;
+  }
+}
+
 export function buildSlackManifest(opts: { name: string; callbackPort: number; scopes: SlackScopeNeeds }): object {
   return {
     display_information: { name: opts.name },

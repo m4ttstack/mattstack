@@ -20,7 +20,7 @@ Do this once for your Slack app and once on each Mac that opens chats.
    rt setup slack connect --support-chat
    ```
 
-   This lets your Slack token read your direct messages, so only do it if you run support chats. Nobody else needs it, and nothing in setup asks for it. If the app doesn't list the scopes yet, your current token stays as it is and the row names what the app's owner needs to add.
+   This lets your Slack token read your direct messages, so only do it if you run support chats. Nobody else needs it, and nothing in setup asks for it. If the app doesn't list the scopes yet, your current token stays as it is. Slack then does one of two things: it grants less than you asked for, and the row names what the app's owner needs to add, or it refuses the request, and the connect fails and names those scopes in its failure message.
 
 3. Update the mattstack Claude plugin, which adds the `/slack-support` command:
 

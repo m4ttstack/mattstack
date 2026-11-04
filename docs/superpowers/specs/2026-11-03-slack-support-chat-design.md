@@ -624,8 +624,8 @@ The row reads the Slack check `account.slack` already makes:
 | The last opt-in connect came back short | `needs-you` | Connect |
 | Connected with all four | `ready` | none |
 
-The offer reads `skipped` so that someone who doesn't want this has nothing
-outstanding in `rt verify` or `rt setup status`. Connect is an `oauth` action
+The offer reads `skipped` so that someone who doesn't want this isn't asked for
+anything. It still counts toward the Accounts total in `rt setup status`. Connect is an `oauth` action
 whose verb carries `--support-chat`, so the contract didn't change and an older
 app runs it as any other `oauth` action. A person presses it: nothing runs it
 from `rt setup update`, a migration or the bar.
@@ -634,10 +634,17 @@ A short grant saves nothing and the current token stays put, so the token can't
 show it. `rt setup slack connect --support-chat` records the missing scopes in
 `slackSupportShort` in `setup-state.json`, and a full grant clears it. The row
 names them through `slackUserScopeFix` for the app's owner and keeps Connect for
-after the fix. The row has no state for Slack refusing the request outright with
-"invalid permissions requested": no grant comes back, so the connect times out
-and its failure, which names the same fix, shows under the row until the next
-re-check.
+after the fix.
+
+Slack's docs don't settle which outcome an unlisted scope gets, so both are
+handled. Slack can grant less, which is the short grant above. Or it can refuse
+outright, as with "invalid permissions requested", and no grant comes back. A
+refusal shows on Slack's page, so the connect waits out its timeout, or Slack
+redirects back with an `error` and the connect fails at once. The row has no state
+for that. The connect's failure says that if Slack refused, the owner should add
+the four scopes, and that if the browser was left, connect again. It shows under the
+row until the next re-check. Leaving the browser times out the same way, so a
+timeout records nothing.
 
 The rule that the manifest and the OAuth request name the same set stops being
 strictly true, so the comment above `DEFAULT_SCOPE_NEEDS` needs updating.

@@ -253,7 +253,17 @@ function slackCheck(read: SlackRead): SlackCheck {
 /** This row never fails: Slack's own row, right above it, reports a broken check. */
 async function slackSupportRowFor(p: Probes, read: () => Promise<SlackRead>, team: TeamSnapshot): Promise<Row> {
   const slack = await read().then(slackCheck, (): SlackCheck => ({ kind: "unchecked" }));
-  return slackSupportRow({ slack, appId: team.integrations.slack?.appId, shortGrant: readSetupState(p).slackSupportShort });
+  return slackSupportRow({ slack, appId: team.integrations.slack?.appId, shortGrant: shortGrantOf(p) });
+}
+
+/** The setup state file is hand-editable, and a bad one must not take the Accounts group down with this row. */
+function shortGrantOf(p: Probes): string[] | undefined {
+  try {
+    const short: unknown = readSetupState(p).slackSupportShort;
+    return Array.isArray(short) ? short.filter((s): s is string => typeof s === "string") : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export const BOARD_PEERING_ROW_ID = "account.board-peering";

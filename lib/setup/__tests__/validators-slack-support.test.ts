@@ -35,6 +35,10 @@ function group(r: Row): Group[] {
 }
 
 describe("slackSupportRow", () => {
+  test("says the token is your Slack token", () => {
+    expect(slackSupportRow({ slack: { kind: "no-app" } }).why).toBe("Lets your Slack token read your DMs. Only people running support chats need it.");
+  });
+
   test("states plainly what the token gains and who needs it, in every state", () => {
     const rows = [
       slackSupportRow({ slack: { kind: "no-app" } }),
@@ -86,7 +90,7 @@ describe("slackSupportRow", () => {
     const r = slackSupportRow({ slack: { kind: "connected", scopes: DEFAULTS }, shortGrant: SLACK_SUPPORT_SCOPES, appId: "A0TEAM" });
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe(
-      "The team's Slack app does not list these yet. Ask its owner to add im:history, im:read, im:write, users:read under User Token Scopes at https://api.slack.com/apps/A0TEAM/oauth, then connect again",
+      "Slack app is missing scopes. Ask its owner to add im:history, im:read, im:write, users:read under User Token Scopes at https://api.slack.com/apps/A0TEAM/oauth, then connect again",
     );
     expect(r.action).toEqual(CONNECT);
   });
@@ -160,6 +164,25 @@ describe("accountRows", () => {
     const rows = await accountRows(fakeProbes(), SLACK_TEAM, [], secrets(), null);
     const ids = rows.map((r) => r.id);
     expect(ids[ids.indexOf("account.slack") + 1]).toBe(SLACK_SUPPORT_ROW_ID);
+  });
+
+  test("an unreadable setup state can't fail the row", async () => {
+    const probes = fakeProbes();
+    const readFile = probes.readFile;
+    probes.readFile = (path) => {
+      if (path === setupStatePath("/fake-home")) throw new Error("no read");
+      return readFile(path);
+    };
+    const r = pick(await accountRows(probes, SLACK_TEAM, [], secrets(), null));
+    expect(r?.detail).toBe("Connect Slack first");
+  });
+
+  test("a short grant of the wrong shape reads as no short grant", async () => {
+    for (const stored of ["im:read", 3, { im: true }, [1, null]]) {
+      const files = { [setupStatePath("/fake-home")]: JSON.stringify({ v: 2, slackSupportShort: stored }) };
+      const r = pick(await accountRows(fakeProbes({ files, fetch: slackFetch(DEFAULTS) }), SLACK_TEAM, [], TOKEN, null));
+      expect(r?.status).toBe("skipped");
+    }
   });
 
   test("a team with no Slack app says so", async () => {

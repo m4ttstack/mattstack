@@ -9,7 +9,7 @@ const BASE = {
   id: SLACK_SUPPORT_ROW_ID,
   kind: "account" as const,
   title: "Slack support chat",
-  why: "Lets this token read your DMs. Only people running support chats need it.",
+  why: "Lets your Slack token read your DMs. Only people running support chats need it.",
   required: false,
 };
 
@@ -35,7 +35,7 @@ export function slackSupportRow(input: { slack: SlackCheck; appId?: string; shor
   return row({
     ...BASE,
     status: "needs-you",
-    detail: `The team's Slack app does not list these yet. Ask its owner to ${slackUserScopeFix(appId, missing)}, then connect again`,
+    detail: `Slack app is missing scopes. Ask its owner to ${slackUserScopeFix(appId, missing)}, then connect again`,
     action: CONNECT,
   });
 }
