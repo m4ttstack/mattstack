@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { fakeProbes } from "./fakes.ts";
-import { parseRequirements, readPackRequirements } from "../requirements.ts";
+import { mergeOrgRequirements, parseRequirements, readPackRequirements } from "../requirements.ts";
 
 describe("parseRequirements", () => {
   test("parses tools, keeps known integrations, and reports an unknown one", () => {
@@ -51,14 +51,82 @@ describe("parseRequirements", () => {
     expect(result.error).toContain("tools[1]");
   });
 
+  test.each(["/tmp/run-me", "./run-me", "../run-me", "bin/run-me", "-run-me", "run me", ""])("a tool name that is not a bare command is skipped: %p", (name) => {
+    const result = parseRequirements("acme", JSON.stringify({ tools: [{ name, why: "fine" }, { name: "ok", why: "fine" }], integrations: [] }));
+
+    expect(result.tools).toEqual([{ name: "ok", why: "fine" }]);
+    expect(result.error).toContain("tools[0]");
+  });
+
+  test.each(["gh", "acme-api", "node20", "python3.12", "g++", "foo_bar"])("a bare command name is kept: %p", (name) => {
+    expect(parseRequirements("acme", JSON.stringify({ tools: [{ name, why: "fine" }], integrations: [] })).tools).toEqual([{ name, why: "fine" }]);
+  });
+
   test("connect.verb rejects non-string elements rather than passing them through", () => {
     const result = parseRequirements("acme", '{ "tools":[{"name":"widget","why":"x","connect":{"verb":[1,2],"label":"Run it"}}], "integrations":[] }');
     expect(result.tools).toEqual([{ name: "widget", why: "x" }]);
   });
 
+  test("parses excludeOrg and reports a non-string entry", () => {
+    const result = parseRequirements("acme", '{ "excludeOrg": ["doppler", 3] }');
+    expect(result.excludeOrg).toEqual(["doppler"]);
+    expect(result.error).toContain("excludeOrg");
+    expect("excludeOrg" in parseRequirements("acme", "{}")).toBe(false);
+  });
+
   test("connect.verb with all-string elements is kept", () => {
     const result = parseRequirements("acme", '{ "tools":[{"name":"widget","why":"x","connect":{"verb":["run","it"],"label":"Run it"}}], "integrations":[] }');
     expect(result.tools).toEqual([{ name: "widget", why: "x", connect: { verb: ["run", "it"], label: "Run it" } }]);
+  });
+});
+
+describe("mergeOrgRequirements", () => {
+  const doppler = { name: "doppler", why: "secrets", connect: { integration: "doppler" as const } };
+  const orgReq = { pack: "org", tools: [doppler], integrations: ["doppler" as const] };
+
+  test("team tools come first and a tool the team names is replaced whole, taking its integration with it", () => {
+    const team = { pack: "widgets", tools: [{ ...doppler, optional: true }], integrations: [] };
+    const merged = mergeOrgRequirements(team, "widgets", orgReq);
+    expect(merged.tools).toEqual([{ ...doppler, optional: true }]);
+    expect(merged.integrations).toEqual([]);
+  });
+
+  test("excludeOrg removes the org tool and the integration it connects", () => {
+    const team = { pack: "widgets", tools: [], integrations: [], excludeOrg: ["doppler"] };
+    const merged = mergeOrgRequirements(team, "widgets", orgReq);
+    expect(merged.tools).toEqual([]);
+    expect(merged.integrations).toEqual([]);
+  });
+
+  test("excludeOrg removes an org integration of that name no tool connects", () => {
+    const team = { pack: "widgets", tools: [], integrations: [], excludeOrg: ["linear"] };
+    const merged = mergeOrgRequirements(team, "widgets", { pack: "org", tools: [], integrations: ["linear" as const] });
+    expect(merged.integrations).toEqual([]);
+  });
+
+  test("an excludeOrg name matching nothing changes nothing and reports nothing", () => {
+    const team = { pack: "widgets", tools: [], integrations: [], excludeOrg: ["nope"] };
+    const merged = mergeOrgRequirements(team, "widgets", orgReq);
+    expect(merged.tools).toEqual([doppler]);
+    expect(merged.error).toBeUndefined();
+    expect(merged.orgError).toBeUndefined();
+  });
+
+  test("the team's pack, error, chrome and workType survive; org chrome and workType do not", () => {
+    const team = { pack: "widgets", tools: [], integrations: [], error: "bad", workType: "feature" };
+    const merged = mergeOrgRequirements(team, "widgets", { ...orgReq, workType: "other", chrome: { required: true } });
+    expect(merged).toMatchObject({ pack: "widgets", error: "bad", workType: "feature" });
+    expect(merged.chrome).toBeUndefined();
+  });
+
+  test("no team entry yields an orgOnly entry under the team's name", () => {
+    expect(mergeOrgRequirements(null, "widgets", orgReq)).toMatchObject({ pack: "widgets", orgOnly: true, tools: [doppler] });
+  });
+
+  test("org parse errors land on orgError, never error", () => {
+    const merged = mergeOrgRequirements(null, "widgets", { ...orgReq, error: "tools[1] is malformed" });
+    expect(merged.error).toBeUndefined();
+    expect(merged.orgError).toContain("tools[1]");
   });
 });
 
@@ -111,6 +179,76 @@ describe("readPackRequirements", () => {
     });
     expect(readPackRequirements(p, "acme").map((r) => r.pack)).toEqual(["widgets"]);
     expect(readPackRequirements(fakeProbes({ home: "/fake-home", files: { [file]: "{}" } }), "acme")).toEqual([]);
+  });
+
+  describe("the org file", () => {
+    const orgFile = `${root}/mattstack/org/requirements.jsonc`;
+    const teamReq = JSON.stringify({ tools: [{ name: "jq", why: "parses json" }], integrations: [] });
+    const orgReq = JSON.stringify({ tools: [{ name: "doppler", why: "secrets", connect: { integration: "doppler" } }], integrations: ["doppler"] });
+
+    test("reads org/requirements.jsonc and folds it into the team's one entry", () => {
+      const result = readPackRequirements(fakeProbes({ home: "/fake-home", files: { [file]: teamReq, [orgFile]: orgReq } }), "acme", "widgets");
+      expect(result).toHaveLength(1);
+      expect(result[0]!.pack).toBe("widgets");
+      expect(result[0]!.tools.map((t) => t.name)).toEqual(["jq", "doppler"]);
+    });
+
+    test("an org file and no team file yields one orgOnly entry", () => {
+      const result = readPackRequirements(fakeProbes({ home: "/fake-home", files: { [orgFile]: orgReq } }), "acme", "widgets");
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({ pack: "widgets", orgOnly: true });
+      expect(result[0]!.tools.map((t) => t.name)).toEqual(["doppler"]);
+    });
+
+    test("no org file returns what it returned before", () => {
+      const result = readPackRequirements(fakeProbes({ home: "/fake-home", files: { [file]: teamReq } }), "acme", "widgets");
+      expect(result).toEqual([{ pack: "widgets", tools: [{ name: "jq", why: "parses json" }], integrations: [] }]);
+      expect("orgOnly" in result[0]!).toBe(false);
+      expect("orgError" in result[0]!).toBe(false);
+    });
+
+    test("no active team returns [] even with an org file", () => {
+      expect(readPackRequirements(fakeProbes({ home: "/fake-home", files: { [orgFile]: orgReq } }), "acme", null)).toEqual([]);
+    });
+
+    test("an empty org slug returns []", () => {
+      expect(readPackRequirements(fakeProbes({ home: "/fake-home", files: { [orgFile]: orgReq } }), "")).toEqual([]);
+    });
+
+    test("an unreadable org file sets orgError and keeps the team's entry", () => {
+      const p = fakeProbes({ home: "/fake-home", files: { [file]: teamReq, [orgFile]: "{}" }, unreadable: [orgFile] });
+      const result = readPackRequirements(p, "acme", "widgets");
+      expect(result).toHaveLength(1);
+      expect(result[0]!.orgError).toContain("could not read");
+      expect(result[0]!.error).toBeUndefined();
+      expect(result[0]!.tools.map((t) => t.name)).toEqual(["jq"]);
+    });
+
+    test("one malformed org tool keeps the rest and names the bad one on orgError", () => {
+      const bad = JSON.stringify({ tools: [{ name: "doppler", why: "secrets" }, { nope: 1 }], integrations: [] });
+      const result = readPackRequirements(fakeProbes({ home: "/fake-home", files: { [file]: teamReq, [orgFile]: bad } }), "acme", "widgets");
+      expect(result[0]!.tools.map((t) => t.name)).toEqual(["jq", "doppler"]);
+      expect(result[0]!.orgError).toBe("tools[1] is malformed, skipped");
+      expect(result[0]!.error).toBeUndefined();
+    });
+
+    test("every org error drops the pack label, and a team's own error keeps it", () => {
+      const bad = JSON.stringify({ tools: [{ nope: 1 }, { name: "doppler", why: "secrets", connect: { integration: "nope" } }], integrations: [] });
+      const badTeam = JSON.stringify({ tools: [{ nope: 1 }], integrations: [] });
+      const [merged] = readPackRequirements(fakeProbes({ home: "/fake-home", files: { [file]: badTeam, [orgFile]: bad } }), "acme", "widgets");
+      expect(merged!.orgError).toBe('tools[0] is malformed, skipped; tool "doppler" declares unknown integration "nope"');
+      expect(merged!.error).toBe('pack "widgets": tools[0] is malformed, skipped');
+    });
+
+    test("an unconverted team folder keeps its error entry and still folds org tools", () => {
+      const nested = `${root}/mattstack/teams/widgets/packs/widgets/requirements.jsonc`;
+      const manifest = `${root}/mattstack/teams/widgets/packs/widgets/pack/skills.jsonc`;
+      const p = fakeProbes({ home: "/fake-home", files: { [nested]: teamReq, [manifest]: "{}", [orgFile]: orgReq } });
+      const result = readPackRequirements(p, "acme", "widgets");
+      expect(result).toHaveLength(1);
+      expect(result[0]!.error).toContain("move-team-packs-to-plugin.ts");
+      expect(result[0]!.tools.map((t) => t.name)).toEqual(["doppler"]);
+    });
   });
 
   describe("the active team's pack", () => {

@@ -2,7 +2,7 @@ import Foundation
 
 /// One rehearsal of setup, run by the stub rt's scenario of the same shape.
 public enum TestDriveScenario: String, CaseIterable, Identifiable, Sendable {
-    case join, create, solo, restore, paused, slow
+    case join, create, solo, restore, paused, slow, tool, toolFailed
 
     public var id: String { rawValue }
 
@@ -15,6 +15,8 @@ public enum TestDriveScenario: String, CaseIterable, Identifiable, Sendable {
         case .restore: return "restore"
         case .paused: return "apply-fail-retry"
         case .slow: return "slow"
+        case .tool: return "new-tool"
+        case .toolFailed: return "new-tool-failed"
         }
     }
 
@@ -26,6 +28,8 @@ public enum TestDriveScenario: String, CaseIterable, Identifiable, Sendable {
         case .restore: return "Move from another Mac"
         case .paused: return "A run that pauses"
         case .slow: return "Slow installs"
+        case .tool: return "A new team tool"
+        case .toolFailed: return "A team tool that fails"
         }
     }
 
@@ -37,6 +41,8 @@ public enum TestDriveScenario: String, CaseIterable, Identifiable, Sendable {
         case .restore: return "Restore settings from a backup repo"
         case .paused: return "One step fails, then Retry works"
         case .slow: return "Installs and the run take longer"
+        case .tool: return "Your team asks for one more tool"
+        case .toolFailed: return "Its install failed, then Retry works"
         }
     }
 }

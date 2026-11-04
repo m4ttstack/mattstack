@@ -3917,6 +3917,7 @@ describe("startSnapshot: pull", () => {
   /** Mirrors the idiom in this describe block. Returns `seen` so each test can reset it past the boot pull. */
   function pullHarness(opts: { behind: number; ahead: number }) {
     const seen: ("fast-forwarded" | "rebased")[] = [];
+    const upToDate: string[] = [];
     let throwNext = false;
     const { fn } = makeFakeExec([...pullResponders({ behind: opts.behind, ahead: opts.ahead }), ...defaultResponders()]);
     const { deps, timers } = baseDeps({ exec: fn });
@@ -3929,17 +3930,22 @@ describe("startSnapshot: pull", () => {
           if (throwNext) throw new Error("converge blew up");
           seen.push(outcome);
         },
+        onUpToDate: async () => {
+          if (throwNext) throw new Error("the pass blew up");
+          upToDate.push("up-to-date");
+        },
       },
     };
     const handle = startSnapshot(spec, specDeps);
-    return { handle, seen, timers, throwOnNext: () => { throwNext = true; } };
+    return { handle, seen, upToDate, timers, log: specDeps.log as ReturnType<typeof fakeLog>, throwOnNext: () => { throwNext = true; } };
   }
 
   /** The boot pull at init() fires the hook before any test-driven pull; settle it, then start from a clean slate. */
-  async function pastBootPull(h: { handle: { ready: Promise<void> }; seen: unknown[] }): Promise<void> {
+  async function pastBootPull(h: { handle: { ready: Promise<void> }; seen: unknown[]; upToDate: unknown[] }): Promise<void> {
     await h.handle.ready;
     await flushAsync();
     h.seen.length = 0;
+    h.upToDate.length = 0;
   }
 
   test("onPulled fires for a fast-forward, with the outcome", async () => {
@@ -3973,6 +3979,42 @@ describe("startSnapshot: pull", () => {
     await h.handle.pullNow({ converge: false });
     h.handle.stop();
     expect(h.seen).toEqual([]);
+  });
+
+  test("onUpToDate fires for a pull that found nothing new, and onPulled stays quiet", async () => {
+    const h = pullHarness({ behind: 0, ahead: 0 });
+    await pastBootPull(h);
+    await h.handle.pullNow();
+    h.handle.stop();
+    expect(h.upToDate).toEqual(["up-to-date"]);
+    expect(h.seen).toEqual([]);
+  });
+
+  test("onUpToDate does not fire on a moved pull, so one pull never runs the pass twice", async () => {
+    const h = pullHarness({ behind: 1, ahead: 0 });
+    await pastBootPull(h);
+    await h.handle.pullNow();
+    h.handle.stop();
+    expect(h.upToDate).toEqual([]);
+    expect(h.seen).toEqual(["fast-forwarded"]);
+  });
+
+  test("onUpToDate does not fire on a push's own pull", async () => {
+    const h = pullHarness({ behind: 0, ahead: 0 });
+    await pastBootPull(h);
+    await h.handle.pullNow({ converge: false });
+    h.handle.stop();
+    expect(h.upToDate).toEqual([]);
+  });
+
+  test("a throwing onUpToDate logs a warn and leaves the pull's own outcome intact", async () => {
+    const h = pullHarness({ behind: 0, ahead: 0 });
+    await pastBootPull(h);
+    h.throwOnNext();
+    const result = await h.handle.pullNow();
+    h.handle.stop();
+    expect(result.outcome).toBe("up-to-date");
+    expect(h.log.calls.some((c) => c.level === "warn" && JSON.stringify(c.args).includes("up-to-date hook failed"))).toBe(true);
   });
 
   test("the converge the pre-push pull suppressed runs once the push settles, never inside it", async () => {

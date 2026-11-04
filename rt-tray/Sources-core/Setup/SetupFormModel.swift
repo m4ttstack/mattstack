@@ -24,7 +24,7 @@ public final class SetupFormModel: ObservableObject {
     private var sectionLanded: [String: Int] = [:]
     private var wholeLanded = 0
 
-    public nonisolated static let sections = ["macos", "invite", "restore", "create", "connect", "this-mac"]
+    public nonisolated static let sections = ["macos", "invite", "restore", "create", "connect", "this-mac", "tools"]
 
     public init(rt: RtRunning, sleep: @escaping @Sendable (TimeInterval) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) }) {
         self.rt = rt; self.sleep = sleep

@@ -125,6 +125,26 @@ let formModelsChecks: [Check] = [
         c.expectEqual(rows[1].tone, nil, "an rt older than the field sends none")
         c.expectEqual(rows[2].tone, .unknown, "a tone this app does not know never fails the read")
     },
+    Check("FormModels: a failed tools row decodes its tone and second action; an rt older than the field sends neither") { c in
+        let extra = #","tone":"failed","secondary":{"type":"steps","label":"Show steps…","steps":["brew install doppler"]}"#
+        let form = try decodeForm(sectionJSON("connect", [row("tool.team.doppler", extra: extra), row("tool.team.ldcli")]))
+        let rows = try c.requireSome(form.sections.connect)
+        c.expectEqual(rows[0].tone, .failed)
+        c.expectEqual(rows[0].secondary?.type, .steps)
+        c.expectEqual(rows[0].secondary?.steps, ["brew install doppler"])
+        c.expectEqual(rows[0].secondaryPress?.action, rows[0].secondary)
+        c.expectEqual(rows[1].tone, nil)
+        c.expectEqual(rows[1].secondary, nil)
+        c.expectEqual(rows[1].secondaryPress, nil)
+    },
+    Check("FormModels: the app's error shows under any row but a failed one, whose failure rt already draws") { c in
+        let failed = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: "", state: .todo, tone: .failed, detail: "Homebrew could not install it")
+        c.expectEqual(failed.shownError("rt tools install failed"), nil)
+        let plain = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: "", state: .todo, detail: "")
+        c.expectEqual(plain.shownError("rt tools install failed"), "rt tools install failed")
+        c.expectEqual(plain.shownError(""), nil)
+        c.expectEqual(plain.shownError(nil), nil)
+    },
     Check("FormModels: a section rt left out reads nil") { c in
         let form = try decodeForm(sectionJSON("connect", [row("claude")]))
         c.expectEqual(form.sections.connect?.count, 1)
@@ -190,6 +210,45 @@ let formModelsChecks: [Check] = [
         c.expectEqual(rt.calls.count, 4, "one load, then three re-reads, the last of them settled")
         c.expect(rt.calls.allSatisfy { $0.args == ["setup", "form", "--section", "connect", "--json"] })
         c.expectEqual(await m.form?.sections.connect?.first?.state, .done)
+    },
+    Check("SetupForm: a tools read carries the stage, its rows and rt's heading") { c in
+        let home = #""continueReady":false,"startReady":false,"start":null,"paused":null,"home":{"label":"Open the board","url":"https://board.mattstack"}"#
+        let whole = #"{"contract":1,"at":"x","path":"join","team":null,"stage":"tools","sections":{"tools":[\#(row("tool.team.doppler"))]},\#(home),"tools":{"heading":"One new tool for your team","allDone":false}}"#
+        let rt = ScriptedRt()
+        rt.answers = ["setup form --json": (0, whole)]
+        let m = await SetupFormModel(rt: rt)
+        let read = await m.load(section: nil)
+        c.expectEqual(read?.stage, .tools)
+        c.expectEqual(read?.tools, FormTools(heading: "One new tool for your team", allDone: false))
+        c.expectEqual(await m.rows(for: "tools")?.map(\.id), ["tool.team.doppler"], "the model keeps the section by the name --section takes")
+        c.expectEqual(await m.read(carrying: "tools")?.tools?.allDone, false)
+        c.expectEqual(read?.sections.all.map(\.id), ["tool.team.doppler"], "the action runner reconciles these rows too")
+        let cleared = #"{"contract":1,"at":"x","path":"join","team":null,"stage":null,"sections":{"tools":[]},\#(home),"tools":{"heading":"You're all set","allDone":true}}"#
+        rt.answers = ["setup form --section tools --json": (0, cleared)]
+        await m.load(section: "tools")
+        c.expectEqual(await m.rows(for: "tools"), [], "an empty section is rows, not a missing read")
+        c.expectEqual(await m.read(carrying: "tools")?.tools?.heading, "You're all set")
+    },
+    Check("SetupForm: a whole read's orgNotice decodes and outlives a section read") { c in
+        let notice = #""orgNotice":{"title":"Your org's setup file has an error. Ask an admin to fix it","detail":"tools[1] is malformed"},"continueReady":false,"#
+        let whole = wholeFormJSON.replacingOccurrences(of: #""continueReady":false,"#, with: notice)
+        let rt = ScriptedRt()
+        rt.answers = ["setup form --json": (0, whole)]
+        let m = await SetupFormModel(rt: rt)
+        let read = await m.load(section: nil)
+        let expected = FormOrgNotice(title: "Your org's setup file has an error. Ask an admin to fix it", detail: "tools[1] is malformed")
+        c.expectEqual(read?.orgNotice, expected)
+        rt.answers = ["setup form --section connect --json": (0, sectionJSON("connect", [row("claude", state: "done")]))]
+        let section = await m.load(section: "connect")
+        c.expectEqual(section?.orgNotice, nil, "a section read carries none")
+        c.expectEqual(await m.whole?.orgNotice, expected, "the whole read keeps it")
+    },
+    Check("SetupForm: an older read without orgNotice decodes as nil") { c in
+        c.expectEqual(try decodeForm(wholeFormJSON).orgNotice, nil)
+    },
+    Check("SetupForm: a read of any other screen has no tools object") { c in
+        let read = try JSONDecoder().decode(SetupForm.self, from: Data(wholeFormJSON.utf8))
+        c.expectEqual(read.tools, nil)
     },
     Check("SetupForm: a section read keeps the other sections, and hands back its own read") { c in
         let rt = ScriptedRt()

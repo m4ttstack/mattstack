@@ -57,7 +57,7 @@ export async function setupPackFlow(ctx: ApplyContext): Promise<{ ok: boolean; d
     return { ok: true, detail: `${plugins}; ${AWAITING_CLONE_NOTE}` };
   }
 
-  const packName = ctx.reqs[0]?.pack;
+  const packName = ctx.reqs[0]?.orgOnly ? undefined : ctx.reqs[0]?.pack;
   const outcomes = materialized.skipped ? [] : materialized.repos.flatMap((r) => r.packs ?? []).filter((pk) => pk.pack === packName);
   const written = outcomes.find((pk) => pk.ok);
   const text = written && written.ok ? ctx.p.readFile(written.path) : null;

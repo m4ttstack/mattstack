@@ -11,7 +11,7 @@ public enum FastSetupScreen: String, CaseIterable, Sendable {
     case createTeam = "create-team"
     case restore, waiting, connect
     case thisMac = "this-mac"
-    case running, paused, ready
+    case tools, running, paused, ready
 
     /// The `rt setup form --section` this screen draws; nil for a screen with no rows.
     public var section: String? {
@@ -22,6 +22,7 @@ public enum FastSetupScreen: String, CaseIterable, Sendable {
         case .restore: return "restore"
         case .connect: return "connect"
         case .thisMac: return "this-mac"
+        case .tools: return "tools"
         case .loading, .path, .waiting, .running, .paused, .ready: return nil
         }
     }
@@ -55,7 +56,8 @@ public struct SetupFinishLedger: Equatable, Sendable {
     public mutating func entered(_ screen: FastSetupScreen) {
         switch screen {
         case .ready: if sawUnfinished { owed = true }
-        case .loading: break
+        // rt recorded Finish before tools: a status window owes nothing for it, and a first run keeps what it owes until P7.
+        case .loading, .tools: break
         default: sawUnfinished = true
         }
     }
@@ -89,6 +91,30 @@ public enum FastSetupLaunch {
         switch requested {
         case .status, .firstRun: return finished ? .status : .firstRun
         case .upgrade: return .upgrade
+        }
+    }
+
+    /// A window already up is only brought forward, except Setup status on a status window's ready: nothing is in hand
+    /// there, and a `setup_update` click must reach a stage that has moved since it opened. `window` is the entry it
+    /// opened as, never a new resolve: rt records Finish before a first run's P7, which would resolve as status too.
+    public static func relands(requested: SetupEntry, window: SetupEntry, showing screen: FastSetupScreen) -> Bool {
+        requested == .status && window == .status && screen == .ready
+    }
+
+    private static let ackToolsArguments = ["setup", "form", "--ack-tools", "--json"]
+
+    private struct ToolsAck: Decodable { let ok: Bool }
+
+    /// Both moves wait for rt to have the names, and rt's sentence comes back when it does not. Only a status window
+    /// closes: a first run or an upgrade can reach tools with P7 still ahead, so it reads rt's stage instead.
+    public static func ackTools(rt: RtRunning, window: SetupEntry, close: @MainActor () -> Void,
+                                land: @MainActor () async -> Void) async -> String? {
+        switch await rt.runJSON(ackToolsArguments, verb: "setup form --ack-tools", as: ToolsAck.self) {
+        case .success:
+            if window == .status { await close() } else { await land() }
+            return nil
+        case .failure(let failure):
+            return failure.copy
         }
     }
 
@@ -139,6 +165,7 @@ public final class FastSetupFlow: ObservableObject {
         case .waiting: return .waiting
         case .connect: return .connect
         case .thisMac: return .thisMac
+        case .tools: return .tools
         case .running: return .running
         case .paused: return .paused
         case .ready: return .ready
@@ -182,11 +209,11 @@ public final class FastSetupFlow: ObservableObject {
 
     /// `stage` comes from a whole-form read only: a section read carries none.
     /// A finished Mac whose Join or Create from Settings has not started yet
-    /// still reads `ready`; once the join is in flight rt says so itself.
+    /// still reads `ready`, or `tools` with a tool not yet acked; once the join is in flight rt says so itself.
     public func land(on stage: FormStage, path: String? = nil) {
         wholeSawFreshMac = Self.freshMac(stage: stage, path: path)
         if let c = chosen, stage != .path, Self.screen(for: stage) != Self.start(of: c) { chosen = nil }
-        if stage == .ready, let target = requestedScreen {
+        if stage == .ready || stage == .tools, let target = requestedScreen {
             screen = target
         } else {
             screen = Self.screen(for: stage)

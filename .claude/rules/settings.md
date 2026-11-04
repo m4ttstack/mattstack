@@ -175,7 +175,9 @@ see it), in `rt team pull`, the setup update and the daemon log. `team.sync` giv
 no remedy. After every
 pull that moves a clone the daemon converges (`createOnPulled` in
 `lib/daemon/team-snapshots.ts`), then runs `composePullHooks` over the
-intercept hook and `createMaterializePullHook`.
+intercept hook, `createMaterializePullHook` and `createToolNoticePullHook`.
+A pull that finds nothing new runs only the tool-notice hook, through
+`afterUpToDatePull`.
 The old `~/.mattstack/teams/` root is legacy: `lib/__tests__/no-legacy-teams-root.test.ts`
 keeps it out of source, and the `org.folder` step of `rt setup update` moves a
 clone found there.

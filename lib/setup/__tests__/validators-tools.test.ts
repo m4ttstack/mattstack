@@ -1885,3 +1885,31 @@ test("tool.plugins is held with no action when the mattstack catalog floor is ab
   expect(row.detail).toBe(heldCopy("mattstack", null, "0.31.0"));
   expect(row.action).toBeNull();
 });
+
+describe("toolRows: org requirements", () => {
+  const orgOpts = { hasBrew: true, secrets: NO_SECRETS };
+  const exec: ExecScript = () => ({ code: 0, stdout: "[]", stderr: "" });
+
+  test("an orgOnly entry draws no pack row and still draws its tool", async () => {
+    const reqs: PackRequirements[] = [{ pack: "widgets", tools: [{ name: "acme-cli", why: "x" }], integrations: [], orgOnly: true }];
+    const rows = await toolRows(fakeProbes({ exec }), reqs, orgOpts, NOOP_SEAMS);
+    expect(rows.find((r) => r.id === "pack.widgets")).toBeUndefined();
+    expect(rows.find((r) => r.id === "tool.team.acme-cli")).toBeDefined();
+  });
+
+  test("orgError draws one org.requirements row that blocks nothing", async () => {
+    const reqs: PackRequirements[] = [{ pack: "widgets", tools: [], integrations: [], orgOnly: true, orgError: "org/requirements.jsonc is not valid" }];
+    const rows = (await toolRows(fakeProbes({ exec }), reqs, orgOpts, NOOP_SEAMS)).filter((r) => r.id === "org.requirements");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.status).toBe("error");
+    expect(rows[0]!.required).toBe(false);
+    expect(rows[0]!.detail).toContain("org/requirements.jsonc is not valid");
+    expect(rows[0]!.finishGated).toBeFalsy();
+  });
+
+  test("no orgError draws no org.requirements row", async () => {
+    const reqs: PackRequirements[] = [{ pack: "widgets", tools: [], integrations: [] }];
+    const rows = await toolRows(fakeProbes({ exec }), reqs, orgOpts, NOOP_SEAMS);
+    expect(rows.find((r) => r.id === "org.requirements")).toBeUndefined();
+  });
+});

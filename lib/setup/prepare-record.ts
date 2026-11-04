@@ -20,6 +20,8 @@ export interface PrepareRecord {
   endedAt?: string;
   items: string[];
   failed: { tool: string; detail: string }[];
+  /** `rt tools install` presses, which only the tools screen reads, so connect rows never change for one. Absent from a record older than the field. */
+  pressFailed?: { tool: string; detail: string }[];
 }
 
 /**

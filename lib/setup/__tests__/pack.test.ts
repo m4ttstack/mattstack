@@ -113,6 +113,22 @@ describe("setupPackFlow", () => {
     expect(await setupPackFlow(makeCtx(cleared, { reqs: widgets("feature") }))).toEqual({ ok: true, detail: `8 stages in the feature pipeline` });
   });
 
+  test("an orgOnly entry takes the same path as no entry", async () => {
+    registerRepo(home);
+    const p = fakeProbes({ home, ...materializeWorld(home) });
+    const none = await setupPackFlow(makeCtx(p, { reqs: [] }));
+    const orgOnly = await setupPackFlow(makeCtx(p, { reqs: [{ pack: "widgets", tools: [], integrations: [], orgOnly: true }] }));
+    expect(orgOnly).toEqual(none);
+  });
+
+  test("an orgError never fails the pack stage", async () => {
+    registerRepo(home);
+    const p = fakeProbes({ home, ...materializeWorld(home, { fragment: fragment({ "mattstack:stage-gates": { domain: "widgets:gates" } }) }) });
+    const plain = await setupPackFlow(makeCtx(p, { reqs: widgets("feature") }));
+    const withError = await setupPackFlow(makeCtx(p, { reqs: [{ ...widgets("feature")[0]!, orgError: "bad" }] }));
+    expect(withError).toEqual(plain);
+  });
+
   test("no pack file for the requirements' pack -> NO_MANIFEST_DETAIL", async () => {
     registerRepo(home);
     const p = fakeProbes({ home, ...materializeWorld(home) });

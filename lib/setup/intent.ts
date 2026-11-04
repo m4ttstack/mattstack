@@ -73,8 +73,8 @@ export function clearIntent(p: Pick<Probes, "removeFile" | "home">): void {
 /**
  * create/join carry the org identity on the intent itself; restore and the
  * no-intent case fall back to whatever the daemon already discovered on
- * disk. With more than one org, `orgs[0]` wins, so the caller passes `orgs`
- * sorted alphabetically.
+ * disk. With more than one org the first by name wins, the rule `currentOrg`
+ * states; `listOrgs` returns directory order, so it is sorted here.
  */
 export function orgRefFromIntent(intent: SetupIntent | null, orgs: string[]): OrgRef {
   if (intent?.mode === "create" && intent.team) {
@@ -83,9 +83,10 @@ export function orgRefFromIntent(intent: SetupIntent | null, orgs: string[]): Or
   if (intent?.mode === "join" && intent.join) {
     return { slug: intent.join.pointer.team, name: intent.join.pointer.name, mode: "join" };
   }
+  const first = [...orgs].sort()[0] ?? "";
   if (intent?.mode === "restore") {
-    return { slug: orgs[0] ?? "", name: orgs[0] ?? "", mode: "restore" };
+    return { slug: first, name: first, mode: "restore" };
   }
   // solo carries no team; the discovered clones still decide the ref so a machine that later has a team never reads as solo.
-  return orgs.length ? { slug: orgs[0]!, name: orgs[0]!, mode: "none" } : { slug: "", name: "", mode: "none" };
+  return { slug: first, name: first, mode: "none" };
 }

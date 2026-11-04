@@ -19,6 +19,15 @@ describe("discoverOrgs", () => {
     });
     expect(discoverOrgs(p)).toEqual(["acme"]);
   });
+
+  test("the first entry is the first org by name, for callers that index it directly", () => {
+    const p = fakeProbes({
+      home: "/h",
+      dirs: { "/h/.mattstack/orgs": ["zeta", "acme"] },
+      files: { "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}\n", "/h/.mattstack/orgs/zeta/mattstack/org/settings.org.jsonc": "{}\n" },
+    });
+    expect(discoverOrgs(p)).toEqual(["acme", "zeta"]);
+  });
 });
 
 describe("legacyDeclaredForge", () => {

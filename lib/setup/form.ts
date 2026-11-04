@@ -3,8 +3,8 @@
  * grouped the way the app's screens draw them, and which screen setup is on.
  * rt decides each row's state and action; the app only lays them out. The
  * macos, invite, restore and create sections read only what their screen needs; the
- * connect section is built from the full plan, which one call composes at most
- * once and shares between sections.
+ * connect and tools sections are built from the full plan, which one call composes
+ * at most once and shares between sections.
  */
 import { approvalState, type ApprovalState } from "../team/approval.ts";
 import { mayOfferTokenToHost } from "../team/forge-token.ts";
@@ -31,30 +31,36 @@ import { CLI_SESSION_INTEGRATIONS, signInTools } from "./sign-in-tools.ts";
 import { installHasRun, isSetupFinished, markSetupFinished, readSetupState, type HomeBackupChoice, type SetupRun, type SetupState } from "./state.ts";
 import { probeUserSettingsReader, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot } from "./team-settings.ts";
 import { TITLES, tokenCreateLink, tokenField, type ForgeRole } from "./token-create.ts";
+import { readToolNotices, type ToolNotices } from "./tool-notices.ts";
 import { connectHostSteps } from "./validators/access.ts";
 import { accountRows, type SecretPresence } from "./validators/accounts.ts";
 import { macRows } from "./validators/mac.ts";
 import { PLACE_REPO_LABELS } from "./validators/repos.ts";
-import { CLAUDE_SIGNIN_ACTION, FAST_BROWSER_ADD_ACTION } from "./validators/tools.ts";
+import { CLAUDE_SIGNIN_ACTION, FAST_BROWSER_ADD_ACTION, dedupeTeamTools, teamToolManualSteps } from "./validators/tools.ts";
 
-export type FormSection = "macos" | "invite" | "restore" | "connect" | "this-mac" | "create";
-/** A whole read's sections. The create section needs a forge picked first, so only a section read asks for it. */
+export type FormSection = "macos" | "invite" | "restore" | "connect" | "this-mac" | "tools" | "create";
+/** A whole read's sections. The create section needs a forge picked first, and a whole read adds tools only on its own stage. */
 export const FORM_SECTIONS: readonly FormSection[] = ["macos", "invite", "restore", "connect", "this-mac"];
-export const SECTION_READS: readonly FormSection[] = [...FORM_SECTIONS, "create"];
+export const SECTION_READS: readonly FormSection[] = [...FORM_SECTIONS, "tools", "create"];
 
 export type FormRowState = "done" | "todo" | "busy" | "waiting";
-/** `off`: answered, and the answer was no (notifications turned off), so the app draws no green check. */
-export type FormRowTone = "off";
+/**
+ * `off`: a done row answered no (notifications turned off), so the app draws no green check.
+ * `failed`: a tools row whose install failed, so the app draws the detail as the failure beside the buttons.
+ */
+export type FormRowTone = "off" | "failed";
 
 export interface FormRow {
   id: string;
   title: string;
   subtext: string;
   state: FormRowState;
-  /** Only on a done row whose answer is not a yes. */
+  /** Absent on a row that reads the plain way for its state. */
   tone?: FormRowTone;
   detail: string;
   action: Action | null;
+  /** Drawn after `action`. An app older than the field draws `action` alone. */
+  secondary?: Action;
   /** The line the app shows while this row's action runs. */
   waiting: string | null;
   /** Re-read the form unprompted while this row is waiting or busy: its answer lands outside the app. */
@@ -63,7 +69,7 @@ export interface FormRow {
   optional: boolean;
 }
 
-export type FormStage = "macos" | "path" | "invite" | "waiting" | "connect" | "this-mac" | "running" | "paused" | "ready";
+export type FormStage = "macos" | "path" | "invite" | "waiting" | "connect" | "this-mac" | "tools" | "running" | "paused" | "ready";
 export type FormPath = "join" | "create" | "solo" | "restore";
 
 export interface FormPaused {
@@ -81,13 +87,17 @@ export interface SetupForm {
   path: FormPath | null;
   team: { slug: string; name: string; invitedBy: string | null } | null;
   stage: FormStage | null;
-  sections: { macos?: FormRow[]; invite?: FormRow[]; restore?: FormRow[]; connect?: FormRow[]; thisMac?: FormRow[]; create?: FormRow[] };
+  sections: { macos?: FormRow[]; invite?: FormRow[]; restore?: FormRow[]; connect?: FormRow[]; thisMac?: FormRow[]; tools?: FormRow[]; create?: FormRow[] };
+  /** The tools screen's head: set when tools is the stage or the section asked for. */
+  tools?: { heading: string; allDone: boolean };
   continueReady: boolean;
   startReady: boolean;
   /** The this-mac footer's button and the note beside it. */
   start: { label: string; note: string };
   paused: FormPaused | null;
   home: { label: string; url: string };
+  /** Only on a whole read whose plan holds the `org.requirements` row. Decides nothing: no stage, button or Finish reads it. */
+  orgNotice?: { title: string; detail: string };
 }
 
 type Forge = "github" | "gitlab";
@@ -188,6 +198,13 @@ export const FORM_COPY = {
     finish: "Finish setup",
     finishNote: "Complete the steps above first",
   },
+  tools: {
+    one: "One new tool for your team",
+    many: (count: number) => `${count} new tools for your team`,
+    allSet: "You're all set",
+    retry: "Retry",
+  },
+  orgNotice: "Your org's setup file has an error. Ask an admin to fix it",
   home: {
     board: { label: "Open the board", url: "https://board.mattstack" },
     console: { label: "Open the console", url: "https://console.mattstack" },
@@ -422,6 +439,10 @@ function planRows(plan: Plan): Row[] {
   return plan.groups.flatMap((g) => g.rows);
 }
 
+function blockingIds(plan: Plan): Set<string> {
+  return new Set([...plan.requiredMissing, ...plan.finishBlockedBy]);
+}
+
 type FormForge = { provider: Forge; host: string };
 
 /** What a path's screens draw as their own rows; ownership reads it so a row they do not draw falls through to the extra rows. */
@@ -484,7 +505,7 @@ function extraRow(r: Row, prepare: AccountsPrepare): FormRow {
  * those a run cannot set up; after one, only those it should have and did not.
  */
 export function extraRows(plan: Plan, owned: Set<string>, opts: { afterRun: boolean; prepare: AccountsPrepare }): FormRow[] {
-  const blocking = new Set([...plan.requiredMissing, ...plan.finishBlockedBy]);
+  const blocking = blockingIds(plan);
   return planRows(plan)
     .filter((r) => blocking.has(r.id) && !owned.has(r.id) && runFixes(r) === opts.afterRun)
     .map((r) => extraRow(r, opts.prepare));
@@ -575,7 +596,7 @@ function sessionIntegration(tool: ToolRequirement): LoginTool | null {
  * A tool with its own sign-in verb has no check rt can read, so once it is
  * installed its row offers the verb without holding Continue.
  */
-function signInRow(i: ConnectInputs, rows: ReadonlyMap<string, Row>, tool: ToolRequirement): ConnectRow {
+function signInRow(i: Pick<ConnectInputs, "prepare" | "logins">, rows: ReadonlyMap<string, Row>, tool: ToolRequirement): ConnectRow {
   const c = FORM_COPY.connect.teamTool;
   const session = sessionIntegration(tool);
   const base = { id: `signin.${tool.name}`, title: session ? integrationDef(session).title : tool.name, subtext: tool.why.trim() || c.subtext, waiting: null, watch: true };
@@ -655,6 +676,81 @@ export function connectRows(i: ConnectInputs): FormRow[] {
     team ? fastBrowserRow(rows, i.prepare) : { ...fastBrowserRow(rows, i.prepare), optional: true },
   ];
   return list.filter((r): r is ConnectRow => r !== null).map(settle);
+}
+
+const TEAM_TOOL_PREFIX = "tool.team.";
+
+function teamToolName(id: string, signIn: readonly ToolRequirement[]): string | null {
+  if (id.startsWith(TEAM_TOOL_PREFIX)) return id.slice(TEAM_TOOL_PREFIX.length);
+  return signIn.find((tool) => sessionIntegration(tool) !== null && id === `account.${sessionIntegration(tool)}`)?.name ?? null;
+}
+
+/** True with nothing blocking too, so a told name can hold the tools stage on its own. */
+export function onlyTeamToolsBlock(plan: Plan, signIn: readonly ToolRequirement[]): boolean {
+  return [...blockingIds(plan)].every((id) => teamToolName(id, signIn) !== null);
+}
+
+/** A tool the team removed or made optional drops out, or it would hold a screen with nothing to finish. */
+export function unackedTools(notices: ToolNotices, tools: readonly ToolRequirement[]): string[] {
+  const required = new Set(tools.filter((tool) => !tool.optional).map((tool) => tool.name));
+  return notices.told.filter((name) => required.has(name) && !notices.acked.includes(name));
+}
+
+export interface ToolsInputs extends Pick<ConnectInputs, "prepare" | "logins"> {
+  plan: Plan;
+  tools: readonly ToolRequirement[];
+  signIn: readonly ToolRequirement[];
+  /** Told and not yet acknowledged, so a resolved tool stays on screen as done until Done. */
+  unacked: readonly string[];
+}
+
+/** The button already says a tool is missing or signed out; any other reason a row is open is news. */
+function repeatsItsButton(rows: ReadonlyMap<string, Row>, r: Row, tool: ToolRequirement | undefined): boolean {
+  if (r.status === "missing") return true;
+  if (r.status !== "ready") return false;
+  const session = tool ? sessionIntegration(tool) : null;
+  return session === null || rows.get(`account.${session}`)?.status !== "error";
+}
+
+function pressFailure(prepare: AccountsPrepare, tool: string): string | null {
+  return prepare?.pressFailed?.find((f) => f.tool === tool)?.detail || null;
+}
+
+function failedInstallRow(drawn: FormRow, install: Action, tool: ToolRequirement | undefined): FormRow {
+  const steps = tool ? teamToolManualSteps(tool) : null;
+  return { ...drawn, tone: "failed", action: { ...install, label: FORM_COPY.tools.retry }, ...(steps ? { secondary: steps } : {}) };
+}
+
+function toolRow(i: ToolsInputs, rows: ReadonlyMap<string, Row>, r: Row): FormRow {
+  const name = r.id.slice(TEAM_TOOL_PREFIX.length);
+  const signIn = i.signIn.find((t) => t.name === name);
+  const plain = signIn ? settle({ ...signInRow(i, rows, signIn), id: r.id }) : extraRow(r, i.prepare);
+  if (!signIn && r.status === "ready") return { ...plain, state: "done", detail: r.detail, action: null, optional: false };
+  if (plain.state !== "todo") return plain;
+  const drawn = plain.action?.type === "install" ? { ...plain, waiting: FORM_COPY.installing } : plain;
+  // The record outlives the failure, so a tool installed by hand since then has nothing to report.
+  const failure = r.status === "ready" ? null : (pressFailure(i.prepare, name) ?? installFailure(i.prepare, name));
+  if (failure === null) return repeatsItsButton(rows, r, signIn) ? { ...drawn, detail: "" } : drawn;
+  const told = { ...drawn, detail: failure };
+  return told.action?.type === "install" ? failedInstallRow(told, told.action, i.tools.find((t) => t.name === name)) : told;
+}
+
+export function toolsRows(i: ToolsInputs): FormRow[] {
+  const names = new Set(i.unacked);
+  for (const id of blockingIds(i.plan)) {
+    const name = teamToolName(id, i.signIn);
+    if (name !== null) names.add(name);
+  }
+  const all = planRows(i.plan);
+  const rows = new Map(all.map((r) => [r.id, r]));
+  return all.filter((r) => r.id.startsWith(TEAM_TOOL_PREFIX) && names.has(r.id.slice(TEAM_TOOL_PREFIX.length))).map((r) => toolRow(i, rows, r));
+}
+
+export function toolsForm(rows: FormRow[]): NonNullable<SetupForm["tools"]> {
+  const c = FORM_COPY.tools;
+  const allDone = allAnswered(rows);
+  if (allDone) return { heading: c.allSet, allDone };
+  return { heading: rows.length === 1 ? c.one : c.many(rows.length), allDone };
 }
 
 /** `forge` and `signIn` are the connect screen's, so a run's leftovers never draw one of its rows twice. */
@@ -889,6 +985,11 @@ export function formPath(i: { intent: SetupIntent | null; joined: boolean; creat
   return i.ranOrFinished ? "solo" : null;
 }
 
+function orgNotice(plan: Plan): Pick<SetupForm, "orgNotice"> {
+  const broken = planRows(plan).find((r) => r.id === "org.requirements");
+  return broken ? { orgNotice: { title: FORM_COPY.orgNotice, detail: broken.detail } } : {};
+}
+
 export interface StageInputs {
   finished: boolean;
   path: FormPath | null;
@@ -898,6 +999,11 @@ export interface StageInputs {
   connectDone: boolean;
   thisMacDone: boolean;
   needsRun: boolean;
+  /** Nothing blocks outside the team's tools and their accounts. */
+  onlyTeamTools: boolean;
+  /** A tools row can still be answered. One nothing can clear (a tool rt could not read) stays out, or Done could never close the stage. */
+  toolsOpen: boolean;
+  toolsUnacked: boolean;
 }
 
 /**
@@ -938,6 +1044,7 @@ function finishedStage(i: StageInputs): FormStage {
   const bar = runStage(i.run);
   if (bar) return bar;
   if (!i.macosDone) return "macos";
+  if (i.onlyTeamTools && (i.toolsOpen || i.toolsUnacked)) return "tools";
   if (!i.connectDone) return "connect";
   if (!i.thisMacDone || i.needsRun) return "this-mac";
   return "ready";
@@ -945,7 +1052,7 @@ function finishedStage(i: StageInputs): FormStage {
 
 /** A row only the bar sets up still blocks Install or Finish. Before an ok run no screen draws it, so Set up this Mac is its fix. */
 export function needsRun(plan: Plan): boolean {
-  const blocking = new Set([...plan.requiredMissing, ...plan.finishBlockedBy]);
+  const blocking = blockingIds(plan);
   return planRows(plan).some((r) => blocking.has(r.id) && runFixes(r));
 }
 
@@ -986,15 +1093,19 @@ function teamForge(p: Probes, plan: Plan, intent: SetupIntent | null): FormForge
   return enrichSnapshotForge(slug ? readTeamSnapshot(p, slug) : EMPTY_SNAPSHOT, intent).integrations.forge ?? null;
 }
 
-async function connectSection(p: Probes, plan: Plan, orgs: string[], path: FormPath): Promise<FormRow[]> {
-  const intent = readIntent(p);
-  const slug = plan.team.slug;
-  const pointerLogin = intent?.mode === "join" ? (intent.join?.pointer.username ?? null) : null;
+function liveLogins(p: Probes): ConnectInputs["logins"] {
   const logins: ConnectInputs["logins"] = {};
   for (const tool of LOGIN_TOOLS) {
     const live = readLogin(p, tool);
     if (live) logins[tool] = live;
   }
+  return logins;
+}
+
+async function connectSection(p: Probes, plan: Plan, orgs: string[], path: FormPath): Promise<FormRow[]> {
+  const intent = readIntent(p);
+  const slug = plan.team.slug;
+  const pointerLogin = intent?.mode === "join" ? (intent.join?.pointer.username ?? null) : null;
   return connectRows({
     path,
     plan,
@@ -1002,9 +1113,18 @@ async function connectSection(p: Probes, plan: Plan, orgs: string[], path: FormP
     forgeLogin: (slug && orgs.includes(slug) ? readTeamLocal(p, slug).forgeUsername : undefined) ?? pointerLogin,
     signIn: signInTools(readPackRequirements(p, slug)),
     prepare: readPrepare(p, "accounts", undefined, () => p.now()),
-    logins,
+    logins: liveLogins(p),
     confirmedHost: readUserIntegrationOverrides({ read: probeUserSettingsReader(p) }).forgeHost ?? null,
   });
+}
+
+function toolsSection(p: Probes, plan: Plan): { rows: FormRow[]; stage: Pick<StageInputs, "onlyTeamTools" | "toolsOpen" | "toolsUnacked"> } {
+  const reqs = readPackRequirements(p, plan.team.slug);
+  const signIn = signInTools(reqs);
+  const tools = dedupeTeamTools(reqs);
+  const unacked = unackedTools(readToolNotices(p), tools);
+  const rows = toolsRows({ plan, tools, signIn, unacked, prepare: readPrepare(p, "accounts", undefined, () => p.now()), logins: liveLogins(p) });
+  return { rows, stage: { onlyTeamTools: onlyTeamToolsBlock(plan, signIn), toolsOpen: !allAnswered(rows), toolsUnacked: unacked.length > 0 } };
 }
 
 /** A url staged before Install still counts once the Join page has made the repo without an origin. */
@@ -1102,7 +1222,8 @@ export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupFo
   };
   const finished = isSetupFinished(state) || (opts.sections === undefined && (await finishOnRead(p, state, planFor)));
   const intent = readIntent(p);
-  const clones: Clone[] = opts.orgs.map((slug) => ({ slug, record: readTeamLocal(p, slug) }));
+  // Sorted as `orgRefFromIntent` sorts: `listOrgs` returns directory order, and the form must name the org the plan reads.
+  const clones: Clone[] = [...opts.orgs].sort().map((slug) => ({ slug, record: readTeamLocal(p, slug) }));
   const joined = joinedClone(p, clones);
   const path = formPath({
     intent,
@@ -1120,6 +1241,7 @@ export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupFo
   if (wanted.includes("restore")) sections.restore = await restoreSection(p);
   if (wanted.includes("connect")) sections.connect = await connectSection(p, await plan(), opts.orgs, path ?? "solo");
   if (wanted.includes("this-mac")) sections.thisMac = await thisMacSection(p, await plan(), path ?? "solo", state, opts.githubToken ?? (() => readStoredGitHubToken(p)), opts.githubClientId ?? GITHUB_OAUTH_CLIENT_ID);
+  if (wanted.includes("tools")) sections.tools = toolsSection(p, await plan()).rows;
   if (wanted.includes("create") && opts.create) sections.create = await createSection(p, opts.secrets, opts.create);
   const form: SetupForm = {
     path,
@@ -1136,12 +1258,14 @@ export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupFo
     ),
     paused: null,
     home: homeApp(path),
+    ...(sections.tools ? { tools: toolsForm(sections.tools) } : {}),
   };
   if (opts.sections !== undefined) return form;
 
   const run = state.run;
   const loginItems = permissionRows(permissions, null).find((r) => r.id === "perm.login-items");
   const paused = pausedFor(run, { events: run?.failed ? p.readFile(applyEventsPath(p.home)) : null, loginItems });
+  const tools = finished ? toolsSection(p, await plan()) : null;
   const stage = formStage({
     finished,
     path,
@@ -1151,8 +1275,11 @@ export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupFo
     connectDone: allAnswered(sections.connect),
     thisMacDone: allAnswered(sections.thisMac),
     needsRun: finished && needsRun(await plan()),
+    ...(tools?.stage ?? { onlyTeamTools: false, toolsOpen: false, toolsUnacked: false }),
   });
-  return { ...form, stage, paused };
+  const notice = orgNotice(await plan());
+  if (stage === "tools" && tools) return { ...form, ...notice, stage, paused, sections: { ...sections, tools: tools.rows }, tools: toolsForm(tools.rows) };
+  return { ...form, ...notice, stage, paused };
 }
 
 /**

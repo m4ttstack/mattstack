@@ -64,6 +64,8 @@ export interface TeamSnapshotsDeps {
   converge?: typeof convergePackCache;
   /** Runs after every pull that moved a clone, even when the converge threw. */
   afterPull?: (slug: string) => Promise<void>;
+  /** Runs after every pull that found nothing new, so a check that must read twice does not wait for the org's next commit. */
+  afterUpToDatePull?: (slug: string) => Promise<void>;
   /** Injectable so tests never reach the keychain; the forge token both the engine's git and the data-branch move offer origin. */
   readToken?: (p: Probes, remote: string) => Promise<string | null>;
   moveData?: typeof convergeDataBranch;
@@ -444,6 +446,7 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
           probes,
           ownedRoots: roots,
           onPulled: createOnPulled({ probes, slug, dir, log: rawDeps.log.child({ team: slug }), converge, afterPull: rawDeps.afterPull }),
+          onUpToDate: async () => { await rawDeps.afterUpToDatePull?.(slug); },
           onMoved: createOnMoved({ probes, dir, log: rawDeps.log.child({ team: slug }), moveData, readToken: rawDeps.readToken }),
           ...(rawDeps.readToken ? { readToken: rawDeps.readToken } : {}),
         });

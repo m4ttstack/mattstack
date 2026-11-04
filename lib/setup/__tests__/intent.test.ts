@@ -93,6 +93,14 @@ describe("orgRefFromIntent", () => {
     expect(orgRefFromIntent(intent, ["acme", "beta"])).toEqual({ slug: "acme", name: "acme", mode: "restore" });
   });
 
+  test("the first org by name wins whatever order the clones were listed in", () => {
+    const restore: SetupIntent = { v: 1, at: "x", mode: "restore", restore: { homeRepo: "r" } };
+    const listed = ["zeta", "acme"];
+    expect(orgRefFromIntent(restore, listed)).toEqual({ slug: "acme", name: "acme", mode: "restore" });
+    expect(orgRefFromIntent(null, listed)).toEqual({ slug: "acme", name: "acme", mode: "none" });
+    expect(listed).toEqual(["zeta", "acme"]);
+  });
+
   test("null intent with discovered orgs yields the first org with mode none", () => {
     expect(orgRefFromIntent(null, ["acme", "beta"])).toEqual({ slug: "acme", name: "acme", mode: "none" });
   });

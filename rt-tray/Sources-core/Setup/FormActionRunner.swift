@@ -37,7 +37,7 @@ public enum FormActionControl: Equatable, Sendable {
 
 /// Performs a fast-setup row's action and holds its wait or error until rt's
 /// next read. Neither is a row state: `reconcile` drops both once rt says
-/// the row is done.
+/// the row is done, and the error once rt carries the failure itself.
 @MainActor
 public final class FormActionRunner: ObservableObject {
     @Published public private(set) var waiting: [String: String] = [:]
@@ -125,9 +125,9 @@ public final class FormActionRunner: ObservableObject {
     }
 
     public func reconcile(with rows: [FormRow]) {
-        for row in rows where row.state == .done {
-            waiting[row.id] = nil
-            errors[row.id] = nil
+        for row in rows {
+            if row.state == .done { waiting[row.id] = nil }
+            if row.state == .done || row.tone == .failed { errors[row.id] = nil }
         }
     }
 
