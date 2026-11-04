@@ -1,6 +1,8 @@
 import { homedir } from 'os';
 import { join } from 'path';
 
+import type { AnnouncementPayload } from '@mattstack/rt-client';
+
 import type { AskKind } from '../peer/envelope.ts';
 
 /** rt-tray's notify socket; contract matches repo-tools commands/settings.ts
@@ -34,6 +36,13 @@ export function askNotice(
     title: `${fromName} ${ASKED[n.kind ?? 're-review']}`,
     message: `${mr}\nYour agent waits for your go ahead.`,
   };
+}
+
+export function announcementNotice(
+  p: AnnouncementPayload,
+  from: string
+): { title: string; message: string } {
+  return { title: p.title, message: `${p.message}\nFrom ${from}` };
 }
 
 const SNIPPET_MAX = 120;
@@ -75,11 +84,11 @@ export async function notifyEscalation(
   title: string,
   message: string,
   mode: 'rt' | 'badge-only',
-  opts: { url?: string | null; traySock?: string; category?: string } = {}
+  opts: { url?: string | null; traySock?: string; category?: string; id?: string } = {}
 ): Promise<void> {
   if (mode !== 'rt') return;
   const event = {
-    id: crypto.randomUUID(),
+    id: opts.id ?? crypto.randomUUID(),
     title,
     message,
     category: opts.category ?? 'mr-doctor',

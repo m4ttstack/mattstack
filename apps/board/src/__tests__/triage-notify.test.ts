@@ -4,6 +4,7 @@ import { join } from 'path';
 import { afterAll, describe, expect, test } from 'bun:test';
 
 import {
+  announcementNotice,
   askNotice,
   boardAskLink,
   boardMrLink,
@@ -169,4 +170,10 @@ describe('ask notification', () => {
       message: '!1366\nYour agent waits for your go ahead.',
     });
   });
+});
+
+test('announcementNotice ends with the sender', () => {
+  expect(
+    announcementNotice({ title: 'Update rt', message: 'Today please' }, 'alice')
+  ).toEqual({ title: 'Update rt', message: 'Today please\nFrom alice' });
 });

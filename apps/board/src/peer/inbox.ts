@@ -1,5 +1,11 @@
 import type { Database } from 'bun:sqlite';
 
+import {
+  ANNOUNCEMENT_TYPE,
+  parseAnnouncementPayload,
+  type AnnouncementPayload,
+} from '@mattstack/rt-client';
+
 import type { SwitchboardClient } from './client.ts';
 import {
   parseNudgeOutcomePayload,
@@ -12,7 +18,13 @@ import type { NudgeState } from './nudges.ts';
 import { drainOutbox } from './outbox.ts';
 import type { PeerReviewState } from './peer-reviews.ts';
 
+const ANNOUNCEMENT_MAX_AGE_MS = 24 * 60 * 60_000;
+
 export interface MaterializeDeps {
+  /** Whether this username is an owner or admin of the Mac's org. */
+  isOrgAdmin(username: string): boolean;
+  /** Raises the macOS notification; the envelope id keeps a redelivery to one banner. */
+  notifyAnnouncement(id: string, payload: AnnouncementPayload, from: string): void;
   writePeerReview(s: PeerReviewState): unknown;
   writeNudge(n: NudgeState): void;
   resolveSentNudge(
@@ -149,6 +161,19 @@ export function materializeEnvelope(
       },
       e.from
     );
+    return;
+  }
+  if (e.type === ANNOUNCEMENT_TYPE) {
+    const p = parseAnnouncementPayload(e.payload);
+    if (!p)
+      return deps.log(`peer: malformed announcement from ${e.from} (${e.id})`);
+    if (now - e.receivedAt > ANNOUNCEMENT_MAX_AGE_MS)
+      return deps.log(`peer: dropping stale announcement from ${e.from} (${e.id})`);
+    if (!deps.isOrgAdmin(e.from))
+      return deps.log(
+        `peer: dropping announcement from ${e.from}, not an org admin (${e.id})`
+      );
+    deps.notifyAnnouncement(e.id, p, e.from);
     return;
   }
   deps.log(

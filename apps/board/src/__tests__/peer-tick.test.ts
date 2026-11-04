@@ -105,6 +105,8 @@ function fakeDeps(): MaterializeDeps & {
     nudges,
     resolutions,
     logs,
+    isOrgAdmin: () => true,
+    notifyAnnouncement() {},
     writePeerReview(s) {
       peerReviews.push(s);
       return true;
@@ -243,5 +245,25 @@ describe('runPeerTick', () => {
       outbox
     );
     expect(events).toEqual(['ok']);
+  });
+
+  test('a throwing role read does not stop the batch', async () => {
+    const deps = fakeDeps();
+    deps.isOrgAdmin = () => {
+      throw new Error('bad store');
+    };
+    const client = fakeClient([
+      envelope({
+        id: 'a1',
+        from: 'admin1',
+        type: 'announcement',
+        receivedAt: Date.now(),
+        payload: { title: 'Update rt', message: 'Today please' },
+      }),
+      envelope({ id: 'r1' }),
+    ]);
+    await runPeerTick(client, deps);
+    expect(deps.peerReviews).toHaveLength(1);
+    expect(client.acked).toEqual([['a1', 'r1']]);
   });
 });
