@@ -133,6 +133,7 @@ flowchart TB
     git_push_force_lease --> git_push_result
     git_push_result -->|pushed| done
     git_push_result -->|safety refusal: lease, protected or default branch, detached HEAD, upstream mismatch| push_refused
+    git_push_result -->|check refusal: check-red or check-error| push_refused
     git_push_result -->|not registered with rt| stop_shell_push
     git_push_result -->|any other error| push_refused
     stop_shell_push --> gate_off_script

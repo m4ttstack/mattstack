@@ -15,6 +15,11 @@ never Take. Iterate counts nothing: each retry needs a new answer at this
 gate; a refused retry reopens this gate with the Iterate note in its context.
 
 A `refusal: "check-red"` or `"check-error"` is the repo's own pre-push check
-failing: call the `rt_verb` tool with `args: ["check"]`, read its failures, commit the fix, then answer
-Iterate here. `allowRed: true` and `skipCheck: true` push anyway, so they are
-the human's answer at this gate, never the agent's own call to get past a red.
+failing, and the refusal carries the answer: quote
+`check.result.summary.failures` in `context`, or `check.result.reason` and
+`check.result.outputTail` when that list is empty. To run it again, call the
+`rt_verb` tool with `args: ["check"]` and `cwd` = the tree root. Iterate here
+still means the human fixed the cause, or their note names the fix: make that
+fix, commit it, and push again. `allowRed: true` and `skipCheck: true` push
+anyway, so they are the human's answer at this gate, never the agent's own call to get
+past a red.
