@@ -41,7 +41,6 @@ const NO_SCHEMA_YET: readonly string[] = [
   "chat.autoSignIn",
   "chat.handle",
   "chat.herdrWorkspace",
-  "chat.humanHandle",
   "chat.push.provider",
   "chat.push.target",
   "chat.viewerUrl",
