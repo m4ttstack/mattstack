@@ -1,77 +1,37 @@
-/* The column, not the type, is what keeps a long post readable on a wide
-   screen. */
 .col {
   width: 100%;
-  max-width: 720px;
-  margin: 0 auto;
 }
 
+/* Time in a gutter, name inline with the first line, a tint on hover. */
 .msg {
   display: flex;
-  gap: 10px;
-  padding: 11px 0;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 2px 20px 2px 16px;
   min-width: 0;
 }
 
 .msg[data-grouped] {
-  margin-top: -3px;
-  padding-top: 0;
+  margin-top: 3px;
 }
 
-.col[data-compact] {
-  max-width: none;
-}
-
-.col[data-compact] .msg[data-grouped] {
-  margin-top: -4px;
-}
-
-.col[data-compact] .msg {
-  padding: 7px 0;
-}
-
-.col[data-compact] .hdr {
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 3px;
-}
-
-.col[data-compact] .who {
-  font-size: var(--mantine-font-size-xs);
-}
-
-.col[data-compact] .prose {
-  font-size: var(--mantine-font-size-sm);
-  line-height: 1.45;
-}
-
-.closed {
-  padding: 2px 0 14px;
-  font-size: var(--mantine-font-size-xs);
-  color: var(--tk-text-3);
+.msg:hover {
+  background: var(--tk-panel);
 }
 
 .gutter {
-  position: relative;
   flex: none;
-  width: 20px;
-  padding-top: 1px;
+  width: 44px;
+  padding-top: 3px;
+  text-align: right;
 }
 
-/* Right-aligned in the gutter, so the time sits where the sprite would and
-   keeps clear of the text. */
-.hoverTime {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  font-size: var(--mantine-font-size-xs);
-  color: var(--tk-text-4);
-  white-space: nowrap;
-  opacity: 0;
+.msg[data-grouped] .gutter {
+  visibility: hidden;
 }
 
-.msg:hover .hoverTime {
-  opacity: 1;
+.msg[data-grouped]:hover .gutter {
+  visibility: visible;
 }
 
 .content {
@@ -79,17 +39,32 @@
   min-width: 0;
 }
 
+.lead {
+  float: left;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 1.55em;
+  margin-right: 7px;
+  font-size: var(--mantine-font-size-lg);
+}
+
+.lead .who {
+  font-size: inherit;
+  font-weight: 600;
+}
+
 .hdr {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
-  margin-bottom: 4px;
+  margin-bottom: 3px;
 }
 
 .who {
   flex: none;
-  font-size: var(--mantine-font-size-sm);
+  font-size: var(--mantine-font-size-xs);
   font-weight: 600;
 }
 
@@ -102,12 +77,43 @@
 .prose {
   font-size: var(--mantine-font-size-lg);
   line-height: 1.55;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
   min-width: 0;
   color: var(--tk-text-1);
   overflow-wrap: anywhere;
+}
+
+.prose > * + * {
+  margin-top: 6px !important;
+}
+
+/* A list, table or fence can't flow beside the name, so it starts below it. */
+.prose > :first-child:not(p) {
+  clear: left;
+}
+
+.col[data-compact] .msg {
+  display: block;
+  margin-top: 0;
+  padding: 7px 0;
+}
+
+.col[data-compact] .msg[data-grouped] {
+  padding-top: 0;
+}
+
+.col[data-compact] .msg:hover {
+  background: none;
+}
+
+.col[data-compact] .prose {
+  font-size: var(--mantine-font-size-sm);
+  line-height: 1.45;
+}
+
+.closed {
+  padding: 8px 0 12px;
+  font-size: var(--mantine-font-size-xs);
+  color: var(--tk-text-3);
 }
 
 .prose > * {

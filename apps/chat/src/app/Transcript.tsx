@@ -18,7 +18,6 @@ import ScrollToBottom, {
 import { AgentName, HandleAvatar } from './AgentName';
 import { useBuddies } from './buddies-context';
 import { dayKey, dayLabel, localTime } from './day-label';
-import { doing } from './doing';
 import { MessageMarkdown } from './MessageMarkdown';
 import { NewPill } from './NewPill';
 import { useRelayFrames, useRelayOpen } from './relay-socket';
@@ -29,7 +28,7 @@ import scrollClasses from './transcript-scroll.module.css';
 
 /** The panel's horizontal inset, inside the scroll view so the scrollbar hugs
     the panel's edge. */
-const INSET = 'var(--mantine-spacing-xl)';
+const INSET = '20px';
 const COMPACT_INSET = '12px';
 /** Messages per page: the newest page on open, and one page per older
     load. Agent posts run long, so this is one to two screens. */
@@ -237,17 +236,42 @@ function MessageRow({
   compact: boolean;
   grouped: boolean;
 }) {
-  // matt has no session behind him, so no buddy row and no task line -- the
-  // lookup below falls through to `undefined` for him on its own.
   const ctx = useBuddies();
-  const author = ctx?.byHandle.get(message.handle);
-  const task =
-    !compact && ctx?.reachable && author ? doing(author, ctx.now) : null;
   const hue = speakerHue(
     message.handle,
     humanHandle,
     'body',
     ctx?.lookOf(message.handle)
+  );
+  const time = (
+    <Text
+      component="span"
+      className={prose.meta}
+      title={new Date(message.postedAt).toLocaleString()}
+      style={{ flex: 'none' }}
+    >
+      {localTime(message.postedAt)}
+    </Text>
+  );
+  const name = (
+    <span className={prose.who} style={{ color: hue.text }}>
+      <AgentName
+        handle={message.handle}
+        name={message.name}
+        variant="name"
+        withAvatar={false}
+      />
+    </span>
+  );
+  const body = (
+    <div data-testid="message-body" className={prose.prose}>
+      <MessageMarkdown
+        body={message.body}
+        mentions={message.mentions}
+        mentionNames={message.mentionNames}
+        humanHandle={humanHandle}
+      />
+    </div>
   );
   return (
     <div
@@ -256,62 +280,39 @@ function MessageRow({
       className={prose.msg}
       data-grouped={grouped || undefined}
     >
-      {!compact && (
-        <div className={prose.gutter}>
-          {grouped ? (
-            <span
-              className={prose.hoverTime}
-              title={new Date(message.postedAt).toLocaleString()}
-            >
-              {localTime(message.postedAt)}
-            </span>
-          ) : (
-            <HandleAvatar handle={message.handle} variant="inline" size={18} />
-          )}
-        </div>
-      )}
-      <div className={prose.content}>
-        {!grouped && (
-          <div className={prose.hdr}>
-            {compact && (
+      {compact ? (
+        <div className={prose.content}>
+          {!grouped && (
+            <div className={prose.hdr}>
               <HandleAvatar
                 handle={message.handle}
                 variant="inline"
                 size={13}
               />
-            )}
-            <span className={prose.who} style={{ color: hue.text }}>
-              <AgentName
-                handle={message.handle}
-                name={message.name}
-                variant="name"
-                withAvatar={false}
-              />
-            </span>
-            {task && task.kind !== 'away' && task.kind !== 'signed-out' && (
-              <Text component="span" truncate className={prose.meta}>
-                {task.text}
-              </Text>
-            )}
-            <Text
-              component="span"
-              className={prose.meta}
-              title={new Date(message.postedAt).toLocaleString()}
-              style={{ flex: 'none' }}
-            >
-              {localTime(message.postedAt)}
-            </Text>
-          </div>
-        )}
-        <div data-testid="message-body" className={prose.prose}>
-          <MessageMarkdown
-            body={message.body}
-            mentions={message.mentions}
-            mentionNames={message.mentionNames}
-            humanHandle={humanHandle}
-          />
+              {name}
+              {time}
+            </div>
+          )}
+          {body}
         </div>
-      </div>
+      ) : (
+        <>
+          <div className={prose.gutter}>{time}</div>
+          <div className={prose.content}>
+            {!grouped && (
+              <span className={prose.lead}>
+                <HandleAvatar
+                  handle={message.handle}
+                  variant="inline"
+                  size={15}
+                />
+                {name}
+              </span>
+            )}
+            {body}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -613,7 +614,7 @@ export function Transcript({
           <ScrollHandle handle={scrollHandle} />
           <Box
             className={scrollClasses.bottom}
-            style={bare ? undefined : { padding: `0 ${inset}` }}
+            style={bare || !compact ? undefined : { padding: `0 ${inset}` }}
           >
             <div
               ref={columnRef}

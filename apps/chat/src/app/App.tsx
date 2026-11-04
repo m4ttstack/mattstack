@@ -56,6 +56,10 @@ export type Buddy = RosterBuddy;
 
 const SIDEBAR_WIDTH = 272;
 const PAGE_ROW_HEIGHT = 44;
+const SHELL_HEADER_HEIGHT = 48;
+/** Matches the sheet's margin in app.module.css; PageShell takes it off the
+    content height through its top offset. */
+const SHEET_INSET = 8;
 /** The top bar and sidebar are one surface; the room sits on it as a sheet. */
 const CHROME_SURFACE = 'var(--tk-bg)';
 
@@ -404,6 +408,7 @@ function ChatPage({
         sidebarWidth={SIDEBAR_WIDTH}
         headerHeight={PAGE_ROW_HEIGHT}
         compactHeader
+        topOffset={SHELL_HEADER_HEIGHT + SHEET_INSET}
         drawerStateKey="chat-rooms-sidebar"
       >
         {(rooms.length > 0 || buddies.length > 0) && (

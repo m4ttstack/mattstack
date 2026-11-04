@@ -117,7 +117,9 @@ function partition(children: ReactNode) {
 function useHeaderProps(surface: string | undefined) {
   const { bg } = useSchemeColors();
   if (surface) {
-    return { withBorder: false, style: { backgroundColor: surface } } as const;
+    return {
+      style: { backgroundColor: surface, borderBottom: 'none' },
+    } as const;
   }
   return {
     style: {
