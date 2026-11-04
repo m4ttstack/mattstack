@@ -357,6 +357,23 @@ export function fixtureRooms(): (RoomSummary & {
   return [...repoRooms, ...dmRooms];
 }
 
+/** One open Slack support chat, in the max and stan DM, so the composer
+    label has a room to show on under `CHAT_FIXTURES=1`. */
+export function fixtureSlackStatus() {
+  const now = Date.now();
+  return {
+    conversations: [
+      {
+        id: 1,
+        room: FIXTURE_DM,
+        name: 'alex',
+        openedAt: now - 12 * 60_000,
+        lastActiveAt: now - 2 * 60_000,
+      },
+    ],
+  };
+}
+
 export function fixtureMembers(room: string, now = Date.now()) {
   const buddies = fixtureBuddies(now);
   // A DM's membership is its participant pair, which is not discoverable

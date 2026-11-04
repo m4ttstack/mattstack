@@ -350,7 +350,45 @@ export function chatDm(
   const payload: Record<string, unknown> = { from: a.from, to: a.to, body: a.body };
   if (a.sessionId !== undefined) payload.sessionId = a.sessionId;
   if (a.pane !== undefined) payload.pane = a.pane;
-  return rtCommand<Commands["chat:dm"]["data"]>("chat:dm", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+  // A dm into a Slack conversation waits on Slack, up to one Retry-After and two
+  // requests. Timing out sooner reports a failure for a message that still lands,
+  // and the sender resends it.
+  return rtCommand<Commands["chat:dm"]["data"]>("chat:dm", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 60_000 });
+}
+
+/** Slack calls run behind this and chatSlackClose, so they share chatDm's budget. */
+export function chatSlackOpen(a: Commands["chat:slack-open"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-open"]["data"]>> {
+  const payload: Record<string, unknown> = { agentHandle: a.agentHandle, person: a.person };
+  if (a.sessionId !== undefined) payload.sessionId = a.sessionId;
+  return rtCommand<Commands["chat:slack-open"]["data"]>("chat:slack-open", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 60_000 });
+}
+
+export function chatSlackClose(a: Commands["chat:slack-close"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-close"]["data"]>> {
+  const payload: Record<string, unknown> = {};
+  for (const k of ["agentHandle", "sessionId", "pane", "farewell"] as const) {
+    if (a[k] !== undefined) payload[k] = a[k];
+  }
+  return rtCommand<Commands["chat:slack-close"]["data"]>("chat:slack-close", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 60_000 });
+}
+
+export function chatSlackStatus(o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-status"]["data"]>> {
+  return rtCommand<Commands["chat:slack-status"]["data"]>("chat:slack-status", {}, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+}
+
+export function chatSlackPeople(o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-people"]["data"]>> {
+  return rtCommand<Commands["chat:slack-people"]["data"]>("chat:slack-people", {}, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 60_000 });
+}
+
+export function chatSlackPending(a: Commands["chat:slack-pending"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-pending"]["data"]>> {
+  return rtCommand<Commands["chat:slack-pending"]["data"]>("chat:slack-pending", { agentHandle: a.agentHandle }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+}
+
+export function chatSlackDelivered(a: Commands["chat:slack-delivered"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-delivered"]["data"]>> {
+  return rtCommand<Commands["chat:slack-delivered"]["data"]>("chat:slack-delivered", { id: a.id }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+}
+
+export function chatSlackTicket(a: Commands["chat:slack-ticket"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-ticket"]["data"]>> {
+  return rtCommand<Commands["chat:slack-ticket"]["data"]>("chat:slack-ticket", { ...a }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
 export function chatArchive(

@@ -1,0 +1,78 @@
+---
+sidebar_position: 13.5
+title: Slack support chat
+---
+
+# Slack support chat
+
+A support chat lets one of your Claude panes help a teammate over a Slack direct message. The teammate writes in Slack. The pane answers there, and you can watch and steer from the chat viewer. The pane only reads and explains: it never edits files, commits or pushes for a teammate.
+
+Every pane reply starts with `[Claude 🤖]: `, so the teammate can tell it is Claude and not you.
+
+## Set up
+
+Do this once for your Slack app and once on each Mac that opens chats.
+
+1. The app's owner adds four user scopes on the app's OAuth page: `im:history`, `im:read`, `im:write` and `users:read`. A workspace admin may need to approve them.
+2. Open mattstack's **Settings > Accounts** and press **Connect** on the **Slack support chat** row, or run:
+
+   ```bash
+   rt setup slack connect --support-chat
+   ```
+
+   This lets your Slack token read your direct messages, so only do it if you run support chats. Nobody else needs it, and nothing in setup asks for it. If the app doesn't list the scopes yet, your current token stays as it is. Slack may grant less than you asked for, and the row then names what the app's owner needs to add. Or Slack may refuse the request, and the connect fails and names those scopes.
+
+3. Update the mattstack Claude plugin, which adds the `/slack-support` command:
+
+   ```bash
+   claude plugin update mattstack@mattstack
+   ```
+
+   Then run `/reload-plugins` in your Claude Code session.
+
+4. Install the herdr chat plugin, or reinstall it if you already have it, so the new controls show up:
+
+   ```bash
+   herdr plugin install m4ttstack/mattstack/plugins/herdr-chat
+   ```
+
+You don't need to sign the pane in to rt chat first: `/slack-support` signs it in. See the [chat guide](/rt/guides/chat).
+
+## Open a chat
+
+In the pane, type:
+
+```text
+/slack-support <person> <problem>
+```
+
+Put a full name in quotes:
+
+```text
+/slack-support "Alex Example" the printer won't print
+```
+
+The pane writes a short brief, then sends the teammate a first message. Only you can open a chat: no model tool does it, and a teammate cannot ask for one.
+
+You can also use the **On** control in the pane's Slack support action, which types the command for you. **Off** closes the chat. That action isn't in the herdr chat launcher, so [bind it to a key](/skills/herdr-chat#bind-keys).
+
+## During a chat
+
+- The teammate's replies reach the pane within a few seconds.
+- A message you type in Slack is seen by both the teammate and the pane.
+- A message you send from the chat viewer reaches only the pane. The teammate never sees it.
+- A chat starts when you turn it on. The pane never sees anything earlier in the DM, and a thread reply under a message from before the chat is never seen.
+- The pane cannot read attachments. It asks the teammate to paste the text.
+
+## How a chat ends
+
+- The pane closes it once the teammate confirms the problem is sorted.
+- After 30 quiet minutes the pane checks in. After 60 quiet minutes the chat closes.
+- You can close it with **Off**.
+- Ending the pane's Claude session closes it at once: exiting, closing the pane, `/clear`, `/resume`, or signing the pane out of chat. There is no farewell. rt tells the teammate you will follow up, and sends you a desk notification.
+
+On close the pane sends a short farewell, and rt adds a fixed line saying anything further goes to you. The pane then sends you a message with the outcome and any ticket paths. After that, what the teammate sends is an ordinary DM to you.
+
+## Tickets
+
+When a teammate reports a bug or asks for a feature, the pane writes a ticket as a markdown file in `~/.mattstack/chat/support-tickets/`. Each file has the problem, the idea or fix, acceptance points and where it came from. Review and promote them by hand. The pane creates nothing in Linear or any other tracker.

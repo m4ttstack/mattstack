@@ -21,6 +21,114 @@ pub struct Status {
     pub pane: Option<String>,
     pub signed_in: bool,
     pub rooms: Vec<String>,
+    /// Three states, so a caller can tell an rt without the Slack verbs from
+    /// a pane with no chat: `None` leaves the key out (the lookup failed),
+    /// `Some(None)` prints `null` (rt answered, no chat here), `Some(Some(_))`
+    /// prints the open chat.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slack_chat: Option<Option<SlackChat>>,
+}
+
+/// Who a pane is talking to over Slack, and since when (rt's epoch value,
+/// passed through unchanged).
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SlackChat {
+    pub name: String,
+    pub display_name: String,
+    pub opened_at: i64,
+}
+
+/// One open conversation as `slack-status` prints it. `pane` is null when the
+/// holding agent has no pane in the roster.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SlackConversationRow {
+    pub id: u64,
+    pub room: String,
+    pub pane: Option<String>,
+    pub name: String,
+    pub display_name: String,
+    pub opened_at: i64,
+    pub last_active_at: i64,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct SlackStatus {
+    pub conversations: Vec<SlackConversationRow>,
+}
+
+pub fn slack_status_from(chats: &[crate::rt::SlackConversation]) -> SlackStatus {
+    SlackStatus {
+        conversations: chats
+            .iter()
+            .map(|c| SlackConversationRow {
+                id: c.id,
+                room: c.room.clone(),
+                pane: c.pane.clone(),
+                name: c.name.clone(),
+                display_name: c.shown_name().to_string(),
+                opened_at: c.opened_at,
+                last_active_at: c.last_active_at,
+            })
+            .collect(),
+    }
+}
+
+/// One row of `slack-people`. A title Slack has none for is left out.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct SlackPersonRow {
+    pub name: String,
+    pub person: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+/// `slack-people`'s answer. Unavailable is an answer rather than a failure, so
+/// it keeps this shape and exits zero.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum SlackPeople {
+    Listed {
+        ok: bool,
+        people: Vec<SlackPersonRow>,
+    },
+    Unavailable {
+        ok: bool,
+        reason: &'static str,
+        error: String,
+    },
+}
+
+pub fn slack_people_from(people: Result<Vec<crate::rt::SlackPerson>, String>) -> SlackPeople {
+    match people {
+        Ok(people) => SlackPeople::Listed {
+            ok: true,
+            people: people
+                .into_iter()
+                .map(|p| SlackPersonRow {
+                    name: p.name,
+                    person: p.person,
+                    title: p.title,
+                })
+                .collect(),
+        },
+        Err(error) => SlackPeople::Unavailable {
+            ok: false,
+            reason: "unavailable",
+            error,
+        },
+    }
+}
+
+/// What a close did. `closed: false` is not a failure: the close has started
+/// and the pane is saying goodbye, so the chat is still listed until it ends.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SlackClose {
+    pub ok: bool,
+    pub conversation_id: u64,
+    pub closed: bool,
 }
 
 /// A buddy row as a consumer reads it. The identity is required, because a row
@@ -262,12 +370,84 @@ mod tests {
             pane: Some("w1:p1".to_string()),
             signed_in: true,
             rooms: vec!["#rt".to_string()],
+            slack_chat: Some(None),
         })
         .unwrap();
         assert_eq!(
             out,
-            r##"{"handle":"kay","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":["#rt"]}"##
+            r##"{"handle":"kay","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":["#rt"],"slackChat":null}"##
         );
+    }
+
+    #[test]
+    fn status_serializes_the_open_slack_chat_as_slack_chat() {
+        let out = serde_json::to_string(&Status {
+            handle: Some("kay".to_string()),
+            name: Some("kay".to_string()),
+            state: "live".to_string(),
+            pane: Some("w1:p1".to_string()),
+            signed_in: true,
+            rooms: Vec::new(),
+            slack_chat: Some(Some(SlackChat {
+                name: "alex-slack".to_string(),
+                display_name: "Alex Example".to_string(),
+                opened_at: 1700,
+            })),
+        })
+        .unwrap();
+        assert_eq!(
+            out,
+            r#"{"handle":"kay","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":[],"slackChat":{"name":"alex-slack","displayName":"Alex Example","openedAt":1700}}"#
+        );
+    }
+
+    /// The key is absent, not null: null means rt answered and the pane has no
+    /// chat, and an rt without the Slack verbs has not answered.
+    #[test]
+    fn status_leaves_slack_chat_out_when_the_lookup_failed() {
+        let out = serde_json::to_string(&Status {
+            handle: Some("kay".to_string()),
+            name: Some("kay".to_string()),
+            state: "live".to_string(),
+            pane: Some("w1:p1".to_string()),
+            signed_in: true,
+            rooms: Vec::new(),
+            slack_chat: None,
+        })
+        .unwrap();
+        assert_eq!(
+            out,
+            r#"{"handle":"kay","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":[]}"#
+        );
+    }
+
+    #[test]
+    fn slack_status_serializes_each_conversation_in_camel_case() {
+        let out = serde_json::to_string(&slack_status_from(&[crate::rt::SlackConversation {
+            id: 4,
+            room: "slack-4".to_string(),
+            pane: None,
+            name: "alex-slack".to_string(),
+            display_name: Some("Alex Example".to_string()),
+            opened_at: 100,
+            last_active_at: 150,
+        }]))
+        .unwrap();
+        assert_eq!(
+            out,
+            r#"{"conversations":[{"id":4,"room":"slack-4","pane":null,"name":"alex-slack","displayName":"Alex Example","openedAt":100,"lastActiveAt":150}]}"#
+        );
+    }
+
+    #[test]
+    fn slack_close_serializes_the_conversation_id_in_camel_case() {
+        let out = serde_json::to_string(&SlackClose {
+            ok: true,
+            conversation_id: 4,
+            closed: false,
+        })
+        .unwrap();
+        assert_eq!(out, r#"{"ok":true,"conversationId":4,"closed":false}"#);
     }
 
     #[test]
@@ -279,11 +459,12 @@ mod tests {
             pane: None,
             signed_in: false,
             rooms: Vec::new(),
+            slack_chat: Some(None),
         })
         .unwrap();
         assert_eq!(
             out,
-            r#"{"handle":null,"name":null,"state":"not signed in","pane":null,"signedIn":false,"rooms":[]}"#
+            r#"{"handle":null,"name":null,"state":"not signed in","pane":null,"signedIn":false,"rooms":[],"slackChat":null}"#
         );
     }
 
@@ -296,11 +477,12 @@ mod tests {
             pane: Some("w1:p1".to_string()),
             signed_in: true,
             rooms: Vec::new(),
+            slack_chat: Some(None),
         })
         .unwrap();
         assert_eq!(
             out,
-            r#"{"handle":"remy.k3f9","name":"remy","state":"live","pane":"w1:p1","signedIn":true,"rooms":[]}"#
+            r#"{"handle":"remy.k3f9","name":"remy","state":"live","pane":"w1:p1","signedIn":true,"rooms":[],"slackChat":null}"#
         );
     }
 

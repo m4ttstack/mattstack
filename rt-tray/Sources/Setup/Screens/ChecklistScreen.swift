@@ -136,7 +136,7 @@ struct ChecklistScreen: View {
     private func fullRow(_ row: PlanRow) -> some View {
         RowView(row: row, isChecking: model.checkingRowIds.contains(row.id), waiting: waitingOnYou[row.id]) { perform(row) }
         if let message = liveErrors[row.id] {
-            Text(message).font(.caption).foregroundStyle(.red).accessibilityIdentifier(AXID.checklistRowError(row.id))
+            Text(message).font(.caption).foregroundStyle(.red).textSelection(.enabled).accessibilityIdentifier(AXID.checklistRowError(row.id))
         }
     }
 

@@ -1,8 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
+import { tmpdir } from "os";
+import { join } from "path";
 import { herdrRequest } from "../../herdr/client.ts";
 import { fakeHerdr, HerdrFakeError, type FakeHerdrHandler } from "../../herdr/__tests__/fake-herdr.ts";
 import { composerDraft, injectAfterTurn, injectIntoPane } from "../inject.ts";
 import { bgSocketPath } from "../bg-service.ts";
+import { createPaneHandlers } from "../handlers/pane.ts";
+import { openStateDb } from "../../state/index.ts";
 
 const stops: Array<() => void> = [];
 afterEach(() => { for (const s of stops) s(); stops.length = 0; });
@@ -16,6 +20,48 @@ function on(handler: FakeHerdrHandler) {
 
 // agent.get's reply, as chat:invite reads it: result.agent.agent (kind) and result.agent.agent_status.
 const agent = (status: string, kind = "claude") => ({ type: "agent_info", agent: { pane_id: "w1:p1", agent: kind, agent_status: status } });
+
+function paneSend(handler: FakeHerdrHandler = (method, params) => {
+  if (method === "agent.get") return agent("idle");
+  if (method === "agent.prompt") return { type: "agent_prompted", agent: { ...agent("working").agent, text: params.text } };
+  return new HerdrFakeError("invalid_request", method);
+}) {
+  const { herdr, seen } = on(handler);
+  const db = openStateDb(join(tmpdir(), `inject-${process.pid}-${Date.now()}-${Math.random()}.db`));
+  return { seen, send: createPaneHandlers({ db, repoIndex: () => ({}), herdr })["pane:send"] };
+}
+
+const SUPPORT_REFUSAL = { delivered: "refused" as const, reason: "only a person can open a Slack chat" };
+
+test("a pane cannot inject /slack-support into another pane or itself with self, and a call with no pane identity can", async () => {
+  const fromPane = paneSend();
+  const toOther = await fromPane.send({ paneId: "w1:p1", text: "/slack-support alex help", callerPane: "w1:p2" });
+  expect(toOther).toEqual({ ok: true, data: { paneId: "w1:p1", ...SUPPORT_REFUSAL } });
+  const toSelf = await fromPane.send({ paneId: "w1:p1", text: "/slack-support alex help", selfSession: "s1" });
+  expect(toSelf).toEqual({ ok: true, data: { paneId: "w1:p1", ...SUPPORT_REFUSAL } });
+  expect(fromPane.seen).toEqual([]);
+
+  const noIdentity = paneSend();
+  const sent = await noIdentity.send({ paneId: "w1:p1", text: "/slack-support alex help" });
+  expect(sent).toEqual({ ok: true, data: { paneId: "w1:p1", delivered: "accepted" } });
+  expect(noIdentity.seen.find((s) => s.method === "agent.prompt")!.params.text).toBe("/slack-support alex help");
+});
+
+test("the /slack-support refusal reads the first line that holds text, and the continuation", async () => {
+  const { send, seen } = paneSend();
+  for (const text of ["  /slack-support alex", "\n\n/slack-support alex\nmore"]) {
+    expect(await send({ paneId: "w1:p1", text, callerPane: "w1:p2" })).toEqual({ ok: true, data: { paneId: "w1:p1", ...SUPPORT_REFUSAL } });
+  }
+  const then = await send({ paneId: "w1:p1", text: "hello", continuation: "/slack-support alex", selfSession: "s1" });
+  expect(then).toEqual({ ok: true, data: { paneId: "w1:p1", ...SUPPORT_REFUSAL } });
+  expect(seen).toEqual([]);
+});
+
+test("a /slack-support later in the text is an ordinary message from a pane", async () => {
+  const { send } = paneSend();
+  const res = await send({ paneId: "w1:p1", text: "run this:\n/slack-support alex", callerPane: "w1:p2" });
+  expect(res).toEqual({ ok: true, data: { paneId: "w1:p1", delivered: "accepted" } });
+});
 
 test("an idle pane accepts: prompt sent with a wait, reached working", async () => {
   const { herdr, seen } = on((method, params) => {

@@ -35,6 +35,7 @@ import type { TrustOutcome } from "../trust-accept.ts";
 import { BG_SESSION } from "../bg-service.ts";
 import { paneStatusSnapshot, paneStatuses } from "../pane-statuses.ts";
 import { injectIntoPane } from "../inject.ts";
+import { opensSlackChat, slackOpenRefused } from "../../slack/format.ts";
 import type { BgService } from "../bg-service.ts";
 import type { BgClaimsStore } from "../bg-claims-store.ts";
 
@@ -342,12 +343,14 @@ export function createHerdHandlers(deps: HerdDeps) {
   function resolveBrief(herdId: string, name: string, given: string | undefined): { ok: true; text: string } | { ok: false; error: string } {
     const dir = jobDir(deps.jobsRoot, herdId, name);
     const briefPath = join(dir, "job.md");
+    if (opensSlackChat(given)) return slackOpenRefused();
     if (given) { writePromptFile(dir, "job.md", given); return { ok: true, text: given }; }
     if (!existsSync(briefPath)) return { ok: false, error: `no brief: pass --brief <file> (none stored at ${briefPath})` };
     // The read-back path tightens modes without rewriting the only copy of the brief.
     chmodSync(dir, 0o700);
     chmodSync(briefPath, 0o600);
-    return { ok: true, text: readFileSync(briefPath, "utf8") };
+    const text = readFileSync(briefPath, "utf8");
+    return opensSlackChat(text) ? slackOpenRefused() : { ok: true, text };
   }
 
   /** The launch spawn and respawn share; they differ only in where the worktree comes from. */

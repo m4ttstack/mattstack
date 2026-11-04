@@ -66,6 +66,7 @@ import { FleetDrawer, RoomRail } from './RoomRail';
 import type { RosterBuddy } from './roster-types';
 import { useAppRoute, useHash } from './routes';
 import { SettingsEntry } from './SettingsEntry';
+import { SlackChatsProvider, useSlackChatRooms } from './slack-chats-context';
 import { PAGE_SIZE, Transcript } from './Transcript';
 import { visibleRooms } from './visible-rooms';
 
@@ -1117,6 +1118,15 @@ function ChatPage({
  * never passes it: the daemon poll and the buddies fetch run for real.
  */
 export function App({ initialState }: { initialState?: AppInitialState } = {}) {
+  const slackRooms = useSlackChatRooms();
+  return (
+    <SlackChatsProvider rooms={slackRooms}>
+      <AppContent initialState={initialState} />
+    </SlackChatsProvider>
+  );
+}
+
+function AppContent({ initialState }: { initialState?: AppInitialState }) {
   const [path] = useLocation();
   const route = useAppRoute();
   const daemon = useDaemonHealth(initialState?.daemonReachable);

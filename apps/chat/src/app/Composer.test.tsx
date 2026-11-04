@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
 import { BuddiesProvider } from './buddies-context';
 import { Composer, type ComposerHandle } from './Composer';
+import { SlackChatsProvider } from './slack-chats-context';
 import {
   fetchMock,
   installFetchMock,
@@ -401,4 +402,71 @@ test('a roster pick never adopts an @name glued to the word before it', async ()
   await userEvent.type(box, 'contact kai@team');
   act(() => ref.current!.insertMention('team'));
   expect(box).toHaveValue('contact kai@team @team ');
+});
+
+test("an open Slack chat's composer shows Only Claude sees this", () => {
+  renderWithProviders(
+    <SlackChatsProvider rooms={['dm-slack']}>
+      <Composer
+        room="dm-slack"
+        roomMembers={['alex', 'kai']}
+        buddies={[]}
+        isDm
+      />
+    </SlackChatsProvider>
+  );
+  expect(screen.getByText('Only Claude sees this')).toBeInTheDocument();
+  expect(screen.getByRole('textbox')).toHaveAccessibleDescription(
+    'Only Claude sees this'
+  );
+});
+
+test('a normal room shows no label', () => {
+  renderWithProviders(
+    <SlackChatsProvider rooms={['dm-slack']}>
+      <Composer room="build" roomMembers={['kai']} buddies={[]} />
+    </SlackChatsProvider>
+  );
+  expect(screen.queryByText('Only Claude sees this')).toBeNull();
+});
+
+test('a composer outside any provider shows no label', () => {
+  renderWithProviders(
+    <Composer room="dm-slack" roomMembers={['kai']} buddies={[]} />
+  );
+  expect(screen.queryByText('Only Claude sees this')).toBeNull();
+});
+
+test("a Slack support room's placeholder drops the both-will-wake hint", () => {
+  renderWithProviders(
+    <SlackChatsProvider rooms={['dm-slack']}>
+      <Composer
+        room="dm-slack"
+        roomMembers={['alex', 'kai']}
+        buddies={[]}
+        isDm
+      />
+    </SlackChatsProvider>
+  );
+  expect(screen.getByRole('textbox')).toHaveAttribute(
+    'placeholder',
+    'Message alex ↔ kai'
+  );
+});
+
+test('a normal DM keeps the both-will-wake hint', () => {
+  renderWithProviders(
+    <SlackChatsProvider rooms={['dm-slack']}>
+      <Composer
+        room="dm-other"
+        roomMembers={['kai', 'remy']}
+        buddies={[]}
+        isDm
+      />
+    </SlackChatsProvider>
+  );
+  expect(screen.getByRole('textbox')).toHaveAttribute(
+    'placeholder',
+    'Message kai ↔ remy (both will wake)'
+  );
 });

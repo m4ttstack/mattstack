@@ -54,6 +54,12 @@ title = "Sign out of chat"
 contexts = ["pane"]
 command = ["sh", "-c", "exec ./target/release/herdr-chat sign-out"]
 
+[[actions]]
+id = "slack-support"
+title = "Slack support"
+contexts = ["pane"]
+command = ["sh", "-c", "exec ./target/release/herdr-chat slack-support"]
+
 [[panes]]
 id = "broadcast-ui"
 title = "Broadcast"
@@ -77,6 +83,14 @@ placement = "popup"
 width = 72
 height = 18
 command = ["sh", "-c", "exec ./target/release/herdr-chat quick-send --pane"]
+
+[[panes]]
+id = "slack-support-ui"
+title = "Slack support"
+placement = "popup"
+width = 64
+height = 10
+command = ["sh", "-c", "exec ./target/release/herdr-chat slack-support --pane"]
 
 [[panes]]
 id = "launcher-ui"

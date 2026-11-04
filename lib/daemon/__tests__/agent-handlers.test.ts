@@ -1741,3 +1741,39 @@ describe("agent:adopt", () => {
     }
   });
 });
+
+test("agent:start refuses a prompt that opens a Slack chat, on either surface, and records nothing", async () => {
+  const calls: string[][] = [];
+  const spawned: string[][] = [];
+  const h = fresh({ runner: okRunner(calls), spawn: (argv) => { spawned.push(argv); throw new Error("must not launch"); } });
+  for (const surface of ["herdr", "headless"] as const) {
+    const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "/slack-support alex hi", surface });
+    expect(res).toMatchObject({ ok: false, failure: { code: "slack-chat" } });
+  }
+  expect(calls).toEqual([]);
+  expect(spawned).toEqual([]);
+  expect((await h["agent:list"]({})).ok && (await h["agent:list"]({}) as { data: { agents: unknown[] } }).data.agents).toEqual([]);
+});
+
+test("agent:resume refuses a prompt that opens a Slack chat, for a live session and a dead one", async () => {
+  const calls: string[][] = [];
+  const prompts: unknown[] = [];
+  let sessionId = "";
+  const h = fresh({ runner: liveSessionRunner(calls, () => sessionId), herdr: claudePaneHerdr("idle", prompts) });
+  const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", label: "job9" });
+  if (!started.ok) throw new Error("unreachable");
+  sessionId = started.data.sessionId!;
+  calls.length = 0;
+  const live = await h["agent:resume"]({ id: started.data.id, prompt: "/slack-support alex hi" });
+  expect(live).toMatchObject({ ok: false, failure: { code: "slack-chat" } });
+  expect(prompts).toEqual([]);
+  expect(calls).toEqual([]);
+
+  const dead = fresh({ runner: okRunner(calls) });
+  const gone = await dead["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", label: "job9" });
+  if (!gone.ok) throw new Error("unreachable");
+  calls.length = 0;
+  const relaunch = await dead["agent:resume"]({ id: gone.data.id, prompt: "/slack-support alex hi" });
+  expect(relaunch).toMatchObject({ ok: false, failure: { code: "slack-chat" } });
+  expect(calls).toEqual([]);
+});

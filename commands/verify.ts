@@ -137,8 +137,8 @@ function checkStatus(r: Row, c: CheckResult): RenderStatus {
 function nextVerb(r: Row): string | null {
   const a = r.action;
   if (!a) return null;
-  if (a.type === "connect" || a.type === "oauth") return `rt setup ${a.integration} connect`;
-  if (a.type === "run") return `rt ${a.verb.join(" ")}`;
+  if (a.type === "connect") return `rt setup ${a.integration} connect`;
+  if (a.type === "run" || a.type === "oauth") return `rt ${a.verb.join(" ")}`;
   return null;
 }
 

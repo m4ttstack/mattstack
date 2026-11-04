@@ -80,7 +80,7 @@ export function renderSubcommandsTable(node: CommandNode, path: string[]): strin
   const visible = Object.entries(subs).filter(([, n]) => !n.hidden && !n.devOnly);
   if (visible.length === 0) return "";
   const rows = visible.map(
-    ([name, n]) => `| [\`${name}\`](${name}) | ${escapeMdxTableCell(n.description)} |`,
+    ([name, n]) => `| [\`${name}\`](${["/rt/reference", ...path, name].join("/")}) | ${escapeMdxTableCell(n.description)} |`,
   );
   return ["## Subcommands", "", "| Command | Description |", "| --- | --- |", ...rows, ""].join("\n");
 }

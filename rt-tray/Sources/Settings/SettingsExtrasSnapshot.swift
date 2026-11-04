@@ -63,6 +63,27 @@ enum SettingsExtrasSnapshot {
             action: RowAction(type: .steps, label: "Show steps…",
                               steps: ["Edit /Users/janedoe/.mattstack/user/skills/overrides.jsonc as listed", "Run: rt skills materialize"]),
             recheck: .onChange)),
+    ] + slackSupportRows
+
+    private static let slackConnect = RowAction(type: .oauth, label: "Connect", integration: "slack",
+                                                verb: ["setup", "slack", "connect", "--support-chat"])
+
+    /// Mirrors lib/setup/validators/slack-support.ts.
+    private static func slackSupport(_ name: String, height: CGFloat, status: RowStatus, detail: String, action: RowAction?) -> (String, String, CGFloat, PlanRow) {
+        (name, "Accounts", height, PlanRow(
+            id: SettingsExtras.slackSupportChat, kind: .account, title: "Slack support chat",
+            why: "Lets your Slack token read your DMs. Only people running support chats need it.", required: false,
+            status: status, detail: detail, action: action, recheck: .onChange))
+    }
+
+    private static let slackSupportRows = [
+        slackSupport("slack-support-no-app", height: 150, status: .skipped, detail: "Your team has no Slack app yet", action: nil),
+        slackSupport("slack-support-not-connected", height: 150, status: .skipped, detail: "Connect Slack first", action: nil),
+        slackSupport("slack-support-offer", height: 150, status: .skipped, detail: "Off. Connect to approve it in Slack", action: slackConnect),
+        slackSupport("slack-support-short", height: 190, status: .needsYou,
+                     detail: "Slack app is missing scopes. Ask its owner to add im:history, im:read, im:write, users:read under User Token Scopes at https://api.slack.com/apps/A0TEAM/oauth, then connect again",
+                     action: slackConnect),
+        slackSupport("slack-support-ready", height: 150, status: .ready, detail: "Ready for support chats", action: nil),
     ]
     #endif
 }

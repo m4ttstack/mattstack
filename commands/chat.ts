@@ -103,7 +103,7 @@ import type {
 
 const FLAGS_WITH_VALUES = new Set(["--as", "--name", "--wake-on", "--limit", "--since", "--room", "--sock", "--session", "--status", "--file", "--last", "--note", "--pane", "--upto"]);
 
-function positional(args: string[]): string | undefined {
+export function positional(args: string[]): string | undefined {
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     if (a.startsWith("--")) {
@@ -146,19 +146,19 @@ function refuseUnknownFlags(args: string[], allowed: ReadonlySet<string>, verb: 
   }
 }
 
-function flagValue(args: string[], flag: string): string | undefined {
+export function flagValue(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag);
   return i >= 0 ? args[i + 1] : undefined;
 }
 
 /** `--sock` as RtClientOptions, or `{}` when unset. */
-function sockOpts(args: string[]): { sockPath?: string } {
+export function sockOpts(args: string[]): { sockPath?: string } {
   const sockPath = flagValue(args, "--sock");
   return sockPath ? { sockPath } : {};
 }
 
 /** One line an agent may be reading: stdout, byte for byte, never styled. */
-function say(text: string): void {
+export function say(text: string): void {
   out.payload(`${text}\n`);
 }
 
@@ -168,18 +168,18 @@ function show(blocks: () => Block[], frozen: () => string): void {
   else say(frozen());
 }
 
-function fail(f: out.FailureInput): never {
+export function fail(f: out.FailureInput): never {
   out.fail(f);
   process.exit(1);
 }
 
-function failUsage(title: string, usage: string, why?: string): never {
+export function failUsage(title: string, usage: string, why?: string): never {
   out.fail(usageFailure(title, usage, why));
   process.exit(1);
 }
 
 /** A policy refusal is a `refused` note on stderr, never a failure block; it still exits 1. */
-function refuse(...blocks: Block[]): never {
+export function refuse(...blocks: Block[]): never {
   out.note(...blocks);
   process.exit(1);
 }
@@ -219,9 +219,10 @@ const CHAT_REFUSALS: Record<string, (message: string) => Block[]> = {
     out.line("refused", message),
     out.callout("why", "A reply to a name nobody is signed in as never reaches anyone."),
   ],
+  "slack-chat": (message) => [out.line("refused", message)],
 };
 
-function unwrap<T>(res: RtResponse<T>, label: string): T {
+export function unwrap<T>(res: RtResponse<T>, label: string): T {
   if (!res.ok || res.data === undefined) {
     const refusal = res.failure && Object.hasOwn(CHAT_REFUSALS, res.failure.code) ? CHAT_REFUSALS[res.failure.code] : undefined;
     if (refusal) refuse(...refusal(res.failure!.message));
@@ -411,7 +412,7 @@ function resolveBaseHandle(args: string[]): string {
   return userHostHandle();
 }
 
-interface ChatIdentity {
+export interface ChatIdentity {
   handle: string;
   name: string;
   sessionId: string | undefined;
@@ -438,6 +439,12 @@ function refuseSecondIdentity(name: string): never {
   refuse(out.line("refused", `You are signed in as ${name}`), out.callout("why", "One session keeps one identity. Run it again without naming another one, or sign out to change it."), out.callout("next", out.cmd("rt chat sign-out")));
 }
 
+/** The session file's identity, else the one signed in at this pane. */
+export async function signedInIdentity(args: string[]): Promise<ChatIdentity | null> {
+  const session = readChatSession(currentSessionId(args));
+  return session ? { handle: session.handle, name: sessionName(session), sessionId: session.sessionId } : paneIdentity(args);
+}
+
 /**
  * Position 0 (the session file, else the identity signed in at this pane)
  * wins over every other position, for every verb but sign-in itself (whose
@@ -448,8 +455,7 @@ function refuseSecondIdentity(name: string): never {
  */
 async function resolveIdentity(args: string[]): Promise<ChatIdentity> {
   const sessionId = currentSessionId(args);
-  const session = readChatSession(sessionId);
-  const signedIn = session ? { handle: session.handle, name: sessionName(session), sessionId: session.sessionId } : await paneIdentity(args);
+  const signedIn = await signedInIdentity(args);
   if (signedIn) {
     if (flagValue(args, "--as") !== undefined) refuseSecondIdentity(signedIn.name);
     return signedIn;
@@ -505,7 +511,7 @@ function renderSignIn(
   return parts.join(" · ");
 }
 
-function relativeAgo(ms: number): string {
+export function relativeAgo(ms: number): string {
   const sec = Math.max(0, Math.floor((Date.now() - ms) / 1000));
   if (sec < 60) return `${sec}s`;
   const min = Math.floor(sec / 60);
@@ -941,7 +947,7 @@ async function runAck(args: string[]): Promise<void> {
   else say(`acked #${id} → ${author}`);
 }
 
-function parseMessageId(raw: string | undefined, verb: string): number {
+export function parseMessageId(raw: string | undefined, verb: string): number {
   if (!raw) failUsage("Which message?", `rt chat ${verb} <messageId>`);
   const id = Number(raw);
   if (!Number.isInteger(id) || id <= 0) fail({ title: `"${raw}" is not a message id`, why: "A delivered message shows its id as #<id>." });
@@ -1167,7 +1173,12 @@ async function runDm(args: string[]): Promise<void> {
     out.json({ ok: true, ...data });
     return;
   }
-  say(`dm → ${data.recipientNames?.[0] ?? to} #${data.id}`);
+  say(data.note ? `dm → ${data.recipientNames?.[0] ?? to}` : `dm → ${data.recipientNames?.[0] ?? to} #${data.id}`);
+  if (data.redacted) say("redacted: something shaped like a credential was removed before this went to Slack");
+  if (data.note) {
+    say(data.note);
+    return;
+  }
   const url = chatViewerUrl(readChatViewerUrlSetting(), data.room, data.id);
   if (url) say(`posted → ${url}`);
 }

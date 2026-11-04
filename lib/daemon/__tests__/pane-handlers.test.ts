@@ -886,3 +886,12 @@ test("pane:list presence carries the display name beside the id", async () => {
   if (!res.ok) throw new Error(res.error);
   expect(res.data.panes.find((p) => p.paneId === "w1:p1")!.presence).toMatchObject({ handle: signed.data.handle, name: "meg" });
 });
+
+test("pane:spawn refuses a prompt that opens a Slack chat before it makes a pane", async () => {
+  const { pane, seen } = harness(() => new HerdrFakeError("invalid_request", "unused"));
+  for (const prompt of ["/slack-support alex hi", "\n  /slack-support alex hi"]) {
+    const res = await pane["pane:spawn"]({ cwd: "/repos/acme-dev", prompt });
+    expect(res).toMatchObject({ ok: false, failure: { code: "slack-chat" } });
+  }
+  expect(seen).toEqual([]);
+});

@@ -4,7 +4,8 @@ import { fakeProbes, ok } from "../../lib/setup/__tests__/fakes.ts";
 import type { SecretPresence } from "../../lib/setup/validators/accounts.ts";
 import type { Probes } from "../../lib/setup/probes.ts";
 import type { TeamSnapshot } from "../../lib/setup/team-settings.ts";
-import { DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError } from "../../lib/setup/slack-app.ts";
+import { DEFAULT_SCOPE_NEEDS, SLACK_SUPPORT_SCOPES, SlackCallbackError, SlackCallbackTimeoutError } from "../../lib/setup/slack-app.ts";
+import { readSetupState, updateSetupState } from "../../lib/setup/state.ts";
 import { slackWaitCliMessage } from "../../lib/setup/team-slack-secret.ts";
 import { readTeamLocal, teamLocalPath } from "../../lib/team/team-local.ts";
 import { capturePlain, expectOneJsonLine, realJson } from "./helpers/json-line.ts";
@@ -1077,6 +1078,134 @@ describe("integrationConnect — slack (OAuth flow)", () => {
     expect(writerWrites).toEqual([]);
   });
 
+  describe("--support-chat", () => {
+    async function openedScopes(args: string[]): Promise<string[]> {
+      const probes = fakeProbes({ exec: async () => ok() });
+      const deps = baseDeps({
+        probes,
+        teamSnapshot: () => slackTeamSnapshot({ appId: "A0TEAM" }),
+        teamSecrets: { read: async () => null, write: neverCalled("teamSecrets.write") },
+        listen: async () => "auth-code",
+      });
+      await expectExit(() => integrationConnect("slack", args, deps));
+      const url = new URL(probes.calls.exec.find((argv) => argv[0] === "open")![1]!);
+      return url.searchParams.get("user_scope")!.split(",");
+    }
+
+    test("asks for the four support scopes alongside the defaults", async () => {
+      const scopes = await openedScopes(["--json", "--support-chat"]);
+      expect(scopes).toEqual([...DEFAULT_SCOPE_NEEDS.user, ...SLACK_SUPPORT_SCOPES]);
+      for (const s of ["im:history", "im:read", "im:write", "users:read"]) expect(scopes).toContain(s);
+    });
+
+    test("without the flag asks for none of them", async () => {
+      const scopes = await openedScopes(["--json"]);
+      expect(scopes).toEqual(DEFAULT_SCOPE_NEEDS.user);
+    });
+
+    test("a grant without them is invalid, names them for the app's owner and stores nothing", async () => {
+      const writerWrites: unknown[] = [];
+      const fetch: Probes["fetch"] = async (url) => {
+        if (url === "https://slack.com/api/oauth.v2.access") return { status: 200, body: JSON.stringify({ ok: true, authed_user: { access_token: "xoxp-old", scope: DEFAULT_SCOPE_NEEDS.user.join(",") } }), headers: {} };
+        return { status: 0, body: "", headers: {} };
+      };
+      const deps = baseDeps({
+        probes: fakeProbes({ fetch }),
+        teamSnapshot: () => slackTeamSnapshot({ appId: "A0TEAM" }),
+        teamSecrets: { read: async () => "client-secret-value", write: neverCalled("teamSecrets.write") },
+        listen: async () => "auth-code",
+        writer: { storeReady: async () => true, write: async (...args) => { writerWrites.push(args); } },
+      });
+
+      await integrationConnect("slack", ["--json", "--support-chat"], deps);
+
+      const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
+      expect(body.status).toBe("invalid");
+      expect(body.detail).toContain("add im:history, im:read, im:write, users:read under User Token Scopes at https://api.slack.com/apps/A0TEAM/oauth");
+      expect(body.detail).toContain("support chat");
+      expect(body.detail).not.toContain("than the board needs");
+      expect(writerWrites).toEqual([]);
+      expect(readSetupState(deps.probes).slackSupportShort).toEqual(["im:history", "im:read", "im:write", "users:read"]);
+    });
+
+    function failedConnect(failure: Error) {
+      return baseDeps({
+        probes: fakeProbes({ exec: async () => ok() }),
+        teamSnapshot: () => slackTeamSnapshot({ appId: "A0TEAM", callbackPort: 11234 }),
+        listen: async () => {
+          throw failure;
+        },
+      });
+    }
+
+    async function failureMessage(deps: ReturnType<typeof failedConnect>, args: string[]): Promise<string> {
+      await expectExit(() => integrationConnect("slack", args, deps));
+      return (JSON.parse(deps.lines[0]!) as { error: { message: string } }).error.message;
+    }
+
+    const SUPPORT_FIX = "add im:history, im:read, im:write, users:read under User Token Scopes at https://api.slack.com/apps/A0TEAM/oauth";
+
+    test("a timeout names only the support scopes, and covers Slack refusing and the browser being left", async () => {
+      const deps = failedConnect(new SlackCallbackTimeoutError());
+      const message = await failureMessage(deps, ["--json", "--support-chat"]);
+      expect(message).toContain(SUPPORT_FIX);
+      expect(message).toContain("If Slack refused the request");
+      expect(message).toContain("If you left the browser, connect again");
+      for (const scope of DEFAULT_SCOPE_NEEDS.user) expect(message).not.toContain(scope);
+    });
+
+    test("a timeout records nothing, since leaving the browser times out too", async () => {
+      const deps = failedConnect(new SlackCallbackTimeoutError());
+      updateSetupState(deps.probes, (s) => ({ ...s, slackSupportShort: ["im:history"] }));
+      await failureMessage(deps, ["--json", "--support-chat"]);
+      expect(readSetupState(deps.probes).slackSupportShort).toEqual(["im:history"]);
+      const fresh = failedConnect(new SlackCallbackTimeoutError());
+      await failureMessage(fresh, ["--json", "--support-chat"]);
+      expect(readSetupState(fresh.probes).slackSupportShort).toBeUndefined();
+    });
+
+    test("an error from Slack's redirect gives the same fix and records nothing", async () => {
+      const deps = failedConnect(new SlackCallbackError("access_denied"));
+      const message = await failureMessage(deps, ["--json", "--support-chat"]);
+      expect(message).toContain("access_denied");
+      expect(message).toContain(SUPPORT_FIX);
+      expect(readSetupState(deps.probes).slackSupportShort).toBeUndefined();
+    });
+
+    test("without the flag an error from Slack's redirect names no scopes", async () => {
+      const message = await failureMessage(failedConnect(new SlackCallbackError("access_denied")), ["--json"]);
+      expect(message).toBe("Slack sent back an error: access_denied");
+    });
+
+    function grantDeps(scope: string[]) {
+      const fetch: Probes["fetch"] = async (url) => {
+        if (url === "https://slack.com/api/oauth.v2.access") return { status: 200, body: JSON.stringify({ ok: true, authed_user: { access_token: "xoxp-new", scope: scope.join(",") } }), headers: {} };
+        return { status: 0, body: "", headers: {} };
+      };
+      return baseDeps({
+        probes: fakeProbes({ fetch }),
+        teamSnapshot: () => slackTeamSnapshot({ appId: "A0TEAM" }),
+        teamSecrets: { read: async () => "client-secret-value", write: neverCalled("teamSecrets.write") },
+        listen: async () => "auth-code",
+        writer: { storeReady: async () => true, write: async () => {} },
+      });
+    }
+
+    test("a full grant clears the record of a short one", async () => {
+      const deps = grantDeps([...DEFAULT_SCOPE_NEEDS.user, ...SLACK_SUPPORT_SCOPES]);
+      updateSetupState(deps.probes, (s) => ({ ...s, slackSupportShort: ["im:history"] }));
+      await integrationConnect("slack", ["--json", "--support-chat"], deps);
+      expect(readSetupState(deps.probes).slackSupportShort).toBeUndefined();
+    });
+
+    test("a plain connect leaves the record alone: it never asked for these scopes", async () => {
+      const deps = grantDeps(DEFAULT_SCOPE_NEEDS.user);
+      updateSetupState(deps.probes, (s) => ({ ...s, slackSupportShort: ["im:history"] }));
+      await integrationConnect("slack", ["--json"], deps);
+      expect(readSetupState(deps.probes).slackSupportShort).toEqual(["im:history"]);
+    });
+  });
+
   test("a full grant stores the token and reports ready", async () => {
     const fetch: Probes["fetch"] = async (url) => {
       if (url === "https://slack.com/api/oauth.v2.access") return { status: 200, body: JSON.stringify({ ok: true, authed_user: { access_token: "xoxp-full", scope: DEFAULT_SCOPE_NEEDS.user.join(",") } }), headers: {} };
@@ -1254,6 +1383,22 @@ describe.skipIf(skipRealOAuth)("realOAuthListen (real Bun.serve, no fakes — th
     const { error: caught } = await result;
     expect(caught).toBeInstanceOf(Error);
     expect((caught as Error).message).toMatch(/state/i);
+  });
+
+  test("an error parameter from Slack rejects with what Slack said", async () => {
+    const port = 18767;
+    const result = realOAuthListen(port, "match-me").catch((error: unknown) => error);
+    await fetch(`http://127.0.0.1:${port}/callback?error=access_denied&state=match-me`);
+    const caught = await result;
+    expect(caught).toBeInstanceOf(SlackCallbackError);
+    expect((caught as SlackCallbackError).code).toBe("access_denied");
+  });
+
+  test("an error parameter with the wrong state is the forged-callback rejection", async () => {
+    const port = 18768;
+    const result = realOAuthListen(port, "match-me").catch((error: unknown) => error);
+    await fetch(`http://127.0.0.1:${port}/callback?error=access_denied&state=WRONG`);
+    expect((await result) as Error).not.toBeInstanceOf(SlackCallbackError);
   });
 
   test("a matching state resolves with the code", async () => {

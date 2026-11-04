@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, mkdirSync, existsSync, statSync } from "fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, mkdirSync, existsSync, statSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import pino from "pino";
@@ -1059,6 +1059,24 @@ describe("herd:spawn", () => {
     if (!s.ok) throw new Error(s.error);
     return { ...hx, herd: s.data.herd, room: s.data.room };
   }
+
+  test("a brief that opens a Slack chat is refused before it is stored or launched", async () => {
+    const hx = await started();
+    const res = await hx.h["herd:spawn"]({ herd: hx.herd, job: "job-a", brief: "/slack-support alex hi", dir: "/t" });
+    expect(res).toMatchObject({ ok: false, failure: { code: "slack-chat" } });
+    expect(hx.agentCalls).toEqual([]);
+    expect(existsSync(join(hx.dir, "herds", hx.herd, "job-a", "job.md"))).toBe(false);
+  });
+
+  test("a stored brief that opens a Slack chat is refused", async () => {
+    const hx = await started();
+    const dir = join(hx.dir, "herds", hx.herd, "job-a");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "job.md"), "/slack-support alex hi");
+    const res = await hx.h["herd:spawn"]({ herd: hx.herd, job: "job-a", dir: "/t" });
+    expect(res).toMatchObject({ ok: false, failure: { code: "slack-chat" } });
+    expect(hx.agentCalls).toEqual([]);
+  });
 
   test("RT-356: the prompt names the herd's current shepherd and its id, and job.md keeps both slots for the next launch", async () => {
     let shepherdName = "shepherd";

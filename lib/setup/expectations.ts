@@ -27,6 +27,7 @@ export const ROW_TARGETS: Readonly<Record<string, Target>> = {
   "home.backup": "finish",
   "tool.state-backup": "finish",
   "skills.overrides": "settings",
+  "account.slack-support": "settings",
   "tool.chrome-signin": "settings",
   "tool.mission-control": "settings",
   "tool.path": "info",

@@ -100,7 +100,7 @@ test("renderPage lists subcommands for a branch node", () => {
   };
   const out = renderPage(node, ["git"], "git/index", OPTS);
   expect(out).toContain("## Subcommands");
-  expect(out).toContain("[`rebase`](rebase)");
+  expect(out).toContain("[`rebase`](/rt/reference/git/rebase)");
   expect(out).toContain("Smart rebase");
 });
 
@@ -133,6 +133,13 @@ test("renderPage escapes MDX-hostile characters in the description", () => {
   expect(out).not.toContain("origin/<branch>");
 });
 
+test("renderSubcommandsTable links each subcommand by absolute path, however deep", () => {
+  const leaf = { description: "x" } as CommandNode;
+  const node = { description: "x", subcommands: { "slack-close": leaf } } as CommandNode;
+  expect(renderSubcommandsTable(node, ["chat"])).toContain("[`slack-close`](/rt/reference/chat/slack-close)");
+  expect(renderSubcommandsTable(node, ["settings", "chat"])).toContain("[`slack-close`](/rt/reference/settings/chat/slack-close)");
+});
+
 test("renderSubcommandsTable escapes MDX-hostile characters in subcommand descriptions", () => {
   const node: CommandNode = {
     description: "StrongDM connections",
@@ -153,7 +160,7 @@ test("renderSubcommandsTable escapes a pipe in a subcommand description so it do
     },
   };
   const out = renderSubcommandsTable(node, ["runs"]);
-  expect(out).toContain("| [`field`](field) | field set KEY VALUE --stage NAME \\| field get KEY |");
+  expect(out).toContain("| [`field`](/rt/reference/runs/field) | field set KEY VALUE --stage NAME \\| field get KEY |");
 });
 
 test("renderUsage leaves the bash usage block unescaped (raw positional inside a code fence)", () => {

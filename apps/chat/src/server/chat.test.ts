@@ -11,6 +11,7 @@ vi.mock('@mattstack/rt-client', () => ({
   chatArchive: vi.fn(),
   chatDmOpen: vi.fn(),
   chatInvite: vi.fn(),
+  chatSlackStatus: vi.fn(),
   paneList: vi.fn(),
   panePeek: vi.fn(),
   paneSpawn: vi.fn(),
@@ -1353,4 +1354,41 @@ test('a DM tail carries its author name beside the id', async () => {
     name: 'remy',
     body: 'on it',
   });
+});
+
+test('slack-status passes the open chats through', async () => {
+  const conversations = [
+    {
+      id: 1,
+      room: 'dm-slack',
+      name: 'alex-slack',
+      displayName: 'Alex Example',
+      openedAt: 1,
+      lastActiveAt: 2,
+    },
+  ];
+  vi.mocked(rt.chatSlackStatus).mockResolvedValueOnce({
+    ok: true,
+    data: { conversations },
+  });
+  const res = await routes.request('/api/chat/slack-status');
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ conversations });
+});
+
+test('slack-status is a 502 when the daemon refuses, as an old daemon does', async () => {
+  vi.mocked(rt.chatSlackStatus).mockResolvedValueOnce({
+    ok: false,
+    error: 'unknown command',
+  });
+  const res = await routes.request('/api/chat/slack-status');
+  expect(res.status).toBe(502);
+});
+
+test('slack-status under fixtures names one open chat and never calls the daemon', async () => {
+  process.env.CHAT_FIXTURES = '1';
+  const res = await routes.request('/api/chat/slack-status');
+  const body = (await res.json()) as { conversations: { room: string }[] };
+  expect(body.conversations).toHaveLength(1);
+  expect(rt.chatSlackStatus).not.toHaveBeenCalled();
 });

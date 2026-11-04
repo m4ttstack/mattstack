@@ -1,4 +1,10 @@
-import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
+import {
+  forwardRef,
+  useId,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react';
 import type { ChangeEvent, KeyboardEvent } from 'react';
 import {
   ActionIcon,
@@ -19,6 +25,7 @@ import { AgentName } from './AgentName';
 import { useBuddies } from './buddies-context';
 import { doing, type DoingLine } from './doing';
 import { HUMAN_HANDLE } from './human';
+import { useIsSlackChat } from './slack-chats-context';
 import { StateDot, StateWord } from './StateDot';
 import { useAutoGrowTextarea } from './use-auto-grow-textarea';
 
@@ -286,6 +293,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     useAutoGrowTextarea(textareaRef, value);
     const ctx = useBuddies();
+    const slackChat = useIsSlackChat(room);
+    const slackNoteId = useId();
     const nameOf = (handle: string) =>
       buddies.find(b => b.handle === handle)?.name ??
       ctx?.nameOf(handle) ??
@@ -457,7 +466,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
       : placeholderProp
         ? placeholderProp
         : isDm
-          ? phone
+          ? phone || slackChat
             ? `Message ${roomMembers.map(nameOf).join(' ↔ ')}`
             : `Message ${roomMembers.map(nameOf).join(' ↔ ')} (both will wake)`
           : phone
@@ -525,6 +534,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
                 onBlur={() => setFocused(false)}
                 placeholder={placeholder}
                 aria-label="Message"
+                aria-describedby={slackChat ? slackNoteId : undefined}
                 data-testid="composer-row"
                 style={{
                   display: 'block',
@@ -596,6 +606,18 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
             </Stack>
           </Popover.Dropdown>
         </Popover>
+
+        {slackChat && (
+          <Text
+            id={slackNoteId}
+            data-testid="composer-slack-note"
+            size="xs"
+            c="dimmed"
+            style={{ paddingTop: 'var(--mantine-spacing-xs)' }}
+          >
+            Only Claude sees this
+          </Text>
+        )}
 
         {!daemonReachable && (
           <Group

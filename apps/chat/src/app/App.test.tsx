@@ -1508,3 +1508,45 @@ test('the invite result line names a pane by its display name', () => {
   expect(screen.getByTestId('line')).toHaveTextContent('remy accepted');
   expect(screen.getByTestId('line')).not.toHaveTextContent('m2p4');
 });
+
+test('the Slack label follows the daemon: shown while the chat is open, gone after it closes, absent on a failed status', async () => {
+  installFetchMock();
+  let conversations: { room: string }[] = [{ room: 'build' }];
+  let failing = false;
+  fetchMock.mockImplementation(async (url: string) => {
+    if (String(url) !== '/api/chat/slack-status')
+      return new Response(JSON.stringify({}));
+    if (failing) return new Response('{}', { status: 502 });
+    return new Response(JSON.stringify({ conversations }));
+  });
+  window.history.replaceState(null, '', '/r/build');
+  await act(async () => {
+    renderWithProviders(<App initialState={twoRooms} />);
+  });
+  const frame = async () => {
+    await act(async () => {
+      for (const socket of FakeWebSocket.instances)
+        socket.onmessage?.({
+          data: JSON.stringify({ topic: 'chat/build/msg', payload: { id: 9 } }),
+        });
+    });
+  };
+  expect(await screen.findByText('Only Claude sees this')).toBeInTheDocument();
+
+  conversations = [];
+  await frame();
+  await waitFor(() =>
+    expect(screen.queryByText('Only Claude sees this')).toBeNull()
+  );
+
+  conversations = [{ room: 'build' }];
+  await frame();
+  expect(await screen.findByText('Only Claude sees this')).toBeInTheDocument();
+
+  failing = true;
+  await frame();
+  await waitFor(() =>
+    expect(screen.queryByText('Only Claude sees this')).toBeNull()
+  );
+  expect(screen.getByRole('textbox')).toBeEnabled();
+});

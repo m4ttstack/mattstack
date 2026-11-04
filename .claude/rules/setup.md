@@ -60,11 +60,13 @@ that blocks Install or Finish must have a screen, or setup can never end:
   `extraRows` with `afterRun: true`); `formStage` lands it on this-mac, not the bar.
 
 A new blocking row that fits none of these strands the member. A `settings`
-target (`tool.mission-control`, `tool.chrome-signin`, `skills.overrides`) is
+target (`tool.mission-control`, `tool.chrome-signin`, `skills.overrides`,
+`account.slack-support`) is
 never required and never finish-gated, carries no `waivable`, and shows only
 in the tray's Settings (`SettingsExtras`: General's Keyboard and Skill
-overrides sections, the Fast Browser pane), never in setup. Those three stay
-in `WAIVABLE_ROW_IDS`, so a stored waiver still reads on the row and
+overrides sections, the Fast Browser pane; `account.slack-support` in the
+accounts group, which Settings > Accounts draws), never in setup. All but
+`account.slack-support` stay in `WAIVABLE_ROW_IDS`, so a stored waiver still reads on the row and
 `rt setup unwaive` can still clear it; `waived` is what the app keys on,
 never the note's wording. A finish-gated row carries `waivable` on every
 emit (an app reading a row without it treats the row as waivable).

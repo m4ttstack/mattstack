@@ -146,10 +146,38 @@ export {
   type AgentRecord, type AgentSurface,
 } from "./agents-store.ts";
 
-export { dmRoomFor, dmParticipants, listDms } from "./dm-store.ts";
+export { dmRoomFor, dmRoomName, dmParticipants, listDms } from "./dm-store.ts";
+export {
+  SlackConversationBusy,
+  advanceCursor,
+  closeConversation,
+  closedNoticeForAgent,
+  conversationById,
+  conversationForAgent,
+  conversationForRoom,
+  conversationForSlackUser,
+  enqueueItem,
+  lastDeliveredAt,
+  latestConversationForRoom,
+  listOpenConversations,
+  markCheckedIn,
+  markCloseAsked,
+  markItemDelivered,
+  markOpenItemDelivered,
+  markStalledNoted,
+  markWatcherSeen,
+  openConversation,
+  pendingItems,
+  pruneSlackItems,
+  shiftOpenConversationClocks,
+  touchConversation,
+} from "./slack-conversation-store.ts";
+export type { SlackCloseReason, SlackConversation, SlackItem, SlackItemKind } from "./slack-conversation-store.ts";
 
 export {
   bindIdentitySession,
+  cleanSlackName,
+  ensureSlackIdentity,
   fixedIdentityRefusal,
   getIdentity,
   HERD_SYSTEM_ID,
@@ -157,6 +185,7 @@ export {
   identityName,
   identityNames,
   isKnownId,
+  isSlackIdentity,
   mintIdentity,
   renameIdentity,
   resolveHandle,

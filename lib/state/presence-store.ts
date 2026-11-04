@@ -19,6 +19,8 @@ import {
   identityNames,
   isFixedChatName,
   isKnownId,
+  isSlackIdentity,
+  isSlackName,
   mintIdentity,
   renameIdentity,
   resolveHandle,
@@ -232,7 +234,7 @@ function pickDisplayName(
   seat: { cwd: string | null; pane: string | null },
   seats: Map<string, Seat>,
 ): string {
-  const free = (name: string): boolean => !isFixedChatName(name) && (seats.get(name)?.reclaimable ?? true);
+  const free = (name: string): boolean => !isFixedChatName(name) && !isSlackName(name) && (seats.get(name)?.reclaimable ?? true);
   if (preferred !== undefined && suffixOf(preferred, baseHandle) !== null && free(preferred)) return preferred;
   const sameSeat = [...seats.values()]
     .filter((row) => row.reclaimable && row.cwd === seat.cwd && row.pane === seat.pane && suffixOf(row.name, baseHandle) !== null)
@@ -326,6 +328,8 @@ export function signIn(
     if (!continued && identity && !claimIdentitySeat(identity.id, sessionStaleCutoff, scoped, db)) identity = undefined;
     const requestedBase = typeof target === "string" ? target : args.baseHandle;
     const baseHandle = continued ? target.baseName : (requestedBase ?? identity?.baseName ?? drawPoolName(db));
+    // Every suffixed name under this base stays in the Slack namespace, so pickDisplayName would never find a free one.
+    if (isSlackIdentity(baseHandle)) throw refusal("identity-fixed", `chat: may not sign in as ${JSON.stringify(baseHandle)}: ${fixedIdentityRefusal(baseHandle)}`);
 
     const seats = seatsByName(db, sessionStaleCutoff, scoped);
     const name = pickDisplayName(baseHandle, identity?.name, { cwd, pane }, seats);

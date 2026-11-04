@@ -200,6 +200,7 @@ JOIN chat_rooms ON chat_rooms.name = chat_members.room
 WHERE chat_members.last_read_id < maxes.maxId
   AND chat_rooms.archived_at IS NULL
   AND chat_members.wake_on <> 'none'
+  AND chat_members.handle NOT LIKE 'slack.%'
   AND EXISTS (
     SELECT 1 FROM chat_messages m
     WHERE m.room = chat_members.room

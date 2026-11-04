@@ -3492,6 +3492,82 @@ Invite another herdr pane into a chat room: types /chat:join <room> (with an opt
 }
 ```
 
+### chat_slack_close
+
+<!-- mcp-lint: allow -->
+Close this pane's Slack support chat, sending farewell to the teammate first. Acts only on the chat this session holds. A credential-shaped string in the farewell is removed before it is sent, and the result then says redacted. Requires a signed-in chat session; call chat_sign_in first.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "farewell": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "farewell"
+  ],
+  "additionalProperties": false
+}
+```
+
+### chat_slack_status
+
+<!-- mcp-lint: allow -->
+List the Slack support chats that are open on this machine, with their room, pane and last activity. Requires a signed-in chat session; call chat_sign_in first.
+
+```json
+{
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### chat_slack_ticket
+
+<!-- mcp-lint: allow -->
+Write a bug report or feature request for this pane's open Slack support chat, and return the path of the file it wrote. kind is bug or feature; acceptance is a list of testable points. Requires a signed-in chat session; call chat_sign_in first.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "bug",
+        "feature"
+      ]
+    },
+    "title": {
+      "type": "string"
+    },
+    "problem": {
+      "type": "string"
+    },
+    "idea": {
+      "type": "string"
+    },
+    "acceptance": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "kind",
+    "title",
+    "problem",
+    "idea",
+    "acceptance"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### whoami
 
 <!-- mcp-lint: allow -->

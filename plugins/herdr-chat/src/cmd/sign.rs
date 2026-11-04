@@ -152,6 +152,7 @@ mod tests {
             r#"{"ok":true,"handle":"kay","room":"rt"}"#,
             r#"{"ok":true,"buddies":[{"handle":"kay","status":"live","sessionId":"s-kay","pane":"w1:p1"}]}"#,
             r#"{"ok":true,"rooms":[{"room":"rt","unread":0}]}"#,
+            r#"{"ok":true,"conversations":[]}"#,
         ]);
         let s = run_json(&r, Sign::In, Some("w1:p1")).unwrap();
         assert_eq!(s.handle.as_deref(), Some("kay"));

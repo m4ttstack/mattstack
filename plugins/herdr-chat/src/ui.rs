@@ -18,6 +18,9 @@ pub enum Flow {
     Continue,
     /// Tear the popup down and restore the terminal.
     Exit,
+    /// Paint again at once with no key, before waiting for input. For a step
+    /// that shows a "working" frame and then does slow work on the next call.
+    Again,
 }
 
 /// Run a modal popup event loop.
@@ -36,32 +39,23 @@ where
         // Paint once before the first blocking read so the popup is visible at
         // once rather than after the first key. Honor an immediate Exit so a
         // step that closes on its keyless first paint is respected.
-        let mut flow = Flow::Continue;
-        terminal.draw(|frame| {
-            flow = paint(frame, theme, &mut step, None);
-        })?;
-        if matches!(flow, Flow::Exit) {
+        if matches!(draw_settled(terminal, theme, &mut step, None)?, Flow::Exit) {
             return Ok(());
         }
         loop {
             match event::read()? {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
-                    let mut flow = Flow::Continue;
-                    terminal.draw(|frame| {
-                        flow = paint(frame, theme, &mut step, Some(key));
-                    })?;
-                    if matches!(flow, Flow::Exit) {
+                    if matches!(
+                        draw_settled(terminal, theme, &mut step, Some(key))?,
+                        Flow::Exit
+                    ) {
                         break;
                     }
                 }
                 // A resize needs a repaint; the next `draw` re-renders at the new
                 // size. Other events (mouse, focus, paste) are ignored.
                 Event::Resize(_, _) => {
-                    let mut flow = Flow::Continue;
-                    terminal.draw(|frame| {
-                        flow = paint(frame, theme, &mut step, None);
-                    })?;
-                    if matches!(flow, Flow::Exit) {
+                    if matches!(draw_settled(terminal, theme, &mut step, None)?, Flow::Exit) {
                         break;
                     }
                 }
@@ -70,6 +64,32 @@ where
         }
         Ok(())
     })
+}
+
+/// One draw for `key`, repeated with no key for as long as the step answers
+/// [`Flow::Again`]. Returns the last answer, never `Again`.
+fn draw_settled<B, F>(
+    terminal: &mut ratatui::Terminal<B>,
+    theme: &AppTheme,
+    step: &mut F,
+    mut key: Option<KeyEvent>,
+) -> std::io::Result<Flow>
+where
+    B: ratatui::backend::Backend,
+    B::Error: Into<std::io::Error>,
+    F: FnMut(&mut Frame, Option<KeyEvent>) -> Flow,
+{
+    loop {
+        let mut flow = Flow::Continue;
+        terminal
+            .draw(|frame| {
+                flow = paint(frame, theme, step, key.take());
+            })
+            .map_err(Into::into)?;
+        if !matches!(flow, Flow::Again) {
+            return Ok(flow);
+        }
+    }
 }
 
 /// Fill the frame with the theme's base style, then hand it to the caller's

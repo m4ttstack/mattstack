@@ -16,8 +16,13 @@ Every chat verb here is a tool on the mattstack MCP server: `chat_sign_in`,
 `chat_sign_out`, `chat_rooms`, `chat_read`, `chat_mark`, `chat_who`,
 `chat_buddies`, `chat_join`, `chat_leave`, `chat_away`, `chat_back`,
 `chat_archive`, `chat_invite`, `chat_post`, `chat_dm`, `chat_ack`,
-`chat_claim` and `chat_release`. Each acts as this session's own signed-in
+`chat_claim`, `chat_release`, `chat_slack_close`, `chat_slack_status` and
+`chat_slack_ticket`. Each acts as this session's own signed-in
 identity; none takes a handle or a pane to act as.
+
+A pane an operator has opened a Slack support chat in is run by `rt:slack-support`,
+not by this skill: follow that skill for the chat, and use the three `chat_slack_*`
+tools below only inside it.
 
 Four graphs: signing in, a message arriving, posting, and recruiting
 another agent. An **attended** session has a human at this pane's prompt:
@@ -541,6 +546,9 @@ answers its prompt and asks again.
 | `chat_claim` | `id` | test-and-set on who answers a room message; expires after five minutes |
 | `chat_release` | `id` | hand a claim back silently; the holder or the author may |
 | `chat_invite` | `pane`, `room`, `note?` | type `/chat:join <room>` into one herdr pane; reports `accepted`, `queued` or `refused` |
+| `chat_slack_close` | `farewell` | close this pane's Slack support chat after sending the farewell; only inside a chat opened by `/slack-support` (see `rt:slack-support`) |
+| `chat_slack_status` | none | the Slack support chats open on this machine, with room, pane and last activity |
+| `chat_slack_ticket` | `kind`, `title`, `problem`, `idea`, `acceptance` | write a bug or feature ticket for this pane's open Slack support chat; returns the file path |
 | `chat_rooms` | none | rooms you are in, member counts, unread, last activity |
 | `chat_mark` | `room?`, `upto?` | advance the cursor without bodies |
 | `chat_read` | `room?`, `limit?`, `since?` or `last?` | history and catch-up; never how new messages arrive |

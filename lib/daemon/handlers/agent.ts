@@ -35,6 +35,7 @@ import { mergeGateForkHookSettings, resolveGateForkHookPath } from "../../agent-
 import { defaultHerdrRunner, focusLiveSession, herdrAgentSessionId, launchInWorkspace, type HerdrRunner } from "../../agent-herdr.ts";
 import { herdrRequest } from "../../herdr/client.ts";
 import { injectIntoPane } from "../inject.ts";
+import { opensSlackChat, slackOpenRefused } from "../../slack/format.ts";
 import { HERDR_NOT_INSTALLED, type HerdrStartResult } from "../../herdr/start.ts";
 import { acceptTrustOnPane, cwdPath, type TrustOutcome } from "../trust-accept.ts";
 import { repoLabel } from "../../repo-label.ts";
@@ -566,6 +567,7 @@ export function createAgentHandlers(opts: {
     "agent:start": async (rawPayload: unknown): Promise<CommandResult<"agent:start">> => {
       if (!rawPayload || typeof rawPayload !== "object") return { ok: false, error: "agent:start requires an object payload" };
       const payload = rawPayload as Commands["agent:start"]["payload"];
+      if (opensSlackChat(payload.prompt)) return slackOpenRefused();
       const { repo, cwd } = payload;
       if (!repo || !cwd) return { ok: false, error: "agent:start requires repo (serialized identity) and cwd" };
       if (payload.surface !== undefined && payload.surface !== "herdr" && payload.surface !== "headless") {
@@ -727,6 +729,7 @@ export function createAgentHandlers(opts: {
 
     "agent:resume": async (rawPayload: unknown): Promise<CommandResult<"agent:resume">> => {
       const payload = rawPayload as Commands["agent:resume"]["payload"];
+      if (opensSlackChat(payload.prompt)) return slackOpenRefused();
       const rec = getAgent(payload.id, db);
       if (!rec) return { ok: false, error: `no agent record for "${payload.id}"` };
       if (payload.surface !== undefined && payload.surface !== "herdr" && payload.surface !== "headless") {

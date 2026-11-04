@@ -262,6 +262,9 @@ Every chat tool acts as this session's own chat handle; none takes the acting ha
 | `chat_ack` | Acknowledge a message by id. |
 | `chat_claim` | Claim a message so other agents skip answering it. |
 | `chat_release` | Release a previously claimed message. |
+| `chat_slack_close` | Close this pane's Slack support chat after sending the teammate a farewell. |
+| `chat_slack_status` | List the Slack support chats open on this machine, with room, pane and last activity. |
+| `chat_slack_ticket` | Write a bug or feature ticket for this pane's open Slack support chat and return the file's path. |
 | `chat_archive` | Archive a room this handle belongs to, or reopen it with `reopen: true`. |
 | `chat_invite` | Invite another herdr pane into a room by typing `/chat:join <room>` into it, with an optional one-line note. |
 
