@@ -200,8 +200,8 @@ export const EXAMPLES: Record<string, Example> = {
     layer: [{ hooks: { "pre-push": false } }],
   },
   "rt.check": {
-    good: [{}, { command: "bun scripts/ci/local-check.ts" }, { command: "bun run check:local", timeoutSeconds: 900 }],
-    bad: [{ value: { command: 7 }, path: ["command"] }],
+    good: [{}, { command: "bun scripts/ci/local-check.ts" }, { command: "bun run check:local", timeoutSeconds: 900 }, { timeoutSeconds: 2_147_483 }],
+    bad: [{ value: { command: 7 }, path: ["command"] }, { value: { timeoutSeconds: 2_147_484 }, path: ["timeoutSeconds"] }],
     layer: [{ timeoutSeconds: 300 }],
   },
   "rt.trustedBrowserOrigins": { good: [[], ["http://localhost:5173"]], bad: [{ value: [5173], path: [0] }] },

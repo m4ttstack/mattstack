@@ -191,7 +191,8 @@ export const SCHEMAS = {
   "rt.hooks": z.looseObject({ enabled: z.boolean().optional(), hooks: z.record(z.string(), z.boolean()).optional() }),
   "rt.check": z.looseObject({
     command: z.string().min(1).optional().meta({ title: "Command", description: "Run from the tree root by the shell; exit 0 is green" }),
-    timeoutSeconds: z.number().int().positive().optional().meta({ title: "Timeout (seconds)", description: "A run past this posts error and refuses the push; default 600" }),
+    // A timer past 2^31-1 ms overflows and fires at once, which reads as a false timeout.
+    timeoutSeconds: z.number().int().positive().max(2_147_483).optional().meta({ title: "Timeout (seconds)", description: "A run past this posts error and refuses the push; default 600" }),
   }),
   "rt.trustedBrowserOrigins": z.array(z.string()),
   "rt.mcp.uploadRoots": z.array(z.string()),
