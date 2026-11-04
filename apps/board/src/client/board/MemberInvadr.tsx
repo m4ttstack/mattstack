@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useState } from 'react';
 import { Invadr } from 'invadrs/react';
 
 import type { MemberLook } from './invadr-colors.ts';
@@ -13,8 +13,9 @@ export function useMemberLook(id: string): MemberLook | undefined {
   return useContext(MemberLooks).get(id);
 }
 
-/** A person's avatar in their assigned colour and creature. Someone off the
-    roster keeps invadrs' own hashed pick of both. */
+/** A person's Slack picture when one matched, else their avatar in their
+    assigned colour and creature. Someone off the roster keeps invadrs' own
+    hashed pick of both. */
 export function MemberInvadr({
   id,
   className,
@@ -23,7 +24,18 @@ export function MemberInvadr({
   className?: string;
 }) {
   const look = useMemberLook(id);
+  const [failed, setFailed] = useState<string>();
   className = className ? `tui-invadr ${className}` : 'tui-invadr';
+  if (look?.face && look.face !== failed) {
+    return (
+      <img
+        src={look.face}
+        alt=""
+        className={`tui-slack-face ${className}`}
+        onError={() => setFailed(look.face)}
+      />
+    );
+  }
   return look ? (
     <Invadr
       id={id}

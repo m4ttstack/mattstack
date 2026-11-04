@@ -2664,6 +2664,16 @@ body {
 }
 /* Only the invader is centred on the line; the name stays inline text so
    it shares the sentence's baseline. */
+.tui-slack-face {
+  display: inline-block;
+  object-fit: cover;
+  border-radius: 28%;
+  flex-shrink: 0;
+}
+.tui-comment-avatar .tui-slack-face {
+  width: 100%;
+  height: 100%;
+}
 .tui-person-avatar {
   display: inline-block;
   vertical-align: middle;

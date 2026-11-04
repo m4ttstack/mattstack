@@ -1396,10 +1396,16 @@ export function Board() {
       .sort();
     return [...listed, ...others].join('\n');
   }, [data, boardView]);
-  const memberLooks = useMemo(
-    () => assignMemberLooks(lookIds ? lookIds.split('\n') : []),
-    [lookIds]
-  );
+  const faces = JSON.stringify(data?.slackFaces ?? {});
+  const memberLooks = useMemo(() => {
+    const looks = assignMemberLooks(lookIds ? lookIds.split('\n') : []);
+    const known = JSON.parse(faces) as Record<string, string>;
+    for (const [username, id] of Object.entries(known)) {
+      const look = looks.get(username);
+      if (look) looks.set(username, { ...look, face: `/api/slack-avatar/${id}` });
+    }
+    return looks;
+  }, [lookIds, faces]);
 
   // Actionable gates on every row the board holds, visible rows first in
   // board order (group order, the group's own sort, stack nesting: exactly

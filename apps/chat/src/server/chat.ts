@@ -7,6 +7,7 @@ import {
   chatMessages,
   chatPost,
   chatRooms,
+  chatSlackAvatarFile,
   chatSlackStatus,
   chatWho,
   getSetting,
@@ -18,6 +19,7 @@ import {
   type RtClientOptions,
 } from '@mattstack/rt-client';
 import { Hono } from 'hono';
+import { readFile } from 'node:fs/promises';
 import type { Context } from 'hono';
 import { validator } from 'hono/validator';
 
@@ -284,6 +286,21 @@ export const chat = new Hono()
       return c.json({ error: res.error ?? 'slack-status: no data' }, 502);
     }
     return c.json(res.data, 200);
+  })
+  .get('/api/chat/slack-avatar/:person', async c => {
+    const res = await chatSlackAvatarFile(
+      { person: c.req.param('person') },
+      rtOpts()
+    );
+    const file = res.ok ? res.data?.file : undefined;
+    if (!file) return c.json({ error: 'not found' }, 404);
+    const bytes = await readFile(file.path).catch(() => null);
+    if (!bytes) return c.json({ error: 'not found' }, 404);
+    return c.body(bytes, 200, {
+      'content-type': file.contentType,
+      'cache-control': 'private, max-age=3600',
+      'x-content-type-options': 'nosniff',
+    });
   })
   .get('/api/chat/who/:room', async c => {
     const room = c.req.param('room');

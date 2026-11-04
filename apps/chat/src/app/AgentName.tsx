@@ -2,7 +2,6 @@ import { cloneElement, useState, type HTMLAttributes } from 'react';
 import { createAvatar } from '@dicebear/core';
 import * as personas from '@dicebear/personas';
 import {
-  Avatar,
   Box,
   Button,
   Group,
@@ -123,28 +122,17 @@ export function HandleAvatar({
 
 export const CARD_WIDTH = 340;
 
-const SPRITE_IN_AVATAR = { sm: 16, md: 24, xl: 44 } as const;
-const AVATAR_SIZE_PX = { sm: undefined, md: undefined, xl: 64 } as const;
+const FACE_SIZE = { sm: 26, md: 38, xl: 64 } as const;
 
-/** A handle's sprite on the kit's own avatar tile, for lists and cards where
-    a bare pixel sprite reads ragged against text. */
+/** A handle's face at a list or card size. */
 export function SpriteAvatar({
   handle,
   size,
 }: {
   handle: string;
-  size: keyof typeof SPRITE_IN_AVATAR;
+  size: keyof typeof FACE_SIZE;
 }) {
-  return (
-    <Avatar
-      size={AVATAR_SIZE_PX[size] ?? size}
-      radius={size === 'xl' ? 'lg' : 'xl'}
-      color="gray"
-      variant="light"
-    >
-      <HandleSprite handle={handle} size={SPRITE_IN_AVATAR[size]} />
-    </Avatar>
-  );
+  return <HandleSprite handle={handle} size={FACE_SIZE[size]} />;
 }
 
 export interface AgentNameProps {

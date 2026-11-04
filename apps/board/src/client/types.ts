@@ -278,6 +278,8 @@ export interface BoardData {
   tokenUser?: string | null;
   members: RosterMember[];
   allMembers: ConfigMember[];
+  /** Slack user id by username, for the people whose name matched one Slack person. */
+  slackFaces?: Record<string, string>;
   mrs: BoardMRWithReview[];
   /** Enrolled peer-board usernames from the relay; absent when peering is off
       or the relay hasn't answered yet, and the ask pickers then fall back to
