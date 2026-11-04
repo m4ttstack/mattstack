@@ -44,6 +44,14 @@
   color: white;
 }
 
-.mantine-AppShell-header .mantine-ActionIcon-root {
+.mantine-AppShell-header .mantine-ActionIcon-root,
+.mantine-AppShell-header .mantine-UnstyledButton-root {
+  color: white;
+}
+
+/* The bar's controls brighten on hover in white, never the theme's grey. */
+.mantine-AppShell-header button:hover,
+.mantine-AppShell-header [data-expanded] {
+  background: rgb(255 255 255 / 24%) !important;
   color: white;
 }
