@@ -135,6 +135,7 @@ pub fn status_json(r: &dyn Runner, pane: Option<&str>) -> Result<crate::json::St
             .into_iter()
             .find(|c| c.pane.as_deref() == Some(pane))
             .map(|c| crate::json::SlackChat {
+                display_name: c.shown_name().to_string(),
                 name: c.name,
                 opened_at: c.opened_at,
             })
@@ -726,13 +727,14 @@ mod tests {
         let r = FakeRunner::sequence(&[
             KAY_IN_W1P1,
             r#"{"ok":true,"rooms":[]}"#,
-            r#"{"ok":true,"conversations":[{"id":2,"room":"slack-2","pane":"w9:p9","name":"sam","openedAt":10,"lastActiveAt":10},{"id":3,"room":"slack-3","pane":"w1:p1","name":"alex","openedAt":1700,"lastActiveAt":1800}]}"#,
+            r#"{"ok":true,"conversations":[{"id":2,"room":"slack-2","pane":"w9:p9","name":"sam","openedAt":10,"lastActiveAt":10},{"id":3,"room":"slack-3","pane":"w1:p1","name":"alex-slack","displayName":"Alex Example","openedAt":1700,"lastActiveAt":1800}]}"#,
         ]);
         let s = status_json(&r, Some("w1:p1")).unwrap();
         assert_eq!(
             s.slack_chat,
             Some(crate::json::SlackChat {
-                name: "alex".to_string(),
+                name: "alex-slack".to_string(),
+                display_name: "Alex Example".to_string(),
                 opened_at: 1700
             })
         );

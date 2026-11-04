@@ -31,6 +31,7 @@ pub struct Status {
 #[serde(rename_all = "camelCase")]
 pub struct SlackChat {
     pub name: String,
+    pub display_name: String,
     pub opened_at: i64,
 }
 
@@ -43,6 +44,7 @@ pub struct SlackConversationRow {
     pub room: String,
     pub pane: Option<String>,
     pub name: String,
+    pub display_name: String,
     pub opened_at: i64,
     pub last_active_at: i64,
 }
@@ -61,10 +63,57 @@ pub fn slack_status_from(chats: &[crate::rt::SlackConversation]) -> SlackStatus 
                 room: c.room.clone(),
                 pane: c.pane.clone(),
                 name: c.name.clone(),
+                display_name: c.shown_name().to_string(),
                 opened_at: c.opened_at,
                 last_active_at: c.last_active_at,
             })
             .collect(),
+    }
+}
+
+/// One row of `slack-people`. A title Slack has none for is left out.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct SlackPersonRow {
+    pub name: String,
+    pub person: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+/// `slack-people`'s answer. Unavailable is an answer rather than a failure, so
+/// it keeps this shape and exits zero.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum SlackPeople {
+    Listed {
+        ok: bool,
+        people: Vec<SlackPersonRow>,
+    },
+    Unavailable {
+        ok: bool,
+        reason: &'static str,
+        error: String,
+    },
+}
+
+pub fn slack_people_from(people: Result<Vec<crate::rt::SlackPerson>, String>) -> SlackPeople {
+    match people {
+        Ok(people) => SlackPeople::Listed {
+            ok: true,
+            people: people
+                .into_iter()
+                .map(|p| SlackPersonRow {
+                    name: p.name,
+                    person: p.person,
+                    title: p.title,
+                })
+                .collect(),
+        },
+        Err(error) => SlackPeople::Unavailable {
+            ok: false,
+            reason: "unavailable",
+            error,
+        },
     }
 }
 
@@ -336,14 +385,15 @@ mod tests {
             signed_in: true,
             rooms: Vec::new(),
             slack_chat: Some(SlackChat {
-                name: "alex".to_string(),
+                name: "alex-slack".to_string(),
+                display_name: "Alex Example".to_string(),
                 opened_at: 1700,
             }),
         })
         .unwrap();
         assert_eq!(
             out,
-            r#"{"handle":"kay","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":[],"slackChat":{"name":"alex","openedAt":1700}}"#
+            r#"{"handle":"kay","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":[],"slackChat":{"name":"alex-slack","displayName":"Alex Example","openedAt":1700}}"#
         );
     }
 
@@ -353,14 +403,15 @@ mod tests {
             id: 4,
             room: "slack-4".to_string(),
             pane: None,
-            name: "alex".to_string(),
+            name: "alex-slack".to_string(),
+            display_name: Some("Alex Example".to_string()),
             opened_at: 100,
             last_active_at: 150,
         }]))
         .unwrap();
         assert_eq!(
             out,
-            r#"{"conversations":[{"id":4,"room":"slack-4","pane":null,"name":"alex","openedAt":100,"lastActiveAt":150}]}"#
+            r#"{"conversations":[{"id":4,"room":"slack-4","pane":null,"name":"alex-slack","displayName":"Alex Example","openedAt":100,"lastActiveAt":150}]}"#
         );
     }
 

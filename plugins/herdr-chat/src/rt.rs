@@ -369,16 +369,50 @@ pub struct SlackConversation {
     pub room: String,
     #[serde(default)]
     pub pane: Option<String>,
+    /// The identity chat resolves on. A person reads `shown_name()`.
     pub name: String,
+    #[serde(default, rename = "displayName")]
+    pub display_name: Option<String>,
     #[serde(rename = "openedAt")]
     pub opened_at: i64,
     #[serde(rename = "lastActiveAt")]
     pub last_active_at: i64,
 }
 
+impl SlackConversation {
+    pub fn shown_name(&self) -> &str {
+        self.display_name.as_deref().unwrap_or(&self.name)
+    }
+}
+
 #[derive(serde::Deserialize)]
 struct SlackConversations {
     conversations: Vec<SlackConversation>,
+}
+
+/// One person a Slack chat can open with. `person` is what `/slack-support`
+/// takes; `name` and `title` are for reading.
+#[derive(serde::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct SlackPerson {
+    pub name: String,
+    pub person: String,
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct SlackPeople {
+    #[serde(default)]
+    people: Option<Vec<SlackPerson>>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+pub fn slack_people(r: &dyn Runner) -> Result<Vec<SlackPerson>, String> {
+    let rt = rt_bin();
+    let out: SlackPeople = run_json(r, &[rt.as_str(), "chat", "slack-people", "--json"], &[])?;
+    out.people
+        .ok_or_else(|| out.error.unwrap_or_else(|| "rt gave no people".to_string()))
 }
 
 pub fn slack_status(r: &dyn Runner) -> Result<Vec<SlackConversation>, String> {
@@ -517,14 +551,24 @@ mod tests {
     #[test]
     fn slack_status_parses_the_open_conversations() {
         let r = FakeRunner::capture(
-            r#"{"ok":true,"conversations":[{"id":4,"room":"slack-4","pane":"w1:p1","name":"alex","openedAt":100,"lastActiveAt":150},{"id":5,"room":"slack-5","name":"sam","openedAt":200,"lastActiveAt":200}]}"#,
+            r#"{"ok":true,"conversations":[{"id":4,"room":"slack-4","pane":"w1:p1","name":"alex-slack","displayName":"Alex Example","openedAt":100,"lastActiveAt":150},{"id":5,"room":"slack-5","name":"sam","openedAt":200,"lastActiveAt":200}]}"#,
         );
         let chats = slack_status(&r).unwrap();
         assert_eq!(r.last().argv, vec!["rt", "chat", "slack-status", "--json"]);
         assert_eq!(chats[0].pane.as_deref(), Some("w1:p1"));
-        assert_eq!(chats[0].name, "alex");
+        assert_eq!(chats[0].name, "alex-slack");
         assert_eq!(chats[0].opened_at, 100);
         assert_eq!(chats[1].pane, None);
+    }
+
+    #[test]
+    fn a_slack_chat_shows_the_display_name_and_falls_back_to_the_identity() {
+        let r = FakeRunner::capture(
+            r#"{"ok":true,"conversations":[{"id":4,"room":"slack-4","name":"alex-slack","displayName":"Alex Example","openedAt":1,"lastActiveAt":1},{"id":5,"room":"slack-5","name":"sam-slack","openedAt":2,"lastActiveAt":2}]}"#,
+        );
+        let chats = slack_status(&r).unwrap();
+        assert_eq!(chats[0].shown_name(), "Alex Example");
+        assert_eq!(chats[1].shown_name(), "sam-slack");
     }
 
     #[test]

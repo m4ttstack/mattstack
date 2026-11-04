@@ -1,12 +1,13 @@
 //! The `slack-support` capability: turn a Slack support chat on or off for a
 //! pane. On types `/slack-support <person> <problem>` into the pane, the only
 //! way a chat opens; Off asks rt to close the pane's chat. The headless verbs
-//! `slack-status` and `slack-close` back the same two controls for a front end.
+//! `slack-status`, `slack-close` and `slack-people` back the same controls for
+//! a front end.
 
 use std::time::Duration;
 
 use crate::herdr;
-use crate::json::{self, SlackClose, SlackStatus};
+use crate::json::{self, SlackClose, SlackPeople, SlackStatus};
 use crate::rt::{self, SlackConversation};
 use crate::run::Runner;
 use crate::state;
@@ -36,6 +37,10 @@ pub fn status_json(r: &dyn Runner) -> Result<SlackStatus, String> {
     Ok(json::slack_status_from(&rt::slack_status(r)?))
 }
 
+pub fn people_json(r: &dyn Runner) -> SlackPeople {
+    json::slack_people_from(rt::slack_people(r))
+}
+
 pub fn close_json(r: &dyn Runner, pane: Option<&str>) -> Result<SlackClose, String> {
     let pane = pane.ok_or_else(|| "pane is required".to_string())?;
     let closed = rt::slack_close(r, pane)?;
@@ -54,7 +59,13 @@ pub fn status_text(r: &dyn Runner) -> Result<String, String> {
     }
     Ok(chats
         .iter()
-        .map(|c| format!("{}  {}", c.name, c.pane.as_deref().unwrap_or("no pane")))
+        .map(|c| {
+            format!(
+                "{}  {}",
+                c.shown_name(),
+                c.pane.as_deref().unwrap_or("no pane")
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n"))
 }
@@ -129,7 +140,7 @@ pub fn start(
         std::thread::sleep(delay);
         if let Some(chat) = chat_for_pane(&rt::slack_status(r)?, pane) {
             return Ok(Started::Open {
-                name: chat.name.clone(),
+                name: chat.shown_name().to_string(),
             });
         }
     }
@@ -268,7 +279,7 @@ pub fn run(r: &dyn Runner) -> Result<(), String> {
         Some(pane) => match rt::slack_status(r) {
             Ok(chats) => match chat_for_pane(&chats, pane) {
                 Some(chat) => Mode::Off {
-                    name: chat.name.clone(),
+                    name: chat.shown_name().to_string(),
                 },
                 None => Mode::Form(Form::default()),
             },
@@ -485,7 +496,7 @@ mod tests {
 
     const QUEUED: &str = r#"{"ok":true,"paneId":"w1:p1","delivered":"queued"}"#;
     const NO_CHATS: &str = r#"{"ok":true,"conversations":[]}"#;
-    const ALEX_OPEN: &str = r#"{"ok":true,"conversations":[{"id":3,"room":"slack-3","pane":"w1:p1","name":"alex","openedAt":1700,"lastActiveAt":1800}]}"#;
+    const ALEX_OPEN: &str = r#"{"ok":true,"conversations":[{"id":3,"room":"slack-3","pane":"w1:p1","name":"alex-slack","displayName":"Alex Example","openedAt":1700,"lastActiveAt":1800}]}"#;
 
     fn start_for(r: &FakeRunner) -> Result<Started, String> {
         start(r, "w1:p1", "alex", "printer jams", 3, Duration::ZERO)
@@ -497,7 +508,49 @@ mod tests {
         let out = status_json(&r).unwrap();
         assert_eq!(r.call(0).argv, vec!["rt", "chat", "slack-status", "--json"]);
         assert_eq!(out.conversations.len(), 1);
-        assert_eq!(out.conversations[0].name, "alex");
+        assert_eq!(out.conversations[0].name, "alex-slack");
+        assert_eq!(out.conversations[0].display_name, "Alex Example");
+    }
+
+    #[test]
+    fn the_plain_status_shows_the_display_name() {
+        let r = FakeRunner::capture(ALEX_OPEN);
+        assert_eq!(status_text(&r).unwrap(), "Alex Example  w1:p1");
+    }
+
+    #[test]
+    fn slack_people_prints_the_list_rt_gave() {
+        let r = FakeRunner::capture(
+            r#"{"ok":true,"people":[{"name":"Alex Example","person":"U0TEST","title":"Support lead"},{"name":"Sam Other","person":"U0SAM"}]}"#,
+        );
+        let out = serde_json::to_string(&people_json(&r)).unwrap();
+        assert_eq!(r.call(0).argv, vec!["rt", "chat", "slack-people", "--json"]);
+        assert_eq!(
+            out,
+            r#"{"ok":true,"people":[{"name":"Alex Example","person":"U0TEST","title":"Support lead"},{"name":"Sam Other","person":"U0SAM"}]}"#
+        );
+    }
+
+    #[test]
+    fn slack_people_passes_on_rts_unavailable() {
+        let r = FakeRunner::capture(
+            r#"{"ok":false,"reason":"unavailable","error":"Slack isn't connected"}"#,
+        );
+        assert_eq!(
+            serde_json::to_string(&people_json(&r)).unwrap(),
+            r#"{"ok":false,"reason":"unavailable","error":"Slack isn't connected"}"#
+        );
+    }
+
+    /// An rt from before the verb exits nonzero and prints no JSON.
+    #[test]
+    fn slack_people_is_unavailable_when_rt_cant_answer() {
+        let r = FakeRunner::capture("not json");
+        let out = serde_json::to_string(&people_json(&r)).unwrap();
+        assert!(
+            out.starts_with(r#"{"ok":false,"reason":"unavailable","error":""#),
+            "{out}"
+        );
     }
 
     #[test]
@@ -555,7 +608,7 @@ mod tests {
         assert_eq!(
             start_for(&r).unwrap(),
             Started::Open {
-                name: "alex".to_string()
+                name: "Alex Example".to_string()
             }
         );
     }

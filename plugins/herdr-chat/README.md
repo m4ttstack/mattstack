@@ -39,10 +39,11 @@ herdr-chat sign-out --json --pane w1:p1
 herdr-chat jump --json --handle scout
 herdr-chat open-viewer --json
 herdr-chat slack-status --json
+herdr-chat slack-people --json
 herdr-chat slack-close --json --pane w1:p1
 ```
 
-`status`, `targets` and `jump` have no other mode, so `--json` is optional
+`status`, `targets`, `jump` and `slack-people` have no other mode, so `--json` is optional
 there and changes nothing.
 
 Three rules hold across every verb. `--json` never prompts and never falls
@@ -68,6 +69,7 @@ breaking it.
 | `sign-in` | `--pane <id>`, else `HERDR_PANE_ID`; required | the same seven, read back after the sign |
 | `sign-out` | `--pane <id>`, else `HERDR_PANE_ID`; required | the same seven |
 | `slack-status` | none | `conversations` |
+| `slack-people` | none | `ok`, then `people`, or `reason` and `error` |
 | `slack-close` | `--pane <id>`, else `HERDR_PANE_ID`; required | `ok`, `conversationId`, `closed` |
 | `peek` | none | `buddies`, `rooms` |
 | `targets` | none | `rooms`, `people`, `labels` |
@@ -82,10 +84,22 @@ The nested rows: a `peek` buddy is `handle`, `name`, `paneId`, `status`, `repo`,
 `kai ↔ remy`, else the room); a `broadcast` result is `paneId`, `ok`,
 `delivered`, `error`.
 
-`slackChat` on a `status` is `{ name, openedAt }` for the Slack support chat
-open in that pane, else `null`. A `slack-status` conversation is `id`, `room`,
-`pane`, `name`, `openedAt`, `lastActiveAt` (`pane` is `null` when the agent
-holding the chat has no pane in the roster). On has no verb of its own: a
+`slackChat` on a `status` is `{ name, displayName, openedAt }` for the Slack
+support chat open in that pane, else `null`. `name` is the identity chat
+resolves on and `displayName` is what to draw. A `slack-status` conversation is
+`id`, `room`, `pane`, `name`, `displayName`, `openedAt`, `lastActiveAt` (`pane`
+is `null` when the agent holding the chat has no pane in the roster).
+
+`slack-people` lists who a chat can open with, sorted by `name`, as
+`{"ok":true,"people":[{"name":"Alex Example","person":"U0TEST","title":"Support lead"}]}`.
+`name` and `title` are for reading (a title Slack has none for is left out, and
+it tells two people with one name apart). `person` is the Slack user id to type
+as the command's person. When Slack isn't connected, lacks the scopes or fails,
+or rt can't answer, it prints
+`{"ok":false,"reason":"unavailable","error":"..."}`. That is an answer, not one
+of the failures above, so it exits zero.
+
+On has no verb of its own: a
 caller types `/slack-support <person> <problem>` into the pane with `rt pane
 send`, from a process that carries no pane identity (the daemon refuses that
 command from a pane), then reads `slackChat` on `status` to learn whether it

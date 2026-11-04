@@ -111,6 +111,13 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Print the people a Slack support chat can open with. JSON only.
+    SlackPeople {
+        /// Accepted for symmetry with the other verbs. This one has no other
+        /// mode, so it changes nothing.
+        #[arg(long)]
+        json: bool,
+    },
     /// Close the Slack support chat held by a pane.
     SlackClose {
         #[arg(long)]
@@ -374,6 +381,13 @@ fn main() -> std::process::ExitCode {
                 }
             }
         }
+        Cmd::SlackPeople { json: _ } => match json::emit(&cmd::slack::people_json(&runner)) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                json::fail(&e);
+                std::process::ExitCode::FAILURE
+            }
+        },
         Cmd::SlackClose { json, pane } => {
             let pane = pane.or_else(|| std::env::var("HERDR_PANE_ID").ok());
             if json {
