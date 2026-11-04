@@ -58,13 +58,13 @@ export const MESSAGE_HANDLE: AgentNameSize = {
 };
 
 /** A name's own soft tile, the same on every machine. Hues run green through
-    blue to violet: warm ones hide the faces, whose skin tones sit there. */
+    blue to violet: warm ones hide the faces, and pinks vanish behind the pink selection. */
 function faceBackground(name: string): string {
   let hash = 2166136261;
   for (const char of name) {
     hash = Math.imul(hash ^ char.codePointAt(0)!, 16777619);
   }
-  const hue = 140 + (hash >>> 0) % 180;
+  const hue = 140 + (hash >>> 0) % 130;
   const channel = (n: number) => {
     const k = (n + hue / 30) % 12;
     const value = 0.88 - 0.09 * Math.max(-1, Math.min(k - 3, 9 - k, 1));
