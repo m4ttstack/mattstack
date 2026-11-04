@@ -15,7 +15,9 @@ export function NewPill({ count, onClick }: NewPillProps) {
     <UnstyledButton
       data-testid="new-pill"
       aria-label={
-        news ? `${count} new messages, jump to latest` : 'Jump to latest'
+        news
+          ? `${count} new ${count === 1 ? 'message' : 'messages'}, jump to latest`
+          : 'Jump to latest'
       }
       onClick={onClick}
       style={{

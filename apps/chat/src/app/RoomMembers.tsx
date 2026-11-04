@@ -10,12 +10,7 @@ import { AnimatedChevron, Icon } from '@mattstack/app-kit/icons';
 import type { AgentStatus, RoomSummary } from '@mattstack/rt-client';
 
 import { agentState, isRoomForRepo, type AgentState } from './agent-state';
-import {
-  AgentCard,
-  CARD_WIDTH,
-  HandleAvatar,
-  SpriteAvatar,
-} from './AgentName';
+import { AgentCard, CARD_WIDTH, HandleAvatar, SpriteAvatar } from './AgentName';
 import { useBuddies } from './buddies-context';
 import { doing, type DoingInput } from './doing';
 import classes from './room-members.module.css';

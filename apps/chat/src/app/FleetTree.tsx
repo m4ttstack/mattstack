@@ -146,11 +146,14 @@ function RowMenu({
     const paneId = ctx?.byHandle.get(handle)?.pane;
     return paneId ? [{ paneId, name: ctx?.nameOf(handle) ?? handle }] : [];
   });
-  const copyLink = () => {
+  const copyLink = async () => {
     const link = `${window.location.origin}/r/${encodeURIComponent(room.room)}`;
-    void navigator.clipboard
-      .writeText(link)
-      .then(() => notifications.success('Link copied'));
+    try {
+      await navigator.clipboard.writeText(link);
+      notifications.success('Link copied');
+    } catch {
+      notifications.error("Couldn't copy the link");
+    }
   };
   return (
     <Menu

@@ -8,7 +8,7 @@ import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
 import { lazyChildLogger } from "../../daemon-logger.ts";
 import { getSetting } from "../../settings/resolve.ts";
-import { SLACK_SUPPORT_SCOPES } from "../../setup/slack-app.ts";
+import { SLACK_SUPPORT_CHAT_SCOPES } from "../../setup/slack-app.ts";
 import { createSlackAvatars } from "../../slack/avatars.ts";
 import { SlackError, type SlackClient, type SlackUser } from "../../slack/client.ts";
 import { slackClientFromSecrets } from "../../slack/daemon-client.ts";
@@ -165,7 +165,7 @@ export function createSlackChatHandlers(opts: {
     const client = await slackClient();
     if (!client) return slackRefusal(`Slack isn't connected on this machine. To connect it, run ${CONNECT_STEP}`);
     const { userId: operatorUserId, scopes } = await client.authTest();
-    if (!SLACK_SUPPORT_SCOPES.every((s) => scopes.includes(s))) {
+    if (!SLACK_SUPPORT_CHAT_SCOPES.every((s) => scopes.includes(s))) {
       return slackRefusal(`This Slack connection can't reach direct messages yet. To add that, run ${CONNECT_STEP}`);
     }
     const everyone = await client.listUsers();

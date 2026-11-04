@@ -1,10 +1,16 @@
 import { lazy, Suspense, useEffect, useMemo } from 'react';
-import { Alert, Button, Text, UnstyledButton } from '@mattstack/app-kit/core';
+import {
+  Alert,
+  Button,
+  PaneResizer,
+  Text,
+  UnstyledButton,
+  usePaneWidth,
+} from '@mattstack/app-kit/core';
 import { Icon, Icons } from '@mattstack/app-kit/icons';
 import { useSearch } from 'wouter';
 import { navigate } from 'wouter/use-browser-location';
 
-import { PaneResizer, usePaneWidth } from '@mattstack/app-kit/core';
 import { StepLoader, useStepLoading } from '../StepLoader';
 import { CommitDiff, filesOf } from './CommitDiff';
 import { UnsyncedActions, useUnsyncedSummary } from './graph/UnsyncedBanner';

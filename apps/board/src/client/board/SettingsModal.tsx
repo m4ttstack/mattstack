@@ -49,11 +49,7 @@ function SettingsModal({
   }, [canInvite]);
 
   return (
-    <Modal
-      title="❯ team members"
-      ariaLabel="team settings"
-      onClose={onClose}
-    >
+    <Modal title="❯ team members" ariaLabel="team settings" onClose={onClose}>
       {local && (
         <p className="tui-modal-sub">
           # check people out to hide them from the board

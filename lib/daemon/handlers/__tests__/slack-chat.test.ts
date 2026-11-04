@@ -5,7 +5,7 @@ import { expect, test } from "bun:test";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { Logger } from "pino";
-import { SLACK_SUPPORT_SCOPES } from "../../../setup/slack-app.ts";
+import { SLACK_SUPPORT_CHAT_SCOPES } from "../../../setup/slack-app.ts";
 import { SlackError, type SlackClient, type SlackUser } from "../../../slack/client.ts";
 import { SLACK_PREFIX, closingLine } from "../../../slack/format.ts";
 import {
@@ -57,7 +57,7 @@ function harness(opts: Options = {}) {
     },
     authTest: async () => {
       calls.push("authTest");
-      return { userId: OPERATOR.id, scopes: opts.scopes ?? ["chat:write", ...SLACK_SUPPORT_SCOPES] };
+      return { userId: OPERATOR.id, scopes: opts.scopes ?? ["chat:write", ...SLACK_SUPPORT_CHAT_SCOPES] };
     },
     listUsers: async () => {
       calls.push("listUsers");

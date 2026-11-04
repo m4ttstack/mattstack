@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
-import { useLocalStorage } from '@mattstack/app-kit/hooks';
 
+import { useLocalStorage } from '@mattstack/app-kit/hooks';
 import classes from './PaneResizer.module.css';
 
 const STEP = 24;

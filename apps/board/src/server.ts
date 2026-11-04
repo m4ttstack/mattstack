@@ -16,6 +16,8 @@ import {
 } from '@mattstack/glance';
 import type { MRDetail, PullRequest } from '@mattstack/glance';
 import {
+  chatSlackAvatarFile,
+  chatSlackAvatars,
   eventsHead,
   eventsList,
   gateAnswer as gateAnswerFacility,
@@ -25,11 +27,9 @@ import {
   getRun,
   getSetting,
   listOrgs,
+  matchSlackFaces,
   paneList,
   readDiscussions,
-  chatSlackAvatarFile,
-  chatSlackAvatars,
-  matchSlackFaces,
   readProjectMRs,
   rtCommand,
   setSetting,
@@ -1840,8 +1840,12 @@ function refreshSlackPeople(): void {
   slackPeopleFetchedAt = Date.now();
   void chatSlackAvatars()
     .then(res => {
-      if (res.ok && res.data?.people.length) slackPeople = res.data.people;
-      else slackPeopleFetchedAt = 0;
+      if (res.ok && res.data?.people.length) {
+        slackPeople = res.data.people;
+        knownSlackFaces.clear();
+      } else {
+        slackPeopleFetchedAt = 0;
+      }
     })
     .catch(() => {
       slackPeopleFetchedAt = 0;

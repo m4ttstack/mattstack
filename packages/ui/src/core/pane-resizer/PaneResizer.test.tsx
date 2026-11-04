@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { act, fireEvent, renderHook, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { PaneResizer, usePaneWidth } from './PaneResizer';
 
 const BOUNDS = { initial: 300, min: 240, max: 480 };

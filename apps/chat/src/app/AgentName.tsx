@@ -1,7 +1,6 @@
 import { cloneElement, useState, type HTMLAttributes } from 'react';
 import { createAvatar } from '@dicebear/core';
 import * as personas from '@dicebear/personas';
-import { faceZoom } from '@mattstack/rt-client/face-zoom';
 import {
   Box,
   Button,
@@ -10,6 +9,7 @@ import {
   Popover,
   Text,
 } from '@mattstack/app-kit/core';
+import { faceZoom } from '@mattstack/rt-client/face-zoom';
 
 import cardClasses from './agent-card.module.css';
 import classes from './agent-name.module.css';
@@ -66,7 +66,7 @@ function faceBackground(name: string): string {
   for (const char of name) {
     hash = Math.imul(hash ^ char.codePointAt(0)!, 16777619);
   }
-  const hue = 50 + (hash >>> 0) % 235;
+  const hue = 50 + ((hash >>> 0) % 235);
   const strength = 0.09 + ((hash >>> 12) % 3) * 0.04;
   const channel = (n: number) => {
     const k = (n + hue / 30) % 12;

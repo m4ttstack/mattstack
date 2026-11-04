@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
+
 import { ActionIcon, Avatar, Button, Menu } from '@mattstack/app-kit/core';
 import { Link } from '@mattstack/app-kit/router';
 import { faceZoom } from '@mattstack/rt-client/face-zoom';
@@ -12,8 +13,10 @@ import classes from './detail.module.css';
 
 export const displayName = (u: UserRow): string => u.name ?? u.username;
 
-function FacePhoto({ src }: { src: string }) {
+function FacePhoto({ src, fallback }: { src: string; fallback: ReactNode }) {
   const [zoom, setZoom] = useState(1);
+  const [failed, setFailed] = useState<string>();
+  if (failed === src) return fallback;
   return (
     <img
       src={src}
@@ -21,6 +24,7 @@ function FacePhoto({ src }: { src: string }) {
       className={classes.facePhoto}
       style={zoom === 1 ? undefined : { transform: `scale(${zoom})` }}
       onLoad={event => setZoom(faceZoom(event.currentTarget))}
+      onError={() => setFailed(src)}
     />
   );
 }
@@ -88,6 +92,7 @@ export function ProfileHeader({
   const personHref = usePersonHref();
   const name = displayName(person);
   const face = useSlackFace(name);
+  const monogram = <span data-parity="Initials">{initials(name)}</span>;
   const at = people.findIndex(u => u.username === person.username);
   const you = person.isCurrentUser;
   return (
@@ -116,11 +121,7 @@ export function ProfileHeader({
             variant={you ? 'filled' : 'default'}
             data-parity="Avatar"
           >
-            {face ? (
-              <FacePhoto src={face} />
-            ) : (
-              <span data-parity="Initials">{initials(name)}</span>
-            )}
+            {face ? <FacePhoto src={face} fallback={monogram} /> : monogram}
           </Avatar>
           <div className={classes.profileText}>
             <div className={classes.nameLine}>

@@ -39,7 +39,7 @@
 
 .mantine-AppShell-header .mantine-Button-root,
 .mantine-AppShell-header .mantine-Badge-root {
-  background: rgb(255 255 255 / 16%);
+  background: rgb(0 0 0 / 22%);
   border-color: transparent;
   color: white;
 }

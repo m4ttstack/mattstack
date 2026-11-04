@@ -87,7 +87,7 @@ export interface MessageMarkdownProps {
   /** Parallel to `mentions`; unset matches the ids themselves (an older daemon). */
   mentionNames?: string[];
   humanHandle?: string;
-  }
+}
 
 /** One message body. Raw HTML is skipped, links keep react-markdown's
     default protocol allowlist, and the caller supplies the `prose` wrapper. */

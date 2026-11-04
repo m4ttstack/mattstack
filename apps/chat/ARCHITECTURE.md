@@ -29,7 +29,7 @@ port: 11002, relay: [...] })` from `@mattstack/app-server`. The package
 
 ## The API
 
-All under `/api`; JSON in and out. An unmatched `/api/*` is a JSON 404, never
+All under `/api`; JSON in and out, except the picture route. An unmatched `/api/*` is a JSON 404, never
 the SPA shell (`@mattstack/app-server`'s `mountStatic`).
 
 | Route                                       | Returns                                                                                                                                                                                                                                                |
@@ -107,12 +107,12 @@ the fragment through wouter's location store, and `navigate` comes from
 `wouter/use-browser-location`. Links are wouter's `Link` behind Mantine's
 `component` prop (`<Button component={Link} href="/">`).
 
-| Path               | Screen                                                   |
-| ------------------ | -------------------------------------------------------- |
-| `/`                | redirects to the latest active room                      |
-| `/r/<room>`        | that room; `#m-<id>` scrolls to and highlights a message |
-| `/embed/r/<room>`  | the room alone, for embedding in another app             |
-| `/demo/page-shell` | the app-kit's PageShell demo                             |
+| Path               | Screen                                                              |
+| ------------------ | ------------------------------------------------------------------- |
+| `/`                | redirects to the latest active room                                 |
+| `/r/<room>`        | that room; `#m-<id>` scrolls to and highlights a message            |
+| `/embed/r/<room>`  | the room alone, for embedding; `?theme=dark\|light` sets its scheme |
+| `/demo/page-shell` | the app-kit's PageShell demo                                        |
 
 `/r/<room>#m-<id>` is a **contract with `rt`**: `rt chat post` prints it after
 every post and every wake line ends with it, built by

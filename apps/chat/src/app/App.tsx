@@ -45,8 +45,8 @@ import { RoomRail } from './RoomRail';
 import type { RosterBuddy } from './roster-types';
 import { useAppRoute, useHash } from './routes';
 import { SettingsButton } from './SettingsEntry';
-import { ThemeColorButton } from './ThemeColor';
 import { SlackChatsProvider, useSlackChats } from './slack-chats-context';
+import { ThemeColorButton } from './ThemeColor';
 import { PAGE_SIZE, Transcript } from './Transcript';
 import { latestActiveRoom, visibleRooms } from './visible-rooms';
 
@@ -660,14 +660,15 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
         const data = (await res.json()) as { room: string };
         void refetchRooms();
         setActiveRoom(data.room);
-        const to = `/r/${encodeURIComponent(data.room)}`;
+        const base = route.name === 'embed' ? '/embed/r' : '/r';
+        const to = `${base}/${encodeURIComponent(data.room)}`;
         if (window.location.pathname !== to) navigate(to);
         composerRef.current?.focus();
       } catch {
         notifications.error("Couldn't open the DM");
       }
     },
-    [refetchRooms]
+    [refetchRooms, route.name]
   );
 
   // Optimistic: the row leaves the rail before the request resolves, and a
