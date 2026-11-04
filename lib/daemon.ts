@@ -73,7 +73,7 @@ import { unknownCommandReply } from "./daemon/unknown-command.ts";
 // ./state/db.ts directly: importing the barrel is what guarantees every
 // store module has registered its legacy-JSON importer before the one-shot
 // v0->v1 migration runs (see lib/state/index.ts).
-import { getBranchCacheStore, getStateDb, closeStateDb, persistOrWarn, prunePresence, pruneMessages, pruneAgents, markAgentGone, snapshotRegistryDeps, quickCheck, backupTo, stampedBackupPath, pruneStateBackups, setBusyLogSink, enqueueNotification, listAgents, getAgent, type BranchCacheStore } from "./state/index.ts";
+import { getBranchCacheStore, getStateDb, closeStateDb, persistOrWarn, prunePresence, pruneMessages, pruneSlackItems, pruneAgents, markAgentGone, snapshotRegistryDeps, quickCheck, backupTo, stampedBackupPath, pruneStateBackups, setBusyLogSink, enqueueNotification, listAgents, getAgent, type BranchCacheStore } from "./state/index.ts";
 import { createCacheRefresher } from "./daemon/cache-refresh.ts";
 import { createWorktreeReconciler } from "./daemon/worktree-reconciler.ts";
 import { loadRepoIndex } from "./daemon/repo-index.ts";
@@ -85,7 +85,10 @@ import { runCapture } from "./subprocess.ts";
 import { buildRoutedHandlers } from "./daemon/command-router.ts";
 import { findRunningRunByWorktree, listRuns } from "./runs/store.ts";
 import { createOutcomeRefresher, lookupFromMrGet, postedFromGateRows } from "./daemon/run-outcome-refresher.ts";
-import { createChatDeliverySweep } from "./daemon/handlers/chat.ts";
+import { createChatDeliverySweep, slackRoomPoster } from "./daemon/handlers/chat.ts";
+import { createSlackBridge } from "./daemon/slack-bridge.ts";
+import { slackDeskNotify, tickSlackLifecycle } from "./daemon/slack-lifecycle.ts";
+import { slackClientFromSecrets } from "./slack/daemon-client.ts";
 import { startSocketServer } from "./daemon/socket-server.ts";
 import { startApiServer, withApiPortParkRetry, broadcast, apiWsClientCount, clearWsClients } from "./daemon/api-server.ts";
 import { deriveFailure } from "./daemon/failure.ts";
@@ -866,8 +869,11 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         sweepHandles.push(scheduleSweep(
           "chat-prune",
           () => {
-            const { removed } = pruneMessages(getStateDb("daemon"));
+            const db = getStateDb("daemon");
+            const { removed } = pruneMessages(db);
             if (removed > 0) log.info({ removed }, "pruned old chat messages");
+            const slack = pruneSlackItems(db);
+            if (slack.removed > 0) log.info({ removed: slack.removed }, "pruned old Slack chat items");
           },
           { bootDelayMs: 60_000, intervalMs: 24 * 60 * 60 * 1000 },
           log,
@@ -1036,6 +1042,44 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           "chat-delivery-sweep",
           async () => { await chatDeliverySweep(); },
           { bootDelayMs: 30_000, intervalMs: 30_000 },
+          log,
+        ));
+        // Inert while no Slack support conversation is open: the sweep reads
+        // the table first and touches neither the token nor Slack.
+        const slackBridgeDb = getStateDb("daemon");
+        const slackBridgeLog = loggerHandle.childLogger("slack-bridge");
+        const slackRoomPost = slackRoomPoster(
+          slackBridgeDb,
+          (topic, payload) => {
+            const emittedAt = Date.now();
+            const id = eventsBus.emitAt(topic, payload, emittedAt);
+            emit("event", { id, topic, payload, emittedAt });
+          },
+          slackBridgeLog,
+        );
+        const slackBridge = createSlackBridge({
+          db: slackBridgeDb,
+          client: slackClientFromSecrets,
+          post: slackRoomPost,
+          operatorHandle: () => getSetting<string>("chat.humanHandle").value || undefined,
+          log: slackBridgeLog,
+        });
+        sweepHandles.push(scheduleSweep(
+          "slack-bridge",
+          () => slackBridge.sweep(),
+          { bootDelayMs: 10_000, intervalMs: 5_000 },
+          log,
+        ));
+        sweepHandles.push(scheduleSweep(
+          "slack-lifecycle",
+          () => tickSlackLifecycle({
+            db: slackBridgeDb,
+            client: slackClientFromSecrets,
+            notify: slackDeskNotify,
+            post: slackRoomPost,
+            now: Date.now,
+          }),
+          { bootDelayMs: 15_000, intervalMs: 15_000 },
           log,
         ));
         // Keeps cd-cache.json warm for `rt cd`; uses the async repo-index

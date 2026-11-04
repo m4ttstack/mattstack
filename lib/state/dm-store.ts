@@ -34,6 +34,11 @@ function dmRoomId(a: string, b: string): string {
   return "dm-" + hasher.digest("hex").slice(0, 12);
 }
 
+/** The room `dmRoomFor` would use for this pair, without creating it. */
+export function dmRoomName(x: string, y: string): string {
+  return x < y ? dmRoomId(x, y) : dmRoomId(y, x);
+}
+
 export function dmRoomFor(
   x: string,
   y: string,

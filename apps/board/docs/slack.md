@@ -30,6 +30,7 @@ The user token scopes, and the calls that need them:
 | `reactions:read` | `reactions.get` |
 | `reactions:write` | `reactions.add`, `reactions.remove` |
 | `chat:write` | `chat.postMessage` |
+| `im:history`, `im:read`, `im:write`, `users:read` | Support chat only: reading and opening direct messages, finding a teammate. The app declares them; only `rt setup slack connect --support-chat` asks for them |
 
 `rt setup slack create-app` declares the same set, and `rt setup slack connect`
 asks for it. A team app created before rt asked for all of them grants a token

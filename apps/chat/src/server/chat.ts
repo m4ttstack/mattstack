@@ -8,6 +8,7 @@ import {
   chatMessages,
   chatPost,
   chatRooms,
+  chatSlackStatus,
   chatWho,
   getSetting,
   paneList,
@@ -30,6 +31,7 @@ import {
   fixtureMessages,
   fixtureRooms,
   fixturesEnabled,
+  fixtureSlackStatus,
 } from './fixtures';
 import { buildInbox } from './inbox';
 
@@ -301,6 +303,17 @@ export const chat = new Hono()
     });
 
     return c.json(buildInbox(unreadRooms, pagesByRoom, handle), 200);
+  })
+  // The app makes no Slack call of its own: the daemon says which rooms hold
+  // an open support chat. A daemon without the verb answers !ok, a 502 here,
+  // which the client reads as no chats.
+  .get('/api/chat/slack-status', async c => {
+    if (fixturesEnabled()) return c.json(fixtureSlackStatus(), 200);
+    const res = await chatSlackStatus(rtOpts());
+    if (!res.ok || !res.data) {
+      return c.json({ error: res.error ?? 'slack-status: no data' }, 502);
+    }
+    return c.json(res.data, 200);
   })
   .get('/api/chat/who/:room', async c => {
     const room = c.req.param('room');

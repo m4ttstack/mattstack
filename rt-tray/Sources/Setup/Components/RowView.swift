@@ -17,7 +17,7 @@ struct RowView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(row.title).fontWeight(.medium)
                 Text(row.why).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                if let d = row.detail, !d.isEmpty { Text(d).font(.caption).foregroundStyle(.secondary) }
+                if let d = row.detail, !d.isEmpty { Text(d).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
                 if let n = row.optionalNote { Text(n).font(.caption).foregroundStyle(.secondary) }
                 if let waiting { RowWaitingCaption(rowId: row.id, text: waiting).padding(.top, 2) }
             }

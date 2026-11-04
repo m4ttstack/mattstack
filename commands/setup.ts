@@ -61,7 +61,7 @@ import { composePlan, enrichSnapshotForge, realSecretPresence } from "../lib/set
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { checkCheckout, checkCloneTarget, configuredRepoRoots, resolvePlacements, takenFor, trackedIdentities, writePlacement, type CheckoutCheck } from "../lib/setup/repo-placement.ts";
 import { checkRepoRoot, stageRepoRoot } from "../lib/setup/repo-root.ts";
-import { DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError, buildSlackManifest, missingSlackUserScopes, slackRedirectFix, slackRedirectUri, slackUserScopeFix } from "../lib/setup/slack-app.ts";
+import { DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS, SLACK_SUPPORT_SCOPES, SlackCallbackError, SlackCallbackTimeoutError, buildSlackManifest, missingSlackUserScopes, slackRedirectFix, slackRedirectUri, slackUserScopeFix } from "../lib/setup/slack-app.ts";
 import { slackSecretWait, slackWaitCliMessage, type SlackSecretWait } from "../lib/setup/team-slack-secret.ts";
 import { STEPS } from "../lib/setup/steps/index.ts";
 import { appsRestartOwed, appsRestartStep, oweAppsRestart, restartServedApps } from "../lib/setup/steps/apps-restart.ts";
@@ -1244,6 +1244,7 @@ async function readSmartStdin(): Promise<unknown> {
 }
 
 const OAUTH_LISTEN_TIMEOUT_MS = 5 * 60 * 1000;
+const SLACK_ERROR_MAX = 64;
 
 export function realOAuthListen(port: number, expectedState: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -1276,12 +1277,15 @@ export function realOAuthListen(port: number, expectedState: string): Promise<st
           const url = new URL(req.url);
           const code = url.searchParams.get("code");
           const state = url.searchParams.get("state");
+          const slackError = url.searchParams.get("error")?.replace(/[^\w.-]/g, "").slice(0, SLACK_ERROR_MAX);
           settle(() => {
             server.stop();
             if (state !== expectedState) {
               reject(new Error("The Slack callback's state did not match, so rt rejected a possibly forged authorization code"));
             } else if (code) {
               resolve(code);
+            } else if (slackError) {
+              reject(new SlackCallbackError(slackError));
             } else {
               reject(new Error("slack callback request carried no code"));
             }
@@ -1818,20 +1822,24 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
   const appId = snapshot.integrations.slack?.appId;
   const redirectFix = slackRedirectFix(callbackPort, appId);
   const state = deps.randomState();
-  const authUrl = `https://slack.com/oauth/v2/authorize?client_id=${encodeURIComponent(clientId)}&user_scope=${encodeURIComponent(DEFAULT_SCOPE_NEEDS.user.join(","))}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
+  const supportChat = args.includes("--support-chat");
+  const requestedScopes = supportChat ? [...DEFAULT_SCOPE_NEEDS.user, ...SLACK_SUPPORT_SCOPES] : DEFAULT_SCOPE_NEEDS.user;
+  const authUrl = `https://slack.com/oauth/v2/authorize?client_id=${encodeURIComponent(clientId)}&user_scope=${encodeURIComponent(requestedScopes.join(","))}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
 
   await deps.probes.exec(["open", authUrl]);
 
+  // Slack's docs don't settle whether a scope the app lacks is a short grant or a
+  // refusal, and leaving the browser fails the same way, so this can't say which.
+  const supportRefusal = `If Slack refused the request, ${slackUserScopeFix(appId, SLACK_SUPPORT_SCOPES)}, then connect again. If you left the browser, connect again`;
   let code: string;
   try {
     code = await deps.listen(callbackPort, state);
   } catch (err) {
     if (err instanceof SlackCallbackTimeoutError) {
-      throw new UserActionableError(
-        "slack-oauth-failed",
-        `${err.message}. If Slack said redirect_uri did not match, ${redirectFix}, then connect again. If Slack said invalid permissions requested, ${slackUserScopeFix(appId, DEFAULT_SCOPE_NEEDS.user)}, then connect again`,
-      );
+      const scopeAdvice = supportChat ? supportRefusal : `If Slack said invalid permissions requested, ${slackUserScopeFix(appId, requestedScopes)}, then connect again`;
+      throw new UserActionableError("slack-oauth-failed", `${err.message}. If Slack said redirect_uri did not match, ${redirectFix}, then connect again. ${scopeAdvice}`);
     }
+    if (err instanceof SlackCallbackError && supportChat) throw new UserActionableError("slack-oauth-failed", `${err.message}. ${supportRefusal}`);
     throw new UserActionableError("slack-oauth-failed", err instanceof Error ? err.message : String(err));
   }
 
@@ -1877,18 +1885,27 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
   }
 
   const granted = (data.authed_user?.scope ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-  const missing = granted.length ? missingSlackUserScopes(granted) : [];
+  const grantedSet = new Set(granted);
+  const missing = granted.length ? (supportChat ? requestedScopes.filter((s) => !grantedSet.has(s)) : missingSlackUserScopes(granted)) : [];
   if (missing.length) {
+    const wanted = supportChat ? "the board and the support chat need" : "the board needs";
+    if (supportChat) updateSetupState(deps.probes, (s) => ({ ...s, slackSupportShort: missing }));
     printIntegrationResult(deps, json, {
       integration: "slack",
       status: "invalid",
-      detail: `Slack granted fewer permissions than the board needs, because the team's Slack app does not list them. To fix it, ${slackUserScopeFix(appId, missing)}, then connect again`,
+      detail: `Slack granted fewer permissions than ${wanted}, because the team's Slack app does not list them. To fix it, ${slackUserScopeFix(appId, missing)}, then connect again`,
       scopesSeen: granted,
     });
     return;
   }
 
   const { staged } = await storeCredential(deps, "board", "slackToken", accessToken);
+  if (supportChat) {
+    updateSetupState(deps.probes, (s) => {
+      const { slackSupportShort: _cleared, ...rest } = s;
+      return rest;
+    });
+  }
   printIntegrationResult(deps, json, {
     integration: "slack",
     status: "ready",

@@ -4,6 +4,8 @@ public enum SettingsExtras {
     public static let missionControl = "tool.mission-control"
     public static let chromeSignIn = "tool.chrome-signin"
     public static let skillOverrides = "skills.overrides"
+    /// In the accounts group, so Settings > Accounts draws and runs it with Slack's own row.
+    public static let slackSupportChat = "account.slack-support"
 
     /// Mission Control is a standing preference, so it shows in either state.
     public static func shows(_ row: PlanRow?) -> Bool {

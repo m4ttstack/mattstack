@@ -7,7 +7,7 @@ import { orgSettingsPath } from "../../rt-paths.ts";
 import { getOrgSetting, getSetting } from "../../settings/resolve.ts";
 import { readStore } from "../../settings/stores.ts";
 import { setSetting } from "../../settings/write.ts";
-import { buildSlackManifest, DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS, missingSlackUserScopes, slackUserScopeFix } from "../slack-app.ts";
+import { buildSlackManifest, DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS, missingSlackUserScopes, SLACK_SUPPORT_SCOPES, slackUserScopeFix } from "../slack-app.ts";
 import { setupSlackCreateApp, type ConnectDeps, type SecretWriter, type TeamSecrets } from "../../../commands/setup.ts";
 import { fakeProbes } from "./fakes.ts";
 import type { SecretPresence } from "../validators/accounts.ts";
@@ -21,7 +21,18 @@ describe("buildSlackManifest", () => {
 
     expect(manifest.oauth_config.redirect_urls).toEqual(["http://localhost:22222/callback"]);
     expect(manifest.oauth_config.scopes.bot).toEqual(DEFAULT_SCOPE_NEEDS.bot);
-    expect(manifest.oauth_config.scopes.user).toEqual(DEFAULT_SCOPE_NEEDS.user);
+    expect(manifest.oauth_config.scopes.user).toEqual([...DEFAULT_SCOPE_NEEDS.user, ...SLACK_SUPPORT_SCOPES]);
+  });
+
+  test("the manifest declares the support scopes", () => {
+    const manifest = buildSlackManifest({ name: "x", callbackPort: 1, scopes: DEFAULT_SCOPE_NEEDS }) as { oauth_config: { scopes: { user: string[] } } };
+    for (const s of ["im:history", "im:read", "im:write", "users:read"]) expect(manifest.oauth_config.scopes.user).toContain(s);
+    expect([...SLACK_SUPPORT_SCOPES].sort()).toEqual(["im:history", "im:read", "im:write", "users:read"]);
+  });
+
+  test("the board manifest yaml lists every support scope", () => {
+    const yaml = readFileSync(join(import.meta.dir, "..", "..", "..", "apps/board/slack-app-manifest.yaml"), "utf8");
+    for (const s of SLACK_SUPPORT_SCOPES) expect(yaml).toContain(`- ${s}`);
   });
 });
 
@@ -68,6 +79,10 @@ describe("missingSlackUserScopes", () => {
   test("names the requested user scopes a grant lacks, in request order", () => {
     const granted = DEFAULT_SCOPE_NEEDS.user.filter((s) => s !== "groups:history" && s !== "reactions:read");
     expect(missingSlackUserScopes(granted)).toEqual(DEFAULT_SCOPE_NEEDS.user.filter((s) => s === "groups:history" || s === "reactions:read"));
+  });
+
+  test("missingSlackUserScopes ignores the support scopes", () => {
+    expect(missingSlackUserScopes([...DEFAULT_SCOPE_NEEDS.user])).toEqual([]);
   });
 
   test("a full grant lacks nothing", () => {
