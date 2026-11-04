@@ -1,0 +1,48 @@
+/* The chrome takes the hue of chat's mark: a saturated top bar over a pale
+   tint, both from the theme's pink ramp. */
+:root {
+  --chat-hue: var(--tk-fill-bad);
+  --chat-bar: color-mix(in srgb, var(--chat-hue) 80%, black);
+  --chat-ink: var(--tk-text-bad-small);
+  --chat-chrome: color-mix(in srgb, var(--chat-hue) 11%, var(--tk-card));
+  --chat-chrome-line: color-mix(in srgb, var(--chat-hue) 14%, transparent);
+  --chat-chrome-hover: color-mix(
+    in srgb,
+    var(--chat-hue) 8%,
+    var(--chat-chrome)
+  );
+  --chat-chrome-selected: color-mix(
+    in srgb,
+    var(--chat-hue) 22%,
+    var(--chat-chrome)
+  );
+}
+
+[data-mantine-color-scheme='dark'] {
+  --chat-chrome: color-mix(in srgb, var(--chat-hue) 12%, var(--tk-bg));
+  --chat-ink: var(--tk-text-1);
+}
+
+/* Tokyo pins the app header's colour with !important. Inside the bar every
+   text token turns white, so the kit's scope and viewer chips follow. */
+:root .mantine-AppShell-header {
+  background-color: var(--chat-bar) !important;
+  color: white;
+  --tk-text-1: white;
+  --tk-text-2: rgb(255 255 255 / 85%);
+  --tk-text-3: rgb(255 255 255 / 85%);
+  --tk-text-4: rgb(255 255 255 / 85%);
+  --mantine-color-text: white;
+  --mantine-color-dimmed: rgb(255 255 255 / 85%);
+}
+
+.mantine-AppShell-header .mantine-Button-root,
+.mantine-AppShell-header .mantine-Badge-root {
+  background: rgb(255 255 255 / 16%);
+  border-color: transparent;
+  color: white;
+}
+
+.mantine-AppShell-header .mantine-ActionIcon-root {
+  color: white;
+}

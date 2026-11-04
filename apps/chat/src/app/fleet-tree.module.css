@@ -1,9 +1,9 @@
-/* Workstream, room and DM rows share one hover paint, mixed from the sidebar's
-   own surface. A workstream row also holds it while its agent card is open
-   (`aria-expanded`, set by the HoverCard target). */
+/* Workstream, room and DM rows share one hover paint. A workstream row also
+   holds it while its agent card is open (`aria-expanded`, set by the
+   HoverCard target). */
 .wsRow,
 .listRow {
-  --row-hover: color-mix(in srgb, var(--tk-text-1) 6%, var(--tk-bg));
+  --row-hover: var(--chat-chrome-hover);
 }
 
 /* The × floats over the row's end and only fades in, so rows keep their full
@@ -11,9 +11,8 @@
    the invisible × instead of the row. */
 .close {
   position: absolute;
-  right: 4px;
-  top: 50%;
-  transform: translateY(-50%);
+  right: 12px;
+  top: 6px;
   background: var(--row-hover);
   opacity: 0;
   pointer-events: none;
@@ -25,11 +24,7 @@
 }
 
 .listRow[data-active] .close {
-  background: color-mix(
-    in srgb,
-    var(--mantine-color-accent-text) var(--tk-wash),
-    var(--tk-bg)
-  );
+  background: var(--chat-chrome-selected);
 }
 
 @media (hover: hover) {
@@ -57,14 +52,9 @@
   pointer-events: auto;
 }
 
-/* The selected room or DM keeps its accent wash over any hover. */
+/* The selected room or DM keeps its deeper tint over any hover. */
 .listRow[data-active] {
-  color: var(--mantine-color-accent-text);
-  background-color: color-mix(
-    in srgb,
-    var(--mantine-color-accent-text) var(--tk-wash),
-    transparent
-  );
+  background-color: var(--chat-chrome-selected);
 }
 
 .dotSlot {
@@ -77,4 +67,32 @@
    reach a conversation the cap hides, so it reads and behaves as a control. */
 .moreRow:hover {
   background: var(--ui-bg-4);
+}
+
+.dmRow {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--chat-chrome-line);
+  cursor: pointer;
+}
+
+.when {
+  flex: none;
+  font-size: var(--mantine-font-size-xs);
+  color: var(--tk-text-2);
+}
+
+.preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mantine-font-size-sm);
+  color: var(--tk-text-2);
 }

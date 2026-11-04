@@ -20,7 +20,7 @@ import { Icons } from '@mattstack/app-kit/icons';
 
 import { PAGE_ROW_HEIGHT } from '../chrome';
 import { useEditorHref } from '../editorHref';
-import { PaneResizer, usePaneWidth } from '../PaneResizer';
+import { PaneResizer, usePaneWidth } from '@mattstack/app-kit/core';
 import { StepLoader } from '../StepLoader';
 import { ConfigTab } from './ConfigTab';
 import { ContentReadyContext } from './contentReady';

@@ -13,6 +13,7 @@ import type { RoomSummary } from '@mattstack/rt-client';
 
 import { agentState, isRoomForRepo, stateLine } from './agent-state';
 import { AgentHoverCard, AgentName } from './AgentName';
+import { dayKey, dayLabel, localTime } from './day-label';
 import { displayName, dmPairLabel, sameNameOrdinals } from './display-name';
 import { DmPairTitle } from './DmPairTitle';
 import { doing } from './doing';
@@ -21,10 +22,8 @@ import { MUTED_XS } from './presence-bits';
 import type { RosterBuddy } from './roster-types';
 import { StateDot } from './StateDot';
 
-const ACCENT_TEXT = 'var(--mantine-color-accent-text)';
-
 /** Clears the room row's hash, so a handle lines up under the room's name. */
-const WORKSTREAM_INDENT = 28;
+const WORKSTREAM_INDENT = 37;
 
 /** From a workstream row's right edge to the sidebar's outer edge: the
     sidebar's inline padding plus its hairline, so a docked card meets the
@@ -36,8 +35,8 @@ const ROW_NAME_SIZE = 'var(--mantine-font-size-xs)';
 /** Room and DM rows, one step up, so the tree has a visible hierarchy. */
 const CHROME_SIZE = 'var(--mantine-font-size-sm)';
 
-/** The artboards draw four `.dm2` rows, then the `N more` line. */
-const DM_VISIBLE = 4;
+/** DM rows shown before the `N more` line, so the rooms stay in reach. */
+const DM_VISIBLE = 8;
 
 export interface DmLastMessage {
   handle: string;
@@ -178,14 +177,18 @@ export function SectionLabel({
   detail?: string;
 }) {
   return (
-    <Group justify="space-between" wrap="nowrap" style={{ padding: '8px 8px 6px' }}>
+    <Group
+      justify="space-between"
+      wrap="nowrap"
+      style={{ padding: '10px 16px 6px' }}
+    >
       <Text
         component="h3"
-        fw={600}
+        fw={700}
         style={{
           margin: 0,
-          fontSize: 'var(--mantine-font-size-xs)',
-          color: 'var(--tk-text-3)',
+          fontSize: 'var(--mantine-font-size-lg)',
+          color: 'var(--chat-ink)',
         }}
       >
         {label}
@@ -197,6 +200,24 @@ export function SectionLabel({
       )}
     </Group>
   );
+}
+
+/** The clock today, the day otherwise, as Slack's list reads. */
+function whenLabel(postedAt: number): string {
+  return dayKey(postedAt) === dayKey(Date.now())
+    ? localTime(postedAt)
+    : dayLabel(postedAt);
+}
+
+/** A DM's newest message on one plain line, markdown marks removed. */
+function previewLine(room: FleetRoom): string | undefined {
+  const last = room.lastMessage;
+  if (!last) return undefined;
+  const text = last.body
+    .replace(/[`*_#>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return `${last.name ?? last.handle}: ${text}`;
 }
 
 function roomLabel(room: FleetRoom): string {
@@ -319,17 +340,16 @@ function RoomRow({
         alignItems: 'center',
         minWidth: 0,
         width: '100%',
-        height: 30,
-        gap: 7,
-        padding: '0 8px',
-        borderRadius: 'var(--mantine-radius-sm)',
+        height: 32,
+        gap: 8,
+        padding: '0 16px',
         cursor: 'pointer',
       }}
     >
       <Icon
         name="hash"
         size={13}
-        color={active ? ACCENT_TEXT : 'var(--tk-text-4)'}
+        color={active ? 'var(--tk-text-1)' : 'var(--tk-text-4)'}
         style={{ flex: 'none' }}
       />
       <Text
@@ -423,8 +443,7 @@ function WorkstreamRow({
         overflow: 'hidden',
         height: 26,
         gap: 7,
-        padding: `0 8px 0 ${WORKSTREAM_INDENT}px`,
-        borderRadius: 'var(--mantine-radius-sm)',
+        padding: `0 16px 0 ${WORKSTREAM_INDENT}px`,
         cursor: clickable ? 'pointer' : 'default',
         textAlign: 'left',
       }}
@@ -511,12 +530,12 @@ function DmRow({
   const [menuOpened, setMenuOpened] = useState(false);
   const closable = onClose !== undefined;
   const pair = room.participants!;
+  const preview = previewLine(room);
 
   const row = (
     <Box
       role="button"
       tabIndex={0}
-      className={classes.listRow}
       data-testid={`dm-row-${room.room}`}
       data-active={active ? 'true' : undefined}
       data-menu-open={menuOpened || undefined}
@@ -528,26 +547,21 @@ function DmRow({
           onSelect?.();
         }
       }}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        width: '100%',
-        minWidth: 0,
-        height: 28,
-        overflow: 'hidden',
-        gap: 8,
-        padding: '0 8px',
-        borderRadius: 'var(--mantine-radius-sm)',
-        cursor: 'pointer',
-      }}
+      className={`${classes.listRow} ${classes.dmRow}`}
     >
-      <Text
-        component="div"
-        fw={active ? 600 : 500}
-        style={{ fontSize: CHROME_SIZE, flex: 1, minWidth: 0 }}
-      >
-        <DmPairTitle pair={pair} quiet={!active} />
-      </Text>
+      <Group gap="sm" justify="space-between" wrap="nowrap">
+        <Text
+          component="div"
+          fw={700}
+          style={{ fontSize: 'var(--mantine-font-size-md)', minWidth: 0 }}
+        >
+          <DmPairTitle pair={pair} />
+        </Text>
+        {room.lastPostedAt !== undefined && (
+          <span className={classes.when}>{whenLabel(room.lastPostedAt)}</span>
+        )}
+      </Group>
+      {preview && <div className={classes.preview}>{preview}</div>}
       {closable && (
         <CloseControl
           room={room}
@@ -599,8 +613,7 @@ function DmOverflowRow({
         overflow: 'hidden',
         height: 26,
         gap: 'var(--mantine-spacing-sm)',
-        padding: '0 8px',
-        borderRadius: 'var(--mantine-radius-sm)',
+        padding: '0 16px',
         cursor: 'pointer',
         textAlign: 'left',
         ...MUTED_XS,
@@ -654,7 +667,7 @@ export function FleetTree({
             active={group.room.room === activeRoom}
             onSelect={() => onOpenRoom?.(group.repo)}
             onClose={onClose}
-                />
+          />
           {group.room.room === activeRoom &&
             group.online.map(buddy => (
               <WorkstreamRow
@@ -681,7 +694,7 @@ export function FleetTree({
               active={room.room === activeRoom}
               onSelect={() => onOpenDm?.(room.room)}
               onClose={onClose}
-                    />
+            />
           ))}
           {(hiddenDms.length > 0 || dmsExpanded) && (
             <DmOverflowRow

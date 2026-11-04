@@ -4,7 +4,7 @@ import { Icon, Icons } from '@mattstack/app-kit/icons';
 import { useSearch } from 'wouter';
 import { navigate } from 'wouter/use-browser-location';
 
-import { PaneResizer, usePaneWidth } from '../PaneResizer';
+import { PaneResizer, usePaneWidth } from '@mattstack/app-kit/core';
 import { StepLoader, useStepLoading } from '../StepLoader';
 import { CommitDiff, filesOf } from './CommitDiff';
 import { UnsyncedActions, useUnsyncedSummary } from './graph/UnsyncedBanner';

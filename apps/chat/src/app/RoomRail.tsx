@@ -74,7 +74,7 @@ export function RoomRail({
         background: sidebar ? undefined : 'var(--tk-panel)',
         border: sidebar ? undefined : '1px solid var(--tk-border)',
         borderRadius: sidebar ? undefined : 'var(--mantine-radius-md)',
-        padding: '6px 10px 14px',
+        padding: '6px 0 14px',
         alignSelf: 'stretch',
         overflowY: sidebar ? undefined : 'auto',
       }}

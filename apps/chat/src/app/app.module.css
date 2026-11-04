@@ -20,6 +20,6 @@
   }
 
   .sheet :global(:has(> #page-shell-main)) {
-    background: var(--tk-bg);
+    background: var(--chat-chrome);
   }
 }

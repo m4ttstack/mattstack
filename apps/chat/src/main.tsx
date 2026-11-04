@@ -1,6 +1,7 @@
 import { mountMattstackApp } from '@mattstack/app-kit/app';
 
 import '@fontsource-variable/inter';
+import './app/chat.css';
 import './app/icons';
 
 import { App } from './app/App';
