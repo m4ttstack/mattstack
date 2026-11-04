@@ -1963,6 +1963,14 @@ export function Board() {
                   <div key={g.label} className="tui-group" style={band.style}>
                     <Panel
                       title={g.label}
+                      lead={
+                        state.group === 'author' && g.author ? (
+                          <MemberInvadr
+                            id={g.author}
+                            className="tui-group-avatar"
+                          />
+                        ) : undefined
+                      }
                       count={g.mrs.length}
                       data-hue={band.hue}
                       // Pins the LEGACY persistence key: the recipe defaults to its own

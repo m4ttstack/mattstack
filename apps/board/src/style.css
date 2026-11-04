@@ -2674,6 +2674,35 @@ body {
   width: 100%;
   height: 100%;
 }
+.tui-slack-face.tui-avatar {
+  width: 28px;
+  height: 28px;
+}
+.tui-author-tag .tui-slack-face.tui-avatar {
+  width: 18px;
+  height: 18px;
+}
+.tui-slack-face.tui-group-avatar {
+  width: 24px;
+  height: 24px;
+  vertical-align: -7px;
+}
+.tui-slack-face.tui-subgroup-avatar {
+  width: 18px;
+  height: 18px;
+}
+.tui-slack-face.tui-ask-avatar {
+  width: 20px;
+  height: 20px;
+}
+.tui-slack-face.tui-menu-ask-avatar {
+  width: 26px;
+  height: 26px;
+}
+.tui-slack-face.tui-person-avatar {
+  width: 26px;
+  height: 26px;
+}
 .tui-person-avatar {
   display: inline-block;
   vertical-align: middle;
@@ -6886,6 +6915,12 @@ a.tui-id-card-ref:focus-visible {
 .tui-subgroup-avatar {
   width: 14px;
   height: 14px;
+}
+.tui-group-avatar {
+  width: 18px;
+  height: 18px;
+  margin-right: 6px;
+  vertical-align: -4px;
 }
 
 /* ── asks for your agent: the header inbox and its dropdown (R1 C, R3) ── */
