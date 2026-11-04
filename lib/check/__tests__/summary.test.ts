@@ -6,6 +6,19 @@ group("parseSummary", () => {
     const s = parseSummary('noise\n{"mode":"changed","selected":95,"passed":95,"failed":0,"durationMs":41200,"failures":[]}\n', 0, 50_000);
     expect(s).toEqual({ mode: "changed", selected: 95, passed: 95, failed: 0, durationMs: 41200, failures: [] });
   });
+  test("a red run keeps its failing test names", () => {
+    const s = parseSummary('{"mode":"changed","selected":3,"passed":2,"failed":1,"durationMs":10,"failures":["lib/a.test.ts"],"failedTests":["cart > rounds up",7]}', 1, 50);
+    expect(s.failedTests).toEqual(["cart > rounds up"]);
+    expect(s.failures).toEqual(["lib/a.test.ts"]);
+  });
+  test("an exit 0 never carries failing test names", () => {
+    const s = parseSummary('{"mode":"changed","selected":3,"passed":3,"failed":0,"durationMs":10,"failures":[],"failedTests":["cart > rounds up"]}', 0, 50);
+    expect(s).toEqual({ mode: "changed", selected: 3, passed: 3, failed: 0, durationMs: 10, failures: [] });
+  });
+  test("a summary with no names has no failedTests key", () => {
+    expect(parseSummary('{"mode":"full","failed":2,"failedTests":[]}', 1, 50)).not.toHaveProperty("failedTests");
+    expect(parseSummary('{"mode":"full","failed":2}', 1, 50)).not.toHaveProperty("failedTests");
+  });
   test("no summary line is a green exit", () => {
     expect(parseSummary("ran fine\n", 0, 12_000)).toEqual({ mode: "exit", selected: null, passed: null, failed: null, durationMs: 12_000, failures: [] });
   });
@@ -35,6 +48,10 @@ group("describe", () => {
   test("red counts failures and names the first file with a +n tail", () => {
     const red = { ...green, failed: 2, failures: ["lib/__tests__/x.test.ts", "lib/__tests__/y.test.ts"] };
     expect(describe("red", red, "hilbert")).toBe("red: 2 of 95 failed, lib/__tests__/x.test.ts +1");
+  });
+  test("failing test names stay out of the description, which a forge shows", () => {
+    const red = { ...green, failed: 1, failures: ["lib/__tests__/x.test.ts"], failedTests: ["cart > rounds up"] };
+    expect(describe("red", red, "hilbert")).toBe("red: 1 of 95 failed, lib/__tests__/x.test.ts");
   });
   test("an exit-only green names the exit and the time", () => {
     expect(describe("green", { mode: "exit", selected: null, passed: null, failed: null, durationMs: 12_000, failures: [] }, "hilbert")).toBe("exit 0 in 12s on hilbert");

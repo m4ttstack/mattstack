@@ -47,6 +47,13 @@ test("green prints the frozen envelope", async () => {
   expect(process.exitCode).toBe(0);
 });
 
+test("a red envelope carries the failing test names in its summary", async () => {
+  const summary = { mode: "changed", selected: 95, passed: 94, failed: 1, durationMs: 41_200, failures: ["lib/a.test.ts"], failedTests: ["cart > rounds up"] };
+  await run({ result: { ...green, verdict: "red", summary }, status: null });
+  expect(JSON.parse(io.stdout()).summary).toEqual(summary);
+  expect(io.stderr()).toBe("");
+});
+
 test("unconfigured prints configured false", async () => {
   await run({ result: { configured: false }, status: null });
   expect(io.stdout()).toBe('{"configured":false}\n');
