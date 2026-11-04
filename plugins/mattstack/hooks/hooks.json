@@ -1,5 +1,5 @@
 {
-  "modules": ["./enter-worktree-check.ts"],
+  "modules": ["./register.ts"],
   "hooks": {
     "SessionStart": [
       {
