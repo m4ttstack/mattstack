@@ -9,7 +9,7 @@ import { describe, testCount } from "../lib/check/summary.ts";
 import type { Configured } from "../lib/check/run.ts";
 import type { StatusOutcome } from "../lib/check/status.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
-import { repoLabel } from "../lib/repo-label.ts";
+import { repoLabel, repoLabelFull } from "../lib/repo-label.ts";
 import * as out from "../lib/ui/out.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import { withTransientStep } from "../lib/ui/transient-step.ts";
@@ -40,7 +40,7 @@ const NOT_POSTED: Record<Exclude<StatusOutcome, { posted: true }>["reason"], str
 function statusBlock(status: StatusOutcome | null, sha: string): Block {
   if (status === null) return out.line("skipped", "The result was not posted, as you asked");
   if (status.posted) return out.line("done", `Posted ${status.context} on ${sha.slice(0, 7)}`);
-  return out.line("skipped", NOT_POSTED[status.reason], status.detail);
+  return out.line("skipped", NOT_POSTED[status.reason]);
 }
 
 function failureCount(r: Configured): string {
@@ -70,10 +70,13 @@ export function checkEnvelope(run: CheckRun): unknown {
   };
 }
 
-export function unconfiguredBlocks(label: string): Block[] {
+export function unconfiguredBlocks(identity: string): Block[] {
   return [
-    out.line("refused", `No pre-push check is configured for ${label}`),
-    out.callout("next", ["Set the command with ", out.cmd("rt settings set rt.check")]),
+    out.line("refused", `No pre-push check is configured for ${repoLabel(identity)}`),
+    out.callout("next", [
+      "Set the command with ",
+      out.cmd(`rt settings set rt.check '{"command":"<your check>"}' --scope user --repo ${repoLabelFull(identity)}`),
+    ]),
   ];
 }
 
@@ -84,10 +87,10 @@ export function greenBlocks(r: Configured, status: StatusOutcome | null, machine
   ];
 }
 
-function report(run: CheckRun, machine: string, label: string): void {
+function report(run: CheckRun, machine: string, identity: string): void {
   const r = run.result;
   if (!r.configured) {
-    out.note(...unconfiguredBlocks(label));
+    out.note(...unconfiguredBlocks(identity));
     return;
   }
   if (r.verdict === "green") {
@@ -140,5 +143,5 @@ export async function checkCommand(args: string[], ctx: CommandContext, deps: Ch
     if (run.result.configured && run.result.verdict !== "green") process.exitCode = 1;
     return;
   }
-  report(run, deps.hostname().split(".")[0] ?? "", repoLabel(identity.identity));
+  report(run, deps.hostname().split(".")[0] ?? "", identity.identity);
 }

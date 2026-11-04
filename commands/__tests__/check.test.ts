@@ -57,7 +57,7 @@ describe("rt check", () => {
     await checkCommand([], ctx, d);
     expect(io.stdout()).toBe("");
     expect(io.stderr()).toContain("No pre-push check is configured for widgets");
-    expect(io.stderr()).toContain("rt settings set rt.check");
+    expect(io.stderr()).toContain(`rt settings set rt.check '{"command":"<your check>"}' --scope user --repo github.com/acme/widgets`);
     expect(process.exitCode).toBe(0);
   });
 
@@ -125,6 +125,13 @@ describe("rt check", () => {
     const { d } = deps({ result: result({ fromCache: true }), status: posted });
     await checkCommand([], ctx, d);
     expect(io.stdout()).toContain("Reused the green run for this commit");
+  });
+
+  test("a forge refusal prints no detail of its own, since the warning already said it", async () => {
+    const { d } = deps({ result: result(), status: { posted: false, reason: "gh-failed", detail: "gh: Not Found" } });
+    await checkCommand([], ctx, d);
+    expect(io.stdout()).toContain("The result could not be posted");
+    expect(io.stdout()).not.toContain("gh: Not Found");
   });
 
   test("--no-status skips posting and says the status was not posted", async () => {
