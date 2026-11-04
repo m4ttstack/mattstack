@@ -1,7 +1,8 @@
 /**
  * lib/daemon/__tests__/chat-slack-participant.test.ts: a Slack teammate sitting in an rt chat DM room.
  */
-import { expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { expect, spyOn, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -493,6 +494,47 @@ test("the pane's chat_post into its open conversation is refused and points at c
   expect(res.failure?.code).toBe("slack-chat");
   expect(res.error).toContain("chat_dm");
   expect(messages(h, room)).toEqual([]);
+});
+
+test("a reply Slack accepted is not reported as failed when the room record can't be written", async () => {
+  const held: Database[] = [];
+  const h = harness(async () => {
+    const other = new Database(h.db.filename);
+    other.exec("BEGIN IMMEDIATE");
+    held.push(other);
+    return { ts: "1.0" };
+  });
+  const { agent, room } = await openChat(h);
+  h.db.exec("PRAGMA busy_timeout = 1");
+  const warned = spyOn(log, "warn");
+
+  const res = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "try restarting", sessionId: PANE_SESSION });
+
+  for (const other of held) other.close();
+  expect(res.ok).toBe(true);
+  if (!res.ok) throw new Error(res.error);
+  expect(res.data.note).toContain("do not send it again");
+  expect(res.data.room).toBe(room);
+  expect(h.posts).toHaveLength(1);
+  expect(messages(h, room)).toEqual([]);
+  expect(warned.mock.calls.some(([, message]) => String(message).includes("Slack took"))).toBe(true);
+  warned.mockRestore();
+});
+
+test("a chat_dm between agents still fails when its row can't be written", async () => {
+  const h = harness();
+  const agent = await signIn(h, PANE_SESSION, "support");
+  await signIn(h, "other-session", "other");
+  const opened = await h.handlers["chat:dm"]({ from: agent, to: "other", body: "first", sessionId: PANE_SESSION });
+  expect(opened.ok).toBe(true);
+  const other = new Database(h.db.filename);
+  other.exec("BEGIN IMMEDIATE");
+  h.db.exec("PRAGMA busy_timeout = 1");
+
+  const res = await h.handlers["chat:dm"]({ from: agent, to: "other", body: "second", sessionId: PANE_SESSION });
+
+  other.close();
+  expect(res.ok).toBe(false);
 });
 
 test("a credential in a reply is redacted and the tool result says so", async () => {

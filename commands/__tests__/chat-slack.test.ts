@@ -317,6 +317,16 @@ test("slack-status says when no chat is open", async () => {
   expect(res.stdout).toContain("No Slack chats are open");
 });
 
+test("a dm Slack took but the room didn't says so and links nothing", async () => {
+  await signIn();
+  canned["chat:dm"] = { ok: true, data: { room: "dm-x", id: 0, recipients: ["slack.u0test"], recipientNames: ["alex-slack"], note: "Slack has this message, but it isn't in the room, so do not send it again" } };
+  const res = await run(() => chat(["dm", "alex-slack", "hello"]));
+  expect(res.code).toBe(0);
+  expect(res.stdout).toContain("do not send it again");
+  expect(res.stdout).not.toContain("#0");
+  expect(res.stdout).not.toContain("posted");
+});
+
 test("slack-people prints who a chat can open with", async () => {
   const res = await run(() => slackPeople(["--json"]));
   expect(res.code).toBe(0);

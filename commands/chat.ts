@@ -1173,8 +1173,12 @@ async function runDm(args: string[]): Promise<void> {
     out.json({ ok: true, ...data });
     return;
   }
-  say(`dm → ${data.recipientNames?.[0] ?? to} #${data.id}`);
+  say(data.note ? `dm → ${data.recipientNames?.[0] ?? to}` : `dm → ${data.recipientNames?.[0] ?? to} #${data.id}`);
   if (data.redacted) say("redacted: something shaped like a credential was removed before this went to Slack");
+  if (data.note) {
+    say(data.note);
+    return;
+  }
   const url = chatViewerUrl(readChatViewerUrlSetting(), data.room, data.id);
   if (url) say(`posted → ${url}`);
 }

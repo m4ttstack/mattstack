@@ -922,7 +922,7 @@ export interface Commands {
   "chat:away": { payload: { sessionId: string; text: string }; data: Record<string, never> };
   "chat:back": { payload: { sessionId: string }; data: Record<string, never> };
   "chat:buddies": { payload: Record<string, never>; data: { buddies: Array<PresenceRow & { status: BuddyStatus }> } };
-  "chat:dm": { payload: { from: string; to: string; body: string; sessionId?: string; pane?: string }; data: { room: string; id: number; recipients: string[]; recipientNames: string[]; /** Set only when something shaped like a credential was removed before the message went to Slack. */ redacted?: true } };
+  "chat:dm": { payload: { from: string; to: string; body: string; sessionId?: string; pane?: string }; data: { room: string; id: number; recipients: string[]; recipientNames: string[]; /** Set only when something shaped like a credential was removed before the message went to Slack. */ redacted?: true; /** Set only when Slack took the message but the room record could not be written, and `id` is then 0. */ note?: string } };
   "chat:archive": { payload: { room: string; handle: string; archived: boolean }; data: { room: string; archivedAt: number | null } };
   "chat:dm-open": { payload: { from: string; to: string; sessionId?: string }; data: { room: string; created: boolean } };
 
