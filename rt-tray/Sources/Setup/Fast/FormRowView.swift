@@ -274,7 +274,7 @@ struct FormRowView: View {
             if let action = row.action { button(action) }
             if let press = row.secondaryPress, let secondary = press.action, FormActionRunner.control(for: secondary) != .none {
                 Button(secondary.label) { onAction(press, nil, nil) }
-                    .buttonStyle(FastSecondaryButtonStyle())
+                    .buttonStyle(FastSecondaryButtonStyle(muted: true))
                     .fixedSize()
                     .accessibilityIdentifier(AXID.fastRowAction(row.id, "secondary"))
             }
@@ -410,7 +410,8 @@ struct FormRowView: View {
                     Button(label) { onAction(row, nil, nil) }.buttonStyle(FastPrimaryButtonStyle(size: .small))
                 case (.labelled, false), (.stacked, false):
                     Button { onAction(row, nil, nil) } label: {
-                        if let symbol = Self.buttonSymbol(row.id), let glyph = FastLucideGlyph(symbol: symbol, box: 13) {
+                        if let symbol = row.tone == .failed ? "arrow.counterclockwise" : Self.buttonSymbol(row.id),
+                           let glyph = FastLucideGlyph(symbol: symbol, box: 13) {
                             Label { Text(label) } icon: { glyph }
                         } else {
                             Text(label)

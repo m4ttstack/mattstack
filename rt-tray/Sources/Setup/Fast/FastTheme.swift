@@ -273,15 +273,17 @@ struct FastOutlineButtonStyle: ButtonStyle {
 struct FastSecondaryButtonStyle: ButtonStyle {
     var size: FastButtonSize = .small
     var shape: FastButtonShape? = nil
+    var muted = false
 
     func makeBody(configuration: Configuration) -> some View {
-        Styled(configuration: configuration, size: size, metrics: shape ?? .standard(size, primary: false))
+        Styled(configuration: configuration, size: size, metrics: shape ?? .standard(size, primary: false), muted: muted)
     }
 
     private struct Styled: View {
         let configuration: Configuration
         let size: FastButtonSize
         let metrics: FastButtonShape
+        let muted: Bool
         @Environment(\.isEnabled) private var isEnabled
 
         var body: some View {
@@ -290,7 +292,7 @@ struct FastSecondaryButtonStyle: ButtonStyle {
             configuration.label
                 .labelStyle(FastIconLabelStyle(iconSize: large ? 14 : 12, spacing: 6))
                 .font(.system(size: large ? 14 : 12, weight: FastTheme.weight(css: .medium)))
-                .foregroundColor(FastTheme.textPrimary)
+                .foregroundColor(muted ? FastTheme.textSecondary : FastTheme.textPrimary)
                 .lineLimit(1)
                 .padding(.vertical, metrics.vertical).padding(.horizontal, metrics.horizontal)
                 .background(shape.fill(Color.white.opacity(configuration.isPressed ? 0.06 : 0)))
@@ -718,6 +720,7 @@ struct FastLucideGlyph: View {
         case "ticket": path = Self.ticket
         case "checklist": path = Self.listChecks
         case "bell": path = Self.bell
+        case "arrow.counterclockwise": path = Self.rotateCcw
         default: return nil
         }
         self.box = box
@@ -830,6 +833,15 @@ struct FastLucideGlyph: View {
             p.move(to: CGPoint(x: 13, y: y))
             p.addLine(to: CGPoint(x: 21, y: y))
         }
+    }
+
+    private static let rotateCcw = Path { p in
+        p.addArc(center: CGPoint(x: 12, y: 12), radius: 9, startAngle: .degrees(180), endAngle: .degrees(-90), clockwise: true)
+        p.addQuadCurve(to: CGPoint(x: 5.26, y: 5.74), control: CGPoint(x: 7.8, y: 3))
+        p.addLine(to: CGPoint(x: 3, y: 8))
+        p.move(to: CGPoint(x: 3, y: 3))
+        p.addLine(to: CGPoint(x: 3, y: 8))
+        p.addLine(to: CGPoint(x: 8, y: 8))
     }
 
     private static let bell = Path { p in
