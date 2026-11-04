@@ -53,12 +53,19 @@
   color: color-mix(in srgb, var(--tk-text-1) 72%, var(--chat-chrome));
 }
 
-.dmRow:hover {
-  --stack-ring: var(--chat-chrome-hover);
+@media (hover: hover) {
+  .dmRow:hover {
+    --stack-ring: var(--chat-chrome-hover);
+    border-bottom-color: var(--chat-chrome-hover);
+    box-shadow: 0 -1px 0 var(--chat-chrome-hover);
+  }
 }
 
+/* The tint covers the divider above and its own, so no pale line edges it. */
 .dmRow[data-active] {
   --stack-ring: var(--chat-chrome-selected);
+  border-bottom-color: var(--chat-chrome-selected);
+  box-shadow: 0 -1px 0 var(--chat-chrome-selected);
 }
 
 .dmText {
