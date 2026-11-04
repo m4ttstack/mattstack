@@ -131,7 +131,8 @@ own call. A diff the scope script would skip runs nothing, and a diff it would
 make full runs the whole suite. The `no-*` guards are left to the `guards` job
 unless the run is full, which `RT_CHECK_FULL=1` forces. The exit code is the
 verdict, and the last stdout line is a JSON summary (`mode`, `selected`,
-`passed`, `failed`, `durationMs`, `failures`), printed on red too. A failure
+`passed`, `failed`, `durationMs`, `failures`), printed on red too. `selected`
+counts the tests that ran, and a run that ran none reports `skip`. A failure
 before any test runs (a bad ref, a syntax error in the scope script) prints
 `mode: "error"` and exits 1; a SIGTERM or SIGINT stops the test processes. It
 runs unit tests only: no typecheck, e2e or path-gated job.
