@@ -81,15 +81,28 @@
 
 /* Full-width items, as Slack's menus have, with a wash of the chrome's hue. */
 .menuDropdown.menuDropdown {
-  padding: 12px 0 !important;
-  border-radius: var(--mantine-radius-lg);
+  padding: 8px 0 !important;
+  border-radius: var(--mantine-radius-md);
 }
 
 .menuItem.menuItem {
-  padding: 3px 24px !important;
-  line-height: 22px;
+  padding: 4px 16px !important;
   border-radius: 0;
-  font-size: var(--mantine-font-size-lg);
+  font-size: var(--mantine-font-size-md);
+  line-height: 20px;
+}
+
+.menuLabel.menuLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 16px 4px;
+  font-size: var(--mantine-font-size-sm);
+  color: var(--tk-text-2);
+}
+
+.menuDivider.menuDivider {
+  margin: 8px 0;
 }
 
 .menuItem.menuItem[data-hovered],

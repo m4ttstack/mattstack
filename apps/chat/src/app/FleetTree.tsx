@@ -233,25 +233,38 @@ function RowMenu({
       onChange={onChange}
       position="bottom-start"
       offset={2}
-      width={280}
+      width={240}
       radius="md"
       shadow="md"
       withinPortal
       transitionProps={{ duration: 0 }}
-      classNames={{ dropdown: classes.menuDropdown, item: classes.menuItem }}
+      classNames={{
+        dropdown: classes.menuDropdown,
+        item: classes.menuItem,
+        label: classes.menuLabel,
+        divider: classes.menuDivider,
+      }}
     >
       <Menu.ContextMenu>{children}</Menu.ContextMenu>
       <Menu.Dropdown data-testid={testId}>
-        {panes.map(pane => (
-          <Menu.Item
-            key={pane.paneId}
-            data-testid={`room-context-focus-${pane.paneId}`}
-            leftSection={<Icon name="terminal" size={16} />}
-            onClick={() => ctx?.actions?.focusPane?.(pane.paneId)}
-          >
-            Focus {pane.name}&apos;s pane
-          </Menu.Item>
-        ))}
+        {panes.length > 0 && (
+          <>
+            <Menu.Label>
+              <Icon name="terminal" size={14} />
+              Focus pane
+            </Menu.Label>
+            {panes.map(pane => (
+              <Menu.Item
+                key={pane.paneId}
+                data-testid={`room-context-focus-${pane.paneId}`}
+                onClick={() => ctx?.actions?.focusPane?.(pane.paneId)}
+              >
+                {pane.name}
+              </Menu.Item>
+            ))}
+            <Menu.Divider />
+          </>
+        )}
         <Menu.Item
           data-testid="room-context-copy"
           leftSection={<Icon name="link" size={16} />}
@@ -259,7 +272,6 @@ function RowMenu({
         >
           Copy link
         </Menu.Item>
-        <Menu.Divider />
         <Menu.Item
           data-testid="room-context-close"
           leftSection={<Icon name="close" size={16} />}
