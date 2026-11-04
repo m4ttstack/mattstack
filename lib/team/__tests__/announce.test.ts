@@ -69,6 +69,26 @@ describe("sendAnnouncement", () => {
     await expect(sendAnnouncement(probesFor("dev1", () => ({ status: 401, body: "" })), "acme", input, seams)).rejects.toMatchObject({ code: "announce-token-rejected" });
   });
 
+  test("an unreachable switchboard says so", async () => {
+    const err = await sendAnnouncement(probesFor("dev1", () => ({ status: 0, body: "" })), "acme", input, seams).catch((e) => e);
+    expect(err).toMatchObject({ code: "announce-send-failed" });
+    expect(err.why).toContain("could not reach the switchboard");
+  });
+
+  test("a Mac with no recorded username is told so, not that it is a member", async () => {
+    const p = fakeProbes({ home: HOME, files: { ...orgFiles("dev1"), [teamLocalPath(HOME, "acme")]: JSON.stringify({}) } });
+    const err = await sendAnnouncement(p, "acme", input, seams).catch((e) => e);
+    expect(err).toMatchObject({ code: "announce-not-admin" });
+    expect(err.why).toContain("does not know this Mac's username");
+  });
+
+  test("recovery commands ride in next", async () => {
+    const noBoard = await sendAnnouncement(probesFor("dev1", ok), "acme", input, noToken).catch((e) => e);
+    expect(noBoard.next).toBe("rt team peer");
+    const rejected = await sendAnnouncement(probesFor("dev1", () => ({ status: 401, body: "" })), "acme", input, seams).catch((e) => e);
+    expect(rejected.next).toBe("rt team peer --rotate");
+  });
+
   test("any other failure reads as a failed send", async () => {
     const failed = { code: "announce-send-failed" };
     await expect(sendAnnouncement(probesFor("dev1", () => ({ status: 500, body: "" })), "acme", input, seams)).rejects.toMatchObject(failed);
