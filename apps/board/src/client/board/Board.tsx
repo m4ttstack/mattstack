@@ -1403,9 +1403,9 @@ export function Board() {
   const memberLooks = useMemo(() => {
     const looks = assignMemberLooks(lookIds ? lookIds.split('\n') : []);
     const known = JSON.parse(faces) as Record<string, string>;
-    for (const [username, id] of Object.entries(known)) {
+    for (const [username, face] of Object.entries(known)) {
       const look = looks.get(username);
-      if (look) looks.set(username, { ...look, face: `/api/slack-avatar/${id}` });
+      if (look) looks.set(username, { ...look, face });
     }
     return looks;
   }, [lookIds, faces]);

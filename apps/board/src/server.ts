@@ -1826,7 +1826,7 @@ async function refreshMemberNames(): Promise<void> {
     })
   );
 }
-let slackPeople: SlackPerson[] = [];
+let slackPeople: (SlackPerson & { version?: string })[] = [];
 let slackPeopleFetchedAt = 0;
 /** Kept across polls: a lookup or a name refresh that fails must not take a
     face away. */
@@ -1850,8 +1850,12 @@ function refreshSlackPeople(): void {
 function currentSlackFaces(mrs: readonly BoardMR[]): Record<string, string> {
   const authors = mrs.map(mr => [mr.author.username, mr.author.name] as const);
   const matched = slackFaces([...authors, ...memberNames], slackPeople);
+  const versions = new Map(slackPeople.map(p => [p.id, p.version]));
   for (const [username, id] of Object.entries(matched))
-    knownSlackFaces.set(username, id);
+    knownSlackFaces.set(
+      username,
+      `/api/slack-avatar/${id}?v=${versions.get(id) ?? ''}`
+    );
   return Object.fromEntries(knownSlackFaces);
 }
 
@@ -2050,7 +2054,7 @@ const httpServer = Bun.serve({
       return new Response(Bun.file(file.path), {
         headers: {
           'content-type': file.contentType,
-          'cache-control': 'private, max-age=3600',
+          'cache-control': 'private, max-age=31536000, immutable',
           'x-content-type-options': 'nosniff',
         },
       });

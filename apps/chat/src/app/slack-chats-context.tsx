@@ -18,6 +18,7 @@ export interface SlackChat {
   handle?: string;
   /** Set once rt holds the teammate's Slack picture. */
   avatarId?: string;
+  avatarVersion?: string;
   /** The pane's agent: the one person who reads what Matt types here. */
   agentName?: string;
   /** Set once the chat has ended. */
@@ -48,7 +49,12 @@ export function SlackChatsProvider({
       avatars: new Map(
         chats.flatMap(c =>
           c.handle && c.avatarId
-            ? [[c.handle, `/api/chat/slack-avatar/${c.avatarId}`] as const]
+            ? [
+                [
+                  c.handle,
+                  `/api/chat/slack-avatar/${c.avatarId}?v=${c.avatarVersion ?? ''}`,
+                ] as const,
+              ]
             : []
         )
       ),

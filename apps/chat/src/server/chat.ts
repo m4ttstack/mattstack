@@ -298,7 +298,7 @@ export const chat = new Hono()
     if (!bytes) return c.json({ error: 'not found' }, 404);
     return c.body(bytes, 200, {
       'content-type': file.contentType,
-      'cache-control': 'private, max-age=3600',
+      'cache-control': 'private, max-age=31536000, immutable',
       'x-content-type-options': 'nosniff',
     });
   })
