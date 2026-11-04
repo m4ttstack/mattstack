@@ -54,6 +54,7 @@ type Speed = "instant" | "realistic";
 const PACE: Record<Speed, { wait: number; bar: number }> = { instant: { wait: 750, bar: 6_000 }, realistic: { wait: 4_000, bar: 60_000 } };
 const speed = (Object.keys(PACE) as Speed[]).find((s) => s === process.env.RT_STUB_SPEED) ?? null;
 const slow = scenario === "slow";
+const NEW_TOOL = scenario === "new-tool" || scenario === "new-tool-failed";
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 function waitMs(units: number): number { return speed ? PACE[speed].wait * units : 0; }
 function stampNow(key: string): void { if (!stateGet(key)) stateSet(key, Date.now()); }
@@ -521,14 +522,18 @@ function dopplerRow(): FormRow {
 
 /** The new-tool scenario's one row, through install and sign-in, as `toolsRows` draws a sign-in tool on a finished Mac. */
 function newToolRows(): FormRow[] {
-  if (scenario !== "new-tool") return [];
+  if (!NEW_TOOL) return [];
   const c = FORM_COPY.connect.teamTool;
   const base = { id: "tool.team.doppler", title: integrationDef("doppler").title, subtext: c.subtext, watch: true };
   if (preparing("tool")) return [formRow({ ...base, state: "busy", detail: FORM_COPY.installing, action: null })];
   if (!stateGet("prepare-tool-until")) {
-    return [formRow({ ...base, state: "todo", detail: "doppler is not installed", action: { type: "install", label: "Install", tool: "doppler", via: "brew" } })];
+    const install: Action = { type: "install", label: "Install", tool: "doppler", via: "brew" };
+    if (scenario !== "new-tool-failed") return [formRow({ ...base, state: "todo", detail: "", action: install })];
+    const secondary: Action = { type: "steps", label: "Show steps…", steps: ["brew install doppler", "Then re-run rt setup status"] };
+    return [formRow({ ...base, state: "todo", tone: "failed", detail: "Homebrew could not install it", action: { ...install, label: FORM_COPY.tools.retry }, secondary, waiting: FORM_COPY.installing })];
   }
-  return [{ ...dopplerRow(), id: base.id }];
+  const row = dopplerRow();
+  return [{ ...row, id: base.id, detail: row.state === "todo" ? "" : row.detail }];
 }
 
 function linearRow(): FormRow {
@@ -690,7 +695,7 @@ function thisMacSection(path: FormPath | null): FormRow[] {
 }
 
 function formStage(path: FormPath | null, sections: SetupForm["sections"]): FormStage {
-  if (scenario === "new-tool") return stateGet("tools-acked") > 0 ? "ready" : "tools";
+  if (NEW_TOOL) return stateGet("tools-acked") > 0 ? "ready" : "tools";
   if (!allAnswered(sections.macos)) return "macos";
   if (stateGet("run-live") > 0) return "running";
   if (runFailure()) return "paused";

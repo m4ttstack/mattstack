@@ -931,6 +931,28 @@ test("new-tool: tools holds through install and sign-in, and only --ack-tools mo
   expect(after.tools).toBeUndefined();
 });
 
+test("new-tool: a plain row carries no reason, whether missing or signed out", async () => {
+  const state = mkdtempSync(join(tmpdir(), "stub-"));
+  const section = async () => (await run("new-tool", ["setup", "form", "--section", "tools", "--json"], "", state)).lines[0].sections.tools[0];
+  expect((await section()).detail).toBe("");
+  await run("new-tool", ["tools", "install", "doppler", "--json"], "", state);
+  expect(await section()).toMatchObject({ state: "todo", detail: "", action: { label: "Sign in" } });
+});
+
+test("new-tool-failed: the row reads failed and Retry runs the same install", async () => {
+  const state = mkdtempSync(join(tmpdir(), "stub-"));
+  const section = async () => (await run("new-tool-failed", ["setup", "form", "--section", "tools", "--json"], "", state)).lines[0];
+  const failed = await section();
+  expect(failed.sections.tools[0]).toMatchObject({
+    state: "todo", tone: "failed", detail: "Homebrew could not install it", optional: false,
+    action: { type: "install", label: "Retry", tool: "doppler" },
+    secondary: { type: "steps", label: "Show steps…" },
+  });
+  expect(failed.tools.allDone).toBe(false);
+  expect((await run("new-tool-failed", ["tools", "install", "doppler", "--json"], "", state)).code).toBe(0);
+  expect((await section()).sections.tools[0]).toMatchObject({ state: "todo", action: { label: "Sign in" } });
+});
+
 test("a --section tools read in any other scenario is empty, and a whole read carries no tools", async () => {
   const empty = (await run("join-happy", ["setup", "form", "--section", "tools", "--json"])).lines[0];
   expect(empty.sections.tools).toEqual([]);
