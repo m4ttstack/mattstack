@@ -37,7 +37,7 @@ import { AppMark } from './chrome/AppMark';
 import { Composer, type ComposerHandle } from './Composer';
 import { PageShellDemoPage } from './demo/PageShellDemoPage';
 import type { FleetRoom } from './FleetTree';
-import { HUMAN_HANDLE } from './human';
+import { HUMAN_HANDLE, type Me } from './human';
 import { PageBar } from './PageBar';
 import { isMsgTopic, useRelayFrames, useRelayOpen } from './relay-socket';
 import { RoomRail } from './RoomRail';
@@ -317,6 +317,31 @@ function RoomsPlaceholder({
 
 /** Inside `PageShell.Sidebar`, which on a phone is a drawer: picking a row
     closes it. */
+/** The server's `{ error }` message, for a toast that says what went wrong. */
+async function errorOf(res: Response): Promise<string> {
+  const data = (await res.json().catch(() => null)) as {
+    error?: string;
+  } | null;
+  return data?.error ?? `HTTP ${res.status}`;
+}
+
+/** The viewer's handle and shown name; the default until the server answers. */
+function useMe(): Me {
+  const [me, setMe] = useState<Me>({
+    handle: HUMAN_HANDLE,
+    name: HUMAN_HANDLE,
+  });
+  useEffect(() => {
+    fetch('/api/chat/me')
+      .then(res => (res.ok ? (res.json() as Promise<Me>) : null))
+      .then(next => {
+        if (next) setMe(next);
+      })
+      .catch(() => {});
+  }, []);
+  return me;
+}
+
 function ChatSidebar({
   rooms,
   buddies,
@@ -365,6 +390,7 @@ interface ChatPageProps {
   roomMembers: string[];
   messages: ChatMessage[];
   anchor: string | undefined;
+  me: Me;
   composerRef: RefObject<ComposerHandle | null>;
   onOpenDm: (handle: string) => void;
   onCloseRoom: (room: string) => void;
@@ -382,6 +408,7 @@ function ChatPage({
   roomMembers,
   messages,
   anchor,
+  me,
   composerRef,
   onOpenDm,
   onCloseRoom,
@@ -425,13 +452,13 @@ function ChatPage({
             // `min-width: min-content`, which would size the column to its
             // widest row and defeat each row's own truncation.
             scrollAreaProps={{
-            scrollbarSize: 8,
-            styles: {
-              content: { minWidth: 0 },
-              scrollbar: { padding: 0 },
-              thumb: { background: 'var(--tk-border)' },
-            },
-          }}
+              scrollbarSize: 8,
+              styles: {
+                content: { minWidth: 0 },
+                scrollbar: { padding: 0 },
+                thumb: { background: 'var(--tk-border)' },
+              },
+            }}
           >
             <ChatSidebar
               rooms={railRooms}
@@ -491,7 +518,7 @@ function ChatPage({
                   <Transcript
                     room={activeRoom}
                     messages={messages}
-                    humanHandle={HUMAN_HANDLE}
+                    humanHandle={me.handle}
                     anchor={anchor}
                     footer={
                       <Composer
@@ -540,6 +567,7 @@ export function App({ initialState }: { initialState?: AppInitialState } = {}) {
 function AppContent({ initialState }: { initialState?: AppInitialState }) {
   const [path] = useLocation();
   const route = useAppRoute();
+  const me = useMe();
   const daemon = useDaemonHealth(initialState?.daemonReachable);
   // Your org, team and role for the top bar, as console shows them.
   const viewer = useViewer();
@@ -626,9 +654,11 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ room }),
         });
-        if (!res.ok) throw new Error('close failed');
-      } catch {
-        notifications.error("Couldn't close the room");
+        if (!res.ok) throw new Error(await errorOf(res));
+      } catch (err) {
+        notifications.error(
+          `Couldn't close the room: ${err instanceof Error ? err.message : 'no answer from the server'}`
+        );
         // Restore only THIS room. A blanket setRooms(snapshot) would resurrect
         // a room a concurrent close already removed and drop one that arrived
         // since; rebuild from the snapshot keeping rooms still present plus the
@@ -720,6 +750,7 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
         buddies={buddies}
         roomMembers={roomMembers}
         memberNames={roomMemberNames}
+        me={me}
         now={Date.now()}
         reachable={daemon.reachable}
         actions={buddyActions}
@@ -738,12 +769,13 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
                     compact
                     room={activeRoom}
                     messages={messages}
-                    humanHandle={HUMAN_HANDLE}
+                    humanHandle={me.handle}
                     anchor={anchor}
                     footer={
                       <Composer
                         ref={composerRef}
                         compact
+                        humanHandle={me.handle}
                         room={activeRoom}
                         roomMembers={roomMembers}
                         buddies={buddies}
@@ -767,6 +799,7 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
       buddies={buddies}
       roomMembers={roomMembers}
       memberNames={roomMemberNames}
+      me={me}
       now={Date.now()}
       reachable={daemon.reachable}
       actions={buddyActions}
@@ -793,6 +826,7 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
             roomMembers={roomMembers}
             messages={messages}
             anchor={anchor}
+            me={me}
             composerRef={composerRef}
             onOpenDm={openDm}
             onCloseRoom={closeRoom}

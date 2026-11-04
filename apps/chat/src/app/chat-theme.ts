@@ -1,4 +1,6 @@
-import { createTheme } from '@mattstack/app-kit/core';
+import { createTheme, Menu } from '@mattstack/app-kit/core';
+
+import menu from './menu.module.css';
 
 /**
  * Chat's theme. Its type ladder is the only one it has: Four text steps plus a
@@ -26,6 +28,17 @@ export const chatTheme = createTheme({
   // Inter, not the suite's system stack: at chat's 12 to 14px SF renders too
   // light for reading long posts on the soft page background.
   fontFamily: "'Inter Variable', -apple-system, 'Segoe UI', sans-serif",
+  components: {
+    Menu: Menu.extend({
+      classNames: {
+        dropdown: menu.menuDropdown,
+        item: menu.menuItem,
+        itemSection: menu.menuItemSection,
+        label: menu.menuLabel,
+        divider: menu.menuDivider,
+      },
+    }),
+  },
   fontSizes: {
     xs: '0.75rem',
     sm: '0.8125rem',

@@ -268,6 +268,12 @@ export const chat = new Hono()
     const rooms = await withDmLastMessage([...joined, ...extra]);
     return c.json({ rooms }, 200);
   })
+  // Who the viewer is: the handle that keys rooms, and the name shown for it.
+  .get('/api/chat/me', c => {
+    const handle = humanHandle(c);
+    const name = getSetting<string | undefined>('chat.displayName').value;
+    return c.json({ handle, name: name || handle }, 200);
+  })
   // The app makes no Slack call of its own: the daemon says which rooms hold
   // an open support chat. A daemon without the verb answers !ok, a 502 here,
   // which the client reads as no chats.

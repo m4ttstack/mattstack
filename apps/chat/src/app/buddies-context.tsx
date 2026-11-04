@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo } from 'react';
 import type { ReactNode } from 'react';
 
+import type { Me } from './human';
 import type { RosterBuddy } from './roster-types';
 
 export interface BuddyActions {
@@ -22,6 +23,8 @@ export interface BuddiesContextValue {
   actions?: BuddyActions;
   /** Display name for an id: the roster's, then the open room's members', then the id. */
   nameOf: (handle: string) => string;
+  /** The viewer's own name, for `handle` if it is theirs. */
+  selfName: (handle: string) => string | undefined;
   /** The avatar creature and hue assigned to an id; unset for an id the
       roster and the open room never listed, which keeps its hashed look. */
 }
@@ -35,13 +38,15 @@ export function BuddiesProvider({
   buddies,
   roomMembers,
   memberNames,
+  me,
   now,
   reachable,
   actions,
   children,
-}: Omit<BuddiesContextValue, 'byHandle' | 'nameOf'> & {
+}: Omit<BuddiesContextValue, 'byHandle' | 'nameOf' | 'selfName'> & {
   buddies: RosterBuddy[];
   memberNames?: ReadonlyMap<string, string>;
+  me?: Me;
   children: ReactNode;
 }) {
   const value = useMemo<BuddiesContextValue>(() => {
@@ -53,9 +58,13 @@ export function BuddiesProvider({
       reachable,
       actions,
       nameOf: handle =>
-        byHandle.get(handle)?.name ?? memberNames?.get(handle) ?? handle,
+        (handle === me?.handle ? me.name : undefined) ??
+        byHandle.get(handle)?.name ??
+        memberNames?.get(handle) ??
+        handle,
+      selfName: handle => (handle === me?.handle ? me.name : undefined),
     };
-  }, [buddies, roomMembers, memberNames, now, reachable, actions]);
+  }, [buddies, roomMembers, memberNames, me, now, reachable, actions]);
   return (
     <BuddiesContext.Provider value={value}>{children}</BuddiesContext.Provider>
   );

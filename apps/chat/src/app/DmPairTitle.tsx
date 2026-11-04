@@ -26,7 +26,7 @@ export function DmStack({ pair, size }: { pair: DmPair; size: number }) {
 export function DmNames({ pair }: { pair: DmPair }) {
   const ctx = useBuddies();
   const name = (handle: string, shown: string | undefined) =>
-    shown ?? ctx?.nameOf(handle) ?? handle;
+    ctx?.selfName(handle) ?? shown ?? ctx?.nameOf(handle) ?? handle;
   return (
     <span className={classes.names}>
       {name(pair.a, pair.aName)}, {name(pair.b, pair.bName)}

@@ -457,7 +457,12 @@ export function AgentName({
 }: AgentNameProps) {
   const ctx = useBuddies();
   const buddy = buddyProp ?? ctx?.byHandle.get(handle);
-  const shown = name ?? buddy?.name ?? ctx?.nameOf(handle) ?? handle;
+  const shown =
+    ctx?.selfName(handle) ??
+    name ??
+    buddy?.name ??
+    ctx?.nameOf(handle) ??
+    handle;
   const repo = repoToken(buddy);
   const showTask = task && task.kind !== 'away';
 

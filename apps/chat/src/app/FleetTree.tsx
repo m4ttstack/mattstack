@@ -114,14 +114,17 @@ function whenLabel(postedAt: number): string {
 }
 
 /** A DM's newest message on one plain line, markdown marks removed. */
-function previewLine(room: FleetRoom): string | undefined {
+function previewLine(
+  room: FleetRoom,
+  selfName: ((handle: string) => string | undefined) | undefined
+): string | undefined {
   const last = room.lastMessage;
   if (!last) return undefined;
   const text = last.body
     .replace(/[`*_#>]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
-  return `${last.name ?? last.handle}: ${text}`;
+  return `${selfName?.(last.handle) ?? last.name ?? last.handle}: ${text}`;
 }
 
 function RowMenu({
@@ -159,13 +162,6 @@ function RowMenu({
       shadow="md"
       withinPortal
       transitionProps={{ duration: 0 }}
-      classNames={{
-        dropdown: classes.menuDropdown,
-        item: classes.menuItem,
-        itemSection: classes.menuItemSection,
-        label: classes.menuLabel,
-        divider: classes.menuDivider,
-      }}
     >
       <Menu.ContextMenu>{children}</Menu.ContextMenu>
       <Menu.Dropdown data-testid={testId}>
@@ -306,7 +302,7 @@ function DmRow({
   const [menuOpened, setMenuOpened] = useState(false);
   const closable = onClose !== undefined;
   const pair = room.participants!;
-  const preview = previewLine(room);
+  const preview = previewLine(room, useBuddies()?.selfName);
 
   const row = (
     <Box

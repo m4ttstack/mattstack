@@ -848,7 +848,15 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["user"],
     default: "matt",
     merge: "replace",
+    schema: { type: "string", pattern: "^[a-z0-9._-]+$" },
     description: "The human's own chat handle, so agents can @-mention them by name.",
+  },
+  {
+    key: "chat.displayName",
+    type: "string",
+    scopes: ["user"],
+    merge: "replace",
+    description: "The name the chat viewer shows for you. Your handle stays as it is, so your rooms and DMs do not move.",
   },
   {
     key: "chat.viewerUrl",
