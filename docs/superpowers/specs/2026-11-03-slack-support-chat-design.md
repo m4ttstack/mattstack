@@ -88,7 +88,9 @@ agent would have to poll for messages itself.
 For noticing messages, polling won over Slack's Socket Mode. Socket Mode is
 instant, but it needs an app-level token, event subscriptions and a held
 connection in the daemon. A few seconds of lag suits a support chat, and polling
-needs only the new scopes.
+needs only the new scopes. Slack limits `conversations.history` hard for some
+non-Marketplace apps, so the spike checks the real limit on this app first. If it
+applies, polling can't work and this decision goes back to the operator.
 
 ## How it works
 
@@ -110,7 +112,7 @@ is refused and names the pane that holds the first.
 
 ### State
 
-One new table, `IF NOT EXISTS`, claiming the next `SCHEMA_VERSION` under the
+Two new tables, `IF NOT EXISTS`, claiming the next `SCHEMA_VERSION` under the
 rule in `.claude/rules/state.md` (17 at the time of writing; announce it first):
 
 ```sql
@@ -127,9 +129,22 @@ CREATE TABLE IF NOT EXISTS slack_conversations (
   last_active_at INTEGER NOT NULL,
   checked_in_at  INTEGER,           -- the 30 minute check-in, cleared by a message
   close_asked_at INTEGER,           -- when the close sequence began
+  close_reason_asked TEXT,          -- the reason that sequence will close with
+  watcher_seen_at INTEGER,          -- the mod's last read, which is what pane-gone measures
+  stalled_noted_at INTEGER,         -- the stalled notice, cleared by a delivery
   opened_at      INTEGER NOT NULL,
   closed_at      INTEGER,
   close_reason   TEXT               -- closed-by-pane, idle, operator, pane-gone
+);
+
+CREATE TABLE IF NOT EXISTS slack_items (
+  id              INTEGER PRIMARY KEY,
+  conversation_id INTEGER NOT NULL,
+  kind            TEXT NOT NULL,    -- message, operator-slack, check-in, close-request, closed
+  from_handle     TEXT,
+  text            TEXT NOT NULL,
+  created_at      INTEGER NOT NULL,
+  delivered_at    INTEGER
 );
 ```
 
@@ -140,7 +155,14 @@ it stays the same across conversations: id `slack.<lowercased user id>`, name
 `<first name>-slack`. The `slack.` id prefix is reserved, so sign-in can never
 draw or claim one. The identity has no presence row.
 
-Chat needs three adjustments for a participant with no session:
+The name comes from a profile field the teammate controls, so it is cleaned
+before anything uses it: lowercased, stripped to the chat name charset
+(`[a-z0-9._-]`), capped at 24 characters, falling back to the user id if nothing
+is left. Two teammates with one first name get `alex-slack` and `alex-2-slack`.
+Only the cleaned name reaches the support rules and the system prompt section, so
+a profile name can't inject text there. Reply hints carry the id, never the name.
+
+Chat needs these adjustments for a participant with no session:
 
 - `planSweepTargets` and `stalePendingPairs` skip these identities, or the
   sweep would treat the pane's replies as undelivered forever.
@@ -148,6 +170,8 @@ Chat needs three adjustments for a participant with no session:
   identity.
 - The sender-refusal path treats the bridge as a legitimate author of inbound
   messages.
+- A `chat_dm` to a Slack identity from anything but its open conversation's pane
+  is refused with a reason, so no orphan room appears.
 
 ### Slack to pane
 
@@ -176,14 +200,18 @@ client can't be imported from rt, so this is a small new client, not a move.
 Slack text never goes over the inbox socket. It reaches the session through the
 same mod that owns `/slack-support`:
 
-1. `postAndNotify` leaves the pane out of the socket delivery for a message that
-   came from Slack. The message waits in the room, unread by the pane.
+1. A message from Slack is marked delivered for the pane as soon as it is posted,
+   and `slack_items` becomes its delivery record. Otherwise the 30 second delivery
+   sweep, or the bundle in the operator's next chat UI post, would send it over the
+   socket in the frame this design exists to avoid.
 2. While a conversation is open, the mod runs a long-lived `rt chat slack-watch`
    with `$.process.spawn` and reads one JSON line per waiting message. It restarts
    the child if it exits, and on `session.start` when a conversation is still open.
 3. The mod calls `$.prompt.submit({ text })`. It never sets `asUser`.
-4. Once the call resolves, the mod runs `rt chat slack-delivered`, so a crash
-   redelivers the message rather than losing it.
+4. The mod runs `rt chat slack-delivered` once the message has really reached the
+   session, so a crash redelivers it rather than losing it. If `$.prompt.submit`
+   resolves when the prompt is queued, not when it enters, the mod confirms from
+   its own `prompt.submit` or `turn.start` hook seeing that text. The spike decides.
 
 The aim is that the pane helps, not that it ignores the message. The rules say
 what to do as well as what not to do. The exact wording is the builder's to
@@ -237,6 +265,9 @@ socket, so they always read as the operator's.
 Check-in and close requests also go through `$.prompt.submit`, so they have one
 path into the pane.
 
+**Delivery is at least once.** A crash between the session taking a message and
+the confirm repeats that message, which the pane can see and ignore.
+
 ### Pane to Slack
 
 The pane calls `chat_dm` to the teammate's handle. When the room belongs to an
@@ -245,7 +276,13 @@ only on success, so a failure reaches the pane as a failed tool call and the
 pane can act on it. Slack's `Retry-After` is honoured.
 
 The daemon adds `[Claude 🤖]: ` to every Slack message, and strips a copy the
-pane wrote itself. The stored chat message has no prefix. A `chat_dm` into a
+pane wrote itself. It also redacts anything shaped like a credential before
+sending (`xox[abp]-`, `glpat-`, `ghp_`, `AKIA`, `BEGIN ... PRIVATE KEY`), in the
+spirit of `lib/daemon/forge-reads.ts`, and tells the pane it did. The skill's rule
+stays the main protection; this catches a slip.
+
+If Slack accepts a message and the chat row then fails to write, the tool reports
+failure and the pane may resend. A rare duplicate is accepted. The stored chat message has no prefix. A `chat_dm` into a
 closed conversation's room is refused with a clear reason.
 
 ### The operator's messages
@@ -280,6 +317,15 @@ The timer resets on a message from either side.
 rt never writes the check-in or the farewell. It has no AI of its own, so it asks
 the pane.
 
+### When the pane stops responding
+
+A pane stuck at a permission prompt keeps its watcher alive but never goes idle, so
+`pane-gone` doesn't fire and the teammate would hear nothing. If an item stays
+undelivered for 10 minutes, the daemon sends the operator a desk notification and
+the teammate one holding line: `[Claude 🤖]: Claude is tied up for a moment. Your
+message is safe, and <operator's name> has been told.` Both reset once an item is
+delivered.
+
 ### Closing
 
 | Trigger | Reason | What happens |
@@ -299,6 +345,9 @@ what is still with the operator, then one fixed line the daemon always adds:
 
 `[Claude 🤖]: This chat with Claude is closed. Anything you send now goes to
 <operator's name>.`
+
+The farewell and the fixed line are also recorded in the chat room, so the viewer
+shows them.
 
 The pane then sends the operator a DM with the outcome and summary, which the
 existing desk notification covers. On `pane-gone`, or when the 2 minutes ran
@@ -320,7 +369,8 @@ an open conversation.
   outside every repo, with the slug sanitised and clashes numbered.
 - **Layout:** the title, then short `## Problem`, `## Idea or fix`, `## Acceptance`
   and `## Source` sections. `Source` holds the kind, the person, the date and the
-  chat room link. This matches the shape of the operator's Linear tickets, so one
+  chat room link, and says the text came from a Slack chat, so a later session
+  reads it as data. This matches the shape of the operator's Linear tickets, so one
   can be promoted by hand.
 
 Reviewing, promoting or deleting tickets is the operator's job, and no UI lists
@@ -364,13 +414,17 @@ for it to discover or be talked into calling.
 - **The check.** Its `command.run` hook refuses unless `e.origin.kind` is
   `composer`. The engine stamps that value for the person's own Enter at the
   prompt, and never for a plugin, a peer, a schedule or a same-user socket.
-- **The open.** The hook itself runs the open with `$.process.run`, then hands the
-  pane the person, the problem and the instruction to load the skill.
+- **The open.** The hook signs the pane in to rt chat if it isn't already, runs the
+  open with `$.process.run`, then starts the skill itself with `$.command.run`,
+  passing the person and the problem. The skill sets `disable-model-invocation`, so
+  the model can't load it.
 - **No other way in.** `rt chat slack-open` is hidden from `--help` and the command
   tree, has no MCP tool, and is named in no skill or doc.
 - **Closing the Bash gap.** The model can still reach Bash. The same mod's
   `tool.call` hook denies a Bash command that names `slack-open`, and one that
-  sends `/slack-support` into a pane.
+  sends `/slack-support` into a pane. That is a string match, so the daemon also
+  refuses a pane injection whose first line starts `/slack-support` when the caller
+  is itself a pane. Flock and herdr-chat run outside a pane and never trip it.
 
 This stops accidents and misled panes. It isn't a security boundary against a
 determined process on this machine, which is outside what the operator asked for.
@@ -387,8 +441,13 @@ as well as opening):
   `$.process.spawn` all run on the managed enterprise account? The
   builtin `cc-plugin-sec-default` guard has bypassed user-tier mods on
   `prompt.context` there, and an organization's policy can turn mods off.
-- Does a `command.run` answer's `context` start a turn, or does the hook need
-  `$.prompt.submit`? The pane must start work without another keystroke.
+- Can a plugin's `$.command.run` start a `disable-model-invocation` skill? The pane
+  must start work without another keystroke. If not, the hook returns the skill's
+  text as `context` and starts the turn with `$.prompt.submit`.
+- When does `$.prompt.submit`'s promise resolve: at queueing, or when the prompt
+  enters? That sets how the mod confirms delivery.
+- What rate limit does Slack apply to this app? One real `conversations.history`
+  call on a channel, reading the response headers, answers it.
 
 If the mod can't run on that account, opening falls back to a one-tap gate and
 delivery falls back to the inbox socket with the support rules in its frame. That needs
@@ -435,12 +494,14 @@ no MCP tool.
 A `slack-watch` line:
 
 ```json
-{"kind":"message","conversation":12,"id":4821,"from":"alex-slack","text":"still failing"}
+{"kind":"message","conversation":12,"id":4821,"handle":"slack.u0test","name":"alex-slack","operator":"Robin","marker":"7f3a9c","text":"still failing"}
 ```
 
 Other `kind` values carry the check-in and close requests, so everything reaches
-the session one way. `slack-watch` holds the connection the mod's liveness is read
-from, which is what `pane-gone` measures.
+the session one way. Each line carries what the mod needs to render it, so a
+resumed watcher needs nothing from the earlier open. `slack-watch` polls the
+daemon every 2 seconds, and that poll updates `watcher_seen_at`, which is what
+`pane-gone` measures.
 
 **Underneath.** Each verb maps to a daemon command in the `chat:*` family, such as
 `chat:slack-open` and `chat:slack-close`. `herdr-chat` gains `slack-status` and
@@ -476,6 +537,8 @@ everything rt doesn't:
   Create nothing in Linear or any other tracker.
 - **Outside the brief:** tell the teammate it will check, DM the operator, and
   carry on with the rest.
+- **Formatting:** write for Slack: `*bold*`, plain links and code blocks, not
+  Markdown headings or `**bold**`.
 - **Unsure:** say so. Anything irreversible or touching production goes to the
   operator.
 - **Needs a code fix:** tell the teammate the operator will follow up, close,
@@ -490,6 +553,8 @@ everything rt doesn't:
 ### Slack details
 
 - Replies go out as `chat.postMessage` on the operator's `xoxp` token.
+- A thread reply under a message from before the chat opened is never seen. The
+  user docs say so.
 - Attachments aren't read in this version (no `files:read`). The frame says one
   was sent, and the skill asks the teammate to paste the text instead.
 

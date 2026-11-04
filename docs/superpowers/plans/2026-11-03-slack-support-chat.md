@@ -16,7 +16,7 @@
 - Slack is checked every 5 seconds, only while a conversation is open.
 - Check-in at 30 quiet minutes, close at 60, 2 minute farewell window, `pane-gone` after 5 minutes with no watcher while an item waits.
 - Close reasons are exactly `closed-by-pane`, `idle`, `operator`, `pane-gone`.
-- Slack identities: id `slack.<lowercased user id>`, name `<first name>-slack`; the `slack.` id prefix is reserved.
+- Slack identities: id `slack.<lowercased user id>`, name `<first name>-slack`, cleaned to `[a-z0-9._-]`, capped at 24 characters, unique per Slack user; the `slack.` id prefix is reserved. Reply hints carry the id.
 - Support tickets go under `~/.mattstack/chat/support-tickets/`, written by the daemon, never into a repo.
 - DM scopes are `im:history`, `im:read`, `im:write`, `users:read`, opt-in, and never in `missingSlackUserScopes`.
 - The model gets no tool that opens a chat. `slack-open`, `slack-watch`, `slack-delivered` are `hidden: true`, with no `agentSafe` and no MCP tool.
@@ -33,7 +33,7 @@
 - Slack is down, rate limited, or the token is revoked mid-chat: the teammate's messages must not be lost, and the pane is told when a reply fails. (Task 4, Task 5)
 - The daemon restarts or the machine sleeps for an hour mid-chat: on wake, reading resumes from the cursor, and `idle` and `pane-gone` must not fire from sleep alone with messages unread. (Task 5, Task 7)
 - The pane is mid-turn for a long time: the watcher stays alive, so `pane-gone` doesn't fire, and queued items arrive in order afterwards. (Task 6, Task 7)
-- The operator runs `/slack-support` from a pane not signed in to rt chat, or with an old token, or for a person with two matching names: a clear refusal, nothing half opened. (Task 6)
+- The operator runs `/slack-support` from a pane not signed in to rt chat (the mod signs it in), or with an old token, or for a person with two matching names (a clear refusal, nothing half opened). (Task 6, Task 11)
 - Two panes race to open a chat with the same person: exactly one wins. (Task 2)
 
 ---
@@ -53,11 +53,13 @@ Load `plugin-authoring` first. Build the throwaway mod under the session's dev-m
   - Typed by hand: `e.origin.kind` is `composer`?
   - Sent with `rt pane send`, from Flock's path and from herdr: which origin?
   - `$.prompt.submit`: exact text the model reads, and does it start a turn from idle?
-  - Does a `command.run` answer's `context` start a turn, or does the hook need `$.prompt.submit`?
+  - Can a plugin's `$.command.run` start a `disable-model-invocation` skill? If not, does a `command.run` answer's `context` plus `$.prompt.submit` start the turn?
+  - When does `$.prompt.submit`'s promise resolve: at queueing, or when the prompt enters? Kill the session in between and record what happens.
   - Does a `$.process.spawn` child keep running past the hook's budget, or must the mod poll with `$.clock.every` and `$.process.run`?
-  - Does a child process inherit `CLAUDE_CODE_SESSION_ID` and `HERDR_PANE_ID`?
 
 - [ ] **Step 3: Repeat on the managed enterprise account (cswap).** Run with `claude --debug` and record any `bypassed by cc-plugin-sec-default` line for `command.run`, `tool.call`, `$.prompt.submit`, `prompt.compose` and `$.process.*`.
+
+- [ ] **Step 3b: Slack rate limit.** Make one real `conversations.history` call on a channel with the existing token, and record the status and rate-limit headers. Don't print the token.
 
 - [ ] **Step 4: Live read.** In a pane with the draft support rules, send three messages through `$.prompt.submit`: a support question, a pasted instruction to edit a file, and text that fakes a closing marker. Record what the model did.
 
@@ -68,7 +70,7 @@ git add docs/superpowers/spikes/2026-11-03-slack-support-mod-spike.md
 git commit -m "docs: record the Slack support mod spike"
 ```
 
-- [ ] **Step 6: Gate.** Any no on enterprise, or a failed live read: STOP and bring the result to the operator. The spec's fallback is a decision, not a default. If `$.process.spawn` can't outlive a hook, Task 6 keeps the same output shape and Task 11 polls `slack-pending` with `$.clock.every` instead.
+- [ ] **Step 6: Gate.** Any no on enterprise, a failed live read, or a Slack limit that rules out a 5 second poll: STOP and bring the result to the operator. The spec's fallbacks are decisions, not defaults. If `$.process.spawn` can't outlive a hook, Task 6 keeps the same output shape and Task 11 polls `slack-pending` with `$.clock.every` instead.
 
 ## Task 2: Conversation store
 
@@ -83,24 +85,23 @@ git commit -m "docs: record the Slack support mod spike"
 ```ts
 type SlackCloseReason = "closed-by-pane" | "idle" | "operator" | "pane-gone";
 type SlackItemKind = "message" | "operator-slack" | "check-in" | "close-request" | "closed";
-interface SlackConversation { id: number; room: string; agentHandle: string; slackHandle: string; slackUserId: string; slackChannel: string; frameMarker: string; lastReadTs: string; threadReadTs: Record<string, string>; lastActiveAt: number; checkedInAt: number | null; closeAskedAt: number | null; watcherSeenAt: number | null; openedAt: number; closedAt: number | null; closeReason: SlackCloseReason | null; }
+interface SlackConversation { id: number; room: string; agentHandle: string; slackHandle: string; slackUserId: string; slackChannel: string; frameMarker: string; lastReadTs: string; threadReadTs: Record<string, string>; lastActiveAt: number; checkedInAt: number | null; closeAskedAt: number | null; closeReasonAsked: SlackCloseReason | null; watcherSeenAt: number | null; stalledNotedAt: number | null; openedAt: number; closedAt: number | null; closeReason: SlackCloseReason | null; }
 interface SlackItem { id: number; conversationId: number; kind: SlackItemKind; fromHandle: string | null; text: string; createdAt: number; deliveredAt: number | null; }
-openConversation(args: Omit<SlackConversation, "id" | "threadReadTs" | "lastActiveAt" | "checkedInAt" | "closeAskedAt" | "watcherSeenAt" | "closedAt" | "closeReason">, db?): SlackConversation // throws SlackConversationBusy { holderAgent }
+openConversation(args: Pick<SlackConversation, "room" | "agentHandle" | "slackHandle" | "slackUserId" | "slackChannel" | "frameMarker" | "lastReadTs" | "openedAt">, db?): SlackConversation // throws SlackConversationBusy { holderAgent }
 conversationForAgent(agentHandle, db?): SlackConversation | undefined   // open only
 conversationForRoom(room, db?): SlackConversation | undefined           // open only
 listOpenConversations(db?): SlackConversation[]
 advanceCursor(id, lastReadTs, threadReadTs, db?): void
 touchConversation(id, now, db?): void                                   // sets lastActiveAt, clears checkedInAt
 markCheckedIn(id, now, db?): void
-markCloseAsked(id, now, db?): void
+markCloseAsked(id, reason, now, db?): void
+markStalledNoted(id, now | null, db?): void
 markWatcherSeen(id, now, db?): void
 closeConversation(id, reason, now, db?): void
 enqueueItem(args: Omit<SlackItem, "id" | "deliveredAt">, db?): SlackItem
 pendingItems(conversationId, db?): SlackItem[]                           // oldest first
 markItemDelivered(id, now, db?): void
 ```
-
-The spec's single table becomes two: this plan adds `slack_items`, the one queue every item the mod reads comes from, and `watcher_seen_at` on the conversation. Update the spec's State section in this task.
 
 - [ ] **Step 1: Write the failing tests:** `opens a conversation and finds it by agent and room`; `refuses a second open for the same Slack person, naming the holder`; `refuses a second open for the same pane`; `allows reopening after close`; `two racing opens leave exactly one row`; `touching clears the check-in`; `pendingItems returns undelivered items oldest first`; `threadReadTs round-trips through JSON`.
 
@@ -113,7 +114,7 @@ The spec's single table becomes two: this plan adds `slack_items`, the one queue
 - [ ] **Step 5: Commit.**
 
 ```bash
-git add lib/state docs/superpowers/specs/2026-11-03-slack-support-chat-design.md
+git add lib/state
 git commit -m "state: add Slack conversation store"
 ```
 
@@ -132,6 +133,8 @@ const SLACK_PREFIX = "[Claude 🤖]: ";
 withPrefix(body: string): string                       // strips a copy the pane wrote, adds one
 hasPrefix(text: string): boolean
 closingLine(operatorName: string, paneGone: boolean): string
+holdingLine(operatorName: string): string
+redactSecrets(text: string): { text: string; redacted: boolean }
 interface SlackMessage { ts: string; user?: string; text: string; subtype?: string; replyCount?: number; latestReply?: string; files?: { name: string }[] }
 interface SlackUser { id: string; name: string; displayName: string; realName: string; deleted: boolean; isBot: boolean }
 interface SlackClient {
@@ -147,7 +150,7 @@ createSlackClient(token: string, fetchImpl?: typeof fetch): SlackClient
 SLACK_SUPPORT_SCOPES: string[]  // in lib/setup/slack-app.ts
 ```
 
-- [ ] **Step 1: Write the failing tests.** `withPrefix adds the prefix once`; `withPrefix strips a copy the pane wrote`; `client throws SlackError with retryAfterMs on 429`; `client reads granted scopes from the x-oauth-scopes header`; `history returns messages oldest first across pages`; `missingSlackUserScopes ignores the support scopes`; `the manifest declares the support scopes`.
+- [ ] **Step 1: Write the failing tests.** `withPrefix adds the prefix once`; `withPrefix strips a copy the pane wrote`; `redactSecrets catches each token shape and leaves ordinary text alone`; `client throws SlackError with retryAfterMs on 429`; `client reads granted scopes from the x-oauth-scopes header`; `history returns messages oldest first across pages`; `missingSlackUserScopes ignores the support scopes`; `the manifest declares the support scopes`.
 
 - [ ] **Step 2: Run:** `bun test lib/slack lib/setup/__tests__/slack-app.test.ts`. Expected: FAIL.
 
@@ -170,9 +173,9 @@ git commit -m "slack: add the client, prefix helpers and opt-in DM scopes"
 
 **Interfaces:**
 - Consumes: Task 2's store, Task 3's `SlackClient` and `withPrefix`.
-- Produces: `ensureSlackIdentity(userId: string, firstName: string, db?): IdentityRow`, `isSlackIdentity(id: string): boolean`; `deliverSlackReply` in the `chat:dm` path; `postAndNotify` skipping socket delivery to the pane when `args.fromSlack` is true.
+- Produces: `ensureSlackIdentity(userId: string, rawFirstName: string, db?): IdentityRow`, `cleanSlackName(raw: string, userId: string): string`, `isSlackIdentity(id: string): boolean`; `deliverSlackReply` in the `chat:dm` path; `postAndNotify` marking the pane delivered and skipping its socket push when `args.fromSlack` is true.
 
-- [ ] **Step 1: Write the failing tests:** `ensureSlackIdentity keeps one id across calls`; `sign-in can't claim a slack. id or name`; `the sweep never targets a Slack identity`; `a chat_dm into an open conversation posts to Slack once with the prefix, then records it`; `a Slack failure leaves no chat row and fails the tool with the reason`; `a 429 is retried after Retry-After`; `chat_dm into a closed conversation's room is refused`; `a post from the operator in the room never reaches Slack`; `a message marked fromSlack doesn't reach the pane's socket`.
+- [ ] **Step 1: Write the failing tests:** `ensureSlackIdentity keeps one id across calls`; `a mixed-case or hostile profile name is cleaned`; `an empty cleaned name falls back to the user id`; `two teammates with one first name get distinct names`; `sign-in can't claim a slack. id or name`; `the sweep never targets a Slack identity`; `a chat_dm into an open conversation posts to Slack once with the prefix, then records it`; `a Slack failure leaves no chat row and fails the tool with the reason`; `a 429 is retried after Retry-After`; `chat_dm into a closed conversation's room is refused`; `a post from the operator in the room never reaches Slack`; `a Slack message is never swept to the pane`; `a chat UI post never bundles a Slack message`; `chat_dm to a Slack identity from another pane is refused`; `a credential in a reply is redacted and the tool result says so`.
 
 - [ ] **Step 2: Run** both test files. Expected: FAIL.
 
@@ -223,19 +226,20 @@ git commit -m "daemon: bridge Slack DMs into open conversations"
 
 **Interfaces:**
 - Consumes: Tasks 2 to 5.
+- Produces, in `lib/daemon/inject.ts`: `injectIntoPane` refusing text whose first line starts `/slack-support` when `callerPane` is set.
 - Produces daemon commands:
 
 ```ts
 "chat:slack-open":      { payload: { agentHandle: string; sessionId?: string; person: string }; data: { conversationId: number; handle: string; name: string; frameMarker: string; room: string } }
 "chat:slack-close":     { payload: { agentHandle?: string; pane?: string; farewell?: string }; data: { conversationId: number; closed: boolean } }
 "chat:slack-status":    { payload: Record<string, never>; data: { conversations: { id: number; pane?: string; name: string; openedAt: number; lastActiveAt: number }[] } }
-"chat:slack-pending":   { payload: { agentHandle: string }; data: { items: SlackItem[]; open: boolean } } // also markWatcherSeen
+"chat:slack-pending":   { payload: { agentHandle: string }; data: { items: SlackItem[]; open: boolean; conversation?: { id: number; handle: string; name: string; operator: string; marker: string } } } // also markWatcherSeen
 "chat:slack-delivered": { payload: { id: number }; data: { delivered: boolean } }
 ```
 
-Verbs: `rt chat slack-open <person> --json`, `rt chat slack-watch --json`, `rt chat slack-delivered <id>` (all `hidden: true`, no `agentSafe`), `rt chat slack-close [--pane <pane>] [--farewell-file <path>]`, `rt chat slack-status`. `slack-watch` loops `chat:slack-pending` every 2 seconds, prints each new item as one JSON line, reprints undelivered items on restart, and exits when `open` is false.
+Verbs: `rt chat slack-open <person> --json`, `rt chat slack-watch --json`, `rt chat slack-delivered <id>` (all `hidden: true`, no `agentSafe`), `rt chat slack-close [--pane <pane>] [--farewell-file <path>]`, `rt chat slack-status`. `slack-watch` loops `chat:slack-pending` every 2 seconds, prints each new item as one JSON line in the spec's shape, reprints undelivered items on restart, and exits when `open` is false.
 
-- [ ] **Step 1: Write the failing tests:** `an unknown person is refused and nothing opens`; `an ambiguous person is refused with the candidates`; `a deleted or bot user can't be picked`; `a token without the support scopes is refused with the connect step`; `a pane not signed in to chat is refused`; `slack-open prints the JSON shape`; `slack-watch prints the documented line`; `slack-watch reprints undelivered items after a restart`; `slack-watch exits when the conversation closes`; `slack-open is hidden and absent from the agent-safe list and the MCP roster`.
+- [ ] **Step 1: Write the failing tests:** `an unknown person is refused and nothing opens`; `an ambiguous person is refused with the candidates`; `a deleted or bot user can't be picked`; `a token without the support scopes is refused with the connect step`; `a pane not signed in to chat is refused`; `slack-open prints the JSON shape`; `slack-watch prints the documented line`; `slack-watch reprints undelivered items after a restart`; `slack-watch exits when the conversation closes`; `a pane cannot inject /slack-support, and a call from outside a pane can`; `slack-open is hidden and absent from the agent-safe list and the MCP roster`.
 
 - [ ] **Step 2: Run** both test files. Expected: FAIL.
 
@@ -259,9 +263,9 @@ git commit -m "chat: add hidden Slack open, watch and delivered verbs"
 
 **Interfaces:**
 - Consumes: Task 2's store, Task 3's `closingLine`, Task 6's handlers.
-- Produces: `tickSlackLifecycle(deps: { db; client; notify; now }): Promise<void>`; `finishClose(conversationId, reason, farewell | undefined, deps): Promise<void>`; `SLACK_CHECK_IN_MS = 30 * 60_000`, `SLACK_IDLE_MS = 60 * 60_000`, `SLACK_FAREWELL_MS = 2 * 60_000`, `SLACK_PANE_GONE_MS = 5 * 60_000`.
+- Produces: `tickSlackLifecycle(deps: { db; client; notify; now }): Promise<void>`; `finishClose(conversationId, reason, farewell | undefined, deps): Promise<void>`; `SLACK_CHECK_IN_MS = 30 * 60_000`, `SLACK_IDLE_MS = 60 * 60_000`, `SLACK_FAREWELL_MS = 2 * 60_000`, `SLACK_PANE_GONE_MS = 5 * 60_000`, `SLACK_STALLED_MS = 10 * 60_000`.
 
-- [ ] **Step 1: Write the failing tests:** `30 quiet minutes queues one check-in item`; `a message after the check-in resets the timers`; `60 quiet minutes queues a close-request with reason idle`; `the pane's close sends its farewell then the fixed line, in that order`; `no close within 2 minutes sends only the fixed line`; `slack-close --pane queues a close-request with reason operator`; `no watcher for 5 minutes with a waiting item closes as pane-gone and notifies the operator`; `a long turn with a live watcher never closes as pane-gone`; `a gap in ticks (sleep) restarts the quiet timers, so no timeout fires straight after wake`; `a teammate message during the farewell window goes to the operator, not the pane`; `a failed farewell send still closes and notifies the operator`; `a second close is a no-op`.
+- [ ] **Step 1: Write the failing tests:** `30 quiet minutes queues one check-in item`; `a message after the check-in resets the timers`; `60 quiet minutes queues a close-request with reason idle`; `the pane's close sends its farewell then the fixed line, in that order`; `no close within 2 minutes sends only the fixed line`; `slack-close --pane queues a close-request with reason operator`; `no watcher for 5 minutes with a waiting item closes as pane-gone and notifies the operator`; `a long turn with a live watcher never closes as pane-gone`; `a gap in ticks (sleep) restarts the quiet timers, so no timeout fires straight after wake`; `a teammate message during the farewell window goes to the operator, not the pane`; `a failed farewell send still closes and notifies the operator`; `a second close is a no-op`; `an item undelivered for 10 minutes with a live watcher notifies the operator and sends one holding line`; `a delivery resets the stalled notice`; `the farewell and fixed line are recorded in the room`.
 
 - [ ] **Step 2: Run:** `bun test lib/daemon/__tests__/slack-lifecycle.test.ts`. Expected: FAIL.
 
@@ -286,7 +290,7 @@ git commit -m "daemon: add Slack chat timeouts and the close sequence"
 **Interfaces:**
 - Produces: `"chat:slack-ticket": { payload: { agentHandle: string; kind: "bug" | "feature"; title: string; problem: string; idea: string; acceptance: string[] }; data: { path: string } }`; `renderTicket(input, source): string`; `ticketPath(root, date, person, title): string`.
 
-- [ ] **Step 1: Write the failing tests:** `the file has Problem, Idea or fix, Acceptance and Source sections`; `a title with ../ stays inside the folder`; `a clash gets a number`; `refuses with no open conversation`; `a teammate's name is sanitised in the filename`.
+- [ ] **Step 1: Write the failing tests:** `the file has Problem, Idea or fix, Acceptance and Source sections`; `a title with ../ stays inside the folder`; `a clash gets a number`; `refuses with no open conversation`; `a teammate's name is sanitised in the filename`; `Source says the text came from a Slack chat`.
 
 - [ ] **Step 2: Run:** `bun test lib/slack/__tests__/support-ticket.test.ts`. Expected: FAIL.
 
@@ -335,7 +339,7 @@ Load `superpowers:writing-skills` and `mattstack:editing-skills` first, and foll
 
 - [ ] **Step 1: RED.** Run a baseline pane with a Slack-shaped brief and no skill. Record where it goes wrong.
 
-- [ ] **Step 2: Write the skill** against those failures.
+- [ ] **Step 2: Write the skill** against those failures, with Slack formatting (`*bold*`, not `**bold**`).
 
 - [ ] **Step 3: GREEN.** Rerun with the skill. Check that it answers, troubleshoots, brainstorms, writes a ticket, and hands off a code fix.
 
@@ -357,7 +361,7 @@ Load `plugin-authoring` first, and use the spike's answers.
 
 **Interfaces:**
 - Consumes: the Task 6 verbs and JSON line.
-- Produces: `/slack-support <person> <problem>`; `supportRules(args: { name: string; operator: string }): string`; `renderDelivery(item: SlackItem, conv: { name: string; operator: string; marker: string }): string`.
+- Produces: `/slack-support <person> <problem>`; `supportRules(args: { name: string; operator: string }): string`; `renderDelivery(line: SlackWatchLine): string`, where `SlackWatchLine` is one `slack-watch` JSON line.
 
 - [ ] **Step 1: Write the failing tests:**
   - `a run from each origin other than composer is refused, and nothing is opened`
@@ -368,14 +372,16 @@ Load `plugin-authoring` first, and use the spike's answers.
   - `every submit omits asUser`
   - `a message delivery puts the rules first and the text between marker lines`
   - `text containing the marker is neutralised`
-  - `delivered is confirmed only after the submit resolves`
+  - `delivered is confirmed only once the prompt has entered, by the path the spike chose`
   - `a failed submit is not confirmed`
   - `an operator-slack item carries its own label`
   - `session.start resumes the watcher when a conversation is open`
+  - `an unsigned pane is signed in before the open`
+  - `a failed open leaves no watcher running`
 
 - [ ] **Step 2: Run:** `claude plugin test plugins/mattstack`. Expected: FAIL.
 
-- [ ] **Step 3: Implement.** Register the command in `session.start`. The `command.run` hook checks `e.origin.kind === 'composer'`, runs `rt chat slack-open` with `$.process.run`, starts the watcher, and starts the turn the way the spike found. Use the spec's support rules as the wording of `supportRules`. Hook failures on the gating hooks fail closed with a `.catch`.
+- [ ] **Step 3: Implement.** Register the command in `session.start`. The `command.run` hook checks `e.origin.kind === 'composer'`, signs the pane in with `rt chat sign-in` if needed, runs `rt chat slack-open` with `$.process.run`, starts the watcher, and starts `rt:slack-support` the way the spike found. Pass `CLAUDE_CODE_SESSION_ID` from `$.session.id()` and the pane id in each child's `env`; don't rely on inheritance. Use the spec's support rules as the wording of `supportRules`. Hook failures on the gating hooks fail closed with a `.catch`.
 
 - [ ] **Step 4: Run** `claude plugin test plugins/mattstack` and `claude plugin validate plugins/mattstack`. Expected: PASS. Keep the engine's generated `tsconfig.json` and `.claude-plugin/types/` out of the commit.
 
@@ -443,7 +449,7 @@ git commit -m "chat: label the composer in a Slack support room"
 - Modify: `skills/rt-chat/SKILL.md`, `.claude/rules/chat.md`, docs through `rt:docs`
 - Create: `docs/superpowers/spikes/2026-11-03-slack-support-live-test.md`
 
-- [ ] **Step 1: Docs.** Add a pointer in `skills/rt-chat/SKILL.md` (with `superpowers:writing-skills`), a note in `.claude/rules/chat.md`, and the user docs for setup and use.
+- [ ] **Step 1: Docs.** Add a pointer in `skills/rt-chat/SKILL.md` (with `superpowers:writing-skills`), a note in `.claude/rules/chat.md`, and the user docs for setup and use, including that a thread reply under a pre-chat message is never seen.
 
 - [ ] **Step 2: Real run** in an rt dev build with a real teammate or a second Slack account: open, reply both ways, thread reply, operator Slack message, chat UI message, check-in, close, farewell, ticket.
 
