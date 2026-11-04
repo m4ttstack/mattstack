@@ -1,6 +1,5 @@
 import { Fragment, useState } from 'react';
 import {
-  ActionIcon,
   Box,
   Group,
   Menu,
@@ -14,7 +13,7 @@ import type { RoomSummary } from '@mattstack/rt-client';
 import { agentState, isRoomForRepo, stateLine } from './agent-state';
 import { AgentHoverCard, AgentName } from './AgentName';
 import { dayKey, dayLabel, localTime } from './day-label';
-import { displayName, dmPairLabel, sameNameOrdinals } from './display-name';
+import { displayName, sameNameOrdinals } from './display-name';
 import { DmNames, DmStack } from './DmPairTitle';
 import { doing } from './doing';
 import classes from './fleet-tree.module.css';
@@ -202,44 +201,6 @@ function previewLine(room: FleetRoom): string | undefined {
   return `${last.name ?? last.handle}: ${text}`;
 }
 
-function roomLabel(room: FleetRoom): string {
-  return room.kind === 'dm' && room.participants
-    ? dmPairLabel(room.participants)
-    : `#${room.room}`;
-}
-
-/** The 22px × plus the row's right-click menu, the pair of close
-    affordances every room and DM row carries. The × always holds its slot
-    and only fades in (`.close` in the CSS module), so revealing it never
-    moves the badges under the pointer. */
-function CloseControl({
-  room,
-  testId,
-  onClose,
-}: {
-  room: FleetRoom;
-  testId: string;
-  onClose: (room: string) => void;
-}) {
-  return (
-    <ActionIcon
-      variant="subtle"
-      size={24}
-      radius="sm"
-      color="gray"
-      className={classes.close}
-      aria-label={`Close ${roomLabel(room)}`}
-      data-testid={testId}
-      onClick={e => {
-        e.stopPropagation();
-        onClose(room.room);
-      }}
-    >
-      <Icon name="close" size={14} />
-    </ActionIcon>
-  );
-}
-
 function RowMenu({
   room,
   testId,
@@ -343,13 +304,6 @@ function RoomRow({
       >
         {room.room}
       </Text>
-      {closable && (
-        <CloseControl
-          room={room}
-          testId={`room-close-${room.room}`}
-          onClose={onClose}
-        />
-      )}
     </Box>
   );
 
@@ -546,13 +500,6 @@ function DmRow({
         </Group>
         {preview && <div className={classes.preview}>{preview}</div>}
       </div>
-      {closable && (
-        <CloseControl
-          room={room}
-          testId={`dm-close-${room.room}`}
-          onClose={onClose}
-        />
-      )}
     </Box>
   );
 

@@ -6,47 +6,12 @@
   --row-hover: var(--chat-chrome-hover);
 }
 
-/* The × floats over the row's end and only fades in, so rows keep their full
-   width for names at rest; `pointer-events: none` stops a click landing on
-   the invisible × instead of the row. */
-.close {
-  position: absolute;
-  right: 12px;
-  top: 4px;
-  color: var(--chat-ink);
-  background: color-mix(in srgb, var(--chat-hue) 12%, var(--chat-chrome));
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 100ms ease;
-}
-
-.close:hover {
-  background: color-mix(in srgb, var(--chat-hue) 22%, var(--chat-chrome));
-}
-
-.listRow {
-  position: relative;
-}
-
 @media (hover: hover) {
   .wsRow:hover,
   .listRow:hover {
     background-color: var(--row-hover);
   }
 
-  .listRow:hover .close {
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  /* The name ends before the ×, never under it. */
-  .listRow:not(.dmRow):hover {
-    padding-right: 44px !important;
-  }
-
-  .dmRow:hover .when {
-    visibility: hidden;
-  }
 }
 
 .wsRow:focus-within,
@@ -54,12 +19,6 @@
 .listRow:focus-within,
 .listRow[data-menu-open] {
   background-color: var(--row-hover);
-}
-
-.listRow:focus-within .close,
-.listRow[data-menu-open] .close {
-  opacity: 1;
-  pointer-events: auto;
 }
 
 /* The selected room or DM keeps its deeper tint over any hover. */
@@ -72,10 +31,6 @@
   flex: none;
 }
 
-
-.dmRow .close {
-  top: 8px;
-}
 
 .dmRow {
   --stack-ring: var(--chat-chrome);
