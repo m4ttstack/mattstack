@@ -56,12 +56,13 @@ interface Candidate {
 export function createSlackBridge(opts: SlackBridgeOptions): { sweep(): Promise<void> } {
   const { db, post, log } = opts;
   const now = opts.now ?? Date.now;
-  const waitUntil = new Map<number, number>();
+  /** Slack limits per token, so one 429 holds every conversation. */
+  let waitUntil = 0;
   const failing = new Set<number>();
   let running = false;
 
   function noteFailure(conv: SlackConversation, err: unknown): void {
-    if (err instanceof SlackError && err.retryAfterMs !== undefined) waitUntil.set(conv.id, now() + err.retryAfterMs);
+    if (err instanceof SlackError && err.retryAfterMs !== undefined) waitUntil = Math.max(waitUntil, now() + err.retryAfterMs);
     if (failing.has(conv.id)) log.debug({ err, conversationId: conv.id }, "slack-bridge: still failing");
     else {
       failing.add(conv.id);
@@ -70,10 +71,8 @@ export function createSlackBridge(opts: SlackBridgeOptions): { sweep(): Promise<
   }
 
   async function collect(client: SlackClient, conv: SlackConversation): Promise<{ candidates: Candidate[]; parents: SlackMessage[] }> {
-    const fresh = await client.history(conv.slackChannel, conv.lastReadTs);
-    const candidates: Candidate[] = fresh.filter((m) => compareTs(m.ts, conv.lastReadTs) > 0).map((msg) => ({ msg }));
-
     const sinceOpen = await client.history(conv.slackChannel, tsFromMs(conv.openedAt));
+    const candidates: Candidate[] = sinceOpen.filter((m) => compareTs(m.ts, conv.lastReadTs) > 0).map((msg) => ({ msg }));
     const parents = sinceOpen.filter(
       (m) =>
         (m.replyCount ?? 0) > 0 &&
@@ -146,16 +145,16 @@ export function createSlackBridge(opts: SlackBridgeOptions): { sweep(): Promise<
       if (running) return;
       running = true;
       try {
+        if (waitUntil > now()) return;
         const open = listOpenConversations(db);
         if (open.length === 0) return;
         const client = await opts.client();
         if (!client) return;
         for (const conv of open) {
-          if ((waitUntil.get(conv.id) ?? 0) > now()) continue;
+          if (waitUntil > now()) break;
           try {
             await sweepConversation(client, conv);
             failing.delete(conv.id);
-            waitUntil.delete(conv.id);
           } catch (err) {
             noteFailure(conv, err);
           }

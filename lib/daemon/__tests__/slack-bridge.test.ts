@@ -78,7 +78,16 @@ test("reads only messages after the cursor", async () => {
   const h = harness({ history: [msg("1000000000.000050", "U0TEST", "stale"), msg(ts(10), "U0TEST", "after")] });
   await h.bridge.sweep();
   expect(h.posts.map((p) => p.body)).toEqual(["after"]);
-  expect(h.historyOldest[0]).toBe(CURSOR);
+  expect(h.historyOldest).toEqual([OPENED]);
+});
+
+test("one tick makes exactly one history call", async () => {
+  const parent = msg(ts(5), "U0TEST", "first", { replyCount: 1, latestReply: ts(8) });
+  const h = harness({ history: [parent, msg(ts(10), "U0TEST", "hello")], replies: { [ts(5)]: [parent, msg(ts(8), "U0TEST", "reply")] } });
+  await h.bridge.sweep();
+  expect(h.calls.filter((c) => c === "history")).toHaveLength(1);
+  await h.bridge.sweep();
+  expect(h.calls.filter((c) => c === "history")).toHaveLength(2);
 });
 
 test("never reads anything before the conversation opened", async () => {
@@ -89,7 +98,7 @@ test("never reads anything before the conversation opened", async () => {
   await h.bridge.sweep();
   expect(h.posts).toEqual([]);
   expect(h.calls.filter((c) => c.startsWith("replies"))).toEqual([]);
-  expect(h.historyOldest).toEqual([CURSOR, OPENED]);
+  expect(h.historyOldest).toEqual([OPENED]);
 });
 
 test("a teammate message becomes a chat post and a queued message item", async () => {
@@ -211,6 +220,25 @@ test("a rate limit waits out Retry-After", async () => {
   expect(h.posts.map((p) => p.body)).toEqual(["hello"]);
 });
 
+test("a rate limit on one conversation holds every conversation", async () => {
+  const h = harness({ history: [msg(ts(10), "U0TEST", "hello")] });
+  openConversation(
+    { ...conv, room: "dm-bbb", slackUserId: "U0TWO", slackHandle: "slack.u0two", slackChannel: "D0TWO", agentHandle: "pane.two" },
+    h.db,
+  );
+  h.failures.history = new SlackError("ratelimited", 30_000);
+  await h.bridge.sweep();
+  expect(h.calls).toEqual(["history"]);
+  h.failures.history = undefined;
+  h.state.clock += 29_000;
+  await h.bridge.sweep();
+  expect(h.calls).toEqual(["history"]);
+  expect(h.reread().lastReadTs).toBe(CURSOR);
+  h.state.clock += 2_000;
+  await h.bridge.sweep();
+  expect(h.posts.map((p) => p.body)).toEqual(["hello"]);
+});
+
 test("a failure on one conversation does not stop the others", async () => {
   const h = harness({ history: [msg(ts(10), "U0TEST", "hello")] });
   const second = openConversation(
@@ -294,7 +322,7 @@ test("restart resumes from the stored cursor", async () => {
   });
   await restarted.sweep();
   expect(h.posts).toHaveLength(2);
-  expect(oldest[0]).toBe(ts(20));
+  expect(oldest).toEqual([OPENED]);
 });
 
 test("sweeps never overlap", async () => {
