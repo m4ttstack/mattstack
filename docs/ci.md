@@ -19,7 +19,7 @@ own changes.
 | checks | `scope` | ubuntu | always |
 | checks | `static` | ubuntu | always (turbo's `--affected` narrows the apps gates) |
 | checks | `unit` (1-3 shards) | ubuntu | anything left after the drop-outs below; `full` or `changed` mode |
-| checks | `unit-macos` | macOS | a `full` run, or a `changed` run that reaches a test on the Mac-only list (below) |
+| checks | `unit-macos` | macOS (see [The Mac runner](#the-mac-runner)) | a `full` run, or a `changed` run that reaches a test on the Mac-only list (below) |
 | checks | `guards` | ubuntu | whenever `unit` is not `full`: runs the `no-*` guards |
 | checks | `go` | ubuntu | `ui/`, `package.json`, `checks.yml`, the scope script |
 | checks | `deck-macos` | macOS | `apps/deck/`, any non-docs file under `packages/` or at the repo root, `scripts/turbo.sh`, `checks.yml`, the scope script |
@@ -103,6 +103,31 @@ gets fixed, never listed.
 Mac shows, in a file not on the list, can reach main and is caught the next
 night. `rt check` still runs a changed file's tests on the developer's Mac. A
 red night opens one issue, and a later red comments on it.
+
+## The Mac runner
+
+Matt's PRs and queue runs can use self-hosted runners on his Mac instead of
+GitHub's macOS pool, so a GitHub macOS outage does not stop them landing.
+Everything else stays on `macos-latest`: another author's PR, a queue batch
+holding one, and the nightly.
+
+The `scope` and `changes` jobs run `scripts/ci/macos-runner.ts`, and the macOS
+jobs read `runs-on` from its output. It picks the Mac only when the
+`MAC_RUNNER` repo variable is `on`. A PR can edit that routing, so it is not the
+protection: a job-started hook on the Mac runs the same rule from a root-owned
+copy and fails any job it refuses before checkout. Change the rule, then rerun
+the installer, or the Mac keeps the old copy.
+
+The hook stops jobs it refuses, not a job it admits. An admitted job, including
+a compromised dependency in one of Matt's PRs, runs as the same user as the
+runner and can disable the hook for later jobs. It still cannot read Matt's home.
+
+- **Set up:** `scripts/ci/mac-runner/install.sh`, then
+  `gh variable set MAC_RUNNER --body on`. The runners are launchd daemons under
+  a separate `mattstack-ci` user that cannot read your home.
+- **Back to GitHub's runners:** `gh variable delete MAC_RUNNER`. A run picks the
+  variable up when it starts.
+- **Remove:** clear the variable, then `scripts/ci/mac-runner/uninstall.sh`.
 
 ## What e2e skips
 

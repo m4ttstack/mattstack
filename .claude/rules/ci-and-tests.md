@@ -54,3 +54,9 @@ this script breaks `rt check`. It reads bun's `N pass` / `N fail` lines, each
 `(fail)` line's test name and the file header before it, so keep `parseTestOutput` in step with
 bun's output on a bun bump (a file that fails to load has no `(fail)` line, only `# Unhandled error between tests`). Its status is the pusher's attestation; the merge
 queue still lands the tree.
+
+`scripts/ci/macos-runner.ts` routes macOS jobs and is also the rule the Mac
+runner's hook enforces, from a copy `scripts/ci/mac-runner/install.sh` installs.
+A new macOS job in `checks.yml` or `e2e.yml` takes its `runs-on` from
+`macos_runner`, and a change to the rule needs the installer rerun (`docs/ci.md`,
+"The Mac runner").
