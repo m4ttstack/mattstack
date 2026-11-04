@@ -80,6 +80,14 @@ function buildIntoTempDir(): string {
   );
   if (evidence.exitCode !== 0) throw new Error(`bun build (evidence) failed:\n${evidence.stderr.toString()}`);
 
+  // Mirrors the package build's sixth entry: the portrait zoom (target
+  // browser) for the ./face-zoom subpath.
+  const faceZoom = Bun.spawnSync(
+    ["bun", "build", "src/face-zoom.ts", "--outfile", join(outDir, "face-zoom.js"), "--target", "browser", "--format", "esm"],
+    { cwd: pkgDir, stdout: "pipe", stderr: "pipe" },
+  );
+  if (faceZoom.exitCode !== 0) throw new Error(`bun build (face-zoom) failed:\n${faceZoom.stderr.toString()}`);
+
   const types = Bun.spawnSync(
     ["bunx", "tsc", "-p", "tsconfig.json", "--outDir", outDir],
     { cwd: pkgDir, stdout: "pipe", stderr: "pipe" },
