@@ -40,7 +40,7 @@
   }
 
   /* The name ends before the ×, never under it. */
-  .listRow:hover {
+  .listRow:not(.dmRow):hover {
     padding-right: 44px !important;
   }
 
