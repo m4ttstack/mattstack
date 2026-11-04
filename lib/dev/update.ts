@@ -14,7 +14,8 @@ export async function rtUiStale(s: DevSeams, clone: string): Promise<boolean> {
   return r.code !== 0 || r.stdout.trim() !== "";
 }
 
-export async function runDevUpdate(s: DevSeams, stage: StageRunner): Promise<DevUpdateResult> {
+/** `release` swaps a dev app built on this Mac for the release's, which a plain update leaves alone. */
+export async function runDevUpdate(s: DevSeams, stage: StageRunner, opts: { release?: boolean } = {}): Promise<DevUpdateResult> {
   const clone = s.storedSourcePath();
   if (s.flavor !== "dev" || !clone) {
     throw new UserActionableError("dev-not-set-up", "This Mac isn't set up to run mattstack from a clone", {}, { next: "rt dev setup" });
@@ -46,7 +47,7 @@ export async function runDevUpdate(s: DevSeams, stage: StageRunner): Promise<Dev
       return { status: "done", title: "Rebuilt rt's terminal helper" };
     }),
   );
-  stages.push(await stage("Update the dev app", (io) => ensureDevApp(s, io, "update")));
+  stages.push(await stage("Update the dev app", (io) => ensureDevApp(s, io, "update", undefined, { replaceLocal: opts.release === true })));
   stages.push(
     await stage("Serve the apps from your clone", async (io) => {
       await registerApps(s, clone, io);

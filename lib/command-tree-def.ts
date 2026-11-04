@@ -1591,7 +1591,10 @@ export const TREE: Record<string, CommandNode> = {
         description: "Update your tools and dev app",
         module: "./commands/dev.ts",
         fn: "devUpdate",
-        args: [SETUP_JSON_ARG],
+        args: [
+          { name: "Release", flag: "--release", type: "boolean", default: false, hint: "Swap a dev app built on this Mac for the release's" },
+          SETUP_JSON_ARG,
+        ],
       },
     },
   },
