@@ -139,6 +139,18 @@ describe("toolsRows", () => {
     expect(drawn.secondary).toEqual({ type: "steps", label: "Show steps…", steps: ["brew install widget-cli"] });
   });
 
+  test("a press failure reads failed, ahead of a background failure", () => {
+    const pressed = { ...FAILED, pressFailed: [{ tool: "widget-cli", detail: "brew said no again" }] };
+    expect(only(inputs([widgetMissing()], { prepare: pressed }))).toMatchObject({ tone: "failed", detail: "brew said no again", action: { label: "Retry" } });
+    const pressOnly = { ...RUNNING, running: false, pressFailed: [{ tool: "widget-cli", detail: "brew said no again" }] };
+    expect(only(inputs([widgetMissing()], { prepare: pressOnly }))).toMatchObject({ tone: "failed", detail: "brew said no again" });
+  });
+
+  test("a press failure on a row with no install to re-run keeps its text and action", () => {
+    const pressOnly = { ...RUNNING, running: false, pressFailed: [{ tool: "widget-cli", detail: "brew said no again" }] };
+    expect(only(inputs([widgetMissing(DOWNLOAD)], { prepare: pressOnly }))).toMatchObject({ detail: "brew said no again", action: DOWNLOAD });
+  });
+
   test("a tool the team only links for download shows that link as its steps", () => {
     const drawn = only(inputs([widgetMissing()], { prepare: FAILED, tools: [{ ...WIDGET, install: { url: "https://example.com/widget-cli" } }] }));
     expect(drawn.secondary).toEqual({ type: "steps", label: "Show steps…", steps: ["Download it from https://example.com/widget-cli"] });
@@ -172,6 +184,9 @@ describe("toolsRows", () => {
     const drawn = only(inputs(rows, { signIn: [DOPPLER], unacked: ["doppler"], prepare: { ...FAILED, failed: [{ tool: "doppler", detail: "brew said no" }] } }));
     expect(drawn).toMatchObject({ detail: "", action: { label: "Sign in" } });
     expect(drawn.tone).toBeUndefined();
+    const pressed = only(inputs(rows, { signIn: [DOPPLER], unacked: ["doppler"], prepare: { ...RUNNING, running: false, pressFailed: [{ tool: "doppler", detail: "brew said no" }] } }));
+    expect(pressed).toMatchObject({ detail: "", action: { label: "Sign in" } });
+    expect(pressed.tone).toBeUndefined();
   });
 
   test("a resolved told tool stays as a done row beside the one still missing", () => {

@@ -40,8 +40,8 @@ for (const reason of ["user-copy", "dev-mode-owns-rt", "occupied", "no-bundle"] 
   });
 }
 
-function failedTools(p: ReturnType<typeof fakeProbes>) {
-  return readPrepare(p, "accounts", () => false, () => p.now())?.failed;
+function failedPresses(p: ReturnType<typeof fakeProbes>) {
+  return readPrepare(p, "accounts", () => false, () => p.now())?.pressFailed;
 }
 
 test("a failed install lands in the accounts record, and the next install that works takes it off", async () => {
@@ -51,10 +51,10 @@ test("a failed install lands in the accounts record, and the next install that w
   const p = fakeProbes({ home: "/home/x" });
   try {
     await expect(toolsInstall(["doppler", "--json"], {}, p)).rejects.toThrow("exit 1");
-    expect(failedTools(p)).toEqual([{ tool: "doppler", detail: "brew said no" }]);
+    expect(failedPresses(p)).toEqual([{ tool: "doppler", detail: "brew said no" }]);
     install.mockResolvedValue({ via: "brew", ok: true, detail: "installed" });
     await toolsInstall(["doppler", "--json"], {}, p);
-    expect(failedTools(p)).toEqual([]);
+    expect(failedPresses(p)).toEqual([]);
   } finally {
     exit.mockRestore();
     install.mockRestore();
@@ -69,7 +69,7 @@ test("an install rt refuses with a typed error lands in the record too", async (
   const p = fakeProbes({ home: "/home/x" });
   try {
     await expect(toolsInstall(["doppler", "--json"], {}, p)).rejects.toThrow("exit");
-    expect(failedTools(p)).toEqual([{ tool: "doppler", detail: "rt has no way to install doppler" }]);
+    expect(failedPresses(p)).toEqual([{ tool: "doppler", detail: "rt has no way to install doppler" }]);
   } finally {
     exit.mockRestore();
     install.mockRestore();

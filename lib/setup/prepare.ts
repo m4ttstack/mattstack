@@ -44,8 +44,8 @@ export function recordToolInstall(p: Probes, tool: string, failure: string | nul
   const current = readPrepare(p, "accounts", opts.alive ?? pidAlive, () => p.now());
   if (current?.running) return;
   const now = p.now().toISOString();
-  const failed = [...(current?.failed ?? []).filter((f) => f.tool !== tool), ...(failure === null ? [] : [{ tool, detail: failure }])];
-  const record: PrepareRecord = { stage: "accounts", startedAt: current?.startedAt ?? now, endedAt: current?.endedAt ?? now, items: current?.items ?? [], failed };
+  const pressFailed = [...(current?.pressFailed ?? []).filter((f) => f.tool !== tool), ...(failure === null ? [] : [{ tool, detail: failure }])];
+  const record: PrepareRecord = { stage: "accounts", startedAt: current?.startedAt ?? now, endedAt: current?.endedAt ?? now, items: current?.items ?? [], failed: current?.failed ?? [], pressFailed };
   writeRecord(p, record, opts.pid ?? process.pid);
 }
 
@@ -102,11 +102,12 @@ export async function runPrepare(
     const outcome = await setUp(p);
     return outcome.state === "done" ? { ok: true as const } : { ok: false as const, detail: outcome.detail };
   };
-  if (readPrepare(p, stage, alive, () => p.now())?.running) return { stage, skipped: "running", installed: [], failed: [] };
+  const previous = readPrepare(p, stage, alive, () => p.now());
+  if (previous?.running) return { stage, skipped: "running", installed: [], failed: [] };
 
   const items = await prepareTools(p, stage, deps.reqs);
   const pid = deps.pid ?? process.pid;
-  const record: PrepareRecord = { stage, startedAt: p.now().toISOString(), pid, items, failed: [] };
+  const record: PrepareRecord = { stage, startedAt: p.now().toISOString(), pid, items, failed: [], ...(previous?.pressFailed ? { pressFailed: previous.pressFailed } : {}) };
   writeRecord(p, record, pid);
 
   const installed: string[] = [];

@@ -712,6 +712,10 @@ function repeatsItsButton(rows: ReadonlyMap<string, Row>, r: Row, tool: ToolRequ
   return session === null || rows.get(`account.${session}`)?.status !== "error";
 }
 
+function pressFailure(prepare: AccountsPrepare, tool: string): string | null {
+  return prepare?.pressFailed?.find((f) => f.tool === tool)?.detail || null;
+}
+
 function failedInstallRow(drawn: FormRow, install: Action, tool: ToolRequirement | undefined): FormRow {
   const steps = tool ? teamToolManualSteps(tool) : null;
   return { ...drawn, tone: "failed", action: { ...install, label: FORM_COPY.tools.retry }, ...(steps ? { secondary: steps } : {}) };
@@ -725,9 +729,10 @@ function toolRow(i: ToolsInputs, rows: ReadonlyMap<string, Row>, r: Row): FormRo
   if (plain.state !== "todo") return plain;
   const drawn = plain.action?.type === "install" ? { ...plain, waiting: FORM_COPY.installing } : plain;
   // The record outlives the failure, so a tool installed by hand since then has nothing to report.
-  const failure = r.status === "ready" ? null : installFailure(i.prepare, name);
+  const failure = r.status === "ready" ? null : (pressFailure(i.prepare, name) ?? installFailure(i.prepare, name));
   if (failure === null) return repeatsItsButton(rows, r, signIn) ? { ...drawn, detail: "" } : drawn;
-  return drawn.action?.type === "install" ? failedInstallRow(drawn, drawn.action, i.tools.find((t) => t.name === name)) : drawn;
+  const told = { ...drawn, detail: failure };
+  return told.action?.type === "install" ? failedInstallRow(told, told.action, i.tools.find((t) => t.name === name)) : told;
 }
 
 export function toolsRows(i: ToolsInputs): FormRow[] {
