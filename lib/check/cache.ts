@@ -73,6 +73,6 @@ export function writeCached(key: string, result: Configured, deps: CacheDeps): v
   if (result.verdict !== "green" || result.dirty) return;
   const now = deps.now();
   const kept = Object.fromEntries(Object.entries(load(deps)).filter(([, e]) => now - e.at < CHECK_CACHE_TTL_MS));
-  kept[key] = { at: now, result };
+  kept[key] = { at: now, result: { ...result, outputTail: "" } };
   deps.write(cachePath(), JSON.stringify(kept));
 }
