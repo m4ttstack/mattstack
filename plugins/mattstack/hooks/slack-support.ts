@@ -13,7 +13,7 @@ import {
 
 const COMMAND = 'slack-support'
 const SKILL = 'rt:slack-support'
-const USAGE = 'Usage: /slack-support <person> <problem>'
+const USAGE = 'Usage: /slack-support <person> <problem>. Put a full name in quotes.'
 const ORIGIN_REFUSAL = 'Only a person at the prompt can open a Slack chat.'
 const SHELL_REFUSAL = 'Only a person can open a Slack chat, by typing /slack-support at the prompt. The mod runs the rest.'
 const HOOK_FAILURE = 'The Slack chat did not open: the /slack-support hook failed.'

@@ -25,7 +25,14 @@ const COMMAND_START = String.raw`(?:^|[;&|({\n\x60]|(?:-\w*c|eval)\s+["'])\s*`
 // The branches can't match the same text, so a long run of assignments can't
 // backtrack exponentially.
 const VALUE = String.raw`(?:"[^"]*"|'[^']*'|[^\s"']|"(?![^"]*")|'(?![^']*'))*`
-const WRAPPERS = String.raw`(?:(?:\w+=${VALUE}|-\S+|env|command|exec|nohup|time|xargs|then|do|else|bun(?:\s+run)?)\s+)*`
+// env's options that take a value in the next word; `exec -a` shares one spelling.
+const VALUE_OPTION = String.raw`-[iv0]*[uCPLUa]|--unset|--chdir|--argv0`
+// `env -S`'s value is itself a command line, so the wrappers carry on inside it.
+const SPLIT_OPTION = String.raw`-[iv0]*S|--split-string`
+// Refuses the options above so each word has one parse: a run of `-u -u -u` would
+// otherwise backtrack exponentially.
+const FLAG = String.raw`-(?!(?:[iv0]*[uCPLUa]|-unset|-chdir|-argv0)\s|[iv0]*S|-split-string(?:\s|=))\S+`
+const WRAPPERS = String.raw`(?:(?:\w+=${VALUE}|(?:${VALUE_OPTION})\s+(?=\S)${VALUE}|${FLAG}|env|command|exec|nohup|time|xargs|then|do|else|bun(?:\s+run)?)\s+|(?:${SPLIT_OPTION})(?:=|\s+)?["']?)*`
 const TOOL = String.raw`(?:\S*/)?(?:rt|herdr|cli\.ts)(?=\s|$)`
 const RUNS_TOOL = new RegExp(COMMAND_START + WRAPPERS + TOOL)
 const RUNS_HIDDEN_VERB = new RegExp(`${COMMAND_START}${WRAPPERS}${TOOL}(?:\\s+-\\S+)*\\s+chat\\s+slack-(?:open|watch|delivered)(?![\\w-])`)

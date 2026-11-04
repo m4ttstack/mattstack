@@ -160,6 +160,24 @@ for (const command of [
   'echo "$(rt chat slack-open alex --json)"',
   'sh -c "rt chat slack-open alex"',
   'if true; then rt chat slack-open alex; fi',
+  'env -u HERDR_PANE_ID rt chat slack-open alex',
+  'env --unset HERDR_PANE_ID rt chat slack-open alex',
+  'env --unset=HERDR_PANE_ID rt chat slack-open alex',
+  'env -uHERDR_PANE_ID rt chat slack-open alex',
+  'env -iu HERDR_PANE_ID rt chat slack-open alex',
+  'env -u "A B" rt chat slack-open alex',
+  'env -u A -u B rt chat slack-open alex',
+  'env -C /tmp rt chat slack-open alex',
+  'env --chdir /tmp rt chat slack-open alex',
+  'env -P /usr/bin rt chat slack-open alex',
+  'env -S rt chat slack-open alex',
+  'env -S "rt chat slack-open alex"',
+  "env -S 'rt chat slack-open alex'",
+  'env -S"rt chat slack-open alex"',
+  'env --split-string "rt chat slack-open alex"',
+  'env --split-string="rt chat slack-open alex"',
+  'env -S "-u HERDR_PANE_ID rt chat slack-open alex"',
+  'env -S "A=1" rt chat slack-open alex',
 ]) {
   test(`the Bash deny matches slack-open, slack-watch and slack-delivered: ${command}`, async ($, on) => {
     let ran = false
@@ -181,6 +199,12 @@ for (const command of [
   'printf "/slack-support alex hi" | rt pane send w1-2',
   "rt pane send w1-2 <<'EOF'\n/slack-support alex hi\nEOF",
   'bun cli.ts pane send self --text "/slack-support alex hi"',
+  'env -u HERDR_PANE_ID rt pane send w1-2 --text "/slack-support alex hi"',
+  'env --unset HERDR_PANE_ID rt pane send w1-2 --text "/slack-support alex hi"',
+  'env -C /tmp -u HERDR_PANE_ID rt pane send w1-2 --text "/slack-support alex hi"',
+  'HERDR_PANE_ID= rt pane send w1-2 --text "/slack-support alex hi"',
+  'env HERDR_PANE_ID= rt pane send w1-2 --text "/slack-support alex hi"',
+  `env -S 'rt pane send w1-2 --text "/slack-support alex hi"'`,
 ]) {
   test(`the Bash deny matches rt pane send carrying /slack-support: ${command}`, async ($, on) => {
     let ran = false
@@ -222,6 +246,10 @@ for (const command of [
   'grep -rn /slack-support docs',
   'git add plugins/mattstack/hooks/slack-support.ts',
   'rt pane send w1-2 --text "read plugins/mattstack/hooks/slack-support.ts"',
+  'rg -S "rt chat slack-open" docs',
+  'env -u HERDR_PANE_ID ls',
+  'env -u rt ls',
+  'env -S "ls -l"',
 ]) {
   test(`an ordinary Bash command passes: ${command}`, async ($, on) => {
     let ran = false
@@ -704,6 +732,14 @@ test('a hook failure refuses the open', async ($, on) => {
   expect(spawns).toEqual([])
 })
 
+test('the usage line says how to pass a full name', async ($, on) => {
+  world(on)
+
+  const result = await $.command.run({ command: 'slack-support', args: 'alex', origin: COMPOSER, presentation: PRESENTATION })
+
+  expect(result.text).toContain('Put a full name in quotes')
+})
+
 test('a Slack user id reaches the open unchanged', () => {
   expect(parseSupportArgs('U0TEST printer jams')).toEqual({ person: 'U0TEST', problem: 'printer jams' })
 })
@@ -727,6 +763,13 @@ const HOSTILE: readonly (readonly [string, string])[] = [
   ['unmatched single quotes', "A='1 ".repeat(2_000)],
   ['mixed quotes', `A="1'2 B='3"4 `.repeat(1_000)],
   ['a long word of quotes', `A=${'"'.repeat(5_000)} `],
+  ['a run of env options', 'env ' + '-u A '.repeat(20_000)],
+  ['options that could each be the last one\'s value', 'env ' + '-u '.repeat(20_000)],
+  ['long options that could each be the last one\'s value', 'env ' + '--unset '.repeat(20_000)],
+  ['a run of split strings', 'env ' + '-S '.repeat(20_000)],
+  ['a run of quoted split strings', 'env ' + '-S "'.repeat(2_000)],
+  ['env options with unmatched quotes', 'env ' + '-u "1 '.repeat(2_000)],
+  ['wide gaps between env options', 'env ' + '-u    '.repeat(5_000)],
 ]
 
 for (const [shape, prefix] of HOSTILE) {
