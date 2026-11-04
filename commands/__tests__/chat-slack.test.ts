@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { slackClose, slackDelivered, slackOpen, slackStatus, slackWatch, type SlackWatchDeps } from "../chat-slack.ts";
+import { slackClose, slackDelivered, slackOpen, slackPeople, slackStatus, slackWatch, type SlackWatchDeps } from "../chat-slack.ts";
 import { chat } from "../chat.ts";
 import { createChatHandlers } from "../../lib/daemon/handlers/chat.ts";
 import { createSlackChatHandlers } from "../../lib/daemon/handlers/slack-chat.ts";
@@ -32,8 +32,8 @@ const saved: Record<string, string | undefined> = {};
 const slack = {
   authTest: async () => ({ userId: "U0OPER", scopes: SLACK_SUPPORT_SCOPES }),
   listUsers: async () => [
-    { id: "U0OPER", name: "robin", displayName: "Robin", realName: "Robin Example", deleted: false, isBot: false },
-    { id: "U0TEST", name: "alex", displayName: "Alex", realName: "Alex Example", deleted: false, isBot: false },
+    { id: "U0OPER", name: "robin", displayName: "Robin", realName: "Robin Example", title: "", deleted: false, isBot: false },
+    { id: "U0TEST", name: "alex", displayName: "Alex", realName: "Alex Example", title: "Support lead", deleted: false, isBot: false },
   ],
   openDm: async () => "D0TEST",
   newestTs: async () => "1700000000.000100",
@@ -306,14 +306,38 @@ test("slack-delivered refuses an id that is not a number", async () => {
 test("slack-status lists the open chats", async () => {
   const { conversationId, room } = await openChat();
   const json = await run(() => slackStatus(["--json"]));
-  expect(JSON.parse(json.stdout)).toMatchObject({ ok: true, conversations: [{ id: conversationId, room, name: "alex-slack" }] });
+  expect(JSON.parse(json.stdout)).toMatchObject({ ok: true, conversations: [{ id: conversationId, room, name: "alex-slack", displayName: "Alex" }] });
   const text = await run(() => slackStatus([]));
-  expect(text.stdout).toContain("alex-slack");
+  expect(text.stdout).toContain("Alex");
+  expect(text.stdout).not.toContain("alex-slack");
 });
 
 test("slack-status says when no chat is open", async () => {
   const res = await run(() => slackStatus([]));
   expect(res.stdout).toContain("No Slack chats are open");
+});
+
+test("slack-people prints who a chat can open with", async () => {
+  const res = await run(() => slackPeople(["--json"]));
+  expect(res.code).toBe(0);
+  expect(res.stdout).toBe('{"ok":true,"people":[{"name":"Alex","person":"U0TEST","title":"Support lead"}]}\n');
+});
+
+test("slack-people prints unavailable as an answer, for a refusal and for a daemon without the verb", async () => {
+  canned["chat:slack-people"] = { ok: false, error: "slack-chat", failure: { code: "slack-chat", message: "Slack isn't connected" } };
+  const refused = await run(() => slackPeople(["--json"]));
+  expect(refused.code).toBe(0);
+  expect(refused.stdout).toBe('{"ok":false,"reason":"unavailable","error":"Slack isn\'t connected"}\n');
+  canned["chat:slack-people"] = { ok: false, error: "unknown command: chat:slack-people" };
+  const old = await run(() => slackPeople(["--json"]));
+  expect(old.code).toBe(0);
+  expect(old.stdout).toBe('{"ok":false,"reason":"unavailable","error":"unknown command: chat:slack-people"}\n');
+});
+
+test("slack-people lists names and ids in plain text", async () => {
+  const res = await run(() => slackPeople([]));
+  expect(res.stdout).toContain("Alex");
+  expect(res.stdout).toContain("U0TEST");
 });
 
 test("slack-close sends the pane", async () => {
@@ -388,7 +412,7 @@ test.each([
 
 test("slack-open is hidden and absent from the agent-safe list and the MCP roster", () => {
   const verbs = TREE.chat!.subcommands!;
-  for (const name of ["slack-open", "slack-watch", "slack-delivered"]) {
+  for (const name of ["slack-open", "slack-people", "slack-watch", "slack-delivered"]) {
     expect(verbs[name]!.hidden, name).toBe(true);
     expect(verbs[name]!.agentSafe, name).toBeUndefined();
   }
@@ -397,7 +421,7 @@ test("slack-open is hidden and absent from the agent-safe list and the MCP roste
   expect(listAgentSafe(TREE).filter((e) => e.path.join(" ").includes("slack"))).toEqual([]);
   const tools = mcpTools().map((t) => t.name);
   expect(tools.length).toBeGreaterThan(20);
-  expect(tools.filter((t) => /slack[_-]?(open|watch|delivered|pending)/.test(t))).toEqual([]);
+  expect(tools.filter((t) => /slack[_-]?(open|people|watch|delivered|pending)/.test(t))).toEqual([]);
 });
 
 test("every Slack verb names a registered export the dispatcher can call with its context", async () => {

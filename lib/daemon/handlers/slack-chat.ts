@@ -46,7 +46,7 @@ const TICKET_ACCEPTANCE_MAX = 30;
 const CANDIDATES_SHOWN = 8;
 const FRAME_MARKER_BYTES = 8;
 
-const SLACK_CHAT_COMMANDS = ["chat:slack-open", "chat:slack-close", "chat:slack-status", "chat:slack-pending", "chat:slack-delivered", "chat:slack-ticket"] as const;
+const SLACK_CHAT_COMMANDS = ["chat:slack-open", "chat:slack-close", "chat:slack-status", "chat:slack-people", "chat:slack-pending", "chat:slack-delivered", "chat:slack-ticket"] as const;
 
 const defaultLog = lazyChildLogger("slack-chat");
 
@@ -67,8 +67,10 @@ function comparableNames(user: SlackUser): string[] {
   return [user.displayName, user.realName].map((n) => n.trim().toLowerCase()).filter(Boolean);
 }
 
-/** An exact name wins over a whole word, so a teammate called just "Alex" stays reachable beside "Alex Example". */
+/** An id first, as two people can share a name. Then an exact name wins over a whole word, so a teammate called just "Alex" stays reachable beside "Alex Example". */
 function findPerson(users: SlackUser[], person: string): SlackUser | SlackRefusal {
+  const byId = users.find((u) => u.id === person.trim());
+  if (byId) return byId;
   const wanted = person.trim().toLowerCase();
   const exact = users.filter((u) => comparableNames(u).includes(wanted));
   const matches = exact.length > 0 ? exact : users.filter((u) => comparableNames(u).some((n) => n.split(/\s+/).includes(wanted)));
@@ -82,6 +84,14 @@ function findPerson(users: SlackUser[], person: string): SlackUser | SlackRefusa
 
 function isRefusal(found: SlackUser | SlackRefusal): found is SlackRefusal {
   return "ok" in found;
+}
+
+function slackFailureCode(err: unknown): string {
+  return err instanceof SlackError ? err.code : "the token could not be read";
+}
+
+function byShownName(a: { name: string; person: string }, b: { name: string; person: string }): number {
+  return a.name.localeCompare(b.name) || a.person.localeCompare(b.person);
 }
 
 function validTicket(p: Partial<Commands["chat:slack-ticket"]["payload"]>): boolean {
@@ -126,8 +136,8 @@ export function createSlackChatHandlers(opts: {
     return slackRefusal(`${teammate} already has a Slack chat open in ${presenceForHandle(holder, db)?.pane ?? identityName(holder, db)}`);
   }
 
-  /** Everything Slack has to say before the open, so a refusal leaves nothing behind. */
-  async function readSlack(agentId: string, person: string) {
+  /** The people a chat can open with. The open and the list both read this, so they can't disagree. */
+  async function readPeople() {
     const client = await slackClient();
     if (!client) return slackRefusal(`Slack isn't connected on this machine. To connect it, run ${CONNECT_STEP}`);
     const { userId: operatorUserId, scopes } = await client.authTest();
@@ -135,8 +145,20 @@ export function createSlackChatHandlers(opts: {
       return slackRefusal(`This Slack connection can't reach direct messages yet. To add that, run ${CONNECT_STEP}`);
     }
     const everyone = await client.listUsers();
-    const operator = everyone.find((u) => u.id === operatorUserId);
-    const found = findPerson(everyone.filter((u) => !u.deleted && !u.isBot && u.id !== operatorUserId), person);
+    return {
+      client,
+      operatorUserId,
+      operator: everyone.find((u) => u.id === operatorUserId),
+      people: everyone.filter((u) => !u.deleted && !u.isBot && u.id !== operatorUserId),
+    };
+  }
+
+  /** Everything Slack has to say before the open, so a refusal leaves nothing behind. */
+  async function readSlack(agentId: string, person: string) {
+    const directory = await readPeople();
+    if ("ok" in directory) return directory;
+    const { client, operatorUserId, operator, people } = directory;
+    const found = findPerson(people, person);
     if (isRefusal(found)) return found;
     const busy = conversationForSlackUser(found.id, db);
     if (busy) return heldRefusal(busy.agentHandle, agentId, shownName(found));
@@ -170,7 +192,7 @@ export function createSlackChatHandlers(opts: {
         slack = await readSlack(agentId, person);
       } catch (err) {
         log.warn({ err }, "chat: Slack chat could not open");
-        return slackRefusal(`Slack did not answer (${err instanceof SlackError ? err.code : "the token could not be read"}), so the chat did not open`);
+        return slackRefusal(`Slack did not answer (${slackFailureCode(err)}), so the chat did not open`);
       }
       if ("ok" in slack) return slack;
 
@@ -187,6 +209,7 @@ export function createSlackChatHandlers(opts: {
             slackHandle: identity.id,
             slackUserId: user.id,
             slackChannel,
+            slackDisplayName: shownName(user),
             operatorUserId,
             operatorName,
             frameMarker,
@@ -233,11 +256,27 @@ export function createSlackChatHandlers(opts: {
           room: c.room,
           ...(pane ? { pane } : {}),
           name: identityName(c.slackHandle, db),
+          displayName: c.slackDisplayName,
           openedAt: c.openedAt,
           lastActiveAt: c.lastActiveAt,
         };
       });
       return { ok: true, data: { conversations } };
+    },
+
+    "chat:slack-people": async (): Promise<CommandResult<"chat:slack-people">> => {
+      try {
+        const directory = await readPeople();
+        if ("ok" in directory) return directory;
+        const people = directory.people.map((u) => {
+          const title = cleanDisplayName(u.title);
+          return { name: shownName(u), person: u.id, ...(title ? { title } : {}) };
+        });
+        return { ok: true, data: { people: people.sort(byShownName) } };
+      } catch (err) {
+        log.warn({ err }, "chat: Slack people could not be read");
+        return slackRefusal(`Slack did not answer (${slackFailureCode(err)})`);
+      }
     },
 
     "chat:slack-pending": async (rawPayload: unknown): Promise<CommandResult<"chat:slack-pending">> => {

@@ -39,8 +39,8 @@ function harness() {
   const client = {
     authTest: async () => ({ userId: "U0OPER", scopes: SLACK_SUPPORT_SCOPES }),
     listUsers: async () => [
-      { id: "U0OPER", name: "robin", displayName: "", realName: "Robin Example", deleted: false, isBot: false },
-      { id: "U0TEST", name: "alex", displayName: "", realName: "Alex Example", deleted: false, isBot: false },
+      { id: "U0OPER", name: "robin", displayName: "", realName: "Robin Example", title: "", deleted: false, isBot: false },
+      { id: "U0TEST", name: "alex", displayName: "", realName: "Alex Example", title: "", deleted: false, isBot: false },
     ],
     openDm: async () => "D0TEST",
     newestTs: async () => "1700000000.000100",

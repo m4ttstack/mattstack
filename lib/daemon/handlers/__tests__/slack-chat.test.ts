@@ -30,7 +30,7 @@ const NOW = 1_800_000_000_123;
 let n = 0;
 
 function user(id: string, realName: string, over: Partial<SlackUser> = {}): SlackUser {
-  return { id, name: realName.toLowerCase(), displayName: "", realName, deleted: false, isBot: false, ...over };
+  return { id, name: realName.toLowerCase(), displayName: "", realName, title: "", deleted: false, isBot: false, ...over };
 }
 
 const OPERATOR = user("U0OPER", "Robin Example");
@@ -290,6 +290,112 @@ test("reopening with a teammate reuses the room", async () => {
   expect(again.data.conversationId).not.toBe(res.data.conversationId);
 });
 
+test("the conversation keeps the shown name, cleaned, beside the identity name", async () => {
+  const h = harness({ users: [OPERATOR, user("U0TEST", "Alex Example", { displayName: "Alex (he/him)" })] });
+  const { res } = await open(h, "U0TEST");
+  if (!res.ok) throw new Error(res.error);
+  expect(listOpenConversations(h.db)[0]!.slackDisplayName).toBe("Alex he him");
+  expect(res.data.name).toBe("alex-slack");
+});
+
+test("an exact Slack id opens that person, even when the shown name wouldn't match the raw one", async () => {
+  const h = harness({ users: [OPERATOR, user("U0TEST", "Alex Example", { displayName: "Alex (he/him)" })] });
+  const { res } = await open(h, "U0TEST");
+  expect(res.ok).toBe(true);
+  expect(listOpenConversations(h.db)[0]!.slackUserId).toBe("U0TEST");
+});
+
+test("two people with one name are each reachable by id", async () => {
+  const users = [OPERATOR, user("U0ONE", "Alex Example"), user("U0TWO", "Alex Example")];
+  for (const id of ["U0ONE", "U0TWO"]) {
+    const h = harness({ users });
+    const { res } = await open(h, id);
+    expect(res.ok).toBe(true);
+    expect(listOpenConversations(h.db)[0]!.slackUserId).toBe(id);
+  }
+});
+
+test("an id wins over a person whose name is that text", async () => {
+  const h = harness({ users: [OPERATOR, ALEX, user("U0NAME", "U0TEST")] });
+  await open(h, "U0TEST");
+  expect(listOpenConversations(h.db)[0]!.slackUserId).toBe("U0TEST");
+});
+
+test.each([
+  ["a deleted user", "U0GONE"],
+  ["a bot", "U0BOT"],
+  ["the operator", OPERATOR.id],
+])("%s's id is refused like any unknown person", async (_who, id) => {
+  const users = [OPERATOR, ALEX, user("U0GONE", "Sam Gone", { deleted: true }), user("U0BOT", "Sam Bot", { isBot: true })];
+  const h = harness({ users });
+  const { res } = await open(h, id);
+  expect(refusal(res)).toBe(`No one in this Slack workspace matches ${id}`);
+  expect(listOpenConversations(h.db)).toEqual([]);
+});
+
+test("slack-people lists everyone an open can reach, sorted by shown name, and opens nothing", async () => {
+  const users = [
+    OPERATOR,
+    user("U0ZED", "Zed Example"),
+    user("U0GONE", "Sam Gone", { deleted: true }),
+    user("U0BOT", "Sam Bot", { isBot: true }),
+    user("U0ALEX", "Alex Example", { title: "Support lead" }),
+  ];
+  const h = harness({ users });
+  expect(await h.handlers["chat:slack-people"]({})).toEqual({
+    ok: true,
+    data: {
+      people: [
+        { name: "Alex Example", person: "U0ALEX", title: "Support lead" },
+        { name: "Zed Example", person: "U0ZED" },
+      ],
+    },
+  });
+  expect(h.calls).toEqual(["authTest", "listUsers"]);
+  expect(listOpenConversations(h.db)).toEqual([]);
+  expect(listDms(h.db)).toEqual([]);
+  expect(getIdentity("slack.u0alex", h.db)).toBeUndefined();
+});
+
+test("slack-people cleans the name and the title, and leaves out a title that cleans to nothing", async () => {
+  const users = [OPERATOR, user("U0A", "Alex Example", { displayName: "Alex\n(he/him)", title: "Lead\u202e [ops]" }), user("U0B", "Sam Example", { title: "🎉" })];
+  const res = await harness({ users }).handlers["chat:slack-people"]({});
+  if (!res.ok) throw new Error(res.error);
+  expect(res.data.people).toEqual([
+    { name: "Alex he him", person: "U0A", title: "Lead ops" },
+    { name: "Sam Example", person: "U0B" },
+  ]);
+});
+
+test("every id slack-people lists opens that person", async () => {
+  const users = [OPERATOR, user("U0ONE", "Alex Example"), user("U0TWO", "Alex Example"), user("U0THREE", "Sam (he/him)")];
+  const listed = await harness({ users }).handlers["chat:slack-people"]({});
+  if (!listed.ok) throw new Error(listed.error);
+  expect(listed.data.people).toHaveLength(3);
+  for (const { person } of listed.data.people) {
+    const h = harness({ users });
+    await open(h, person);
+    expect(listOpenConversations(h.db)[0]!.slackUserId).toBe(person);
+  }
+});
+
+test("slack-people is refused with the connect step when Slack isn't connected or lacks the scopes", async () => {
+  for (const options of [{ connected: false }, { scopes: ["chat:write"] }]) {
+    const message = refusal(await harness(options).handlers["chat:slack-people"]({}));
+    expect(message).toContain("rt setup slack connect --support-chat");
+  }
+});
+
+test("a Slack failure in slack-people is refused and names the code", async () => {
+  const failing = createSlackChatHandlers({
+    db: harness().db,
+    emitEvent: () => 0,
+    log,
+    slackClient: async () => ({ authTest: async () => { throw new SlackError("ratelimited"); } }) as unknown as SlackClient,
+  });
+  expect(refusal(await failing["chat:slack-people"]({}))).toBe("Slack did not answer (ratelimited)");
+});
+
 test("slack-pending hands over the waiting items and marks the watcher seen", async () => {
   const h = harness();
   const { agentHandle, res } = await open(h);
@@ -459,7 +565,7 @@ test("slack-status lists each open conversation with its room and pane", async (
     ok: true,
     data: {
       conversations: [
-        { id: opened.data.conversationId, room: opened.data.room, pane: "w1:p1", name: "alex-slack", openedAt: NOW, lastActiveAt: NOW },
+        { id: opened.data.conversationId, room: opened.data.room, pane: "w1:p1", name: "alex-slack", displayName: "Alex Example", openedAt: NOW, lastActiveAt: NOW },
       ],
     },
   });

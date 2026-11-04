@@ -94,6 +94,11 @@ describe("slack client", () => {
     expect(f.calls[0]!.params.get("text")).toBe("Promise&lt;void&gt; and 2&gt;&amp;1");
   });
 
+  test("listUsers keeps the profile title", async () => {
+    const f = fakeFetch([{ body: { ok: true, members: [{ id: "U0TEST", name: "alex", profile: { title: "Support lead" } }] } }]);
+    expect((await createSlackClient("t", f.impl).listUsers())[0]!.title).toBe("Support lead");
+  });
+
   test("post, openDm and listUsers map Slack's shapes", async () => {
     const f = fakeFetch([
       { body: { ok: true, ts: "9.1" } },
@@ -103,6 +108,6 @@ describe("slack client", () => {
     const c = createSlackClient("t", f.impl);
     expect(await c.post("D0TEST", "hi")).toEqual({ ts: "9.1" });
     expect(await c.openDm("U0TEST")).toBe("D0TEST");
-    expect(await c.listUsers()).toEqual([{ id: "U0TEST", name: "alex", displayName: "alex", realName: "Alex", deleted: false, isBot: false }]);
+    expect(await c.listUsers()).toEqual([{ id: "U0TEST", name: "alex", displayName: "alex", realName: "Alex", title: "", deleted: false, isBot: false }]);
   });
 });

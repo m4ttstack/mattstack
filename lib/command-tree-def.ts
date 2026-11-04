@@ -1752,6 +1752,13 @@ export const TREE: Record<string, CommandNode> = {
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
         ],
       },
+      "slack-people": {
+        description: "List the people a Slack support chat can open with",
+        hidden: true,
+        module: "./commands/chat-slack.ts",
+        fn: "slackPeople",
+        args: [{ name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the list as JSON" }],
+      },
       "slack-watch": {
         description: "Print each waiting Slack support message as it arrives",
         hidden: true,

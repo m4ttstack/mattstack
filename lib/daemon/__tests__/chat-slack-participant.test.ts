@@ -108,6 +108,7 @@ async function openChat(h: Harness) {
       slackHandle: SLACK_ID,
       slackUserId: "U0TEST",
       slackChannel: "D0TEST",
+      slackDisplayName: "Alex Example",
       operatorUserId: "U0OPERATOR",
       operatorName: "Sam",
       frameMarker: "marker",

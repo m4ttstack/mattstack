@@ -16,6 +16,7 @@ export interface SlackUser {
   name: string;
   displayName: string;
   realName: string;
+  title: string;
   deleted: boolean;
   isBot: boolean;
 }
@@ -129,6 +130,7 @@ export function createSlackClient(token: string, fetchImpl: typeof fetch = fetch
         name: String(u.name ?? ""),
         displayName: String(u.profile?.display_name ?? ""),
         realName: String(u.real_name ?? u.profile?.real_name ?? ""),
+        title: String(u.profile?.title ?? ""),
         deleted: u.deleted === true,
         isBot: u.is_bot === true,
       }));

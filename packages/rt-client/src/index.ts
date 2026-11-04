@@ -39,6 +39,7 @@ export {
   chatSlackDelivered,
   chatSlackOpen,
   chatSlackPending,
+  chatSlackPeople,
   chatSlackStatus,
   chatSlackTicket,
   eventsHead,

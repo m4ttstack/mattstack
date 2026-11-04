@@ -2,6 +2,7 @@
  * rt chat's Slack support verbs.
  *
  *   rt chat slack-open <person> --json     hidden: only the mod runs it
+ *   rt chat slack-people --json            hidden: who a chat can open with
  *   rt chat slack-watch --json             hidden: one JSON line per waiting item
  *   rt chat slack-delivered <id>           hidden: confirms an item reached the session
  *   rt chat slack-close [--pane <pane> | --farewell-file <path>]
@@ -13,6 +14,7 @@ import {
   chatSlackClose,
   chatSlackDelivered,
   chatSlackOpen,
+  chatSlackPeople,
   chatSlackPending,
   chatSlackStatus,
   chatSlackTicket,
@@ -61,6 +63,24 @@ export async function slackOpen(args: string[]): Promise<void> {
     return;
   }
   say(`Slack chat open with ${res.data.name}`);
+}
+
+/** Unavailable is an answer the caller reads from the envelope, so under --json it exits zero. */
+export async function slackPeople(args: string[]): Promise<void> {
+  const res = await chatSlackPeople(sockOpts(args));
+  if (!res.ok || !res.data) {
+    const error = res.failure?.message ?? res.error ?? "Slack people could not be read";
+    if (args.includes("--json")) {
+      out.json({ ok: false, reason: "unavailable", error });
+      return;
+    }
+    refuse(out.line("refused", error));
+  }
+  if (args.includes("--json")) {
+    out.json({ ok: true, people: res.data.people });
+    return;
+  }
+  out.print(out.table(res.data.people.map((p) => [p.name, p.person, p.title ?? ""]), ["Name", "Id", "Title"]));
 }
 
 export interface SlackWatchDeps {
@@ -159,7 +179,7 @@ export async function slackStatus(args: string[]): Promise<void> {
     say("No Slack chats are open");
     return;
   }
-  const rows = conversations.map((c) => [c.name, c.pane ?? "", `${relativeAgo(c.openedAt)} ago`, `${relativeAgo(c.lastActiveAt)} ago`]);
+  const rows = conversations.map((c) => [c.displayName, c.pane ?? "", `${relativeAgo(c.openedAt)} ago`, `${relativeAgo(c.lastActiveAt)} ago`]);
   out.print(out.table(rows, ["Person", "Pane", "Opened", "Last active"]));
 }
 

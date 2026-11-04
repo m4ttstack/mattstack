@@ -42,6 +42,7 @@ const base = {
   slackHandle: "slack.u0test",
   slackUserId: "U0TEST",
   slackChannel: "D0TEST",
+  slackDisplayName: "Alex Example",
   operatorUserId: "U0OPER",
   operatorName: "Operator",
   frameMarker: "marker1",

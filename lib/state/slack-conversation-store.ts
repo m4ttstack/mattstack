@@ -17,6 +17,7 @@ export interface SlackConversation {
   slackHandle: string;
   slackUserId: string;
   slackChannel: string;
+  slackDisplayName: string;
   operatorUserId: string;
   operatorName: string;
   frameMarker: string;
@@ -57,6 +58,7 @@ interface ConversationRow {
   slack_handle: string;
   slack_user_id: string;
   slack_channel: string;
+  slack_display_name: string;
   operator_user_id: string;
   operator_name: string;
   frame_marker: string;
@@ -84,8 +86,8 @@ interface ItemRow {
 }
 
 const INSERT_CONVERSATION_SQL = `INSERT INTO slack_conversations
-  (room, agent_handle, slack_handle, slack_user_id, slack_channel, operator_user_id, operator_name, frame_marker, last_read_ts, last_active_at, opened_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *;`;
+  (room, agent_handle, slack_handle, slack_user_id, slack_channel, slack_display_name, operator_user_id, operator_name, frame_marker, last_read_ts, last_active_at, opened_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *;`;
 const SELECT_OPEN_BY_USER_SQL = `SELECT * FROM slack_conversations WHERE slack_user_id = ? AND closed_at IS NULL;`;
 const SELECT_OPEN_BY_AGENT_SQL = `SELECT * FROM slack_conversations WHERE agent_handle = ? AND closed_at IS NULL;`;
 const SELECT_OPEN_BY_ROOM_SQL = `SELECT * FROM slack_conversations WHERE room = ? AND closed_at IS NULL;`;
@@ -101,6 +103,7 @@ function toConversation(r: ConversationRow): SlackConversation {
     slackHandle: r.slack_handle,
     slackUserId: r.slack_user_id,
     slackChannel: r.slack_channel,
+    slackDisplayName: r.slack_display_name,
     operatorUserId: r.operator_user_id,
     operatorName: r.operator_name,
     frameMarker: r.frame_marker,
@@ -137,6 +140,7 @@ export type OpenConversationArgs = Pick<
   | "slackHandle"
   | "slackUserId"
   | "slackChannel"
+  | "slackDisplayName"
   | "operatorUserId"
   | "operatorName"
   | "frameMarker"
@@ -154,6 +158,7 @@ export function openConversation(args: OpenConversationArgs, db: Database = getS
         args.slackHandle,
         args.slackUserId,
         args.slackChannel,
+        args.slackDisplayName,
         args.operatorUserId,
         args.operatorName,
         args.frameMarker,

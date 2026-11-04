@@ -375,6 +375,10 @@ export function chatSlackStatus(o: RtClientOptions = {}): Promise<RtResponse<Com
   return rtCommand<Commands["chat:slack-status"]["data"]>("chat:slack-status", {}, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
+export function chatSlackPeople(o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-people"]["data"]>> {
+  return rtCommand<Commands["chat:slack-people"]["data"]>("chat:slack-people", {}, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 60_000 });
+}
+
 export function chatSlackPending(a: Commands["chat:slack-pending"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-pending"]["data"]>> {
   return rtCommand<Commands["chat:slack-pending"]["data"]>("chat:slack-pending", { agentHandle: a.agentHandle }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }

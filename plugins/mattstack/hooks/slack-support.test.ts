@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On, ProcessSpawnChunk, ProcessSpawnRequest, ProcessSpawnResult, PromptOrigin, PromptSubmitResult } from 'claude-code'
 
-import { renderDelivery, supportRules, type SlackWatchLine } from './slack-support-text.ts'
+import { parseSupportArgs, renderDelivery, supportRules, type SlackWatchLine } from './slack-support-text.ts'
 
 const SESSION = '11111111-1111-4111-8111-111111111111'
 const PRESENTATION = { isFullscreen: false, columns: 100 }
@@ -702,4 +702,8 @@ test('a hook failure refuses the open', async ($, on) => {
 
   expect(result.text).toContain('did not open')
   expect(spawns).toEqual([])
+})
+
+test('a Slack user id reaches the open unchanged', () => {
+  expect(parseSupportArgs('U0TEST printer jams')).toEqual({ person: 'U0TEST', problem: 'printer jams' })
 })
