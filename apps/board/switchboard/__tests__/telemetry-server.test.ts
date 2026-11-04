@@ -277,8 +277,8 @@ describe('GET /telemetry', () => {
     ['2026-11-04T16:49:00.000Z', 'Today, 10:49 AM'],
     ['2026-11-04T05:30:00.000Z', 'Yesterday, 11:30 PM'],
     ['2026-11-03T07:00:00.000Z', 'Yesterday, 1:00 AM'],
-    ['2026-11-03T05:30:00.000Z', '02/11/2026, 11:30 PM'],
-    ['2025-01-15T20:05:00.000Z', '15/01/2025, 2:05 PM'],
+    ['2026-11-03T05:30:00.000Z', '11/02/2026, 11:30 PM'],
+    ['2025-01-15T20:05:00.000Z', '01/15/2025, 2:05 PM'],
   ])(
     'the page script shows %s as %s in the viewer zone',
     async (utc, shown) => {
@@ -306,6 +306,100 @@ describe('GET /telemetry', () => {
       expect(time.textContent.replace(/\s/g, ' ')).toBe(shown);
     }
   );
+
+  test('flags versions behind the newest prod Mac, ignoring dev Macs', async () => {
+    const { telemetry, get } = setup();
+    const current = {
+      appVersion: '2.28.0',
+      rtVersion: 'v2.28.0',
+      pluginVersion: '0.32.38',
+    };
+    telemetry.record(ping({ ...current, installId: 'a' }), null, NOW);
+    telemetry.record(
+      ping({
+        ...current,
+        installId: 'b',
+        appVersion: '2.27.0',
+        rtVersion: 'v2.27.0',
+      }),
+      null,
+      NOW
+    );
+    telemetry.record(
+      ping({
+        ...current,
+        installId: 'c',
+        flavor: 'dev',
+        rtVersion: 'dev',
+        pluginVersion: '0.32.39',
+      }),
+      null,
+      NOW
+    );
+    const html = await (await get(`/telemetry?key=${VIEW}`)).text();
+    expect(html).toContain(
+      '<span class="behind" title="Behind 2.28.0">2.27.0</span>'
+    );
+    expect(html).toContain(
+      '<span class="behind" title="Behind v2.28.0">v2.27.0</span>'
+    );
+    expect(html).not.toContain('Behind 0.32.39');
+    expect(html).not.toMatch(/class="behind"[^>]*>dev</);
+  });
+
+  test('lists only Macs behind on app or rt, most recently seen first', async () => {
+    const { telemetry, get } = setup();
+    const current = { appVersion: '2.28.0', rtVersion: 'v2.28.0' };
+    const old = { appVersion: '2.27.0', rtVersion: 'v2.27.0' };
+    telemetry.record(
+      ping({ ...current, installId: 'a', usernames: ['alice'] }),
+      null,
+      NOW
+    );
+    telemetry.record(
+      ping({
+        ...current,
+        installId: 'd',
+        usernames: ['dana'],
+        pluginVersion: '0.1.0',
+      }),
+      null,
+      NOW
+    );
+    telemetry.record(
+      ping({ ...old, installId: 'b', usernames: ['bob'] }),
+      null,
+      NOW - 2_000
+    );
+    telemetry.record(
+      ping({ ...old, installId: 'c', usernames: ['carol'] }),
+      null,
+      NOW - 1_000
+    );
+    const html = await (await get(`/telemetry?key=${VIEW}`)).text();
+    const section = html.slice(
+      html.indexOf('Not on the latest release'),
+      html.indexOf('<h2>Macs</h2>')
+    );
+    expect(section).toContain('app 2.28.0, rt v2.28.0');
+    expect(section).not.toContain('alice');
+    expect(section).not.toContain('dana');
+    expect(section.indexOf('carol')).toBeGreaterThan(-1);
+    expect(section.indexOf('carol')).toBeLessThan(section.indexOf('bob'));
+  });
+
+  test('shows an app and rt update from one ping as one row', async () => {
+    const { telemetry, get } = setup();
+    telemetry.record(ping(), null, NOW);
+    telemetry.record(
+      ping({ appVersion: '2.1.0', rtVersion: '2.1.0' }),
+      null,
+      NOW + 1
+    );
+    const html = await (await get(`/telemetry?key=${VIEW}`)).text();
+    const update = '2.0.0 <span class="arrow">\u2192</span> 2.1.0';
+    expect(html).toContain(`<td>${update}</td><td>${update}</td>`);
+  });
 
   test('an empty view token never opens the page', async () => {
     const { get } = setup('');
@@ -370,7 +464,9 @@ describe('GET /telemetry', () => {
     }
     expect(html).toContain('(unverified)');
     const utc = new Date(NOW).toISOString();
-    expect(html).toContain(`running (<time datetime="${utc}">${utc}</time>)`);
+    expect(html).toContain(
+      `<span class="seen live" title="Running"><span class="sr">Running</span><time datetime="${utc}">${utc}</time></span>`
+    );
     expect(html).toContain('&lt;b&gt;org&lt;/b&gt;:3');
     expect(html).toContain('&lt;i&gt;pack&lt;/i&gt;@mkt (1.0.0)');
     expect(html).toContain('bare@mkt<');
