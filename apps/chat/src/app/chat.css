@@ -60,3 +60,9 @@
 .mantine-AppShell-header p.mantine-Text-root:has(+ div) {
   margin-right: 12px;
 }
+
+/* The bar's content lines up with the sidebar's text, inside the panel's
+   rounded corners. */
+.mantine-AppShell-header > .mantine-Group-root {
+  padding-inline: 24px !important;
+}
