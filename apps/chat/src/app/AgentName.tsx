@@ -57,17 +57,19 @@ export const MESSAGE_HANDLE: AgentNameSize = {
   meta: 'var(--mantine-font-size-xs)',
 };
 
-/** A name's own soft tile, the same on every machine. Hues run green through
-    blue to violet: warm ones hide the faces, and pinks vanish behind the pink selection. */
+/** A name's own soft tile, the same on every machine. Hues run yellow through
+    green and blue to violet: oranges hide the faces, whose skin tones sit
+    there, and pinks vanish on the selected row. */
 function faceBackground(name: string): string {
   let hash = 2166136261;
   for (const char of name) {
     hash = Math.imul(hash ^ char.codePointAt(0)!, 16777619);
   }
-  const hue = 140 + (hash >>> 0) % 130;
+  const hue = 50 + (hash >>> 0) % 235;
+  const strength = 0.09 + ((hash >>> 12) % 3) * 0.04;
   const channel = (n: number) => {
     const k = (n + hue / 30) % 12;
-    const value = 0.88 - 0.09 * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    const value = 0.87 - strength * Math.max(-1, Math.min(k - 3, 9 - k, 1));
     return Math.round(value * 255)
       .toString(16)
       .padStart(2, '0');
@@ -77,8 +79,8 @@ function faceBackground(name: string): string {
 
 const faces = new Map<string, string>();
 
-/** A name's generated face. Seeded by the name, not the session's handle, so
-    a name keeps its persona across sessions and machines. */
+/** A name's generated face, so a name keeps its persona across sessions and
+    machines. */
 function faceUri(name: string): string {
   const known = faces.get(name);
   if (known) return known;
@@ -90,8 +92,15 @@ function faceUri(name: string): string {
   return uri;
 }
 
+/** From the handle alone: display names are only known for the open room, and
+    a face must not change when its room is selected. A Slack handle's first
+    part is the same for everyone. */
+function faceSeed(handle: string): string {
+  return handle.startsWith('slack.') ? handle : handle.split('.')[0]!;
+}
+
 function HandleSprite({ handle, size }: { handle: string; size: number }) {
-  const name = useBuddies()?.nameOf(handle) ?? handle.split('.')[0]!;
+  const name = useBuddies()?.selfName(handle) ?? faceSeed(handle);
   const avatar = useSlackAvatar(handle);
   const [failed, setFailed] = useState<string>();
   return (
