@@ -134,8 +134,9 @@ unless the run is full, which `RT_CHECK_FULL=1` forces. A full run builds
 that `dist/` is fresh; a scoped run does not. This runs on your Mac, so it
 takes every selected test, the Mac-only list included. The exit code is the
 verdict, and the last stdout line is a JSON summary (`mode`, `selected`,
-`passed`, `failed`, `durationMs`, `failures`), printed on red too. `selected`
-counts the tests that ran, and a run that ran none reports `skip`. A failure
+`passed`, `failed`, `durationMs`, `failures`), printed on red too, where
+`failedTests` adds the failing tests' names, 20 at most. `selected` counts the
+tests that ran, and a run that ran none reports `skip`. A failure
 before any test runs (a bad ref, a syntax error in the scope script) prints
 `mode: "error"` and exits 1; a SIGTERM or SIGINT stops the test processes. It
 runs unit tests only: no typecheck, e2e or path-gated job.

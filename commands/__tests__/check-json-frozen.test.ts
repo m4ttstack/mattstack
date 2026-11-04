@@ -1,6 +1,7 @@
 /** The --json envelope of rt check is frozen byte for byte, with an empty stderr. */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { CheckRun } from "../../lib/check/index.ts";
+import { runCheck, type RunDeps } from "../../lib/check/run.ts";
 import type { CommandContext } from "../../lib/command-tree.ts";
 import * as out from "../../lib/ui/out.ts";
 import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
@@ -45,6 +46,30 @@ test("green prints the frozen envelope", async () => {
   );
   expect(io.stderr()).toBe("");
   expect(process.exitCode).toBe(0);
+});
+
+test("a red envelope carries the failing test names in its summary", async () => {
+  const summary = { mode: "changed", selected: 95, passed: 94, failed: 1, durationMs: 41_200, failures: ["lib/a.test.ts"], failedTests: ["cart > rounds up"] };
+  await run({ result: { ...green, verdict: "red", summary }, status: null });
+  expect(JSON.parse(io.stdout()).summary).toEqual(summary);
+  expect(io.stderr()).toBe("");
+});
+
+test("a token in a test name never reaches the envelope", async () => {
+  const token = "ghp_notarealtokennotarealtoken";
+  const stdout = JSON.stringify({ mode: "changed", selected: 2, passed: 1, failed: 1, durationMs: 10, failures: ["lib/a.test.ts"], failedTests: [`logs in with ${token}`] });
+  const deps: RunDeps = {
+    git: async (args) => ({ code: 0, stdout: args[0] === "status" ? "" : "abc123\n", stderr: "" }),
+    exec: async () => ({ stdout: `${stdout}\n`, stderr: "", exitCode: 1 }),
+    setting: () => ({ command: "bun x" }),
+    now: () => 0,
+  };
+  await checkCommand(["--json"], ctx, {
+    run: async (tree, opts) => ({ result: await runCheck(tree, opts, deps), status: null }),
+    hostname: () => "hilbert",
+  });
+  expect(io.stdout()).not.toContain(token);
+  expect(JSON.parse(io.stdout()).summary.failedTests).toEqual(["logs in with [redacted]"]);
 });
 
 test("unconfigured prints configured false", async () => {

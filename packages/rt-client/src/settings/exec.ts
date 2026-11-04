@@ -17,8 +17,9 @@ export interface RunResult {
 }
 
 /**
- * Run argv and capture stdout. Never throws: spawn failures and timeouts
- * surface as a non-zero exitCode with whatever stdout was collected.
+ * Run argv and capture stdout. Never throws: a spawn failure surfaces as
+ * exitCode -1, and a timeout as exitCode -1 with empty stdout and stderr and
+ * `timedOut: true`.
  *
  * Children inherit the caller's live `process.env` unless `opts.env` overrides it.
  */
@@ -54,17 +55,25 @@ export async function runCapture(
   // SIGTERM (or a D-state descendant) cannot be reaped in-band, so the read is
   // raced against the deadline below rather than awaited unconditionally: that
   // is what lets runCapture settle while a grandchild still holds the pipe.
+  //
+  // The deadline settles in the same tick as the SIGTERM: on a separate timer,
+  // a child that exits on the signal can beat it, and a run we killed reads as
+  // the child's own exit 143 with timedOut unset.
   let killTimer: ReturnType<typeof setTimeout> | undefined;
-  const term = setTimeout(() => {
-    try { proc.kill("SIGTERM"); } catch { /* already exited */ }
-    killTimer = setTimeout(() => {
-      try { proc.kill("SIGKILL"); } catch { /* already exited */ }
-    }, 2000);
-    // unref: a short-lived CLI process must not be held open by a timed-out
-    // call waiting on this timer; the daemon stays alive regardless, so its
-    // SIGKILL still fires.
-    killTimer.unref?.();
-  }, timeoutMs);
+  let term: ReturnType<typeof setTimeout>;
+  const deadline: Promise<RunResult> = new Promise((resolve) => {
+    term = setTimeout(() => {
+      resolve({ stdout: "", stderr: "", exitCode: -1, timedOut: true });
+      try { proc.kill("SIGTERM"); } catch { /* already exited */ }
+      killTimer = setTimeout(() => {
+        try { proc.kill("SIGKILL"); } catch { /* already exited */ }
+      }, 2000);
+      // unref: a short-lived CLI process must not be held open by a timed-out
+      // call waiting on this timer; the daemon stays alive regardless, so its
+      // SIGKILL still fires.
+      killTimer.unref?.();
+    }, timeoutMs);
+  });
 
   const captured: Promise<RunResult> = (async () => {
     try {
@@ -83,16 +92,10 @@ export async function runCapture(
     }
   })();
 
-  let deadlineTimer: ReturnType<typeof setTimeout>;
-  const deadline: Promise<RunResult> = new Promise((resolve) => {
-    deadlineTimer = setTimeout(() => resolve({ stdout: "", stderr: "", exitCode: -1, timedOut: true }), timeoutMs);
-  });
-
   try {
     return await Promise.race([captured, deadline]);
   } finally {
-    clearTimeout(term);
-    clearTimeout(deadlineTimer!);
+    clearTimeout(term!);
     // killTimer intentionally NOT cleared here: on the timeout path it must
     // survive this finally to fire SIGKILL against a child that ignored
     // SIGTERM. proc.kill is already try/catch guarded, so it is a harmless

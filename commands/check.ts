@@ -49,8 +49,15 @@ function failureCount(r: Configured): string {
   return selected === null ? `${testCount(failed)} failed` : `${failed} of ${testCount(selected)} failed`;
 }
 
-function tailLines(r: Configured): string[] {
-  return r.outputTail === "" ? [] : r.outputTail.split("\n");
+function failureBlocks(r: Configured): Block[] {
+  const { failures, failedTests = [] } = r.summary;
+  if (failures.length === 0 && failedTests.length === 0) {
+    return r.outputTail === "" ? [] : [out.verbatim(r.outputTail.split("\n"), "Last output")];
+  }
+  return [
+    ...(failures.length > 0 ? [out.verbatim(failures, "Failing files")] : []),
+    ...(failedTests.length > 0 ? [out.verbatim(failedTests, "Failing tests")] : []),
+  ];
 }
 
 /** The envelope is frozen; `reason` is added only when the result has one. */
@@ -97,14 +104,12 @@ function report(run: CheckRun, machine: string, identity: string): void {
     out.print(...greenBlocks(r, run.status, machine));
     return;
   }
-  const lines = r.summary.failures.length > 0 ? r.summary.failures : tailLines(r);
-  const caption = r.summary.failures.length > 0 ? "Failing" : "Last output";
-  const verbatim = lines.length > 0 ? [out.verbatim(lines, caption)] : [];
+  const after = failureBlocks(r);
   if (r.verdict === "red") {
-    out.fail({ title: failureCount(r), next: out.cmd("rt check") }, ...verbatim);
+    out.fail({ title: failureCount(r), next: out.cmd("rt check") }, ...after);
   } else {
     const stoppedAt = r.notRun ? "did not run" : "did not finish";
-    out.fail({ title: `The check ${stoppedAt}: ${r.reason ?? "it stopped early"}`, next: out.cmd("rt check") }, ...verbatim);
+    out.fail({ title: `The check ${stoppedAt}: ${r.reason ?? "it stopped early"}`, next: out.cmd("rt check") }, ...after);
   }
   out.print(statusBlock(run.status, r.sha));
   process.exitCode = 1;
