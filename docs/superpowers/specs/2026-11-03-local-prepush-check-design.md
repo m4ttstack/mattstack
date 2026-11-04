@@ -101,7 +101,9 @@ Matt picked 1. The cost over 2 is one command-tree entry and its description.
   the push, but no status is posted when tracked files are modified or
   non-ignored files are untracked: the status attests to HEAD, and a dirty
   tree is not HEAD. The verb and the push result both say the result was
-  not posted and why.
+  not posted and why. rt reads the tree again after the run: a tree the run
+  changed, or a `git status` that failed, counts as dirty. A HEAD rt cannot
+  read is an error that runs nothing.
 - **Two flags, not one.** `allowRed: true` runs the check, pushes whatever
   the verdict, and posts it, for a WIP push that should still be seen.
   `skipCheck: true` runs nothing and posts nothing, for a push that must

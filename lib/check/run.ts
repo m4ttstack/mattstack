@@ -59,7 +59,7 @@ async function gitOut(git: GitRunner, args: string[], cwd: string): Promise<stri
 
 export async function treeState(tree: string, deps: Pick<RunDeps, "git">): Promise<{ sha: string; dirty: boolean }> {
   const sha = (await gitOut(deps.git, ["rev-parse", "--verify", "HEAD"], tree)) ?? "";
-  const status = (await gitOut(deps.git, ["status", "--porcelain"], tree)) ?? "";
+  const status = await gitOut(deps.git, ["status", "--porcelain"], tree);
   return { sha, dirty: status !== "" };
 }
 
@@ -79,6 +79,7 @@ export function stopped(reason: string, at: { sha: string; dirty: boolean }, com
     dirty: at.dirty,
     command,
     reason,
+    ...(at.sha === "" ? { notRun: true } : {}),
     outputTail: "",
     fromCache: false,
   };
@@ -94,6 +95,7 @@ export async function runCheck(
 
   const state = await treeState(tree, deps);
   const { sha, dirty } = state;
+  if (sha === "") return stopped("could not read HEAD", state, config.command);
   let base = opts.base ?? "";
   if (opts.base) {
     const commit = await gitOut(deps.git, ["rev-parse", "--verify", "--end-of-options", `${opts.base}^{commit}`], tree);
@@ -137,13 +139,14 @@ export async function runCheck(
   }
 
   const outputTail = (run.stdout + run.stderr).trim().split("\n").slice(-TAIL_LINES).join("\n");
+  const after = await treeState(tree, deps);
   return {
     configured: true,
     verdict,
     summary,
     sha,
     base,
-    dirty,
+    dirty: dirty || after.dirty || after.sha !== sha,
     command: config.command,
     ...(reason ? { reason } : {}),
     ...(run.timedOut ? { timedOutAfter: config.timeoutSeconds } : {}),

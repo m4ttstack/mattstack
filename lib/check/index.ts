@@ -54,7 +54,8 @@ export async function checkTree(tree: string, opts: CheckOpts, deps: CheckDeps):
   try {
     result = await verdictFor(tree, opts, deps);
   } catch (e) {
-    result = stopped(e instanceof Error ? e.message : String(e), await treeState(tree, deps), "");
+    const at = await treeState(tree, deps).catch(() => ({ sha: "", dirty: true }));
+    result = stopped(e instanceof Error ? e.message : String(e), at, "");
   }
 
   if (!opts.post || !result.configured) return { result, status: null };

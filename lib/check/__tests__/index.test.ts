@@ -6,15 +6,16 @@ import { checkTree, type CheckDeps } from "../index.ts";
 
 const github = serializeIdentity({ kind: "remote", id: "github.com/acme/widgets" });
 
-function harness(opts: { run?: Partial<RunResult>; dirty?: boolean; onRemote?: boolean; store?: Map<string, string> } = {}) {
+function harness(opts: { run?: Partial<RunResult>; dirty?: boolean; dirtiedByRun?: boolean; noHead?: boolean; onRemote?: boolean; store?: Map<string, string> } = {}) {
   const store = opts.store ?? new Map<string, string>();
   const commands: string[] = [];
   const gh: string[][] = [];
   const git: GitRunner = async (args) => {
     const key = args.join(" ");
+    if (opts.noHead && key === "rev-parse --verify HEAD") return { code: 128, stdout: "", stderr: "" };
     const out: Record<string, string> = {
       "rev-parse --verify HEAD": "abc123\n",
-      "status --porcelain": opts.dirty ? " M a.ts\n" : "",
+      "status --porcelain": opts.dirty || (opts.dirtiedByRun && commands.length > 0) ? " M a.ts\n" : "",
       "symbolic-ref refs/remotes/origin/HEAD": "refs/remotes/origin/main\n",
       "merge-base HEAD origin/main": "base456\n",
       "rev-parse --verify --end-of-options origin/dev^{commit}": "dev789\n",
@@ -146,6 +147,45 @@ describe("checkTree", () => {
     const run = await checkTree("/tree", { post: true }, h.deps);
     expect(run.status).toMatchObject({ posted: true, state: "error", description: "error: the check could not run" });
     expect(h.gh[0]!.join(" ")).not.toContain("s3cr3t");
+  });
+
+  test("a seeded green does not answer a tree that went dirty", async () => {
+    const store = new Map<string, string>();
+    await checkTree("/tree", { post: false }, harness({ store }).deps);
+    expect(store.size).toBe(1);
+    const dirty = harness({ dirty: true, store });
+    const run = await checkTree("/tree", { post: false }, dirty.deps);
+    expect(dirty.commands).toHaveLength(1);
+    expect(run.result).toMatchObject({ fromCache: false, dirty: true });
+  });
+
+  test("a tree the run dirtied is neither cached nor posted", async () => {
+    const h = harness({ dirtiedByRun: true });
+    const run = await checkTree("/tree", { post: true }, h.deps);
+    expect(run.result).toMatchObject({ verdict: "green", dirty: true });
+    expect(run.status).toEqual({ posted: false, reason: "dirty-tree" });
+    expect(h.store.size).toBe(0);
+    expect(h.gh).toHaveLength(0);
+  });
+
+  test("a HEAD that cannot be read posts nothing and caches nothing", async () => {
+    const h = harness({ noHead: true });
+    const run = await checkTree("/tree", { post: true }, h.deps);
+    expect(run.result).toMatchObject({ verdict: "error", sha: "" });
+    expect(run.status).toEqual({ posted: false, reason: "not-run" });
+    expect(h.commands).toHaveLength(0);
+    expect(h.gh).toHaveLength(0);
+    expect(h.store.size).toBe(0);
+  });
+
+  test("a git that throws is an error with no sha, so nothing posts", async () => {
+    const h = harness();
+    h.deps.git = async () => {
+      throw new Error("git is gone");
+    };
+    const run = await checkTree("/tree", { post: true }, h.deps);
+    expect(run.result).toMatchObject({ verdict: "error", sha: "", dirty: true, reason: "git is gone" });
+    expect(run.status).toEqual({ posted: false, reason: "not-run" });
   });
 
   test("post false leaves status null and posts nothing", async () => {

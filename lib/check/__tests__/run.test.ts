@@ -153,6 +153,32 @@ describe("runCheck", () => {
     expect(r).toMatchObject({ verdict: "error", base: "origin/feat", reason: "origin/feat is not a commit", notRun: true });
   });
 
+  test("a HEAD that cannot be read is an error that runs nothing", async () => {
+    const { deps, execCalls } = harness({}, fakeGit({ "rev-parse --verify HEAD": { code: 128 } }));
+    const r = await runCheck("/tree", {}, deps);
+    expect(execCalls).toHaveLength(0);
+    expect(r).toMatchObject({ configured: true, verdict: "error", sha: "", reason: "could not read HEAD", notRun: true });
+  });
+
+  test("a tree that changes during the run is dirty", async () => {
+    let status = "";
+    let head = "abc123\n";
+    const git: GitRunner = async (args) => {
+      const key = args.join(" ");
+      if (key === "status --porcelain") return { code: 0, stdout: status, stderr: "" };
+      if (key === "rev-parse --verify HEAD") return { code: 0, stdout: head, stderr: "" };
+      return fakeGit()(args, "/tree");
+    };
+    const edits = harness({}, git);
+    const editing: RunDeps = { ...edits.deps, exec: async (...a) => { status = "?? new.txt\n"; return edits.deps.exec(...a); } };
+    expect(await runCheck("/tree", {}, editing)).toMatchObject({ verdict: "green", dirty: true, sha: "abc123" });
+
+    status = "";
+    const commits = harness({}, git);
+    const committing: RunDeps = { ...commits.deps, exec: async (...a) => { head = "def789\n"; return commits.deps.exec(...a); } };
+    expect(await runCheck("/tree", {}, committing)).toMatchObject({ verdict: "green", dirty: true, sha: "abc123" });
+  });
+
   test("a failed merge base is an error and runs nothing", async () => {
     const { deps, execCalls } = harness({}, fakeGit({ "merge-base HEAD origin/main": { code: 1 } }));
     const r = await runCheck("/tree", {}, deps);
@@ -180,5 +206,9 @@ describe("runCheck", () => {
 describe("treeState", () => {
   test("reads the head sha and dirtiness", async () => {
     expect(await treeState("/tree", { git: fakeGit() })).toEqual({ sha: "abc123", dirty: false });
+  });
+
+  test("a git status that fails counts as dirty", async () => {
+    expect(await treeState("/tree", { git: fakeGit({ "status --porcelain": { code: 128 } }) })).toEqual({ sha: "abc123", dirty: true });
   });
 });
