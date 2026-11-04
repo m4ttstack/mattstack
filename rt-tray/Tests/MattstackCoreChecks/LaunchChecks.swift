@@ -103,6 +103,7 @@ let launchChecks: [Check] = [
         c.expect(LaunchPrompts.asksAtLaunch(setupFinished: true))
         // A member who hides the window during the run never reaches P7's finish path.
         c.expect(LaunchPrompts.registersLoginItem(afterRunOn: .ready))
+        c.expect(LaunchPrompts.registersLoginItem(afterRunOn: .tools), "rt recorded Finish before tools, and Later never reaches P7")
         for stage in [FormStage.running, .paused, .macos, .connect, .thisMac] {
             c.expect(!LaunchPrompts.registersLoginItem(afterRunOn: stage), stage.rawValue)
         }

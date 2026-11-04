@@ -101,7 +101,8 @@ final class SetupCoordinator {
         showSetup()
     }
 
-    /// "Resume setup…" and a `setup_progress` click. A window on screen is only brought forward.
+    /// "Resume setup…" and a `setup_progress` click. A window on screen is only brought forward, unless
+    /// `FastSetupLaunch.relands` says a status window on ready reads rt again.
     func resumeSetup() {
         showSetup(entry: setupWindow == nil ? .firstRun : flow.entry)
     }
@@ -510,13 +511,15 @@ final class SetupCoordinator {
 
     // MARK: - Tools
 
-    /// Closes on a Mac that stays finished: nothing here touches Finish.
+    /// A status window closes on a Mac that stays finished. Any other window goes on to rt's stage, because a first
+    /// run can land here with P7 still ahead and only P7 records this window's Finish.
     private func toolsDone() async {
         guard status.busy == nil else { return }
         status.busy = .tools
         defer { status.busy = nil }
         status.failures[.tools] = nil
-        status.failures[.tools] = await FastSetupLaunch.ackTools(rt: rt) { [weak self] in self?.setupWindow?.close() }
+        status.failures[.tools] = await FastSetupLaunch.ackTools(rt: rt, window: flow.entry, close: { [weak self] in self?.setupWindow?.close() },
+                                                                 land: { [weak self] in await self?.landOnRtStage() })
     }
 
     // MARK: - P7 and closing

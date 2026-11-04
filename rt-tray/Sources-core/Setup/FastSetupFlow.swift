@@ -56,7 +56,7 @@ public struct SetupFinishLedger: Equatable, Sendable {
     public mutating func entered(_ screen: FastSetupScreen) {
         switch screen {
         case .ready: if sawUnfinished { owed = true }
-        // Only a finished Mac reaches tools, so showing it says nothing about setup being unfinished.
+        // rt recorded Finish before tools: a status window owes nothing for it, and a first run keeps what it owes until P7.
         case .loading, .tools: break
         default: sawUnfinished = true
         }
@@ -105,11 +105,13 @@ public enum FastSetupLaunch {
 
     private struct ToolsAck: Decodable { let ok: Bool }
 
-    /// `close` runs only once rt has the names, and rt's sentence comes back when it does not.
-    public static func ackTools(rt: RtRunning, then close: @MainActor () -> Void) async -> String? {
+    /// Both moves wait for rt to have the names, and rt's sentence comes back when it does not. Only a status window
+    /// closes: a first run or an upgrade can reach tools with P7 still ahead, so it reads rt's stage instead.
+    public static func ackTools(rt: RtRunning, window: SetupEntry, close: @MainActor () -> Void,
+                                land: @MainActor () async -> Void) async -> String? {
         switch await rt.runJSON(ackToolsArguments, verb: "setup form --ack-tools", as: ToolsAck.self) {
         case .success:
-            await close()
+            if window == .status { await close() } else { await land() }
             return nil
         case .failure(let failure):
             return failure.copy
@@ -207,11 +209,11 @@ public final class FastSetupFlow: ObservableObject {
 
     /// `stage` comes from a whole-form read only: a section read carries none.
     /// A finished Mac whose Join or Create from Settings has not started yet
-    /// still reads `ready`; once the join is in flight rt says so itself.
+    /// still reads `ready`, or `tools` with a tool not yet acked; once the join is in flight rt says so itself.
     public func land(on stage: FormStage, path: String? = nil) {
         wholeSawFreshMac = Self.freshMac(stage: stage, path: path)
         if let c = chosen, stage != .path, Self.screen(for: stage) != Self.start(of: c) { chosen = nil }
-        if stage == .ready, let target = requestedScreen {
+        if stage == .ready || stage == .tools, let target = requestedScreen {
             screen = target
         } else {
             screen = Self.screen(for: stage)
