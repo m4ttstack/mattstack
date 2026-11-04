@@ -12,19 +12,20 @@
 .close {
   position: absolute;
   right: 12px;
-  top: 6px;
-  background: var(--row-hover);
+  top: 4px;
+  color: var(--chat-ink);
+  background: color-mix(in srgb, var(--chat-hue) 12%, var(--chat-chrome));
   opacity: 0;
   pointer-events: none;
   transition: opacity 100ms ease;
 }
 
-.listRow {
-  position: relative;
+.close:hover {
+  background: color-mix(in srgb, var(--chat-hue) 22%, var(--chat-chrome));
 }
 
-.listRow[data-active] .close {
-  background: var(--chat-chrome-selected);
+.listRow {
+  position: relative;
 }
 
 @media (hover: hover) {
@@ -36,6 +37,15 @@
   .listRow:hover .close {
     opacity: 1;
     pointer-events: auto;
+  }
+
+  /* The name ends before the ×, never under it. */
+  .listRow:hover {
+    padding-right: 44px !important;
+  }
+
+  .dmRow:hover .when {
+    visibility: hidden;
   }
 }
 
@@ -62,6 +72,10 @@
   flex: none;
 }
 
+
+.dmRow .close {
+  top: 8px;
+}
 
 .dmRow {
   --stack-ring: var(--chat-chrome);

@@ -304,7 +304,7 @@ function MessageRow({
               <HandleAvatar
                 handle={message.handle}
                 variant="inline"
-                size={26}
+                size={32}
               />
             )}
           </div>

@@ -9,7 +9,7 @@ type StackStyle = CSSProperties & { '--stack-size': string };
 
 /** The pair's two sprites, each on a tile, offset corner to corner. */
 export function DmStack({ pair, size }: { pair: DmPair; size: number }) {
-  const sprite = Math.round(size * 0.4);
+  const sprite = Math.round(size * 0.66);
   const style: StackStyle = { '--stack-size': `${size}px` };
   return (
     <span className={classes.stack} style={style} aria-hidden>

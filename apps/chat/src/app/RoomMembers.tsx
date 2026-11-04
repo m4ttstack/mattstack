@@ -278,7 +278,7 @@ export function RoomMembers({
                     key={b.handle}
                     handle={b.handle}
                     variant="name"
-                    size={13}
+                    size={18}
                   />
                 ))}
               </Group>

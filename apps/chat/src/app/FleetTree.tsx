@@ -222,30 +222,21 @@ function CloseControl({
   onClose: (room: string) => void;
 }) {
   return (
-    <Tooltip label="Close" position="top" withinPortal>
-      <ActionIcon
-        variant="subtle"
-        size="sm"
-        radius="sm"
-        color="gray"
-        className={classes.close}
-        aria-label={`Close ${roomLabel(room)}`}
-        data-testid={testId}
-        onClick={e => {
-          e.stopPropagation();
-          onClose(room.room);
-        }}
-        style={{
-          // Icon-tint default (--tk-text-3): `CloseControl` mounts from
-          // both `RoomRow` (chrome step) and `DmRow` (meta step), so one
-          // shared tint cannot follow either row's text colour; it reads the
-          // plan's own unknown-size fallback instead.
-          color: 'var(--tk-text-3)',
-        }}
-      >
-        <Icon name="close" size={14} />
-      </ActionIcon>
-    </Tooltip>
+    <ActionIcon
+      variant="subtle"
+      size={24}
+      radius="sm"
+      color="gray"
+      className={classes.close}
+      aria-label={`Close ${roomLabel(room)}`}
+      data-testid={testId}
+      onClick={e => {
+        e.stopPropagation();
+        onClose(room.room);
+      }}
+    >
+      <Icon name="close" size={14} />
+    </ActionIcon>
   );
 }
 

@@ -7,7 +7,8 @@ import {
   Menu,
   Text,
 } from '@mattstack/app-kit/core';
-import { Invadr } from 'invadrs/react';
+import { createAvatar } from '@dicebear/core';
+import * as personas from '@dicebear/personas';
 
 import cardClasses from './agent-card.module.css';
 import classes from './agent-name.module.css';
@@ -17,7 +18,7 @@ import { displayName } from './display-name';
 import { doing, type DoingLine } from './doing';
 import { MUTED_XS } from './presence-bits';
 import type { RosterBuddy } from './roster-types';
-import { speakerHue, type SpeakerHue } from './speaker-hue';
+import type { SpeakerHue } from './speaker-hue';
 import { StateDot } from './StateDot';
 
 export type AgentNameVariant = 'inline' | 'name';
@@ -56,27 +57,40 @@ export const MESSAGE_HANDLE: AgentNameSize = {
   meta: 'var(--mantine-font-size-xs)',
 };
 
-/** A handle's sprite in its assigned creature and hue, the one its name
-    chip shares. A handle with no assigned look hashes its creature and
-    takes the chip's own hashed hue, so the two still match. */
+const FACE_BACKGROUNDS = [
+  'ffd5dc',
+  'ffdfbf',
+  'c0aede',
+  'd1d4f9',
+  'b6e3f4',
+  'c1f0dc',
+];
+
+const faces = new Map<string, string>();
+
+/** A name's generated face. Seeded by the name, not the session's handle, so
+    a name keeps its persona across sessions and machines. */
+function faceUri(name: string): string {
+  const known = faces.get(name);
+  if (known) return known;
+  const uri = createAvatar(personas, {
+    seed: name,
+    backgroundColor: FACE_BACKGROUNDS,
+  }).toDataUri();
+  faces.set(name, uri);
+  return uri;
+}
+
 function HandleSprite({ handle, size }: { handle: string; size: number }) {
-  const look = useBuddies()?.lookOf(handle);
-  return look ? (
-    <Invadr
-      id={handle}
-      palette={[look.hue.avatar]}
-      sprite={look.sprite}
-      color={0}
-      size={size}
+  const name = useBuddies()?.nameOf(handle) ?? handle.split('.')[0]!;
+  return (
+    <img
+      src={faceUri(name)}
+      alt=""
+      width={size}
+      height={size}
       className={classes.avatar}
-    />
-  ) : (
-    <Invadr
-      id={handle}
-      palette={[speakerHue(handle).text]}
-      color={0}
-      size={size}
-      className={classes.avatar}
+      style={{ borderRadius: '28%' }}
     />
   );
 }
