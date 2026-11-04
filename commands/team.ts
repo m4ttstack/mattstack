@@ -64,6 +64,7 @@ import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, re
 import { syncAdminSecrets, type AdminSecretsResult, type TokenOutcome } from "../lib/team/admin-secrets.ts";
 import { canonicalHandle, readAdminToken, readPeeredBoards, realReadAdminSecret, realReadLocalSecret, type ReadAdminSecret, type ReadLocalSecret } from "../lib/team/board-peers.ts";
 import { MembersKeyError, MembersSyncAbortedError, membersAddToTeam, membersDropFromTeam, membersRemove, membersSetTeams, membersSync, realMembersSeams, teamRemote, type BoardPeeringOutcome, type MembersSeams, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
+import { sendAnnouncement } from "../lib/team/announce.ts";
 import { peerOwnBoard, realPeerSeams, type PeerResult, type PeerSeams } from "../lib/team/peer.ts";
 import { publishTeam } from "../lib/team/publish.ts";
 import { renameOrg, type ConvergeOutcome, type RenameResult, type RenameSeams } from "../lib/team/rename.ts";
@@ -123,6 +124,8 @@ export interface TeamDeps {
   renameSeams?: Partial<RenameSeams>;
   /** The forge reads and writes `rt team forge-access` makes; real by default. */
   forgeAccessSeams?: ForgeAccessSeams;
+  /** The announcement send, seamed so a test never reaches the switchboard; real by default. */
+  announce?: typeof sendAnnouncement;
 }
 
 async function defaultReadCode(json: boolean): Promise<string> {
@@ -197,6 +200,7 @@ const REFUSAL_CODES = new Set([
   "invite-off-main",
   "org-detached",
   "peer-needs-admin",
+  "announce-not-admin",
   "board-registered-elsewhere",
   "bad-org-name",
   "rename-not-admin",
@@ -396,6 +400,32 @@ export async function teamPeer(args: string[], _ctx: CommandContext = {}, deps: 
       return;
     }
     out.print(...peerBlocks(result));
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
+    throw err;
+  }
+}
+
+const ANNOUNCE_USAGE = 'rt team announce "<title>" --message "<text>" [--team <org>] [--json]';
+
+export async function teamAnnounce(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  const title = positional(args, ["--message", "--team"])[0];
+  const message = flagValue(args, "--message");
+  if (!title) usageError(deps, json, "What should the announcement's title be?", ANNOUNCE_USAGE);
+  if (!message) usageError(deps, json, "What should the announcement say?", ANNOUNCE_USAGE);
+  try {
+    const slug = resolveTeamSlug(args, "team announce");
+    const result = await (deps.announce ?? sendAnnouncement)(deps.probes, slug, { title, message }, { readLocalSecret: deps.readLocalSecret ?? realReadLocalSecret });
+    if (json) {
+      deps.print(JSON.stringify(envelope(result)));
+      return;
+    }
+    out.print(
+      result.delivered > 0
+        ? out.line("done", `Queued for ${result.delivered} ${result.delivered === 1 ? "board" : "boards"}`, "people see it within a minute if their board is running")
+        : out.line("needs-you", "Nobody will get this", "no other boards are connected"),
+    );
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;

@@ -12,7 +12,7 @@ import * as ui from "../../lib/ui/out.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { setWarningLog, __test__ as warnTest } from "../../lib/ui/warn.ts";
-import { realTeamDeps, teamAdd, teamCreate, teamInvite, manageMembershipBlocks, teamManageMembership, teamPeer, teamPublish, teamPull, teamStatus, type TeamDeps } from "../team.ts";
+import { realTeamDeps, teamAdd, teamAnnounce, teamCreate, teamInvite, manageMembershipBlocks, teamManageMembership, teamPeer, teamPublish, teamPull, teamStatus, type TeamDeps } from "../team.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../lib/home/age-key.ts";
 import type { ExecScript } from "../../lib/setup/__tests__/fakes.ts";
@@ -320,6 +320,60 @@ describe("teamPeer", () => {
     } finally {
       io.restore();
     }
+  });
+});
+
+describe("teamAnnounce", () => {
+  const sent: Array<{ slug: string; input: { title: string; message: string } }> = [];
+  const sendWith =
+    (delivered: number): NonNullable<TeamDeps["announce"]> =>
+    async (_p, slug, input) => {
+      sent.push({ slug, input });
+      return { delivered };
+    };
+
+  beforeEach(() => {
+    sent.length = 0;
+  });
+
+  test("reports the queued count in json", async () => {
+    const deps = depsWithZone({ announce: sendWith(3) });
+    await teamAnnounce(["Update rt", "--message", "Today", "--team", "acme", "--json"], {}, deps);
+    const { at: _at, ...body } = JSON.parse(deps.lines[0]!);
+    expect(body).toEqual({ contract: 1, delivered: 3 });
+    expect(sent).toEqual([{ slug: "acme", input: { title: "Update rt", message: "Today" } }]);
+  });
+
+  test("says when nobody will get it", async () => {
+    const deps = depsWithZone({ announce: sendWith(0) });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await teamAnnounce(["Update rt", "--message", "Today", "--team", "acme"], {}, deps);
+      expect(io.stdout()).toContain("[needs you] Nobody will get this");
+    } finally {
+      io.restore();
+    }
+  });
+
+  test("says how many boards it queued for", async () => {
+    const deps = depsWithZone({ announce: sendWith(1) });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await teamAnnounce(["Update rt", "--message", "Today", "--team", "acme"], {}, deps);
+      expect(io.stdout()).toContain("Queued for 1 board");
+    } finally {
+      io.restore();
+    }
+  });
+
+  test("without --message is a usage error", async () => {
+    const deps = depsWithZone({ announce: sendWith(3) });
+    const code = await runExpectingProcessExit(() => teamAnnounce(["Update rt", "--team", "acme", "--json"], {}, deps));
+    expect(code).toBe(2);
+    expect(JSON.parse(deps.lines[0]!).error.code).toBe("usage");
+    expect(sent).toHaveLength(0);
   });
 });
 

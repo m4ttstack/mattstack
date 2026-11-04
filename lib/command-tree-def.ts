@@ -3293,6 +3293,18 @@ export const TREE: Record<string, CommandNode> = {
           SETUP_JSON_ARG,
         ],
       },
+      announce: {
+        description: "As an org admin, send a notification to everyone in your org",
+        module: "./commands/team.ts",
+        fn: "teamAnnounce",
+        omitBehavior: { exempt: "an announcement's words cannot be listed" },
+        args: [
+          { name: "Title", type: "text", placeholder: "Update rt today", hint: "A short headline, up to 80 characters" },
+          { name: "Message", flag: "--message", type: "text", placeholder: "v2.29 fixes the sign-in bug", hint: "The details, up to 500 characters" },
+          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
+          SETUP_JSON_ARG,
+        ],
+      },
       "admin-secrets": {
         description: "Share the switchboard admin token with your org's owners and admins, and keep it locked to them",
         module: "./commands/team.ts",
