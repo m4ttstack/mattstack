@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import {
   chatArchive,
   chatBuddies,
@@ -17,7 +18,6 @@ import {
   type RtClientOptions,
 } from '@mattstack/rt-client';
 import { Hono } from 'hono';
-import { readFile } from 'node:fs/promises';
 import type { Context } from 'hono';
 import { validator } from 'hono/validator';
 

@@ -315,7 +315,9 @@ test("a DM's menu offers each end's herdr pane by name, and a room's offers none
   const dmMenu = await screen.findByTestId('dm-context-dm-jay-max');
   const item = within(dmMenu).getByTestId('room-context-focus-wBT:p1');
   expect(item).toHaveTextContent('jay');
-  expect(dmMenu.querySelectorAll('[data-testid^="room-context-focus-"]')).toHaveLength(1);
+  expect(
+    dmMenu.querySelectorAll('[data-testid^="room-context-focus-"]')
+  ).toHaveLength(1);
   await userEvent.click(item);
   expect(focusPane).toHaveBeenCalledWith('wBT:p1');
 });

@@ -50,7 +50,7 @@ the SPA shell (`@mattstack/app-server`'s `mountStatic`).
 
 Wire shapes are rt-client's types (`RoomSummary`, the presence row, the
 message row); the server passes them through rather than reshaping. The pane
-routes live in `src/server/panes.ts`, a separate Hono sub-app mounted into
+route lives in `src/server/panes.ts`, a separate Hono sub-app mounted into
 `routes.ts` alongside `chat.ts`.
 
 ## Ids and names

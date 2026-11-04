@@ -218,7 +218,9 @@ test("after an older page loads, the reader's row stays put while content above 
   // captured and fired by hand to stand in for that settling.
   const callbacks = new Set<ResizeObserverCallback>();
   class CapturingResizeObserver {
-    constructor(private readonly callback: ResizeObserverCallback) {
+    private readonly callback: ResizeObserverCallback;
+    constructor(callback: ResizeObserverCallback) {
+      this.callback = callback;
       callbacks.add(callback);
     }
     observe() {}
@@ -615,9 +617,9 @@ test('reaching the oldest message swaps its day for the start line, and a day di
   expect(screen.getByTestId('transcript-start')).toHaveTextContent(
     /^This chat started /
   );
-  expect(
-    screen.getAllByTestId('day-divider').map(d => d.textContent)
-  ).toEqual(['Today']);
+  expect(screen.getAllByTestId('day-divider').map(d => d.textContent)).toEqual([
+    'Today',
+  ]);
 });
 
 function post(

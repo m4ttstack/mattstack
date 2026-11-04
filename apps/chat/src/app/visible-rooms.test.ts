@@ -42,7 +42,7 @@ test('latestActiveRoom skips closed rooms however new their post', () => {
 });
 
 test('latestActiveRoom weighs a DM with a pair like any room, and skips one without', () => {
-  const participants = { a: 'kai', b: 'remy' };
+  const participants = { a: 'kai', b: 'remy', aName: 'kai', bName: 'remy' };
   expect(
     latestActiveRoom([
       room('build', { lastPostedAt: 1 }),
@@ -61,8 +61,12 @@ test('latestActiveRoom lands on a room with no posts only when none has any', ()
   expect(['quiet', 'quieter']).toContain(
     latestActiveRoom([room('quiet'), room('quieter')])
   );
-  expect(latestActiveRoom([room('quiet'), room('posted', { lastPostedAt: 1 })])).toBe('posted');
-  expect(latestActiveRoom([room('posted', { lastPostedAt: 1 }), room('quiet')])).toBe('posted');
+  expect(
+    latestActiveRoom([room('quiet'), room('posted', { lastPostedAt: 1 })])
+  ).toBe('posted');
+  expect(
+    latestActiveRoom([room('posted', { lastPostedAt: 1 }), room('quiet')])
+  ).toBe('posted');
 });
 
 test('latestActiveRoom has no answer with no open room', () => {
