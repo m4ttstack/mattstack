@@ -2675,33 +2675,33 @@ body {
   height: 100%;
 }
 .tui-slack-face.tui-avatar {
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
 }
 .tui-author-tag .tui-slack-face.tui-avatar {
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
 }
 .tui-slack-face.tui-group-avatar {
-  width: 24px;
-  height: 24px;
-  vertical-align: -7px;
+  width: 32px;
+  height: 32px;
+  vertical-align: -10px;
 }
 .tui-slack-face.tui-subgroup-avatar {
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
 }
 .tui-slack-face.tui-ask-avatar {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
 }
 .tui-slack-face.tui-menu-ask-avatar {
-  width: 26px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
 }
 .tui-slack-face.tui-person-avatar {
-  width: 26px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
 }
 .tui-person-avatar {
   display: inline-block;
