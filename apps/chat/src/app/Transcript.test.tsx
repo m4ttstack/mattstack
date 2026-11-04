@@ -787,3 +787,14 @@ test('an open Slack chat and a plain room show no closed note', () => {
   );
   expect(screen.queryByTestId('slack-closed-note')).toBeNull();
 });
+
+test('stand-in rows hold the place of a first page, and only until messages land', () => {
+  const { rerender } = renderWithProviders(
+    <Transcript room="build" messages={[]} loading />
+  );
+  expect(screen.getByTestId('message-skeleton')).toBeInTheDocument();
+  rerender(
+    <Transcript room="build" messages={[post(1, 'fred', NOON)]} loading />
+  );
+  expect(screen.queryByTestId('message-skeleton')).toBeNull();
+});

@@ -23,7 +23,7 @@ import {
 
 import './icons';
 
-import { App, resultLine } from './App';
+import { App } from './App';
 import { PAGE_SIZE } from './Transcript';
 
 const DESKTOP_WIDTH = window.innerWidth;
@@ -58,120 +58,6 @@ function renderAt(path: string) {
   return renderWithProviders(<App />);
 }
 
-test('/ is the Inbox: the rail names both views and the landing view is the inbox', () => {
-  renderAt('/');
-
-  // The mark tops the rail, so the top bar names no app.
-  expect(
-    within(screen.getByRole('banner')).queryByText('chat', { exact: true })
-  ).toBeNull();
-
-  const rail = within(screen.getByRole('navigation', { name: 'App sections' }));
-  const inbox = rail.getByRole('link', { name: 'Inbox' });
-  expect(inbox.getAttribute('aria-current')).toBe('page');
-  expect(
-    rail.getByRole('link', { name: 'Rooms' }).getAttribute('aria-current')
-  ).toBeNull();
-
-  expect(
-    within(screen.getByRole('banner')).queryByRole('button', { name: 'Apps' })
-  ).toBeNull();
-
-  expect(screen.getByTestId('inbox-bar')).toHaveTextContent('Inbox');
-  expect(screen.getByTestId('inbox-elsewhere-note')).toBeInTheDocument();
-});
-
-test('the rail hosts the color-scheme control', () => {
-  renderAt('/');
-  const rail = within(screen.getByRole('navigation', { name: 'App sections' }));
-  const scheme = () =>
-    document.documentElement.getAttribute('data-mantine-color-scheme');
-
-  // vitest.setup.ts's matchMedia polyfill defaults the OS preference to
-  // light, so the initial computed scheme under `auto` is deterministic.
-  expect(scheme()).toBe('light');
-
-  // `ColorSchemeControl` is a System/Light/Dark `HybridMenu`, not chat's own
-  // sun/moon toggle: open it from its rail entry and pick each option.
-  fireEvent.click(rail.getByRole('button', { name: 'Color scheme: System' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Dark' }));
-  expect(scheme()).toBe('dark');
-
-  fireEvent.click(rail.getByRole('button', { name: 'Color scheme: Dark' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Light' }));
-  expect(scheme()).toBe('light');
-});
-
-test('the mark tops the rail in place of an expand trigger', () => {
-  renderAt('/');
-  const rail = within(screen.getByRole('navigation', { name: 'App sections' }));
-  expect(rail.queryByRole('button', { name: 'Expand navigation' })).toBeNull();
-  expect(rail.getByText('Rooms').getAttribute('aria-hidden')).toBe('true');
-});
-
-test('on mobile, `/` is the phone inbox shell, not the desktop rail', async () => {
-  setViewportWidth(390);
-  window.history.replaceState(null, '', '/');
-  renderWithProviders(
-    <App
-      initialState={{
-        daemonReachable: true,
-        rooms: [{ room: 'build', memberCount: 1, unread: 0, mentions: 0 }],
-      }}
-    />
-  );
-
-  expect(screen.getByTestId('phone-inbox-shell')).toBeInTheDocument();
-  expect(screen.queryByRole('navigation', { name: 'App sections' })).toBeNull();
-
-  await userEvent.click(
-    screen.getByRole('button', { name: 'Rooms and members' })
-  );
-  const drawer = within(await screen.findByTestId('phone-drawer'));
-  expect(await drawer.findByTestId('room-row-build')).toBeInTheDocument();
-  expect(drawer.queryByText(/buddies/i)).toBeNull();
-
-  await userEvent.click(drawer.getByRole('button', { name: 'Close' }));
-  await waitFor(() =>
-    expect(screen.queryByTestId('room-row-build')).toBeNull()
-  );
-});
-
-test('the phone transcript wrapper is a flex column, so the bare transcript can size itself', () => {
-  // Regression: a plain (block) wrapper Box gives the bare Transcript root no
-  // flex context to size against, so its own inner scroll box (also
-  // `flex: 1; min-height: 0`) collapses to zero height and the transcript
-  // renders empty on a phone. jsdom never computes real layout, so this pins
-  // the wrapper's actual style contract instead of a faked measurement.
-  setViewportWidth(390);
-  window.history.replaceState(null, '', '/r/build');
-  renderWithProviders(
-    <App
-      initialState={{
-        daemonReachable: true,
-        rooms: [{ room: 'build', memberCount: 1, unread: 0, mentions: 0 }],
-        messages: [
-          {
-            id: 7,
-            room: 'build',
-            handle: 'deck-main',
-            name: 'deck-main',
-            body: 'seeded body',
-            mentions: [],
-            mentionNames: [],
-            postedAt: 1,
-          },
-        ],
-      }}
-    />
-  );
-
-  expect(screen.getByTestId('phone-shell')).toBeInTheDocument();
-  const wrapper = screen.getByTestId('transcript').parentElement;
-  expect(wrapper).toHaveStyle({ display: 'flex', flexDirection: 'column' });
-  expect(wrapper).not.toHaveStyle({ overflowY: 'auto' });
-});
-
 test('/demo renders the kit full-screen PageShell showcase, bypassing the chat chrome', () => {
   renderAt('/demo');
 
@@ -187,35 +73,12 @@ test('unknown paths render the not-found page inside the chat chrome', () => {
   expect(
     screen.getByRole('heading', { level: 1, name: 'Page not found' })
   ).toBeTruthy();
-  expect(screen.getByRole('navigation', { name: 'App sections' })).toBeTruthy();
+  expect(screen.getByRole('banner')).toBeInTheDocument();
+  expect(screen.queryByTestId('room-rail')).toBeNull();
 
   fireEvent.click(screen.getByRole('link', { name: /Back home/ }));
 
   expect(window.location.pathname).toBe('/');
-  expect(screen.getByTestId('inbox-bar')).toBeInTheDocument();
-});
-
-test('the fleet tree leaves out a buddy with no repo room', () => {
-  renderWithProviders(
-    <App
-      initialState={{
-        daemonReachable: true,
-        buddies: [
-          {
-            sessionId: 's',
-            handle: 'rt-chat-wt',
-            baseHandle: 'rt-chat-wt',
-            name: 'rt-chat-wt',
-            signedInAt: 1,
-            lastSeenAt: 1,
-            status: 'live',
-            rooms: [],
-          },
-        ],
-      }}
-    />
-  );
-  expect(screen.queryByTestId('ws-rt-chat-wt')).toBeNull();
 });
 
 test('seeded messages survive to the opened room, even if the fetch rejects', async () => {
@@ -298,14 +161,13 @@ const kaiRemyDms = {
   members: [],
 };
 
-const avatarCount = (el: HTMLElement) =>
-  el.querySelectorAll('svg[shape-rendering="crispEdges"]').length;
+const avatarCount = (el: HTMLElement) => el.querySelectorAll('img').length;
 
 test('an open DM whose pair repeats in the sidebar shows avatars in the page bar', () => {
   window.history.replaceState(null, '', '/r/dm-2c9b7e41d0a5');
   renderWithProviders(<App initialState={kaiRemyDms} />);
   const bar = screen.getByTestId('page-bar');
-  expect(bar).toHaveTextContent('kai ↔ remy');
+  expect(bar).toHaveTextContent('kai, remy');
   expect(bar).not.toHaveTextContent('m2p4');
   expect(avatarCount(screen.getByTestId('page-bar-title'))).toBe(2);
 });
@@ -314,17 +176,8 @@ test('an open DM title carries both avatars, unique pair or not', () => {
   window.history.replaceState(null, '', '/r/dm-jay-max');
   renderWithProviders(<App initialState={kaiRemyDms} />);
   const title = screen.getByTestId('page-bar-title');
-  expect(title).toHaveTextContent(/^jay ↔ max$/);
+  expect(title).toHaveTextContent(/^jay, max$/);
   expect(avatarCount(title)).toBe(2);
-});
-
-test('the phone header shows both avatars', () => {
-  setViewportWidth(390);
-  window.history.replaceState(null, '', '/r/dm-jay-max');
-  renderWithProviders(<App initialState={kaiRemyDms} />);
-  const header = screen.getByTestId('phone-header');
-  expect(header).toHaveTextContent('jay ↔ max');
-  expect(avatarCount(header)).toBe(2);
 });
 
 test('a malformed room escape renders not-found instead of throwing', () => {
@@ -341,9 +194,9 @@ test('/r/<room> opens that room instead of the first one', () => {
 });
 
 test('picking a room in the rail moves the URL to /r/<room>', () => {
-  window.history.replaceState(null, '', '/');
+  window.history.replaceState(null, '', '/r/build');
   renderWithProviders(<App initialState={twoRooms} />);
-  fireEvent.click(screen.getByText('ops'));
+  fireEvent.click(screen.getByTestId('room-row-ops'));
   expect(window.location.pathname).toBe('/r/ops');
   expect(
     within(screen.getByTestId('page-bar')).getByText('ops')
@@ -381,21 +234,6 @@ test('a #m-<id> anchor scrolls that message into view', () => {
   } finally {
     Element.prototype.scrollIntoView = original;
   }
-});
-
-test('Back to / after picking a room returns to the inbox, with no room open', () => {
-  window.history.replaceState(null, '', '/');
-  renderWithProviders(<App initialState={twoRooms} />);
-  fireEvent.click(screen.getByText('ops'));
-  expect(
-    within(screen.getByTestId('page-bar')).getByText('ops')
-  ).toBeInTheDocument();
-  act(() => {
-    window.history.replaceState(null, '', '/');
-    window.dispatchEvent(new PopStateEvent('popstate'));
-  });
-  expect(screen.queryByTestId('page-bar')).toBeNull();
-  expect(screen.getByTestId('inbox-bar')).toBeInTheDocument();
 });
 
 test('a same-room hash change scrolls to the new anchor', () => {
@@ -446,7 +284,7 @@ test('a same-room hash change scrolls to the new anchor', () => {
   }
 });
 
-test('the fleet tree lives in the PageShell sidebar, and no roster panel remains', () => {
+test('the room list lives in the PageShell sidebar and the transcript in its content', () => {
   window.history.replaceState(null, '', '/r/build');
   renderWithProviders(<App initialState={twoRooms} />);
   const sidebar = document.getElementById('page-shell-sidebar');
@@ -459,8 +297,6 @@ test('the fleet tree lives in the PageShell sidebar, and no roster panel remains
   expect(
     within(content as HTMLElement).getByTestId('transcript')
   ).toBeInTheDocument();
-  expect(screen.queryByTestId('roster')).toBeNull();
-  expect(screen.queryByTestId('room-order')).toBeNull();
   expect(
     within(screen.getByTestId('page-bar')).getByText('build')
   ).toBeInTheDocument();
@@ -490,7 +326,7 @@ test('with every room closed, a room link still mounts the rail and says rooms c
   expect(screen.getByTestId('room-rail')).toBeInTheDocument();
   expect(
     screen.getByText(
-      'Every room is closed. A post from anyone brings its room back, and the + starts a new one.'
+      'Every room is closed. A post from anyone brings its room back.'
     )
   ).toBeInTheDocument();
 });
@@ -565,7 +401,7 @@ test('DM on a sender’s card opens the pair’s room and focuses the composer t
     />
   );
   const transcript = await screen.findByTestId('transcript');
-  await userEvent.hover(within(transcript).getByText('fred'));
+  await userEvent.click(within(transcript).getByText('fred'));
   await userEvent.click(await screen.findByTestId('card-dm-fred'));
 
   expect(fetchMock).toHaveBeenCalledWith(
@@ -639,7 +475,7 @@ test('Focus pane on a buddy in a herdr pane posts to that pane’s focus route',
     />
   );
   const transcript = await screen.findByTestId('transcript');
-  await userEvent.hover(within(transcript).getByText('fred'));
+  await userEvent.click(within(transcript).getByText('fred'));
   await userEvent.click(await screen.findByTestId('card-focus-fred'));
 
   expect(fetchMock).toHaveBeenCalledWith(
@@ -697,10 +533,16 @@ test('a buddy with no herdr pane shows no Focus pane button', async () => {
     />
   );
   const transcript = await screen.findByTestId('transcript');
-  await userEvent.hover(within(transcript).getByText('fred'));
+  await userEvent.click(within(transcript).getByText('fred'));
   await screen.findByTestId('card-dm-fred');
   expect(screen.queryByTestId('card-focus-fred')).toBeNull();
 });
+
+async function closeFromMenu(room: string) {
+  fireEvent.contextMenu(screen.getByTestId(`room-row-${room}`));
+  const menu = await screen.findByTestId(`room-context-${room}`);
+  await userEvent.click(within(menu).getByTestId('room-context-close'));
+}
 
 function errorResponse(status: number): Response {
   return {
@@ -709,37 +551,6 @@ function errorResponse(status: number): Response {
     json: async () => ({ error: 'nope' }),
   } as Response;
 }
-
-test('the rail’s Rooms entry points at the first OPEN room, and a closed room is never listed', () => {
-  window.history.replaceState(null, '', '/');
-  renderWithProviders(
-    <App
-      initialState={{
-        daemonReachable: true,
-        buddies: [],
-        rooms: [
-          {
-            room: 'closed-first',
-            memberCount: 1,
-            unread: 0,
-            mentions: 0,
-            archivedAt: Date.now() - 3 * 86_400_000,
-          },
-          { room: 'build', memberCount: 1, unread: 0, mentions: 0 },
-        ],
-        members: [],
-        messages: [],
-      }}
-    />
-  );
-  const rail = within(screen.getByRole('navigation', { name: 'App sections' }));
-  expect(rail.getByRole('link', { name: 'Rooms' })).toHaveAttribute(
-    'href',
-    '/r/build'
-  );
-  expect(screen.queryByTestId('archived-bar')).toBeNull();
-  expect(screen.queryByTestId('room-row-closed-first')).toBeNull();
-});
 
 test('a closed room reached by link opens with a live composer and is listed only while open', async () => {
   installFetchMock();
@@ -765,7 +576,6 @@ test('a closed room reached by link opens with a live composer and is listed onl
     />
   );
   expect(screen.getByTestId('composer')).toBeInTheDocument();
-  expect(screen.queryByTestId('archived-bar')).toBeNull();
   expect(screen.getByTestId('room-row-retro').dataset.active).toBe('true');
   expect(screen.queryByText(/archiv/i)).toBeNull();
   await userEvent.click(screen.getByTestId('room-row-build'));
@@ -773,46 +583,7 @@ test('a closed room reached by link opens with a live composer and is listed onl
   expect(screen.queryByTestId('room-row-retro')).toBeNull();
 });
 
-test('closing the open room from the rail lands on the inbox', async () => {
-  installFetchMock();
-  const build = { room: 'build', memberCount: 1, unread: 0, mentions: 0 };
-  fetchMock.mockImplementation((url: string) => {
-    if (url === '/api/chat/close')
-      return Promise.resolve(jsonResponse({ room: 'ghost', closedAt: 5 }));
-    if (url === '/api/chat/rooms')
-      return Promise.resolve(jsonResponse({ rooms: [build] }));
-    return Promise.resolve(jsonResponse({}));
-  });
-  window.history.replaceState(null, '', '/r/ghost');
-  renderWithProviders(
-    <App
-      initialState={{
-        daemonReachable: true,
-        buddies: [],
-        rooms: [
-          { room: 'ghost', memberCount: 1, unread: 0, mentions: 0 },
-          build,
-        ],
-        members: [],
-        messages: [],
-      }}
-    />
-  );
-  await userEvent.hover(screen.getByTestId('room-row-ghost'));
-  await userEvent.click(await screen.findByTestId('room-close-ghost'));
-  expect(fetchMock).toHaveBeenCalledWith(
-    '/api/chat/close',
-    expect.objectContaining({
-      method: 'POST',
-      body: JSON.stringify({ room: 'ghost' }),
-    })
-  );
-  await waitFor(() => expect(window.location.pathname).toBe('/'));
-  expect(screen.getByTestId('inbox-bar')).toBeInTheDocument();
-  expect(screen.queryByTestId('room-row-ghost')).toBeNull();
-});
-
-test('closing another room from its rail × drops the row at once and keeps the page', async () => {
+test('closing another room from its menu drops the row at once and keeps the page', async () => {
   installFetchMock();
   fetchMock.mockImplementation((url: string) => {
     if (url === '/api/chat/close')
@@ -840,8 +611,7 @@ test('closing another room from its rail × drops the row at once and keeps the 
       }}
     />
   );
-  await userEvent.hover(screen.getByTestId('room-row-ghost'));
-  await userEvent.click(screen.getByTestId('room-close-ghost'));
+  await closeFromMenu('ghost');
   expect(screen.queryByTestId('room-row-ghost')).toBeNull();
   expect(window.location.pathname).toBe('/r/build');
   expect(
@@ -870,10 +640,9 @@ test('a failed close restores the row and says so', async () => {
       }}
     />
   );
-  await userEvent.hover(screen.getByTestId('room-row-ghost'));
-  await userEvent.click(screen.getByTestId('room-close-ghost'));
+  await closeFromMenu('ghost');
   expect(
-    await screen.findByText("Couldn't close the room")
+    await screen.findByText("Couldn't close the room: nope")
   ).toBeInTheDocument();
   expect(screen.getByTestId('room-row-ghost')).toBeInTheDocument();
 });
@@ -915,8 +684,7 @@ test('the row leaves the rail before the close resolves, and comes back when it 
       }}
     />
   );
-  await userEvent.hover(screen.getByTestId('room-row-ghost'));
-  await userEvent.click(screen.getByTestId('room-close-ghost'));
+  await closeFromMenu('ghost');
 
   // The close request is still pending (rejectClose hasn't been called yet):
   // the row is gone and the page hasn't moved, so only the optimistic
@@ -929,57 +697,9 @@ test('the row leaves the rail before the close resolves, and comes back when it 
   });
 
   expect(
-    await screen.findByText("Couldn't close the room")
+    await screen.findByText("Couldn't close the room: boom")
   ).toBeInTheDocument();
   expect(screen.getByTestId('room-row-ghost')).toBeInTheDocument();
-});
-
-test('the rail menu’s Mark read posts the mark and refetches rooms', async () => {
-  installFetchMock();
-  let marked = false;
-  fetchMock.mockImplementation((url: string) => {
-    if (url === '/api/chat/mark') {
-      marked = true;
-      return Promise.resolve(jsonResponse({}));
-    }
-    if (url === '/api/chat/rooms')
-      return Promise.resolve(
-        jsonResponse({
-          rooms: [
-            {
-              room: 'build',
-              memberCount: 1,
-              unread: marked ? 0 : 3,
-              mentions: 0,
-            },
-          ],
-        })
-      );
-    return Promise.resolve(jsonResponse({}));
-  });
-  window.history.replaceState(null, '', '/r/build');
-  renderWithProviders(
-    <App
-      initialState={{
-        daemonReachable: true,
-        buddies: [],
-        rooms: [{ room: 'build', memberCount: 1, unread: 3, mentions: 0 }],
-        members: [],
-        messages: [],
-      }}
-    />
-  );
-  fireEvent.contextMenu(screen.getByTestId('room-row-build'));
-  await userEvent.click(await screen.findByTestId('room-context-mark-read'));
-  expect(fetchMock).toHaveBeenCalledWith(
-    '/api/chat/mark',
-    expect.objectContaining({ body: JSON.stringify({ room: 'build' }) })
-  );
-  await waitFor(() =>
-    expect(
-      within(screen.getByTestId('room-row-build')).queryByTestId('unread-badge')
-    ).toBeNull()
-  );
 });
 
 test("a chat/<room>/msg frame refetches the open room's members", async () => {
@@ -1155,360 +875,6 @@ test('a reconnect and a tab becoming visible refetch rooms, buddies and members,
   );
 });
 
-test('the entry points hide while herdr is unavailable and show once /api/panes says available', async () => {
-  installFetchMock();
-  fetchMock.mockImplementation(
-    async (url: string) =>
-      new Response(
-        JSON.stringify(
-          String(url).startsWith('/api/panes')
-            ? { available: false, panes: [] }
-            : {}
-        )
-      )
-  );
-  window.history.replaceState(null, '', '/r/build');
-  const { unmount } = renderWithProviders(<App initialState={twoRooms} />);
-  await act(async () => {});
-  expect(screen.queryByTestId('new-room-button')).toBeNull();
-  expect(screen.queryByTestId('add-agents-button')).toBeNull();
-  unmount();
-  fetchMock.mockImplementation(
-    async (url: string) =>
-      new Response(
-        JSON.stringify(
-          String(url).startsWith('/api/panes')
-            ? { available: true, panes: [] }
-            : {}
-        )
-      )
-  );
-  renderWithProviders(<App initialState={twoRooms} />);
-  expect(await screen.findByTestId('new-room-button')).toBeInTheDocument();
-  expect(screen.getByTestId('add-agents-button')).toBeInTheDocument();
-});
-
-test('a daemon-down 502 from /api/panes keeps the entry points mounted (disabled, not hidden)', async () => {
-  installFetchMock();
-  fetchMock.mockImplementation(async (url: string) =>
-    String(url).startsWith('/api/panes')
-      ? new Response(JSON.stringify({ error: 'rt daemon unreachable' }), {
-          status: 502,
-        })
-      : new Response(JSON.stringify({}))
-  );
-  window.history.replaceState(null, '', '/r/build');
-  renderWithProviders(<App initialState={twoRooms} />);
-  expect(await screen.findByTestId('new-room-button')).toBeInTheDocument();
-  expect(screen.getByTestId('add-agents-button')).toBeInTheDocument();
-});
-
-test('add agents invites the picked panes and shows the result line on the transcript edge', async () => {
-  installFetchMock();
-  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-    const path = String(url).split('?')[0];
-    if (path === '/api/panes')
-      return new Response(
-        JSON.stringify({
-          available: true,
-          panes: [
-            {
-              paneId: 'w1:p4',
-              workspace: 'acme',
-              title: 'Evaluate codegen',
-              cwd: '/r/acme',
-              agentStatus: 'idle',
-            },
-          ],
-        })
-      );
-    if (path === '/api/chat/invite' && init?.method === 'POST')
-      return new Response(
-        JSON.stringify({
-          results: [{ paneId: 'w1:p4', delivered: 'accepted' }],
-        })
-      );
-    return new Response(JSON.stringify({}));
-  });
-  window.history.replaceState(null, '', '/r/build');
-  renderWithProviders(
-    <App
-      initialState={{
-        ...twoRooms,
-        messages: [
-          {
-            id: 1,
-            room: 'build',
-            handle: 'meg',
-            name: 'meg',
-            body: 'hi',
-            mentions: [],
-            mentionNames: [],
-            postedAt: 1,
-          },
-        ],
-      }}
-    />
-  );
-  await userEvent.click(await screen.findByTestId('add-agents-button'));
-  await userEvent.click(await screen.findByTestId('pane-check-w1:p4'));
-  await userEvent.click(screen.getByTestId('pane-use'));
-  expect(await screen.findByTestId('transcript-notice')).toHaveTextContent(
-    'invited 1 · acme pane accepted'
-  );
-});
-
-const inboxPayload = {
-  needsYou: [
-    {
-      room: 'build',
-      kind: 'room' as const,
-      messageId: 412,
-      handle: 'meg',
-      name: 'meg',
-      postedAt: Date.now() - 60_000,
-      excerpt: '@matt is the exporter ready to ship?',
-      reason: 'mention' as const,
-    },
-  ],
-  openAsks: [],
-  elsewhere: [{ room: 'ops', kind: 'room' as const, unread: 9, mentions: 0 }],
-};
-
-const EMPTY_INBOX = { needsYou: [], openAsks: [], elsewhere: [] };
-
-/** `/api/chat/inbox` answers with `payload`; the reader's window fetch
-    answers with the opened message alone. Every other route is empty. */
-function serveInbox(payload = inboxPayload) {
-  installFetchMock();
-  fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url === '/api/chat/inbox') return jsonResponse(payload);
-    if (url.startsWith('/api/chat/messages/'))
-      return jsonResponse({
-        messages: [
-          {
-            id: 412,
-            room: 'build',
-            handle: 'meg',
-            name: 'meg',
-            body: '@matt is the exporter ready to ship?',
-            mentions: ['matt'],
-            mentionNames: ['matt'],
-            postedAt: payload.needsYou[0]?.postedAt ?? 1,
-          },
-        ],
-      });
-    return jsonResponse({});
-  });
-}
-
-test('the inbox lands from /api/chat/inbox, with the first card already in the reader', async () => {
-  serveInbox();
-  window.history.replaceState(null, '', '/');
-  renderWithProviders(<App />);
-
-  expect(await screen.findByTestId('inbox-card-412')).toBeInTheDocument();
-  expect(screen.getByTestId('inbox-card-412').dataset.open).toBe('true');
-  expect(await screen.findByTestId('reader-message-412')).toHaveTextContent(
-    'is the exporter ready to ship?'
-  );
-  expect(fetchMock).toHaveBeenCalledWith(
-    '/api/chat/messages/build?before=413&limit=2'
-  );
-});
-
-test('a chat/<room>/msg frame refetches the inbox, the same rule the rail follows', async () => {
-  serveInbox();
-  window.history.replaceState(null, '', '/');
-  renderWithProviders(<App />);
-  await screen.findByTestId('inbox-card-412');
-
-  const calls = () =>
-    fetchMock.mock.calls.filter(c => String(c[0]) === '/api/chat/inbox').length;
-  const before = calls();
-  act(() => {
-    FakeWebSocket.instances.at(-1)?.onmessage?.({
-      data: JSON.stringify({ topic: 'chat/build/msg', payload: { id: 9 } }),
-    });
-  });
-  await waitFor(() => expect(calls()).toBeGreaterThan(before));
-});
-
-test('a card’s mark read posts the room-level mark and refetches the inbox', async () => {
-  serveInbox();
-  window.history.replaceState(null, '', '/');
-  renderWithProviders(<App />);
-  await screen.findByTestId('inbox-card-412');
-
-  await userEvent.click(
-    screen.getByRole('button', { name: /mark #build read/i })
-  );
-  await waitFor(() =>
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/chat/mark',
-      expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({ room: 'build' }),
-      })
-    )
-  );
-});
-
-test('mark all read is the per-room mark, once per room that has unread', async () => {
-  serveInbox();
-  window.history.replaceState(null, '', '/');
-  renderWithProviders(
-    <App
-      initialState={{
-        daemonReachable: true,
-        buddies: [],
-        rooms: [
-          { room: 'build', memberCount: 1, unread: 1, mentions: 1 },
-          { room: 'ops', memberCount: 1, unread: 9, mentions: 0 },
-          { room: 'quiet', memberCount: 1, unread: 0, mentions: 0 },
-        ],
-        members: [],
-      }}
-    />
-  );
-  await screen.findByTestId('inbox-card-412');
-
-  await userEvent.click(screen.getByTestId('inbox-mark-all-read'));
-  await waitFor(() => {
-    const marked = fetchMock.mock.calls
-      .filter(c => String(c[0]) === '/api/chat/mark')
-      .map(c => (c[1] as RequestInit).body);
-    expect(marked).toEqual([
-      JSON.stringify({ room: 'build' }),
-      JSON.stringify({ room: 'ops' }),
-    ]);
-  });
-});
-
-test('open on a card leaves the inbox for the room, parked on that message', async () => {
-  serveInbox();
-  window.history.replaceState(null, '', '/');
-  renderWithProviders(<App />);
-  await screen.findByTestId('inbox-card-412');
-
-  await userEvent.click(screen.getByTestId('card-open-412'));
-  await waitFor(() => expect(window.location.pathname).toBe('/r/build'));
-  expect(window.location.hash).toBe('#m-412');
-});
-
-test('phone: tapping a card opens the reader in place, and back returns to the same list node', async () => {
-  serveInbox();
-  setViewportWidth(390);
-  window.history.replaceState(null, '', '/');
-  renderWithProviders(<App />);
-  await screen.findByTestId('inbox-card-412');
-
-  expect(screen.getByTestId('phone-inbox-list')).toHaveStyle({
-    visibility: 'visible',
-  });
-  expect(screen.queryByTestId('phone-inbox-reader')).toBeNull();
-  const list = screen.getByTestId('phone-inbox-list');
-
-  await userEvent.click(screen.getByTestId('card-lead-412'));
-  expect(await screen.findByTestId('reader-phone-header')).toHaveTextContent(
-    'meg needs you'
-  );
-  // The list stays mounted and laid out (never `display: none`) -- its
-  // scroll position survives; see the toggle's own comment for why.
-  expect(screen.getByTestId('phone-inbox-list')).toBe(list);
-  expect(screen.getByTestId('phone-inbox-list')).toHaveStyle({
-    visibility: 'hidden',
-  });
-
-  await userEvent.click(screen.getByTestId('reader-back'));
-  expect(screen.queryByTestId('phone-inbox-reader')).toBeNull();
-  expect(screen.getByTestId('phone-inbox-list')).toBe(list);
-  expect(screen.getByTestId('phone-inbox-list')).toHaveStyle({
-    visibility: 'visible',
-  });
-});
-
-test('phone: mark-all-read while the reader is open still leaves the list reachable', async () => {
-  // A stateful mock, not `serveInbox()`: the scenario needs `/api/chat/inbox`
-  // to answer full, then empty, once the reader's own mark-all sweep has
-  // run -- `serveInbox()`'s fixed payload never changes across refetches.
-  installFetchMock();
-  let inboxCalls = 0;
-  fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url === '/api/chat/inbox') {
-      inboxCalls += 1;
-      return jsonResponse(inboxCalls === 1 ? inboxPayload : EMPTY_INBOX);
-    }
-    if (url.startsWith('/api/chat/messages/'))
-      return jsonResponse({
-        messages: [
-          {
-            id: 412,
-            room: 'build',
-            handle: 'meg',
-            name: 'meg',
-            body: '@matt is the exporter ready to ship?',
-            mentions: ['matt'],
-            mentionNames: ['matt'],
-            postedAt: inboxPayload.needsYou[0]?.postedAt ?? 1,
-          },
-        ],
-      });
-    return jsonResponse({});
-  });
-
-  setViewportWidth(390);
-  window.history.replaceState(null, '', '/');
-  renderWithProviders(<App />);
-  await screen.findByTestId('inbox-card-412');
-
-  await userEvent.click(screen.getByTestId('card-lead-412'));
-  await screen.findByTestId('reader-phone-header');
-  expect(screen.getByTestId('phone-inbox-list')).toHaveStyle({
-    visibility: 'hidden',
-  });
-
-  await userEvent.click(screen.getByTestId('phone-inbox-mark-all'));
-
-  // The reader's card is gone (mark-all-read emptied the inbox), so the
-  // reader itself unmounts, AND the list must not be left hidden with no
-  // way back to it.
-  await waitFor(() =>
-    expect(screen.queryByTestId('reader-phone-header')).toBeNull()
-  );
-  expect(screen.queryByTestId('phone-inbox-reader')).toBeNull();
-  expect(screen.getByTestId('phone-inbox-list')).toHaveStyle({
-    visibility: 'visible',
-  });
-});
-
-test('the invite result line names a pane by its display name', () => {
-  renderWithProviders(
-    <div data-testid="line">
-      {resultLine(
-        [{ paneId: 'w9:p1', delivered: 'accepted' }],
-        [
-          {
-            paneId: 'w9:p1',
-            workspace: 'repo-tools',
-            agentStatus: 'idle',
-            presence: {
-              handle: 'remy.m2p4',
-              name: 'remy',
-              status: 'live',
-              rooms: [],
-            },
-          },
-        ]
-      )}
-    </div>
-  );
-  expect(screen.getByTestId('line')).toHaveTextContent('remy accepted');
-  expect(screen.getByTestId('line')).not.toHaveTextContent('m2p4');
-});
-
 test('the Slack label follows the daemon: shown while the chat is open, gone after it closes, absent on a failed status', async () => {
   installFetchMock();
   let conversations: { room: string }[] = [{ room: 'build' }];
@@ -1549,4 +915,287 @@ test('the Slack label follows the daemon: shown while the chat is open, gone aft
     expect(screen.queryByText('Only Claude sees this')).toBeNull()
   );
   expect(screen.getByRole('textbox')).toBeEnabled();
+});
+
+const landingRooms = {
+  ...twoRooms,
+  rooms: [
+    { room: 'build', memberCount: 1, unread: 0, mentions: 0, lastPostedAt: 20 },
+    { room: 'ops', memberCount: 1, unread: 0, mentions: 0, lastPostedAt: 10 },
+  ],
+};
+
+test('/ hands over to the room with the newest post, replacing itself in history', async () => {
+  window.history.replaceState(null, '', '/');
+  const before = window.history.length;
+  renderWithProviders(<App initialState={landingRooms} />);
+  await waitFor(() => expect(window.location.pathname).toBe('/r/build'));
+  expect(window.history.length).toBe(before);
+  expect(
+    within(screen.getByTestId('page-bar')).getByText('build')
+  ).toBeInTheDocument();
+});
+
+test('going back to / hands over to the latest room again', async () => {
+  window.history.replaceState(null, '', '/r/ops');
+  renderWithProviders(<App initialState={landingRooms} />);
+  expect(
+    within(screen.getByTestId('page-bar')).getByText('ops')
+  ).toBeInTheDocument();
+  act(() => {
+    window.history.replaceState(null, '', '/');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await waitFor(() => expect(window.location.pathname).toBe('/r/build'));
+  expect(
+    within(screen.getByTestId('page-bar')).getByText('build')
+  ).toBeInTheDocument();
+});
+
+test('/ passes over a closed room, however new, and a closed room is not listed', async () => {
+  window.history.replaceState(null, '', '/');
+  renderWithProviders(
+    <App
+      initialState={{
+        ...twoRooms,
+        rooms: [
+          {
+            room: 'closed-first',
+            memberCount: 1,
+            unread: 0,
+            mentions: 0,
+            lastPostedAt: 99,
+            archivedAt: Date.now() - 3 * 86_400_000,
+          },
+          {
+            room: 'build',
+            memberCount: 1,
+            unread: 0,
+            mentions: 0,
+            lastPostedAt: 1,
+          },
+        ],
+      }}
+    />
+  );
+  await waitFor(() => expect(window.location.pathname).toBe('/r/build'));
+  expect(screen.queryByTestId('room-row-closed-first')).toBeNull();
+});
+
+test('/ stays put with nothing open, and says why', () => {
+  window.history.replaceState(null, '', '/');
+  renderWithProviders(
+    <App
+      initialState={{
+        daemonReachable: true,
+        buddies: [],
+        rooms: [],
+        messages: [],
+        members: [],
+      }}
+    />
+  );
+  expect(window.location.pathname).toBe('/');
+  expect(
+    screen.getByText('No agent has signed in. A room appears when one does.')
+  ).toBeInTheDocument();
+  expect(screen.queryByTestId('room-rail')).toBeNull();
+});
+
+test('agents signed in with no room yet get the sidebar and their own note', () => {
+  window.history.replaceState(null, '', '/');
+  const now = Date.now();
+  renderWithProviders(
+    <App
+      initialState={{
+        daemonReachable: true,
+        buddies: [
+          {
+            sessionId: 's',
+            handle: 'fred',
+            baseHandle: 'fred',
+            name: 'fred',
+            signedInAt: now,
+            lastSeenAt: now,
+            status: 'live',
+            rooms: [],
+          },
+        ],
+        rooms: [],
+        messages: [],
+        members: [],
+      }}
+    />
+  );
+  expect(
+    screen.getByText('Agents are signed in but not in a room yet.')
+  ).toBeInTheDocument();
+  expect(screen.getByTestId('room-rail')).toBeInTheDocument();
+});
+
+test('closing the open room hands over to the latest room left', async () => {
+  installFetchMock();
+  const build = {
+    room: 'build',
+    memberCount: 1,
+    unread: 0,
+    mentions: 0,
+    lastPostedAt: 5,
+  };
+  fetchMock.mockImplementation((url: string) => {
+    if (url === '/api/chat/close')
+      return Promise.resolve(jsonResponse({ room: 'ghost', closedAt: 5 }));
+    if (url === '/api/chat/rooms')
+      return Promise.resolve(jsonResponse({ rooms: [build] }));
+    return Promise.resolve(jsonResponse({}));
+  });
+  window.history.replaceState(null, '', '/r/ghost');
+  renderWithProviders(
+    <App
+      initialState={{
+        ...twoRooms,
+        rooms: [
+          { room: 'ghost', memberCount: 1, unread: 0, mentions: 0 },
+          build,
+        ],
+      }}
+    />
+  );
+  await closeFromMenu('ghost');
+  expect(fetchMock).toHaveBeenCalledWith(
+    '/api/chat/close',
+    expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ room: 'ghost' }),
+    })
+  );
+  await waitFor(() => expect(window.location.pathname).toBe('/r/build'));
+  expect(screen.queryByTestId('room-row-ghost')).toBeNull();
+});
+
+test('stand-in skeletons show until the rooms answer', async () => {
+  installFetchMock();
+  let answerRooms!: (res: Response) => void;
+  fetchMock.mockImplementation((url: string) =>
+    url === '/api/chat/rooms'
+      ? new Promise<Response>(resolve => {
+          answerRooms = resolve;
+        })
+      : Promise.resolve(jsonResponse({}))
+  );
+  window.history.replaceState(null, '', '/r/build');
+  renderWithProviders(<App />);
+  expect(screen.getByTestId('rail-skeleton')).toBeInTheDocument();
+  expect(screen.getByTestId('title-skeleton')).toBeInTheDocument();
+  expect(screen.queryByTestId('page-bar')).toBeNull();
+  await act(async () => {
+    answerRooms(jsonResponse({ rooms: twoRooms.rooms }));
+  });
+  expect(screen.queryByTestId('rail-skeleton')).toBeNull();
+  expect(await screen.findByTestId('page-bar')).toBeInTheDocument();
+});
+
+test('the embed route is one room alone: compact, with no chrome and no sidebar', async () => {
+  installFetchMock();
+  window.history.replaceState(null, '', '/embed/r/build');
+  renderWithProviders(<App initialState={twoRooms} />);
+  expect(screen.getByTestId('transcript-column')).toHaveAttribute(
+    'data-compact',
+    'true'
+  );
+  expect(screen.getByTestId('composer')).toBeInTheDocument();
+  expect(screen.queryByRole('banner')).toBeNull();
+  expect(screen.queryByTestId('room-rail')).toBeNull();
+  expect(screen.queryByTestId('page-bar')).toBeNull();
+});
+
+test('a phone keeps the sidebar out of the way: no resizer, and the phone composer', () => {
+  setViewportWidth(390);
+  window.history.replaceState(null, '', '/r/build');
+  renderWithProviders(<App initialState={twoRooms} />);
+  expect(screen.queryByTestId('sidebar-resizer')).toBeNull();
+  expect(screen.getByRole('textbox', { name: 'Message' })).toHaveStyle({
+    maxHeight: '25vh',
+  });
+});
+
+test('a desktop gets the sidebar resizer', () => {
+  window.history.replaceState(null, '', '/r/build');
+  renderWithProviders(<App initialState={twoRooms} />);
+  expect(screen.getByTestId('sidebar-resizer')).toBeInTheDocument();
+});
+
+function mentioningMessage(handle: string) {
+  return {
+    id: 7,
+    room: 'build',
+    handle,
+    name: 'stale name',
+    body: `@${handle} hello`,
+    mentions: [handle],
+    mentionNames: [handle],
+    postedAt: 1,
+  };
+}
+
+function serveMe(me: () => Promise<Response>) {
+  installFetchMock();
+  fetchMock.mockImplementation((url: string) =>
+    url === '/api/chat/me' ? me() : Promise.resolve(jsonResponse({}))
+  );
+  window.history.replaceState(null, '', '/r/build');
+}
+
+test('useMe: the server names the viewer, keying mentions on the handle and showing the name', async () => {
+  serveMe(() =>
+    Promise.resolve(jsonResponse({ handle: 'alex', name: 'Alex Rivera' }))
+  );
+  renderWithProviders(
+    <App
+      initialState={{ ...twoRooms, messages: [mentioningMessage('alex')] }}
+    />
+  );
+  const row = await screen.findByTestId('message-7');
+  await waitFor(() => expect(row).toHaveTextContent('Alex Rivera'));
+  expect(row.querySelector('[data-mention]')).toHaveAttribute(
+    'data-me',
+    'true'
+  );
+});
+
+test('useMe: before the server answers, the viewer is the default handle', () => {
+  serveMe(() => new Promise<Response>(() => {}));
+  renderWithProviders(
+    <App
+      initialState={{ ...twoRooms, messages: [mentioningMessage('matt')] }}
+    />
+  );
+  expect(
+    screen.getByTestId('message-7').querySelector('[data-mention]')
+  ).toHaveAttribute('data-me', 'true');
+});
+
+test('useMe: a refused or failed answer keeps the default', async () => {
+  serveMe(() => Promise.resolve(errorResponse(500)));
+  const { unmount } = renderWithProviders(
+    <App
+      initialState={{ ...twoRooms, messages: [mentioningMessage('matt')] }}
+    />
+  );
+  await act(async () => {});
+  expect(
+    screen.getByTestId('message-7').querySelector('[data-mention]')
+  ).toHaveAttribute('data-me', 'true');
+  unmount();
+
+  serveMe(() => Promise.reject(new Error('network down')));
+  renderWithProviders(
+    <App
+      initialState={{ ...twoRooms, messages: [mentioningMessage('matt')] }}
+    />
+  );
+  await act(async () => {});
+  expect(
+    screen.getByTestId('message-7').querySelector('[data-mention]')
+  ).toHaveAttribute('data-me', 'true');
 });
