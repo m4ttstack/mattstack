@@ -33,7 +33,7 @@ import { navigate } from 'wouter/use-browser-location';
 
 import classes from './app.module.css';
 import { BuddiesProvider } from './buddies-context';
-import { MessageSkeleton, RailSkeleton } from './ChatSkeleton';
+import { RailSkeleton, RoomSkeleton } from './ChatSkeleton';
 import { AppMark } from './chrome/AppMark';
 import { Composer, type ComposerHandle } from './Composer';
 import { PageShellDemoPage } from './demo/PageShellDemoPage';
@@ -526,7 +526,7 @@ function ChatPage({
                     />
                   </Box>
                 ) : (
-                  <MessageSkeleton />
+                  <RoomSkeleton />
                 )
               ) : (
                 activeRoom && (

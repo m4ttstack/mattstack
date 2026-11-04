@@ -645,6 +645,7 @@ export function Transcript({
           <ScrollHandle handle={scrollHandle} />
           <Box
             className={scrollClasses.bottom}
+            data-loading={loading || undefined}
             style={bare || !compact ? undefined : { padding: `0 ${inset}` }}
           >
             <div

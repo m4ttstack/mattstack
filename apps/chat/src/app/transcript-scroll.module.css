@@ -22,6 +22,11 @@
   min-height: 100%;
 }
 
+/* Stand-in rows start at the top, so they do not crowd the message box. */
+.bottom[data-loading] {
+  justify-content: flex-start;
+}
+
 .view::-webkit-scrollbar {
   width: 8px;
 }

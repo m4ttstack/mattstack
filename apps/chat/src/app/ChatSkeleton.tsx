@@ -12,9 +12,8 @@ export function MessageSkeleton() {
   return (
     <Stack
       gap={16}
-      justify="flex-end"
       data-testid="message-skeleton"
-      style={{ flex: 1, padding: '0 24px 16px 20px' }}
+      style={{ flex: 1, padding: '16px 24px 16px 20px' }}
     >
       {MESSAGE_LINES.map((lines, i) => (
         <Group key={i} gap={12} align="flex-start" wrap="nowrap">
@@ -31,6 +30,21 @@ export function MessageSkeleton() {
           </Stack>
         </Group>
       ))}
+    </Stack>
+  );
+}
+
+/** A whole room's stand-in, before there is a room to open: the rows, and the
+    message box where it will land. */
+export function RoomSkeleton() {
+  return (
+    <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
+      <MessageSkeleton />
+      <Skeleton
+        height={46}
+        radius="lg"
+        style={{ width: 'auto', margin: '0 20px 20px' }}
+      />
     </Stack>
   );
 }
