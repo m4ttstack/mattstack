@@ -222,11 +222,12 @@ git commit -m "daemon: bridge Slack DMs into open conversations"
 - Create: `lib/daemon/handlers/slack-chat.ts`
 - Modify: `packages/rt-client/src/commands.ts`, `packages/rt-client/src/client.ts`, `lib/daemon/command-router.ts`, `lib/command-tree-def.ts`, `lib/module-registry.ts`
 - Create: `commands/chat-slack.ts`
-- Test: `lib/daemon/handlers/__tests__/slack-chat.test.ts`, `commands/__tests__/chat-slack.test.ts`
+- Modify: `lib/daemon/handlers/pane.ts` (the `pane:send` handler)
+- Test: `lib/daemon/handlers/__tests__/slack-chat.test.ts`, `commands/__tests__/chat-slack.test.ts`, `lib/daemon/__tests__/inject.test.ts`
 
 **Interfaces:**
 - Consumes: Tasks 2 to 5.
-- Produces, in `lib/daemon/inject.ts`: `injectIntoPane` refusing text whose first line starts `/slack-support` when `callerPane` is set.
+- Produces, in the `pane:send` handler: a refusal of text whose first line starts `/slack-support` when `callerPane` or `selfSession` is set.
 - Produces daemon commands:
 
 ```ts
@@ -239,7 +240,7 @@ git commit -m "daemon: bridge Slack DMs into open conversations"
 
 Verbs: `rt chat slack-open <person> --json`, `rt chat slack-watch --json`, `rt chat slack-delivered <id>` (all `hidden: true`, no `agentSafe`), `rt chat slack-close [--pane <pane>] [--farewell-file <path>]`, `rt chat slack-status`. `slack-watch` loops `chat:slack-pending` every 2 seconds, prints each new item as one JSON line in the spec's shape, reprints undelivered items on restart, and exits when `open` is false.
 
-- [ ] **Step 1: Write the failing tests:** `an unknown person is refused and nothing opens`; `an ambiguous person is refused with the candidates`; `a deleted or bot user can't be picked`; `a token without the support scopes is refused with the connect step`; `a pane not signed in to chat is refused`; `slack-open prints the JSON shape`; `slack-watch prints the documented line`; `slack-watch reprints undelivered items after a restart`; `slack-watch exits when the conversation closes`; `a pane cannot inject /slack-support, and a call from outside a pane can`; `slack-open is hidden and absent from the agent-safe list and the MCP roster`.
+- [ ] **Step 1: Write the failing tests:** `an unknown person is refused and nothing opens`; `an ambiguous person is refused with the candidates`; `a deleted or bot user can't be picked`; `a token without the support scopes is refused with the connect step`; `a pane not signed in to chat is refused`; `slack-open prints the JSON shape`; `slack-watch prints the documented line`; `slack-watch reprints undelivered items after a restart`; `slack-watch exits when the conversation closes`; `a pane cannot inject /slack-support into another pane or itself with self, and a call with no pane identity can`; `slack-open is hidden and absent from the agent-safe list and the MCP roster`.
 
 - [ ] **Step 2: Run** both test files. Expected: FAIL.
 
@@ -265,11 +266,11 @@ git commit -m "chat: add hidden Slack open, watch and delivered verbs"
 - Consumes: Task 2's store, Task 3's `closingLine`, Task 6's handlers.
 - Produces: `tickSlackLifecycle(deps: { db; client; notify; now }): Promise<void>`; `finishClose(conversationId, reason, farewell | undefined, deps): Promise<void>`; `SLACK_CHECK_IN_MS = 30 * 60_000`, `SLACK_IDLE_MS = 60 * 60_000`, `SLACK_FAREWELL_MS = 2 * 60_000`, `SLACK_PANE_GONE_MS = 5 * 60_000`, `SLACK_STALLED_MS = 10 * 60_000`.
 
-- [ ] **Step 1: Write the failing tests:** `30 quiet minutes queues one check-in item`; `a message after the check-in resets the timers`; `60 quiet minutes queues a close-request with reason idle`; `the pane's close sends its farewell then the fixed line, in that order`; `no close within 2 minutes sends only the fixed line`; `slack-close --pane queues a close-request with reason operator`; `no watcher for 5 minutes with a waiting item closes as pane-gone and notifies the operator`; `a long turn with a live watcher never closes as pane-gone`; `a gap in ticks (sleep) restarts the quiet timers, so no timeout fires straight after wake`; `a teammate message during the farewell window goes to the operator, not the pane`; `a failed farewell send still closes and notifies the operator`; `a second close is a no-op`; `an item undelivered for 10 minutes with a live watcher notifies the operator and sends one holding line`; `a delivery resets the stalled notice`; `the farewell and fixed line are recorded in the room`.
+- [ ] **Step 1: Write the failing tests:** `30 quiet minutes queues one check-in item`; `a message after the check-in resets the timers`; `60 quiet minutes queues a close-request with reason idle`; `the pane's close sends its farewell then the fixed line, in that order`; `no close within 2 minutes sends only the fixed line`; `slack-close --pane queues a close-request with reason operator`; `no watcher for 5 minutes with a waiting item closes as pane-gone and notifies the operator`; `a long turn with a live watcher never closes as pane-gone`; `a gap in ticks (sleep) moves the quiet, stalled and watcher timers, so no timeout, holding line or pane-gone fires straight after wake`; `a teammate message during the farewell window goes to the operator, not the pane`; `a failed farewell send still closes and notifies the operator`; `a second close is a no-op`; `an item undelivered for 10 minutes with a live watcher notifies the operator and sends one holding line`; `a delivery resets the stalled notice`; `the farewell and fixed line are recorded in the room`.
 
 - [ ] **Step 2: Run:** `bun test lib/daemon/__tests__/slack-lifecycle.test.ts`. Expected: FAIL.
 
-- [ ] **Step 3: Implement.** Detect sleep by comparing `now` with the last tick: a gap over 2 minutes pushes `lastActiveAt` forward by the gap. Closing marks the row first, then sends, so a retry can't double-send. Queue a `closed` item so the watcher tells the pane and exits.
+- [ ] **Step 3: Implement.** Detect sleep by comparing `now` with the last tick: a gap over 2 minutes pushes `lastActiveAt` and `watcherSeenAt` forward by the gap, and counts an item's stalled time from the end of the gap. Closing marks the row first, then sends, so a retry can't double-send. Queue a `closed` item so the watcher tells the pane and exits.
 
 - [ ] **Step 4: Run** the same test. Expected: PASS.
 

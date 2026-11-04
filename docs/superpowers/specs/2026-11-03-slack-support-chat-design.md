@@ -268,6 +268,12 @@ path into the pane.
 **Delivery is at least once.** A crash between the session taking a message and
 the confirm repeats that message, which the pane can see and ignore.
 
+**An accepted race.** Marking a Slack message delivered advances the pane's cursor,
+which is a high-water mark. If a chat UI message's push has just failed and a Slack
+message arrives before the 30 second sweep retries it, the chat UI message stays in
+the room and the viewer but doesn't reach the pane. It is rare, and a separate
+message flag would need a change to `chat_messages`, which this repo avoids.
+
 ### Pane to Slack
 
 The pane calls `chat_dm` to the teammate's handle. When the room belongs to an
@@ -422,9 +428,11 @@ for it to discover or be talked into calling.
   tree, has no MCP tool, and is named in no skill or doc.
 - **Closing the Bash gap.** The model can still reach Bash. The same mod's
   `tool.call` hook denies a Bash command that names `slack-open`, and one that
-  sends `/slack-support` into a pane. That is a string match, so the daemon also
-  refuses a pane injection whose first line starts `/slack-support` when the caller
-  is itself a pane. Flock and herdr-chat run outside a pane and never trip it.
+  sends `/slack-support` into a pane. That is a string match, so the daemon's
+  `pane:send` handler also refuses text whose first line starts `/slack-support`
+  when the caller is itself a pane, which it knows from `callerPane` or, for
+  `rt pane send self`, `selfSession`. Flock and herdr-chat send no pane identity,
+  so they never trip it.
 
 This stops accidents and misled panes. It isn't a security boundary against a
 determined process on this machine, which is outside what the operator asked for.
