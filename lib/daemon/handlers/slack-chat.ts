@@ -45,6 +45,9 @@ const TICKET_TITLE_MAX = 200;
 const TICKET_ACCEPTANCE_MAX = 30;
 const CANDIDATES_SHOWN = 8;
 const FRAME_MARKER_BYTES = 8;
+const SLACKBOT_ID = "USLACKBOT";
+// Slack's ids hold a digit, which keeps a capitalised name such as WILL out of this.
+const SLACK_ID_SHAPE = /^[UW][A-Z0-9]*[0-9][A-Z0-9]*$/;
 
 const SLACK_CHAT_COMMANDS = ["chat:slack-open", "chat:slack-close", "chat:slack-status", "chat:slack-people", "chat:slack-pending", "chat:slack-delivered", "chat:slack-ticket"] as const;
 
@@ -52,7 +55,9 @@ const defaultLog = lazyChildLogger("slack-chat");
 
 /** Profile fields are written by their owner, and these reach the support rules and the closing lines. */
 function cleanDisplayName(raw: string): string {
-  return raw.replace(/[^\p{L}\p{M}\p{N} ._'-]/gu, " ").replace(/\s+/g, " ").trim().slice(0, DISPLAY_NAME_MAX).trim();
+  const cleaned = raw.replace(/[^\p{L}\p{M}\p{N} ._'-]/gu, " ").replace(/\s+/g, " ").trim();
+  // Cut by code point: a lone surrogate from a unit cut is JSON serde_json rejects, which fails herdr-chat's whole read.
+  return Array.from(cleaned).slice(0, DISPLAY_NAME_MAX).join("").trim();
 }
 
 function shownName(user: SlackUser): string {
@@ -71,6 +76,8 @@ function comparableNames(user: SlackUser): string[] {
 function findPerson(users: SlackUser[], person: string): SlackUser | SlackRefusal {
   const byId = users.find((u) => u.id === person.trim());
   if (byId) return byId;
+  // A display name is its owner's to set, so one that copies an ineligible id must not win that id's chat.
+  if (SLACK_ID_SHAPE.test(person.trim()) || person.trim() === SLACKBOT_ID) return slackRefusal(`No one in this Slack workspace matches ${cleanDisplayName(person)}`);
   const wanted = person.trim().toLowerCase();
   const exact = users.filter((u) => comparableNames(u).includes(wanted));
   const matches = exact.length > 0 ? exact : users.filter((u) => comparableNames(u).some((n) => n.split(/\s+/).includes(wanted)));
@@ -149,7 +156,7 @@ export function createSlackChatHandlers(opts: {
       client,
       operatorUserId,
       operator: everyone.find((u) => u.id === operatorUserId),
-      people: everyone.filter((u) => !u.deleted && !u.isBot && u.id !== operatorUserId),
+      people: everyone.filter((u) => !u.deleted && !u.isBot && u.id !== operatorUserId && u.id !== SLACKBOT_ID),
     };
   }
 

@@ -367,6 +367,65 @@ test("slack-people cleans the name and the title, and leaves out a title that cl
   ]);
 });
 
+test("a name or title cut across an astral letter stays well-formed, so one profile can't break the list", async () => {
+  const astral = `A${"𝓐".repeat(30)}`;
+  const users = [OPERATOR, user("U0A", "Alex Example", { displayName: astral, title: astral })];
+  const res = await harness({ users }).handlers["chat:slack-people"]({});
+  if (!res.ok) throw new Error(res.error);
+  const [person] = res.data.people;
+  expect(person!.name.isWellFormed()).toBe(true);
+  expect(person!.title!.isWellFormed()).toBe(true);
+  expect(Array.from(person!.name)).toHaveLength(31);
+  expect(JSON.stringify(res.data.people)).not.toMatch(/\\ud[89ab]/i);
+});
+
+test("a stored display name cut across an astral letter stays well-formed", async () => {
+  const h = harness({ users: [OPERATOR, user("U0TEST", "Alex", { displayName: `A${"𝓐".repeat(30)}` })] });
+  await open(h, "U0TEST");
+  expect(listOpenConversations(h.db)[0]!.slackDisplayName.isWellFormed()).toBe(true);
+});
+
+test("the cut keeps forty letters, however many units they take", async () => {
+  const users = [OPERATOR, user("U0A", "x", { displayName: "𝓐".repeat(50) })];
+  const res = await harness({ users }).handlers["chat:slack-people"]({});
+  if (!res.ok) throw new Error(res.error);
+  expect(Array.from(res.data.people[0]!.name)).toHaveLength(40);
+});
+
+test("Slackbot, which Slack doesn't flag as a bot, is neither listed nor opened", async () => {
+  const slackbot = user("USLACKBOT", "Slackbot");
+  const listed = await harness({ users: [OPERATOR, ALEX, slackbot] }).handlers["chat:slack-people"]({});
+  if (!listed.ok) throw new Error(listed.error);
+  expect(listed.data.people.map((p) => p.person)).toEqual(["U0TEST"]);
+  for (const person of ["USLACKBOT", "Slackbot"]) {
+    const h = harness({ users: [OPERATOR, ALEX, slackbot] });
+    const { res } = await open(h, person);
+    expect(res.ok).toBe(false);
+    expect(listOpenConversations(h.db)).toEqual([]);
+  }
+});
+
+test("a teammate named after a deleted user's id doesn't get that user's chat", async () => {
+  const users = [OPERATOR, user("U0GONE", "Sam Gone", { deleted: true }), user("U0TEST", "Alex Example", { displayName: "U0GONE" })];
+  const h = harness({ users });
+  const { res } = await open(h, "U0GONE");
+  expect(refusal(res)).toBe("No one in this Slack workspace matches U0GONE");
+  expect(listOpenConversations(h.db)).toEqual([]);
+  expect(h.calls).not.toContain("openDm");
+});
+
+test("a teammate can't take Slackbot's id as a name", async () => {
+  const users = [OPERATOR, user("USLACKBOT", "Slackbot"), user("U0TEST", "Alex Example", { displayName: "USLACKBOT" })];
+  const { res } = await open(harness({ users }), "USLACKBOT");
+  expect(refusal(res)).toBe("No one in this Slack workspace matches USLACKBOT");
+});
+
+test("a capitalised name that isn't shaped like an id still matches by name", async () => {
+  const h = harness({ users: [OPERATOR, user("U0WILL", "Will Example")] });
+  await open(h, "WILL");
+  expect(listOpenConversations(h.db)[0]!.slackUserId).toBe("U0WILL");
+});
+
 test("every id slack-people lists opens that person", async () => {
   const users = [OPERATOR, user("U0ONE", "Alex Example"), user("U0TWO", "Alex Example"), user("U0THREE", "Sam (he/him)")];
   const listed = await harness({ users }).handlers["chat:slack-people"]({});
