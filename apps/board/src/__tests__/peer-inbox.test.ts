@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { AnnouncementPayload } from '@mattstack/rt-client';
-
 import type { Envelope, NudgeResult } from '../peer/envelope.ts';
 import { materializeEnvelope, type MaterializeDeps } from '../peer/inbox.ts';
 import type { NudgeState } from '../peer/nudges.ts';

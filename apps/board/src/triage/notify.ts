@@ -2,7 +2,6 @@ import { homedir } from 'os';
 import { join } from 'path';
 
 import type { AnnouncementPayload } from '@mattstack/rt-client';
-
 import type { AskKind } from '../peer/envelope.ts';
 
 /** rt-tray's notify socket; contract matches repo-tools commands/settings.ts
@@ -84,7 +83,12 @@ export async function notifyEscalation(
   title: string,
   message: string,
   mode: 'rt' | 'badge-only',
-  opts: { url?: string | null; traySock?: string; category?: string; id?: string } = {}
+  opts: {
+    url?: string | null;
+    traySock?: string;
+    category?: string;
+    id?: string;
+  } = {}
 ): Promise<void> {
   if (mode !== 'rt') return;
   const event = {
