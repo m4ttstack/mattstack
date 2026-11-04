@@ -97,7 +97,7 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   font-size: var(--mantine-font-size-md);
-  color: var(--tk-text-1);
+  color: color-mix(in srgb, var(--tk-text-1) 72%, var(--chat-chrome));
 }
 
 .dmRow:hover {
