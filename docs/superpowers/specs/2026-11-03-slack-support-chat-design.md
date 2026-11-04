@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS slack_conversations (
   slack_handle   TEXT NOT NULL,     -- the teammate's chat identity id
   slack_user_id  TEXT NOT NULL,
   slack_channel  TEXT NOT NULL,     -- the DM channel id
+  slack_display_name TEXT NOT NULL, -- the teammate's shown name, cleaned, for a person to read
   operator_user_id TEXT NOT NULL,   -- from auth.test at open; tells the operator's messages apart
   operator_name  TEXT NOT NULL,     -- for the rules and the closing lines, so a close needs no Slack read
   frame_marker   TEXT NOT NULL,     -- random, per conversation
@@ -273,7 +274,8 @@ Check-in and close requests also go through `$.prompt.submit`, so they have one
 path into the pane.
 
 **Delivery is at least once.** A crash between the session taking a message and
-the confirm repeats that message, which the pane can see and ignore.
+the confirm repeats that message. Each delivery carries its item id, so the pane
+can tell a repeat from a teammate sending the same words twice.
 
 **An accepted race.** Marking a Slack message delivered advances the pane's cursor,
 which is a high-water mark. If a chat UI message's push has just failed and a Slack
@@ -295,9 +297,11 @@ sending (`xox[abp]-`, `glpat-`, `ghp_`, `AKIA`, `BEGIN ... PRIVATE KEY`), in the
 spirit of `lib/daemon/forge-reads.ts`, and tells the pane it did. The skill's rule
 stays the main protection; this catches a slip.
 
-If Slack accepts a message and the chat row then fails to write, the tool reports
-failure and the pane may resend. A rare duplicate is accepted. The stored chat message has no prefix. A `chat_dm` into a
-closed conversation's room is refused with a clear reason.
+If Slack accepts a message and the chat row then fails to write, the tool still
+reports success, because a Slack post can't be taken back and a resend would reach
+the teammate twice. The result says the room record couldn't be written, and the
+daemon logs it. The stored chat message has no prefix. A `chat_dm` into a closed
+conversation's room is refused with a clear reason.
 
 ### The operator's messages
 
@@ -505,6 +509,7 @@ no MCP tool.
 | Verb | Does |
 |---|---|
 | `rt chat slack-open <person> --json` | Opens the chat, or refuses with candidates for an ambiguous or unknown person |
+| `rt chat slack-people --json` | Lists the people an open can reach, for Flock to pick from. Read-only, so the mod's deny doesn't cover it |
 | `rt chat slack-watch --json` | Stays running and prints one JSON line per waiting item |
 | `rt chat slack-delivered <id>` | Confirms an item reached the session, so a crash resends it |
 
@@ -523,15 +528,18 @@ that kept polling would hide the loss, so `slack-watch` exits as soon as its par
 process changes.
 
 **Underneath.** Each verb maps to a daemon command in the `chat:*` family, such as
-`chat:slack-open` and `chat:slack-close`. `herdr-chat` gains `slack-status` and
-`slack-close`, each with `--json`, which is what Flock calls.
+`chat:slack-open` and `chat:slack-close`. `herdr-chat` gains `slack-status`,
+`slack-close` and `slack-people`, each with `--json`, which is what Flock calls.
 
 The pane tools follow the `rt_verb`, roster and guard rules in
 `.claude/rules/mcp-and-gates.md`, and the command tree rules for plain
 descriptions.
 
-`users.list` backs the name lookup and matches display name and real name. The
-operator's choice of person is the access control, so there is no allowlist.
+`users.list` backs the name lookup. An exact Slack user id wins, then display name
+and real name, always over the same people: no deleted users, bots or the operator.
+A picker types the id, so a name the cleaning changes and two people with one name
+both stay reachable. The operator's choice of person is the access control, so
+there is no allowlist.
 
 ### The skill
 

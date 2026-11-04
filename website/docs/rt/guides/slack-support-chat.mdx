@@ -22,7 +22,15 @@ Do this once for your Slack app and once on each Mac that opens chats.
 
    This lets your Slack token read your direct messages, so only do it if you run support chats. Nobody else needs it, and nothing in setup asks for it. If the app doesn't list the scopes yet, your current token stays as it is and the row names what the app's owner needs to add.
 
-3. Install the herdr chat plugin, or reinstall it if you already have it, so the new controls show up:
+3. Update the mattstack Claude plugin, which adds the `/slack-support` command:
+
+   ```bash
+   claude plugin update mattstack@mattstack
+   ```
+
+   Then run `/reload-plugins` in your Claude Code session.
+
+4. Install the herdr chat plugin, or reinstall it if you already have it, so the new controls show up:
 
    ```bash
    herdr plugin install m4ttstack/mattstack/plugins/herdr-chat
@@ -36,6 +44,12 @@ In the pane, type:
 
 ```text
 /slack-support <person> <problem>
+```
+
+Put a full name in quotes:
+
+```text
+/slack-support "Alex Example" the printer won't print
 ```
 
 The pane writes a short brief, then sends the teammate a first message. Only you can open a chat: no model tool does it, and a teammate cannot ask for one.
