@@ -72,8 +72,9 @@ Just me branch in `accounts.ts`, which tests `reqs.length === 0`.
 `pack.ts` fails the whole pack stage on `reqs[0].error`, and a member cannot fix
 the org's data. `toolRows` draws a row `org.requirements` from it, with
 `required: false` and status `error`, homed under Team in `regroup.ts`. Entries
-that parsed still apply. The row has no `ROW_TARGETS` entry and blocks nothing,
-so the fast screens do not draw it. It shows under Setup status only.
+that parsed still apply. The row has no `ROW_TARGETS` entry and blocks nothing.
+The Setup status window draws it as a note on the ready screen, from the
+`orgNotice` a whole form read carries.
 
 **Unchanged.** Row ids stay `tool.team.<name>`, so stored waivers and the tray
 see no difference, and `PlanModels.swift` needs no new row field. The prepare stage
@@ -110,7 +111,8 @@ The record lives in its own file, `~/.mattstack/rt/tool-notices.json`, holding
 `pending`, `told` and `acked` name lists. It stays out of `setup-state.json`
 because `updateSetupState` has no lock, and a daemon write during a run could lose
 a migration id. A told name stays until Done acknowledges it, then drops off, so a
-tool removed and added back later notifies again. Later never re-notifies; the
+tool removed and added back later notifies again. It also drops off once the team
+no longer requires it, unless the read failed. Later never re-notifies; the
 update run's existing "Setup needs you" notification stays as the per-release
 reminder.
 
@@ -126,7 +128,8 @@ The stage never records Finish.
 - Footer: "Find this later in Setup status", with Later and Done.
 - Later closes the window and writes nothing, so Setup status lands here again.
 - Done is off until every row is done. It runs `rt setup form --ack-tools`, which
-  adds the names to `acked`, then closes the window.
+  adds the names to `acked`, then closes the window. On a first run, Done goes on
+  to rt's stage instead.
 - Once the rows clear, the heading reads "You're all set" and Later goes away.
 - The tray's step label reads "Setup status". There is no sub line.
 

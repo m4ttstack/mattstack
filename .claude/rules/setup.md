@@ -176,7 +176,9 @@ skip as a pack. An org file's error stays on `orgError`, drawn as the
 non-blocking `org.requirements` row; it never reaches `error`, which fails the
 pack stage. A pack's `excludeOrg` removes the org tool of that name, the
 integration it connects and an org integration of that name; a name matching
-nothing is ignored, so a tool the org later drops is no error.
+nothing is ignored, so a tool the org later drops is no error. A whole form
+read carries that row as `orgNotice`, which the Setup status window draws as a
+note on ready; it never moves a stage, a button or Finish.
 
 A finished Mac hears about a new required tool from the daemon's pull hook
 (`lib/setup/tool-notices.ts`). What was said lives in
