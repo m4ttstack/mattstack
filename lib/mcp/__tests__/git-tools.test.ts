@@ -355,6 +355,7 @@ describe("git_push runs the repo's check", () => {
       git: fakeGit(script, calls),
       guard,
       sync: async () => ({ code: 0, stdout: "", stderr: "" }),
+      hasCheck: () => true,
       check: check(calls, script),
       identity: () => "remote:github.com%2Facme%2Fapp",
       postCheck: async (identity, sha, result) => { calls.push("<post>"); posts.push([identity, sha, result]); return postOutcome; },
@@ -429,6 +430,7 @@ describe("git_push runs the repo's check", () => {
     const statusDeps = { exec: async (a: string[]) => { argv.push(a); return { stdout: "", stderr: "", exitCode: 0 }; }, hostname: () => "hilbert" };
     const tool = gitToolDefs({
       ...noForge, git: fakeGit({ ...onFeature, [PUSH]: {} }), guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }),
+      hasCheck: () => true,
       check: async () => { throw new Error("Authorization: Bearer s3cr3t-bearer-value"); },
       identity: () => "remote:github.com%2Facme%2Fapp",
       postCheck: (identity, sha, result) => postStatus(identity, sha, result, statusDeps),
@@ -470,15 +472,32 @@ describe("git_push runs the repo's check", () => {
     expect(r.body).toMatchObject({ pushed: true, check: { status: { posted: false, reason: "head-moved" } } });
     expect(t.posts).toEqual([]);
   });
-  test("a push gitPush will refuse never runs the check", async () => {
+  test("a push gitPush will refuse never runs the check, and returns its error", async () => {
     const calls: string[] = [];
     const tool = gitToolDefs({
       ...noForge, git: fakeGit({ ...onFeature, ...on("main") }, calls), guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }),
+      hasCheck: () => true,
       check: async () => { calls.push("<check>"); return run(); },
     }).find((t) => t.name === "git_push")!;
     const r = await tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv);
     expect(r.ok).toBe(false);
+    expect(r.error).toContain("refusing to push main");
     expect(calls).not.toContain("<check>");
+    expect(calls.filter((c) => c.startsWith("ls-remote"))).toHaveLength(0);
+  });
+  test("a repo with no check asks origin nothing beyond what the push itself asks", async () => {
+    const lsRemotes = async (hasCheck: boolean, input: Record<string, unknown>) => {
+      const calls: string[] = [];
+      const tool = gitToolDefs({
+        ...noForge, git: fakeGit({ ...onFeature, [PUSH]: {} }, calls), guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }),
+        hasCheck: () => hasCheck,
+        check: async () => { calls.push("<check>"); return { result: { configured: false }, status: null }; },
+      }).find((t) => t.name === "git_push")!;
+      await tool.handler({ tree: "/t", ...input }, {} as NodeJS.ProcessEnv);
+      expect(calls).not.toContain("<check>");
+      return calls.filter((c) => c.startsWith("ls-remote")).length;
+    };
+    expect(await lsRemotes(false, {})).toBe(await lsRemotes(true, { skipCheck: true }));
   });
   test("skipCheck runs nothing and posts nothing", async () => {
     const t = setup(checkReturning(run()), { skipCheck: true });
@@ -522,7 +541,7 @@ describe("git_push runs the repo's check", () => {
     const posts: string[] = [];
     const tool = gitToolDefs({
       ...noForge, git: fakeGit({ ...onFeature, [PUSH]: { code: 1, stderr: "rejected" } }, calls), guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }),
-      check: async () => run(), identity: () => "i", postCheck: async () => { posts.push("x"); return POSTED; },
+      hasCheck: () => true, check: async () => run(), identity: () => "i", postCheck: async () => { posts.push("x"); return POSTED; },
     }).find((t) => t.name === "git_push")!;
     const r = await tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv);
     expect(r.ok).toBe(false);

@@ -4,7 +4,7 @@ import { rtCommand, type Commands } from "../../packages/rt-client/src/index.ts"
 import { ensureLease } from "../ci/lease-guard.ts";
 import { checkTree, realCheckDeps, type CheckRun } from "../check/index.ts";
 import { postStatus } from "../check/status.ts";
-import { stopped } from "../check/run.ts";
+import { hasCheck, stopped } from "../check/run.ts";
 import { explainError } from "../explain-error.ts";
 import { loadRepoIndex } from "../repo-index.ts";
 import { rtSelfArgv } from "../rt-self.ts";
@@ -607,6 +607,8 @@ export interface GitToolDeps {
   authoredOpenMrs: (identity: string) => Promise<AuthoredMrs>;
   repoTrees: (identity: string) => Promise<RepoTrees>;
   ensureLease?: typeof ensureLease;
+  /** Whether the repo names a check; the default reads the setting over `realCheckDeps`. */
+  hasCheck?: (tree: string) => boolean;
   /** Runs the repo's configured check on the tree; the default is `checkTree` over `realCheckDeps`. */
   check?: (tree: string, opts: { post: boolean; signal?: AbortSignal }) => Promise<CheckRun>;
   /** Posts the verdict on the pushed sha; the default is `postStatus` over `realCheckDeps`. */
@@ -699,8 +701,10 @@ export function gitToolDefs(deps: GitToolDeps): McpToolDef[] {
           if (!lease.ok) return "refused" in lease ? ok({ pushed: false, refused: lease.refused, holder: lease.holder }) : err(lease.error);
         }
         let run: CheckRun | null = null;
-        // A push gitPush will refuse anyway (main, detached HEAD) must not spend a check first.
-        if (input.skipCheck !== true && !("error" in await pushableBranch(path, deps.git))) {
+        if (input.skipCheck !== true && (deps.hasCheck ?? ((tree) => hasCheck(tree, realCheckDeps)))(path)) {
+          // A push gitPush will refuse anyway (main, detached HEAD) must not spend a check first.
+          const pushable = await pushableBranch(path, deps.git);
+          if ("error" in pushable) return err(pushable.error);
           const ran = await runPushCheck(path, deps, signal);
           if (signal?.aborted) return err("git_push was cancelled during the check; nothing was pushed");
           const checked = movedDuring(ran, await headSha(path, deps.git));

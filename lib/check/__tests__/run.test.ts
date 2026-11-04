@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { GitRunner } from "../../mcp/git-tools.ts";
 import type { RunResult } from "../../subprocess.ts";
-import { readConfig, runCheck, treeState, type RunDeps } from "../run.ts";
+import { hasCheck, readConfig, runCheck, treeState, type RunDeps } from "../run.ts";
 
 type Script = Record<string, { code?: number; stdout?: string }>;
 
@@ -44,6 +44,19 @@ describe("readConfig", () => {
   test("a missing or empty command is null", () => {
     expect(readConfig("/tmp", { setting: () => ({}) })).toBeNull();
     expect(readConfig("/tmp", { setting: () => ({ command: "" }) })).toBeNull();
+  });
+});
+
+describe("hasCheck", () => {
+  test("follows the setting", () => {
+    expect(hasCheck("/tmp", { setting: () => ({}) })).toBe(false);
+    expect(hasCheck("/tmp", { setting: () => ({ command: "x" }) })).toBe(true);
+  });
+  test("a setting that cannot be read is a check to run, so it reaches an error verdict", () => {
+    const throwing = () => {
+      throw new Error("rt: cannot expand ${worktree}");
+    };
+    expect(hasCheck("/tmp", { setting: throwing })).toBe(true);
   });
 });
 

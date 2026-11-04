@@ -52,6 +52,14 @@ export function readConfig(tree: string, deps: Pick<RunDeps, "setting">): CheckC
   return { command: raw.command, timeoutSeconds: raw.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS };
 }
 
+export function hasCheck(tree: string, deps: Pick<RunDeps, "setting">): boolean {
+  try {
+    return readConfig(tree, deps) !== null;
+  } catch {
+    return true;
+  }
+}
+
 async function gitOut(git: GitRunner, args: string[], cwd: string): Promise<string | null> {
   const r = await git(args, cwd);
   return r.code === 0 ? r.stdout.trim() : null;
