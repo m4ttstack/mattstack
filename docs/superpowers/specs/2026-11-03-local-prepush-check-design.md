@@ -200,6 +200,10 @@ true`. Red or error refuses with `pushed: false`, `refusal: "check-red"`,
 the result. Green pushes, then posts. A repo with no `rt.check` configured
 pushes as today and the result carries `check: null`.
 
+When a check ran and HEAD has not moved, the push sends that exact sha, not
+`HEAD`, so a HEAD that moves after the last read cannot send an unchecked
+commit. With no check the refspec stays `HEAD:refs/heads/<branch>`.
+
 Posting never fails a push: a forge that refuses the status is a `warn`
 with the reason, shown once, and `check.status.posted` is false.
 

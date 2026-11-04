@@ -102,7 +102,7 @@ async function priorPipeline(openMr: (branch: string) => Promise<OpenMrLookup>, 
 // upstream; an explicit refspec pushes exactly one ref either way.
 export async function gitPush(
   cwd: string,
-  opts: { forceWithLease?: boolean; setUpstream?: boolean },
+  opts: { forceWithLease?: boolean; setUpstream?: boolean; /** Push this commit, not HEAD, so a moved HEAD cannot send what was never checked. */ sha?: string },
   git: GitRunner,
   openMr?: (branch: string) => Promise<OpenMrLookup>,
 ): Promise<ToolResult> {
@@ -122,7 +122,7 @@ export async function gitPush(
   if (opts.setUpstream) {
     remote = "origin";
     remoteBranch = branch;
-    args.push("-u");
+    if (!opts.sha) args.push("-u");
   } else {
     const upstream = await git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], cwd);
     if (upstream.code !== 0) return err(`${branch} has no upstream; ${asOrigin}`);
@@ -142,13 +142,24 @@ export async function gitPush(
     if (remoteDef.names.includes(remoteBranch)) return err(`refusing to push ${branch}: its upstream ${full} is ${remote}'s default branch; ${asOrigin}`);
   }
   // A remote name comes from config and may start with a dash.
-  args.push("--end-of-options", remote, `HEAD:refs/heads/${remoteBranch}`);
+  args.push("--end-of-options", remote, `${opts.sha ?? "HEAD"}:refs/heads/${remoteBranch}`);
   const head = await git(["rev-parse", "--verify", "HEAD"], cwd);
   if (head.code !== 0) return err(`git rev-parse --verify HEAD failed: ${detail(head)}`);
   const before = openMr ? await priorPipeline(openMr, branch) : {};
   const r = await git(args, cwd);
   if (r.code !== 0) return err(`git push failed: ${detail(r)}`);
-  return ok({ pushed: true, branch, sha: head.stdout.trim(), forceWithLease: opts.forceWithLease === true, upstream: `${remote}/${remoteBranch}`, ...before });
+  const tracking = opts.sha && opts.setUpstream ? await writeUpstream(cwd, git, branch, remote, remoteBranch) : {};
+  return ok({ pushed: true, branch, sha: opts.sha ?? head.stdout.trim(), forceWithLease: opts.forceWithLease === true, upstream: `${remote}/${remoteBranch}`, ...before, ...tracking });
+}
+
+// git's -u records nothing for a bare sha source, so a pinned push writes the
+// same two keys itself. The push has landed, so a failure here only reports.
+async function writeUpstream(cwd: string, git: GitRunner, branch: string, remote: string, remoteBranch: string): Promise<{ upstreamError?: string }> {
+  for (const [key, value] of [[`branch.${branch}.remote`, remote], [`branch.${branch}.merge`, `refs/heads/${remoteBranch}`]] as const) {
+    const r = await git(["config", key, value], cwd);
+    if (r.code !== 0) return { upstreamError: detail(r) };
+  }
+  return {};
 }
 
 export async function gitPull(cwd: string, git: GitRunner): Promise<ToolResult> {
@@ -671,7 +682,7 @@ export function gitToolDefs(deps: GitToolDeps): McpToolDef[] {
   return [
     {
       name: "git_push",
-      description: "Push the tree's current branch as exactly one ref (HEAD to refs/heads/<branch>; no tags, no submodules) to the same-named branch on its upstream's remote, or to origin/<branch> with setUpstream: true, which also makes that the upstream. Force is only ever --force-with-lease --force-if-includes. Before pushing it runs the repo's configured check (rt.check; rt check runs the same one) and, once the push succeeds, posts the verdict on the pushed sha as a GitHub commit status (a forge refusal never fails the push, and a dirty tree is never posted); a repo with no check pushes with check: null. A red or errored check, or a check that cannot run, refuses with pushed: false, refusal: \"check-red\" or \"check-error\", check (the verdict, summary and failing files), why (how to push anyway) and next: \"rt check\"; a HEAD that moved during the check counts as an error and is never posted; allowRed: true pushes anyway and still posts the result, skipCheck: true runs and posts nothing and wins over allowRed. Refuses a detached HEAD; main, master and origin's default branch, and any push when origin's default cannot be read; a branch with no upstream unless setUpstream: true; an upstream with a different branch name, or one that is its own remote's default branch, or whose remote's default branch cannot be read (setUpstream: true pushes as origin/<branch> instead). Returns the pushed sha and, read from GitLab just before the push, the branch's open MR (mr: {iid, url} or null) and that MR's latest pipeline id (priorPipelineId), so a CI watch can tell the push's pipeline from the one already there. mrLookup is \"unavailable\" when the forge could not be read (a GitHub repo, the daemon down), in which case mr: null is not proof there is none; the push goes ahead either way.",
+      description: "Push the tree's current branch as exactly one ref (HEAD, or the exact sha the check ran on when one ran, to refs/heads/<branch>; no tags, no submodules) to the same-named branch on its upstream's remote, or to origin/<branch> with setUpstream: true, which also makes that the upstream. Force is only ever --force-with-lease --force-if-includes. Before pushing it runs the repo's configured check (rt.check; rt check runs the same one) and, once the push succeeds, posts the verdict on the pushed sha as a GitHub commit status (a forge refusal never fails the push, and a dirty tree is never posted); a repo with no check pushes with check: null. A red or errored check, or a check that cannot run, refuses with pushed: false, refusal: \"check-red\" or \"check-error\", check (the verdict, summary and failing files), why (how to push anyway) and next: \"rt check\"; a HEAD that moved during the check counts as an error and is never posted; allowRed: true pushes anyway and still posts the result, skipCheck: true runs and posts nothing and wins over allowRed. Refuses a detached HEAD; main, master and origin's default branch, and any push when origin's default cannot be read; a branch with no upstream unless setUpstream: true; an upstream with a different branch name, or one that is its own remote's default branch, or whose remote's default branch cannot be read (setUpstream: true pushes as origin/<branch> instead). Returns the pushed sha (and upstreamError when setUpstream could not be recorded after a push that landed) and, read from GitLab just before the push, the branch's open MR (mr: {iid, url} or null) and that MR's latest pipeline id (priorPipelineId), so a CI watch can tell the push's pipeline from the one already there. mrLookup is \"unavailable\" when the forge could not be read (a GitHub repo, the daemon down), in which case mr: null is not proof there is none; the push goes ahead either way.",
       inputSchema: { type: "object", properties: { ...TREE_PROP, forceWithLease: { type: "boolean" }, setUpstream: { type: "boolean" }, allowRed: { type: "boolean", description: "Push even when the check is red or errored, and post that result." }, skipCheck: { type: "boolean", description: "Run no check and post no status." }, leaseMrUrl: { type: "string", description: "The MR or PR https URL whose CI lease this session must hold (or can claim) for the push to run. Refused with pushed: false while another owner holds a fresh lease." } }, required: ["tree"], additionalProperties: false },
       shellForms: ["git push", "rt git push"],
       handler: (input, env, signal) => guarded(async (path, input, repoName) => {
@@ -683,22 +694,26 @@ export function gitToolDefs(deps: GitToolDeps): McpToolDef[] {
           if (!lease.ok) return "refused" in lease ? ok({ pushed: false, refused: lease.refused, holder: lease.holder }) : err(lease.error);
         }
         let run: CheckRun | null = null;
+        let checkedSha: string | undefined;
         if (input.skipCheck !== true && (deps.hasCheck ?? ((tree) => hasCheck(tree, realCheckDeps)))(path)) {
           // A push gitPush will refuse anyway (main, detached HEAD) must not spend a check first.
           const pushable = await pushableBranch(path, deps.git);
           if ("error" in pushable) return err(pushable.error);
           const ran = await runPushCheck(path, deps, signal);
           if (signal?.aborted) return err("git_push was cancelled during the check; nothing was pushed");
-          const checked = movedDuring(ran, await headSha(path, deps.git));
+          const now = await headSha(path, deps.git);
+          const checked = movedDuring(ran, now);
           if (checked.result.configured) {
             run = checked;
+            if (now !== "" && checked.result.sha === now) checkedSha = now;
             const verdict = checked.result.verdict;
             if (verdict !== "green" && input.allowRed !== true) {
               return ok({ pushed: false, refusal: verdict === "red" ? "check-red" : "check-error", check: checked, why: refusalWhy(verdict), next: "rt check" });
             }
           }
         }
-        const pushed = await gitPush(path, { forceWithLease: input.forceWithLease === true, setUpstream: input.setUpstream === true }, deps.git, (branch) => deps.openMr(repoName, branch));
+        if (signal?.aborted) return err("git_push was cancelled before the push; nothing was pushed");
+        const pushed = await gitPush(path, { forceWithLease: input.forceWithLease === true, setUpstream: input.setUpstream === true, ...(checkedSha && { sha: checkedSha }) }, deps.git, (branch) => deps.openMr(repoName, branch));
         if (!pushed.ok || pushed.body === null || typeof pushed.body !== "object") return pushed;
         const body = pushed.body as { sha: string };
         if (run) await postPushed(run, path, body.sha, deps);
