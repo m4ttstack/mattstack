@@ -436,3 +436,37 @@ test('a composer outside any provider shows no label', () => {
   );
   expect(screen.queryByText('Only Claude sees this')).toBeNull();
 });
+
+test("a Slack support room's placeholder drops the both-will-wake hint", () => {
+  renderWithProviders(
+    <SlackChatsProvider rooms={['dm-slack']}>
+      <Composer
+        room="dm-slack"
+        roomMembers={['alex', 'matt']}
+        buddies={[]}
+        isDm
+      />
+    </SlackChatsProvider>
+  );
+  expect(screen.getByRole('textbox')).toHaveAttribute(
+    'placeholder',
+    'Message alex ↔ matt'
+  );
+});
+
+test('a normal DM keeps the both-will-wake hint', () => {
+  renderWithProviders(
+    <SlackChatsProvider rooms={['dm-slack']}>
+      <Composer
+        room="dm-other"
+        roomMembers={['kai', 'remy']}
+        buddies={[]}
+        isDm
+      />
+    </SlackChatsProvider>
+  );
+  expect(screen.getByRole('textbox')).toHaveAttribute(
+    'placeholder',
+    'Message kai ↔ remy (both will wake)'
+  );
+});

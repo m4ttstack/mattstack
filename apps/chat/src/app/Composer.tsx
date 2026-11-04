@@ -466,7 +466,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
       : placeholderProp
         ? placeholderProp
         : isDm
-          ? phone
+          ? phone || slackChat
             ? `Message ${roomMembers.map(nameOf).join(' ↔ ')}`
             : `Message ${roomMembers.map(nameOf).join(' ↔ ')} (both will wake)`
           : phone
