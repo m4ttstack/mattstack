@@ -9,5 +9,6 @@ new=test-timings.new.json
 rm -f "$new"
 bun run test --timings="$new" --update-timings "$@"
 status=$?
-mv "$new" test-timings.json
+# bun writes nothing when no test ran.
+[ ! -f "$new" ] || mv "$new" test-timings.json
 exit "$status"

@@ -15,18 +15,21 @@ beforeEach(() => {
   // committed file would see, then writes the measured file it was told to.
   writeFileSync(
     join(dir, "bun"),
-    `#!/bin/bash\nprintf '%s\\n' "$*" > args\ncat test-timings.json > seen-during-run\nfor a in "$@"; do case "$a" in --timings=*) printf '%s' "$MEASURED" > "\${a#--timings=}" ;; esac; done\nexit "$SUITE_EXIT"\n`,
+    `#!/bin/bash\nprintf '%s\\n' "$*" > args\ncat test-timings.json > seen-during-run\n[ -n "$MEASURED" ] && for a in "$@"; do case "$a" in --timings=*) printf '%s' "$MEASURED" > "\${a#--timings=}" ;; esac; done\nexit "$SUITE_EXIT"\n`,
   );
   chmodSync(join(dir, "bun"), 0o755);
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 function regenerate(suiteExit: number, ...args: string[]): number {
-  const run = Bun.spawnSync(["bash", join(ROOT, "scripts/ci/timings.sh"), ...args], {
+  return suite(suiteExit, MEASURED, args).exitCode;
+}
+
+function suite(suiteExit: number, measured: string, args: string[] = []) {
+  return Bun.spawnSync(["bash", join(ROOT, "scripts/ci/timings.sh"), ...args], {
     cwd: dir,
-    env: { PATH: `${dir}:${process.env.PATH}`, MEASURED, SUITE_EXIT: String(suiteExit) },
+    env: { PATH: `${dir}:${process.env.PATH}`, MEASURED: measured, SUITE_EXIT: String(suiteExit) },
   });
-  return run.exitCode;
 }
 
 test("the committed file stays in place while the suite runs: two tests read it", () => {
@@ -43,6 +46,13 @@ test("the measured file replaces it whole, so a deleted test's entry goes", () =
 test("a red suite still leaves the measurement, and stays red", () => {
   expect(regenerate(1)).toBe(1);
   expect(readFileSync(join(dir, "test-timings.json"), "utf8")).toBe(MEASURED);
+});
+
+test("a run that measured nothing leaves the committed file, and says nothing about it", () => {
+  const run = suite(1, "");
+  expect(run.exitCode).toBe(1);
+  expect(run.stderr.toString()).toBe("");
+  expect(readFileSync(join(dir, "test-timings.json"), "utf8")).toBe(OLD);
 });
 
 test("the caller's arguments reach the suite", () => {
