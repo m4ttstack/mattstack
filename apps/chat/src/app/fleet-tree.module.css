@@ -79,12 +79,20 @@
   min-width: 0;
 }
 
-.menuItem {
-  padding: 6px 12px;
-  font-size: var(--mantine-font-size-md);
+/* Full-width items with a solid highlight, as Slack's menus have. */
+.menuDropdown.menuDropdown {
+  padding: 8px 0 !important;
+  border-radius: var(--mantine-radius-md);
 }
 
-.menuItem[data-hovered] {
-  background: var(--chat-bar);
-  color: white;
+.menuItem.menuItem {
+  padding: 5px 24px !important;
+  border-radius: 0;
+  font-size: var(--mantine-font-size-lg);
+}
+
+.menuItem.menuItem[data-hovered],
+.menuItem.menuItem:hover {
+  background-color: var(--tk-fill-accent);
+  color: var(--tk-on-fill-accent);
 }

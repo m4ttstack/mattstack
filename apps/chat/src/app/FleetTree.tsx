@@ -219,12 +219,12 @@ function RowMenu({
       onChange={onChange}
       position="bottom-start"
       offset={2}
-      width={200}
+      width={220}
       radius="md"
       shadow="md"
       withinPortal
       transitionProps={{ duration: 0 }}
-      classNames={{ item: classes.menuItem }}
+      classNames={{ dropdown: classes.menuDropdown, item: classes.menuItem }}
     >
       <Menu.ContextMenu>{children}</Menu.ContextMenu>
       <Menu.Dropdown data-testid={testId}>
