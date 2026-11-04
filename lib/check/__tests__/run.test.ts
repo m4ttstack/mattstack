@@ -10,7 +10,8 @@ const VERIFY_FEAT = "rev-parse --verify --end-of-options origin/feat^{commit}";
 function fakeGit(script: Script = {}, calls: string[] = []): GitRunner {
   const base: Script = {
     "rev-parse --verify HEAD": { stdout: "abc123\n" },
-    "symbolic-ref refs/remotes/origin/HEAD": { stdout: "refs/remotes/origin/main\n" },
+    "symbolic-ref --quiet refs/remotes/origin/HEAD": { stdout: "refs/remotes/origin/main\n" },
+    "ls-remote --symref --end-of-options origin HEAD": { code: 128 },
     "merge-base HEAD origin/main": { stdout: "base456\n" },
     "status --porcelain": { stdout: "" },
   };
@@ -78,6 +79,17 @@ describe("runCheck", () => {
     expect(execCalls[0]!.opts?.env?.RT_CHECK_FULL).toBeUndefined();
     await runCheck("/tree", { full: true }, deps);
     expect(execCalls[1]!.opts?.env?.RT_CHECK_FULL).toBe("1");
+  });
+
+  test("an inherited RT_CHECK_FULL does not turn a scoped run full", async () => {
+    process.env.RT_CHECK_FULL = "1";
+    try {
+      const { deps, execCalls } = harness();
+      await runCheck("/tree", {}, deps);
+      expect(execCalls[0]!.opts?.env).not.toHaveProperty("RT_CHECK_FULL");
+    } finally {
+      delete process.env.RT_CHECK_FULL;
+    }
   });
 
   test("hands the caller's abort signal to the command's child", async () => {
@@ -210,9 +222,18 @@ describe("runCheck", () => {
   });
 
   test("the default branch falls back to main", async () => {
-    const { deps, execCalls } = harness({}, fakeGit({ "symbolic-ref refs/remotes/origin/HEAD": { code: 1 } }));
+    const { deps, execCalls } = harness({}, fakeGit({ "symbolic-ref --quiet refs/remotes/origin/HEAD": { code: 1 } }));
     await runCheck("/tree", {}, deps);
     expect(execCalls[0]!.opts?.env?.RT_CHECK_BASE).toBe("base456");
+  });
+
+  test("origin's own answer wins over a stale origin/HEAD, as it does for the push", async () => {
+    const { deps, execCalls } = harness({}, fakeGit({
+      "ls-remote --symref --end-of-options origin HEAD": { stdout: "ref: refs/heads/develop\tHEAD\nabc\tHEAD\n" },
+      "merge-base HEAD origin/develop": { stdout: "dev789\n" },
+    }));
+    await runCheck("/tree", {}, deps);
+    expect(execCalls[0]!.opts?.env?.RT_CHECK_BASE).toBe("dev789");
   });
 });
 

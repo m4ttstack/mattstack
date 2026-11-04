@@ -16,7 +16,7 @@ function harness(opts: { run?: Partial<RunResult>; dirty?: boolean; dirtiedByRun
     const out: Record<string, string> = {
       "rev-parse --verify HEAD": "abc123\n",
       "status --porcelain": opts.dirty || (opts.dirtiedByRun && commands.length > 0) ? " M a.ts\n" : "",
-      "symbolic-ref refs/remotes/origin/HEAD": "refs/remotes/origin/main\n",
+      "symbolic-ref --quiet refs/remotes/origin/HEAD": "refs/remotes/origin/main\n",
       "merge-base HEAD origin/main": "base456\n",
       "rev-parse --verify --end-of-options origin/dev^{commit}": "dev789\n",
     };

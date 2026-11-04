@@ -3,6 +3,7 @@ import { parseIdentity } from "../settings/identity.ts";
 import { identityForRootReadOnly } from "../repo.ts";
 import { childEnv, runCapture } from "../subprocess.ts";
 import type { GitRunner } from "../mcp/git-tools.ts";
+import { remoteDefault } from "../mcp/remote-default.ts";
 import { parseSummary, type CheckSummary, type CheckVerdict } from "./summary.ts";
 
 export type CheckConfig = { command: string; timeoutSeconds: number };
@@ -72,8 +73,7 @@ export async function treeState(tree: string, deps: Pick<RunDeps, "git">): Promi
 }
 
 async function mergeBase(tree: string, git: GitRunner): Promise<{ base: string; branch: string }> {
-  const head = await gitOut(git, ["symbolic-ref", "refs/remotes/origin/HEAD"], tree);
-  const branch = head?.replace(/^refs\/remotes\/origin\//, "") || "main";
+  const branch = (await remoteDefault(tree, git))?.primary ?? "main";
   return { base: (await gitOut(git, ["merge-base", "HEAD", `origin/${branch}`], tree)) ?? "", branch };
 }
 
@@ -114,19 +114,17 @@ export async function runCheck(
     base = found.base;
   }
 
+  const env: Record<string, string | undefined> = { ...childEnv(), RT_CHECK_BASE: base, RT_CHECK_HEAD: sha, RT_CHECK_TREE: tree };
+  delete env.RT_CHECK_FULL;
+  if (opts.full) env.RT_CHECK_FULL = "1";
+
   const started = deps.now();
   const run = await deps.exec(["/bin/sh", "-c", config.command], {
     cwd: tree,
     stderr: "pipe",
     timeoutMs: config.timeoutSeconds * 1000,
     ...(opts.signal && { signal: opts.signal }),
-    env: {
-      ...childEnv(),
-      RT_CHECK_BASE: base,
-      RT_CHECK_HEAD: sha,
-      RT_CHECK_TREE: tree,
-      ...(opts.full ? { RT_CHECK_FULL: "1" } : {}),
-    },
+    env,
   });
   const wallMs = deps.now() - started;
 
