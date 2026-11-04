@@ -22,11 +22,6 @@
   min-height: 100%;
 }
 
-.view {
-  scrollbar-width: thin;
-  scrollbar-color: var(--tk-border) transparent;
-}
-
 .view::-webkit-scrollbar {
   width: 8px;
 }
