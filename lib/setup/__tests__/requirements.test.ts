@@ -51,6 +51,17 @@ describe("parseRequirements", () => {
     expect(result.error).toContain("tools[1]");
   });
 
+  test.each(["/tmp/run-me", "./run-me", "../run-me", "bin/run-me", "-run-me", "run me", ""])("a tool name that is not a bare command is skipped: %p", (name) => {
+    const result = parseRequirements("acme", JSON.stringify({ tools: [{ name, why: "fine" }, { name: "ok", why: "fine" }], integrations: [] }));
+
+    expect(result.tools).toEqual([{ name: "ok", why: "fine" }]);
+    expect(result.error).toContain("tools[0]");
+  });
+
+  test.each(["gh", "acme-api", "node20", "python3.12", "g++", "foo_bar"])("a bare command name is kept: %p", (name) => {
+    expect(parseRequirements("acme", JSON.stringify({ tools: [{ name, why: "fine" }], integrations: [] })).tools).toEqual([{ name, why: "fine" }]);
+  });
+
   test("connect.verb rejects non-string elements rather than passing them through", () => {
     const result = parseRequirements("acme", '{ "tools":[{"name":"widget","why":"x","connect":{"verb":[1,2],"label":"Run it"}}], "integrations":[] }');
     expect(result.tools).toEqual([{ name: "widget", why: "x" }]);

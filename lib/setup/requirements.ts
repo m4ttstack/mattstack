@@ -88,11 +88,14 @@ function packLabel(packName: string): string {
   return `pack "${packName}": `;
 }
 
+/** The daemon runs `<name> --version` after a pull with no click, so a name carrying a path would run a file from the pulled clone. */
+const BARE_COMMAND = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/;
+
 /** Malformed entries and a dropped connect.integration are both reported through `error`, never silently — `index`/`packName` name which tool a pack author needs to fix, since two skipped entries in one file would otherwise render as identical, unactionable text. */
 function parseToolRequirement(t: unknown, index: number, packName: string): { tool: ToolRequirement | null; error?: string } {
   if (typeof t !== "object" || t === null) return { tool: null, error: `${packLabel(packName)}tools[${index}] is malformed, skipped` };
   const o = t as Record<string, unknown>;
-  if (typeof o.name !== "string" || typeof o.why !== "string") {
+  if (typeof o.name !== "string" || typeof o.why !== "string" || !BARE_COMMAND.test(o.name)) {
     return { tool: null, error: `${packLabel(packName)}tools[${index}] is malformed, skipped` };
   }
 
