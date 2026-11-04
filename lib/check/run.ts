@@ -17,7 +17,9 @@ export type CheckResult =
       /** Tracked modifications or non-ignored untracked files. */
       dirty: boolean;
       command: string;
+      /** Local only: it can hold the command's raw output, so it never goes to a forge. */
       reason?: string;
+      timedOutAfter?: number;
       outputTail: string;
       fromCache: boolean;
     }
@@ -132,6 +134,7 @@ export async function runCheck(
     dirty,
     command: config.command,
     ...(reason ? { reason } : {}),
+    ...(run.timedOut ? { timedOutAfter: config.timeoutSeconds } : {}),
     outputTail,
     fromCache: false,
   };

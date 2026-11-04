@@ -101,7 +101,7 @@ describe("runCheck", () => {
     const { deps, execCalls } = harness({ exitCode: -1, timedOut: true });
     const r = await runCheck("/tree", {}, deps);
     expect(r.configured && r.verdict).toBe("error");
-    if (r.configured) expect(r.reason).toBe("timed out after 600s");
+    if (r.configured) expect(r).toMatchObject({ reason: "timed out after 600s", timedOutAfter: 600 });
     expect(execCalls[0]!.opts?.timeoutMs).toBe(600_000);
   });
 
@@ -112,6 +112,13 @@ describe("runCheck", () => {
       expect(r.configured && r.verdict).toBe("error");
       if (r.configured) expect(r.reason).toStartWith("command could not start");
     }
+  });
+
+  test("raw stderr stays in the local reason", async () => {
+    const { deps } = harness({ exitCode: 127, stderr: "sh: nope: not found\n" });
+    const r = await runCheck("/tree", {}, deps);
+    expect(r).toMatchObject({ verdict: "error", reason: "command could not start: sh: nope: not found" });
+    expect(r).not.toHaveProperty("timedOutAfter");
   });
 
   test("a dirty tree gates but is not posted", async () => {

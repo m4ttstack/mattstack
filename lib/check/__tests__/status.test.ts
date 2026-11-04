@@ -2,12 +2,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { serializeIdentity } from "../../settings/identity.ts";
 import { __test__ as warnTest, setWarningLog } from "../../ui/warn.ts";
 import type { RunResult } from "../../subprocess.ts";
-import type { CheckResult } from "../run.ts";
+import { captureOut } from "../../ui/__tests__/capture-out.ts";
+import { runCheck, type CheckResult } from "../run.ts";
 import { postStatus, stateFor, STATUS_CONTEXT, type StatusDeps } from "../status.ts";
 
 const github = serializeIdentity({ kind: "remote", id: "github.com/acme/widgets" });
 const gitlab = serializeIdentity({ kind: "remote", id: "gitlab.com/acme/widgets" });
 const unknown = serializeIdentity({ kind: "remote", id: "git.example.org/acme/widgets" });
+const TOKEN = "s3cr3t-bearer-value";
 
 type Configured = Extract<CheckResult, { configured: true }>;
 
@@ -80,6 +82,41 @@ describe("postStatus", () => {
     expect(out).toMatchObject({ posted: false, reason: "gh-failed" });
     expect((out as { detail?: string }).detail).toContain("gh: Not Found");
     expect(logged.some((m) => m.includes("gh: Not Found"))).toBe(true);
+  });
+
+  test("a command's stderr never reaches the forge", async () => {
+    const stderr = `curl: 401\nAuthorization: Bearer ${TOKEN}\n`;
+    const ran = await runCheck("/tree", {}, {
+      git: async (args) => ({ code: 0, stdout: args[0] === "merge-base" ? "base456\n" : args[0] === "rev-parse" ? "abc123\n" : "", stderr: "" }),
+      exec: async () => ({ stdout: "", stderr, exitCode: 127 }),
+      setting: () => ({ command: "bun x" }),
+      now: () => 0,
+    });
+    if (!ran.configured) throw new Error("expected a configured result");
+    expect(ran.reason).toContain(TOKEN);
+
+    const { calls, deps } = harness();
+    const out = await postStatus(github, "abc123", ran, deps);
+    expect(out).toMatchObject({ posted: true, state: "error", description: "error: the check could not run" });
+    expect(calls[0]!.argv.join(" ")).not.toContain(TOKEN);
+  });
+
+  test("a timeout reaches the forge with its limit", async () => {
+    const { calls, deps } = harness();
+    await postStatus(github, "abc123", result({ verdict: "error", reason: "timed out after 600s", timedOutAfter: 600 }), deps);
+    expect(calls[0]!.argv).toContain("description=error: timed out after 600s");
+  });
+
+  test("credentials in gh's stderr are redacted from the warning and the outcome", async () => {
+    setWarningLog(() => {});
+    const io = captureOut();
+    const { deps } = harness({ exitCode: 1, stderr: `gh: 401\nAuthorization: Bearer ${TOKEN}` });
+    const out = await postStatus(github, "abc123", result(), deps);
+    const printed = io.stdout() + io.stderr();
+    io.restore();
+    expect(printed).toContain("could not post");
+    expect(printed).not.toContain(TOKEN);
+    expect(JSON.stringify(out)).not.toContain(TOKEN);
   });
 
   test("a gh call carries stderr capture and a 15s timeout", async () => {

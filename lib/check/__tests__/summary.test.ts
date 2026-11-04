@@ -42,8 +42,21 @@ group("describe", () => {
   test("an exit-only red never prints null", () => {
     expect(describe("red", { mode: "exit", selected: null, passed: null, failed: null, durationMs: 12_000, failures: [] }, "hilbert")).toBe("red: command failed in 12s on hilbert");
   });
-  test("error carries its reason", () => {
-    expect(describe("error", green, "hilbert", "timed out after 600s")).toBe("error: timed out after 600s");
+  test("a timeout names its limit", () => {
+    expect(describe("error", green, "hilbert", 600)).toBe("error: timed out after 600s");
+  });
+  test("any other error is rt's own sentence", () => {
+    expect(describe("error", green, "hilbert")).toBe("error: the check could not run");
+  });
+  test("credentials in a summary the command printed never reach the description", () => {
+    const secret = "ghp_" + "a".repeat(32);
+    expect(describe("red", { ...green, failed: 1, failures: [`https://x:${secret}@github.com/a.test.ts`] }, "hilbert")).not.toContain(secret);
+    expect(describe("green", { ...green, mode: `token ${secret}` }, "hilbert")).not.toContain(secret);
+  });
+  test("redaction runs before the clip, so a cut token still goes", () => {
+    const secret = "ghp_" + "a".repeat(200);
+    const text = describe("red", { ...green, failed: 1, failures: [`${"x".repeat(110)} ${secret}`] }, "hilbert");
+    expect(text).not.toContain("ghp_");
   });
   test("never exceeds 140 characters", () => {
     const long = { ...green, failed: 1, failures: ["a/".repeat(90) + "z.test.ts"] };

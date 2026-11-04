@@ -1,3 +1,5 @@
+import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
+
 export type CheckSummary = {
   mode: string;
   selected: number | null;
@@ -40,16 +42,19 @@ function duration(ms: number): string {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
 }
 
+// Redaction comes first: a clip can cut a token short of the shape the redactor knows.
 function clip(text: string): string {
-  return text.length <= MAX_LENGTH ? text : `${text.slice(0, MAX_LENGTH - 3)}...`;
+  const safe = redactCredentials(text);
+  return safe.length <= MAX_LENGTH ? safe : `${safe.slice(0, MAX_LENGTH - 3)}...`;
 }
 
 export function testCount(n: number): string {
   return `${n} ${n === 1 ? "test" : "tests"}`;
 }
 
-export function describe(verdict: CheckVerdict, summary: CheckSummary, machine: string, reason?: string): string {
-  if (verdict === "error") return clip(`error: ${reason ?? "check did not complete"}`);
+/** The text a forge shows anyone who can read the repo, so an error is rt's own sentence and never the local reason. */
+export function describe(verdict: CheckVerdict, summary: CheckSummary, machine: string, timedOutAfter?: number): string {
+  if (verdict === "error") return timedOutAfter === undefined ? "error: the check could not run" : `error: timed out after ${timedOutAfter}s`;
   const time = duration(summary.durationMs);
   if (verdict === "green") {
     if (summary.mode === "skip") return clip("skip: nothing to run for this diff");

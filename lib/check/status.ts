@@ -1,4 +1,5 @@
 import { hostname as osHostname } from "os";
+import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
 import { isGitLabRemote } from "../enrich.ts";
 import { repoHost, repoLabelQualified } from "../repo-label.ts";
 import { runCapture } from "../subprocess.ts";
@@ -42,7 +43,7 @@ export async function postStatus(
 
   const state = stateFor(result.verdict);
   const machine = deps.hostname().split(".")[0] ?? "";
-  const description = describe(result.verdict, result.summary, machine, result.reason);
+  const description = describe(result.verdict, result.summary, machine, result.timedOutAfter);
   const run = await deps.exec(
     [
       "gh", "api", `repos/${repoLabelQualified(identity)}/statuses/${sha}`,
@@ -53,7 +54,7 @@ export async function postStatus(
     { stderr: "pipe", timeoutMs: GH_TIMEOUT_MS },
   );
   if (run.exitCode !== 0) {
-    const detail = run.stderr.trim() || `gh exited ${run.exitCode}`;
+    const detail = redactCredentials(run.stderr.trim()) || `gh exited ${run.exitCode}`;
     warn("check", `could not post commit status: ${detail}`, {
       show: { title: `rt could not post the local check's status: ${detail}` },
     });

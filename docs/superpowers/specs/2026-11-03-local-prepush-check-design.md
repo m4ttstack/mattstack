@@ -211,9 +211,14 @@ changed: 95 tests in 41s on hilbert
 full: 22236 tests in 6m12s on hilbert
 skip: nothing to run for this diff
 red: 2 of 95 failed, lib/__tests__/x.test.ts +1
+error: timed out after 600s
+error: the check could not run
 ```
 
-The machine name is the Mac's short hostname. No `target_url`.
+The machine name is the Mac's short hostname. No `target_url`. An error's
+description is rt's own sentence: the command's raw output stays in the local
+`reason`, because a commit status is readable by anyone who can read the repo.
+Credentials are redacted from the whole description before the cap.
 
 GitHub: `gh api repos/<owner>/<repo>/statuses/<sha>` with the user's `gh`
 auth, as `lib/release/verify.ts` already shells out. The backend is picked

@@ -8,6 +8,7 @@ import type { GuardResult } from "../../ci/lease-guard.ts";
 import type { TreeGuardDeps } from "../tree-guard.ts";
 import type { CheckRun } from "../../check/index.ts";
 import type { CheckResult } from "../../check/run.ts";
+import { postStatus } from "../../check/status.ts";
 import { childEnv } from "../../subprocess.ts";
 
 const GIT_PATHS = "rev-parse --git-path rebase-merge --git-path rebase-apply";
@@ -422,6 +423,19 @@ describe("git_push runs the repo's check", () => {
     expect(r.body).toMatchObject({ pushed: true, check: { result: { verdict: "error", reason: "boom", sha: "abc1234" }, status: POSTED } });
     expect(t.posts).toHaveLength(1);
     expect(t.posts[0]![2]).toMatchObject({ verdict: "error", reason: "boom" });
+  });
+  test("a thrown check's message stays local when allowRed posts it", async () => {
+    const argv: string[][] = [];
+    const statusDeps = { exec: async (a: string[]) => { argv.push(a); return { stdout: "", stderr: "", exitCode: 0 }; }, hostname: () => "hilbert" };
+    const tool = gitToolDefs({
+      ...noForge, git: fakeGit({ ...onFeature, [PUSH]: {} }), guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }),
+      check: async () => { throw new Error("Authorization: Bearer s3cr3t-bearer-value"); },
+      identity: () => "remote:github.com%2Facme%2Fapp",
+      postCheck: (identity, sha, result) => postStatus(identity, sha, result, statusDeps),
+    }).find((t) => t.name === "git_push")!;
+    const r = await tool.handler({ tree: "/t", allowRed: true }, {} as NodeJS.ProcessEnv);
+    expect(r.body).toMatchObject({ pushed: true, check: { status: { posted: true, description: "error: the check could not run" } } });
+    expect(argv[0]!.join(" ")).not.toContain("s3cr3t");
   });
   test("a cancelled check pushes nothing", async () => {
     const ctrl = new AbortController();
