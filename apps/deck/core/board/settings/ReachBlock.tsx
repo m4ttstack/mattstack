@@ -1,6 +1,8 @@
 import { Button, Icon } from '@mattstack/tui-kit';
 import { CLOUD, GLOBE, LAPTOP, UPLOAD } from '../icons.ts';
 import {
+  canOfferPublish,
+  CONNECT_DOMAIN_TIP,
   localHosts,
   remoteToggleTip,
   type Row,
@@ -33,6 +35,7 @@ function PublicItem({
   data: StatusData;
   board: BoardState;
 }) {
+  const needsDomain = !row.published && !data.publicDomainBound;
   const host = row.publicUrl
     ? row.publicUrl.replace(/^https?:\/\//, '')
     : `${row.name}.${row.displayTld ?? data.suffix}`;
@@ -47,12 +50,16 @@ function PublicItem({
       note={
         row.published
           ? `On: ${host} is reachable through the tunnel`
-          : "Off: visitors get the tunnel's 404 page"
+          : needsDomain
+            ? 'Off: no domain connected'
+            : "Off: visitors get the tunnel's 404 page"
       }
       end={
         <OptimisticSwitch
           checked={row.published}
           mutate={() => board.onPublish(row)}
+          disabled={needsDomain}
+          disabledTip={CONNECT_DOMAIN_TIP}
           aria-label={
             row.published ? `make ${row.name} private` : `publish ${row.name}`
           }
@@ -127,7 +134,9 @@ export function ReachBlock({ row, data, board, blocks }: BlockProps) {
           note={localHosts(row).join(' and ')}
           end={<span className="settings-note">always</span>}
         />
-        <PublicItem row={row} data={data} board={board} />
+        {canOfferPublish(row) && (
+          <PublicItem row={row} data={data} board={board} />
+        )}
         <RailwayItem row={row} board={board} />
       </ul>
     </section>

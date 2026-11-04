@@ -17,7 +17,9 @@ import { GLOBE } from './icons.ts';
 import { liveHealth } from './live/live-logic.ts';
 import { LiveCell } from './live/LiveCell.tsx';
 import {
+  canOfferPublish,
   commandKey,
+  CONNECT_DOMAIN_TIP,
   effectiveOverride,
   isPlatform,
   servicePid,
@@ -370,22 +372,37 @@ function PublishCell({
   onPublish: (row: Row) => Promise<void>;
 }) {
   const tag = <PublicOriginTag row={row} />;
-  if (row.enabled === false || !(data.canManage && row.port != null))
+  if (
+    row.enabled === false ||
+    !(data.canManage && row.port != null) ||
+    !canOfferPublish(row)
+  )
     return tag;
   const label = row.published
     ? `make ${row.name} private`
     : `publish ${row.name}`;
   const tip = row.published ? 'Make private' : 'Publish';
+  const needsDomain = !row.published && !data.publicDomainBound;
   return (
     <>
       {tag}
-      <Tooltip tip={tip}>
+      {needsDomain ? (
         <OptimisticSwitch
-          checked={row.published}
+          checked={false}
           mutate={() => onPublish(row)}
+          disabled
+          disabledTip={CONNECT_DOMAIN_TIP}
           aria-label={label}
         />
-      </Tooltip>
+      ) : (
+        <Tooltip tip={tip}>
+          <OptimisticSwitch
+            checked={row.published}
+            mutate={() => onPublish(row)}
+            aria-label={label}
+          />
+        </Tooltip>
+      )}
     </>
   );
 }

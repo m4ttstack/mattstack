@@ -7,6 +7,7 @@
   "total": 6,
   "nextPort": 11012,
   "proxyStale": false,
+  "publicDomainBound": true,
   "autoHeal": null,
   "apps": [
     {

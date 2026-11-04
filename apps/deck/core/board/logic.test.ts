@@ -4,6 +4,7 @@ import fixture from '../../test/fixture/status.json' with { type: 'json' };
 import {
   addPayload,
   autoBanner,
+  canOfferPublish,
   behindRows,
   commandButtonLabel,
   commandKey,
@@ -95,6 +96,16 @@ function makeData(overrides: Partial<StatusData> = {}): StatusData {
 }
 
 // ---- constants ----
+
+test('canOfferPublish: user apps yes, mattstack apps only to turn it off', () => {
+  const row = (managedBy: string | null, published: boolean) =>
+    ({ managedBy, published }) as Row;
+  expect(canOfferPublish(row(null, false))).toBe(true);
+  expect(canOfferPublish(row('user', false))).toBe(true);
+  expect(canOfferPublish(row('rt', false))).toBe(false);
+  expect(canOfferPublish(row('deck', false))).toBe(false);
+  expect(canOfferPublish(row('rt', true))).toBe(true);
+});
 
 test("constants match the oracle's timings", () => {
   expect(REFRESH_MS).toBe(5000);

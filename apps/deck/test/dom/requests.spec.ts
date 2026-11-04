@@ -131,9 +131,9 @@ async function drivePublish(page: Page): Promise<void> {
 }
 
 async function drivePublishInModal(page: Page): Promise<void> {
-  const dlg = await openSettings(page, 'ledger');
+  const dlg = await openSettings(page, 'orbit');
   await modalBlock(dlg, 'reach')
-    .getByRole('switch', { name: 'publish ledger', exact: true })
+    .getByRole('switch', { name: 'make orbit private', exact: true })
     .click();
   await waitFor(sawRequest('PUT /api/v1/apps/:app/publish'));
 }

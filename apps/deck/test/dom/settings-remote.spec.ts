@@ -240,21 +240,45 @@ test('the publish switch in the modal flips optimistically before the PUT resolv
   await withBoard(async page => {
     let releasePut: () => void = () => {};
     const putHeld = new Promise<void>(r => (releasePut = r));
-    await page.route('**/api/v1/apps/ledger/publish', async route => {
+    await page.route('**/api/v1/apps/orbit/publish', async route => {
       await putHeld;
       await route.fulfill(ok);
     });
 
-    const reach = await openReach(page, 'ledger');
+    const reach = await openReach(page, 'orbit');
     const sw = reach.getByRole('switch', {
-      name: /^(publish ledger|make ledger private)$/,
+      name: /^(publish orbit|make orbit private)$/,
     });
-    expect(await sw.isChecked()).toBe(false);
+    expect(await sw.isChecked()).toBe(true);
     await sw.click();
     await new Promise(r => setTimeout(r, 50));
-    expect(await sw.isChecked()).toBe(true);
+    expect(await sw.isChecked()).toBe(false);
 
     releasePut();
-    await waitUntil(async () => !(await sw.isChecked()));
+    await waitUntil(async () => sw.isChecked());
+  });
+});
+
+test('with no domain connected the publish switch in the modal is disabled and says so', async () => {
+  await withBoard(
+    async page => {
+      const reach = await openReach(page, 'orbit');
+      const sw = reach.getByRole('switch', { name: 'publish orbit' });
+      expect(await sw.isDisabled()).toBe(true);
+      expect(await reach.textContent()).toContain('Off: no domain connected');
+    },
+    { fixture: 'status-no-domain.json' }
+  );
+});
+
+test('an unpublished mattstack app has no publish switch in the modal', async () => {
+  await withBoard(async page => {
+    const reach = await openReach(page, 'ledger');
+    expect(await reach.getByRole('switch', { name: /publish/ }).count()).toBe(
+      0
+    );
+    expect(await reach.textContent()).not.toContain(
+      'Public, through the tunnel'
+    );
   });
 });

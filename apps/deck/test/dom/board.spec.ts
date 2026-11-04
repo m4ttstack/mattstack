@@ -392,12 +392,12 @@ test('an off app: muted off badge with the settings hint, no restart, no command
 
 test('public switch flips optimistically before the PUT resolves, and reverts when the server never confirms', async () => {
   await withBoard(async page => {
-    // ledger is unpublished in the fixture; hold the PUT open long enough to
+    // orbit is published in the fixture; hold the PUT open long enough to
     // observe the optimistic state, then let the poll (still serving the
     // unchanged fixture) act as the server refusing to confirm.
     let releasePut: () => void = () => {};
     const putHeld = new Promise<void>(r => (releasePut = r));
-    await page.route('**/api/v1/apps/ledger/publish', async route => {
+    await page.route('**/api/v1/apps/orbit/publish', async route => {
       await putHeld;
       await route.fulfill({
         status: 200,
@@ -405,20 +405,20 @@ test('public switch flips optimistically before the PUT resolves, and reverts wh
         body: JSON.stringify({ ok: true }),
       });
     });
-    const sw = rowFor(page, 'ledger').locator('[role="switch"]');
-    expect(await sw.isChecked()).toBe(false);
+    const sw = rowFor(page, 'orbit').locator('[role="switch"]');
+    expect(await sw.isChecked()).toBe(true);
     await sw.click();
     // Optimistic: shown state flips while the request is still in flight.
     await poll(() => true, 50);
-    expect(await sw.isChecked()).toBe(true);
+    expect(await sw.isChecked()).toBe(false);
     releasePut();
     // Canonical hand-off: the refresh returns the unchanged fixture, so the
     // switch snaps back instead of lying about the server's state.
     const deadline = Date.now() + 4000;
-    while (Date.now() < deadline && (await sw.isChecked())) {
+    while (Date.now() < deadline && !(await sw.isChecked())) {
       await new Promise(r => setTimeout(r, 50));
     }
-    expect(await sw.isChecked()).toBe(false);
+    expect(await sw.isChecked()).toBe(true);
   });
 });
 
@@ -708,4 +708,42 @@ test('public host: no write controls in the table', async () => {
     },
     { fixture: 'status-readonly.json' }
   );
+});
+
+test('with no domain connected an unpublished app has a disabled publish switch', async () => {
+  await withBoard(
+    async page => {
+      const sw = rowFor(page, 'orbit').locator('[role="switch"]');
+      expect(await sw.isDisabled()).toBe(true);
+      expect(await sw.isChecked()).toBe(false);
+      await rowFor(page, 'orbit').locator('[data-part="switch"]').hover();
+      await page
+        .locator('[data-part="tooltip-card"]', {
+          hasText: 'Connect a domain first',
+        })
+        .waitFor({ timeout: 2000 });
+    },
+    { fixture: 'status-no-domain.json' }
+  );
+});
+
+test('with no domain connected a published app can still go private', async () => {
+  await withBoard(
+    async page => {
+      const sw = rowFor(page, 'forecast').locator('[role="switch"]');
+      expect(await sw.isDisabled()).toBe(false);
+    },
+    { fixture: 'status-no-domain.json' }
+  );
+});
+
+test('an unpublished mattstack app has no publish switch; a published one keeps it', async () => {
+  await withBoard(async page => {
+    expect(
+      await rowFor(page, 'ledger').locator('[role="switch"]').count()
+    ).toBe(0);
+    expect(await rowFor(page, 'atlas').locator('[role="switch"]').count()).toBe(
+      1
+    );
+  });
 });

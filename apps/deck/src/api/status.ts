@@ -164,6 +164,8 @@ export interface Status {
   nextPort: number | null;
   /** True when the proxy is serving stale routes (its watcher has died). */
   proxyStale: boolean;
+  /** A public domain is connected, so publishing an app can take effect. */
+  publicDomainBound: boolean;
   /** The most recent automatic proxy restart; ok is null while it is running. */
   autoHeal: { at: number; ok: boolean | null } | null;
 }
@@ -498,6 +500,7 @@ export async function buildStatus(opts: BuildStatusOpts): Promise<Status> {
     // landed yet (or failed, leaving a SyncIssue) isn't advertised as free.
     nextPort: allocatePort(records, routes, services),
     proxyStale: opts.proxyFreshness === 'stale',
+    publicDomainBound: !!platform.publicDomain,
     autoHeal: opts.autoHeal,
   };
 }

@@ -70,7 +70,11 @@ import { convert } from '../registry/convert.ts';
 import { liveProcessIds } from '../registry/deck-manifest.ts';
 import { migrate } from '../registry/migrate.ts';
 import { stampDeploy } from '../registry/new-code.ts';
-import { getRecord, listRecords } from '../registry/records.ts';
+import {
+  getRecord,
+  isMattstackOwned,
+  listRecords,
+} from '../registry/records.ts';
 import { readLinkedManifest } from '../registry/serve-shape.ts';
 import {
   commandRunStatus,
@@ -208,6 +212,15 @@ function ownCommand(
 }
 
 const ICON_ROUTE = /^\/api\/apps\/([^/]+)\/icon$/;
+
+function publishRefusal(name: string): string | null {
+  const record = getRecord(name);
+  if (record && isMattstackOwned(record))
+    return 'mattstack apps cannot be public';
+  if (!getPlatformSettings().publicDomain)
+    return 'no domain connected; run deck domain <domain> first';
+  return null;
+}
 
 /**
  * MATTSTACK_TLD is always allowed even though it is a derived cache entry
@@ -808,7 +821,10 @@ export function startApi(deps: ApiDeps) {
             const b = await body(req);
             if (!getRecord(name) && !knownRouteApp(name))
               return json({ error: 'unknown app' }, 404);
-            await setPublished(name, b.published === true);
+            const published = b.published === true;
+            const refusal = published ? publishRefusal(name) : null;
+            if (refusal) return json({ error: refusal }, 409);
+            await setPublished(name, published);
             return json({ ok: true });
           }
           if (sub === 'password' && req.method === 'PUT') {
