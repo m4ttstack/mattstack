@@ -5,20 +5,15 @@
 /* Time in a gutter, name inline with the first line. */
 .msg {
   display: flex;
-  gap: 8px;
-  margin-top: 6px;
-  padding: 2px 20px 2px 16px;
+  gap: 10px;
+  padding: 4px 24px 4px 16px;
   min-width: 0;
-}
-
-.msg[data-grouped] {
-  margin-top: 3px;
 }
 
 .gutter {
   flex: none;
-  width: 44px;
-  padding-top: 3px;
+  width: 52px;
+  padding-top: 2px;
   text-align: right;
 }
 
@@ -40,7 +35,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 1.55em;
+  height: 1.47em;
   margin-right: 7px;
   font-size: var(--mantine-font-size-lg);
 }
@@ -70,16 +65,18 @@
   color: var(--tk-text-4);
 }
 
+/* Slack's rhythm: a 22px line and one 8px step between every line of the
+   list, whether it is a new message or the next paragraph. */
 .prose {
   font-size: var(--mantine-font-size-lg);
-  line-height: 1.55;
+  line-height: 1.47;
   min-width: 0;
   color: var(--tk-text-1);
   overflow-wrap: anywhere;
 }
 
 .prose > * + * {
-  margin-top: 6px !important;
+  margin-top: 8px !important;
 }
 
 /* A list, table or fence can't flow beside the name, so it starts below it. */
