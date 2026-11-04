@@ -21,6 +21,8 @@ import {
 
 const MAX_PROCESSES = 6;
 const TEST_TIMEOUT_MS = "20000";
+export const MAX_FAILED_TESTS = 20;
+export const MAX_TEST_NAME_LENGTH = 200;
 
 export type Plan = {
   mode: Mode;
@@ -38,6 +40,7 @@ export type Summary = {
   failed: number;
   durationMs: number;
   failures: string[];
+  failedTests?: string[];
 };
 
 export function processCount(cores: number): number {
@@ -73,17 +76,20 @@ export function planLocalCheck(
 
 const ANSI = /\x1b\[[0-9;]*m/g;
 const FILE_HEADER = /^(?:::group::)?(\S+\.test\.tsx?):$/;
+const FAILED_TEST = /^\(fail\) (.+?)(?: \[[\d.]+m?s\])?$/;
 
 // bun prints a file's header just before the first thing that file reports,
 // so a (fail) line belongs to the header above it. A file that fails to load
 // has no (fail) line: it reports "# Unhandled error between tests" there
-// and still counts in "N fail".
-export function parseTestOutput(output: string): { passed: number; failed: number; failures: string[]; summarised: boolean } {
+// and still counts in "N fail". A long run lists its (fail) lines again at the
+// end, so a name is kept once.
+export function parseTestOutput(output: string): { passed: number; failed: number; failures: string[]; failedTests: string[]; summarised: boolean } {
   let passed = 0;
   let failed = 0;
   let summarised = false;
   let file: string | null = null;
   const failures: string[] = [];
+  const failedTests: string[] = [];
   for (const raw of output.split("\n")) {
     const line = raw.replace(ANSI, "");
     const header = FILE_HEADER.exec(line);
@@ -93,16 +99,18 @@ export function parseTestOutput(output: string): { passed: number; failed: numbe
     }
     const failing = line.startsWith("(fail) ") || line === "# Unhandled error between tests";
     if (failing && file && !failures.includes(file)) failures.push(file);
+    const name = FAILED_TEST.exec(line)?.[1];
+    if (name && !failedTests.includes(name)) failedTests.push(name);
     const count = /^\s*(\d+) (pass|fail)$/.exec(line);
     if (!count) continue;
     summarised = true;
     if (count[2] === "pass") passed += Number(count[1]);
     else failed += Number(count[1]);
   }
-  return { passed, failed, failures, summarised };
+  return { passed, failed, failures, failedTests, summarised };
 }
 
-type Ran = { red: boolean; passed: number; failed: number; failures: string[] };
+type Ran = { red: boolean; passed: number; failed: number; failures: string[]; failedTests: string[] };
 
 // bun writes its file headers, failures and summary to stderr; stdout carries
 // only the version line. A red process always counts at least one failure, so
@@ -110,13 +118,18 @@ type Ran = { red: boolean; passed: number; failed: number; failures: string[] };
 export function judgeRun(exitCode: number, stderr: string): Ran {
   const parsed = parseTestOutput(stderr);
   const red = exitCode !== 0 || !parsed.summarised;
-  return { red, passed: parsed.passed, failed: red ? Math.max(1, parsed.failed) : parsed.failed, failures: parsed.failures };
+  return { red, passed: parsed.passed, failed: red ? Math.max(1, parsed.failed) : parsed.failed, failures: parsed.failures, failedTests: parsed.failedTests };
+}
+
+function clipTestName(name: string): string {
+  return name.length <= MAX_TEST_NAME_LENGTH ? name : `${name.slice(0, MAX_TEST_NAME_LENGTH - 3)}...`;
 }
 
 export function summarise(mode: Mode, ran: Ran[], durationMs: number): Summary {
   const passed = ran.reduce((n, r) => n + r.passed, 0);
   const failed = ran.reduce((n, r) => n + r.failed, 0);
   const selected = passed + failed;
+  const failedTests = [...new Set(ran.flatMap((r) => r.failedTests))].slice(0, MAX_FAILED_TESTS).map(clipTestName);
   return {
     mode: selected === 0 ? "skip" : mode,
     selected,
@@ -124,6 +137,7 @@ export function summarise(mode: Mode, ran: Ran[], durationMs: number): Summary {
     failed,
     durationMs,
     failures: [...new Set(ran.flatMap((r) => r.failures))],
+    ...(failedTests.length > 0 ? { failedTests } : {}),
   };
 }
 
