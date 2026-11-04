@@ -46,6 +46,8 @@ export interface SetupState {
   homebrew?: { at: string; outcome: "ok" | "present" | "failed"; detail?: string };
   /** Where the member chose to keep their settings. A remote with a url or create and no `appliedAt` is staged until a push lands. */
   homeBackup?: HomeBackupChoice;
+  /** The scopes the last `rt setup slack connect --support-chat` came back without. A short grant saves no token, so nothing else remembers it. */
+  slackSupportShort?: string[];
   /** The last full, `--from` or resumed `rt setup apply`, step by step. With no `endedAt` it is still running or died partway. */
   run?: SetupRun;
 }

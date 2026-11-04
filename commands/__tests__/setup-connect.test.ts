@@ -5,6 +5,7 @@ import type { SecretPresence } from "../../lib/setup/validators/accounts.ts";
 import type { Probes } from "../../lib/setup/probes.ts";
 import type { TeamSnapshot } from "../../lib/setup/team-settings.ts";
 import { DEFAULT_SCOPE_NEEDS, SLACK_SUPPORT_SCOPES, SlackCallbackTimeoutError } from "../../lib/setup/slack-app.ts";
+import { readSetupState, updateSetupState } from "../../lib/setup/state.ts";
 import { slackWaitCliMessage } from "../../lib/setup/team-slack-secret.ts";
 import { readTeamLocal, teamLocalPath } from "../../lib/team/team-local.ts";
 import { capturePlain, expectOneJsonLine, realJson } from "./helpers/json-line.ts";
@@ -1124,6 +1125,35 @@ describe("integrationConnect — slack (OAuth flow)", () => {
       expect(body.detail).toContain("support chat");
       expect(body.detail).not.toContain("than the board needs");
       expect(writerWrites).toEqual([]);
+      expect(readSetupState(deps.probes).slackSupportShort).toEqual(["im:history", "im:read", "im:write", "users:read"]);
+    });
+
+    function grantDeps(scope: string[]) {
+      const fetch: Probes["fetch"] = async (url) => {
+        if (url === "https://slack.com/api/oauth.v2.access") return { status: 200, body: JSON.stringify({ ok: true, authed_user: { access_token: "xoxp-new", scope: scope.join(",") } }), headers: {} };
+        return { status: 0, body: "", headers: {} };
+      };
+      return baseDeps({
+        probes: fakeProbes({ fetch }),
+        teamSnapshot: () => slackTeamSnapshot({ appId: "A0TEAM" }),
+        teamSecrets: { read: async () => "client-secret-value", write: neverCalled("teamSecrets.write") },
+        listen: async () => "auth-code",
+        writer: { storeReady: async () => true, write: async () => {} },
+      });
+    }
+
+    test("a full grant clears the record of a short one", async () => {
+      const deps = grantDeps([...DEFAULT_SCOPE_NEEDS.user, ...SLACK_SUPPORT_SCOPES]);
+      updateSetupState(deps.probes, (s) => ({ ...s, slackSupportShort: ["im:history"] }));
+      await integrationConnect("slack", ["--json", "--support-chat"], deps);
+      expect(readSetupState(deps.probes).slackSupportShort).toBeUndefined();
+    });
+
+    test("a plain connect leaves the record alone: it never asked for these scopes", async () => {
+      const deps = grantDeps(DEFAULT_SCOPE_NEEDS.user);
+      updateSetupState(deps.probes, (s) => ({ ...s, slackSupportShort: ["im:history"] }));
+      await integrationConnect("slack", ["--json"], deps);
+      expect(readSetupState(deps.probes).slackSupportShort).toEqual(["im:history"]);
     });
   });
 

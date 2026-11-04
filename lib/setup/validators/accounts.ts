@@ -19,11 +19,13 @@ import { daysUntil } from "../../credential-health/sweep.ts";
 import { CREDENTIAL_STATUS_WORD } from "../../credential-health/status-word.ts";
 import { getStateDb } from "../../state/index.ts";
 import { isValidHostname } from "../host-validate.ts";
-import { integrationDef, type IntegrationDef, type ValidateCtx } from "../integrations.ts";
+import { integrationDef, type IntegrationDef, type ValidateCtx, type ValidateResult } from "../integrations.ts";
 import type { SetupIntent } from "../intent.ts";
 import type { Probes } from "../probes.ts";
 import type { PackRequirements } from "../requirements.ts";
+import { readSetupState } from "../state.ts";
 import type { TeamSnapshot, UserIntegrationOverrides } from "../team-settings.ts";
+import { slackSupportRow, type SlackCheck } from "./slack-support.ts";
 import { forgeRole, missingScopes, scopeShortfallDetail, tokenCreateLink, tokenField, type ForgeProvider, type ForgeRole } from "../token-create.ts";
 import { readTeamLocal } from "../../team/team-local.ts";
 import { roleFor } from "../../team/roles.ts";
@@ -210,25 +212,48 @@ function slackWaitRow(base: Omit<Row, "status" | "detail" | "action" | "recheck"
   });
 }
 
-/** The oauth Connect action only makes sense once the team's own Slack app exists (`clientId` set) — before that, this row explains the dependency on account.slack-app instead of offering a flow that would run against an app that doesn't exist yet. */
-async function slackRow(p: Probes, base: Omit<Row, "status" | "detail" | "action" | "recheck">, def: IntegrationDef, secrets: SecretPresence, ctx: ValidateCtx, team: TeamSnapshot): Promise<Row> {
-  if (!team.integrations.slack?.clientId) {
-    return row({ ...base, status: "missing", detail: "Waiting for the team's Slack app to be set up" });
-  }
+type SlackRead = { kind: "no-app" } | { kind: "wait"; wait: SlackSecretWait } | { kind: "no-token" } | { kind: "checked"; result: ValidateResult };
+
+async function readSlack(p: Probes, secrets: SecretPresence, team: TeamSnapshot, overrides: UserIntegrationOverrides): Promise<SlackRead> {
+  if (!team.integrations.slack?.clientId) return { kind: "no-app" };
+  const def = integrationDef("slack");
   const spec = secretSpec(def);
   const stored = await secrets.has(spec.domain, spec.key);
   if (stored === null) {
     const wait = slackSecretWait(p, team.slug);
-    if (wait) return slackWaitRow(base, wait, team.slug);
-    const hint = slackRedirectHint(team.integrations.slack.callbackPort ?? DEFAULT_CALLBACK_PORT);
+    return wait ? { kind: "wait", wait } : { kind: "no-token" };
+  }
+  return { kind: "checked", result: await def.validate(p, stored, ctxFor("slack", team, overrides)) };
+}
+
+/** The oauth Connect action only makes sense once the team's own Slack app exists (`clientId` set) — before that, this row explains the dependency on account.slack-app instead of offering a flow that would run against an app that doesn't exist yet. */
+function slackRow(base: Omit<Row, "status" | "detail" | "action" | "recheck">, read: SlackRead, team: TeamSnapshot): Row {
+  if (read.kind === "no-app") return row({ ...base, status: "missing", detail: "Waiting for the team's Slack app to be set up" });
+  if (read.kind === "wait") return slackWaitRow(base, read.wait, team.slug);
+  if (read.kind === "no-token") {
+    const hint = slackRedirectHint(team.integrations.slack?.callbackPort ?? DEFAULT_CALLBACK_PORT);
     return row({ ...base, status: "missing", detail: `No Slack account connected yet. ${hint}`, action: SLACK_OAUTH_ACTION });
   }
-  const result = await def.validate(p, stored, ctx);
+  const { result } = read;
   // An empty list means auth.test sent no x-oauth-scopes header, so the grant is unknown rather than empty.
   const missing = result.status === "ready" && result.scopesSeen.length > 0 ? missingSlackUserScopes(result.scopesSeen) : [];
   if (missing.length) return row({ ...base, status: "needs-you", detail: `Reconnect Slack to grant these permissions: ${missing.join(", ")}`, action: SLACK_OAUTH_ACTION });
   if (result.status === "ready") return row({ ...base, status: "ready", detail: result.detail });
   return row({ ...base, status: result.status, detail: result.detail, action: SLACK_OAUTH_ACTION });
+}
+
+function slackCheck(read: SlackRead): SlackCheck {
+  if (read.kind === "no-app") return { kind: "no-app" };
+  if (read.kind !== "checked") return { kind: "not-connected" };
+  const { status, scopesSeen } = read.result;
+  if (status === "ready") return { kind: "connected", scopes: scopesSeen };
+  return status === "invalid" ? { kind: "not-connected" } : { kind: "unchecked" };
+}
+
+/** This row never fails: Slack's own row, right above it, reports a broken check. */
+async function slackSupportRowFor(p: Probes, read: () => Promise<SlackRead>, team: TeamSnapshot): Promise<Row> {
+  const slack = await read().then(slackCheck, (): SlackCheck => ({ kind: "unchecked" }));
+  return slackSupportRow({ slack, appId: team.integrations.slack?.appId, shortGrant: readSetupState(p).slackSupportShort });
 }
 
 export const BOARD_PEERING_ROW_ID = "account.board-peering";
@@ -337,7 +362,7 @@ function forgeConnectFor(p: Probes, id: Integration, ctx: ValidateCtx, intent: S
 /** doppler/ldcli's real blocker (install + sign in) already has a required row in the tools group (tool.team.<name>) — a second required, action-less row here for the same fact would be both a duplicate and a dead end. */
 const CLI_SESSION_OPTIONAL_NOTE = "Works without a stored credential here; install and sign in are tracked in the Tools group.";
 
-async function accountRowFor(p: Probes, entry: DeclaredEntry, team: TeamSnapshot, secrets: SecretPresence, intent: SetupIntent | null, overrides: UserIntegrationOverrides): Promise<Row> {
+async function accountRowFor(p: Probes, entry: DeclaredEntry, team: TeamSnapshot, secrets: SecretPresence, intent: SetupIntent | null, overrides: UserIntegrationOverrides, slack: () => Promise<SlackRead>): Promise<Row> {
   const { id } = entry;
   let def: IntegrationDef;
   try {
@@ -359,7 +384,7 @@ async function accountRowFor(p: Probes, entry: DeclaredEntry, team: TeamSnapshot
   const forge = forgeConnectFor(p, id, ctx, intent, team);
 
   if (id === "github") return githubRow(p, base, def, secrets, ctx, forge!);
-  if (id === "slack") return slackRow(p, base, def, secrets, ctx, team);
+  if (id === "slack") return slackRow(base, await slack(), team);
   return genericRow(p, base, def, secrets, ctx, forge);
 }
 
@@ -409,9 +434,9 @@ function humanCheckedAgo(ms: number): string {
 }
 
 /** One entry's `secrets.has()`/`def.validate()` throwing (a bad recipient, a corrupt staged file, a network stack that throws instead of returning) must degrade to that entry's own error row — never take every other declared integration's row down with it. */
-async function accountRowForSafe(p: Probes, entry: DeclaredEntry, team: TeamSnapshot, secrets: SecretPresence, intent: SetupIntent | null, overrides: UserIntegrationOverrides): Promise<Row> {
+async function accountRowForSafe(p: Probes, entry: DeclaredEntry, team: TeamSnapshot, secrets: SecretPresence, intent: SetupIntent | null, overrides: UserIntegrationOverrides, slack: () => Promise<SlackRead>): Promise<Row> {
   try {
-    const r = await accountRowFor(p, entry, team, secrets, intent, overrides);
+    const r = await accountRowFor(p, entry, team, secrets, intent, overrides, slack);
     return withCredentialHealth(r, entry.id);
   } catch (err) {
     // Only the success path (above) applies withCredentialHealth: the catch
@@ -471,13 +496,18 @@ export async function accountRows(
   const slackAppNeeded = wantsSlack && !team.integrations.slack?.clientId;
   const slackAppRequired = intent?.mode === "create";
 
-  const idRows = await Promise.all(declared.map((entry) => accountRowForSafe(p, entry, team, secrets, intent, overrides)));
+  let slackRead: Promise<SlackRead> | undefined;
+  const slack = () => (slackRead ??= readSlack(p, secrets, team, overrides));
+  const idRows = await Promise.all(declared.map((entry) => accountRowForSafe(p, entry, team, secrets, intent, overrides, slack)));
+  const support = team.slug ? await slackSupportRowFor(p, slack, team) : null;
 
   const rows: Row[] = [];
   declared.forEach((entry, i) => {
     if (entry.id === "slack" && slackAppNeeded) rows.push(slackAppRow(slackAppRequired));
     rows.push(idRows[i]!);
+    if (entry.id === "slack" && support) rows.push(support);
   });
+  if (support && !wantsSlack) rows.push(support);
   const peering = solo ? null : await boardPeeringRowSafe(p, secrets, team);
   if (peering) rows.push(peering);
   return rows;

@@ -1883,6 +1883,7 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
   const missing = granted.length ? (supportChat ? requestedScopes.filter((s) => !grantedSet.has(s)) : missingSlackUserScopes(granted)) : [];
   if (missing.length) {
     const wanted = supportChat ? "the board and the support chat need" : "the board needs";
+    if (supportChat) updateSetupState(deps.probes, (s) => ({ ...s, slackSupportShort: missing }));
     printIntegrationResult(deps, json, {
       integration: "slack",
       status: "invalid",
@@ -1893,6 +1894,12 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
   }
 
   const { staged } = await storeCredential(deps, "board", "slackToken", accessToken);
+  if (supportChat) {
+    updateSetupState(deps.probes, (s) => {
+      const { slackSupportShort: _cleared, ...rest } = s;
+      return rest;
+    });
+  }
   printIntegrationResult(deps, json, {
     integration: "slack",
     status: "ready",
