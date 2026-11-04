@@ -106,7 +106,7 @@ function fakeDeps(): MaterializeDeps & {
     resolutions,
     logs,
     isOrgAdmin: () => true,
-    notifyAnnouncement() {},
+    async notifyAnnouncement() {},
     writePeerReview(s) {
       peerReviews.push(s);
       return true;
@@ -186,6 +186,30 @@ describe('runPeerTick', () => {
     expect(deps.logs.length).toBe(1);
     expect(deps.logs[0]).toContain('disk on fire');
     expect(client.acked).toEqual([['boom', 'fine']]);
+  });
+
+  test('waits for an announcement banner to settle before acking', async () => {
+    const outbox = freshDb();
+    const client = fakeClient([
+      envelope({
+        id: 'ann',
+        type: 'announcement',
+        receivedAt: Date.now(),
+        payload: { title: 'Update rt', message: 'Today please' },
+      }),
+    ]);
+    const deps = fakeDeps();
+    let release: () => void = () => {};
+    deps.notifyAnnouncement = () =>
+      new Promise<void>(resolve => {
+        release = resolve;
+      });
+    const tick = runPeerTick(client, deps, outbox);
+    await new Promise(r => setTimeout(r, 20));
+    expect(client.acked).toEqual([]);
+    release();
+    await tick;
+    expect(client.acked).toEqual([['ann']]);
   });
 
   test('acks nothing when the inbox call fails', async () => {

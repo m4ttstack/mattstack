@@ -44,7 +44,7 @@ const noDeps = {
   resolveSentNudge: () => {},
   finishSentNudge: () => {},
   isOrgAdmin: () => false,
-  notifyAnnouncement: () => {},
+  notifyAnnouncement: async () => {},
   log: () => {},
 };
 

@@ -37,7 +37,7 @@ export function boardMaterializeDeps(
       senderIsOrgAdmin(username, currentOrg(), readOrgRoles),
     notifyAnnouncement: (id, payload, from) => {
       const notice = announcementNotice(payload, from);
-      void notifyEscalation(notice.title, notice.message, 'rt', {
+      return notifyEscalation(notice.title, notice.message, 'rt', {
         category: 'announcement',
         id,
       });

@@ -20,14 +20,13 @@ import type { PeerReviewState } from './peer-reviews.ts';
 const ANNOUNCEMENT_MAX_AGE_MS = 24 * 60 * 60_000;
 
 export interface MaterializeDeps {
-  /** Whether this username is an owner or admin of the Mac's org. */
   isOrgAdmin(username: string): boolean;
-  /** Raises the macOS notification; the envelope id keeps a redelivery to one banner. */
+  /** A shared id means a redelivery replaces the banner rather than stacking; the sound can still replay. */
   notifyAnnouncement(
     id: string,
     payload: AnnouncementPayload,
     from: string
-  ): void;
+  ): Promise<void>;
   writePeerReview(s: PeerReviewState): unknown;
   writeNudge(n: NudgeState): void;
   resolveSentNudge(
@@ -68,7 +67,7 @@ export function materializeEnvelope(
   e: Envelope,
   deps: MaterializeDeps,
   now: number = Date.now()
-): void {
+): void | Promise<void> {
   if (e.type === 'review-state') {
     const p = parseReviewStatePayload(e.payload);
     if (!p)
@@ -178,8 +177,7 @@ export function materializeEnvelope(
       return deps.log(
         `peer: dropping announcement from ${e.from}, not an org admin (${e.id})`
       );
-    deps.notifyAnnouncement(e.id, p, e.from);
-    return;
+    return deps.notifyAnnouncement(e.id, p, e.from);
   }
   deps.log(
     `peer: ignoring unknown envelope type "${e.type}" from ${e.from} (${e.id})`
@@ -214,7 +212,7 @@ export async function runPeerTick(
       // throwing store write (fs errors). One bad envelope must not skip the
       // batch's ack, or the batch redelivers and re-throws forever.
       try {
-        materializeEnvelope(e, deps);
+        await materializeEnvelope(e, deps);
       } catch (err) {
         deps.log(
           `peer: materialize failed for ${e.id} from ${e.from}: ${err instanceof Error ? err.message : err}`

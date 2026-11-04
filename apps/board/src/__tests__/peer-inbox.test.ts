@@ -60,7 +60,7 @@ function fakeDeps(): MaterializeDeps & {
   return {
     announced,
     isOrgAdmin: u => u === 'admin1',
-    notifyAnnouncement(id, payload, from) {
+    async notifyAnnouncement(id, payload, from) {
       announced.push({ id, payload, from });
     },
     froms,

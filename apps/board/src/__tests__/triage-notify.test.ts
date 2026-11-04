@@ -94,6 +94,18 @@ describe('notifyEscalation', () => {
     expect(received).toHaveLength(3);
     expect('url' in received[2].body).toBe(false);
   });
+
+  test('opts.id and opts.category ride on the event', async () => {
+    const before = received.length;
+    await notifyEscalation('t', 'm', 'rt', {
+      traySock: sock,
+      id: 'env-42',
+      category: 'announcement',
+    });
+    expect(received).toHaveLength(before + 1);
+    expect(received[before].body.id).toBe('env-42');
+    expect(received[before].body.category).toBe('announcement');
+  });
 });
 
 describe('boardMrLink', () => {
