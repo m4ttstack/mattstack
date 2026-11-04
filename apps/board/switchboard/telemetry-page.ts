@@ -36,14 +36,14 @@ section{display:grid;gap:12px;min-width:0}
 .card{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
 .scroll{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
-th,td{padding:10px 12px;text-align:left;vertical-align:top}
+th,td{padding:10px;text-align:left;vertical-align:top}
 th{color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;border-bottom:1px solid var(--line)}
 td{border-bottom:1px solid var(--line)}
 tr:last-child td{border-bottom:0}
 tbody tr:hover{background:var(--hover)}
 .none{color:var(--muted)}
 p.none{padding:12px 16px;font:14px/20px system-ui,sans-serif}
-.id{display:block;max-width:10ch;overflow:hidden;text-overflow:ellipsis;color:var(--muted);font:12px/21px ui-monospace,Menlo,monospace;white-space:nowrap}
+.id{display:block;max-width:8ch;overflow:hidden;text-overflow:ellipsis;color:var(--muted);font:12px/21px ui-monospace,Menlo,monospace;white-space:nowrap}
 .nowrap{white-space:nowrap}
 .behind{color:var(--accent);font-weight:600}
 .dev{font-weight:600}
@@ -210,7 +210,7 @@ export function renderTelemetryPage(s: TelemetrySnapshot): string {
             html: m.packs
               .map(
                 p =>
-                  `<div class="nowrap">${escapeHtml(p.version === null ? p.id : `${p.id} (${p.version})`)}</div>`
+                  `<div>${escapeHtml(p.version === null ? p.id : `${p.id} (${p.version})`)}</div>`
               )
               .join(''),
           }
