@@ -53,7 +53,7 @@ export function RoomRail({
 
   return (
     <Stack
-      gap={2}
+      gap={0}
       style={{
         width: sidebar ? '100%' : 232 + 12,
         flex: sidebar ? 1 : 'none',
