@@ -671,6 +671,9 @@ function integrationNode(id: string, title: string): CommandNode {
       hint: "Confirm a self-hosted GitLab (e.g. gitlab.example.com). A team-declared host is never used until you confirm it here",
     });
   }
+  if (id === "slack") {
+    connectArgs.push({ name: "Support chat", flag: "--support-chat", type: "boolean", default: false, hint: "Also ask for the direct message scopes a support chat needs" });
+  }
   const subcommands: Record<string, CommandNode> = {
     status: {
       description: `${title}: check this account`,

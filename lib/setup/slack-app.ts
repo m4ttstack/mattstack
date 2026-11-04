@@ -4,7 +4,9 @@
  * the app this manifest describes. Scopes are fixed here (not pack-declared)
  * because the manifest and the OAuth `user_scope` request must always name
  * the same set — drift between the two would surface as Slack silently
- * granting fewer scopes than the connect flow asked for.
+ * granting fewer scopes than the connect flow asked for. The one exception is
+ * SLACK_SUPPORT_SCOPES: the manifest always declares them so the app can grant
+ * them, but only `rt setup slack connect --support-chat` requests them.
  */
 
 export interface SlackScopeNeeds {
@@ -16,6 +18,9 @@ export const DEFAULT_SCOPE_NEEDS: SlackScopeNeeds = {
   bot: ["chat:write", "reactions:write", "channels:read", "users:read"],
   user: ["channels:read", "groups:read", "channels:history", "groups:history", "reactions:read", "reactions:write", "chat:write"],
 };
+
+/** Opt-in: im:history lets a token read all of a person's DMs, so only the operator who runs a support chat asks for these. */
+export const SLACK_SUPPORT_SCOPES = ["im:history", "im:read", "im:write", "users:read"];
 
 export function missingSlackUserScopes(granted: string[]): string[] {
   const have = new Set(granted);
@@ -63,7 +68,7 @@ export function buildSlackManifest(opts: { name: string; callbackPort: number; s
     display_information: { name: opts.name },
     oauth_config: {
       redirect_urls: [slackRedirectUri(opts.callbackPort)],
-      scopes: { bot: opts.scopes.bot, user: opts.scopes.user },
+      scopes: { bot: opts.scopes.bot, user: [...opts.scopes.user, ...SLACK_SUPPORT_SCOPES] },
     },
     settings: { org_deploy_enabled: false },
   };
