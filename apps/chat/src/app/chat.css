@@ -55,3 +55,8 @@
   background: rgb(255 255 255 / 24%) !important;
   color: white;
 }
+
+/* The app name stands clear of the org and team chips after it. */
+.mantine-AppShell-header p.mantine-Text-root:has(+ div) {
+  margin-right: 12px;
+}
