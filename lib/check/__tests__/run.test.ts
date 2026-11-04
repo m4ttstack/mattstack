@@ -106,6 +106,12 @@ describe("runCheck", () => {
     if (r.configured) expect(r.summary.selected).toBe(95);
   });
 
+  test("a green run carries no output tail", async () => {
+    const { deps } = harness({ stdout: "noise\nmore noise\n" });
+    const r = await runCheck("/tree", {}, deps);
+    expect(r).toMatchObject({ verdict: "green", outputTail: "" });
+  });
+
   test("a skip summary with exit 0 is green", async () => {
     const { deps } = harness({ stdout: '{"mode":"skip"}\n' });
     const r = await runCheck("/tree", {}, deps);

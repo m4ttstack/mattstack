@@ -65,7 +65,7 @@ describe("runCheck over realCheckDeps", () => {
       dirty: false,
       summary: { mode: "changed", selected: 3 },
     });
-    if (r.configured) expect(r.outputTail).toContain(tree);
+    if (r.configured) expect(r.outputTail).toBe("");
   });
 
   test("a non-zero exit with no summary is red", async () => {
