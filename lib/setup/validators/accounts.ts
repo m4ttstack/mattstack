@@ -463,10 +463,11 @@ export async function accountRows(
   overrides: UserIntegrationOverrides = {},
   solo = false,
 ): Promise<Row[]> {
-  const declared =
-    solo && !team.integrations.forge && reqs.length === 0
-      ? [{ id: "github" as Integration, required: false, optionalNote: SOLO_FORGE_NOTE }]
-      : declaredIntegrations(team, reqs);
+  const soloForge = solo && !team.integrations.forge && reqs.every((r) => r.orgOnly);
+  const fromPacks = soloForge && reqs.length === 0 ? [] : declaredIntegrations(team, reqs);
+  const declared = soloForge && !fromPacks.some((e) => e.id === "github")
+    ? [{ id: "github" as Integration, required: false, optionalNote: SOLO_FORGE_NOTE }, ...fromPacks]
+    : fromPacks;
   const wantsSlack = declared.some((e) => e.id === "slack");
   const slackAppNeeded = wantsSlack && !team.integrations.slack?.clientId;
   const slackAppRequired = intent?.mode === "create";

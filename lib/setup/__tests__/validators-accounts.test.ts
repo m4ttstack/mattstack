@@ -822,6 +822,29 @@ describe("accountRows on solo", () => {
     expect(rows[0]!.optionalNote).toBe("Works without this. Connect a GitHub or GitLab account later to open PRs and MRs from rt.");
     expect(rows[0]!.status).toBe("missing");
   });
+
+  test("an org file keeps the optional github row beside what it requires", async () => {
+    const exec: ExecScript = (argv) => (argv[0] === "gh" && argv[1] === "auth" ? { code: 1, stdout: "", stderr: "not logged in" } : ok());
+    const reqs = [{ pack: "me", tools: [], integrations: ["linear" as const], orgOnly: true as const }];
+    const rows = await accountRows(fakeProbes({ exec }), baseTeam({ slug: "" }), reqs, fakeSecrets(), { v: 1, at: "", mode: "solo" }, {}, true);
+    expect(rows.map((r) => r.id)).toEqual(["account.github", "account.linear"]);
+    expect(rows[0]!.required).toBe(false);
+    expect(rows[1]!.required).toBe(true);
+  });
+
+  test("an org file that requires github draws one required row", async () => {
+    const exec: ExecScript = (argv) => (argv[0] === "gh" && argv[1] === "auth" ? { code: 1, stdout: "", stderr: "not logged in" } : ok());
+    const reqs = [{ pack: "me", tools: [], integrations: ["github" as const], orgOnly: true as const }];
+    const rows = await accountRows(fakeProbes({ exec }), baseTeam({ slug: "" }), reqs, fakeSecrets(), { v: 1, at: "", mode: "solo" }, {}, true);
+    expect(rows.map((r) => r.id)).toEqual(["account.github"]);
+    expect(rows[0]!.required).toBe(true);
+  });
+
+  test("a team pack still replaces the fallback", async () => {
+    const reqs = [{ pack: "me", tools: [], integrations: ["linear" as const] }];
+    const rows = await accountRows(fakeProbes({ exec: () => ok() }), baseTeam({ slug: "" }), reqs, fakeSecrets(), { v: 1, at: "", mode: "solo" }, {}, true);
+    expect(rows.map((r) => r.id)).toEqual(["account.linear"]);
+  });
 });
 
 describe("accountRows, credential_health integration (rt-132)", () => {
