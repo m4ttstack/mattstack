@@ -20,40 +20,13 @@ Setup is screens drawn from one verb and one run. `rt setup form` (hidden,
 `commands/setup-form.ts`, `lib/setup/form.ts`) answers which screen setup is
 on (`formStage`: macos, path, invite, waiting, connect, this-mac, tools, running,
 paused, ready) and each section's rows (`--section macos|invite|restore|connect|this-mac|tools|create`).
-`tools` holds a finished Mac whose only blockers are team tools or their
-accounts, or that was told about a tool, until Done acknowledges it (`--ack-tools`).
-A first run can land there too, since an ok run records Finish with such a tool
-open; only a status window closes on Done, any other goes on to rt's stage.
+The `tools` stage, its rows and org requirements are in `setup-tools.md`.
 The tray draws what it returns: no decision in Swift about which rows a
 member needs, where setup resumes or a row's state. A run still going
 outranks the macos stage, and P1 skips rt's read for the cards only on a Mac
 the last whole read saw as fresh. A done row answered no (notifications
 off) carries `tone: "off"`, drawn as a grey dash; the tray keys on `tone`,
-never the detail's words. A tools row whose install failed carries
-`tone: "failed"`: its `action` is the same install labelled Retry, its
-optional `secondary` opens the manual steps (`teamToolManualSteps`; left out
-when the team declared no install route), and its `detail` is the failure,
-drawn in the failure colour beside the buttons in place of the subtext. The
-app's own error is not drawn under it, since rt's re-read carries the failure.
-It stays open and holds Done. An app older than `failed` reads the tone as
-unknown, skips `secondary` and draws Retry with the failure as a plain
-reason. `rt tools install` records its outcome in the accounts prepare
-record's `pressFailed` list (`recordToolInstall` in `lib/setup/prepare.ts`), so
-a press reaches that row the way a background install does: a failure adds or
-replaces the tool's entry, a success removes it, a missing record is written as
-already ended, and a running one is left to its owner. `failed` belongs to
-`runPrepare` and `pressFailed` to the press; `installFailure` reads only
-`failed`, so connect rows never change for a press, `toolRow` reads
-`pressFailed` first, and `runPrepare` re-reads `pressFailed` right before its
-first write and carries it across the rest. The press write has no lock. Two
-presses or a starting run can lose an entry, which leaves a plain Install row.
-A press landing on a run's first write can also make the record read ended
-until the run's next write. The window is a few file calls, and the tools screen
-starts no run. Neither list counts once the tool reads ready. A tools row whose action is an install
-also carries `waiting`, so a press shows Installing. `detail` is a string in the tray, never null: a plain tools row (a
-tool simply missing or signed out) sends an empty one, so no reason repeats
-its button. `toolsRows` does that itself, since `extraRow` and `signInRow`
-also draw the connect screen, whose rows keep their reason. `rt setup prepare
+never the detail's words. `rt setup prepare
 <macos|accounts>` (`lib/setup/prepare.ts`) runs the installs setup can do
 while the member answers: Command Line Tools at the macos stage; Claude
 Code, herdr, the team's sign-in and required tools, then Fast Browser's
@@ -189,29 +162,6 @@ must wait for something outside this Mac (an org layout this rt does not
 read) returns `partial`: unrecorded, so it runs again, and no notification. The tray
 only spawns the verb and routes the `setup_update` notification click to the
 Setup status window; put no decision in Swift.
-
-## Org requirements
-
-`readPackRequirements` folds `org/requirements.jsonc` into the team's one
-`PackRequirements` entry. Nothing may add a second entry: `setupPackFlow`
-(`lib/setup/pack.ts`) reads `reqs[0]`, and `toolRows` draws a `pack.*` row per
-entry. A team with no pack file gets an `orgOnly` entry, which both readers
-skip as a pack. An org file's error stays on `orgError`, drawn as the
-non-blocking `org.requirements` row; it never reaches `error`, which fails the
-pack stage. A pack's `excludeOrg` removes the org tool of that name, the
-integration it connects and an org integration of that name; a name matching
-nothing is ignored, so a tool the org later drops is no error. A whole form
-read carries that row as `orgNotice`, which the Setup status window draws as a
-note on ready; it never moves a stage, a button or Finish.
-
-A finished Mac hears about a new required tool from the daemon's pull hook
-(`lib/setup/tool-notices.ts`). What was said lives in
-`~/.mattstack/rt/tool-notices.json`, not `setup-state.json`: `updateSetupState`
-has no lock, and a daemon write during a run could lose a migration id. A tool
-must read `missing` on two pulls in a row before it notifies, because a false
-result reaches every member at once; an error or a timeout is unknown, not
-missing. A told name drops off once Done acknowledges it or the team no longer
-requires it, unless the read failed, so a tool that returns notifies again.
 
 ## Your repos
 
