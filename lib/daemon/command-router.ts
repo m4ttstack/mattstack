@@ -30,6 +30,7 @@ import { createReconcilerHandlers } from "./handlers/reconciler.ts";
 import { createHerdHandlers, type HerdDeps } from "./handlers/herd.ts";
 import { createBgHandlers } from "./handlers/bg.ts";
 import { createChatHandlers } from "./handlers/chat.ts";
+import { createSlackChatHandlers } from "./handlers/slack-chat.ts";
 import { createAgentHandlers } from "./handlers/agent.ts";
 import { createHerdrHandlers } from "./handlers/herdr.ts";
 import { createInboxHandlers } from "./handlers/inbox.ts";
@@ -274,6 +275,7 @@ export function buildRoutedHandlers(opts: {
     ...herdHandlers,
     ...bgHandlers,
     ...chatHandlers,
+    ...createSlackChatHandlers({ db: opts.stateDb, log: ctx.log }),
     ...agentHandlers,
     ...paneHandlers,
     ...createEndpointHandlers({ log: ctx.log, repoIndex: ctx.repoIndex }),

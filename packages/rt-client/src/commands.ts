@@ -298,6 +298,18 @@ export interface HerdStatusData {
  */
 export type WakeMode = "mention" | "all" | "none";
 
+export type SlackItemKind = "message" | "operator-slack" | "check-in" | "close-request" | "closed";
+
+export interface SlackItem {
+  id: number;
+  conversationId: number;
+  kind: SlackItemKind;
+  fromHandle: string | null;
+  text: string;
+  createdAt: number;
+  deliveredAt: number | null;
+}
+
 export interface ChatMember {
   room: string;
   handle: string;
@@ -922,6 +934,11 @@ export interface Commands {
   /** Records an existing Claude session as an agent so `agent:resume` can reopen it; launches nothing. Idempotent per session. */
   "agent:adopt": { payload: { sessionId: string; repo: string; subject?: string; label?: string }; data: AgentRecord };
   "chat:invite": { payload: { paneId: string; room: string; note?: string; from: string; callerPane?: string }; data: InviteResult };
+  "chat:slack-open": { payload: { agentHandle: string; sessionId?: string; person: string }; data: { conversationId: number; handle: string; name: string; frameMarker: string; room: string } };
+  "chat:slack-close": { payload: { agentHandle?: string; pane?: string; farewell?: string }; data: { conversationId: number; closed: boolean } };
+  "chat:slack-status": { payload: Record<string, never>; data: { conversations: { id: number; room: string; pane?: string; name: string; openedAt: number; lastActiveAt: number }[] } };
+  "chat:slack-pending": { payload: { agentHandle: string }; data: { items: SlackItem[]; open: boolean; conversation?: { id: number; handle: string; name: string; operator: string; marker: string } } };
+  "chat:slack-delivered": { payload: { id: number }; data: { delivered: boolean } };
   "pane:list": { payload: Record<string, never>; data: { panes: ChatPane[] } };
   "pane:peek": { payload: { paneId: string; lines?: number }; data: { paneId: string; lines: string[] } };
   "pane:accounts": { payload: Record<string, never>; data: { accounts: PaneAccount[] } };
@@ -1286,6 +1303,11 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "agent:list",
   "agent:adopt",
   "chat:invite",
+  "chat:slack-open",
+  "chat:slack-close",
+  "chat:slack-status",
+  "chat:slack-pending",
+  "chat:slack-delivered",
   "pane:list",
   "pane:peek",
   "pane:accounts",

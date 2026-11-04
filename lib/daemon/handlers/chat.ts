@@ -900,9 +900,9 @@ function unreachableSenderRefusal(
   return { ok: false, error: `chat: ${message}`, failure: { code: "pane-signed-in", message } };
 }
 
-type SlackRefusal = { ok: false; error: string; failure: { code: string; message: string } };
+export type SlackRefusal = { ok: false; error: string; failure: { code: string; message: string } };
 
-function slackRefusal(message: string): SlackRefusal {
+export function slackRefusal(message: string): SlackRefusal {
   return { ok: false, error: `chat: ${message}`, failure: { code: "slack-chat", message } };
 }
 

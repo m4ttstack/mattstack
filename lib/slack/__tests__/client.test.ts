@@ -67,6 +67,19 @@ describe("slack client", () => {
     expect(f.calls[1]!.params.get("cursor")).toBe("N1");
   });
 
+  test("newestTs asks for one message and follows no pages", async () => {
+    const f = fakeFetch([{ body: { ok: true, messages: [{ ts: "9.5", text: "z" }], response_metadata: { next_cursor: "N1" } } }]);
+    expect(await createSlackClient("t", f.impl).newestTs("D0TEST")).toBe("9.5");
+    expect(f.calls).toHaveLength(1);
+    expect(f.calls[0]!.params.get("limit")).toBe("1");
+    expect(f.calls[0]!.params.get("channel")).toBe("D0TEST");
+  });
+
+  test("newestTs is undefined for an empty DM", async () => {
+    const f = fakeFetch([{ body: { ok: true, messages: [] } }]);
+    expect(await createSlackClient("t", f.impl).newestTs("D0TEST")).toBeUndefined();
+  });
+
   test("post, openDm and listUsers map Slack's shapes", async () => {
     const f = fakeFetch([
       { body: { ok: true, ts: "9.1" } },

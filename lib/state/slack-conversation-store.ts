@@ -178,6 +178,11 @@ export function conversationForRoom(room: string, db: Database = getStateDb()): 
   return row ? toConversation(row) : undefined;
 }
 
+export function conversationForSlackUser(slackUserId: string, db: Database = getStateDb()): SlackConversation | undefined {
+  const row = db.query(SELECT_OPEN_BY_USER_SQL).get(slackUserId) as ConversationRow | null;
+  return row ? toConversation(row) : undefined;
+}
+
 /** The room's newest conversation, closed or not. */
 export function latestConversationForRoom(room: string, db: Database = getStateDb()): SlackConversation | undefined {
   const row = db.query(SELECT_LATEST_BY_ROOM_SQL).get(room) as ConversationRow | null;
@@ -248,4 +253,15 @@ export function pendingItems(conversationId: number, db: Database = getStateDb()
 
 export function markItemDelivered(id: number, now: number, db: Database = getStateDb()): void {
   db.query(`UPDATE slack_items SET delivered_at = ? WHERE id = ?;`).run(now, id);
+}
+
+/** False for an unknown id or a closed conversation. A repeat keeps the first delivery time and still reads true. */
+export function markOpenItemDelivered(id: number, now: number, db: Database = getStateDb()): boolean {
+  const { changes } = db
+    .query(
+      `UPDATE slack_items SET delivered_at = COALESCE(delivered_at, ?) WHERE id = ?
+       AND conversation_id IN (SELECT id FROM slack_conversations WHERE closed_at IS NULL);`,
+    )
+    .run(now, id);
+  return changes > 0;
 }

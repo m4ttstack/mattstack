@@ -36,7 +36,7 @@ function compareTs(a: string, b: string): number {
   return fa === fb ? 0 : fa < fb ? -1 : 1;
 }
 
-function tsFromMs(ms: number): string {
+export function tsFromMs(ms: number): string {
   return `${Math.floor(ms / 1000)}.${String((ms % 1000) * 1000).padStart(6, "0")}`;
 }
 

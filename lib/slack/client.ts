@@ -24,6 +24,8 @@ export interface SlackClient {
   /** Oldest first. */
   history(channel: string, oldest: string): Promise<SlackMessage[]>;
   replies(channel: string, parentTs: string, oldest: string): Promise<SlackMessage[]>;
+  /** The DM's newest message ts, undefined for an empty DM. */
+  newestTs(channel: string): Promise<string | undefined>;
   post(channel: string, text: string): Promise<{ ts: string }>;
 }
 
@@ -124,6 +126,11 @@ export function createSlackClient(token: string, fetchImpl: typeof fetch = fetch
     async replies(channel, parentTs, oldest) {
       const raw = await pages("conversations.replies", { channel, ts: parentTs, oldest, limit: "200" }, "messages");
       return raw.map(toMessage).sort(byTs);
+    },
+    async newestTs(channel) {
+      const { body } = await call("conversations.history", { channel, limit: "1" });
+      const newest = (body.messages as Json[] | undefined)?.[0];
+      return newest ? String(newest.ts) : undefined;
     },
     async post(channel, text) {
       const { body } = await call("chat.postMessage", { channel, text });

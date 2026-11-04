@@ -11,11 +11,13 @@ import {
   closeConversation,
   conversationForAgent,
   conversationForRoom,
+  conversationForSlackUser,
   enqueueItem,
   latestConversationForRoom,
   listOpenConversations,
   markCheckedIn,
   markItemDelivered,
+  markOpenItemDelivered,
   openConversation,
   pendingItems,
   touchConversation,
@@ -49,6 +51,30 @@ function capture(fn: () => unknown): unknown {
     return e;
   }
 }
+
+test("conversationForSlackUser finds only an open conversation", () => {
+  const db = fresh();
+  expect(conversationForSlackUser(base.slackUserId, db)).toBeUndefined();
+  const conv = openConversation(base, db);
+  expect(conversationForSlackUser(base.slackUserId, db)?.id).toBe(conv.id);
+  closeConversation(conv.id, "idle", 5, db);
+  expect(conversationForSlackUser(base.slackUserId, db)).toBeUndefined();
+});
+
+test("markOpenItemDelivered keeps the first delivery time and skips a closed conversation", () => {
+  const db = fresh();
+  const conv = openConversation(base, db);
+  const item = enqueueItem({ conversationId: conv.id, kind: "message", fromHandle: null, text: "x", createdAt: 1 }, db);
+  const later = enqueueItem({ conversationId: conv.id, kind: "message", fromHandle: null, text: "y", createdAt: 2 }, db);
+  expect(markOpenItemDelivered(item.id, 10, db)).toBe(true);
+  expect(markOpenItemDelivered(item.id, 20, db)).toBe(true);
+  const stored = db.query("SELECT delivered_at FROM slack_items WHERE id = ?;").get(item.id) as { delivered_at: number };
+  expect(stored.delivered_at).toBe(10);
+  expect(markOpenItemDelivered(item.id + 100, 20, db)).toBe(false);
+  closeConversation(conv.id, "idle", 30, db);
+  expect(markOpenItemDelivered(later.id, 40, db)).toBe(false);
+  expect(pendingItems(conv.id, db).map((i) => i.id)).toEqual([later.id]);
+});
 
 test("latestConversationForRoom sees a closed row, and the newest row wins", () => {
   const db = fresh();
