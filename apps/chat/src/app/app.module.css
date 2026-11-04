@@ -7,9 +7,6 @@
 @media (min-width: 48em) {
   .sheet :global(#page-shell-main) {
     background: var(--tk-card);
-    /* A shadow, not a border: a border adds to the page height and brings up a
-       window scrollbar. */
-    box-shadow: 0 0 0 1px var(--tk-border-soft);
     /* Net zero height: the top pulls back the inset PageShell reserves. */
     margin: -8px 8px 8px 0;
     border-radius: var(--mantine-radius-lg);
