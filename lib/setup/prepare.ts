@@ -35,6 +35,20 @@ function writeRecord(p: Probes, record: PrepareRecord, pid: number): void {
   p.rename(tmp, path);
 }
 
+/**
+ * What a person's own `rt tools install` left behind, in the record the form
+ * reads. `failure` null is a success. A running record is left to its owner,
+ * and anything this writes reads as ended, so no pid in it can look alive later.
+ */
+export function recordToolInstall(p: Probes, tool: string, failure: string | null, opts: { alive?: (pid: number) => boolean; pid?: number } = {}): void {
+  const current = readPrepare(p, "accounts", opts.alive ?? pidAlive, () => p.now());
+  if (current?.running) return;
+  const now = p.now().toISOString();
+  const failed = [...(current?.failed ?? []).filter((f) => f.tool !== tool), ...(failure === null ? [] : [{ tool, detail: failure }])];
+  const record: PrepareRecord = { stage: "accounts", startedAt: current?.startedAt ?? now, endedAt: current?.endedAt ?? now, items: current?.items ?? [], failed };
+  writeRecord(p, record, opts.pid ?? process.pid);
+}
+
 async function missingBinary(p: Probes, tool: string): Promise<boolean> {
   return (await p.exec([tool, "--version"], { timeoutMs: PROBE_TIMEOUT_MS })).code === 127;
 }

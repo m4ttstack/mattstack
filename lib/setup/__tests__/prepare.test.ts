@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { UserActionableError } from "../../errors.ts";
-import { PREPARE_BUDGET_MS, preparePath, readPrepare, runPrepare, type PrepareRecord } from "../prepare.ts";
+import { PREPARE_BUDGET_MS, preparePath, readPrepare, recordToolInstall, runPrepare, type PrepareRecord } from "../prepare.ts";
 import type { PackRequirements } from "../requirements.ts";
 import type { InstallResult, installTool } from "../tools-install.ts";
 import { fakeProbes, missing, ok, type ExecScript } from "./fakes.ts";
@@ -249,5 +249,60 @@ describe("runPrepare", () => {
     expect(after.endedAt).toBe("2026-01-01T00:05:00.000Z");
     expect(after.running).toBe(false);
     expect(p.calls.renames.every(([, to]) => to === preparePath(HOME, "accounts"))).toBe(true);
+  });
+});
+
+describe("recordToolInstall", () => {
+  const ended: PrepareRecord = { stage: "accounts", startedAt: "2026-01-01T00:00:00.000Z", endedAt: "2026-01-01T00:05:00.000Z", items: ["jq"], failed: [{ tool: "jq", detail: "old failure" }, { tool: "gh", detail: "gh failed" }] };
+  const read = (p: ReturnType<typeof fakeProbes>) => readPrepare(p, "accounts", () => false, () => p.now());
+
+  test("a failure replaces that tool's entry and keeps the others", () => {
+    const p = fakeProbes({ home: HOME, files: seedRecord(ended) });
+    recordToolInstall(p, "jq", "brew said no", { pid: OWN_PID });
+    expect(read(p)?.failed).toEqual([{ tool: "gh", detail: "gh failed" }, { tool: "jq", detail: "brew said no" }]);
+    expect(read(p)?.endedAt).toBe(ended.endedAt);
+    expect(read(p)?.startedAt).toBe(ended.startedAt);
+  });
+
+  test("a failure adds an entry for a tool the record does not hold", () => {
+    const p = fakeProbes({ home: HOME, files: seedRecord(ended) });
+    recordToolInstall(p, "yq", "brew said no", { pid: OWN_PID });
+    expect(read(p)?.failed.map((f) => f.tool)).toEqual(["jq", "gh", "yq"]);
+  });
+
+  test("a success removes the entry", () => {
+    const p = fakeProbes({ home: HOME, files: seedRecord(ended) });
+    recordToolInstall(p, "jq", null, { pid: OWN_PID });
+    expect(read(p)?.failed).toEqual([{ tool: "gh", detail: "gh failed" }]);
+  });
+
+  test("with no record, a failure writes one that has already ended", () => {
+    const p = fakeProbes({ home: HOME });
+    recordToolInstall(p, "jq", "brew said no", { pid: OWN_PID });
+    const record = read(p);
+    expect(record).toMatchObject({ stage: "accounts", items: [], failed: [{ tool: "jq", detail: "brew said no" }], running: false });
+    expect(record?.endedAt).toBe(p.now().toISOString());
+    expect(record?.pid).toBeUndefined();
+  });
+
+  test("with no record, a success writes one with nothing failed", () => {
+    const p = fakeProbes({ home: HOME });
+    recordToolInstall(p, "jq", null, { pid: OWN_PID });
+    expect(read(p)).toMatchObject({ failed: [], running: false });
+  });
+
+  test("a running record belongs to its run, so it is left alone", () => {
+    const running: PrepareRecord = { stage: "accounts", startedAt: "2026-01-01T00:00:00.000Z", pid: 99, items: ["jq"], failed: [] };
+    const p = fakeProbes({ home: HOME, files: seedRecord(running) });
+    recordToolInstall(p, "jq", "brew said no", { pid: OWN_PID, alive: () => true });
+    expect(p.calls.renames).toEqual([]);
+    expect(p.readFile(preparePath(HOME, "accounts"))).toBe(JSON.stringify(running));
+  });
+
+  test("a run that died without ending reads ended once this writes it, so its pid can never be reused as running", () => {
+    const dead: PrepareRecord = { stage: "accounts", startedAt: "2026-01-01T00:00:00.000Z", pid: 99, items: ["jq"], failed: [] };
+    const p = fakeProbes({ home: HOME, files: seedRecord(dead) });
+    recordToolInstall(p, "jq", "brew said no", { pid: OWN_PID, alive: () => false });
+    expect(readPrepare(p, "accounts", () => true, () => p.now())).toMatchObject({ running: false, failed: [{ tool: "jq", detail: "brew said no" }] });
   });
 });
