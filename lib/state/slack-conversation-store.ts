@@ -216,8 +216,12 @@ export function touchConversation(id: number, now: number, db: Database = getSta
   db.query(`UPDATE slack_conversations SET last_active_at = ?, checked_in_at = NULL WHERE id = ?;`).run(now, id);
 }
 
-export function markCheckedIn(id: number, now: number, db: Database = getStateDb()): void {
-  db.query(`UPDATE slack_conversations SET checked_in_at = ? WHERE id = ?;`).run(now, id);
+/** True only for the caller that claimed it, so a stale read can't queue a second check-in. */
+export function markCheckedIn(id: number, now: number, db: Database = getStateDb()): boolean {
+  const { changes } = db
+    .query(`UPDATE slack_conversations SET checked_in_at = ? WHERE id = ? AND checked_in_at IS NULL AND closed_at IS NULL;`)
+    .run(now, id);
+  return changes > 0;
 }
 
 /** False when a close was already asked for or the conversation has closed, so the first reason stands. */
@@ -228,8 +232,12 @@ export function markCloseAsked(id: number, reason: SlackCloseReason, now: number
   return changes > 0;
 }
 
-export function markStalledNoted(id: number, now: number | null, db: Database = getStateDb()): void {
-  db.query(`UPDATE slack_conversations SET stalled_noted_at = ? WHERE id = ?;`).run(now, id);
+/** True only for the caller that claimed it, so a stale read can't send a second holding line. */
+export function markStalledNoted(id: number, now: number, db: Database = getStateDb()): boolean {
+  const { changes } = db
+    .query(`UPDATE slack_conversations SET stalled_noted_at = ? WHERE id = ? AND stalled_noted_at IS NULL AND closed_at IS NULL;`)
+    .run(now, id);
+  return changes > 0;
 }
 
 export function markWatcherSeen(id: number, now: number, db: Database = getStateDb()): void {
@@ -244,15 +252,15 @@ export function closeConversation(id: number, reason: SlackCloseReason, now: num
   return changes > 0;
 }
 
-/** Time asleep doesn't count, so each open chat's clocks move forward by it. */
-export function shiftOpenConversationClocks(gapMs: number, db: Database = getStateDb()): void {
+/** Time asleep doesn't count, so each open chat's clocks move forward by it. A clock written since the wake stops at `now`. */
+export function shiftOpenConversationClocks(gapMs: number, now: number, db: Database = getStateDb()): void {
   db.query(
     `UPDATE slack_conversations SET
-       last_active_at = last_active_at + ?1,
-       watcher_seen_at = COALESCE(watcher_seen_at, opened_at) + ?1,
-       close_asked_at = close_asked_at + ?1
+       last_active_at = MIN(last_active_at + ?1, ?2),
+       watcher_seen_at = MIN(COALESCE(watcher_seen_at, opened_at) + ?1, ?2),
+       close_asked_at = MIN(close_asked_at + ?1, ?2)
      WHERE closed_at IS NULL;`,
-  ).run(gapMs);
+  ).run(gapMs, now);
 }
 
 export function enqueueItem(args: Omit<SlackItem, "id" | "deliveredAt">, db: Database = getStateDb()): SlackItem {

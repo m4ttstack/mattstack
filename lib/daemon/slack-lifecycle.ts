@@ -146,34 +146,44 @@ export async function finishClose(
   else if (!hasWrapUp) tellOperator("Slack chat closed", `The chat with ${name} closed with no farewell (${reason})`, deps);
 }
 
-/** Holds the last tick in the db, so a daemon restarted across a sleep still sees the gap. */
-function readWakeTime(hasOpenChats: boolean, deps: SlackLifecycleDeps): number {
+/**
+ * Holds the last tick in the db, so a daemon restarted across a sleep still sees
+ * the gap. Read before each chat, since a slow send can carry a tick across a sleep.
+ */
+function readWakeTime(deps: SlackLifecycleDeps): number {
   const { db } = deps;
-  if (!hasOpenChats) {
-    // With no chat open, an old tick would read the next chat's first tick as a sleep.
-    if (hasKvValue(CLOCK_NS, CLOCK_KEY, db)) deleteKvValue(CLOCK_NS, CLOCK_KEY, db);
-    return 0;
-  }
   const now = deps.now();
   return db.transaction(() => {
-    const last = getKvValue<TickClock | null>(CLOCK_NS, CLOCK_KEY, null, db);
-    const gap = last ? now - last.lastTickAt : 0;
+    const last = getKvValue<TickClock>(CLOCK_NS, CLOCK_KEY, { lastTickAt: now, wokeAt: 0 }, db);
+    const gap = now - last.lastTickAt;
     const slept = gap > SLEEP_GAP_MS;
-    if (slept) shiftOpenConversationClocks(gap, db);
-    const wokeAt = slept ? now : (last?.wokeAt ?? 0);
+    if (slept) shiftOpenConversationClocks(gap, now, db);
+    const wokeAt = slept ? now : last.wokeAt;
     setKvValue<TickClock>(CLOCK_NS, CLOCK_KEY, { lastTickAt: now, wokeAt }, db);
     return wokeAt;
   })();
 }
 
+/** The clock runs only while a chat is open: an old tick would read the next chat's first tick as a sleep. */
+function resetTickClock(open: SlackConversation[], db: Database): void {
+  const hasClock = hasKvValue(CLOCK_NS, CLOCK_KEY, db);
+  if (open.length === 0 && hasClock) deleteKvValue(CLOCK_NS, CLOCK_KEY, db);
+  if (open.length > 0 && !hasClock) {
+    setKvValue<TickClock>(CLOCK_NS, CLOCK_KEY, { lastTickAt: Math.max(...open.map((c) => c.openedAt)), wokeAt: 0 }, db);
+  }
+}
+
 async function holdTeammate(conv: SlackConversation, deps: SlackLifecycleDeps): Promise<void> {
-  markStalledNoted(conv.id, deps.now(), deps.db);
+  if (!markStalledNoted(conv.id, deps.now(), deps.db)) return;
   tellOperator("Slack chat is waiting", `Claude hasn't picked up ${identityName(conv.slackHandle, deps.db)}'s message`, deps);
   await sendToSlack(conv, withPrefix(holdingLine(conv.operatorName)), deps);
 }
 
-async function tickConversation(conv: SlackConversation, wokeAt: number, deps: SlackLifecycleDeps): Promise<void> {
+async function tickConversation(conversationId: number, deps: SlackLifecycleDeps): Promise<void> {
   const { db } = deps;
+  const wokeAt = readWakeTime(deps);
+  const conv = conversationById(conversationId, db);
+  if (!conv || conv.closedAt !== null) return;
   const now = deps.now();
 
   if (conv.closeAskedAt !== null) {
@@ -190,6 +200,7 @@ async function tickConversation(conv: SlackConversation, wokeAt: number, deps: S
     }
     if (conv.stalledNotedAt === null && now - Math.max(waitingSince, lastDeliveredAt(conv.id, db) ?? 0) >= SLACK_STALLED_MS) {
       await holdTeammate(conv, deps);
+      return;
     }
   }
 
@@ -198,7 +209,7 @@ async function tickConversation(conv: SlackConversation, wokeAt: number, deps: S
     requestClose(conv.id, "idle", deps);
   } else if (quiet >= SLACK_CHECK_IN_MS && conv.checkedInAt === null) {
     db.transaction(() => {
-      markCheckedIn(conv.id, now, db);
+      if (!markCheckedIn(conv.id, now, db)) return;
       enqueueItem(
         {
           conversationId: conv.id,
@@ -213,15 +224,24 @@ async function tickConversation(conv: SlackConversation, wokeAt: number, deps: S
   }
 }
 
+/** Keyed by db rather than held in a flag, so one daemon's tick can't block a test's or another db's. */
+const ticking = new WeakSet<Database>();
+
 export async function tickSlackLifecycle(deps: SlackLifecycleDeps): Promise<void> {
-  const hasOpenChats = listOpenConversations(deps.db).length > 0;
-  const wokeAt = readWakeTime(hasOpenChats, deps);
-  if (!hasOpenChats) return;
-  for (const conv of listOpenConversations(deps.db)) {
-    try {
-      await tickConversation(conv, wokeAt, deps);
-    } catch (err) {
-      log.warn({ err, conversationId: conv.id }, "slack-lifecycle: a tick failed, retrying next tick");
+  const { db } = deps;
+  if (ticking.has(db)) return;
+  ticking.add(db);
+  try {
+    const open = listOpenConversations(db);
+    resetTickClock(open, db);
+    for (const { id } of open) {
+      try {
+        await tickConversation(id, deps);
+      } catch (err) {
+        log.warn({ err, conversationId: id }, "slack-lifecycle: a tick failed, retrying next tick");
+      }
     }
+  } finally {
+    ticking.delete(db);
   }
 }

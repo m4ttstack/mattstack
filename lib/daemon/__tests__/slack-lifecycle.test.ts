@@ -11,6 +11,7 @@ import { closingLine, holdingLine, SLACK_PREFIX } from "../../slack/format.ts";
 import {
   conversationById,
   enqueueItem,
+  listOpenConversations,
   markOpenItemDelivered,
   markWatcherSeen,
   openConversation,
@@ -89,7 +90,7 @@ function harness() {
     const end = state.clock + ms;
     while (state.clock < end) {
       state.clock = Math.min(end, state.clock + TICK_MS);
-      if (opts.watcher !== false) markWatcherSeen(opened.id, state.clock, db);
+      if (opts.watcher !== false) for (const c of listOpenConversations(db)) markWatcherSeen(c.id, state.clock, db);
       await tick();
     }
   }
@@ -99,6 +100,39 @@ function harness() {
   const queueMessage = (text = "still failing") =>
     enqueueItem({ conversationId: opened.id, kind: "message", fromHandle: "slack.u0test", text, createdAt: state.clock }, db);
   return { db, opened, state, sent, failing, notices, room, client, deps, tick, run, items, kinds, row, queueMessage };
+}
+
+/** A second chat, and a client whose first send to the first chat holds until `release`. */
+function twoChats() {
+  const h = harness();
+  const other = openConversation({ ...conversation, room: "dm-bbb", slackChannel: "D0TWO", slackUserId: "U0TWO", agentHandle: "pane.two" }, h.db);
+  const entered = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  const sentToOther: string[] = [];
+  const client = {
+    post: async (channel: string, text: string) => {
+      if (channel === conversation.slackChannel) {
+        entered.resolve();
+        await gate.promise;
+      } else {
+        sentToOther.push(text);
+      }
+      return { ts: "1" };
+    },
+  } as unknown as SlackClient;
+  const deps = { ...h.deps, client: async () => client };
+  const queueFor = (conversationId: number) =>
+    enqueueItem({ conversationId, kind: "message", fromHandle: "slack.u0test", text: "still failing", createdAt: h.state.clock }, h.db);
+  /** Starts a tick and returns once it is stuck in the first chat's send. */
+  async function holdFirstSend() {
+    const tick = tickSlackLifecycle(deps);
+    await entered.promise;
+    return async () => {
+      gate.resolve();
+      await tick;
+    };
+  }
+  return { h, other, deps, sentToOther, queueFor, holdFirstSend };
 }
 
 test("the timer values are the design's", () => {
@@ -486,4 +520,89 @@ test("one conversation's failure doesn't stop the tick reaching the next", async
   await tickSlackLifecycle(flaky);
   expect(conversationById(second.id, h.db)!.closedAt).not.toBeNull();
   expect(h.row().closedAt).not.toBeNull();
+});
+
+test("a tick that overlaps a slow send sends no second holding line", async () => {
+  const { h, other, deps, sentToOther, queueFor, holdFirstSend } = twoChats();
+  queueFor(h.opened.id);
+  queueFor(other.id);
+  await h.run(SLACK_STALLED_MS - TICK_MS);
+  h.state.clock += TICK_MS;
+  const release = await holdFirstSend();
+  await tickSlackLifecycle(deps);
+  await release();
+  expect(sentToOther).toEqual([holdingLine("Robin")]);
+  expect(h.notices).toHaveLength(2);
+});
+
+test("a tick that overlaps a slow send queues no second check-in", async () => {
+  const { h, other, deps, queueFor, holdFirstSend } = twoChats();
+  await h.run(20 * MINUTE);
+  queueFor(h.opened.id);
+  await h.run(SLACK_STALLED_MS - TICK_MS);
+  h.state.clock += TICK_MS;
+  const release = await holdFirstSend();
+  await tickSlackLifecycle(deps);
+  await release();
+  expect(pendingItems(other.id, h.db).filter((i) => i.kind === "check-in")).toHaveLength(1);
+});
+
+test("a chat that closes while a tick waits on another chat's send hears nothing more", async () => {
+  const { h, other, deps, sentToOther, queueFor, holdFirstSend } = twoChats();
+  queueFor(h.opened.id);
+  queueFor(other.id);
+  await h.run(SLACK_STALLED_MS - TICK_MS);
+  h.state.clock += TICK_MS;
+  const release = await holdFirstSend();
+  await finishClose(other.id, "closed-by-pane", undefined, deps);
+  await release();
+  expect(sentToOther).toEqual([CLOSED_LINE]);
+});
+
+test("a sleep during a slow send moves the clocks before the tick reaches the next chat", async () => {
+  const { h, other, queueFor, holdFirstSend } = twoChats();
+  await h.run(49 * MINUTE);
+  queueFor(h.opened.id);
+  await h.run(SLACK_STALLED_MS - TICK_MS);
+  h.state.clock += TICK_MS;
+  const release = await holdFirstSend();
+  const quietAtSleep = conversationById(other.id, h.db)!.lastActiveAt;
+  const gap = 3 * 60 * MINUTE;
+  h.state.clock += gap;
+  await release();
+  expect(conversationById(other.id, h.db)).toMatchObject({ closeAskedAt: null, closedAt: null, lastActiveAt: quietAtSleep + gap });
+});
+
+test("a tick runs again once the slow one ends", async () => {
+  const { h, other, deps, queueFor, holdFirstSend } = twoChats();
+  queueFor(h.opened.id);
+  await h.run(SLACK_STALLED_MS - TICK_MS);
+  h.state.clock += TICK_MS;
+  const release = await holdFirstSend();
+  await release();
+  queueFor(other.id);
+  await h.run(SLACK_STALLED_MS);
+  await tickSlackLifecycle(deps);
+  expect(conversationById(other.id, h.db)!.stalledNotedAt).not.toBeNull();
+});
+
+test("a clock written after the wake and before the first tick stays at now, so the 2 minute fallback still fires", async () => {
+  const h = harness();
+  await h.run(MINUTE);
+  h.state.clock += 8 * 60 * MINUTE;
+  const wokeAt = h.state.clock;
+  requestClose(h.opened.id, "operator", h.deps);
+  await h.tick();
+  expect(h.row().closeAskedAt).toBe(wokeAt);
+  await h.run(SLACK_FAREWELL_MS);
+  expect(h.row().closeReason).toBe("operator");
+});
+
+test("a sleep before a chat's first tick still moves its clocks", async () => {
+  const h = harness();
+  const gap = 8 * 60 * MINUTE;
+  h.state.clock += gap;
+  await h.tick();
+  expect(h.kinds()).toEqual([]);
+  expect(h.row()).toMatchObject({ closeAskedAt: null, lastActiveAt: START + gap });
 });

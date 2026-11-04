@@ -16,10 +16,13 @@ import {
   latestConversationForRoom,
   listOpenConversations,
   markCheckedIn,
+  markCloseAsked,
+  markStalledNoted,
   markItemDelivered,
   markOpenItemDelivered,
   openConversation,
   pendingItems,
+  shiftOpenConversationClocks,
   touchConversation,
 } from "../slack-conversation-store.ts";
 
@@ -165,4 +168,28 @@ test("threadReadTs round-trips through JSON", () => {
   const got = conversationForRoom("dm-aaa", db);
   expect(got?.lastReadTs).toBe("200.000");
   expect(got?.threadReadTs).toEqual({ "150.000": "190.000", "160.000": "195.000" });
+});
+
+test("the stalled notice and the check-in are claimed once, and never on a closed conversation", () => {
+  const db = fresh();
+  const c = openConversation(base, db);
+  expect(markStalledNoted(c.id, 1500, db)).toBe(true);
+  expect(markStalledNoted(c.id, 1600, db)).toBe(false);
+  expect(markCheckedIn(c.id, 1500, db)).toBe(true);
+  expect(markCheckedIn(c.id, 1600, db)).toBe(false);
+  const after = conversationForAgent("pane.one", db);
+  expect(after).toMatchObject({ stalledNotedAt: 1500, checkedInAt: 1500 });
+
+  const closed = openConversation({ ...base, slackUserId: "U0TWO", agentHandle: "pane.two" }, db);
+  closeConversation(closed.id, "idle", 1700, db);
+  expect(markStalledNoted(closed.id, 1800, db)).toBe(false);
+  expect(markCheckedIn(closed.id, 1800, db)).toBe(false);
+});
+
+test("the sleep shift moves an open conversation's clocks but never past now", () => {
+  const db = fresh();
+  const c = openConversation(base, db);
+  markCloseAsked(c.id, "idle", 9000, db);
+  shiftOpenConversationClocks(5000, 10_000, db);
+  expect(conversationForAgent("pane.one", db)).toMatchObject({ lastActiveAt: 6000, watcherSeenAt: 6000, closeAskedAt: 10_000 });
 });
