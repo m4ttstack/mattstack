@@ -1,3 +1,5 @@
+import { escapeSlackText } from "./format.ts";
+
 export interface SlackMessage {
   ts: string;
   user?: string;
@@ -133,7 +135,7 @@ export function createSlackClient(token: string, fetchImpl: typeof fetch = fetch
       return newest ? String(newest.ts) : undefined;
     },
     async post(channel, text) {
-      const { body } = await call("chat.postMessage", { channel, text });
+      const { body } = await call("chat.postMessage", { channel, text: escapeSlackText(text) });
       return { ts: String(body.ts) };
     },
   };

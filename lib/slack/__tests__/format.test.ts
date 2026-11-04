@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { SLACK_PREFIX, closingLine, hasPrefix, holdingLine, redactSecrets, withPrefix } from "../format.ts";
+import { SLACK_PREFIX, closingLine, decodeSlackText, escapeSlackText, hasPrefix, holdingLine, redactSecrets, withPrefix } from "../format.ts";
 
 describe("withPrefix", () => {
   test("adds the prefix once", () => {
@@ -24,6 +24,29 @@ describe("emoji shortcode form", () => {
 
   test("withPrefix strips the shortcode form and sends the emoji form", () => {
     expect(withPrefix(`${shortcode}hello`)).toBe("[Claude 🤖]: hello");
+  });
+});
+
+describe("Slack's control characters", () => {
+  test.each([
+    ["Promise<void>", "Promise&lt;void&gt;"],
+    ["cmd 2>&1", "cmd 2&gt;&amp;1"],
+    ["a && b", "a &amp;&amp; b"],
+    ["<@U0TEST>", "&lt;@U0TEST&gt;"],
+    ["&lt; stays literal", "&amp;lt; stays literal"],
+  ])("%s survives the trip both ways", (plain, wire) => {
+    expect(escapeSlackText(plain)).toBe(wire);
+    expect(decodeSlackText(wire)).toBe(plain);
+  });
+
+  test("a prefixed line keeps its prefix through the escape", () => {
+    const wire = escapeSlackText(withPrefix("Promise<void>"));
+    expect(hasPrefix(wire)).toBe(true);
+    expect(wire).toBe(`${SLACK_PREFIX}Promise&lt;void&gt;`);
+  });
+
+  test("decoding leaves Slack's own markup and other entities alone", () => {
+    expect(decodeSlackText("<@U0TEST> &quot;hi&quot;")).toBe("<@U0TEST> &quot;hi&quot;");
   });
 });
 

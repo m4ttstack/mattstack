@@ -19,6 +19,18 @@ export function withPrefix(body: string): string {
   return SLACK_PREFIX + rest;
 }
 
+const SLACK_ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">" };
+
+/** Slack reads these three as markup, so a `<@U...>` the pane wrote stays text and pings nobody. */
+export function escapeSlackText(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** One pass, so a literal `&amp;lt;` comes back as `&lt;` and not `<`. */
+export function decodeSlackText(text: string): string {
+  return text.replace(/&(amp|lt|gt);/g, (_, name: string) => SLACK_ENTITIES[name]!);
+}
+
 export const SLACK_OPEN_REFUSAL = "only a person can open a Slack chat";
 
 /** Blank space ahead of the command must not slip it past the refusal. */

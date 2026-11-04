@@ -80,6 +80,12 @@ describe("slack client", () => {
     expect(await createSlackClient("t", f.impl).newestTs("D0TEST")).toBeUndefined();
   });
 
+  test("post escapes Slack's control characters on the wire", async () => {
+    const f = fakeFetch([{ body: { ok: true, ts: "9.1" } }]);
+    await createSlackClient("t", f.impl).post("D0TEST", "Promise<void> and 2>&1");
+    expect(f.calls[0]!.params.get("text")).toBe("Promise&lt;void&gt; and 2&gt;&amp;1");
+  });
+
   test("post, openDm and listUsers map Slack's shapes", async () => {
     const f = fakeFetch([
       { body: { ok: true, ts: "9.1" } },

@@ -557,6 +557,9 @@ everything rt doesn't:
 ### Slack details
 
 - Replies go out as `chat.postMessage` on the operator's `xoxp` token.
+- Slack treats `&`, `<` and `>` as control characters. The client escapes all
+  outgoing text and the bridge decodes `&amp;`, `&lt;` and `&gt;` coming in, so
+  the room and the pane always hold plain text.
 - A thread reply under a message from before the chat opened is never seen. The
   user docs say so.
 - Attachments aren't read in this version (no `files:read`). The frame says one
@@ -631,8 +634,8 @@ colour schemes and look at them before calling that milestone done.
 
 - Module layout inside `lib/slack/`, and how the bridge hooks `chat:dm`.
 - Final wording of the support rules, the closing note and refusals.
-- Translating between Markdown and Slack's formatting, and decoding Slack's
-  entities and `<@U...>` mentions (without undoing the neutralising above).
+- Translating between Markdown and Slack's formatting, and decoding `<@U...>`
+  mentions.
 - The name of the opt-in flag on `rt setup slack connect`.
 - Whether the 5 second, 30, 60 and 2 minute values become settings.
 - Popup and Flock row layout, against the existing chat popover.

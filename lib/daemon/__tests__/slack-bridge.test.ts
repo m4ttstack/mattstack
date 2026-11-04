@@ -185,6 +185,20 @@ test("a thread broadcast reply is delivered once", async () => {
   expect(h.posts.map((p) => p.body)).toEqual(["also to the channel"]);
 });
 
+test("Slack's entities are decoded in what reaches the room and the pane", async () => {
+  const h = harness({ history: [msg(ts(10), "U0TEST", "it returns Promise&lt;void&gt; with 2&gt;&amp;1")] });
+  await h.bridge.sweep();
+  expect(h.posts[0]!.body).toBe("it returns Promise<void> with 2>&1");
+  expect(h.items()[0]!.text).toBe("it returns Promise<void> with 2>&1");
+});
+
+test("the pane's own message with escaped text is still skipped", async () => {
+  const h = harness({ history: [msg(ts(10), "U0OPER", "[Claude 🤖]: run it with 2&gt;&amp;1")] });
+  await h.bridge.sweep();
+  expect(h.posts).toEqual([]);
+  expect(h.items()).toEqual([]);
+});
+
 test("an attachment adds a note naming the file", async () => {
   const h = harness({
     history: [msg(ts(10), "U0TEST", "see this", { subtype: "file_share", files: [{ name: "error.png" }] })],

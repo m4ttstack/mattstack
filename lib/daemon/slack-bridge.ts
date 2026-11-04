@@ -5,7 +5,7 @@
 
 import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
-import { hasPrefix } from "../slack/format.ts";
+import { decodeSlackText, hasPrefix } from "../slack/format.ts";
 import { SlackError, type SlackClient, type SlackMessage } from "../slack/client.ts";
 import {
   advanceCursor,
@@ -45,7 +45,7 @@ const DELIVERABLE_SUBTYPES = new Set<string | undefined>([undefined, "file_share
 
 function bodyOf(msg: SlackMessage): string {
   const note = msg.files && msg.files.length > 0 ? `[sent a file: ${msg.files.map((f) => f.name || "unnamed").join(", ")}]` : "";
-  return [msg.text, note].filter(Boolean).join("\n");
+  return [decodeSlackText(msg.text), note].filter(Boolean).join("\n");
 }
 
 /** Replies codes that mean the thread will never be readable, so its cursor may move past it. */

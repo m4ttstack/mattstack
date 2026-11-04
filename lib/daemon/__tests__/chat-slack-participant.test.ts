@@ -8,7 +8,7 @@ import { join } from "path";
 import type { Logger } from "pino";
 import type { InboxBinding } from "../../claude-registry.ts";
 import { herdrRequest } from "../../herdr/client.ts";
-import { SlackError, type SlackClient } from "../../slack/client.ts";
+import { SlackError, createSlackClient, type SlackClient } from "../../slack/client.ts";
 import {
   closeConversation,
   conversationById,
@@ -148,6 +148,23 @@ test("a chat_dm into an open conversation posts to Slack once with the prefix, t
   expect(messages(h, room)).toEqual([{ handle: agent, body: "try restarting" }]);
   expect(cursor(h, room, SLACK_ID)).toBe(res.data.id);
   expect(conversationForRoom(room, h.db)!.lastActiveAt).toBeGreaterThan(conversation.lastActiveAt);
+});
+
+test("a reply with Slack's control characters is escaped on the wire and stays plain in the room", async () => {
+  const wire: (string | null)[] = [];
+  const fakeFetch = (async (_url: string, init: RequestInit) => {
+    wire.push(new URLSearchParams(String(init.body)).get("text"));
+    return new Response(JSON.stringify({ ok: true, ts: "9.1" }));
+  }) as unknown as typeof fetch;
+  const h = harness();
+  const { agent, room } = await openChat(h);
+  const handlers = createChatHandlers({ db: h.db, emitEvent: () => 0, log, slackClient: async () => createSlackClient("t", fakeFetch) });
+
+  const res = await handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "It returns Promise<void>, so run it with 2>&1", sessionId: PANE_SESSION });
+
+  expect(res.ok).toBe(true);
+  expect(wire).toEqual(["[Claude 🤖]: It returns Promise&lt;void&gt;, so run it with 2&gt;&amp;1"]);
+  expect(messages(h, room)).toEqual([{ handle: agent, body: "It returns Promise<void>, so run it with 2>&1" }]);
 });
 
 test("a pane's message after a check-in leaves the clock alone", async () => {

@@ -6,7 +6,7 @@ import { expect, test } from "bun:test";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { Logger } from "pino";
-import { SlackError, type SlackClient, type SlackMessage } from "../../slack/client.ts";
+import { SlackError, createSlackClient, type SlackClient, type SlackMessage } from "../../slack/client.ts";
 import { closingLine, holdingLine, SLACK_PREFIX } from "../../slack/format.ts";
 import {
   conversationById,
@@ -195,6 +195,22 @@ test("a farewell is redacted and never carries a second prefix", async () => {
   await finishClose(h.opened.id, "closed-by-pane", `${SLACK_PREFIX}token xoxb-123-abc`, h.deps);
   expect(h.sent[0]).toBe(`${SLACK_PREFIX}token [redacted]`);
   expect(h.room[0]!.body).toBe("token [redacted]");
+});
+
+test("a farewell and the fixed line are escaped on the wire and stay plain in the room", async () => {
+  const h = harness();
+  h.db.run("UPDATE slack_conversations SET operator_name = 'R&D' WHERE id = ?", [h.opened.id]);
+  const wire: (string | null)[] = [];
+  const fakeFetch = (async (_url: string, init: RequestInit) => {
+    wire.push(new URLSearchParams(String(init.body)).get("text"));
+    return new Response(JSON.stringify({ ok: true, ts: "9.1" }));
+  }) as unknown as typeof fetch;
+  await finishClose(h.opened.id, "closed-by-pane", "Use a < b && c", { ...h.deps, client: async () => createSlackClient("t", fakeFetch) });
+  expect(wire).toEqual([
+    `${SLACK_PREFIX}Use a &lt; b &amp;&amp; c`,
+    `${SLACK_PREFIX}This chat with Claude is closed. Anything you send now goes to R&amp;D.`,
+  ]);
+  expect(h.room.map((r) => r.body)).toEqual(["Use a < b && c", "This chat with Claude is closed. Anything you send now goes to R&D."]);
 });
 
 test("a blank farewell sends only the fixed line", async () => {
