@@ -1,36 +1,63 @@
 import { Group, Skeleton, Stack } from '@mattstack/app-kit/core';
+import { Icon } from '@mattstack/app-kit/icons';
 
-const MESSAGE_LINES = [
-  ['34%', '88%', '62%'],
-  ['26%', '74%'],
-  ['30%', '92%', '81%', '40%'],
-  ['22%', '56%'],
+import classes from './chat-skeleton.module.css';
+import { SectionLabel } from './FleetTree';
+
+/** One message: the name's width, then each line of its body. Enough rows to
+    run past the fold, as a real room's history does. */
+const MESSAGES = [
+  { name: 64, lines: ['91%', '96%', '42%'] },
+  { name: 48, lines: ['58%'] },
+  { name: 72, lines: ['94%', '87%'] },
+  { name: 56, lines: ['97%', '92%', '89%', '36%'] },
+  { name: 48, lines: ['71%'] },
+  { name: 64, lines: ['93%', '64%'] },
+  { name: 72, lines: ['95%', '90%', '52%'] },
+  { name: 56, lines: ['83%'] },
+  { name: 48, lines: ['96%', '74%'] },
 ];
 
-/** Stand-in rows while a room's messages load, in the message row's shape. */
+const ROOM_WIDTHS = ['46%', '22%', '34%', '18%'];
+const DM_ROWS = ['58%', '46%', '64%', '52%', '60%', '42%', '55%', '48%'];
+
+/** Stand-in rows while a room's messages load: the message row's own avatar,
+    name, time and line spacing. */
 export function MessageSkeleton() {
   return (
-    <Stack
-      gap={16}
-      data-testid="message-skeleton"
-      style={{ flex: 1, padding: '16px 24px 16px 20px' }}
-    >
-      {MESSAGE_LINES.map((lines, i) => (
-        <Group key={i} gap={12} align="flex-start" wrap="nowrap">
+    <div className={classes.messages} data-testid="message-skeleton">
+      {MESSAGES.map((message, i) => (
+        <div key={i} className={classes.message}>
           <Skeleton
-            height={26}
-            width={26}
+            height={32}
+            width={32}
             radius="sm"
-            style={{ flex: 'none' }}
+            className={classes.face}
           />
-          <Stack gap={8} style={{ flex: 1 }}>
-            {lines.map((width, j) => (
-              <Skeleton key={j} height={j === 0 ? 14 : 12} width={width} />
+          <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
+            <Group gap={8} wrap="nowrap" className={classes.line}>
+              <Skeleton height={13} width={message.name} />
+              <Skeleton height={10} width={52} />
+            </Group>
+            {message.lines.map((width, j) => (
+              <div key={j} className={classes.line}>
+                <Skeleton height={13} width={width} />
+              </div>
             ))}
           </Stack>
-        </Group>
+        </div>
       ))}
-    </Stack>
+    </div>
+  );
+}
+
+/** The title row's stand-in: the name and the members pill. */
+export function TitleSkeleton() {
+  return (
+    <Group gap={10} wrap="nowrap" data-testid="title-skeleton">
+      <Skeleton height={15} width={150} />
+      <Skeleton height={26} width={66} radius="sm" />
+    </Group>
   );
 }
 
@@ -38,40 +65,45 @@ export function MessageSkeleton() {
     message box where it will land. */
 export function RoomSkeleton() {
   return (
-    <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
+    <Stack gap={0} style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
       <MessageSkeleton />
       <Skeleton
-        height={46}
+        height={48}
         radius="lg"
-        style={{ width: 'auto', margin: '0 20px 20px' }}
+        style={{ width: 'auto', margin: '8px 20px 20px', flex: 'none' }}
       />
     </Stack>
   );
 }
 
-/** Stand-in rows while the room list loads, in the sidebar's shape. */
+/** The sidebar's stand-in: its real headings over rows in the real shapes. */
 export function RailSkeleton() {
   return (
-    <Stack gap={14} data-testid="rail-skeleton" style={{ padding: 16 }}>
-      <Skeleton height={16} width="36%" />
-      {['70%', '48%', '60%'].map((width, i) => (
-        <Skeleton key={i} height={13} width={width} />
+    <div className={classes.rail} data-testid="rail-skeleton">
+      <SectionLabel label="Rooms" />
+      {ROOM_WIDTHS.map((width, i) => (
+        <div key={i} className={classes.roomRow}>
+          <Icon name="hash" size={13} color="var(--chat-ink-soft)" />
+          <Skeleton height={13} width={width} />
+        </div>
       ))}
-      <Skeleton height={16} width="36%" mt={10} />
-      {[0, 1, 2, 3].map(i => (
-        <Group key={i} gap={10} wrap="nowrap">
+      <div style={{ height: 10 }} />
+      <SectionLabel label="Direct" />
+      {DM_ROWS.map((width, i) => (
+        <div key={i} className={classes.dmRow}>
           <Skeleton
-            height={36}
-            width={36}
+            height={40}
+            width={40}
             radius="sm"
-            style={{ flex: 'none' }}
+            className={classes.face}
           />
-          <Stack gap={8} style={{ flex: 1 }}>
-            <Skeleton height={13} width="62%" />
-            <Skeleton height={12} width="90%" />
+          <Stack gap={8} style={{ flex: 1, minWidth: 0, paddingTop: 3 }}>
+            <Skeleton height={14} width={width} />
+            <Skeleton height={12} width="92%" />
+            <Skeleton height={12} width="68%" />
           </Stack>
-        </Group>
+        </div>
       ))}
-    </Stack>
+    </div>
   );
 }

@@ -33,7 +33,7 @@ import { navigate } from 'wouter/use-browser-location';
 
 import classes from './app.module.css';
 import { BuddiesProvider } from './buddies-context';
-import { RailSkeleton, RoomSkeleton } from './ChatSkeleton';
+import { RailSkeleton, RoomSkeleton, TitleSkeleton } from './ChatSkeleton';
 import { AppMark } from './chrome/AppMark';
 import { Composer, type ComposerHandle } from './Composer';
 import { PageShellDemoPage } from './demo/PageShellDemoPage';
@@ -482,18 +482,22 @@ function ChatPage({
           </PageShell.Sidebar>
         )}
         <PageShell.Main>
-          {activeRoomSummary && (
+          {activeRoomSummary || !roomsLoaded ? (
             <PageShell.Header
               withBorder={false}
               style={{ borderBottom: '1px solid var(--tk-border-soft)' }}
             >
-              <PageBar
-                room={activeRoomSummary}
-                buddies={buddies.filter(b => roomMembers.includes(b.handle))}
-                reachable={daemon.reachable}
-              />
+              {activeRoomSummary ? (
+                <PageBar
+                  room={activeRoomSummary}
+                  buddies={buddies.filter(b => roomMembers.includes(b.handle))}
+                  reachable={daemon.reachable}
+                />
+              ) : (
+                <TitleSkeleton />
+              )}
             </PageShell.Header>
-          )}
+          ) : null}
           <PageShell.Content
             contentContainer={false}
             topNotch={{
