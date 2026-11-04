@@ -13,8 +13,17 @@
   min-width: 0;
 }
 
+.msg[data-grouped] {
+  margin-top: -3px;
+  padding-top: 0;
+}
+
 .col[data-compact] {
   max-width: none;
+}
+
+.col[data-compact] .msg[data-grouped] {
+  margin-top: -4px;
 }
 
 .col[data-compact] .msg {
@@ -43,9 +52,26 @@
 }
 
 .gutter {
+  position: relative;
   flex: none;
   width: 20px;
   padding-top: 1px;
+}
+
+/* Fills the gutter and the gap beside it, so the time sits where the sprite
+   would and never touches the text. */
+.hoverTime {
+  position: absolute;
+  top: 2px;
+  right: -7px;
+  font-size: var(--mantine-font-size-xs);
+  color: var(--tk-text-4);
+  white-space: nowrap;
+  opacity: 0;
+}
+
+.msg:hover .hoverTime {
+  opacity: 1;
 }
 
 .content {

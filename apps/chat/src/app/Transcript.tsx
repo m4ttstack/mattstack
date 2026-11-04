@@ -160,6 +160,24 @@ export interface TranscriptProps {
   compact?: boolean;
 }
 
+/** The longest gap at which a speaker's next post still continues their
+    last one. */
+const GROUP_GAP_MS = 10 * 60_000;
+
+/** True when `message` reads as a continuation of `previous`: same speaker,
+    same day, close together. It then drops its own sprite and name. */
+export function continuesGroup(
+  previous: ChatMessage | undefined,
+  message: ChatMessage
+): boolean {
+  return (
+    previous !== undefined &&
+    previous.handle === message.handle &&
+    message.postedAt - previous.postedAt <= GROUP_GAP_MS &&
+    dayKey(previous.postedAt) === dayKey(message.postedAt)
+  );
+}
+
 /** A quiet centred line: the day, or where the chat begins. */
 function Marker({
   icon,
@@ -212,10 +230,12 @@ function MessageRow({
   message,
   humanHandle,
   compact,
+  grouped,
 }: {
   message: ChatMessage;
   humanHandle: string | undefined;
   compact: boolean;
+  grouped: boolean;
 }) {
   // matt has no session behind him, so no buddy row and no task line -- the
   // lookup below falls through to `undefined` for him on its own.
@@ -234,39 +254,55 @@ function MessageRow({
       id={`m-${message.id}`}
       data-testid={`message-${message.id}`}
       className={prose.msg}
+      data-grouped={grouped || undefined}
     >
       {!compact && (
         <div className={prose.gutter}>
-          <HandleAvatar handle={message.handle} variant="inline" size={18} />
+          {grouped ? (
+            <span
+              className={prose.hoverTime}
+              title={new Date(message.postedAt).toLocaleString()}
+            >
+              {localTime(message.postedAt)}
+            </span>
+          ) : (
+            <HandleAvatar handle={message.handle} variant="inline" size={18} />
+          )}
         </div>
       )}
       <div className={prose.content}>
-        <div className={prose.hdr}>
-          {compact && (
-            <HandleAvatar handle={message.handle} variant="inline" size={13} />
-          )}
-          <span className={prose.who} style={{ color: hue.text }}>
-            <AgentName
-              handle={message.handle}
-              name={message.name}
-              variant="name"
-              withAvatar={false}
-            />
-          </span>
-          {task && task.kind !== 'away' && task.kind !== 'signed-out' && (
-            <Text component="span" truncate className={prose.meta}>
-              {task.text}
+        {!grouped && (
+          <div className={prose.hdr}>
+            {compact && (
+              <HandleAvatar
+                handle={message.handle}
+                variant="inline"
+                size={13}
+              />
+            )}
+            <span className={prose.who} style={{ color: hue.text }}>
+              <AgentName
+                handle={message.handle}
+                name={message.name}
+                variant="name"
+                withAvatar={false}
+              />
+            </span>
+            {task && task.kind !== 'away' && task.kind !== 'signed-out' && (
+              <Text component="span" truncate className={prose.meta}>
+                {task.text}
+              </Text>
+            )}
+            <Text
+              component="span"
+              className={prose.meta}
+              title={new Date(message.postedAt).toLocaleString()}
+              style={{ flex: 'none' }}
+            >
+              {localTime(message.postedAt)}
             </Text>
-          )}
-          <Text
-            component="span"
-            className={prose.meta}
-            title={new Date(message.postedAt).toLocaleString()}
-            style={{ flex: 'none' }}
-          >
-            {localTime(message.postedAt)}
-          </Text>
-        </div>
+          </div>
+        )}
         <div data-testid="message-body" className={prose.prose}>
           <MessageMarkdown
             body={message.body}
@@ -616,6 +652,7 @@ export function Transcript({
                       message={message}
                       humanHandle={humanHandle}
                       compact={compact}
+                      grouped={continuesGroup(messages[i - 1], message)}
                     />
                   </Fragment>
                 ))}
@@ -642,7 +679,11 @@ export function Transcript({
         )}
       </Box>
       {footer && (
-        <Box style={bare ? undefined : { padding: `0 ${inset} ${compact ? 10 : 20}px` }}>
+        <Box
+          style={
+            bare ? undefined : { padding: `0 ${inset} ${compact ? 10 : 20}px` }
+          }
+        >
           <div className={prose.col}>{footer}</div>
         </Box>
       )}

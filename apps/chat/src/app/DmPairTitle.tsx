@@ -21,9 +21,17 @@ function End({ handle, name }: { handle: string; name: string | undefined }) {
 
 /** A DM's name: each end with its sprite, and each truncating on its own so a
     long agent name never pushes the other person off the row. */
-export function DmPairTitle({ pair }: { pair: DmPair }) {
+export function DmPairTitle({
+  pair,
+  quiet = false,
+}: {
+  pair: DmPair;
+  /** A resting sidebar row: lighter name and dimmer sprite, so a long list of
+      pairs reads as a list and not a wall of colour. */
+  quiet?: boolean;
+}) {
   return (
-    <span className={classes.pair}>
+    <span className={classes.pair} data-quiet={quiet || undefined}>
       <End handle={pair.a} name={pair.aName} />
       <span className={classes.and}>and</span>
       <End handle={pair.b} name={pair.bName} />

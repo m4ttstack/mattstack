@@ -20,7 +20,6 @@ import classes from './fleet-tree.module.css';
 import { MUTED_XS } from './presence-bits';
 import type { RosterBuddy } from './roster-types';
 import { StateDot } from './StateDot';
-import { formatElapsed } from './statusDetail';
 
 const ACCENT_TEXT = 'var(--mantine-color-accent-text)';
 
@@ -508,13 +507,11 @@ function WorkstreamRow({
 function DmRow({
   room,
   active,
-  now,
   onSelect,
   onClose,
 }: {
   room: FleetRoom;
   active: boolean;
-  now: number;
   onSelect?: () => void;
   onClose?: (room: string) => void;
 }) {
@@ -556,23 +553,16 @@ function DmRow({
         fw={active ? 600 : 500}
         style={{ fontSize: CHROME_SIZE, flex: 1, minWidth: 0 }}
       >
-        <DmPairTitle pair={pair} />
+        <DmPairTitle pair={pair} quiet={!active} />
       </Text>
-      <Box className={classes.endSlot}>
-        {room.lastPostedAt !== undefined && (
-          <span className={classes.age} data-testid={`dm-age-${room.room}`}>
-            {formatElapsed(now - room.lastPostedAt)}
-          </span>
-        )}
-        {closable && (
-          <CloseControl
-            room={room}
-            testId={`dm-close-${room.room}`}
-            nudge={false}
-            onClose={onClose}
-          />
-        )}
-      </Box>
+      {closable && (
+        <CloseControl
+          room={room}
+          testId={`dm-close-${room.room}`}
+          nudge={false}
+          onClose={onClose}
+        />
+      )}
     </Box>
   );
 
@@ -697,7 +687,6 @@ export function FleetTree({
               key={room.room}
               room={room}
               active={room.room === activeRoom}
-              now={now}
               onSelect={() => onOpenDm?.(room.room)}
               onClose={onClose}
                     />
