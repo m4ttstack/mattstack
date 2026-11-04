@@ -78,9 +78,10 @@ fn one_line(s: &str) -> String {
 
 /// The line typed into the pane. `rt pane send` injects one line, so newlines
 /// collapse to spaces. The command's parser reads the person as one word or a
-/// double-quoted name, and a quote inside the person would end it early.
+/// double-quoted name: a `"` inside the person would end it early, and a bare
+/// leading `'` does not parse, so that name goes in double quotes too.
 pub fn support_command(person: &str, problem: &str) -> Result<String, String> {
-    let person = one_line(&person.replace(['"', '\''], ""));
+    let person = one_line(&person.replace('"', ""));
     let problem = one_line(problem);
     if person.is_empty() {
         return Err("a person is required".to_string());
@@ -88,7 +89,7 @@ pub fn support_command(person: &str, problem: &str) -> Result<String, String> {
     if problem.is_empty() {
         return Err("a problem is required".to_string());
     }
-    let person = if person.contains(' ') {
+    let person = if person.contains(' ') || person.starts_with('\'') {
         format!("\"{person}\"")
     } else {
         person
@@ -590,10 +591,28 @@ mod tests {
     }
 
     #[test]
-    fn the_command_is_one_line_with_no_stray_quotes_in_the_person() {
+    fn the_command_is_one_line_and_keeps_an_apostrophe_in_the_person() {
         assert_eq!(
-            support_command("  \"al'ex\"\n", "line one\nline two\r\n  line three").unwrap(),
-            "/slack-support alex line one line two line three"
+            support_command("  \"O'Brien\"\n", "line one\nline two\r\n  line three").unwrap(),
+            "/slack-support O'Brien line one line two line three"
+        );
+    }
+
+    #[test]
+    fn a_two_word_name_with_an_apostrophe_is_double_quoted_intact() {
+        assert_eq!(
+            support_command("Mary O'Brien", "printer jams").unwrap(),
+            r#"/slack-support "Mary O'Brien" printer jams"#
+        );
+    }
+
+    /// A bare leading `'` does not parse as a person, while the same name
+    /// inside double quotes does.
+    #[test]
+    fn a_leading_apostrophe_gets_double_quotes() {
+        assert_eq!(
+            support_command("'alex", "printer jams").unwrap(),
+            r#"/slack-support "'alex" printer jams"#
         );
     }
 
@@ -601,7 +620,7 @@ mod tests {
     fn the_command_needs_a_person_and_a_problem() {
         assert!(support_command("", "problem").is_err());
         assert!(support_command("alex", " \n ").is_err());
-        assert!(support_command("\"'", "problem").is_err());
+        assert!(support_command("\"\"", "problem").is_err());
     }
 
     #[test]
