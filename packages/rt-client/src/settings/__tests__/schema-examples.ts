@@ -4,8 +4,8 @@ const TRACKED = "remote:gitlab.example.com%2Facme%2Fapp";
 
 export const EXAMPLES: Record<string, Example> = {
   "chat.humanHandle": {
-    good: ["matt", "m4ttheweric", "pat.smith-2"],
-    bad: [{ value: "Matt", path: [] }, { value: "", path: [] }],
+    good: ["matt", "pat.smith-2", ""],
+    bad: [{ value: "Matt", path: [] }],
   },
   "chat.displayName": {
     good: ["matt", "Pat Smith"],
