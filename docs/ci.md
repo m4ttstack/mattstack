@@ -140,9 +140,11 @@ before any test runs (a bad ref, a syntax error in the scope script) prints
 `mode: "error"` and exits 1; a SIGTERM or SIGINT stops the test processes. It
 runs unit tests only: no typecheck, e2e or path-gated job.
 
-Every verdict posts the `rt/local-check` commit status: green as success, red
-as failure, and an error (a timeout, a command that could not run) as error.
-That status is the pusher's attestation that this sha ran its scoped tests on
+A run posts the `rt/local-check` commit status for its verdict: green as
+success, red as failure, and an error (a timeout, a command that could not
+run) as error. Nothing is posted for a dirty tree, a HEAD that moved during the
+run, a commit not yet on the remote, `--no-status`, a GitLab host, a `--base`
+ref that is not a commit, or a HEAD rt cannot read. That status is the pusher's attestation that this sha ran its scoped tests on
 their machine, and anyone who can push can post it. The merge queue's full, hosted run is
 still what lands a tree, so a wrong local status cannot break `main`.
 

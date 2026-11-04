@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Settings: one declared key `rt.check`, `repoScoped: true`, `repoOnly: true`, `scopes: ALL_SCOPES`, `merge: "deep"`, `default: {}`; read only through `getSetting`.
+- Settings: one declared key `rt.check`, `repoScoped: true`, `repoOnly: true`, `scopes: ["user", "machine"]`, `merge: "deep"`, `default: {}`; read only through `getSetting`.
 - Output: every human line through `lib/ui/out.ts`; a red check is a `failure`; "not configured" is a `refused` note and exit 0; `--json` goes through `out.json` and is pinned byte for byte; `lib/` code warns through `warn()` from `lib/ui/warn.ts`, never `console.*`.
 - The CLI stays UI-free (no `.tsx`, no UI frameworks).
 - Status context is `rt/local-check`; states `success`, `failure`, `error`; description capped at 140 characters.
@@ -54,12 +54,12 @@ In `registry-defs.ts`, after `rt.hooks`:
 {
   key: "rt.check",
   type: "object",
-  scopes: ALL_SCOPES,
+  scopes: ["user", "machine"],
   default: {},
   merge: "deep",
   repoScoped: true,
   repoOnly: true,
-  description: "The repo's own pre-push check ({command, timeoutSeconds}). rt check runs command from the tree root with RT_CHECK_BASE, RT_CHECK_HEAD, RT_CHECK_TREE and RT_CHECK_FULL in its environment; exit 0 is green, and a last stdout line of JSON is the summary. git_push runs it first and refuses a red push. An empty object means no check: nothing runs and no status is posted.",
+  description: "The repo's own pre-push check ({command, timeoutSeconds}). rt check runs command from the tree root with RT_CHECK_BASE, RT_CHECK_HEAD, RT_CHECK_TREE and RT_CHECK_FULL in its environment; exit 0 is green, and a last stdout line of JSON is the summary. git_push runs it first and refuses a red push. An empty object means no check: nothing runs and no status is posted. User or machine scope only, since the command runs without a prompt.",
 },
 ```
 
