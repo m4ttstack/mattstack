@@ -33,6 +33,7 @@ import { navigate } from 'wouter/use-browser-location';
 
 import classes from './app.module.css';
 import { BuddiesProvider } from './buddies-context';
+import { MessageSkeleton, RailSkeleton } from './ChatSkeleton';
 import { AppMark } from './chrome/AppMark';
 import { Composer, type ComposerHandle } from './Composer';
 import { PageShellDemoPage } from './demo/PageShellDemoPage';
@@ -383,6 +384,7 @@ function ChatSidebar({
 interface ChatPageProps {
   rooms: RoomSummary[];
   roomsLoaded: boolean;
+  messagesLoaded: boolean;
   openRooms: RoomSummary[];
   railRooms: FleetRoom[];
   activeRoom: string | undefined;
@@ -402,6 +404,7 @@ interface ChatPageProps {
 function ChatPage({
   rooms,
   roomsLoaded,
+  messagesLoaded,
   openRooms,
   railRooms,
   activeRoom,
@@ -447,7 +450,7 @@ function ChatPage({
         topOffset={SHELL_HEADER_HEIGHT + SHEET_INSET}
         drawerStateKey="chat-rooms-sidebar"
       >
-        {(rooms.length > 0 || buddies.length > 0) && (
+        {(!roomsLoaded || rooms.length > 0 || buddies.length > 0) && (
           <PageShell.Sidebar
             bg={CHROME_SURFACE}
             hideCollapseButton
@@ -464,14 +467,18 @@ function ChatPage({
               },
             }}
           >
-            <ChatSidebar
-              rooms={railRooms}
-              buddies={buddies}
-              activeRoom={activeRoom}
-              selectRoom={selectRoom}
-              reachable={daemon.reachable}
-              onCloseRoom={onCloseRoom}
-            />
+            {roomsLoaded ? (
+              <ChatSidebar
+                rooms={railRooms}
+                buddies={buddies}
+                activeRoom={activeRoom}
+                selectRoom={selectRoom}
+                reachable={daemon.reachable}
+                onCloseRoom={onCloseRoom}
+              />
+            ) : (
+              <RailSkeleton />
+            )}
           </PageShell.Sidebar>
         )}
         <PageShell.Main>
@@ -511,19 +518,22 @@ function ChatPage({
               style={{ flex: 1, minHeight: 0, minWidth: 0 }}
             >
               {openRooms.length === 0 && !activeRoomSummary ? (
-                roomsLoaded && (
+                roomsLoaded ? (
                   <Box style={{ flex: 1, minWidth: 0 }} p="xl">
                     <RoomsPlaceholder
                       anyBuddies={buddies.length > 0}
                       allClosed={rooms.length > 0}
                     />
                   </Box>
+                ) : (
+                  <MessageSkeleton />
                 )
               ) : (
                 activeRoom && (
                   <Transcript
                     room={activeRoom}
                     messages={messages}
+                    loading={!messagesLoaded}
                     humanHandle={me.handle}
                     anchor={anchor}
                     footer={
@@ -717,7 +727,10 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
     if (latest) navigate(`/r/${encodeURIComponent(latest)}`, { replace: true });
   }, [route.name, rooms]);
 
-  const { messages } = useMessages(activeRoom, initialState?.messages);
+  const { messages, loaded: messagesLoaded } = useMessages(
+    activeRoom,
+    initialState?.messages
+  );
   const {
     members: roomMembers,
     memberNames: roomMemberNames,
@@ -780,6 +793,7 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
                     compact
                     room={activeRoom}
                     messages={messages}
+                    loading={!messagesLoaded}
                     humanHandle={me.handle}
                     anchor={anchor}
                     footer={
@@ -828,6 +842,7 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
           <ChatPage
             rooms={rooms}
             roomsLoaded={roomsLoaded}
+            messagesLoaded={messagesLoaded}
             openRooms={openRooms}
             railRooms={railRooms}
             activeRoom={activeRoom}

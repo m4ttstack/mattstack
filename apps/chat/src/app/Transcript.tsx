@@ -16,6 +16,7 @@ import ScrollToBottom, {
 } from 'react-scroll-to-bottom';
 
 import { AgentName, HandleAvatar } from './AgentName';
+import { MessageSkeleton } from './ChatSkeleton';
 import { dayKey, dayLabel, localTime } from './day-label';
 import { MessageMarkdown } from './MessageMarkdown';
 import { NewPill } from './NewPill';
@@ -153,6 +154,8 @@ export interface TranscriptProps {
   /** Flush on the host's own background, with no inset: the phone shell draws
       its own chrome. @default false */
   bare?: boolean;
+  /** The room's first page is still on its way: stand-in rows take its place. */
+  loading?: boolean;
   /** The narrow embed: sprite beside the name, no task line, tighter type. */
   compact?: boolean;
 }
@@ -377,6 +380,7 @@ export function Transcript({
   anchor,
   footer,
   bare = false,
+  loading = false,
   compact = false,
 }: TranscriptProps) {
   const slack = useSlackChat(room);
@@ -649,6 +653,7 @@ export function Transcript({
               data-compact={compact || undefined}
               data-testid="transcript-column"
             >
+              {loading && messages.length === 0 && <MessageSkeleton />}
               {messages.length > 0 && !olderExhausted && (
                 <OlderEdge
                   loading={loadingOlder}
