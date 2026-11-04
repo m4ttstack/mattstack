@@ -367,6 +367,19 @@ let formActionRunnerChecks: [Check] = [
         c.expectEqual(await MainActor.run { runner.sheet }, nil)
         c.expectEqual(log.all, ["reload"])
     },
+    Check("FormActionRunner: a failed row's read drops the app's error for good and keeps its wait") { c in
+        let rt = ScriptedRt()
+        let (runner, _) = await makeRunner(rt, log: EventLog())
+        var row = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: "", state: .todo, detail: "",
+                          action: RowAction(type: .install, label: "Install", tool: "doppler", via: "brew"))
+        await runner.perform(row)
+        c.expect(await MainActor.run { runner.errors[row.id] } != nil, "rt's exit 1 is the app's error until the next read")
+        await MainActor.run { runner.reconcile(with: [row]) }
+        c.expect(await MainActor.run { runner.errors[row.id] } != nil, "a plain row keeps it")
+        row.tone = .failed
+        await MainActor.run { runner.reconcile(with: [row]) }
+        c.expectEqual(await MainActor.run { runner.errors[row.id] }, nil)
+    },
     Check("FormActionRunner: a press of a row's second action shows its steps, and the row's own action still runs its install") { c in
         let rt = ScriptedRt()
         let (runner, _) = await makeRunner(rt, log: EventLog())

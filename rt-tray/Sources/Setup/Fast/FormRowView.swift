@@ -253,7 +253,6 @@ struct FormRowView: View {
         notes
     }
 
-    /// T7: the failure takes the subtext's place beside the buttons, and drops below them when the line has no room.
     private var failedLine: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 10) {
