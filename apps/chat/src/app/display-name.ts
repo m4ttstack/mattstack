@@ -16,7 +16,7 @@ export function displayName(row: Named): string {
 
 /** A DM is named by its pair; the hashed room name is never shown. */
 export function dmPairLabel(pair: DmPair): string {
-  return `${pair.aName ?? pair.a} and ${pair.bName ?? pair.b}`;
+  return `${pair.aName ?? pair.a}, ${pair.bName ?? pair.b}`;
 }
 
 /** Each of `rows` whose name two or more of them share, mapped to that name

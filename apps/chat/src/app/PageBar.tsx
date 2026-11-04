@@ -73,7 +73,7 @@ export function PageBar({
         </Box>
       )}
       <Text
-        fw={700}
+        fw={600}
         size="lg"
         truncate
         data-testid="page-bar-title"

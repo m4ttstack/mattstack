@@ -70,11 +70,11 @@
 }
 
 .dmRow {
+  --stack-ring: var(--chat-chrome);
   position: relative;
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
+  align-items: center;
+  gap: 10px;
   width: 100%;
   min-width: 0;
   padding: 10px 16px;
@@ -95,4 +95,20 @@
   white-space: nowrap;
   font-size: var(--mantine-font-size-md);
   color: var(--tk-text-1);
+}
+
+.dmRow:hover {
+  --stack-ring: var(--chat-chrome-hover);
+}
+
+.dmRow[data-active] {
+  --stack-ring: var(--chat-chrome-selected);
+}
+
+.dmText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
 }

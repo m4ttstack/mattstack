@@ -1,6 +1,11 @@
-/* One run of text with one ellipsis at the end of the row: two truncated names
-   side by side read as broken. */
-.pair {
+.title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.names {
   display: block;
   min-width: 0;
   overflow: hidden;
@@ -8,16 +13,31 @@
   white-space: nowrap;
 }
 
-.end svg {
-  display: inline-block;
-  margin-right: 5px;
-  vertical-align: -2px;
+.stack {
+  position: relative;
+  flex: none;
+  width: var(--stack-size);
+  height: var(--stack-size);
 }
 
-.and {
-  margin: 0 5px;
-  font-size: var(--mantine-font-size-xs);
-  font-weight: 400;
-  color: inherit;
-  opacity: 0.65;
+/* `--stack-ring` is the surface behind, so the two tiles read as separate. */
+.tile {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 62%;
+  height: 62%;
+  border-radius: 30%;
+  background: var(--tk-card);
+  box-shadow: 0 0 0 1.5px var(--stack-ring, var(--tk-card));
+}
+
+.tile:first-child {
+  top: 0;
+  left: 0;
+}
+
+.tile:last-child {
+  right: 0;
+  bottom: 0;
 }

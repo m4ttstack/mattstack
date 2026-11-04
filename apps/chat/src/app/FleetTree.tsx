@@ -15,7 +15,7 @@ import { agentState, isRoomForRepo, stateLine } from './agent-state';
 import { AgentHoverCard, AgentName } from './AgentName';
 import { dayKey, dayLabel, localTime } from './day-label';
 import { displayName, dmPairLabel, sameNameOrdinals } from './display-name';
-import { DmPairTitle } from './DmPairTitle';
+import { DmNames, DmStack } from './DmPairTitle';
 import { doing } from './doing';
 import classes from './fleet-tree.module.css';
 import { MUTED_XS } from './presence-bits';
@@ -553,19 +553,22 @@ function DmRow({
       }}
       className={`${classes.listRow} ${classes.dmRow}`}
     >
-      <Group gap="sm" justify="space-between" wrap="nowrap">
-        <Text
-          component="div"
-          fw={700}
-          style={{ fontSize: CHROME_SIZE, minWidth: 0 }}
-        >
-          <DmPairTitle pair={pair} />
-        </Text>
-        {room.lastPostedAt !== undefined && (
-          <span className={classes.when}>{whenLabel(room.lastPostedAt)}</span>
-        )}
-      </Group>
-      {preview && <div className={classes.preview}>{preview}</div>}
+      <DmStack pair={pair} size={40} />
+      <div className={classes.dmText}>
+        <Group gap="sm" justify="space-between" wrap="nowrap">
+          <Text
+            component="div"
+            fw={600}
+            style={{ fontSize: CHROME_SIZE, minWidth: 0 }}
+          >
+            <DmNames pair={pair} />
+          </Text>
+          {room.lastPostedAt !== undefined && (
+            <span className={classes.when}>{whenLabel(room.lastPostedAt)}</span>
+          )}
+        </Group>
+        {preview && <div className={classes.preview}>{preview}</div>}
+      </div>
       {closable && (
         <CloseControl
           room={room}
