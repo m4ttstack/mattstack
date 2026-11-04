@@ -378,11 +378,13 @@ function PublishCell({
     !canOfferPublish(row)
   )
     return tag;
-  const label = row.published
-    ? `make ${row.name} private`
-    : `publish ${row.name}`;
   const tip = row.published ? 'Make private' : 'Publish';
   const needsDomain = !row.published && !data.publicDomainBound;
+  const label = row.published
+    ? `make ${row.name} private`
+    : needsDomain
+      ? `publish ${row.name}: connect a domain first`
+      : `publish ${row.name}`;
   return (
     <>
       {tag}

@@ -14,6 +14,7 @@ import {
   getLive,
   getOverride,
   renameAppSettings,
+  setPublished,
 } from '../../core/settings.ts';
 import type { CfDns } from '../edge/cf-dns.ts';
 import { renameOAuth } from '../edge/oauth.ts';
@@ -424,6 +425,9 @@ async function teardownRecord(
   }
   deleteRecord(record.name);
   removeIcon(record.name);
+  // A later app reusing this name must not inherit its public state. The
+  // setter refuses while the store is unreadable, and removal still stands.
+  await setPublished(record.name, false).catch(() => {});
   return { ok: true, issues };
 }
 

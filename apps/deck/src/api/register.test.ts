@@ -283,6 +283,15 @@ test('unregister: registrar-owned, 409 with escape hatch, force overrides', asyn
   expect(drivers.edge.aliases.size).toBe(0);
 });
 
+test('unregister: a later app reusing the name does not inherit its public state', async () => {
+  await registerApp(input, drivers);
+  await setPublished('myapp', true);
+  expect((await unregisterApp('myapp', 'user', false, drivers)).status).toBe(
+    200
+  );
+  expect(getAppSettings('myapp').published).toBe(false);
+});
+
 function writeRoutes(
   hostnames: string[],
   pids: Record<string, number> = {}
@@ -567,7 +576,7 @@ test('edit rename: a teardown driver failure lands a visible issue on the rename
   expect(rec!.issues![0]!.source).toBe('launchd');
 });
 
-test("edit rename: the app's settings move with it — a public, password-protected app keeps both", async () => {
+test("edit rename: the app's settings move with it, so a public, password-protected app keeps both", async () => {
   await registerApp(input, drivers);
   await setPublished('myapp', true);
   await setPassword('myapp', 'hunter2');
