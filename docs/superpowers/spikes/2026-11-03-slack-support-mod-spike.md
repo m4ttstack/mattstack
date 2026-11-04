@@ -66,7 +66,8 @@ the daemon redelivers them, which is what the at-least-once design needs.
 returned. `/exit` and SIGTERM both ended it. `kill -9` on the session did not: the
 children reparented to pid 1 and were still running over a minute later, past a line
 sent to one and heartbeats from the other, until I killed them. A `slack-watch` left
-like that would hold its daemon connection, so `pane-gone` would never fire.
+like that would keep polling, which counts as a live pane, so `pane-gone` would never
+fire.
 
 **Own hooks.** The mod's `prompt.submit` hook doesn't see the mod's own
 `$.prompt.submit` (debug log: "skipped: re-entry"), so the mod has to build the full
@@ -159,8 +160,7 @@ against the real build.
 - Task 11: start the skill from `$.clock.after`, never from inside the `command.run`
   hook, and pass the problem in the skill's arguments.
 - Task 11: run `slack-delivered` right after `$.prompt.submit` resolves.
-- Task 6: `slack-watch` exits when its parent dies, by checking its parent pid, and a
-  new watcher replaces an old one for the same pane.
+- Task 6: `slack-watch` exits when its parent pid changes.
 - Spec: correct the claim that the plugin frame carries no instruction.
 - Task 12 and Task 15: `rt pane send` returns `queued` for a slash command that ran,
   so On reads the conversation's state, not the delivery result.

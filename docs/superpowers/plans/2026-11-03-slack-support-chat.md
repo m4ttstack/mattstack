@@ -238,9 +238,9 @@ git commit -m "daemon: bridge Slack DMs into open conversations"
 "chat:slack-delivered": { payload: { id: number }; data: { delivered: boolean } }
 ```
 
-Verbs: `rt chat slack-open <person> --json`, `rt chat slack-watch --json`, `rt chat slack-delivered <id>` (all `hidden: true`, no `agentSafe`), `rt chat slack-close [--pane <pane>] [--farewell-file <path>]`, `rt chat slack-status`. `slack-watch` loops `chat:slack-pending` every 2 seconds, prints each new item as one JSON line in the spec's shape, reprints undelivered items on restart, and exits when `open` is false.
+Verbs: `rt chat slack-open <person> --json`, `rt chat slack-watch --json`, `rt chat slack-delivered <id>` (all `hidden: true`, no `agentSafe`), `rt chat slack-close [--pane <pane>] [--farewell-file <path>]`, `rt chat slack-status`. `slack-watch` loops `chat:slack-pending` every 2 seconds, prints each new item as one JSON line in the spec's shape, reprints undelivered items on restart, and exits when `open` is false or its parent pid changes (the spike showed a hard-killed session leaves its children running).
 
-- [ ] **Step 1: Write the failing tests:** `an unknown person is refused and nothing opens`; `an ambiguous person is refused with the candidates`; `a deleted or bot user can't be picked`; `a token without the support scopes is refused with the connect step`; `a pane not signed in to chat is refused`; `slack-open prints the JSON shape`; `slack-watch prints the documented line`; `slack-watch reprints undelivered items after a restart`; `slack-watch exits when the conversation closes`; `a pane cannot inject /slack-support into another pane or itself with self, and a call with no pane identity can`; `slack-open is hidden and absent from the agent-safe list and the MCP roster`.
+- [ ] **Step 1: Write the failing tests:** `an unknown person is refused and nothing opens`; `an ambiguous person is refused with the candidates`; `a deleted or bot user can't be picked`; `a token without the support scopes is refused with the connect step`; `a pane not signed in to chat is refused`; `slack-open prints the JSON shape`; `slack-watch prints the documented line`; `slack-watch reprints undelivered items after a restart`; `slack-watch exits when the conversation closes`; `slack-watch exits when its parent pid changes`; `a pane cannot inject /slack-support into another pane or itself with self, and a call with no pane identity can`; `slack-open is hidden and absent from the agent-safe list and the MCP roster`.
 
 - [ ] **Step 2: Run** both test files. Expected: FAIL.
 
@@ -369,11 +369,11 @@ Load `plugin-authoring` first, and use the spike's answers.
   - `the Bash deny matches slack-open, slack-watch and slack-delivered`
   - `the Bash deny matches rt pane send carrying /slack-support`
   - `an ordinary Bash command passes`
-  - `the system prompt section exists only while a chat is open`
+  - `the skill starts from a timer after the command.run hook returns, with the person and problem in its arguments`
   - `every submit omits asUser`
   - `a message delivery puts the rules first and the text between marker lines`
   - `text containing the marker is neutralised`
-  - `delivered is confirmed only once the prompt has entered, by the path the spike chose`
+  - `delivered runs only after $.prompt.submit resolves`
   - `a failed submit is not confirmed`
   - `an operator-slack item carries its own label`
   - `session.start resumes the watcher when a conversation is open`
@@ -382,7 +382,7 @@ Load `plugin-authoring` first, and use the spike's answers.
 
 - [ ] **Step 2: Run:** `claude plugin test plugins/mattstack`. Expected: FAIL.
 
-- [ ] **Step 3: Implement.** Register the command in `session.start`. The `command.run` hook checks `e.origin.kind === 'composer'`, signs the pane in with `rt chat sign-in` if needed, runs `rt chat slack-open` with `$.process.run`, starts the watcher, and starts `rt:slack-support` the way the spike found. Pass `CLAUDE_CODE_SESSION_ID` from `$.session.id()` and the pane id in each child's `env`; don't rely on inheritance. Use the spec's support rules as the wording of `supportRules`. Hook failures on the gating hooks fail closed with a `.catch`.
+- [ ] **Step 3: Implement.** Register the command in `session.start`. The `command.run` hook checks `e.origin.kind === 'composer'`, signs the pane in with `rt chat sign-in` if needed, runs `rt chat slack-open` with `$.process.run`, starts the watcher, and returns. A `$.clock.after` scheduled by the hook then runs `$.command.run` of `rt:slack-support` with the person and problem as its arguments; `$.prompt.submit` and `$.command.run` are refused inside the hook, and a slash command's arguments don't reach the model. There is no `prompt.compose` hook: the rules ride on every message. The mod's own `prompt.submit` hook doesn't see its own submits, so `renderDelivery` builds the whole text first. Pass `CLAUDE_CODE_SESSION_ID` from `$.session.id()` and the pane id in each child's `env`; don't rely on inheritance. Use the spec's support rules as the wording of `supportRules`. Hook failures on the gating hooks fail closed with a `.catch`.
 
 - [ ] **Step 4: Run** `claude plugin test plugins/mattstack` and `claude plugin validate plugins/mattstack`. Expected: PASS. Keep the engine's generated `tsconfig.json` and `.claude-plugin/types/` out of the commit.
 
@@ -403,7 +403,7 @@ git commit -m "plugin: add the Slack support mod"
 - Consumes: `rt chat slack-status`, `rt chat slack-close --pane`, `rt pane send`.
 - Produces: `herdr-chat slack-status --json`, `herdr-chat slack-close --json --pane <id>`, a "Slack support" pane action and popup, and `slackChat` on `status --json`: `{ "name": string, "openedAt": number } | null`.
 
-- [ ] **Step 1: Write the failing Rust tests** with the `Runner` fake: `status carries the pane's open chat`; `slack-close passes the pane`; `the popup's On types the slash command into the pane`.
+- [ ] **Step 1: Write the failing Rust tests** with the `Runner` fake: `status carries the pane's open chat`; `slack-close passes the pane`; `the popup's On types the slash command into the pane`; `the popup shows On worked from slackChat, not the send result`.
 
 - [ ] **Step 2: Run:** `cargo test --release` in `plugins/herdr-chat`. Expected: FAIL.
 
@@ -474,7 +474,7 @@ Work in `~/Documents/GitHub/flock`, in its own plan-sized change on `main`, per 
 **Interfaces:**
 - Consumes: Task 12's `slackChat`, `slack-close --json`, and typing `/slack-support` into a pane.
 
-- [ ] **Step 1: Write the failing tests:** `status decodes slackChat`; `an old herdr-chat with no slackChat hides the row`; `the row shows who the pane is talking to`.
+- [ ] **Step 1: Write the failing tests:** `status decodes slackChat`; `an old herdr-chat with no slackChat hides the row`; `the row shows who the pane is talking to`; `On shows it worked from slackChat, not the send result`.
 
 - [ ] **Step 2: Run** the repo's test commands. Expected: FAIL.
 

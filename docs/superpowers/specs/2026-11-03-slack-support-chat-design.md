@@ -58,7 +58,7 @@ It has failed, even if it technically works, if any of these happen:
 | Scope | Support for mattstack team members, brainstorming their feature or change ideas, and writing up bugs and feature requests |
 | Support tickets | Markdown files the daemon writes, through a dedicated tool |
 | Delivery into the pane | A mod's `$.prompt.submit`, with the support rules ahead of the teammate's text. The operator's own chat UI messages stay on the inbox socket |
-| Enforcing "no code changes" | The skill plus the support rules on every delivered Slack message, backed by a rule in the system prompt while a chat is open. No block on tools and no locked-down pane. The operator's reason: these messages never read as the operator's input, and the skill tells the pane to act only as a support agent. Moving delivery to the mod removes the cross-session framing that told the pane to act on them. A live test covers the rest (see Testing). |
+| Enforcing "no code changes" | The skill plus the support rules on every delivered Slack message. No block on tools and no locked-down pane. The operator's reason: these messages never read as the operator's input, and the skill tells the pane to act only as a support agent. Moving delivery to the mod removes the cross-session framing that told the pane to act on them. A live test covers the rest (see Testing). |
 | Approach | Bridge Slack into rt chat |
 | Noticing Slack messages | The daemon checks Slack every few seconds, only while a conversation is open |
 | How long a chat lasts | From turn-on to close, not the whole DM |
@@ -160,8 +160,8 @@ The name comes from a profile field the teammate controls, so it is cleaned
 before anything uses it: lowercased, stripped to the chat name charset
 (`[a-z0-9._-]`), capped at 24 characters, falling back to the user id if nothing
 is left. Two teammates with one first name get `alex-slack` and `alex-2-slack`.
-Only the cleaned name reaches the support rules and the system prompt section, so
-a profile name can't inject text there. Reply hints carry the id, never the name.
+Only the cleaned name reaches the support rules, so a profile name can't inject
+text there. Reply hints carry the id, never the name.
 
 Chat needs these adjustments for a participant with no session:
 
@@ -209,10 +209,10 @@ same mod that owns `/slack-support`:
    with `$.process.spawn` and reads one JSON line per waiting message. It restarts
    the child if it exits, and on `session.start` when a conversation is still open.
 3. The mod calls `$.prompt.submit({ text })`. It never sets `asUser`.
-4. The mod runs `rt chat slack-delivered` once the message has really reached the
-   session, so a crash redelivers it rather than losing it. If `$.prompt.submit`
-   resolves when the prompt is queued, not when it enters, the mod confirms from
-   its own `prompt.submit` or `turn.start` hook seeing that text. The spike decides.
+4. The mod runs `rt chat slack-delivered` straight after `$.prompt.submit`
+   resolves. It resolves when the prompt enters the session, not when it is queued,
+   and a queued prompt dies with a killed session, so a crash redelivers the message
+   rather than losing it.
 
 The aim is that the pane helps, not that it ignores the message. The rules say
 what to do as well as what not to do. The exact wording is the builder's to
@@ -239,8 +239,9 @@ This is stronger than the socket frame for three reasons:
 - **The origin can't be forged.** The engine stamps `{ kind: 'plugin', name }`,
   and no hook or message text can change it.
 - **It drops the conflicting instruction.** The cross-session envelope tells the
-  model to treat the text as a teammate's request and act on it. A plugin message
-  carries no such line.
+  model to treat the text as a teammate's request and act on it. The plugin frame
+  only says the plugin sent a message and to address it, and the support rules say
+  how.
 
 The text the mod submits, in order:
 
@@ -249,11 +250,10 @@ The text the mod submits, in order:
   pass itself off as the end of the block.
 - The reply hint for `chat_dm`.
 
-While a conversation is open, the mod's `prompt.compose` hook also adds a
-session-scoped section to the system prompt with the same rules, and says that
-plugin messages from this mod are a teammate's Slack messages. A teammate's text
-can't reach that section. Adding it costs one prompt cache miss when a chat opens
-and another when it closes.
+The rules ride on every message and nowhere else. A system prompt section can't
+carry them: Claude Code doesn't send a section added once a session has started, and
+the managed enterprise account bypasses that hook. Riding on each message also means
+the rules survive a compaction.
 
 **A plugin message only starts once the session is idle.** The socket can land
 mid-turn, and this can't: if the pane is mid-investigation, a teammate's next
@@ -407,6 +407,8 @@ other chat features, and the pane must be signed in to rt chat.
 **On** types `/slack-support <person> <problem>` into that pane, the way
 `chat_invite` types `/chat:join`. The UI opens nothing itself, so that command is
 the only way a conversation starts, and the brief always comes from the operator.
+`rt pane send` reports `queued` for a slash command that ran, so the controls read
+the pane's open conversation to know it worked, never the send result.
 
 **Off** is `slack-close --pane <pane>`, which runs the close sequence.
 
@@ -422,10 +424,12 @@ for it to discover or be talked into calling.
 - **The check.** Its `command.run` hook refuses unless `e.origin.kind` is
   `composer`. The engine stamps that value for the person's own Enter at the
   prompt, and never for a plugin, a peer, a schedule or a same-user socket.
-- **The open.** The hook signs the pane in to rt chat if it isn't already, runs the
-  open with `$.process.run`, then starts the skill itself with `$.command.run`,
-  passing the person and the problem. The skill sets `disable-model-invocation`, so
-  the model can't load it.
+- **The open.** The hook signs the pane in to rt chat if it isn't already, and runs
+  the open with `$.process.run`. Then it schedules `$.command.run` of the skill with
+  `$.clock.after`, passing the person and the problem as the skill's arguments.
+  Claude Code refuses a submit from inside a `command.run` hook, and a slash
+  command's own arguments don't reach the model. The skill sets
+  `disable-model-invocation`, so the model can't load it.
 - **No other way in.** `rt chat slack-open` is hidden from `--help` and the command
   tree, has no MCP tool, and is named in no skill or doc.
 - **Closing the Bash gap.** The model can still reach Bash. The same mod's
@@ -439,29 +443,9 @@ for it to discover or be talked into calling.
 This stops accidents and misled panes. It isn't a security boundary against a
 determined process on this machine, which is outside what the operator asked for.
 
-**Spike first, before the plan's later tasks depend on it** (these cover delivery
-as well as opening):
-
-- Does text typed by `rt pane send`, Flock and herdr stamp as `composer`? The On
-  control needs it to, and if a pane's own `rt pane send self` can do it, the
-  `tool.call` deny is what stops that.
-- Does a `$.prompt.submit` from a mod read to the model with the plugin framing,
-  and do the support rules ahead of the text hold up? This is the core of delivery.
-- Do `command.run`, `tool.call`, `$.prompt.submit`, `prompt.compose` and
-  `$.process.spawn` all run on the managed enterprise account? The
-  builtin `cc-plugin-sec-default` guard has bypassed user-tier mods on
-  `prompt.context` there, and an organization's policy can turn mods off.
-- Can a plugin's `$.command.run` start a `disable-model-invocation` skill? The pane
-  must start work without another keystroke. If not, the hook returns the skill's
-  text as `context` and starts the turn with `$.prompt.submit`.
-- When does `$.prompt.submit`'s promise resolve: at queueing, or when the prompt
-  enters? That sets how the mod confirms delivery.
-- What rate limit does Slack apply to this app? One real `conversations.history`
-  call on a channel, reading the response headers, answers it.
-
-If the mod can't run on that account, opening falls back to a one-tap gate and
-delivery falls back to the inbox socket with the support rules in its frame. That needs
-the operator's decision at that point.
+**Spike results.** The mod path holds on the personal and the managed enterprise
+accounts, and Slack allows a 5 second poll. Details are in
+`docs/superpowers/spikes/2026-11-03-slack-support-mod-spike.md`.
 
 ### API
 
@@ -511,7 +495,9 @@ Other `kind` values carry the check-in and close requests, so everything reaches
 the session one way. Each line carries what the mod needs to render it, so a
 resumed watcher needs nothing from the earlier open. `slack-watch` polls the
 daemon every 2 seconds, and that poll updates `watcher_seen_at`, which is what
-`pane-gone` measures.
+`pane-gone` measures. A hard-killed session leaves its child running, and an orphan
+that kept polling would hide the loss, so `slack-watch` exits as soon as its parent
+process changes.
 
 **Underneath.** Each verb maps to a daemon command in the `chat:*` family, such as
 `chat:slack-open` and `chat:slack-close`. `herdr-chat` gains `slack-status` and
@@ -611,8 +597,8 @@ need to approve that.
 - Ticket tests: the daemon picks the path, hostile titles stay in the folder, a
   clash gets a number, and the tool refuses with no open conversation.
 - Mod tests with `claude plugin test`: a run from each origin other than
-  `composer` is refused, the Bash denies match, the system prompt section exists
-  only while a chat is open, and `asUser` is never set.
+  `composer` is refused, the Bash denies match, the skill starts after the
+  `command.run` hook returns, and `asUser` is never set.
 - Delivery tests: text that fakes the marker stays inside the block, a crash
   before the mod marks delivery redelivers, and a chat UI message never takes the
   Slack path.
