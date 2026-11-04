@@ -1,8 +1,8 @@
 import { Fragment, useState } from 'react';
 import {
-  Avatar,
   Badge,
   Button,
+  Group,
   Menu,
   ScrollArea,
 } from '@mattstack/app-kit/core';
@@ -10,7 +10,12 @@ import { AnimatedChevron, Icon } from '@mattstack/app-kit/icons';
 import type { AgentStatus, RoomSummary } from '@mattstack/rt-client';
 
 import { agentState, isRoomForRepo, type AgentState } from './agent-state';
-import { AgentCard, CARD_WIDTH, SpriteAvatar } from './AgentName';
+import {
+  AgentCard,
+  CARD_WIDTH,
+  HandleAvatar,
+  SpriteAvatar,
+} from './AgentName';
 import { useBuddies } from './buddies-context';
 import { doing, type DoingInput } from './doing';
 import classes from './room-members.module.css';
@@ -125,7 +130,7 @@ function MemberItem({
       position="right-start"
       offset={DROPDOWN_DOCK_OFFSET}
       width={CARD_WIDTH}
-      radius="lg"
+      radius="md"
       floatingStrategy="fixed"
       opened={active}
       onChange={onActive}
@@ -256,22 +261,27 @@ export function RoomMembers({
       position="bottom-start"
       width={DROPDOWN_WIDTH}
       shadow="md"
-      radius="lg"
+      radius="md"
       withinPortal
     >
       <Menu.Target>
         <Button
           variant="default"
-          size="sm"
+          size="compact-sm"
           data-testid="members-chip"
           aria-label={`Members of ${roomLabel}: ${signedIn.length} signed in${reachable ? '' : ', last known'}`}
           leftSection={
             stack.length > 0 ? (
-              <Avatar.Group spacing="xs">
+              <Group gap={3} wrap="nowrap">
                 {stack.map(b => (
-                  <SpriteAvatar key={b.handle} handle={b.handle} size="sm" />
+                  <HandleAvatar
+                    key={b.handle}
+                    handle={b.handle}
+                    variant="name"
+                    size={13}
+                  />
                 ))}
-              </Avatar.Group>
+              </Group>
             ) : undefined
           }
           rightSection={<AnimatedChevron opened={opened} size={14} />}

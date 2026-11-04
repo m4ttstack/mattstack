@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ReactNode, RefObject } from 'react';
+import type { RefObject } from 'react';
 import {
   DaemonBanner,
   MattstackShell,
@@ -16,59 +16,34 @@ import {
   PageShell,
   Stack,
   Text,
-  UnstyledButton,
+  usePageShellContext,
 } from '@mattstack/app-kit/core';
 import { useIsMobile } from '@mattstack/app-kit/hooks';
-import { Icon } from '@mattstack/app-kit/icons';
 import { notifications } from '@mattstack/app-kit/notifications';
-import { RailLink } from '@mattstack/app-kit/router';
 import type {
   ChatMember,
   ChatMessage,
-  ChatPane,
-  InviteResult,
   RoomSummary,
 } from '@mattstack/rt-client';
 import { useInterval } from 'react-interval-hook';
 import { useLocation } from 'wouter';
 import { navigate } from 'wouter/use-browser-location';
 
-import type { InboxCard as InboxCardData, InboxPayload } from '../server/inbox';
 import { BuddiesProvider } from './buddies-context';
 import { AppMark } from './chrome/AppMark';
 import { Composer, type ComposerHandle } from './Composer';
 import { PageShellDemoPage } from './demo/PageShellDemoPage';
-import { DmPairTitle } from './DmPairTitle';
 import type { FleetRoom } from './FleetTree';
 import { HUMAN_HANDLE } from './human';
-import {
-  Inbox,
-  InboxBar,
-  orderedCards,
-  UNREAD_BADGE,
-  unreadTotal,
-  useInbox,
-} from './Inbox';
-import { postMarkRead } from './mark-read';
-import { NewRoomModal } from './NewRoomModal';
-import { PageBar, RoomMenu } from './PageBar';
-import { PanePickerProvider, usePanePicker } from './PanePicker';
-import {
-  PHONE_BORDER,
-  PHONE_MUTED,
-  PHONE_MUTED_META,
-  PHONE_TAP,
-  tapButtonStyle,
-} from './phone-chrome';
-import { Reader } from './Reader';
+import { PageBar } from './PageBar';
 import { isMsgTopic, useRelayFrames, useRelayOpen } from './relay-socket';
-import { FleetDrawer, RoomRail } from './RoomRail';
+import { RoomRail } from './RoomRail';
 import type { RosterBuddy } from './roster-types';
 import { useAppRoute, useHash } from './routes';
-import { SettingsEntry } from './SettingsEntry';
-import { SlackChatsProvider, useSlackChatRooms } from './slack-chats-context';
+import { SettingsButton } from './SettingsEntry';
+import { SlackChatsProvider, useSlackChats } from './slack-chats-context';
 import { PAGE_SIZE, Transcript } from './Transcript';
-import { visibleRooms } from './visible-rooms';
+import { latestActiveRoom, visibleRooms } from './visible-rooms';
 
 /**
  * `/api/chat/buddies`' own wire shape -- `FleetTree` reads the full
@@ -77,6 +52,9 @@ import { visibleRooms } from './visible-rooms';
  * roster row, not that narrower shape.
  */
 export type Buddy = RosterBuddy;
+
+const SIDEBAR_WIDTH = 272;
+const PAGE_ROW_HEIGHT = 44;
 
 /**
  * Seeds the app's data instead of a network call -- every UI test in this
@@ -91,7 +69,6 @@ export interface AppInitialState {
   rooms?: FleetRoom[];
   members?: ChatMember[];
   messages?: ChatMessage[];
-  inbox?: InboxPayload;
 }
 
 /**
@@ -300,83 +277,6 @@ function useRoomMembers(
 }
 
 /**
- * Whether herdr is up (so there are panes to invite). Polls `GET /api/panes`
- * on mount and every 30s. `undefined` until the first answer, which is the
- * gate the entry points read: the `+` and `add agents` mount only once this
- * is `true`, so neither flashes before herdr's availability is known.
- */
-function usePanesAvailable(): boolean | undefined {
-  const [available, setAvailable] = useState<boolean | undefined>(undefined);
-  const probe = useCallback(() => {
-    fetch('/api/panes')
-      .then(res =>
-        res.json().then((data: { available?: boolean }) => {
-          // Herdr genuinely absent (a 200 saying so) is the only case that
-          // hides the entry points. A daemon-down response (502) or a
-          // network error keeps them mounted so `daemonReachable` disables
-          // them instead, per the spec's failure table.
-          if (res.ok) setAvailable(data.available === true);
-          else setAvailable(true);
-        })
-      )
-      .catch(() => setAvailable(true));
-  }, []);
-  useEffect(() => {
-    probe();
-  }, [probe]);
-  useInterval(probe, 30_000);
-  return available;
-}
-
-/**
- * The transcript-edge line after a create-room or add-agents: `invited N`,
- * one span per pane coloured by its delivery, then the standing note that
- * members surface as they sign in. A pane is named by its display name, else
- * its workspace, else the bare id.
- */
-export function resultLine(
-  results: InviteResult[],
-  panes: ChatPane[]
-): ReactNode {
-  const label = (r: InviteResult) => {
-    const pane = panes.find(p => p.paneId === r.paneId);
-    const name =
-      pane?.presence?.name ??
-      pane?.presence?.handle ??
-      (pane?.workspace ? `${pane.workspace} pane` : r.paneId);
-    if (r.delivered === 'accepted')
-      return (
-        <span key={r.paneId} style={{ color: 'var(--mantine-color-ok-text)' }}>
-          {name} accepted
-        </span>
-      );
-    if (r.delivered === 'queued')
-      return (
-        <span
-          key={r.paneId}
-          style={{ color: 'var(--mantine-color-warn-text)' }}
-        >
-          {name} queued (working)
-        </span>
-      );
-    return (
-      <span key={r.paneId} style={{ color: 'var(--mantine-color-bad-text)' }}>
-        {name} refused: {r.reason ?? 'unknown'}
-      </span>
-    );
-  };
-  return (
-    <>
-      invited {results.length}
-      {results.map(r => (
-        <span key={r.paneId}> · {label(r)}</span>
-      ))}
-      {' · members appear as they sign in'}
-    </>
-  );
-}
-
-/**
  * No rooms at all: nobody is signed in anywhere and the human has joined
  * nothing. Distinct from "rooms exist but none selected".
  *
@@ -396,7 +296,7 @@ function RoomsPlaceholder({
         <Text fw={600}>No rooms</Text>
         <Text size="sm" c="dimmed">
           {allClosed
-            ? 'Every room is closed. A post from anyone brings its room back, and the + starts a new one.'
+            ? 'Every room is closed. A post from anyone brings its room back.'
             : anyBuddies
               ? 'Agents are signed in but not in a room yet.'
               : 'No agent has signed in. A room appears when one does.'}
@@ -406,474 +306,55 @@ function RoomsPlaceholder({
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Phone chrome -- Phone.dc.html / PhoneRooms.dc.html.                 */
-/* Nothing above this point is responsive; the phone layout is its own */
-/* shell, not a squashed version of the desktop one.                   */
-/* ------------------------------------------------------------------ */
-
-function FleetDot({ color, hollow }: { color?: string; hollow?: boolean }) {
-  return (
-    <Box
-      component="span"
-      style={{
-        width: 8,
-        height: 8,
-        borderRadius: '50%',
-        background: hollow ? 'transparent' : color,
-        border: hollow ? '1px solid var(--tk-border)' : undefined,
-        flex: 'none',
-      }}
-    />
-  );
-}
-
-function roomHeaderTitle(room: RoomSummary | undefined): ReactNode {
-  if (!room) return '';
-  return room.kind === 'dm' && room.participants ? (
-    <DmPairTitle pair={room.participants} />
-  ) : (
-    `#${room.room}`
-  );
-}
-
-/**
- * The 56px phone header: the drawer toggle, the room/pair title, and the
- * fleet counts as ONE tap target that also opens the drawer -- there is no
- * separate members button.
- */
-function PhoneHeader({
-  room,
+/** Inside `PageShell.Sidebar`, which on a phone is a drawer: picking a row
+    closes it, and a workstream opens a DM since there is no pane to focus. */
+function ChatSidebar({
+  rooms,
   buddies,
-  reachable,
-  onOpenDrawer,
-  onCloseRoom,
-}: {
-  room: RoomSummary | undefined;
-  buddies: Buddy[];
-  reachable: boolean;
-  onOpenDrawer: () => void;
-  onCloseRoom: (room: string) => void;
-}) {
-  const live = buddies.filter(b => b.status === 'live').length;
-  const idle = buddies.filter(b => b.status === 'idle').length;
-  const offline = buddies.filter(b => b.status === 'offline').length;
-
-  return (
-    <Group
-      wrap="nowrap"
-      gap="xs"
-      data-testid="phone-header"
-      style={{
-        height: 56,
-        flex: 'none',
-        padding: '0 var(--mantine-spacing-sm) 0 2px',
-        background: 'var(--tk-panel)',
-        borderBottom: `1px solid ${PHONE_BORDER}`,
-      }}
-    >
-      <UnstyledButton
-        aria-label="Rooms and members"
-        data-testid="phone-drawer-toggle"
-        onClick={onOpenDrawer}
-        style={tapButtonStyle(PHONE_TAP)}
-      >
-        <Icon name="panelLeftOpen" size={20} />
-      </UnstyledButton>
-      <Text
-        truncate
-        fw={700}
-        style={{ fontSize: 'var(--mantine-font-size-sm)', minWidth: 0 }}
-      >
-        {roomHeaderTitle(room)}
-      </Text>
-      <Box style={{ flex: 1 }} />
-      <UnstyledButton
-        aria-label={
-          reachable
-            ? `Buddies: ${live} working, ${idle} idle, ${offline} offline`
-            : 'Buddies unavailable while the daemon is down'
-        }
-        data-testid="phone-fleet-toggle"
-        onClick={onOpenDrawer}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--mantine-spacing-sm)',
-          height: PHONE_TAP,
-          padding: '0 var(--mantine-spacing-sm)',
-          borderRadius: 'var(--mantine-radius-md)',
-          background: 'transparent',
-          border: 0,
-        }}
-      >
-        {reachable ? (
-          <>
-            <FleetDot color="var(--tk-fill-ok)" />
-            <Text size="xs" style={{ color: 'var(--mantine-color-ok-text)' }}>
-              {live}
-            </Text>
-            <FleetDot color="var(--tk-fill-warn)" />
-            <Text size="xs" style={{ color: 'var(--mantine-color-warn-text)' }}>
-              {idle}
-            </Text>
-            <FleetDot hollow />
-            <Text size="xs" style={{ color: PHONE_MUTED_META }}>
-              {offline}
-            </Text>
-          </>
-        ) : (
-          <Text size="xs" style={{ color: PHONE_MUTED_META }}>
-            presence withheld
-          </Text>
-        )}
-      </UnstyledButton>
-      {room && <RoomMenu room={room} onClose={onCloseRoom} size={PHONE_TAP} />}
-    </Group>
-  );
-}
-
-/**
- * The phone shell: `PhoneHeader`, the transcript, the composer (`phone`
- * chrome: 16px input, 44px send, Enter is a newline), and the fleet
- * `FleetDrawer`. Not the desktop 3-column layout squashed -- a dedicated
- * shell, since the artboard draws none of the rail, the wordmark header, or
- * the page bar on a 390px screen.
- */
-function PhoneChat({
-  daemon,
-  buddies,
-  railRooms,
   activeRoom,
-  setActiveRoom,
-  activeRoomSummary,
-  messages,
-  anchor,
-  roomMembers,
-  composerRef,
+  selectRoom,
+  reachable,
   onOpenDm,
   onCloseRoom,
-  onMarkRead,
+  onFocusPane,
 }: {
-  daemon: ReturnType<typeof useDaemonHealth>;
+  rooms: FleetRoom[];
   buddies: Buddy[];
-  /** Already `visibleRooms`-filtered -- the same list the desktop sidebar
-      reads, for the drawer's tree. */
-  railRooms: FleetRoom[];
   activeRoom: string | undefined;
-  setActiveRoom: (room: string) => void;
-  activeRoomSummary: RoomSummary | undefined;
-  messages: ChatMessage[];
-  anchor: string | undefined;
-  roomMembers: string[];
-  composerRef: RefObject<ComposerHandle | null>;
+  selectRoom: (room: string) => void;
+  reachable: boolean;
   onOpenDm: (handle: string) => void;
   onCloseRoom: (room: string) => void;
-  onMarkRead: (room: string) => void;
+  onFocusPane: (paneId: string) => void;
 }) {
-  const [drawerOpen, setDrawerOpen] = useState(false);
-
+  const { collapsedSidebar, sidebarOpen, toggleSidebar } =
+    usePageShellContext();
+  const closeDrawer = () => {
+    if (collapsedSidebar && sidebarOpen) toggleSidebar();
+  };
   return (
-    <Box
-      data-testid="phone-shell"
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        minHeight: '100dvh',
-        background: 'var(--ui-bg-1)',
+    <RoomRail
+      sidebar
+      rooms={rooms}
+      buddies={buddies}
+      now={Date.now()}
+      activeRoom={activeRoom}
+      onSelectRoom={room => {
+        selectRoom(room);
+        closeDrawer();
       }}
-    >
-      <PhoneHeader
-        room={activeRoomSummary}
-        buddies={buddies}
-        reachable={daemon.reachable}
-        onOpenDrawer={() => setDrawerOpen(true)}
-        onCloseRoom={onCloseRoom}
-      />
-
-      <DaemonBanner
-        reachable={daemon.reachable}
-        downSince={daemon.downSince}
-        probeCount={daemon.probeCount}
-        lastAnsweredAt={daemon.lastAnsweredAt}
-        onProbeNow={daemon.probeNow}
-      />
-
-      {activeRoom && (
-        // `display: flex` here, not just `flex: 1`: a bare Transcript root
-        // sizes ITSELF via `flex: 1; min-height: 0` on the assumption its
-        // parent is a flex container -- a plain (block) Box gives it no
-        // such context, so it falls back to auto height and its own inner
-        // scroll box (also `flex: 1; min-height: 0`) collapses to zero.
-        // Scrolling belongs to Transcript's own scroll view, so this
-        // wrapper stays a non-scrolling flex column, not `overflowY: auto`.
-        <Box
-          style={{
-            flex: 1,
-            minHeight: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            padding: 'var(--mantine-spacing-md) var(--mantine-spacing-lg) 0',
-          }}
-        >
-          <Transcript
-            room={activeRoom}
-            messages={messages}
-            humanHandle={HUMAN_HANDLE}
-            anchor={anchor}
-            unreadCount={activeRoomSummary?.unread}
-            isDm={activeRoomSummary?.kind === 'dm'}
-            bare
-          />
-        </Box>
-      )}
-
-      {activeRoom && (
-        <Composer
-          ref={composerRef}
-          phone
-          room={activeRoom}
-          roomMembers={roomMembers}
-          buddies={buddies}
-          isDm={activeRoomSummary?.kind === 'dm'}
-          daemonReachable={daemon.reachable}
-          onOpenDm={onOpenDm}
-        />
-      )}
-
-      <FleetDrawer
-        opened={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        rooms={railRooms}
-        activeRoom={activeRoom}
-        onSelectRoom={setActiveRoom}
-        buddies={buddies}
-        daemonReachable={daemon.reachable}
-        onCloseRoom={onCloseRoom}
-        onMarkRead={onMarkRead}
-        onOpenDm={onOpenDm}
-      />
-    </Box>
-  );
-}
-
-/** The 56px phone inbox header (`PhoneInbox.dc.html`): the drawer toggle,
-    the inbox icon and title, and the sweep -- a check plus the same unread
-    count `InboxBar`'s own sweep button carries, with no label at this
-    width. */
-function PhoneInboxHeader({
-  inbox,
-  onOpenDrawer,
-  onMarkAllRead,
-}: {
-  inbox: InboxPayload;
-  onOpenDrawer: () => void;
-  onMarkAllRead: () => void;
-}) {
-  const total = unreadTotal(inbox);
-  return (
-    <Group
-      wrap="nowrap"
-      gap="xs"
-      data-testid="phone-inbox-header"
-      style={{
-        height: 56,
-        flex: 'none',
-        padding: '0 var(--mantine-spacing-sm) 0 2px',
-        background: 'var(--tk-panel)',
-        borderBottom: `1px solid ${PHONE_BORDER}`,
-      }}
-    >
-      <UnstyledButton
-        aria-label="Rooms and members"
-        data-testid="phone-drawer-toggle"
-        onClick={onOpenDrawer}
-        style={tapButtonStyle(PHONE_TAP)}
-      >
-        <Icon name="panelLeftOpen" size={20} />
-      </UnstyledButton>
-      <Box
-        component="span"
-        style={{ display: 'inline-flex', flex: 'none', color: PHONE_MUTED }}
-      >
-        <Icon name="inbox" size={16} />
-      </Box>
-      <Text
-        truncate
-        fw={700}
-        style={{ fontSize: 'var(--mantine-font-size-sm)', minWidth: 0 }}
-      >
-        Inbox
-      </Text>
-      <Box style={{ flex: 1 }} />
-      {total > 0 && (
-        <UnstyledButton
-          aria-label="Mark everything read"
-          data-testid="phone-inbox-mark-all"
-          onClick={onMarkAllRead}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 'var(--mantine-spacing-sm)',
-            height: PHONE_TAP,
-            padding: '0 var(--mantine-spacing-sm)',
-            borderRadius: 'var(--mantine-radius-md)',
-            color: PHONE_MUTED,
-          }}
-        >
-          <Icon name="check" size={16} />
-          <Box component="span" style={UNREAD_BADGE}>
-            {total}
-          </Box>
-        </UnstyledButton>
-      )}
-    </Group>
-  );
-}
-
-/**
- * The phone inbox: `PhoneInboxHeader`, the card list (`Inbox`, `phone`
- * mode), and the reader (`Reader`, `phone` mode) -- a route within the
- * page, not a modal. Both stay mounted, stacked via `position: absolute`
- * and toggled with `visibility` (see the comment at the toggle for why),
- * so the list's own scroll position survives a trip into the reader and
- * back, which unmounting it would not.
- */
-function PhoneInboxPage({
-  inbox,
-  daemonReachable,
-  buddies,
-  railRooms,
-  readerMembers,
-  openCard,
-  onOpenCard,
-  onMarkRoomRead,
-  onMarkAllRead,
-  onOpenRoom,
-  onReplied,
-  onSelectRoom,
-  onCloseRoom,
-  onOpenDm,
-}: {
-  inbox: InboxPayload;
-  daemonReachable: boolean;
-  buddies: Buddy[];
-  railRooms: FleetRoom[];
-  readerMembers: string[];
-  openCard: InboxCardData | undefined;
-  onOpenCard: (card: InboxCardData) => void;
-  onMarkRoomRead: (room: string) => void;
-  onMarkAllRead: () => void;
-  onOpenRoom: (room: string, messageId: number) => void;
-  onReplied: () => void;
-  onSelectRoom: (room: string) => void;
-  onCloseRoom: (room: string) => void;
-  onOpenDm: (handle: string) => void;
-}) {
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [readerOpen, setReaderOpen] = useState(false);
-  // A mark-all-read tapped while the reader is open can empty the inbox
-  // out from under it: `openCard` (App()'s own derivation) falls back to
-  // undefined once no card is left to fall back to. Without this, the
-  // reader would unmount (its own `openCard &&` guard below) while the
-  // list stayed hidden -- a header with no card and no way back. Closing
-  // the reader here is what makes the list reachable again the moment its
-  // card disappears, not just the moment the human taps back.
-  useEffect(() => {
-    if (!openCard) setReaderOpen(false);
-  }, [openCard]);
-  const showReader = readerOpen && openCard !== undefined;
-
-  return (
-    <Box
-      data-testid="phone-inbox-shell"
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        minHeight: '100dvh',
-        background: 'var(--ui-bg-1)',
-      }}
-    >
-      <PhoneInboxHeader
-        inbox={inbox}
-        onOpenDrawer={() => setDrawerOpen(true)}
-        onMarkAllRead={onMarkAllRead}
-      />
-
-      <Box style={{ position: 'relative', flex: 1, minHeight: 0 }}>
-        <Box
-          data-testid="phone-inbox-list"
-          style={{
-            position: 'absolute',
-            inset: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            // `visibility`, not `display: none`: `display: none`
-            // destroys the scroll container's box, and a real browser
-            // resets `scrollTop` on redisplay -- exactly the position
-            // this toggle exists to preserve. `visibility: hidden` (with
-            // `position: absolute` above so the hidden box doesn't still
-            // claim layout space) keeps the box, and its scroll offset,
-            // intact underneath the reader. Do not "simplify" this back
-            // to `display`.
-            visibility: showReader ? 'hidden' : 'visible',
-            pointerEvents: showReader ? 'none' : undefined,
-          }}
-        >
-          <Inbox
-            inbox={inbox}
-            reachable={daemonReachable}
-            buddies={buddies}
-            readerMembers={readerMembers}
-            openCard={openCard}
-            onOpenCard={card => {
-              onOpenCard(card);
-              setReaderOpen(true);
-            }}
-            onMarkRoomRead={onMarkRoomRead}
-            onMarkAllRead={onMarkAllRead}
-            onOpenRoom={onOpenRoom}
-            onReplied={onReplied}
-            phone
-          />
-        </Box>
-
-        {showReader && openCard && (
-          <Box
-            data-testid="phone-inbox-reader"
-            style={{
-              position: 'absolute',
-              inset: 0,
-              display: 'flex',
-              flexDirection: 'column',
-            }}
-          >
-            <Reader
-              phone
-              card={openCard}
-              daemonReachable={daemonReachable}
-              buddies={buddies}
-              roomMembers={readerMembers}
-              onBack={() => setReaderOpen(false)}
-              onOpenRoom={() => onOpenRoom(openCard.room, openCard.messageId)}
-              onReplied={onReplied}
-            />
-          </Box>
-        )}
-      </Box>
-
-      <FleetDrawer
-        opened={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        rooms={railRooms}
-        buddies={buddies}
-        daemonReachable={daemonReachable}
-        onSelectRoom={onSelectRoom}
-        onCloseRoom={onCloseRoom}
-        onMarkRead={onMarkRoomRead}
-        onOpenDm={onOpenDm}
-      />
-    </Box>
+      daemonReachable={reachable}
+      onCloseRoom={onCloseRoom}
+      onFocusPane={onFocusPane}
+      onSelectBuddy={
+        collapsedSidebar
+          ? handle => {
+              onOpenDm(handle);
+              closeDrawer();
+            }
+          : undefined
+      }
+    />
   );
 }
 
@@ -884,7 +365,6 @@ interface ChatPageProps {
   activeRoom: string | undefined;
   activeRoomSummary: RoomSummary | undefined;
   selectRoom: (room: string) => void;
-  refetchRooms: () => Promise<FleetRoom[]>;
   daemon: ReturnType<typeof useDaemonHealth>;
   buddies: Buddy[];
   roomMembers: string[];
@@ -893,20 +373,9 @@ interface ChatPageProps {
   composerRef: RefObject<ComposerHandle | null>;
   onOpenDm: (handle: string) => void;
   onCloseRoom: (room: string) => void;
-  onMarkRead: (room: string) => void;
   onFocusPane: (paneId: string) => void;
-  /** The landing view's two slots. Present on `/` only; the room props above
-      are then unused, since no room is open. */
-  inbox?: { bar: ReactNode; panel: ReactNode };
 }
 
-/**
- * The desktop chat page, rendered inside `PanePickerProvider` so it -- and
- * the `NewRoomModal` it mounts -- can `usePanePicker()`. Owns the two invite
- * entry points (the rail `+` and the page-bar `add agents`), the new-room
- * modal, and the transcript-edge invite notice; every other prop is passed
- * down from `App`, whose behaviour this extraction preserves verbatim.
- */
 function ChatPage({
   rooms,
   openRooms,
@@ -914,7 +383,6 @@ function ChatPage({
   activeRoom,
   activeRoomSummary,
   selectRoom,
-  refetchRooms,
   daemon,
   buddies,
   roomMembers,
@@ -923,185 +391,104 @@ function ChatPage({
   composerRef,
   onOpenDm,
   onCloseRoom,
-  onMarkRead,
   onFocusPane,
-  inbox,
 }: ChatPageProps) {
-  const pickPanes = usePanePicker();
-  const panesAvailable = usePanesAvailable();
-  const [newRoomOpen, setNewRoomOpen] = useState(false);
-  const [notice, setNotice] = useState<{
-    room: string;
-    node: ReactNode;
-  } | null>(null);
-
-  // The notice belongs to the room it was raised in; a room switch clears it.
-  useEffect(() => {
-    if (notice && notice.room !== activeRoom) setNotice(null);
-  }, [activeRoom, notice]);
-
-  async function addAgents() {
-    if (!activeRoom) return;
-    const picked = await pickPanes({
-      context: `to invite to #${activeRoom}`,
-      allowCreate: true,
-      disable: p =>
-        p.agentStatus === 'blocked'
-          ? 'at a prompt · answer it first'
-          : p.presence?.rooms.includes(activeRoom)
-            ? `in #${activeRoom}`
-            : null,
-    });
-    if (!picked || picked.length === 0) return;
-    try {
-      const res = await fetch('/api/chat/invite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          room: activeRoom,
-          panes: picked.map(p => ({ paneId: p.paneId })),
-        }),
-      });
-      if (!res.ok) throw new Error('invite failed');
-      const { results } = (await res.json()) as { results: InviteResult[] };
-      setNotice({ room: activeRoom, node: resultLine(results, picked) });
-    } catch {
-      notifications.error("Couldn't invite; nothing was typed into any pane.");
-    }
-  }
-
+  const isMobile = useIsMobile();
   return (
-    <>
-      {/* The kit's own page layout: rooms in the collapsible Sidebar (a
-          drawer on phones), the page bar as the Header, the daemon banner in
-          Content's notch slot, and a scroll-clamped Content whose transcript
-          and roster manage their own scrolling. No ContentContainer: the
-          capped, centred column is what boxed this page before. */}
-      <PageShell
-        scrollClamp
-        sidebarWidth={320}
-        drawerStateKey="chat-rooms-sidebar"
-      >
-        {/* The sidebar is the fleet now, not just the rooms: a machine with
-              agents signed in and no room yet still has a tree to show. */}
-        {(rooms.length > 0 || buddies.length > 0) && (
-          <PageShell.Sidebar
-            // The kit's sidebar ScrollArea content defaults to
-            // `min-width: min-content`, so the fleet tree's widest
-            // unbreakable row (a long DM pair or task line) sizes the whole
-            // column past `sidebarWidth` and the y-only viewport clips it
-            // with no ellipsis. Pinning the content to 0 lets each row's
-            // own `truncate` engage instead.
-            scrollAreaProps={{ styles: { content: { minWidth: 0 } } }}
-          >
-            <RoomRail
-              sidebar
-              rooms={railRooms}
-              buddies={buddies}
-              now={Date.now()}
-              activeRoom={activeRoom}
-              onSelectRoom={selectRoom}
-              daemonReachable={daemon.reachable}
-              onNewRoom={
-                panesAvailable ? () => setNewRoomOpen(true) : undefined
-              }
-              onCloseRoom={onCloseRoom}
-              onMarkRead={onMarkRead}
-              onFocusPane={onFocusPane}
+    <PageShell
+      scrollClamp
+      sidebarWidth={SIDEBAR_WIDTH}
+      headerHeight={PAGE_ROW_HEIGHT}
+      compactHeader
+      drawerStateKey="chat-rooms-sidebar"
+    >
+      {(rooms.length > 0 || buddies.length > 0) && (
+        <PageShell.Sidebar
+          bg="var(--tk-card)"
+          hideCollapseButton
+          // The kit's sidebar ScrollArea content defaults to
+          // `min-width: min-content`, which would size the column to its
+          // widest row and defeat each row's own truncation.
+          scrollAreaProps={{ styles: { content: { minWidth: 0 } } }}
+        >
+          <ChatSidebar
+            rooms={railRooms}
+            buddies={buddies}
+            activeRoom={activeRoom}
+            selectRoom={selectRoom}
+            reachable={daemon.reachable}
+            onOpenDm={onOpenDm}
+            onCloseRoom={onCloseRoom}
+            onFocusPane={onFocusPane}
+          />
+        </PageShell.Sidebar>
+      )}
+      <PageShell.Main>
+        {activeRoomSummary && (
+          <PageShell.Header>
+            <PageBar
+              room={activeRoomSummary}
+              buddies={buddies.filter(b => roomMembers.includes(b.handle))}
+              reachable={daemon.reachable}
             />
-          </PageShell.Sidebar>
+          </PageShell.Header>
         )}
-        <PageShell.Main>
-          {inbox ? (
-            <PageShell.Header>{inbox.bar}</PageShell.Header>
-          ) : (
-            activeRoomSummary && (
-              <PageShell.Header>
-                <PageBar
-                  room={activeRoomSummary}
-                  buddies={buddies.filter(b => roomMembers.includes(b.handle))}
+        <PageShell.Content
+          contentContainer={false}
+          topNotch={{
+            opened: !daemon.reachable,
+            content: (
+              <Box w="100%" px="lg" pt="lg" data-testid="daemon-banner-slot">
+                <DaemonBanner
                   reachable={daemon.reachable}
-                  onMarkedRead={() => void refetchRooms()}
-                  onAddAgents={panesAvailable ? addAgents : undefined}
+                  downSince={daemon.downSince}
+                  probeCount={daemon.probeCount}
+                  lastAnsweredAt={daemon.lastAnsweredAt}
+                  onProbeNow={daemon.probeNow}
                 />
-              </PageShell.Header>
-            )
-          )}
-          <PageShell.Content
-            contentContainer={false}
-            topNotch={{
-              opened: !daemon.reachable,
-              content: (
-                <Box w="100%" px="lg" pt="lg" data-testid="daemon-banner-slot">
-                  <DaemonBanner
-                    reachable={daemon.reachable}
-                    downSince={daemon.downSince}
-                    probeCount={daemon.probeCount}
-                    lastAnsweredAt={daemon.lastAnsweredAt}
-                    onProbeNow={daemon.probeNow}
-                  />
-                </Box>
-              ),
-            }}
+              </Box>
+            ),
+          }}
+        >
+          <Group
+            align="stretch"
+            wrap="nowrap"
+            gap={0}
+            style={{ flex: 1, minHeight: 0, minWidth: 0 }}
           >
-            <Group
-              align="stretch"
-              wrap="nowrap"
-              gap={0}
-              style={{ flex: 1, minHeight: 0, minWidth: 0 }}
-            >
-              {inbox ? (
-                inbox.panel
-              ) : openRooms.length === 0 && !activeRoomSummary ? (
-                <Box style={{ flex: 1, minWidth: 0 }} p="xl">
-                  <RoomsPlaceholder
-                    anyBuddies={buddies.length > 0}
-                    allClosed={rooms.length > 0}
-                  />
-                </Box>
-              ) : (
-                activeRoom && (
-                  <Transcript
-                    room={activeRoom}
-                    messages={messages}
-                    humanHandle={HUMAN_HANDLE}
-                    anchor={anchor}
-                    unreadCount={activeRoomSummary?.unread}
-                    isDm={activeRoomSummary?.kind === 'dm'}
-                    notice={
-                      notice?.room === activeRoom ? notice.node : undefined
-                    }
-                    footer={
-                      <Composer
-                        ref={composerRef}
-                        room={activeRoom}
-                        roomMembers={roomMembers}
-                        buddies={buddies}
-                        isDm={activeRoomSummary?.kind === 'dm'}
-                        daemonReachable={daemon.reachable}
-                        onOpenDm={onOpenDm}
-                      />
-                    }
-                  />
-                )
-              )}
-            </Group>
-          </PageShell.Content>
-        </PageShell.Main>
-      </PageShell>
-      <NewRoomModal
-        opened={newRoomOpen}
-        onClose={() => setNewRoomOpen(false)}
-        daemonReachable={daemon.reachable}
-        onCreated={(room, results, picked) => {
-          setNewRoomOpen(false);
-          void refetchRooms();
-          selectRoom(room);
-          if (results.length)
-            setNotice({ room, node: resultLine(results, picked) });
-        }}
-      />
-    </>
+            {openRooms.length === 0 && !activeRoomSummary ? (
+              <Box style={{ flex: 1, minWidth: 0 }} p="xl">
+                <RoomsPlaceholder
+                  anyBuddies={buddies.length > 0}
+                  allClosed={rooms.length > 0}
+                />
+              </Box>
+            ) : (
+              activeRoom && (
+                <Transcript
+                  room={activeRoom}
+                  messages={messages}
+                  humanHandle={HUMAN_HANDLE}
+                  anchor={anchor}
+                  footer={
+                    <Composer
+                      ref={composerRef}
+                      phone={isMobile}
+                      room={activeRoom}
+                      roomMembers={roomMembers}
+                      buddies={buddies}
+                      isDm={activeRoomSummary?.kind === 'dm'}
+                      daemonReachable={daemon.reachable}
+                      onOpenDm={onOpenDm}
+                    />
+                  }
+                />
+              )
+            )}
+          </Group>
+        </PageShell.Content>
+      </PageShell.Main>
+    </PageShell>
   );
 }
 
@@ -1118,9 +505,9 @@ function ChatPage({
  * never passes it: the daemon poll and the buddies fetch run for real.
  */
 export function App({ initialState }: { initialState?: AppInitialState } = {}) {
-  const slackRooms = useSlackChatRooms();
+  const slackChats = useSlackChats();
   return (
-    <SlackChatsProvider rooms={slackRooms}>
+    <SlackChatsProvider chats={slackChats}>
       <AppContent initialState={initialState} />
     </SlackChatsProvider>
   );
@@ -1149,24 +536,19 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
   // runs even if a frame is missed, a reconnect never fires, or the tab
   // never blurs long enough to trigger the visibility refetch.
   useInterval(refetchRoomsFiltered, 5000);
-  const { inbox, refetchInbox } = useInbox(initialState?.inbox);
-  const routeRoom = route.name === 'room' ? route.room : undefined;
+  const routeRoom =
+    route.name === 'room' || route.name === 'embed' ? route.room : undefined;
   const [activeRoom, setActiveRoom] = useState<string | undefined>(routeRoom);
-  // Which card the reader holds. Undefined means "the first one", so the
-  // landing view is never half empty; a card that leaves the payload (its
-  // room was marked read) falls back to the first one the same way.
-  const [openCardId, setOpenCardId] = useState<number | undefined>(undefined);
   const chatRoute = route.name === 'home' || route.name === 'room';
   const hash = useHash();
   const anchor = hash.startsWith('#m-') ? hash.slice(1) : undefined;
-  const isMobile = useIsMobile();
   const composerRef = useRef<ComposerHandle>(null);
 
-  // The URL owns the room: `/r/<room>` names it, and `/` is the Inbox, which
-  // has no room open at all. A rail click writes the URL (selectRoom), so a
-  // room the viewer chose is always a `/r/` route.
+  // The URL owns the room: `/r/<room>` names it, and `/` hands over to the
+  // latest active conversation. A rail click writes the URL (selectRoom), so
+  // a room the viewer chose is always a `/r/` route.
   useEffect(() => {
-    if (route.name === 'room') {
+    if (route.name === 'room' || route.name === 'embed') {
       if (route.room !== activeRoom) setActiveRoom(route.room);
     } else if (route.name === 'home' && activeRoom !== undefined) {
       setActiveRoom(undefined);
@@ -1244,47 +626,6 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
     [rooms, activeRoom, setRooms, refetchRooms]
   );
 
-  const markRead = useCallback(
-    async (room: string) => {
-      try {
-        await postMarkRead(room);
-      } catch {
-        return;
-      }
-      void refetchRooms();
-      // No frame announces a mark-read, so the inbox would otherwise keep
-      // showing cards for messages that have just been cleared.
-      refetchInbox();
-    },
-    [refetchRooms, refetchInbox]
-  );
-
-  /**
-   * `mark all read` keeps its existing meaning: the per-room mark, for every
-   * room that has unread. There is no sweep verb in the daemon, and no
-   * per-message cursor to move, so this is the whole of it.
-   */
-  const markAllRead = useCallback(async () => {
-    // Sequential on purpose: each mark is a write through the one daemon
-    // socket, so firing them together only reorders the same work.
-    for (const room of rooms.filter(r => r.unread > 0)) {
-      try {
-        await postMarkRead(room.room);
-      } catch {
-        // One room refusing must not strand the rest of the sweep.
-      }
-    }
-    void refetchRooms();
-    refetchInbox();
-  }, [rooms, refetchRooms, refetchInbox]);
-
-  /** Leaves the inbox for the room, parked on the message the card named --
-      the same `/r/<room>#m-<id>` link rt itself prints. */
-  const openRoomAt = useCallback((room: string, messageId: number) => {
-    setActiveRoom(room);
-    navigate(`/r/${encodeURIComponent(room)}#m-${messageId}`);
-  }, []);
-
   const focusPane = useCallback(async (paneId: string) => {
     try {
       // Raw pane id in the path, like the peek route; Hono routes the colon.
@@ -1305,11 +646,11 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
   );
   const openRooms = rooms.filter(r => r.archivedAt === undefined);
   const railRooms = visibleRooms(rooms, activeRoom);
-  // The rail's Rooms entry needs a destination before one is chosen: the
-  // first open room, or the Inbox itself while the fleet has no room at all.
-  const roomsHref = openRooms[0]
-    ? `/r/${encodeURIComponent(openRooms[0].room)}`
-    : '/';
+  useEffect(() => {
+    if (route.name !== 'home') return;
+    const latest = latestActiveRoom(rooms);
+    if (latest) navigate(`/r/${encodeURIComponent(latest)}`, { replace: true });
+  }, [route.name, rooms]);
 
   const { messages, loaded: messagesLoaded } = useMessages(
     activeRoom,
@@ -1327,15 +668,6 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
     [messages, messagesLoaded]
   );
 
-  // The reader's room is the OPEN CARD's, which is rarely the room the rest
-  // of the page has open (on `/` there is none), so its members are their
-  // own fetch -- the composer's `@` popover reads them.
-  const inboxCards = orderedCards(inbox);
-  const openCard: InboxCardData | undefined =
-    inboxCards.find(c => c.messageId === openCardId) ?? inboxCards[0];
-  const readerRoom = route.name === 'home' ? openCard?.room : undefined;
-  const { members: readerMembers } = useRoomMembers(readerRoom, undefined);
-
   // What a sleeping tab missed: rooms first (a room may have appeared),
   // then the roster, then the open room's members. The transcript refetches
   // its own tail on the same triggers.
@@ -1343,8 +675,7 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
     await refetchRoomsFiltered();
     refetchBuddies();
     refetchMembers();
-    refetchInbox();
-  }, [refetchRoomsFiltered, refetchBuddies, refetchMembers, refetchInbox]);
+  }, [refetchRoomsFiltered, refetchBuddies, refetchMembers]);
   useRelayOpen(reconnect => {
     if (reconnect) void refetchAll();
   });
@@ -1365,53 +696,54 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
     return <PageShellDemoPage />;
   }
 
-  // Phone routes are their own shells, not the desktop layout squashed:
-  // `PhoneInboxPage` for `/` (PhoneInbox.dc.html), `PhoneChat` for an open
-  // room (Phone.dc.html). Anything else on a phone -- `/` with no rooms and
-  // no buddies yet -- falls through to the desktop layout, whose PageShell
-  // already drawers its sidebar on a phone.
-  if (route.name === 'home' && isMobile) {
+  // An open room on a phone gets its own shell; anything else falls through
+  // to the desktop layout, whose PageShell drawers its sidebar.
+  if (route.name === 'embed') {
     return (
-      <PhoneInboxPage
-        inbox={inbox}
-        daemonReachable={daemon.reachable}
+      <BuddiesProvider
         buddies={buddies}
-        railRooms={railRooms}
-        readerMembers={readerMembers}
-        openCard={openCard}
-        onOpenCard={card => setOpenCardId(card.messageId)}
-        onMarkRoomRead={room => void markRead(room)}
-        onMarkAllRead={() => void markAllRead()}
-        onOpenRoom={openRoomAt}
-        onReplied={refetchInbox}
-        onSelectRoom={selectRoom}
-        onCloseRoom={closeRoom}
-        onOpenDm={openDm}
-      />
-    );
-  }
-
-  if (
-    route.name === 'room' &&
-    isMobile &&
-    (openRooms.length > 0 || activeRoomSummary !== undefined)
-  ) {
-    return (
-      <PhoneChat
-        daemon={daemon}
-        buddies={buddies}
-        railRooms={railRooms}
-        activeRoom={activeRoom}
-        setActiveRoom={selectRoom}
-        activeRoomSummary={activeRoomSummary}
-        messages={messages}
-        anchor={anchor}
         roomMembers={roomMembers}
-        composerRef={composerRef}
-        onOpenDm={openDm}
-        onCloseRoom={closeRoom}
-        onMarkRead={room => void markRead(room)}
-      />
+        speakers={speakers}
+        memberNames={roomMemberNames}
+        now={Date.now()}
+        reachable={daemon.reachable}
+        actions={buddyActions}
+      >
+        <PageShell scrollClamp>
+          <PageShell.Main>
+            <PageShell.Content contentContainer={false}>
+              <Group
+                align="stretch"
+                wrap="nowrap"
+                gap={0}
+                style={{ flex: 1, minHeight: 0, minWidth: 0 }}
+              >
+                {activeRoom && (
+                  <Transcript
+                    compact
+                    room={activeRoom}
+                    messages={messages}
+                    humanHandle={HUMAN_HANDLE}
+                    anchor={anchor}
+                    footer={
+                      <Composer
+                        ref={composerRef}
+                        compact
+                        room={activeRoom}
+                        roomMembers={roomMembers}
+                        buddies={buddies}
+                        isDm={activeRoomSummary?.kind === 'dm'}
+                        daemonReachable={daemon.reachable}
+                        onOpenDm={openDm}
+                      />
+                    }
+                  />
+                )}
+              </Group>
+            </PageShell.Content>
+          </PageShell.Main>
+        </PageShell>
+      </BuddiesProvider>
     );
   }
 
@@ -1425,81 +757,32 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
       reachable={daemon.reachable}
       actions={buddyActions}
     >
-      <PanePickerProvider>
-        <MattstackShell name="chat" markInRail mark={<AppMark size={26} />}>
-          <ScopeBar info={viewer} />
-          <ViewerChip info={viewer} />
-          <MattstackShell.Rail>
-            <RailLink
-              icon="inbox"
-              label="Inbox"
-              href="/"
-              active={route.name === 'home'}
-            />
-            <RailLink
-              icon="messageSquare"
-              label="Rooms"
-              href={roomsHref}
-              active={route.name === 'room'}
-            />
-          </MattstackShell.Rail>
-          <MattstackShell.RailBottom>
-            <SettingsEntry />
-          </MattstackShell.RailBottom>
-          {chatRoute ? (
-            <ChatPage
-              rooms={rooms}
-              openRooms={openRooms}
-              railRooms={railRooms}
-              activeRoom={activeRoom}
-              activeRoomSummary={activeRoomSummary}
-              selectRoom={selectRoom}
-              refetchRooms={refetchRooms}
-              daemon={daemon}
-              buddies={buddies}
-              roomMembers={roomMembers}
-              messages={messages}
-              anchor={anchor}
-              composerRef={composerRef}
-              onOpenDm={openDm}
-              onCloseRoom={closeRoom}
-              onMarkRead={markRead}
-              onFocusPane={paneId => void focusPane(paneId)}
-              inbox={
-                route.name === 'home'
-                  ? {
-                      bar: (
-                        <InboxBar
-                          inbox={inbox}
-                          reachable={daemon.reachable}
-                          onMarkAllRead={() => void markAllRead()}
-                        />
-                      ),
-                      panel: (
-                        <Inbox
-                          inbox={inbox}
-                          reachable={daemon.reachable}
-                          now={Date.now()}
-                          buddies={buddies}
-                          readerMembers={readerMembers}
-                          humanHandle={HUMAN_HANDLE}
-                          openCard={openCard}
-                          onOpenCard={card => setOpenCardId(card.messageId)}
-                          onMarkRoomRead={room => void markRead(room)}
-                          onMarkAllRead={() => void markAllRead()}
-                          onOpenRoom={openRoomAt}
-                          onReplied={refetchInbox}
-                        />
-                      ),
-                    }
-                  : undefined
-              }
-            />
-          ) : (
-            <NotFoundPage />
-          )}
-        </MattstackShell>
-      </PanePickerProvider>
+      <MattstackShell name="chat" rail={false} mark={<AppMark size={26} />}>
+        <MattstackShell.Header actions={<SettingsButton />} />
+        <ScopeBar info={viewer} />
+        <ViewerChip info={viewer} />
+        {chatRoute ? (
+          <ChatPage
+            rooms={rooms}
+            openRooms={openRooms}
+            railRooms={railRooms}
+            activeRoom={activeRoom}
+            activeRoomSummary={activeRoomSummary}
+            selectRoom={selectRoom}
+            daemon={daemon}
+            buddies={buddies}
+            roomMembers={roomMembers}
+            messages={messages}
+            anchor={anchor}
+            composerRef={composerRef}
+            onOpenDm={openDm}
+            onCloseRoom={closeRoom}
+            onFocusPane={paneId => void focusPane(paneId)}
+          />
+        ) : (
+          <NotFoundPage />
+        )}
+      </MattstackShell>
     </BuddiesProvider>
   );
 }

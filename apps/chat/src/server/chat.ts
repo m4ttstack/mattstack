@@ -4,7 +4,6 @@ import {
   chatDmOpen,
   chatInvite,
   chatJoin,
-  chatMark,
   chatMessages,
   chatPost,
   chatRooms,
@@ -24,16 +23,13 @@ import { validator } from 'hono/validator';
 
 import {
   fixtureBuddies,
-  fixtureInbox,
   fixtureInvite,
-  fixtureMark,
   fixtureMembers,
   fixtureMessages,
   fixtureRooms,
   fixturesEnabled,
   fixtureSlackStatus,
 } from './fixtures';
-import { buildInbox } from './inbox';
 
 /**
  * Resolved at CALL time (mirrors rt-client's own `defaultSock()` convention):
@@ -272,38 +268,6 @@ export const chat = new Hono()
     const rooms = await withDmLastMessage([...joined, ...extra]);
     return c.json({ rooms }, 200);
   })
-  // `RoomSummary.unread` is a count, not a cursor id -- the daemon keeps
-  // the actual read position internally and never exposes it. The newest
-  // `min(unread, 50)` messages in a room stand in for "after the cursor",
-  // fetched with the existing paging (no `before`, so `chatMessages`
-  // returns the newest page). A room whose message fetch fails still
-  // contributes its unread/mentions counts to `elsewhere` via `buildInbox`.
-  .get('/api/chat/inbox', async c => {
-    const handle = humanHandle(c);
-    if (fixturesEnabled()) return c.json(fixtureInbox(handle), 200);
-
-    const roomsRes = await chatRooms({ handle }, rtOpts());
-    if (!roomsRes.ok || !roomsRes.data) {
-      return c.json({ error: roomsRes.error ?? 'rooms: no data' }, 502);
-    }
-    const unreadRooms = roomsRes.data.rooms.filter(r => r.unread > 0);
-
-    const pages = await Promise.all(
-      unreadRooms.map(r =>
-        chatMessages(
-          { room: r.room, limit: Math.min(r.unread, 50) },
-          rtOpts()
-        ).catch(() => null)
-      )
-    );
-    const pagesByRoom = new Map<string, ChatMessage[]>();
-    unreadRooms.forEach((r, i) => {
-      const res = pages[i];
-      if (res?.ok && res.data) pagesByRoom.set(r.room, res.data.messages);
-    });
-
-    return c.json(buildInbox(unreadRooms, pagesByRoom, handle), 200);
-  })
   // The app makes no Slack call of its own: the daemon says which rooms hold
   // an open support chat. A daemon without the verb answers !ok, a 502 here,
   // which the client reads as no chats.
@@ -395,26 +359,6 @@ export const chat = new Hono()
         );
       }
       const res = await chatMessages({ room, before, limit }, rtOpts());
-      if (!res.ok) return c.json({ error: res.error }, 502);
-      return c.json(res.data, 200);
-    }
-  )
-  // Mirrors runs.ts's abandon route: an absent body lands `room` as
-  // undefined and the handler still runs; a malformed body raises before
-  // the handler and reaches `app.onError` as JSON.
-  .post(
-    '/api/chat/mark',
-    validator('json', (value): { room?: string } => {
-      const v = value as { room?: unknown } | undefined;
-      return { room: typeof v?.room === 'string' ? v.room : undefined };
-    }),
-    async c => {
-      const { room } = c.req.valid('json');
-      if (fixturesEnabled()) {
-        fixtureMark(room);
-        return c.json({ ok: true }, 200);
-      }
-      const res = await chatMark({ handle: humanHandle(c), room }, rtOpts());
       if (!res.ok) return c.json({ error: res.error }, 502);
       return c.json(res.data, 200);
     }

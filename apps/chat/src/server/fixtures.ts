@@ -34,8 +34,6 @@ import type {
   RoomSummary,
 } from '@mattstack/rt-client';
 
-import { buildInbox, type InboxPayload } from './inbox';
-
 /** Off unless explicitly asked for. Read at call time, never cached. */
 export function fixturesEnabled(): boolean {
   return process.env.CHAT_FIXTURES === '1';
@@ -309,35 +307,17 @@ export function fixtureBuddies(now = Date.now()): Buddy[] {
 /** `max ↔ stan`, this cast's busiest DM. */
 export const FIXTURE_DM = DM_ROOM['max|stan']!;
 
-/**
- * Rooms `chat:mark` has cleared this process. Without it the mark-read
- * controls the artboards draw on every surface do nothing here, and the
- * read/unread states that hang off the count -- the fold, above all -- are
- * unreachable, so a fixtures run can neither show nor audit them.
- */
-const marked = new Set<string>();
-
-/** `POST /api/chat/mark` under fixtures. No room clears every room: that is
-    the sweep's own meaning everywhere else in this app. */
-export function fixtureMark(room?: string): void {
-  if (room) marked.add(room);
-  else {
-    for (const r of fixtureRooms()) marked.add(r.room);
-  }
-}
-
 export function fixtureRooms(): (RoomSummary & {
   lastMessage?: { handle: string; name: string; body: string };
 })[] {
   const repoRooms = (['rt', 'skills', 'boxscore', 'console'] as const).map(
     room => {
       const [mentions, unread] = ROOMS_META[room]!;
-      const read = marked.has(room);
       return {
         room,
         memberCount: FLEET.filter(f => REPO_ROOMS[f.repo] === room).length,
-        unread: read ? 0 : unread,
-        mentions: read ? 0 : mentions,
+        unread,
+        mentions,
       };
     }
   );
@@ -347,7 +327,7 @@ export function fixtureRooms(): (RoomSummary & {
     return {
       room,
       memberCount: 3,
-      unread: marked.has(room) ? 0 : unread,
+      unread,
       mentions: 0,
       kind: 'dm' as const,
       participants: { a, b: c, aName: nameOf(a), bName: nameOf(c) },
@@ -367,10 +347,12 @@ export function fixtureSlackStatus() {
         id: 1,
         room: FIXTURE_DM,
         name: 'alex',
+        agentName: 'max',
         openedAt: now - 12 * 60_000,
         lastActiveAt: now - 2 * 60_000,
       },
     ],
+    closed: [],
   };
 }
 
@@ -610,25 +592,6 @@ export function fixtureMessages(room: string, now = Date.now()): ChatMessage[] {
       mentions: [],
     },
   ]);
-}
-
-/**
- * `/api/chat/inbox` under `CHAT_FIXTURES=1`: reuses `buildInbox` over
- * `fixtureRooms()`/`fixtureMessages()` rather than hand-authoring a payload,
- * so a change to the fixture tables stays reflected here for free.
- */
-export function fixtureInbox(
-  humanHandle: string,
-  now = Date.now()
-): InboxPayload {
-  const rooms = fixtureRooms();
-  const pagesByRoom = new Map<string, ChatMessage[]>();
-  for (const room of rooms) {
-    if (room.unread <= 0) continue;
-    const messages = fixtureMessages(room.room, now);
-    pagesByRoom.set(room.room, messages.slice(-Math.min(room.unread, 50)));
-  }
-  return buildInbox(rooms, pagesByRoom, humanHandle);
 }
 
 /** The picker artboard's rows: one per state it draws. Keep in step with

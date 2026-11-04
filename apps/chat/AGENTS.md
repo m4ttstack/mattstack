@@ -40,7 +40,7 @@ decision; tokens are picked by role there, and raw values fail lint and the
 contrast gates.
 
 Chat-specific: the app has ONE type ladder (xs 12 / sm 13 / md 14 / lg 16 /
-xl 20), defined in `src/app/chat-font-theme.ts` and merged at the ROOT
+xl 20), defined in `src/app/chat-theme.ts` and merged at the ROOT
 Mantine provider so portalled content resolves the same sizes. Never size
 text with a raw px or a Mantine size the ladder does not define.
 `design/spec.json` predates the Radix migration: its font sizes are historic

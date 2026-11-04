@@ -12,17 +12,27 @@ import { useInterval } from 'react-interval-hook';
 
 import { isMsgTopic, useRelayFrames, useRelayOpen } from './relay-socket';
 
-const SlackChatsContext = createContext<ReadonlySet<string>>(new Set());
+export interface SlackChat {
+  room: string;
+  /** The pane's agent: the one person who reads what Matt types here. */
+  agentName?: string;
+  /** Set once the chat has ended. */
+  closedAt?: number;
+}
 
-/** Rooms whose pane is holding a Slack support chat right now. */
+const SlackChatsContext = createContext<ReadonlyMap<string, SlackChat>>(
+  new Map()
+);
+
+/** Rooms that hold a Slack support chat, open or closed. */
 export function SlackChatsProvider({
-  rooms,
+  chats,
   children,
 }: {
-  rooms: readonly string[];
+  chats: readonly SlackChat[];
   children: ReactNode;
 }) {
-  const value = useMemo(() => new Set(rooms), [rooms]);
+  const value = useMemo(() => new Map(chats.map(c => [c.room, c])), [chats]);
   return (
     <SlackChatsContext.Provider value={value}>
       {children}
@@ -30,20 +40,24 @@ export function SlackChatsProvider({
   );
 }
 
-/** True while `room` is an open Slack support chat. */
-export function useIsSlackChat(room: string): boolean {
-  return useContext(SlackChatsContext).has(room);
+export function useSlackChat(room: string): SlackChat | undefined {
+  return useContext(SlackChatsContext).get(room);
+}
+
+interface SlackStatus {
+  conversations?: { room: string; agentName?: string }[];
+  closed?: { room: string; agentName?: string; closedAt: number }[];
 }
 
 /**
- * The rooms with an open Slack chat, from the daemon's `chat:slack-status`
- * via the server. Refreshes with the other room data: on mount, every 5s,
- * on any `chat/<room>/msg` frame (the farewell that closes a chat is one)
- * and on a relay reconnect. A failed read, as an older daemon without the
- * verb gives, leaves no rooms rather than an error.
+ * The rooms with a Slack chat, from the daemon's `chat:slack-status` via the
+ * server. Refreshes with the other room data: on mount, every 5s, on any
+ * `chat/<room>/msg` frame (the farewell that closes a chat is one) and on a
+ * relay reconnect. A failed read, as an older daemon without the verb gives,
+ * leaves no rooms rather than an error.
  */
-export function useSlackChatRooms(): string[] {
-  const [rooms, setRooms] = useState<string[]>([]);
+export function useSlackChats(): SlackChat[] {
+  const [chats, setChats] = useState<SlackChat[]>([]);
   const latestRequest = useRef(0);
 
   const refetch = useCallback(() => {
@@ -51,18 +65,14 @@ export function useSlackChatRooms(): string[] {
     fetch('/api/chat/slack-status')
       .then(async res => {
         if (!res.ok) return [];
-        const data = (await res.json()) as {
-          conversations?: { room: string }[];
-        };
-        return (data.conversations ?? []).map(c => c.room);
+        const data = (await res.json()) as SlackStatus;
+        return [...(data.closed ?? []), ...(data.conversations ?? [])];
       })
-      .catch(() => [] as string[])
+      .catch(() => [] as SlackChat[])
       .then(next => {
         if (request !== latestRequest.current) return;
-        setRooms(prev =>
-          prev.length === next.length && prev.every((r, i) => r === next[i])
-            ? prev
-            : next
+        setChats(prev =>
+          JSON.stringify(prev) === JSON.stringify(next) ? prev : next
         );
       });
   }, []);
@@ -74,5 +84,5 @@ export function useSlackChatRooms(): string[] {
   });
   useRelayOpen(() => refetch());
 
-  return rooms;
+  return chats;
 }

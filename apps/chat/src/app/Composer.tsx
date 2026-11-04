@@ -9,6 +9,7 @@ import type { ChangeEvent, KeyboardEvent } from 'react';
 import {
   ActionIcon,
   Box,
+  Center,
   Group,
   Paper,
   Popover,
@@ -23,9 +24,10 @@ import type { AgentStatus, BuddyStatus } from '@mattstack/rt-client';
 import { agentState, type AgentState } from './agent-state';
 import { AgentName } from './AgentName';
 import { useBuddies } from './buddies-context';
+import classes from './composer.module.css';
 import { doing, type DoingLine } from './doing';
 import { HUMAN_HANDLE } from './human';
-import { useIsSlackChat } from './slack-chats-context';
+import { useSlackChat } from './slack-chats-context';
 import { StateDot, StateWord } from './StateDot';
 import { useAutoGrowTextarea } from './use-auto-grow-textarea';
 
@@ -37,7 +39,7 @@ import { useAutoGrowTextarea } from './use-auto-grow-textarea';
 const MUTED_SMALL = 'var(--tk-text-4)';
 /** The composer input itself: the prose step, since it types the prose. */
 const MUTED_BODY = 'var(--tk-text-2)';
-const INPUT_LINE_HEIGHT = 1.4;
+const INPUT_LINE_HEIGHT = 1.45;
 const BORDER = 'var(--tk-border)';
 const BORDER_SOFT = 'var(--tk-border-soft)';
 /** The "not in #room" subtext, meta step like the rest of the dropdown. */
@@ -59,8 +61,8 @@ export interface ComposerBuddy {
 }
 
 export interface ComposerProps {
-  /** The open room's slug -- the post route, the placeholder, and the
-      popover's "not in #room" copy all key off it. */
+  /** The open room's slug -- the post route and the popover's "not in #room"
+      copy key off it. */
   room: string;
   /** Handles already in the open room -- a DM's two participants, or a
       channel's current membership. What separates "insert @handle" from
@@ -81,6 +83,8 @@ export interface ComposerProps {
   /** Phone chrome: 16px input (below it, iOS zooms on focus), 44px tap
       targets, Enter is a newline -- only the button sends. @default false */
   phone?: boolean;
+  /** The narrow embed: a shorter box and the meta type step. @default false */
+  compact?: boolean;
   /** A buddy outside the room was picked in the `@` popover: the caller
       opens the DM room and moves there; the draft stays in this instance. */
   onOpenDm?: (handle: string) => void;
@@ -91,10 +95,6 @@ export interface ComposerProps {
    * also what discards the previous draft on purpose.
    */
   prefill?: { body: string; mentions?: string[] };
-  /** Replaces the computed placeholder while the daemon is reachable. The
-      daemon-down copy always wins over it: it is a failure state, not a
-      caller's framing. */
-  placeholder?: string;
   /** Called after a post has landed and the draft has cleared. */
   onPosted?: () => void;
 }
@@ -273,9 +273,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
       isDm = false,
       daemonReachable = true,
       phone = false,
+      compact = false,
       onOpenDm,
       prefill,
-      placeholder: placeholderProp,
       onPosted,
     },
     ref
@@ -293,7 +293,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     useAutoGrowTextarea(textareaRef, value);
     const ctx = useBuddies();
-    const slackChat = useIsSlackChat(room);
+    const slackChat = useSlackChat(room);
     const slackNoteId = useId();
     const nameOf = (handle: string) =>
       buddies.find(b => b.handle === handle)?.name ??
@@ -456,30 +456,31 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
       focus: () => focusAt(value.length),
     }));
 
-    // Phone drops each hint suffix -- the room-width placeholder wraps to a
-    // second line at 375px otherwise, which a native placeholder has no
-    // ellipsis for once it wraps rather than overflows.
     const placeholder = !daemonReachable
       ? phone
         ? 'rt daemon unreachable'
         : "Can't post: rt daemon unreachable. Your draft is kept."
-      : placeholderProp
-        ? placeholderProp
-        : isDm
-          ? phone || slackChat
-            ? `Message ${roomMembers.map(nameOf).join(' ↔ ')}`
-            : `Message ${roomMembers.map(nameOf).join(' ↔ ')} (both will wake)`
-          : phone
-            ? `Message #${room}`
-            : `Message #${room} (@ to mention)`;
+      : 'Message…';
 
     const inputBorderColor = !daemonReachable
       ? BORDER
       : focused
         ? ACCENT_TEXT
         : BORDER_SOFT;
-    const inputFontSize = phone ? 16 : 'var(--mantine-font-size-lg)';
+    const inputFontSize = phone
+      ? 16
+      : compact
+        ? 'var(--mantine-font-size-sm)'
+        : 'var(--mantine-font-size-md)';
     const canSend = value.trim().length > 0 && daemonReachable && !sending;
+
+    if (slackChat?.closedAt !== undefined) {
+      return (
+        <Center data-testid="composer-ended" className={classes.ended}>
+          This chat has ended
+        </Center>
+      );
+    }
 
     return (
       <Box
@@ -515,19 +516,25 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
           <Popover.Target>
             <Paper
               data-testid="composer-input"
-              pos="relative"
               miw={0}
               radius="lg"
-              p="md"
               bg={!daemonReachable ? 'var(--tk-panel)' : 'var(--tk-card)'}
               c={!daemonReachable ? MUTED_BODY : undefined}
               bd={`1px ${!daemonReachable ? 'dashed' : 'solid'} ${inputBorderColor}`}
+              shadow="xs"
+              style={{
+                display: 'flex',
+                alignItems: 'flex-end',
+                gap: 10,
+                padding: compact ? '6px 6px 6px 12px' : '8px 8px 8px 14px',
+              }}
             >
               <textarea
                 ref={textareaRef}
                 rows={1}
                 value={value}
                 disabled={!daemonReachable}
+                readOnly={sending}
                 onChange={handleChange}
                 onKeyDown={handleKeyDown}
                 onFocus={() => setFocused(true)}
@@ -538,19 +545,19 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
                 data-testid="composer-row"
                 style={{
                   display: 'block',
-                  width: '100%',
+                  flex: 1,
                   minWidth: 0,
                   border: 0,
                   outline: 'none',
                   resize: 'none',
                   background: 'transparent',
-                  color: 'inherit',
+                  color: sending ? MUTED_SMALL : 'inherit',
                   fontFamily: 'inherit',
                   fontSize: inputFontSize,
                   lineHeight: INPUT_LINE_HEIGHT,
-                  // Clears the floating send button; the Paper's `p` handles
-                  // the rest, so there is no reserved bottom row.
-                  paddingRight: 22,
+                  // Centres one line on the send button; the button stays at
+                  // the bottom as the box grows upward.
+                  padding: '4px 0',
                   maxHeight: phone ? '25vh' : '40vh',
                   overflowY: 'auto',
                 }}
@@ -558,20 +565,17 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
               <ActionIcon
                 aria-label="Send"
                 data-testid="composer-send"
-                disabled={!canSend}
+                data-ready={canSend || undefined}
+                disabled={!canSend && !sending}
+                loading={sending}
                 onClick={() => void send()}
                 variant="filled"
                 color="accent"
                 radius="xl"
-                size={phone ? 32 : 28}
-                pos="absolute"
-                right={phone ? 8 : 6}
-                // Offset to sit centered on a single line of text (the `md`
-                // padding plus half a line, less half the button); staying
-                // bottom-anchored holds it there as the box grows upward.
-                bottom={phone ? 7 : 9}
+                size={phone ? 32 : compact ? 26 : 30}
+                className={classes.send}
               >
-                <Icon name="send" size={phone ? 18 : 15} />
+                <Icon name="arrowUp" size={phone ? 18 : 15} />
               </ActionIcon>
             </Paper>
           </Popover.Target>
@@ -613,9 +617,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
             data-testid="composer-slack-note"
             size="xs"
             c="dimmed"
-            style={{ paddingTop: 'var(--mantine-spacing-xs)' }}
+            ta="center"
+            style={{ paddingTop: 6 }}
           >
-            Only Claude sees this
+            Only {slackChat.agentName ?? 'Claude'} sees this
           </Text>
         )}
 

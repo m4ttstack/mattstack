@@ -1,0 +1,27 @@
+.pair {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.end {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.and {
+  flex: none;
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 400;
+  color: var(--tk-text-4);
+}

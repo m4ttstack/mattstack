@@ -1,4 +1,4 @@
-import { Fragment, useState, type ReactNode } from 'react';
+import { Fragment, useState } from 'react';
 import {
   ActionIcon,
   Box,
@@ -14,42 +14,27 @@ import type { RoomSummary } from '@mattstack/rt-client';
 import { agentState, isRoomForRepo, stateLine } from './agent-state';
 import { AgentHoverCard, AgentName } from './AgentName';
 import { displayName, dmPairLabel, sameNameOrdinals } from './display-name';
+import { DmPairTitle } from './DmPairTitle';
 import { doing } from './doing';
 import classes from './fleet-tree.module.css';
 import { MUTED_XS } from './presence-bits';
 import type { RosterBuddy } from './roster-types';
 import { StateDot } from './StateDot';
-import { statusDetail } from './statusDetail';
+import { formatElapsed } from './statusDetail';
 
-/**
- * `.accent-deep` has no direct `--tk-*` token: the artboard's own palette
- * only defines it as a DERIVATION (`.app --accent-deep: #206cd2`, a specific
- * shade one step past plain accent; `.app.dark --accent-deep: var(--accent)`,
- * i.e. no separate shade at all in dark). `--mantine-color-accent-7` is
- * exactly the light shade the ramp was resampled to land on; the dark half
- * collapses back to the plain accent text color. `light-dark()` is the same
- * idiom `useSchemeColors.ts` already uses for a per-scheme formula that
- * ISN'T just "the same var, different scheme block".
- */
-const ACCENT_DEEP =
-  'light-dark(var(--mantine-color-accent-7), var(--mantine-color-accent-text))';
-const ACCENT_ON = 'light-dark(var(--mantine-color-white), var(--tk-bg))';
 const ACCENT_TEXT = 'var(--mantine-color-accent-text)';
-const BORDER = 'var(--tk-border)';
 
-/** `.ws`'s own `padding-left`. No spacing token lands on it: it is the room
-    row's 9.6px plus the tree's one indent step. */
-const WORKSTREAM_INDENT = 26.4;
+/** Clears the room row's hash, so a handle lines up under the room's name. */
+const WORKSTREAM_INDENT = 28;
 
 /** From a workstream row's right edge to the sidebar's outer edge: the
     sidebar's inline padding plus its hairline, so a docked card meets the
     border instead of floating off it. */
 const SIDEBAR_DOCK_OFFSET = 7;
 
-/** Everything nested inside a room (workstream handles, DM names) reads at
-    meta. */
+/** A workstream handle, nested under its room. */
 const ROW_NAME_SIZE = 'var(--mantine-font-size-xs)';
-/** The room row itself, one step up, so the tree has a visible hierarchy. */
+/** Room and DM rows, one step up, so the tree has a visible hierarchy. */
 const CHROME_SIZE = 'var(--mantine-font-size-sm)';
 
 /** The artboards draw four `.dm2` rows, then the `N more` line. */
@@ -70,7 +55,7 @@ export interface FleetTreeProps {
   /** Channel rooms, in listing order: each heads the group of agents working
       in the repo it is named for. */
   rooms: FleetRoom[];
-  /** DM rooms, in listing order, rendered under `DIRECT`. */
+  /** DM rooms, in listing order, rendered under `Direct`. */
   dms: FleetRoom[];
   /** The whole fleet, not one room's members. An agent is listed under the
       room named for its repo; one whose repo has no room is left out. */
@@ -93,8 +78,6 @@ export interface FleetTreeProps {
   onSelectBuddy?: (handle: string) => void;
   /** The row's hover × and its right-click menu. Neither renders without it. */
   onClose?: (room: string) => void;
-  /** The right-click menu's Mark read, offered only on a row with unread. */
-  onMarkRead?: (room: string) => void;
 }
 
 export interface FleetGroup {
@@ -187,84 +170,33 @@ export function visibleDms(
   return active ? [...head.slice(0, cap - 1), active] : head;
 }
 
-/** `3 more · kai ↔ max [1], max ↔ wren [8]`: every hidden pair with its
-    unread as the rows' own badge, since bare trailing digits read as part of
-    a name. Truncates when the line runs past the sidebar. */
-function overflowLabel(hidden: FleetRoom[]): ReactNode {
+/** A sidebar section's head: its name, and one quiet fact on the right. */
+export function SectionLabel({
+  label,
+  detail,
+}: {
+  label: string;
+  detail?: string;
+}) {
   return (
-    <>
-      {hidden.length} more ·{' '}
-      {hidden.map((d, i) => (
-        <Fragment key={d.room}>
-          {i > 0 && ', '}
-          {dmPairLabel(d.participants!)}
-          {d.unread > 0 && (
-            <>
-              {' '}
-              <UnreadBadge count={d.unread} />
-            </>
-          )}
-        </Fragment>
-      ))}
-    </>
-  );
-}
-
-/**
- * `@N`, filled accent. The glyph -- not just the colour -- is what
- * distinguishes this from `UnreadBadge`: a colourblind reader, or a
- * screenshot, still gets the difference.
- */
-function MentionBadge({ count }: { count: number }) {
-  return (
-    <Box
-      component="span"
-      aria-label={`${count} mention`}
-      data-testid="mention-badge"
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        height: 18,
-        lineHeight: 1,
-        borderRadius: 'var(--mantine-radius-xl)',
-        padding: '0 var(--mantine-spacing-sm)',
-        fontSize: 'var(--mantine-font-size-xs)',
-        fontWeight: 600,
-        whiteSpace: 'nowrap',
-        flex: 'none',
-        background: ACCENT_DEEP,
-        color: ACCENT_ON,
-      }}
-    >
-      @{count}
-    </Box>
-  );
-}
-
-/** Plain `N`, outlined -- the difference from `MentionBadge` is the glyph. */
-function UnreadBadge({ count }: { count: number }) {
-  return (
-    <Box
-      component="span"
-      aria-label={`${count} unread`}
-      data-testid="unread-badge"
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        height: 18,
-        lineHeight: 1,
-        borderRadius: 'var(--mantine-radius-xl)',
-        padding: '0 var(--mantine-spacing-sm)',
-        fontSize: 'var(--mantine-font-size-xs)',
-        fontWeight: 500,
-        whiteSpace: 'nowrap',
-        flex: 'none',
-        border: `1px solid ${BORDER}`,
-        color: 'var(--tk-text-4)',
-      }}
-    >
-      {count}
-    </Box>
+    <Group justify="space-between" wrap="nowrap" style={{ padding: '8px 8px 6px' }}>
+      <Text
+        component="h3"
+        fw={600}
+        style={{
+          margin: 0,
+          fontSize: 'var(--mantine-font-size-xs)',
+          color: 'var(--tk-text-3)',
+        }}
+      >
+        {label}
+      </Text>
+      {detail && (
+        <Text component="span" data-testid="section-detail" style={MUTED_XS}>
+          {detail}
+        </Text>
+      )}
+    </Group>
   );
 }
 
@@ -296,7 +228,7 @@ function CloseControl({
       <ActionIcon
         variant="subtle"
         size="sm"
-        radius="md"
+        radius="sm"
         color="gray"
         className={classes.close}
         aria-label={`Close ${roomLabel(room)}`}
@@ -326,14 +258,12 @@ function RowMenu({
   testId,
   onChange,
   onClose,
-  onMarkRead,
   children,
 }: {
   room: FleetRoom;
   testId: string;
   onChange: (opened: boolean) => void;
   onClose: (room: string) => void;
-  onMarkRead?: (room: string) => void;
   children: React.ReactElement;
 }) {
   return (
@@ -341,16 +271,6 @@ function RowMenu({
       <Menu.ContextMenu>{children}</Menu.ContextMenu>
       <Menu.Dropdown data-testid={testId}>
         <Menu.Label>{roomLabel(room)}</Menu.Label>
-        {room.unread > 0 && onMarkRead && (
-          <Menu.Item
-            data-testid="room-context-mark-read"
-            leftSection={<Icon name="check" size={14} />}
-            rightSection={<UnreadBadge count={room.unread} />}
-            onClick={() => onMarkRead(room.room)}
-          >
-            Mark read
-          </Menu.Item>
-        )}
         <Menu.Item
           data-testid="room-context-close"
           leftSection={<Icon name="close" size={14} />}
@@ -376,13 +296,11 @@ function RoomRow({
   active,
   onSelect,
   onClose,
-  onMarkRead,
 }: {
   room: FleetRoom;
   active: boolean;
   onSelect?: () => void;
   onClose?: (room: string) => void;
-  onMarkRead?: (room: string) => void;
 }) {
   const [menuOpened, setMenuOpened] = useState(false);
   const closable = onClose !== undefined;
@@ -408,21 +326,21 @@ function RoomRow({
         alignItems: 'center',
         minWidth: 0,
         width: '100%',
-        height: 34,
-        gap: 'var(--mantine-spacing-sm)',
-        padding: '0 var(--mantine-spacing-md)',
-        borderRadius: 'var(--mantine-radius-md)',
+        height: 30,
+        gap: 7,
+        padding: '0 8px',
+        borderRadius: 'var(--mantine-radius-sm)',
         cursor: 'pointer',
       }}
     >
       <Icon
         name="hash"
-        size={14}
-        color={active ? ACCENT_TEXT : 'var(--tk-text-2)'}
+        size={13}
+        color={active ? ACCENT_TEXT : 'var(--tk-text-4)'}
         style={{ flex: 'none' }}
       />
       <Text
-        fw={active ? 600 : undefined}
+        fw={active ? 600 : 500}
         truncate
         /* A room heads the rows nested under it, so it takes the chrome step
            while they take meta. Stated rather than inherited: a sizeless
@@ -431,8 +349,6 @@ function RoomRow({
       >
         {room.room}
       </Text>
-      {room.mentions > 0 && <MentionBadge count={room.mentions} />}
-      {room.unread > 0 && <UnreadBadge count={room.unread} />}
       {closable && (
         <CloseControl
           room={room}
@@ -451,7 +367,6 @@ function RoomRow({
       testId={`room-context-${room.room}`}
       onChange={setMenuOpened}
       onClose={onClose}
-      onMarkRead={onMarkRead}
     >
       {row}
     </RowMenu>
@@ -514,10 +429,10 @@ function WorkstreamRow({
         width: '100%',
         minWidth: 0,
         overflow: 'hidden',
-        height: 30,
-        gap: 'var(--mantine-spacing-sm)',
-        padding: `0 var(--mantine-spacing-md) 0 ${WORKSTREAM_INDENT}px`,
-        borderRadius: 'var(--mantine-radius-md)',
+        height: 26,
+        gap: 7,
+        padding: `0 8px 0 ${WORKSTREAM_INDENT}px`,
+        borderRadius: 'var(--mantine-radius-sm)',
         cursor: clickable ? 'pointer' : 'default',
         textAlign: 'left',
       }}
@@ -585,45 +500,6 @@ function WorkstreamRow({
   );
 }
 
-/** The repo's signed-out members as one muted line. Two or more collapse to
-    a count and their names; a single one keeps its name and its age. */
-function OfflineRow({
-  repo,
-  offline,
-  now,
-}: {
-  repo: string;
-  offline: RosterBuddy[];
-  now: number;
-}) {
-  const only = offline.length === 1 ? offline[0]! : undefined;
-  return (
-    <Box
-      data-testid={`offline-${repo}`}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        width: '100%',
-        minWidth: 0,
-        overflow: 'hidden',
-        height: 26,
-        gap: 'var(--mantine-spacing-sm)',
-        padding: `0 var(--mantine-spacing-md) 0 ${WORKSTREAM_INDENT}px`,
-        borderRadius: 'var(--mantine-radius-md)',
-        cursor: 'default',
-        ...MUTED_XS,
-      }}
-    >
-      <StateDot state="offline" testId={`dot-offline-${repo}`} />
-      <Text component="span" inherit truncate style={{ minWidth: 0 }}>
-        {only
-          ? `${displayName(only)} · ${statusDetail(only, now)}`
-          : `${offline.length} signed out · ${offline.map(b => displayName(b)).join(' ')}`}
-      </Text>
-    </Box>
-  );
-}
-
 /**
  * A direct conversation, named by its pair, one line like a channel row. The
  * hashed room name is structurally never rendered -- the pair IS the name.
@@ -632,15 +508,15 @@ function OfflineRow({
 function DmRow({
   room,
   active,
+  now,
   onSelect,
   onClose,
-  onMarkRead,
 }: {
   room: FleetRoom;
   active: boolean;
+  now: number;
   onSelect?: () => void;
   onClose?: (room: string) => void;
-  onMarkRead?: (room: string) => void;
 }) {
   const [menuOpened, setMenuOpened] = useState(false);
   const closable = onClose !== undefined;
@@ -667,36 +543,36 @@ function DmRow({
         alignItems: 'center',
         width: '100%',
         minWidth: 0,
-        height: 34,
+        height: 28,
         overflow: 'hidden',
-        gap: 4,
-        padding: '0 var(--mantine-spacing-md)',
-        borderRadius: 'var(--mantine-radius-md)',
+        gap: 8,
+        padding: '0 8px',
+        borderRadius: 'var(--mantine-radius-sm)',
         cursor: 'pointer',
       }}
     >
-      {/* textContent, not three separate runs: the arrow needs its own span
-          for the purple, but a screen reader still reads one phrase. */}
       <Text
-        fw={500}
-        truncate
-        style={{ fontSize: ROW_NAME_SIZE, flex: 1, minWidth: 0 }}
+        component="div"
+        fw={active ? 600 : 500}
+        style={{ fontSize: CHROME_SIZE, flex: 1, minWidth: 0 }}
       >
-        <AgentName handle={pair.a} name={pair.aName} withCard={false} />{' '}
-        <span style={{ color: 'var(--tk-text-purple-small)', flex: 'none' }}>
-          ↔
-        </span>{' '}
-        <AgentName handle={pair.b} name={pair.bName} withCard={false} />
+        <DmPairTitle pair={pair} />
       </Text>
-      {room.unread > 0 && <UnreadBadge count={room.unread} />}
-      {closable && (
-        <CloseControl
-          room={room}
-          testId={`dm-close-${room.room}`}
-          nudge={false}
-          onClose={onClose}
-        />
-      )}
+      <Box className={classes.endSlot}>
+        {room.lastPostedAt !== undefined && (
+          <span className={classes.age} data-testid={`dm-age-${room.room}`}>
+            {formatElapsed(now - room.lastPostedAt)}
+          </span>
+        )}
+        {closable && (
+          <CloseControl
+            room={room}
+            testId={`dm-close-${room.room}`}
+            nudge={false}
+            onClose={onClose}
+          />
+        )}
+      </Box>
     </Box>
   );
 
@@ -707,7 +583,6 @@ function DmRow({
       testId={`dm-context-${room.room}`}
       onChange={setMenuOpened}
       onClose={onClose}
-      onMarkRead={onMarkRead}
     >
       {row}
     </RowMenu>
@@ -742,29 +617,24 @@ function DmOverflowRow({
         overflow: 'hidden',
         height: 26,
         gap: 'var(--mantine-spacing-sm)',
-        padding: '0 var(--mantine-spacing-md)',
-        borderRadius: 'var(--mantine-radius-md)',
+        padding: '0 8px',
+        borderRadius: 'var(--mantine-radius-sm)',
         cursor: 'pointer',
         textAlign: 'left',
         ...MUTED_XS,
       }}
     >
       <Text component="span" inherit truncate style={{ minWidth: 0 }}>
-        {expanded ? 'show fewer' : overflowLabel(hidden)}
+        {expanded ? 'show fewer' : `${hidden.length} more`}
       </Text>
     </UnstyledButton>
   );
 }
 
 /**
- * The sidebar's one tree. Each room heads a group with the signed-in
- * sessions of the repo it is named for under it and that repo's signed-out
- * members rolled into a line. Direct conversations follow, named by their
- * pair.
- *
- * This replaces both of the surfaces it succeeds (a flat rooms rail and a
- * separate roster panel): a handle read next to the room it works in answers
- * "who is this" without a second column to cross-reference.
+ * The sidebar's one tree. The open room lists the signed-in sessions of the
+ * repo it is named for; the other rooms stay one line each. Direct
+ * conversations follow, named by their pair.
  */
 export function FleetTree({
   rooms,
@@ -778,7 +648,6 @@ export function FleetTree({
   onFocusPane,
   onSelectBuddy,
   onClose,
-  onMarkRead,
 }: FleetTreeProps) {
   const [dmsExpanded, setDmsExpanded] = useState(false);
   const groups = groupByRepo(rooms, buddies);
@@ -803,58 +672,35 @@ export function FleetTree({
             active={group.room.room === activeRoom}
             onSelect={() => onOpenRoom?.(group.repo)}
             onClose={onClose}
-            onMarkRead={onMarkRead}
-          />
-          {group.online.map(buddy => (
-            <WorkstreamRow
-              key={buddy.handle}
-              buddy={buddy}
-              ordinal={ordinals.get(buddy)}
-              now={now}
-              reachable={daemonReachable}
-              onFocusPane={onFocusPane}
-              onSelectBuddy={onSelectBuddy}
-            />
-          ))}
-          {group.offline.length > 0 && (
-            <OfflineRow repo={group.repo} offline={group.offline} now={now} />
-          )}
+                />
+          {group.room.room === activeRoom &&
+            group.online.map(buddy => (
+              <WorkstreamRow
+                key={buddy.handle}
+                buddy={buddy}
+                ordinal={ordinals.get(buddy)}
+                now={now}
+                reachable={daemonReachable}
+                onFocusPane={onFocusPane}
+                onSelectBuddy={onSelectBuddy}
+              />
+            ))}
         </Fragment>
       ))}
 
       {namedDms.length > 0 && (
         <>
-          <Group
-            gap="sm"
-            wrap="nowrap"
-            style={{
-              padding:
-                'var(--mantine-spacing-md) var(--mantine-spacing-md) var(--mantine-spacing-xs)',
-              borderBottom: '1px solid var(--tk-border-soft)',
-            }}
-          >
-            <Text
-              component="h3"
-              fw={700}
-              style={{
-                margin: 0,
-                fontSize: 'var(--mantine-font-size-xs)',
-                color: 'var(--tk-text-4)',
-                letterSpacing: '0.06em',
-              }}
-            >
-              DIRECT
-            </Text>
-          </Group>
+          <Box style={{ height: 10 }} />
+          <SectionLabel label="Direct" detail={String(namedDms.length)} />
           {shownDms.map(room => (
             <DmRow
               key={room.room}
               room={room}
               active={room.room === activeRoom}
+              now={now}
               onSelect={() => onOpenDm?.(room.room)}
               onClose={onClose}
-              onMarkRead={onMarkRead}
-            />
+                    />
           ))}
           {(hiddenDms.length > 0 || dmsExpanded) && (
             <DmOverflowRow
