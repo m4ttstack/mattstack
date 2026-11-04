@@ -56,7 +56,7 @@ It has failed, even if it technically works, if any of these happen:
 | Autonomy | Hands-off, limited to the brief, no code changes |
 | Scope | Support for mattstack team members |
 | Delivery into the pane | The daemon's inbox socket, as rt chat does |
-| Enforcing "no code changes" | The skill plus a mark on every delivered Slack message. No hook and no locked-down pane. The operator's reason: these deliveries never present as user input, and the skill tells the pane to act only as a support agent. |
+| Enforcing "no code changes" | The skill plus a mark on every delivered Slack message. No hook and no locked-down pane. The operator's reason: the host shows these as coming from another session, and the skill tells the pane to act only as a support agent. Reviewed with the operator knowing they are sent with role `user`, and that the host's framing invites acting on them. A live test covers that (see Testing). |
 | Approach | Bridge Slack into rt chat |
 | Noticing Slack messages | The daemon checks Slack every few seconds, only while a conversation is open |
 | How long a chat lasts | From turn-on to close, not the whole DM |
@@ -64,6 +64,8 @@ It has failed, even if it technically works, if any of these happen:
 | Farewell | The pane's wrap-up, then a fixed closing line |
 | On and off controls | The herdr chat plugin plus Flock's chat UI |
 | Who can open a chat | Only a person, through a mod's slash command. No model tool |
+| The operator's messages | Chat UI reaches the pane only; Slack reaches both |
+| Proving the marks work | A live test with a real pane before shipping |
 
 ## Approaches
 
@@ -148,8 +150,10 @@ Chat needs three adjustments for a participant with no session:
 ### Slack to pane
 
 A daemon sweep runs every 5 seconds, and only while a conversation is open. For
-each one it calls `conversations.history` from `last_read_ts`, keeps messages
-written by `slack_user_id`, and posts each into the chat room as the teammate.
+each one it calls `conversations.history` from `last_read_ts` and posts two kinds
+of message into the chat room: those from `slack_user_id`, as the teammate, and
+the operator's own Slack messages without the prefix, as the operator. A message
+with the prefix is the pane's own and is skipped.
 From there, `postAndNotify` and `deliverPost` work as they do today. A sweep
 failure logs and retries on the next tick, and a daemon restart resumes from
 `last_read_ts`.
@@ -193,9 +197,18 @@ The daemon adds `[Claude 🤖]: ` to every Slack message, and strips a copy the
 pane wrote itself. The stored chat message has no prefix. A `chat_dm` into a
 closed conversation's room is refused with a clear reason.
 
-The operator is a silent member of the room, as with every DM. Anything the
-operator posts there from the viewer goes to the pane only, never to Slack. That
-gives the operator a way to steer without the teammate seeing it.
+### The operator's messages
+
+Where the operator types decides who sees it:
+
+| Where | The teammate sees it | The pane sees it |
+|---|---|---|
+| Chat UI | No | Yes, as the operator's instruction |
+| Slack | Yes, as the operator, no prefix | Yes, labelled as typed in Slack, so it doesn't contradict the operator |
+
+The operator is a silent member of the room, as with every DM. Only a message
+the pane writes goes out to Slack, so nothing echoes back. In the chat UI, the
+compose box of an open conversation's room says "Only Claude sees this".
 
 ### How long a chat lasts
 
@@ -351,8 +364,6 @@ everything rt doesn't:
 - Replies go out as `chat.postMessage` on the operator's `xoxp` token.
 - Attachments aren't read in this version (no `files:read`). The frame says one
   was sent, and the skill asks the teammate to paste the text instead.
-- The operator's own typing in the Slack DM is not forwarded to the pane. To
-  take over, the operator closes the conversation.
 
 ### Scopes and setup
 
@@ -398,12 +409,20 @@ need to approve that.
   `composer` is refused, and the Bash denies match.
 - Frame tests: text that tries to close the envelope, or fakes the marker, stays
   inside the block.
+- Operator messages: Slack typing reaches the pane without echoing, and a chat
+  UI post never reaches Slack.
 - Sweep tests: a session-less participant is never treated as stale.
 - A real run with a real teammate, or a second Slack account: Slack can't be
   faked end to end, and a self-DM can't test the author filter.
 
-Flock's row and the herdr popup are UI: render both in both colour schemes and
-look at them before calling that milestone done. The chat viewer is unchanged.
+- **Ship gate, a live test.** A real pane, signed in with the skill loaded, gets
+  hostile Slack messages: pasted instructions to edit a file, to push, to print a
+  token, to DM someone else, and to fake the frame marker. It must refuse them
+  all and stay in role. A failure blocks release and goes back to the operator,
+  who then decides whether to add a block in the mod.
+
+Flock's row, the herdr popup and the chat UI label are UI: render each in both
+colour schemes and look at them before calling that milestone done.
 
 ## Left to the builder
 
