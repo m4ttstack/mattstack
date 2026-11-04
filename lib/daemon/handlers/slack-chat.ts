@@ -29,19 +29,24 @@ import {
   resolveHandle,
   type SlackConversation,
 } from "../../state/index.ts";
+import { chatViewerUrl, readChatViewerUrlSetting } from "../../chat-viewer-url.ts";
 import { tsFromMs } from "../slack-bridge.ts";
 import { finishClose, requestClose, slackDeskNotify } from "../slack-lifecycle.ts";
-import { MAX_BODY_BYTES, isValidBody, slackRefusal, slackRoomPoster, type SlackRefusal } from "./chat.ts";
+import { MAX_BODY_BYTES, isValidBody, sessionSeatedOn, slackRefusal, slackRoomPoster, type SlackRefusal } from "./chat.ts";
+import { writeTicket } from "../../slack/support-ticket.ts";
 import type { CommandResult } from "./types.ts";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 
 const CONNECT_STEP = "rt setup slack connect --support-chat";
 const OPERATOR_FALLBACK = "the operator";
 const DISPLAY_NAME_MAX = 40;
+const TICKET_FIELD_MAX = 8000;
+const TICKET_TITLE_MAX = 200;
+const TICKET_ACCEPTANCE_MAX = 30;
 const CANDIDATES_SHOWN = 8;
 const FRAME_MARKER_BYTES = 8;
 
-const SLACK_CHAT_COMMANDS = ["chat:slack-open", "chat:slack-close", "chat:slack-status", "chat:slack-pending", "chat:slack-delivered"] as const;
+const SLACK_CHAT_COMMANDS = ["chat:slack-open", "chat:slack-close", "chat:slack-status", "chat:slack-pending", "chat:slack-delivered", "chat:slack-ticket"] as const;
 
 const defaultLog = lazyChildLogger("slack-chat");
 
@@ -77,6 +82,19 @@ function findPerson(users: SlackUser[], person: string): SlackUser | SlackRefusa
 
 function isRefusal(found: SlackUser | SlackRefusal): found is SlackRefusal {
   return "ok" in found;
+}
+
+function validTicket(p: Partial<Commands["chat:slack-ticket"]["payload"]>): boolean {
+  const text = (v: unknown, max: number) => typeof v === "string" && v.trim().length > 0 && v.length <= max;
+  return (
+    (p.kind === "bug" || p.kind === "feature") &&
+    text(p.title, TICKET_TITLE_MAX) &&
+    text(p.problem, TICKET_FIELD_MAX) &&
+    text(p.idea, TICKET_FIELD_MAX) &&
+    Array.isArray(p.acceptance) &&
+    p.acceptance.length <= TICKET_ACCEPTANCE_MAX &&
+    p.acceptance.every((a) => text(a, TICKET_TITLE_MAX))
+  );
 }
 
 export function createSlackChatHandlers(opts: {
@@ -234,6 +252,22 @@ export function createSlackChatHandlers(opts: {
       const { id } = rawPayload as Commands["chat:slack-delivered"]["payload"];
       if (!Number.isSafeInteger(id)) return { ok: false, error: "chat: an item id must be a whole number" };
       return { ok: true, data: { delivered: markOpenItemDelivered(id, now(), db) } };
+    },
+
+    "chat:slack-ticket": async (rawPayload: unknown): Promise<CommandResult<"chat:slack-ticket">> => {
+      const payload = rawPayload as Commands["chat:slack-ticket"]["payload"];
+      if (!isValidChatName(payload.agentHandle)) return { ok: false, error: `invalid handle "${payload.agentHandle}"` };
+      const agentId = resolveHandle(payload.agentHandle, db);
+      if (!sessionSeatedOn(agentId, payload.sessionId, db)) {
+        return slackRefusal("Only the session signed in as this pane can write a ticket, so sign in and try again");
+      }
+      const conversation = conversationForAgent(agentId, db);
+      if (!conversation) return slackRefusal("This pane has no Slack chat open, so a ticket can't be written");
+      if (!validTicket(payload)) return { ok: false, error: "chat: a ticket needs a kind of bug or feature, a title, a problem, an idea and acceptance points" };
+      const { kind, title, problem, idea, acceptance } = payload;
+      const link = chatViewerUrl(readChatViewerUrlSetting(), conversation.room);
+      const source = { person: identityName(conversation.slackHandle, db), date: new Date(now()).toISOString().slice(0, 10), room: conversation.room, link };
+      return { ok: true, data: { path: writeTicket({ kind, title, problem, idea, acceptance }, source) } };
     },
   };
 }

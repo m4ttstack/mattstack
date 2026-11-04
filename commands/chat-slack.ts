@@ -15,6 +15,7 @@ import {
   chatSlackOpen,
   chatSlackPending,
   chatSlackStatus,
+  chatSlackTicket,
 } from "../packages/rt-client/src/index.ts";
 import * as out from "../lib/ui/out.ts";
 import {
@@ -149,4 +150,31 @@ export async function slackStatus(args: string[]): Promise<void> {
   }
   const rows = conversations.map((c) => [c.name, c.pane ?? "", `${relativeAgo(c.openedAt)} ago`, `${relativeAgo(c.lastActiveAt)} ago`]);
   out.print(out.table(rows, ["Person", "Pane", "Opened", "Last active"]));
+}
+
+const TICKET_USAGE = "rt chat slack-ticket --json < ticket.json";
+
+async function readTicketInput(): Promise<Record<string, unknown>> {
+  try {
+    const parsed: unknown = JSON.parse(await new Response(Bun.stdin.stream()).text());
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+  } catch {
+    // falls through to the usage failure
+  }
+  return failUsage("The ticket must be a JSON object on stdin", TICKET_USAGE);
+}
+
+export async function slackTicket(args: string[]): Promise<void> {
+  const input = await readTicketInput();
+  const { handle, sessionId } = await requireSignedIn(args);
+  const res = await chatSlackTicket(
+    { agentHandle: handle, sessionId, kind: input.kind, title: input.title, problem: input.problem, idea: input.idea, acceptance: input.acceptance } as Parameters<typeof chatSlackTicket>[0],
+    sockOpts(args),
+  );
+  if (!res.ok || !res.data) refuseOpen(args, res.failure?.message ?? res.error ?? "The ticket was not written");
+  if (args.includes("--json")) {
+    out.json({ ok: true, ...res.data });
+    return;
+  }
+  say(`Ticket written to ${res.data.path}`);
 }

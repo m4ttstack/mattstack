@@ -383,6 +383,10 @@ export function chatSlackDelivered(a: Commands["chat:slack-delivered"]["payload"
   return rtCommand<Commands["chat:slack-delivered"]["data"]>("chat:slack-delivered", { id: a.id }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
+export function chatSlackTicket(a: Commands["chat:slack-ticket"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-ticket"]["data"]>> {
+  return rtCommand<Commands["chat:slack-ticket"]["data"]>("chat:slack-ticket", { ...a }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+}
+
 export function chatArchive(
   a: { room: string; handle: string; archived: boolean },
   o: RtClientOptions = {},

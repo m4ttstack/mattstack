@@ -40,6 +40,7 @@ export {
   chatSlackOpen,
   chatSlackPending,
   chatSlackStatus,
+  chatSlackTicket,
   eventsHead,
   eventsEmit,
   eventsWait,

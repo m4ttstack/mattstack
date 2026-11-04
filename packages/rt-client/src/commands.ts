@@ -939,6 +939,7 @@ export interface Commands {
   "chat:slack-status": { payload: Record<string, never>; data: { conversations: { id: number; room: string; pane?: string; name: string; openedAt: number; lastActiveAt: number }[] } };
   "chat:slack-pending": { payload: { agentHandle: string }; data: { items: SlackItem[]; open: boolean; conversation?: { id: number; handle: string; name: string; operator: string; marker: string } } };
   "chat:slack-delivered": { payload: { id: number }; data: { delivered: boolean } };
+  "chat:slack-ticket": { payload: { agentHandle: string; sessionId?: string; kind: "bug" | "feature"; title: string; problem: string; idea: string; acceptance: string[] }; data: { path: string } };
   "pane:list": { payload: Record<string, never>; data: { panes: ChatPane[] } };
   "pane:peek": { payload: { paneId: string; lines?: number }; data: { paneId: string; lines: string[] } };
   "pane:accounts": { payload: Record<string, never>; data: { accounts: PaneAccount[] } };
@@ -1308,6 +1309,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "chat:slack-status",
   "chat:slack-pending",
   "chat:slack-delivered",
+  "chat:slack-ticket",
   "pane:list",
   "pane:peek",
   "pane:accounts",

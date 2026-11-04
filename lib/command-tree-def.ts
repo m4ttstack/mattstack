@@ -1750,6 +1750,13 @@ export const TREE: Record<string, CommandNode> = {
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
         ],
       },
+      "slack-ticket": {
+        description: "Write a bug report or feature request from a Slack support chat",
+        hidden: true,
+        module: "./commands/chat-slack.ts",
+        fn: "slackTicket",
+        args: [{ name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Read the ticket as JSON on stdin and print the result as JSON" }],
+      },
       "slack-close": {
         description: "Close a Slack support chat",
         module: "./commands/chat-slack.ts",
