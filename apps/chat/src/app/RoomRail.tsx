@@ -12,9 +12,6 @@ export interface RoomRailProps {
   rooms: FleetRoom[];
   /** The whole fleet: the tree groups these by repo under each room. */
   buddies?: RosterBuddy[];
-  /** A prop, not `Date.now()` internally, so sign-out ages are testable
-      without fake timers. @default Date.now() */
-  now?: number;
   /** The room open in the transcript, so its row carries the accent wash. */
   activeRoom?: string;
   onSelectRoom?: (room: string) => void;
@@ -25,13 +22,6 @@ export interface RoomRailProps {
       row's hover × and its right-click menu. Neither renders when this is
       absent. */
   onCloseRoom?: (room: string) => void;
-  /** Desktop: brings a workstream's herdr pane to the front. Ignored when
-      `onSelectBuddy` is given. */
-  onFocusPane?: (paneId: string) => void;
-  /** Phone: opens a DM with a workstream's buddy instead of focusing a
-      pane, which is meaningless while Matt is away from the machine. Takes
-      priority over `onFocusPane`. */
-  onSelectBuddy?: (handle: string) => void;
   /** Inside `PageShell.Sidebar`: the sidebar is the surface, so no card. */
   sidebar?: boolean;
 }
@@ -44,13 +34,10 @@ export interface RoomRailProps {
 export function RoomRail({
   rooms,
   buddies = [],
-  now = Date.now(),
   activeRoom,
   onSelectRoom,
   daemonReachable = true,
   onCloseRoom,
-  onFocusPane,
-  onSelectBuddy,
   sidebar = false,
 }: RoomRailProps) {
   // A `dm` room with no participants has no pair to be named by, and
@@ -88,14 +75,9 @@ export function RoomRail({
       <FleetTree
         rooms={channelRooms}
         dms={directRooms}
-        buddies={buddies}
-        now={now}
         activeRoom={activeRoom}
-        daemonReachable={daemonReachable}
         onOpenRoom={onSelectRoom}
         onOpenDm={onSelectRoom}
-        onFocusPane={onFocusPane}
-        onSelectBuddy={onSelectBuddy}
         onClose={onCloseRoom}
       />
     </Stack>

@@ -303,6 +303,8 @@ export function RoomMembers({
           <ScrollArea.Autosize
             mah={LIST_MAX_HEIGHT}
             scrollbars="y"
+            scrollbarSize={8}
+            offsetScrollbars="y"
             classNames={{ root: classes.list, content: classes.listContent }}
           >
             {groups.map(g => (

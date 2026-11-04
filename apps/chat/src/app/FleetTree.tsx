@@ -1,38 +1,17 @@
 import { Fragment, useState } from 'react';
-import {
-  Box,
-  Group,
-  Menu,
-  Text,
-  Tooltip,
-  UnstyledButton,
-} from '@mattstack/app-kit/core';
+import { Box, Group, Menu, Text } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import { notifications } from '@mattstack/app-kit/notifications';
 import type { RoomSummary } from '@mattstack/rt-client';
 
-import { agentState, isRoomForRepo, stateLine } from './agent-state';
-import { AgentHoverCard, AgentName } from './AgentName';
+import { isRoomForRepo } from './agent-state';
 import { useBuddies } from './buddies-context';
 import { dayKey, dayLabel, localTime } from './day-label';
-import { displayName, sameNameOrdinals } from './display-name';
 import { DmNames, DmStack } from './DmPairTitle';
-import { doing } from './doing';
 import classes from './fleet-tree.module.css';
 import { MUTED_XS } from './presence-bits';
 import type { RosterBuddy } from './roster-types';
-import { StateDot } from './StateDot';
 
-/** Clears the room row's hash, so a handle lines up under the room's name. */
-const WORKSTREAM_INDENT = 37;
-
-/** From a workstream row's right edge to the sidebar's outer edge: the
-    sidebar's inline padding plus its hairline, so a docked card meets the
-    border instead of floating off it. */
-const SIDEBAR_DOCK_OFFSET = 7;
-
-/** A workstream handle, nested under its room. */
-const ROW_NAME_SIZE = 'var(--mantine-font-size-xs)';
 /** Room and DM rows, one step up, so the tree has a visible hierarchy. */
 const CHROME_SIZE = 'var(--mantine-font-size-lg)';
 
@@ -48,39 +27,15 @@ export interface DmLastMessage {
 export type FleetRoom = RoomSummary & { lastMessage?: DmLastMessage };
 
 export interface FleetTreeProps {
-  /** Channel rooms, in listing order: each heads the group of agents working
-      in the repo it is named for. */
+  /** Channel rooms, in listing order. */
   rooms: FleetRoom[];
   /** DM rooms, in listing order, rendered under `Direct`. */
   dms: FleetRoom[];
-  /** The whole fleet, not one room's members. An agent is listed under the
-      room named for its repo; one whose repo has no room is left out. */
-  buddies: RosterBuddy[];
-  /** A prop, not `Date.now()` internally, so ages are testable without fake
-      timers. */
-  now: number;
   activeRoom?: string;
-  /** Withholds every presence claim when false. @default true */
-  daemonReachable?: boolean;
   onOpenRoom?: (room: string) => void;
   onOpenDm?: (room: string) => void;
-  /** Desktop: brings a workstream's herdr pane to the front. A row whose
-      buddy has no pane, or that is rendered without this (and without
-      `onSelectBuddy`), is not clickable. */
-  onFocusPane?: (paneId: string) => void;
-  /** Phone: opens a DM with the workstream's buddy instead of focusing a
-      pane. Takes priority over `onFocusPane` -- callers wire one or the
-      other, never both. */
-  onSelectBuddy?: (handle: string) => void;
-  /** The row's hover × and its right-click menu. Neither renders without it. */
+  /** The row's right-click menu. It does not render without this. */
   onClose?: (room: string) => void;
-}
-
-export interface FleetGroup {
-  repo: string;
-  room: FleetRoom;
-  online: RosterBuddy[];
-  offline: RosterBuddy[];
 }
 
 /** The room an agent's repo maps to. A presence row's `repo` is a display
@@ -102,40 +57,6 @@ function roomForRepo(
     matches.find(r => buddy.rooms.includes(r.room)) ??
     (matches.length === 1 ? matches[0] : undefined)
   );
-}
-
-/**
- * One group per room, in listing order, holding the agents working in the
- * repo it is named for (the room sign-in derives from that repo's cwd).
- *
- * Members keep sign-in order inside a group and are never re-sorted by status,
- * so a working<->idle flip cannot move a row out from under the pointer.
- */
-export function groupByRepo(
-  rooms: FleetRoom[],
-  buddies: RosterBuddy[]
-): FleetGroup[] {
-  const byRoom = new Map<string, RosterBuddy[]>();
-  for (const buddy of [...buddies].sort(
-    (a, b) => a.signedInAt - b.signedInAt
-  )) {
-    const room = roomForRepo(rooms, buddy);
-    if (!room) continue;
-    const members = byRoom.get(room.room);
-    if (members) members.push(buddy);
-    else byRoom.set(room.room, [buddy]);
-  }
-
-  const split = (members: RosterBuddy[]) => ({
-    online: members.filter(b => b.status !== 'offline'),
-    offline: members.filter(b => b.status === 'offline'),
-  });
-
-  return rooms.map(room => ({
-    repo: room.room,
-    room,
-    ...split(byRoom.get(room.room) ?? []),
-  }));
 }
 
 /** The agents the tree lists: those whose repo maps to a room. The fleet
@@ -365,132 +286,6 @@ function RoomRow({
   );
 }
 
-/** One signed-in session inside its repo: dot, handle, and the task line
-    filling the rest of the row. Clicking brings its pane to the front. */
-function WorkstreamRow({
-  buddy,
-  ordinal,
-  now,
-  reachable,
-  onFocusPane,
-  onSelectBuddy,
-}: {
-  buddy: RosterBuddy;
-  /** Set when another rendered row shares this name: `remy (1 of 2)`. The
-      row then shows its id-seeded avatar and labels itself by this. */
-  ordinal?: string;
-  now: number;
-  reachable: boolean;
-  /** Desktop: brings the buddy's herdr pane to the front. Ignored when
-      `onSelectBuddy` is given -- the two are mutually exclusive per caller,
-      never both wired to the same tree. */
-  onFocusPane?: (paneId: string) => void;
-  /** Phone: opens a DM with the buddy instead. Focusing a pane is
-      meaningless on a phone -- the whole premise of the phone surface is
-      that Matt is away from the machine -- so this takes priority over
-      `onFocusPane` whenever both are somehow present. */
-  onSelectBuddy?: (handle: string) => void;
-}) {
-  const { handle, pane } = buddy;
-  const shown = ordinal ?? displayName(buddy);
-  const task = reachable ? doing(buddy, now) : null;
-  const onClick = onSelectBuddy
-    ? () => onSelectBuddy(handle)
-    : pane !== undefined && onFocusPane
-      ? () => onFocusPane(pane)
-      : undefined;
-  const clickable = onClick !== undefined;
-  const state = reachable ? agentState(buddy) : 'offline';
-  const row = (
-    <UnstyledButton
-      className={classes.wsRow}
-      component={clickable ? 'button' : 'div'}
-      data-testid={`ws-${handle}`}
-      aria-label={
-        onSelectBuddy
-          ? `Message ${shown}`
-          : clickable
-            ? `Focus ${shown}'s pane`
-            : undefined
-      }
-      onClick={onClick}
-      style={{
-        position: 'relative',
-        display: 'flex',
-        alignItems: 'center',
-        width: '100%',
-        minWidth: 0,
-        overflow: 'hidden',
-        height: 26,
-        gap: 7,
-        padding: `0 16px 0 ${WORKSTREAM_INDENT}px`,
-        cursor: clickable ? 'pointer' : 'default',
-        textAlign: 'left',
-      }}
-    >
-      <Tooltip
-        label={
-          reachable
-            ? stateLine(buddy, now)
-            : 'presence withheld while the daemon is down'
-        }
-        position="left"
-        openDelay={300}
-        withArrow
-      >
-        <Box component="span" className={classes.dotSlot}>
-          <StateDot state={state} testId={`dot-${handle}`} />
-        </Box>
-      </Tooltip>
-      <Text
-        component="span"
-        fw={500}
-        data-testid={`ws-handle-${handle}`}
-        style={{ fontSize: ROW_NAME_SIZE, flex: 'none' }}
-      >
-        <AgentName
-          handle={handle}
-          variant="name"
-          withAvatar={ordinal !== undefined}
-          withCard={false}
-          buddy={buddy}
-          reachable={reachable}
-          now={now}
-        />
-      </Text>
-      <Text
-        component="span"
-        truncate
-        data-testid={`ws-doing-${handle}`}
-        style={{
-          ...MUTED_XS,
-          flex: 1,
-          minWidth: 0,
-        }}
-      >
-        {reachable ? (task?.text ?? '') : 'presence withheld'}
-      </Text>
-    </UnstyledButton>
-  );
-  // The phone path opens a DM on tap and has no hover, so only the desktop
-  // tree docks the card, flush to the sidebar's right edge, level with the
-  // row. The row stays marked while its card is open (`aria-expanded`), so
-  // moving onto the card never loses which agent it describes.
-  if (onSelectBuddy) return row;
-  return (
-    <AgentHoverCard
-      buddy={buddy}
-      position="right-start"
-      offset={SIDEBAR_DOCK_OFFSET}
-      reachable={reachable}
-      now={now}
-      task={task}
-    >
-      {row}
-    </AgentHoverCard>
-  );
-}
-
 /**
  * A direct conversation, named by its pair, one line like a channel row. The
  * hashed room name is structurally never rendered -- the pair IS the name.
@@ -562,54 +357,29 @@ function DmRow({
 }
 
 /**
- * The sidebar's one tree. The open room lists the signed-in sessions of the
- * repo it is named for; the other rooms stay one line each. Direct
- * conversations follow, named by their pair.
+ * The sidebar's list: rooms, then direct conversations named by their pair.
  */
 export function FleetTree({
   rooms,
   dms,
-  buddies,
-  now,
   activeRoom,
-  daemonReachable = true,
   onOpenRoom,
   onOpenDm,
-  onFocusPane,
-  onSelectBuddy,
   onClose,
 }: FleetTreeProps) {
-  const groups = groupByRepo(rooms, buddies);
   // A DM is named by its pair, so one with no participants has no row.
   const namedDms = dms.filter(d => d.participants);
-  const ordinals = sameNameOrdinals(
-    groups.flatMap(g => g.online),
-    displayName
-  );
 
   return (
     <Fragment>
-      {groups.map(group => (
-        <Fragment key={group.repo}>
-          <RoomRow
-            room={group.room}
-            active={group.room.room === activeRoom}
-            onSelect={() => onOpenRoom?.(group.repo)}
-            onClose={onClose}
-          />
-          {group.room.room === activeRoom &&
-            group.online.map(buddy => (
-              <WorkstreamRow
-                key={buddy.handle}
-                buddy={buddy}
-                ordinal={ordinals.get(buddy)}
-                now={now}
-                reachable={daemonReachable}
-                onFocusPane={onFocusPane}
-                onSelectBuddy={onSelectBuddy}
-              />
-            ))}
-        </Fragment>
+      {rooms.map(room => (
+        <RoomRow
+          key={room.room}
+          room={room}
+          active={room.room === activeRoom}
+          onSelect={() => onOpenRoom?.(room.room)}
+          onClose={onClose}
+        />
       ))}
 
       {namedDms.length > 0 && (

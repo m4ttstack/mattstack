@@ -316,25 +316,21 @@ function RoomsPlaceholder({
 }
 
 /** Inside `PageShell.Sidebar`, which on a phone is a drawer: picking a row
-    closes it, and a workstream opens a DM since there is no pane to focus. */
+    closes it. */
 function ChatSidebar({
   rooms,
   buddies,
   activeRoom,
   selectRoom,
   reachable,
-  onOpenDm,
   onCloseRoom,
-  onFocusPane,
 }: {
   rooms: FleetRoom[];
   buddies: Buddy[];
   activeRoom: string | undefined;
   selectRoom: (room: string) => void;
   reachable: boolean;
-  onOpenDm: (handle: string) => void;
   onCloseRoom: (room: string) => void;
-  onFocusPane: (paneId: string) => void;
 }) {
   const { collapsedSidebar, sidebarOpen, toggleSidebar } =
     usePageShellContext();
@@ -346,7 +342,6 @@ function ChatSidebar({
       sidebar
       rooms={rooms}
       buddies={buddies}
-      now={Date.now()}
       activeRoom={activeRoom}
       onSelectRoom={room => {
         selectRoom(room);
@@ -354,15 +349,6 @@ function ChatSidebar({
       }}
       daemonReachable={reachable}
       onCloseRoom={onCloseRoom}
-      onFocusPane={onFocusPane}
-      onSelectBuddy={
-        collapsedSidebar
-          ? handle => {
-              onOpenDm(handle);
-              closeDrawer();
-            }
-          : undefined
-      }
     />
   );
 }
@@ -382,7 +368,6 @@ interface ChatPageProps {
   composerRef: RefObject<ComposerHandle | null>;
   onOpenDm: (handle: string) => void;
   onCloseRoom: (room: string) => void;
-  onFocusPane: (paneId: string) => void;
 }
 
 function ChatPage({
@@ -400,7 +385,6 @@ function ChatPage({
   composerRef,
   onOpenDm,
   onCloseRoom,
-  onFocusPane,
 }: ChatPageProps) {
   const isMobile = useIsMobile();
   const [sidebarWidth, setSidebarWidth] = usePaneWidth(
@@ -455,9 +439,7 @@ function ChatPage({
               activeRoom={activeRoom}
               selectRoom={selectRoom}
               reachable={daemon.reachable}
-              onOpenDm={onOpenDm}
               onCloseRoom={onCloseRoom}
-              onFocusPane={onFocusPane}
             />
           </PageShell.Sidebar>
         )}
@@ -814,7 +796,6 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
             composerRef={composerRef}
             onOpenDm={openDm}
             onCloseRoom={closeRoom}
-            onFocusPane={paneId => void focusPane(paneId)}
           />
         ) : (
           <NotFoundPage />

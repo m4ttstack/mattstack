@@ -1,21 +1,15 @@
-/* Workstream, room and DM rows share one hover paint. A workstream row also
-   holds it while its agent card is open (`aria-expanded`, set by the
-   HoverCard target). */
-.wsRow,
+/* Room and DM rows share one hover paint. */
 .listRow {
   --row-hover: var(--chat-chrome-hover);
 }
 
 @media (hover: hover) {
-  .wsRow:hover,
   .listRow:hover {
     background-color: var(--row-hover);
   }
 
 }
 
-.wsRow:focus-within,
-.wsRow[aria-expanded='true'],
 .listRow:focus-within,
 .listRow[data-menu-open] {
   background-color: var(--row-hover);
@@ -26,10 +20,6 @@
   background-color: var(--chat-chrome-selected);
 }
 
-.dotSlot {
-  display: inline-flex;
-  flex: none;
-}
 
 
 .dmRow {
