@@ -317,28 +317,42 @@ test("the tick clock lives in the db, so a daemon restart across a sleep still s
   expect(h.row().lastActiveAt).toBe(START + 3 * 60 * MINUTE);
 });
 
-test("a teammate message during the farewell window goes to the operator, not the pane", async () => {
+test("a teammate message during the farewell window reaches the pane, and after the close nothing more is read or queued", async () => {
   const h = harness();
   requestClose(h.opened.id, "idle", h.deps);
-  const message: SlackMessage = { ts: "1000000005.000000", user: "U0TEST", text: "wait, one more thing" };
-  const client = { history: async () => [message], replies: async () => [] } as unknown as SlackClient;
-  const roomPosts: { handle: string; body: string }[] = [];
+  const history: SlackMessage[] = [{ ts: "1000000005.000000", user: "U0TEST", text: "wait, one more thing" }];
+  let reads = 0;
+  const client = {
+    history: async () => {
+      reads++;
+      return history;
+    },
+    replies: async () => [],
+  } as unknown as SlackClient;
+  const roomPosts: string[] = [];
   const bridge = createSlackBridge({
     db: h.db,
     client: async () => client,
     post: (args) => {
-      roomPosts.push({ handle: args.handle, body: args.body });
+      roomPosts.push(args.body);
       return { id: 1 };
     },
     log,
     now: h.deps.now,
   });
-  const activeBefore = h.row().lastActiveAt;
+
   await bridge.sweep();
-  expect(roomPosts).toEqual([{ handle: "slack.u0test", body: "wait, one more thing" }]);
-  expect(h.kinds()).toEqual(["close-request"]);
-  expect(h.row().lastActiveAt).toBe(activeBefore);
-  expect(h.row().lastReadTs).toBe(message.ts);
+  expect(h.kinds()).toEqual(["close-request", "message"]);
+  expect(h.items()[1]!.text).toBe("wait, one more thing");
+  expect(roomPosts).toEqual(["wait, one more thing"]);
+
+  await finishClose(h.opened.id, "idle", undefined, h.deps);
+  history.push({ ts: "1000000006.000000", user: "U0TEST", text: "are you still there?" });
+  const readsAtClose = reads;
+  await bridge.sweep();
+  expect(reads).toBe(readsAtClose);
+  expect(roomPosts).toEqual(["wait, one more thing"]);
+  expect(h.items().map((i) => i.text)).not.toContain("are you still there?");
 });
 
 test("the operator's Slack message during the farewell window still reaches the pane", async () => {

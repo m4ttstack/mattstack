@@ -128,7 +128,6 @@ export function createSlackBridge(opts: SlackBridgeOptions): { sweep(): Promise<
     } else {
       log.debug({ conversationId: conv.id }, "slack-bridge: no operator chat handle, queued without a room post");
     }
-    if (fromTeammate && conv.closeAskedAt !== null) return;
     db.transaction(() => {
       enqueueItem(
         { conversationId: conv.id, kind: fromTeammate ? "message" : "operator-slack", fromHandle: handle ?? null, text: body, createdAt: now() },
