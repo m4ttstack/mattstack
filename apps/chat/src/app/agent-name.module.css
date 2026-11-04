@@ -1,10 +1,8 @@
-/* A hoverable name says so: on hover the whole unit (handle, bullet, repo)
-   takes the mention accent and its wash, the same treatment a mention of
-   you gets in a message body, so "this opens something" reads without a
-   cursor change. */
+/* A name with a card reads as a link: it underlines on hover and keeps its
+   colour. */
 .target {
   border-radius: 3px;
-  cursor: default;
+  cursor: pointer;
 }
 
 .targetFit {
@@ -22,7 +20,6 @@
     background-color 120ms ease;
 }
 
-/* A name reads as a link on hover and keeps its speaker's colour. */
 .target:hover .name {
   text-decoration: underline;
 }

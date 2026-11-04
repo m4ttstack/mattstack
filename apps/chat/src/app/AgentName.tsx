@@ -1,3 +1,4 @@
+import { cloneElement, useState, type HTMLAttributes } from 'react';
 import { createAvatar } from '@dicebear/core';
 import * as personas from '@dicebear/personas';
 import {
@@ -5,8 +6,8 @@ import {
   Box,
   Button,
   Group,
-  HoverCard,
   Menu,
+  Popover,
   Text,
 } from '@mattstack/app-kit/core';
 
@@ -391,13 +392,10 @@ export function AgentCard({
   );
 }
 
-/** Opens the agent card beside whatever it wraps. `right-start` docks it to
-    the right of a list (the sidebar, the room dropdown), level with the row,
-    so the list itself never moves or hides under the pointer. */
-export function AgentHoverCard({
+/** Opens the agent card from a click on whatever it wraps. An action in the
+    card closes it. */
+export function AgentCardPopover({
   buddy,
-  position = 'bottom-start',
-  offset,
   reachable,
   now,
   inRoom,
@@ -405,27 +403,42 @@ export function AgentHoverCard({
   children,
 }: {
   buddy: RosterBuddy;
-  position?: 'bottom-start' | 'right-start';
-  offset?: number;
   reachable?: boolean;
   now?: number;
   inRoom?: boolean;
   task?: DoingLine | null;
-  children: React.ReactElement;
+  children: React.ReactElement<HTMLAttributes<HTMLElement>>;
 }) {
+  const [opened, setOpened] = useState(false);
+  const toggle = () => setOpened(o => !o);
   return (
-    <HoverCard
-      position={position}
-      offset={offset}
+    <Popover
+      opened={opened}
+      onChange={setOpened}
+      position="bottom-start"
       width={CARD_WIDTH}
-      openDelay={500}
-      closeDelay={120}
       withinPortal
       shadow="md"
       classNames={{ dropdown: cardClasses.dropdown }}
     >
-      <HoverCard.Target>{children}</HoverCard.Target>
-      <HoverCard.Dropdown>
+      <Popover.Target>
+        {cloneElement(children, {
+          role: 'button',
+          tabIndex: 0,
+          'aria-expanded': opened,
+          onClick: toggle,
+          onKeyDown: event => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            toggle();
+          },
+        })}
+      </Popover.Target>
+      <Popover.Dropdown
+        onClick={event => {
+          if ((event.target as HTMLElement).closest('button')) setOpened(false);
+        }}
+      >
         <AgentCard
           buddy={buddy}
           reachable={reachable}
@@ -433,13 +446,13 @@ export function AgentHoverCard({
           inRoom={inRoom}
           task={task}
         />
-      </HoverCard.Dropdown>
-    </HoverCard>
+      </Popover.Dropdown>
+    </Popover>
   );
 }
 
 /** A handle, wherever one is rendered. The name never truncates; the repo
-    token beside it does. Hover opens the buddy's card when presence knows
+    token beside it does. A click opens the buddy's card when presence knows
     the handle; a handle presence does not know (a human, an offline row) is
     plain text. */
 export function AgentName({
@@ -528,7 +541,7 @@ export function AgentName({
   if (!withCard || !buddy) return label;
 
   return (
-    <AgentHoverCard
+    <AgentCardPopover
       buddy={buddy}
       reachable={reachableProp}
       now={now}
@@ -541,6 +554,6 @@ export function AgentName({
         // A sender sizes to its text, or the wash would run to the margin.
         <Box className={`${classes.target} ${classes.targetFit}`}>{label}</Box>
       )}
-    </AgentHoverCard>
+    </AgentCardPopover>
   );
 }
