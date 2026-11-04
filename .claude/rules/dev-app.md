@@ -71,7 +71,7 @@ The dev app (and any DEBUG build) has **Test drive setup…** in the menu bar
 menu: the real setup window running on the stub rt
 (`rt-tray/Tests/stub-rt/stub.ts` under bun), so the screens can be walked on
 this Mac without changing it. The picker offers scenarios (join, create,
-Just me, restore, a run that pauses, slow installs, a new team tool; `TestDriveScenario` maps
+Just me, restore, a run that pauses, slow installs, a new team tool, a team tool that fails; `TestDriveScenario` maps
 each to an `RT_STUB_SCENARIO`) and a speed, Instant or Realistic. Each drive
 gets its own throwaway HOME and stub state dir under the temp folder, an app
 socket that points nowhere, and fakes for every native effect (a settings

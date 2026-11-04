@@ -121,7 +121,16 @@ while every blocking row is a `tool.team.*` row or that tool's account, or while
 `told` holds a name not yet in `acked`. A `pack.*` row or any other blocker keeps
 today's route, because this screen cannot fix them. `rt setup form --section tools`
 returns the rows, built by the connect section's `signInRow` and `extraRow`, so
-Install, Download, Show steps and sign-in behave as they do on the connect screen.
+Install, Download, Show steps and sign-in run as they do on the connect screen,
+with two differences in how a row reads:
+
+- A tool simply missing or signed out shows no reason line, since its button
+  already says so. A real fault keeps its text.
+- A tool whose install failed (T7) reads `tone: "failed"`: Retry re-runs the same
+  install, a second action opens the manual steps when the tool has any, and the
+  failure sits beside them in the failure colour in place of the subtext. The row
+  stays open and holds Done.
+
 The stage never records Finish.
 
 - Heading: "One new tool for your team", or "2 new tools for your team".

@@ -29,7 +29,17 @@ member needs, where setup resumes or a row's state. A run still going
 outranks the macos stage, and P1 skips rt's read for the cards only on a Mac
 the last whole read saw as fresh. A done row answered no (notifications
 off) carries `tone: "off"`, drawn as a grey dash; the tray keys on `tone`,
-never the detail's words. `rt setup prepare
+never the detail's words. A tools row whose install failed carries
+`tone: "failed"`: its `action` is the same install labelled Retry, its
+optional `secondary` opens the manual steps (`teamToolManualSteps`; left out
+when the team declared no install route), and its `detail` is the failure,
+drawn in the failure colour beside the buttons in place of the subtext. It
+stays open and holds Done. An app older than `failed` reads the tone as
+unknown, skips `secondary` and draws Retry with the failure as a plain
+reason. `detail` is a string in the tray, never null: a plain tools row (a
+tool simply missing or signed out) sends an empty one, so no reason repeats
+its button. `toolsRows` does that itself, since `extraRow` and `signInRow`
+also draw the connect screen, whose rows keep their reason. `rt setup prepare
 <macos|accounts>` (`lib/setup/prepare.ts`) runs the installs setup can do
 while the member answers: Command Line Tools at the macos stage; Claude
 Code, herdr, the team's sign-in and required tools, then Fast Browser's
@@ -76,7 +86,7 @@ A required row with a fault must offer an action that can clear it: an
 actionless required row is an Install nobody can reach. On the fast screens
 a `steps` action opens rt's steps in a sheet (`FormActionRunner.sheet`), a
 `choose` wider than a two-option segment opens a picker sheet, and a todo
-row shows its `detail` as rt's reason under the subtext. An action type the
+row with a `detail` shows it as rt's reason under the subtext. An action type the
 app does not know draws "Needs a newer mattstack", and its row still holds
 the footer while rt counts it open. A pack tool's Download link is offered
 only over https; any other `install.url` falls back to steps. A connect action may
