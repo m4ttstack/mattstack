@@ -122,7 +122,7 @@ while every blocking row is a `tool.team.*` row or that tool's account, or while
 today's route, because this screen cannot fix them. `rt setup form --section tools`
 returns the rows, built by the connect section's `signInRow` and `extraRow`, so
 Install, Download, Show steps and sign-in run as they do on the connect screen,
-with two differences in how a row reads:
+with three differences in how a row reads:
 
 - A tool simply missing or signed out shows no reason line, since its button
   already says so. A real fault keeps its text.
