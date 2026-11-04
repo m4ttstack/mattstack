@@ -118,7 +118,9 @@ since `e2e/setup.ts` rebuilds the binary on one.
 ## Before you push
 
 `rt check` runs the repo's check command from the tree root, and `git_push`
-runs it first and refuses a red push. For this repo the `rt.check` setting is
+runs it first and refuses a red push. `rt.check` is a user or machine scope
+setting, per repo, because `git_push` runs the command with no prompt: nothing
+in a team or org store can run on your Mac. For this repo set it to
 `{"command": "bun scripts/ci/local-check.ts", "timeoutSeconds": 900}`; a full
 run takes about ten minutes, past the 600s default. The script takes
 `RT_CHECK_BASE` and `RT_CHECK_HEAD`, asks `test-scope.ts` what a PR with that

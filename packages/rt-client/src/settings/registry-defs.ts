@@ -345,12 +345,12 @@ const ROWS: readonly SettingDef[] = [
   {
     key: "rt.check",
     type: "object",
-    scopes: ALL_SCOPES,
+    scopes: ["user", "machine"],
     default: {},
     merge: "deep",
     repoScoped: true,
     repoOnly: true,
-    description: "The repo's own pre-push check ({command, timeoutSeconds}). rt check runs command from the tree root with RT_CHECK_BASE, RT_CHECK_HEAD, RT_CHECK_TREE and RT_CHECK_FULL in its environment; exit 0 is green, and a last stdout line of JSON is the summary. git_push runs it first and refuses a red push. An empty object means no check: nothing runs and no status is posted.",
+    description: "The repo's own pre-push check ({command, timeoutSeconds}). rt check runs command from the tree root with RT_CHECK_BASE, RT_CHECK_HEAD, RT_CHECK_TREE and RT_CHECK_FULL in its environment; exit 0 is green, and a last stdout line of JSON is the summary. git_push runs it first and refuses a red push. An empty object means no check: nothing runs and no status is posted. User or machine scope only, since the command runs without a prompt.",
   },
   {
     key: "rt.daemonPath",

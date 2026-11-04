@@ -127,8 +127,11 @@ Matt picked 1. The cost over 2 is one command-tree entry and its description.
 
 ### The setting (my call on name and shape)
 
-`rt.check`, `repoScoped` and `repoOnly`, scopes `ALL_SCOPES`, merge `deep`,
-default `{}`.
+`rt.check`, `repoScoped` and `repoOnly`, scopes `user` and `machine` (Matt's
+ruling), merge `deep`, default `{}`. `git_push` and `rt_verb` run the command
+with no prompt, so a team or org store could otherwise run a shell command on
+every member's Mac. A shared rollout needs a hash approval first and is a
+later decision.
 
 ```jsonc
 "rt.check": {
