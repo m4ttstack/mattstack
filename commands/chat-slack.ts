@@ -4,7 +4,7 @@
  *   rt chat slack-open <person> --json     hidden: only the mod runs it
  *   rt chat slack-watch --json             hidden: one JSON line per waiting item
  *   rt chat slack-delivered <id>           hidden: confirms an item reached the session
- *   rt chat slack-close [--pane <pane>] [--farewell-file <path>]
+ *   rt chat slack-close [--pane <pane> | --farewell-file <path>]
  *   rt chat slack-status
  */
 
@@ -35,7 +35,7 @@ import {
 
 const POLL_MS = 2000;
 const UNANSWERED_POLLS = 3;
-const CLOSE_USAGE = "rt chat slack-close [--pane <pane>] [--farewell-file <path>]";
+const CLOSE_USAGE = "rt chat slack-close [--pane <pane> | --farewell-file <path>]";
 
 /** The mod reads a refusal from the envelope, so under --json it stays on stdout. */
 function refuseOpen(args: string[], message: string, next?: string): never {
@@ -137,6 +137,7 @@ function requiredValue(args: string[], flag: string): string | undefined {
 export async function slackClose(args: string[]): Promise<void> {
   const pane = requiredValue(args, "--pane");
   const file = requiredValue(args, "--farewell-file");
+  if (pane && file !== undefined) failUsage("--pane can't carry a farewell", CLOSE_USAGE, "Only the session holding the chat can speak to the teammate.");
   const farewell = file === undefined ? undefined : readFarewell(file);
   const own = pane ? undefined : await requireSignedIn(args);
   const data = unwrap(await chatSlackClose({ agentHandle: own?.handle, sessionId: own?.sessionId, pane, farewell }, sockOpts(args)), "close");

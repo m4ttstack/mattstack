@@ -1763,7 +1763,7 @@ export const TREE: Record<string, CommandNode> = {
         fn: "slackClose",
         args: [
           { name: "Pane", flag: "--pane", type: "text", optional: true, placeholder: "w1:p1", hint: "The pane whose chat to close; this session's own chat when left out" },
-          { name: "Farewell file", flag: "--farewell-file", type: "text", optional: true, placeholder: "farewell.txt", hint: "A file holding the goodbye to send first" },
+          { name: "Farewell file", flag: "--farewell-file", type: "text", optional: true, placeholder: "farewell.txt", hint: "A file holding the goodbye to send first; this session's own chat only" },
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
         ],
       },

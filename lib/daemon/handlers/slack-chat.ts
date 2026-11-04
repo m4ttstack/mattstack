@@ -208,6 +208,8 @@ export function createSlackChatHandlers(opts: {
     "chat:slack-close": async (rawPayload: unknown): Promise<CommandResult<"chat:slack-close">> => {
       const { agentHandle, sessionId, pane, farewell } = rawPayload as Commands["chat:slack-close"]["payload"];
       if (agentHandle !== undefined && !isValidChatName(agentHandle)) return { ok: false, error: `invalid handle "${agentHandle}"` };
+      // A pane id proves nothing about the caller, and a farewell reaches the teammate under the prefix.
+      if (pane !== undefined && farewell !== undefined) return slackRefusal("A close by pane can't carry a farewell, because only the session holding the chat can speak to the teammate");
       if (pane === undefined && agentHandle !== undefined && !sessionSeatedOn(resolveHandle(agentHandle, db), sessionId, db)) {
         return slackRefusal("Only the session signed in as this pane can close its Slack chat, so sign in and try again");
       }
@@ -215,12 +217,11 @@ export function createSlackChatHandlers(opts: {
       const conversation = conversationForClose(agentHandle, pane);
       if (!conversation) return slackRefusal(pane === undefined ? "This pane has no Slack chat open" : `No Slack chat is open in ${pane}`);
       const conversationId = conversation.id;
-      if (pane !== undefined && farewell === undefined) {
+      if (pane !== undefined) {
         requestClose(conversationId, "operator", closeDeps);
         return { ok: true, data: { conversationId, closed: false } };
       }
-      const reason = conversation.closeReasonAsked ?? (pane === undefined ? "closed-by-pane" : "operator");
-      const { redacted } = await finishClose(conversationId, reason, farewell, closeDeps);
+      const { redacted } = await finishClose(conversationId, conversation.closeReasonAsked ?? "closed-by-pane", farewell, closeDeps);
       return { ok: true, data: { conversationId, closed: true, ...(redacted ? { redacted: true as const } : {}) } };
     },
 

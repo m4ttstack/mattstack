@@ -370,15 +370,17 @@ test("the pane's close reports a farewell that had a credential removed", async 
   expect(h.sent[0]).not.toContain("AKIAABCDEFGHIJKLMNOP");
 });
 
-test("a close with the operator's own farewell sends it now, as an operator close", async () => {
+test("a close by pane can't carry a farewell, so a caller with only a pane id can't speak to the teammate", async () => {
   const h = harness();
   const agentHandle = await h.signIn("s1", "first");
   h.db.query("UPDATE chat_presence SET pane = 'w1:p1' WHERE session_id = 's1';").run();
   const res = await h.handlers["chat:slack-open"]({ agentHandle, sessionId: "s1", person: "alex" });
   if (!res.ok) throw new Error(res.error);
-  await h.handlers["chat:slack-close"]({ pane: "w1:p1", farewell: "Robin here, all done." });
-  expect(h.sent[0]).toBe(`${SLACK_PREFIX}Robin here, all done.`);
-  expect(latestConversationForRoom(res.data.room, h.db)!.closeReason).toBe("operator");
+  const closed = await h.handlers["chat:slack-close"]({ pane: "w1:p1", farewell: "Robin here, all done." });
+  expect(refusal(closed)).toContain("can't carry a farewell");
+  expect(h.sent).toEqual([]);
+  expect(latestConversationForRoom(res.data.room, h.db)!.closedAt).toBeNull();
+  expect(latestConversationForRoom(res.data.room, h.db)!.closeAskedAt).toBeNull();
 });
 
 test("a pane's close during a close sequence keeps the reason asked for", async () => {

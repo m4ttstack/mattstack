@@ -395,7 +395,8 @@ The controls follow the existing path: Flock's chat popover runs
 `herdr-chat --json`, which runs `rt chat`.
 
 **rt.** `rt chat slack-close --pane <pane>` lets something other than the pane
-start the close sequence. `slack-status` reports each open conversation's pane,
+start the close sequence. It takes no farewell: a pane id proves nothing about
+the caller, and a farewell reaches the teammate under the prefix. `slack-status` reports each open conversation's pane,
 person, opened time and last activity.
 
 **herdr-chat** (`plugins/herdr-chat`). New `slack-close` and `slack-status` verbs

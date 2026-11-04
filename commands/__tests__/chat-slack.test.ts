@@ -316,14 +316,31 @@ test("slack-status says when no chat is open", async () => {
   expect(res.stdout).toContain("No Slack chats are open");
 });
 
-test("slack-close sends the pane and the farewell file", async () => {
+test("slack-close sends the pane", async () => {
   canned["chat:slack-close"] = { ok: true, data: { conversationId: 7, closed: false } };
-  const file = join(home, "farewell.txt");
-  writeFileSync(file, "All sorted.\n");
-  const res = await run(() => slackClose(["--pane", "w1:p1", "--farewell-file", file, "--json"]));
+  const res = await run(() => slackClose(["--pane", "w1:p1", "--json"]));
   expect(res.code).toBe(0);
   expect(JSON.parse(res.stdout)).toEqual({ ok: true, conversationId: 7, closed: false });
-  expect(seen.find((s) => s.cmd === "chat:slack-close")!.payload).toEqual({ pane: "w1:p1", farewell: "All sorted.\n" });
+  expect(seen.find((s) => s.cmd === "chat:slack-close")!.payload).toEqual({ pane: "w1:p1" });
+});
+
+test("slack-close sends the farewell file for this session's own chat", async () => {
+  await signIn();
+  canned["chat:slack-close"] = { ok: true, data: { conversationId: 7, closed: true } };
+  const file = join(home, "farewell.txt");
+  writeFileSync(file, "All sorted.\n");
+  const res = await run(() => slackClose(["--farewell-file", file]));
+  expect(res.code).toBe(0);
+  expect(seen.find((s) => s.cmd === "chat:slack-close")!.payload.farewell).toBe("All sorted.\n");
+});
+
+test("slack-close refuses --pane with --farewell-file, and nothing is sent", async () => {
+  const file = join(home, "farewell.txt");
+  writeFileSync(file, "All sorted.\n");
+  const res = await run(() => slackClose(["--pane", "w1:p1", "--farewell-file", file]));
+  expect(res.code).toBe(1);
+  expect(res.stderr).toContain("rt chat slack-close [--pane <pane> | --farewell-file <path>]");
+  expect(seen).toEqual([]);
 });
 
 test("slack-close with no pane closes this session's own chat", async () => {
@@ -347,7 +364,9 @@ test("slack-close says when a credential was removed from the farewell", async (
 });
 
 test("slack-close with an unreadable farewell file is a failure, and nothing is sent", async () => {
-  const res = await run(() => slackClose(["--pane", "w1:p1", "--farewell-file", join(home, "absent.txt")]));
+  await signIn();
+  seen = [];
+  const res = await run(() => slackClose(["--farewell-file", join(home, "absent.txt")]));
   expect(res.code).toBe(1);
   expect(seen).toEqual([]);
 });
