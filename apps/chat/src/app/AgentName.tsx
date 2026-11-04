@@ -93,9 +93,10 @@ export function HandleAvatar({
   return <HandleSprite handle={handle} size={size ?? AVATAR_SIZE[variant]} />;
 }
 
-export const CARD_WIDTH = 320;
+export const CARD_WIDTH = 340;
 
-const SPRITE_IN_AVATAR = { sm: 16, md: 24 } as const;
+const SPRITE_IN_AVATAR = { sm: 16, md: 24, xl: 44 } as const;
+const AVATAR_SIZE_PX = { sm: undefined, md: undefined, xl: 64 } as const;
 
 /** A handle's sprite on the kit's own avatar tile, for lists and cards where
     a bare pixel sprite reads ragged against text. */
@@ -107,7 +108,12 @@ export function SpriteAvatar({
   size: keyof typeof SPRITE_IN_AVATAR;
 }) {
   return (
-    <Avatar size={size} radius="xl" color="gray" variant="light">
+    <Avatar
+      size={AVATAR_SIZE_PX[size] ?? size}
+      radius={size === 'xl' ? 'lg' : 'xl'}
+      color="gray"
+      variant="light"
+    >
       <HandleSprite handle={handle} size={SPRITE_IN_AVATAR[size]} />
     </Avatar>
   );
@@ -268,7 +274,7 @@ export function AgentCard({
   const summary = (
     <>
       <div className={cardClasses.head}>
-        <SpriteAvatar handle={buddy.handle} size="md" />
+        <SpriteAvatar handle={buddy.handle} size={inMenu ? 'md' : 'xl'} />
         <div className={cardClasses.identity}>
           <span className={cardClasses.name}>{displayName(buddy)}</span>
           <span
@@ -347,36 +353,38 @@ export function AgentCard({
     <div className={cardClasses.card} data-testid={`detail-${buddy.handle}`}>
       {summary}
       {actions && (
-        <Group gap="sm">
-          {canFocus && (
-            <Button
-              size="compact-sm"
-              onClick={() => actions.focusPane?.(buddy.pane!)}
-              data-testid={`card-focus-${buddy.handle}`}
-            >
-              Focus pane
-            </Button>
-          )}
+        <div className={cardClasses.actions}>
           <Button
-            size="compact-sm"
-            variant="subtle"
-            color="gray"
+            size="sm"
+            px={8}
+            variant="default"
+            onClick={() => actions.dm(buddy.handle)}
+            data-testid={`card-dm-${buddy.handle}`}
+          >
+            Message
+          </Button>
+          <Button
+            size="sm"
+            px={8}
+            variant="default"
             disabled={!inRoom}
             onClick={() => actions.mention(buddy.handle)}
             data-testid={`card-mention-${buddy.handle}`}
           >
             Mention
           </Button>
-          <Button
-            size="compact-sm"
-            variant="subtle"
-            color="gray"
-            onClick={() => actions.dm(buddy.handle)}
-            data-testid={`card-dm-${buddy.handle}`}
-          >
-            Message
-          </Button>
-        </Group>
+          {canFocus && (
+            <Button
+              size="sm"
+              px={8}
+              variant="default"
+              onClick={() => actions.focusPane?.(buddy.pane!)}
+              data-testid={`card-focus-${buddy.handle}`}
+            >
+              Focus pane
+            </Button>
+          )}
+        </div>
       )}
     </div>
   );

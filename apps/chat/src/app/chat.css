@@ -4,16 +4,17 @@
   --chat-hue: var(--tk-fill-bad);
   --chat-bar: color-mix(in srgb, var(--chat-hue) 80%, black);
   --chat-ink: var(--tk-text-bad-small);
-  --chat-chrome: color-mix(in srgb, var(--chat-hue) 11%, var(--tk-card));
+  --chat-ink-soft: color-mix(in srgb, var(--chat-ink) 72%, var(--chat-chrome));
+  --chat-chrome: color-mix(in srgb, var(--chat-hue) 7%, var(--tk-card));
   --chat-chrome-line: color-mix(in srgb, var(--chat-hue) 14%, transparent);
   --chat-chrome-hover: color-mix(
     in srgb,
-    var(--chat-hue) 8%,
+    var(--chat-hue) 6%,
     var(--chat-chrome)
   );
   --chat-chrome-selected: color-mix(
     in srgb,
-    var(--chat-hue) 13%,
+    var(--chat-hue) 14%,
     var(--chat-chrome)
   );
 }

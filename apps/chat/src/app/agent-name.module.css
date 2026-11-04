@@ -22,17 +22,9 @@
     background-color 120ms ease;
 }
 
-.target:hover .name * {
-  color: var(--mantine-color-accent-text);
-}
-
+/* A name reads as a link on hover and keeps its speaker's colour. */
 .target:hover .name {
-  color: var(--mantine-color-accent-text);
-  background-color: color-mix(
-    in srgb,
-    var(--mantine-color-accent-text) var(--tk-wash),
-    transparent
-  );
+  text-decoration: underline;
 }
 
 /* The speaker chip owns its own box: `--speaker-hue`/`--speaker-hue-fill`

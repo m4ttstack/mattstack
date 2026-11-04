@@ -7,7 +7,7 @@ function End({ handle, name }: { handle: string; name: string | undefined }) {
   const ctx = useBuddies();
   return (
     <span className={classes.end}>
-      <HandleAvatar handle={handle} variant="name" size={14} />
+      <HandleAvatar handle={handle} variant="name" size={16} />
       <span className={classes.name}>
         {name ?? ctx?.nameOf(handle) ?? handle}
       </span>

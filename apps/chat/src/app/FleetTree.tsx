@@ -33,7 +33,7 @@ const SIDEBAR_DOCK_OFFSET = 7;
 /** A workstream handle, nested under its room. */
 const ROW_NAME_SIZE = 'var(--mantine-font-size-xs)';
 /** Room and DM rows, one step up, so the tree has a visible hierarchy. */
-const CHROME_SIZE = 'var(--mantine-font-size-sm)';
+const CHROME_SIZE = 'var(--mantine-font-size-lg)';
 
 /** DM rows shown before the `N more` line, so the rooms stay in reach. */
 const DM_VISIBLE = 8;
@@ -194,7 +194,11 @@ export function SectionLabel({
         {label}
       </Text>
       {detail && (
-        <Text component="span" data-testid="section-detail" style={MUTED_XS}>
+        <Text
+          component="span"
+          data-testid="section-detail"
+          style={{ ...MUTED_XS, color: 'var(--chat-ink-soft)' }}
+        >
           {detail}
         </Text>
       )}
@@ -349,7 +353,7 @@ function RoomRow({
       <Icon
         name="hash"
         size={13}
-        color={active ? 'var(--tk-text-1)' : 'var(--tk-text-4)'}
+        color="var(--chat-ink-soft)"
         style={{ flex: 'none' }}
       />
       <Text
@@ -553,7 +557,7 @@ function DmRow({
         <Text
           component="div"
           fw={700}
-          style={{ fontSize: 'var(--mantine-font-size-md)', minWidth: 0 }}
+          style={{ fontSize: CHROME_SIZE, minWidth: 0 }}
         >
           <DmPairTitle pair={pair} />
         </Text>

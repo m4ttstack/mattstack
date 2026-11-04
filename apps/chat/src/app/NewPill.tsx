@@ -1,44 +1,45 @@
 import { UnstyledButton } from '@mattstack/app-kit/core';
-
-const ACCENT_TEXT = 'var(--mantine-color-accent-text)';
+import { Icon } from '@mattstack/app-kit/icons';
 
 export interface NewPillProps {
-  /** Live arrivals since the viewer scrolled away; 0 reads `latest`. */
+  /** Live arrivals since the viewer scrolled away; 0 reads as a quiet jump. */
   count: number;
   onClick: () => void;
 }
 
-/** The follow control, with the one fact a reader who scrolled up wants:
-    how much arrived meanwhile. Opaque, so it reads over any message. */
+/** The follow control, with the one fact a reader who scrolled up wants: how
+    much arrived meanwhile. It takes the bar's colour only when there is news. */
 export function NewPill({ count, onClick }: NewPillProps) {
+  const news = count > 0;
   return (
     <UnstyledButton
       data-testid="new-pill"
       aria-label={
-        count > 0 ? `${count} new messages, jump to latest` : 'Jump to latest'
+        news ? `${count} new messages, jump to latest` : 'Jump to latest'
       }
       onClick={onClick}
       style={{
         position: 'absolute',
-        right: 30,
-        bottom: 30,
+        left: '50%',
+        bottom: 12,
+        transform: 'translateX(-50%)',
         zIndex: 1,
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 'var(--mantine-spacing-xs)',
-        height: 26,
-        padding: '0 var(--mantine-spacing-md)',
-        // A pill on a 26px control, which no radius token lands on.
-        borderRadius: 13,
-        fontSize: 'var(--mantine-font-size-xs)',
+        gap: 6,
+        height: 32,
+        padding: '0 14px',
+        borderRadius: 16,
+        fontSize: 'var(--mantine-font-size-sm)',
         fontWeight: 600,
-        color: ACCENT_TEXT,
-        background: `color-mix(in srgb, ${ACCENT_TEXT} var(--tk-wash), var(--tk-card))`,
-        border: `1px solid color-mix(in srgb, ${ACCENT_TEXT} 45%, transparent)`,
-        boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+        color: news ? 'white' : 'var(--tk-text-1)',
+        background: news ? 'var(--chat-bar)' : 'var(--tk-card)',
+        border: news ? 0 : '1px solid var(--tk-border-soft)',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.14)',
       }}
     >
-      ↓ {count > 0 ? `${count} new` : 'latest'}
+      <Icon name="arrowDown" size={14} />
+      {news ? `${count} new ${count === 1 ? 'message' : 'messages'}` : 'Latest'}
     </UnstyledButton>
   );
 }

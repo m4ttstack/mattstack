@@ -18,5 +18,6 @@
   margin: 0 5px;
   font-size: var(--mantine-font-size-xs);
   font-weight: 400;
-  color: var(--tk-text-4);
+  color: inherit;
+  opacity: 0.65;
 }
