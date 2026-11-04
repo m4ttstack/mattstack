@@ -1747,7 +1747,10 @@ body {
   white-space: nowrap;
 }
 .tui-side-item:has(.tui-slack-face) {
-  padding: 4px 10px 4px 6px;
+  padding: 4px 8px 4px 4px;
+}
+.tui-side-item:has(.tui-slack-face) .tui-side-name {
+  gap: 6px;
 }
 .tui-side-item.active:has(.tui-slack-face) {
   border-color: transparent;
@@ -2680,6 +2683,8 @@ body {
   overflow: hidden;
   border-radius: 50%;
   flex-shrink: 0;
+  outline: 2px solid var(--face-ring, transparent);
+  outline-offset: 1px;
 }
 .tui-slack-face img {
   display: block;
@@ -2694,12 +2699,15 @@ body {
   height: 100%;
 }
 .tui-slack-face.tui-avatar {
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
+  margin: 3px;
 }
 .tui-author-tag .tui-slack-face.tui-avatar {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
+  margin: 2px;
+  outline-width: 1.5px;
 }
 .tui-slack-face.tui-group-avatar {
   width: 32px;

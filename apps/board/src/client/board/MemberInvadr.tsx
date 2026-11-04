@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { Invadr } from 'invadrs/react';
 
 import { faceZoom } from './face-zoom.ts';
@@ -37,7 +38,10 @@ export function MemberInvadr({
   className = className ? `tui-invadr ${className}` : 'tui-invadr';
   if (look?.face && look.face !== failed) {
     return (
-      <span className={`tui-slack-face ${className}`}>
+      <span
+        className={`tui-slack-face ${className}`}
+        style={{ '--face-ring': look.fill } as CSSProperties}
+      >
         <img
           src={look.face}
           alt=""
