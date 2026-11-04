@@ -182,7 +182,8 @@ A daemon sweep runs every 5 seconds, and only while a conversation is open. For
 each one it calls `conversations.history` from `last_read_ts` and posts two kinds
 of message into the chat room: those from `slack_user_id`, as the teammate, and
 the operator's own Slack messages without the prefix, as the operator. A message
-with the prefix is the pane's own and is skipped.
+from the operator's account with the prefix is the pane's own and is skipped; a
+teammate pasting a Claude line back is an ordinary message.
 A sweep failure logs and retries on the next tick, and a daemon restart resumes from
 `last_read_ts`.
 
@@ -564,6 +565,9 @@ everything rt doesn't:
   user docs say so.
 - Attachments aren't read in this version (no `files:read`). The frame says one
   was sent, and the skill asks the teammate to paste the text instead.
+- A forwarded message can have empty `text` and its words in `attachments`, so
+  attachment text comes through in a note. A message with nothing readable still
+  reaches the pane as a note, so the teammate's turn is never dropped.
 
 ### Scopes and setup
 

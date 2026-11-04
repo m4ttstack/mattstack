@@ -134,18 +134,21 @@ test("the operator's Slack message resets the idle timer", async () => {
   expect(h.reread().checkedInAt).toBeNull();
 });
 
-test("a prefixed message is skipped in both forms, whoever wrote it", async () => {
+test("the operator's account skips a prefixed message in both forms", async () => {
   const h = harness({
-    history: [
-      msg(ts(10), "U0OPER", "[Claude 🤖]: hello"),
-      msg(ts(11), "U0OPER", "[Claude :robot_face:]: hello again"),
-      msg(ts(12), "U0TEST", "[Claude 🤖]: a pasted copy"),
-    ],
+    history: [msg(ts(10), "U0OPER", "[Claude 🤖]: hello"), msg(ts(11), "U0OPER", "[Claude :robot_face:]: hello again")],
   });
   await h.bridge.sweep();
   expect(h.posts).toEqual([]);
   expect(h.items()).toEqual([]);
-  expect(h.reread().lastReadTs).toBe(ts(12));
+  expect(h.reread().lastReadTs).toBe(ts(11));
+});
+
+test("a teammate pasting a Claude line back still reaches the pane", async () => {
+  const h = harness({ history: [msg(ts(10), "U0TEST", "[Claude 🤖]: restart the daemon. Which daemon?")] });
+  await h.bridge.sweep();
+  expect(h.posts.map((p) => p.body)).toEqual(["[Claude 🤖]: restart the daemon. Which daemon?"]);
+  expect(h.items()[0]).toMatchObject({ kind: "message", text: "[Claude 🤖]: restart the daemon. Which daemon?" });
 });
 
 test("a message from a third user is ignored", async () => {
@@ -206,6 +209,29 @@ test("an attachment adds a note naming the file", async () => {
   await h.bridge.sweep();
   expect(h.posts[0]!.body).toBe("see this\n[sent a file: error.png]");
   expect(h.items()[0]!.text).toBe("see this\n[sent a file: error.png]");
+});
+
+test("a forwarded message with empty text carries its attachment text in a note", async () => {
+  const h = harness({ history: [msg(ts(10), "U0TEST", "", { attachments: [{ text: "deploy failed on a &lt; b" }] })] });
+  await h.bridge.sweep();
+  expect(h.posts[0]!.body).toBe("[attached: deploy failed on a < b]");
+  expect(h.items()[0]).toMatchObject({ kind: "message", text: "[attached: deploy failed on a < b]" });
+});
+
+test("a message with text and attachments keeps both", async () => {
+  const h = harness({ history: [msg(ts(10), "U0TEST", "see below", { attachments: [{ text: "first" }, { text: "second" }] })] });
+  await h.bridge.sweep();
+  expect(h.posts[0]!.body).toBe("see below\n[attached: first]\n[attached: second]");
+});
+
+test.each([
+  ["an empty message", {}],
+  ["an attachment with no text", { attachments: [{ text: "" }] }],
+])("%s from the teammate still reaches the pane as a note", async (_name, extra) => {
+  const h = harness({ history: [msg(ts(10), "U0TEST", "", extra)] });
+  await h.bridge.sweep();
+  expect(h.items()[0]).toMatchObject({ kind: "message", text: "[sent something with no readable text]" });
+  expect(h.reread().lastActiveAt).toBe(h.state.clock);
 });
 
 test("a failed history call keeps the cursor and retries next tick", async () => {

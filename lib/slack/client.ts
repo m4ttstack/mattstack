@@ -8,6 +8,7 @@ export interface SlackMessage {
   replyCount?: number;
   latestReply?: string;
   files?: { name: string }[];
+  attachments?: { text: string }[];
 }
 
 export interface SlackUser {
@@ -55,6 +56,7 @@ function toMessage(m: Json): SlackMessage {
     replyCount: m.reply_count,
     latestReply: m.latest_reply,
     files: Array.isArray(m.files) ? m.files.map((f: Json) => ({ name: String(f.name ?? "") })) : undefined,
+    attachments: Array.isArray(m.attachments) ? m.attachments.map((a: Json) => ({ text: String(a.text || a.fallback || "") })) : undefined,
   };
 }
 

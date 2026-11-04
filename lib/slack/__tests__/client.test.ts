@@ -80,6 +80,14 @@ describe("slack client", () => {
     expect(await createSlackClient("t", f.impl).newestTs("D0TEST")).toBeUndefined();
   });
 
+  test("history maps a forwarded message's attachments, falling back to their fallback text", async () => {
+    const f = fakeFetch([
+      { body: { ok: true, messages: [{ ts: "1.0", user: "U0TEST", text: "", attachments: [{ text: "the forwarded words" }, { fallback: "only a fallback" }, {}] }] } },
+    ]);
+    const [message] = await createSlackClient("t", f.impl).history("D0TEST", "0");
+    expect(message!.attachments).toEqual([{ text: "the forwarded words" }, { text: "only a fallback" }, { text: "" }]);
+  });
+
   test("post escapes Slack's control characters on the wire", async () => {
     const f = fakeFetch([{ body: { ok: true, ts: "9.1" } }]);
     await createSlackClient("t", f.impl).post("D0TEST", "Promise<void> and 2>&1");

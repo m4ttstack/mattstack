@@ -40,12 +40,16 @@ export function tsFromMs(ms: number): string {
   return `${Math.floor(ms / 1000)}.${String((ms % 1000) * 1000).padStart(6, "0")}`;
 }
 
+const NOTHING_READABLE = "[sent something with no readable text]";
+
 /** Edits, joins and bot posts are noise; a file_share is a teammate message with an attachment. */
 const DELIVERABLE_SUBTYPES = new Set<string | undefined>([undefined, "file_share", "thread_broadcast"]);
 
+/** A forward carries its words in attachments, so an empty `text` doesn't mean nothing was said. */
 function bodyOf(msg: SlackMessage): string {
-  const note = msg.files && msg.files.length > 0 ? `[sent a file: ${msg.files.map((f) => f.name || "unnamed").join(", ")}]` : "";
-  return [decodeSlackText(msg.text), note].filter(Boolean).join("\n");
+  const fileNote = msg.files && msg.files.length > 0 ? `[sent a file: ${msg.files.map((f) => f.name || "unnamed").join(", ")}]` : "";
+  const attached = (msg.attachments ?? []).map((a) => (a.text ? `[attached: ${decodeSlackText(a.text)}]` : ""));
+  return [decodeSlackText(msg.text), fileNote, ...attached].filter(Boolean).join("\n") || NOTHING_READABLE;
 }
 
 /** Replies codes that mean the thread will never be readable, so its cursor may move past it. */
@@ -116,12 +120,11 @@ export function createSlackBridge(opts: SlackBridgeOptions): { sweep(): Promise<
     if (!DELIVERABLE_SUBTYPES.has(msg.subtype)) return;
     // A thread_broadcast reply also lands in history, which delivers it.
     if (parentTs !== undefined && msg.subtype === "thread_broadcast") return;
-    if (hasPrefix(msg.text)) return;
-    const body = bodyOf(msg);
-    if (!body) return;
-
     const fromTeammate = msg.user === conv.slackUserId;
     if (!fromTeammate && msg.user !== conv.operatorUserId) return;
+    // The pane posts on the operator's token, so only that account's prefix marks the pane's own echo.
+    if (!fromTeammate && hasPrefix(msg.text)) return;
+    const body = bodyOf(msg);
     const handle = fromTeammate ? conv.slackHandle : opts.operatorHandle?.();
     if (handle) {
       if (!post({ room: conv.room, handle, body, fromSlack: true })) throw new Error("slack-bridge: the chat room refused the post");
