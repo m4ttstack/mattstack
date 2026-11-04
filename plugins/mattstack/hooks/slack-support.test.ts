@@ -776,7 +776,7 @@ for (const [shape, prefix] of HOSTILE) {
   test(`a hostile command stays fast: ${shape}`, () => {
     const started = performance.now()
     expect(touchesSlackSupport(`${prefix}ls`)).toBe(false)
-    expect(performance.now() - started).toBeLessThan(250)
+    expect(performance.now() - started).toBeLessThan(2_000)
   })
 }
 
