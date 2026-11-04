@@ -67,7 +67,8 @@ for i in $(seq 1 "$COUNT"); do
     sudo -u "$CI_USER" -H bash -c "cd '$dir' && ./config.sh --unattended --url 'https://github.com/$REPO' --token '$token' --name '$name' --labels mattstack-mac --replace"
   fi
 
-  # A root-owned plist carries the hook setting: a job can edit the runner's own .env.
+  # A job that passes the hook runs as the same user as the runner and can change
+  # its files, so the hook only holds while every admitted job is trustworthy.
   sudo tee "$plist" >/dev/null <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

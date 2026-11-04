@@ -118,6 +118,10 @@ protection: a job-started hook on the Mac runs the same rule from a root-owned
 copy and fails any job it refuses before checkout. Change the rule, then rerun
 the installer, or the Mac keeps the old copy.
 
+The hook stops jobs it refuses, not a job it admits. An admitted job, including
+a compromised dependency in one of Matt's PRs, runs as the same user as the
+runner and can disable the hook for later jobs. It still cannot read Matt's home.
+
 - **Set up:** `scripts/ci/mac-runner/install.sh`, then
   `gh variable set MAC_RUNNER --body on`. The runners are launchd daemons under
   a separate `mattstack-ci` user that cannot read your home.

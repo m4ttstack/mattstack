@@ -1,7 +1,8 @@
-import { describe, expect, test } from "bun:test";
-import { readFileSync } from "fs";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
-import { type Facts, OWNER, REPO, prNumbers, readFacts, refusal } from "../macos-runner.ts";
+import { type Facts, OWNER, REPO, cached, prNumbers, readFacts, refusal } from "../macos-runner.ts";
 import { ROOT } from "../test-scope.ts";
 
 const base = { repo: REPO, actor: OWNER, triggeringActor: OWNER };
@@ -68,6 +69,23 @@ describe("readFacts", () => {
       path.includes("/compare/") ? { commits: [{ commit: { message: "one (#1)" } }] } : { user: { login: OWNER }, head: { repo: null } };
     const facts = await readFacts({ ...env, GITHUB_EVENT_NAME: "merge_group" }, { merge_group: { head_sha: "abc" } }, get);
     expect(refusal(facts)).not.toBeNull();
+  });
+});
+
+describe("cached", () => {
+  const dir = mkdtempSync(join(tmpdir(), "macos-runner-"));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  test("an allowed verdict and a refusal are both kept", async () => {
+    expect(await cached(dir, "ok", async () => null)).toBeNull();
+    expect(await cached(dir, "ok", async () => "decided twice")).toBeNull();
+    expect(await cached(dir, "no", async () => "refused")).toBe("refused");
+    expect(await cached(dir, "no", async () => null)).toBe("refused");
+  });
+
+  test("an empty file refuses", async () => {
+    writeFileSync(join(dir, "empty"), "");
+    expect(await cached(dir, "empty", async () => null)).not.toBeNull();
   });
 });
 

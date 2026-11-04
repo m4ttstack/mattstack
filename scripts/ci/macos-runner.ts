@@ -2,7 +2,7 @@
 // Decides which macOS runner a run may use. Two callers share this one rule:
 // the workflows' routing step, and the job-started hook on the Mac. A PR can
 // edit the workflow, so only the hook's installed copy is a security boundary.
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { join } from "path";
 
 export const OWNER = "m4ttheweric";
@@ -95,15 +95,23 @@ function apiGet(token: string | undefined): Get {
   };
 }
 
+const ALLOWED = "allowed";
+
 // The hook has no token, and an anonymous caller gets 60 API calls an hour,
-// so one verdict covers every job of a queue run.
-async function cached(dir: string | undefined, key: string, decide: () => Promise<string | null>): Promise<string | null> {
+// so one verdict covers every job of a queue run. A half-written file must
+// never read as allowed, hence the rename and the explicit marker.
+export async function cached(dir: string | undefined, key: string, decide: () => Promise<string | null>): Promise<string | null> {
   if (!dir || !key) return decide();
   mkdirSync(dir, { recursive: true });
   const file = join(dir, key);
-  if (existsSync(file)) return readFileSync(file, "utf8") || null;
+  if (existsSync(file)) {
+    const stored = readFileSync(file, "utf8");
+    return stored === ALLOWED ? null : stored || "the cached verdict is empty";
+  }
   const reason = await decide();
-  writeFileSync(file, reason ?? "");
+  const temp = `${file}.${process.pid}`;
+  writeFileSync(temp, reason ?? ALLOWED);
+  renameSync(temp, file);
   return reason;
 }
 

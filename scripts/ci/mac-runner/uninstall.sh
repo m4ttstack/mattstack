@@ -16,7 +16,8 @@ for plist in /Library/LaunchDaemons/dev.mattstack.ci-runner-*.plist; do
   sudo rm "$plist"
 done
 
-for id in $(gh api "repos/$REPO/actions/runners" --jq '.runners[] | select(.name | startswith("mattstack-mac-")) | .id'); do
+ids=$(gh api "repos/$REPO/actions/runners" --paginate --jq '.runners[] | select(.name | startswith("mattstack-mac-")) | .id')
+for id in $ids; do
   gh api -X DELETE "repos/$REPO/actions/runners/$id"
 done
 
