@@ -5,7 +5,7 @@
 
 import type { Database } from "bun:sqlite";
 import { lazyChildLogger } from "../daemon-logger.ts";
-import { CHAT_NOTIFICATION_CATEGORY, notifyEnabled } from "../notifier.ts";
+import { CHAT_NOTIFICATION_CATEGORY, notify } from "../notifier.ts";
 import { postHonouringRetryAfter, type SlackClient } from "../slack/client.ts";
 import { SLACK_PREFIX, closingLine, holdingLine, redactSecrets, withPrefix } from "../slack/format.ts";
 import {
@@ -53,8 +53,9 @@ interface TickClock {
   wokeAt: number;
 }
 
+/** Ignores the chat notification preference, because the holding line tells a teammate the operator has been told. */
 export function slackDeskNotify(title: string, message: string): void {
-  notifyEnabled(CHAT_NOTIFICATION_CATEGORY, title, message);
+  notify(title, message, undefined, CHAT_NOTIFICATION_CATEGORY);
 }
 
 async function sendToSlack(conv: SlackConversation, text: string, deps: SlackLifecycleDeps): Promise<boolean> {

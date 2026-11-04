@@ -341,7 +341,8 @@ A pane stuck at a permission prompt keeps its watcher alive but never goes idle,
 undelivered for 10 minutes, the daemon sends the operator a desk notification and
 the teammate one holding line: `[Claude 🤖]: Claude is tied up for a moment. Your
 message is safe, and <operator's name> has been told.` Both reset once an item is
-delivered.
+delivered. Desk notifications from a Slack chat ignore the chat notification
+preference, so that line is true even with chat mentions switched off.
 
 ### Closing
 

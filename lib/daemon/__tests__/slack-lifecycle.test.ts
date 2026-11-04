@@ -2,10 +2,11 @@
  * lib/daemon/__tests__/slack-lifecycle.test.ts: the Slack chat timers and the
  * close sequence, against a fake client, a fake clock and a scratch state db.
  */
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { Logger } from "pino";
+import { CHAT_NOTIFICATION_CATEGORY, __test__ as notifierTest, saveNotificationPrefs } from "../../notifier.ts";
 import { SlackError, createSlackClient, type SlackClient, type SlackMessage } from "../../slack/client.ts";
 import { closingLine, holdingLine, SLACK_PREFIX } from "../../slack/format.ts";
 import {
@@ -31,6 +32,7 @@ import {
   SLACK_STALLED_MS,
   finishClose,
   requestClose,
+  slackDeskNotify,
   tickSlackLifecycle,
 } from "../slack-lifecycle.ts";
 
@@ -134,6 +136,18 @@ function twoChats() {
   }
   return { h, other, deps, sentToOther, queueFor, holdFirstSend };
 }
+
+test("a desk notice reaches the operator with chat notifications switched off, because the holding line says they were told", () => {
+  saveNotificationPrefs({ [CHAT_NOTIFICATION_CATEGORY]: false });
+  const notify = spyOn(notifierTest.getDefaultNotifier(), "notify").mockImplementation(() => {});
+  try {
+    slackDeskNotify("Slack chat is waiting", "Claude hasn't picked up alex-slack's message");
+    expect(notify).toHaveBeenCalledWith("Slack chat is waiting", "Claude hasn't picked up alex-slack's message", undefined, CHAT_NOTIFICATION_CATEGORY, undefined, undefined);
+  } finally {
+    notify.mockRestore();
+    saveNotificationPrefs({});
+  }
+});
 
 test("the timer values are the design's", () => {
   expect([SLACK_CHECK_IN_MS, SLACK_IDLE_MS, SLACK_FAREWELL_MS, SLACK_PANE_GONE_MS, SLACK_STALLED_MS]).toEqual([
