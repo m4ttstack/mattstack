@@ -184,7 +184,7 @@ export function SectionLabel({
     >
       <Text
         component="h3"
-        fw={700}
+        fw={600}
         style={{
           margin: 0,
           fontSize: 'var(--mantine-font-size-lg)',
@@ -357,7 +357,7 @@ function RoomRow({
         style={{ flex: 'none' }}
       />
       <Text
-        fw={active ? 600 : 500}
+        fw={active ? 550 : 450}
         truncate
         /* A room heads the rows nested under it, so it takes the chrome step
            while they take meta. Stated rather than inherited: a sizeless
@@ -558,7 +558,7 @@ function DmRow({
         <Group gap="sm" justify="space-between" wrap="nowrap">
           <Text
             component="div"
-            fw={600}
+            fw={550}
             style={{ fontSize: CHROME_SIZE, minWidth: 0 }}
           >
             <DmNames pair={pair} />
