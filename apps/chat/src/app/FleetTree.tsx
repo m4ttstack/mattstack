@@ -246,17 +246,23 @@ function RowMenu({
           <Menu.Item
             key={pane.paneId}
             data-testid={`room-context-focus-${pane.paneId}`}
+            leftSection={<Icon name="terminal" size={16} />}
             onClick={() => ctx?.actions?.focusPane?.(pane.paneId)}
           >
             Focus {pane.name}&apos;s pane
           </Menu.Item>
         ))}
-        <Menu.Item data-testid="room-context-copy" onClick={copyLink}>
+        <Menu.Item
+          data-testid="room-context-copy"
+          leftSection={<Icon name="link" size={16} />}
+          onClick={copyLink}
+        >
           Copy link
         </Menu.Item>
         <Menu.Divider />
         <Menu.Item
           data-testid="room-context-close"
+          leftSection={<Icon name="close" size={16} />}
           onClick={() => onClose(room.room)}
         >
           {room.kind === 'dm' ? 'Close conversation' : 'Close room'}
