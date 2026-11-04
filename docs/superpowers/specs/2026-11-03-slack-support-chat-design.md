@@ -210,7 +210,10 @@ same mod that owns `/slack-support`:
    socket in the frame this design exists to avoid.
 2. While a conversation is open, the mod runs a long-lived `rt chat slack-watch`
    with `$.process.spawn` and reads one JSON line per waiting message. It restarts
-   the child if it exits, and on `session.start` when a conversation is still open.
+   the child if it exits while the chat is open, and on `session.start` it reattaches
+   to a conversation still open, which a resume after a crash can find. A clean
+   session end has already closed the chat (see Closing), so the mod has nothing to
+   reattach to, and a closed chat's watcher exits and is not restarted.
 3. The mod calls `$.prompt.submit({ text })`. It never sets `asUser`.
 4. The mod runs `rt chat slack-delivered` straight after `$.prompt.submit`
    resolves. It resolves when the prompt enters the session, not when it is queued,
@@ -348,6 +351,16 @@ delivered.
 | 60 quiet minutes | `idle` | Close sequence below |
 | The operator switches it off | `operator` | Close sequence below |
 | The mod has stopped collecting for 5 minutes while a teammate message waits | `pane-gone` | The daemon sends only the fixed line, adds that the operator will follow up, and sends a desk notification |
+| The session holding the chat signs out: the pane exits, `/clear` or an in-session `/resume` runs, or it signs out by hand | `pane-gone` | As above, at once, with no farewell window. The pane can't reply after a sign-out, so waiting would leave the teammate talking to nobody for up to an hour |
+
+A sign-out closes only the conversation of the handle that session is signed in
+as. A session id change with no sign-out, as with a fork or a session sent to the
+background, leaves the chat open. So does a `claude -p` run inside the pane, whose
+session holds no seat. The sign-out doesn't wait on Slack: the row closes first and
+the lines go out behind it, so a slow or failing Slack can't hold up or fail a
+session's exit. The `closed` item then stays owed to a watcher that may be gone,
+which does no harm. After `/clear` or `/resume` the process lives on, so its watcher
+delivers that notice to the new session and then exits.
 
 **The close sequence.** The daemon delivers a frame asking the pane to write its
 farewell and call `chat_slack_close`. If the pane hasn't closed within 2 minutes,

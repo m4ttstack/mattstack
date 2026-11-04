@@ -9,8 +9,10 @@ import type { Logger } from "pino";
 import type { InboxBinding } from "../../claude-registry.ts";
 import { herdrRequest } from "../../herdr/client.ts";
 import { SlackError, createSlackClient, type SlackClient } from "../../slack/client.ts";
+import { SLACK_PREFIX, closingLine } from "../../slack/format.ts";
 import {
   closeConversation,
+  closedNoticeForAgent,
   conversationById,
   conversationForRoom,
   dmRoomFor,
@@ -45,6 +47,7 @@ function harness(post: (p: Post) => Promise<{ ts: string }> = async () => ({ ts:
   const posts: Post[] = [];
   const pushed: string[] = [];
   const slept: number[] = [];
+  const notices: string[] = [];
   const binding: InboxBinding = { pid: process.pid, socketPath: socketFile(), status: "busy" };
   const inboxDeps: InboxDeps = {
     resolve: () => binding,
@@ -71,12 +74,15 @@ function harness(post: (p: Post) => Promise<{ ts: string }> = async () => ({ ts:
     slackSleep: async (ms) => {
       slept.push(ms);
     },
+    slackNotify: (_title, message) => {
+      notices.push(message);
+    },
   });
   const registryDeps: RegistryDeps = { resolve: () => binding, alive: () => true, resolveAll: () => new Map([["pane-session", binding]]) };
   const sweep = createChatDeliverySweep({ db, deliveryChains, inboxDeps, registryDeps, log, retryDelayMs: 0 });
   const fromSlack = (room: string, handle: string, body: string) =>
     postAndNotify(db, () => 0, { room, handle, body, fromSlack: true }, inboxDeps, herdrRequest, deliveryChains, log, 0);
-  return { db, handlers, client, posts, pushed, slept, sweep, fromSlack };
+  return { db, handlers, client, posts, pushed, slept, notices, sweep, fromSlack };
 }
 
 type Harness = ReturnType<typeof harness>;
@@ -202,6 +208,78 @@ test("a teammate who walks away after a check-in reply still reaches the idle cl
 
   await run(SLACK_FAREWELL_MS);
   expect(conversationById(conversation.id, h.db)!.closeReason).toBe("idle");
+});
+
+test("sign-out closes the session's chat as pane-gone, with the fixed line and the desk notice", async () => {
+  const h = harness();
+  const { agent, room, conversation } = await openChat(h);
+
+  const res = await h.handlers["chat:sign-out"]({ sessionId: PANE_SESSION });
+  await settle();
+
+  expect(res.ok).toBe(true);
+  expect(conversationById(conversation.id, h.db)!.closeReason).toBe("pane-gone");
+  expect(h.posts.map((p) => p.text)).toEqual([closingLine("Sam", true)]);
+  expect(messages(h, room)).toEqual([{ handle: agent, body: closingLine("Sam", true).slice(SLACK_PREFIX.length) }]);
+  expect(h.notices).toEqual(["Claude stopped responding to alex-slack, who is waiting to hear from you"]);
+  expect(closedNoticeForAgent(agent, h.db)?.item.text).toContain("pane-gone");
+});
+
+test("sign-out doesn't wait on Slack, and the chat is closed by the time it returns", async () => {
+  const held = Promise.withResolvers<{ ts: string }>();
+  const h = harness(() => held.promise);
+  const { conversation } = await openChat(h);
+
+  const res = await h.handlers["chat:sign-out"]({ sessionId: PANE_SESSION });
+
+  expect(res.ok).toBe(true);
+  expect(conversationById(conversation.id, h.db)!.closedAt).not.toBeNull();
+  expect(h.notices).toEqual([]);
+
+  held.resolve({ ts: "1.0" });
+  await settle();
+  expect(h.notices).toHaveLength(1);
+});
+
+test("a Slack failure can't fail a sign-out, and the operator is told", async () => {
+  const h = harness(async () => {
+    throw new SlackError("channel_not_found");
+  });
+  const { conversation } = await openChat(h);
+
+  const res = await h.handlers["chat:sign-out"]({ sessionId: PANE_SESSION });
+  await settle();
+
+  expect(res.ok).toBe(true);
+  expect(conversationById(conversation.id, h.db)!.closeReason).toBe("pane-gone");
+  expect(h.notices).toEqual(["The closing message to alex-slack did not reach Slack, so check the DM"]);
+});
+
+test("a sign-out from a session that doesn't hold the seat leaves the chat open", async () => {
+  const h = harness();
+  const { agent, room, conversation } = await openChat(h);
+
+  // The fork, the background session and a `claude -p` run inside the pane each end under an id of their own.
+  await h.handlers["chat:sign-out"]({ sessionId: "forked-session" });
+  await settle();
+
+  expect(conversationById(conversation.id, h.db)!.closedAt).toBeNull();
+  expect(h.posts).toEqual([]);
+  const reply = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "Still here", sessionId: PANE_SESSION });
+  expect(reply.ok).toBe(true);
+  expect(messages(h, room)).toEqual([{ handle: agent, body: "Still here" }]);
+});
+
+test("a sign-out by another identity leaves the chat open", async () => {
+  const h = harness();
+  const { conversation } = await openChat(h);
+  await signIn(h, "other-session", "other");
+
+  await h.handlers["chat:sign-out"]({ sessionId: "other-session" });
+  await settle();
+
+  expect(conversationById(conversation.id, h.db)!.closedAt).toBeNull();
+  expect(h.notices).toEqual([]);
 });
 
 test("a Slack failure leaves no chat row and fails the tool with the reason", async () => {

@@ -6,7 +6,7 @@
 import type { Database } from "bun:sqlite";
 import { lazyChildLogger } from "../daemon-logger.ts";
 import { CHAT_NOTIFICATION_CATEGORY, notifyEnabled } from "../notifier.ts";
-import type { SlackClient } from "../slack/client.ts";
+import { postHonouringRetryAfter, type SlackClient } from "../slack/client.ts";
 import { SLACK_PREFIX, closingLine, holdingLine, redactSecrets, withPrefix } from "../slack/format.ts";
 import {
   closeConversation,
@@ -27,7 +27,6 @@ import {
   type SlackCloseReason,
   type SlackConversation,
 } from "../state/index.ts";
-import { postHonouringRetryAfter } from "./handlers/chat.ts";
 
 export const SLACK_CHECK_IN_MS = 30 * 60_000;
 export const SLACK_IDLE_MS = 60 * 60_000;

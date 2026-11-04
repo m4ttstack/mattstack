@@ -9,6 +9,7 @@ import type { Logger } from "pino";
 import {
   ackMessage,
   claimMessage,
+  conversationForAgent,
   conversationForRoom,
   releaseClaim,
   isValidChatName,
@@ -60,7 +61,7 @@ import {
   type WakeMode,
   type StalePendingRow,
 } from "../../state/index.ts";
-import { SlackError, type SlackClient } from "../../slack/client.ts";
+import { SlackError, postHonouringRetryAfter, type SlackClient } from "../../slack/client.ts";
 import { slackClientFromSecrets } from "../../slack/daemon-client.ts";
 import { redactSecrets, SLACK_PREFIX, withPrefix } from "../../slack/format.ts";
 import { CHAT_NOTIFICATION_CATEGORY, notifyEnabled } from "../../notifier.ts";
@@ -69,6 +70,7 @@ import { getSetting } from "../../settings/resolve.ts";
 import { herdrRequest } from "../../herdr/client.ts";
 import { injectIntoPane, herdrError } from "../inject.ts";
 import { resolvePaneRef } from "../pane-ref-socket.ts";
+import { finishClose, slackDeskNotify } from "../slack-lifecycle.ts";
 import type { HerdrSnapshot } from "./pane.ts";
 import { resolveInbox, inboxAlive } from "../../claude-registry.ts";
 import { withProcessSession } from "../pane-process-session.ts";
@@ -942,20 +944,6 @@ function slackRoute(fromId: string, toId: string, sessionId: string | undefined,
   return {};
 }
 
-/** Past this a reply fails with the reason instead of holding the caller, whose timeout is in rt-client's chatDm. */
-const SLACK_RETRY_AFTER_LIMIT_MS = 20_000;
-
-export async function postHonouringRetryAfter(slack: SlackClient, channel: string, text: string, sleep: (ms: number) => Promise<void>): Promise<void> {
-  try {
-    await slack.post(channel, text);
-  } catch (err) {
-    const waitMs = err instanceof SlackError && err.code === "ratelimited" ? err.retryAfterMs : undefined;
-    if (waitMs === undefined || waitMs > SLACK_RETRY_AFTER_LIMIT_MS) throw err;
-    await sleep(waitMs);
-    await slack.post(channel, text);
-  }
-}
-
 /**
  * Sends first so a failure reaches the pane with no chat row behind it.
  * `stored` is what the chat row keeps: redacted, and without the prefix.
@@ -1014,6 +1002,8 @@ export function createChatHandlers(opts: {
   slackClient?: () => Promise<SlackClient | null>;
   /** The wait for Slack's Retry-After; overridable so a test doesn't pay it. */
   slackSleep?: (ms: number) => Promise<void>;
+  /** The operator's desk notice for a Slack chat a sign-out closed; real by default. */
+  slackNotify?: (title: string, message: string) => void;
 }): {
   // A mapped type over CHAT_COMMANDS with a direct `unknown` payload, not
   // `Pick<TypedHandlers, ...>`: a wider `unknown` param still satisfies
@@ -1039,6 +1029,7 @@ export function createChatHandlers(opts: {
   const deliveryChains = opts.deliveryChains ?? new Map<string, Promise<void>>();
   const slackClient = opts.slackClient ?? slackClientFromSecrets;
   const slackSleep = opts.slackSleep ?? ((ms: number) => Bun.sleep(ms));
+  const slackCloseDeps = { db, client: slackClient, notify: opts.slackNotify ?? slackDeskNotify, post: slackRoomPoster(db, emitEvent, log), now: Date.now };
   const resolveMention = (m: string): string => (m === "here" ? m : resolveHandle(m, db));
   const namesOf = (ids: string[]): string[] => {
     const names = identityNames(ids, db);
@@ -1419,8 +1410,16 @@ export function createChatHandlers(opts: {
       }
       if (!sessionId) return { ok: false, error: "chat: sign-out requires a sessionId or --pane" };
       deleteChatSession(sessionId);
-      if (!presenceForSession(sessionId, db)) return { ok: true, data: { sessionId } };
+      const presence = presenceForSession(sessionId, db);
+      if (!presence) return { ok: true, data: { sessionId } };
       signOut(sessionId, undefined, db);
+      // Not awaited: this runs on SessionEnd's short budget. finishClose marks the row closed before its first Slack send.
+      const held = conversationForAgent(presence.handle, db);
+      if (held) {
+        finishClose(held.id, "pane-gone", undefined, slackCloseDeps).catch((err) => {
+          log.warn({ err, conversation: held.id }, "chat: sign-out could not close its Slack chat");
+        });
+      }
       return { ok: true, data: { sessionId } };
     },
 

@@ -39,7 +39,7 @@ interface Watch {
 }
 
 interface WatchEnd {
-  end: 'finished' | 'refused' | 'failed'
+  end: 'finished' | 'signed-out' | 'refused' | 'failed'
   delivered: boolean
 }
 
@@ -147,7 +147,8 @@ async function runWatcher($: EngineInterface, watch: Watch): Promise<void> {
         failures = 0
         continue
       }
-      if (end === 'finished') {
+      // A sign-out closes the session's chat, so nothing is left to come back to.
+      if (end === 'finished' || end === 'signed-out') {
         watch.held = false
         return
       }
@@ -163,7 +164,7 @@ async function runWatcher($: EngineInterface, watch: Watch): Promise<void> {
 async function watchOnce($: EngineInterface, watch: Watch): Promise<WatchEnd> {
   let delivered = false
   let heard = false
-  let refused = false
+  let refused: WatchEnd['end'] | undefined
   let lastKind: SlackWatchLine['kind'] | undefined
   try {
     const child = $.process.spawn({ argv: WATCH_ARGV, env: await childEnv($) })
@@ -174,7 +175,7 @@ async function watchOnce($: EngineInterface, watch: Watch): Promise<WatchEnd> {
       const lines = (partial + text).split('\n')
       partial = lines.pop() ?? ''
       for (const raw of lines) {
-        if (isRefusalLine(raw)) refused = true
+        if (isRefusalLine(raw)) refused = SIGNED_OUT.test(raw) ? 'signed-out' : 'refused'
         const line = parseWatchLine(raw)
         if (!line) continue
         heard = true
@@ -186,7 +187,7 @@ async function watchOnce($: EngineInterface, watch: Watch): Promise<WatchEnd> {
       }
     }
     const exit = await exited
-    if (refused) return { end: 'refused', delivered }
+    if (refused) return { end: refused, delivered }
     const nothingLeft = exit?.code === 0 && (!heard || lastKind === 'closed')
     return { end: nothingLeft ? 'finished' : 'failed', delivered }
   } catch (err) {

@@ -64,6 +64,20 @@ const byTs = (a: SlackMessage, b: SlackMessage) => Number(a.ts) - Number(b.ts);
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
+/** Past this a post fails with the reason instead of holding the caller, whose timeout is in rt-client's chatDm. */
+const RETRY_AFTER_LIMIT_MS = 20_000;
+
+export async function postHonouringRetryAfter(slack: SlackClient, channel: string, text: string, sleep: (ms: number) => Promise<void>): Promise<void> {
+  try {
+    await slack.post(channel, text);
+  } catch (err) {
+    const waitMs = err instanceof SlackError && err.code === "ratelimited" ? err.retryAfterMs : undefined;
+    if (waitMs === undefined || waitMs > RETRY_AFTER_LIMIT_MS) throw err;
+    await sleep(waitMs);
+    await slack.post(channel, text);
+  }
+}
+
 export function createSlackClient(token: string, fetchImpl: typeof fetch = fetch, timeoutMs = REQUEST_TIMEOUT_MS): SlackClient {
   async function call(method: string, params: Record<string, string> = {}): Promise<{ body: Json; headers: Headers }> {
     let res: Response;

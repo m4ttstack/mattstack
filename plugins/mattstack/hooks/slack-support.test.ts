@@ -529,6 +529,26 @@ test('a chat that closed is not watched again', async ($, on) => {
   expect(spawns).toHaveLength(1)
 })
 
+test('a held chat stops being watched once the session is signed out, since sign-out closes it', async ($, on) => {
+  const signedOut = { stdout: jsonl({ ok: false, error: "This session isn't signed in to rt chat" }), code: 1 }
+  const { clock, spawns } = world(on, { children: [{ code: 1 }, ...Array.from({ length: 20 }, () => signedOut)] })
+
+  await $.command.run({ command: 'slack-support', args: 'alex rt is broken', origin: COMPOSER, presentation: PRESENTATION })
+  await clock.advance(600_000)
+
+  expect(spawns).toHaveLength(2)
+})
+
+test('a held chat outlasts a daemon that is not answering', async ($, on) => {
+  const noDaemon = { stdout: jsonl({ ok: false, error: "The daemon isn't answering, so there is no Slack chat to watch" }), code: 1 }
+  const { clock, spawns } = world(on, { children: [noDaemon, noDaemon, noDaemon] })
+
+  await $.command.run({ command: 'slack-support', args: 'alex rt is broken', origin: COMPOSER, presentation: PRESENTATION })
+  await clock.advance(600_000)
+
+  expect(spawns).toHaveLength(4)
+})
+
 test('an unexpected exit restarts the watcher, with a backoff', async ($, on) => {
   const { clock, spawns } = world(on, { children: [{ code: 1 }, { code: null }, { code: 1 }] })
 
