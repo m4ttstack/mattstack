@@ -26,6 +26,7 @@ jobs:
       mode: ${{ steps.scope.outputs.mode }}
       shards: ${{ steps.scope.outputs.shards }}
       extra: ${{ steps.scope.outputs.extra }}
+      macos: ${{ steps.scope.outputs.macos }}
       dirs: ${{ steps.scope.outputs.dirs }}
       always: ${{ steps.scope.outputs.always }}
       plugins: ${{ steps.scope.outputs.plugins }}
@@ -45,7 +46,7 @@ jobs:
         run: bun scripts/ci/test-scope.ts
 
   # Everything that does not need a Mac. A step that turns out to need one
-  # moves to a static-macos job that runs on every PR, never into unit.
+  # moves to a static-macos job that runs on every PR.
   static:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -89,7 +90,7 @@ jobs:
       - name: Workflow lint
         run: |
           bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12 "$RUNNER_TEMP"
-          "$RUNNER_TEMP/actionlint" .github/workflows/checks.yml .github/workflows/e2e.yml .github/workflows/purity.yml .github/workflows/renovate.yml .github/workflows/timings.yml .github/workflows/unit-linux-probe.yml
+          "$RUNNER_TEMP/actionlint" .github/workflows/checks.yml .github/workflows/e2e.yml .github/workflows/purity.yml .github/workflows/renovate.yml .github/workflows/timings.yml .github/workflows/nightly-macos.yml
 
       # A PR restores main's newest cache; main restores its own previous one.
       # Entries older than a week are dropped first or compiled binaries pile up.
@@ -163,22 +164,18 @@ jobs:
           TURBO_TELEMETRY_DISABLED: "1"
         run: scripts/turbo.sh test --filter=deck --output-logs=errors-only
 
-  # macos-latest, matching e2e.yml: much of the tree is macOS-specific (launchd
-  # labels, TCC, codesign, ~/Library paths) and the bunfig preload that isolates
-  # HOME for tests is exercised the same way developers run it locally.
+  # The suite minus scripts/ci/macos-only-tests.txt, which unit-macos runs.
   # A --changed run takes one to three shards, sized by scope from the
   # selected tests' recorded timings; a full run always takes three.
   unit:
     needs: scope
     if: needs.scope.outputs.mode != 'skip'
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         shard: ${{ fromJSON(needs.scope.outputs.shards) }}
-    env:
-      HOMEBREW_NO_AUTO_UPDATE: "1"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -187,8 +184,14 @@ jobs:
         with:
           bun-version: 1.4.4
 
-      - name: Install backup dependencies
-        run: brew install age zstd git-lfs
+      # rt shells out to /bin/zsh. A Mac makes a git identity from the account's
+      # full name and a runner has none. It goes at system scope because the
+      # preload moves HOME, and because a test's own identity must still win.
+      - name: Install what the suite assumes a Mac has
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq age zstd git-lfs zsh
+          sudo git config --system user.name ci
+          sudo git config --system user.email ci@example.invalid
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -207,28 +210,10 @@ jobs:
           start=$(date +%s)
           changed=""
           if [ "$MODE" = changed ]; then changed="--changed=HEAD^1"; fi
-          # bun runs test files one after another in a single process, so
-          # each runner takes two halves of its shard at once: the preload
-          # gives every process its own HOME, socket dir and tmp by pid.
-          # Output is captured per half and printed whole, not interleaved.
-          halves=$((TOTAL * 2))
-          a=$((SHARD * 2 - 1))
-          b=$((SHARD * 2))
-          # Two processes share three cores, and a git-heavy worktree test
-          # that takes two seconds alone has hit bun's 5s default beside its
-          # neighbour; the limit is for a hang, not a slow runner.
+          # A pattern must be a bare path: a ./ prefix matches nothing.
+          ignore=$(sed 's/^/--path-ignore-patterns=/' scripts/ci/macos-only-tests.txt)
           # shellcheck disable=SC2086
-          bun test $DIRS --shard="$a/$halves" --timings=test-timings.json --timeout 20000 $changed > "$RUNNER_TEMP/half-a.log" 2>&1 &
-          pid_a=$!
-          # shellcheck disable=SC2086
-          bun test $DIRS --shard="$b/$halves" --timings=test-timings.json --timeout 20000 $changed > "$RUNNER_TEMP/half-b.log" 2>&1 &
-          pid_b=$!
-          status=0
-          wait "$pid_a" || status=1
-          wait "$pid_b" || status=1
-          echo "::group::half $a of $halves"; cat "$RUNNER_TEMP/half-a.log"; echo "::endgroup::"
-          echo "::group::half $b of $halves"; cat "$RUNNER_TEMP/half-b.log"; echo "::endgroup::"
-          [ "$status" = 0 ] || { echo "a half of shard $SHARD failed; its log is above"; exit 1; }
+          scripts/ci/unit-halves.sh "$SHARD" "$TOTAL" $DIRS --timings=test-timings.json $changed $ignore
           # A snapshot's own test and the tests reading a changed file by
           # path, which --changed cannot select. Path arguments intersect
           # with --changed, so it is its own call.
@@ -237,6 +222,31 @@ jobs:
             bun test $EXTRA
           fi
           echo "shard $SHARD of $TOTAL: $(( $(date +%s) - start ))s ($MODE)"
+
+  # The tests that truly need a Mac, listed with why in docs/ci.md. A changed
+  # run takes only the ones the diff reaches.
+  unit-macos:
+    needs: scope
+    if: needs.scope.outputs.macos != ''
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Mac-only unit tests
+        env:
+          TESTS: ${{ needs.scope.outputs.macos }}
+        run: |
+          start=$(date +%s)
+          # shellcheck disable=SC2086
+          scripts/ci/unit-halves.sh 1 1 $TESTS
+          echo "unit-macos: $(( $(date +%s) - start ))s"
 
   # The no-* guards read source as text, so --changed never selects them,
   # and they are what checks docs, the docs site and the apps trees against
@@ -438,7 +448,7 @@ jobs:
   # would skip unit and this job too, and a skipped required check reads as
   # passing on GitHub.
   checks:
-    needs: [scope, static, go, deck-macos, unit, guards, plugin-herdr-chat, plugin-mattstack, website]
+    needs: [scope, static, go, deck-macos, unit, unit-macos, guards, plugin-herdr-chat, plugin-mattstack, website]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -450,6 +460,7 @@ jobs:
           GO: ${{ needs.go.result }}
           DECK: ${{ needs.deck-macos.result }}
           UNIT: ${{ needs.unit.result }}
+          UNIT_MACOS: ${{ needs.unit-macos.result }}
           GUARDS: ${{ needs.guards.result }}
           HERDR_CHAT: ${{ needs.plugin-herdr-chat.result }}
           MATTSTACK: ${{ needs.plugin-mattstack.result }}
@@ -457,14 +468,16 @@ jobs:
           MODE: ${{ needs.scope.outputs.mode }}
           RUN_GO: ${{ needs.scope.outputs.go }}
           RUN_DECK: ${{ needs.scope.outputs.deck }}
+          RUN_MACOS: ${{ needs.scope.outputs.macos }}
         run: |
-          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK unit=$UNIT guards=$GUARDS herdr-chat=$HERDR_CHAT mattstack=$MATTSTACK website=$WEBSITE mode=$MODE"
+          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK unit=$UNIT unit-macos=$UNIT_MACOS guards=$GUARDS herdr-chat=$HERDR_CHAT mattstack=$MATTSTACK website=$WEBSITE mode=$MODE"
           [ "$SCOPE" = success ] || { echo "scope did not succeed"; exit 1; }
           [ "$STATIC" = success ] || { echo "static did not succeed"; exit 1; }
           # skipped is the untouched case: a needed job whose if: is false.
-          # go, deck-macos and guards may skip only when scope said so.
+          # go, deck-macos, unit-macos and guards may skip only when scope said so.
           [ "$GO" = success ] || { [ "$GO" = skipped ] && [ "$RUN_GO" = false ]; } || { echo "go did not succeed"; exit 1; }
           [ "$DECK" = success ] || { [ "$DECK" = skipped ] && [ "$RUN_DECK" = false ]; } || { echo "deck-macos did not succeed"; exit 1; }
+          [ "$UNIT_MACOS" = success ] || { [ "$UNIT_MACOS" = skipped ] && [ -z "$RUN_MACOS" ]; } || { echo "unit-macos did not succeed"; exit 1; }
           [ "$GUARDS" = success ] || { [ "$GUARDS" = skipped ] && [ "$MODE" = full ]; } || { echo "guards did not succeed"; exit 1; }
           [ "$HERDR_CHAT" = success ] || [ "$HERDR_CHAT" = skipped ] || { echo "plugin-herdr-chat did not succeed"; exit 1; }
           [ "$MATTSTACK" = success ] || [ "$MATTSTACK" = skipped ] || { echo "plugin-mattstack did not succeed"; exit 1; }

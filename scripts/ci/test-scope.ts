@@ -2,7 +2,7 @@
  * Decides what the unit shards and the path-gated jobs run for one CI event
  * and prints the answer for checks.yml and e2e.yml (docs/ci.md has the
  * table). Usage:
- *   bun scripts/ci/test-scope.ts             writes mode=, dirs=, always=, plugins=, go=, deck=, e2e=, glitter=, website= to $GITHUB_OUTPUT
+ *   bun scripts/ci/test-scope.ts             writes mode=, dirs=, always=, plugins=, macos=, go=, deck=, e2e=, glitter=, website= to $GITHUB_OUTPUT
  *   bun scripts/ci/test-scope.ts --explain   prints the decision and its reason only
  */
 import { appendFileSync, existsSync, readdirSync, readFileSync, statSync } from "fs";
@@ -475,9 +475,9 @@ export function decide(input: ScopeInput): Decision {
 const UNTIMED_TEST_MS = 1000;
 
 // How many shards a --changed run needs: the selected tests' recorded
-// weight against a full shard's, so a small change pays for one macOS
-// runner rather than three. The estimate only sets wall time; bun's own
-// --changed still picks the tests.
+// weight against a full shard's, so a small change pays for one runner
+// rather than three. The estimate only sets wall time; bun's own --changed
+// still picks the tests.
 export function shardCount(mode: Mode, selected: string[], timings: Record<string, number>): number {
   if (mode !== "changed") return 3;
   const total = Object.values(timings).reduce((a, b) => a + b, 0);
@@ -501,6 +501,32 @@ export function selectedTests(changed: string[], tests: string[], graph: Map<str
     queue.push(...(importers.get(f) ?? []));
   }
   return tests.filter((t) => reached.has(t));
+}
+
+const MACOS_LIST = "scripts/ci/macos-only-tests.txt";
+
+export function macosOnlyTests(file: string = join(ROOT, MACOS_LIST)): string[] {
+  return readFileSync(file, "utf8").split("\n").filter(Boolean);
+}
+
+// selectedTests walks relative imports, so it cannot trace a change in a
+// workspace package rt reaches through a bare import.
+function isLinkedPackage(f: string): boolean {
+  return f.startsWith("packages/") && !isAppsTree(f) && !isProse(f);
+}
+
+export type MacosSplit = { macos: string[]; extra: string[]; ubuntu: string[] };
+
+// What one event's run owes the macOS job, and what is left for the ubuntu
+// shards: a listed test runs only on macOS, whatever selected it.
+export function splitForMacos(decision: Decision, changed: string[], selected: string[], list: string[]): MacosSplit {
+  const listed = new Set(list);
+  const others = (files: string[]) => files.filter((f) => !listed.has(f));
+  const rest = { extra: others(decision.extra ?? []), ubuntu: others(selected) };
+  if (decision.mode === "skip") return { macos: [], ...rest };
+  if (decision.mode === "full" || changed.some(isLinkedPackage)) return { macos: list, ...rest };
+  const reached = new Set(selected);
+  return { macos: list.filter((f) => reached.has(f)), ...rest };
 }
 
 function readTimings(): Record<string, number> {
@@ -617,17 +643,19 @@ if (import.meta.main) {
     ? collectSources()
     : { sources: new Map<string, string>(), preloadImports: new Set<string>(), tests: [], graph: new Map<string, string[]>() };
   const decision = decide({ event, changed, ...scope });
-  const extraTests = decision.extra ?? [];
   const selected =
-    decision.mode === "changed" ? [...new Set([...selectedTests(changed, scope.tests, scope.graph), ...extraTests])] : [];
-  const count = shardCount(decision.mode, selected, readTimings());
+    decision.mode === "changed" ? [...new Set([...selectedTests(changed, scope.tests, scope.graph), ...(decision.extra ?? [])])] : [];
+  const split = splitForMacos(decision, changed, selected, macosOnlyTests());
+  const count = shardCount(decision.mode, split.ubuntu, readTimings());
   const shards = JSON.stringify(Array.from({ length: count }, (_, i) => i + 1));
-  const extra = extraTests.map((f) => `./${f}`).join(" ");
+  const extra = split.extra.map((f) => `./${f}`).join(" ");
+  const macos = split.macos.map((f) => `./${f}`).join(" ");
   const dirs = unitDirs().join(" ");
   const always = alwaysRunPaths().join(" ");
   console.log(`mode=${decision.mode} (${decision.reason})`);
-  console.log(`shards=${shards}${decision.mode === "changed" ? ` (${selected.length} tests reach the diff)` : ""}`);
+  console.log(`shards=${shards}${decision.mode === "changed" ? ` (${split.ubuntu.length} tests reach the diff)` : ""}`);
   console.log(`extra=${extra}`);
+  console.log(`macos=${macos}`);
   console.log(`dirs=${dirs}`);
   const plugins = (pr ? prPluginDirs(changed) : existingPluginDirs()).join(",");
   console.log(`always=${always}`);
@@ -638,7 +666,7 @@ if (import.meta.main) {
   if (!process.argv.includes("--explain") && process.env.GITHUB_OUTPUT) {
     appendFileSync(
       process.env.GITHUB_OUTPUT,
-      [`mode=${decision.mode}`, `shards=${shards}`, `extra=${extra}`, `dirs=${dirs}`, `always=${always}`, `plugins=${plugins}`, ...jobLines, ""].join("\n"),
+      [`mode=${decision.mode}`, `shards=${shards}`, `extra=${extra}`, `macos=${macos}`, `dirs=${dirs}`, `always=${always}`, `plugins=${plugins}`, ...jobLines, ""].join("\n"),
     );
   }
 }

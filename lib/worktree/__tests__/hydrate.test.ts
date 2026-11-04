@@ -13,7 +13,7 @@ import { createTree, type CreateDeps } from "../create.ts";
 import { isTreeLocked, tryLockTree } from "../locks.ts";
 import { hydrateTree, parseIgnoredPaths, listIgnoredPaths, type CloneRunner } from "../hydrate.ts";
 import { fsmonitorOffInTree } from "../fsmonitor.ts";
-import { clonePath, cloneExitCode } from "../clonefile.ts";
+import { inProcessClone } from "./in-process-clone.ts";
 
 function readMachineStore(): Record<string, unknown> {
   try {
@@ -81,11 +81,6 @@ function makeDeps(repoName: string, repoPath: string, events: Array<{ type: stri
     log: { info: () => {}, warn: () => {} },
   };
 }
-
-const inProcessClone: CloneRunner = async (src, dst) => {
-  const r = clonePath(src, dst);
-  return { exitCode: cloneExitCode(r), stderr: r.ok ? "" : `clonefile: ${r.message}` };
-};
 
 describe("parseIgnoredPaths", () => {
   test("keeps !! records, strips trailing slash, drops logs and .git", () => {

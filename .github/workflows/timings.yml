@@ -10,30 +10,33 @@ on:
       - .github/workflows/timings.yml
 
 # The paths filter fires on every push to a PR that touches this file, and
-# each run holds a macOS slot for twenty minutes; only the newest matters.
+# only the newest matters.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   timings:
-    runs-on: macos-latest
-    # The whole suite in one process; it passed 19 minutes on 2026-11-03 and
-    # a timeout here loses the artifact.
+    runs-on: ubuntu-latest
+    # The whole suite in one process; a timeout here loses the artifact.
     timeout-minutes: 45
-    env:
-      HOMEBREW_NO_AUTO_UPDATE: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
-      - name: Install backup dependencies
-        run: brew install age zstd git-lfs
+      # As in checks.yml's unit job, which these timings balance.
+      - name: Install what the suite assumes a Mac has
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq age zstd git-lfs zsh
+          sudo git config --system user.name ci
+          sudo git config --system user.email ci@example.invalid
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Time the unit suite
-        run: bun run test:timings
+        run: |
+          # shellcheck disable=SC2046
+          bun run test:timings $(sed 's/^/--path-ignore-patterns=/' scripts/ci/macos-only-tests.txt)
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:

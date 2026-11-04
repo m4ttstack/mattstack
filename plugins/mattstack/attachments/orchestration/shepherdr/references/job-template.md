@@ -226,6 +226,13 @@ and reports go through the herd tools, never into the repo. Tooling that
 manages its own workspace inside the repo writes where that tooling
 specifies; the write fence lists those paths.
 
+A `git_push` `refusal: "check-red"` or `"check-error"` is the repo's own
+pre-push check failing. Put `check.result.summary.failures`, or
+`check.result.reason` and `check.result.outputTail` when that list is empty,
+in the `herd_ask` context. To run it again, call the `rt_verb` tool with
+`args: ["check"]` and `cwd` = this worktree's root. `allowRed` and `skipCheck`
+push anyway, so pass one only when the answer says to.
+
 ## Delegation
 For searches, codebase exploration, and mechanical subtasks, dispatch
 subagents on cheaper models instead of doing them in your own context.

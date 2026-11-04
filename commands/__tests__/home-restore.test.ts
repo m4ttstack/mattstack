@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { homeRestore, type AgeKeyInputSeam, type HomeRestoreDeps } from "../home.ts";
 import { homeRepoTarget, runHomeRestore, type HomeRestoreInput, type HomeRestoreProbes } from "../../lib/home/restore.ts";
 import { originNames } from "../../lib/home/home-repo.ts";
@@ -8,6 +8,8 @@ import type { AgeExecResult, AgeKeySeam } from "../../lib/home/age-key.ts";
 import { UserActionableError } from "../../lib/errors.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import type { ExecResult } from "../../lib/setup/probes.ts";
+
+afterEach(() => out.__test__.reset());
 
 const HOME = "/fake-home";
 const GIT_DIR = `${HOME}/.mattstack/user/.git`;

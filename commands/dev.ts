@@ -188,7 +188,8 @@ export async function devSetup(args: string[], _ctx: CommandContext = {}): Promi
 }
 
 export async function devUpdate(args: string[], _ctx: CommandContext = {}): Promise<void> {
-  await run(args, runDevUpdate, (r, stages, json) => {
+  const release = args.includes("--release");
+  await run(args, (s, stage) => runDevUpdate(s, stage, { release }), (r, stages, json) => {
     if (json) out.json(devEnvelope({ ok: true, clone: r.clone, stages }, new Date()));
     else out.print(...devUpdateBlocks(r));
   });
