@@ -33,4 +33,12 @@ describe("redactCredentials", () => {
       expect(redactCredentials(s)).toBe(s);
     }
   });
+
+  test("masks a Bearer value longer than the other caps whole", () => {
+    expect(redactCredentials(`x Bearer ${"A1b2".repeat(700)} y`)).toBe("x Bearer [redacted] y");
+  });
+
+  test("masks the whole Bearer value when it starts with a vendor token shape", () => {
+    expect(redactCredentials("Bearer ghp_ABCDEFGHIJKLMNOPQRST.suffix1234567890 end")).toBe("Bearer [redacted] end");
+  });
 });
