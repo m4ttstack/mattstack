@@ -375,6 +375,25 @@ describe("teamAnnounce", () => {
     expect(JSON.parse(deps.lines[0]!).error.code).toBe("usage");
     expect(sent).toHaveLength(0);
   });
+
+  const mistyped: Array<[string, string[]]> = [
+    ["an unquoted title", ["Update", "rt", "today", "--message", "Please update", "--team", "acme", "--json"]],
+    ["an unquoted message", ["Update rt", "--message", "Please", "update", "by", "noon", "--team", "acme", "--json"]],
+    ["an unquoted message and no title", ["--message", "Please", "update", "by", "noon", "--team", "acme", "--json"]],
+    ["--message followed by --team", ["Update rt", "--message", "--team", "acme", "--json"]],
+    ["--message followed by --json", ["Update rt", "--message", "--json", "--team", "acme"]],
+    ["an unknown flag", ["t", "--message", "m", "--dry-run", "--team", "acme", "--json"]],
+    ["--message=value", ["t", "--message=m", "--team", "acme", "--json"]],
+  ];
+  for (const [name, args] of mistyped) {
+    test(`refuses ${name} before sending`, async () => {
+      const deps = depsWithZone({ announce: sendWith(3) });
+      const code = await runExpectingProcessExit(() => teamAnnounce(args, {}, deps));
+      expect(code).toBe(2);
+      expect(JSON.parse(deps.lines[0]!).error.code).toBe("usage");
+      expect(sent).toHaveLength(0);
+    });
+  }
 });
 
 describe("teamPublish", () => {
