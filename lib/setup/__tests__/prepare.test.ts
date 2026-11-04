@@ -311,8 +311,33 @@ describe("recordToolInstall", () => {
 
   test("a prepare run carries the press failures through every write and starts its own failed list fresh", async () => {
     const p = fakeProbes({ home: HOME, exec: machine(), files: seedRecord(ended) });
-    await runPrepare(p, "accounts", { reqs, install: fakeInstall([]), setUpFastBrowser: async () => ({ state: "done" }), alive: () => false, pid: OWN_PID });
+    const midRun: unknown[] = [];
+    const install: typeof installTool = async (probes, tool, list) => {
+      midRun.push(read(p)?.pressFailed);
+      return fakeInstall([])(probes, tool, list);
+    };
+    await runPrepare(p, "accounts", { reqs, install, setUpFastBrowser: async () => ({ state: "done" }), alive: () => false, pid: OWN_PID });
+    expect(midRun.length).toBeGreaterThan(1);
+    expect(midRun.every((seen) => Bun.deepEquals(seen, ended.pressFailed))).toBe(true);
     expect(read(p)?.pressFailed).toEqual(ended.pressFailed);
     expect(read(p)?.failed).toEqual([]);
+  });
+
+  test("a press that lands while a prepare run probes its tools survives the run's first write", async () => {
+    const script = machine();
+    let pressed = false;
+    const p = fakeProbes({
+      home: HOME,
+      files: seedRecord(ended),
+      exec: (argv, opts) => {
+        if (!pressed && argv[1] === "--version") {
+          pressed = true;
+          recordToolInstall(p, "yq", "brew said no", { pid: OWN_PID, alive: () => false });
+        }
+        return script(argv, opts);
+      },
+    });
+    await runPrepare(p, "accounts", { reqs, install: fakeInstall([]), setUpFastBrowser: async () => ({ state: "done" }), alive: () => false, pid: OWN_PID });
+    expect(read(p)?.pressFailed).toContainEqual({ tool: "yq", detail: "brew said no" });
   });
 });

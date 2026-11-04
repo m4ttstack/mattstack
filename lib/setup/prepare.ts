@@ -102,12 +102,13 @@ export async function runPrepare(
     const outcome = await setUp(p);
     return outcome.state === "done" ? { ok: true as const } : { ok: false as const, detail: outcome.detail };
   };
-  const previous = readPrepare(p, stage, alive, () => p.now());
-  if (previous?.running) return { stage, skipped: "running", installed: [], failed: [] };
+  if (readPrepare(p, stage, alive, () => p.now())?.running) return { stage, skipped: "running", installed: [], failed: [] };
 
   const items = await prepareTools(p, stage, deps.reqs);
   const pid = deps.pid ?? process.pid;
-  const record: PrepareRecord = { stage, startedAt: p.now().toISOString(), pid, items, failed: [], ...(previous?.pressFailed ? { pressFailed: previous.pressFailed } : {}) };
+  // Probing above takes seconds, and a press that ends in them has written since the check at the top.
+  const pressFailed = readPrepare(p, stage, alive, () => p.now())?.pressFailed;
+  const record: PrepareRecord = { stage, startedAt: p.now().toISOString(), pid, items, failed: [], ...(pressFailed ? { pressFailed } : {}) };
   writeRecord(p, record, pid);
 
   const installed: string[] = [];
