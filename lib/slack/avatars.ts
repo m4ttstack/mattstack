@@ -26,6 +26,8 @@ export interface SlackPerson {
   id: string;
   displayName: string;
   realName: string;
+  /** Changes with the picture, so an app's URL can be cached for good. */
+  version: string;
 }
 
 export interface SlackPicture {
@@ -35,10 +37,14 @@ export interface SlackPicture {
 
 export interface SlackAvatars {
   /** Never waits on Slack: a person read for the first time shows up on a later call. */
-  has(userId: string): boolean;
+  version(userId: string): string | undefined;
   /** Everyone with a picture, after any read in progress. */
   people(): Promise<SlackPerson[]>;
   picture(userId: string): Promise<SlackPicture | null>;
+}
+
+function pictureVersion(url: string): string {
+  return createHash("sha256").update(url).digest("hex").slice(0, 16);
 }
 
 function allowedHost(url: string): boolean {
@@ -77,7 +83,7 @@ export function createSlackAvatars(opts: {
         if (!users) return;
         const shown = users.filter((u) => u.avatar && !u.deleted && !u.isBot);
         urls = new Map(shown.map((u) => [u.id, u.avatar!]));
-        people = shown.map(({ id, displayName, realName }) => ({ id, displayName, realName }));
+        people = shown.map(({ id, displayName, realName, avatar }) => ({ id, displayName, realName, version: pictureVersion(avatar!) }));
         dueAt = opts.now() + DIRECTORY_FRESH_MS;
       })
       .catch((err) => opts.log.warn({ err }, "slack: the people directory could not be read"))
@@ -110,7 +116,7 @@ export function createSlackAvatars(opts: {
   }
 
   async function picture(userId: string, url: string): Promise<SlackPicture | null> {
-    const prefix = `${userId}-${createHash("sha256").update(url).digest("hex").slice(0, 16)}.`;
+    const prefix = `${userId}-${pictureVersion(url)}.`;
     const kept = await onDisk(prefix);
     if (kept) {
       const contentType = Object.entries(PICTURE_TYPES).find(([, ext]) => ext === kept.slice(prefix.length))?.[0];
@@ -127,9 +133,10 @@ export function createSlackAvatars(opts: {
   }
 
   return {
-    has(userId) {
+    version(userId) {
       void refresh();
-      return urls.has(userId);
+      const url = urls.get(userId);
+      return url ? pictureVersion(url) : undefined;
     },
     async people() {
       await refresh();
