@@ -43,6 +43,8 @@ function harness(opts: { history?: SlackMessage[]; replies?: Record<string, Slac
   const historyOldest: string[] = [];
   const posts: { room: string; handle: string; body: string }[] = [];
   const failures: { history?: unknown; post?: boolean; replies?: unknown } = {};
+  const warns: unknown[] = [];
+  const spyLog = { warn: (...a: unknown[]) => warns.push(a), debug: () => {} } as unknown as Logger;
   const above = (m: SlackMessage, oldest: string) => Number(m.ts) > Number(oldest);
   const client = {
     history: async (_channel: string, oldest: string) => {
@@ -66,12 +68,12 @@ function harness(opts: { history?: SlackMessage[]; replies?: Record<string, Slac
       posts.push({ room: args.room, handle: args.handle, body: args.body });
       return { id: id++ };
     },
-    operatorHandle: () => opts.operatorHandle ?? "matt",
-    log,
+    operatorHandle: () => opts.operatorHandle ?? "operator",
+    log: spyLog,
     now: () => state.clock,
   });
   const reread = () => conversationForRoom(conv.room, db)!;
-  return { db, opened, bridge, state, calls, historyOldest, posts, failures, reread, items: () => pendingItems(opened.id, db) };
+  return { db, opened, bridge, state, calls, historyOldest, posts, failures, warns, reread, items: () => pendingItems(opened.id, db) };
 }
 
 test("reads only messages after the cursor", async () => {
@@ -120,8 +122,16 @@ test("the pane's own prefixed message does not touch the conversation", async ()
 test("the operator's unprefixed Slack message becomes an operator-slack item", async () => {
   const h = harness({ history: [msg(ts(10), "U0OPER", "try the other branch")] });
   await h.bridge.sweep();
-  expect(h.posts).toEqual([{ room: "dm-aaa", handle: "matt", body: "try the other branch" }]);
-  expect(h.items()[0]).toMatchObject({ kind: "operator-slack", fromHandle: "matt", text: "try the other branch" });
+  expect(h.posts).toEqual([{ room: "dm-aaa", handle: "operator", body: "try the other branch" }]);
+  expect(h.items()[0]).toMatchObject({ kind: "operator-slack", fromHandle: "operator", text: "try the other branch" });
+});
+
+test("the operator's Slack message resets the idle timer", async () => {
+  const h = harness({ history: [msg(ts(10), "U0OPER", "steering from Slack")] });
+  h.db.query("UPDATE slack_conversations SET checked_in_at = 5 WHERE id = ?").run(h.opened.id);
+  await h.bridge.sweep();
+  expect(h.reread().lastActiveAt).toBe(h.state.clock);
+  expect(h.reread().checkedInAt).toBeNull();
 });
 
 test("a prefixed message is skipped in both forms, whoever wrote it", async () => {
@@ -267,12 +277,52 @@ test("a failure on one conversation does not stop the others", async () => {
   expect(pendingItems(second.id, h.db)).toHaveLength(1);
 });
 
-test("a thread that cannot be read does not hold up the rest", async () => {
-  const bad = msg(ts(5), "U0TEST", "gone", { replyCount: 1, latestReply: ts(8) });
+test("a thread that cannot be read does not hold up the rest, and keeps its cursor", async () => {
+  const bad = msg(ts(5), "U0TEST", "first", { replyCount: 1, latestReply: ts(8) });
   const h = harness({ history: [bad, msg(ts(10), "U0TEST", "fine")] });
+  h.failures.replies = new SlackError("network_error");
+  await h.bridge.sweep();
+  expect(h.posts.map((p) => p.body)).toEqual(["first", "fine"]);
+  expect(h.reread().threadReadTs).toEqual({});
+});
+
+test("a thread reply is delivered once after a transient read failure", async () => {
+  const parent = msg(ts(5), "U0TEST", "first", { replyCount: 1, latestReply: ts(30) });
+  const h = harness({ history: [parent], replies: { [ts(5)]: [parent, msg(ts(30), "U0TEST", "in the thread")] } });
+  h.db.query("UPDATE slack_conversations SET last_read_ts = ? WHERE id = ?").run(ts(20), h.opened.id);
+  for (const code of ["network_error", "timeout", "http_502"]) {
+    h.failures.replies = new SlackError(code);
+    await h.bridge.sweep();
+    expect(h.posts).toEqual([]);
+    expect(h.reread().threadReadTs).toEqual({});
+  }
+  h.failures.replies = undefined;
+  await h.bridge.sweep();
+  await h.bridge.sweep();
+  expect(h.posts.map((p) => p.body)).toEqual(["in the thread"]);
+  expect(h.reread().threadReadTs).toEqual({ [ts(5)]: ts(30) });
+});
+
+test("a thread Slack reports as gone stops being fetched", async () => {
+  const parent = msg(ts(5), "U0TEST", "first", { replyCount: 1, latestReply: ts(30) });
+  const h = harness({ history: [parent] });
+  h.db.query("UPDATE slack_conversations SET last_read_ts = ? WHERE id = ?").run(ts(20), h.opened.id);
   h.failures.replies = new SlackError("thread_not_found");
   await h.bridge.sweep();
-  expect(h.posts.map((p) => p.body)).toEqual(["gone", "fine"]);
+  await h.bridge.sweep();
+  expect(h.calls.filter((c) => c.startsWith("replies"))).toHaveLength(1);
+  expect(h.reread().threadReadTs).toEqual({ [ts(5)]: ts(30) });
+});
+
+test("a thread read that keeps failing warns once, not every tick", async () => {
+  const parent = msg(ts(5), "U0TEST", "first", { replyCount: 1, latestReply: ts(30) });
+  const h = harness({ history: [parent] });
+  h.db.query("UPDATE slack_conversations SET last_read_ts = ? WHERE id = ?").run(ts(20), h.opened.id);
+  h.failures.replies = new SlackError("timeout");
+  await h.bridge.sweep();
+  await h.bridge.sweep();
+  await h.bridge.sweep();
+  expect(h.warns).toHaveLength(1);
 });
 
 test("no Slack call is made with no open conversation", async () => {

@@ -48,6 +48,9 @@ function bodyOf(msg: SlackMessage): string {
   return [msg.text, note].filter(Boolean).join("\n");
 }
 
+/** Replies codes that mean the thread will never be readable, so its cursor may move past it. */
+const GONE_THREAD_CODES = new Set(["thread_not_found", "message_not_found"]);
+
 interface Candidate {
   msg: SlackMessage;
   parentTs?: string;
@@ -59,6 +62,7 @@ export function createSlackBridge(opts: SlackBridgeOptions): { sweep(): Promise<
   /** Slack limits per token, so one 429 holds every conversation. */
   let waitUntil = 0;
   const failing = new Set<number>();
+  const unreadThreads = new Set<string>();
   let running = false;
 
   function noteFailure(conv: SlackConversation, err: unknown): void {
@@ -70,25 +74,38 @@ export function createSlackBridge(opts: SlackBridgeOptions): { sweep(): Promise<
     }
   }
 
+  /** `parents` holds only threads whose replies were read, or that Slack says are gone; a failed read keeps its cursor. */
   async function collect(client: SlackClient, conv: SlackConversation): Promise<{ candidates: Candidate[]; parents: SlackMessage[] }> {
     const sinceOpen = await client.history(conv.slackChannel, tsFromMs(conv.openedAt));
     const candidates: Candidate[] = sinceOpen.filter((m) => compareTs(m.ts, conv.lastReadTs) > 0).map((msg) => ({ msg }));
-    const parents = sinceOpen.filter(
+    const pending = sinceOpen.filter(
       (m) =>
         (m.replyCount ?? 0) > 0 &&
         m.latestReply !== undefined &&
         compareTs(m.latestReply, conv.threadReadTs[m.ts] ?? m.ts) > 0,
     );
-    for (const parent of parents) {
+    const parents: SlackMessage[] = [];
+    for (const parent of pending) {
       const from = conv.threadReadTs[parent.ts] ?? parent.ts;
+      const key = `${conv.id}:${parent.ts}`;
       try {
         const replies = await client.replies(conv.slackChannel, parent.ts, from);
         for (const msg of replies) {
           if (msg.ts !== parent.ts && compareTs(msg.ts, from) > 0) candidates.push({ msg, parentTs: parent.ts });
         }
+        parents.push(parent);
+        unreadThreads.delete(key);
       } catch (err) {
         if (err instanceof SlackError && err.retryAfterMs !== undefined) throw err;
-        log.warn({ err, conversationId: conv.id }, "slack-bridge: a thread could not be read, skipping it this tick");
+        if (err instanceof SlackError && GONE_THREAD_CODES.has(err.code)) {
+          parents.push(parent);
+          continue;
+        }
+        if (unreadThreads.has(key)) log.debug({ err, conversationId: conv.id }, "slack-bridge: a thread is still unreadable");
+        else {
+          unreadThreads.add(key);
+          log.warn({ err, conversationId: conv.id }, "slack-bridge: a thread could not be read, retrying next tick");
+        }
       }
     }
     candidates.sort((a, b) => compareTs(a.msg.ts, b.msg.ts));
@@ -116,7 +133,7 @@ export function createSlackBridge(opts: SlackBridgeOptions): { sweep(): Promise<
         { conversationId: conv.id, kind: fromTeammate ? "message" : "operator-slack", fromHandle: handle ?? null, text: body, createdAt: now() },
         db,
       );
-      if (fromTeammate) touchConversation(conv.id, now(), db);
+      touchConversation(conv.id, now(), db);
     })();
   }
 
