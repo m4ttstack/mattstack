@@ -36,7 +36,8 @@ const { FakeCfDns } = await import('../../test/fixture/remote.ts');
 const { reloadRegistry, getRecord, putRecord, deleteRecord } =
   await import('../registry/records.ts');
 const { reloadPlatformSettings } = await import('./platform-settings.ts');
-const { setLive, clearLive } = await import('../../core/settings.ts');
+const { setLive, clearLive, setPublished } =
+  await import('../../core/settings.ts');
 
 const PORT = 18917;
 let server: ReturnType<typeof startApi>;
@@ -564,6 +565,48 @@ test('publish flips settings through the versioned path', async () => {
   expect(status.apps.find((a: any) => a.name === 'p1').published).toBe(false);
 });
 
+test('publish on is refused with no domain connected, and off still works', async () => {
+  writeFileSync(
+    process.env.LOCAL_APPS_ROUTES_PATH!,
+    JSON.stringify([{ hostname: 'p2.localhost', port: 12001, pid: 0 }])
+  );
+  const put = (published: boolean) =>
+    api('/api/v1/apps/p2/publish', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ published }),
+    });
+  const on = await put(true);
+  expect(on.status).toBe(409);
+  expect(await on.json()).toEqual({
+    error: 'no domain connected; run deck domain <domain> first',
+  });
+  expect((await put(false)).status).toBe(200);
+  const status = await (await api('/api/v1/status')).json();
+  expect(status.publicDomainBound).toBe(false);
+  expect(status.apps.find((a: any) => a.name === 'p2').published).toBe(false);
+});
+
+test('publish on is refused for a mattstack app, and off still works', async () => {
+  putRecord({
+    name: 'owned-pub',
+    managedBy: 'rt',
+    port: 18098,
+    kind: 'service',
+    createdAt: '',
+  });
+  const put = (published: boolean) =>
+    api('/api/v1/apps/owned-pub/publish', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ published }),
+    });
+  const on = await put(true);
+  expect(on.status).toBe(409);
+  expect(await on.json()).toEqual({ error: 'mattstack apps cannot be public' });
+  expect((await put(false)).status).toBe(200);
+});
+
 test('PUT override is refused while the app is live', async () => {
   putRecord({
     name: 'livey',
@@ -896,11 +939,12 @@ test('domain flow: bind, show reports identity + edge, unbind refuses served app
     name: 'domain-flow-served',
     staticPort: 41999,
   });
-  await domainApi('/api/v1/apps/domain-flow-served/publish', {
+  const published = await domainApi('/api/v1/apps/domain-flow-served/publish', {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ published: true }),
   });
+  expect(published.status).toBe(200);
 
   const refused = await domainPost('/api/v1/domain/unbind', {});
   expect(refused.status).toBe(409);
@@ -1774,4 +1818,33 @@ test('a record with no route yet carries its bundled icon URL', async () => {
     setBundledResourcesDir(undefined);
     deleteRecord('bundled-only');
   }
+});
+
+test('an untouched app reads private, and a saved on is ignored for a mattstack app', async () => {
+  putRecord({
+    name: 'untouched-user',
+    managedBy: 'user',
+    port: 18096,
+    kind: 'service',
+    createdAt: '',
+  });
+  putRecord({
+    name: 'saved-owned',
+    managedBy: 'rt',
+    port: 18095,
+    kind: 'service',
+    createdAt: '',
+  });
+  await setPublished('saved-owned', true);
+  writeFileSync(
+    process.env.LOCAL_APPS_ROUTES_PATH!,
+    JSON.stringify([
+      { hostname: 'untouched-user.localhost', port: 18096, pid: 0 },
+      { hostname: 'saved-owned.localhost', port: 18095, pid: 0 },
+    ])
+  );
+  const status = await (await api('/api/v1/status')).json();
+  const row = (name: string) => status.apps.find((a: any) => a.name === name);
+  expect(row('untouched-user').published).toBe(false);
+  expect(row('saved-owned').published).toBe(false);
 });

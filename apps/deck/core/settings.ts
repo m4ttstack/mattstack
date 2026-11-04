@@ -235,7 +235,7 @@ function buildAppsStoreDict(
   const out: Record<string, StoreAppFields> = {};
   for (const [app, entry] of Object.entries(state.apps)) {
     out[app] = {
-      published: entry.published ?? true,
+      published: entry.published ?? false,
       publicFollowsOverride: entry.publicFollowsOverride ?? false,
     };
   }
@@ -337,7 +337,7 @@ function save(previous: SettingsFile, fileOnly = false): void {
 export function getAppSettings(app: string): AppSettings {
   const entry = cache.apps[app];
   return {
-    published: storeUnreadable ? false : (entry?.published ?? true),
+    published: storeUnreadable ? false : (entry?.published ?? false),
     passwordHash: entry?.passwordHash,
     passwordVersion: entry?.passwordVersion ?? 0,
     override: entry?.override,
@@ -347,7 +347,7 @@ export function getAppSettings(app: string): AppSettings {
 
 function ensure(app: string): AppEntry {
   if (!cache.apps[app])
-    cache.apps[app] = { published: true, passwordVersion: 0 };
+    cache.apps[app] = { published: false, passwordVersion: 0 };
   return cache.apps[app] as AppEntry;
 }
 
@@ -386,8 +386,8 @@ export async function clearPassword(app: string): Promise<void> {
 /**
  * Move an app's whole settings entry to a new key, verbatim. Renaming a record
  * has to carry published/passwordHash/passwordVersion/override with it: an
- * unknown name defaults to published:true with no password, so without this a
- * rename would silently turn a private, password-protected app public. It moves
+ * unknown name reads as private with no password, so without this a rename
+ * would silently unpublish a public app and drop its password. It moves
  * the raw entry because no setter above can: setPassword only takes a plaintext
  * to re-hash, and an existing hash has no plaintext to re-derive it from.
  * A no-op when the old name has no entry (nothing to carry). The store side

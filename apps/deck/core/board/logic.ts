@@ -115,11 +115,29 @@ export interface StatusData {
   nextPort: number | null;
   /** True when the proxy is serving stale routes (its watcher has died). */
   proxyStale: boolean;
+  /** A public domain is connected, so publishing an app can take effect. */
+  publicDomainBound: boolean;
   /** The most recent automatic proxy restart; ok is null while it is running. */
   autoHeal: { at: number; ok: boolean | null } | null;
 }
 
 export type Row = StatusData['apps'][number];
+
+export const CONNECT_DOMAIN_TIP = 'Connect a domain first';
+
+function isUserApp(row: Row): boolean {
+  return row.managedBy == null || row.managedBy === 'user';
+}
+
+/** Mattstack apps are never public; one already on Railway keeps its switch
+    so it can be turned off. */
+export function canOfferRemote(row: Row): boolean {
+  return row.remote != null || isUserApp(row);
+}
+
+export function canOfferPublish(row: Row): boolean {
+  return isUserApp(row);
+}
 export type RestartingMap = Record<
   string,
   { pid: number | null; at: number; settledAt?: number }
@@ -136,7 +154,9 @@ export function liveCount(data: StatusData): number {
 
 export function subline(data: StatusData | null): string {
   if (!data) return 'loading…';
-  const pub = data.apps.filter(r => r.published).length;
+  const pub = data.publicDomainBound
+    ? data.apps.filter(r => r.published).length
+    : 0;
   const prot = data.apps.filter(r => r.hasPassword).length;
   const live = liveCount(data);
   const parts = [healthyFraction(data)];

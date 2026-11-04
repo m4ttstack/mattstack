@@ -100,7 +100,6 @@ test("deck url <service> prints the service's local url and exits 0", async () =
 
 test('deck url --public errors when the app is not published', async () => {
   seedRouted('chatb', 11004);
-  // Apps default to published:true, so turn it off to exercise the gate.
   expect(await runCommand(['publish', 'chatb', 'off'], io())).toBe(0);
   const x = io();
   const code = await runCommand(['url', 'chatb', '--public'], x);
@@ -110,6 +109,13 @@ test('deck url --public errors when the app is not published', async () => {
 
 test('deck url --public prints the public url once the app is published', async () => {
   seedRouted('shared', 11006);
+  putRecord({
+    name: 'shared',
+    managedBy: 'user',
+    port: 11006,
+    kind: 'service',
+    createdAt: '2026-08-10T00:00:00Z',
+  });
   expect(await runCommand(['publish', 'shared', 'on'], io())).toBe(0);
   const x = io();
   const code = await runCommand(['url', 'shared', '--public'], x);

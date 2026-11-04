@@ -9,6 +9,7 @@ import {
   pageOffline,
   pageRateLimited,
 } from './gateway-pages.tsx';
+import { isPublished } from './publish.ts';
 import {
   COOKIE_NAME,
   cookieHeader,
@@ -252,6 +253,7 @@ export function startGateway(port = 7950): Server<WsProxyData> {
         server.requestIP(req)?.address ??
         '?';
       const settings = getAppSettings(app);
+      const published = isPublished(app);
       const secret = getSecret();
       // Public traffic ignores a dev-port override unless the app opted in; see publicPort.
       const port = publicPort(
@@ -262,7 +264,7 @@ export function startGateway(port = 7950): Server<WsProxyData> {
 
       // Auth submission is handled by the gateway itself, never proxied.
       if (req.method === 'POST' && url.pathname === '/__auth') {
-        if (port === undefined || !settings.published) {
+        if (port === undefined || !published) {
           return html(pageNothingHere(), 404);
         }
         const form = await req.formData();
@@ -293,7 +295,7 @@ export function startGateway(port = 7950): Server<WsProxyData> {
       const d = decide({
         app,
         port,
-        published: settings.published,
+        published,
         passwordHash: settings.passwordHash,
         passwordVersion: settings.passwordVersion,
         cookie,

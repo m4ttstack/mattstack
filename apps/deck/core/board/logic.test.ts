@@ -5,6 +5,8 @@ import {
   addPayload,
   autoBanner,
   behindRows,
+  canOfferPublish,
+  canOfferRemote,
   commandButtonLabel,
   commandKey,
   commandStuckToast,
@@ -89,12 +91,30 @@ function makeData(overrides: Partial<StatusData> = {}): StatusData {
     orphans: [],
     nextPort: null,
     proxyStale: false,
+    publicDomainBound: true,
     autoHeal: null,
     ...overrides,
   };
 }
 
 // ---- constants ----
+
+test('canOfferPublish: user apps only', () => {
+  const row = (managedBy: string | null) => ({ managedBy }) as Row;
+  expect(canOfferPublish(row(null))).toBe(true);
+  expect(canOfferPublish(row('user'))).toBe(true);
+  expect(canOfferPublish(row('rt'))).toBe(false);
+  expect(canOfferPublish(row('deck'))).toBe(false);
+});
+
+test('canOfferRemote: user apps yes, mattstack apps only to turn it off', () => {
+  const row = (managedBy: string | null, remote: Row['remote']) =>
+    ({ managedBy, remote }) as Row;
+  expect(canOfferRemote(row('user', null))).toBe(true);
+  expect(canOfferRemote(row(null, null))).toBe(true);
+  expect(canOfferRemote(row('rt', null))).toBe(false);
+  expect(canOfferRemote(row('rt', { status: 'live', url: null }))).toBe(true);
+});
 
 test("constants match the oracle's timings", () => {
   expect(REFRESH_MS).toBe(5000);

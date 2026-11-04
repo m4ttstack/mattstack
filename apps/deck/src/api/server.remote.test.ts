@@ -195,3 +195,19 @@ test('remote {enabled:false} tears an app back down', async () => {
   expect(getRecord('offsite')!.remote).toBeUndefined();
   expect(rw.calls).toContain('deleteService:svc_9');
 });
+
+test('turning remote on is refused for a mattstack app', async () => {
+  putRecord({
+    name: 'owned-remote',
+    managedBy: 'rt',
+    port: 18097,
+    kind: 'service',
+    createdAt: '',
+  });
+  const res = await post('/api/v1/apps/owned-remote/remote', { enabled: true });
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({
+    error: 'mattstack apps cannot be public',
+  });
+  expect(getRecord('owned-remote')?.remote).toBeUndefined();
+});

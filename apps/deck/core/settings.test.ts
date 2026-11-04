@@ -87,9 +87,9 @@ function writeLegacyFile(body: Record<string, unknown>): void {
   writeFileSync(process.env.LOCAL_APPS_SETTINGS_PATH!, JSON.stringify(body));
 }
 
-test('absent app defaults to published, no password, version 0', () => {
+test('absent app defaults to private, no password, version 0', () => {
   const s = getAppSettings('ghost');
-  expect(s.published).toBe(true);
+  expect(s.published).toBe(false);
   expect(s.passwordHash).toBeUndefined();
   expect(s.passwordVersion).toBe(0);
 });
@@ -711,7 +711,7 @@ test('a deck.apps the resolver refuses fails closed like an unreadable store, un
   seedUserStore('deck.apps', { widgets: { published: true } });
   reloadSettings();
   expect(getAppSettings('widgets').published).toBe(true);
-  expect(getAppSettings('never-seen').published).toBe(true);
+  expect(getAppSettings('never-seen').published).toBe(false);
 });
 
 test('a publish change after a boot that could not read deck.apps refuses, even once the store reads again', async () => {
