@@ -83,7 +83,7 @@ import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 import type { CommandResult } from "./types.ts";
 
 export type InboxDeps = { resolve: typeof resolveInbox; deliver: typeof deliverToInbox };
-const defaultInboxDeps: InboxDeps = { resolve: resolveInbox, deliver: deliverToInbox };
+export const defaultInboxDeps: InboxDeps = { resolve: resolveInbox, deliver: deliverToInbox };
 // Fallback only: real wiring threads ctx.log in from command-router.ts.
 const defaultLog = lazyChildLogger("chat");
 

@@ -85,7 +85,9 @@ import { runCapture } from "./subprocess.ts";
 import { buildRoutedHandlers } from "./daemon/command-router.ts";
 import { findRunningRunByWorktree, listRuns } from "./runs/store.ts";
 import { createOutcomeRefresher, lookupFromMrGet, postedFromGateRows } from "./daemon/run-outcome-refresher.ts";
-import { createChatDeliverySweep } from "./daemon/handlers/chat.ts";
+import { createChatDeliverySweep, defaultInboxDeps, postAndNotify } from "./daemon/handlers/chat.ts";
+import { createSlackBridge } from "./daemon/slack-bridge.ts";
+import { slackClientFromSecrets } from "./slack/daemon-client.ts";
 import { startSocketServer } from "./daemon/socket-server.ts";
 import { startApiServer, withApiPortParkRetry, broadcast, apiWsClientCount, clearWsClients } from "./daemon/api-server.ts";
 import { deriveFailure } from "./daemon/failure.ts";
@@ -1035,6 +1037,36 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           "chat-delivery-sweep",
           async () => { await chatDeliverySweep(); },
           { bootDelayMs: 30_000, intervalMs: 30_000 },
+          log,
+        ));
+        // Inert while no Slack support conversation is open: the sweep reads
+        // the table first and touches neither the token nor Slack.
+        const slackBridgeDb = getStateDb("daemon");
+        const slackBridgeLog = loggerHandle.childLogger("slack-bridge");
+        const slackBridge = createSlackBridge({
+          db: slackBridgeDb,
+          client: slackClientFromSecrets,
+          post: (args) => postAndNotify(
+            slackBridgeDb,
+            (topic, payload) => {
+              const emittedAt = Date.now();
+              const id = eventsBus.emitAt(topic, payload, emittedAt);
+              emit("event", { id, topic, payload, emittedAt });
+            },
+            args,
+            defaultInboxDeps,
+            herdrRequest,
+            chatDeliveryChains,
+            slackBridgeLog,
+            0,
+          ),
+          operatorHandle: () => getSetting<string>("chat.humanHandle").value || undefined,
+          log: slackBridgeLog,
+        });
+        sweepHandles.push(scheduleSweep(
+          "slack-bridge",
+          () => slackBridge.sweep(),
+          { bootDelayMs: 10_000, intervalMs: 5_000 },
           log,
         ));
         // Keeps cd-cache.json warm for `rt cd`; uses the async repo-index
