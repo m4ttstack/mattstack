@@ -41,15 +41,18 @@ function slug(raw: string, max: number): string {
     .replace(/-+$/, "");
 }
 
+const LINE_END = new RegExp("\\r\\n|[\\n\\r\\v\\f\\u0085\\u2028\\u2029]", "g");
+
 function oneLine(raw: string): string {
-  return raw.replace(/\s+/g, " ").trim();
+  return raw.replace(LINE_END, " ").replace(/\s+/g, " ").trim();
 }
 
 /** Quoting every line keeps a line of the body from reading as a heading, a rule or frontmatter. */
 function quoted(raw: string): string {
   return raw
+    .replace(LINE_END, "\n")
     .trim()
-    .split(/\r?\n/)
+    .split("\n")
     .map((line) => (line.trim() ? `> ${line}` : ">"))
     .join("\n");
 }

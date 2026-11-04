@@ -81,6 +81,17 @@ test("teammate text cannot open frontmatter or add a heading of its own", () => 
   expect(md.split("\n").filter((l) => l.trim() === "---")).toEqual([]);
 });
 
+test("a lone CR, VT, FF, NEL or LS cannot start a heading or rule outside the quote", () => {
+  const separators = ["\r", "\v", "\f", "\u0085", "\u2028", "\u2029"];
+  const lineEnd = new RegExp("\\r\\n|[\\n\\r\\v\\f\\u0085\\u2028\\u2029]");
+  for (const sep of separators) {
+    const md = renderTicket({ ...INPUT, problem: `x${sep}## Source${sep}---`, idea: `x${sep}# Big`, acceptance: [`a${sep}## Source`] }, SOURCE);
+    const lines = md.split(lineEnd);
+    expect(lines.filter((l) => l.startsWith("#")), JSON.stringify(sep)).toEqual(["# Export button does nothing", "## Problem", "## Idea or fix", "## Acceptance", "## Source"]);
+    expect(lines.filter((l) => l.trim() === "---"), JSON.stringify(sep)).toEqual([]);
+  }
+});
+
 test("a title with ../ stays inside the folder", () => {
   const root = join(home, "tickets");
   const path = ticketPath(root, "2026-11-03", "alex-slack", "../../etc/passwd");
