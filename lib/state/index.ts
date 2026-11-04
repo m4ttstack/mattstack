@@ -147,6 +147,24 @@ export {
 } from "./agents-store.ts";
 
 export { dmRoomFor, dmParticipants, listDms } from "./dm-store.ts";
+export {
+  SlackConversationBusy,
+  advanceCursor,
+  closeConversation,
+  conversationForAgent,
+  conversationForRoom,
+  enqueueItem,
+  listOpenConversations,
+  markCheckedIn,
+  markCloseAsked,
+  markItemDelivered,
+  markStalledNoted,
+  markWatcherSeen,
+  openConversation,
+  pendingItems,
+  touchConversation,
+} from "./slack-conversation-store.ts";
+export type { SlackCloseReason, SlackConversation, SlackItem, SlackItemKind } from "./slack-conversation-store.ts";
 
 export {
   bindIdentitySession,

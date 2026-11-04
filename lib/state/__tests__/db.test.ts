@@ -58,10 +58,10 @@ function userVersion(db: Database): number {
 }
 
 describe("openStateDb — fresh open", () => {
-  test("a fresh database reaches v16 directly, gaining every v1 through v16 change", () => {
+  test("a fresh database reaches v17 directly, gaining every v1 through v17 change", () => {
     const dbPath = join(dir, "state.db");
     const db = openStateDb(dbPath, "cli");
-    expect(SCHEMA_VERSION).toBe(16);
+    expect(SCHEMA_VERSION).toBe(17);
     expect(userVersion(db)).toBe(SCHEMA_VERSION);
     const cols = (db.query("PRAGMA table_info(chat_rooms);").all() as { name: string }[]).map(c => c.name);
     expect(cols).toContain("archived_at");
@@ -146,7 +146,7 @@ describe("openStateDb — fresh open", () => {
     db.close();
 
     const migrated = openStateDb(dbPath, "cli");
-    expect(userVersion(migrated)).toBe(16);
+    expect(userVersion(migrated)).toBe(SCHEMA_VERSION);
     expect(migrated.query("SELECT id, adopted FROM agents;").all()).toEqual([{ id: "ag-1", adopted: 0 }]);
     migrated.close();
 
@@ -155,7 +155,7 @@ describe("openStateDb — fresh open", () => {
     raw.exec("PRAGMA user_version = 15;");
     raw.close();
     const replayed = openStateDb(dbPath, "cli");
-    expect(userVersion(replayed)).toBe(16);
+    expect(userVersion(replayed)).toBe(SCHEMA_VERSION);
     replayed.close();
   });
 
@@ -799,7 +799,7 @@ describe("getStateDb / closeStateDb — lazy singleton", () => {
     // unrelated exports (reading SCHEMA_VERSION, pushing to LEGACY_IMPORTS)
     // never opens or creates a db file on its own.
     const before = SCHEMA_VERSION;
-    expect(before).toBe(16);
+    expect(before).toBe(17);
     LEGACY_IMPORTS.push({ file: "x.json", import: () => {} });
     LEGACY_IMPORTS.length = 0;
     // No db.ts function that touches disk was called above; nothing to assert

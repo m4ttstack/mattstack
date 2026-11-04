@@ -23,8 +23,8 @@ import { rtDir } from "../rt-paths.ts";
 
 export type DbFlavor = "cli" | "daemon";
 
-/** PRAGMA user_version target for the combined schema below (v1 + v2 + v3 + v4 + v6 + v7 + v8 + v9 + v12 + v13 + v14, plus v15's agents.pack and v16's agents.adopted columns; v10 and v11 are DML-only migrations, not DDL blocks in SCHEMAS). */
-export const SCHEMA_VERSION = 16;
+/** PRAGMA user_version target for the combined schema below (v1 + v2 + v3 + v4 + v6 + v7 + v8 + v9 + v12 + v13 + v14, plus v15's agents.pack v16's agents.adopted columns and v17's slack_conversations and slack_items tables; v10 and v11 are DML-only migrations, not DDL blocks in SCHEMAS). */
+export const SCHEMA_VERSION = 17;
 
 // busy_timeout is per-process, not per-store (spec "The database"): a CLI
 // command may block briefly; the daemon's event loop must never block long,
@@ -353,6 +353,47 @@ CREATE INDEX IF NOT EXISTS chat_members_handle ON chat_members(handle);
 CREATE INDEX IF NOT EXISTS chat_dms_b ON chat_dms(b);
 `;
 
+// Tables (v17): Slack support chat (lib/state/slack-conversation-store.ts is the
+// only writer). The partial unique indexes keep a Slack person and a pane to
+// one open conversation each.
+const V17_SCHEMA = `
+CREATE TABLE IF NOT EXISTS slack_conversations (
+  id             INTEGER PRIMARY KEY,
+  room           TEXT NOT NULL,     -- the chat DM room
+  agent_handle   TEXT NOT NULL,     -- the pane's identity id
+  slack_handle   TEXT NOT NULL,     -- the teammate's chat identity id
+  slack_user_id  TEXT NOT NULL,
+  slack_channel  TEXT NOT NULL,     -- the DM channel id
+  operator_user_id TEXT NOT NULL,   -- from auth.test at open; tells the operator's messages apart
+  operator_name  TEXT NOT NULL,     -- for the rules and the closing lines, so a close needs no Slack read
+  frame_marker   TEXT NOT NULL,     -- random, per conversation
+  last_read_ts   TEXT NOT NULL,     -- Slack cursor, survives daemon restarts
+  thread_read_ts TEXT NOT NULL DEFAULT '{}',  -- JSON: parent ts to last reply ts read
+  last_active_at INTEGER NOT NULL,
+  checked_in_at  INTEGER,           -- the 30 minute check-in, cleared by a message
+  close_asked_at INTEGER,           -- when the close sequence began
+  close_reason_asked TEXT,          -- the reason that sequence will close with
+  watcher_seen_at INTEGER,          -- the mod's last read, which is what pane-gone measures
+  stalled_noted_at INTEGER,         -- the stalled notice, cleared by a delivery
+  opened_at      INTEGER NOT NULL,
+  closed_at      INTEGER,
+  close_reason   TEXT               -- closed-by-pane, idle, operator, pane-gone
+);
+CREATE UNIQUE INDEX IF NOT EXISTS slack_conversations_open_user ON slack_conversations(slack_user_id) WHERE closed_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS slack_conversations_open_agent ON slack_conversations(agent_handle) WHERE closed_at IS NULL;
+CREATE INDEX IF NOT EXISTS slack_conversations_room ON slack_conversations(room);
+CREATE TABLE IF NOT EXISTS slack_items (
+  id              INTEGER PRIMARY KEY,
+  conversation_id INTEGER NOT NULL,
+  kind            TEXT NOT NULL,    -- message, operator-slack, check-in, close-request, closed
+  from_handle     TEXT,
+  text            TEXT NOT NULL,
+  created_at      INTEGER NOT NULL,
+  delivered_at    INTEGER
+);
+CREATE INDEX IF NOT EXISTS slack_items_pending ON slack_items(conversation_id, delivered_at);
+`;
+
 /**
  * Every schema block, in version order. `runMigrations` execs
  * `SCHEMAS.join("")` unconditionally on EVERY open (R015/R056): every
@@ -362,7 +403,7 @@ CREATE INDEX IF NOT EXISTS chat_dms_b ON chat_dms(b);
  * A future schema block joins this array; leaving one out is caught by the
  * dynamic table-presence test in db-schema-convergence.test.ts.
  */
-const SCHEMAS = [V1_SCHEMA, V2_SCHEMA, V3_SCHEMA, V4_SCHEMA, V6_SCHEMA, V7_SCHEMA, V8_SCHEMA, V9_SCHEMA, V12_SCHEMA, V13_SCHEMA, V14_SCHEMA];
+const SCHEMAS = [V1_SCHEMA, V2_SCHEMA, V3_SCHEMA, V4_SCHEMA, V6_SCHEMA, V7_SCHEMA, V8_SCHEMA, V9_SCHEMA, V12_SCHEMA, V13_SCHEMA, V14_SCHEMA, V17_SCHEMA];
 
 /** project_mr_demands.sections (v6): SQLite's ALTER TABLE ADD COLUMN has no
     IF NOT EXISTS, so unlike every statement in the V*_SCHEMA strings above it
