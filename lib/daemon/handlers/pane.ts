@@ -11,6 +11,7 @@ import { cswapExec, listCswapAccounts, readCswapAccounts } from "../../cswap.ts"
 import { herdrRequest, waitTimeout, type HerdrResult } from "../../herdr/client.ts";
 import { trayRequest } from "../../daemon-client.ts";
 import { herdrError, injectAfterTurn, injectIntoPane } from "../inject.ts";
+import { SLACK_OPEN_REFUSAL, opensSlackChat, slackOpenRefused } from "../../slack/format.ts";
 import { resolvePaneRef } from "../pane-ref-socket.ts";
 import { attendPane } from "../attend.ts";
 import { sessionFromPaneProcess, withProcessSession } from "../pane-process-session.ts";
@@ -149,11 +150,6 @@ export function sortPanes(panes: ChatPane[]): ChatPane[] {
     .map((p, i) => ({ p, i }))
     .sort((a, b) => STATUS_ORDER[a.p.presence?.status ?? "none"] - STATUS_ORDER[b.p.presence?.status ?? "none"] || a.i - b.i)
     .map(({ p }) => p);
-}
-
-/** Blank space ahead of the command must not slip it past the refusal. */
-function opensSlackChat(text: string | undefined): boolean {
-  return text?.trimStart().startsWith("/slack-support") ?? false;
 }
 
 export function createPaneHandlers(opts: {
@@ -324,6 +320,7 @@ export function createPaneHandlers(opts: {
     "pane:spawn": async (rawPayload: unknown, signal?: AbortSignal): Promise<CommandResult<"pane:spawn">> => {
       const payload = rawPayload as Commands["pane:spawn"]["payload"];
       const { cwd, account, model, effort, prompt } = payload;
+      if (opensSlackChat(prompt)) return slackOpenRefused();
       if (!cwd || !cwd.startsWith("/")) return { ok: false, error: "cwd must be an absolute path" };
       if (account) {
         const { accounts, stillRunning } = await readCswapAccounts(cswapRun, 15_000);
@@ -422,7 +419,7 @@ export function createPaneHandlers(opts: {
     "pane:send": async (rawPayload: unknown): Promise<CommandResult<"pane:send">> => {
       const payload = rawPayload as Commands["pane:send"]["payload"];
       if ((payload.callerPane || payload.selfSession) && (opensSlackChat(payload.text) || opensSlackChat(payload.continuation))) {
-        return { ok: true, data: { paneId: payload.paneId, delivered: "refused", reason: "only a person can open a Slack chat" } };
+        return { ok: true, data: { paneId: payload.paneId, delivered: "refused", reason: SLACK_OPEN_REFUSAL } };
       }
       const target = (payload.selfSession && (await livePane(payload.selfSession, payload.paneId))) || payload.paneId;
       const { paneId, sockPath } = resolvePaneRef(target);

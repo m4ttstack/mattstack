@@ -19,6 +19,18 @@ export function withPrefix(body: string): string {
   return SLACK_PREFIX + rest;
 }
 
+export const SLACK_OPEN_REFUSAL = "only a person can open a Slack chat";
+
+/** Blank space ahead of the command must not slip it past the refusal. */
+export function opensSlackChat(text: string | undefined): boolean {
+  return text?.trimStart().startsWith("/slack-support") ?? false;
+}
+
+/** For a verb that types caller text into a session; none of them has a reason to carry this command. */
+export function slackOpenRefused(): { ok: false; error: string; failure: { code: string; message: string } } {
+  return { ok: false, error: `chat: ${SLACK_OPEN_REFUSAL}`, failure: { code: "slack-chat", message: SLACK_OPEN_REFUSAL } };
+}
+
 export function holdingLine(operatorName: string): string {
   return `${SLACK_PREFIX}Claude is tied up for a moment. Your message is safe, and ${operatorName} has been told.`;
 }
