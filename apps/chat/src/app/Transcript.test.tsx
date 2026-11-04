@@ -1,16 +1,12 @@
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type { ChatMessage } from '@mattstack/rt-client';
-import {
-  act,
-  fireEvent,
-  screen,
-  waitFor,
-  within,
-} from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test } from 'vitest';
 
+import './icons';
+
 import { BuddiesProvider } from './buddies-context';
-import type { RosterBuddy } from './roster-types';
+import { SlackChatsProvider } from './slack-chats-context';
 import {
   FakeWebSocket,
   fetchMock,
@@ -20,7 +16,7 @@ import {
   renderTranscriptWithFakeSocket,
   restoreWebSocket,
 } from './test-utils';
-import { PAGE_SIZE, Transcript } from './Transcript';
+import { continuesGroup, PAGE_SIZE, Transcript } from './Transcript';
 
 /** `count` messages with consecutive ids ending at `lastId`, all today. */
 function page(count: number, lastId = count): ChatMessage[] {
@@ -52,7 +48,6 @@ beforeEach(() => {
 
 afterEach(() => {
   restoreWebSocket();
-  window.localStorage.removeItem('chat-expand-all');
 });
 
 test('a chat frame appends to the transcript without a refetch', async () => {
@@ -90,62 +85,15 @@ test('a reconnect refetches the tail without a frame', async () => {
 });
 
 test('a fenced block renders as a CodeBlock inside the message, never widening the column', async () => {
-  // Unread, so read-fold never clips it to its first block: this test is
-  // about the fence rendering, not the fold.
   renderWithProviders(
-    <Transcript
-      room="build"
-      messages={[longCodeBlockMessage]}
-      unreadCount={1}
-    />
+    <Transcript room="build" messages={[longCodeBlockMessage]} />
   );
   const block = await screen.findByTestId('code-block');
   await waitFor(() => expect(block).toHaveTextContent('Cannot find module'));
   expect(screen.getByTestId('transcript-column')).toBeInTheDocument();
 });
 
-test('the author header carries the fleet task line beside the sender', async () => {
-  installFakeWebSocket();
-  installFetchMock();
-  const now = Date.now();
-  const jay: RosterBuddy = {
-    sessionId: 'jay',
-    handle: 'jay',
-    baseHandle: 'jay',
-    name: 'jay',
-    status: 'live',
-    repo: 'boxscore',
-    branch: 'feat/metrics-hardening',
-    paneTitle: 'Boxscore mattstack integration',
-    signedInAt: now - 60_000,
-    lastSeenAt: now,
-    rooms: ['boxscore'],
-  };
-  renderWithProviders(
-    <BuddiesProvider buddies={[jay]} roomMembers={['jay']} now={now} reachable>
-      <Transcript
-        room="boxscore"
-        messages={[
-          {
-            id: 1,
-            room: 'boxscore',
-            handle: 'jay',
-            name: 'jay',
-            body: 'pushed the fix',
-            mentions: [],
-            mentionNames: [],
-            postedAt: now,
-          },
-        ]}
-      />
-    </BuddiesProvider>
-  );
-  expect(await screen.findByTestId('doing-jay')).toHaveTextContent(
-    'Boxscore mattstack integration'
-  );
-});
-
-test('a mention of the human is marked as me; the human’s own post is marked mine', () => {
+test('a mention of the human is marked as me', () => {
   renderWithProviders(
     <Transcript
       room="build"
@@ -177,66 +125,12 @@ test('a mention of the human is marked as me; the human’s own post is marked m
   const mention = screen.getByText('@matt');
   expect(mention).toHaveAttribute('data-mention', 'matt');
   expect(mention).toHaveAttribute('data-me', 'true');
-  expect(screen.getByTestId('message-1')).not.toHaveAttribute('data-mine');
-  expect(screen.getByTestId('message-2')).toHaveAttribute('data-mine', 'true');
-  expect(screen.getByTestId('message-2')).toHaveTextContent('you');
-});
-
-test("each speaker's handle chip carries its own hue, and the human's is accent", () => {
-  renderWithProviders(
-    <Transcript
-      room="build"
-      humanHandle="matt"
-      messages={[
-        {
-          id: 1,
-          room: 'build',
-          handle: 'fox',
-          name: 'fox',
-          body: 'first',
-          mentions: [],
-          mentionNames: [],
-          postedAt: 1,
-        },
-        {
-          id: 2,
-          room: 'build',
-          handle: 'max',
-          name: 'max',
-          body: 'second',
-          mentions: [],
-          mentionNames: [],
-          postedAt: 2,
-        },
-        {
-          id: 3,
-          room: 'build',
-          handle: 'matt',
-          name: 'matt',
-          body: 'third',
-          mentions: [],
-          mentionNames: [],
-          postedAt: 3,
-        },
-      ]}
-    />
-  );
-  const chips = screen.getAllByTestId('speaker-chip');
-  expect(chips).toHaveLength(3);
-  const [foxColor, maxColor, mattColor] = chips.map(chip =>
-    chip.style.getPropertyValue('--speaker-hue')
-  );
-  expect(foxColor).not.toBe(maxColor);
-  expect(mattColor).toContain('accent');
 });
 
 test('markdown structure reaches the row: paragraphs, a list, code untouched', () => {
-  // Unread, so read-fold never clips this multi-block body to its first
-  // paragraph: this test is about the markdown rendering, not the fold.
   renderWithProviders(
     <Transcript
       room="build"
-      unreadCount={1}
       messages={[
         {
           id: 1,
@@ -256,40 +150,6 @@ test('markdown structure reaches the row: paragraphs, a list, code untouched', (
   expect(body.querySelector('strong')).toHaveTextContent('point');
   expect(body.querySelectorAll('li')).toHaveLength(2);
   expect(screen.getByText('**not bold**').tagName).toBe('CODE');
-});
-
-test('a divider marks the read cursor before the unread tail', () => {
-  const now = Date.now();
-  renderWithProviders(
-    <Transcript
-      room="build"
-      unreadCount={1}
-      messages={[
-        {
-          id: 1,
-          room: 'build',
-          handle: 'deck-main',
-          name: 'deck-main',
-          body: 'read already',
-          mentions: [],
-          mentionNames: [],
-          postedAt: now - 1000,
-        },
-        {
-          id: 2,
-          room: 'build',
-          handle: 'rt-chat-wt',
-          name: 'rt-chat-wt',
-          body: 'still unread',
-          mentions: [],
-          mentionNames: [],
-          postedAt: now,
-        },
-      ]}
-    />
-  );
-  expect(screen.getByTestId('transcript-divider')).toBeInTheDocument();
-  expect(screen.getByText('1 new')).toBeInTheDocument();
 });
 
 test('the anchor scrolls once, and a later live merge does not repeat it', async () => {
@@ -324,14 +184,15 @@ test('the anchor scrolls once, and a later live merge does not repeat it', async
   }
 });
 
-test('an empty older page marks the top edge exhausted and stops paging', async () => {
+test('an empty older page ends the edge at where the chat started', async () => {
   renderTranscriptWithFakeSocket({ room: 'build', messages: page(PAGE_SIZE) });
   const edge = screen.getByTestId('transcript-edge');
-  expect(edge).toHaveTextContent('older messages');
+  expect(edge).toHaveTextContent('Load older messages');
   fireEvent.click(edge);
-  await screen.findByText('no older messages');
-  expect(olderRequests()).toHaveLength(1);
-  fireEvent.click(screen.getByTestId('transcript-edge'));
+  expect(await screen.findByTestId('transcript-start')).toHaveTextContent(
+    'This chat started today'
+  );
+  expect(screen.queryByTestId('transcript-edge')).toBeNull();
   expect(olderRequests()).toHaveLength(1);
 });
 
@@ -341,24 +202,30 @@ test('an error page leaves the top edge retryable instead of exhausting it', asy
     async () => new Response('{}', { status: 502 })
   );
   fireEvent.click(screen.getByTestId('transcript-edge'));
-  await screen.findByText('load older messages');
-  expect(screen.queryByText('no older messages')).toBeNull();
+  await waitFor(() => expect(olderRequests()).toHaveLength(1));
+  await waitFor(() =>
+    expect(screen.getByTestId('transcript-edge')).not.toHaveAttribute(
+      'data-loading'
+    )
+  );
   expect(screen.getByTestId('transcript-edge')).not.toBeDisabled();
+  expect(screen.queryByTestId('transcript-start')).toBeNull();
 });
 
 test("after an older page loads, the reader's row stays put while content above it settles", async () => {
-  // Folds apply a render after mount and highlighters land later still, so
-  // the content above the reader shrinks after the first correction; every
-  // ResizeObserver callback is captured (folds make one per message too)
-  // and fired by hand to stand in for that settling.
-  const callbacks: ResizeObserverCallback[] = [];
+  // Highlighters land after mount, so the content above the reader shrinks
+  // after the first correction; every live ResizeObserver callback is
+  // captured and fired by hand to stand in for that settling.
+  const callbacks = new Set<ResizeObserverCallback>();
   class CapturingResizeObserver {
-    constructor(callback: ResizeObserverCallback) {
-      callbacks.push(callback);
+    constructor(private readonly callback: ResizeObserverCallback) {
+      callbacks.add(callback);
     }
     observe() {}
     unobserve() {}
-    disconnect() {}
+    disconnect() {
+      callbacks.delete(this.callback);
+    }
   }
   const originalResizeObserver = globalThis.ResizeObserver;
   globalThis.ResizeObserver =
@@ -405,10 +272,10 @@ test('the older-messages control is a subtle Mantine button, so it reads as clic
   const edge = screen.getByTestId('transcript-edge');
   expect(edge.tagName).toBe('BUTTON');
   expect(edge).toHaveAttribute('data-variant', 'subtle');
-  expect(edge).toHaveTextContent('load older messages');
+  expect(edge).toHaveTextContent('Load older messages');
 });
 
-test('an older page shorter than the page size exhausts the edge without another round trip', async () => {
+test('an older page shorter than the page size ends the edge without another round trip', async () => {
   renderTranscriptWithFakeSocket({
     room: 'build',
     messages: page(PAGE_SIZE, 40),
@@ -419,19 +286,19 @@ test('an older page shorter than the page size exhausts the edge without another
     json: async () => ({ messages: page(3, 10) }),
   } as Response);
   fireEvent.click(screen.getByTestId('transcript-edge'));
-  await screen.findByText('no older messages');
+  await screen.findByTestId('transcript-start');
+  expect(screen.queryByTestId('transcript-edge')).toBeNull();
   expect(screen.getByTestId('message-8')).toBeInTheDocument();
   expect(olderRequests()).toHaveLength(1);
 });
 
-test('a first page shorter than the page size opens with the edge already exhausted', () => {
+test('a first page shorter than the page size opens at where the chat started, with no edge', () => {
   renderTranscriptWithFakeSocket({
     room: 'build',
     messages: page(PAGE_SIZE - 1),
   });
-  const edge = screen.getByTestId('transcript-edge');
-  expect(edge).toHaveTextContent('no older messages');
-  expect(edge).toBeDisabled();
+  expect(screen.getByTestId('transcript-start')).toBeInTheDocument();
+  expect(screen.queryByTestId('transcript-edge')).toBeNull();
 });
 
 test('the tail refetch and the older fetch each ask for one page', async () => {
@@ -570,7 +437,7 @@ test('opening a room never pages on its own, even when the list is taller than t
   await act(async () => {});
   expect(olderRequests()).toHaveLength(0);
   expect(screen.getByTestId('transcript-edge')).toHaveTextContent(
-    'load older messages'
+    'Load older messages'
   );
 });
 
@@ -587,41 +454,6 @@ test('scrolling to the top never pages on its own; only the edge button does', a
   fireEvent.click(screen.getByTestId('transcript-edge'));
   await waitFor(() => expect(olderRequests()).toHaveLength(1));
   expect(String(olderRequests()[0]![0])).toContain('before=31');
-});
-
-test('a notice renders at the edge, above the older-messages row, and without any messages at all', () => {
-  const one = [
-    {
-      id: 1,
-      room: 'build',
-      handle: 'meg',
-      name: 'meg',
-      body: 'hi',
-      mentions: [],
-      mentionNames: [],
-      postedAt: 1,
-    },
-  ];
-  const { unmount } = renderWithProviders(
-    <Transcript
-      room="build"
-      messages={one}
-      notice={<span>invited 2 · acme accepted</span>}
-    />
-  );
-  const notice = screen.getByTestId('transcript-notice');
-  expect(notice).toHaveTextContent('invited 2 · acme accepted');
-  expect(
-    notice.compareDocumentPosition(screen.getByTestId('transcript-edge')) &
-      Node.DOCUMENT_POSITION_FOLLOWING
-  ).toBeTruthy();
-  unmount();
-  renderWithProviders(
-    <Transcript room="quiet" messages={[]} notice={<span>invited 1</span>} />
-  );
-  expect(screen.getByTestId('transcript-notice')).toHaveTextContent(
-    'invited 1'
-  );
 });
 
 test('two bare URLs in one body both render as links', () => {
@@ -683,10 +515,7 @@ test('a day divider sits between messages on different days, never between same-
     />
   );
   const dividers = screen.getAllByTestId('day-divider');
-  expect(dividers.map(d => d.getAttribute('aria-label'))).toEqual([
-    'Yesterday',
-    'Today',
-  ]);
+  expect(dividers.map(d => d.textContent)).toEqual(['Yesterday', 'Today']);
   expect(
     screen
       .getByTestId('message-4')
@@ -736,23 +565,31 @@ test('the new pill counts live arrivals while scrolled up and goes away at the b
   expect(screen.queryByTestId('new-pill')).toBeNull();
 
   scrollTo(view, 100);
-  expect(screen.getByTestId('new-pill')).toHaveTextContent('↓ latest');
+  expect(screen.getByTestId('new-pill')).toHaveTextContent('Latest');
 
   pushFrame({ topic: 'chat/build/msg', payload: { id: 7 } });
   await screen.findByTestId('message-7');
-  expect(screen.getByTestId('new-pill')).toHaveTextContent('↓ 1 new');
+  expect(screen.getByTestId('new-pill')).toHaveTextContent('1 new message');
 
   scrollTo(view, 700);
   expect(screen.queryByTestId('new-pill')).toBeNull();
 });
 
-test('loading an older page puts a day divider above what was the first message', async () => {
+test('a first row with older messages to load carries its day', () => {
+  renderTranscriptWithFakeSocket({
+    room: 'build',
+    messages: page(PAGE_SIZE, 40),
+  });
+  expect(screen.getByTestId('day-divider')).toHaveTextContent('Today');
+  expect(screen.queryByTestId('transcript-start')).toBeNull();
+});
+
+test('reaching the oldest message swaps its day for the start line, and a day divider marks the next day', async () => {
   const now = Date.now();
   renderTranscriptWithFakeSocket({
     room: 'build',
     messages: page(PAGE_SIZE, 40),
   });
-  expect(screen.queryByTestId('day-divider')).toBeNull();
   // Queued AFTER the render: `renderTranscriptWithFakeSocket` installs the
   // fetch mock, and the `before=` request is the next call it answers.
   fetchMock.mockResolvedValueOnce({
@@ -775,396 +612,131 @@ test('loading an older page puts a day divider above what was the first message'
   } as Response);
   fireEvent.click(screen.getByTestId('transcript-edge'));
   await screen.findByTestId('message-1');
-  // Two: one above the loaded page (labelled with message 1's own day,
-  // which depends on the clock) and one at the boundary into today.
-  const labels = screen
-    .getAllByTestId('day-divider')
-    .map(d => d.getAttribute('aria-label'));
-  expect(labels).toHaveLength(2);
-  expect(labels[1]).toBe('Today');
-});
-
-function withTallBodies(run: () => void) {
-  const original = Object.getOwnPropertyDescriptor(
-    HTMLElement.prototype,
-    'scrollHeight'
+  expect(screen.getByTestId('transcript-start')).toHaveTextContent(
+    /^This chat started /
   );
-  Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
-    configurable: true,
-    get() {
-      return (this as HTMLElement).dataset.testid === 'message-body' ? 900 : 0;
-    },
-  });
-  try {
-    run();
-  } finally {
-    if (original)
-      Object.defineProperty(HTMLElement.prototype, 'scrollHeight', original);
-    else
-      delete (HTMLElement.prototype as unknown as Record<string, unknown>)
-        .scrollHeight;
-  }
-}
-
-const tall = {
-  id: 1,
-  room: 'build',
-  handle: 'fred',
-  name: 'fred',
-  body: Array.from({ length: 80 }, (_, i) => `line ${i}`).join('\n'),
-  mentions: [],
-  mentionNames: [],
-  postedAt: Date.now(),
-};
-
-test('a tall body folds with a show more control, and unfolds on click', async () => {
-  withTallBodies(() => {
-    renderWithProviders(<Transcript room="build" messages={[tall]} />);
-  });
-  const fold = screen.getByTestId('message-fold');
-  expect(fold).toHaveAttribute('data-folded', 'true');
-  fireEvent.click(screen.getByTestId('fold-toggle'));
-  expect(fold).toHaveAttribute('data-folded', 'false');
-  expect(screen.getByTestId('fold-toggle')).toHaveTextContent('show less');
+  expect(
+    screen.getAllByTestId('day-divider').map(d => d.textContent)
+  ).toEqual(['Today']);
 });
 
-test('the app-wide expand-all preference unfolds a tall body and hides its control', () => {
-  window.localStorage.setItem('chat-expand-all', 'true');
-  withTallBodies(() => {
-    renderWithProviders(<Transcript room="build" messages={[tall]} />);
-  });
-  expect(screen.getByTestId('message-fold')).toHaveAttribute(
-    'data-folded',
-    'false'
-  );
-  expect(screen.queryByTestId('fold-toggle')).not.toBeInTheDocument();
-});
-
-test('a body that grows after mount folds, without remounting the message body', () => {
-  // The kit's jsdom ResizeObserver polyfill is a no-op (`observe()` never
-  // calls back), which is exactly why the fold-on-mount tests never
-  // exercised the observer path -- this test stubs a real callback capture
-  // in its place, so the async-growth branch (a fenced block's highlighter
-  // resolving after mount) gets real coverage: the reflow must both flip
-  // the fold AND land on the SAME `message-body` node, since a remount here
-  // would drop the observer watching it (see Transcript.tsx's comment on
-  // the wrapper's fixed shape).
-  let height = 0;
-  const originalScrollHeight = Object.getOwnPropertyDescriptor(
-    HTMLElement.prototype,
-    'scrollHeight'
-  );
-  Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
-    configurable: true,
-    get() {
-      return (this as HTMLElement).dataset.testid === 'message-body'
-        ? height
-        : 0;
-    },
-  });
-
-  let observerCallback: (() => void) | undefined;
-  class CapturingResizeObserver {
-    constructor(callback: () => void) {
-      observerCallback = callback;
-    }
-    observe() {
-      /* the callback fires when the test flips `height`, not on observe */
-    }
-    unobserve() {}
-    disconnect() {}
-  }
-  const originalResizeObserver = globalThis.ResizeObserver;
-  globalThis.ResizeObserver =
-    CapturingResizeObserver as unknown as typeof ResizeObserver;
-
-  try {
-    renderWithProviders(<Transcript room="build" messages={[tall]} />);
-    const bodyBefore = screen.getByTestId('message-body');
-    expect(screen.queryByTestId('message-fold')).toBeNull();
-
-    height = 900;
-    act(() => observerCallback?.());
-
-    expect(screen.getByTestId('message-fold')).toHaveAttribute(
-      'data-folded',
-      'true'
-    );
-    expect(screen.getByTestId('message-body')).toBe(bodyBefore);
-  } finally {
-    globalThis.ResizeObserver = originalResizeObserver;
-    if (originalScrollHeight)
-      Object.defineProperty(
-        HTMLElement.prototype,
-        'scrollHeight',
-        originalScrollHeight
-      );
-    else
-      delete (HTMLElement.prototype as unknown as Record<string, unknown>)
-        .scrollHeight;
-  }
-});
-
-test('the anchored message mounts unfolded; a short body never folds', () => {
-  // jsdom has no scrollIntoView; the anchor effect calls it unconditionally.
-  const original = Element.prototype.scrollIntoView;
-  Element.prototype.scrollIntoView = function () {};
-  try {
-    withTallBodies(() => {
-      renderWithProviders(
-        <Transcript room="build" messages={[tall]} anchor="m-1" />
-      );
-    });
-    expect(screen.getByTestId('message-fold')).toHaveAttribute(
-      'data-folded',
-      'false'
-    );
-  } finally {
-    Element.prototype.scrollIntoView = original;
-  }
-  renderWithProviders(
-    <Transcript
-      room="other"
-      messages={[{ ...tall, id: 2, room: 'other', body: 'short' }]}
-    />
-  );
-  expect(screen.getAllByTestId('message-fold')).toHaveLength(1);
-});
-
-/** A two-block body: `moreLines` for it is always 1 (the second block is
-    one line), so a folded one always reads "1 more line". */
-function twoBlockMessage(id: number, postedAt = id): ChatMessage {
+function post(
+  id: number,
+  handle: string,
+  postedAt: number,
+  extra: Partial<ChatMessage> = {}
+): ChatMessage {
   return {
     id,
     room: 'build',
-    handle: 'fred',
-    name: 'fred',
-    body: `lead ${id}\n\nsecond ${id}`,
+    handle,
+    name: handle,
+    body: `m${id}`,
     mentions: [],
     mentionNames: [],
     postedAt,
+    ...extra,
   };
 }
 
-test('messages before the read boundary fold to their first block; those from it on render whole', () => {
-  renderWithProviders(
-    <Transcript
-      room="build"
-      unreadCount={2}
-      messages={[1, 2, 3, 4].map(id => twoBlockMessage(id))}
-    />
-  );
-  const read1 = screen.getByTestId('message-1');
-  const read2 = screen.getByTestId('message-2');
-  const unread3 = screen.getByTestId('message-3');
-  const unread4 = screen.getByTestId('message-4');
-  expect(read1).not.toHaveTextContent('second 1');
-  expect(read2).not.toHaveTextContent('second 2');
-  expect(within(read1).getByTestId('read-fold-toggle')).toHaveTextContent(
-    '1 more line'
-  );
-  expect(unread3).toHaveTextContent('second 3');
-  expect(unread4).toHaveTextContent('second 4');
-  expect(within(unread3).queryByTestId('read-fold-toggle')).toBeNull();
-  expect(within(unread4).queryByTestId('read-fold-toggle')).toBeNull();
+const MINUTE = 60_000;
+const NOON = new Date(2026, 5, 15, 12).getTime();
+
+test('continuesGroup: the same speaker within the hour groups', () => {
+  expect(
+    continuesGroup(post(1, 'fred', NOON), post(2, 'fred', NOON + MINUTE))
+  ).toBe(true);
+  expect(
+    continuesGroup(post(1, 'fred', NOON), post(2, 'fred', NOON + 60 * MINUTE))
+  ).toBe(true);
 });
 
-test("a folded message's control toggles only that message, both ways", () => {
+test('continuesGroup: past the hour does not group', () => {
+  expect(
+    continuesGroup(
+      post(1, 'fred', NOON),
+      post(2, 'fred', NOON + 60 * MINUTE + 1)
+    )
+  ).toBe(false);
+});
+
+test('continuesGroup: another speaker does not group', () => {
+  expect(
+    continuesGroup(post(1, 'fred', NOON), post(2, 'max', NOON + MINUTE))
+  ).toBe(false);
+});
+
+test('continuesGroup: two ids that share a name do not group', () => {
+  expect(
+    continuesGroup(
+      post(1, 'remy', NOON, { name: 'remy' }),
+      post(2, 'remy.m2p4', NOON + MINUTE, { name: 'remy' })
+    )
+  ).toBe(false);
+});
+
+test('continuesGroup: midnight breaks a group inside the hour', () => {
+  const lateNight = new Date(2026, 5, 15, 23, 50).getTime();
+  const nextDay = new Date(2026, 5, 16, 0, 10).getTime();
+  expect(
+    continuesGroup(post(1, 'fred', lateNight), post(2, 'fred', nextDay))
+  ).toBe(false);
+});
+
+test('continuesGroup: the first message starts a group', () => {
+  expect(continuesGroup(undefined, post(1, 'fred', NOON))).toBe(false);
+});
+
+test('a grouped message drops its face and name but keeps its body', () => {
   renderWithProviders(
     <Transcript
       room="build"
-      unreadCount={0}
-      messages={[twoBlockMessage(1), twoBlockMessage(2)]}
+      messages={[
+        post(1, 'fred', NOON),
+        post(2, 'fred', NOON + MINUTE),
+        post(3, 'max', NOON + 2 * MINUTE),
+      ]}
     />
   );
   const first = screen.getByTestId('message-1');
-  const second = screen.getByTestId('message-2');
-  // Unfold the first: it reveals its second block, and the control stays,
-  // now offering to re-fold.
-  fireEvent.click(within(first).getByTestId('read-fold-toggle'));
-  expect(first).toHaveTextContent('second 1');
-  expect(within(first).getByTestId('read-fold-toggle')).toHaveTextContent(
-    'fewer lines'
-  );
-  // The second is untouched: still folded, still showing "more line(s)".
-  expect(second).not.toHaveTextContent('second 2');
-  expect(within(second).getByTestId('read-fold-toggle')).toHaveTextContent(
-    'more line'
-  );
-  // Clicking the first again re-folds it.
-  fireEvent.click(within(first).getByTestId('read-fold-toggle'));
-  expect(first).not.toHaveTextContent('second 1');
-  expect(within(first).getByTestId('read-fold-toggle')).toHaveTextContent(
-    'more line'
-  );
+  const grouped = screen.getByTestId('message-2');
+  const next = screen.getByTestId('message-3');
+  expect(first).not.toHaveAttribute('data-grouped');
+  expect(first.querySelectorAll('img')).toHaveLength(1);
+  expect(first).toHaveTextContent('fred');
+  expect(grouped).toHaveAttribute('data-grouped', 'true');
+  expect(grouped.querySelectorAll('img')).toHaveLength(0);
+  expect(grouped).not.toHaveTextContent('fred');
+  expect(grouped).toHaveTextContent('m2');
+  expect(next).not.toHaveAttribute('data-grouped');
+  expect(next).toHaveTextContent('max');
 });
 
-test('unfolding a read row stands the tall fold down, leaving one control', () => {
-  withTallBodies(() => {
-    renderWithProviders(
-      <Transcript
-        room="build"
-        unreadCount={0}
-        messages={[twoBlockMessage(1)]}
-      />
-    );
-  });
-  const row = screen.getByTestId('message-1');
-  // The read-fold owns this row's reveal: its click must not hand the body
-  // straight to the tall fold's own 320px clip, or reading one message
-  // costs two clicks through two controls.
-  fireEvent.click(within(row).getByTestId('read-fold-toggle'));
-  expect(row).toHaveTextContent('second 1');
-  expect(within(row).getByTestId('message-fold')).toHaveAttribute(
-    'data-folded',
-    'false'
-  );
-  expect(within(row).queryByTestId('fold-toggle')).toBeNull();
-  // Re-folding hands the row back: the two folds stay independent, so this
-  // is not a one-way latch.
-  fireEvent.click(within(row).getByTestId('read-fold-toggle'));
-  expect(within(row).getByTestId('fold-toggle')).toBeInTheDocument();
-});
-
-test('an undefined unreadCount folds every message', () => {
-  renderWithProviders(
-    <Transcript room="build" messages={[twoBlockMessage(1)]} />
-  );
-  expect(screen.getByTestId('message-1')).not.toHaveTextContent('second 1');
-});
-
-test('the anchored message renders whole even before the read boundary', () => {
-  // jsdom has no scrollIntoView; the anchor effect calls it unconditionally.
-  const original = Element.prototype.scrollIntoView;
-  Element.prototype.scrollIntoView = function () {};
-  try {
-    renderWithProviders(
-      <Transcript
-        room="build"
-        unreadCount={0}
-        anchor="m-1"
-        messages={[twoBlockMessage(1), twoBlockMessage(2)]}
-      />
-    );
-    expect(screen.getByTestId('message-1')).toHaveTextContent('second 1');
-    expect(screen.getByTestId('message-2')).not.toHaveTextContent('second 2');
-  } finally {
-    Element.prototype.scrollIntoView = original;
-  }
-});
-
-test('the app-wide expand-all preference also unfolds read-folded messages', () => {
-  window.localStorage.setItem('chat-expand-all', 'true');
-  renderWithProviders(
-    <Transcript room="build" messages={[twoBlockMessage(1)]} />
-  );
-  expect(screen.getByTestId('message-1')).toHaveTextContent('second 1');
-  expect(screen.queryByTestId('read-fold-toggle')).toBeNull();
-});
-
-test('an unread room message with an unanswered @here carries the unclaimed chip', () => {
+test('the compact embed groups the same way, with the face in the header', () => {
   renderWithProviders(
     <Transcript
+      compact
       room="build"
-      unreadCount={1}
-      messages={[
-        {
-          id: 1,
-          room: 'build',
-          handle: 'fred',
-          name: 'fred',
-          body: '@here needs eyes on this',
-          mentions: [],
-          mentionNames: [],
-          postedAt: Date.now() - 60_000,
-        },
-      ]}
+      messages={[post(1, 'fred', NOON), post(2, 'fred', NOON + MINUTE)]}
     />
   );
-  expect(screen.getByTestId('unclaimed-chip')).toHaveTextContent(
-    '@here · unclaimed'
+  expect(screen.getByTestId('transcript-column')).toHaveAttribute(
+    'data-compact',
+    'true'
+  );
+  expect(screen.getByTestId('message-1').querySelectorAll('img')).toHaveLength(
+    1
+  );
+  expect(screen.getByTestId('message-2')).toHaveAttribute(
+    'data-grouped',
+    'true'
+  );
+  expect(screen.getByTestId('message-2').querySelectorAll('img')).toHaveLength(
+    0
   );
 });
 
-test('a reply to the @here message clears the unclaimed chip', () => {
-  renderWithProviders(
-    <Transcript
-      room="build"
-      unreadCount={2}
-      messages={[
-        {
-          id: 1,
-          room: 'build',
-          handle: 'fred',
-          name: 'fred',
-          body: '@here needs eyes on this',
-          mentions: [],
-          mentionNames: [],
-          postedAt: 1,
-        },
-        {
-          id: 2,
-          room: 'build',
-          handle: 'max',
-          name: 'max',
-          body: 'on it',
-          mentions: [],
-          mentionNames: [],
-          replyTo: 1,
-          postedAt: 2,
-        },
-      ]}
-    />
-  );
-  expect(screen.queryByTestId('unclaimed-chip')).toBeNull();
-});
-
-test('a read @here message never carries the unclaimed chip', () => {
-  renderWithProviders(
-    <Transcript
-      room="build"
-      unreadCount={0}
-      messages={[
-        {
-          id: 1,
-          room: 'build',
-          handle: 'fred',
-          name: 'fred',
-          body: '@here needs eyes on this',
-          mentions: [],
-          mentionNames: [],
-          postedAt: 1,
-        },
-      ]}
-    />
-  );
-  expect(screen.queryByTestId('unclaimed-chip')).toBeNull();
-});
-
-test('a DM never carries the unclaimed chip, even for an unanswered @here', () => {
-  renderWithProviders(
-    <Transcript
-      room="build"
-      isDm
-      unreadCount={1}
-      messages={[
-        {
-          id: 1,
-          room: 'build',
-          handle: 'fred',
-          name: 'fred',
-          body: '@here needs eyes on this',
-          mentions: [],
-          mentionNames: [],
-          postedAt: 1,
-        },
-      ]}
-    />
-  );
-  expect(screen.queryByTestId('unclaimed-chip')).toBeNull();
-});
-
-test('two identities that share a name read the same and keep their own hue', () => {
+test('two identities that share a name read the same, and a mention keeps the id', () => {
   renderWithProviders(
     <BuddiesProvider
       buddies={[]}
@@ -1175,56 +747,43 @@ test('two identities that share a name read the same and keep their own hue', ()
       <Transcript
         room="rt"
         messages={[
-          {
-            id: 1,
-            room: 'rt',
-            handle: 'remy',
-            name: 'remy',
-            body: 'old tail is mine',
-            mentions: [],
-            mentionNames: [],
-            postedAt: 1,
-          },
-          {
-            id: 2,
-            room: 'rt',
-            handle: 'remy.m2p4',
-            name: 'remy',
-            body: 'new here',
-            mentions: [],
-            mentionNames: [],
-            postedAt: 2,
-          },
-          {
-            id: 3,
-            room: 'rt',
-            handle: 'max',
-            name: 'max',
+          post(1, 'remy', NOON, { name: 'remy' }),
+          post(2, 'remy.m2p4', NOON + MINUTE, { name: 'remy' }),
+          post(3, 'max', NOON + 2 * MINUTE, {
             body: '@remy welcome',
             mentions: ['remy.m2p4'],
             mentionNames: ['remy'],
-            postedAt: 3,
-          },
+          }),
         ]}
       />
     </BuddiesProvider>
   );
-  const chips = screen.getAllByTestId('speaker-chip');
-  expect(chips[0]).toHaveTextContent(/^remy$/);
-  expect(chips[1]).toHaveTextContent(/^remy$/);
+  expect(screen.getByTestId('message-1')).toHaveTextContent('remy');
+  expect(screen.getByTestId('message-2')).toHaveTextContent('remy');
   expect(screen.getByTestId('message-2')).not.toHaveTextContent('m2p4');
-  const hue = (chip: HTMLElement) =>
-    chip.style.getPropertyValue('--speaker-hue');
-  expect(hue(chips[0]!)).not.toBe(hue(chips[1]!));
-  const avatar = (chip: HTMLElement) =>
-    chip.querySelector('svg')!.getAttribute('fill');
-  expect(avatar(chips[0]!)).not.toBe(avatar(chips[1]!));
-  // The avatar draws the glyph (-vivid) tone of the chip's own hue.
-  for (const chip of chips)
-    expect(avatar(chip)!.replaceAll('-vivid', '')).toBe(hue(chip));
   const mention = screen
     .getByTestId('message-3')
     .querySelector('[data-mention]')!;
   expect(mention).toHaveTextContent('@remy');
   expect(mention).toHaveAttribute('data-mention', 'remy.m2p4');
+});
+
+test('a Slack chat that ended says so at the foot of the transcript', () => {
+  renderWithProviders(
+    <SlackChatsProvider chats={[{ room: 'build', closedAt: NOON }]}>
+      <Transcript room="build" messages={[post(1, 'fred', NOON)]} />
+    </SlackChatsProvider>
+  );
+  expect(screen.getByTestId('slack-closed-note')).toHaveTextContent(
+    'Chat closed'
+  );
+});
+
+test('an open Slack chat and a plain room show no closed note', () => {
+  renderWithProviders(
+    <SlackChatsProvider chats={[{ room: 'build' }]}>
+      <Transcript room="build" messages={[post(1, 'fred', NOON)]} />
+    </SlackChatsProvider>
+  );
+  expect(screen.queryByTestId('slack-closed-note')).toBeNull();
 });
