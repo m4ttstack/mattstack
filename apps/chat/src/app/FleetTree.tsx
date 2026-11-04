@@ -8,10 +8,12 @@ import {
   UnstyledButton,
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
+import { notifications } from '@mattstack/app-kit/notifications';
 import type { RoomSummary } from '@mattstack/rt-client';
 
 import { agentState, isRoomForRepo, stateLine } from './agent-state';
 import { AgentHoverCard, AgentName } from './AgentName';
+import { useBuddies } from './buddies-context';
 import { dayKey, dayLabel, localTime } from './day-label';
 import { displayName, sameNameOrdinals } from './display-name';
 import { DmNames, DmStack } from './DmPairTitle';
@@ -214,6 +216,18 @@ function RowMenu({
   onClose: (room: string) => void;
   children: React.ReactElement;
 }) {
+  const ctx = useBuddies();
+  const pair = room.kind === 'dm' ? room.participants : undefined;
+  const panes = (pair ? [pair.a, pair.b] : []).flatMap(handle => {
+    const paneId = ctx?.byHandle.get(handle)?.pane;
+    return paneId ? [{ paneId, name: ctx?.nameOf(handle) ?? handle }] : [];
+  });
+  const copyLink = () => {
+    const link = `${window.location.origin}/r/${encodeURIComponent(room.room)}`;
+    void navigator.clipboard
+      .writeText(link)
+      .then(() => notifications.success('Link copied'));
+  };
   return (
     <Menu
       onChange={onChange}
@@ -228,11 +242,24 @@ function RowMenu({
     >
       <Menu.ContextMenu>{children}</Menu.ContextMenu>
       <Menu.Dropdown data-testid={testId}>
+        {panes.map(pane => (
+          <Menu.Item
+            key={pane.paneId}
+            data-testid={`room-context-focus-${pane.paneId}`}
+            onClick={() => ctx?.actions?.focusPane?.(pane.paneId)}
+          >
+            Focus {pane.name}&apos;s pane
+          </Menu.Item>
+        ))}
+        <Menu.Item data-testid="room-context-copy" onClick={copyLink}>
+          Copy link
+        </Menu.Item>
+        <Menu.Divider />
         <Menu.Item
           data-testid="room-context-close"
           onClick={() => onClose(room.room)}
         >
-          Close
+          {room.kind === 'dm' ? 'Close conversation' : 'Close room'}
         </Menu.Item>
       </Menu.Dropdown>
     </Menu>
