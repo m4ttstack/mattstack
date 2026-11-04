@@ -129,7 +129,9 @@ with two differences in how a row reads:
 - A tool whose install failed (T7) reads `tone: "failed"`: Retry re-runs the same
   install, a second action opens the manual steps when the tool has any, and the
   failure sits beside them in the failure colour in place of the subtext. The row
-  stays open and holds Done.
+  stays open and holds Done. A press of Install or Retry reaches this row too,
+  since `rt tools install` records its outcome where the form reads it.
+- A press of a row's install shows Installing while it runs.
 
 The stage never records Finish.
 
