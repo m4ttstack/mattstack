@@ -67,7 +67,7 @@ The existing ack means each announcement shows once.
 
 ## Known limits
 
-Matt has seen these and accepted them with this approach:
+These come with this approach, and need Matt's approval with this document:
 
 - Delivery takes up to about 60 seconds, the board's tick.
 - A Mac only gets announcements if its board is running and connected.
