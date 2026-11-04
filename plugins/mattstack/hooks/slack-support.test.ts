@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On, ProcessSpawnChunk, ProcessSpawnRequest, ProcessSpawnResult, PromptOrigin, PromptSubmitResult } from 'claude-code'
 
-import { parseSupportArgs, renderDelivery, supportRules, type SlackWatchLine } from './slack-support-text.ts'
+import { parseSupportArgs, renderDelivery, supportRules, touchesSlackSupport, type SlackWatchLine } from './slack-support-text.ts'
 
 const SESSION = '11111111-1111-4111-8111-111111111111'
 const PRESENTATION = { isFullscreen: false, columns: 100 }
@@ -707,3 +707,49 @@ test('a hook failure refuses the open', async ($, on) => {
 test('a Slack user id reaches the open unchanged', () => {
   expect(parseSupportArgs('U0TEST printer jams')).toEqual({ person: 'U0TEST', problem: 'printer jams' })
 })
+
+for (const kind of ['message', 'operator-slack', 'check-in', 'close-request', 'closed'] as const) {
+  test(`a ${kind} delivery carries its item id`, () => {
+    expect(renderDelivery({ ...LINE, kind })).toContain('Slack item 41.')
+  })
+}
+
+test('two deliveries of the same words differ by id', () => {
+  expect(renderDelivery({ ...LINE, text: 'yes', id: 41 })).not.toBe(renderDelivery({ ...LINE, text: 'yes', id: 42 }))
+})
+
+const HOSTILE: readonly (readonly [string, string])[] = [
+  ['quoted assignments', 'A="1" '.repeat(40)],
+  ['single-quoted assignments', "A='1' ".repeat(40)],
+  ['spaces inside the quotes', 'A="1 2" '.repeat(40)],
+  ['many quoted assignments', 'A="1" '.repeat(20_000)],
+  ['unmatched quotes', 'A="1 '.repeat(2_000)],
+  ['unmatched single quotes', "A='1 ".repeat(2_000)],
+  ['mixed quotes', `A="1'2 B='3"4 `.repeat(1_000)],
+  ['a long word of quotes', `A=${'"'.repeat(5_000)} `],
+]
+
+for (const [shape, prefix] of HOSTILE) {
+  test(`a hostile command stays fast: ${shape}`, () => {
+    const started = performance.now()
+    expect(touchesSlackSupport(`${prefix}ls`)).toBe(false)
+    expect(performance.now() - started).toBeLessThan(250)
+  })
+}
+
+const ASSIGNMENTS = [
+  'A=1 rt chat slack-open alex',
+  'A="x y" rt chat slack-open alex',
+  "A='x y' rt chat slack-open alex",
+  'A="b"c rt chat slack-open alex',
+  `A="b"'c'd rt chat slack-open alex`,
+  'A= rt chat slack-open alex',
+  'A="unclosed rt chat slack-open alex',
+  'bash -c "A=\\"1 2\\" rt chat slack-open alex"',
+]
+
+for (const command of ASSIGNMENTS) {
+  test(`assignment forms still reach the verb: ${command}`, () => {
+    expect(touchesSlackSupport(command)).toBe(true)
+  })
+}

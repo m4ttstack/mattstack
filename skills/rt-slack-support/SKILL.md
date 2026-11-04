@@ -90,10 +90,11 @@ arrives until they answer.
 ## Every turn after that
 
 Teammate messages reach you as a plugin message: the support rules, the
-teammate's text between two marker lines, and a reply hint. Nothing needs
-arming or polling. A turn ends after your reply, and the next message starts
-the next turn. A message that repeats one you answered is a redelivery: skip
-it.
+teammate's text between two marker lines, and a reply hint, ending with its id,
+`Slack item <id>.`. Nothing needs arming or polling. A turn ends after your
+reply, and the next message starts the next turn. A delivery whose id you have
+already answered is a redelivery: skip it. Decide by the id alone, since a
+teammate can send the same words twice.
 
 The operator's messages from the chat UI come the other way: an ordinary rt chat
 line, `[dm] <name> #<id>: body`, with a reply hint that names the operator. The

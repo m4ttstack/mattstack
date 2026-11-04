@@ -22,7 +22,10 @@ const NO_REASON = 'rt gave no reason'
 // A string match, not a shell parser: it stops accidents and misled panes, and
 // it loads in every session, so an argument such as `rg "rt chat slack-open"` must pass.
 const COMMAND_START = String.raw`(?:^|[;&|({\n\x60]|(?:-\w*c|eval)\s+["'])\s*`
-const WRAPPERS = String.raw`(?:(?:\w+=(?:"[^"]*"|'[^']*'|\S*)|-\S+|env|command|exec|nohup|time|xargs|then|do|else|bun(?:\s+run)?)\s+)*`
+// Each branch of a value starts differently, so a token parses one way and a
+// long run of assignments can't backtrack exponentially.
+const VALUE = String.raw`(?:"[^"]*"|'[^']*'|[^\s"']|"(?![^"]*")|'(?![^']*'))*`
+const WRAPPERS = String.raw`(?:(?:\w+=${VALUE}|-\S+|env|command|exec|nohup|time|xargs|then|do|else|bun(?:\s+run)?)\s+)*`
 const TOOL = String.raw`(?:\S*/)?(?:rt|herdr|cli\.ts)(?=\s|$)`
 const RUNS_TOOL = new RegExp(COMMAND_START + WRAPPERS + TOOL)
 const RUNS_HIDDEN_VERB = new RegExp(`${COMMAND_START}${WRAPPERS}${TOOL}(?:\\s+-\\S+)*\\s+chat\\s+slack-(?:open|watch|delivered)(?![\\w-])`)
@@ -41,6 +44,10 @@ function withoutMarker(text: string, marker: string): string {
 }
 
 export function renderDelivery(line: SlackWatchLine): string {
+  return `${renderBody(line)}\n\nSlack item ${line.id}.`
+}
+
+function renderBody(line: SlackWatchLine): string {
   const { handle, marker, operator, text } = line
   // A Slack name is the teammate's to set, and it lands outside the marker lines.
   const name = withoutMarker(line.name, marker).replace(/\s+/g, ' ').trim()
