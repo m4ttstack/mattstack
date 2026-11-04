@@ -81,15 +81,19 @@ export function mergeOrgRequirements(team: PackRequirements | null, teamName: st
   }
   const integrations = [...new Set([...(team?.integrations ?? []), ...org.integrations.filter((i) => !dropped.has(i))])];
   const base: PackRequirements = team ?? { pack: teamName, tools: [], integrations: [], orgOnly: true };
-  return { ...base, tools: [...(team?.tools ?? []), ...kept], integrations, ...(org.error ? { orgError: org.error } : {}) };
+  return { ...base, tools: [...(team?.tools ?? []), ...kept], integrations, ...(org.error ? { orgError: org.error.replaceAll(packLabel(org.pack), "") } : {}) };
+}
+
+function packLabel(packName: string): string {
+  return `pack "${packName}": `;
 }
 
 /** Malformed entries and a dropped connect.integration are both reported through `error`, never silently — `index`/`packName` name which tool a pack author needs to fix, since two skipped entries in one file would otherwise render as identical, unactionable text. */
 function parseToolRequirement(t: unknown, index: number, packName: string): { tool: ToolRequirement | null; error?: string } {
-  if (typeof t !== "object" || t === null) return { tool: null, error: `pack "${packName}": tools[${index}] is malformed, skipped` };
+  if (typeof t !== "object" || t === null) return { tool: null, error: `${packLabel(packName)}tools[${index}] is malformed, skipped` };
   const o = t as Record<string, unknown>;
   if (typeof o.name !== "string" || typeof o.why !== "string") {
-    return { tool: null, error: `pack "${packName}": tools[${index}] is malformed, skipped` };
+    return { tool: null, error: `${packLabel(packName)}tools[${index}] is malformed, skipped` };
   }
 
   const result: ToolRequirement = { name: o.name, why: o.why };
@@ -111,7 +115,7 @@ function parseToolRequirement(t: unknown, index: number, packName: string): { to
       if (KNOWN_INTEGRATION_IDS.has(c.integration as Integration)) {
         result.connect = { integration: c.integration as Integration };
       } else {
-        connectError = `pack "${packName}": tool "${result.name}" declares unknown integration "${c.integration}"`;
+        connectError = `${packLabel(packName)}tool "${result.name}" declares unknown integration "${c.integration}"`;
       }
     } else if (Array.isArray(c.verb) && c.verb.every((v) => typeof v === "string") && typeof c.label === "string") {
       result.connect = { verb: c.verb as string[], label: c.label };

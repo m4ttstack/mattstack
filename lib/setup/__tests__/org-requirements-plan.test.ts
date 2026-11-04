@@ -116,7 +116,7 @@ describe("orgNotice against a real plan", () => {
     const row = plan.groups.flatMap((g) => g.rows).find((r) => r.id === "org.requirements");
     const form = await composeForm(p, { secrets, orgs: ["acme"] });
     expect(form.orgNotice).toEqual({ title: "Your org's setup file has an error. Ask an admin to fix it", detail: row!.detail });
-    expect(form.orgNotice?.detail).toContain("tools[1]");
+    expect(form.orgNotice?.detail).toBe("tools[1] is malformed, skipped");
   });
 
   test("a section read carries no orgNotice", async () => {

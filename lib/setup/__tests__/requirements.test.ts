@@ -217,8 +217,16 @@ describe("readPackRequirements", () => {
       const bad = JSON.stringify({ tools: [{ name: "doppler", why: "secrets" }, { nope: 1 }], integrations: [] });
       const result = readPackRequirements(fakeProbes({ home: "/fake-home", files: { [file]: teamReq, [orgFile]: bad } }), "acme", "widgets");
       expect(result[0]!.tools.map((t) => t.name)).toEqual(["jq", "doppler"]);
-      expect(result[0]!.orgError).toContain("tools[1]");
+      expect(result[0]!.orgError).toBe("tools[1] is malformed, skipped");
       expect(result[0]!.error).toBeUndefined();
+    });
+
+    test("every org error drops the pack label, and a team's own error keeps it", () => {
+      const bad = JSON.stringify({ tools: [{ nope: 1 }, { name: "doppler", why: "secrets", connect: { integration: "nope" } }], integrations: [] });
+      const badTeam = JSON.stringify({ tools: [{ nope: 1 }], integrations: [] });
+      const [merged] = readPackRequirements(fakeProbes({ home: "/fake-home", files: { [file]: badTeam, [orgFile]: bad } }), "acme", "widgets");
+      expect(merged!.orgError).toBe('tools[0] is malformed, skipped; tool "doppler" declares unknown integration "nope"');
+      expect(merged!.error).toBe('pack "widgets": tools[0] is malformed, skipped');
     });
 
     test("an unconverted team folder keeps its error entry and still folds org tools", () => {
