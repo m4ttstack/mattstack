@@ -409,7 +409,7 @@ test("an open Slack chat's composer shows Only Claude sees this", () => {
     <SlackChatsProvider rooms={['dm-slack']}>
       <Composer
         room="dm-slack"
-        roomMembers={['alex', 'matt']}
+        roomMembers={['alex', 'kai']}
         buddies={[]}
         isDm
       />
@@ -442,7 +442,7 @@ test("a Slack support room's placeholder drops the both-will-wake hint", () => {
     <SlackChatsProvider rooms={['dm-slack']}>
       <Composer
         room="dm-slack"
-        roomMembers={['alex', 'matt']}
+        roomMembers={['alex', 'kai']}
         buddies={[]}
         isDm
       />
@@ -450,7 +450,7 @@ test("a Slack support room's placeholder drops the both-will-wake hint", () => {
   );
   expect(screen.getByRole('textbox')).toHaveAttribute(
     'placeholder',
-    'Message alex ↔ matt'
+    'Message alex ↔ kai'
   );
 });
 
