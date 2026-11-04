@@ -29,6 +29,7 @@ import { useInterval } from 'react-interval-hook';
 import { useLocation } from 'wouter';
 import { navigate } from 'wouter/use-browser-location';
 
+import classes from './app.module.css';
 import { BuddiesProvider } from './buddies-context';
 import { AppMark } from './chrome/AppMark';
 import { Composer, type ComposerHandle } from './Composer';
@@ -55,6 +56,8 @@ export type Buddy = RosterBuddy;
 
 const SIDEBAR_WIDTH = 272;
 const PAGE_ROW_HEIGHT = 44;
+/** The top bar and sidebar are one surface; the room sits on it as a sheet. */
+const CHROME_SURFACE = 'var(--tk-bg)';
 
 /**
  * Seeds the app's data instead of a network call -- every UI test in this
@@ -395,104 +398,106 @@ function ChatPage({
 }: ChatPageProps) {
   const isMobile = useIsMobile();
   return (
-    <PageShell
-      scrollClamp
-      sidebarWidth={SIDEBAR_WIDTH}
-      headerHeight={PAGE_ROW_HEIGHT}
-      compactHeader
-      drawerStateKey="chat-rooms-sidebar"
-    >
-      {(rooms.length > 0 || buddies.length > 0) && (
-        <PageShell.Sidebar
-          bg="var(--tk-panel)"
-          hideCollapseButton
-          withBorder={false}
-          // The kit's sidebar ScrollArea content defaults to
-          // `min-width: min-content`, which would size the column to its
-          // widest row and defeat each row's own truncation.
-          scrollAreaProps={{ styles: { content: { minWidth: 0 } } }}
-        >
-          <ChatSidebar
-            rooms={railRooms}
-            buddies={buddies}
-            activeRoom={activeRoom}
-            selectRoom={selectRoom}
-            reachable={daemon.reachable}
-            onOpenDm={onOpenDm}
-            onCloseRoom={onCloseRoom}
-            onFocusPane={onFocusPane}
-          />
-        </PageShell.Sidebar>
-      )}
-      <PageShell.Main>
-        {activeRoomSummary && (
-          <PageShell.Header
+    <div className={classes.sheet}>
+      <PageShell
+        scrollClamp
+        sidebarWidth={SIDEBAR_WIDTH}
+        headerHeight={PAGE_ROW_HEIGHT}
+        compactHeader
+        drawerStateKey="chat-rooms-sidebar"
+      >
+        {(rooms.length > 0 || buddies.length > 0) && (
+          <PageShell.Sidebar
+            bg={CHROME_SURFACE}
+            hideCollapseButton
             withBorder={false}
-            style={{ borderBottom: '1px solid var(--tk-border-soft)' }}
+            // The kit's sidebar ScrollArea content defaults to
+            // `min-width: min-content`, which would size the column to its
+            // widest row and defeat each row's own truncation.
+            scrollAreaProps={{ styles: { content: { minWidth: 0 } } }}
           >
-            <PageBar
-              room={activeRoomSummary}
-              buddies={buddies.filter(b => roomMembers.includes(b.handle))}
+            <ChatSidebar
+              rooms={railRooms}
+              buddies={buddies}
+              activeRoom={activeRoom}
+              selectRoom={selectRoom}
               reachable={daemon.reachable}
+              onOpenDm={onOpenDm}
+              onCloseRoom={onCloseRoom}
+              onFocusPane={onFocusPane}
             />
-          </PageShell.Header>
+          </PageShell.Sidebar>
         )}
-        <PageShell.Content
-          contentContainer={false}
-          topNotch={{
-            opened: !daemon.reachable,
-            content: (
-              <Box w="100%" px="lg" pt="lg" data-testid="daemon-banner-slot">
-                <DaemonBanner
-                  reachable={daemon.reachable}
-                  downSince={daemon.downSince}
-                  probeCount={daemon.probeCount}
-                  lastAnsweredAt={daemon.lastAnsweredAt}
-                  onProbeNow={daemon.probeNow}
-                />
-              </Box>
-            ),
-          }}
-        >
-          <Group
-            align="stretch"
-            wrap="nowrap"
-            gap={0}
-            style={{ flex: 1, minHeight: 0, minWidth: 0 }}
+        <PageShell.Main>
+          {activeRoomSummary && (
+            <PageShell.Header
+              withBorder={false}
+              style={{ borderBottom: '1px solid var(--tk-border-soft)' }}
+            >
+              <PageBar
+                room={activeRoomSummary}
+                buddies={buddies.filter(b => roomMembers.includes(b.handle))}
+                reachable={daemon.reachable}
+              />
+            </PageShell.Header>
+          )}
+          <PageShell.Content
+            contentContainer={false}
+            topNotch={{
+              opened: !daemon.reachable,
+              content: (
+                <Box w="100%" px="lg" pt="lg" data-testid="daemon-banner-slot">
+                  <DaemonBanner
+                    reachable={daemon.reachable}
+                    downSince={daemon.downSince}
+                    probeCount={daemon.probeCount}
+                    lastAnsweredAt={daemon.lastAnsweredAt}
+                    onProbeNow={daemon.probeNow}
+                  />
+                </Box>
+              ),
+            }}
           >
-            {openRooms.length === 0 && !activeRoomSummary ? (
-              <Box style={{ flex: 1, minWidth: 0 }} p="xl">
-                <RoomsPlaceholder
-                  anyBuddies={buddies.length > 0}
-                  allClosed={rooms.length > 0}
-                />
-              </Box>
-            ) : (
-              activeRoom && (
-                <Transcript
-                  room={activeRoom}
-                  messages={messages}
-                  humanHandle={HUMAN_HANDLE}
-                  anchor={anchor}
-                  footer={
-                    <Composer
-                      ref={composerRef}
-                      phone={isMobile}
-                      room={activeRoom}
-                      roomMembers={roomMembers}
-                      buddies={buddies}
-                      isDm={activeRoomSummary?.kind === 'dm'}
-                      daemonReachable={daemon.reachable}
-                      onOpenDm={onOpenDm}
-                    />
-                  }
-                />
-              )
-            )}
-          </Group>
-        </PageShell.Content>
-      </PageShell.Main>
-    </PageShell>
+            <Group
+              align="stretch"
+              wrap="nowrap"
+              gap={0}
+              style={{ flex: 1, minHeight: 0, minWidth: 0 }}
+            >
+              {openRooms.length === 0 && !activeRoomSummary ? (
+                <Box style={{ flex: 1, minWidth: 0 }} p="xl">
+                  <RoomsPlaceholder
+                    anyBuddies={buddies.length > 0}
+                    allClosed={rooms.length > 0}
+                  />
+                </Box>
+              ) : (
+                activeRoom && (
+                  <Transcript
+                    room={activeRoom}
+                    messages={messages}
+                    humanHandle={HUMAN_HANDLE}
+                    anchor={anchor}
+                    footer={
+                      <Composer
+                        ref={composerRef}
+                        phone={isMobile}
+                        room={activeRoom}
+                        roomMembers={roomMembers}
+                        buddies={buddies}
+                        isDm={activeRoomSummary?.kind === 'dm'}
+                        daemonReachable={daemon.reachable}
+                        onOpenDm={onOpenDm}
+                      />
+                    }
+                  />
+                )
+              )}
+            </Group>
+          </PageShell.Content>
+        </PageShell.Main>
+      </PageShell>
+    </div>
   );
 }
 
@@ -761,7 +766,12 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
       reachable={daemon.reachable}
       actions={buddyActions}
     >
-      <MattstackShell name="chat" rail={false} mark={<AppMark size={26} />}>
+      <MattstackShell
+        name="chat"
+        rail={false}
+        headerSurface={CHROME_SURFACE}
+        mark={<AppMark size={26} />}
+      >
         <MattstackShell.Header actions={<SettingsButton />} />
         <ScopeBar info={viewer} />
         <ViewerChip info={viewer} />

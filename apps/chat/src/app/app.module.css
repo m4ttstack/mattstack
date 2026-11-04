@@ -1,0 +1,20 @@
+/* `display: contents` keeps PageShell's own layout; this only scopes the rules
+   below to the full page, so the embed stays flat. */
+.sheet {
+  display: contents;
+}
+
+@media (min-width: 48em) {
+  .sheet :global(#page-shell-main) {
+    background: var(--tk-card);
+    /* A shadow, not a border: a border adds to the page height and brings up a
+       window scrollbar. */
+    box-shadow: -1px -1px 0 var(--tk-border-soft);
+    border-top-left-radius: var(--mantine-radius-lg);
+    overflow: hidden;
+  }
+
+  .sheet :global(:has(> #page-shell-main)) {
+    background: var(--tk-bg);
+  }
+}
