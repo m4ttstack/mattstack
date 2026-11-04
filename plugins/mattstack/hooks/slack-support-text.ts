@@ -18,6 +18,9 @@ export type SlackOpen = { ok: true; handle: string; name: string } | { ok: false
 
 const MARKER_REMOVED = '[marker removed]'
 const NO_REASON = 'rt gave no reason'
+const DELIVERY_END = /\n\nSlack item \d+\.$/
+const TEAMMATE_MESSAGE = /^This message is from (.+?), a teammate, over Slack\./
+const FIRST_CLAUSE = /^[^.:\n]+/
 
 // A string match, not a shell parser: it stops accidents and misled panes, and
 // it loads in every session, so an argument such as `rg "rt chat slack-open"` must pass.
@@ -34,7 +37,9 @@ const SPLIT_OPTION = String.raw`-[iv0]*S|--split-string`
 const FLAG = String.raw`-(?!(?:[iv0]*[uCPLUa]|-unset|-chdir|-argv0)\s|[iv0]*S|-split-string(?:\s|=))\S+`
 const WRAPPERS = String.raw`(?:(?:\w+=${VALUE}|(?:${VALUE_OPTION})\s+(?=\S)${VALUE}|${FLAG}|env|command|exec|nohup|time|xargs|then|do|else|bun(?:\s+run)?)\s+|(?:${SPLIT_OPTION})(?:=|\s+)?["']?)*`
 const TOOL = String.raw`(?:\S*/)?(?:rt|herdr|cli\.ts)(?=\s|$)`
-const RUNS_TOOL = new RegExp(COMMAND_START + WRAPPERS + TOOL)
+// What can type into a pane. A chat body can name the command without running it.
+const TYPES_INTO_PANE = String.raw`(?:(?:\S*/)?herdr(?=\s|$)|(?:\S*/)?(?:rt|cli\.ts)(?:\s+-\S+)*\s+(?:pane|agent)(?![\w-]))`
+const RUNS_TYPING_TOOL = new RegExp(COMMAND_START + WRAPPERS + TYPES_INTO_PANE)
 const RUNS_HIDDEN_VERB = new RegExp(`${COMMAND_START}${WRAPPERS}${TOOL}(?:\\s+-\\S+)*\\s+chat\\s+slack-(?:open|watch|delivered)(?![\\w-])`)
 const SLASH_COMMAND = /(?<![\w.-])\/slack-support(?![\w.-])/
 
@@ -52,6 +57,13 @@ function withoutMarker(text: string, marker: string): string {
 
 export function renderDelivery(line: SlackWatchLine): string {
   return `${renderBody(line)}\n\nSlack item ${line.id}.`
+}
+
+/** The one line a delivery folds to in the transcript; null for any other text. */
+export function deliveryRow(text: string): string | null {
+  if (!DELIVERY_END.test(text)) return null
+  const from = TEAMMATE_MESSAGE.exec(text)
+  return from ? `Slack message from ${from[1]}` : (FIRST_CLAUSE.exec(text)?.[0] ?? 'Slack update')
 }
 
 function renderBody(line: SlackWatchLine): string {
@@ -118,5 +130,5 @@ export function isRefusalLine(raw: string): boolean {
 }
 
 export function touchesSlackSupport(command: string): boolean {
-  return RUNS_HIDDEN_VERB.test(command) || (RUNS_TOOL.test(command) && SLASH_COMMAND.test(command))
+  return RUNS_HIDDEN_VERB.test(command) || (RUNS_TYPING_TOOL.test(command) && SLASH_COMMAND.test(command))
 }
