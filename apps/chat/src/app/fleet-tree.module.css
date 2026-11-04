@@ -73,7 +73,7 @@
   --stack-ring: var(--chat-chrome);
   position: relative;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   width: 100%;
   min-width: 0;
@@ -89,10 +89,13 @@
 }
 
 .preview {
+  display: -webkit-box;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   font-size: var(--mantine-font-size-md);
   color: var(--tk-text-1);
 }
