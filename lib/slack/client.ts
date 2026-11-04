@@ -56,13 +56,21 @@ function toMessage(m: Json): SlackMessage {
 
 const byTs = (a: SlackMessage, b: SlackMessage) => Number(a.ts) - Number(b.ts);
 
-export function createSlackClient(token: string, fetchImpl: typeof fetch = fetch): SlackClient {
+const REQUEST_TIMEOUT_MS = 15_000;
+
+export function createSlackClient(token: string, fetchImpl: typeof fetch = fetch, timeoutMs = REQUEST_TIMEOUT_MS): SlackClient {
   async function call(method: string, params: Record<string, string> = {}): Promise<{ body: Json; headers: Headers }> {
-    const res = await fetchImpl(`https://slack.com/api/${method}`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams(params).toString(),
-    });
+    let res: Response;
+    try {
+      res = await fetchImpl(`https://slack.com/api/${method}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams(params).toString(),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (err) {
+      throw new SlackError(err instanceof Error && err.name === "TimeoutError" ? "timeout" : "network_error");
+    }
     if (res.status === 429) {
       const seconds = Number(res.headers.get("retry-after"));
       throw new SlackError("ratelimited", Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : DEFAULT_RETRY_MS);

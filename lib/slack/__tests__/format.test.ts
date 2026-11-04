@@ -13,6 +13,20 @@ describe("withPrefix", () => {
   });
 });
 
+describe("emoji shortcode form", () => {
+  const shortcode = "[Claude :robot_face:]: ";
+
+  test("hasPrefix accepts both forms", () => {
+    expect(hasPrefix(`${shortcode}hi`)).toBe(true);
+    expect(hasPrefix("[Claude 🤖]: hi")).toBe(true);
+    expect(hasPrefix("Claude said hi")).toBe(false);
+  });
+
+  test("withPrefix strips the shortcode form and sends the emoji form", () => {
+    expect(withPrefix(`${shortcode}hello`)).toBe("[Claude 🤖]: hello");
+  });
+});
+
 describe("fixed lines", () => {
   test("holding line names the operator", () => {
     expect(holdingLine("alex")).toBe("[Claude 🤖]: Claude is tied up for a moment. Your message is safe, and alex has been told.");

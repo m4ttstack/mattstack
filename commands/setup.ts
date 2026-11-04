@@ -1818,7 +1818,8 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
   const appId = snapshot.integrations.slack?.appId;
   const redirectFix = slackRedirectFix(callbackPort, appId);
   const state = deps.randomState();
-  const requestedScopes = args.includes("--support-chat") ? [...DEFAULT_SCOPE_NEEDS.user, ...SLACK_SUPPORT_SCOPES] : DEFAULT_SCOPE_NEEDS.user;
+  const supportChat = args.includes("--support-chat");
+  const requestedScopes = supportChat ? [...DEFAULT_SCOPE_NEEDS.user, ...SLACK_SUPPORT_SCOPES] : DEFAULT_SCOPE_NEEDS.user;
   const authUrl = `https://slack.com/oauth/v2/authorize?client_id=${encodeURIComponent(clientId)}&user_scope=${encodeURIComponent(requestedScopes.join(","))}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
 
   await deps.probes.exec(["open", authUrl]);
@@ -1878,12 +1879,14 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
   }
 
   const granted = (data.authed_user?.scope ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-  const missing = granted.length ? missingSlackUserScopes(granted) : [];
+  const grantedSet = new Set(granted);
+  const missing = granted.length ? (supportChat ? requestedScopes.filter((s) => !grantedSet.has(s)) : missingSlackUserScopes(granted)) : [];
   if (missing.length) {
+    const wanted = supportChat ? "the board and the support chat need" : "the board needs";
     printIntegrationResult(deps, json, {
       integration: "slack",
       status: "invalid",
-      detail: `Slack granted fewer permissions than the board needs, because the team's Slack app does not list them. To fix it, ${slackUserScopeFix(appId, missing)}, then connect again`,
+      detail: `Slack granted fewer permissions than ${wanted}, because the team's Slack app does not list them. To fix it, ${slackUserScopeFix(appId, missing)}, then connect again`,
       scopesSeen: granted,
     });
     return;

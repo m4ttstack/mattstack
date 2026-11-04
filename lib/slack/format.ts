@@ -1,12 +1,21 @@
 export const SLACK_PREFIX = "[Claude 🤖]: ";
 
+/** conversations.history can return the emoji as its shortcode. */
+const SHORTCODE_PREFIX = "[Claude :robot_face:]: ";
+
+function prefixLength(text: string): number {
+  if (text.startsWith(SLACK_PREFIX)) return SLACK_PREFIX.length;
+  if (text.startsWith(SHORTCODE_PREFIX)) return SHORTCODE_PREFIX.length;
+  return 0;
+}
+
 export function hasPrefix(text: string): boolean {
-  return text.startsWith(SLACK_PREFIX);
+  return prefixLength(text) > 0;
 }
 
 export function withPrefix(body: string): string {
   let rest = body.trimStart();
-  while (rest.startsWith(SLACK_PREFIX)) rest = rest.slice(SLACK_PREFIX.length).trimStart();
+  for (let n = prefixLength(rest); n > 0; n = prefixLength(rest)) rest = rest.slice(n).trimStart();
   return SLACK_PREFIX + rest;
 }
 

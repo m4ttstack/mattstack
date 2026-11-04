@@ -23,6 +23,25 @@ describe("slack client", () => {
     expect(String(err.message)).not.toContain("xoxp-TEST");
   });
 
+  test("a fetch that rejects or times out surfaces as a SlackError", async () => {
+    const rejecting = (async () => {
+      throw new Error("socket hang up");
+    }) as unknown as typeof fetch;
+    const e1 = await createSlackClient("t", rejecting).post("D0TEST", "hi").catch((e) => e);
+    expect(e1).toBeInstanceOf(SlackError);
+    expect(e1.code).toBe("network_error");
+
+    let seen: AbortSignal | undefined;
+    const hanging = ((_url: string, init: RequestInit) => {
+      seen = init.signal ?? undefined;
+      return new Promise((_, reject) => init.signal!.addEventListener("abort", () => reject(init.signal!.reason)));
+    }) as unknown as typeof fetch;
+    const e2 = await createSlackClient("t", hanging, 20).post("D0TEST", "hi").catch((e) => e);
+    expect(seen).toBeDefined();
+    expect(e2).toBeInstanceOf(SlackError);
+    expect(e2.code).toBe("timeout");
+  });
+
   test("throws SlackError carrying Slack's error code", async () => {
     const f = fakeFetch([{ body: { ok: false, error: "missing_scope" } }]);
     const err = await createSlackClient("t", f.impl).openDm("U0TEST").catch((e) => e);

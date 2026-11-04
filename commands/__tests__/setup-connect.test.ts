@@ -4,7 +4,7 @@ import { fakeProbes, ok } from "../../lib/setup/__tests__/fakes.ts";
 import type { SecretPresence } from "../../lib/setup/validators/accounts.ts";
 import type { Probes } from "../../lib/setup/probes.ts";
 import type { TeamSnapshot } from "../../lib/setup/team-settings.ts";
-import { DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError } from "../../lib/setup/slack-app.ts";
+import { DEFAULT_SCOPE_NEEDS, SLACK_SUPPORT_SCOPES, SlackCallbackTimeoutError } from "../../lib/setup/slack-app.ts";
 import { slackWaitCliMessage } from "../../lib/setup/team-slack-secret.ts";
 import { readTeamLocal, teamLocalPath } from "../../lib/team/team-local.ts";
 import { capturePlain, expectOneJsonLine, realJson } from "./helpers/json-line.ts";
@@ -1075,6 +1075,56 @@ describe("integrationConnect — slack (OAuth flow)", () => {
     expect(body.detail).toContain("add channels:read, groups:read, channels:history, groups:history, reactions:read under User Token Scopes at https://api.slack.com/apps/A0TEAM/oauth");
     expect(body.scopesSeen).toEqual(["reactions:write", "chat:write"]);
     expect(writerWrites).toEqual([]);
+  });
+
+  describe("--support-chat", () => {
+    async function openedScopes(args: string[]): Promise<string[]> {
+      const probes = fakeProbes({ exec: async () => ok() });
+      const deps = baseDeps({
+        probes,
+        teamSnapshot: () => slackTeamSnapshot({ appId: "A0TEAM" }),
+        teamSecrets: { read: async () => null, write: neverCalled("teamSecrets.write") },
+        listen: async () => "auth-code",
+      });
+      await expectExit(() => integrationConnect("slack", args, deps));
+      const url = new URL(probes.calls.exec.find((argv) => argv[0] === "open")![1]!);
+      return url.searchParams.get("user_scope")!.split(",");
+    }
+
+    test("asks for the four support scopes alongside the defaults", async () => {
+      const scopes = await openedScopes(["--json", "--support-chat"]);
+      expect(scopes).toEqual([...DEFAULT_SCOPE_NEEDS.user, ...SLACK_SUPPORT_SCOPES]);
+      for (const s of ["im:history", "im:read", "im:write", "users:read"]) expect(scopes).toContain(s);
+    });
+
+    test("without the flag asks for none of them", async () => {
+      const scopes = await openedScopes(["--json"]);
+      expect(scopes).toEqual(DEFAULT_SCOPE_NEEDS.user);
+    });
+
+    test("a grant without them is invalid, names them for the app's owner and stores nothing", async () => {
+      const writerWrites: unknown[] = [];
+      const fetch: Probes["fetch"] = async (url) => {
+        if (url === "https://slack.com/api/oauth.v2.access") return { status: 200, body: JSON.stringify({ ok: true, authed_user: { access_token: "xoxp-old", scope: DEFAULT_SCOPE_NEEDS.user.join(",") } }), headers: {} };
+        return { status: 0, body: "", headers: {} };
+      };
+      const deps = baseDeps({
+        probes: fakeProbes({ fetch }),
+        teamSnapshot: () => slackTeamSnapshot({ appId: "A0TEAM" }),
+        teamSecrets: { read: async () => "client-secret-value", write: neverCalled("teamSecrets.write") },
+        listen: async () => "auth-code",
+        writer: { storeReady: async () => true, write: async (...args) => { writerWrites.push(args); } },
+      });
+
+      await integrationConnect("slack", ["--json", "--support-chat"], deps);
+
+      const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
+      expect(body.status).toBe("invalid");
+      expect(body.detail).toContain("add im:history, im:read, im:write, users:read under User Token Scopes at https://api.slack.com/apps/A0TEAM/oauth");
+      expect(body.detail).toContain("support chat");
+      expect(body.detail).not.toContain("than the board needs");
+      expect(writerWrites).toEqual([]);
+    });
   });
 
   test("a full grant stores the token and reports ready", async () => {
