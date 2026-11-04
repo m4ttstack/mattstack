@@ -50,7 +50,7 @@
 .who {
   flex: none;
   font-size: var(--mantine-font-size-lg);
-  font-weight: 550;
+  font-weight: 500;
 }
 
 .meta {

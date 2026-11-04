@@ -357,7 +357,7 @@ function RoomRow({
         style={{ flex: 'none' }}
       />
       <Text
-        fw={active ? 550 : 450}
+        fw={active ? 500 : 450}
         truncate
         /* A room heads the rows nested under it, so it takes the chrome step
            while they take meta. Stated rather than inherited: a sizeless
@@ -558,7 +558,7 @@ function DmRow({
         <Group gap="sm" justify="space-between" wrap="nowrap">
           <Text
             component="div"
-            fw={550}
+            fw={500}
             style={{ fontSize: CHROME_SIZE, minWidth: 0 }}
           >
             <DmNames pair={pair} />
