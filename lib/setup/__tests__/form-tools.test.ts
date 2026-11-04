@@ -151,9 +151,11 @@ describe("toolsRows", () => {
     expect(only(inputs([widgetMissing(DOWNLOAD)], { prepare: pressOnly }))).toMatchObject({ detail: "brew said no again", action: DOWNLOAD });
   });
 
-  test("a tool the team only links for download shows that link as its steps", () => {
-    const drawn = only(inputs([widgetMissing()], { prepare: FAILED, tools: [{ ...WIDGET, install: { url: "https://example.com/widget-cli" } }] }));
-    expect(drawn.secondary).toEqual({ type: "steps", label: "Show steps…", steps: ["Download it from https://example.com/widget-cli"] });
+  test("a tool the team also links for download shows the link, not the brew install that just failed", () => {
+    const both = only(inputs([widgetMissing()], { prepare: FAILED, tools: [{ ...WIDGET, install: { brew: "widget-cli", url: "https://example.com/widget-cli" } }] }));
+    expect(both.secondary).toEqual({ type: "steps", label: "Show steps…", steps: ["Download it from https://example.com/widget-cli"] });
+    const http = only(inputs([widgetMissing()], { prepare: FAILED, tools: [{ ...WIDGET, install: { brew: "widget-cli", url: "http://example.com/widget-cli" } }] }));
+    expect(http.secondary).toEqual({ type: "steps", label: "Show steps…", steps: ["brew install widget-cli"] });
   });
 
   test("a failed sign-in tool's install reads failed too", () => {

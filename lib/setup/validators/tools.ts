@@ -520,11 +520,11 @@ function teamToolRemedyAction(req: ToolRequirement, hasBrew: boolean, verb: "Ins
   return { type: "steps", label: "Show steps…", steps: [step, "Then re-run rt setup status"] };
 }
 
-/** The route around a failed Install, or null when the team declared no way to install the tool. */
+/** The route around a failed Install, or null when the team declared no way to install the tool. A link goes first: `brew install` is what just failed. */
 export function teamToolManualSteps(req: ToolRequirement): Action | null {
   const { brew, url } = req.install ?? {};
-  const first = brew ? `brew install ${brew}` : url && isHttpsUrl(url) ? `Download it from ${url}` : null;
-  return first ? { type: "steps", label: "Show steps…", steps: [first] } : null;
+  const step = url && isHttpsUrl(url) ? `Download it from ${url}` : brew ? `brew install ${brew}` : null;
+  return step ? { type: "steps", label: "Show steps…", steps: [step] } : null;
 }
 
 export async function teamToolRow(p: Probes, req: ToolRequirement, hasBrew: boolean): Promise<Row> {
