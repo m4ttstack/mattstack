@@ -79,7 +79,7 @@
   min-width: 0;
 }
 
-/* Full-width items with a solid highlight, as Slack's menus have. */
+/* Full-width items, as Slack's menus have, with a wash of the chrome's hue. */
 .menuDropdown.menuDropdown {
   padding: 12px 0 !important;
   border-radius: var(--mantine-radius-lg);
@@ -94,6 +94,6 @@
 
 .menuItem.menuItem[data-hovered],
 .menuItem.menuItem:hover {
-  background-color: var(--tk-fill-accent);
-  color: var(--tk-on-fill-accent);
+  background-color: color-mix(in srgb, var(--chat-hue) 14%, transparent);
+  color: var(--tk-text-1);
 }
