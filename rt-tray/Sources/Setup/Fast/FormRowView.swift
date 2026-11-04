@@ -293,7 +293,7 @@ struct FormRowView: View {
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier(AXID.fastRowWaiting(row.id))
             }
-            if let action = row.action { button(action) }
+            if let action = row.action, !(waiting != nil && action.type == .install) { button(action) }
         }
     }
 
