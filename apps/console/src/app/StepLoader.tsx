@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { useReducedMotion } from '@mattstack/app-kit/hooks';
 
 import classes from './StepLoader.module.css';
@@ -35,7 +35,10 @@ export type StepLoading = {
     one stays until the loader has finished its line and READ_MS on top. */
 export function useStepLoading(loading: boolean): StepLoading {
   const [stepsShown, setStepsShown] = useState(false);
-  useEffect(() => {
+  // A layout effect, so the timer is cleared in the commit that ends the load:
+  // a passive cleanup leaves a window for it to fire and put the loader back
+  // over the content.
+  useLayoutEffect(() => {
     if (!loading) return;
     const timer = setTimeout(() => setStepsShown(true), STEPS_AFTER_MS);
     return () => clearTimeout(timer);
