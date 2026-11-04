@@ -182,8 +182,8 @@ same mod that owns `/slack-support`:
    with `$.process.spawn` and reads one JSON line per waiting message. It restarts
    the child if it exits, and on `session.start` when a conversation is still open.
 3. The mod calls `$.prompt.submit({ text })`. It never sets `asUser`.
-4. Once the call resolves, the mod marks the message delivered, so a crash
-   redelivers it rather than losing it.
+4. Once the call resolves, the mod runs `rt chat slack-delivered`, so a crash
+   redelivers the message rather than losing it.
 
 The aim is that the pane helps, not that it ignores the message. The rules say
 what to do as well as what not to do. The exact wording is the builder's to
@@ -335,8 +335,8 @@ The controls follow the existing path: Flock's chat popover runs
 start the close sequence. `slack-status` reports each open conversation's pane,
 person, opened time and last activity.
 
-**herdr-chat** (`plugins/herdr-chat`). New `slack-open`, `slack-close` and
-`slack-status` verbs in both TUI and `--json` form, following the rules in its
+**herdr-chat** (`plugins/herdr-chat`). New `slack-close` and `slack-status` verbs
+in both TUI and `--json` form, following the rules in its
 README. `status --json` gains the pane's open conversation. A new "Slack support"
 pane action opens a popup with a person and a problem field, or an off control
 when a conversation is open.
@@ -394,21 +394,61 @@ If the mod can't run on that account, opening falls back to a one-tap gate and
 delivery falls back to the inbox socket with the support rules in its frame. That needs
 the operator's decision at that point.
 
-### Verbs
+### API
+
+Everything extends `rt chat`, not `rt pane`: a Slack chat is a chat room with one
+remote participant, and `rt pane` only drives herdr panes.
+
+```text
+Slack --poll--> daemon --chat room--> rt chat slack-watch --> mod --$.prompt.submit--> session
+Slack <--send-- daemon <--chat_dm---- pane
+```
+
+**The operator**
+
+| Where | API |
+|---|---|
+| Pane prompt | `/slack-support <person> <problem>` |
+| Flock or herdr On | Types that same command into the pane |
+| Flock or herdr Off | `rt chat slack-close --pane <pane>` |
+
+**The pane**
 
 | Tool | CLI | Does |
 |---|---|---|
-| `chat_slack_close` | `rt chat slack-close` | Ends this pane's open conversation, taking the farewell text. `--pane` starts the close sequence for another pane |
+| `chat_dm` (existing) | `rt chat dm` | Replies. The daemon sends it to Slack and adds the prefix |
+| `chat_slack_close` | `rt chat slack-close` | Closes this pane's conversation, taking the farewell text |
 | `chat_slack_status` | `rt chat slack-status` | Lists open conversations |
 | `chat_slack_ticket` | `rt chat slack-ticket` | Writes a support ticket for this pane's open conversation, and returns its path |
-| none | `rt chat slack-watch` | Hidden. The mod's stream of waiting Slack messages |
 
-There is deliberately no open tool: see Opening a chat. The refusals for an
-ambiguous or unknown person come back through the `/slack-support` command.
+There is deliberately no open tool: see Opening a chat.
 
-Replies use the existing `chat_dm`. The new tools follow the `rt_verb`, roster
-and guard rules in `.claude/rules/mcp-and-gates.md`, and the command tree rules
-for plain descriptions.
+**The mod.** These verbs are hidden from `--help` and the command tree, and have
+no MCP tool.
+
+| Verb | Does |
+|---|---|
+| `rt chat slack-open <person> --json` | Opens the chat, or refuses with candidates for an ambiguous or unknown person |
+| `rt chat slack-watch --json` | Stays running and prints one JSON line per waiting item |
+| `rt chat slack-delivered <id>` | Confirms an item reached the session, so a crash resends it |
+
+A `slack-watch` line:
+
+```json
+{"kind":"message","conversation":12,"id":4821,"from":"alex-slack","text":"still failing"}
+```
+
+Other `kind` values carry the check-in and close requests, so everything reaches
+the session one way. `slack-watch` holds the connection the mod's liveness is read
+from, which is what `pane-gone` measures.
+
+**Underneath.** Each verb maps to a daemon command in the `chat:*` family, such as
+`chat:slack-open` and `chat:slack-close`. `herdr-chat` gains `slack-status` and
+`slack-close`, each with `--json`, which is what Flock calls.
+
+The pane tools follow the `rt_verb`, roster and guard rules in
+`.claude/rules/mcp-and-gates.md`, and the command tree rules for plain
+descriptions.
 
 `users.list` backs the name lookup and matches display name and real name. The
 operator's choice of person is the access control, so there is no allowlist.
