@@ -571,7 +571,8 @@ let fastSetupFlowChecks: [Check] = [
         c.expectEqual(FastStep.counter(for: .tools, path: "join"), "Setup status")
         c.expectEqual(FastStep.counter(for: .tools, path: nil), "Setup status")
         c.expectEqual(FastStep.label(for: .tools, path: "join", entry: .status), "Setup status")
-        c.expectEqual(FastStep.label(for: .ready, path: "join", entry: .status), nil, "Setup status is not a step in setup")
+        c.expectEqual(FastStep.label(for: .ready, path: "join", entry: .status), "Setup status")
+        c.expectEqual(FastStep.label(for: .ready, path: "join", entry: .firstRun), "Done")
         c.expectEqual(FastStep.label(for: .thisMac, path: "join", entry: .status), nil)
         c.expectEqual(FastStep.label(for: .thisMac, path: "join", entry: .firstRun), "6 of 7")
     },

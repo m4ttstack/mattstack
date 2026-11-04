@@ -27,9 +27,10 @@ public enum FastStep {
         return "\(index + 1) of \(walk.count)"
     }
 
-    /// Setup status is not a step in setup, so it shows no counter; only the tools screen carries that name.
+    /// Setup status is not a step in setup, so it shows no counter; its tools and ready screens carry that name.
     public static func label(for screen: FastSetupScreen, path: String?, entry: SetupEntry) -> String? {
-        entry == .status && screen != .tools ? nil : counter(for: screen, path: path)
+        guard entry == .status else { return counter(for: screen, path: path) }
+        return screen == .tools || screen == .ready ? "Setup status" : nil
     }
 
     private static func implied(by screen: FastSetupScreen) -> String {
