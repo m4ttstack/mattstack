@@ -62,12 +62,6 @@
   flex: none;
 }
 
-/* The `N more` DM control. `.ws.more`'s own `cursor: default` is right for
-   the inert offline roll-up and wrong here: this row is the only way to
-   reach a conversation the cap hides, so it reads and behaves as a control. */
-.moreRow:hover {
-  background: var(--ui-bg-4);
-}
 
 .dmRow {
   --stack-ring: var(--chat-chrome);

@@ -35,9 +35,6 @@ const ROW_NAME_SIZE = 'var(--mantine-font-size-xs)';
 /** Room and DM rows, one step up, so the tree has a visible hierarchy. */
 const CHROME_SIZE = 'var(--mantine-font-size-lg)';
 
-/** DM rows shown before the `N more` line, so the rooms stay in reach. */
-const DM_VISIBLE = 8;
-
 export interface DmLastMessage {
   handle: string;
   name?: string;
@@ -147,25 +144,6 @@ export function listedBuddies(
   buddies: RosterBuddy[]
 ): RosterBuddy[] {
   return buddies.filter(b => roomForRepo(rooms, b) !== undefined);
-}
-
-/**
- * The first `cap` conversations, with the open one always among them: an
- * overflowed DM is otherwise unreachable, since the human is a silent third
- * party in an agent-to-agent pair and nothing else in the UI opens one. An
- * active DM past the cap displaces the last visible row rather than adding a
- * fifth, so the drawn count holds.
- */
-export function visibleDms(
-  dms: FleetRoom[],
-  activeRoom: string | undefined,
-  cap: number = DM_VISIBLE
-): FleetRoom[] {
-  if (dms.length <= cap) return dms;
-  const head = dms.slice(0, cap);
-  if (head.some(d => d.room === activeRoom)) return head;
-  const active = dms.find(d => d.room === activeRoom);
-  return active ? [...head.slice(0, cap - 1), active] : head;
 }
 
 /** A sidebar section's head: its name, and one quiet fact on the right. */
@@ -593,47 +571,6 @@ function DmRow({
 }
 
 /**
- * The `N more` control. It shares the offline roll-up's look (26px, muted,
- * truncating) but not its `cursor: default`: this one is the only way to
- * reach a conversation the cap hides, so it has to answer a click.
- */
-function DmOverflowRow({
-  hidden,
-  expanded,
-  onToggle,
-}: {
-  hidden: FleetRoom[];
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <UnstyledButton
-      className={classes.moreRow}
-      data-testid="dm-more"
-      aria-expanded={expanded}
-      onClick={onToggle}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        width: '100%',
-        minWidth: 0,
-        overflow: 'hidden',
-        height: 26,
-        gap: 'var(--mantine-spacing-sm)',
-        padding: '0 16px',
-        cursor: 'pointer',
-        textAlign: 'left',
-        ...MUTED_XS,
-      }}
-    >
-      <Text component="span" inherit truncate style={{ minWidth: 0 }}>
-        {expanded ? 'show fewer' : `${hidden.length} more`}
-      </Text>
-    </UnstyledButton>
-  );
-}
-
-/**
  * The sidebar's one tree. The open room lists the signed-in sessions of the
  * repo it is named for; the other rooms stay one line each. Direct
  * conversations follow, named by their pair.
@@ -651,15 +588,9 @@ export function FleetTree({
   onSelectBuddy,
   onClose,
 }: FleetTreeProps) {
-  const [dmsExpanded, setDmsExpanded] = useState(false);
   const groups = groupByRepo(rooms, buddies);
-  // A DM is named by its pair, so a participant-less one would crash DmRow and
-  // overflowLabel. RoomRail filters them upstream, but the exported FleetTree
-  // guards its own input too. `namedDms` is then already `visibleRooms`-filtered,
-  // so the cap counts only conversations that are actually listed.
+  // A DM is named by its pair, so one with no participants has no row.
   const namedDms = dms.filter(d => d.participants);
-  const shownDms = dmsExpanded ? namedDms : visibleDms(namedDms, activeRoom);
-  const hiddenDms = namedDms.filter(d => !shownDms.includes(d));
   const ordinals = sameNameOrdinals(
     groups.flatMap(g => g.online),
     displayName
@@ -694,7 +625,7 @@ export function FleetTree({
         <>
           <Box style={{ height: 10 }} />
           <SectionLabel label="Direct" detail={String(namedDms.length)} />
-          {shownDms.map(room => (
+          {namedDms.map(room => (
             <DmRow
               key={room.room}
               room={room}
@@ -703,13 +634,6 @@ export function FleetTree({
               onClose={onClose}
             />
           ))}
-          {(hiddenDms.length > 0 || dmsExpanded) && (
-            <DmOverflowRow
-              hidden={hiddenDms}
-              expanded={dmsExpanded}
-              onToggle={() => setDmsExpanded(!dmsExpanded)}
-            />
-          )}
         </>
       )}
     </Fragment>
