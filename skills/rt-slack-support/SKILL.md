@@ -84,8 +84,8 @@ the likely cause changes what you say to the teammate, nothing else.
 The setting's value is the operator's chat handle, written `<operator>` below.
 
 Send the first `chat_dm` to `<handle>`. It says hello, names the problem as you
-understand it, and asks for what you need first. It ends the turn: nothing
-arrives until they answer.
+understand it, and asks for what you need first. That call is the turn's last
+act, as in `Where a turn ends`: nothing arrives until they answer.
 
 ## Every turn after that
 
@@ -160,6 +160,12 @@ digraph slack_support_turn {
 
 One message can hold several of these: do each, in one reply. Take a hand-off
 or a close last.
+
+### Where a turn ends
+
+A turn ends on its last `chat_dm`. The tool result closes the turn: your message
+after it is empty, because the operator reads the chat in the UI. The pane gets
+one line in a whole chat, at the end of `The outcome DM`.
 
 ### The reply
 
