@@ -168,6 +168,7 @@ export {
   markWatcherSeen,
   openConversation,
   pendingItems,
+  pruneSlackItems,
   shiftOpenConversationClocks,
   touchConversation,
 } from "./slack-conversation-store.ts";

@@ -600,7 +600,8 @@ need to approve that.
 - A merged daemon change isn't live until the checkout syncs and the daemon
   restarts.
 - Chat messages live in `~/.mattstack/rt/state.db` for 90 days and are included
-  in state backups, so teammates' Slack messages will be in both.
+  in state backups, so teammates' Slack messages will be in both. The daily chat
+  prune also removes delivered `slack_items` of closed conversations past 90 days.
 - Never key by a derived repo name; nothing here is per-repo, so no repo
   identity is involved.
 

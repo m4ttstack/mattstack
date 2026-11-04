@@ -4,6 +4,7 @@
  */
 
 import { Database } from "bun:sqlite";
+import { CHAT_RETENTION_MS } from "./chat-store.ts";
 import { getStateDb } from "./db.ts";
 
 export type SlackCloseReason = "closed-by-pane" | "idle" | "operator" | "pane-gone";
@@ -310,6 +311,18 @@ export function markOpenItemDelivered(id: number, now: number, db: Database = ge
 export function lastDeliveredAt(conversationId: number, db: Database = getStateDb()): number | undefined {
   const row = db.query(`SELECT MAX(delivered_at) AS at FROM slack_items WHERE conversation_id = ?;`).get(conversationId) as { at: number | null };
   return row.at ?? undefined;
+}
+
+/** Items share the room's retention, since they hold the same teammate text. Undelivered ones stay, and a `closed` item may still be owed to a watcher. */
+export function pruneSlackItems(db: Database, opts: { olderThanMs?: number } = {}): { removed: number } {
+  const cutoff = Date.now() - (opts.olderThanMs ?? CHAT_RETENTION_MS);
+  const { changes } = db
+    .query(
+      `DELETE FROM slack_items WHERE delivered_at IS NOT NULL AND created_at < ?
+       AND conversation_id IN (SELECT id FROM slack_conversations WHERE closed_at IS NOT NULL);`,
+    )
+    .run(cutoff);
+  return { removed: changes };
 }
 
 /** The oldest `closed` item still owed to this agent, so a close reaches a watcher after the conversation has ended. */

@@ -22,9 +22,11 @@ import {
   markOpenItemDelivered,
   openConversation,
   pendingItems,
+  pruneSlackItems,
   shiftOpenConversationClocks,
   touchConversation,
 } from "../slack-conversation-store.ts";
+import { CHAT_RETENTION_MS } from "../chat-store.ts";
 
 let n = 0;
 function dbPath() {
@@ -54,6 +56,36 @@ function capture(fn: () => unknown): unknown {
     return e;
   }
 }
+
+test("the prune removes only delivered items of closed conversations past retention", () => {
+  const db = fresh();
+  const old = Date.now() - CHAT_RETENTION_MS - 1_000;
+  const closed = openConversation(base, db);
+  const stale = enqueueItem({ conversationId: closed.id, kind: "message", fromHandle: null, text: "old", createdAt: old }, db);
+  const owed = enqueueItem({ conversationId: closed.id, kind: "closed", fromHandle: null, text: "owed", createdAt: old }, db);
+  const recent = enqueueItem({ conversationId: closed.id, kind: "message", fromHandle: null, text: "recent", createdAt: Date.now() }, db);
+  markItemDelivered(stale.id, old, db);
+  markItemDelivered(recent.id, Date.now(), db);
+  closeConversation(closed.id, "idle", old, db);
+  const open = openConversation({ ...base, agentHandle: "pane.two", slackUserId: "U0TWO", room: "dm-bbb" }, db);
+  const live = enqueueItem({ conversationId: open.id, kind: "message", fromHandle: null, text: "live", createdAt: old }, db);
+  markItemDelivered(live.id, old, db);
+
+  expect(pruneSlackItems(db)).toEqual({ removed: 1 });
+
+  const left = (db.query("SELECT id FROM slack_items ORDER BY id;").all() as { id: number }[]).map((r) => r.id);
+  expect(left).toEqual([owed.id, recent.id, live.id]);
+});
+
+test("the prune takes its retention from the caller", () => {
+  const db = fresh();
+  const conv = openConversation(base, db);
+  const item = enqueueItem({ conversationId: conv.id, kind: "message", fromHandle: null, text: "x", createdAt: Date.now() - 10_000 }, db);
+  markItemDelivered(item.id, Date.now(), db);
+  closeConversation(conv.id, "idle", Date.now(), db);
+  expect(pruneSlackItems(db, { olderThanMs: 60_000 })).toEqual({ removed: 0 });
+  expect(pruneSlackItems(db, { olderThanMs: 500 })).toEqual({ removed: 1 });
+});
 
 test("conversationForSlackUser finds only an open conversation", () => {
   const db = fresh();
