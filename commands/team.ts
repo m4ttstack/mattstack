@@ -408,7 +408,7 @@ export async function teamPeer(args: string[], _ctx: CommandContext = {}, deps: 
 
 const ANNOUNCE_USAGE = 'rt team announce "<title>" --message "<text>" [--team <org>] [--json]';
 
-/** A send reaches the whole org with no recall, so any token that is not the title, `--message`, `--team` or `--json` is refused rather than dropped. */
+/** A send reaches the whole org with no recall, so the title must come first, and any token that is not the title, `--message`, `--team` or `--json` is refused rather than dropped. */
 function announceArgsAreClean(args: string[]): boolean {
   let positionals = 0;
   for (let i = 0; i < args.length; i++) {
@@ -422,12 +422,12 @@ function announceArgsAreClean(args: string[]): boolean {
     if (a.startsWith("--")) return false;
     positionals++;
   }
-  return positionals <= 1;
+  return positionals === 0 || (positionals === 1 && !args[0]!.startsWith("--"));
 }
 
 export async function teamAnnounce(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
   const json = args.includes("--json");
-  if (!announceArgsAreClean(args)) usageError(deps, json, "Quote the title and the message, and use only the flags below.", ANNOUNCE_USAGE);
+  if (!announceArgsAreClean(args)) usageError(deps, json, "Put the title first, quote the title and the message, and use only the flags below.", ANNOUNCE_USAGE);
   const title = positional(args, ["--message", "--team"])[0];
   const message = flagValue(args, "--message");
   if (!title) usageError(deps, json, "What should the announcement's title be?", ANNOUNCE_USAGE);

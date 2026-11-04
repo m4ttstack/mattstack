@@ -380,6 +380,8 @@ describe("teamAnnounce", () => {
     ["an unquoted title", ["Update", "rt", "today", "--message", "Please update", "--team", "acme", "--json"]],
     ["an unquoted message", ["Update rt", "--message", "Please", "update", "by", "noon", "--team", "acme", "--json"]],
     ["an unquoted message and no title", ["--message", "Please", "update", "by", "noon", "--team", "acme", "--json"]],
+    ["a two-word unquoted message and no title", ["--message", "Please", "update", "--team", "acme", "--json"]],
+    ["a title after a flag", ["--json", "Update rt", "--message", "Today", "--team", "acme"]],
     ["--message followed by --team", ["Update rt", "--message", "--team", "acme", "--json"]],
     ["--message followed by --json", ["Update rt", "--message", "--json", "--team", "acme"]],
     ["an unknown flag", ["t", "--message", "m", "--dry-run", "--team", "acme", "--json"]],
