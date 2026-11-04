@@ -127,6 +127,20 @@ pub fn status_json(r: &dyn Runner, pane: Option<&str>) -> Result<crate::json::St
         }
         _ => Vec::new(),
     };
+    // A chat belongs to a signed-in agent, so a signed-out pane skips the call.
+    // Like the rooms, a failed lookup leaves the rest of the header standing.
+    let slack_chat = if signed_in {
+        rt::slack_status(r)
+            .unwrap_or_default()
+            .into_iter()
+            .find(|c| c.pane.as_deref() == Some(pane))
+            .map(|c| crate::json::SlackChat {
+                name: c.name,
+                opened_at: c.opened_at,
+            })
+    } else {
+        None
+    };
     Ok(crate::json::Status {
         handle: base.handle,
         name: base.name,
@@ -134,6 +148,7 @@ pub fn status_json(r: &dyn Runner, pane: Option<&str>) -> Result<crate::json::St
         pane: base.pane,
         signed_in,
         rooms,
+        slack_chat,
     })
 }
 
@@ -691,6 +706,7 @@ mod tests {
         let r = FakeRunner::sequence(&[
             r#"{"ok":true,"buddies":[{"handle":"kay","status":"live","sessionId":"s-kay","pane":"w1:p1"}]}"#,
             r#"{"ok":true,"rooms":[{"room":"rt","unread":0},{"room":"dm-1","kind":"dm"}]}"#,
+            NO_SLACK_CHATS,
         ]);
         let s = status_json(&r, Some("w1:p1")).unwrap();
         assert_eq!(s.handle.as_deref(), Some("kay"));
@@ -698,6 +714,38 @@ mod tests {
         assert_eq!(s.pane.as_deref(), Some("w1:p1"));
         assert!(s.signed_in);
         assert_eq!(s.rooms, vec!["#rt".to_string(), "dm".to_string()]);
+        assert_eq!(s.slack_chat, None);
+    }
+
+    const NO_SLACK_CHATS: &str = r#"{"ok":true,"conversations":[]}"#;
+
+    const KAY_IN_W1P1: &str = r#"{"ok":true,"buddies":[{"handle":"kay","status":"live","sessionId":"s-kay","pane":"w1:p1"}]}"#;
+
+    #[test]
+    fn status_carries_the_panes_open_chat() {
+        let r = FakeRunner::sequence(&[
+            KAY_IN_W1P1,
+            r#"{"ok":true,"rooms":[]}"#,
+            r#"{"ok":true,"conversations":[{"id":2,"room":"slack-2","pane":"w9:p9","name":"sam","openedAt":10,"lastActiveAt":10},{"id":3,"room":"slack-3","pane":"w1:p1","name":"alex","openedAt":1700,"lastActiveAt":1800}]}"#,
+        ]);
+        let s = status_json(&r, Some("w1:p1")).unwrap();
+        assert_eq!(
+            s.slack_chat,
+            Some(crate::json::SlackChat {
+                name: "alex".to_string(),
+                opened_at: 1700
+            })
+        );
+    }
+
+    /// An rt from before the Slack verbs fails the call, and the header
+    /// still has everything else to say.
+    #[test]
+    fn status_without_a_slack_answer_has_no_open_chat() {
+        let r = FakeRunner::sequence(&[KAY_IN_W1P1, r#"{"ok":true,"rooms":[]}"#, "not json"]);
+        let s = status_json(&r, Some("w1:p1")).unwrap();
+        assert!(s.signed_in);
+        assert_eq!(s.slack_chat, None);
     }
 
     #[test]
@@ -751,6 +799,7 @@ mod tests {
         let r = FakeRunner::sequence(&[
             r#"{"ok":true,"buddies":[{"handle":"remy.k3f9","name":"remy","status":"live","sessionId":"s-remy","pane":"w1:p1"}]}"#,
             r#"{"ok":true,"rooms":[{"room":"rt","unread":0}]}"#,
+            NO_SLACK_CHATS,
         ]);
         let s = status_json(&r, Some("w1:p1")).unwrap();
         assert_eq!(s.handle.as_deref(), Some("remy.k3f9"));
@@ -762,6 +811,7 @@ mod tests {
         let r = FakeRunner::sequence(&[
             r#"{"ok":true,"buddies":[{"handle":"kay","status":"live","sessionId":"s-kay","pane":"w1:p1"}]}"#,
             r#"{"ok":true,"rooms":[]}"#,
+            NO_SLACK_CHATS,
         ]);
         let s = status_json(&r, Some("w1:p1")).unwrap();
         assert_eq!(s.name.as_deref(), Some("kay"));

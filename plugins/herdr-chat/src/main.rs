@@ -17,6 +17,7 @@ mod cmd {
     pub mod picker;
     pub mod quick_send;
     pub mod sign;
+    pub mod slack;
 }
 
 #[derive(Parser)]
@@ -98,6 +99,25 @@ enum Cmd {
         /// mode, so it changes nothing.
         #[arg(long)]
         json: bool,
+    },
+    /// Turn a Slack support chat on or off for the focused pane. The pane
+    /// action opens the popup; `--pane` is the popup entrypoint.
+    SlackSupport {
+        #[arg(long)]
+        pane: bool,
+    },
+    /// List the open Slack support chats.
+    SlackStatus {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Close the Slack support chat held by a pane.
+    SlackClose {
+        #[arg(long)]
+        json: bool,
+        /// The pane whose chat to close, falling back to `HERDR_PANE_ID`.
+        #[arg(long)]
+        pane: Option<String>,
     },
     /// Print what quick-send can send to. JSON only.
     Targets {
@@ -315,6 +335,65 @@ fn main() -> std::process::ExitCode {
                 Ok(()) => std::process::ExitCode::SUCCESS,
                 Err(e) => {
                     json::fail(&e);
+                    std::process::ExitCode::FAILURE
+                }
+            }
+        }
+        Cmd::SlackSupport { pane } => {
+            let result = if pane {
+                cmd::slack::run(&runner)
+            } else {
+                cmd::slack::open(&runner)
+            };
+            match result {
+                Ok(_) => std::process::ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("slack-support: {e}");
+                    std::process::ExitCode::FAILURE
+                }
+            }
+        }
+        Cmd::SlackStatus { json } => {
+            if json {
+                return match cmd::slack::status_json(&runner).and_then(|s| json::emit(&s)) {
+                    Ok(()) => std::process::ExitCode::SUCCESS,
+                    Err(e) => {
+                        json::fail(&e);
+                        std::process::ExitCode::FAILURE
+                    }
+                };
+            }
+            match cmd::slack::status_text(&runner) {
+                Ok(text) => {
+                    println!("{text}");
+                    std::process::ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("slack-status: {e}");
+                    std::process::ExitCode::FAILURE
+                }
+            }
+        }
+        Cmd::SlackClose { json, pane } => {
+            let pane = pane.or_else(|| std::env::var("HERDR_PANE_ID").ok());
+            if json {
+                return match cmd::slack::close_json(&runner, pane.as_deref())
+                    .and_then(|c| json::emit(&c))
+                {
+                    Ok(()) => std::process::ExitCode::SUCCESS,
+                    Err(e) => {
+                        json::fail(&e);
+                        std::process::ExitCode::FAILURE
+                    }
+                };
+            }
+            match cmd::slack::close_text(&runner, pane.as_deref()) {
+                Ok(text) => {
+                    println!("{text}");
+                    std::process::ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("slack-close: {e}");
                     std::process::ExitCode::FAILURE
                 }
             }

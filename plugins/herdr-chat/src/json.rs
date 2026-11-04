@@ -21,6 +21,61 @@ pub struct Status {
     pub pane: Option<String>,
     pub signed_in: bool,
     pub rooms: Vec<String>,
+    /// The Slack support chat open in this pane, if any.
+    pub slack_chat: Option<SlackChat>,
+}
+
+/// Who a pane is talking to over Slack, and since when (rt's epoch value,
+/// passed through unchanged).
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SlackChat {
+    pub name: String,
+    pub opened_at: i64,
+}
+
+/// One open conversation as `slack-status` prints it. `pane` is null when the
+/// holding agent has no pane in the roster.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SlackConversationRow {
+    pub id: u64,
+    pub room: String,
+    pub pane: Option<String>,
+    pub name: String,
+    pub opened_at: i64,
+    pub last_active_at: i64,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct SlackStatus {
+    pub conversations: Vec<SlackConversationRow>,
+}
+
+pub fn slack_status_from(chats: &[crate::rt::SlackConversation]) -> SlackStatus {
+    SlackStatus {
+        conversations: chats
+            .iter()
+            .map(|c| SlackConversationRow {
+                id: c.id,
+                room: c.room.clone(),
+                pane: c.pane.clone(),
+                name: c.name.clone(),
+                opened_at: c.opened_at,
+                last_active_at: c.last_active_at,
+            })
+            .collect(),
+    }
+}
+
+/// What a close did. `closed: false` is not a failure: the close has started
+/// and the pane is saying goodbye, so the chat is still listed until it ends.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SlackClose {
+    pub ok: bool,
+    pub conversation_id: u64,
+    pub closed: bool,
 }
 
 /// A buddy row as a consumer reads it. The identity is required, because a row
@@ -262,12 +317,62 @@ mod tests {
             pane: Some("w1:p1".to_string()),
             signed_in: true,
             rooms: vec!["#rt".to_string()],
+            slack_chat: None,
         })
         .unwrap();
         assert_eq!(
             out,
-            r##"{"handle":"kay","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":["#rt"]}"##
+            r##"{"handle":"kay","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":["#rt"],"slackChat":null}"##
         );
+    }
+
+    #[test]
+    fn status_serializes_the_open_slack_chat_as_slack_chat() {
+        let out = serde_json::to_string(&Status {
+            handle: Some("kay".to_string()),
+            name: Some("kay".to_string()),
+            state: "live".to_string(),
+            pane: Some("w1:p1".to_string()),
+            signed_in: true,
+            rooms: Vec::new(),
+            slack_chat: Some(SlackChat {
+                name: "alex".to_string(),
+                opened_at: 1700,
+            }),
+        })
+        .unwrap();
+        assert_eq!(
+            out,
+            r#"{"handle":"kay","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":[],"slackChat":{"name":"alex","openedAt":1700}}"#
+        );
+    }
+
+    #[test]
+    fn slack_status_serializes_each_conversation_in_camel_case() {
+        let out = serde_json::to_string(&slack_status_from(&[crate::rt::SlackConversation {
+            id: 4,
+            room: "slack-4".to_string(),
+            pane: None,
+            name: "alex".to_string(),
+            opened_at: 100,
+            last_active_at: 150,
+        }]))
+        .unwrap();
+        assert_eq!(
+            out,
+            r#"{"conversations":[{"id":4,"room":"slack-4","pane":null,"name":"alex","openedAt":100,"lastActiveAt":150}]}"#
+        );
+    }
+
+    #[test]
+    fn slack_close_serializes_the_conversation_id_in_camel_case() {
+        let out = serde_json::to_string(&SlackClose {
+            ok: true,
+            conversation_id: 4,
+            closed: false,
+        })
+        .unwrap();
+        assert_eq!(out, r#"{"ok":true,"conversationId":4,"closed":false}"#);
     }
 
     #[test]
@@ -279,11 +384,12 @@ mod tests {
             pane: None,
             signed_in: false,
             rooms: Vec::new(),
+            slack_chat: None,
         })
         .unwrap();
         assert_eq!(
             out,
-            r#"{"handle":null,"name":null,"state":"not signed in","pane":null,"signedIn":false,"rooms":[]}"#
+            r#"{"handle":null,"name":null,"state":"not signed in","pane":null,"signedIn":false,"rooms":[],"slackChat":null}"#
         );
     }
 
@@ -296,11 +402,12 @@ mod tests {
             pane: Some("w1:p1".to_string()),
             signed_in: true,
             rooms: Vec::new(),
+            slack_chat: None,
         })
         .unwrap();
         assert_eq!(
             out,
-            r#"{"handle":"remy.k3f9","name":"remy","state":"live","pane":"w1:p1","signedIn":true,"rooms":[]}"#
+            r#"{"handle":"remy.k3f9","name":"remy","state":"live","pane":"w1:p1","signedIn":true,"rooms":[],"slackChat":null}"#
         );
     }
 

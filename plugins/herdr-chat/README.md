@@ -17,6 +17,8 @@ Built in Rust with ratatui, themed to match herdr.
 - **Quick-send**: fire a line at a room or DM without leaving your pane.
 - **Sign in / sign out**: put a pane on (or take it off) the chat buddy list
   on a hotkey.
+- **Slack support**: turn a Slack support chat on or off for a pane. On types
+  `/slack-support <person> <problem>` into the pane, the only way a chat opens.
 - **Jump**: from a chat mention to that agent's pane.
 - **Open viewer**: hand off to the web viewer for reading and composing.
 
@@ -36,6 +38,8 @@ herdr-chat sign-in --json --pane w1:p1
 herdr-chat sign-out --json --pane w1:p1
 herdr-chat jump --json --handle scout
 herdr-chat open-viewer --json
+herdr-chat slack-status --json
+herdr-chat slack-close --json --pane w1:p1
 ```
 
 `status`, `targets` and `jump` have no other mode, so `--json` is optional
@@ -60,9 +64,11 @@ breaking it.
 
 | Verb | Input | Keys it prints |
 | --- | --- | --- |
-| `status` | `--pane <id>`, else `HERDR_PANE_ID`; required | `handle`, `name`, `state`, `pane`, `signedIn`, `rooms` |
-| `sign-in` | `--pane <id>`, else `HERDR_PANE_ID`; required | the same six, read back after the sign |
-| `sign-out` | `--pane <id>`, else `HERDR_PANE_ID`; required | the same six |
+| `status` | `--pane <id>`, else `HERDR_PANE_ID`; required | `handle`, `name`, `state`, `pane`, `signedIn`, `rooms`, `slackChat` |
+| `sign-in` | `--pane <id>`, else `HERDR_PANE_ID`; required | the same seven, read back after the sign |
+| `sign-out` | `--pane <id>`, else `HERDR_PANE_ID`; required | the same seven |
+| `slack-status` | none | `conversations` |
+| `slack-close` | `--pane <id>`, else `HERDR_PANE_ID`; required | `ok`, `conversationId`, `closed` |
 | `peek` | none | `buddies`, `rooms` |
 | `targets` | none | `rooms`, `people`, `labels` |
 | `quick-send` | `--to '#room'` or `--to '@name'`, `--body <text>` | `ok`, `to` |
@@ -75,6 +81,17 @@ The nested rows: a `peek` buddy is `handle`, `name`, `paneId`, `status`, `repo`,
 `unread`, `mentions` (`label` is what to draw: a DM room's participant names,
 `kai ↔ remy`, else the room); a `broadcast` result is `paneId`, `ok`,
 `delivered`, `error`.
+
+`slackChat` on a `status` is `{ name, openedAt }` for the Slack support chat
+open in that pane, else `null`. A `slack-status` conversation is `id`, `room`,
+`pane`, `name`, `openedAt`, `lastActiveAt` (`pane` is `null` when the agent
+holding the chat has no pane in the roster). On has no verb of its own: a
+caller types `/slack-support <person> <problem>` into the pane with `rt pane
+send`, from a process that carries no pane identity (the daemon refuses that
+command from a pane), then reads `slackChat` on `status` to learn whether it
+ran, because `rt pane send` reports `queued` for a slash command that ran.
+`slack-close`'s `closed` is `false` while the pane is still saying goodbye:
+the close has started and the chat stays listed until it ends.
 
 `targets` prints prefixed strings (`#room` under `rooms`, `@name` under
 `people`) and `quick-send --to` takes one back. A bare name is refused rather
@@ -126,9 +143,11 @@ It takes a value on some verbs and is a boolean on others. The split stands:
 herdr's plugin manifest invokes the boolean entrypoints by name, so renaming
 one breaks every installed copy of the plugin.
 
-- **`status`, `sign-in`, `sign-out`**: `--pane <id>` is the pane to act on.
-- **`broadcast`, `peek`, `quick-send`, `launcher`**: `--pane` is a boolean, the
-  popup entrypoint that runs the TUI in the pane herdr just opened. A headless
+- **`status`, `sign-in`, `sign-out`, `slack-close`**: `--pane <id>` is the pane
+  to act on.
+- **`broadcast`, `peek`, `quick-send`, `launcher`, `slack-support`**: `--pane`
+  is a boolean, the popup entrypoint that runs the TUI in the pane herdr just
+  opened. A headless
   caller never passes it.
 
 The flags only the `--json` path reads (`--panes` and `--body` on `broadcast`,
@@ -161,7 +180,7 @@ MacBook Pro: roughly 170 MB of repository (56 MB of it git history) plus
 the 230 MB release build (measured on 2026-09-27).
 
 This builds the plugin and registers its actions (`launcher`, `broadcast`,
-`peek`, `quick-send`, `sign-in`, `sign-out`, `open-viewer`) and its popup
+`peek`, `quick-send`, `sign-in`, `sign-out`, `slack-support`, `open-viewer`) and its popup
 panes. It does not bind any keys... herdr keybindings are a user-config
 concern, not a manifest capability, so the plugin can't declare them for you.
 

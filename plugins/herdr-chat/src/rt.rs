@@ -361,6 +361,52 @@ pub fn chat_sign_out_pane(r: &dyn Runner, pane: &str) -> Result<String, String> 
     chat_sign_pane(r, "sign-out", pane)
 }
 
+/// One open Slack support chat, as `rt chat slack-status --json` lists it.
+/// `pane` is absent when the agent holding the chat has no pane in the roster.
+#[derive(serde::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct SlackConversation {
+    pub id: u64,
+    pub room: String,
+    #[serde(default)]
+    pub pane: Option<String>,
+    pub name: String,
+    #[serde(rename = "openedAt")]
+    pub opened_at: i64,
+    #[serde(rename = "lastActiveAt")]
+    pub last_active_at: i64,
+}
+
+#[derive(serde::Deserialize)]
+struct SlackConversations {
+    conversations: Vec<SlackConversation>,
+}
+
+pub fn slack_status(r: &dyn Runner) -> Result<Vec<SlackConversation>, String> {
+    let rt = rt_bin();
+    let out: SlackConversations =
+        run_json(r, &[rt.as_str(), "chat", "slack-status", "--json"], &[])?;
+    Ok(out.conversations)
+}
+
+/// rt's answer to a close. `closed` is false while the pane is still saying
+/// goodbye: the close has started but the chat is not over.
+#[derive(serde::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct SlackClosed {
+    #[serde(rename = "conversationId")]
+    pub conversation_id: u64,
+    pub closed: bool,
+}
+
+/// Start closing the chat held by `pane`.
+pub fn slack_close(r: &dyn Runner, pane: &str) -> Result<SlackClosed, String> {
+    let rt = rt_bin();
+    run_json(
+        r,
+        &[rt.as_str(), "chat", "slack-close", "--pane", pane, "--json"],
+        &[],
+    )
+}
+
 pub fn dm(r: &dyn Runner, to: &str, body: &str) -> Result<(), String> {
     let rt = rt_bin();
     if body.starts_with('-') {
@@ -466,6 +512,36 @@ mod tests {
             self.record(argv, env, Some(stdin.to_string()));
             Ok(self.body_for(argv))
         }
+    }
+
+    #[test]
+    fn slack_status_parses_the_open_conversations() {
+        let r = FakeRunner::capture(
+            r#"{"ok":true,"conversations":[{"id":4,"room":"slack-4","pane":"w1:p1","name":"alex","openedAt":100,"lastActiveAt":150},{"id":5,"room":"slack-5","name":"sam","openedAt":200,"lastActiveAt":200}]}"#,
+        );
+        let chats = slack_status(&r).unwrap();
+        assert_eq!(r.last().argv, vec!["rt", "chat", "slack-status", "--json"]);
+        assert_eq!(chats[0].pane.as_deref(), Some("w1:p1"));
+        assert_eq!(chats[0].name, "alex");
+        assert_eq!(chats[0].opened_at, 100);
+        assert_eq!(chats[1].pane, None);
+    }
+
+    #[test]
+    fn slack_close_passes_the_pane() {
+        let r = FakeRunner::capture(r#"{"ok":true,"conversationId":4,"closed":false}"#);
+        let out = slack_close(&r, "w1:p1").unwrap();
+        assert_eq!(
+            r.last().argv,
+            vec!["rt", "chat", "slack-close", "--pane", "w1:p1", "--json"]
+        );
+        assert_eq!(
+            out,
+            SlackClosed {
+                conversation_id: 4,
+                closed: false
+            }
+        );
     }
 
     #[test]

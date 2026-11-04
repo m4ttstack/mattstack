@@ -51,7 +51,7 @@ build on it and the traps to avoid. Don't duplicate what the linked docs own.
 - `src/run.rs`: the `Runner` seam. Every subprocess goes through it; tests fake
   it, so there are no real `rt`/`herdr`/`deck` calls under `cargo test`.
 - `src/cmd/*`: one file per capability (launcher, broadcast, picker, peek,
-  quick_send, sign, open_viewer).
+  quick_send, sign, open_viewer, slack).
 
 ## Dev loop
 
@@ -96,6 +96,15 @@ build on it and the traps to avoid. Don't duplicate what the linked docs own.
 - **Inside a herdr pane, `cargo test` fails five tests unless
   `HERDR_BIN_PATH` is unset.** herdr exports it into every pane, and
   `run::herdr_bin` honors it, so the argv assertions see an absolute path.
+- **Slack On is a send, and its proof is `slackChat`.** `slack.rs` types
+  `/slack-support ...` with `rt::pane_send(.., scrub = true)`, because the
+  daemon refuses that command from a caller that carries a pane identity
+  (`callerPane`), and a popup may inherit `HERDR_PANE_ID`. `rt pane send`
+  reports `queued` for a slash command that ran, so the popup believes only
+  the pane's entry in `rt chat slack-status` afterwards, never the send.
+- **A popup's slow work runs after a `Flow::Again` repaint.** The loop blocks
+  on the next key, so a step that must show "working" first returns `Again`,
+  and the next call (no key) does the work.
 - **Show `name`, act on `handle`.** Every row, header and result line renders
   `display_name()`. Every lookup, map key, jump, send and broadcast record
   uses `handle`. A check that a pane title "just echoes the identity"
