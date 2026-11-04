@@ -687,21 +687,13 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
     if (latest) navigate(`/r/${encodeURIComponent(latest)}`, { replace: true });
   }, [route.name, rooms]);
 
-  const { messages, loaded: messagesLoaded } = useMessages(
-    activeRoom,
-    initialState?.messages
-  );
+  const { messages } = useMessages(activeRoom, initialState?.messages);
   const {
     members: roomMembers,
     memberNames: roomMemberNames,
     refetchMembers,
   } = useRoomMembers(activeRoom, initialState?.members);
   const activeRoomSummary = rooms.find(r => r.room === activeRoom);
-  const speakers = useMemo(
-    () =>
-      messagesLoaded ? [...new Set(messages.map(m => m.handle))] : undefined,
-    [messages, messagesLoaded]
-  );
 
   // What a sleeping tab missed: rooms first (a room may have appeared),
   // then the roster, then the open room's members. The transcript refetches
@@ -738,7 +730,6 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
       <BuddiesProvider
         buddies={buddies}
         roomMembers={roomMembers}
-        speakers={speakers}
         memberNames={roomMemberNames}
         now={Date.now()}
         reachable={daemon.reachable}
@@ -786,7 +777,6 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
     <BuddiesProvider
       buddies={buddies}
       roomMembers={roomMembers}
-      speakers={speakers}
       memberNames={roomMemberNames}
       now={Date.now()}
       reachable={daemon.reachable}

@@ -27,34 +27,6 @@
   text-decoration: underline;
 }
 
-/* The speaker chip owns its own box: `--speaker-hue`/`--speaker-hue-fill`
-   are set inline per render, so geometry lives here once and never changes
-   between rest and hover -- only the wash strength does. A hover-time
-   padding/margin swap here would shear every row's content to its right,
-   so it never touches these declarations again below. The wash reads the
-   fill variant, never the text variant: a background-color wash is a fill
-   role, not a text role, even though the two are drawn from the same hue. */
-.hueChip {
-  border-radius: 4px;
-  padding: 0 6px;
-  margin-left: -6px;
-  color: var(--speaker-hue);
-  background-color: color-mix(
-    in srgb,
-    var(--speaker-hue-fill) var(--tk-wash),
-    transparent
-  );
-  transition: background-color 120ms ease;
-}
-
-.target:hover .hueChip {
-  background-color: color-mix(
-    in srgb,
-    var(--speaker-hue-fill) calc(var(--tk-wash) * 2),
-    transparent
-  );
-}
-
 /* Inline SVG defaults to an inline box with a few px of descender gap below
    it; block removes that so it doesn't nudge its flex siblings out of line. */
 .avatar {

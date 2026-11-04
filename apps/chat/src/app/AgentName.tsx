@@ -1,3 +1,5 @@
+import { createAvatar } from '@dicebear/core';
+import * as personas from '@dicebear/personas';
 import {
   Avatar,
   Box,
@@ -7,8 +9,6 @@ import {
   Menu,
   Text,
 } from '@mattstack/app-kit/core';
-import { createAvatar } from '@dicebear/core';
-import * as personas from '@dicebear/personas';
 
 import cardClasses from './agent-card.module.css';
 import classes from './agent-name.module.css';
@@ -18,7 +18,6 @@ import { displayName } from './display-name';
 import { doing, type DoingLine } from './doing';
 import { MUTED_XS } from './presence-bits';
 import type { RosterBuddy } from './roster-types';
-import type { SpeakerHue } from './speaker-hue';
 import { StateDot } from './StateDot';
 
 export type AgentNameVariant = 'inline' | 'name';
@@ -133,15 +132,6 @@ export function SpriteAvatar({
   );
 }
 
-/** Carries the per-speaker hue into `.hueChip`'s CSS as two custom
-    properties (text and fill are different role tokens now, so one
-    variable can no longer serve both `color` and the background wash),
-    since the colors themselves are only known at render time. */
-type HueStyle = React.CSSProperties & {
-  '--speaker-hue': string;
-  '--speaker-hue-fill': string;
-};
-
 export interface AgentNameProps {
   handle: string;
   /** Display name; unset falls back to the roster row, the context directory, then the id. */
@@ -154,13 +144,10 @@ export interface AgentNameProps {
       For touch surfaces (the phone drawer) and dense lists that should not
       react to hover (the sidebar DM rows). */
   withCard?: boolean;
-  /** `false` drops the invadrs sprite that otherwise leads every handle.
+  /** `false` drops the face that otherwise leads every handle.
       For dense rows (the sidebar's DM list) where a fifth icon per row
       is more noise than signal. @default true */
   withAvatar?: boolean;
-  /** `inline` only: renders the handle as a chip in this hue (color and
-      wash background). Unset keeps today's plain-name rendering. */
-  hue?: SpeakerHue;
   /** `inline` only: the handle's type size and its sprite's, for a caller
       whose row is not the message header's. Unset keeps the header's own. */
   size?: AgentNameSize;
@@ -465,7 +452,6 @@ export function AgentName({
   reachable: reachableProp,
   now,
   inRoom,
-  hue,
   size,
   task,
 }: AgentNameProps) {
@@ -483,7 +469,7 @@ export function AgentName({
         wrap="nowrap"
         align="center"
         component="span"
-        className={hue ? undefined : classes.name}
+        className={classes.name}
         style={{ minWidth: 0 }}
       >
         <Group
@@ -491,17 +477,7 @@ export function AgentName({
           wrap="nowrap"
           align="center"
           component="span"
-          className={hue ? classes.hueChip : undefined}
-          data-testid={hue ? 'speaker-chip' : undefined}
-          style={
-            hue
-              ? ({
-                  flex: 'none',
-                  '--speaker-hue': hue.text,
-                  '--speaker-hue-fill': hue.fill,
-                } as HueStyle)
-              : { flex: 'none' }
-          }
+          style={{ flex: 'none' }}
         >
           {withAvatar && (
             <HandleAvatar

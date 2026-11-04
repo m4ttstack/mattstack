@@ -49,6 +49,7 @@
 
 .who {
   flex: none;
+  color: var(--tk-text-1);
   font-size: var(--mantine-font-size-lg);
   font-weight: 500;
 }

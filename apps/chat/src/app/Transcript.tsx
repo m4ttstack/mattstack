@@ -16,13 +16,11 @@ import ScrollToBottom, {
 } from 'react-scroll-to-bottom';
 
 import { AgentName, HandleAvatar } from './AgentName';
-import { useBuddies } from './buddies-context';
 import { dayKey, dayLabel, localTime } from './day-label';
 import { MessageMarkdown } from './MessageMarkdown';
 import { NewPill } from './NewPill';
 import { useRelayFrames, useRelayOpen } from './relay-socket';
 import { useSlackChat } from './slack-chats-context';
-import { speakerHue } from './speaker-hue';
 import prose from './transcript-prose.module.css';
 import scrollClasses from './transcript-scroll.module.css';
 
@@ -236,13 +234,6 @@ function MessageRow({
   compact: boolean;
   grouped: boolean;
 }) {
-  const ctx = useBuddies();
-  const hue = speakerHue(
-    message.handle,
-    humanHandle,
-    'body',
-    ctx?.lookOf(message.handle)
-  );
   const time = (
     <Text
       component="span"
@@ -254,7 +245,7 @@ function MessageRow({
     </Text>
   );
   const name = (
-    <span className={prose.who} style={{ color: hue.text }}>
+    <span className={prose.who}>
       <AgentName
         handle={message.handle}
         name={message.name}
