@@ -186,7 +186,8 @@ A finished Mac hears about a new required tool from the daemon's pull hook
 has no lock, and a daemon write during a run could lose a migration id. A tool
 must read `missing` on two pulls in a row before it notifies, because a false
 result reaches every member at once; an error or a timeout is unknown, not
-missing.
+missing. A told name drops off once Done acknowledges it or the team no longer
+requires it, unless the read failed, so a tool that returns notifies again.
 
 ## Your repos
 
