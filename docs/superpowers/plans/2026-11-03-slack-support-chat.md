@@ -369,7 +369,7 @@ Load `plugin-authoring` first, and use the spike's answers.
   - `the Bash deny matches slack-open, slack-watch and slack-delivered`
   - `the Bash deny matches rt pane send carrying /slack-support`
   - `an ordinary Bash command passes`
-  - `the skill starts from a timer after the command.run hook returns, with the person and problem in its arguments`
+  - `the skill starts from a timer after the command.run hook returns, with the handle and problem in its arguments`
   - `every submit omits asUser`
   - `a message delivery puts the rules first and the text between marker lines`
   - `text containing the marker is neutralised`
@@ -382,7 +382,7 @@ Load `plugin-authoring` first, and use the spike's answers.
 
 - [ ] **Step 2: Run:** `claude plugin test plugins/mattstack`. Expected: FAIL.
 
-- [ ] **Step 3: Implement.** Register the command in `session.start`. The `command.run` hook checks `e.origin.kind === 'composer'`, signs the pane in with `rt chat sign-in` if needed, runs `rt chat slack-open` with `$.process.run`, starts the watcher, and returns. A `$.clock.after` scheduled by the hook then runs `$.command.run` of `rt:slack-support` with the person and problem as its arguments; `$.prompt.submit` and `$.command.run` are refused inside the hook, and a slash command's arguments don't reach the model. There is no `prompt.compose` hook: the rules ride on every message. The mod's own `prompt.submit` hook doesn't see its own submits, so `renderDelivery` builds the whole text first. Pass `CLAUDE_CODE_SESSION_ID` from `$.session.id()` and the pane id in each child's `env`; don't rely on inheritance. Use the spec's support rules as the wording of `supportRules`. Hook failures on the gating hooks fail closed with a `.catch`.
+- [ ] **Step 3: Implement.** Register the command in `session.start`. The `command.run` hook checks `e.origin.kind === 'composer'`, signs the pane in with `rt chat sign-in` if needed, runs `rt chat slack-open` with `$.process.run`, starts the watcher, and returns. A `$.clock.after` scheduled by the hook then runs `$.command.run` of `rt:slack-support` with `<handle> <problem>` as its arguments, the handle being the teammate id from `slack-open`; `$.prompt.submit` and `$.command.run` are refused inside the hook, and a slash command's arguments don't reach the model. There is no `prompt.compose` hook: the rules ride on every message. The mod's own `prompt.submit` hook doesn't see its own submits, so `renderDelivery` builds the whole text first. Pass `CLAUDE_CODE_SESSION_ID` from `$.session.id()` and the pane id in each child's `env`; don't rely on inheritance. Use the spec's support rules as the wording of `supportRules`. Hook failures on the gating hooks fail closed with a `.catch`.
 
 - [ ] **Step 4: Run** `claude plugin test plugins/mattstack` and `claude plugin validate plugins/mattstack`. Expected: PASS. Keep the engine's generated `tsconfig.json` and `.claude-plugin/types/` out of the commit.
 

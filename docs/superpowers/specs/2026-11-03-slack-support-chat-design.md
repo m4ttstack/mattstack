@@ -428,7 +428,7 @@ for it to discover or be talked into calling.
   prompt, and never for a plugin, a peer, a schedule or a same-user socket.
 - **The open.** The hook signs the pane in to rt chat if it isn't already, and runs
   the open with `$.process.run`. Then it schedules `$.command.run` of the skill with
-  `$.clock.after`, passing the person and the problem as the skill's arguments.
+  `$.clock.after`, passing the teammate's handle and the problem as the skill's arguments.
   Claude Code refuses a submit from inside a `command.run` hook, and a slash
   command's own arguments don't reach the model. The skill sets
   `disable-model-invocation`, so the model can't load it.
