@@ -1,0 +1,83 @@
+---
+sidebar_position: 11
+title: Review rule selector
+---
+
+# Review rule selector
+
+A pack can give its reviews a rule selector: a command that reads a change's diff and picks only the team's review rules that apply to it. The reviewer then gives a verdict on each picked rule, and every rule it fails becomes a finding. Without a selector, the review engines work as they always have.
+
+The selector is for teams that keep their review rules as files a tool can match against a diff. mattstack ships no selector; your pack's fill names the commands.
+
+## Where it runs
+
+| Verb | What the selector does there |
+| --- | --- |
+| `review` and `self-review` | Picks the rules before the reviewer starts, asks for a verdict on each, checks the verdicts, and turns each failed rule into a finding |
+| `receive-review` | Picks the rules for the branch and hands them to the agent judging the review threads, as reference only |
+| The implement stage | Runs the optional `check:` command once, then fixes the rules the change breaks before committing |
+
+## Bind a selector
+
+Write a fill skill whose text resolves to the selector's command lines, then bind it to the `rule-selector` prop of each verb's `rule-selector` block:
+
+```bash
+rt skills bind review review/rule-selector rule-selector widgets:rule-selector --pack widgets
+rt skills bind self-review self-review/rule-selector rule-selector widgets:rule-selector --pack widgets
+rt skills bind receive-review receive-review/rule-selector rule-selector widgets:rule-selector --pack widgets
+rt skills bind stage-implement stage-implement/rule-selector rule-selector widgets:rule-selector --pack widgets
+```
+
+Publish the pack the way every pack change goes out, through `mattstack:extending-a-pack` and `mattstack:editing-skills`.
+
+## What the fill says
+
+The agent reads the fill on every run, so it can look at a setting first. It resolves to one of two shapes.
+
+To turn the rules off for this run:
+
+```text
+selector: none
+```
+
+To run them:
+
+```text
+selector: widgets-rules select --format {format}
+verdicts: widgets-rules check-verdicts {selection} {verdicts}
+fence: widgets-verdicts
+```
+
+- **`selector:`** runs twice with the diff on stdin: once with `{format}` as `json`, to get the picked rules, and once as `text`, the Markdown the reviewer reads. The JSON needs a `rules` list, and each rule has an `id`, a `severity` (`blocking` or `advisory`) and a `summary`.
+- **`verdicts:`** checks the reviewer's answers. `{selection}` and `{verdicts}` are file paths. It prints `{"problems": [...]}`, exiting 0 with no problems and 1 with some.
+- **`fence:`** is the tag of the code block the reviewer writes its verdicts in.
+- **`check:`** is an optional fourth line for the implement stage. It runs in the worktree, with `{base}` replaced by the branch point, and prints the rules that apply and the lines worth a look.
+
+## What the reviewer returns
+
+The reviewer ends its reply with one code block, tagged with the `fence` value:
+
+```json
+{"verdicts": [{"rule": "no-raw-sql", "verdict": "fail", "evidence": [{"file": "src/orders.ts", "line": 12, "side": "new"}], "note": "builds the query by hand"}]}
+```
+
+Each `verdict` is `pass`, `fail` or `not-applicable`.
+
+## How verdicts become findings
+
+- A `blocking` rule that fails becomes an Important finding, and an `advisory` rule a Minor one. Only the reviewer marks something Critical.
+- A finding sits at the rule's first new-side line. When the reviewer already reported the same problem at that line, the two become one finding.
+- When the verdicts command finds problems, a fresh reviewer corrects the verdicts once. Problems left after that go into the draft's notes, and the review carries on.
+- The verdicts are saved as `review-verdicts.json` in the review's scratch folder.
+
+A selector that fails, or prints JSON the review can't read, never blocks a review. The review notes it as a setup problem and goes on without rules.
+
+## Turn it on for a team
+
+`review.ruleSelector` is the switch a fill can read. It is off by default, and a team, a user or a machine can turn it on:
+
+```bash
+rt settings set review.ruleSelector true --scope team
+```
+
+A fill that reads it resolves to `selector: none` while it is off.
