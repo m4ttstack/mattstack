@@ -25,8 +25,8 @@
   position: absolute;
   display: grid;
   place-items: center;
-  width: 62%;
-  height: 62%;
+  width: 66%;
+  height: 66%;
   border-radius: 30%;
   background: var(--tk-card);
   box-shadow: 0 0 0 1.5px var(--stack-ring, var(--tk-card));
