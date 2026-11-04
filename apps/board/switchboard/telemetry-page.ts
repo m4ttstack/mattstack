@@ -1,6 +1,10 @@
-/** The plain HTML readout for the relay's version telemetry: tables only, no
-    script, no external assets. Every string that came from a ping goes
-    through `escapeHtml`. */
+/** The plain HTML readout for the relay's version telemetry: tables, no
+    external assets, and one inline script the CSP pins by hash. Only the
+    browser knows the viewer's timezone, so times arrive as UTC and the script
+    rewrites them; without it they stay readable UTC. Every string that came
+    from a ping goes through `escapeHtml`. */
+import { createHash } from 'node:crypto';
+
 import { macLabel, type TelemetrySnapshot } from './telemetry.ts';
 
 function escapeHtml(value: string): string {
@@ -24,18 +28,35 @@ th{background:var(--head);white-space:nowrap}
 .none{color:var(--muted)}
 `.trim();
 
-const iso = (ms: number) => new Date(ms).toISOString();
+const SCRIPT =
+  `const clock=new Intl.DateTimeFormat('en-US',{hour:'numeric',minute:'2-digit',hour12:true});` +
+  `const calendar=new Intl.DateTimeFormat('en-GB',{day:'2-digit',month:'2-digit',year:'numeric'});` +
+  `const today=new Date();const yesterday=new Date();yesterday.setDate(today.getDate()-1);` +
+  `const dayLabel=date=>{const day=calendar.format(date);` +
+  `return day===calendar.format(today)?'Today':day===calendar.format(yesterday)?'Yesterday':day};` +
+  `for(const time of document.querySelectorAll('time')){const date=new Date(time.dateTime);` +
+  `time.textContent=dayLabel(date)+', '+clock.format(date)}`;
+
+export const TELEMETRY_CSP = `default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-${createHash('sha256').update(SCRIPT).digest('base64')}'`;
+
+type Cell = string | { html: string };
+
+function time(ms: number): { html: string } {
+  const utc = new Date(ms).toISOString();
+  return { html: `<time datetime="${utc}">${utc}</time>` };
+}
+
+const cellHtml = (cell: Cell) =>
+  typeof cell === 'string' ? escapeHtml(cell) : cell.html;
 const orDash = (value: string | number | null) =>
   value === null ? '-' : String(value);
 const list = (items: string[]) => (items.length > 0 ? items.join(', ') : '-');
 
-function table(headers: string[], rows: string[][]): string {
+function table(headers: string[], rows: Cell[][]): string {
   if (rows.length === 0) return '<p class="none">none</p>';
   const head = headers.map(h => `<th>${escapeHtml(h)}</th>`).join('');
   const body = rows
-    .map(
-      row => `<tr>${row.map(c => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`
-    )
+    .map(row => `<tr>${row.map(c => `<td>${cellHtml(c)}</td>`).join('')}</tr>`)
     .join('');
   return `<div class="scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
@@ -65,13 +86,15 @@ export function renderTelemetryPage(s: TelemetrySnapshot): string {
       list(
         m.packs.map(p => (p.version === null ? p.id : `${p.id} (${p.version})`))
       ),
-      m.running ? `running (${iso(m.lastSeen)})` : iso(m.lastSeen),
+      m.running
+        ? { html: `running (${time(m.lastSeen).html})` }
+        : time(m.lastSeen),
       m.installId,
     ])
   );
   const versions = table(
     ['Kind', 'Version', 'Macs', 'Last seen'],
-    s.versions.map(v => [v.kind, v.version, String(v.macs), iso(v.lastSeen)])
+    s.versions.map(v => [v.kind, v.version, String(v.macs), time(v.lastSeen)])
   );
   const migrations = table(
     ['Migration', 'Not run on', 'Too old to know it'],
@@ -91,7 +114,7 @@ export function renderTelemetryPage(s: TelemetrySnapshot): string {
   );
   const updates = table(
     ['When', 'Mac', 'Kind', 'From', 'To'],
-    s.updates.map(u => [iso(u.at), u.label, u.kind, orDash(u.from), u.to])
+    s.updates.map(u => [time(u.at), u.label, u.kind, orDash(u.from), u.to])
   );
   return (
     `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
@@ -105,6 +128,7 @@ export function renderTelemetryPage(s: TelemetrySnapshot): string {
     `<h3>Legacy directories</h3>${legacyDirs}` +
     `<h3>Org layouts</h3>${orgLayouts}` +
     `<h3>Packs</h3>${packs}` +
-    `<h2>Recent updates</h2>${updates}`
+    `<h2>Recent updates</h2>${updates}` +
+    `<script>${SCRIPT}</script>`
   );
 }

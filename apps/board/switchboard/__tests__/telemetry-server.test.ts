@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 
@@ -9,6 +10,11 @@ import { TelemetryStore, type TelemetryPing } from '../telemetry.ts';
 const ADMIN = 'admin-secret';
 const VIEW = 'view-secret';
 const NOW = 1_000_000_000_000;
+
+const pageScript = (html: string) =>
+  html.match(/<script>([\s\S]*)<\/script>/)?.[1] ?? '';
+const scriptHash = (html: string) =>
+  createHash('sha256').update(pageScript(html)).digest('base64');
 
 const ping = (over: Partial<TelemetryPing> = {}): TelemetryPing => ({
   installId: 'install-a',
@@ -233,10 +239,10 @@ describe('GET /telemetry', () => {
       expect(res.headers.get('cache-control')).toBe('no-store');
       expect(res.headers.get('referrer-policy')).toBe('no-referrer');
       expect(res.headers.get('x-content-type-options')).toBe('nosniff');
-      expect(res.headers.get('content-security-policy')).toBe(
-        "default-src 'none'; style-src 'unsafe-inline'"
-      );
       const html = await res.text();
+      expect(res.headers.get('content-security-policy')).toBe(
+        `default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-${scriptHash(html)}'`
+      );
       for (const heading of [
         'Macs',
         'Versions',
@@ -255,8 +261,51 @@ describe('GET /telemetry', () => {
     expect(html).toContain('color-scheme:light dark');
     expect(html).toContain('light-dark(');
     expect(html).toContain('<div class="scroll"><table>');
-    expect(html).not.toMatch(/<script|<link|@import|url\(/);
+    expect(html).not.toMatch(/<link|@import|url\(/);
+    expect(html.split('<script').length - 1).toBe(1);
   });
+
+  test('sends each time as UTC for the browser to localize', async () => {
+    const { telemetry, get } = setup();
+    telemetry.record(ping(), null, NOW);
+    const html = await (await get(`/telemetry?key=${VIEW}`)).text();
+    const utc = new Date(NOW).toISOString();
+    expect(html).toContain(`<time datetime="${utc}">${utc}</time>`);
+  });
+
+  test.each([
+    ['2026-11-04T16:49:00.000Z', 'Today, 10:49 AM'],
+    ['2026-11-04T05:30:00.000Z', 'Yesterday, 11:30 PM'],
+    ['2026-11-03T07:00:00.000Z', 'Yesterday, 1:00 AM'],
+    ['2026-11-03T05:30:00.000Z', '02/11/2026, 11:30 PM'],
+    ['2025-01-15T20:05:00.000Z', '15/01/2025, 2:05 PM'],
+  ])(
+    'the page script shows %s as %s in the viewer zone',
+    async (utc, shown) => {
+      const { telemetry, get } = setup();
+      telemetry.record(ping(), null, NOW);
+      const html = await (await get(`/telemetry?key=${VIEW}`)).text();
+      const time = { dateTime: utc, textContent: 'untouched' };
+      const fakeDocument = { querySelectorAll: () => [time] };
+      class ViewerDate extends Date {
+        constructor(value: string | number = '2026-11-04T16:50:00.000Z') {
+          super(value);
+        }
+      }
+      const zone = process.env.TZ;
+      process.env.TZ = 'America/Chicago';
+      try {
+        new Function('document', 'Date', pageScript(html))(
+          fakeDocument,
+          ViewerDate
+        );
+      } finally {
+        if (zone === undefined) delete process.env.TZ;
+        else process.env.TZ = zone;
+      }
+      expect(time.textContent.replace(/\s/g, ' ')).toBe(shown);
+    }
+  );
 
   test('an empty view token never opens the page', async () => {
     const { get } = setup('');
@@ -320,7 +369,8 @@ describe('GET /telemetry', () => {
       expect(html).toContain(escaped);
     }
     expect(html).toContain('(unverified)');
-    expect(html).toContain(`running (${new Date(NOW).toISOString()})`);
+    const utc = new Date(NOW).toISOString();
+    expect(html).toContain(`running (<time datetime="${utc}">${utc}</time>)`);
     expect(html).toContain('&lt;b&gt;org&lt;/b&gt;:3');
     expect(html).toContain('&lt;i&gt;pack&lt;/i&gt;@mkt (1.0.0)');
     expect(html).toContain('bare@mkt<');
