@@ -115,6 +115,39 @@ test, a script). Workspace packages always count, since `cli.ts` reaches
 them through bare imports, and so does a `packages/*/package.json` change,
 since `e2e/setup.ts` rebuilds the binary on one.
 
+## Before you push
+
+`rt check` runs the repo's check command from the tree root, and `git_push`
+runs it first and refuses a red push. `rt.check` is a user or machine scope
+setting, per repo, because `git_push` runs the command with no prompt: nothing
+in a team or org store can run on your Mac. For this repo set it to
+`{"command": "bun scripts/ci/local-check.ts", "timeoutSeconds": 900}`; a full
+run takes about ten minutes, past the 600s default. The script takes
+`RT_CHECK_BASE` and `RT_CHECK_HEAD`, asks `test-scope.ts` what a PR with that
+diff would run, and runs the same unit selection the shards use:
+`bun test <dirs> --changed=<base>` split across half the cores (at most six
+processes) with `test-timings.json`, then the tests CI reads by path in their
+own call. A diff the scope script would skip runs nothing, and a diff it would
+make full runs the whole suite. The `no-*` guards are left to the `guards` job
+unless the run is full, which `RT_CHECK_FULL=1` forces. A full run builds
+`packages/rt-client` first, as CI's postinstall does, since the suite checks
+that `dist/` is fresh; a scoped run does not. This runs on your Mac, so it
+takes every selected test, the Mac-only list included. The exit code is the
+verdict, and the last stdout line is a JSON summary (`mode`, `selected`,
+`passed`, `failed`, `durationMs`, `failures`), printed on red too. `selected`
+counts the tests that ran, and a run that ran none reports `skip`. A failure
+before any test runs (a bad ref, a syntax error in the scope script) prints
+`mode: "error"` and exits 1; a SIGTERM or SIGINT stops the test processes. It
+runs unit tests only: no typecheck, e2e or path-gated job.
+
+A run posts the `rt/local-check` commit status for its verdict: green as
+success, red as failure, and an error (a timeout, a command that could not
+run) as error. Nothing is posted for a dirty tree, a HEAD that moved during the
+run, a commit not yet on the remote, `--no-status`, a host other than github.com, a `--base`
+ref that is not a commit, or a HEAD rt cannot read. That status is the pusher's attestation that this sha ran its scoped tests on
+their machine, and anyone who can push can post it. The merge queue's full, hosted run is
+still what lands a tree, so a wrong local status cannot break `main`.
+
 ## Jobs left ungated
 
 `static` and `purity` run on every PR. Both are ubuntu and short, `static`
