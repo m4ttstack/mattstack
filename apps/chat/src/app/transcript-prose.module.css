@@ -2,7 +2,7 @@
   width: 100%;
 }
 
-/* Time in a gutter, name inline with the first line, a tint on hover. */
+/* Time in a gutter, name inline with the first line. */
 .msg {
   display: flex;
   gap: 8px;
@@ -13,10 +13,6 @@
 
 .msg[data-grouped] {
   margin-top: 3px;
-}
-
-.msg:hover {
-  background: var(--tk-panel);
 }
 
 .gutter {
@@ -99,10 +95,6 @@
 
 .col[data-compact] .msg[data-grouped] {
   padding-top: 0;
-}
-
-.col[data-compact] .msg:hover {
-  background: none;
 }
 
 .col[data-compact] .prose {
