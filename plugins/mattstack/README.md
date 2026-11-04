@@ -464,7 +464,8 @@ Tests are plain scripts and `bun:test` files; there is no build step.
 ```bash
 git clone https://github.com/m4ttstack/mattstack.git
 cd mattstack/plugins/mattstack
-bun test                              # tests/desc-test.test.ts
+bun test tests/desc-test.spec.ts         # the CLI runs only *.test.ts; this one imports bun:test
+claude plugin test .                  # the mod tests (hooks/slack-support.test.ts)
 tests/certify.sh <skill-dir>          # certification gate for one skill
 ../../scripts/repo-purity.sh          # whole-tree purity sweep at the repo root
 plugin/tests/test-resolve-args.sh     # model-free matrix for the primitive's resolver

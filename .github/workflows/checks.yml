@@ -342,6 +342,18 @@ jobs:
           bash tests/test-mcp-tools-reference.sh
           sh tests/test-lsp-registration.sh
           bash tests/test-work-progress.sh
+      # The mod's hooks tests run under the Claude Code CLI; no login or secret is needed.
+      # tests/desc-test.spec.ts imports bun:test, which the CLI refuses, so it is
+      # named .spec.ts (the CLI runs only *.test.ts) and runs under bun here.
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code@2.1.318
+      - name: Mod tests and manifest validation
+        run: |
+          claude plugin test plugins/mattstack
+          claude plugin validate plugins/mattstack
+      - name: Description selection unit tests
+        working-directory: plugins/mattstack
+        run: bun test tests/desc-test.spec.ts
       - name: Every plugin digraph passes check-dot (warnings fail)
         working-directory: plugins/mattstack
         run: |
