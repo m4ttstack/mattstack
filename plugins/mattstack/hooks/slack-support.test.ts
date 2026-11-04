@@ -30,6 +30,7 @@ interface Child {
 }
 
 interface Run {
+  bin?: string
   args: readonly string[]
   env?: Record<string, string>
 }
@@ -43,6 +44,8 @@ interface WorldOptions {
   spawn?: (request: ProcessSpawnRequest) => AsyncGenerator<ProcessSpawnChunk, ProcessSpawnResult>
   submit?: (text: string) => PromptSubmitResult | Promise<PromptSubmitResult>
   skill?: () => void
+  // Executables that cannot start: `$.process.run` rejects, and a spawn rejects its first pull.
+  missing?: readonly string[]
 }
 
 // Each spawn takes the next child, and a spawn past the list stays silent and
@@ -57,7 +60,7 @@ function world(on: On, opts: WorldOptions = {}) {
   const registered: string[] = []
   const clock = mock.clock(on)
 
-  mock.env(on, { HERDR_PANE_ID: 'w1-2' })
+  mock.env(on, { HERDR_PANE_ID: 'w1-2', HOME: '/home/alex' })
   on('session.id', () => ({ value: SESSION }))
   on('command.register', (_, e) => {
     registered.push(e.name)
@@ -70,12 +73,14 @@ function world(on: On, opts: WorldOptions = {}) {
   })
   on('process.run', (_, e) => {
     const args = e.argv.slice(1)
-    runs.push({ args, env: e.init?.env })
+    if (opts.missing?.includes(e.argv[0] ?? '')) throw new Error(`cannot start ${e.argv[0]}`)
+    runs.push({ bin: e.argv[0], args, env: e.init?.env })
     const reply = opts.replies?.(args) ?? (args[1] === 'slack-open' ? { stdout: OPENED } : {})
     return { value: { exitCode: reply.exitCode ?? 0, stdout: reply.stdout ?? '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('process.spawn', async function* (_, e) {
     spawns.push({ args: e.argv, env: e.env })
+    if (opts.missing?.includes(e.argv[0] ?? '')) throw new Error(`cannot start ${e.argv[0]}`)
     if (opts.spawn) return { value: yield* opts.spawn(e) }
     const child = children.shift() ?? {}
     if (child.stdout) yield { stream: 'stdout' as const, text: child.stdout }
@@ -290,6 +295,37 @@ test('rt is spawned directly, so the session is the watcher\'s parent', async ($
   await clock.settle()
 
   expect(spawns[0]?.args).toEqual(['rt', 'chat', 'slack-watch', '--json'])
+})
+
+test('an rt off the PATH is found at ~/.local/bin/rt, for every verb and the watcher', async ($, on) => {
+  const installed = '/home/alex/.local/bin/rt'
+  const { clock, runs, spawns } = world(on, { missing: ['rt'], children: [{ stdout: jsonl(LINE) }] })
+
+  await $.command.run({ command: 'slack-support', args: 'alex rt is broken', origin: COMPOSER, presentation: PRESENTATION })
+  await clock.advance(1000)
+
+  expect(verbs(runs)).toEqual(['slack-open', 'slack-delivered'])
+  expect(runs.map(run => run.bin)).toEqual([installed, installed])
+  expect(spawns.slice(0, 2).map(spawn => spawn.args[0])).toEqual(['rt', installed])
+})
+
+test('an rt that starts and fails is not tried again at ~/.local/bin/rt', async ($, on) => {
+  const { clock, runs } = world(on, { replies: args => (args[1] === 'slack-open' ? { exitCode: 1, stdout: JSON.stringify({ ok: false, error: 'No one matches alex' }) } : undefined) })
+
+  const result = await $.command.run({ command: 'slack-support', args: 'alex rt is broken', origin: COMPOSER, presentation: PRESENTATION })
+  await clock.settle()
+
+  expect(runs.map(run => run.bin)).toEqual(['rt'])
+  expect(result.text).toContain('No one matches alex')
+})
+
+test('with no rt anywhere the watcher stops trying when no chat is known', async ($, on) => {
+  const { clock, spawns } = world(on, { missing: ['rt', '/home/alex/.local/bin/rt'] })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await clock.advance(600_000)
+
+  expect(spawns).toHaveLength(6)
 })
 
 test('every submit omits asUser', async ($, on) => {

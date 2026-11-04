@@ -17,7 +17,7 @@ const USAGE = 'Usage: /slack-support <person> <problem>'
 const ORIGIN_REFUSAL = 'Only a person at the prompt can open a Slack chat.'
 const SHELL_REFUSAL = 'Only a person can open a Slack chat, by typing /slack-support at the prompt. The mod runs the rest.'
 const HOOK_FAILURE = 'The Slack chat did not open: the /slack-support hook failed.'
-const WATCH_ARGV = ['rt', 'chat', 'slack-watch', '--json']
+const WATCH_ARGS = ['chat', 'slack-watch', '--json']
 
 // Matches the refusals of both the CLI and the daemon; a change of their words
 // costs the sign-in, and the operator then reads the refusal.
@@ -88,8 +88,15 @@ async function childEnv($: EngineInterface): Promise<Record<string, string>> {
   return { CLAUDE_CODE_SESSION_ID: await $.session.id(), ...(pane ? { HERDR_PANE_ID: pane } : {}) }
 }
 
+async function rtNames($: EngineInterface): Promise<[string, string]> {
+  return ['rt', `${(await $.env.get('HOME')) ?? ''}/.local/bin/rt`]
+}
+
+// A run rejects only when it can't start or passes its timeout, never on a nonzero exit.
 async function rt($: EngineInterface, args: readonly string[], timeoutMs?: number): Promise<ProcessRunResult> {
-  return $.process.run(['rt', ...args], { env: await childEnv($), ...(timeoutMs ? { timeoutMs } : {}) })
+  const [onPath, installed] = await rtNames($)
+  const init = { env: await childEnv($), ...(timeoutMs ? { timeoutMs } : {}) }
+  return $.process.run([onPath, ...args], init).catch(() => $.process.run([installed, ...args], init))
 }
 
 async function runOpen($: EngineInterface, person: string): Promise<SlackOpen> {
@@ -162,15 +169,26 @@ async function runWatcher($: EngineInterface, watch: Watch): Promise<void> {
 }
 
 async function watchOnce($: EngineInterface, watch: Watch): Promise<WatchEnd> {
+  for (const name of await rtNames($)) {
+    const ended = await watchWith($, watch, name)
+    if (ended) return ended
+  }
+  return { end: 'failed', delivered: false }
+}
+
+/** Null when this rt can't start: a spawn rejects its first pull, before any output. */
+async function watchWith($: EngineInterface, watch: Watch, name: string): Promise<WatchEnd | null> {
+  let started = false
   let delivered = false
   let heard = false
   let refused: WatchEnd['end'] | undefined
   let lastKind: SlackWatchLine['kind'] | undefined
   try {
-    const child = $.process.spawn({ argv: WATCH_ARGV, env: await childEnv($) })
+    const child = $.process.spawn({ argv: [name, ...WATCH_ARGS], env: await childEnv($) })
     const exited = child.result.catch(() => null)
     let partial = ''
     for await (const { stream, text } of child) {
+      started = true
       if (stream !== 'stdout') continue
       const lines = (partial + text).split('\n')
       partial = lines.pop() ?? ''
@@ -192,7 +210,7 @@ async function watchOnce($: EngineInterface, watch: Watch): Promise<WatchEnd> {
     return { end: nothingLeft ? 'finished' : 'failed', delivered }
   } catch (err) {
     $.ui.log(`slack-watch stopped: ${String(err)}`, { to: 'debug' })
-    return { end: 'failed', delivered }
+    return started ? { end: 'failed', delivered } : null
   }
 }
 
