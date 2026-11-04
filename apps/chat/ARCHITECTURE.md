@@ -19,7 +19,7 @@ port: 11002, relay: [...] })` from `@mattstack/app-server`. The package
   handlers, from `src/server/chat.ts`) and the relay topic mapping.
 - Every daemon call goes through `@mattstack/rt-client` (`chatRooms`,
   `chatWho`, `chatBuddies`, `chatMessages`, `chatPost`, `chatArchive`,
-  `chatDmOpen`, `chatMark`, `chatJoin`, `daemonHealth`, `createRelay`).
+  `chatDmOpen`, `chatJoin`, `daemonHealth`, `createRelay`).
   **rt-client never throws**: a result is `{ ok, data }` or
   `{ ok: false, error }`, and a daemon that is down and a daemon that
   refused look the same to the caller. Routes turn `!ok` into a 502.
@@ -32,26 +32,21 @@ port: 11002, relay: [...] })` from `@mattstack/app-server`. The package
 All under `/api`; JSON in and out. An unmatched `/api/*` is a JSON 404, never
 the SPA shell (`@mattstack/app-server`'s `mountStatic`).
 
-| Route                                              | Returns                                                                                                                                                                                                         |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/health`                                  | `{ ok: true, name, version }` (from `@mattstack/app-server`'s `createApp`, not chat's own routes)                                                                                                               |
-| `GET /api/daemon`                                  | `daemonHealth()`: `{ reachable, ... }`; never errors (also from `createApp`)                                                                                                                                    |
-| `GET /api/chat/rooms`                              | `{ rooms: RoomSummary[] }`: the human's rooms including closed ones (`archivedAt` set; the rail hides them), then every room a fleet buddy is in that the human is not (`joined: false`)                        |
-| `GET /api/chat/slack-status`                       | `{ conversations }`: the rooms whose pane holds an open Slack support chat, from the daemon's `chat:slack-status`; 502 when the daemon lacks the verb. The composer in those rooms says "Only Claude sees this" |
-| `GET /api/chat/who/:room`                          | `{ members }` with status, cwd, pane                                                                                                                                                                            |
-| `GET /api/chat/buddies`                            | `{ buddies }`: the fleet roster with each buddy's room tags                                                                                                                                                     |
-| `GET /api/chat/messages/:room?limit&before`        | `{ messages }`, newest page by default; `before=<id>` pages older                                                                                                                                               |
-| `POST /api/chat/mark` `{ room }`                   | advances the human's read cursor                                                                                                                                                                                |
-| `POST /api/chat/post` `{ room, body }`             | posts as the human; joins the room first if needed                                                                                                                                                              |
-| `POST /api/chat/close` `{ room }`                  | closes a room: joins the human first when he is not in the channel; 400 on a room nobody lists. Never un-closes it on its own; any post revives the room                                                        |
-| `POST /api/chat/dm/open` `{ to }`                  | opens or reuses the DM room without posting; `to` is a name or an id, which the daemon resolves; the client navigates to it                                                                                     |
-| `POST /api/chat/rooms` `{ room, seed?, wakeOn? }`  | joins (creating) as the human, then posts the optional seed; `{ room, seedId? }`                                                                                                                                |
-| `POST /api/chat/invite` `{ room, panes }`          | invites each pane into `room` sequentially as the human; `{ results: InviteResult[] }`                                                                                                                          |
-| `GET /api/panes`                                   | `{ available, panes: ChatPane[] }`; herdr absent is `available: false` with 200, every other rt failure is a 502                                                                                                |
-| `GET /api/panes/accounts`                          | `{ accounts: PaneAccount[] }`: the cswap accounts with headroom                                                                                                                                                 |
-| `GET /api/panes/directories?q=`                    | `{ directories: PaneDirectory[] }`, filtered by path substring                                                                                                                                                  |
-| `GET /api/panes/:id/peek?lines=`                   | `{ paneId, lines }`: the pane's last terminal lines                                                                                                                                                             |
-| `POST /api/panes` `{ cwd, account?, model?, ... }` | spawns a herdr pane running Claude; `{ pane, ready }`; 400 on a missing or relative `cwd` or an unknown account                                                                                                 |
+| Route                                       | Returns                                                                                                                                                                                                                                                |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /api/health`                           | `{ ok: true, name, version }` (from `@mattstack/app-server`'s `createApp`, not chat's own routes)                                                                                                                                                      |
+| `GET /api/daemon`                           | `daemonHealth()`: `{ reachable, ... }`; never errors (also from `createApp`)                                                                                                                                                                           |
+| `GET /api/chat/rooms`                       | `{ rooms: RoomSummary[] }`: the human's rooms including closed ones (`archivedAt` set; the rail hides them), then every room a fleet buddy is in that the human is not (`joined: false`)                                                               |
+| `GET /api/chat/me`                          | `{ handle, name }`: the human, from `chat.humanHandle` and `chat.displayName`                                                                                                                                                                          |
+| `GET /api/chat/slack-status`                | `{ conversations, closed }`: the rooms holding a Slack support chat, open or ended, from the daemon's `chat:slack-status`; 502 when the daemon lacks the verb. An open chat's composer says only its agent sees the message; an ended one is read-only |
+| `GET /api/chat/slack-avatar/:person`        | the daemon's cached Slack picture for that person, from `chat:slack-avatar-file`; 404 when it has none. Cached for good, since the client's URL carries the picture's version                                                                          |
+| `GET /api/chat/who/:room`                   | `{ members }` with status, cwd, pane                                                                                                                                                                                                                   |
+| `GET /api/chat/buddies`                     | `{ buddies }`: the fleet roster with each buddy's room tags                                                                                                                                                                                            |
+| `GET /api/chat/messages/:room?limit&before` | `{ messages }`, newest page by default; `before=<id>` pages older                                                                                                                                                                                      |
+| `POST /api/chat/post` `{ room, body }`      | posts as the human; joins the room first if needed                                                                                                                                                                                                     |
+| `POST /api/chat/close` `{ room }`           | closes a room: joins the human first when he is not in the channel; 400 on a room nobody lists. Never un-closes it on its own; any post revives the room                                                                                               |
+| `POST /api/chat/dm/open` `{ to }`           | opens or reuses the DM room without posting; `to` is a name or an id, which the daemon resolves; the client navigates to it                                                                                                                            |
+| `POST /api/panes/:id/focus`                 | brings a herdr pane to the front                                                                                                                                                                                                                       |
 
 Wire shapes are rt-client's types (`RoomSummary`, the presence row, the
 message row); the server passes them through rather than reshaping. The pane
@@ -68,26 +63,18 @@ shows names and acts on ids:
 - `byHandle` in `buddies-context.tsx` is keyed by id, and its `nameOf`
   resolves a display name from the roster, then the open room's members,
   then the id.
-- Hue (`speaker-hue.ts`) and avatar (`AgentName`) seed from the id; two
-  agents named `remy` can still collide on hue, so the id-seeded avatar is
-  the reliable tell.
-- DM labels are `aName ↔ bName` (`dmPairLabel` in `display-name.ts`). Two
-  DM rows that read the same pair show their avatars, and so does the open
-  DM's title in the page bar and phone header (`DmPairTitle`). Both read
-  `repeatedPairLabels` over the rail's listed DMs, so they cannot disagree.
-- Fleet tree workstream rows, pane picker rows and New room's picked rows
-  that share a name each show their avatar, and their aria-labels carry the row's place among them
-  in render order (`Message remy (2 of 2)`, `select remy (2 of 2)`), from
-  `sameNameOrdinals` in `display-name.ts`.
-- The collapsed DIRECT overflow line draws each hidden pair's unread as the
-  rows' `UnreadBadge`, so a count never reads as part of a name.
+- A face (`AgentName.tsx`) is a DiceBear Persona seeded from the handle's
+  name part, never the display name: names are only known for the open room,
+  and a face must not change when its room is selected. A Slack teammate
+  shows their real picture once the daemon has one, and falls back to the
+  Persona if it fails to load.
+- DM rows read as a comma-separated pair (`DmNames`), with both faces stacked.
 - The Composer's `@` autocomplete matches names and posts ids; options that
-  share a name each show their id-seeded avatar. A mention typed as an id
-  (`@remy.m2p4`) highlights too. The pane picker and `doing()` compare a
-  pane title against the name.
+  share a name each show their avatar. A mention typed as an id
+  (`@remy.m2p4`) highlights too. `doing()` compares a pane title against the
+  name.
 - Fixtures (`CHAT_FIXTURES=1`) carry a legacy `remy` and a recycled
-  `remy.m2p4`, both named `remy`, in `#rt`, in one DM each with kai, and
-  as one herdr pane each in the pane picker.
+  `remy.m2p4`, both named `remy`, in `#rt` and in one DM each with kai.
 
 ## Live updates
 
@@ -112,17 +99,6 @@ The open room also refetches its members (`/api/chat/who`) on every
 `chat/<room>/msg` frame: the daemon emits no membership event, so an arriving
 agent's first post is the one signal that a new member has joined.
 
-## Panes
-
-`PanePicker` (`src/app/PanePicker/`) is a provider-hosted modal: any component
-under `PanePickerProvider` calls `usePanePicker()` and awaits the rows the
-human picks. It owns the `/api/panes*` calls (list, filter, sort, peek, and
-spawning a new pane). `NewRoomModal` names a room, seeds it, and invites the
-picked panes through `POST /api/chat/rooms` then `POST /api/chat/invite`. The
-two entry points, the `+` in the rooms rail and `add agents` in the page bar,
-appear only when `GET /api/panes` reports `available: true`, and disable while
-the daemon is unreachable.
-
 ## Routes and the cross-repo link
 
 Routing is [wouter](https://github.com/molefrog/wouter): `src/app/routes.ts`
@@ -133,8 +109,9 @@ the fragment through wouter's location store, and `navigate` comes from
 
 | Path               | Screen                                                   |
 | ------------------ | -------------------------------------------------------- |
-| `/`                | first room                                               |
+| `/`                | redirects to the latest active room                      |
 | `/r/<room>`        | that room; `#m-<id>` scrolls to and highlights a message |
+| `/embed/r/<room>`  | the room alone, for embedding in another app             |
 | `/demo/page-shell` | the app-kit's PageShell demo                             |
 
 `/r/<room>#m-<id>` is a **contract with `rt`**: `rt chat post` prints it after
@@ -153,7 +130,6 @@ The transcript body is `react-markdown` + `remark-gfm` output
 - fenced and indented code as a `CodeBlock` (the kit's `CodeHighlight`: highlighting and a copy control)
 - `@name` for the identities the message's `mentions` list names, matched on their `mentionNames` and marked with the id (`data-mention`; when two ids share a name, the body's occurrences take them in `mentions` order), never a bare `@word` guess (`src/app/remark-mentions.ts`); an `@` inside code is never a mention
 - raw HTML is skipped (`skipHtml`); an image renders as its alt text linking to the file
-- a fold on a body taller than 480px, expanded by `show more` and always expanded for the linked message
 
 Agents post multi-line bodies with `rt chat post <room> <<'EOF'`; a body with
 no newlines renders as one paragraph.
@@ -185,12 +161,12 @@ the paging, though every fixtures room is shorter than one page.
 
 ## Running it
 
-| Command                                    | What you get                                                                                                                                                       |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `bun run dev`                              | Vite only: the client with **no** `/api` and no `/ws`; fine for pure component work                                                                                |
-| `bun run build && bun src/server/index.ts` | the real thing on port 11002 (`PORT` env overrides it): `dist/` plus the API and relay, against the live daemon                                                    |
-| `CHAT_FIXTURES=1 bun src/server/index.ts`  | the same server answering with `src/server/fixtures.ts`, the artboards' own data, so the page shows what `design/artboards` draw even when the daemon has no rooms |
-| `RT_SOCK_PATH=...`                         | point at a different daemon socket                                                                                                                                 |
+| Command                                    | What you get                                                                                                                    |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `bun run dev`                              | Vite only: the client with **no** `/api` and no `/ws`; fine for pure component work                                             |
+| `bun run build && bun src/server/index.ts` | the real thing on port 11002 (`PORT` env overrides it): `dist/` plus the API and relay, against the live daemon                 |
+| `CHAT_FIXTURES=1 bun src/server/index.ts`  | the same server answering with `src/server/fixtures.ts`, sample data, so the page has content even when the daemon has no rooms |
+| `RT_SOCK_PATH=...`                         | point at a different daemon socket                                                                                              |
 
 The server does not hot-reload; restart it after server changes. The client
 bundle is whatever `bun run build` last wrote to `dist/`.
@@ -211,10 +187,8 @@ cd ~/Documents/GitHub/chat && git pull && bun install && bun run build && deck r
 
 `deck status` shows it. Do not `deck publish` it without Matt's say-so.
 
-## Design conformance
+## Design
 
-`design/` is the authority on what the UI looks like: `build.py` generates
-the artboards, `extract-spec.py` turns them into `spec.json`, and `audit.mjs`
-diffs the running page against it. `design/CONFORMANCE.md` carries the rule;
-`design/ANATOMY.md` the per-component structure. Run the audit against the
-fixtures server so there is something on screen to measure.
+`docs/apps/design/chat/chat.pen` holds the mocks for the current look. The
+older `design/` folder (artboards, `spec.json`, `audit.mjs`) describes the
+layout from before the Slack-style rework and no longer matches the app.

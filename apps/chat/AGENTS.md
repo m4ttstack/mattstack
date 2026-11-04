@@ -39,7 +39,7 @@ Read it before writing any colour, contrast, or font
 decision; tokens are picked by role there, and raw values fail lint and the
 contrast gates.
 
-Chat-specific: the app has ONE type ladder (xs 12 / sm 13 / md 14 / lg 16 /
+Chat-specific: the app has ONE type ladder (xs 12 / sm 13 / md 14 / lg 15 /
 xl 20), defined in `src/app/chat-theme.ts` and merged at the ROOT
 Mantine provider so portalled content resolves the same sizes. Never size
 text with a raw px or a Mantine size the ladder does not define.
@@ -88,11 +88,11 @@ version): `get_item_props`, `get_item_doc`, `search_docs`, `list_items`.
 Without MCP there's `docs/mantine-llms.txt`, an index only: it names
 components and links a page each, never a prop signature offline.
 
-## Design conformance
+## Design
 
-`design/CONFORMANCE.md` and `design/ANATOMY.md` are the UI contract; the
-artboards under `design/artboards` are the authority on layout and values,
-and no UI task is done until `design/audit.mjs` passes against them.
+`docs/apps/design/chat/chat.pen` holds the mocks for the current look. The
+older `design/` folder predates the Slack-style rework: do not conform new
+work to it.
 
 ## Right-click menus
 
