@@ -517,7 +517,40 @@ test("a reply Slack accepted is not reported as failed when the room record can'
   expect(res.data.room).toBe(room);
   expect(h.posts).toHaveLength(1);
   expect(messages(h, room)).toEqual([]);
-  expect(warned.mock.calls.some(([, message]) => String(message).includes("Slack took"))).toBe(true);
+  expect(warned.mock.calls.filter(([, message]) => String(message).includes("Slack took"))).toHaveLength(1);
+  warned.mockRestore();
+});
+
+test("a reply whose row was written reports that row, even when the bookkeeping after it fails", async () => {
+  const h = harness();
+  const { agent, room } = await openChat(h);
+  h.db.exec("CREATE TRIGGER no_touch BEFORE UPDATE ON slack_conversations BEGIN SELECT RAISE(ABORT, 'no touch'); END;");
+  const warned = spyOn(log, "warn");
+
+  const res = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "try restarting", sessionId: PANE_SESSION });
+
+  expect(res.ok).toBe(true);
+  if (!res.ok) throw new Error(res.error);
+  expect(res.data.note).toBeUndefined();
+  expect(res.data.id).toBeGreaterThan(0);
+  expect(messages(h, room)).toEqual([{ handle: agent, body: "try restarting" }]);
+  expect(warned.mock.calls.filter(([, message]) => String(message).includes("Slack took"))).toHaveLength(1);
+  warned.mockRestore();
+});
+
+test("a thrown chat row write after Slack took the reply warns once", async () => {
+  const h = harness();
+  const { agent, room } = await openChat(h);
+  h.db.exec("CREATE TRIGGER no_row BEFORE INSERT ON chat_messages BEGIN SELECT RAISE(ABORT, 'no row'); END;");
+  const warned = spyOn(log, "warn");
+
+  const res = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "try restarting", sessionId: PANE_SESSION });
+
+  expect(res.ok).toBe(true);
+  if (!res.ok) throw new Error(res.error);
+  expect(res.data.note).toContain("do not send it again");
+  expect(res.data.room).toBe(room);
+  expect(warned.mock.calls.filter(([, message]) => String(message).includes("Slack took"))).toHaveLength(1);
   warned.mockRestore();
 });
 

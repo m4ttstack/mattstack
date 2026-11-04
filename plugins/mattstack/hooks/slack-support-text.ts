@@ -22,8 +22,8 @@ const NO_REASON = 'rt gave no reason'
 // A string match, not a shell parser: it stops accidents and misled panes, and
 // it loads in every session, so an argument such as `rg "rt chat slack-open"` must pass.
 const COMMAND_START = String.raw`(?:^|[;&|({\n\x60]|(?:-\w*c|eval)\s+["'])\s*`
-// Each branch of a value starts differently, so a token parses one way and a
-// long run of assignments can't backtrack exponentially.
+// The branches can't match the same text, so a long run of assignments can't
+// backtrack exponentially.
 const VALUE = String.raw`(?:"[^"]*"|'[^']*'|[^\s"']|"(?![^"]*")|'(?![^']*'))*`
 const WRAPPERS = String.raw`(?:(?:\w+=${VALUE}|-\S+|env|command|exec|nohup|time|xargs|then|do|else|bun(?:\s+run)?)\s+)*`
 const TOOL = String.raw`(?:\S*/)?(?:rt|herdr|cli\.ts)(?=\s|$)`

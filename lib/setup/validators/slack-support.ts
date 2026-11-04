@@ -17,7 +17,8 @@ const CONNECT: Action = { type: "oauth", label: "Connect", integration: "slack",
 
 /**
  * The offer reads `skipped`, not `needs-you`: someone who does not want this
- * has nothing outstanding, so verify and the setup status stay quiet for them.
+ * has nothing to act on, and verify reports nothing outstanding for them. The
+ * row still counts toward the Accounts total in the setup status.
  * `shortGrant` comes from a connect this person pressed, and the token cannot
  * show it because a short grant saves nothing.
  */

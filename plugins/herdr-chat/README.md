@@ -46,7 +46,7 @@ herdr-chat slack-close --json --pane w1:p1
 `status`, `targets`, `jump` and `slack-people` have no other mode, so `--json` is optional
 there and changes nothing.
 
-Three rules hold across every verb. `--json` never prompts and never falls
+Three rules hold across every verb except `slack-people`. `--json` never prompts and never falls
 back to the TUI, so a missing required flag is an error. A failure prints
 `{"error":"..."}` on stdout and exits non-zero. And two verbs deliberately stop
 short of acting: `jump` answers where a handle is and moves no focus, and

@@ -1473,26 +1473,25 @@ export function createChatHandlers(opts: {
       // Recipient travels in `mentions`, not the body, so the transcript
       // shows the text as typed and the desk still notifies when `to` is
       // the human.
-      const record = () => {
-        const written = postAndNotify(db, emitEvent, { room, handle: fromId, body: sent?.stored ?? body, mentions: [toId] }, inboxDeps, herdr, deliveryChains, log, retryDelayMs);
-        if (written && conversation) {
-          markDelivered(room, toId, written.id, db);
+      let posted: ReturnType<typeof postAndNotify>;
+      let writeError: unknown;
+      // A Slack post can't be taken back, so a failure from here on would have the pane send it twice.
+      try {
+        posted = postAndNotify(db, emitEvent, { room, handle: fromId, body: sent?.stored ?? body, mentions: [toId] }, inboxDeps, herdr, deliveryChains, log, retryDelayMs);
+        if (posted && conversation) {
+          markDelivered(room, toId, posted.id, db);
           // The pane answers every check-in, so its reply can't count as activity, or a teammate who left is asked forever.
           if (conversation.checkedInAt === null) touchConversation(conversation.id, Date.now(), db);
         }
-        return written;
-      };
-      // A Slack post can't be taken back, so a failure from here on would have the pane send it twice.
-      let posted: ReturnType<typeof record>;
-      try {
-        posted = record();
       } catch (err) {
         if (!conversation) throw err;
-        log.warn({ err, conversation: conversation.id }, "chat: Slack took the reply but the chat row could not be written");
+        writeError = err;
+      }
+      if (conversation && (!posted || writeError)) {
+        log.warn({ err: writeError, conversation: conversation.id, recorded: posted !== undefined }, "chat: Slack took the reply but the chat records could not be finished");
       }
       if (!posted) {
         if (!conversation) return { ok: false, error: "chat: dm failed (retry budget exhausted)" };
-        log.warn({ conversation: conversation.id }, "chat: Slack took the reply but the chat row could not be written");
         return { ok: true, data: { room, id: 0, recipients: [toId], recipientNames: namesOf([toId]), note: SLACK_NOT_RECORDED, ...(sent?.redacted ? { redacted: true as const } : {}) } };
       }
       const data = { room, id: posted.id, recipients: posted.recipients, recipientNames: namesOf(posted.recipients) };

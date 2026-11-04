@@ -1358,7 +1358,14 @@ test('a DM tail carries its author name beside the id', async () => {
 
 test('slack-status passes the open chats through', async () => {
   const conversations = [
-    { id: 1, room: 'dm-slack', name: 'alex-slack', displayName: 'Alex Example', openedAt: 1, lastActiveAt: 2 },
+    {
+      id: 1,
+      room: 'dm-slack',
+      name: 'alex-slack',
+      displayName: 'Alex Example',
+      openedAt: 1,
+      lastActiveAt: 2,
+    },
   ];
   vi.mocked(rt.chatSlackStatus).mockResolvedValueOnce({
     ok: true,

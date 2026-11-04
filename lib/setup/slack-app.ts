@@ -63,7 +63,6 @@ export class SlackCallbackTimeoutError extends Error {
   }
 }
 
-/** Slack redirected back with an error parameter instead of a code. */
 export class SlackCallbackError extends Error {
   readonly code: string;
   constructor(code: string) {
