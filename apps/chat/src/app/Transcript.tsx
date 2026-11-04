@@ -525,6 +525,36 @@ export function Transcript({
 
   useEffect(() => () => hold.current?.(), [room]);
 
+  // A room opens at its bottom, with no scroll animation: the jump lands in
+  // the same paint as the messages, and a block that grows just after (a
+  // lazy code highlighter) stays pinned rather than easing the view down.
+  const openedRoom = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (anchor || messages[0]?.room !== room) return;
+    if (openedRoom.current === room) return;
+    openedRoom.current = room;
+    const view = scrollView();
+    const column = columnRef.current;
+    if (!view || !column) return;
+    const pin = () => {
+      view.scrollTop = view.scrollHeight;
+    };
+    pin();
+    const observer = new ResizeObserver(pin);
+    observer.observe(column);
+    const stop = () => {
+      observer.disconnect();
+      clearTimeout(timer);
+      for (const name of HOLD_BREAKERS) view.removeEventListener(name, stop);
+    };
+    const timer = setTimeout(stop, HOLD_MS);
+    for (const name of HOLD_BREAKERS) {
+      view.addEventListener(name, stop, { passive: true });
+    }
+    hold.current?.();
+    hold.current = stop;
+  }, [room, anchor, messages]);
+
   useLayoutEffect(() => {
     const pending = pendingHold.current;
     const view = scrollView();
