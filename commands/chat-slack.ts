@@ -34,6 +34,7 @@ import {
 } from "./chat.ts";
 
 const POLL_MS = 2000;
+const UNANSWERED_POLLS = 3;
 const CLOSE_USAGE = "rt chat slack-close [--pane <pane>] [--farewell-file <path>]";
 
 /** The mod reads a refusal from the envelope, so under --json it stays on stdout. */
@@ -72,11 +73,14 @@ export async function slackWatch(args: string[], deps: SlackWatchDeps): Promise<
   const { handle } = await requireSignedIn(args);
   const parent = deps.parentPid();
   const printed = new Set<number>();
+  let seenOpen = false;
+  let failedPolls = 0;
   do {
     const res = await chatSlackPending({ agentHandle: handle }, sockOpts(args));
     if (res.ok && res.data) {
       const { open, items, conversation } = res.data;
       if (!open || !conversation) return;
+      seenOpen = true;
       for (const item of items) {
         if (printed.has(item.id)) continue;
         printed.add(item.id);
@@ -91,6 +95,11 @@ export async function slackWatch(args: string[], deps: SlackWatchDeps): Promise<
           text: item.text,
         });
       }
+    } else if (!seenOpen && ++failedPolls >= UNANSWERED_POLLS) {
+      // The mod starts this in every interactive session, so with no chat to wait
+      // for a daemon that can't answer must not leave a process polling. A chat
+      // this run has seen waits out a daemon restart.
+      refuseOpen(args, "The daemon isn't answering, so there is no Slack chat to watch");
     }
     await deps.sleep(POLL_MS);
   } while (deps.parentPid() === parent);

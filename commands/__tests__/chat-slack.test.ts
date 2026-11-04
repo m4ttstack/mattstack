@@ -258,6 +258,30 @@ test("slack-watch keeps its parent check going through a failed poll", async () 
   expect(res.sleeps).toHaveLength(3);
 });
 
+test("slack-watch exits non-zero after a few failed polls if it never saw an open chat", async () => {
+  await signIn();
+  canned["chat:slack-pending"] = { ok: false, error: "unknown command" };
+  const res = await watch((n) => {
+    if (n > 20) throw new Error("still polling");
+  });
+  expect(res.code).toBe(1);
+  expect(JSON.parse(res.stdout).ok).toBe(false);
+  expect(seen.filter((s) => s.cmd === "chat:slack-pending")).toHaveLength(3);
+});
+
+test("slack-watch keeps polling through a long outage once it has seen an open chat", async () => {
+  const { conversationId } = await openChat();
+  const res = await watch((n) => {
+    if (n === 0) canned["chat:slack-pending"] = { ok: false, error: "daemon restarting" };
+    if (n === 10) {
+      delete canned["chat:slack-pending"];
+      closeConversation(conversationId, "operator", 3);
+    }
+  });
+  expect(res.code).toBe(0);
+  expect(res.sleeps).toHaveLength(11);
+});
+
 test("slack-watch from a session not signed in is refused", async () => {
   process.env.CLAUDE_CODE_SESSION_ID = SESSION;
   const res = await watch(() => {});
