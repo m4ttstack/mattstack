@@ -55,7 +55,9 @@ git pull.
 **Receiving.** `materializeEnvelope` in `apps/board/src/peer/inbox.ts` gains an
 `announcement` branch:
 
-1. Parses the payload with a new parser in `envelope.ts`, capping length.
+1. Parses the payload with a parser shared with `rt` through rt-client, capping
+   length. It stays out of `envelope.ts`, which the relay imports and whose
+   edits trigger a relay deploy.
 2. Drops it unless the relay-stamped `e.from` is an org owner or admin in this
    Mac's org roles. This check is what enforces who can send, since any board
    token can post to `*`, and it also drops anything from another org.
@@ -80,9 +82,12 @@ These come with this approach, and need Matt's approval with this document:
 
 ## Calls I made
 
-- `announcement` is a new notification category, so it can be muted in the
-  existing notification settings if those list categories.
+- `announcement` is a new notification category. It plays the tray's neutral
+  sound, because a louder tier would need a tray change, and rt's notification
+  settings cannot mute it, because the board posts straight to the tray.
 - Title and message are capped at 80 and 500 characters.
+- The notification body ends with "From <sender>", the same shape as the board's
+  ask notifications.
 - The sender does not receive their own announcement, which is how `to: '*'`
   already behaves.
 
