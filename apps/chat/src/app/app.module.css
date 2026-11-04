@@ -9,7 +9,9 @@
     background: var(--tk-card);
     /* Net zero height: the top pulls back the inset PageShell reserves. */
     margin: -8px 8px 8px 0;
-    box-shadow: var(--mantine-shadow-sm);
+    box-shadow:
+      0 1px 3px rgba(0, 0, 0, 0.1),
+      0 4px 14px rgba(0, 0, 0, 0.08);
     border-radius: var(--mantine-radius-lg);
     overflow: hidden;
   }
