@@ -183,11 +183,22 @@ function printSummary(summary: Summary): void {
   console.log(JSON.stringify(summary));
 }
 
+// A group that has already exited throws ESRCH, and the summary must still print.
+export function stopGroups(pids: number[], kill: (pid: number) => void = (pid) => process.kill(pid, "SIGTERM")): void {
+  for (const pid of pids) {
+    try {
+      kill(-pid);
+    } catch {
+      continue;
+    }
+  }
+}
+
 async function guarded(): Promise<number> {
   const started = Date.now();
   for (const [signal, code] of [["SIGTERM", 143], ["SIGINT", 130]] as const) {
     process.on(signal, () => {
-      for (const proc of live) process.kill(-proc.pid, "SIGTERM");
+      stopGroups([...live].map((proc) => proc.pid));
       console.error(`local-check: ${signal}, stopped ${live.size} test process(es)`);
       printSummary({ mode: "error", selected: 0, passed: 0, failed: 0, durationMs: Date.now() - started, failures: [] });
       process.exit(code);

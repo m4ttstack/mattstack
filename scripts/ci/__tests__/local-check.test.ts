@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { availableParallelism } from "os";
-import { judgeRun, parseTestOutput, planLocalCheck, processCount, summarise } from "../local-check.ts";
+import { judgeRun, parseTestOutput, planLocalCheck, processCount, stopGroups, summarise } from "../local-check.ts";
 import { unitDirs } from "../test-scope.ts";
 
 const BASE = "abc123";
@@ -206,5 +206,22 @@ describe("summarise", () => {
 
   test("a process that died with no summary is not a skip", () => {
     expect(summarise("changed", [judgeRun(137, "bun test v1.4.3\n")], 10)).toMatchObject({ mode: "changed", selected: 1, failed: 1 });
+  });
+});
+
+describe("stopGroups", () => {
+  test("signals every group, negating the pid", () => {
+    const sent: number[] = [];
+    stopGroups([1, 2], (pid) => void sent.push(pid));
+    expect(sent).toEqual([-1, -2]);
+  });
+
+  test("a group that is already gone does not stop the rest", () => {
+    const sent: number[] = [];
+    stopGroups([1, 2], (pid) => {
+      sent.push(pid);
+      if (pid === -1) throw Object.assign(new Error("kill ESRCH"), { code: "ESRCH" });
+    });
+    expect(sent).toEqual([-1, -2]);
   });
 });
