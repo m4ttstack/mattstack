@@ -1182,7 +1182,8 @@ export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupFo
   };
   const finished = isSetupFinished(state) || (opts.sections === undefined && (await finishOnRead(p, state, planFor)));
   const intent = readIntent(p);
-  const clones: Clone[] = opts.orgs.map((slug) => ({ slug, record: readTeamLocal(p, slug) }));
+  // Sorted as `orgRefFromIntent` sorts: `listOrgs` returns directory order, and the form must name the org the plan reads.
+  const clones: Clone[] = [...opts.orgs].sort().map((slug) => ({ slug, record: readTeamLocal(p, slug) }));
   const joined = joinedClone(p, clones);
   const path = formPath({
     intent,

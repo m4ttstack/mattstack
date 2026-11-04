@@ -3,6 +3,7 @@ import { finalizePlan, row, type Action, type OrgRef, type Plan, type Row } from
 import type { FancyUrls } from "../fancy-urls.ts";
 import {
   allAnswered,
+  composeForm,
   connectRows,
   formPath,
   formStage,
@@ -19,9 +20,10 @@ import {
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import type { ToolRequirement } from "../requirements.ts";
 import { CLI_SESSION_INTEGRATIONS } from "../sign-in-tools.ts";
-import type { SetupIntent } from "../intent.ts";
+import { orgRefFromIntent, type SetupIntent } from "../intent.ts";
 import type { HomeBackupChoice, SetupRun } from "../state.ts";
 import { HOME_BACKUP_PUSH_ACTION } from "../validators/rt-health.ts";
+import { fakeProbes } from "./fakes.ts";
 
 const NOW = new Date("2026-10-30T10:00:00.000Z");
 const JOIN: OrgRef = { slug: "mithrandir", name: "Mithrandir", mode: "join" };
@@ -407,6 +409,20 @@ describe("every row that blocks Install or Finish is on a screen", () => {
     const soloScreens = screens(solo, { path: "solo", ranOk: true, signIn: [], backup: { mode: "local" } });
     expect(soloScreens.connect.find((x) => x.id === "forge")).toMatchObject({ state: "todo", optional: true });
     expect(stageOf(soloScreens, solo, { finished: true, run: ENDED_OK, path: "solo" })).toBe("ready");
+  });
+});
+
+describe("the team a form names", () => {
+  const joinedMac = (orgs: string[]) => {
+    const records = Object.fromEntries(orgs.map((slug) => [`/fake-home/.mattstack/rt/teams/${slug}.json`, JSON.stringify({ joinedByRt: true, teamName: slug.toUpperCase() })]));
+    return fakeProbes({ home: "/fake-home", files: records });
+  };
+  const named = async (orgs: string[]) => (await composeForm(joinedMac(orgs), { sections: [], secrets: { has: async () => null, hasAdmin: async () => null, ownAgeKey: async () => null }, orgs })).team?.slug;
+
+  test("with several clones the first by name wins, whatever order the folder listed them", async () => {
+    expect(await named(["zeta", "acme"])).toBe("acme");
+    expect(await named(["acme", "zeta"])).toBe("acme");
+    expect(orgRefFromIntent(null, ["zeta", "acme"]).slug).toBe("acme");
   });
 });
 
