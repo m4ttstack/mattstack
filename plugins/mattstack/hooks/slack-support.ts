@@ -15,7 +15,7 @@ const COMMAND = 'slack-support'
 const SKILL = 'rt:slack-support'
 const USAGE = 'Usage: /slack-support <person> <problem>'
 const ORIGIN_REFUSAL = 'Only a person at the prompt can open a Slack chat.'
-const BASH_REFUSAL = 'Only a person can open a Slack chat, by typing /slack-support at the prompt. The mod runs the rest.'
+const SHELL_REFUSAL = 'Only a person can open a Slack chat, by typing /slack-support at the prompt. The mod runs the rest.'
 const HOOK_FAILURE = 'The Slack chat did not open: the /slack-support hook failed.'
 const WATCH_ARGV = ['rt', 'chat', 'slack-watch', '--json']
 
@@ -74,8 +74,12 @@ export const register: Register = on => {
     return { text: `Slack chat open with ${opened.name}.` }
   }).catch(() => ({ text: HOOK_FAILURE }))
 
-  on('tool.call', { tool: 'Bash' }, ($, e, next) => (touchesSlackSupport(e.command) ? { deny: BASH_REFUSAL } : next(e))).catch(
-    ($, e, next) => (next.called ? next(e) : { deny: BASH_REFUSAL }),
+  on('tool.call', { tool: 'Bash' }, ($, e, next) => (touchesSlackSupport(e.command) ? { deny: SHELL_REFUSAL } : next(e))).catch(
+    ($, e, next) => (next.called ? next(e) : { deny: SHELL_REFUSAL }),
+  )
+
+  on('tool.call', { tool: 'Monitor' }, ($, e, next) => (touchesSlackSupport(e.command ?? '') ? { deny: SHELL_REFUSAL } : next(e))).catch(
+    ($, e, next) => (next.called ? next(e) : { deny: SHELL_REFUSAL }),
   )
 }
 

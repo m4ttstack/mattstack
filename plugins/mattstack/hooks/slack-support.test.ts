@@ -147,6 +147,14 @@ for (const command of [
   'rt chat slack-watch --json',
   'rt chat slack-delivered 41',
   'cd /tmp && RT=1 rt chat slack-open alex',
+  'true && rt chat slack-open alex',
+  '/opt/tools/rt chat slack-watch --json',
+  'bun cli.ts chat slack-open alex',
+  'bun run ./cli.ts chat slack-delivered 41',
+  'env -i HOME=/tmp/x rt chat slack-open alex',
+  'echo "$(rt chat slack-open alex --json)"',
+  'sh -c "rt chat slack-open alex"',
+  'if true; then rt chat slack-open alex; fi',
 ]) {
   test(`the Bash deny matches slack-open, slack-watch and slack-delivered: ${command}`, async ($, on) => {
     let ran = false
@@ -162,7 +170,13 @@ for (const command of [
   })
 }
 
-for (const command of ['rt pane send w1-2 --text "/slack-support alex rt is broken"', 'herdr agent prompt w1-2 "/slack-support alex hi"']) {
+for (const command of [
+  'rt pane send w1-2 --text "/slack-support alex rt is broken"',
+  'herdr agent prompt w1-2 "/slack-support alex hi"',
+  'printf "/slack-support alex hi" | rt pane send w1-2',
+  "rt pane send w1-2 <<'EOF'\n/slack-support alex hi\nEOF",
+  'bun cli.ts pane send self --text "/slack-support alex hi"',
+]) {
   test(`the Bash deny matches rt pane send carrying /slack-support: ${command}`, async ($, on) => {
     let ran = false
     on('tool.call', () => {
@@ -177,16 +191,57 @@ for (const command of ['rt pane send w1-2 --text "/slack-support alex rt is brok
   })
 }
 
-test('an ordinary Bash command passes', async ($, on) => {
-  let ran = false
+for (const command of ['rt chat slack-open alex --json', 'herdr agent prompt w1-2 "/slack-support alex hi"']) {
+  test(`the Monitor deny matches: ${command}`, async ($, on) => {
+    let ran = false
+    on('tool.call', () => {
+      ran = true
+      return { result: {} }
+    })
+
+    const result = await $.tool.call({ tool: 'Monitor', command, description: 'watch', timeout_ms: 1000 })
+
+    expect(ran).toBe(false)
+    expect(result.deny).toContain('Only a person')
+  })
+}
+
+for (const command of [
+  'rt chat slack-status && git status',
+  'rt chat slack-close',
+  'rg slack-open lib',
+  'git log --grep slack-open',
+  'bun test commands/__tests__/chat-slack.test.ts',
+  'sed -n 1,5p plugins/mattstack/hooks/slack-support.ts',
+  'rg "rt chat slack-open" docs',
+  'grep -rn /slack-support docs',
+  'git add plugins/mattstack/hooks/slack-support.ts',
+  'rt pane send w1-2 --text "read plugins/mattstack/hooks/slack-support.ts"',
+]) {
+  test(`an ordinary Bash command passes: ${command}`, async ($, on) => {
+    let ran = false
+    on('tool.call', () => {
+      ran = true
+      return { result: {} }
+    })
+
+    await $.tool.call({ tool: 'Bash', command })
+
+    expect(ran).toBe(true)
+  })
+}
+
+test('an ordinary Monitor command passes, and so does a socket', async ($, on) => {
+  let ran = 0
   on('tool.call', () => {
-    ran = true
+    ran += 1
     return { result: {} }
   })
 
-  await $.tool.call({ tool: 'Bash', command: 'rt chat slack-status && git status' })
+  await $.tool.call({ tool: 'Monitor', command: 'rg slack-open lib', description: 'watch', timeout_ms: 1000 })
+  await $.tool.call({ tool: 'Monitor', ws: { url: 'ws://localhost:1' }, description: 'watch', timeout_ms: 1000 })
 
-  expect(ran).toBe(true)
+  expect(ran).toBe(2)
 })
 
 test('the skill starts from a timer after the command.run hook returns, with the handle and problem in its arguments', async ($, on) => {

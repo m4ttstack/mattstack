@@ -17,8 +17,16 @@ export interface SlackWatchLine {
 export type SlackOpen = { ok: true; handle: string; name: string } | { ok: false; error: string }
 
 const MARKER_REMOVED = '[marker removed]'
-const OFF_LIMITS = ['/slack-support', 'slack-open', 'slack-watch', 'slack-delivered']
 const NO_REASON = 'rt gave no reason'
+
+// A string match, not a shell parser: it stops accidents and misled panes, and
+// it loads in every session, so an argument such as `rg "rt chat slack-open"` must pass.
+const COMMAND_START = String.raw`(?:^|[;&|({\n\x60]|(?:-\w*c|eval)\s+["'])\s*`
+const WRAPPERS = String.raw`(?:(?:\w+=(?:"[^"]*"|'[^']*'|\S*)|-\S+|env|command|exec|nohup|time|xargs|then|do|else|bun(?:\s+run)?)\s+)*`
+const TOOL = String.raw`(?:\S*/)?(?:rt|herdr|cli\.ts)(?=\s|$)`
+const RUNS_TOOL = new RegExp(COMMAND_START + WRAPPERS + TOOL)
+const RUNS_HIDDEN_VERB = new RegExp(`${COMMAND_START}${WRAPPERS}${TOOL}(?:\\s+-\\S+)*\\s+chat\\s+slack-(?:open|watch|delivered)(?![\\w-])`)
+const SLASH_COMMAND = /(?<![\w.-])\/slack-support(?![\w.-])/
 
 export function supportRules({ name, operator }: { name: string; operator: string }): string {
   return [
@@ -96,5 +104,5 @@ export function isRefusalLine(raw: string): boolean {
 }
 
 export function touchesSlackSupport(command: string): boolean {
-  return OFF_LIMITS.some(word => command.includes(word))
+  return RUNS_HIDDEN_VERB.test(command) || (RUNS_TOOL.test(command) && SLASH_COMMAND.test(command))
 }
