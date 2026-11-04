@@ -475,7 +475,7 @@ describe("workflow wiring", () => {
 
   test("unit-macos runs on macOS, only when scope names tests", () => {
     const job = jobs("checks.yml")["unit-macos"]!;
-    expect(job["runs-on"]).toBe("macos-latest");
+    expect(job["runs-on"]).toBe("${{ fromJSON(needs.scope.outputs.macos_runner) }}");
     expect(job.if).toBe("needs.scope.outputs.macos != ''");
     expect(runs(job)).toContain("$TESTS");
   });
@@ -503,7 +503,7 @@ describe("workflow wiring", () => {
 
   test.each(["checks.yml", "e2e.yml"])("every scope output %s reads is one the script writes", (file) => {
     const scope = Object.values(jobs(file)).find((job) => job.outputs)!;
-    const written = new Set(["mode", "shards", "extra", "dirs", "always", "plugins", "macos", ...jobKeys]);
+    const written = new Set(["mode", "shards", "extra", "dirs", "always", "plugins", "macos", "macos_runner", ...jobKeys]);
     for (const name of Object.keys(scope.outputs!)) expect(written.has(name)).toBe(true);
   });
 });
