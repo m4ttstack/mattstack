@@ -33,10 +33,10 @@ test("the whole suite runs in three shards on macOS", () => {
   expect(run).not.toContain("macos-only-tests");
 });
 
-test("only a scheduled red reports, and it may write issues", () => {
+test("only a scheduled run that did not pass reports, cancelled included, and it may write issues", () => {
   const report = workflow.jobs.report!;
   expect(report.needs).toBe("unit");
-  expect(report.if).toBe("failure() && github.event_name == 'schedule'");
+  expect(report.if).toBe("always() && needs.unit.result != 'success' && github.event_name == 'schedule'");
   expect(report.permissions).toEqual({ issues: "write" });
 });
 
@@ -61,7 +61,7 @@ describe("the report step", () => {
     );
     chmodSync(join(dir, "gh"), 0o755);
     const run = Bun.spawnSync(["bash", "-e", "-c", step.run!], {
-      env: { PATH: `${dir}:${process.env.PATH}`, CALLS: calls, OPEN_ISSUE: openIssue, TITLE, RUN: "https://example.invalid/run/1" },
+      env: { PATH: `${dir}:${process.env.PATH}`, CALLS: calls, OPEN_ISSUE: openIssue, TITLE, RUN: "https://example.invalid/run/1", RESULT: "cancelled" },
     });
     expect(run.exitCode).toBe(0);
     return existsSync(calls) ? readFileSync(calls, "utf8").trim().split("\n") : [];
@@ -72,6 +72,7 @@ describe("the report step", () => {
     expect(made).toHaveLength(2);
     expect(made[1]).toStartWith(`issue create --title ${TITLE} --body `);
     expect(made[1]).toContain("https://example.invalid/run/1");
+    expect(made[1]).toContain("cancelled");
   });
 
   test("an open issue: it comments on that one and opens nothing", () => {
@@ -79,5 +80,6 @@ describe("the report step", () => {
     expect(made).toHaveLength(2);
     expect(made[1]).toStartWith("issue comment 42 --body ");
     expect(made[1]).toContain("https://example.invalid/run/1");
+    expect(made[1]).toContain("cancelled");
   });
 });
