@@ -84,9 +84,13 @@ The nested rows: a `peek` buddy is `handle`, `name`, `paneId`, `status`, `repo`,
 `kai ↔ remy`, else the room); a `broadcast` result is `paneId`, `ok`,
 `delivered`, `error`.
 
-`slackChat` on a `status` is `{ name, displayName, openedAt }` for the Slack
-support chat open in that pane, else `null`. `name` is the identity chat
-resolves on and `displayName` is what to draw. A `slack-status` conversation is
+`slackChat` on a `status` has three states. `{ name, displayName, openedAt }`
+is the Slack support chat open in that pane (`name` is the identity chat
+resolves on, `displayName` is what to draw). `null` means rt answered and the
+pane has no chat (a pane that isn't signed in is not asked, and reads `null`).
+The key left out means the lookup failed, whether an old rt with no Slack verbs
+or a daemon that couldn't answer, so a caller should not offer On. The rest of
+the status is unaffected. A `slack-status` conversation is
 `id`, `room`, `pane`, `name`, `displayName`, `openedAt`, `lastActiveAt` (`pane`
 is `null` when the agent holding the chat has no pane in the roster).
 
@@ -115,7 +119,8 @@ names, and every other string maps to itself.
 
 Absent values are `null`, never a missing key: `handle`, `name` and `pane` on a
 `status`, a peek buddy's `paneId` / `repo` / `branch` / `title`, and a
-broadcast result's `error`.
+broadcast result's `error`. The one exception is `slackChat` on a `status`,
+described above, where a missing key carries its own meaning.
 
 ### Handles and names
 

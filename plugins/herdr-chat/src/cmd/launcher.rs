@@ -127,20 +127,22 @@ pub fn status_json(r: &dyn Runner, pane: Option<&str>) -> Result<crate::json::St
         }
         _ => Vec::new(),
     };
-    // A chat belongs to a signed-in agent, so a signed-out pane skips the call.
-    // Like the rooms, a failed lookup leaves the rest of the header standing.
+    // A chat belongs to a signed-in agent, so a signed-out pane skips the call
+    // and has none. A failed lookup leaves the key out and the rest of the
+    // header standing.
     let slack_chat = if signed_in {
-        rt::slack_status(r)
-            .unwrap_or_default()
-            .into_iter()
-            .find(|c| c.pane.as_deref() == Some(pane))
-            .map(|c| crate::json::SlackChat {
-                display_name: c.shown_name().to_string(),
-                name: c.name,
-                opened_at: c.opened_at,
-            })
+        rt::slack_status(r).ok().map(|chats| {
+            chats
+                .into_iter()
+                .find(|c| c.pane.as_deref() == Some(pane))
+                .map(|c| crate::json::SlackChat {
+                    display_name: c.shown_name().to_string(),
+                    name: c.name,
+                    opened_at: c.opened_at,
+                })
+        })
     } else {
-        None
+        Some(None)
     };
     Ok(crate::json::Status {
         handle: base.handle,
@@ -715,7 +717,7 @@ mod tests {
         assert_eq!(s.pane.as_deref(), Some("w1:p1"));
         assert!(s.signed_in);
         assert_eq!(s.rooms, vec!["#rt".to_string(), "dm".to_string()]);
-        assert_eq!(s.slack_chat, None);
+        assert_eq!(s.slack_chat, Some(None));
     }
 
     const NO_SLACK_CHATS: &str = r#"{"ok":true,"conversations":[]}"#;
@@ -732,22 +734,52 @@ mod tests {
         let s = status_json(&r, Some("w1:p1")).unwrap();
         assert_eq!(
             s.slack_chat,
-            Some(crate::json::SlackChat {
+            Some(Some(crate::json::SlackChat {
                 name: "alex-slack".to_string(),
                 display_name: "Alex Example".to_string(),
                 opened_at: 1700
-            })
+            }))
         );
     }
 
-    /// An rt from before the Slack verbs fails the call, and the header
-    /// still has everything else to say.
+    const KAY_HEADER: &str =
+        r#""handle":"kay","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":[]"#;
+
+    fn status_wire(slack_answer: &str) -> String {
+        let r = FakeRunner::sequence(&[KAY_IN_W1P1, r#"{"ok":true,"rooms":[]}"#, slack_answer]);
+        serde_json::to_string(&status_json(&r, Some("w1:p1")).unwrap()).unwrap()
+    }
+
+    /// An rt from before the Slack verbs, or a daemon that can't answer, fails
+    /// the call. The key is left out, so a caller can tell "unknown" from "no
+    /// chat", and the header still has everything else to say.
     #[test]
-    fn status_without_a_slack_answer_has_no_open_chat() {
-        let r = FakeRunner::sequence(&[KAY_IN_W1P1, r#"{"ok":true,"rooms":[]}"#, "not json"]);
-        let s = status_json(&r, Some("w1:p1")).unwrap();
-        assert!(s.signed_in);
-        assert_eq!(s.slack_chat, None);
+    fn status_omits_slack_chat_when_the_lookup_fails() {
+        assert_eq!(
+            status_wire("not json"),
+            format!("{{{KAY_HEADER}}}"),
+            "a failed lookup must leave the rest of the status standing"
+        );
+    }
+
+    #[test]
+    fn status_prints_null_slack_chat_when_rt_answers_and_the_pane_has_none() {
+        assert_eq!(
+            status_wire(NO_SLACK_CHATS),
+            format!(r#"{{{KAY_HEADER},"slackChat":null}}"#)
+        );
+    }
+
+    #[test]
+    fn status_prints_the_slack_chat_when_one_is_open() {
+        assert_eq!(
+            status_wire(
+                r#"{"ok":true,"conversations":[{"id":3,"room":"slack-3","pane":"w1:p1","name":"alex-slack","displayName":"Alex Example","openedAt":1700,"lastActiveAt":1800}]}"#
+            ),
+            format!(
+                r#"{{{KAY_HEADER},"slackChat":{{"name":"alex-slack","displayName":"Alex Example","openedAt":1700}}}}"#
+            )
+        );
     }
 
     #[test]

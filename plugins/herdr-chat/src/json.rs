@@ -21,8 +21,12 @@ pub struct Status {
     pub pane: Option<String>,
     pub signed_in: bool,
     pub rooms: Vec<String>,
-    /// The Slack support chat open in this pane, if any.
-    pub slack_chat: Option<SlackChat>,
+    /// Three states, so a caller can tell an rt without the Slack verbs from
+    /// a pane with no chat: `None` leaves the key out (the lookup failed),
+    /// `Some(None)` prints `null` (rt answered, no chat here), `Some(Some(_))`
+    /// prints the open chat.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slack_chat: Option<Option<SlackChat>>,
 }
 
 /// Who a pane is talking to over Slack, and since when (rt's epoch value,
@@ -366,7 +370,7 @@ mod tests {
             pane: Some("w1:p1".to_string()),
             signed_in: true,
             rooms: vec!["#rt".to_string()],
-            slack_chat: None,
+            slack_chat: Some(None),
         })
         .unwrap();
         assert_eq!(
@@ -384,16 +388,36 @@ mod tests {
             pane: Some("w1:p1".to_string()),
             signed_in: true,
             rooms: Vec::new(),
-            slack_chat: Some(SlackChat {
+            slack_chat: Some(Some(SlackChat {
                 name: "alex-slack".to_string(),
                 display_name: "Alex Example".to_string(),
                 opened_at: 1700,
-            }),
+            })),
         })
         .unwrap();
         assert_eq!(
             out,
             r#"{"handle":"kay","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":[],"slackChat":{"name":"alex-slack","displayName":"Alex Example","openedAt":1700}}"#
+        );
+    }
+
+    /// The key is absent, not null: null means rt answered and the pane has no
+    /// chat, and an rt without the Slack verbs has not answered.
+    #[test]
+    fn status_leaves_slack_chat_out_when_the_lookup_failed() {
+        let out = serde_json::to_string(&Status {
+            handle: Some("kay".to_string()),
+            name: Some("kay".to_string()),
+            state: "live".to_string(),
+            pane: Some("w1:p1".to_string()),
+            signed_in: true,
+            rooms: Vec::new(),
+            slack_chat: None,
+        })
+        .unwrap();
+        assert_eq!(
+            out,
+            r#"{"handle":"kay","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":[]}"#
         );
     }
 
@@ -435,7 +459,7 @@ mod tests {
             pane: None,
             signed_in: false,
             rooms: Vec::new(),
-            slack_chat: None,
+            slack_chat: Some(None),
         })
         .unwrap();
         assert_eq!(
@@ -453,7 +477,7 @@ mod tests {
             pane: Some("w1:p1".to_string()),
             signed_in: true,
             rooms: Vec::new(),
-            slack_chat: None,
+            slack_chat: Some(None),
         })
         .unwrap();
         assert_eq!(
