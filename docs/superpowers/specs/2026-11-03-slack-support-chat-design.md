@@ -434,13 +434,15 @@ for it to discover or be talked into calling.
   `disable-model-invocation`, so the model can't load it.
 - **No other way in.** `rt chat slack-open` is hidden from `--help` and the command
   tree, has no MCP tool, and is named in no skill or doc.
-- **Closing the Bash gap.** The model can still reach Bash. The same mod's
-  `tool.call` hook denies a Bash command that names `slack-open`, and one that
-  sends `/slack-support` into a pane. That is a string match, so the daemon's
+- **Closing the shell gap.** The model can still reach Bash and Monitor. The same
+  mod's `tool.call` hook denies a command on either that runs `rt`, `herdr` or
+  `cli.ts` with a hidden verb, or that carries `/slack-support`. Commands that only
+  mention these, like a search, pass. That is a string match, so the daemon's
   `pane:send` handler also refuses text whose first line starts `/slack-support`
   when the caller is itself a pane, which it knows from `callerPane` or, for
   `rt pane send self`, `selfSession`. Flock and herdr-chat send no pane identity,
-  so they never trip it.
+  so they never trip it. `pane:spawn`, `agent:start`, `agent:resume` and herd briefs
+  refuse that text from any caller.
 
 This stops accidents and misled panes. It isn't a security boundary against a
 determined process on this machine, which is outside what the operator asked for.
