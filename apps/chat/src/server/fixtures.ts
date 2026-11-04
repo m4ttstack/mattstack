@@ -26,9 +26,6 @@ import type {
   BuddyStatus,
   ChatMessage,
   ChatPane,
-  InviteResult,
-  PaneAccount,
-  PaneDirectory,
   PaneFocusResult,
   PresenceRow,
   RoomSummary,
@@ -594,8 +591,7 @@ export function fixtureMessages(room: string, now = Date.now()): ChatMessage[] {
   ]);
 }
 
-/** The picker artboard's rows: one per state it draws. Keep in step with
-    design/build.py's PANES table. */
+/** The panes `fixtureFocus` knows, from design/build.py's PANES table. */
 export function fixturePanes(): ChatPane[] {
   return [
     {
@@ -717,78 +713,6 @@ export function fixturePanes(): ChatPane[] {
   ];
 }
 
-export function fixturePeek(paneId: string): string[] {
-  if (paneId === 'w7A:pY') {
-    return [
-      '⏺ Read(src/plugins/house-codegen/index.ts)',
-      '  ⎿  Read 212 lines',
-      '⏺ The plugin emits one chunk per island; the split itself',
-      '  happens in vite manualChunks, not here. Checking that next.',
-      '❯ ',
-    ];
-  }
-  return ['❯ '];
-}
-
-export function fixtureAccounts(): PaneAccount[] {
-  return [
-    {
-      slot: 1,
-      email: 'alex@acme.test',
-      alias: 'Acme',
-      headroom: '5h 0% · 7d 40% · Fable 35%',
-    },
-  ];
-}
-
-export function fixtureDirectories(q?: string): PaneDirectory[] {
-  const all: PaneDirectory[] = [
-    { path: '/Users/matt/Documents/GitHub/acme', repo: 'acme', branch: 'main' },
-    {
-      path: '/Users/matt/Documents/GitHub/acme-wt-codegen-split',
-      repo: 'acme',
-      branch: 'perf/codegen-split',
-    },
-    {
-      path: '/Users/matt/Documents/GitHub/repo-tools',
-      repo: 'repo-tools',
-      branch: 'main',
-    },
-    { path: '/Users/matt/Documents/GitHub/chat', repo: 'chat', branch: 'main' },
-  ];
-  const needle = q?.toLowerCase();
-  return needle ? all.filter(d => d.path.toLowerCase().includes(needle)) : all;
-}
-
-/** The three outcomes the invite flow renders, keyed off the pane's state. */
-export function fixtureInvite(paneId: string): InviteResult {
-  const pane = fixturePanes().find(p => p.paneId === paneId);
-  if (!pane)
-    return { paneId, delivered: 'refused', reason: 'not a claude pane' };
-  if (pane.agentStatus === 'blocked')
-    return { paneId, delivered: 'refused', reason: 'at a prompt' };
-  if (pane.agentStatus === 'working') return { paneId, delivered: 'queued' };
-  return { paneId, delivered: 'accepted' };
-}
-
 export function fixtureFocus(paneId: string): PaneFocusResult {
   return { paneId, focused: fixturePanes().some(p => p.paneId === paneId) };
-}
-
-let spawned = 0;
-export function fixtureSpawn(cwd: string): { pane: ChatPane; ready: boolean } {
-  spawned += 1;
-  const leaf = cwd.split('/').filter(Boolean).at(-1) ?? 'pane';
-  return {
-    ready: true,
-    pane: {
-      paneId: `wC2:p${spawned}`,
-      workspace: 'chat',
-      title: 'claude',
-      cwd,
-      repo: leaf,
-      branch: 'main',
-      agentStatus: 'idle',
-    },
-  };
 }
