@@ -126,6 +126,7 @@ function useBuddies(seed: Buddy[] | undefined): {
  */
 function useRooms(seed: FleetRoom[] | undefined) {
   const [rooms, setRooms] = useState<FleetRoom[]>(seed ?? []);
+  const [loaded, setLoaded] = useState(seed !== undefined);
 
   // Resolves to the fetched list for a caller that wants it directly. A
   // failed fetch resolves to [] with `rooms` left untouched, rather than
@@ -136,6 +137,7 @@ function useRooms(seed: FleetRoom[] | undefined) {
       const data = (await res.json()) as { rooms?: FleetRoom[] };
       const next = data.rooms ?? [];
       setRooms(next);
+      setLoaded(true);
       return next;
     } catch {
       return [];
@@ -165,7 +167,7 @@ function useRooms(seed: FleetRoom[] | undefined) {
     if (!roomsRef.current.some(r => r.room === room)) void refetchRooms();
   });
 
-  return { rooms, setRooms, refetchRooms };
+  return { rooms, loaded, setRooms, refetchRooms };
 }
 
 /**
@@ -380,6 +382,7 @@ function ChatSidebar({
 
 interface ChatPageProps {
   rooms: RoomSummary[];
+  roomsLoaded: boolean;
   openRooms: RoomSummary[];
   railRooms: FleetRoom[];
   activeRoom: string | undefined;
@@ -398,6 +401,7 @@ interface ChatPageProps {
 
 function ChatPage({
   rooms,
+  roomsLoaded,
   openRooms,
   railRooms,
   activeRoom,
@@ -507,12 +511,14 @@ function ChatPage({
               style={{ flex: 1, minHeight: 0, minWidth: 0 }}
             >
               {openRooms.length === 0 && !activeRoomSummary ? (
-                <Box style={{ flex: 1, minWidth: 0 }} p="xl">
-                  <RoomsPlaceholder
-                    anyBuddies={buddies.length > 0}
-                    allClosed={rooms.length > 0}
-                  />
-                </Box>
+                roomsLoaded && (
+                  <Box style={{ flex: 1, minWidth: 0 }} p="xl">
+                    <RoomsPlaceholder
+                      anyBuddies={buddies.length > 0}
+                      allClosed={rooms.length > 0}
+                    />
+                  </Box>
+                )
               ) : (
                 activeRoom && (
                   <Transcript
@@ -572,7 +578,12 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
   // Your org, team and role for the top bar, as console shows them.
   const viewer = useViewer();
   const { buddies, refetchBuddies } = useBuddies(initialState?.buddies);
-  const { rooms, setRooms, refetchRooms } = useRooms(initialState?.rooms);
+  const {
+    rooms,
+    loaded: roomsLoaded,
+    setRooms,
+    refetchRooms,
+  } = useRooms(initialState?.rooms);
   // A room mid-close is still in the daemon's list until the close request
   // resolves; a background refetch racing that request would otherwise put
   // the optimistically-removed row right back.
@@ -816,6 +827,7 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
         {chatRoute ? (
           <ChatPage
             rooms={rooms}
+            roomsLoaded={roomsLoaded}
             openRooms={openRooms}
             railRooms={railRooms}
             activeRoom={activeRoom}
