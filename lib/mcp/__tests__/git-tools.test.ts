@@ -575,6 +575,25 @@ describe("git_push runs the repo's check", () => {
     const r = await t.call(ctrl.signal);
     expect(r.ok).toBe(false);
     expect(pushes(t.calls)).toEqual([]);
+
+    const during = new AbortController();
+    const calls: string[] = [];
+    const base = fakeGit({ ...onFeature, [PINNED]: {} }, calls);
+    let checked = false;
+    const tool = gitToolDefs({
+      ...noForge,
+      git: async (args, cwd) => {
+        if (checked && args.join(" ") === "rev-parse --verify HEAD") during.abort();
+        return base(args, cwd);
+      },
+      guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }),
+      hasCheck: () => true,
+      check: async () => { checked = true; return run(); },
+    }).find((tool) => tool.name === "git_push")!;
+    const cancelled = await tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv, during.signal);
+    expect(cancelled.ok).toBe(false);
+    expect(cancelled.error).toContain("before the push");
+    expect(pushes(calls)).toEqual([]);
   });
   test("a dirty tree pushes if green but never posts", async () => {
     const t = setup(checkReturning(run({ dirty: true })));
@@ -1590,6 +1609,20 @@ describe("gitPush with a pinned sha, over real git", () => {
     const failing: GitRunner = async (args, cwd) => (args[0] === "config" ? { code: 1, stdout: "", stderr: "could not lock config file" } : realGitRunner(args, cwd));
     const r = await gitPush(tree, { setUpstream: true, sha: g(tree, "rev-parse", "HEAD") }, failing);
     expect(r.body).toMatchObject({ pushed: true, upstreamError: "could not lock config file" });
+  });
+
+  test("an empty sha pushes HEAD, never the delete refspec", async () => {
+    const head = g(tree, "rev-parse", "HEAD");
+    await gitPush(tree, { setUpstream: true }, realGitRunner);
+    const calls: string[][] = [];
+    const spy: GitRunner = (args, cwd) => {
+      calls.push(args);
+      return realGitRunner(args, cwd);
+    };
+    const r = await gitPush(tree, { sha: "" }, spy);
+    expect(calls.find((a) => a[0] === "push")?.at(-1)).toBe("HEAD:refs/heads/feat/x");
+    expect(r.body).toMatchObject({ pushed: true, sha: head });
+    expect(g(origin, "rev-parse", "refs/heads/feat/x")).toBe(head);
   });
 
   test("with no sha the -u push is unchanged", async () => {
