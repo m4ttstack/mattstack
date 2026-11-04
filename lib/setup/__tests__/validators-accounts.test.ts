@@ -361,13 +361,13 @@ describe("accountRows — account.slack + account.slack-app", () => {
     const fetch = async () => ({ status: 200, body: JSON.stringify({ ok: true, team: "Acme" }), headers: { "x-oauth-scopes": "reactions:write,chat:write" } });
     const r = await pickRow(accountRows(fakeProbes({ fetch }), team, SLACK_REQS, fakeSecrets({ "board.slackToken": "tok" }), null), "account.slack");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("Reconnect Slack to grant these permissions: channels:read, groups:read, channels:history, groups:history, reactions:read");
+    expect(r.detail).toBe("Reconnect Slack to grant these permissions: channels:read, groups:read, channels:history, groups:history, reactions:read, users:read");
     expect(r.action).toEqual({ type: "oauth", label: "Connect", integration: "slack", verb: ["setup", "slack", "connect"] });
   });
 
   test("account.slack: token granted every user scope -> ready", async () => {
     const team = baseTeam({ integrations: { slack: { clientId: "abc" } } });
-    const fetch = async () => ({ status: 200, body: JSON.stringify({ ok: true, team: "Acme" }), headers: { "x-oauth-scopes": "channels:read,groups:read,channels:history,groups:history,reactions:read,reactions:write,chat:write" } });
+    const fetch = async () => ({ status: 200, body: JSON.stringify({ ok: true, team: "Acme" }), headers: { "x-oauth-scopes": "channels:read,groups:read,channels:history,groups:history,reactions:read,reactions:write,chat:write,users:read" } });
     const r = await pickRow(accountRows(fakeProbes({ fetch }), team, SLACK_REQS, fakeSecrets({ "board.slackToken": "tok" }), null), "account.slack");
     expect(r.status).toBe("ready");
   });

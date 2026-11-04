@@ -598,7 +598,7 @@
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "string",
-      "pattern": "^[a-z0-9._-]+$"
+      "pattern": "^[a-z0-9._-]*$"
     }
   },
   "ci.triage.infraPatterns": {
