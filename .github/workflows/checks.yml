@@ -33,6 +33,7 @@ jobs:
       go: ${{ steps.scope.outputs.go }}
       deck: ${{ steps.scope.outputs.deck }}
       website: ${{ steps.scope.outputs.website }}
+      macos_runner: ${{ steps.runner.outputs.macos_runner }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,6 +45,11 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: bun scripts/ci/test-scope.ts
+      - id: runner
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          MAC_RUNNER: ${{ vars.MAC_RUNNER }}
+        run: bun scripts/ci/macos-runner.ts
 
   # Everything that does not need a Mac. A step that turns out to need one
   # moves to a static-macos job that runs on every PR.
@@ -137,7 +143,7 @@ jobs:
   deck-macos:
     needs: scope
     if: needs.scope.outputs.deck == 'true'
-    runs-on: macos-latest
+    runs-on: ${{ fromJSON(needs.scope.outputs.macos_runner) }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -228,7 +234,7 @@ jobs:
   unit-macos:
     needs: scope
     if: needs.scope.outputs.macos != ''
-    runs-on: macos-latest
+    runs-on: ${{ fromJSON(needs.scope.outputs.macos_runner) }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -277,7 +283,7 @@ jobs:
   plugin-herdr-chat:
     needs: scope
     if: contains(format(',{0},', needs.scope.outputs.plugins), ',plugins/herdr-chat,')
-    runs-on: macos-latest
+    runs-on: ${{ fromJSON(needs.scope.outputs.macos_runner) }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4

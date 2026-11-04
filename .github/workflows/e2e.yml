@@ -24,6 +24,7 @@ jobs:
     outputs:
       e2e: ${{ steps.scope.outputs.e2e }}
       glitter: ${{ steps.scope.outputs.glitter }}
+      macos_runner: ${{ steps.runner.outputs.macos_runner }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,11 +36,16 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: bun scripts/ci/test-scope.ts
+      - id: runner
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          MAC_RUNNER: ${{ vars.MAC_RUNNER }}
+        run: bun scripts/ci/macos-runner.ts
 
   e2e-tests:
     needs: changes
     if: needs.changes.outputs.e2e == 'true'
-    runs-on: macos-latest
+    runs-on: ${{ fromJSON(needs.changes.outputs.macos_runner) }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -94,7 +100,7 @@ jobs:
   # does not apply shows up as a skipped check rather than a silent pass.
   # GLITTER_TRIGGERS in scripts/ci/test-scope.ts lists what it paints from.
   glitter-pty:
-    runs-on: macos-latest
+    runs-on: ${{ fromJSON(needs.changes.outputs.macos_runner) }}
     timeout-minutes: 15
     needs: changes
     if: needs.changes.outputs.glitter == 'true'
