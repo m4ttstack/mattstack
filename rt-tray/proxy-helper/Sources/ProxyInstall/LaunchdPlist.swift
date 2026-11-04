@@ -35,6 +35,9 @@ enum LaunchdPlist {
             ("PORTLESS_HTTPS", "1"),
             ("PORTLESS_LAN", "0"),
             ("PORTLESS_WILDCARD", "0"),
+            // portless refuses a certificate for a host outside these, so every
+            // TLD a route uses has to be named here.
+            ("PORTLESS_TLD", "localhost,mattstack"),
             ("HOME", user.home),
             // portless chowns everything the root daemon writes into the state
             // dir back to this pair; without them the user's own portless CLI
