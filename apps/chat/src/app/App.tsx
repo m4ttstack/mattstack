@@ -45,6 +45,7 @@ import { RoomRail } from './RoomRail';
 import type { RosterBuddy } from './roster-types';
 import { useAppRoute, useHash } from './routes';
 import { SettingsButton } from './SettingsEntry';
+import { ThemeColorButton } from './ThemeColor';
 import { SlackChatsProvider, useSlackChats } from './slack-chats-context';
 import { PAGE_SIZE, Transcript } from './Transcript';
 import { latestActiveRoom, visibleRooms } from './visible-rooms';
@@ -839,7 +840,14 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
         headerBorder={false}
         mark={<AppMark size={26} />}
       >
-        <MattstackShell.Header actions={<SettingsButton />} />
+        <MattstackShell.Header
+          actions={
+            <>
+              <ThemeColorButton />
+              <SettingsButton />
+            </>
+          }
+        />
         <ScopeBar info={viewer} />
         <ViewerChip info={viewer} />
         {chatRoute ? (

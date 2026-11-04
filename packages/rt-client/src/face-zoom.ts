@@ -44,13 +44,34 @@ export function zoomForBars(share: number): number {
   return share < MIN_BAR ? 1 : Math.min(1 / (1 - 2 * share), MAX_ZOOM);
 }
 
+interface Sampler {
+  drawImage(image: unknown, x: number, y: number, w: number, h: number): void;
+  getImageData(
+    x: number,
+    y: number,
+    w: number,
+    h: number
+  ): { data: Uint8ClampedArray };
+}
+
+/** This package has no DOM types, and only a browser reaches this. */
+interface Page {
+  document: {
+    createElement(tag: 'canvas'): {
+      width: number;
+      height: number;
+      getContext(kind: '2d', options: object): Sampler | null;
+    };
+  };
+}
+
 const zooms = new Map<string, number>();
 
 /** How far to zoom a loaded picture so its side bars fall outside the frame. */
-export function faceZoom(image: HTMLImageElement): number {
+export function faceZoom(image: { src: string }): number {
   const known = zooms.get(image.src);
   if (known !== undefined) return known;
-  const canvas = document.createElement('canvas');
+  const canvas = (globalThis as unknown as Page).document.createElement('canvas');
   canvas.width = SAMPLE;
   canvas.height = SAMPLE;
   const context = canvas.getContext('2d', { willReadFrequently: true });

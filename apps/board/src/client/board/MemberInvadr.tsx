@@ -1,8 +1,8 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
+import { faceZoom } from '@mattstack/rt-client/face-zoom';
 import { Invadr } from 'invadrs/react';
 
-import { faceZoom } from './face-zoom.ts';
 import type { MemberLook } from './invadr-colors.ts';
 
 const FACE_RETRY_MS = 60_000;

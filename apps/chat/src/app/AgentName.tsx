@@ -1,6 +1,7 @@
 import { cloneElement, useState, type HTMLAttributes } from 'react';
 import { createAvatar } from '@dicebear/core';
 import * as personas from '@dicebear/personas';
+import { faceZoom } from '@mattstack/rt-client/face-zoom';
 import {
   Box,
   Button,
@@ -103,11 +104,35 @@ function HandleSprite({ handle, size }: { handle: string; size: number }) {
   const name = useBuddies()?.selfName(handle) ?? faceSeed(handle);
   const avatar = useSlackAvatar(handle);
   const [failed, setFailed] = useState<string>();
+  const [zoom, setZoom] = useState(1);
+  const face = avatar && avatar !== failed ? avatar : undefined;
+  if (face) {
+    return (
+      <span
+        className={classes.avatar}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: '28%',
+          overflow: 'hidden',
+        }}
+      >
+        <img
+          src={face}
+          alt=""
+          width={size}
+          height={size}
+          className={classes.photo}
+          style={zoom === 1 ? undefined : { transform: `scale(${zoom})` }}
+          onLoad={event => setZoom(faceZoom(event.currentTarget))}
+          onError={() => setFailed(face)}
+        />
+      </span>
+    );
+  }
   return (
     <img
-      src={avatar && avatar !== failed ? avatar : faceUri(name)}
-      onError={() => setFailed(avatar)}
-      referrerPolicy="no-referrer"
+      src={faceUri(name)}
       alt=""
       width={size}
       height={size}

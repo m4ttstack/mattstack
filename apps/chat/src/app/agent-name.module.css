@@ -30,3 +30,10 @@
   flex: none;
   display: block;
 }
+
+/* Faces sit high in a portrait, so a zoom keeps them in the frame. */
+.photo {
+  display: block;
+  object-fit: cover;
+  transform-origin: 50% 30%;
+}

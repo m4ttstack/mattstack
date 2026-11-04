@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { sideBarShare, zoomForBars } from '../face-zoom.ts';
+import { sideBarShare, zoomForBars } from '../src/face-zoom.ts';
 
 const SIZE = 10;
 

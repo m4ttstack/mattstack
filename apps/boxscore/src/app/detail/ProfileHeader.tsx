@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { ActionIcon, Avatar, Button, Menu } from '@mattstack/app-kit/core';
 import { Link } from '@mattstack/app-kit/router';
+import { faceZoom } from '@mattstack/rt-client/face-zoom';
 import type { MetricKey, UserRow } from '../../shared/types';
 import { useSlackFace } from '../hooks/useSlackFace';
 import { initials } from '../model/labels';
@@ -9,6 +11,19 @@ import { YouBadge } from '../ui/YouBadge';
 import classes from './detail.module.css';
 
 export const displayName = (u: UserRow): string => u.name ?? u.username;
+
+function FacePhoto({ src }: { src: string }) {
+  const [zoom, setZoom] = useState(1);
+  return (
+    <img
+      src={src}
+      alt=""
+      className={classes.facePhoto}
+      style={zoom === 1 ? undefined : { transform: `scale(${zoom})` }}
+      onLoad={event => setZoom(faceZoom(event.currentTarget))}
+    />
+  );
+}
 
 function Step({
   label,
@@ -96,13 +111,16 @@ export function ProfileHeader({
       <div className={classes.profileHeader} data-parity="Profile Header">
         <div className={classes.profile}>
           <Avatar
-            src={face}
             size={56}
             color={you ? 'accent' : undefined}
             variant={you ? 'filled' : 'default'}
             data-parity="Avatar"
           >
-            <span data-parity="Initials">{initials(name)}</span>
+            {face ? (
+              <FacePhoto src={face} />
+            ) : (
+              <span data-parity="Initials">{initials(name)}</span>
+            )}
           </Avatar>
           <div className={classes.profileText}>
             <div className={classes.nameLine}>

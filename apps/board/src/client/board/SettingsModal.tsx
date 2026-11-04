@@ -53,7 +53,6 @@ function SettingsModal({
       title="❯ team members"
       ariaLabel="team settings"
       onClose={onClose}
-      closeGlyph="✕"
     >
       {local && (
         <p className="tui-modal-sub">
