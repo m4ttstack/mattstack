@@ -161,6 +161,18 @@ describe("mr:upload all-runs ticket scan", () => {
     expect(h.dbsRead.length).toBe(4);
   });
 
+  test("a read that leaves an empty WAL beside a run db is not a change", async () => {
+    seedRuns(2, hashedRun);
+    const h = harness();
+    expect((await h.upload({ repoName: REPO, path: file(elsewhere, "notes.png", "ordinary") })).ok).toBe(true);
+    expect(h.dbsRead.length).toBe(2);
+
+    for (const i of [0, 1]) writeFileSync(join(runs, "widgets", `r-${i}`, "state.db-wal"), "");
+
+    expect((await h.upload({ repoName: REPO, path: file(elsewhere, "notes-2.png", "ordinary-2") })).ok).toBe(true);
+    expect(h.dbsRead.length).toBe(2);
+  });
+
   test("a hashed ticket shot whose recorded path is the file itself is refused without resolving it", async () => {
     const ticketPath = file(elsewhere, "ticket.png", "edited-in-place");
     const tickets = JSON.stringify({ v: 1, tickets: [{ path: ticketPath, size: 3, sha256: hex(Buffer.from("old")) }] });

@@ -89,11 +89,11 @@ describe("lib/state barrel", () => {
     expect(stderr).toBe("");
 
     // No ~/.mattstack/rt, no state.db, no migration of the legacy dir.
-    // "Library" is filtered out here, not asserted away: macOS/bun can
-    // create it under any fresh HOME on first process spawn (its own
-    // transpiler cache, confirmed independent of this barrel), so it is
-    // not evidence of a write the barrel made.
-    const created = (existsSync(home) ? readdirSync(home) : []).filter((name) => name !== "Library");
+    // "Library" and ".bun" are filtered out here, not asserted away: bun can
+    // create them under any fresh HOME on first process spawn (its own
+    // transpiler cache, on macOS and Linux respectively, confirmed independent
+    // of this barrel), so they are not evidence of a write the barrel made.
+    const created = (existsSync(home) ? readdirSync(home) : []).filter((name) => name !== "Library" && name !== ".bun");
     expect(created).toEqual([]);
   });
 

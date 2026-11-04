@@ -14,7 +14,7 @@
  * (../redaction-record-check.ts).
  */
 import { Database } from "bun:sqlite";
-import { readdirSync, realpathSync, statSync } from "fs";
+import { readdirSync, realpathSync, statSync, type BigIntStats } from "fs";
 import { isAbsolute, join, relative, sep } from "path";
 import { decodeRepo } from "../identity-decoder.ts";
 import { getRepoContext, providerRequestHook } from "../freshness.ts";
@@ -69,22 +69,25 @@ type ScanCache = Map<string, { signature: string; record: RunRecordScan }>;
 /**
  * A run db's identity, size and nanosecond mtime, with its WAL's: every
  * committed write changes one of them, so an unchanged signature means
- * unchanged fields. null when the db is gone; undefined when it cannot be stat'd.
+ * unchanged fields. An empty WAL holds no commit, and a read-only open can
+ * leave one behind, so it signs as no WAL. null when the db is gone;
+ * undefined when it cannot be stat'd.
  */
 function dbSignature(path: string): string | null | undefined {
-  const part = (p: string): string | null | undefined => {
+  const stat = (p: string): BigIntStats | null | undefined => {
     try {
-      const st = statSync(p, { bigint: true });
-      return `${st.dev}:${st.ino}:${st.size}:${st.mtimeNs}`;
+      return statSync(p, { bigint: true });
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       return code === "ENOENT" || code === "ENOTDIR" ? null : undefined;
     }
   };
-  const db = part(path);
+  const sign = (st: BigIntStats) => `${st.dev}:${st.ino}:${st.size}:${st.mtimeNs}`;
+  const db = stat(path);
   if (db === null || db === undefined) return db;
-  const wal = part(`${path}-wal`);
-  return wal === undefined ? undefined : `${db}|${wal ?? "-"}`;
+  const wal = stat(`${path}-wal`);
+  if (wal === undefined) return undefined;
+  return `${sign(db)}|${wal && wal.size > 0n ? sign(wal) : "-"}`;
 }
 
 /**

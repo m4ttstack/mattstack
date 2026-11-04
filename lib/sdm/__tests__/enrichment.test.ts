@@ -13,6 +13,8 @@ function writeStore(file: string, obj: unknown): void {
   writeFileSync(file, JSON.stringify(obj, null, 2));
 }
 
+const originalHome = process.env.HOME;
+
 describe("loadEnrichment", () => {
   let logged: string[];
   let io: ReturnType<typeof captureOut>;
@@ -29,6 +31,7 @@ describe("loadEnrichment", () => {
   afterEach(() => {
     io.restore();
     warnings.reset();
+    process.env.HOME = originalHome;
   });
 
   test("nothing set: no labels, and no word about it", () => {
@@ -95,6 +98,7 @@ describe("loadCarriers", () => {
   afterEach(() => {
     io.restore();
     warnings.reset();
+    process.env.HOME = originalHome;
   });
 
   test("unset -> {}", () => {
@@ -129,6 +133,7 @@ describe("enrichment warnings", () => {
   afterEach(() => {
     io.restore();
     warnings.reset();
+    process.env.HOME = originalHome;
   });
 
   test("a setting the store cannot resolve is logged and shown with the command that finds it", () => {

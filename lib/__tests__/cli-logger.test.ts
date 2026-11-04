@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { readFileSync, readdirSync } from "fs";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { installCliLogging, logCommand } from "../cli-logger.ts";
 import { logsDir } from "../rt-paths.ts";
@@ -15,10 +15,21 @@ import { persistOrWarn, setBusyLogSink } from "../state/busy.ts";
  */
 function readTodaysCliLogLines(): string[] {
   const dir = logsDir();
-  const file = readdirSync(dir).find((f) => f.startsWith("cli.") && f.endsWith(".log"));
+  const file = readdirSync(dir).filter((f) => f.startsWith("cli.") && f.endsWith(".log")).sort().at(-1);
   if (!file) throw new Error("expected today's cli log file to exist after logCommand()");
   return readFileSync(join(dir, file), "utf8").trim().split("\n").filter(Boolean);
 }
+
+// A run that spans midnight leaves an earlier day's file beside today's, and
+// readdir order is the filesystem's, so several make the wrong pick certain.
+const earlierDays = [2, 3, 4, 5, 6, 7, 8, 9].map((days) => join(logsDir(), `cli.${new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10)}.log`));
+beforeAll(() => {
+  mkdirSync(logsDir(), { recursive: true });
+  for (const file of earlierDays) writeFileSync(file, `${JSON.stringify({ module: "earlier day" })}\n`);
+});
+afterAll(() => {
+  for (const file of earlierDays) rmSync(file, { force: true });
+});
 
 describe("logCommand: rt secrets set|rotate never reaches disk with a value attached", () => {
   test("a canary trailing 'rt secrets set <domain> <key>' is redacted in the on-disk line", () => {

@@ -663,6 +663,7 @@ describe("worktree config", () => {
 
     test("a refused org value warns once, naming the key and scope but not the value", () => {
       writeStore(sharedStorePath("acme"), { "rt.worktreeApp": ["secret-ish"] });
+      resolveModule.setSettingsWarnSink(null);
       const warnings: string[] = [];
       const orig = console.warn;
       console.warn = (...args: unknown[]) => {

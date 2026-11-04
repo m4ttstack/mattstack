@@ -18,7 +18,8 @@ own changes.
 |---|---|---|---|
 | checks | `scope` | ubuntu | always |
 | checks | `static` | ubuntu | always (turbo's `--affected` narrows the apps gates) |
-| checks | `unit` (1-3 shards) | macOS | anything left after the drop-outs below; `full` or `changed` mode |
+| checks | `unit` (1-3 shards) | ubuntu | anything left after the drop-outs below; `full` or `changed` mode |
+| checks | `unit-macos` | macOS | a `full` run, or a `changed` run that reaches a test on the Mac-only list (below) |
 | checks | `guards` | ubuntu | whenever `unit` is not `full`: runs the `no-*` guards |
 | checks | `go` | ubuntu | `ui/`, `package.json`, `checks.yml`, the scope script |
 | checks | `deck-macos` | macOS | `apps/deck/`, any non-docs file under `packages/` or at the repo root, `scripts/turbo.sh`, `checks.yml`, the scope script |
@@ -28,7 +29,8 @@ own changes.
 | e2e | `e2e-tests` | macOS | anything the compiled binary or the e2e run can reach (below) |
 | e2e | `glitter-pty` | macOS | the paths in `GLITTER_TRIGGERS` (the board's inputs, `e2e.yml`, the scope script) |
 | purity | `purity` | ubuntu | always |
-| unit-linux-probe | `probe` | ubuntu | its own workflow file, or by hand; advisory, never fails a PR |
+| timings | `timings` | ubuntu | its own workflow file, or by hand; never a required check |
+| nightly-macos | `unit` (3 shards), `report` | macOS, ubuntu | every night, by hand, or its own workflow file; never a required check |
 
 ## The unit shards' modes
 
@@ -54,7 +56,7 @@ instead; a reader no test imports forces full. Then:
 - **changed**: `--changed=HEAD^1` over what is left, which is all
   TypeScript. Scope sizes the run from `test-timings.json`: the selected
   tests' recorded time against a full shard's, so a small change takes one
-  macOS runner and a wide one up to three. The estimate only sets wall time;
+  runner and a wide one up to three. The estimate only sets wall time;
   bun's `--changed` still picks the tests.
 
 "Read by path" means a unit test or one of its imports names the file:
@@ -67,6 +69,40 @@ imports never drops out. A `no-*` guard never counts as a reader, since
 `guards` runs every one whenever the shards are not full. Docs-site files
 are never checked: the tests that read the site are guards, and `static`'s
 `docs:check` covers the generated reference.
+
+## Tests that need a Mac
+
+`scripts/ci/macos-only-tests.txt` lists the unit tests that cannot run on
+ubuntu, one bare repo-relative path per line. `unit` passes each one to
+`--path-ignore-patterns`, where a `./` prefix matches nothing and would leave
+the test on ubuntu, so the scope test refuses one. The
+`no-macos-list-drift` guard refuses an entry whose file is gone.
+
+| Test | Needs |
+|---|---|
+| `commands/__tests__/worktree-hydrate-clone.test.ts` | `clonefile(2)` |
+| `lib/__tests__/daemon-logger.test.ts` | native stderr redirect, a no-op elsewhere |
+| `lib/release/__tests__/dev-app-cache.test.ts` | `codesign` |
+| `lib/worktree/__tests__/clonefile.test.ts` | `clonefile(2)` |
+| `rt-tray/vm/run/helpers/__tests__/install-chrome.test.ts` | `plutil`, `ditto` |
+| `scripts/__tests__/fetch-deps-make-src.test.ts` | `otool`, `lipo`, `cc -dynamiclib` |
+| `scripts/__tests__/render-launchagents.test.ts` | `PlistBuddy`, `plutil` |
+
+`unit-macos` runs the whole list on a `full` run. On a `changed` run it takes
+the listed tests the diff reaches, by import or by a path a test reads, or the
+whole list when the diff touches a workspace package, since the import walk
+stops at a bare import. Nothing reached skips it.
+
+A new test that needs a Mac fails on ubuntu on its own PR, and the author adds
+it there. One gated with `process.platform !== "darwin"` would pass on ubuntu
+without running, so the same guard requires it on the list. A test that only
+names a Mac path, identity or tool gets made portable instead, and a flake
+gets fixed, never listed.
+
+`nightly-macos.yml` runs the whole suite on macOS every night, so a bug only a
+Mac shows, in a file not on the list, can reach main and is caught the next
+night. `rt check` still runs a changed file's tests on the developer's Mac. A
+red night opens one issue, and a later red comments on it.
 
 ## What e2e skips
 

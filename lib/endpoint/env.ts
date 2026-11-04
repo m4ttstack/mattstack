@@ -148,8 +148,14 @@ export async function runRoleHook(hook: string, input: HookInput, timeoutMs = 50
       stdout: "pipe",
       stderr: "pipe",
     });
-    proc.stdin.write(JSON.stringify(input));
-    proc.stdin.end();
+    // A hook that ignores its input can exit before this write lands: that
+    // is EPIPE, and its stdout and exit code still decide the result.
+    try {
+      proc.stdin.write(JSON.stringify(input));
+      proc.stdin.end();
+    } catch {
+      // the hook is already gone
+    }
 
     const outPipe = readPipe(proc.stdout);
     // stderr is drained (and discarded) purely so a chatty hook can't wedge on

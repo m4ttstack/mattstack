@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, mkdtempSync, symlinkSync, utimesSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { assertPrunable, pruneRuns } from "../prune.ts";
@@ -36,13 +36,15 @@ function seedRun(dir: string, repo: string, id: string, startedAt: number, userV
 }
 
 /** Polls until the detached rm -rf a prune spawns has actually removed `path` (S100: the delete is no longer synchronous). */
-async function waitGone(path: string, timeoutMs = 5000): Promise<void> {
+async function waitFor(done: () => boolean, what: string, timeoutMs = 5000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
-  while (existsSync(path)) {
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${path} to be reaped`);
+  while (!done()) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
     await new Promise((r) => setTimeout(r, 20));
   }
 }
+
+const waitGone = (path: string) => waitFor(() => !existsSync(path), `${path} to be reaped`);
 
 function seedRunEnded(dir: string, repo: string, id: string, startedAt: number, endedAt: number, status = "done"): void {
   const runDir = join(dir, repo, id);
@@ -131,15 +133,28 @@ describe("pruneRuns", () => {
   // expired run tree synchronously, blocking the daemon's single thread for
   // the full duration of each recursive rm — a tray poll or chat post
   // arriving mid-sweep would time out. The delete must be off-thread.
-  test("prune spawns the delete asynchronously — the run dir is not synchronously unlinked (S100)", () => {
+  test("prune spawns the delete asynchronously — the run dir is not synchronously unlinked (S100)", async () => {
     const dir = root();
     const now = Date.now();
     seedRunEnded(dir, "alpha", "old-done", now - 40 * DAY, now - 40 * DAY);
-    const { removed } = pruneRuns(now);
-    expect(removed).toEqual([join(dir, "alpha", "old-done")]);
-    // Not gone yet: the unlink runs in a detached child process, off this
-    // thread, so pruneRuns returning never means the disk is clean yet.
-    expect(existsSync(join(dir, "alpha", "old-done"))).toBe(true);
+    const run = join(dir, "alpha", "old-done");
+    // A stub, because a real rm in its child process can finish before this
+    // thread looks: what this pins is who deletes, not who gets there first.
+    const bin = mkdtempSync(join(tmpdir(), "rt-prune-stub-"));
+    const called = join(bin, "called");
+    writeFileSync(join(bin, "rm"), `#!/bin/sh\necho "$*" > "${called}.tmp"\nmv "${called}.tmp" "${called}"\n`);
+    chmodSync(join(bin, "rm"), 0o755);
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}:${path}`;
+    try {
+      const { removed } = pruneRuns(now);
+      expect(removed).toEqual([run]);
+      expect(existsSync(run)).toBe(true);
+      await waitFor(() => existsSync(called), "the stub rm");
+      expect(readFileSync(called, "utf8").trim()).toBe(`-rf -- ${run}`);
+    } finally {
+      process.env.PATH = path;
+    }
   });
 
   test("prune's detached delete eventually removes the run dir", async () => {

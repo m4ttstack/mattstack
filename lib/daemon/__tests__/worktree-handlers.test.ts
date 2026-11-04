@@ -21,7 +21,7 @@ import { closeStateDb } from "../../state/index.ts";
 import { GOLDEN_BRANCH, GOLDEN_NAME, loadRegistry, saveRegistry, type TreeRecord } from "../../worktree/registry.ts";
 import { createTree } from "../../worktree/create.ts";
 import type { CloneRunner } from "../../worktree/hydrate.ts";
-import { clonePath, cloneExitCode } from "../../worktree/clonefile.ts";
+import { inProcessClone } from "../../worktree/__tests__/in-process-clone.ts";
 import { disposeTree } from "../../worktree/dispose.ts";
 import { readyTaskFor } from "../../worktree/ready-async.ts";
 import { tryLockTree } from "../../worktree/locks.ts";
@@ -715,12 +715,6 @@ async function makeGoldenWithArtifact(repo: string, name: string): Promise<TreeR
   writeFileSync(join(golden.path, "node_modules", "a.js"), "module.exports = 1;\n");
   return golden;
 }
-
-/** Real clonefile(2), in-process: exercises the actual clone step without spawning the compiled `rt` binary the default runner shells out to. */
-const inProcessClone: CloneRunner = async (src, dst) => {
-  const r = clonePath(src, dst);
-  return { exitCode: cloneExitCode(r), stderr: r.ok ? "" : `clonefile: ${r.message}` };
-};
 
 /**
  * Pushes a new commit to `repo`'s own origin from a THIRD clone, never

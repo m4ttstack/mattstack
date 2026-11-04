@@ -42,6 +42,8 @@ function put(dir: string, rel: string, body: string): void {
   writeFileSync(join(dir, rel), body);
 }
 
+const { HOME: originalHome, GIT_CONFIG_GLOBAL: originalGlobalConfig } = process.env;
+
 beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), "org-data-branch-"));
   home = join(root, "home");
@@ -49,7 +51,12 @@ beforeAll(() => {
   process.env.HOME = home;
   process.env.GIT_CONFIG_GLOBAL = "/dev/null";
 });
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+afterAll(() => {
+  process.env.HOME = originalHome;
+  if (originalGlobalConfig === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+  else process.env.GIT_CONFIG_GLOBAL = originalGlobalConfig;
+  rmSync(root, { recursive: true, force: true });
+});
 
 beforeEach(() => {
   rmSync(join(home, ".mattstack"), { recursive: true, force: true });
