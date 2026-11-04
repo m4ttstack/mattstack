@@ -88,11 +88,17 @@ function setupOrg(p: Probes): string {
   return orgRefFromIntent(null, discoverOrgs(p)).slug;
 }
 
+/** A tool the team dropped is forgotten even if Done never ran, so it notifies again when it comes back. */
+function withoutDroppedTools(record: ToolNotices, required: ToolRequirement[]): ToolNotices {
+  return { ...record, told: record.told.filter((name) => required.some((tool) => tool.name === name)) };
+}
+
 export async function runToolNotices(p: Probes, slug: string, notify: (title: string, message: string, id: string) => void): Promise<void> {
   const state = readSetupState(p);
   if (!isSetupFinished(state) || setupIsRunning(p, state.run) || setupOrg(p) !== slug) return;
 
-  const required = dedupeTeamTools(readPackRequirements(p, slug)).filter((tool) => !tool.optional);
+  const reqs = readPackRequirements(p, slug);
+  const required = dedupeTeamTools(reqs).filter((tool) => !tool.optional);
   const missing: MissingTool[] = [];
   for (const tool of required) {
     const row = await teamToolRow(p, tool, false);
@@ -100,7 +106,9 @@ export async function runToolNotices(p: Probes, slug: string, notify: (title: st
   }
 
   const record = readToolNotices(p);
-  const { notice, record: next } = toolNotice(missing, record);
+  // An org file that did not read says nothing about what was dropped, and pruning on it would re-notify every member once it is fixed.
+  const current = reqs.some((req) => req.orgError) ? record : withoutDroppedTools(record, required);
+  const { notice, record: next } = toolNotice(missing, current);
   // Written before the send: this runs every pull interval, so a record that will not write would otherwise repeat the notice forever.
   writeToolNotices(p, next);
   if (!notice) return;

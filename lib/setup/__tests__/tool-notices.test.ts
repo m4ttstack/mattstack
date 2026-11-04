@@ -50,6 +50,8 @@ const HOME = "/fake-home";
 const RT = `${HOME}/.mattstack/rt`;
 const STATE = `${RT}/setup-state.json`;
 const RECORD = `${RT}/tool-notices.json`;
+const ORG_FILE = `${HOME}/.mattstack/orgs/acme/mattstack/org/requirements.jsonc`;
+const TEAM_FILE = `${HOME}/.mattstack/orgs/acme/mattstack/teams/widgets/plugin/requirements.jsonc`;
 const FINISHED = JSON.stringify({ v: 2, finishedAt: "2026-10-01T00:00:00.000Z" });
 const TOOL_MISSING: ExecScript = () => ({ code: 127, stdout: "", stderr: "" });
 
@@ -190,6 +192,37 @@ describe("runToolNotices", () => {
     const { notify } = collector();
     await runToolNotices(p, "stale", notify);
     expect(Object.keys(p.calls.writes)).toEqual([]);
+  });
+
+  test("a told name the team dropped is pruned, so it notifies again when it returns", async () => {
+    const p = finishedMac({ tools: [], extra: { [RECORD]: JSON.stringify(rec({ told: ["doppler"] })) } });
+    const { sent, notify } = collector();
+    await runToolNotices(p, "acme", notify);
+    expect(readToolNotices(p)).toEqual(rec());
+
+    p.writeFile(TEAM_FILE, requirements([{ name: "doppler", why: "secrets" }]));
+    await runToolNotices(p, "acme", notify);
+    await runToolNotices(p, "acme", notify);
+    expect(sent.map((s) => s.id)).toEqual(["setup_update:tools:doppler"]);
+  });
+
+  test("a told name the team made optional is pruned too", async () => {
+    const p = finishedMac({ tools: [{ name: "doppler", why: "secrets", optional: true }], extra: { [RECORD]: JSON.stringify(rec({ told: ["doppler"] })) } });
+    const { notify } = collector();
+    await runToolNotices(p, "acme", notify);
+    expect(readToolNotices(p)).toEqual(rec());
+  });
+
+  test("an org file error prunes nothing", async () => {
+    const p = finishedMac({ tools: [], extra: { [ORG_FILE]: "{ not json", [RECORD]: JSON.stringify(rec({ told: ["doppler"], pending: ["ldcli"] })) } });
+    const { sent, notify } = collector();
+    await runToolNotices(p, "acme", notify);
+    expect(readToolNotices(p).told).toEqual(["doppler"]);
+
+    p.writeFile(ORG_FILE, requirements([{ name: "doppler", why: "secrets" }]));
+    await runToolNotices(p, "acme", notify);
+    await runToolNotices(p, "acme", notify);
+    expect(sent).toEqual([]);
   });
 
   test("a sent notice records in tool-notices.json and leaves setup-state untouched", async () => {
