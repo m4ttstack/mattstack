@@ -1361,7 +1361,9 @@ test('slack-status passes the open chats through', async () => {
     {
       id: 1,
       room: 'dm-slack',
+      handle: 'slack.alex',
       name: 'alex-slack',
+      agentName: 'max',
       displayName: 'Alex Example',
       openedAt: 1,
       lastActiveAt: 2,
@@ -1369,11 +1371,11 @@ test('slack-status passes the open chats through', async () => {
   ];
   vi.mocked(rt.chatSlackStatus).mockResolvedValueOnce({
     ok: true,
-    data: { conversations },
+    data: { conversations, closed: [] },
   });
   const res = await routes.request('/api/chat/slack-status');
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({ conversations });
+  expect(await res.json()).toEqual({ conversations, closed: [] });
 });
 
 test('slack-status is a 502 when the daemon refuses, as an old daemon does', async () => {
