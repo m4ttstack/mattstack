@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import type { ReactNode } from 'react';
@@ -43,8 +44,10 @@ export function useIsSlackChat(room: string): boolean {
  */
 export function useSlackChatRooms(): string[] {
   const [rooms, setRooms] = useState<string[]>([]);
+  const latestRequest = useRef(0);
 
   const refetch = useCallback(() => {
+    const request = ++latestRequest.current;
     fetch('/api/chat/slack-status')
       .then(async res => {
         if (!res.ok) return [];
@@ -54,13 +57,14 @@ export function useSlackChatRooms(): string[] {
         return (data.conversations ?? []).map(c => c.room);
       })
       .catch(() => [] as string[])
-      .then(next =>
+      .then(next => {
+        if (request !== latestRequest.current) return;
         setRooms(prev =>
           prev.length === next.length && prev.every((r, i) => r === next[i])
             ? prev
             : next
-        )
-      );
+        );
+      });
   }, []);
 
   useEffect(refetch, [refetch]);
