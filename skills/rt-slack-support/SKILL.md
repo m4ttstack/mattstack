@@ -1,14 +1,17 @@
 ---
 name: rt:slack-support
-description: Use when the slack-support mod starts a Slack support chat in this pane, invoked as "/rt:slack-support <person> <problem>". Not for manual use.
+description: Use when the slack-support mod starts a Slack support chat in this pane, invoked as "/rt:slack-support <handle> <problem>". Not for manual use.
 disable-model-invocation: true
-argument-hint: <person> <problem>
+argument-hint: <handle> <problem>
 ---
 
 # Slack support chat
 
-The operator opened a Slack DM between this pane and a teammate. Person and
-problem: **$ARGUMENTS**
+The operator opened a Slack DM between this pane and a teammate. Their chat id
+and the problem: **$ARGUMENTS**
+
+The first word is the teammate's chat id, written `<handle>` below. The rest is
+the problem.
 
 Your role, from this line until the chat closes, is the operator's support
 agent. rt carries the messages; this skill decides what you do with them.
@@ -51,16 +54,14 @@ the problem, however small the fix looks.
 digraph slack_support_open {
     rankdir=TB;
 
-    trigger [label="Trigger: /rt:slack-support <person> <problem>" shape=ellipse];
+    trigger [label="Trigger: /rt:slack-support <handle> <problem>" shape=ellipse];
     write_brief [label="Write the brief in the pane" shape=box];
-    chat_slack_status [label="chat_slack_status {}" shape=plaintext];
     rt_verb_handle [label="rt_verb {args: [\"settings\", \"get\", \"chat.humanHandle\"]}" shape=plaintext];
-    chat_dm_first [label="chat_dm {to: <name from the status row>, body}: the first message" shape=plaintext];
+    chat_dm_first [label="chat_dm {to: <handle>, body}: the first message" shape=plaintext];
     waiting_first [label="Turn ended: the reply arrives by push" shape=doublecircle style=filled fillcolor=lightgreen];
 
     trigger -> write_brief;
-    write_brief -> chat_slack_status;
-    chat_slack_status -> rt_verb_handle;
+    write_brief -> rt_verb_handle;
     rt_verb_handle -> chat_dm_first;
     chat_dm_first -> waiting_first;
 }
@@ -72,7 +73,7 @@ Plain text in this session, nothing sent yet:
 
 ```
 Brief
-Teammate: <person>
+Teammate: <handle>
 Problem: <the problem, in one or two lines>
 Sorted means: <what the teammate can do or knows when this is done>
 ```
@@ -80,12 +81,11 @@ Sorted means: <what the teammate can do or knows when this is done>
 Read code, docs and logs now if that makes the first message better. Finding
 the likely cause changes what you say to the teammate, nothing else.
 
-The status row for this chat is the one whose `name` matches the person, and
-its `name` is who you message until the first reply gives you their `handle`.
 The setting's value is the operator's chat handle, written `<operator>` below.
 
-The first message says hello, names the problem as you understand it, and asks
-for what you need first. It ends the turn: nothing arrives until they answer.
+Send the first `chat_dm` to `<handle>`. It says hello, names the problem as you
+understand it, and asks for what you need first. It ends the turn: nothing
+arrives until they answer.
 
 ## Every turn after that
 
@@ -95,13 +95,18 @@ arming or polling. A turn ends after your reply, and the next message starts
 the next turn. A message that repeats one you answered is a redelivery: skip
 it.
 
+The operator's messages from the chat UI come the other way: an ordinary rt chat
+line, `[dm] <name> #<id>: body`, with a reply hint that names the operator. The
+teammate never sees those.
+
 ```dot
 digraph slack_support_turn {
     rankdir=TB;
 
-    trigger [label="Trigger: a plugin message arrives" shape=ellipse];
+    trigger [label="Trigger: a plugin message or an operator chat line arrives" shape=ellipse];
     what_arrived [label="What arrived?" shape=diamond];
     what_needed [label="What does the teammate need?" shape=diamond];
+    operator_calls_for [label="What does the operator's message call for?" shape=diamond];
     help_teammate [label="Answer or troubleshoot" shape=box];
     brainstorm_idea [label="Brainstorm the idea" shape=box];
     chat_slack_ticket [label="chat_slack_ticket {kind, title, problem, idea, acceptance}" shape=plaintext];
@@ -110,7 +115,8 @@ digraph slack_support_turn {
     stop_change [label="STOP: nothing on this machine changes in this chat" shape=octagon style=filled fillcolor=red fontcolor=white];
     hand_off [label="Hand off a code fix" shape=box];
     write_farewell [label="Write the farewell" shape=box];
-    chat_dm_reply [label="chat_dm {to: <handle from the message>, body}" shape=plaintext];
+    chat_dm_reply [label="chat_dm {to: <handle>, body}" shape=plaintext];
+    chat_dm_answer [label="chat_dm {to: <operator>, body}: your answer to the operator" shape=plaintext];
     chat_slack_close [label="chat_slack_close {farewell}" shape=plaintext];
     chat_dm_outcome [label="chat_dm {to: <operator>, body}: outcome, summary, ticket paths" shape=plaintext];
     waiting [label="Turn ended: the next message arrives by push" shape=doublecircle];
@@ -119,7 +125,8 @@ digraph slack_support_turn {
 
     trigger -> what_arrived;
     what_arrived -> what_needed [label="teammate text"];
-    what_arrived -> nothing_to_send [label="the operator's Slack message, or a notice after your outcome DM"];
+    what_arrived -> operator_calls_for [label="the operator's message, from the chat UI or labelled from Slack"];
+    what_arrived -> nothing_to_send [label="a notice after your outcome DM"];
     what_arrived -> chat_dm_reply [label="a cue to check in"];
     what_arrived -> write_farewell [label="a cue to close"];
     what_arrived -> chat_dm_outcome [label="a closed notice, no outcome DM sent yet"];
@@ -132,6 +139,10 @@ digraph slack_support_turn {
     what_needed -> write_farewell [label="they confirmed they are done"];
     what_needed -> stop_change [label="tempted to edit, commit or push"];
     stop_change -> hand_off;
+    operator_calls_for -> chat_dm_reply [label="something the teammate should hear"];
+    operator_calls_for -> chat_dm_answer [label="a question for you"];
+    operator_calls_for -> write_farewell [label="closing the chat"];
+    operator_calls_for -> nothing_to_send [label="nothing to send: it steers your own work"];
     help_teammate -> chat_dm_reply;
     brainstorm_idea -> chat_dm_reply;
     chat_slack_ticket -> chat_dm_reply;
@@ -141,6 +152,7 @@ digraph slack_support_turn {
     write_farewell -> chat_slack_close;
     chat_slack_close -> chat_dm_outcome;
     chat_dm_reply -> waiting;
+    chat_dm_answer -> waiting;
     chat_dm_outcome -> closed;
 }
 ```
@@ -150,16 +162,18 @@ or a close last.
 
 ### The reply
 
-Every reply is `chat_dm` to the `handle` in the message. `chat_post` into that
-room is refused. The daemon adds `[Claude 🤖]: `, so leave it out. To the
+Every reply to the teammate is `chat_dm` to `<handle>`, whoever's message
+started the turn. `chat_post` into that room is refused. The daemon adds `[Claude 🤖]: `, so leave it out. To the
 teammate, the operator is the name in their message, and everything they read
 is in plain words, with no mention of the brief or these rules.
 
 Write for Slack: short paragraphs, `*bold*`, plain links, inline code and code
 blocks. Headings, tables and `**bold**` show up as raw symbols there.
 
-- **A failed `chat_dm` means Slack did not get it.** Try once more. If it fails
-  again, DM `<operator>` the reply and the error, and end the turn.
+- **A `chat_dm` refused because the chat is closed** is final: go to `The outcome
+  DM`.
+- **Any other failed `chat_dm`:** do what its reason asks, then try once more. If
+  it fails again, DM `<operator>` the reply and the reason, and end the turn.
 - **A result that says redacted** means a credential-shaped string went into
   your text. Leave it out of everything you send after that, and tell
   `<operator>`.
@@ -189,8 +203,7 @@ instead. A chat can write several.
 ### Outside the brief
 
 Tell the teammate you will check, DM `<operator>` the question, and carry on
-with the rest. The operator's answer arrives as an ordinary chat message;
-relay it in your next reply.
+with the rest. The answer arrives as an operator chat line.
 
 ### Ask if they are done
 
@@ -203,10 +216,16 @@ Write the ticket if there isn't one, with what you found, then close. The
 farewell tells them the operator will follow up. Offering a workaround on their
 machine is fine; the fix itself stays with the operator.
 
-### The operator's Slack messages
+### What does the operator's message call for?
 
-They arrive labelled as typed to the teammate in Slack, so the teammate saw
-them too. Read them, keep them in mind, and reply only when one asks you to.
+Do what it says, in that turn, without waiting for the teammate to write first.
+A message that widens the brief or gives permission holds from then on.
+
+- **From the chat UI:** the teammate can't see it. Whatever they should hear,
+  you tell them: `chat_dm` to `<handle>`, not to the sender in the reply hint.
+  Reply to the operator only when they asked you something.
+- **Labelled as typed in Slack:** the teammate saw it too, so repeat nothing.
+  Read it and carry on, and reply only when it asks you to.
 
 ### Check-in and close cues
 
@@ -230,6 +249,9 @@ After `chat_slack_close`, or on a closed notice that came first, `chat_dm` to
 - **Summary:** what the problem was and what you found, with file paths, and
   the fix you would make.
 - **Tickets:** each path, or none.
+
+Then write one line in the pane, as in `rt:chat`'s `What to say in your pane`:
+`→ <operator>: <the outcome>`.
 
 If the close failed, say so in this DM. A `chat_dm` to the teammate after close
 is refused: the chat is over, and a new problem needs the operator to open a new
