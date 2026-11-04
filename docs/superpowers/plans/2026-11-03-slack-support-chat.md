@@ -85,9 +85,9 @@ git commit -m "docs: record the Slack support mod spike"
 ```ts
 type SlackCloseReason = "closed-by-pane" | "idle" | "operator" | "pane-gone";
 type SlackItemKind = "message" | "operator-slack" | "check-in" | "close-request" | "closed";
-interface SlackConversation { id: number; room: string; agentHandle: string; slackHandle: string; slackUserId: string; slackChannel: string; frameMarker: string; lastReadTs: string; threadReadTs: Record<string, string>; lastActiveAt: number; checkedInAt: number | null; closeAskedAt: number | null; closeReasonAsked: SlackCloseReason | null; watcherSeenAt: number | null; stalledNotedAt: number | null; openedAt: number; closedAt: number | null; closeReason: SlackCloseReason | null; }
+interface SlackConversation { id: number; room: string; agentHandle: string; slackHandle: string; slackUserId: string; slackChannel: string; operatorUserId: string; operatorName: string; frameMarker: string; lastReadTs: string; threadReadTs: Record<string, string>; lastActiveAt: number; checkedInAt: number | null; closeAskedAt: number | null; closeReasonAsked: SlackCloseReason | null; watcherSeenAt: number | null; stalledNotedAt: number | null; openedAt: number; closedAt: number | null; closeReason: SlackCloseReason | null; }
 interface SlackItem { id: number; conversationId: number; kind: SlackItemKind; fromHandle: string | null; text: string; createdAt: number; deliveredAt: number | null; }
-openConversation(args: Pick<SlackConversation, "room" | "agentHandle" | "slackHandle" | "slackUserId" | "slackChannel" | "frameMarker" | "lastReadTs" | "openedAt">, db?): SlackConversation // throws SlackConversationBusy { holderAgent }
+openConversation(args: Pick<SlackConversation, "room" | "agentHandle" | "slackHandle" | "slackUserId" | "slackChannel" | "operatorUserId" | "operatorName" | "frameMarker" | "lastReadTs" | "openedAt">, db?): SlackConversation // throws SlackConversationBusy { holderAgent }
 conversationForAgent(agentHandle, db?): SlackConversation | undefined   // open only
 conversationForRoom(room, db?): SlackConversation | undefined           // open only
 listOpenConversations(db?): SlackConversation[]
@@ -233,7 +233,7 @@ git commit -m "daemon: bridge Slack DMs into open conversations"
 ```ts
 "chat:slack-open":      { payload: { agentHandle: string; sessionId?: string; person: string }; data: { conversationId: number; handle: string; name: string; frameMarker: string; room: string } }
 "chat:slack-close":     { payload: { agentHandle?: string; pane?: string; farewell?: string }; data: { conversationId: number; closed: boolean } }
-"chat:slack-status":    { payload: Record<string, never>; data: { conversations: { id: number; pane?: string; name: string; openedAt: number; lastActiveAt: number }[] } }
+"chat:slack-status":    { payload: Record<string, never>; data: { conversations: { id: number; room: string; pane?: string; name: string; openedAt: number; lastActiveAt: number }[] } }
 "chat:slack-pending":   { payload: { agentHandle: string }; data: { items: SlackItem[]; open: boolean; conversation?: { id: number; handle: string; name: string; operator: string; marker: string } } } // also markWatcherSeen
 "chat:slack-delivered": { payload: { id: number }; data: { delivered: boolean } }
 ```

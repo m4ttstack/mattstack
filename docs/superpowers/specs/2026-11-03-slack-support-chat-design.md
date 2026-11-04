@@ -124,6 +124,8 @@ CREATE TABLE IF NOT EXISTS slack_conversations (
   slack_handle   TEXT NOT NULL,     -- the teammate's chat identity id
   slack_user_id  TEXT NOT NULL,
   slack_channel  TEXT NOT NULL,     -- the DM channel id
+  operator_user_id TEXT NOT NULL,   -- from auth.test at open; tells the operator's messages apart
+  operator_name  TEXT NOT NULL,     -- for the rules and the closing lines, so a close needs no Slack read
   frame_marker   TEXT NOT NULL,     -- random, per conversation
   last_read_ts   TEXT NOT NULL,     -- Slack cursor, survives daemon restarts
   thread_read_ts TEXT NOT NULL DEFAULT '{}',  -- JSON: parent ts to last reply ts read
