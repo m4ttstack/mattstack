@@ -2878,9 +2878,10 @@ export const TREE: Record<string, CommandNode> = {
         hidden: true,
         args: [
           SETUP_JSON_ARG,
-          { name: "Section", flag: "--section", type: "text", placeholder: "macos", hint: "Only this part: macos, invite, restore, connect, this-mac or create" },
+          { name: "Section", flag: "--section", type: "text", placeholder: "macos", hint: "Only this part: macos, invite, restore, connect, this-mac, tools or create" },
           { name: "Forge", flag: "--forge", type: "text", placeholder: "gitlab", hint: "github or gitlab, for the create section" },
           { name: "Host", flag: "--host", type: "text", placeholder: "gitlab.com", hint: "A self-hosted forge's host" },
+          { name: "Acknowledge tools", flag: "--ack-tools", type: "boolean", default: false, hint: "Mark the new team tools as seen" },
         ],
       },
       prepare: {

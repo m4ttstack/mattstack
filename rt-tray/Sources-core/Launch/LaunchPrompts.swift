@@ -10,8 +10,9 @@ public enum LaunchPrompts {
     }
 
     /// A run that lands on P7 registers the login item even when nobody
-    /// reopens the window to finish.
+    /// reopens the window to finish. Tools counts too: rt has recorded Finish
+    /// by then, and Later closes the window without ever reaching P7.
     public static func registersLoginItem(afterRunOn stage: FormStage) -> Bool {
-        stage == .ready
+        stage == .ready || stage == .tools
     }
 }

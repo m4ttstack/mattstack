@@ -44,6 +44,11 @@ describe("regroupTools", () => {
     ]);
   });
 
+  test("org.requirements sits under Team", () => {
+    const out = regroupTools(plan(["tool.rt", "org.requirements"]));
+    expect(ids(out, "team")).toContain("org.requirements");
+  });
+
   test("the Mission Control shortcut is a macOS setting, so it joins Your Mac", () => {
     const out = regroupTools(plan(["tool.mission-control", "tool.rt"]));
     expect(ids(out, "mac")).toEqual(["perm.fda", "tool.mission-control"]);

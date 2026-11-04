@@ -353,6 +353,20 @@ describe("startTeamSnapshots", () => {
     h.cleanup();
   });
 
+  test("afterUpToDatePull reaches the spec's onUpToDate with that clone's slug", async () => {
+    const seen: string[] = [];
+    const h = harness({ afterUpToDatePull: async (slug: string) => { seen.push(slug); } });
+    clone(h.root, "acme");
+    const handle = startTeamSnapshots(h.deps);
+    await handle.ready;
+
+    await h.started[0]!.spec.pull!.onUpToDate!();
+    expect(seen).toEqual(["acme"]);
+
+    handle.stop();
+    h.cleanup();
+  });
+
   test("createOnPulled runs the converge, then afterPull, even when the converge throws", async () => {
     const order: string[] = [];
     const onPulled = createOnPulled({

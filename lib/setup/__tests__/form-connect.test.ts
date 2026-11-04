@@ -96,6 +96,8 @@ describe("connectRows", () => {
     expect(busy.action).toBeNull();
     expect(busy.optional).toBe(false);
 
+    const pressed = prepare({ running: false, endedAt: "2026-10-30T09:55:00.000Z", pressFailed: [{ tool: "herdr", detail: "a press failed" }] });
+    expect(pick(connectRows(inputs({ plan: plan(missing), prepare: pressed })), "tool.herdr").detail).toBe("herdr is not installed");
     const failed = prepare({ running: false, endedAt: "2026-10-30T09:55:00.000Z", items: ["herdr"], failed: [{ tool: "herdr", detail: "brew install herdr failed" }] });
     const todo = pick(connectRows(inputs({ plan: plan(missing), prepare: failed })), "tool.herdr");
     expect(todo.state).toBe("todo");

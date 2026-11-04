@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { UserActionableError } from "../../errors.ts";
-import { PREPARE_BUDGET_MS, preparePath, readPrepare, runPrepare, type PrepareRecord } from "../prepare.ts";
+import { PREPARE_BUDGET_MS, preparePath, readPrepare, recordToolInstall, runPrepare, type PrepareRecord } from "../prepare.ts";
 import type { PackRequirements } from "../requirements.ts";
 import type { InstallResult, installTool } from "../tools-install.ts";
 import { fakeProbes, missing, ok, type ExecScript } from "./fakes.ts";
@@ -249,5 +249,95 @@ describe("runPrepare", () => {
     expect(after.endedAt).toBe("2026-01-01T00:05:00.000Z");
     expect(after.running).toBe(false);
     expect(p.calls.renames.every(([, to]) => to === preparePath(HOME, "accounts"))).toBe(true);
+  });
+});
+
+describe("recordToolInstall", () => {
+  const ended: PrepareRecord = { stage: "accounts", startedAt: "2026-01-01T00:00:00.000Z", endedAt: "2026-01-01T00:05:00.000Z", items: ["jq"], failed: [{ tool: "jq", detail: "background failure" }], pressFailed: [{ tool: "jq", detail: "old press" }, { tool: "gh", detail: "gh failed" }] };
+  const read = (p: ReturnType<typeof fakeProbes>) => readPrepare(p, "accounts", () => false, () => p.now());
+
+  test("a failure replaces that tool's press entry and keeps the others, and leaves failed alone", () => {
+    const p = fakeProbes({ home: HOME, files: seedRecord(ended) });
+    recordToolInstall(p, "jq", "brew said no", { pid: OWN_PID });
+    expect(read(p)?.pressFailed).toEqual([{ tool: "gh", detail: "gh failed" }, { tool: "jq", detail: "brew said no" }]);
+    expect(read(p)?.failed).toEqual(ended.failed);
+    expect(read(p)?.endedAt).toBe(ended.endedAt);
+    expect(read(p)?.startedAt).toBe(ended.startedAt);
+  });
+
+  test("a failure adds a press entry to a record from before the field", () => {
+    const { pressFailed: _older, ...older } = ended;
+    const p = fakeProbes({ home: HOME, files: seedRecord(older) });
+    recordToolInstall(p, "yq", "brew said no", { pid: OWN_PID });
+    expect(read(p)?.pressFailed).toEqual([{ tool: "yq", detail: "brew said no" }]);
+  });
+
+  test("a success removes the press entry and leaves failed alone", () => {
+    const p = fakeProbes({ home: HOME, files: seedRecord(ended) });
+    recordToolInstall(p, "jq", null, { pid: OWN_PID });
+    expect(read(p)?.pressFailed).toEqual([{ tool: "gh", detail: "gh failed" }]);
+    expect(read(p)?.failed).toEqual(ended.failed);
+  });
+
+  test("with no record, a failure writes one that has already ended", () => {
+    const p = fakeProbes({ home: HOME });
+    recordToolInstall(p, "jq", "brew said no", { pid: OWN_PID });
+    const record = read(p);
+    expect(record).toMatchObject({ stage: "accounts", items: [], failed: [], pressFailed: [{ tool: "jq", detail: "brew said no" }], running: false });
+    expect(record?.endedAt).toBe(p.now().toISOString());
+    expect(record?.pid).toBeUndefined();
+  });
+
+  test("with no record, a success writes one with nothing failed", () => {
+    const p = fakeProbes({ home: HOME });
+    recordToolInstall(p, "jq", null, { pid: OWN_PID });
+    expect(read(p)).toMatchObject({ failed: [], pressFailed: [], running: false });
+  });
+
+  test("a running record belongs to its run, so it is left alone", () => {
+    const running: PrepareRecord = { stage: "accounts", startedAt: "2026-01-01T00:00:00.000Z", pid: 99, items: ["jq"], failed: [] };
+    const p = fakeProbes({ home: HOME, files: seedRecord(running) });
+    recordToolInstall(p, "jq", "brew said no", { pid: OWN_PID, alive: () => true });
+    expect(p.calls.renames).toEqual([]);
+    expect(p.readFile(preparePath(HOME, "accounts"))).toBe(JSON.stringify(running));
+  });
+
+  test("a run that died without ending reads ended once this writes it, so its pid can never be reused as running", () => {
+    const dead: PrepareRecord = { stage: "accounts", startedAt: "2026-01-01T00:00:00.000Z", pid: 99, items: ["jq"], failed: [] };
+    const p = fakeProbes({ home: HOME, files: seedRecord(dead) });
+    recordToolInstall(p, "jq", "brew said no", { pid: OWN_PID, alive: () => false });
+    expect(readPrepare(p, "accounts", () => true, () => p.now())).toMatchObject({ running: false, pressFailed: [{ tool: "jq", detail: "brew said no" }] });
+  });
+
+  test("a prepare run carries the press failures through every write and starts its own failed list fresh", async () => {
+    const p = fakeProbes({ home: HOME, exec: machine(), files: seedRecord(ended) });
+    const midRun: unknown[] = [];
+    const install: typeof installTool = async (probes, tool, list) => {
+      midRun.push(read(p)?.pressFailed);
+      return fakeInstall([])(probes, tool, list);
+    };
+    await runPrepare(p, "accounts", { reqs, install, setUpFastBrowser: async () => ({ state: "done" }), alive: () => false, pid: OWN_PID });
+    expect(midRun.length).toBeGreaterThan(1);
+    expect(midRun.every((seen) => Bun.deepEquals(seen, ended.pressFailed))).toBe(true);
+    expect(read(p)?.pressFailed).toEqual(ended.pressFailed);
+    expect(read(p)?.failed).toEqual([]);
+  });
+
+  test("a press that lands while a prepare run probes its tools survives the run's first write", async () => {
+    const script = machine();
+    let pressed = false;
+    const p = fakeProbes({
+      home: HOME,
+      files: seedRecord(ended),
+      exec: (argv, opts) => {
+        if (!pressed && argv[1] === "--version") {
+          pressed = true;
+          recordToolInstall(p, "yq", "brew said no", { pid: OWN_PID, alive: () => false });
+        }
+        return script(argv, opts);
+      },
+    });
+    await runPrepare(p, "accounts", { reqs, install: fakeInstall([]), setUpFastBrowser: async () => ({ state: "done" }), alive: () => false, pid: OWN_PID });
+    expect(read(p)?.pressFailed).toContainEqual({ tool: "yq", detail: "brew said no" });
   });
 });

@@ -486,7 +486,7 @@ async function missionControlRow(p: Probes): Promise<Row> {
 // ─── tool.team.<name> — team-declared tools from pack requirements.jsonc ───
 
 /** First occurrence wins across packs — two packs declaring the same tool name collapse to one row rather than one per pack. */
-function dedupeTeamTools(reqs: PackRequirements[]): ToolRequirement[] {
+export function dedupeTeamTools(reqs: PackRequirements[]): ToolRequirement[] {
   const seen = new Map<string, ToolRequirement>();
   for (const req of reqs) {
     for (const tool of req.tools) {
@@ -520,7 +520,14 @@ function teamToolRemedyAction(req: ToolRequirement, hasBrew: boolean, verb: "Ins
   return { type: "steps", label: "Show steps…", steps: [step, "Then re-run rt setup status"] };
 }
 
-async function teamToolRow(p: Probes, req: ToolRequirement, hasBrew: boolean): Promise<Row> {
+/** The route around a failed Install, or null when the team declared no way to install the tool. A link goes first: `brew install` is what just failed. */
+export function teamToolManualSteps(req: ToolRequirement): Action | null {
+  const { brew, url } = req.install ?? {};
+  const step = url && isHttpsUrl(url) ? `Download it from ${url}` : brew ? `brew install ${brew}` : null;
+  return step ? { type: "steps", label: "Show steps…", steps: [step] } : null;
+}
+
+export async function teamToolRow(p: Probes, req: ToolRequirement, hasBrew: boolean): Promise<Row> {
   const base = {
     id: `tool.team.${req.name}`,
     kind: "tool" as const,
@@ -836,8 +843,12 @@ export async function toolRows(
     // have no way out but --force.
     rows.push(row({ id: "team.marketplace", kind: "tool", title: "Team marketplace", why: "The team's marketplace.json lists the packs Install manages.", required: false, status: "error", detail: served.error }));
   }
+  const orgError = reqs.find((r) => r.orgError)?.orgError;
+  if (orgError) {
+    rows.push(row({ id: "org.requirements", kind: "tool", title: "Org requirements", why: "Tools every team in this org needs.", required: false, status: "error", detail: orgError }));
+  }
   const byPack = new Map(served.packs.map((s) => [s.name, s]));
-  const names = [...new Set([...reqs.map((r) => r.pack), ...served.packs.map((s) => s.name)])].sort();
+  const names = [...new Set([...reqs.filter((r) => !r.orgOnly).map((r) => r.pack), ...served.packs.map((s) => s.name)])].sort();
   for (const name of names) {
     const req = reqs.find((r) => r.pack === name) ?? { pack: name, tools: [], integrations: [] };
     rows.push(packRow(req, pluginList, byPack.get(name), engine));
