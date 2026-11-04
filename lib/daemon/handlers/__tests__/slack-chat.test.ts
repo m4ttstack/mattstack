@@ -624,8 +624,30 @@ test("slack-status lists each open conversation with its room and pane", async (
     ok: true,
     data: {
       conversations: [
-        { id: opened.data.conversationId, room: opened.data.room, pane: "w1:p1", name: "alex-slack", displayName: "Alex Example", openedAt: NOW, lastActiveAt: NOW },
+        {
+          id: opened.data.conversationId,
+          room: opened.data.room,
+          handle: opened.data.handle,
+          pane: "w1:p1",
+          name: "alex-slack",
+          agentName: "first",
+          displayName: "Alex Example",
+          openedAt: NOW,
+          lastActiveAt: NOW,
+        },
       ],
+      closed: [],
     },
   });
+});
+
+test("slack-status answers at once and names the teammate's picture on the next read", async () => {
+  const h = harness({ users: [OPERATOR, { ...ALEX, avatar: "https://avatars.slack-edge.com/alex.png" }] });
+  const { res } = await open(h);
+  if (!res.ok) throw new Error(res.error);
+  const before = await h.handlers["chat:slack-status"]({});
+  expect(before.ok && before.data.conversations[0]?.avatarId).toBeUndefined();
+  await Bun.sleep(0);
+  const after = await h.handlers["chat:slack-status"]({});
+  expect(after.ok && after.data.conversations[0]?.avatarId).toBe(ALEX.id);
 });
