@@ -353,7 +353,7 @@ test("slack-people lists everyone an open can reach, sorted by shown name, and o
   });
   expect(h.calls).toEqual(["authTest", "listUsers"]);
   expect(listOpenConversations(h.db)).toEqual([]);
-  expect(listDms(h.db)).toEqual([]);
+  expect(h.db.query("SELECT 1 FROM chat_dms;").all()).toEqual([]);
   expect(getIdentity("slack.u0alex", h.db)).toBeUndefined();
 });
 
