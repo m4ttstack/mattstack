@@ -212,14 +212,10 @@ function roomLabel(room: FleetRoom): string {
 function CloseControl({
   room,
   testId,
-  nudge,
   onClose,
 }: {
   room: FleetRoom;
   testId: string;
-  /** `.room .close` pulls back into the row's own padding; `.dm2 .close`
-      does not. */
-  nudge: boolean;
   onClose: (room: string) => void;
 }) {
   return (
@@ -237,8 +233,6 @@ function CloseControl({
           onClose(room.room);
         }}
         style={{
-          flex: 'none',
-          marginRight: nudge ? -4 : undefined,
           // Icon-tint default (--tk-text-3): `CloseControl` mounts from
           // both `RoomRow` (chrome step) and `DmRow` (meta step), so one
           // shared tint cannot follow either row's text colour; it reads the
@@ -352,7 +346,6 @@ function RoomRow({
         <CloseControl
           room={room}
           testId={`room-close-${room.room}`}
-          nudge
           onClose={onClose}
         />
       )}
@@ -559,7 +552,6 @@ function DmRow({
         <CloseControl
           room={room}
           testId={`dm-close-${room.room}`}
-          nudge={false}
           onClose={onClose}
         />
       )}

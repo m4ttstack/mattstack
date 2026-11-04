@@ -1,26 +1,22 @@
-import { AgentName, HandleAvatar } from './AgentName';
+import { HandleAvatar } from './AgentName';
+import { useBuddies } from './buddies-context';
 import type { DmPair } from './display-name';
 import classes from './dm-pair.module.css';
 
 function End({ handle, name }: { handle: string; name: string | undefined }) {
+  const ctx = useBuddies();
   return (
     <span className={classes.end}>
       <HandleAvatar handle={handle} variant="name" size={14} />
       <span className={classes.name}>
-        <AgentName
-          handle={handle}
-          name={name}
-          variant="name"
-          withAvatar={false}
-          withCard={false}
-        />
+        {name ?? ctx?.nameOf(handle) ?? handle}
       </span>
     </span>
   );
 }
 
-/** A DM's name: each end with its sprite, and each truncating on its own so a
-    long agent name never pushes the other person off the row. */
+/** A DM's name: each end with its sprite. The first name gives way first, so
+    a long agent name never pushes the other person off the row. */
 export function DmPairTitle({
   pair,
   quiet = false,

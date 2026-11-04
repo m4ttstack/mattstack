@@ -58,12 +58,12 @@
   padding-top: 1px;
 }
 
-/* Fills the gutter and the gap beside it, so the time sits where the sprite
-   would and never touches the text. */
+/* Right-aligned in the gutter, so the time sits where the sprite would and
+   keeps clear of the text. */
 .hoverTime {
   position: absolute;
   top: 2px;
-  right: -7px;
+  right: 2px;
   font-size: var(--mantine-font-size-xs);
   color: var(--tk-text-4);
   white-space: nowrap;

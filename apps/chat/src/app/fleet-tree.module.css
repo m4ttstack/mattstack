@@ -11,13 +11,30 @@
   --row-hover: var(--mantine-color-dark-5);
 }
 
-/* The × keeps its slot at rest and only fades in, so the badges beside it
-   never move under the pointer; `pointer-events: none` stops a click
-   landing on the invisible × instead of the row. */
+/* The × floats over the row's end and only fades in, so rows keep their full
+   width for names at rest; `pointer-events: none` stops a click landing on
+   the invisible × instead of the row. */
 .close {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--row-hover);
   opacity: 0;
   pointer-events: none;
   transition: opacity 100ms ease;
+}
+
+.listRow {
+  position: relative;
+}
+
+.listRow[data-active] .close {
+  background: color-mix(
+    in srgb,
+    var(--mantine-color-accent-text) var(--tk-wash),
+    var(--tk-card)
+  );
 }
 
 @media (hover: hover) {
