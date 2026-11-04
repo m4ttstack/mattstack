@@ -362,15 +362,13 @@ fn draw(frame: &mut Frame, theme: &AppTheme, pane: Option<&str>, mode: &Mode) {
     frame.render_widget(footer(theme, mode), parts[2]);
 }
 
-/// The last `width` characters of `s`, so the end being typed stays visible.
 fn tail(s: &str, width: usize) -> String {
     let count = s.chars().count();
     s.chars().skip(count.saturating_sub(width)).collect()
 }
 
 fn form_lines(theme: &AppTheme, form: &Form, width: usize) -> Vec<Line<'static>> {
-    // "  Problem  > " is 13 columns, plus one for the cursor.
-    let room = width.saturating_sub(14);
+    let room = width.saturating_sub("  Problem > _".len());
     let field = |label: &'static str, text: &str, focused: bool| {
         let mut spans = vec![
             Span::styled(format!("  {label:<8}"), theme.dim),
@@ -645,6 +643,16 @@ mod tests {
         assert_eq!(form.focus, Field::Problem);
         assert_eq!(form.key(key(KeyCode::Enter)), FormEvent::Submit);
         assert_eq!(form.key(key(KeyCode::Esc)), FormEvent::Cancel);
+    }
+
+    #[test]
+    fn a_long_field_with_its_cursor_fills_the_width_exactly() {
+        let form = Form {
+            person: "x".repeat(200),
+            ..Form::default()
+        };
+        let lines = form_lines(&theme::load(), &form, 40);
+        assert_eq!(lines[0].width(), 40);
     }
 
     #[test]

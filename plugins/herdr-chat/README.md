@@ -10,8 +10,8 @@ Built in Rust with ratatui, themed to match herdr.
 
 ## Features
 
-- **Launcher**: one popup with every feature and quick action behind the
-  lowercase letter of its direct binding.
+- **Launcher**: one popup with every feature and quick action, except Slack
+  support, behind the lowercase letter of its direct binding.
 - **Broadcast**: send one message into a selection of panes.
 - **Peek**: who's online, what's unread, at a glance.
 - **Quick-send**: fire a line at a room or DM without leaving your pane.
@@ -186,10 +186,12 @@ concern, not a manifest capability, so the plugin can't declare them for you.
 
 ## Usage
 
-Everything hangs off the launcher: bind it to a key (below), hit it in any
-pane, and every feature sits behind one lowercase letter. Sign a pane in
-first (`sign-in`) so it's on the buddy list; from there broadcast, peek,
-quick-send, and the viewer hand-off are all one keypress away.
+Almost everything hangs off the launcher: bind it to a key (below), hit it in
+any pane, and every feature except Slack support sits behind one lowercase
+letter. Slack support needs a key of its own, because it acts on the pane the
+key fired in. Sign a pane in first (`sign-in`) so it's on the buddy list; from
+there broadcast, peek, quick-send, and the viewer hand-off are all one keypress
+away.
 
 To try an action before binding anything:
 
@@ -208,7 +210,7 @@ id:
 key = "prefix+C"
 type = "plugin_action"
 command = "m4ttstack.chat.launcher"
-description = "chat launcher: every feature behind one key"
+description = "chat launcher"
 
 [[keys.command]]
 key = "prefix+B"
@@ -239,6 +241,12 @@ key = "prefix+O"
 type = "plugin_action"
 command = "m4ttstack.chat.sign-out"
 description = "sign out of chat"
+
+[[keys.command]]
+key = "prefix+L"
+type = "plugin_action"
+command = "m4ttstack.chat.slack-support"
+description = "Slack support chat for this pane"
 ```
 
 herdr's lowercase letters are mostly taken by its own defaults, so shifted
