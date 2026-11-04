@@ -29,6 +29,7 @@ export function CodeBlock({
   return (
     <Paper
       withBorder
+      bg="var(--tk-panel)"
       data-testid="code-block"
       style={{ overflow: 'hidden', position: 'relative' }}
     >

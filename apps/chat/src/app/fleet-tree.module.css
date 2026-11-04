@@ -33,7 +33,7 @@
   background: color-mix(
     in srgb,
     var(--mantine-color-accent-text) var(--tk-wash),
-    var(--tk-card)
+    var(--tk-panel)
   );
 }
 

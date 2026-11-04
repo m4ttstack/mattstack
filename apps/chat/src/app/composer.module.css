@@ -10,6 +10,6 @@
   height: 46px;
   border-radius: var(--mantine-radius-lg);
   background: var(--ui-bg-4);
-  font-size: var(--mantine-font-size-md);
+  font-size: var(--mantine-font-size-lg);
   color: var(--tk-text-3);
 }

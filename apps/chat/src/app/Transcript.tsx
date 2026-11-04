@@ -590,7 +590,7 @@ export function Transcript({
         minHeight: 0,
         display: 'flex',
         flexDirection: 'column',
-        background: bare ? undefined : 'var(--tk-panel)',
+        background: bare ? undefined : 'var(--tk-card)',
       }}
       data-testid="transcript"
     >

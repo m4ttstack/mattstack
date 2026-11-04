@@ -471,7 +471,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
       ? 16
       : compact
         ? 'var(--mantine-font-size-sm)'
-        : 'var(--mantine-font-size-md)';
+        : 'var(--mantine-font-size-lg)';
     const canSend = value.trim().length > 0 && daemonReachable && !sending;
 
     if (slackChat?.closedAt !== undefined) {

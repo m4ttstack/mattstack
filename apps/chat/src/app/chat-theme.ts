@@ -8,8 +8,8 @@ import { createTheme } from '@mattstack/app-kit/core';
  * |------|----|----------------------------------------------------------|
  * | xs   | 12 | meta: agent rows, DM names, chips, badges, counts, labels |
  * | sm   | 13 | chrome: room names, buttons, inputs, menu items           |
- * | md   | 14 | message prose                                             |
- * | lg   | 16 | spare                                                     |
+ * | md   | 14 | titles                                                    |
+ * | lg   | 15 | message prose                                             |
  * | xl   | 20 | headings                                                  |
  *
  * Merged at the ROOT provider, not through `ThemeOverrideWrapper`. A scoped
@@ -30,7 +30,7 @@ export const chatTheme = createTheme({
     xs: '0.75rem',
     sm: '0.8125rem',
     md: '0.875rem',
-    lg: '1rem',
+    lg: '0.9375rem',
     xl: '1.25rem',
   },
 });

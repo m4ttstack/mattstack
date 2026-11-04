@@ -404,7 +404,7 @@ function ChatPage({
     >
       {(rooms.length > 0 || buddies.length > 0) && (
         <PageShell.Sidebar
-          bg="var(--tk-card)"
+          bg="var(--tk-panel)"
           hideCollapseButton
           // The kit's sidebar ScrollArea content defaults to
           // `min-width: min-content`, which would size the column to its

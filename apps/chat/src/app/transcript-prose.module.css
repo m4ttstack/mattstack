@@ -100,8 +100,8 @@
 }
 
 .prose {
-  font-size: var(--mantine-font-size-md);
-  line-height: 1.5;
+  font-size: var(--mantine-font-size-lg);
+  line-height: 1.55;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -167,11 +167,10 @@
    inline-code treatment must not leak into it. */
 .prose :not(pre) > code {
   font-family: var(--mantine-font-family-monospace);
-  font-size: 0.93em;
-  padding: 0 4px;
-  background: var(--ui-bg-3);
-  border: 1px solid var(--tk-border-soft);
-  border-radius: 3px;
+  font-size: 0.88em;
+  padding: 1px 5px;
+  background: var(--tk-panel);
+  border-radius: var(--mantine-radius-xs);
 }
 
 .prose strong {
