@@ -77,8 +77,10 @@ describe("postStatus", () => {
   test("a forge refusal never fails the push", async () => {
     const logged: string[] = [];
     setWarningLog((_m, message) => logged.push(message));
+    const io = captureOut();
     const { deps } = harness({ exitCode: 1, stderr: "gh: Not Found" });
     const out = await postStatus(github, "abc123", result(), deps);
+    io.restore();
     expect(out).toMatchObject({ posted: false, reason: "gh-failed" });
     expect((out as { detail?: string }).detail).toContain("gh: Not Found");
     expect(logged.some((m) => m.includes("gh: Not Found"))).toBe(true);
