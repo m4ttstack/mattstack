@@ -61,8 +61,7 @@
   margin-right: 12px;
 }
 
-/* The bar's content lines up with the sidebar's text, inside the panel's
-   rounded corners. */
+/* The bar's content starts where the panel's rounded corner ends. */
 .mantine-AppShell-header > .mantine-Group-root {
-  padding-inline: 24px !important;
+  padding-inline: 20px !important;
 }
