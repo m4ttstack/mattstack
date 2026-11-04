@@ -4,8 +4,9 @@ import fixture from '../../test/fixture/status.json' with { type: 'json' };
 import {
   addPayload,
   autoBanner,
-  canOfferPublish,
   behindRows,
+  canOfferPublish,
+  canOfferRemote,
   commandButtonLabel,
   commandKey,
   commandStuckToast,
@@ -105,6 +106,15 @@ test('canOfferPublish: user apps yes, mattstack apps only to turn it off', () =>
   expect(canOfferPublish(row('rt', false))).toBe(false);
   expect(canOfferPublish(row('deck', false))).toBe(false);
   expect(canOfferPublish(row('rt', true))).toBe(true);
+});
+
+test('canOfferRemote: user apps yes, mattstack apps only to turn it off', () => {
+  const row = (managedBy: string | null, remote: Row['remote']) =>
+    ({ managedBy, remote }) as Row;
+  expect(canOfferRemote(row('user', null))).toBe(true);
+  expect(canOfferRemote(row(null, null))).toBe(true);
+  expect(canOfferRemote(row('rt', null))).toBe(false);
+  expect(canOfferRemote(row('rt', { status: 'live', url: null }))).toBe(true);
 });
 
 test("constants match the oracle's timings", () => {

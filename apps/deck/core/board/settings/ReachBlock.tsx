@@ -2,6 +2,7 @@ import { Button, Icon } from '@mattstack/tui-kit';
 import { CLOUD, GLOBE, LAPTOP, UPLOAD } from '../icons.ts';
 import {
   canOfferPublish,
+  canOfferRemote,
   CONNECT_DOMAIN_TIP,
   localHosts,
   remoteToggleTip,
@@ -137,7 +138,7 @@ export function ReachBlock({ row, data, board, blocks }: BlockProps) {
         {canOfferPublish(row) && (
           <PublicItem row={row} data={data} board={board} />
         )}
-        <RailwayItem row={row} board={board} />
+        {canOfferRemote(row) && <RailwayItem row={row} board={board} />}
       </ul>
     </section>
   );

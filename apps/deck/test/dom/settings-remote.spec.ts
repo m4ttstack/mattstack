@@ -282,3 +282,11 @@ test('an unpublished mattstack app has no publish switch in the modal', async ()
     );
   });
 });
+
+test('an unconnected mattstack app has no Railway switch in the modal', async () => {
+  await withBoard(async page => {
+    const reach = await openReach(page, 'ledger');
+    expect(await reach.getByRole('switch').count()).toBe(0);
+    expect(await reach.textContent()).not.toContain('Railway');
+  });
+});

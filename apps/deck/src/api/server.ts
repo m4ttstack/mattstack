@@ -213,10 +213,15 @@ function ownCommand(
 
 const ICON_ROUTE = /^\/api\/apps\/([^/]+)\/icon$/;
 
-function publishRefusal(name: string): string | null {
+const NEVER_PUBLIC = 'mattstack apps cannot be public';
+
+function isOwnedApp(name: string): boolean {
   const record = getRecord(name);
-  if (record && isMattstackOwned(record))
-    return 'mattstack apps cannot be public';
+  return !!record && isMattstackOwned(record);
+}
+
+function publishRefusal(name: string): string | null {
+  if (isOwnedApp(name)) return NEVER_PUBLIC;
   if (!getPlatformSettings().publicDomain)
     return 'no domain connected; run deck domain <domain> first';
   return null;
@@ -889,6 +894,8 @@ export function startApi(deps: ApiDeps) {
           }
           if (sub === 'remote' && req.method === 'POST') {
             const b = await body(req);
+            if (b.enabled === true && isOwnedApp(name))
+              return json({ error: NEVER_PUBLIC }, 409);
             const sec = await readDeckSecrets(deps.deckSecrets);
             const settings = getPlatformSettings();
             const { railway, dns } = resolveRemoteDrivers(deps, sec);

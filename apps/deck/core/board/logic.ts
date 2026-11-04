@@ -125,10 +125,19 @@ export type Row = StatusData['apps'][number];
 
 export const CONNECT_DOMAIN_TIP = 'Connect a domain first';
 
-/** Mattstack apps are never published; one that already is keeps its switch
-    so it can be turned off. */
+function isUserApp(row: Row): boolean {
+  return row.managedBy == null || row.managedBy === 'user';
+}
+
+/** Mattstack apps are never public; one that already is keeps its switch so
+    it can be turned off. */
+export function canOfferRemote(row: Row): boolean {
+  return row.remote != null || isUserApp(row);
+}
+
+/** Same rule as canOfferRemote, for the tunnel. */
 export function canOfferPublish(row: Row): boolean {
-  return row.published || row.managedBy == null || row.managedBy === 'user';
+  return row.published || isUserApp(row);
 }
 export type RestartingMap = Record<
   string,
