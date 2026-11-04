@@ -8,8 +8,8 @@
  * A read makes two writes, both idempotent. A whole read after a run that
  * ended ok marks setup finished once nothing blocks Finish
  * (`markSetupFinished`), so a leftover fixed by its own action lands on the
- * ready screen without a second bar. A read of the connect section ends and
- * removes a sign-in session older than ten minutes (`readLogin`).
+ * ready screen without a second bar. A read of the connect or tools section
+ * ends and removes a sign-in session older than ten minutes (`readLogin`).
  */
 import type { CommandContext } from "../lib/command-tree.ts";
 import { UserActionableError } from "../lib/errors.ts";

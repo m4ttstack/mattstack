@@ -141,7 +141,7 @@ export interface HomeSnapshotHandle {
   status(): SnapshotStatus;
   /** Runs `fn` under the git lock the commit cycle, pull and push share, so work that checks out another branch never lands mid-commit. */
   locked<T>(fn: () => Promise<T>): Promise<T>;
-  /** Resolves once no commit cycle, pull, push or post-pull hook (and the git children they started) is in flight; at once when idle. `stop` keeps new timer-driven work from starting, not work already running. */
+  /** Resolves once no commit cycle, pull, push or post-pull hook (and the git children they started) is in flight; at once when idle. The up-to-date hook is not waited for: it only reads the clone. `stop` keeps new timer-driven work from starting, not work already running. */
   settled(): Promise<void>;
   /** Resolves once startup arming (the enabled + is-a-repo checks) has settled. Not needed by the daemon (which just fires and forgets); tests await it so assertions don't race the async repo check. */
   ready: Promise<void>;

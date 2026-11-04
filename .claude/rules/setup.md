@@ -22,6 +22,8 @@ on (`formStage`: macos, path, invite, waiting, connect, this-mac, tools, running
 paused, ready) and each section's rows (`--section macos|invite|restore|connect|this-mac|tools|create`).
 `tools` holds a finished Mac whose only blockers are team tools or their
 accounts, or that was told about a tool, until Done acknowledges it (`--ack-tools`).
+A first run can land there too, since an ok run records Finish with such a tool
+open; only a status window closes on Done, any other goes on to rt's stage.
 The tray draws what it returns: no decision in Swift about which rows a
 member needs, where setup resumes or a row's state. A run still going
 outranks the macos stage, and P1 skips rt's read for the cards only on a Mac
@@ -96,7 +98,7 @@ Swift side too.
 On an unfinished Mac the tray asks macOS for nothing before the macos
 screen: no notification prompt, login item or Mission Control notice at
 launch (`LaunchPrompts`). The login item registers when setup finishes, or
-whenever a run lands on ready. App updates are held while
+whenever a run lands on ready or tools. App updates are held while
 setup runs, window or not.
 
 ## Setup after an update
@@ -172,7 +174,17 @@ Setup status window; put no decision in Swift.
 entry. A team with no pack file gets an `orgOnly` entry, which both readers
 skip as a pack. An org file's error stays on `orgError`, drawn as the
 non-blocking `org.requirements` row; it never reaches `error`, which fails the
-pack stage.
+pack stage. A pack's `excludeOrg` removes the org tool of that name, the
+integration it connects and an org integration of that name; a name matching
+nothing is ignored, so a tool the org later drops is no error.
+
+A finished Mac hears about a new required tool from the daemon's pull hook
+(`lib/setup/tool-notices.ts`). What was said lives in
+`~/.mattstack/rt/tool-notices.json`, not `setup-state.json`: `updateSetupState`
+has no lock, and a daemon write during a run could lose a migration id. A tool
+must read `missing` on two pulls in a row before it notifies, because a false
+result reaches every member at once; an error or a timeout is unknown, not
+missing.
 
 ## Your repos
 

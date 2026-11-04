@@ -1,8 +1,9 @@
 /**
  * Pack requirements reader: parses the active team's pack requirements at
  * orgs/<org>/mattstack/teams/<team>/plugin/requirements.jsonc, the only
- * pack this Mac installs, so `rt setup` can fold pack-declared
- * tools/integrations into the plan.
+ * pack this Mac installs, and the org's at
+ * orgs/<org>/mattstack/org/requirements.jsonc, then folds them into one entry
+ * so `rt setup` can draw their tools/integrations into the plan.
  */
 
 import { join } from "path";
