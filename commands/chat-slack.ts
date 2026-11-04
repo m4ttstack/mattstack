@@ -33,6 +33,7 @@ import {
 } from "./chat.ts";
 
 const POLL_MS = 2000;
+const CLOSE_USAGE = "rt chat slack-close [--pane <pane>] [--farewell-file <path>]";
 
 /** The mod reads a refusal from the envelope, so under --json it stays on stdout. */
 function refuseOpen(args: string[], message: string, next?: string): never {
@@ -117,9 +118,15 @@ function readFarewell(path: string): string {
   }
 }
 
+function requiredValue(args: string[], flag: string): string | undefined {
+  const value = flagValue(args, flag);
+  if (args.includes(flag) && (!value || value.startsWith("--"))) failUsage(`${flag} needs a value`, CLOSE_USAGE);
+  return value;
+}
+
 export async function slackClose(args: string[]): Promise<void> {
-  const pane = flagValue(args, "--pane");
-  const file = flagValue(args, "--farewell-file");
+  const pane = requiredValue(args, "--pane");
+  const file = requiredValue(args, "--farewell-file");
   const farewell = file === undefined ? undefined : readFarewell(file);
   const agentHandle = pane ? undefined : (await requireSignedIn(args)).handle;
   const data = unwrap(await chatSlackClose({ agentHandle, pane, farewell }, sockOpts(args)), "close");

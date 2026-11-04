@@ -126,9 +126,9 @@ function assertionError(fn: () => void): ReturnType<typeof failureFrom> | null {
 }
 
 /** Generous, not tight: bounds a single message body without constraining any real conversation. */
-const MAX_BODY_BYTES = 64 * 1024;
+export const MAX_BODY_BYTES = 64 * 1024;
 
-function isValidBody(body: unknown): body is string {
+export function isValidBody(body: unknown): body is string {
   return typeof body === "string" && body.length > 0 && Buffer.byteLength(body, "utf8") <= MAX_BODY_BYTES;
 }
 
@@ -877,6 +877,16 @@ export function postAndNotify(
   return posted;
 }
 
+/** A `fromSlack` post wakes no inbox, so the delivery seams never run. */
+export function slackRoomPoster(
+  db: Database,
+  emitEvent: (topic: string, payload?: unknown) => unknown,
+  log: Logger,
+): (args: { room: string; handle: string; body: string; fromSlack: true }) => { id: number } | undefined {
+  const unusedChains = new Map<string, Promise<void>>();
+  return (args) => postAndNotify(db, emitEvent, args, defaultInboxDeps, herdrRequest, unusedChains, log, 0);
+}
+
 /**
  * A handle with no identity and no presence row can still post (unsigned
  * scripts, legacy handles), except from a pane or session signed in as
@@ -930,7 +940,7 @@ function slackRoute(fromId: string, toId: string, sessionId: string | undefined,
 /** Past this a reply fails with the reason instead of holding the caller, whose timeout is in rt-client's chatDm. */
 const SLACK_RETRY_AFTER_LIMIT_MS = 20_000;
 
-async function postHonouringRetryAfter(slack: SlackClient, channel: string, text: string, sleep: (ms: number) => Promise<void>): Promise<void> {
+export async function postHonouringRetryAfter(slack: SlackClient, channel: string, text: string, sleep: (ms: number) => Promise<void>): Promise<void> {
   try {
     await slack.post(channel, text);
   } catch (err) {

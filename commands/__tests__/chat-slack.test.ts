@@ -17,7 +17,7 @@ import { mcpTools } from "../../lib/mcp/tools.ts";
 import { MODULE_REGISTRY } from "../../lib/module-registry.ts";
 import { SLACK_SUPPORT_SCOPES } from "../../lib/setup/slack-app.ts";
 import type { SlackClient } from "../../lib/slack/client.ts";
-import { closeConversation, closeStateDb, enqueueItem, getStateDb, markItemDelivered } from "../../lib/state/index.ts";
+import { closeConversation, closeStateDb, enqueueItem, getStateDb, markItemDelivered, markOpenItemDelivered } from "../../lib/state/index.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import * as ui from "../../lib/ui/out.ts";
 
@@ -59,7 +59,7 @@ beforeEach(() => {
       const db = getStateDb();
       const handlers = {
         ...createChatHandlers({ db, emitEvent: () => 0 }),
-        ...createSlackChatHandlers({ db, slackClient: async () => slack }),
+        ...createSlackChatHandlers({ db, emitEvent: () => 0, slackClient: async () => slack, notify: () => {} }),
       } as unknown as Record<string, (p: unknown) => Promise<unknown>>;
       const handler = handlers[cmd];
       if (!handler) return Response.json({ ok: false, error: `unknown command: ${cmd}` });
@@ -226,6 +226,18 @@ test("slack-watch exits when the conversation closes", async () => {
   expect(res.sleeps).toEqual([]);
 });
 
+test("slack-watch prints a queued closed item, then exits once it is delivered", async () => {
+  const { conversationId } = await openChat();
+  closeConversation(conversationId, "idle", 2);
+  const closed = enqueueItem({ conversationId, kind: "closed", fromHandle: null, text: "closed", createdAt: 2 });
+  const res = await watch(() => {
+    expect(markOpenItemDelivered(closed.id, 3)).toBe(true);
+  });
+  expect(res.code).toBe(0);
+  expect(lines(res.stdout).map((l) => l.kind)).toEqual(["closed"]);
+  expect(res.sleeps).toEqual([2000]);
+});
+
 test("slack-watch exits when its parent pid changes", async () => {
   await openChat();
   let pid = 4242;
@@ -303,6 +315,21 @@ test("slack-close with no pane closes this session's own chat", async () => {
 test("slack-close with an unreadable farewell file is a failure, and nothing is sent", async () => {
   const res = await run(() => slackClose(["--pane", "w1:p1", "--farewell-file", join(home, "absent.txt")]));
   expect(res.code).toBe(1);
+  expect(seen).toEqual([]);
+});
+
+test.each([
+  ["a bare --pane", ["--pane"], "--pane"],
+  ["an empty --pane", ["--pane", ""], "--pane"],
+  ["a --pane that swallows the next flag", ["--pane", "--farewell-file", "x"], "--pane"],
+  ["a bare --farewell-file", ["--pane", "w1:p1", "--farewell-file"], "--farewell-file"],
+  ["an empty --farewell-file", ["--farewell-file", ""], "--farewell-file"],
+] as [string, string[], string][])("slack-close refuses %s, and nothing is sent", async (_name, args, flag) => {
+  await signIn();
+  seen = [];
+  const res = await run(() => slackClose(args));
+  expect(res.code).toBe(1);
+  expect(res.stderr).toContain(`${flag} needs a value`);
   expect(seen).toEqual([]);
 });
 

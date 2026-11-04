@@ -13,6 +13,7 @@ import { SlackError, type SlackClient, type SlackUser } from "../../slack/client
 import { slackClientFromSecrets } from "../../slack/daemon-client.ts";
 import {
   SlackConversationBusy,
+  closedNoticeForAgent,
   conversationForAgent,
   conversationForSlackUser,
   dmRoomFor,
@@ -26,9 +27,11 @@ import {
   pendingItems,
   presenceForHandle,
   resolveHandle,
+  type SlackConversation,
 } from "../../state/index.ts";
 import { tsFromMs } from "../slack-bridge.ts";
-import { slackRefusal, type SlackRefusal } from "./chat.ts";
+import { finishClose, requestClose, slackDeskNotify } from "../slack-lifecycle.ts";
+import { MAX_BODY_BYTES, isValidBody, slackRefusal, slackRoomPoster, type SlackRefusal } from "./chat.ts";
 import type { CommandResult } from "./types.ts";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 
@@ -78,15 +81,27 @@ function isRefusal(found: SlackUser | SlackRefusal): found is SlackRefusal {
 
 export function createSlackChatHandlers(opts: {
   db: Database;
+  emitEvent: (topic: string, payload?: unknown) => unknown;
   log?: Logger;
   /** Resolves null when no Slack token is set; real by default, fakeable the same way chat's is. */
   slackClient?: () => Promise<SlackClient | null>;
+  notify?: (title: string, message: string) => void;
   now?: () => number;
 }): { [K in (typeof SLACK_CHAT_COMMANDS)[number]]: (payload: unknown) => Promise<CommandResult<K>> } {
   const { db } = opts;
   const log = opts.log ?? defaultLog;
   const slackClient = opts.slackClient ?? slackClientFromSecrets;
   const now = opts.now ?? Date.now;
+  const closeDeps = { db, client: slackClient, notify: opts.notify ?? slackDeskNotify, post: slackRoomPoster(db, opts.emitEvent, log), now };
+
+  function conversationForClose(agentHandle: string | undefined, pane: string | undefined): SlackConversation | undefined {
+    if (pane !== undefined) return listOpenConversations(db).find((c) => presenceForHandle(c.agentHandle, db)?.pane === pane);
+    return agentHandle === undefined ? undefined : conversationForAgent(resolveHandle(agentHandle, db), db);
+  }
+
+  function forWatcher(c: SlackConversation) {
+    return { id: c.id, handle: c.slackHandle, name: identityName(c.slackHandle, db), operator: c.operatorName, marker: c.frameMarker };
+  }
 
   function heldRefusal(holder: string, agentId: string, teammate: string): SlackRefusal {
     if (holder === agentId) return slackRefusal(`This pane already has a Slack chat open with ${teammate}`);
@@ -172,8 +187,20 @@ export function createSlackChatHandlers(opts: {
       }
     },
 
-    "chat:slack-close": async (): Promise<CommandResult<"chat:slack-close">> => {
-      return { ok: false, error: "chat: closing a Slack chat is not built yet" };
+    "chat:slack-close": async (rawPayload: unknown): Promise<CommandResult<"chat:slack-close">> => {
+      const { agentHandle, pane, farewell } = rawPayload as Commands["chat:slack-close"]["payload"];
+      if (agentHandle !== undefined && !isValidChatName(agentHandle)) return { ok: false, error: `invalid handle "${agentHandle}"` };
+      if (farewell !== undefined && !isValidBody(farewell)) return { ok: false, error: `chat: a farewell must be non-empty text under ${MAX_BODY_BYTES} bytes` };
+      const conversation = conversationForClose(agentHandle, pane);
+      if (!conversation) return slackRefusal(pane === undefined ? "This pane has no Slack chat open" : `No Slack chat is open in ${pane}`);
+      const conversationId = conversation.id;
+      if (pane !== undefined && farewell === undefined) {
+        requestClose(conversationId, "operator", closeDeps);
+        return { ok: true, data: { conversationId, closed: false } };
+      }
+      const reason = conversation.closeReasonAsked ?? (pane === undefined ? "closed-by-pane" : "operator");
+      await finishClose(conversationId, reason, farewell, closeDeps);
+      return { ok: true, data: { conversationId, closed: true } };
     },
 
     "chat:slack-status": async (): Promise<CommandResult<"chat:slack-status">> => {
@@ -194,23 +221,13 @@ export function createSlackChatHandlers(opts: {
     "chat:slack-pending": async (rawPayload: unknown): Promise<CommandResult<"chat:slack-pending">> => {
       const { agentHandle } = rawPayload as Commands["chat:slack-pending"]["payload"];
       if (!isValidChatName(agentHandle)) return { ok: false, error: `invalid handle "${agentHandle}"` };
-      const conversation = conversationForAgent(resolveHandle(agentHandle, db), db);
+      const agentId = resolveHandle(agentHandle, db);
+      const conversation = conversationForAgent(agentId, db);
+      if (conversation) markWatcherSeen(conversation.id, now(), db);
+      const notice = closedNoticeForAgent(agentId, db);
+      if (notice) return { ok: true, data: { items: [notice.item], open: true, conversation: forWatcher(notice.conversation) } };
       if (!conversation) return { ok: true, data: { items: [], open: false } };
-      markWatcherSeen(conversation.id, now(), db);
-      return {
-        ok: true,
-        data: {
-          items: pendingItems(conversation.id, db),
-          open: true,
-          conversation: {
-            id: conversation.id,
-            handle: conversation.slackHandle,
-            name: identityName(conversation.slackHandle, db),
-            operator: conversation.operatorName,
-            marker: conversation.frameMarker,
-          },
-        },
-      };
+      return { ok: true, data: { items: pendingItems(conversation.id, db), open: true, conversation: forWatcher(conversation) } };
     },
 
     "chat:slack-delivered": async (rawPayload: unknown): Promise<CommandResult<"chat:slack-delivered">> => {

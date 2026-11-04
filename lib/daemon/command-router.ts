@@ -275,7 +275,7 @@ export function buildRoutedHandlers(opts: {
     ...herdHandlers,
     ...bgHandlers,
     ...chatHandlers,
-    ...createSlackChatHandlers({ db: opts.stateDb, log: ctx.log }),
+    ...createSlackChatHandlers({ db: opts.stateDb, emitEvent, log: ctx.log }),
     ...agentHandlers,
     ...paneHandlers,
     ...createEndpointHandlers({ log: ctx.log, repoIndex: ctx.repoIndex }),

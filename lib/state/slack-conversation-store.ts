@@ -89,6 +89,7 @@ const SELECT_OPEN_BY_USER_SQL = `SELECT * FROM slack_conversations WHERE slack_u
 const SELECT_OPEN_BY_AGENT_SQL = `SELECT * FROM slack_conversations WHERE agent_handle = ? AND closed_at IS NULL;`;
 const SELECT_OPEN_BY_ROOM_SQL = `SELECT * FROM slack_conversations WHERE room = ? AND closed_at IS NULL;`;
 const SELECT_LATEST_BY_ROOM_SQL = `SELECT * FROM slack_conversations WHERE room = ? ORDER BY id DESC LIMIT 1;`;
+const SELECT_BY_ID_SQL = `SELECT * FROM slack_conversations WHERE id = ?;`;
 const SELECT_OPEN_SQL = `SELECT * FROM slack_conversations WHERE closed_at IS NULL ORDER BY id;`;
 
 function toConversation(r: ConversationRow): SlackConversation {
@@ -189,6 +190,11 @@ export function latestConversationForRoom(room: string, db: Database = getStateD
   return row ? toConversation(row) : undefined;
 }
 
+export function conversationById(id: number, db: Database = getStateDb()): SlackConversation | undefined {
+  const row = db.query(SELECT_BY_ID_SQL).get(id) as ConversationRow | null;
+  return row ? toConversation(row) : undefined;
+}
+
 export function listOpenConversations(db: Database = getStateDb()): SlackConversation[] {
   return (db.query(SELECT_OPEN_SQL).all() as ConversationRow[]).map(toConversation);
 }
@@ -214,8 +220,12 @@ export function markCheckedIn(id: number, now: number, db: Database = getStateDb
   db.query(`UPDATE slack_conversations SET checked_in_at = ? WHERE id = ?;`).run(now, id);
 }
 
-export function markCloseAsked(id: number, reason: SlackCloseReason, now: number, db: Database = getStateDb()): void {
-  db.query(`UPDATE slack_conversations SET close_asked_at = ?, close_reason_asked = ? WHERE id = ?;`).run(now, reason, id);
+/** False when a close was already asked for or the conversation has closed, so the first reason stands. */
+export function markCloseAsked(id: number, reason: SlackCloseReason, now: number, db: Database = getStateDb()): boolean {
+  const { changes } = db
+    .query(`UPDATE slack_conversations SET close_asked_at = ?, close_reason_asked = ? WHERE id = ? AND close_asked_at IS NULL AND closed_at IS NULL;`)
+    .run(now, reason, id);
+  return changes > 0;
 }
 
 export function markStalledNoted(id: number, now: number | null, db: Database = getStateDb()): void {
@@ -226,12 +236,23 @@ export function markWatcherSeen(id: number, now: number, db: Database = getState
   db.query(`UPDATE slack_conversations SET watcher_seen_at = ? WHERE id = ?;`).run(now, id);
 }
 
-export function closeConversation(id: number, reason: SlackCloseReason, now: number, db: Database = getStateDb()): void {
-  db.query(`UPDATE slack_conversations SET closed_at = ?, close_reason = ? WHERE id = ? AND closed_at IS NULL;`).run(
-    now,
-    reason,
-    id,
-  );
+/** True only for the caller that closed it, which is what stops two closes both sending. */
+export function closeConversation(id: number, reason: SlackCloseReason, now: number, db: Database = getStateDb()): boolean {
+  const { changes } = db
+    .query(`UPDATE slack_conversations SET closed_at = ?, close_reason = ? WHERE id = ? AND closed_at IS NULL;`)
+    .run(now, reason, id);
+  return changes > 0;
+}
+
+/** Time asleep doesn't count, so each open chat's clocks move forward by it. */
+export function shiftOpenConversationClocks(gapMs: number, db: Database = getStateDb()): void {
+  db.query(
+    `UPDATE slack_conversations SET
+       last_active_at = last_active_at + ?1,
+       watcher_seen_at = COALESCE(watcher_seen_at, opened_at) + ?1,
+       close_asked_at = close_asked_at + ?1
+     WHERE closed_at IS NULL;`,
+  ).run(gapMs);
 }
 
 export function enqueueItem(args: Omit<SlackItem, "id" | "deliveredAt">, db: Database = getStateDb()): SlackItem {
@@ -255,13 +276,47 @@ export function markItemDelivered(id: number, now: number, db: Database = getSta
   db.query(`UPDATE slack_items SET delivered_at = ? WHERE id = ?;`).run(now, id);
 }
 
-/** False for an unknown id or a closed conversation. A repeat keeps the first delivery time and still reads true. */
+/**
+ * False for an unknown id or a closed conversation's item, except its `closed`
+ * item, which only exists after the close. A first delivery clears the stalled
+ * notice; a repeat keeps the first delivery time and still reads true.
+ */
 export function markOpenItemDelivered(id: number, now: number, db: Database = getStateDb()): boolean {
-  const { changes } = db
+  return db.transaction(() => {
+    const { changes } = db
+      .query(
+        `UPDATE slack_items SET delivered_at = COALESCE(delivered_at, ?1) WHERE id = ?2
+         AND (kind = 'closed' OR conversation_id IN (SELECT id FROM slack_conversations WHERE closed_at IS NULL));`,
+      )
+      .run(now, id);
+    if (changes === 0) return false;
+    db.query(
+      `UPDATE slack_conversations SET stalled_noted_at = NULL
+       WHERE id = (SELECT conversation_id FROM slack_items WHERE id = ?1 AND delivered_at = ?2);`,
+    ).run(id, now);
+    return true;
+  })();
+}
+
+/** When the pane last took an item, undefined if it never has. */
+export function lastDeliveredAt(conversationId: number, db: Database = getStateDb()): number | undefined {
+  const row = db.query(`SELECT MAX(delivered_at) AS at FROM slack_items WHERE conversation_id = ?;`).get(conversationId) as { at: number | null };
+  return row.at ?? undefined;
+}
+
+/** The oldest `closed` item still owed to this agent, so a close reaches a watcher after the conversation has ended. */
+export function closedNoticeForAgent(
+  agentHandle: string,
+  db: Database = getStateDb(),
+): { conversation: SlackConversation; item: SlackItem } | undefined {
+  const item = db
     .query(
-      `UPDATE slack_items SET delivered_at = COALESCE(delivered_at, ?) WHERE id = ?
-       AND conversation_id IN (SELECT id FROM slack_conversations WHERE closed_at IS NULL);`,
+      `SELECT i.* FROM slack_items i JOIN slack_conversations c ON c.id = i.conversation_id
+       WHERE c.agent_handle = ? AND c.closed_at IS NOT NULL AND i.kind = 'closed' AND i.delivered_at IS NULL
+       ORDER BY i.id LIMIT 1;`,
     )
-    .run(now, id);
-  return changes > 0;
+    .get(agentHandle) as ItemRow | null;
+  if (!item) return undefined;
+  const conversation = conversationById(item.conversation_id, db);
+  return conversation ? { conversation, item: toItem(item) } : undefined;
 }

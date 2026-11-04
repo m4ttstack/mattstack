@@ -151,10 +151,13 @@ export {
   SlackConversationBusy,
   advanceCursor,
   closeConversation,
+  closedNoticeForAgent,
+  conversationById,
   conversationForAgent,
   conversationForRoom,
   conversationForSlackUser,
   enqueueItem,
+  lastDeliveredAt,
   latestConversationForRoom,
   listOpenConversations,
   markCheckedIn,
@@ -165,6 +168,7 @@ export {
   markWatcherSeen,
   openConversation,
   pendingItems,
+  shiftOpenConversationClocks,
   touchConversation,
 } from "./slack-conversation-store.ts";
 export type { SlackCloseReason, SlackConversation, SlackItem, SlackItemKind } from "./slack-conversation-store.ts";
