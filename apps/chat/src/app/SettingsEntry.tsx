@@ -22,7 +22,7 @@ export function SettingsButton() {
         opened={opened}
         onClose={() => setOpened(false)}
         group="chat"
-        title="chat settings"
+        title="Chat settings"
       />
     </>
   );
