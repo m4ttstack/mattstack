@@ -142,7 +142,8 @@ export function createSlackChatHandlers(opts: {
   });
 
   function slackPerson(c: SlackConversation) {
-    return { handle: c.slackHandle, ...(avatars.has(c.slackUserId) ? { avatarId: c.slackUserId } : {}) };
+    const version = avatars.version(c.slackUserId);
+    return { handle: c.slackHandle, ...(version ? { avatarId: c.slackUserId, avatarVersion: version } : {}) };
   }
 
   function conversationForClose(agentHandle: string | undefined, pane: string | undefined): SlackConversation | undefined {

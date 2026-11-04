@@ -69,16 +69,21 @@ test("a new URL replaces the old file after the hourly read", async () => {
 test("the directory is read once an hour", async () => {
   const { avatars, state } = harness([person("U1", URL_A)]);
   await avatars.people();
-  avatars.has("U1");
+  avatars.version("U1");
   await avatars.people();
   expect(state.reads).toBe(1);
 });
 
-test("has answers without waiting, then knows the person", async () => {
-  const { avatars } = harness([person("U1", URL_A)]);
-  expect(avatars.has("U1")).toBe(false);
+test("version answers without waiting, then changes with the picture", async () => {
+  const { avatars, state } = harness([person("U1", URL_A)]);
+  expect(avatars.version("U1")).toBeUndefined();
   await avatars.people();
-  expect(avatars.has("U1")).toBe(true);
+  const first = avatars.version("U1");
+  expect(first).toBeString();
+  state.users = [person("U1", URL_B)];
+  state.at += 2 * 60 * 60_000;
+  await avatars.people();
+  expect(avatars.version("U1")).not.toBe(first);
 });
 
 test("an SVG is refused and not retried until the wait is over", async () => {
