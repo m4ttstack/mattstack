@@ -48,6 +48,20 @@ test("an empty cleaned name falls back to the user id", () => {
   expect(ensureSlackIdentity("U0TEST", "", db).name).toBe("u0test-slack");
 });
 
+test("a first name in the slack. namespace falls back to the user id and still resolves", () => {
+  for (const hostile of ["Slack.Bot", "Slack .Bot", "slack!.x", "slack."]) {
+    expect(cleanSlackName(hostile, "U0TEST")).toBe("u0test");
+    const db = fresh();
+    const row = ensureSlackIdentity("U0TEST", hostile, db);
+    expect(row.name).toBe("u0test-slack");
+    expect(resolveHandle(row.name, db)).toBe(row.id);
+  }
+});
+
+test("a candidate name that can never be free fails rather than spins", () => {
+  expect(() => ensureSlackIdentity("slack.x", "", fresh())).toThrow(/no free name/);
+});
+
 test("two teammates with one first name get distinct names", () => {
   const db = fresh();
   expect(ensureSlackIdentity("U0ONE", "Alex", db).name).toBe("alex-slack");

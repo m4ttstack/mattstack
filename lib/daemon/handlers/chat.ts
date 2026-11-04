@@ -9,6 +9,7 @@ import type { Logger } from "pino";
 import {
   ackMessage,
   claimMessage,
+  conversationForRoom,
   releaseClaim,
   isValidChatName,
   joinRoom,
@@ -907,13 +908,21 @@ function slackRefusal(message: string): SlackRefusal {
 
 /**
  * Where a DM between these two goes, decided before the room exists so a
- * refusal leaves no orphan room. `conversation` set means Slack.
+ * refusal leaves no orphan room. `conversation` set means Slack. That route
+ * reaches a real person, so unlike an ordinary DM it requires the session
+ * seated on the handle: assertSessionOwnsHandle passes a missing session or a
+ * pruned row.
  */
-function slackRoute(fromId: string, toId: string, db: Database): { refused: SlackRefusal } | { refused?: undefined; conversation?: SlackConversation } {
+function slackRoute(fromId: string, toId: string, sessionId: string | undefined, db: Database): { refused: SlackRefusal } | { refused?: undefined; conversation?: SlackConversation } {
   if (isSlackIdentity(fromId)) return { refused: slackRefusal(`${identityName(fromId, db)} speaks only through Slack`) };
   const latest = latestConversationForRoom(dmRoomName(fromId, toId), db);
   if (latest && latest.closedAt !== null) return { refused: slackRefusal("This Slack chat is closed, so the message was not sent") };
-  if (latest?.agentHandle === fromId) return { conversation: latest };
+  if (latest?.agentHandle === fromId) {
+    if (sessionId === undefined || presenceForHandle(fromId, db)?.sessionId !== sessionId) {
+      return { refused: slackRefusal("Only the session signed in as this pane can send to its Slack chat, so sign in and try again") };
+    }
+    return { conversation: latest };
+  }
   if (isSlackIdentity(toId)) return { refused: slackRefusal(`Only the pane holding ${identityName(toId, db)}'s open Slack chat can message them`) };
   return {};
 }
@@ -1060,6 +1069,10 @@ export function createChatHandlers(opts: {
       if (invalidMention !== undefined) return { ok: false, error: `invalid handle "${invalidMention}"` };
       const handle = resolveHandle(payload.handle, db);
       if (isSlackIdentity(handle)) return slackRefusal(`${identityName(handle, db)} speaks only through Slack`);
+      const conversation = conversationForRoom(room, db);
+      if (conversation?.agentHandle === handle) {
+        return slackRefusal(`A post here never reaches Slack, so reply to ${identityName(conversation.slackHandle, db)} with chat_dm`);
+      }
       const unreachable = unreachableSenderRefusal(handle, { pane: payload.pane }, db, registryDeps);
       if (unreachable) return unreachable;
       const mentions = payload.mentions?.map(resolveMention);
@@ -1426,7 +1439,7 @@ export function createChatHandlers(opts: {
       const toId = resolveHandle(to, db);
       const refused = assertionError(() => assertSessionOwnsHandle(fromId, sessionId, db)) ?? unreachableSenderRefusal(fromId, { pane: payload.pane, sessionId }, db, registryDeps);
       if (refused) return refused;
-      const route = slackRoute(fromId, toId, db);
+      const route = slackRoute(fromId, toId, sessionId, db);
       if (route.refused) return route.refused;
       const humanHandle = getSetting<string>("chat.humanHandle").value;
       if (!isValidChatName(humanHandle)) {
@@ -1486,7 +1499,7 @@ export function createChatHandlers(opts: {
       if (!isValidChatName(to)) return { ok: false, error: `invalid handle "${to}"` };
       const fromId = resolveHandle(from, db);
       const toId = resolveHandle(to, db);
-      const refused = assertionError(() => assertSessionOwnsHandle(fromId, sessionId, db)) ?? slackRoute(fromId, toId, db).refused;
+      const refused = assertionError(() => assertSessionOwnsHandle(fromId, sessionId, db)) ?? slackRoute(fromId, toId, sessionId, db).refused;
       if (refused) return refused;
       const humanHandle = getSetting<string>("chat.humanHandle").value;
       if (!isValidChatName(humanHandle)) {

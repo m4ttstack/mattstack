@@ -16,6 +16,7 @@ import {
   ensureSlackIdentity,
   openConversation,
   openStateDb,
+  postMessage,
   stalePendingPairs,
   type RegistryDeps,
 } from "../../state/index.ts";
@@ -23,6 +24,7 @@ import { createChatDeliverySweep, createChatHandlers, planSweepTargets, postAndN
 
 const log = { warn: () => {}, info: () => {}, debug: () => {}, error: () => {} } as unknown as Logger;
 const SLACK_ID = "slack.u0test";
+const PANE_SESSION = "pane-session";
 let n = 0;
 
 function socketFile(): string {
@@ -85,7 +87,7 @@ async function signIn(h: Harness, sessionId: string, baseHandle: string): Promis
 }
 
 async function openChat(h: Harness) {
-  const agent = await signIn(h, "pane-session", "support");
+  const agent = await signIn(h, PANE_SESSION, "support");
   ensureSlackIdentity("U0TEST", "Alex", h.db);
   const { room } = dmRoomFor(agent, SLACK_ID, "matt", h.db);
   const conversation = openConversation(
@@ -123,8 +125,7 @@ test("the sweep never targets a Slack identity", async () => {
 
   const h = harness();
   const { agent, room } = await openChat(h);
-  await h.handlers["chat:post"]({ room, handle: agent, body: "not via chat_dm" });
-  await settle();
+  postMessage({ room, handle: agent, body: "not via chat_dm" }, h.db);
   expect(stalePendingPairs(h.db).filter((p) => p.handle === SLACK_ID)).toEqual([]);
 });
 
@@ -133,7 +134,7 @@ test("a chat_dm into an open conversation posts to Slack once with the prefix, t
   const { agent, room, conversation } = await openChat(h);
   h.db.run("UPDATE slack_conversations SET checked_in_at = 5 WHERE id = ?", [conversation.id]);
 
-  const res = await h.handlers["chat:dm"]({ from: agent, to: "alex-slack", body: "[Claude 🤖]: try restarting" });
+  const res = await h.handlers["chat:dm"]({ from: agent, to: "alex-slack", body: "[Claude 🤖]: try restarting", sessionId: PANE_SESSION });
 
   expect(res.ok).toBe(true);
   if (!res.ok) throw new Error(res.error);
@@ -153,7 +154,7 @@ test("a Slack failure leaves no chat row and fails the tool with the reason", as
   });
   const { agent, room } = await openChat(h);
 
-  const res = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "hello" });
+  const res = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "hello", sessionId: PANE_SESSION });
 
   expect(res.ok).toBe(false);
   if (res.ok) throw new Error("unreachable");
@@ -165,7 +166,7 @@ test("no Slack token fails the tool with the reason", async () => {
   const h = harness(undefined, false);
   const { agent, room } = await openChat(h);
 
-  const res = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "hello" });
+  const res = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "hello", sessionId: PANE_SESSION });
 
   expect(res.ok).toBe(false);
   if (res.ok) throw new Error("unreachable");
@@ -181,7 +182,7 @@ test("a 429 is retried after Retry-After", async () => {
   });
   const { agent, room } = await openChat(h);
 
-  const res = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "hello" });
+  const res = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "hello", sessionId: PANE_SESSION });
 
   expect(res.ok).toBe(true);
   expect(h.slept).toEqual([3000]);
@@ -195,7 +196,7 @@ test("a Retry-After past what the caller will wait for fails with the reason", a
   });
   const { agent, room } = await openChat(h);
 
-  const res = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "hello" });
+  const res = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "hello", sessionId: PANE_SESSION });
 
   expect(res.ok).toBe(false);
   if (res.ok) throw new Error("unreachable");
@@ -210,7 +211,7 @@ test("chat_dm into a closed conversation's room is refused", async () => {
   const { agent, room, conversation } = await openChat(h);
   closeConversation(conversation.id, "idle", 2000, h.db);
 
-  const res = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "one more thing" });
+  const res = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "one more thing", sessionId: PANE_SESSION });
 
   expect(res.ok).toBe(false);
   if (res.ok) throw new Error("unreachable");
@@ -308,11 +309,62 @@ test("nobody speaks as a Slack identity through chat:dm or chat:post", async () 
   expect(messages(h, room)).toEqual([]);
 });
 
+test("a shell naming the pane's handle with no session can't reach Slack", async () => {
+  const h = harness();
+  const { agent, room } = await openChat(h);
+
+  const res = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "spoofed" });
+
+  expect(res.ok).toBe(false);
+  if (res.ok) throw new Error("unreachable");
+  expect(res.failure?.code).toBe("slack-chat");
+  expect(h.posts).toEqual([]);
+  expect(messages(h, room)).toEqual([]);
+});
+
+test("a foreign session naming the pane's handle can't reach Slack", async () => {
+  const h = harness();
+  const { agent, room } = await openChat(h);
+
+  const res = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "spoofed", sessionId: "someone-else" });
+
+  expect(res.ok).toBe(false);
+  expect(h.posts).toEqual([]);
+  expect(messages(h, room)).toEqual([]);
+});
+
+test("a pruned presence row can't reach Slack", async () => {
+  const h = harness();
+  const { agent, room } = await openChat(h);
+  h.db.run("DELETE FROM chat_presence WHERE handle = ?", [agent]);
+
+  const res = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "too late", sessionId: PANE_SESSION });
+
+  expect(res.ok).toBe(false);
+  if (res.ok) throw new Error("unreachable");
+  expect(res.failure?.code).toBe("slack-chat");
+  expect(h.posts).toEqual([]);
+  expect(messages(h, room)).toEqual([]);
+});
+
+test("the pane's chat_post into its open conversation is refused and points at chat_dm", async () => {
+  const h = harness();
+  const { agent, room } = await openChat(h);
+
+  const res = await h.handlers["chat:post"]({ room, handle: agent, body: "this would never reach Slack" });
+
+  expect(res.ok).toBe(false);
+  if (res.ok) throw new Error("unreachable");
+  expect(res.failure?.code).toBe("slack-chat");
+  expect(res.error).toContain("chat_dm");
+  expect(messages(h, room)).toEqual([]);
+});
+
 test("a credential in a reply is redacted and the tool result says so", async () => {
   const h = harness();
   const { agent, room } = await openChat(h);
 
-  const res = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "use ghp_abc123 here" });
+  const res = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "use ghp_abc123 here", sessionId: PANE_SESSION });
 
   expect(res.ok).toBe(true);
   if (!res.ok) throw new Error(res.error);

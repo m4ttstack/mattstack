@@ -154,15 +154,21 @@ function chatNameCharset(raw: string): string {
 
 /** A profile field the teammate controls, so this is the only form of it the support rules ever see. */
 export function cleanSlackName(raw: string, userId: string): string {
-  return chatNameCharset(raw) || chatNameCharset(userId);
+  const cleaned = chatNameCharset(raw);
+  // resolveHandle short-circuits on the `slack.` namespace, so a name inside it could never reach its id.
+  return cleaned && !isSlackIdentity(cleaned) ? cleaned : chatNameCharset(userId);
 }
 
+// Runs inside BEGIN IMMEDIATE on the daemon thread, where a spin holds the write lock and stops the daemon.
+const SLACK_NAME_ATTEMPTS = 1000;
+
 function freeSlackName(base: string, db: Database): string {
-  for (let suffix = 1; ; suffix++) {
+  for (let suffix = 1; suffix <= SLACK_NAME_ATTEMPTS; suffix++) {
     const name = suffix === 1 ? `${base}${SLACK_NAME_SUFFIX}` : `${base}-${suffix}${SLACK_NAME_SUFFIX}`;
     const named = db.query(SELECT_LATEST_BY_NAME_SQL).get(name);
     if (!named && !isFixedChatName(name) && !isKnownId(name, db)) return name;
   }
+  throw new Error(`chat: no free name for Slack teammate base "${base}"`);
 }
 
 /** The teammate's identity, minted on first sight and keyed by Slack user id so it survives across conversations. */
