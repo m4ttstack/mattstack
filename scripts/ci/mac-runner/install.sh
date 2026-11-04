@@ -11,7 +11,8 @@ REPO=m4ttstack/mattstack
 CI_USER=mattstack-ci
 CI_HOME=/Users/$CI_USER
 HOOK_DIR=/usr/local/mattstack-ci
-TARBALL=$(mktemp -t actions-runner)
+# Not $TMPDIR: the runner user cannot read yours.
+TARBALL=$(mktemp /tmp/actions-runner.XXXXXX)
 
 [ "$(id -u)" != 0 ] || { echo "Run this as yourself, not root." >&2; exit 1; }
 [ -f scripts/ci/macos-runner.ts ] || { echo "Run this from the repo root." >&2; exit 1; }
@@ -25,8 +26,10 @@ if ! id "$CI_USER" >/dev/null 2>&1; then
   sudo dscl . create "/Users/$CI_USER" IsHidden 1
 fi
 
-if sudo -u "$CI_USER" test -r "$HOME/.mattstack"; then
-  echo "$CI_USER can read $HOME/.mattstack, so it would see your tokens. Stopping." >&2
+# A new macOS user joins staff, which a default home lets in, so every
+# world-readable file under it (~/.ssh, ~/.mattstack) would be open to jobs.
+if sudo -u "$CI_USER" test -x "$HOME"; then
+  echo "$CI_USER can enter $HOME, so jobs could read your files. Run: chmod 700 $HOME" >&2
   exit 1
 fi
 
@@ -35,6 +38,9 @@ sudo mkdir -p "$HOOK_DIR"
 sudo install -o root -g wheel -m 755 "$(command -v bun)" "$HOOK_DIR/bun"
 sudo install -o root -g wheel -m 644 scripts/ci/macos-runner.ts "$HOOK_DIR/macos-runner.ts"
 sudo install -o root -g wheel -m 755 scripts/ci/mac-runner/job-started.sh "$HOOK_DIR/job-started.sh"
+
+# The runner user's commands below cannot start from a directory in your home.
+cd /
 
 curl -fsSL -o "$TARBALL" "https://github.com/actions/runner/releases/download/v$VERSION/actions-runner-osx-arm64-$VERSION.tar.gz"
 echo "$SHA256  $TARBALL" | shasum -a 256 -c -
