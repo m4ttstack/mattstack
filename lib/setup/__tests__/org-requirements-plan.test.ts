@@ -107,6 +107,31 @@ describe("an org file through a real composePlan", () => {
   });
 });
 
+describe("orgNotice against a real plan", () => {
+  const MALFORMED = { why: "No name" };
+
+  test("a broken org file sets orgNotice on a whole read", async () => {
+    const p = mac({ orgTools: [WIDGET, MALFORMED] });
+    const plan = await statusPlan(p);
+    const row = plan.groups.flatMap((g) => g.rows).find((r) => r.id === "org.requirements");
+    const form = await composeForm(p, { secrets, orgs: ["acme"] });
+    expect(form.orgNotice).toEqual({ title: "Your org's setup file has an error. Ask an admin to fix it", detail: row!.detail });
+    expect(form.orgNotice?.detail).toContain("tools[1]");
+  });
+
+  test("a section read carries no orgNotice", async () => {
+    const p = mac({ orgTools: [WIDGET, MALFORMED] });
+    const form = await composeForm(p, { sections: ["connect"], secrets, orgs: ["acme"] });
+    expect("orgNotice" in form).toBe(false);
+  });
+
+  test("no org error sets no orgNotice key", async () => {
+    const p = mac({ orgTools: [WIDGET] });
+    const form = await composeForm(p, { secrets, orgs: ["acme"] });
+    expect("orgNotice" in form).toBe(false);
+  });
+});
+
 describe("the tools stage against real rows", () => {
   test("a finished Mac lands on tools with the merged org tool", async () => {
     const p = mac({ orgTools: [WIDGET] });

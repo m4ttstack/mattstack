@@ -405,4 +405,21 @@ describe("rt setup form on a finished Mac with a new team tool", () => {
     expect(quiet.stdout()).toBe("");
     expect(t.lines).toEqual([]);
   });
+
+  test("orgNotice changes no stage", async () => {
+    const orgRow = r("org.requirements", "error", "tools[1] is malformed", { required: false });
+    const pairs: [string, (rows: Row[]) => ReturnType<typeof deps>][] = [
+      ["ready", (rows) => mac(rows)],
+      ["tools", (rows) => mac([widgetMissing, ...rows])],
+      ["this-mac", (rows) => deps({ answered: true, plan: teamPlan(rows), team: { tools: [WIDGET_REQ] } })],
+      ["ready", (rows) => deps({ run: ENDED_OK, answered: true, plan: teamPlan(rows), team: { tools: [WIDGET_REQ] } })],
+    ];
+    for (const [stage, build] of pairs) {
+      const { at: _clean, ...clean } = await read(build([]));
+      const { at: _broken, orgNotice, ...broken } = await read(build([orgRow]));
+      expect(orgNotice.detail).toBe("tools[1] is malformed");
+      expect(broken).toEqual(clean);
+      expect(broken.stage).toBe(stage);
+    }
+  });
 });

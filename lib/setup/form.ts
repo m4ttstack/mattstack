@@ -91,6 +91,8 @@ export interface SetupForm {
   start: { label: string; note: string };
   paused: FormPaused | null;
   home: { label: string; url: string };
+  /** Only on a whole read whose plan holds the `org.requirements` row. Decides nothing: no stage, button or Finish reads it. */
+  orgNotice?: { title: string; detail: string };
 }
 
 type Forge = "github" | "gitlab";
@@ -196,6 +198,7 @@ export const FORM_COPY = {
     many: (count: number) => `${count} new tools for your team`,
     allSet: "You're all set",
   },
+  orgNotice: "Your org's setup file has an error. Ask an admin to fix it",
   home: {
     board: { label: "Open the board", url: "https://board.mattstack" },
     console: { label: "Open the console", url: "https://console.mattstack" },
@@ -951,6 +954,11 @@ export function formPath(i: { intent: SetupIntent | null; joined: boolean; creat
   return i.ranOrFinished ? "solo" : null;
 }
 
+function orgNotice(plan: Plan): Pick<SetupForm, "orgNotice"> {
+  const broken = planRows(plan).find((r) => r.id === "org.requirements");
+  return broken ? { orgNotice: { title: FORM_COPY.orgNotice, detail: broken.detail } } : {};
+}
+
 export interface StageInputs {
   finished: boolean;
   path: FormPath | null;
@@ -1237,8 +1245,9 @@ export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupFo
     needsRun: finished && needsRun(await plan()),
     ...(tools?.stage ?? { onlyTeamTools: false, toolsOpen: false, toolsUnacked: false }),
   });
-  if (stage === "tools" && tools) return { ...form, stage, paused, sections: { ...sections, tools: tools.rows }, tools: toolsForm(tools.rows) };
-  return { ...form, stage, paused };
+  const notice = orgNotice(await plan());
+  if (stage === "tools" && tools) return { ...form, ...notice, stage, paused, sections: { ...sections, tools: tools.rows }, tools: toolsForm(tools.rows) };
+  return { ...form, ...notice, stage, paused };
 }
 
 /**
