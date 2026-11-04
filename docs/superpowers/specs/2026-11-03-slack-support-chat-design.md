@@ -68,6 +68,7 @@ It has failed, even if it technically works, if any of these happen:
 | Who can open a chat | Only a person, through a mod's slash command. No model tool |
 | The operator's messages | Chat UI reaches the pane only; Slack reaches both |
 | Proving the marks work | A live test with a real pane before shipping |
+| Telling teammates about storage | The pane doesn't mention it. The prefix already shows it's Claude |
 
 ## Approaches
 
