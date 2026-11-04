@@ -119,19 +119,20 @@ export async function finishClose(
   reason: SlackCloseReason,
   farewell: string | undefined,
   deps: SlackLifecycleDeps,
-): Promise<void> {
+): Promise<{ redacted: boolean }> {
   const { db } = deps;
   const conv = conversationById(conversationId, db);
-  if (!conv) return;
+  if (!conv) return { redacted: false };
   const at = deps.now();
   const closedHere = db.transaction(() => {
     if (!closeConversation(conversationId, reason, at, db)) return false;
     enqueueItem({ conversationId, kind: "closed", fromHandle: null, text: `This Slack chat is closed (reason: ${reason}).`, createdAt: at }, db);
     return true;
   })();
-  if (!closedHere) return;
+  if (!closedHere) return { redacted: false };
 
-  const wrapUp = withPrefix(redactSecrets((farewell ?? "").trimEnd()).text);
+  const cleaned = redactSecrets((farewell ?? "").trimEnd());
+  const wrapUp = withPrefix(cleaned.text);
   const hasWrapUp = wrapUp !== SLACK_PREFIX;
   const lines = [...(hasWrapUp ? [wrapUp] : []), withPrefix(closingLine(conv.operatorName, reason === "pane-gone"))];
   let allSent = true;
@@ -144,6 +145,7 @@ export async function finishClose(
   if (!allSent) tellOperator("Slack chat closed", `The closing message to ${name} did not reach Slack, so check the DM`, deps);
   else if (reason === "pane-gone") tellOperator("Slack chat closed", `Claude stopped responding to ${name}, who is waiting to hear from you`, deps);
   else if (!hasWrapUp) tellOperator("Slack chat closed", `The chat with ${name} closed with no farewell (${reason})`, deps);
+  return { redacted: cleaned.redacted };
 }
 
 /**

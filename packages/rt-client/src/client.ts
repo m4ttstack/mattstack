@@ -365,7 +365,7 @@ export function chatSlackOpen(a: Commands["chat:slack-open"]["payload"], o: RtCl
 
 export function chatSlackClose(a: Commands["chat:slack-close"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-close"]["data"]>> {
   const payload: Record<string, unknown> = {};
-  for (const k of ["agentHandle", "pane", "farewell"] as const) {
+  for (const k of ["agentHandle", "sessionId", "pane", "farewell"] as const) {
     if (a[k] !== undefined) payload[k] = a[k];
   }
   return rtCommand<Commands["chat:slack-close"]["data"]>("chat:slack-close", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 60_000 });

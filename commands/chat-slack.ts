@@ -129,13 +129,14 @@ export async function slackClose(args: string[]): Promise<void> {
   const pane = requiredValue(args, "--pane");
   const file = requiredValue(args, "--farewell-file");
   const farewell = file === undefined ? undefined : readFarewell(file);
-  const agentHandle = pane ? undefined : (await requireSignedIn(args)).handle;
-  const data = unwrap(await chatSlackClose({ agentHandle, pane, farewell }, sockOpts(args)), "close");
+  const own = pane ? undefined : await requireSignedIn(args);
+  const data = unwrap(await chatSlackClose({ agentHandle: own?.handle, sessionId: own?.sessionId, pane, farewell }, sockOpts(args)), "close");
   if (args.includes("--json")) {
     out.json({ ok: true, ...data });
     return;
   }
   say(data.closed ? "Slack chat closed" : "Slack chat is closing");
+  if (data.redacted) say("redacted: something shaped like a credential was removed before this went to Slack");
 }
 
 export async function slackStatus(args: string[]): Promise<void> {

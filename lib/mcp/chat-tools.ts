@@ -6,7 +6,7 @@
  */
 import {
   chatArchive, chatAway, chatBack, chatBuddies, chatInvite, chatJoin, chatLeave, chatMark, chatMessages,
-  chatRead, chatRooms, chatSignOut, chatWho, getSetting,
+  chatRead, chatRooms, chatSignOut, chatSlackClose, chatSlackStatus, chatSlackTicket, chatWho, getSetting,
 } from "../../packages/rt-client/src/index.ts";
 import type { Commands } from "../../packages/rt-client/src/index.ts";
 import { existsSync, statSync } from "fs";
@@ -23,6 +23,7 @@ export interface ChatToolDeps {
   who: typeof chatWho; buddies: typeof chatBuddies; join: typeof chatJoin; leave: typeof chatLeave;
   away: typeof chatAway; back: typeof chatBack;
   signOut: typeof chatSignOut; archive: typeof chatArchive; invite: typeof chatInvite;
+  slackClose: typeof chatSlackClose; slackStatus: typeof chatSlackStatus; slackTicket: typeof chatSlackTicket;
   session: (id: string | undefined) => ChatSession | null;
   deleteSession: (id: string) => void;
   spawnRt: (path: string[], rest: string[], opts: { cwd?: string; timeoutMs?: number }) => Promise<RtVerbResult>;
@@ -37,6 +38,7 @@ export interface ChatToolDeps {
 export const realChatToolDeps: ChatToolDeps = {
   read: chatRead, messages: chatMessages, mark: chatMark, rooms: chatRooms, who: chatWho, buddies: chatBuddies,
   join: chatJoin, leave: chatLeave, away: chatAway, back: chatBack, signOut: chatSignOut, archive: chatArchive, invite: chatInvite,
+  slackClose: chatSlackClose, slackStatus: chatSlackStatus, slackTicket: chatSlackTicket,
   session: readChatSession,
   deleteSession: deleteChatSession,
   spawnRt: (path, rest, opts) => spawnRtJson(path, rest, opts),
@@ -387,6 +389,61 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
         const callerPane = await liveSelfPaneRef(env);
         if (callerPane) payload.callerPane = callerPane;
         return fromResponse(await deps.invite(payload));
+      },
+    },
+    {
+      name: "chat_slack_close",
+      description: "Close this pane's Slack support chat, sending farewell to the teammate first. Acts only on the chat this session holds. A credential-shaped string in the farewell is removed before it is sent, and the result then says redacted. Requires a signed-in chat session; call chat_sign_in first.",
+      inputSchema: { type: "object", properties: { farewell: { type: "string" } }, required: ["farewell"], additionalProperties: false },
+      shellForms: ["rt chat slack-close"],
+      async handler(input, env) {
+        const id = await handleOf(env);
+        if ("error" in id) return err(id.error);
+        const bad = checkRequired(input, [{ name: "farewell", type: "string" }]);
+        if (bad) return err(bad);
+        return fromResponse(await deps.slackClose({ agentHandle: id.handle, sessionId: id.sessionId, farewell: input.farewell as string }));
+      },
+    },
+    {
+      name: "chat_slack_status",
+      description: "List the Slack support chats that are open on this machine, with their room, pane and last activity. Requires a signed-in chat session; call chat_sign_in first.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      shellForms: ["rt chat slack-status"],
+      async handler(_input, env) {
+        const id = await handleOf(env);
+        if ("error" in id) return err(id.error);
+        return fromResponse(await deps.slackStatus());
+      },
+    },
+    {
+      name: "chat_slack_ticket",
+      description: "Write a bug report or feature request for this pane's open Slack support chat, and return the path of the file it wrote. kind is bug or feature; acceptance is a list of testable points. Requires a signed-in chat session; call chat_sign_in first.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          kind: { type: "string", enum: ["bug", "feature"] },
+          title: { type: "string" },
+          problem: { type: "string" },
+          idea: { type: "string" },
+          acceptance: { type: "array", items: { type: "string" } },
+        },
+        required: ["kind", "title", "problem", "idea", "acceptance"],
+        additionalProperties: false,
+      },
+      shellForms: ["rt chat slack-ticket"],
+      async handler(input, env) {
+        const id = await handleOf(env);
+        if ("error" in id) return err(id.error);
+        const bad = checkRequired(input, [
+          { name: "kind", type: "string" }, { name: "title", type: "string" }, { name: "problem", type: "string" },
+          { name: "idea", type: "string" }, { name: "acceptance", type: "array" },
+        ]);
+        if (bad) return err(bad);
+        return fromResponse(await deps.slackTicket({
+          agentHandle: id.handle, sessionId: id.sessionId,
+          kind: input.kind as "bug" | "feature", title: input.title as string, problem: input.problem as string,
+          idea: input.idea as string, acceptance: input.acceptance as string[],
+        }));
       },
     },
   ];

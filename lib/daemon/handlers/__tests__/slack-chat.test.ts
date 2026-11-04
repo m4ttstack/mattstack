@@ -342,12 +342,32 @@ test("the pane's close with a farewell closes at once and shows in the room", as
   const h = harness();
   const { agentHandle, res } = await open(h);
   if (!res.ok) throw new Error(res.error);
-  const closed = await h.handlers["chat:slack-close"]({ agentHandle, farewell: "All sorted." });
+  const closed = await h.handlers["chat:slack-close"]({ agentHandle, sessionId: SESSION, farewell: "All sorted." });
   expect(closed).toEqual({ ok: true, data: { conversationId: res.data.conversationId, closed: true } });
   expect(h.sent).toEqual([`${SLACK_PREFIX}All sorted.`, closingLine("Robin", false)]);
   expect(listMessages({ room: res.data.room, limit: 10 }, h.db).map((m) => m.body)).toEqual(["All sorted.", closingLine("Robin", false).slice(SLACK_PREFIX.length)]);
   expect(h.events).toEqual([`chat/${res.data.room}/msg`, `chat/${res.data.room}/msg`]);
   expect(conversationForAgent(agentHandle, h.db)).toBeUndefined();
+});
+
+test("the pane's close refuses a session that is not seated on the handle, and the chat stays open", async () => {
+  const h = harness();
+  const { agentHandle, res } = await open(h);
+  if (!res.ok) throw new Error(res.error);
+  const message = "Only the session signed in as this pane can close its Slack chat, so sign in and try again";
+  expect(refusal(await h.handlers["chat:slack-close"]({ agentHandle, farewell: "Bye." }))).toBe(message);
+  expect(refusal(await h.handlers["chat:slack-close"]({ agentHandle, sessionId: "another", farewell: "Bye." }))).toBe(message);
+  expect(conversationForAgent(agentHandle, h.db)).toBeDefined();
+  expect(h.sent).toEqual([]);
+});
+
+test("the pane's close reports a farewell that had a credential removed", async () => {
+  const h = harness();
+  const { agentHandle, res } = await open(h);
+  if (!res.ok) throw new Error(res.error);
+  const closed = await h.handlers["chat:slack-close"]({ agentHandle, sessionId: SESSION, farewell: "Use AKIAABCDEFGHIJKLMNOP to retry." });
+  expect(closed).toEqual({ ok: true, data: { conversationId: res.data.conversationId, closed: true, redacted: true } });
+  expect(h.sent[0]).not.toContain("AKIAABCDEFGHIJKLMNOP");
 });
 
 test("a close with the operator's own farewell sends it now, as an operator close", async () => {
@@ -366,14 +386,14 @@ test("a pane's close during a close sequence keeps the reason asked for", async 
   const { agentHandle, res } = await open(h);
   if (!res.ok) throw new Error(res.error);
   markCloseAsked(res.data.conversationId, "idle", NOW, h.db);
-  await h.handlers["chat:slack-close"]({ agentHandle, farewell: "Closing as it went quiet." });
+  await h.handlers["chat:slack-close"]({ agentHandle, sessionId: SESSION, farewell: "Closing as it went quiet." });
   expect(latestConversationForRoom(res.data.room, h.db)!.closeReason).toBe("idle");
 });
 
 test("a close with nothing open is refused and sends nothing", async () => {
   const h = harness();
   const agentHandle = await h.signIn();
-  expect(refusal(await h.handlers["chat:slack-close"]({ agentHandle }))).toBe("This pane has no Slack chat open");
+  expect(refusal(await h.handlers["chat:slack-close"]({ agentHandle, sessionId: SESSION }))).toBe("This pane has no Slack chat open");
   expect(refusal(await h.handlers["chat:slack-close"]({ pane: "w9:p9" }))).toBe("No Slack chat is open in w9:p9");
   expect(refusal(await h.handlers["chat:slack-close"]({}))).toBe("This pane has no Slack chat open");
   expect(h.sent).toEqual([]);
@@ -383,7 +403,7 @@ test("an oversized farewell is refused and the chat stays open", async () => {
   const h = harness();
   const { agentHandle, res } = await open(h);
   if (!res.ok) throw new Error(res.error);
-  const closed = await h.handlers["chat:slack-close"]({ agentHandle, farewell: "x".repeat(70_000) });
+  const closed = await h.handlers["chat:slack-close"]({ agentHandle, sessionId: SESSION, farewell: "x".repeat(70_000) });
   expect(closed.ok).toBe(false);
   expect(conversationForAgent(agentHandle, h.db)).toBeDefined();
   expect(h.sent).toEqual([]);
@@ -393,7 +413,7 @@ test("slack-pending still hands over the closed item, then reports closed once i
   const h = harness();
   const { agentHandle, res } = await open(h);
   if (!res.ok) throw new Error(res.error);
-  await h.handlers["chat:slack-close"]({ agentHandle, farewell: "Bye." });
+  await h.handlers["chat:slack-close"]({ agentHandle, sessionId: SESSION, farewell: "Bye." });
   const pending = await h.handlers["chat:slack-pending"]({ agentHandle });
   if (!pending.ok) throw new Error(pending.error);
   expect(pending.data.open).toBe(true);
@@ -408,7 +428,7 @@ test("slack-pending drops a closed conversation's other items", async () => {
   const { agentHandle, res } = await open(h);
   if (!res.ok) throw new Error(res.error);
   enqueueItem({ conversationId: res.data.conversationId, kind: "message", fromHandle: null, text: "late", createdAt: 1 }, h.db);
-  await h.handlers["chat:slack-close"]({ agentHandle, farewell: "Bye." });
+  await h.handlers["chat:slack-close"]({ agentHandle, sessionId: SESSION, farewell: "Bye." });
   const pending = await h.handlers["chat:slack-pending"]({ agentHandle });
   if (!pending.ok) throw new Error(pending.error);
   expect(pending.data.items.map((i) => i.kind)).toEqual(["closed"]);
@@ -418,7 +438,7 @@ test("a new chat's watcher still counts as seen while an old closed item is owed
   const h = harness();
   const { agentHandle, res } = await open(h);
   if (!res.ok) throw new Error(res.error);
-  await h.handlers["chat:slack-close"]({ agentHandle, farewell: "Bye." });
+  await h.handlers["chat:slack-close"]({ agentHandle, sessionId: SESSION, farewell: "Bye." });
   const reopened = await h.handlers["chat:slack-open"]({ agentHandle, sessionId: SESSION, person: "alex" });
   if (!reopened.ok) throw new Error(reopened.error);
   const pending = await h.handlers["chat:slack-pending"]({ agentHandle });

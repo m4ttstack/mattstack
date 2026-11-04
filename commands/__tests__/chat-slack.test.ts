@@ -309,7 +309,17 @@ test("slack-close with no pane closes this session's own chat", async () => {
   expect(res.code).toBe(0);
   const payload = seen.find((s) => s.cmd === "chat:slack-close")!.payload;
   expect(typeof payload.agentHandle).toBe("string");
+  expect(typeof payload.sessionId).toBe("string");
   expect(payload.pane).toBeUndefined();
+});
+
+test("slack-close says when a credential was removed from the farewell", async () => {
+  await signIn();
+  canned["chat:slack-close"] = { ok: true, data: { conversationId: 7, closed: true, redacted: true } };
+  const text = await run(() => slackClose([]));
+  expect(text.stdout).toContain("redacted: something shaped like a credential was removed");
+  const json = await run(() => slackClose(["--json"]));
+  expect(JSON.parse(json.stdout)).toEqual({ ok: true, conversationId: 7, closed: true, redacted: true });
 });
 
 test("slack-close with an unreadable farewell file is a failure, and nothing is sent", async () => {

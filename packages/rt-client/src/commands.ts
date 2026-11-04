@@ -935,7 +935,7 @@ export interface Commands {
   "agent:adopt": { payload: { sessionId: string; repo: string; subject?: string; label?: string }; data: AgentRecord };
   "chat:invite": { payload: { paneId: string; room: string; note?: string; from: string; callerPane?: string }; data: InviteResult };
   "chat:slack-open": { payload: { agentHandle: string; sessionId?: string; person: string }; data: { conversationId: number; handle: string; name: string; frameMarker: string; room: string } };
-  "chat:slack-close": { payload: { agentHandle?: string; pane?: string; farewell?: string }; data: { conversationId: number; closed: boolean } };
+  "chat:slack-close": { payload: { agentHandle?: string; sessionId?: string; pane?: string; farewell?: string }; data: { conversationId: number; closed: boolean; /** Set only when something shaped like a credential was removed from the farewell before it went to Slack. */ redacted?: true } };
   "chat:slack-status": { payload: Record<string, never>; data: { conversations: { id: number; room: string; pane?: string; name: string; openedAt: number; lastActiveAt: number }[] } };
   "chat:slack-pending": { payload: { agentHandle: string }; data: { items: SlackItem[]; open: boolean; conversation?: { id: number; handle: string; name: string; operator: string; marker: string } } };
   "chat:slack-delivered": { payload: { id: number }; data: { delivered: boolean } };
