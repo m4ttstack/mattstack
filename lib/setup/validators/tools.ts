@@ -524,7 +524,7 @@ function teamToolRemedyAction(req: ToolRequirement, hasBrew: boolean, verb: "Ins
 export function teamToolManualSteps(req: ToolRequirement): Action | null {
   const { brew, url } = req.install ?? {};
   const first = brew ? `brew install ${brew}` : url && isHttpsUrl(url) ? `Download it from ${url}` : null;
-  return first ? { type: "steps", label: "Show steps…", steps: [first, "Then re-run rt setup status"] } : null;
+  return first ? { type: "steps", label: "Show steps…", steps: [first] } : null;
 }
 
 export async function teamToolRow(p: Probes, req: ToolRequirement, hasBrew: boolean): Promise<Row> {

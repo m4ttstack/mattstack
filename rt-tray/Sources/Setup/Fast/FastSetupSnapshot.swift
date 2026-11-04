@@ -363,9 +363,9 @@ enum FastSetupSnapshot {
         private static let why = "For running your dev servers"
         private static let install = RowAction(type: .install, label: "Install", tool: "doppler", via: "brew")
         private static let retry = RowAction(type: .install, label: "Retry", tool: "doppler", via: "brew")
-        private static let steps = RowAction(type: .steps, label: "Show steps…", steps: ["brew install doppler", "Then re-run rt setup status"])
+        private static let steps = RowAction(type: .steps, label: "Show steps…", steps: ["brew install doppler"])
         static let doppler = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: why, state: .todo,
-                                     detail: "", action: install, watch: true)
+                                     detail: "", action: install, waiting: "Installing…", watch: true)
         static let dopplerInstalling = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: why, state: .busy,
                                                detail: "Installing…", watch: true)
         static let dopplerSignIn = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: why, state: .todo,

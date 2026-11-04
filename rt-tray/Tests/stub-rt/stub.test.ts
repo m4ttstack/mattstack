@@ -934,7 +934,7 @@ test("new-tool: tools holds through install and sign-in, and only --ack-tools mo
 test("new-tool: a plain row carries no reason, whether missing or signed out", async () => {
   const state = mkdtempSync(join(tmpdir(), "stub-"));
   const section = async () => (await run("new-tool", ["setup", "form", "--section", "tools", "--json"], "", state)).lines[0].sections.tools[0];
-  expect((await section()).detail).toBe("");
+  expect(await section()).toMatchObject({ detail: "", waiting: "Installing…" });
   await run("new-tool", ["tools", "install", "doppler", "--json"], "", state);
   expect(await section()).toMatchObject({ state: "todo", detail: "", action: { label: "Sign in" } });
 });

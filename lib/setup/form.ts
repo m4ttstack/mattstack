@@ -714,15 +714,16 @@ function repeatsItsButton(rows: ReadonlyMap<string, Row>, r: Row, tool: ToolRequ
 
 function failedInstallRow(drawn: FormRow, install: Action, tool: ToolRequirement | undefined): FormRow {
   const steps = tool ? teamToolManualSteps(tool) : null;
-  return { ...drawn, tone: "failed", action: { ...install, label: FORM_COPY.tools.retry }, waiting: FORM_COPY.installing, ...(steps ? { secondary: steps } : {}) };
+  return { ...drawn, tone: "failed", action: { ...install, label: FORM_COPY.tools.retry }, ...(steps ? { secondary: steps } : {}) };
 }
 
 function toolRow(i: ToolsInputs, rows: ReadonlyMap<string, Row>, r: Row): FormRow {
   const name = r.id.slice(TEAM_TOOL_PREFIX.length);
   const signIn = i.signIn.find((t) => t.name === name);
-  const drawn = signIn ? settle({ ...signInRow(i, rows, signIn), id: r.id }) : extraRow(r, i.prepare);
-  if (!signIn && r.status === "ready") return { ...drawn, state: "done", detail: r.detail, action: null, optional: false };
-  if (drawn.state !== "todo") return drawn;
+  const plain = signIn ? settle({ ...signInRow(i, rows, signIn), id: r.id }) : extraRow(r, i.prepare);
+  if (!signIn && r.status === "ready") return { ...plain, state: "done", detail: r.detail, action: null, optional: false };
+  if (plain.state !== "todo") return plain;
+  const drawn = plain.action?.type === "install" ? { ...plain, waiting: FORM_COPY.installing } : plain;
   // The record outlives the failure, so a tool installed by hand since then has nothing to report.
   const failure = r.status === "ready" ? null : installFailure(i.prepare, name);
   if (failure === null) return repeatsItsButton(rows, r, signIn) ? { ...drawn, detail: "" } : drawn;

@@ -79,7 +79,16 @@ describe("unackedTools", () => {
 
 describe("toolsRows", () => {
   test("the tools section draws an Install row for a missing tool", () => {
-    expect(only(inputs([widgetMissing()]))).toMatchObject({ id: "tool.team.widget-cli", title: "widget-cli", subtext: "why tool.team.widget-cli", state: "todo", detail: "", action: INSTALL, optional: false, watch: true });
+    expect(only(inputs([widgetMissing()]))).toMatchObject({ id: "tool.team.widget-cli", title: "widget-cli", subtext: "why tool.team.widget-cli", state: "todo", detail: "", action: INSTALL, waiting: "Installing…", optional: false, watch: true });
+  });
+
+  test("only a row whose action is an install carries the Installing line", () => {
+    expect(only(inputs([widgetMissing(DOWNLOAD)])).waiting).toBeNull();
+    expect(only(inputs([widgetMissing(STEPS)])).waiting).toBeNull();
+    const signedOut = [r("tool.team.doppler", "ready", "doppler 3.70.0"), r("account.doppler", "invalid", "Not signed in to Doppler", { required: false })];
+    expect(only(inputs(signedOut, { signIn: [DOPPLER], unacked: ["doppler"] })).waiting).toBeNull();
+    const missing = r("tool.team.doppler", "missing", "doppler is not installed", { action: { ...INSTALL, tool: "doppler" } });
+    expect(only(inputs([missing, r("account.doppler", "invalid", "no", { required: false })], { signIn: [DOPPLER] })).waiting).toBe("Installing…");
   });
 
   test("a row whose detail would repeat its button carries an empty detail, never null, which the tray's String field cannot decode", () => {
@@ -127,12 +136,12 @@ describe("toolsRows", () => {
   test("a failed install reads failed: Retry runs the same install, Show steps carries the manual route", () => {
     const drawn = only(inputs([widgetMissing()], { prepare: FAILED, tools: [{ ...WIDGET, install: { brew: "widget-cli" } }] }));
     expect(drawn).toMatchObject({ state: "todo", tone: "failed", detail: "brew said no", action: { ...INSTALL, label: "Retry" }, waiting: "Installing…", optional: false });
-    expect(drawn.secondary).toEqual({ type: "steps", label: "Show steps…", steps: ["brew install widget-cli", "Then re-run rt setup status"] });
+    expect(drawn.secondary).toEqual({ type: "steps", label: "Show steps…", steps: ["brew install widget-cli"] });
   });
 
   test("a tool the team only links for download shows that link as its steps", () => {
     const drawn = only(inputs([widgetMissing()], { prepare: FAILED, tools: [{ ...WIDGET, install: { url: "https://example.com/widget-cli" } }] }));
-    expect(drawn.secondary).toEqual({ type: "steps", label: "Show steps…", steps: ["Download it from https://example.com/widget-cli", "Then re-run rt setup status"] });
+    expect(drawn.secondary).toEqual({ type: "steps", label: "Show steps…", steps: ["Download it from https://example.com/widget-cli"] });
   });
 
   test("a failed sign-in tool's install reads failed too", () => {

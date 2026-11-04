@@ -528,8 +528,8 @@ function newToolRows(): FormRow[] {
   if (preparing("tool")) return [formRow({ ...base, state: "busy", detail: FORM_COPY.installing, action: null })];
   if (!stateGet("prepare-tool-until")) {
     const install: Action = { type: "install", label: "Install", tool: "doppler", via: "brew" };
-    if (scenario !== "new-tool-failed") return [formRow({ ...base, state: "todo", detail: "", action: install })];
-    const secondary: Action = { type: "steps", label: "Show steps…", steps: ["brew install doppler", "Then re-run rt setup status"] };
+    if (scenario !== "new-tool-failed") return [formRow({ ...base, state: "todo", detail: "", action: install, waiting: FORM_COPY.installing })];
+    const secondary: Action = { type: "steps", label: "Show steps…", steps: ["brew install doppler"] };
     return [formRow({ ...base, state: "todo", tone: "failed", detail: "Homebrew could not install it", action: { ...install, label: FORM_COPY.tools.retry }, secondary, waiting: FORM_COPY.installing })];
   }
   const row = dopplerRow();
