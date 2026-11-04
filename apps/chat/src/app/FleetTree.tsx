@@ -162,6 +162,7 @@ function RowMenu({
       classNames={{
         dropdown: classes.menuDropdown,
         item: classes.menuItem,
+        itemSection: classes.menuItemSection,
         label: classes.menuLabel,
         divider: classes.menuDivider,
       }}

@@ -82,10 +82,14 @@
   line-height: 20px;
 }
 
+.menuItemSection.menuItemSection[data-position='left'] {
+  margin-inline-end: 10px;
+}
+
 .menuLabel.menuLabel {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   padding: 2px 16px 4px;
   font-size: var(--mantine-font-size-sm);
   color: var(--tk-text-2);
