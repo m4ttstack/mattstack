@@ -14,11 +14,13 @@ Every pane reply starts with `[Claude 🤖]: `, so the teammate can tell it is C
 Do this once for your Slack app and once on each Mac that opens chats.
 
 1. The app's owner adds four user scopes on the app's OAuth page: `im:history`, `im:read`, `im:write` and `users:read`. A workspace admin may need to approve them.
-2. Reconnect Slack with the extra scopes:
+2. Open mattstack's **Settings > Accounts** and press **Connect** on the **Slack support chat** row, or run:
 
    ```bash
    rt setup slack connect --support-chat
    ```
+
+   This lets your Slack token read your direct messages, so only do it if you run support chats. Nobody else needs it, and nothing in setup asks for it. If the app doesn't list the scopes yet, your current token stays as it is and the row names what the app's owner needs to add.
 
 3. Install the herdr chat plugin, or reinstall it if you already have it, so the new controls show up:
 

@@ -62,7 +62,8 @@ A new blocking row that fits none of these strands the member. A `settings`
 target (`tool.mission-control`, `tool.chrome-signin`, `skills.overrides`) is
 never required and never finish-gated, carries no `waivable`, and shows only
 in the tray's Settings (`SettingsExtras`: General's Keyboard and Skill
-overrides sections, the Fast Browser pane), never in setup. Those three stay
+overrides sections, the Fast Browser pane; `account.slack-support` in the
+accounts group, which Settings > Accounts draws), never in setup. Those three stay
 in `WAIVABLE_ROW_IDS`, so a stored waiver still reads on the row and
 `rt setup unwaive` can still clear it; `waived` is what the app keys on,
 never the note's wording. A finish-gated row carries `waivable` on every
