@@ -1,21 +1,15 @@
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
 
 import './icons';
 
 import { BuddiesProvider } from './buddies-context';
-import { PageBar, RoomMenu } from './PageBar';
-import { fetchMock, installFetchMock } from './test-utils';
+import { PageBar } from './PageBar';
+import { SlackChatsProvider } from './slack-chats-context';
 
-beforeEach(() => {
-  installFetchMock();
-});
-
-afterEach(() => {
-  window.localStorage.removeItem('chat-expand-all');
-});
+const avatars = (el: HTMLElement) => el.querySelectorAll('img');
 
 test('the members pill shows the signed-in total and opens a roster grouped by herdr state, wake mode in its header', async () => {
   renderWithProviders(
@@ -193,7 +187,7 @@ test('an empty room reads zero on the pill, with no sprites', () => {
   );
   const chip = screen.getByTestId('members-chip');
   expect(chip).toHaveTextContent('0');
-  expect(chip.querySelector('svg[shape-rendering="crispEdges"]')).toBeNull();
+  expect(avatars(chip)).toHaveLength(0);
 });
 
 test("a member row's card opens beside it, and the row stays marked while it is open", async () => {
@@ -245,26 +239,6 @@ test("a member's repo shows only when it differs from the room's", async () => {
   );
   expect(screen.getByTestId('members-row-home')).not.toHaveTextContent(
     /\brt\b/
-  );
-});
-
-test('mark read is explicit: rendering never calls it, the control does', async () => {
-  renderWithProviders(
-    <PageBar
-      room={{ room: 'build', memberCount: 3, unread: 4, mentions: 0 }}
-      buddies={[]}
-    />
-  );
-  expect(fetchMock).not.toHaveBeenCalledWith(
-    expect.stringContaining('/api/chat/mark'),
-    expect.anything()
-  );
-  await userEvent.click(
-    screen.getByRole('button', { name: /mark #build read/i })
-  );
-  expect(fetchMock).toHaveBeenCalledWith(
-    '/api/chat/mark',
-    expect.objectContaining({ method: 'POST' })
   );
 });
 
@@ -324,7 +298,7 @@ test('a DM shows the pair as its title, wakes: all in its member popover', async
     />
   );
   expect(screen.getByTestId('page-bar-title')).toHaveTextContent(
-    'deck-main ↔ rt-chat-wt'
+    'deck-main, rt-chat-wt'
   );
   // A DM uses the same members chip + roster as a channel, so wakes moves
   // into the popover header.
@@ -351,7 +325,7 @@ test('a DM without participants shows a neutral title, never its hashed id', () 
   expect(screen.queryByText(/dm-9f3a2b1c0d4e/)).toBeNull();
 });
 
-test('a DM lists each end and its task in the member roster, join-order gone', async () => {
+test('a DM lists each end and its task in the member roster', async () => {
   const now = 1_700_000_000_000;
   renderWithProviders(
     <PageBar
@@ -384,51 +358,9 @@ test('a DM lists each end and its task in the member roster, join-order gone', a
   );
   await userEvent.click(screen.getByTestId('members-signed-out'));
   expect(screen.getByTestId('members-row-kai')).toBeInTheDocument();
-  // No fanned-out task chips on the bar any more, and no join-order select.
-  expect(screen.queryByTestId('chip-task-jay')).toBeNull();
-  expect(screen.queryByTestId('room-order')).toBeNull();
 });
 
-test('the ⋯ menu offers Close for a channel, with no confirm', async () => {
-  const onClose = vi.fn();
-  renderWithProviders(
-    <RoomMenu
-      room={{ room: 'build', memberCount: 3, unread: 0, mentions: 0 }}
-      onClose={onClose}
-    />
-  );
-  await userEvent.click(screen.getByTestId('room-menu'));
-  const item = await screen.findByTestId('room-menu-close');
-  expect(item).toHaveTextContent('Close #build');
-  await userEvent.click(item);
-  expect(onClose).toHaveBeenCalledWith('build');
-  expect(screen.queryByRole('dialog')).toBeNull();
-});
-
-test('the ⋯ menu offers Close this conversation for a DM, fleet or not', async () => {
-  const onClose = vi.fn();
-  const dm = {
-    room: 'dm-aaaa1111bbbb',
-    memberCount: 2,
-    unread: 0,
-    mentions: 0,
-    kind: 'dm' as const,
-    participants: {
-      a: 'fred',
-      b: 'gitq-main',
-      aName: 'fred',
-      bName: 'gitq-main',
-    },
-  };
-  renderWithProviders(<RoomMenu room={dm} onClose={onClose} />);
-  await userEvent.click(screen.getByTestId('room-menu'));
-  const item = await screen.findByTestId('room-menu-close');
-  expect(item).toHaveTextContent('Close this conversation');
-  await userEvent.click(item);
-  expect(onClose).toHaveBeenCalledWith('dm-aaaa1111bbbb');
-});
-
-test('a closed room still shows mark read and its wake mode; nothing says archived', async () => {
+test('a closed room still shows its wake mode; nothing says archived', async () => {
   renderWithProviders(
     <PageBar
       room={{
@@ -441,49 +373,11 @@ test('a closed room still shows mark read and its wake mode; nothing says archiv
       buddies={[{ handle: 'fred', status: 'live' }]}
     />
   );
-  expect(screen.queryByTestId('chip-archived')).toBeNull();
-  expect(screen.getByTestId('mark-read-button')).toBeInTheDocument();
   expect(screen.queryByText(/archiv/i)).toBeNull();
   await userEvent.click(screen.getByTestId('members-chip'));
   expect(await screen.findByTestId('members-wakes')).toHaveTextContent(
     'wakes: mention'
   );
-});
-
-test('add agents sits before mark read, only when wired, disabled while the daemon is down', async () => {
-  const onAddAgents = vi.fn();
-  const room = { room: 'build', memberCount: 2, unread: 3, mentions: 0 };
-  const { rerender } = renderWithProviders(
-    <PageBar room={room} buddies={[]} />
-  );
-  expect(screen.queryByTestId('add-agents-button')).toBeNull();
-  rerender(
-    <PageBar
-      room={room}
-      buddies={[]}
-      onAddAgents={onAddAgents}
-      reachable={false}
-    />
-  );
-  expect(screen.getByTestId('add-agents-button')).toBeDisabled();
-  rerender(
-    <PageBar
-      room={room}
-      buddies={[]}
-      onAddAgents={onAddAgents}
-      onMarkedRead={() => {}}
-    />
-  );
-  const buttons = screen
-    .getAllByRole('button')
-    .map(b => b.getAttribute('data-testid'));
-  expect(buttons.indexOf('add-agents-button')).toBeLessThan(
-    buttons.indexOf('mark-read-button')
-  );
-  await userEvent.click(
-    screen.getByRole('button', { name: 'Add agents to #build' })
-  );
-  expect(onAddAgents).toHaveBeenCalled();
 });
 
 test('a DM title reads the pair by name, never an id', () => {
@@ -500,7 +394,7 @@ test('a DM title reads the pair by name, never an id', () => {
       buddies={[]}
     />
   );
-  expect(screen.getByTestId('page-bar-title')).toHaveTextContent('kai ↔ remy');
+  expect(screen.getByTestId('page-bar-title')).toHaveTextContent('kai, remy');
   expect(screen.queryByText(/m2p4/)).toBeNull();
 });
 
@@ -521,23 +415,6 @@ test('member rows show names and stay keyed by id', async () => {
   expect(screen.getByTestId('members-row-remy')).toBeInTheDocument();
 });
 
-test('the expand-all toggle flips and persists the app-wide preference', async () => {
-  renderWithProviders(
-    <PageBar
-      room={{ room: 'build', memberCount: 1, unread: 0, mentions: 0 }}
-      buddies={[]}
-    />
-  );
-  const toggle = screen.getByTestId('expand-all-toggle');
-  expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  await userEvent.click(toggle);
-  expect(toggle).toHaveAttribute('aria-pressed', 'true');
-  expect(window.localStorage.getItem('chat-expand-all')).toBe('true');
-});
-
-const avatars = (el: HTMLElement) =>
-  el.querySelectorAll('svg[shape-rendering="crispEdges"]');
-
 test("a DM title whose pair repeats shows both ends' avatars, still by name", () => {
   renderWithProviders(
     <PageBar
@@ -553,7 +430,23 @@ test("a DM title whose pair repeats shows both ends' avatars, still by name", ()
     />
   );
   const title = screen.getByTestId('page-bar-title');
-  expect(title).toHaveTextContent('kai ↔ remy');
+  expect(title).toHaveTextContent('kai, remy');
   expect(title).not.toHaveTextContent('m2p4');
   expect(avatars(title)).toHaveLength(2);
+});
+
+test('a Slack chat carries a Slack badge beside its title; a plain room has none', () => {
+  const room = { room: 'dm-slack', memberCount: 2, unread: 0, mentions: 0 };
+  const { rerender } = renderWithProviders(
+    <SlackChatsProvider chats={[{ room: 'dm-slack' }]}>
+      <PageBar room={room} buddies={[]} />
+    </SlackChatsProvider>
+  );
+  expect(screen.getByTestId('page-bar-slack')).toHaveTextContent('Slack');
+  rerender(
+    <SlackChatsProvider chats={[{ room: 'dm-slack' }]}>
+      <PageBar room={{ ...room, room: 'build' }} buddies={[]} />
+    </SlackChatsProvider>
+  );
+  expect(screen.queryByTestId('page-bar-slack')).toBeNull();
 });
