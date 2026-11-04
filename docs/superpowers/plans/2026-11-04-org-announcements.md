@@ -169,7 +169,7 @@ Expected: PASS
 
 - [ ] **Step 9: Run the board's type check**
 
-Run: `bun run check --filter=board` from the repo root, or the board's typecheck script if that filter does not exist.
+Run: `cd apps/board && bun run typecheck`
 Expected: no errors, which confirms every `MaterializeDeps` fake was updated.
 
 - [ ] **Step 10: Commit**
@@ -293,12 +293,12 @@ Under "What it adds", in plain words: org owners and admins can send everyone a 
 - [ ] **Step 8: Regenerate the reference docs**
 
 Run: `bun run docs:gen`
-Expected: a new `website/docs/rt/reference/team/announce.mdx` (or the sibling of the other `team` pages), and no other unrelated diff.
+Expected: a new `website/docs/rt/reference/team/announce.mdx`, and no unrelated diff.
 
 - [ ] **Step 9: Run the tests to verify they pass**
 
-Run: `bun test lib/team/__tests__/announce.test.ts commands/__tests__/team.test.ts lib/__tests__/command-tree.test.ts`
-Expected: PASS. If `lib/__tests__/command-tree.test.ts` does not exist, drop it from the command.
+Run: `bun test lib/team/__tests__/announce.test.ts commands/__tests__/team.test.ts lib/__tests__/command-tree-def.test.ts`
+Expected: PASS
 
 - [ ] **Step 10: Commit**
 
@@ -317,7 +317,7 @@ No code unless this finds a bug. Everything runs from source against a local rel
 
 Run from the repo root, using a free port and a path in the scratchpad:
 `SWITCHBOARD_ADMIN_TOKEN=local SWITCHBOARD_DB=<scratch>/sb.db PORT=<port> bun apps/board/switchboard/server.ts`
-Expected: `curl http://127.0.0.1:<port>/healthz` prints `ok`. Read `server.ts` for the exact port variable.
+Expected: `curl http://127.0.0.1:<port>/healthz` prints `ok`.
 
 - [ ] **Step 2: Register two boards, and post an announcement as the first**
 
