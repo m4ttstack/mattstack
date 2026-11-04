@@ -37,12 +37,16 @@ drawn in the failure colour beside the buttons in place of the subtext. The
 app's own error is not drawn under it, since rt's re-read carries the failure.
 It stays open and holds Done. An app older than `failed` reads the tone as
 unknown, skips `secondary` and draws Retry with the failure as a plain
-reason. `rt tools install` records its outcome in the accounts prepare record
-(`recordToolInstall` in `lib/setup/prepare.ts`), so a press reaches that row
-the way a background install does: a failure adds or replaces the tool's
-`failed` entry, a success removes it, a missing record is written as already
-ended, and a running one is left to its owner. A tools row whose action is an
-install also carries `waiting`, so a press shows Installing. `detail` is a string in the tray, never null: a plain tools row (a
+reason. `rt tools install` records its outcome in the accounts prepare
+record's `pressFailed` list (`recordToolInstall` in `lib/setup/prepare.ts`), so
+a press reaches that row the way a background install does: a failure adds or
+replaces the tool's entry, a success removes it, a missing record is written as
+already ended, and a running one is left to its owner. `failed` belongs to
+`runPrepare` and `pressFailed` to the press; `installFailure` reads only
+`failed`, so connect rows never change for a press, `toolRow` reads
+`pressFailed` first, and `runPrepare` carries `pressFailed` across its writes.
+Neither counts once the tool reads ready. A tools row whose action is an install
+also carries `waiting`, so a press shows Installing. `detail` is a string in the tray, never null: a plain tools row (a
 tool simply missing or signed out) sends an empty one, so no reason repeats
 its button. `toolsRows` does that itself, since `extraRow` and `signInRow`
 also draw the connect screen, whose rows keep their reason. `rt setup prepare
