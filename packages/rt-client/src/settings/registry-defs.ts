@@ -835,14 +835,6 @@ const ROWS: readonly SettingDef[] = [
 
   // --- chat (RT-48 Task 7) -------------------------------------------------
   {
-    key: "chat.handle",
-    type: "string",
-    scopes: ["user"],
-    defaultNote: "Taken from the pane title, the repo, or this Mac.",
-    merge: "replace",
-    description: "Explicit rt chat handle for this developer on this machine; overrides the derived <repo>-<dir> handle when set.",
-  },
-  {
     key: "chat.humanHandle",
     type: "string",
     scopes: ["user"],

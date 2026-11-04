@@ -234,13 +234,13 @@ export function unwrap<T>(res: RtResponse<T>, label: string): T {
 // ─── handle derivation ────────────────────────────────────────────────────────
 //
 // Order: the session file (signed in), else the live identity signed in at
-// this herdr pane (see paneIdentity) → --as → chat.handle (user scope) →
+// this herdr pane (see paneIdentity) → --as →
 // herdr pane title (HERDR_PANE_ID) → <rt-repo-name>-<cwd-basename> → cwd
 // relative to $HOME → <user>-<host>. Position 0 wins over --as for every
 // verb but sign-in, which resolves its base handle through the --as-first
 // chain below BEFORE any session file exists — see resolveBaseHandle.
 //
-// Sign-in itself stops after chat.handle and draws a first name from
+// Sign-in itself stops after --as and draws a first name from
 // lib/chat-names.ts instead (see resolveSignInRequest): the pane title
 // of every Claude pane is the same "Claude Code", and a directory handle
 // is nothing a human would call an agent by. The directory chain stays
@@ -320,8 +320,8 @@ function herdrPaneHandle(): string | null {
 /**
  * Sign-in's request. `--as` continues the identity it names: the daemon
  * resolves a name or an id. A typed name live in another session gets a new
- * id with a suffixed name; a typed id live elsewhere is refused. `chat.handle` asks for a fresh
- * identity with that display name. Neither means a pool draw. A repeat
+ * id with a suffixed name; a typed id live elsewhere is refused. Neither
+ * flag means a pool draw. A repeat
  * sign-in from the same session keeps its id daemon-side, by session id.
  * `--name` asks for a fresh identity with that display name and never
  * continues one (the MCP chat_sign_in `as` spawns it).
@@ -352,27 +352,13 @@ function resolveSignInRequest(args: string[]): { baseHandle?: string; continue?:
     requireValidName("handle", named);
     return { baseHandle: named };
   }
-  const fromSetting = readChatHandleSetting();
-  return fromSetting ? { baseHandle: fromSetting } : {};
-}
-
-function readChatHandleSetting(): string | undefined {
-  try {
-    const resolved = getSetting<string>("chat.handle");
-    return typeof resolved.value === "string" && resolved.value ? resolved.value : undefined;
-  } catch {
-    return undefined;
-  }
+  return {};
 }
 
 /**
- * `--pane` sign-in's request is `--as` only, never chat.handle: that
- * setting names the INVOKING process's own preferred handle, and this
- * process isn't the one signing in -- a different pane's session is. Falling
- * through to it would hand the invoker's name to whatever pane happened to
- * be signed in this way, silently colliding the two. No "prior session"
- * fallback either, for the same reason: this process has no session of its
- * own to have a prior handle for.
+ * `--pane` sign-in's request is `--as` only. No "prior session" fallback:
+ * this process isn't the one signing in, so it has no session of its own to
+ * have a prior handle for.
  */
 function resolvePaneRequest(args: string[]): { continue?: string } {
   if (args.includes("--name")) fail({ title: "A pane sign-in continues an identity", why: "Signing a pane in can pick up an identity it had, but cannot start a fresh one under a new name.", next: out.cmd("rt chat sign-in --pane <pane> --as <name>") });
@@ -382,16 +368,13 @@ function resolvePaneRequest(args: string[]): { continue?: string } {
   return { continue: explicit };
 }
 
-/** The --as-first chain (positions 1-6): what resolveHandle falls back to for an unsigned-in session. Sign-in never reads it; its request comes from resolveSignInRequest. */
+/** The --as-first chain: what resolveHandle falls back to for an unsigned-in session. Sign-in never reads it; its request comes from resolveSignInRequest. */
 function resolveBaseHandle(args: string[]): string {
   const explicit = flagValue(args, "--as");
   if (explicit) {
     requireValidName("handle", explicit);
     return explicit;
   }
-
-  const fromSetting = readChatHandleSetting();
-  if (fromSetting) return fromSetting;
 
   const fromPane = herdrPaneHandle();
   if (fromPane) return fromPane;
