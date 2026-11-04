@@ -141,7 +141,7 @@ export interface HomeSnapshotHandle {
   status(): SnapshotStatus;
   /** Runs `fn` under the git lock the commit cycle, pull and push share, so work that checks out another branch never lands mid-commit. */
   locked<T>(fn: () => Promise<T>): Promise<T>;
-  /** Resolves once no commit cycle, pull, push or post-pull hook (and the git children they started) is in flight; at once when idle. `stop` keeps new timer-driven work from starting, not work already running. */
+  /** Resolves once no commit cycle, pull, push or post-pull hook (and the git children they started) is in flight; at once when idle. The up-to-date hook is not waited for: it only reads the clone. `stop` keeps new timer-driven work from starting, not work already running. */
   settled(): Promise<void>;
   /** Resolves once startup arming (the enabled + is-a-repo checks) has settled. Not needed by the daemon (which just fires and forgets); tests await it so assertions don't race the async repo check. */
   ready: Promise<void>;
@@ -208,6 +208,8 @@ export interface SnapshotSpec {
     intervalSec: number;
     /** Fired after a pull that moved HEAD, outside the git lock. */
     onPulled?: (outcome: "fast-forwarded" | "rebased") => Promise<void>;
+    /** Fired after a pull that found nothing new, outside the git lock, except a push's own pull (`converge:false`). */
+    onUpToDate?: () => Promise<void>;
     /** Runs after the fetch with the remote-tracking ref and the checked-out branch; a non-null answer holds the pull at the current commit. */
     gate?: (ref: string, branch: string) => Promise<GateVerdict | null>;
     /** Fired under the git lock after every pull the gate held with a moved verdict, except a push's own pull (`converge:false`). */
@@ -509,6 +511,7 @@ export function teamSnapshotSpec(
     ownedRoots: string[];
     readToken?: (p: Probes, remote: string) => Promise<string | null>;
     onPulled?: (outcome: "fast-forwarded" | "rebased") => Promise<void>;
+    onUpToDate?: () => Promise<void>;
     onMoved?: (dataBranch: string) => Promise<void>;
   },
 ): SnapshotSpec {
@@ -552,7 +555,7 @@ export function teamSnapshotSpec(
       };
     },
     watch: teamScope,
-    pull: { intervalSec: opts.pullIntervalSec, onPulled: opts.onPulled, onMoved: opts.onMoved, gate: (ref, branch) => layoutGate(opts.probes.exec, repoDir, ref, branch) },
+    pull: { intervalSec: opts.pullIntervalSec, onPulled: opts.onPulled, onUpToDate: opts.onUpToDate, onMoved: opts.onMoved, gate: (ref, branch) => layoutGate(opts.probes.exec, repoDir, ref, branch) },
     pullOnly: opts.ownedRoots.length === 0,
     tokenFor: () => readToken(opts.probes, opts.originUrl),
     originUrl: opts.originUrl,
@@ -966,6 +969,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
         await runPullHook(outcome);
       }
     }
+    if (result.outcome === "up-to-date" && opts.converge !== false) await runUpToDateHook();
     return result;
   }
 
@@ -996,6 +1000,15 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       }
     } catch (err) {
       deps.log.warn({ err, id: spec.id }, `${label}: post-pull hook failed; the pull itself stands`);
+    }
+  }
+
+  /** Outside the git lock and awaited, like the post-pull hook. Never throws. */
+  async function runUpToDateHook(): Promise<void> {
+    try {
+      await spec.pull?.onUpToDate?.();
+    } catch (err) {
+      deps.log.warn({ err, id: spec.id }, `${label}: up-to-date hook failed; the pull itself stands`);
     }
   }
 

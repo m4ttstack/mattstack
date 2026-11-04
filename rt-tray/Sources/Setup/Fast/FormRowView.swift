@@ -232,6 +232,8 @@ struct FormRowView: View {
             subtextHint
         } else if row.state == .done && progressLine == nil {
             trailingDone
+        } else if row.tone == .failed && progressLine == nil {
+            failedLine
         } else if row.subtext.isEmpty {
             controlsLine
         } else {
@@ -251,6 +253,39 @@ struct FormRowView: View {
         notes
     }
 
+    private var failedLine: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                failedControls
+                failureText.lineLimit(1).fixedSize()
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                failedControls
+                failureText.fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: FormRowStyle.hintWidth, alignment: .leading)
+                    .hintSpill(style == .labelled)
+            }
+        }
+        .frame(minHeight: 28)
+    }
+
+    private var failedControls: some View {
+        HStack(spacing: 10) {
+            if let action = row.action { button(action) }
+            if let press = row.secondaryPress, let secondary = press.action, FormActionRunner.control(for: secondary) != .none {
+                Button(secondary.label) { onAction(press, nil, nil) }
+                    .buttonStyle(FastSecondaryButtonStyle(muted: true))
+                    .fixedSize()
+                    .accessibilityIdentifier(AXID.fastRowAction(row.id, "secondary"))
+            }
+        }
+    }
+
+    private var failureText: some View {
+        Text(row.detail).font(.system(size: 11)).foregroundColor(FastTheme.failure)
+            .accessibilityIdentifier(AXID.fastRowReason(row.id))
+    }
+
     private var controlsLine: some View {
         HStack(spacing: 10) {
             if let line = progressLine {
@@ -258,7 +293,7 @@ struct FormRowView: View {
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier(AXID.fastRowWaiting(row.id))
             }
-            if let action = row.action { button(action) }
+            if let action = row.action, !(waiting != nil && action.type == .install) { button(action) }
         }
     }
 
@@ -293,7 +328,7 @@ struct FormRowView: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier(AXID.fastRowReason(row.id))
         }
-        if let error, !error.isEmpty {
+        if let error = row.shownError(error) {
             FastHint(error, symbol: "exclamationmark.circle", tint: FastTheme.warning, textWidth: FormRowStyle.hintWidth)
                 .hintSpill(style == .labelled)
                 .accessibilityElement(children: .combine)
@@ -303,7 +338,7 @@ struct FormRowView: View {
 
     /// rt's word on why a row still waits on the person. While its action runs, the spinner's line says it instead.
     private var reason: String? {
-        guard row.state == .todo, waiting == nil, !row.detail.isEmpty else { return nil }
+        guard row.state == .todo, waiting == nil, !row.detail.isEmpty, row.tone != .failed else { return nil }
         return row.detail
     }
 
@@ -375,7 +410,8 @@ struct FormRowView: View {
                     Button(label) { onAction(row, nil, nil) }.buttonStyle(FastPrimaryButtonStyle(size: .small))
                 case (.labelled, false), (.stacked, false):
                     Button { onAction(row, nil, nil) } label: {
-                        if let symbol = Self.buttonSymbol(row.id), let glyph = FastLucideGlyph(symbol: symbol, box: 13) {
+                        if let symbol = row.tone == .failed ? "arrow.counterclockwise" : Self.buttonSymbol(row.id),
+                           let glyph = FastLucideGlyph(symbol: symbol, box: 13) {
                             Label { Text(label) } icon: { glyph }
                         } else {
                             Text(label)

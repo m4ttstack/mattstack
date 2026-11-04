@@ -18,8 +18,9 @@ paths:
 
 Setup is screens drawn from one verb and one run. `rt setup form` (hidden,
 `commands/setup-form.ts`, `lib/setup/form.ts`) answers which screen setup is
-on (`formStage`: macos, path, invite, waiting, connect, this-mac, running,
-paused, ready) and each section's rows (`--section macos|invite|restore|connect|this-mac|create`).
+on (`formStage`: macos, path, invite, waiting, connect, this-mac, tools, running,
+paused, ready) and each section's rows (`--section macos|invite|restore|connect|this-mac|tools|create`).
+The `tools` stage, its rows and org requirements are in `setup-tools.md`.
 The tray draws what it returns: no decision in Swift about which rows a
 member needs, where setup resumes or a row's state. A run still going
 outranks the macos stage, and P1 skips rt's read for the cards only on a Mac
@@ -74,7 +75,7 @@ A required row with a fault must offer an action that can clear it: an
 actionless required row is an Install nobody can reach. On the fast screens
 a `steps` action opens rt's steps in a sheet (`FormActionRunner.sheet`), a
 `choose` wider than a two-option segment opens a picker sheet, and a todo
-row shows its `detail` as rt's reason under the subtext. An action type the
+row with a `detail` shows it as rt's reason under the subtext. An action type the
 app does not know draws "Needs a newer mattstack", and its row still holds
 the footer while rt counts it open. A pack tool's Download link is offered
 only over https; any other `install.url` falls back to steps. A connect action may
@@ -96,7 +97,7 @@ Swift side too.
 On an unfinished Mac the tray asks macOS for nothing before the macos
 screen: no notification prompt, login item or Mission Control notice at
 launch (`LaunchPrompts`). The login item registers when setup finishes, or
-whenever a run lands on ready. App updates are held while
+whenever a run lands on ready or tools. App updates are held while
 setup runs, window or not.
 
 ## Setup after an update

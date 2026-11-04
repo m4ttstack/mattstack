@@ -253,6 +253,12 @@ describe("composePlan", () => {
     expect(plan.team).toEqual({ slug: "acme", name: "acme", mode: "none" });
   });
 
+  test("with several clones the plan reads the first org by name, whatever order they were listed in", async () => {
+    const p = fakeProbes({ exec: readyExec, tray: grantedTray });
+    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["zeta", "acme"] });
+    expect(plan.team).toEqual({ slug: "acme", name: "acme", mode: "none" });
+  });
+
   test("a group builder that throws degrades to one required error row with a re-check action, and canInstall stays false", async () => {
     const p = fakeProbes({
       exec: (argv) => {

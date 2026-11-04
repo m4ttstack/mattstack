@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { availableParallelism } from "os";
+import { MAX_FAILED_TESTS, MAX_TEST_NAME_LENGTH } from "../../../lib/check/summary.ts";
 import { judgeRun, parseTestOutput, planLocalCheck, processCount, runPlan, stopGroups, summarise, type Plan } from "../local-check.ts";
 import { unitDirs } from "../test-scope.ts";
 
@@ -146,6 +147,24 @@ Ran 44 tests across 9 files. [3.00ms]
     expect(parseTestOutput(fixture).failures).toEqual(["lib/__tests__/cart.test.ts", "lib/daemon/__tests__/gate-push.test.ts"]);
   });
 
+  test("names each failing test without its timing", () => {
+    expect(parseTestOutput(fixture).failedTests).toEqual(["cart totals > rounds up", "gate push > refuses a moved head", "gate push > names the override"]);
+  });
+
+  test("keeps brackets that are part of a test's name", () => {
+    expect(parseTestOutput("(fail) reads [brackets] in a name [1.25ms]\n").failedTests).toEqual(["reads [brackets] in a name"]);
+  });
+
+  test("a test bun lists again at the end of a long run is named once", () => {
+    const relisted = fixture.replace(" 41 pass", "(fail) cart totals > rounds up [0.09ms]\n\n 41 pass");
+    expect(parseTestOutput(relisted).failedTests).toEqual(["cart totals > rounds up", "gate push > refuses a moved head", "gate push > names the override"]);
+  });
+
+  test("reads a failing test's name through colour codes", () => {
+    const coloured = fixture.replace("(fail) cart totals > rounds up [0.09ms]", "\x1b[31m(fail)\x1b[0m cart totals > rounds up \x1b[2m[0.09ms]\x1b[0m");
+    expect(parseTestOutput(coloured).failedTests).toContain("cart totals > rounds up");
+  });
+
   test("reads the file header behind a GitHub Actions group prefix", () => {
     const grouped = fixture.replaceAll("\nlib/", "\n::group::lib/");
     expect(parseTestOutput(grouped).failures).toEqual(["lib/__tests__/cart.test.ts", "lib/daemon/__tests__/gate-push.test.ts"]);
@@ -157,7 +176,7 @@ Ran 44 tests across 9 files. [3.00ms]
   });
 
   test("output with no summary line is not summarised", () => {
-    expect(parseTestOutput("bun test v1.4.3\nKilled\n")).toEqual({ passed: 0, failed: 0, failures: [], summarised: false });
+    expect(parseTestOutput("bun test v1.4.3\nKilled\n")).toEqual({ passed: 0, failed: 0, failures: [], failedTests: [], summarised: false });
   });
 
   test("a green run has no failures", () => {
@@ -165,22 +184,23 @@ Ran 44 tests across 9 files. [3.00ms]
       passed: 5,
       failed: 0,
       failures: [],
+      failedTests: [],
       summarised: true,
     });
   });
 
   test("a file that fails to load is named, though it has no (fail) line", () => {
-    expect(parseTestOutput(loadFailure)).toEqual({ passed: 1, failed: 1, failures: ["lib/__tests__/bad-import.test.ts"], summarised: true });
+    expect(parseTestOutput(loadFailure)).toEqual({ passed: 1, failed: 1, failures: ["lib/__tests__/bad-import.test.ts"], failedTests: [], summarised: true });
   });
 });
 
 describe("judgeRun", () => {
   test("a green exit with a summary is not red", () => {
-    expect(judgeRun(0, "\n 5 pass\n 0 fail\nRan 5 tests across 1 files. [3.00ms]\n")).toEqual({ red: false, passed: 5, failed: 0, failures: [] });
+    expect(judgeRun(0, "\n 5 pass\n 0 fail\nRan 5 tests across 1 files. [3.00ms]\n")).toEqual({ red: false, passed: 5, failed: 0, failures: [], failedTests: [] });
   });
 
   test("a process that dies with no summary counts one failure", () => {
-    expect(judgeRun(137, "bun test v1.4.3\n")).toEqual({ red: true, passed: 0, failed: 1, failures: [] });
+    expect(judgeRun(137, "bun test v1.4.3\n")).toEqual({ red: true, passed: 0, failed: 1, failures: [], failedTests: [] });
   });
 
   test("a non-zero exit beside a clean summary still counts one failure", () => {
@@ -199,6 +219,24 @@ describe("summarise", () => {
 
   test("selected counts the tests that ran, not the files picked", () => {
     expect(summarise("changed", [judgeRun(0, greenShard)], 87_000)).toEqual({ mode: "changed", selected: 2047, passed: 2047, failed: 0, durationMs: 87_000, failures: [] });
+  });
+
+  test("a red run names its failing tests once across the shards", () => {
+    const s = summarise("changed", [judgeRun(1, redShard), judgeRun(1, redShard), judgeRun(0, greenShard)], 90_000);
+    expect(s.failedTests).toEqual(["cart totals > rounds up"]);
+  });
+
+  test("a run with failures but no test names carries no failedTests", () => {
+    expect(summarise("changed", [judgeRun(137, "bun test v1.4.3\n")], 10)).not.toHaveProperty("failedTests");
+  });
+
+  test("the names are capped so the summary line stays small", () => {
+    const manyFails = Array.from({ length: MAX_FAILED_TESTS + 5 }, (_, i) => `(fail) test ${i} ${"x".repeat(MAX_TEST_NAME_LENGTH * 2)} [1.00ms]`).join("\n");
+    const s = summarise("changed", [judgeRun(1, `lib/a.test.ts:\n${manyFails}\n\n 0 pass\n 25 fail\n`)], 10);
+    expect(s.failedTests).toHaveLength(MAX_FAILED_TESTS);
+    expect(s.failedTests![0]).toHaveLength(MAX_TEST_NAME_LENGTH);
+    expect(s.failedTests![0]).toEndWith("...");
+    expect(JSON.stringify(s).length).toBeLessThan(5_000);
   });
 
   test("a red run never fails more tests than it selected", () => {
@@ -234,7 +272,7 @@ describe("stopGroups", () => {
 });
 
 describe("runPlan", () => {
-  const green = { red: false, passed: 1, failed: 0, failures: [] };
+  const green = { red: false, passed: 1, failed: 0, failures: [], failedTests: [] };
   const plan = (over: Partial<Plan> = {}): Plan => ({ mode: "full", buildClient: true, dirs: ["lib/"], changedArg: null, extra: [], processes: 2, ...over });
 
   test("the build finishes before any test process starts", async () => {

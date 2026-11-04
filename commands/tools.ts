@@ -15,7 +15,9 @@ import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, exitUserError } from "../lib/errors.ts";
 import * as out from "../lib/ui/out.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
+import { warn } from "../lib/ui/warn.ts";
 import { readIntent, orgRefFromIntent } from "../lib/setup/intent.ts";
+import { recordToolInstall } from "../lib/setup/prepare.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { readPackRequirements, type PackRequirements } from "../lib/setup/requirements.ts";
 import { BREW_FORMULAE, VENDOR_INSTALLERS, claudeConfigDirs, installTool, setupTool } from "../lib/setup/tools-install.ts";
@@ -50,6 +52,15 @@ async function pickTool(message: string, names: string[]): Promise<string | null
   return filterableSelect({ message, options: names.map((n) => ({ value: n, label: n })), stderr: true });
 }
 
+/** The install has already happened, so a record that cannot be written never changes its answer. */
+function noteInstall(p: Probes, tool: string, failure: string | null): void {
+  try {
+    recordToolInstall(p, tool, failure);
+  } catch (err) {
+    warn("tools", `could not record the ${tool} install: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 export async function toolsInstall(args: string[], _ctx: CommandContext = {}, p: Probes = createRealProbes()): Promise<void> {
   const json = args.includes("--json");
   let t = tool(args);
@@ -71,9 +82,11 @@ export async function toolsInstall(args: string[], _ctx: CommandContext = {}, p:
   try {
     result = await installTool(p, t, reqs);
   } catch (err) {
+    noteInstall(p, t, err instanceof Error ? err.message : String(err));
     if (err instanceof UserActionableError) exitUserError(err, json);
     throw err;
   }
+  noteInstall(p, t, result.ok ? null : result.detail);
 
   if (json) {
     out.json(envelope({ via: result.via, ok: result.ok, detail: result.detail }));

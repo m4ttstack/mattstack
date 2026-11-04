@@ -50,7 +50,7 @@ tests in a separate call, as the `unit` job does; a `skip` runs nothing and
 `RT_CHECK_FULL=1` or a `full` decision builds `packages/rt-client` and runs
 the whole suite. Stdout carries
 only the last-line JSON summary (`mode: "error"` when it throws before running), so anything printed there by a change to
-this script breaks `rt check`. It reads bun's `N pass` / `N fail` lines and
-the file header before each `(fail)`, so keep `parseTestOutput` in step with
+this script breaks `rt check`. It reads bun's `N pass` / `N fail` lines, each
+`(fail)` line's test name and the file header before it, so keep `parseTestOutput` in step with
 bun's output on a bun bump (a file that fails to load has no `(fail)` line, only `# Unhandled error between tests`). Its status is the pusher's attestation; the merge
 queue still lands the tree.
