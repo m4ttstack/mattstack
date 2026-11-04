@@ -17,6 +17,7 @@ function harness(opts: { run?: Partial<RunResult>; dirty?: boolean; onRemote?: b
       "status --porcelain": opts.dirty ? " M a.ts\n" : "",
       "symbolic-ref refs/remotes/origin/HEAD": "refs/remotes/origin/main\n",
       "merge-base HEAD origin/main": "base456\n",
+      "rev-parse --verify --end-of-options origin/dev^{commit}": "dev789\n",
     };
     return key in out ? { code: 0, stdout: out[key]!, stderr: "" } : { code: 1, stdout: "", stderr: "" };
   };
@@ -114,6 +115,15 @@ describe("checkTree", () => {
     expect(run.result).toMatchObject({ verdict: "green", dirty: true });
     expect(run.status).toEqual({ posted: false, reason: "dirty-tree" });
     expect(h.store.size).toBe(0);
+    expect(h.gh).toHaveLength(0);
+  });
+
+  test("a bad base posts nothing and says the check did not run", async () => {
+    const h = harness();
+    const run = await checkTree("/tree", { post: true, base: "origin/nope" }, h.deps);
+    expect(run.result).toMatchObject({ verdict: "error", reason: "origin/nope is not a commit" });
+    expect(run.status).toEqual({ posted: false, reason: "not-run" });
+    expect(h.commands).toHaveLength(0);
     expect(h.gh).toHaveLength(0);
   });
 

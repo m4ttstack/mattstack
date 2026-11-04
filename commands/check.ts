@@ -6,7 +6,7 @@
  */
 import { checkTree, realCheckDeps, type CheckRun } from "../lib/check/index.ts";
 import { describe, testCount } from "../lib/check/summary.ts";
-import type { CheckResult } from "../lib/check/run.ts";
+import type { Configured } from "../lib/check/run.ts";
 import type { StatusOutcome } from "../lib/check/status.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { repoLabel } from "../lib/repo-label.ts";
@@ -14,8 +14,6 @@ import * as out from "../lib/ui/out.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import { withTransientStep } from "../lib/ui/transient-step.ts";
 import type { Block } from "../lib/ui/protocol.ts";
-
-type Configured = Extract<CheckResult, { configured: true }>;
 
 export type CheckCommandDeps = {
   run: (tree: string, opts: { full: boolean; base?: string; post: boolean }) => Promise<CheckRun>;
@@ -36,6 +34,7 @@ const NOT_POSTED: Record<Exclude<StatusOutcome, { posted: true }>["reason"], str
   "unknown-host": "rt does not know how to post a result to this repo's host",
   "gh-failed": "The result could not be posted",
   "head-moved": "The branch moved while the check ran, so the result was not posted",
+  "not-run": "The check did not run, so the result was not posted",
 };
 
 function statusBlock(status: StatusOutcome | null, sha: string): Block {
@@ -46,7 +45,7 @@ function statusBlock(status: StatusOutcome | null, sha: string): Block {
 
 function failureCount(r: Configured): string {
   const { failed, selected } = r.summary;
-  if (failed === null) return "The check failed";
+  if (!failed) return "The check failed";
   return selected === null ? `${testCount(failed)} failed` : `${failed} of ${testCount(selected)} failed`;
 }
 

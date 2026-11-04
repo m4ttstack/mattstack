@@ -61,7 +61,7 @@ export function describe(verdict: CheckVerdict, summary: CheckSummary, machine: 
     if (summary.mode === "exit") return clip(`exit 0 in ${time} on ${machine}`);
     return clip(`${summary.mode}: ${testCount(summary.selected ?? 0)} in ${time} on ${machine}`);
   }
-  if (summary.failed === null) return clip(`red: command failed in ${time} on ${machine}`);
+  if (!summary.failed) return clip(`red: command failed in ${time} on ${machine}`);
   const of = summary.selected === null ? "" : ` of ${summary.selected}`;
   const first = summary.failures[0];
   const tail = first ? `, ${first}${summary.failures.length > 1 ? ` +${summary.failures.length - 1}` : ""}` : "";

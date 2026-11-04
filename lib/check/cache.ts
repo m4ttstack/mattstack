@@ -2,11 +2,10 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { rtDir } from "../rt-paths.ts";
 import { warn } from "../ui/warn.ts";
-import type { CheckResult } from "./run.ts";
+import type { Configured } from "./run.ts";
 
 export const CHECK_CACHE_TTL_MS = 3_600_000;
 
-type Configured = Extract<CheckResult, { configured: true }>;
 type Entry = { at: number; result: Configured };
 
 export type CacheDeps = {

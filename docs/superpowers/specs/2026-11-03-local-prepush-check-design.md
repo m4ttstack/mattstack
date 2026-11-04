@@ -181,7 +181,8 @@ Runs the configured command in the current tree (or `--tree`, as the MCP
 tools take it) and prints one step while it runs, then a result line:
 `changed: 95 tests in 41s` or `red: 2 of 95 failed`, with the failing files
 as a `verbatim` block. `--no-status` skips posting. `--base` overrides the
-merge base, for a stacked branch. `--json` prints the summary object plus
+merge base, for a stacked branch; a ref that is not a commit is an error
+that runs nothing and posts nothing. `--json` prints the summary object plus
 `{status: {posted, context, url?}}`, frozen.
 
 Posting a status from the verb only happens when HEAD is already on the

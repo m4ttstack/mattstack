@@ -42,6 +42,9 @@ group("describe", () => {
   test("an exit-only red never prints null", () => {
     expect(describe("red", { mode: "exit", selected: null, passed: null, failed: null, durationMs: 12_000, failures: [] }, "hilbert")).toBe("red: command failed in 12s on hilbert");
   });
+  test("a red with no failures counted reads as a failed command", () => {
+    expect(describe("red", { ...green, passed: 0, selected: 0, failed: 0 }, "hilbert")).toBe("red: command failed in 41s on hilbert");
+  });
   test("a timeout names its limit", () => {
     expect(describe("error", green, "hilbert", 600)).toBe("error: timed out after 600s");
   });

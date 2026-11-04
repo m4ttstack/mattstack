@@ -85,6 +85,26 @@ describe("rt check", () => {
     expect(process.exitCode).toBe(1);
   });
 
+  test("a red with no failures counted reads as the check failing, never 0 tests", async () => {
+    for (const failed of [0, null]) {
+      io.restore();
+      io = captureOut();
+      const r = result({ verdict: "red", summary: { mode: "exit", selected: 95, passed: null, failed, durationMs: 1000, failures: [] } });
+      const { d } = deps({ result: r, status: null });
+      await checkCommand([], ctx, d);
+      expect(io.stderr()).toStartWith("The check failed");
+    }
+  });
+
+  test("a base that is no commit fails and says the check did not run", async () => {
+    const r = result({ verdict: "error", base: "origin/nope", reason: "origin/nope is not a commit", notRun: true });
+    const { d } = deps({ result: r, status: { posted: false, reason: "not-run" } });
+    await checkCommand(["--base", "origin/nope"], ctx, d);
+    expect(io.stderr()).toStartWith("The check did not finish: origin/nope is not a commit");
+    expect(io.stdout()).toContain("The check did not run, so the result was not posted");
+    expect(process.exitCode).toBe(1);
+  });
+
   test("one failing test with no selection reads singular", async () => {
     const r = result({ verdict: "red", summary: { mode: "changed", selected: null, passed: null, failed: 1, durationMs: 1000, failures: [] } });
     const { d } = deps({ result: r, status: null });

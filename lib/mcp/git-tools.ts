@@ -4,7 +4,7 @@ import { rtCommand, type Commands } from "../../packages/rt-client/src/index.ts"
 import { ensureLease } from "../ci/lease-guard.ts";
 import { checkTree, realCheckDeps, type CheckRun } from "../check/index.ts";
 import { postStatus } from "../check/status.ts";
-import { parseSummary } from "../check/summary.ts";
+import { stopped } from "../check/run.ts";
 import { explainError } from "../explain-error.ts";
 import { loadRepoIndex } from "../repo-index.ts";
 import { rtSelfArgv } from "../rt-self.ts";
@@ -622,11 +622,7 @@ async function headSha(path: string, git: GitRunner): Promise<string> {
 
 /** A check that threw ran nothing, so it is an error verdict carrying the reason. */
 function thrownCheck(e: unknown, sha: string): CheckRun {
-  const reason = e instanceof Error ? e.message : String(e);
-  return {
-    result: { configured: true, verdict: "error", summary: parseSummary("", -1, 0), sha, base: "", dirty: false, command: "", reason, outputTail: "", fromCache: false },
-    status: null,
-  };
+  return { result: stopped(e instanceof Error ? e.message : String(e), { sha, dirty: false }, ""), status: null };
 }
 
 async function runPushCheck(path: string, deps: GitToolDeps, signal: AbortSignal | undefined): Promise<CheckRun> {
@@ -653,6 +649,10 @@ function refusalWhy(verdict: "red" | "error"): string {
 async function postPushed(run: CheckRun, path: string, sha: string, deps: GitToolDeps): Promise<void> {
   const result = run.result;
   if (!result.configured) return;
+  if (result.notRun) {
+    run.status = { posted: false, reason: "not-run" };
+    return;
+  }
   if (result.dirty) {
     run.status = { posted: false, reason: "dirty-tree" };
     return;

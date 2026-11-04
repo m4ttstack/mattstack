@@ -5,6 +5,8 @@ import { readConfig, runCheck, treeState, type RunDeps } from "../run.ts";
 
 type Script = Record<string, { code?: number; stdout?: string }>;
 
+const VERIFY_FEAT = "rev-parse --verify --end-of-options origin/feat^{commit}";
+
 function fakeGit(script: Script = {}, calls: string[] = []): GitRunner {
   const base: Script = {
     "rev-parse --verify HEAD": { stdout: "abc123\n" },
@@ -121,6 +123,14 @@ describe("runCheck", () => {
     expect(r).not.toHaveProperty("timedOutAfter");
   });
 
+  test("a summary with mode error is an error whatever the exit code", async () => {
+    for (const exitCode of [1, 0]) {
+      const { deps } = harness({ exitCode, stdout: '{"mode":"error","selected":0,"passed":0,"failed":0,"durationMs":5,"failures":[]}\n' });
+      const r = await runCheck("/tree", {}, deps);
+      expect(r).toMatchObject({ verdict: "error", reason: "the check stopped before it finished" });
+    }
+  });
+
   test("a dirty tree gates but is not posted", async () => {
     const { deps } = harness({}, fakeGit({ "status --porcelain": { stdout: " M lib/x.ts\n" } }));
     const r = await runCheck("/tree", {}, deps);
@@ -129,10 +139,18 @@ describe("runCheck", () => {
 
   test("--base overrides the merge base", async () => {
     const calls: string[] = [];
-    const { deps, execCalls } = harness({}, fakeGit({}, calls));
+    const { deps, execCalls } = harness({}, fakeGit({ [VERIFY_FEAT]: { stdout: "abc\n" } }, calls));
     await runCheck("/tree", { base: "origin/feat" }, deps);
     expect(execCalls[0]!.opts?.env?.RT_CHECK_BASE).toBe("origin/feat");
     expect(calls.some((c) => c.startsWith("merge-base"))).toBe(false);
+    expect(calls).toContain(VERIFY_FEAT);
+  });
+
+  test("a --base that is no commit is an error that runs nothing and is marked not run", async () => {
+    const { deps, execCalls } = harness();
+    const r = await runCheck("/tree", { base: "origin/feat" }, deps);
+    expect(execCalls).toHaveLength(0);
+    expect(r).toMatchObject({ verdict: "error", base: "origin/feat", reason: "origin/feat is not a commit", notRun: true });
   });
 
   test("a failed merge base is an error and runs nothing", async () => {

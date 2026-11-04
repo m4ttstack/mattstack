@@ -4,7 +4,7 @@ import { isGitLabRemote } from "../enrich.ts";
 import { repoHost, repoLabelQualified } from "../repo-label.ts";
 import { runCapture } from "../subprocess.ts";
 import { warn } from "../ui/warn.ts";
-import type { CheckResult } from "./run.ts";
+import type { Configured } from "./run.ts";
 import { describe, type CheckVerdict } from "./summary.ts";
 
 export const STATUS_CONTEXT = "rt/local-check";
@@ -17,7 +17,7 @@ export type StatusOutcome =
   | { posted: true; context: string; state: StatusState; description: string }
   | {
       posted: false;
-      reason: "dirty-tree" | "gitlab-not-supported" | "unknown-host" | "gh-failed" | "not-on-remote" | "head-moved";
+      reason: "dirty-tree" | "gitlab-not-supported" | "unknown-host" | "gh-failed" | "not-on-remote" | "head-moved" | "not-run";
       detail?: string;
     };
 
@@ -32,7 +32,7 @@ export function stateFor(verdict: CheckVerdict): StatusState {
 export async function postStatus(
   identity: string,
   sha: string,
-  result: Extract<CheckResult, { configured: true }>,
+  result: Configured,
   deps: StatusDeps,
 ): Promise<StatusOutcome> {
   if (result.dirty) return { posted: false, reason: "dirty-tree" };

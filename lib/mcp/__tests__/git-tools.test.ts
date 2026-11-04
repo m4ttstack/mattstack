@@ -505,6 +505,12 @@ describe("git_push runs the repo's check", () => {
     expect(r.ok).toBe(true);
     expect(r.body).toMatchObject({ pushed: true, check: { status: { posted: false, reason: "gh-failed" } } });
   });
+  test("a check that never ran is never posted, even under allowRed", async () => {
+    const t = setup(checkReturning(run({ verdict: "error", notRun: true, reason: "could not read HEAD" })), { allowRed: true });
+    const r = await t.call();
+    expect(t.posts).toEqual([]);
+    expect(r.body).toMatchObject({ pushed: true, check: { status: { posted: false, reason: "not-run" } } });
+  });
   test("a dirty tree pushes if green but never posts", async () => {
     const t = setup(checkReturning(run({ dirty: true })));
     const r = await t.call();

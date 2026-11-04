@@ -7,23 +7,25 @@ import { parseSummary, type CheckSummary, type CheckVerdict } from "./summary.ts
 
 export type CheckConfig = { command: string; timeoutSeconds: number };
 
-export type CheckResult =
-  | {
-      configured: true;
-      verdict: CheckVerdict;
-      summary: CheckSummary;
-      sha: string;
-      base: string;
-      /** Tracked modifications or non-ignored untracked files. */
-      dirty: boolean;
-      command: string;
-      /** Local only: it can hold the command's raw output, so it never goes to a forge. */
-      reason?: string;
-      timedOutAfter?: number;
-      outputTail: string;
-      fromCache: boolean;
-    }
-  | { configured: false };
+export type CheckResult = Configured | { configured: false };
+
+export type Configured = {
+  configured: true;
+  verdict: CheckVerdict;
+  summary: CheckSummary;
+  sha: string;
+  base: string;
+  /** Tracked modifications or non-ignored untracked files. */
+  dirty: boolean;
+  command: string;
+  /** Local only: it can hold the command's raw output, so it never goes to a forge. */
+  reason?: string;
+  timedOutAfter?: number;
+  /** The command never started, so there is no verdict to post. */
+  notRun?: boolean;
+  outputTail: string;
+  fromCache: boolean;
+};
 
 export type RunDeps = {
   git: GitRunner;
@@ -67,6 +69,21 @@ async function mergeBase(tree: string, git: GitRunner): Promise<{ base: string; 
   return { base: (await gitOut(git, ["merge-base", "HEAD", `origin/${branch}`], tree)) ?? "", branch };
 }
 
+export function stopped(reason: string, at: { sha: string; dirty: boolean }, command: string, base = ""): Configured {
+  return {
+    configured: true,
+    verdict: "error",
+    summary: parseSummary("", -1, 0),
+    sha: at.sha,
+    base,
+    dirty: at.dirty,
+    command,
+    reason,
+    outputTail: "",
+    fromCache: false,
+  };
+}
+
 export async function runCheck(
   tree: string,
   opts: { full?: boolean; base?: string; signal?: AbortSignal },
@@ -75,24 +92,15 @@ export async function runCheck(
   const config = readConfig(tree, deps);
   if (!config) return { configured: false };
 
-  const { sha, dirty } = await treeState(tree, deps);
+  const state = await treeState(tree, deps);
+  const { sha, dirty } = state;
   let base = opts.base ?? "";
-  if (!opts.base) {
+  if (opts.base) {
+    const commit = await gitOut(deps.git, ["rev-parse", "--verify", "--end-of-options", `${opts.base}^{commit}`], tree);
+    if (commit === null) return { ...stopped(`${opts.base} is not a commit`, state, config.command, opts.base), notRun: true };
+  } else {
     const found = await mergeBase(tree, deps.git);
-    if (!found.base) {
-      return {
-        configured: true,
-        verdict: "error",
-        summary: parseSummary("", -1, 0),
-        sha,
-        base: "",
-        dirty,
-        command: config.command,
-        reason: `could not find the merge base with origin/${found.branch}`,
-        outputTail: "",
-        fromCache: false,
-      };
-    }
+    if (!found.base) return stopped(`could not find the merge base with origin/${found.branch}`, state, config.command);
     base = found.base;
   }
 
@@ -112,6 +120,7 @@ export async function runCheck(
   });
   const wallMs = deps.now() - started;
 
+  const summary = parseSummary(run.stdout, run.exitCode, wallMs);
   let verdict: CheckVerdict;
   let reason: string | undefined;
   if (run.timedOut) {
@@ -120,6 +129,9 @@ export async function runCheck(
   } else if (run.exitCode === -1 || run.exitCode === 127) {
     verdict = "error";
     reason = `command could not start: ${run.stderr.trim() || config.command}`;
+  } else if (summary.mode === "error") {
+    verdict = "error";
+    reason = "the check stopped before it finished";
   } else {
     verdict = run.exitCode === 0 ? "green" : "red";
   }
@@ -128,7 +140,7 @@ export async function runCheck(
   return {
     configured: true,
     verdict,
-    summary: parseSummary(run.stdout, run.exitCode, wallMs),
+    summary,
     sha,
     base,
     dirty,
