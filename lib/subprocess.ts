@@ -84,17 +84,25 @@ export async function runCapture(
   // SIGTERM (or a D-state descendant) cannot be reaped in-band, so the read is
   // raced against the deadline below rather than awaited unconditionally: that
   // is what lets runCapture settle while a grandchild still holds the pipe.
+  //
+  // The deadline settles in the same tick as the SIGTERM: on a separate timer,
+  // a child that exits on the signal can beat it, and a run we killed reads as
+  // the child's own exit 143 with timedOut unset.
   let killTimer: ReturnType<typeof setTimeout> | undefined;
-  const term = setTimeout(() => {
-    try { proc.kill("SIGTERM"); } catch { /* already exited */ }
-    killTimer = setTimeout(() => {
-      try { proc.kill("SIGKILL"); } catch { /* already exited */ }
-    }, 2000);
-    // unref: a short-lived CLI process must not be held open by a timed-out
-    // call waiting on this timer; the daemon stays alive regardless, so its
-    // SIGKILL still fires.
-    killTimer.unref?.();
-  }, timeoutMs);
+  let term: ReturnType<typeof setTimeout>;
+  const deadline: Promise<RunResult> = new Promise((resolve) => {
+    term = setTimeout(() => {
+      resolve({ stdout: "", stderr: "", exitCode: -1, timedOut: true });
+      try { proc.kill("SIGTERM"); } catch { /* already exited */ }
+      killTimer = setTimeout(() => {
+        try { proc.kill("SIGKILL"); } catch { /* already exited */ }
+      }, 2000);
+      // unref: a short-lived CLI process must not be held open by a timed-out
+      // call waiting on this timer; the daemon stays alive regardless, so its
+      // SIGKILL still fires.
+      killTimer.unref?.();
+    }, timeoutMs);
+  });
 
   const captured: Promise<RunResult> = (async () => {
     try {
@@ -112,11 +120,6 @@ export async function runCapture(
       return { stdout: "", stderr: "", exitCode: -1 };
     }
   })();
-
-  let deadlineTimer: ReturnType<typeof setTimeout>;
-  const deadline: Promise<RunResult> = new Promise((resolve) => {
-    deadlineTimer = setTimeout(() => resolve({ stdout: "", stderr: "", exitCode: -1, timedOut: true }), timeoutMs);
-  });
 
   // Abort path: kill the child now (same SIGTERM -> SIGKILL escalation the
   // deadline uses) and settle as a failure, so a cancelled caller does not wait
@@ -138,8 +141,7 @@ export async function runCapture(
   try {
     return await Promise.race([captured, deadline, aborted]);
   } finally {
-    clearTimeout(term);
-    clearTimeout(deadlineTimer!);
+    clearTimeout(term!);
     if (onAbort) opts.signal?.removeEventListener("abort", onAbort);
     // killTimer intentionally NOT cleared here: on the timeout path it must
     // survive this finally to fire SIGKILL against a child that ignored
