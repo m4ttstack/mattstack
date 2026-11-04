@@ -19,6 +19,7 @@ import { displayName } from './display-name';
 import { doing, type DoingLine } from './doing';
 import { MUTED_XS } from './presence-bits';
 import type { RosterBuddy } from './roster-types';
+import { useSlackAvatar } from './slack-chats-context';
 import { StateDot } from './StateDot';
 
 export type AgentNameVariant = 'inline' | 'name';
@@ -92,9 +93,13 @@ function faceUri(name: string): string {
 
 function HandleSprite({ handle, size }: { handle: string; size: number }) {
   const name = useBuddies()?.nameOf(handle) ?? handle.split('.')[0]!;
+  const avatar = useSlackAvatar(handle);
+  const [failed, setFailed] = useState<string>();
   return (
     <img
-      src={faceUri(name)}
+      src={avatar && avatar !== failed ? avatar : faceUri(name)}
+      onError={() => setFailed(avatar)}
+      referrerPolicy="no-referrer"
       alt=""
       width={size}
       height={size}

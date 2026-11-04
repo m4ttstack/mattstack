@@ -14,15 +14,25 @@ import { isMsgTopic, useRelayFrames, useRelayOpen } from './relay-socket';
 
 export interface SlackChat {
   room: string;
+  /** The teammate's chat handle. */
+  handle?: string;
+  /** The teammate's Slack profile picture. */
+  avatar?: string;
   /** The pane's agent: the one person who reads what Matt types here. */
   agentName?: string;
   /** Set once the chat has ended. */
   closedAt?: number;
 }
 
-const SlackChatsContext = createContext<ReadonlyMap<string, SlackChat>>(
-  new Map()
-);
+interface SlackChatsValue {
+  byRoom: ReadonlyMap<string, SlackChat>;
+  avatars: ReadonlyMap<string, string>;
+}
+
+const SlackChatsContext = createContext<SlackChatsValue>({
+  byRoom: new Map(),
+  avatars: new Map(),
+});
 
 /** Rooms that hold a Slack support chat, open or closed. */
 export function SlackChatsProvider({
@@ -32,7 +42,17 @@ export function SlackChatsProvider({
   chats: readonly SlackChat[];
   children: ReactNode;
 }) {
-  const value = useMemo(() => new Map(chats.map(c => [c.room, c])), [chats]);
+  const value = useMemo(
+    () => ({
+      byRoom: new Map(chats.map(c => [c.room, c])),
+      avatars: new Map(
+        chats.flatMap(c =>
+          c.handle && c.avatar ? [[c.handle, c.avatar] as const] : []
+        )
+      ),
+    }),
+    [chats]
+  );
   return (
     <SlackChatsContext.Provider value={value}>
       {children}
@@ -41,12 +61,16 @@ export function SlackChatsProvider({
 }
 
 export function useSlackChat(room: string): SlackChat | undefined {
-  return useContext(SlackChatsContext).get(room);
+  return useContext(SlackChatsContext).byRoom.get(room);
+}
+
+export function useSlackAvatar(handle: string): string | undefined {
+  return useContext(SlackChatsContext).avatars.get(handle);
 }
 
 interface SlackStatus {
-  conversations?: { room: string; agentName?: string }[];
-  closed?: { room: string; agentName?: string; closedAt: number }[];
+  conversations?: Omit<SlackChat, 'closedAt'>[];
+  closed?: (SlackChat & { closedAt: number })[];
 }
 
 /**
