@@ -152,7 +152,7 @@ describe("runCheck", () => {
     for (const exitCode of [1, 0]) {
       const { deps } = harness({ exitCode, stdout: '{"mode":"error","selected":0,"passed":0,"failed":0,"durationMs":5,"failures":[]}\n' });
       const r = await runCheck("/tree", {}, deps);
-      expect(r).toMatchObject({ verdict: "error", reason: "the check stopped before it finished" });
+      expect(r).toMatchObject({ verdict: "error", reason: "its command reported an error" });
     }
   });
 
@@ -196,12 +196,14 @@ describe("runCheck", () => {
     };
     const edits = harness({}, git);
     const editing: RunDeps = { ...edits.deps, exec: async (...a) => { status = "?? new.txt\n"; return edits.deps.exec(...a); } };
-    expect(await runCheck("/tree", {}, editing)).toMatchObject({ verdict: "green", dirty: true, sha: "abc123" });
+    const edited = await runCheck("/tree", {}, editing);
+    expect(edited).toMatchObject({ verdict: "green", dirty: true, sha: "abc123" });
+    expect(edited).not.toHaveProperty("headMoved");
 
     status = "";
     const commits = harness({}, git);
     const committing: RunDeps = { ...commits.deps, exec: async (...a) => { head = "def789\n"; return commits.deps.exec(...a); } };
-    expect(await runCheck("/tree", {}, committing)).toMatchObject({ verdict: "green", dirty: true, sha: "abc123" });
+    expect(await runCheck("/tree", {}, committing)).toMatchObject({ verdict: "green", dirty: true, sha: "abc123", headMoved: true });
   });
 
   test("a failed merge base is an error and runs nothing", async () => {

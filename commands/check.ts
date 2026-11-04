@@ -34,7 +34,7 @@ const NOT_POSTED: Record<Exclude<StatusOutcome, { posted: true }>["reason"], str
   "unknown-host": "rt does not know how to post a result to this repo's host",
   "gh-failed": "The result could not be posted",
   "head-moved": "The branch moved while the check ran, so the result was not posted",
-  "not-run": "The check did not run, so the result was not posted",
+  "not-run": "No result was posted",
 };
 
 function statusBlock(status: StatusOutcome | null, sha: string): Block {
@@ -103,7 +103,8 @@ function report(run: CheckRun, machine: string, identity: string): void {
   if (r.verdict === "red") {
     out.fail({ title: failureCount(r), next: out.cmd("rt check") }, ...verbatim);
   } else {
-    out.fail({ title: `The check did not finish: ${r.reason ?? "it stopped early"}`, next: out.cmd("rt check") }, ...verbatim);
+    const stoppedAt = r.notRun ? "did not run" : "did not finish";
+    out.fail({ title: `The check ${stoppedAt}: ${r.reason ?? "it stopped early"}`, next: out.cmd("rt check") }, ...verbatim);
   }
   out.print(statusBlock(run.status, r.sha));
   process.exitCode = 1;

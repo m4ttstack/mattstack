@@ -100,8 +100,9 @@ describe("rt check", () => {
     const r = result({ verdict: "error", base: "origin/nope", reason: "origin/nope is not a commit", notRun: true });
     const { d } = deps({ result: r, status: { posted: false, reason: "not-run" } });
     await checkCommand(["--base", "origin/nope"], ctx, d);
-    expect(io.stderr()).toStartWith("The check did not finish: origin/nope is not a commit");
-    expect(io.stdout()).toContain("The check did not run, so the result was not posted");
+    expect(io.stderr()).toStartWith("The check did not run: origin/nope is not a commit");
+    expect(io.stderr()).not.toContain("did not finish");
+    expect(io.stdout()).toContain("No result was posted");
     expect(process.exitCode).toBe(1);
   });
 
@@ -132,6 +133,19 @@ describe("rt check", () => {
     await checkCommand([], ctx, d);
     expect(io.stdout()).toContain("The result could not be posted");
     expect(io.stdout()).not.toContain("gh: Not Found");
+  });
+
+  test("a moved HEAD never reads as uncommitted changes", async () => {
+    const { d } = deps({ result: result({ dirty: true, headMoved: true }), status: { posted: false, reason: "head-moved" } });
+    await checkCommand([], ctx, d);
+    expect(io.stdout()).toContain("The branch moved while the check ran");
+    expect(io.stdout()).not.toContain("uncommitted");
+  });
+
+  test("a stopped run's title does not say the same thing twice", async () => {
+    const { d } = deps({ result: result({ verdict: "error", reason: "its command reported an error" }), status: null });
+    await checkCommand([], ctx, d);
+    expect(io.stderr()).toStartWith("The check did not finish: its command reported an error");
   });
 
   test("--no-status skips posting and says the status was not posted", async () => {

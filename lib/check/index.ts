@@ -60,6 +60,7 @@ export async function checkTree(tree: string, opts: CheckOpts, deps: CheckDeps):
 
   if (!opts.post || !result.configured) return { result, status: null };
   if (result.notRun) return { result, status: { posted: false, reason: "not-run" } };
+  if (result.headMoved) return { result, status: { posted: false, reason: "head-moved" } };
   if (result.dirty) return { result, status: { posted: false, reason: "dirty-tree" } };
   if (!(await deps.onRemote(tree, result.sha))) return { result, status: { posted: false, reason: "not-on-remote" } };
   return { result, status: await postStatus(deps.identity(tree), result.sha, result, deps) };

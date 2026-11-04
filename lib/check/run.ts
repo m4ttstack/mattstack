@@ -24,6 +24,8 @@ export type Configured = {
   timedOutAfter?: number;
   /** The command never started, so there is no verdict to post. */
   notRun?: boolean;
+  /** HEAD changed during the run; `dirty` is set too, so nothing is cached. */
+  headMoved?: boolean;
   outputTail: string;
   fromCache: boolean;
 };
@@ -139,7 +141,7 @@ export async function runCheck(
     reason = `command could not start: ${run.stderr.trim() || config.command}`;
   } else if (summary.mode === "error") {
     verdict = "error";
-    reason = "the check stopped before it finished";
+    reason = "its command reported an error";
   } else {
     verdict = run.exitCode === 0 ? "green" : "red";
   }
@@ -153,6 +155,7 @@ export async function runCheck(
     sha,
     base,
     dirty: dirty || after.dirty || after.sha !== sha,
+    ...(after.sha !== sha ? { headMoved: true } : {}),
     command: config.command,
     ...(reason ? { reason } : {}),
     ...(run.timedOut ? { timedOutAfter: config.timeoutSeconds } : {}),

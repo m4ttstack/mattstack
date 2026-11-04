@@ -4,7 +4,7 @@ import { execFileSync } from "child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { setSetting } from "../../../packages/rt-client/src/settings/write.ts";
+import { setSetting, setSettingsNoticeSink } from "../../../packages/rt-client/src/settings/write.ts";
 import { checkTree, realCheckDeps } from "../index.ts";
 import { readConfig, runCheck } from "../run.ts";
 
@@ -21,6 +21,7 @@ const git = (...args: string[]) =>
 const setCheck = (value: Record<string, unknown>) => setSetting("rt.check", value, "user", { repoIdentity: IDENTITY });
 
 beforeEach(() => {
+  setSettingsNoticeSink(() => {});
   home = realpathSync(mkdtempSync(join(tmpdir(), "rt-check-home-")));
   process.env.HOME = home;
   origin = realpathSync(mkdtempSync(join(tmpdir(), "rt-check-origin-")));
@@ -37,6 +38,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setSettingsNoticeSink(null);
   process.env.HOME = realHome;
   for (const dir of [home, origin, tree]) rmSync(dir, { recursive: true, force: true });
 });
@@ -98,6 +100,13 @@ describe("checkTree over realCheckDeps", () => {
     expect((await checkTree(tree, { post: false }, realCheckDeps)).result).toMatchObject({ verdict: "green", dirty: true });
     rmSync(join(tree, "left-behind"));
     expect((await checkTree(tree, { post: false }, realCheckDeps)).result).toMatchObject({ fromCache: false });
+  });
+
+  test("a command that moves HEAD says so, not that the tree is dirty", async () => {
+    setCheck({ command: `git -c user.name=t -c user.email=t@example.com commit --allow-empty -m moved >&2; ${GREEN}` });
+    const run = await checkTree(tree, { post: true }, realCheckDeps);
+    expect(run.result).toMatchObject({ verdict: "green", dirty: true, headMoved: true });
+    expect(run.status).toEqual({ posted: false, reason: "head-moved" });
   });
 
   test("a tree that goes dirty between runs runs again", async () => {

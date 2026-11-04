@@ -637,12 +637,12 @@ async function postPushed(run: CheckRun, path: string, sha: string, deps: GitToo
     run.status = { posted: false, reason: "not-run" };
     return;
   }
-  if (result.dirty) {
-    run.status = { posted: false, reason: "dirty-tree" };
-    return;
-  }
   if (result.sha !== sha) {
     run.status = { posted: false, reason: "head-moved" };
+    return;
+  }
+  if (result.dirty) {
+    run.status = { posted: false, reason: "dirty-tree" };
     return;
   }
   run.status = await (deps.postCheck ?? postStatus)((deps.identity ?? realCheckDeps.identity)(path), sha, result, realCheckDeps);

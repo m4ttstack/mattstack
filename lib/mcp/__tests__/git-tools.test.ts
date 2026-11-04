@@ -530,6 +530,12 @@ describe("git_push runs the repo's check", () => {
     expect(t.posts).toEqual([]);
     expect(r.body).toMatchObject({ pushed: true, check: { status: { posted: false, reason: "not-run" } } });
   });
+  test("a moved HEAD reports head-moved even though the run marked it dirty", async () => {
+    const t = setup(checkReturning(run({ sha: "0000000", dirty: true, headMoved: true })), { allowRed: true });
+    const r = await t.call();
+    expect(t.posts).toEqual([]);
+    expect(r.body).toMatchObject({ pushed: true, check: { status: { posted: false, reason: "head-moved" } } });
+  });
   test("a dirty tree pushes if green but never posts", async () => {
     const t = setup(checkReturning(run({ dirty: true })));
     const r = await t.call();
