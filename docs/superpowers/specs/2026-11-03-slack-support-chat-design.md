@@ -271,8 +271,9 @@ the confirm repeats that message, which the pane can see and ignore.
 **An accepted race.** Marking a Slack message delivered advances the pane's cursor,
 which is a high-water mark. If a chat UI message's push has just failed and a Slack
 message arrives before the 30 second sweep retries it, the chat UI message stays in
-the room and the viewer but doesn't reach the pane. It is rare, and a separate
-message flag would need a change to `chat_messages`, which this repo avoids.
+the room and the viewer but doesn't reach the pane. It is rare, so this version
+accepts it. If it ever bites, a `via` flag on `chat_messages`, added behind a
+`PRAGMA table_info` check, removes both the race and the cursor advance.
 
 ### Pane to Slack
 
