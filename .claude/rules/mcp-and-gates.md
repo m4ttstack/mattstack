@@ -76,10 +76,14 @@ folder, or leaves its own skill link (the OS applies a `..` after following
 the link, so nothing may climb back out through it).
 Every git tool goes through `tree-guard.ts`, which
 admits only the root of a registered checkout or worktree: `git_push` pushes
-one explicit refspec to the branch's same-named upstream, forces only with
+one explicit refspec to the branch's same-named upstream (the checked sha when
+a check ran, since git's `-u` records nothing for a sha source and rt writes
+the upstream itself), forces only with
 `--force-with-lease --force-if-includes`, and refuses a detached HEAD, main,
 master and the remote's default branch (and a remote whose default cannot be
-read); `git_pull` is `--ff-only`; `branch_sync` runs `rt sync` only after a
+read); with `rt.check` set, `git_push` and `rt_verb check` run tree code with no
+prompt, which is why that setting is user or machine scope only;
+`git_pull` is `--ff-only`; `branch_sync` runs `rt sync` only after a
 preflight that refuses to reset over unpushed commits or force-push over
 commits only origin has. `herd_spawn`, `herd_respawn`, `herd_gate_answer`,
 `herd_gate_park`, `herd_diagnose`, `herd_nudge`, `herd_lanes`, `herd_close`,

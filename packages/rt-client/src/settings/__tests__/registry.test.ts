@@ -27,6 +27,10 @@ describe("settings/registry", () => {
     });
   });
 
+  test("rt.check never reads a shared store, since its command runs on the Mac that reads it", () => {
+    expect(getDef("rt.check")?.scopes).toEqual(["user", "machine"]);
+  });
+
   describe("allDefs", () => {
     test("returns every registered def", () => {
       const defs = allDefs();
@@ -174,9 +178,9 @@ describe("settings/registry", () => {
       }
     });
 
-    test("repoScoped keys allow the user, team, org and machine scopes", () => {
+    test("repoScoped keys but rt.check allow the user, team, org and machine scopes", () => {
       for (const def of allDefs()) {
-        if (!def.repoScoped) continue;
+        if (!def.repoScoped || def.key === "rt.check") continue;
         expect([...def.scopes].sort()).toEqual(["machine", "org", "team", "user"]);
       }
     });
@@ -191,6 +195,7 @@ describe("settings/registry", () => {
         "board.codeowners",
         "chat.autoSignIn",
         "rt.branchNaming",
+        "rt.check",
         "rt.dopplerTemplate",
         "rt.hooks",
         "rt.ignoredMrs",
@@ -414,12 +419,13 @@ describe("settings/registry", () => {
         "sdm.resources",
         "rt.hooks",
         "rt.branchNaming",
+        "rt.check",
         "telemetry.enabled",
         "rt.evidence.foldScreenshots",
         "rt.notify.sounds",
         "review.ruleSelector",
       ];
-      expect(suiteKeys).toHaveLength(102);
+      expect(suiteKeys).toHaveLength(103);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),

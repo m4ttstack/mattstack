@@ -1031,6 +1031,22 @@ export const TREE: Record<string, CommandNode> = {
     },
   },
 
+  check: {
+    description: "Run this repo's own pre-push check here and post the result on the commit",
+    module: "./commands/check.ts",
+    fn: "checkCommand",
+    omitBehavior: { exempt: "running the check is the command; it takes no required argument" },
+    context: "worktree",
+    agentSafe: true,
+    agentTimeoutMs: 960_000,
+    args: [
+      { name: "Full", flag: "--full", type: "boolean", default: false, hint: "Ask the repo's command for its whole suite, not the scoped selection" },
+      { name: "No status", flag: "--no-status", type: "boolean", default: false, hint: "Run without posting the result on the commit" },
+      { name: "Base", flag: "--base", type: "text", placeholder: "origin/main", hint: "Diff against this ref instead of the merge base with the default branch" },
+      { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the result as JSON" },
+    ],
+  },
+
   hooks: {
     description: "Turn a repo's git hooks on or off",
     module: "./commands/hooks.ts",

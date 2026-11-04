@@ -107,3 +107,7 @@ test("every team verb's --team that takes the org clone reads like rename's", ()
   expect(hints.length).toBeGreaterThan(5);
   expect([...new Set(hints)]).toEqual(["Which org clone; your only one when left out"]);
 });
+
+test("rt check's agent cap outlasts the 900s timeout documented for mattstack's own check", () => {
+  expect(TREE.check!.agentTimeoutMs).toBeGreaterThan(900_000);
+});

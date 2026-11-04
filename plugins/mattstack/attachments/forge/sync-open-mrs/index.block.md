@@ -167,6 +167,7 @@ flowchart TB
     git_push_force_lease --> git_push_result
     git_push_result -->|pushed| record_pushed
     git_push_result -->|safety refusal: lease, protected or default branch, detached HEAD, upstream mismatch| record_push_failed_quoted
+    git_push_result -->|check refusal: check-red or check-error| record_push_failed_quoted
     git_push_result -->|not registered with rt| record_push_failed_mechanical
     git_push_result -->|any other error| record_push_failed_quoted
     record_pushed --> selected_pushes_left
