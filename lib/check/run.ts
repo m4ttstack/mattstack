@@ -146,7 +146,7 @@ export async function runCheck(
     verdict = run.exitCode === 0 ? "green" : "red";
   }
 
-  const outputTail = (run.stdout + run.stderr).trim().split("\n").slice(-TAIL_LINES).join("\n");
+  const tail = (run.stdout + run.stderr).trim().split("\n").slice(-TAIL_LINES).join("\n");
   const after = await treeState(tree, deps);
   return {
     configured: true,
@@ -159,7 +159,7 @@ export async function runCheck(
     command: config.command,
     ...(reason ? { reason } : {}),
     ...(run.timedOut ? { timedOutAfter: config.timeoutSeconds } : {}),
-    outputTail,
+    outputTail: verdict === "green" ? "" : tail,
     fromCache: false,
   };
 }

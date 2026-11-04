@@ -389,7 +389,7 @@ describe("git_push runs the repo's check", () => {
     expect(r.body).toMatchObject({ pushed: true, sha: "abc1234", check: { result: { verdict: "green" }, status: POSTED } });
   });
   test("a red check refuses with check-red and next rt check, and pushes and posts nothing", async () => {
-    const red = run({ verdict: "red" });
+    const red = run({ verdict: "red", outputTail: "FAIL lib/a.test.ts" });
     const t = setup(checkReturning(red));
     const r = await t.call();
     expect(r).toEqual({ ok: true, body: { pushed: false, refusal: "check-red", check: red, why: expect.stringContaining("allowRed"), next: "rt check", tree: "/t" } });

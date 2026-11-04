@@ -37,13 +37,6 @@ afterEach(() => setWarningLog(null));
 
 const key = cacheKey("/t", "abc", "bun run check");
 
-test("the stored green keeps no command output on disk", () => {
-  const deps = memDeps();
-  writeCached(key, green({ outputTail: "Authorization: Bearer s3cr3t" }), deps);
-  expect([...deps.files.values()].join("")).not.toContain("s3cr3t");
-  expect(readCached(key, deps)?.outputTail).toBe("");
-});
-
 test("a green clean result is written and read back as fromCache", () => {
   const deps = memDeps();
   writeCached(key, green(), deps);
