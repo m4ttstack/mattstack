@@ -406,6 +406,7 @@ function ChatPage({
         <PageShell.Sidebar
           bg="var(--tk-panel)"
           hideCollapseButton
+          withBorder={false}
           // The kit's sidebar ScrollArea content defaults to
           // `min-width: min-content`, which would size the column to its
           // widest row and defeat each row's own truncation.
@@ -425,7 +426,10 @@ function ChatPage({
       )}
       <PageShell.Main>
         {activeRoomSummary && (
-          <PageShell.Header>
+          <PageShell.Header
+            withBorder={false}
+            style={{ borderBottom: '1px solid var(--tk-border-soft)' }}
+          >
             <PageBar
               room={activeRoomSummary}
               buddies={buddies.filter(b => roomMembers.includes(b.handle))}
