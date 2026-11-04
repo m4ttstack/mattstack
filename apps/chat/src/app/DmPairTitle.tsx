@@ -15,8 +15,8 @@ function End({ handle, name }: { handle: string; name: string | undefined }) {
   );
 }
 
-/** A DM's name: each end with its sprite. The first name gives way first, so
-    a long agent name never pushes the other person off the row. */
+/** A DM's name: each end with its sprite, on one line that truncates at its
+    end. */
 export function DmPairTitle({
   pair,
   quiet = false,
