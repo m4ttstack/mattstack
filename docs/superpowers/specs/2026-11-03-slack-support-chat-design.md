@@ -205,10 +205,11 @@ client can't be imported from rt, so this is a small new client, not a move.
 Slack text never goes over the inbox socket. It reaches the session through the
 same mod that owns `/slack-support`:
 
-1. A message from Slack is marked delivered for the pane as soon as it is posted,
-   and `slack_items` becomes its delivery record. Otherwise the 30 second delivery
-   sweep, or the bundle in the operator's next chat UI post, would send it over the
-   socket in the frame this design exists to avoid.
+1. A message from Slack advances the pane's chat cursor as soon as it is posted.
+   Otherwise the 30 second delivery sweep, or the bundle in the operator's next chat
+   UI post, would send it over the socket in the frame this design exists to avoid.
+   That cursor is not its delivery: `slack_items` is the delivery record, and the
+   item stays pending until step 4.
 2. While a conversation is open, the mod runs a long-lived `rt chat slack-watch`
    with `$.process.spawn` and reads one JSON line per waiting message. It restarts
    the child if it exits while the chat is open, and on `session.start` it reattaches

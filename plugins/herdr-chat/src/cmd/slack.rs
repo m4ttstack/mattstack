@@ -120,7 +120,8 @@ pub enum Started {
 /// believed, because that one means nothing was typed.
 ///
 /// The send scrubs `HERDR_PANE_ID`: the daemon refuses this command from
-/// anything that identifies as a pane, and a popup may inherit that id.
+/// anything that identifies as a pane. herdr gives a popup no such id, but
+/// `slack-support --pane` run by hand inside a pane inherits one.
 pub fn start(
     r: &dyn Runner,
     pane: &str,

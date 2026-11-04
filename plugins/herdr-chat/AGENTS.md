@@ -99,7 +99,9 @@ build on it and the traps to avoid. Don't duplicate what the linked docs own.
 - **Slack On is a send, and its proof is `slackChat`.** `slack.rs` types
   `/slack-support ...` with `rt::pane_send(.., scrub = true)`, because the
   daemon refuses that command from a caller that carries a pane identity
-  (`callerPane`), and a popup may inherit `HERDR_PANE_ID`. `rt pane send`
+  (`callerPane`). herdr gives a popup no `HERDR_PANE_ID`, so the scrub does
+  nothing there; it stays for `slack-support --pane` run by hand inside a
+  pane, which inherits the id and would be refused. `rt pane send`
   reports `queued` for a slash command that ran, so the popup believes only
   the pane's entry in `rt chat slack-status` afterwards, never the send.
 - **A popup's slow work runs after a `Flow::Again` repaint.** The loop blocks

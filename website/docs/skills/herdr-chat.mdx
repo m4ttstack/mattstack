@@ -70,4 +70,8 @@ rows = [
 
 ## Scripting it
 
-Every feature except the launcher runs without a terminal: pass `--json` and the command prints one JSON object on stdout and draws nothing. The wire shapes, the handle and name rules and the exit codes are in the [plugin's README](https://github.com/m4ttstack/mattstack/blob/main/plugins/herdr-chat/README.md).
+Every feature except the launcher and `slack-support` runs without a terminal: pass `--json` and the command prints one JSON object on stdout and draws nothing.
+
+`slack-support` only opens its popup and takes no `--json`. To script around a Slack support chat, use `slack-status`, `slack-people` and `slack-close`. No script can open a chat: a person opens it, by typing `/slack-support` or using the **On** control.
+
+The wire shapes, the handle and name rules and the exit codes are in the [plugin's README](https://github.com/m4ttstack/mattstack/blob/main/plugins/herdr-chat/README.md).
