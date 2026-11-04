@@ -137,6 +137,14 @@ let formModelsChecks: [Check] = [
         c.expectEqual(rows[1].secondary, nil)
         c.expectEqual(rows[1].secondaryPress, nil)
     },
+    Check("FormModels: the app's error shows under any row but a failed one, whose failure rt already draws") { c in
+        let failed = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: "", state: .todo, tone: .failed, detail: "Homebrew could not install it")
+        c.expectEqual(failed.shownError("rt tools install failed"), nil)
+        let plain = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: "", state: .todo, detail: "")
+        c.expectEqual(plain.shownError("rt tools install failed"), "rt tools install failed")
+        c.expectEqual(plain.shownError(""), nil)
+        c.expectEqual(plain.shownError(nil), nil)
+    },
     Check("FormModels: a section rt left out reads nil") { c in
         let form = try decodeForm(sectionJSON("connect", [row("claude")]))
         c.expectEqual(form.sections.connect?.count, 1)

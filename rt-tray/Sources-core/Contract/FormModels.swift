@@ -52,6 +52,12 @@ public struct FormRow: Decodable, Equatable, Identifiable, Sendable {
         self.action = action; self.secondary = secondary; self.waiting = waiting; self.watch = watch; self.optional = optional
     }
 
+    /// What the app's own error adds under this row. rt's re-read already draws a failed row's failure in red.
+    public func shownError(_ error: String?) -> String? {
+        guard tone != .failed, let error, !error.isEmpty else { return nil }
+        return error
+    }
+
     /// `FormActionRunner.perform` runs a row's `action`, so a press of `secondary` hands it this row.
     public var secondaryPress: FormRow? {
         guard let secondary else { return nil }

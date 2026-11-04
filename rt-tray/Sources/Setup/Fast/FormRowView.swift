@@ -329,7 +329,7 @@ struct FormRowView: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier(AXID.fastRowReason(row.id))
         }
-        if let error, !error.isEmpty {
+        if let error = row.shownError(error) {
             FastHint(error, symbol: "exclamationmark.circle", tint: FastTheme.warning, textWidth: FormRowStyle.hintWidth)
                 .hintSpill(style == .labelled)
                 .accessibilityElement(children: .combine)
