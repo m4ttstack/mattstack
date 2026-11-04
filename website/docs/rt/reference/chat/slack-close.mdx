@@ -20,7 +20,7 @@ rt chat slack-close [flags]
 | Flag / Arg | Type | Default | Description |
 | --- | --- | --- | --- |
 | `--pane` | text |  | The pane whose chat to close; this session's own chat when left out |
-| `--farewell-file` | text |  | A file holding the goodbye to send first |
+| `--farewell-file` | text |  | A file holding the goodbye to send first; this session's own chat only |
 | [`--json`](/rt/guides/common-flags) | boolean | `false` | Emit the result as JSON |
 
 _See code: [commands/chat-slack.ts › slackClose](https://github.com/m4ttstack/mattstack/blob/main/commands/chat-slack.ts)_
