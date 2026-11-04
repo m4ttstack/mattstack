@@ -81,12 +81,13 @@
 
 /* Full-width items with a solid highlight, as Slack's menus have. */
 .menuDropdown.menuDropdown {
-  padding: 8px 0 !important;
-  border-radius: var(--mantine-radius-md);
+  padding: 12px 0 !important;
+  border-radius: var(--mantine-radius-lg);
 }
 
 .menuItem.menuItem {
-  padding: 5px 24px !important;
+  padding: 3px 24px !important;
+  line-height: 22px;
   border-radius: 0;
   font-size: var(--mantine-font-size-lg);
 }

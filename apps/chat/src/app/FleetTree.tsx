@@ -219,7 +219,7 @@ function RowMenu({
       onChange={onChange}
       position="bottom-start"
       offset={2}
-      width={220}
+      width={280}
       radius="md"
       shadow="md"
       withinPortal
