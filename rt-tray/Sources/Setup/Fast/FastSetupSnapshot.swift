@@ -347,6 +347,7 @@ enum FastSetupSnapshot {
             ("tools-t3-installing", page(one, [R.dopplerInstalling])),
             ("tools-t4-sign-in", page(one, [R.dopplerSignIn])),
             ("tools-t5-all-set", page("You're all set", [R.dopplerDone], allDone: true)),
+            ("tools-all-set-no-rows", page("You're all set", [], allDone: true)),
             ("tools-t6-two", page("2 new tools for your team", [R.doppler, R.ldcli])),
             ("tools-t7-failed", page(one, [R.dopplerFailed])),
             ("tools-ack-failed", page("You're all set", [R.dopplerDone], allDone: true,
