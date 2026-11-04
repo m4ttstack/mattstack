@@ -350,29 +350,42 @@ enum FastSetupSnapshot {
             ("tools-all-set-no-rows", page("You're all set", [], allDone: true)),
             ("tools-t6-two", page("2 new tools for your team", [R.doppler, R.ldcli])),
             ("tools-t7-failed", page(one, [R.dopplerFailed])),
+            ("tools-t7-retry-alone", page(one, [R.ldcliFailed])),
+            ("tools-t7-long-failure", page(one, [R.dopplerFailedLong])),
             ("tools-ack-failed", page("You're all set", [R.dopplerDone], allDone: true,
                                       failure: "rt couldn't record that: the settings store is locked by another run")),
         ]
     }
 
-    /// What `toolsRows` in lib/setup/form.ts emits: a sign-in tool from `signInRow`, any other from `extraRow`.
+    /// What `toolsRows` in lib/setup/form.ts emits: a sign-in tool from `signInRow`, any other from `extraRow`,
+    /// with no reason on a tool simply missing or signed out.
     enum ToolsRows {
         private static let why = "For running your dev servers"
         private static let install = RowAction(type: .install, label: "Install", tool: "doppler", via: "brew")
+        private static let retry = RowAction(type: .install, label: "Retry", tool: "doppler", via: "brew")
+        private static let steps = RowAction(type: .steps, label: "Show steps…", steps: ["brew install doppler", "Then re-run rt setup status"])
         static let doppler = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: why, state: .todo,
-                                     detail: "doppler is not installed", action: install, watch: true)
+                                     detail: "", action: install, watch: true)
         static let dopplerInstalling = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: why, state: .busy,
                                                detail: "Installing…", watch: true)
         static let dopplerSignIn = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: why, state: .todo,
-                                           detail: "Not signed in to doppler",
+                                           detail: "",
                                            action: RowAction(type: .run, label: "Sign in", verb: ["setup", "doppler", "connect"]), watch: true)
         static let dopplerDone = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: why, state: .done,
                                          detail: "Signed in as janedoe", watch: true)
-        static let dopplerFailed = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: why, state: .todo,
-                                           detail: "Homebrew could not install it", action: install, watch: true)
+        static let dopplerFailed = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: why, state: .todo, tone: .failed,
+                                           detail: "Homebrew could not install it", action: retry, secondary: steps,
+                                           waiting: "Installing…", watch: true)
+        static let dopplerFailedLong = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: why, state: .todo, tone: .failed,
+                                               detail: "brew install doppler failed: the formula could not be downloaded, so nothing was installed",
+                                               action: retry, secondary: steps, waiting: "Installing…", watch: true)
         static let ldcli = FormRow(id: "tool.team.ldcli", title: "ldcli", subtext: "For reading feature flags", state: .todo,
-                                   detail: "ldcli is not installed",
+                                   detail: "",
                                    action: RowAction(type: .openURL, label: "Download", url: "https://example.com/ldcli"), watch: true)
+        static let ldcliFailed = FormRow(id: "tool.team.ldcli", title: "ldcli", subtext: "For reading feature flags", state: .todo, tone: .failed,
+                                         detail: "Homebrew could not install it",
+                                         action: RowAction(type: .install, label: "Retry", tool: "ldcli", via: "brew"),
+                                         waiting: "Installing…", watch: true)
     }
 
     /// A choose wider than a segment, which the fast screens open in a sheet.

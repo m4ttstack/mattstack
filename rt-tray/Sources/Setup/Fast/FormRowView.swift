@@ -232,6 +232,8 @@ struct FormRowView: View {
             subtextHint
         } else if row.state == .done && progressLine == nil {
             trailingDone
+        } else if row.tone == .failed && progressLine == nil {
+            failedLine
         } else if row.subtext.isEmpty {
             controlsLine
         } else {
@@ -249,6 +251,40 @@ struct FormRowView: View {
             }
         }
         notes
+    }
+
+    /// T7: the failure takes the subtext's place beside the buttons, and drops below them when the line has no room.
+    private var failedLine: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                failedControls
+                failureText.lineLimit(1).fixedSize()
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                failedControls
+                failureText.fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: FormRowStyle.hintWidth, alignment: .leading)
+                    .hintSpill(style == .labelled)
+            }
+        }
+        .frame(minHeight: 28)
+    }
+
+    private var failedControls: some View {
+        HStack(spacing: 10) {
+            if let action = row.action { button(action) }
+            if let press = row.secondaryPress, let secondary = press.action, FormActionRunner.control(for: secondary) != .none {
+                Button(secondary.label) { onAction(press, nil, nil) }
+                    .buttonStyle(FastSecondaryButtonStyle())
+                    .fixedSize()
+                    .accessibilityIdentifier(AXID.fastRowAction(row.id, "secondary"))
+            }
+        }
+    }
+
+    private var failureText: some View {
+        Text(row.detail).font(.system(size: 11)).foregroundColor(FastTheme.failure)
+            .accessibilityIdentifier(AXID.fastRowReason(row.id))
     }
 
     private var controlsLine: some View {
@@ -303,7 +339,7 @@ struct FormRowView: View {
 
     /// rt's word on why a row still waits on the person. While its action runs, the spinner's line says it instead.
     private var reason: String? {
-        guard row.state == .todo, waiting == nil, !row.detail.isEmpty else { return nil }
+        guard row.state == .todo, waiting == nil, !row.detail.isEmpty, row.tone != .failed else { return nil }
         return row.detail
     }
 

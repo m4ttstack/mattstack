@@ -27,6 +27,7 @@ enum FastTheme {
     static let accent = Color(hex: 0xE64980)
     static let success = Color(hex: 0x4ADE80)
     static let warning = Color(hex: 0xF5A524)
+    static let failure = Color(hex: 0xF87171)
     /// P6's bar fill runs from this lilac at its left end to the accent at its right.
     static let barStart = Color(hex: 0xBE96F0)
 

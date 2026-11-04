@@ -11,10 +11,11 @@ public enum FormRowState: String, Decodable, Sendable {
     }
 }
 
-/// How a done row reads. `off`: answered, and the answer was no, so it draws no green check.
-/// A tone from a newer rt decodes as `.unknown` and draws as a plain done row.
+/// How a row reads. `off`: a done row answered no, so it draws no green check. `failed`: a tools row
+/// whose install failed, so its detail draws as the failure beside the buttons.
+/// A tone from a newer rt decodes as `.unknown` and draws as a plain row.
 public enum FormRowTone: String, Decodable, Sendable {
-    case off, unknown
+    case off, failed, unknown
 
     public init(from decoder: Decoder) throws {
         let raw = try decoder.singleValueContainer().decode(String.self)
@@ -33,10 +34,12 @@ public struct FormRow: Decodable, Equatable, Identifiable, Sendable {
     public var title: String
     public var subtext: String
     public var state: FormRowState
-    /// Only on a done row whose answer is not a yes; rt decides it, never the detail's words.
+    /// rt decides it, never the detail's words.
     public var tone: FormRowTone?
     public var detail: String
     public var action: RowAction?
+    /// Drawn after `action`; nil from an rt older than the field.
+    public var secondary: RowAction?
     /// The line the app shows while this row's action runs.
     public var waiting: String?
     /// Re-read the form unprompted while this row is waiting or busy: its answer lands outside the app.
@@ -44,9 +47,17 @@ public struct FormRow: Decodable, Equatable, Identifiable, Sendable {
     /// Never holds Continue.
     public var optional: Bool
     public init(id: String, title: String, subtext: String, state: FormRowState, tone: FormRowTone? = nil, detail: String,
-                action: RowAction? = nil, waiting: String? = nil, watch: Bool = false, optional: Bool = false) {
+                action: RowAction? = nil, secondary: RowAction? = nil, waiting: String? = nil, watch: Bool = false, optional: Bool = false) {
         self.id = id; self.title = title; self.subtext = subtext; self.state = state; self.tone = tone; self.detail = detail
-        self.action = action; self.waiting = waiting; self.watch = watch; self.optional = optional
+        self.action = action; self.secondary = secondary; self.waiting = waiting; self.watch = watch; self.optional = optional
+    }
+
+    /// `FormActionRunner.perform` runs a row's `action`, so a press of `secondary` hands it this row.
+    public var secondaryPress: FormRow? {
+        guard let secondary else { return nil }
+        var row = self
+        row.action = secondary
+        return row
     }
 }
 

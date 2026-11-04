@@ -125,6 +125,18 @@ let formModelsChecks: [Check] = [
         c.expectEqual(rows[1].tone, nil, "an rt older than the field sends none")
         c.expectEqual(rows[2].tone, .unknown, "a tone this app does not know never fails the read")
     },
+    Check("FormModels: a failed tools row decodes its tone and second action; an rt older than the field sends neither") { c in
+        let extra = #","tone":"failed","secondary":{"type":"steps","label":"Show steps…","steps":["brew install doppler"]}"#
+        let form = try decodeForm(sectionJSON("connect", [row("tool.team.doppler", extra: extra), row("tool.team.ldcli")]))
+        let rows = try c.requireSome(form.sections.connect)
+        c.expectEqual(rows[0].tone, .failed)
+        c.expectEqual(rows[0].secondary?.type, .steps)
+        c.expectEqual(rows[0].secondary?.steps, ["brew install doppler"])
+        c.expectEqual(rows[0].secondaryPress?.action, rows[0].secondary)
+        c.expectEqual(rows[1].tone, nil)
+        c.expectEqual(rows[1].secondary, nil)
+        c.expectEqual(rows[1].secondaryPress, nil)
+    },
     Check("FormModels: a section rt left out reads nil") { c in
         let form = try decodeForm(sectionJSON("connect", [row("claude")]))
         c.expectEqual(form.sections.connect?.count, 1)
