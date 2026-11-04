@@ -127,6 +127,27 @@ describe("checkTree", () => {
     expect(h.gh).toHaveLength(0);
   });
 
+  test("a setting that throws is an error verdict, never no check", async () => {
+    const h = harness();
+    h.deps.setting = () => {
+      throw new Error("rt: cannot expand ${worktree}");
+    };
+    const run = await checkTree("/tree", { post: false }, h.deps);
+    expect(run.result).toMatchObject({ configured: true, verdict: "error", sha: "abc123", reason: "rt: cannot expand ${worktree}" });
+    expect(run.status).toBeNull();
+    expect(h.commands).toHaveLength(0);
+  });
+
+  test("a setting that throws posts rt's own error when posting was asked for", async () => {
+    const h = harness();
+    h.deps.setting = () => {
+      throw new Error("Authorization: Bearer s3cr3t");
+    };
+    const run = await checkTree("/tree", { post: true }, h.deps);
+    expect(run.status).toMatchObject({ posted: true, state: "error", description: "error: the check could not run" });
+    expect(h.gh[0]!.join(" ")).not.toContain("s3cr3t");
+  });
+
   test("post false leaves status null and posts nothing", async () => {
     const h = harness();
     const run = await checkTree("/tree", { post: false }, h.deps);

@@ -30,24 +30,24 @@ export type Configured = {
 export type RunDeps = {
   git: GitRunner;
   exec: typeof runCapture;
-  /** Takes the serialized (wire) identity; the settings sections key on the raw form. */
-  setting: (repoIdentity: string) => { command?: string; timeoutSeconds?: number };
+  /** Takes the serialized (wire) identity; the settings sections key on the raw form. The tree fills ${repoRoot}. */
+  setting: (repoIdentity: string, tree: string) => { command?: string; timeoutSeconds?: number };
   now: () => number;
 };
 
 const DEFAULT_TIMEOUT_SECONDS = 600;
 const TAIL_LINES = 20;
 
-export const realSetting: RunDeps["setting"] = (repoIdentity) => {
+export const realSetting: RunDeps["setting"] = (repoIdentity, tree) => {
   const parsed = parseIdentity(repoIdentity);
   // A path-kind repo has no host/path, so no repo-scoped settings section.
   if (parsed?.kind !== "remote") return {};
-  const value = getSetting<unknown>("rt.check", { repoIdentity: parsed.id }).value;
+  const value = getSetting<unknown>("rt.check", { repoIdentity: parsed.id, expandCtx: { repoRoot: tree } }).value;
   return value && typeof value === "object" ? (value as { command?: string; timeoutSeconds?: number }) : {};
 };
 
 export function readConfig(tree: string, deps: Pick<RunDeps, "setting">): CheckConfig | null {
-  const raw = deps.setting(identityForRootReadOnly(tree));
+  const raw = deps.setting(identityForRootReadOnly(tree), tree);
   if (typeof raw.command !== "string" || raw.command === "") return null;
   return { command: raw.command, timeoutSeconds: raw.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS };
 }

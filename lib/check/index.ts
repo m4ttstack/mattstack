@@ -2,7 +2,7 @@ import { identityForRootReadOnly } from "../repo.ts";
 import { realGitRunner } from "../mcp/git-tools.ts";
 import { runCapture } from "../subprocess.ts";
 import { cacheKey, readCached, realCacheDeps, writeCached, type CacheDeps } from "./cache.ts";
-import { readConfig, realSetting, runCheck, treeState, type CheckResult, type RunDeps } from "./run.ts";
+import { readConfig, realSetting, runCheck, stopped, treeState, type CheckResult, type RunDeps } from "./run.ts";
 import { postStatus, realStatusDeps, type StatusDeps, type StatusOutcome } from "./status.ts";
 
 export type CheckRun = { result: CheckResult; status: StatusOutcome | null };
@@ -32,23 +32,29 @@ export const realCheckDeps: CheckDeps = {
   },
 };
 
-export async function checkTree(
-  tree: string,
-  opts: { full?: boolean; base?: string; post: boolean; signal?: AbortSignal },
-  deps: CheckDeps,
-): Promise<CheckRun> {
+type CheckOpts = { full?: boolean; base?: string; post: boolean; signal?: AbortSignal };
+
+async function verdictFor(tree: string, opts: CheckOpts, deps: CheckDeps): Promise<CheckResult> {
   const config = readConfig(tree, deps);
-  if (!config) return { result: { configured: false }, status: null };
+  if (!config) return { configured: false };
 
   // A scoped green must not answer a full run or another base.
   const cacheable = !opts.full && !opts.base;
   const { sha, dirty } = await treeState(tree, deps);
+  const cached = cacheable && !dirty ? readCached(cacheKey(tree, sha, config.command), deps) : null;
+  if (cached) return cached;
 
-  let result: CheckResult | null = null;
-  if (cacheable && !dirty) result = readCached(cacheKey(tree, sha, config.command), deps);
-  if (!result) {
-    result = await runCheck(tree, opts, deps);
-    if (cacheable && result.configured) writeCached(cacheKey(tree, result.sha, result.command), result, deps);
+  const result = await runCheck(tree, opts, deps);
+  if (cacheable && result.configured) writeCached(cacheKey(tree, result.sha, result.command), result, deps);
+  return result;
+}
+
+export async function checkTree(tree: string, opts: CheckOpts, deps: CheckDeps): Promise<CheckRun> {
+  let result: CheckResult;
+  try {
+    result = await verdictFor(tree, opts, deps);
+  } catch (e) {
+    result = stopped(e instanceof Error ? e.message : String(e), await treeState(tree, deps), "");
   }
 
   if (!opts.post || !result.configured) return { result, status: null };
