@@ -119,7 +119,7 @@ struct FastSetupView: View {
         case .ready:
             // Only a read lands on ready, and every read carries rt's home.
             if let home = latest?.home ?? form.whole?.home {
-                ReadyScreenBody(home: home, onOpen: handlers.openHome)
+                ReadyScreenBody(home: home, notice: flow.entry == .status ? form.whole?.orgNotice : nil, onOpen: handlers.openHome)
             }
         }
     }

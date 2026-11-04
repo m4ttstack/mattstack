@@ -415,9 +415,15 @@ enum FastSetupSnapshot {
         func page(_ home: FormHome) -> AnyView {
             window(ReadyScreenBody(home: home, onOpen: {}), .ready)
         }
+        let board = FormHome(label: "Open the board", url: "https://board.mattstack")
+        let notice = FormOrgNotice(title: "Your org's setup file has an error. Ask an admin to fix it", detail: "tools[1] is malformed")
+        let statusStep = FastStep.label(for: .ready, path: nil, entry: .status)
         return [
-            ("ready", page(FormHome(label: "Open the board", url: "https://board.mattstack"))),
+            ("ready", page(board)),
             ("ready-solo", page(FormHome(label: "Open the console", url: "https://console.mattstack"))),
+            ("ready-org-error", AnyView(FastSnapshotWindow {
+                FastWindowChrome(step: statusStep) { ReadyScreenBody(home: board, notice: notice, onOpen: {}) }
+            })),
         ]
     }
 

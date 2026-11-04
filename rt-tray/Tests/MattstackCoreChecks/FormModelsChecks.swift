@@ -209,6 +209,23 @@ let formModelsChecks: [Check] = [
         c.expectEqual(await m.rows(for: "tools"), [], "an empty section is rows, not a missing read")
         c.expectEqual(await m.read(carrying: "tools")?.tools?.heading, "You're all set")
     },
+    Check("SetupForm: a whole read's orgNotice decodes and outlives a section read") { c in
+        let notice = #""orgNotice":{"title":"Your org's setup file has an error. Ask an admin to fix it","detail":"tools[1] is malformed"},"continueReady":false,"#
+        let whole = wholeFormJSON.replacingOccurrences(of: #""continueReady":false,"#, with: notice)
+        let rt = ScriptedRt()
+        rt.answers = ["setup form --json": (0, whole)]
+        let m = await SetupFormModel(rt: rt)
+        let read = await m.load(section: nil)
+        let expected = FormOrgNotice(title: "Your org's setup file has an error. Ask an admin to fix it", detail: "tools[1] is malformed")
+        c.expectEqual(read?.orgNotice, expected)
+        rt.answers = ["setup form --section connect --json": (0, sectionJSON("connect", [row("claude", state: "done")]))]
+        let section = await m.load(section: "connect")
+        c.expectEqual(section?.orgNotice, nil, "a section read carries none")
+        c.expectEqual(await m.whole?.orgNotice, expected, "the whole read keeps it")
+    },
+    Check("SetupForm: an older read without orgNotice decodes as nil") { c in
+        c.expectEqual(try decodeForm(wholeFormJSON).orgNotice, nil)
+    },
     Check("SetupForm: a read of any other screen has no tools object") { c in
         let read = try JSONDecoder().decode(SetupForm.self, from: Data(wholeFormJSON.utf8))
         c.expectEqual(read.tools, nil)

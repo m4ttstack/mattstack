@@ -138,6 +138,13 @@ public struct FormTools: Decodable, Equatable, Sendable {
     public init(heading: String, allDone: Bool) { self.heading = heading; self.allDone = allDone }
 }
 
+/// The Setup status window's note under ready. Decides nothing: no stage, button or Finish reads it.
+public struct FormOrgNotice: Decodable, Equatable, Sendable {
+    public var title: String
+    public var detail: String
+    public init(title: String, detail: String) { self.title = title; self.detail = detail }
+}
+
 /// `rt setup form --json`. A section read carries only that section, with
 /// `stage` and `paused` null; a whole read carries every section but create.
 public struct SetupForm: Decodable, Equatable, Sendable {
@@ -155,14 +162,16 @@ public struct SetupForm: Decodable, Equatable, Sendable {
     public var home: FormHome
     /// Only on a `--section tools` read, or a whole read whose stage is tools.
     public var tools: FormTools?
+    /// Only on a whole read, while the org's setup file has an error.
+    public var orgNotice: FormOrgNotice?
     public init(path: String? = nil, team: FormTeam? = nil, stage: FormStage? = nil, sections: FormSections = FormSections(),
                 continueReady: Bool = false, startReady: Bool = false, start: FormStart? = nil, paused: FormPaused? = nil, home: FormHome,
-                tools: FormTools? = nil) {
+                tools: FormTools? = nil, orgNotice: FormOrgNotice? = nil) {
         self.path = path; self.team = team; self.stage = stage; self.sections = sections
         self.continueReady = continueReady; self.startReady = startReady; self.start = start; self.paused = paused; self.home = home
-        self.tools = tools
+        self.tools = tools; self.orgNotice = orgNotice
     }
-    private enum CodingKeys: String, CodingKey { case path, team, stage, sections, continueReady, startReady, start, paused, home, tools }
+    private enum CodingKeys: String, CodingKey { case path, team, stage, sections, continueReady, startReady, start, paused, home, tools, orgNotice }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         path = try c.decodeIfPresent(String.self, forKey: .path)
@@ -175,5 +184,6 @@ public struct SetupForm: Decodable, Equatable, Sendable {
         paused = try c.decodeIfPresent(FormPaused.self, forKey: .paused)
         home = try c.decode(FormHome.self, forKey: .home)
         tools = try c.decodeIfPresent(FormTools.self, forKey: .tools)
+        orgNotice = try c.decodeIfPresent(FormOrgNotice.self, forKey: .orgNotice)
     }
 }
