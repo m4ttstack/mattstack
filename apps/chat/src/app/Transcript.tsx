@@ -162,7 +162,7 @@ export interface TranscriptProps {
 
 /** The longest gap at which a speaker's next post still continues their
     last one. */
-const GROUP_GAP_MS = 10 * 60_000;
+const GROUP_GAP_MS = 60 * 60_000;
 
 /** True when `message` reads as a continuation of `previous`: same speaker,
     same day, close together. It then drops its own sprite and name. */

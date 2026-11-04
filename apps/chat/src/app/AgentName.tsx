@@ -57,14 +57,23 @@ export const MESSAGE_HANDLE: AgentNameSize = {
   meta: 'var(--mantine-font-size-xs)',
 };
 
-const FACE_BACKGROUNDS = [
-  'ffd5dc',
-  'ffdfbf',
-  'c0aede',
-  'd1d4f9',
-  'b6e3f4',
-  'c1f0dc',
-];
+/** A name's own pastel: a hue from the whole wheel, so two names sharing one
+    is rare, and the same on every machine. */
+function faceBackground(name: string): string {
+  let hash = 2166136261;
+  for (const char of name) {
+    hash = Math.imul(hash ^ char.codePointAt(0)!, 16777619);
+  }
+  const hue = (hash >>> 0) % 360;
+  const channel = (n: number) => {
+    const k = (n + hue / 30) % 12;
+    const value = 0.86 - 0.14 * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(value * 255)
+      .toString(16)
+      .padStart(2, '0');
+  };
+  return `${channel(0)}${channel(8)}${channel(4)}`;
+}
 
 const faces = new Map<string, string>();
 
@@ -75,7 +84,7 @@ function faceUri(name: string): string {
   if (known) return known;
   const uri = createAvatar(personas, {
     seed: name,
-    backgroundColor: FACE_BACKGROUNDS,
+    backgroundColor: [faceBackground(name)],
   }).toDataUri();
   faces.set(name, uri);
   return uri;
