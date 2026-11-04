@@ -1737,10 +1737,20 @@ body {
 .tui-side-name {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
+  min-width: 0;
+}
+.tui-side-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.tui-side-item:has(.tui-slack-face) {
+  padding: 4px 10px 4px 6px;
+}
+.tui-side-item.active:has(.tui-slack-face) {
+  border-color: transparent;
 }
 /* Wraps the count (+ optional "syncing" flag) as one flex item, so the row
    keeps its two-item space-between layout instead of the flag floating
@@ -1755,6 +1765,7 @@ body {
   color: var(--text-4);
   font-family: var(--font-sans);
   font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
 }
 
 .tui-side-empty {
@@ -2667,7 +2678,7 @@ body {
 .tui-slack-face {
   display: inline-block;
   object-fit: cover;
-  border-radius: 28%;
+  border-radius: 50%;
   flex-shrink: 0;
 }
 .tui-comment-avatar .tui-slack-face {
@@ -2675,8 +2686,8 @@ body {
   height: 100%;
 }
 .tui-slack-face.tui-avatar {
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
 }
 .tui-author-tag .tui-slack-face.tui-avatar {
   width: 22px;

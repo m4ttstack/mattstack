@@ -1396,7 +1396,10 @@ export function Board() {
       .sort();
     return [...listed, ...others].join('\n');
   }, [data, boardView]);
-  const faces = JSON.stringify(data?.slackFaces ?? {});
+  // A restarted server answers with no faces until it has read Slack again.
+  const seenFaces = useRef<Record<string, string>>({});
+  seenFaces.current = { ...seenFaces.current, ...data?.slackFaces };
+  const faces = JSON.stringify(seenFaces.current);
   const memberLooks = useMemo(() => {
     const looks = assignMemberLooks(lookIds ? lookIds.split('\n') : []);
     const known = JSON.parse(faces) as Record<string, string>;

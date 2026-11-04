@@ -1828,15 +1828,31 @@ async function refreshMemberNames(): Promise<void> {
 }
 let slackPeople: SlackPerson[] = [];
 let slackPeopleFetchedAt = 0;
+/** Kept across polls: a lookup or a name refresh that fails must not take a
+    face away. */
+const knownSlackFaces = new Map<string, string>();
 
 /** rt reads Slack; this keeps its answer for the board's poll to match against. */
 function refreshSlackPeople(): void {
   if (slackPeopleFetchedAt && Date.now() - slackPeopleFetchedAt < NAMES_TTL_MS)
     return;
   slackPeopleFetchedAt = Date.now();
-  void chatSlackAvatars().then(res => {
-    if (res.ok && res.data) slackPeople = res.data.people;
-  });
+  void chatSlackAvatars()
+    .then(res => {
+      if (res.ok && res.data?.people.length) slackPeople = res.data.people;
+      else slackPeopleFetchedAt = 0;
+    })
+    .catch(() => {
+      slackPeopleFetchedAt = 0;
+    });
+}
+
+function currentSlackFaces(mrs: readonly BoardMR[]): Record<string, string> {
+  const authors = mrs.map(mr => [mr.author.username, mr.author.name] as const);
+  const matched = slackFaces([...authors, ...memberNames], slackPeople);
+  for (const [username, id] of Object.entries(matched))
+    knownSlackFaces.set(username, id);
+  return Object.fromEntries(knownSlackFaces);
 }
 
 // Fire-and-forget: a hung/down daemon must not delay Bun.serve() by the
@@ -2189,13 +2205,7 @@ const httpServer = Bun.serve({
             defaultMember: config.defaultMember,
             tokenUser: readMemory().identity?.username ?? null,
             members: buildRoster(visible, visibleMrs, memberNames),
-            slackFaces: slackFaces(
-              [
-                ...snapshot.mrs.map(mr => [mr.author.username, mr.author.name] as const),
-                ...memberNames,
-              ],
-              slackPeople
-            ),
+            slackFaces: currentSlackFaces(snapshot.mrs),
             allMembers: config.members.map(m => ({
               username: m.username,
               name: memberNames.get(m.username) ?? m.name ?? null,

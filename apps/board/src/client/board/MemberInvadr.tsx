@@ -1,7 +1,9 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import { Invadr } from 'invadrs/react';
 
 import type { MemberLook } from './invadr-colors.ts';
+
+const FACE_RETRY_MS = 60_000;
 
 const MemberLooks = createContext<ReadonlyMap<string, MemberLook>>(new Map());
 
@@ -25,6 +27,11 @@ export function MemberInvadr({
 }) {
   const look = useMemberLook(id);
   const [failed, setFailed] = useState<string>();
+  useEffect(() => {
+    if (!failed) return;
+    const retry = setTimeout(() => setFailed(undefined), FACE_RETRY_MS);
+    return () => clearTimeout(retry);
+  }, [failed]);
   className = className ? `tui-invadr ${className}` : 'tui-invadr';
   if (look?.face && look.face !== failed) {
     return (
