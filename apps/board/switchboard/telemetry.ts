@@ -157,10 +157,13 @@ export function macLabel(row: MacRow): string {
 }
 
 function segments(version: string): number[] {
-  return version.split('.').map(part => Number.parseInt(part, 10) || 0);
+  return version
+    .replace(/^v/, '')
+    .split('.')
+    .map(part => Number.parseInt(part, 10) || 0);
 }
 
-function compareVersions(a: string, b: string): number {
+export function compareVersions(a: string, b: string): number {
   const left = segments(a);
   const right = segments(b);
   for (let i = 0; i < Math.max(left.length, right.length); i++) {

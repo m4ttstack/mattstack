@@ -13,7 +13,7 @@ import {
   sourceIp,
   TeamInviteStore,
 } from './team-invites.ts';
-import { renderTelemetryPage } from './telemetry-page.ts';
+import { renderTelemetryPage, TELEMETRY_CSP } from './telemetry-page.ts';
 import { parsePing, TelemetryStore } from './telemetry.ts';
 import { InboxWaiters, MAX_WAIT_SECONDS } from './waiters.ts';
 
@@ -226,8 +226,7 @@ export function makeFetchHandler(
           'content-type': 'text/html; charset=utf-8',
           'cache-control': 'no-store',
           'referrer-policy': 'no-referrer',
-          'content-security-policy':
-            "default-src 'none'; style-src 'unsafe-inline'",
+          'content-security-policy': TELEMETRY_CSP,
           'x-content-type-options': 'nosniff',
         },
       });

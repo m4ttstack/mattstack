@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 
@@ -9,6 +10,11 @@ import { TelemetryStore, type TelemetryPing } from '../telemetry.ts';
 const ADMIN = 'admin-secret';
 const VIEW = 'view-secret';
 const NOW = 1_000_000_000_000;
+
+const pageScript = (html: string) =>
+  html.match(/<script>([\s\S]*)<\/script>/)?.[1] ?? '';
+const scriptHash = (html: string) =>
+  createHash('sha256').update(pageScript(html)).digest('base64');
 
 const ping = (over: Partial<TelemetryPing> = {}): TelemetryPing => ({
   installId: 'install-a',
@@ -233,10 +239,10 @@ describe('GET /telemetry', () => {
       expect(res.headers.get('cache-control')).toBe('no-store');
       expect(res.headers.get('referrer-policy')).toBe('no-referrer');
       expect(res.headers.get('x-content-type-options')).toBe('nosniff');
-      expect(res.headers.get('content-security-policy')).toBe(
-        "default-src 'none'; style-src 'unsafe-inline'"
-      );
       const html = await res.text();
+      expect(res.headers.get('content-security-policy')).toBe(
+        `default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-${scriptHash(html)}'`
+      );
       for (const heading of [
         'Macs',
         'Versions',
@@ -255,7 +261,144 @@ describe('GET /telemetry', () => {
     expect(html).toContain('color-scheme:light dark');
     expect(html).toContain('light-dark(');
     expect(html).toContain('<div class="scroll"><table>');
-    expect(html).not.toMatch(/<script|<link|@import|url\(/);
+    expect(html).not.toMatch(/<link|@import|url\(/);
+    expect(html.split('<script').length - 1).toBe(1);
+  });
+
+  test('sends each time as UTC for the browser to localize', async () => {
+    const { telemetry, get } = setup();
+    telemetry.record(ping(), null, NOW);
+    const html = await (await get(`/telemetry?key=${VIEW}`)).text();
+    const utc = new Date(NOW).toISOString();
+    expect(html).toContain(`<time datetime="${utc}">${utc}</time>`);
+  });
+
+  test.each([
+    ['2026-11-04T16:49:00.000Z', 'Today, 10:49 AM'],
+    ['2026-11-04T05:30:00.000Z', 'Yesterday, 11:30 PM'],
+    ['2026-11-03T07:00:00.000Z', 'Yesterday, 1:00 AM'],
+    ['2026-11-03T05:30:00.000Z', '11/02/2026, 11:30 PM'],
+    ['2025-01-15T20:05:00.000Z', '01/15/2025, 2:05 PM'],
+  ])(
+    'the page script shows %s as %s in the viewer zone',
+    async (utc, shown) => {
+      const { telemetry, get } = setup();
+      telemetry.record(ping(), null, NOW);
+      const html = await (await get(`/telemetry?key=${VIEW}`)).text();
+      const time = { dateTime: utc, textContent: 'untouched' };
+      const fakeDocument = { querySelectorAll: () => [time] };
+      class ViewerDate extends Date {
+        constructor(value: string | number = '2026-11-04T16:50:00.000Z') {
+          super(value);
+        }
+      }
+      const zone = process.env.TZ;
+      process.env.TZ = 'America/Chicago';
+      try {
+        new Function('document', 'Date', pageScript(html))(
+          fakeDocument,
+          ViewerDate
+        );
+      } finally {
+        if (zone === undefined) delete process.env.TZ;
+        else process.env.TZ = zone;
+      }
+      expect(time.textContent.replace(/\s/g, ' ')).toBe(shown);
+    }
+  );
+
+  test('flags versions behind the newest prod Mac, ignoring dev Macs', async () => {
+    const { telemetry, get } = setup();
+    const current = {
+      appVersion: '2.28.0',
+      rtVersion: 'v2.28.0',
+      pluginVersion: '0.32.38',
+    };
+    telemetry.record(ping({ ...current, installId: 'a' }), null, NOW);
+    telemetry.record(
+      ping({
+        ...current,
+        installId: 'b',
+        appVersion: '2.27.0',
+        rtVersion: 'v2.27.0',
+      }),
+      null,
+      NOW
+    );
+    telemetry.record(
+      ping({
+        ...current,
+        installId: 'c',
+        flavor: 'dev',
+        rtVersion: 'dev',
+        pluginVersion: '0.32.39',
+      }),
+      null,
+      NOW
+    );
+    const html = await (await get(`/telemetry?key=${VIEW}`)).text();
+    expect(html).toContain(
+      '<span class="behind" title="Behind 2.28.0">2.27.0</span>'
+    );
+    expect(html).toContain(
+      '<span class="behind" title="Behind v2.28.0">v2.27.0</span>'
+    );
+    expect(html).not.toContain('Behind 0.32.39');
+    expect(html).not.toMatch(/class="behind"[^>]*>dev</);
+  });
+
+  test('lists only Macs behind on app or rt, most recently seen first', async () => {
+    const { telemetry, get } = setup();
+    const current = { appVersion: '2.28.0', rtVersion: 'v2.28.0' };
+    const old = { appVersion: '2.27.0', rtVersion: 'v2.27.0' };
+    telemetry.record(
+      ping({ ...current, installId: 'a', usernames: ['alice'] }),
+      null,
+      NOW
+    );
+    telemetry.record(
+      ping({
+        ...current,
+        installId: 'd',
+        usernames: ['dana'],
+        pluginVersion: '0.1.0',
+      }),
+      null,
+      NOW
+    );
+    telemetry.record(
+      ping({ ...old, installId: 'b', usernames: ['bob'] }),
+      null,
+      NOW - 2_000
+    );
+    telemetry.record(
+      ping({ ...old, installId: 'c', usernames: ['carol'] }),
+      null,
+      NOW - 1_000
+    );
+    const html = await (await get(`/telemetry?key=${VIEW}`)).text();
+    const section = html.slice(
+      html.indexOf('Not on the latest release'),
+      html.indexOf('<h2>Macs</h2>')
+    );
+    expect(section).toContain('app 2.28.0, rt v2.28.0');
+    expect(section).not.toContain('alice');
+    expect(section).not.toContain('dana');
+    expect(section.indexOf('carol')).toBeGreaterThan(-1);
+    expect(section.indexOf('carol')).toBeLessThan(section.indexOf('bob'));
+  });
+
+  test('shows an app and rt update from one ping as one row', async () => {
+    const { telemetry, get } = setup();
+    telemetry.record(ping(), null, NOW);
+    telemetry.record(
+      ping({ appVersion: '2.1.0', rtVersion: '2.1.0' }),
+      null,
+      NOW + 1
+    );
+    const html = await (await get(`/telemetry?key=${VIEW}`)).text();
+    const update = '2.0.0 <span class="arrow">\u2192</span> 2.1.0';
+    expect(html).toContain(`<td>${update}</td><td>${update}</td>`);
   });
 
   test('an empty view token never opens the page', async () => {
@@ -320,7 +463,10 @@ describe('GET /telemetry', () => {
       expect(html).toContain(escaped);
     }
     expect(html).toContain('(unverified)');
-    expect(html).toContain(`running (${new Date(NOW).toISOString()})`);
+    const utc = new Date(NOW).toISOString();
+    expect(html).toContain(
+      `<span class="seen live" title="Running"><span class="sr">Running</span><time datetime="${utc}">${utc}</time></span>`
+    );
     expect(html).toContain('&lt;b&gt;org&lt;/b&gt;:3');
     expect(html).toContain('&lt;i&gt;pack&lt;/i&gt;@mkt (1.0.0)');
     expect(html).toContain('bare@mkt<');
