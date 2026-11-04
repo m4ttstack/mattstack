@@ -70,7 +70,11 @@ import { convert } from '../registry/convert.ts';
 import { liveProcessIds } from '../registry/deck-manifest.ts';
 import { migrate } from '../registry/migrate.ts';
 import { stampDeploy } from '../registry/new-code.ts';
-import { getRecord, listRecords } from '../registry/records.ts';
+import {
+  getRecord,
+  isMattstackOwned,
+  listRecords,
+} from '../registry/records.ts';
 import { readLinkedManifest } from '../registry/serve-shape.ts';
 import {
   commandRunStatus,
@@ -208,6 +212,20 @@ function ownCommand(
 }
 
 const ICON_ROUTE = /^\/api\/apps\/([^/]+)\/icon$/;
+
+const NEVER_PUBLIC = 'mattstack apps cannot be public';
+
+function isOwnedApp(name: string): boolean {
+  const record = getRecord(name);
+  return !!record && isMattstackOwned(record);
+}
+
+function publishRefusal(name: string): string | null {
+  if (isOwnedApp(name)) return NEVER_PUBLIC;
+  if (!getPlatformSettings().publicDomain)
+    return 'no domain connected; run deck domain <domain> first';
+  return null;
+}
 
 /**
  * MATTSTACK_TLD is always allowed even though it is a derived cache entry
@@ -808,7 +826,10 @@ export function startApi(deps: ApiDeps) {
             const b = await body(req);
             if (!getRecord(name) && !knownRouteApp(name))
               return json({ error: 'unknown app' }, 404);
-            await setPublished(name, b.published === true);
+            const published = b.published === true;
+            const refusal = published ? publishRefusal(name) : null;
+            if (refusal) return json({ error: refusal }, 409);
+            await setPublished(name, published);
             return json({ ok: true });
           }
           if (sub === 'password' && req.method === 'PUT') {
@@ -873,6 +894,8 @@ export function startApi(deps: ApiDeps) {
           }
           if (sub === 'remote' && req.method === 'POST') {
             const b = await body(req);
+            if (b.enabled === true && isOwnedApp(name))
+              return json({ error: NEVER_PUBLIC }, 409);
             const sec = await readDeckSecrets(deps.deckSecrets);
             const settings = getPlatformSettings();
             const { railway, dns } = resolveRemoteDrivers(deps, sec);

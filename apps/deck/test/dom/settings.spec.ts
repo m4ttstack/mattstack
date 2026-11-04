@@ -148,22 +148,20 @@ test('the modal opens only from the row gear; esc, close and backdrop close it; 
 
 test('switch, restart, and site-link clicks do not open the modal', async () => {
   await withBoard(async page => {
-    await page.route('**/api/v1/apps/forecast/publish', route =>
+    await page.route('**/api/v1/apps/orbit/publish', route =>
       route.fulfill(ok)
     );
     await page.route('**/api/v1/apps/atlas/restart', route =>
       route.fulfill(ok)
     );
 
-    await rowFor(page, 'forecast')
-      .locator('[data-part="switch-control"]')
-      .click();
+    await rowFor(page, 'orbit').locator('[data-part="switch-control"]').click();
     expect(await anySettings(page).count()).toBe(0);
 
     await rowFor(page, 'atlas').locator('[aria-label="restart atlas"]').click();
     expect(await anySettings(page).count()).toBe(0);
 
-    await rowFor(page, 'atlas').locator('a[target="_blank"]').first().click();
+    await rowFor(page, 'orbit').locator('a[target="_blank"]').first().click();
     expect(await anySettings(page).count()).toBe(0);
 
     // The negatives above only mean something if the gear does open it.

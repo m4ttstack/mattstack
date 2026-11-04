@@ -6,6 +6,7 @@
   "total": 4,
   "nextPort": 11012,
   "proxyStale": false,
+  "publicDomainBound": true,
   "autoHeal": null,
   "apps": [
     {
@@ -27,7 +28,7 @@
         "unmanaged": null,
         "stderr": []
       },
-      "published": true,
+      "published": false,
       "hasPassword": true,
       "isTunnel": false,
       "override": null,
@@ -65,7 +66,7 @@
         "unmanaged": null,
         "stderr": []
       },
-      "published": true,
+      "published": false,
       "hasPassword": false,
       "isTunnel": false,
       "override": {

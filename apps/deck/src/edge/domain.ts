@@ -3,7 +3,7 @@ import { existsSync, rmSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 
-import { getAppSettings } from '../../core/settings.ts';
+import { isPublished } from '../../core/publish.ts';
 import {
   getPlatformSettings,
   updatePlatformSettings,
@@ -237,7 +237,7 @@ export async function unbindDomain(
       body: { error: 'remote-apps-pinned-to-domain', apps: remoteApps },
     };
   const served = records
-    .filter(r => !r.remote && getAppSettings(r.name).published)
+    .filter(r => !r.remote && isPublished(r.name))
     .map(r => r.name);
   if (served.length && !opts.force)
     return {
