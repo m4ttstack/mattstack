@@ -196,7 +196,7 @@ export function RunPage({
         canAbandon={run.attention.needs && run.attention.reason === 'stale'}
         onViewInputs={drawer.open}
         facts={parts.factRows}
-        cost={usage.isSuccess ? liveCost(usage.data) : null}
+        cost={usage.data === undefined ? null : liveCost(usage.data)}
       />
       {parts.gatesFailed ? (
         <GatesUnreadable onRetry={() => void parts.retryGates()} />

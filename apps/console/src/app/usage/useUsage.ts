@@ -68,9 +68,9 @@ export function useUsageMr(mrKey: string) {
   });
 }
 
-/** A missing cost only hides one number on the run page, so it never retries. */
-/** `live` re-reads every minute, so a running run's cost follows the
-    5 minute sweep without a reload. */
+/** A missing cost only hides one number on the run page, so it never
+    retries. `live` re-reads every minute, so a running run's cost follows
+    the 5 minute sweep without a reload. */
 export function useUsageRun(runId: string, { live = false } = {}) {
   return useQuery({
     queryKey: ['usage', 'run', runId],

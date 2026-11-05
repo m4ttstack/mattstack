@@ -47,11 +47,12 @@ export interface RunHeaderProps {
   onViewInputs: () => void;
   /** The run's links, along the foot of the card. */
   facts?: FactProps[];
-  /** Absent until the usage read answers, or when it fails. */
+  /** Absent until the usage read first answers; a failed re-read keeps
+      the last figure. */
   cost?: LiveCost | null;
 }
 
-function HeadCost({ cost }: { cost: LiveCost }) {
+export function HeadCost({ cost }: { cost: LiveCost }) {
   return (
     <Text
       span

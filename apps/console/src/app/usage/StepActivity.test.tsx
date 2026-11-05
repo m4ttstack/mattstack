@@ -41,6 +41,14 @@ describe('ActivityBody', () => {
     expect(b.empty).toBe(true);
   });
 
+  it('warns above an empty list when sessions are missing', () => {
+    const b = body(data({ sessionsMissing: 2 }));
+    expect(b.gone).toBe(
+      '2 sessions in this step have no transcript left, so this list may be short.'
+    );
+    expect(b.empty).toBe(true);
+  });
+
   it('warns the list may be short when one session is missing', () => {
     const b = body(
       data({
