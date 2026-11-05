@@ -1,7 +1,8 @@
 import { Database } from "bun:sqlite";
-import { existsSync, readdirSync, statSync } from "fs";
+import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from "fs";
 import { join } from "path";
 import { mrKeyFromField, mrKeyFromSubject } from "./mr-key.ts";
+import type { TranscriptFile } from "./transcripts.ts";
 
 export interface AgentLink {
   id: string;
@@ -185,7 +186,8 @@ export function linkAgents(db: Database, agents: AgentLink[], machineId: string)
     INSERT INTO usage_sessions (machine_id, session_id, source, ref, agent_mr_key, agent_kind)
     VALUES (?, ?, 'agent', ?, ?, ?)
     ON CONFLICT (machine_id, session_id, source, ref) DO UPDATE SET
-      agent_mr_key = excluded.agent_mr_key, agent_kind = excluded.agent_kind`);
+      agent_mr_key = excluded.agent_mr_key,
+      agent_kind = CASE WHEN usage_sessions.agent_kind = 'doctor' THEN 'doctor' ELSE excluded.agent_kind END`);
   const linkSession = db.query(LINK_RUN_SESSION);
   db.transaction(() => {
     for (const agent of agents) {
@@ -204,6 +206,51 @@ export function linkAgents(db: Database, agents: AgentLink[], machineId: string)
       }
     }
   })();
+}
+
+const DOCTOR_MARKER = "<command-name>/board:doctor<";
+const HEAD_BYTES = 64 * 1024;
+
+function headHasDoctorMarker(path: string): boolean {
+  let fd: number | null = null;
+  try {
+    fd = openSync(path, "r");
+    const buf = Buffer.alloc(HEAD_BYTES);
+    const n = readSync(fd, buf, 0, HEAD_BYTES, 0);
+    return buf.toString("utf8", 0, n).includes(DOCTOR_MARKER);
+  } catch {
+    return false;
+  } finally {
+    if (fd !== null) closeSync(fd);
+  }
+}
+
+// Board launches carry no label, so the doctor's own slash command at the top
+// of its main transcript is what marks it. The text is matched, never kept.
+export function classifyAgentSessions(
+  db: Database,
+  files: TranscriptFile[],
+  machineId: string,
+): { doctors: number } {
+  const mainBySession = new Map<string, string>();
+  for (const f of files) if (f.subagentId === null) mainBySession.set(f.sessionId, f.path);
+  const rows = db
+    .query(
+      "SELECT DISTINCT session_id FROM usage_sessions WHERE machine_id = ? AND source = 'agent' AND agent_kind = 'other'",
+    )
+    .all(machineId) as { session_id: string }[];
+  const mark = db.query(
+    "UPDATE usage_sessions SET agent_kind = 'doctor' WHERE machine_id = ? AND session_id = ? AND source = 'agent' AND agent_kind = 'other'",
+  );
+  let doctors = 0;
+  for (const { session_id } of rows) {
+    const path = mainBySession.get(session_id);
+    if (path && headHasDoctorMarker(path)) {
+      mark.run(machineId, session_id);
+      doctors++;
+    }
+  }
+  return { doctors };
 }
 
 export function linkedSessionIds(db: Database, machineId: string): Set<string> {

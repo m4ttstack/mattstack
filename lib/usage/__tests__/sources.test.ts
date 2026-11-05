@@ -4,7 +4,14 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { seedRun } from "../../runs/__tests__/fixtures.ts";
 import { openUsageDb } from "../store.ts";
-import { linkAgents, linkedSessionIds, snapshotRuns, type AgentLink } from "../sources.ts";
+import {
+  classifyAgentSessions,
+  linkAgents,
+  linkedSessionIds,
+  snapshotRuns,
+  type AgentLink,
+} from "../sources.ts";
+import type { TranscriptFile } from "../transcripts.ts";
 
 const M = "machine-a";
 const REPO = "remote:github.com%2Facme%2Fwidgets";
@@ -215,4 +222,70 @@ test("linkedSessionIds lists this machine's sessions only", () => {
   linkAgents(db, [agent({ subject: "run:run-9" })], M);
   linkAgents(db, [agent({ sessionId: "s-other", subject: "run:run-9" })], "machine-b");
   expect(linkedSessionIds(db, M)).toEqual(new Set(["s-1"]));
+});
+
+const MR = "mr:https://github.com/acme/widgets/pull/7";
+const transcript = (name: string, text: string, o: Partial<TranscriptFile> = {}): TranscriptFile => {
+  const path = join(dir, name);
+  writeFileSync(path, text);
+  return {
+    path,
+    sessionId: "s-1",
+    configDir: dir,
+    subagentId: null,
+    subagentType: null,
+    subagentModel: null,
+    ...o,
+  };
+};
+const kind = () => db.query("SELECT agent_kind FROM usage_sessions").all();
+
+test("a board doctor transcript marks the session doctor", () => {
+  linkAgents(db, [agent({ subject: MR })], M);
+  const file = transcript(
+    "doctor.jsonl",
+    '{"type":"user","message":{"content":"<command-name>/board:doctor</command-name>"}}\n',
+  );
+  expect(classifyAgentSessions(db, [file], M)).toEqual({ doctors: 1 });
+  expect(kind()).toEqual([{ agent_kind: "doctor" }]);
+});
+
+test("a review transcript stays other", () => {
+  linkAgents(db, [agent({ subject: MR })], M);
+  const file = transcript(
+    "review.jsonl",
+    '{"type":"user","message":{"content":"<command-name>/board:review</command-name>"}}\n',
+  );
+  expect(classifyAgentSessions(db, [file], M)).toEqual({ doctors: 0 });
+  expect(kind()).toEqual([{ agent_kind: "other" }]);
+});
+
+test("a marker past the first 64KB is ignored", () => {
+  linkAgents(db, [agent({ subject: MR })], M);
+  const file = transcript("late.jsonl", `${"x".repeat(64 * 1024)}<command-name>/board:doctor<`);
+  expect(classifyAgentSessions(db, [file], M)).toEqual({ doctors: 0 });
+  expect(kind()).toEqual([{ agent_kind: "other" }]);
+});
+
+test("a subagent transcript is not read for the marker", () => {
+  linkAgents(db, [agent({ subject: MR })], M);
+  const file = transcript("sub.jsonl", "<command-name>/board:doctor<", { subagentId: "a1" });
+  expect(classifyAgentSessions(db, [file], M)).toEqual({ doctors: 0 });
+});
+
+test("relinking keeps doctor", () => {
+  linkAgents(db, [agent({ subject: MR })], M);
+  classifyAgentSessions(db, [transcript("d.jsonl", "<command-name>/board:doctor<")], M);
+  linkAgents(db, [agent({ subject: MR })], M);
+  expect(kind()).toEqual([{ agent_kind: "doctor" }]);
+});
+
+test("an unreadable or missing transcript leaves the row alone", () => {
+  linkAgents(db, [agent({ subject: MR })], M);
+  const gone = { ...transcript("g.jsonl", "x"), path: join(dir, "missing.jsonl") };
+  const unreadable = { ...gone, path: dir };
+  expect(classifyAgentSessions(db, [gone], M)).toEqual({ doctors: 0 });
+  expect(classifyAgentSessions(db, [unreadable], M)).toEqual({ doctors: 0 });
+  expect(classifyAgentSessions(db, [], M)).toEqual({ doctors: 0 });
+  expect(kind()).toEqual([{ agent_kind: "other" }]);
 });
