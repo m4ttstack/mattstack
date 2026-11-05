@@ -660,9 +660,11 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
         const data = (await res.json()) as { room: string };
         void refetchRooms();
         setActiveRoom(data.room);
-        const base = route.name === 'embed' ? '/embed/r' : '/r';
-        const to = `${base}/${encodeURIComponent(data.room)}`;
-        if (window.location.pathname !== to) navigate(to);
+        const embed = route.name === 'embed';
+        const to = `${embed ? '/embed/r' : '/r'}/${encodeURIComponent(data.room)}`;
+        if (window.location.pathname !== to) {
+          navigate(embed ? to + window.location.search : to);
+        }
         composerRef.current?.focus();
       } catch {
         notifications.error("Couldn't open the DM");
