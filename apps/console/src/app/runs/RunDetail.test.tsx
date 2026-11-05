@@ -815,7 +815,6 @@ describe('RunDetail: finished run', () => {
     await waitFor(() =>
       expect(statsOf(header)).toEqual([
         ['duration', '2h 32mstart to merge'],
-        ['decisions', '4decisions'],
         ['took', '3 of 4took the recommendation'],
         ['waiting', '25mwaiting on you'],
       ])
@@ -873,7 +872,6 @@ describe('RunDetail: finished run', () => {
     await waitFor(() =>
       expect(statsOf(header)).toEqual([
         ['duration', '2h 32mstart to end'],
-        ['decisions', '2decisions'],
         ['waiting', '35mwaiting on you'],
       ])
     );
@@ -1008,11 +1006,7 @@ describe('RunDetail: finished run', () => {
       expect(outcomesOf(header)).toEqual(['Requested changes on !412'])
     );
     await waitFor(() =>
-      expect(statsOf(header).map(([id]) => id)).toEqual([
-        'duration',
-        'decisions',
-        'waiting',
-      ])
+      expect(statsOf(header).map(([id]) => id)).toEqual(['duration', 'waiting'])
     );
     expect(tabsOf(record).map(([name]) => name)).toEqual(['Story', 'Inputs']);
   });

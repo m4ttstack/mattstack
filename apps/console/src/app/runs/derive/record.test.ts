@@ -6,9 +6,11 @@ import type {
   GateRow,
   RunFieldRow,
   RunSummary,
+  UsageRunData,
 } from '@mattstack/rt-client';
 import { describe, expect, it } from 'vitest';
 
+import { usageMrHref } from '../../usage/format';
 import {
   abandonReason,
   answeredQuestionCount,
@@ -172,38 +174,50 @@ describe('recommendationTally', () => {
 });
 
 describe('recordStats', () => {
-  it('shows duration, decisions, took and waiting on a merged work run', () => {
-    const stats = recordStats({ run: merged, gates: workGates, now: at(200) });
+  const cost = {
+    runId: 'r',
+    mrKey: 'remote:github.com%2Facme%2Fwidgets!7',
+    totals: { cost: 41.2 },
+    mrCost: 162.61,
+  } as UsageRunData;
+
+  it('shows duration, cost, took and waiting on a merged work run', () => {
+    const stats = recordStats({
+      run: merged,
+      gates: workGates,
+      now: at(200),
+      cost,
+    });
     expect(stats.map(s => [s.id, s.value, s.label])).toEqual([
       ['duration', '2h 32m', 'start to merge'],
-      ['decisions', '6', 'decisions'],
+      ['cost', '$41.20', 'of $162.61 on this MR'],
       ['took', '4 of 6', 'took the recommendation'],
       ['waiting', '25m', 'waiting on you'],
     ]);
   });
 
-  it('counts answered questions, not gates, and says one decision', () => {
-    const two = answered('t', 'plan', 1, 2);
-    const twoQuestions = {
-      ...two,
-      questions: [
-        two.questions[0]!,
-        { ...two.questions[0]!, id: 'scope', label: 'Scope?' },
-      ],
-      answer: { ...two.answer!, answers: { q: 'a', scope: 'b' } },
-    };
-    expect(
-      recordStats({ run: run(), gates: [twoQuestions], now: at(200) }).find(
-        s => s.id === 'decisions'
-      )
-    ).toMatchObject({ value: '2', label: 'decisions' });
-    expect(
-      recordStats({
-        run: run(),
-        gates: [answered('o', 'plan', 1, 2)],
-        now: at(200),
-      }).find(s => s.id === 'decisions')
-    ).toMatchObject({ value: '1', label: 'decision' });
+  it('links the cost to its MR page', () => {
+    const stat = recordStats({
+      run: run(),
+      gates: [],
+      now: at(200),
+      cost,
+    }).find(s => s.id === 'cost');
+    expect(stat?.href).toBe(usageMrHref(cost.mrKey!));
+  });
+
+  it('says only the cost for a run with no MR', () => {
+    const stat = recordStats({
+      run: run(),
+      gates: [],
+      now: at(200),
+      cost: { ...cost, mrKey: null, mrCost: null },
+    }).find(s => s.id === 'cost');
+    expect(stat).toEqual({
+      id: 'cost',
+      value: '$41.20',
+      label: 'estimated cost',
+    });
   });
 
   it('hides took-the-recommendation when no answered question had one', () => {
@@ -217,12 +231,11 @@ describe('recordStats', () => {
     });
     expect(stats.map(s => [s.id, s.value, s.label])).toEqual([
       ['duration', '2h 32m', 'start to end'],
-      ['decisions', '2', 'decisions'],
       ['waiting', '35m', 'waiting on you'],
     ]);
   });
 
-  it('omits decisions and waiting when nobody answered anything', () => {
+  it('omits cost and waiting with no usage and no answers', () => {
     const stats = recordStats({
       run: run({ work_type: 'watch-ci' }),
       gates: [],
@@ -237,7 +250,7 @@ describe('recordStats', () => {
       gates: [answered('h', 'plan', 0, 30, { owner: 'herd:acme' })],
       now: at(200),
     });
-    expect(stats.map(s => s.id)).toEqual(['duration', 'decisions', 'took']);
+    expect(stats.map(s => s.id)).toEqual(['duration', 'took']);
   });
 });
 

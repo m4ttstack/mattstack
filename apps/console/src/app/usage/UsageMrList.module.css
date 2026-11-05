@@ -1,0 +1,113 @@
+.table {
+  --columns: minmax(0, 1fr) 300px 76px 76px 84px 84px 16px;
+
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.frame {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-width: 880px;
+  min-height: 0;
+}
+
+.head,
+.row {
+  display: grid;
+  grid-template-columns: var(--columns);
+  column-gap: 16px;
+  align-items: center;
+  padding-inline: 16px;
+}
+
+.head {
+  flex: none;
+  min-height: 36px;
+  background-color: var(--tk-panel);
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 700;
+}
+
+.sort {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  justify-content: flex-end;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--tk-text-3);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sort:hover,
+.sort[data-active] {
+  color: var(--tk-text-1);
+}
+
+.rows {
+  flex: 0 1 auto;
+  min-height: 0;
+}
+
+.row {
+  position: relative;
+  height: 56px;
+  border-top: 1px solid var(--tk-line-3);
+}
+
+.row:hover {
+  background-color: var(--mantine-color-default-hover);
+}
+
+.name {
+  min-width: 0;
+}
+
+.link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
+.link::after {
+  position: absolute;
+  inset: 0;
+  content: '';
+}
+
+.title {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.ticket {
+  flex: none;
+}
+
+.bar {
+  position: relative;
+  z-index: 1;
+}
+
+.barLink {
+  display: block;
+  padding-block: 8px;
+}
+
+.chevron {
+  color: var(--tk-text-3);
+  line-height: 0;
+}
