@@ -662,7 +662,11 @@ export function Transcript({
         display: 'flex',
         flexDirection: 'column',
         // A white card only rises off something darker than itself.
-        background: bare ? undefined : feed ? 'var(--tk-bg)' : 'var(--tk-card)',
+        background: bare
+          ? undefined
+          : feed
+            ? 'color-mix(in srgb, var(--tk-bg) 50%, var(--tk-card))'
+            : 'var(--tk-card)',
       }}
       data-testid="transcript"
     >
