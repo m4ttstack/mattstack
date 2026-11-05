@@ -262,11 +262,12 @@
   );
 }
 
-/* The room around the line sits inside the rows, so a tint still meets it. */
-.msg:has(+ .blockLine) {
-  padding-bottom: 32px;
+/* A conversation carries its own room, at the list's ends too, so a tint
+   still meets the line between two of them. */
+.msg[data-run-start] {
+  padding-top: 32px;
 }
 
-.blockLine + .msg {
-  padding-top: 32px;
+.msg[data-run-end] {
+  padding-bottom: 32px;
 }

@@ -251,6 +251,8 @@ function MessageRow({
   grouped,
   picked,
   hovered,
+  runStart,
+  runEnd,
   onPick,
   onHover,
 }: {
@@ -260,6 +262,8 @@ function MessageRow({
   grouped: boolean;
   picked: boolean;
   hovered: boolean;
+  runStart: boolean;
+  runEnd: boolean;
   onPick?: (room: string) => void;
   onHover?: () => void;
 }) {
@@ -307,6 +311,8 @@ function MessageRow({
       data-grouped={grouped || undefined}
       data-picked={picked || undefined}
       data-hovered={hovered || undefined}
+      data-run-start={runStart || undefined}
+      data-run-end={runEnd || undefined}
       data-pickable={onPick ? true : undefined}
       onClick={onPick ? pick : undefined}
       onMouseEnter={onHover}
@@ -758,6 +764,11 @@ export function Transcript({
                       grouped={continuesGroup(messages[i - 1], message)}
                       picked={feed?.picked === message.room}
                       hovered={feed !== undefined && hoveredRun === runs[i]}
+                      runStart={feed !== undefined && runs[i] === i}
+                      runEnd={
+                        feed !== undefined &&
+                        messages[i + 1]?.room !== message.room
+                      }
                       onPick={feed?.onPick}
                       onHover={feed && (() => setHoveredRun(runs[i]))}
                     />
