@@ -9,8 +9,8 @@ import { gatesRoutes } from './gates';
 import { panesRoutes } from './panes';
 import { runsRoutes } from './runs';
 import { settings } from './settings';
-import { usageRoutes } from './usage';
 import { mountSkills } from './skills';
+import { usageRoutes } from './usage';
 
 // The embed page writes settings, so only the suite's own pages may frame it.
 export const EMBED_FRAME_ANCESTORS =

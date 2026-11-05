@@ -61,6 +61,21 @@ describe('usage api', () => {
     expect(rt.usageMrs).not.toHaveBeenCalled();
   });
 
+  it('refuses days outside 1 to 3650, live and under the fixture', async () => {
+    for (const app of [usageRoutes(), usageRoutes(runsFixture('runs'))]) {
+      for (const days of ['0', '-1', '3651', '99999999999999999999'])
+        for (const route of ['mrs', 'trends'])
+          expect(
+            (await get(app, `/api/usage/${route}?days=${days}`)).status
+          ).toBe(400);
+    }
+    expect(rt.usageTrends).not.toHaveBeenCalled();
+    expect(rt.usageMrs).not.toHaveBeenCalled();
+    vi.mocked(rt.usageTrends).mockResolvedValue({ ok: true, data: undefined });
+    await get(usageRoutes(), '/api/usage/trends?days=3650');
+    expect(rt.usageTrends).toHaveBeenCalledWith({ days: 3650 });
+  });
+
   it('a daemon refusal answers 502 with its error', async () => {
     vi.mocked(rt.usageStatus).mockResolvedValue({ ok: false, error: 'boom' });
     const res = await get(usageRoutes(), '/api/usage/status');

@@ -1,8 +1,3 @@
-/**
- * usage:* — read-only views of usage.db. Each request opens the database
- * through lib/usage/queries.ts, which answers an empty result when the file
- * does not exist yet.
- */
 import { usageMr, usageMrs, usageStatus, usageTrends } from "../../usage/queries.ts";
 import { usageDbPath } from "../../usage/store.ts";
 import type { HandlerContext, CommandResult } from "./types.ts";
@@ -17,10 +12,12 @@ export interface UsageSeams {
   dbPath?: string;
 }
 
-/** A REST query string delivers numbers as strings, and the api-server coerces only plain digits. */
+/** The trends route takes no token and runs one synchronous query per week on the daemon's event loop. */
+const MAX_DAYS = 3650;
+const DAYS_ERROR = `days must be a positive number up to ${MAX_DAYS}`;
+
 function readDays(raw: unknown): number | null {
-  const days = typeof raw === "string" && raw.trim() !== "" ? Number(raw) : raw;
-  return typeof days === "number" && Number.isFinite(days) && days > 0 ? days : null;
+  return typeof raw === "number" && raw > 0 && raw <= MAX_DAYS ? raw : null;
 }
 
 function readRepo(raw: unknown): string | undefined {
@@ -37,7 +34,7 @@ export function createUsageHandlers(
       const payload = rawPayload as Commands["usage:mrs"]["payload"] | undefined;
       const hasDays = payload?.days !== undefined;
       const days = hasDays ? readDays(payload?.days) : undefined;
-      if (hasDays && days === null) return { ok: false as const, error: "days must be a positive number" };
+      if (hasDays && days === null) return { ok: false as const, error: DAYS_ERROR };
       try {
         const q: { days?: number; repo?: string; now: number } = { now: Date.now() };
         if (days !== undefined && days !== null) q.days = days;
@@ -63,7 +60,7 @@ export function createUsageHandlers(
     "usage:trends": async (rawPayload: unknown): Promise<CommandResult<"usage:trends">> => {
       const payload = rawPayload as Commands["usage:trends"]["payload"] | undefined;
       const days = readDays(payload?.days);
-      if (days === null) return { ok: false as const, error: "days must be a positive number" };
+      if (days === null) return { ok: false as const, error: DAYS_ERROR };
       try {
         const q: { days: number; repo?: string; now: number } = { days, now: Date.now() };
         const repo = readRepo(payload?.repo);

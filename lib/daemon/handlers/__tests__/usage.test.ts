@@ -53,14 +53,15 @@ describe("usage handlers", () => {
 
   test("days must be a positive number", async () => {
     const h = make();
-    for (const days of [0, -3, "abc", Number.NaN, null]) {
+    for (const days of [0, -3, "abc", "30", Number.NaN, null, 3651, 3e7]) {
       expect((await h["usage:mrs"]({ days })).ok).toBe(false);
       expect((await h["usage:trends"]({ days })).ok).toBe(false);
     }
     expect((await h["usage:trends"]({})).ok).toBe(false);
     expect((await h["usage:mrs"]({ days: 30 })).ok).toBe(true);
     expect((await h["usage:trends"]({ days: 30 })).ok).toBe(true);
-    expect((await h["usage:mrs"]({ days: "30" })).ok).toBe(true);
+    expect((await h["usage:mrs"]({ days: 3650 })).ok).toBe(true);
+    expect((await h["usage:trends"]({ days: 3650 })).ok).toBe(true);
   });
 
   test("usage:status returns ok with no database", async () => {

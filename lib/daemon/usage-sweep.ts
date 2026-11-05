@@ -28,7 +28,6 @@ export function usageSweepArgv(opts: { compiled?: boolean; execPath?: string } =
 
 let running = false;
 
-/** Resolves when the child exits 0; rejects on a nonzero exit, a spawn failure or the deadline. A tick that finds a child still running returns without spawning. */
 export async function spawnUsageSweep(
   deps: { argv?: string[]; spawn?: SweepSpawn; timeoutMs?: number } = {},
 ): Promise<void> {
@@ -37,6 +36,7 @@ export async function spawnUsageSweep(
   let deadline: ReturnType<typeof setTimeout> | undefined;
   let killedAtDeadline = false;
   try {
+    // Bun reads bunfig and .env from the child's cwd, and a checkout's would load into the sweep.
     const child = (deps.spawn ?? spawnChild)(deps.argv ?? usageSweepArgv(), { cwd: rtDir(), env: childEnv() });
     const stderr = new Response(child.stderr).text().catch(() => "");
     const timedOut = new Promise<"timeout">((resolve) => {
