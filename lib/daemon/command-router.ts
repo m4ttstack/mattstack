@@ -14,6 +14,10 @@ import { createStatusHandlers }    from "./handlers/status.ts";
 import { createMRHandlers }        from "./handlers/mr.ts";
 import { createWorktreeHandlers, type WorktreeHandlerOpts } from "./handlers/worktree.ts";
 import { createWorktreeTriageHandlers } from "./handlers/worktree-triage.ts";
+import { CLI_ENTRY, createWorktreeSyncHandler } from "./handlers/worktree-sync.ts";
+import { branchSync, realGitRunner, syncRunnerFor } from "../mcp/git-tools.ts";
+import { treeHolders } from "./reconciler/tree-holders.ts";
+import { rtSelfArgv } from "../rt-self.ts";
 import { createDiscussionHandlers } from "./handlers/discussions.ts";
 import { createMrUploadHandlers } from "./handlers/mr-upload.ts";
 import { createSystemProcessHandlers } from "./handlers/system-processes.ts";
@@ -173,6 +177,14 @@ export function buildRoutedHandlers(opts: {
     startHerdr,
   });
   const worktreeHandlers = createWorktreeHandlers({ repoIndex: ctx.repoIndex, cache: ctx.cache, log: ctx.log }, opts.worktree);
+  const syncRunner = syncRunnerFor(() => rtSelfArgv({ main: CLI_ENTRY }));
+  const worktreeSync = createWorktreeSyncHandler({
+    check: worktreeHandlers["worktree:provision-check"],
+    provision: worktreeHandlers["worktree:provision"],
+    dispose: worktreeHandlers["worktree:dispose"],
+    holders: treeHolders,
+    sync: (path) => branchSync(path, { git: realGitRunner, sync: syncRunner }),
+  });
   const worktreeTriageHandlers = createWorktreeTriageHandlers(
     { repoIndex: ctx.repoIndex, cache: ctx.cache, log: ctx.log },
     {
@@ -259,6 +271,7 @@ export function buildRoutedHandlers(opts: {
     }),
     ...createMRHandlers({ repoIndex: ctx.repoIndex, cache: ctx.cache, log: ctx.log }, broadcast),
     ...worktreeHandlers,
+    "worktree:sync": worktreeSync,
     ...worktreeTriageHandlers,
     ...createDiscussionHandlers({ repoIndex: ctx.repoIndex, cache: ctx.cache }, broadcast),
     ...createMrUploadHandlers({ repoIndex: ctx.repoIndex, log: ctx.log }),

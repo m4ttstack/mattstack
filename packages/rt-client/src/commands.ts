@@ -757,6 +757,20 @@ export interface WorktreeTreeRef {
   state?: "creating" | "on-deck" | "claimed" | "disposable";
   owner?: string; disposal?: "merge" | "job"; claimedAt?: string;
 }
+/** `tree-busy` and `no-tree` stopped before any sync ran; the rest are branch_sync's kinds. */
+export type WorktreeSyncKind =
+  | "synced" | "up-to-date" | "dirty-tree" | "conflict" | "stacked-refused" | "stack-unverified" | "push-refused" | "error"
+  | "tree-busy" | "no-tree";
+export interface WorktreeSyncData {
+  kind: WorktreeSyncKind;
+  path: string | null;
+  /** This call created the tree. */
+  provisioned: boolean;
+  pushed: boolean;
+  oldHead: string | null;
+  newHead: string | null;
+  refusal: string | null;
+}
 export interface WorktreeProvisionCheckData {
   /** The branch a provision would check out (`base`, or the first free `base-N`). */
   branch: string;
@@ -1351,6 +1365,7 @@ export interface Commands {
 
   "worktree:provision-check": { payload: { repoName: string; ticket?: string; ticketTitle?: string; branch?: string }; data: WorktreeProvisionCheckData };
   "worktree:provision": { payload: { repoName: string; branch?: string; ticket?: string; ticketTitle?: string; disposal?: "job" | "merge"; owner?: string }; data: WorktreeProvisionData };
+  "worktree:sync": { payload: { repoName: string; branch: string }; data: WorktreeSyncData };
   "worktree:create": { payload: { repoName: string; onDeck?: boolean }; data: WorktreeCreateData };
   "worktree:dispose": { payload: { repoName?: string; owner?: string; tree?: string; force?: boolean; callerPid?: number }; data: WorktreeDisposeData };
   "worktree:list": { payload: { repoName?: string }; data: WorktreeListData };
@@ -1537,6 +1552,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "sdm:reconnect",
   "system-processes",
   "worktree:provision",
+  "worktree:sync",
   "worktree:provision-check",
   "worktree:create",
   "worktree:dispose",
