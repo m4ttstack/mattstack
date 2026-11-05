@@ -814,7 +814,7 @@ const feed = (onPick = () => {}, picked?: string) => ({
   hears: (topic: string) => topic === 'chat/dm-a/msg',
   faces: ['fred', 'matt'],
   onPick,
-  picked,
+  target: () => picked,
 });
 
 test('a feed draws one card per conversation', () => {

@@ -151,8 +151,8 @@ export interface TranscriptFeed {
   /** Everyone the list can draw. Taken from the conversations, not the rows,
       so a new post or an older page never recolours a face. */
   faces: readonly string[];
-  /** The conversation a message click picked. */
-  picked?: string;
+  /** The conversation a reply goes to now, which draws raised. */
+  target: (messages: ChatMessage[]) => string | undefined;
   /** A message picks its conversation; the space around them clears it. */
   onPick: (room: string | undefined) => void;
 }
@@ -651,6 +651,8 @@ export function Transcript({
     feed?.onPick(blockRoom);
   };
 
+  const target = feed?.target(messages);
+
   const list = (
     <Box
       style={{
@@ -724,7 +726,7 @@ export function Transcript({
                           <div
                             className={prose.block}
                             data-testid={`direct-block-${blockRoom}`}
-                            data-picked={feed.picked === blockRoom || undefined}
+                            data-picked={target === blockRoom || undefined}
                             onClick={event => pickBlock(event, blockRoom)}
                           >
                             {block.map((message, i) => (

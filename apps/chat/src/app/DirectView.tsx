@@ -78,13 +78,13 @@ export function DirectView({
         const room = known.get(topic.slice('chat/'.length, -'/msg'.length));
         return room === undefined || isMine(room, me);
       },
-      picked,
+      target: list => picked ?? newestSenderRoom(list, me),
       onPick,
     };
   }, [rooms, me, picked, onPick]);
 
   const footer = (list: ChatMessage[]) => {
-    const target = picked ?? newestSenderRoom(list, me);
+    const target = feed.target(list);
     if (!target) return null;
     const summary = rooms.find(r => r.room === target);
     return composer(target, summary && otherEnd(summary, me));
