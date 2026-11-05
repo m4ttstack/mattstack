@@ -343,19 +343,34 @@ async function errorOf(res: Response): Promise<string> {
   return data?.error ?? `HTTP ${res.status}`;
 }
 
-/** The viewer's handle and shown name; the default until the server answers. */
+const ME_RETRY_MS = 5000;
+
+/** The viewer's handle and shown name, blank until the server answers. It asks
+    again until it does: a blank handle owns no mentions, so a brief failure
+    at page load must not last the session. */
 function useMe(): Me {
   const [me, setMe] = useState<Me>({
     handle: '',
     name: '',
   });
   useEffect(() => {
-    fetch('/api/chat/me')
-      .then(res => (res.ok ? (res.json() as Promise<Me>) : null))
-      .then(next => {
-        if (next) setMe(next);
-      })
-      .catch(() => {});
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const ask = () => {
+      fetch('/api/chat/me')
+        .then(res => jsonOrThrow<Me>(res))
+        .then(next => {
+          if (!stopped) setMe(next);
+        })
+        .catch(() => {
+          if (!stopped) timer = setTimeout(ask, ME_RETRY_MS);
+        });
+    };
+    ask();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
   }, []);
   return me;
 }
