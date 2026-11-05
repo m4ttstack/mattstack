@@ -1,12 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import type { BranchSyncResult } from "../../../mcp/git-tools.ts";
 import type { TreeHolder } from "../../reconciler/tree-holders.ts";
-import { createWorktreeSyncHandler, type WorktreeSyncDeps } from "../worktree-sync.ts";
+import { createWorktreeSyncHandler, runBranchSync, type SyncResult, type WorktreeSyncDeps } from "../worktree-sync.ts";
 
 const ref = { tree: "elrond", path: "/trees/elrond", branch: "feat", treeKind: "ephemeral" as const };
 const holder: TreeHolder = { pid: 42, ppid: 7, command: "claude", fullCommand: "claude", elapsedMs: 1000 };
-const synced = (kind: BranchSyncResult["kind"], extra: Partial<BranchSyncResult> = {}): BranchSyncResult =>
-  ({ kind, branch: "feat", oldHead: "a", newHead: "b", pushed: false, refusal: null, ...extra });
+const synced = (kind: SyncResult["kind"], extra: Partial<SyncResult> = {}): SyncResult =>
+  ({ kind, oldHead: "a", newHead: "b", pushed: false, refusal: null, ...extra });
 
 function harness(over: Partial<WorktreeSyncDeps> = {}) {
   const calls = { provisioned: 0, synced: [] as string[], disposed: [] as string[] };
@@ -73,8 +72,52 @@ describe("worktree:sync", () => {
     expect(calls.synced).toEqual([]);
   });
 
+  test("a failed holder check stops the sync", async () => {
+    const { run, calls } = harness({ holders: async () => { throw new Error("lsof died"); } });
+    const d = await data(run({ repoName: "r", branch: "feat" }));
+    expect(d.kind).toBe("tree-busy");
+    expect(d.refusal).toContain("lsof died");
+    expect(calls.synced).toEqual([]);
+  });
+
+  test("a rebase an earlier sync paused comes back as a conflict", async () => {
+    const { run } = harness({ sync: async () => synced("error", { refusal: "a rebase is in progress; finish it with git rebase --continue" }) });
+    expect(await data(run({ repoName: "r", branch: "feat" }))).toMatchObject({ kind: "conflict", path: "/trees/elrond", refusal: null });
+  });
+
   test("names a missing branch", async () => {
     const { run } = harness();
     expect(await run({ repoName: "r" })).toEqual({ ok: false, error: "branch is required" });
+  });
+});
+
+describe("runBranchSync", () => {
+  const reply = (over: Partial<{ exitCode: number; stdout: string; stderr: string; timedOut: boolean }>) =>
+    async () => ({ exitCode: 0, stdout: "", stderr: "", ...over });
+
+  test("runs the CLI, not the daemon entry, in the tree", async () => {
+    let seen: { argv: string[]; cwd: string } | undefined;
+    await runBranchSync("/trees/a", async (argv, opts) => {
+      seen = { argv, cwd: opts.cwd };
+      return { exitCode: 0, stdout: "{}", stderr: "" };
+    });
+    expect(seen?.cwd).toBe("/trees/a");
+    expect(seen?.argv.slice(-2)).toEqual(["worktree", "branch-sync"]);
+    expect(seen?.argv.some((a) => a.endsWith("/cli.ts"))).toBe(true);
+    expect(seen?.argv.some((a) => a.endsWith("daemon.ts"))).toBe(false);
+  });
+
+  test("passes the verb's result through", async () => {
+    const r = await runBranchSync("/t", reply({ stdout: JSON.stringify(synced("conflict")) }));
+    expect(r.kind).toBe("conflict");
+  });
+
+  test("no JSON is an error naming the last stderr line", async () => {
+    const r = await runBranchSync("/t", reply({ exitCode: 2, stderr: "first\nlast" }));
+    expect(r).toMatchObject({ kind: "error", refusal: "rt sync gave no result (exit 2): last" });
+  });
+
+  test("a timeout is an error", async () => {
+    expect((await runBranchSync("/t", reply({ timedOut: true }))).kind).toBe("error");
   });
 });

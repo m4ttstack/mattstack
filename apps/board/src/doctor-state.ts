@@ -2,6 +2,7 @@ import { Database } from 'bun:sqlite';
 
 import { draftBinPath } from './herdr.ts';
 import {
+  FRESH_RUN_PANE,
   getStateDb,
   insertAgentState,
   mintHandle,
@@ -197,6 +198,15 @@ export function planStandDown(
     clearDoctorState: true,
   };
 }
+
+/** Clears what a prior run left on the row: a null clears, an undefined keeps. */
+export const FRESH_SYNC_ROW = {
+  ...FRESH_RUN_PANE,
+  message: null,
+  dismissedAt: null,
+  gateId: null,
+  gateKind: null,
+} as unknown as Partial<DoctorState>;
 
 /** A sync runs inside this server's request, so a `syncing` row with no
     running sync is one a restart cut off, and nothing else would end it. */

@@ -122,6 +122,7 @@ import {
   parseDoctorRequestBody,
   planStandDown,
   failOrphanedSyncs,
+  FRESH_SYNC_ROW,
   pruneDoctorStates,
   readDoctorStates,
   STAND_DOWN_PANE_MESSAGE,
@@ -206,11 +207,7 @@ import {
   RESPOND_IN_FLIGHT,
   REVIEW_IN_FLIGHT,
 } from './launch-dedup.ts';
-import {
-  LOCAL_SYNCS,
-  syncBranchLocally,
-  type LocalSyncOutcome,
-} from './local-sync.ts';
+import { LOCAL_SYNCS, syncBranchLocally } from './local-sync.ts';
 import { launchErrorMessage } from './launch-error.ts';
 import { hasLocalOrigin, isLocalRequest, requireJsonBody } from './local.ts';
 import {
@@ -3034,40 +3031,37 @@ const httpServer = Bun.serve({
               status: 409,
             });
           LOCAL_SYNCS.add(parsed.mrUrl);
-          let outcome: LocalSyncOutcome;
           try {
             writeDoctorState(statePath, {
               mrUrl: parsed.mrUrl,
               iid: parsed.iid,
               status: 'syncing',
-              message: undefined,
               origin: 'manual',
               boardTabId: boardTabId ?? '',
-              tabId: undefined,
-              paneId: undefined,
-              dismissedAt: undefined,
+              ...FRESH_SYNC_ROW,
             });
-            outcome = await syncBranchLocally(repo, mr.sourceBranch);
+            const outcome = await syncBranchLocally(repo, mr.sourceBranch);
+            if (outcome.kind === 'clean') {
+              // The row is settled, so no doctor line stays on it.
+              writeDoctorState(statePath, {
+                status: 'done',
+                message: outcome.message,
+                dismissedAt: Date.now(),
+              });
+              return Response.json({ ok: true, synced: outcome.message });
+            }
+            if (outcome.kind === 'stopped') {
+              writeDoctorState(statePath, {
+                status: 'error',
+                message: outcome.message,
+              });
+              return new Response(outcome.message, { status: 409 });
+            }
+            pausedTree = outcome.tree;
+            writeDoctorState(statePath, { status: 'queued' });
           } finally {
             LOCAL_SYNCS.delete(parsed.mrUrl);
           }
-          if (outcome.kind === 'clean') {
-            // The row is settled, so no doctor line stays on it.
-            writeDoctorState(statePath, {
-              status: 'done',
-              message: outcome.message,
-              dismissedAt: Date.now(),
-            });
-            return Response.json({ ok: true, synced: outcome.message });
-          }
-          if (outcome.kind === 'stopped') {
-            writeDoctorState(statePath, {
-              status: 'error',
-              message: outcome.message,
-            });
-            return new Response(outcome.message, { status: 409 });
-          }
-          pausedTree = outcome.tree;
         }
         const triage = loadTriageConfig();
         // Token validation happens here, OUTSIDE the lock, since it's a
@@ -3109,7 +3103,7 @@ const httpServer = Bun.serve({
         const launchNote =
           parsed.mode === 'rebase'
             ? [
-                'rebase-only: rebase the source branch onto its target, resolve conflicts, and push; skip CI triage and any other fixes',
+                'rebase-only: resolve the paused rebase and push; skip CI triage and any other fixes',
                 note,
               ]
                 .filter(Boolean)

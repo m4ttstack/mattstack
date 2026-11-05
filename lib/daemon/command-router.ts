@@ -14,10 +14,9 @@ import { createStatusHandlers }    from "./handlers/status.ts";
 import { createMRHandlers }        from "./handlers/mr.ts";
 import { createWorktreeHandlers, type WorktreeHandlerOpts } from "./handlers/worktree.ts";
 import { createWorktreeTriageHandlers } from "./handlers/worktree-triage.ts";
-import { CLI_ENTRY, createWorktreeSyncHandler } from "./handlers/worktree-sync.ts";
-import { branchSync, realGitRunner, syncRunnerFor } from "../mcp/git-tools.ts";
+import { createWorktreeSyncHandler, runBranchSync } from "./handlers/worktree-sync.ts";
 import { treeHolders } from "./reconciler/tree-holders.ts";
-import { rtSelfArgv } from "../rt-self.ts";
+import { liveProcessCwds } from "./reconciler/stale-claims.ts";
 import { createDiscussionHandlers } from "./handlers/discussions.ts";
 import { createMrUploadHandlers } from "./handlers/mr-upload.ts";
 import { createSystemProcessHandlers } from "./handlers/system-processes.ts";
@@ -177,13 +176,16 @@ export function buildRoutedHandlers(opts: {
     startHerdr,
   });
   const worktreeHandlers = createWorktreeHandlers({ repoIndex: ctx.repoIndex, cache: ctx.cache, log: ctx.log }, opts.worktree);
-  const syncRunner = syncRunnerFor(() => rtSelfArgv({ main: CLI_ENTRY }));
   const worktreeSync = createWorktreeSyncHandler({
     check: worktreeHandlers["worktree:provision-check"],
     provision: worktreeHandlers["worktree:provision"],
     dispose: worktreeHandlers["worktree:dispose"],
-    holders: treeHolders,
-    sync: (path) => branchSync(path, { git: realGitRunner, sync: syncRunner }),
+    // treeHolders reads a failed lsof as nobody home; this one throws.
+    holders: async (path) => {
+      await liveProcessCwds();
+      return treeHolders(path);
+    },
+    sync: runBranchSync,
   });
   const worktreeTriageHandlers = createWorktreeTriageHandlers(
     { repoIndex: ctx.repoIndex, cache: ctx.cache, log: ctx.log },

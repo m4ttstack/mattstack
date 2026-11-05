@@ -372,13 +372,11 @@ async function localIsNewerRewrite(cwd: string, git: GitRunner, remoteRef: strin
 
 const SYNC_TIMEOUT_MS = 300_000;
 
-export const syncRunnerFor = (selfArgv: () => string[]) => async (cwd: string): Promise<{ code: number; stdout: string; stderr: string }> => {
-  const [exe, ...rest] = selfArgv();
+export const realSyncRunner = async (cwd: string): Promise<{ code: number; stdout: string; stderr: string }> => {
+  const [exe, ...rest] = rtSelfArgv();
   const r = await runCapture([exe!, ...rest, "sync", "--json", "--no-agent"], { cwd, stderr: "pipe", timeoutMs: SYNC_TIMEOUT_MS, env: syncChildEnv(childEnv(), cwd) });
   return { code: r.timedOut ? 124 : r.exitCode, stdout: r.stdout, stderr: r.stderr };
 };
-
-export const realSyncRunner = syncRunnerFor(() => rtSelfArgv());
 
 export type BranchSyncKind = "synced" | "up-to-date" | "dirty-tree" | "conflict" | "stacked-refused" | "stack-unverified" | "push-refused" | "error";
 
