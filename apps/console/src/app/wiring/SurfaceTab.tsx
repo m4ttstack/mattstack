@@ -345,12 +345,12 @@ const GROUPS: Record<
   commands: {
     title: 'Commands',
     icon: 'squareTerminal',
-    note: ({ publicCount }) => `${publicCount} on`,
+    note: ({ publicCount, total }) => `${publicCount} of ${total} on`,
   },
   reference: {
     title: 'Reference skills',
     icon: 'fileText',
-    note: () => 'Read when needed',
+    note: ({ publicCount, total }) => `${publicCount} of ${total} on`,
   },
   stages: {
     title: 'Pipeline stages',
@@ -365,7 +365,11 @@ const GROUPS: Record<
   },
 };
 
-type SurfaceGroupNote = { publicCount: number; pipeline: string | null };
+type SurfaceGroupNote = {
+  publicCount: number;
+  total: number;
+  pipeline: string | null;
+};
 
 /** One group of the list: a head that folds it, then its rows. */
 function SurfaceGroup({
@@ -408,10 +412,11 @@ function SurfaceGroup({
           data-open={opened || undefined}
         />
         <Icon name={group.icon} size={14} color="var(--tk-text-2)" />
-        <span className={legendClasses.groupTitle}>{group.title}</span>
-        <span className={legendClasses.groupCount}>{rows.length}</span>
-        <span className={legendClasses.groupNote}>
-          {group.note({ publicCount, pipeline })}
+        <span className={legendClasses.groupLabel}>
+          <span className={legendClasses.groupTitle}>{group.title}</span>
+          <span className={legendClasses.groupNote}>
+            {group.note({ publicCount, total: rows.length, pipeline })}
+          </span>
         </span>
       </UnstyledButton>
       <Collapse expanded={opened}>
