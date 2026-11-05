@@ -11,7 +11,7 @@
     "dev": "vite",
     "dev:server": "bun --watch src/server/index.ts",
     "build": "bun run typecheck && vite build",
-    "build:binary": "vite build && mattstack-embed-assets && bun build --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig --outfile dist-bin/boxscore src/server/index.ts",
+    "build:binary": "vite build && mattstack-embed-assets && bun build --compile ${MATTSTACK_BUN_TARGET:+--target=$MATTSTACK_BUN_TARGET} --no-compile-autoload-dotenv --no-compile-autoload-bunfig --outfile dist-bin/boxscore src/server/index.ts",
     "serve": "bun src/server/index.ts",
     "report": "bun src/server/cli.ts",
     "validate": "bun src/server/cli.ts --format validate",

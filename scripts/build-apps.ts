@@ -8,7 +8,7 @@
  * are built first: a recipe's dist import (settings-kit, tui-kit, ...) is
  * only fresh once its own package has been rebuilt from source in this run.
  *
- *   bun scripts/build-apps.ts [--arch arm64]
+ *   bun scripts/build-apps.ts [--arch arm64|x86_64]
  * Env: RT_DEPS_ROOT (default rt-tray/deps), RT_DEPS_LOCK (default
  * rt-tray/deps.lock), RT_APPS_ROOT (default apps/).
  */
@@ -26,17 +26,34 @@ export interface BuildAppsSeams {
   appsRoot: string;
   depsRoot: string;
   lockPath: string;
-  arch: "arm64";
+  arch: BuildArch;
   log(line: string): void;
   /** Builds the packages/* workspace before any recipe runs. */
   buildPackages?: () => void;
+  /** Runs `<artifact> --version` under home; returns the exit status. */
+  smoke?: (artifact: string, home: string) => number | null;
 }
+
+export type BuildArch = "arm64" | "x86_64";
 
 const SAFE_NAME = /^[a-z0-9][a-z0-9-]*$/;
 
+// Each app's compile script passes this to `bun build --compile --target`.
+const BUN_TARGET: Record<BuildArch, string> = { arm64: "bun-darwin-arm64", x86_64: "bun-darwin-x64" };
+
+function smokeFor(arch: BuildArch): (artifact: string, home: string) => number | null {
+  // An x86_64 artifact runs on the arm64 build host under Rosetta.
+  const prefix = arch === "x86_64" ? ["arch", "-x86_64"] : [];
+  return (artifact, home) => {
+    const [cmd, ...rest] = [...prefix, artifact, "--version"];
+    return spawnSync(cmd!, rest, { stdio: "ignore", env: { HOME: home, PATH: "/usr/bin:/bin" } }).status;
+  };
+}
+
 export async function buildTreeRows(s: BuildAppsSeams): Promise<string[]> {
   const lock = parseDepsLock(readFileSync(s.lockPath, "utf8"));
-  if (lock.arch !== s.arch) throw new Error(`deps.lock arch is ${lock.arch}, this run wants ${s.arch}`);
+  if (lock.arch !== "arm64") throw new Error(`deps.lock arch is ${lock.arch}, this script reads an arm64 lock`);
+  const smoke = s.smoke ?? smokeFor(s.arch);
   const deps = join(s.depsRoot, s.arch);
   mkdirSync(deps, { recursive: true });
   s.buildPackages?.();
@@ -55,14 +72,15 @@ export async function buildTreeRows(s: BuildAppsSeams): Promise<string[]> {
       const app = join(s.appsRoot, row.name);
       const recipe = readBundleRecipe(join(app, "mattstack.deck.json"));
       s.log(`  -> ${row.name}: ${recipe.build}`);
-      const run = spawnSync("bash", ["-c", recipe.build], { cwd: app, stdio: "inherit", env: process.env });
+      const env = { ...process.env, MATTSTACK_BUN_TARGET: BUN_TARGET[s.arch] };
+      const run = spawnSync("bash", ["-c", recipe.build], { cwd: app, stdio: "inherit", env });
       if (run.status !== 0) throw new Error(`${row.name}: bundle.build exited ${run.status}`);
       const artifact = join(app, recipe.artifact);
       if (!existsSync(artifact) || !(statSync(artifact).mode & 0o111)) {
         throw new Error(`${row.name}: ${recipe.artifact} missing or not executable`);
       }
-      const smoke = spawnSync(artifact, ["--version"], { stdio: "ignore", env: { HOME: smokeHome, PATH: "/usr/bin:/bin" } });
-      if (smoke.status !== 0) throw new Error(`${row.name}: ${recipe.artifact} --version exited ${smoke.status}`);
+      const status = smoke(artifact, smokeHome);
+      if (status !== 0) throw new Error(`${row.name}: ${recipe.artifact} --version exited ${status}`);
       for (const suffix of ["", "-identity", "-skills", ".sha256", "-identity.sha256", "-skills.sha256"]) {
         rmSync(join(deps, `${row.name}${suffix}`), { recursive: true, force: true });
       }
@@ -103,8 +121,8 @@ if (import.meta.main) {
   const args = process.argv.slice(2);
   const archAt = args.indexOf("--arch");
   const arch = archAt >= 0 ? args[archAt + 1] : "arm64";
-  if (arch !== "arm64") { console.error("usage: bun scripts/build-apps.ts [--arch arm64]"); process.exit(2); }
-  if (process.arch !== "arm64") { console.error(`build host is ${process.arch}; deps/arm64 must be built on arm64`); process.exit(1); }
+  if (arch !== "arm64" && arch !== "x86_64") { console.error("usage: bun scripts/build-apps.ts [--arch arm64|x86_64]"); process.exit(2); }
+  if (process.arch !== "arm64") { console.error(`build host is ${process.arch}; deps/${arch} must be built on arm64`); process.exit(1); }
   const built = await buildTreeRows({
     appsRoot: process.env.RT_APPS_ROOT ?? join(ROOT, "apps"),
     depsRoot: process.env.RT_DEPS_ROOT ?? join(ROOT, "rt-tray", "deps"),
