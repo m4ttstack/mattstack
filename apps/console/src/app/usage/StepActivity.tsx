@@ -2,9 +2,10 @@ import { Drawer, Group, Loader, Stack, Text } from '@mattstack/app-kit/core';
 import type {
   UsageActivityData,
   UsageActivityQuery,
+  UsageTotals,
 } from '@mattstack/rt-client';
 
-import { clockTime, plural, shortDate, toolName } from './format';
+import { clockTime, plural, shortDate, toolName, usd } from './format';
 import classes from './StepActivity.module.css';
 import { useUsageActivity } from './useUsage';
 
@@ -37,25 +38,47 @@ function When({ at }: { at: number }) {
   );
 }
 
-function ActivityBody({ data }: { data: UsageActivityData }) {
+function Gone({ children }: { children: React.ReactNode }) {
+  return (
+    <Text fz="md" c="dimmed" lh="normal" data-testid="transcript-gone">
+      {children}
+    </Text>
+  );
+}
+
+/** Claude Code deletes old transcripts, so a row's cost can outlive the
+    record of what it did. */
+export function ActivityBody({ data }: { data: UsageActivityData }) {
   if (!data.transcriptFound)
     return (
-      <Text fz="md" c="dimmed" lh="normal">
-        This session&apos;s transcript is gone from this Mac.
-      </Text>
+      <Gone>
+        This step&apos;s transcript is no longer on this Mac, so what it did
+        can&apos;t be shown. Its cost and token counts still stand.
+      </Gone>
     );
+  const missing = data.sessionsMissing;
+  const partial =
+    missing > 0 ? (
+      <Gone>
+        {`${plural(missing, 'session')} in this step ${missing === 1 ? 'has' : 'have'} no transcript left, so this list may be short.`}
+      </Gone>
+    ) : null;
   const empty =
     data.prompts.length === 0 &&
     data.agents.length === 0 &&
     data.tools.length === 0;
   if (empty)
     return (
-      <Text fz="md" c="dimmed" lh="normal">
-        No prompts or tools in this window.
-      </Text>
+      <Stack gap={12}>
+        {partial}
+        <Text fz="md" c="dimmed" lh="normal" data-testid="activity-empty">
+          No prompts or tools in this window.
+        </Text>
+      </Stack>
     );
   return (
     <Stack gap={20}>
+      {partial}
       {data.prompts.length ? (
         <Section
           title="Prompts"
@@ -120,7 +143,12 @@ export function StepActivity({
   opened,
   onClose,
 }: {
-  step: { label: string; note?: string; activity: UsageActivityQuery } | null;
+  step: {
+    label: string;
+    note?: string;
+    activity: UsageActivityQuery;
+    totals: UsageTotals;
+  } | null;
   opened: boolean;
   onClose: () => void;
 }) {
@@ -137,6 +165,11 @@ export function StepActivity({
           <Text fz="lg" fw={700} lh="normal">
             {step?.label}
           </Text>
+          {step ? (
+            <Text fz="sm" c="dimmed" lh="normal" data-testid="step-figures">
+              {`${usd(step.totals.cost)}, ${plural(step.totals.messages, 'message')}`}
+            </Text>
+          ) : null}
           {step?.note ? (
             <Text fz="sm" c="dimmed" lh="normal">
               {step.note}

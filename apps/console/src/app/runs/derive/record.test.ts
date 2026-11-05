@@ -14,6 +14,7 @@ import { usageMrHref } from '../../usage/format';
 import {
   abandonReason,
   answeredQuestionCount,
+  liveCost,
   postedLabel,
   recommendationTally,
   recordEnd,
@@ -217,6 +218,20 @@ describe('recordStats', () => {
       id: 'cost',
       value: '$41.20',
       label: 'estimated cost',
+    });
+  });
+
+  it('reads a live run with no usage yet as none, not $0', () => {
+    expect(liveCost(null)).toEqual({ text: 'No usage yet' });
+  });
+
+  it('shows a live run its spend so far, linked to its MR', () => {
+    expect(liveCost(cost)).toEqual({
+      text: '$41.20 so far',
+      href: usageMrHref(cost.mrKey!),
+    });
+    expect(liveCost({ ...cost, mrKey: null, mrCost: null })).toEqual({
+      text: '$41.20 so far',
     });
   });
 

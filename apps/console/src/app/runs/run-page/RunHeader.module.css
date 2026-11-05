@@ -10,3 +10,17 @@
 .keep {
   flex-shrink: 0;
 }
+
+.cost {
+  flex: none;
+  white-space: nowrap;
+}
+
+.costLink {
+  color: var(--tk-text-accent);
+  text-decoration: none;
+}
+
+.costLink:hover {
+  text-decoration: underline;
+}

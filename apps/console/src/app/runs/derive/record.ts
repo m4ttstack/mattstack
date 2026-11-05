@@ -96,6 +96,22 @@ function costStat({ totals, mrKey, mrCost }: UsageRunData): RecordStat {
   };
 }
 
+export interface LiveCost {
+  text: string;
+  /** The MR's usage page, once the sweep has tied the run to one. */
+  href?: string;
+}
+
+/** A live run's spend so far. The sweep runs every 5 minutes, so a run
+    that just started reads as having no usage rather than costing $0. */
+export function liveCost(cost: UsageRunData | null): LiveCost {
+  if (cost === null) return { text: 'No usage yet' };
+  const text = `${usd(cost.totals.cost)} so far`;
+  return cost.mrKey === null
+    ? { text }
+    : { text, href: usageMrHref(cost.mrKey) };
+}
+
 /** The record header's numbers, each only where it applies to the run. */
 export function recordStats({
   run,
