@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { ReactNode, RefObject } from 'react';
+import type { MouseEvent, ReactNode, RefObject } from 'react';
 import { Box, Button, Group, Stack, Text } from '@mattstack/app-kit/core';
 import { Icon, type IconName } from '@mattstack/app-kit/icons';
 import type { ChatMessage } from '@mattstack/rt-client';
@@ -15,7 +15,7 @@ import ScrollToBottom, {
   useScrollTo,
 } from 'react-scroll-to-bottom';
 
-import { AgentName, HandleAvatar } from './AgentName';
+import { AgentName, FaceGroup, HandleAvatar } from './AgentName';
 import { MessageSkeleton } from './ChatSkeleton';
 import { dayKey, dayLabel, localTime } from './day-label';
 import { MessageMarkdown } from './MessageMarkdown';
@@ -141,16 +141,32 @@ function ScrollHandle({ handle }: { handle: RefObject<ScrollControl | null> }) {
   return null;
 }
 
+/** Several conversations read as one list, in place of a room's own. */
+export interface TranscriptFeed {
+  /** Pages like `/api/chat/messages/:room`: `limit`, and `before` an id. */
+  url: string;
+  /** Whether a relay topic is a post into this list. */
+  hears: (topic: string) => boolean;
+  /** The conversation a message click picked. */
+  picked?: string;
+  onPick: (room: string) => void;
+}
+
 export interface TranscriptProps {
+  /** With a `feed`, only the key its state resets on. */
   room: string;
+  feed?: TranscriptFeed;
   messages: ChatMessage[];
   /** The human's own handle -- a mention of it gets the `.at.me` wash. */
   humanHandle?: string;
   /** Element id of the message a `#m-<id>` link points at; scrolled into
       view once per room+anchor, the first time it is in the list. */
   anchor?: string;
-  /** The `Composer`, below the messages in the same column. */
-  footer?: ReactNode;
+  /** The `Composer`, below the messages in the same column. A function gets
+      the list as it stands now, live posts and older pages included. */
+  footer?: ReactNode | ((messages: ChatMessage[]) => ReactNode);
+  /** Shown once a loaded list has nothing in it. */
+  empty?: ReactNode;
   /** Flush on the host's own background, with no inset: the phone shell draws
       its own chrome. @default false */
   bare?: boolean;
@@ -172,6 +188,7 @@ export function continuesGroup(
 ): boolean {
   return (
     previous !== undefined &&
+    previous.room === message.room &&
     previous.handle === message.handle &&
     message.postedAt - previous.postedAt <= GROUP_GAP_MS &&
     dayKey(previous.postedAt) === dayKey(message.postedAt)
@@ -231,12 +248,26 @@ function MessageRow({
   humanHandle,
   compact,
   grouped,
+  picked,
+  hovered,
+  onPick,
+  onHover,
 }: {
   message: ChatMessage;
   humanHandle: string | undefined;
   compact: boolean;
   grouped: boolean;
+  picked: boolean;
+  hovered: boolean;
+  onPick?: (room: string) => void;
+  onHover?: () => void;
 }) {
+  // A click that selected text, or landed on a link, was not a pick.
+  const pick = (event: MouseEvent<HTMLDivElement>) => {
+    if (window.getSelection()?.toString()) return;
+    if ((event.target as HTMLElement).closest('a, button')) return;
+    onPick?.(message.room);
+  };
   const time = (
     <Text
       component="span"
@@ -273,6 +304,11 @@ function MessageRow({
       data-testid={`message-${message.id}`}
       className={prose.msg}
       data-grouped={grouped || undefined}
+      data-picked={picked || undefined}
+      data-hovered={hovered || undefined}
+      data-pickable={onPick ? true : undefined}
+      onClick={onPick ? pick : undefined}
+      onMouseEnter={onHover}
     >
       {compact ? (
         <div className={prose.content}>
@@ -375,21 +411,25 @@ function mergeMessages(
  */
 export function Transcript({
   room,
+  feed,
   messages: initialMessages,
   humanHandle,
   anchor,
   footer,
+  empty,
   bare = false,
   loading = false,
   compact = false,
 }: TranscriptProps) {
   const slack = useSlackChat(room);
   const inset = compact ? COMPACT_INSET : INSET;
+  const url = feed?.url ?? `/api/chat/messages/${room}`;
   const [messages, setMessages] = useState(initialMessages);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [olderExhausted, setOlderExhausted] = useState(false);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const [newSinceAway, setNewSinceAway] = useState(0);
+  const [hoveredRun, setHoveredRun] = useState<number>();
   const scrollBoxRef = useRef<HTMLDivElement>(null);
   const columnRef = useRef<HTMLDivElement>(null);
   // Set before an older page is prepended; consumed once the DOM has the
@@ -481,7 +521,7 @@ export function Transcript({
   }, [room, anchor, messages, olderExhausted, loadingOlder]);
 
   const refetchTail = useCallback(() => {
-    void fetch(`/api/chat/messages/${room}?limit=${PAGE_SIZE}`)
+    void fetch(`${url}?limit=${PAGE_SIZE}`)
       .then(res => res.json())
       .then((data: { messages?: ChatMessage[] }) => {
         if (roomRef.current !== room) return;
@@ -491,9 +531,12 @@ export function Transcript({
         setMessages(next);
       })
       .catch(() => {});
-  }, [room]);
+  }, [room, url]);
   useRelayFrames(frame => {
-    if (frame.topic === `chat/${room}/msg`) refetchTail();
+    const ours = feed
+      ? typeof frame.topic === 'string' && feed.hears(frame.topic)
+      : frame.topic === `chat/${room}/msg`;
+    if (ours) refetchTail();
   });
   useRelayOpen(reconnect => {
     if (reconnect) refetchTail();
@@ -534,7 +577,8 @@ export function Transcript({
   // lazy code highlighter) stays pinned rather than easing the view down.
   const openedRoom = useRef<string | null>(null);
   useLayoutEffect(() => {
-    if (anchor || messages[0]?.room !== room) return;
+    if (anchor || messages.length === 0) return;
+    if (!feed && messages[0]?.room !== room) return;
     if (openedRoom.current === room) return;
     openedRoom.current = room;
     const view = scrollView();
@@ -557,7 +601,7 @@ export function Transcript({
     }
     hold.current?.();
     hold.current = stop;
-  }, [room, anchor, messages]);
+  }, [room, anchor, messages, feed]);
 
   useLayoutEffect(() => {
     const pending = pendingHold.current;
@@ -580,9 +624,7 @@ export function Transcript({
     const forRoom = room;
     const current = () => roomRef.current === forRoom;
     try {
-      const res = await fetch(
-        `/api/chat/messages/${room}?before=${oldest.id}&limit=${PAGE_SIZE}`
-      );
+      const res = await fetch(`${url}?before=${oldest.id}&limit=${PAGE_SIZE}`);
       if (!current()) return;
       // An error page is not an empty page: the edge stays retryable.
       if (!res.ok) return;
@@ -612,7 +654,14 @@ export function Transcript({
   }
   loadOlderRef.current = () => void loadOlder();
 
-  return (
+  // A conversation hovers as one, so each message knows where its run began.
+  let runStart = 0;
+  const runs = messages.map((message, i) => {
+    if (message.room !== messages[i - 1]?.room) runStart = i;
+    return runStart;
+  });
+
+  const list = (
     <Box
       style={{
         // `minWidth: 0` so a long pasted path wraps inside the panel rather
@@ -662,10 +711,10 @@ export function Transcript({
                 />
               )}
 
-              <Stack gap={0}>
+              <Stack gap={0} onMouseLeave={() => setHoveredRun(undefined)}>
                 {messages.map((message, i) => (
                   <Fragment key={message.id}>
-                    {i === 0 && olderExhausted ? (
+                    {i === 0 && olderExhausted && !feed ? (
                       <Marker
                         icon="history"
                         label={startLabel(message.postedAt)}
@@ -682,15 +731,30 @@ export function Transcript({
                         />
                       )
                     )}
+                    {feed &&
+                      i > 0 &&
+                      messages[i - 1]!.room !== message.room &&
+                      dayKey(messages[i - 1]!.postedAt) ===
+                        dayKey(message.postedAt) && (
+                        <div
+                          className={prose.blockLine}
+                          data-testid="direct-separator"
+                        />
+                      )}
                     <MessageRow
                       message={message}
                       humanHandle={humanHandle}
                       compact={compact}
                       grouped={continuesGroup(messages[i - 1], message)}
+                      picked={feed?.picked === message.room}
+                      hovered={feed !== undefined && hoveredRun === runs[i]}
+                      onPick={feed?.onPick}
+                      onHover={feed && (() => setHoveredRun(runs[i]))}
                     />
                   </Fragment>
                 ))}
               </Stack>
+              {!loading && messages.length === 0 && empty}
               {slack?.closedAt !== undefined && (
                 <ClosedNote at={slack.closedAt} />
               )}
@@ -718,9 +782,13 @@ export function Transcript({
             bare ? undefined : { padding: `0 ${inset} ${compact ? 10 : 20}px` }
           }
         >
-          <div className={prose.col}>{footer}</div>
+          <div className={prose.col}>
+            {typeof footer === 'function' ? footer(messages) : footer}
+          </div>
         </Box>
       )}
     </Box>
   );
+  if (!feed) return list;
+  return <FaceGroup handles={messages.map(m => m.handle)}>{list}</FaceGroup>;
 }

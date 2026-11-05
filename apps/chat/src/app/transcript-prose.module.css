@@ -231,3 +231,29 @@
   border-radius: 3px;
   padding: 0 3px;
 }
+
+/* Messages to you: where one conversation ends and the next begins. */
+.blockLine {
+  height: 1px;
+  margin: 8px 24px 8px 20px;
+  background: var(--tk-border);
+}
+
+/* In Messages to you a click aims the reply, so a conversation answers the
+   pointer as a whole, as a Slack message does. */
+.msg[data-pickable] {
+  cursor: pointer;
+}
+
+.msg[data-hovered] {
+  background-color: var(--mantine-color-default-hover);
+}
+
+/* The conversation a reply will go to, once a message has picked it. */
+.msg[data-picked] {
+  background-color: color-mix(
+    in srgb,
+    var(--mantine-color-accent-text) var(--tk-wash),
+    transparent
+  );
+}

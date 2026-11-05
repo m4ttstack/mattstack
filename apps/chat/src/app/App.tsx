@@ -38,11 +38,13 @@ import { RailSkeleton, RoomSkeleton, TitleSkeleton } from './ChatSkeleton';
 import { AppMark } from './chrome/AppMark';
 import { Composer, type ComposerHandle } from './Composer';
 import { PageShellDemoPage } from './demo/PageShellDemoPage';
+import { DIRECT_PATH, isMine, waitingCount } from './direct';
+import { DirectView } from './DirectView';
 import type { FleetRoom } from './FleetTree';
 import { HUMAN_HANDLE, type Me } from './human';
-import { PageBar } from './PageBar';
+import { PageBar, ViewBar } from './PageBar';
 import { isMsgTopic, useRelayFrames, useRelayOpen } from './relay-socket';
-import { RoomRail } from './RoomRail';
+import { RoomRail, type RoomRailProps } from './RoomRail';
 import type { RosterBuddy } from './roster-types';
 import { useAppRoute, useHash } from './routes';
 import { SettingsButton } from './SettingsEntry';
@@ -367,6 +369,7 @@ function ChatSidebar({
   selectRoom,
   reachable,
   onCloseRoom,
+  direct,
 }: {
   rooms: FleetRoom[];
   buddies: Buddy[];
@@ -374,6 +377,7 @@ function ChatSidebar({
   selectRoom: (room: string) => void;
   reachable: boolean;
   onCloseRoom: (room: string) => void;
+  direct: RoomRailProps['direct'];
 }) {
   const { collapsedSidebar, sidebarOpen, toggleSidebar } =
     usePageShellContext();
@@ -392,6 +396,15 @@ function ChatSidebar({
       }}
       daemonReachable={reachable}
       onCloseRoom={onCloseRoom}
+      direct={
+        direct && {
+          ...direct,
+          onOpen: () => {
+            direct.onOpen();
+            closeDrawer();
+          },
+        }
+      }
     />
   );
 }
@@ -415,6 +428,11 @@ interface ChatPageProps {
   composerRef: RefObject<ComposerHandle | null>;
   onOpenDm: (handle: string) => void;
   onCloseRoom: (room: string) => void;
+  /** Messages to you is the open view. */
+  directOpen: boolean;
+  directPick: string | undefined;
+  onDirectPick: (room: string) => void;
+  railDirect: RoomRailProps['direct'];
 }
 
 function ChatPage({
@@ -436,6 +454,10 @@ function ChatPage({
   composerRef,
   onOpenDm,
   onCloseRoom,
+  directOpen,
+  directPick,
+  onDirectPick,
+  railDirect,
 }: ChatPageProps) {
   const isMobile = useIsMobile();
   const [sidebarWidth, setSidebarWidth] = usePaneWidth(
@@ -492,6 +514,7 @@ function ChatPage({
                 selectRoom={selectRoom}
                 reachable={daemon.reachable}
                 onCloseRoom={onCloseRoom}
+                direct={railDirect}
               />
             ) : (
               <RailSkeleton />
@@ -499,12 +522,14 @@ function ChatPage({
           </PageShell.Sidebar>
         )}
         <PageShell.Main>
-          {activeRoomSummary || !roomsLoaded ? (
+          {directOpen || activeRoomSummary || !roomsLoaded ? (
             <PageShell.Header
               withBorder={false}
               style={{ borderBottom: '1px solid var(--tk-border-soft)' }}
             >
-              {activeRoomSummary ? (
+              {directOpen ? (
+                <ViewBar title="Messages to you" />
+              ) : activeRoomSummary ? (
                 <PageBar
                   room={activeRoomSummary}
                   buddies={buddies.filter(b => roomMembers.includes(b.handle))}
@@ -540,7 +565,28 @@ function ChatPage({
               gap={0}
               style={{ flex: 1, minHeight: 0, minWidth: 0 }}
             >
-              {openRooms.length === 0 && !activeRoomSummary ? (
+              {directOpen ? (
+                <DirectView
+                  rooms={rooms}
+                  me={me.handle}
+                  picked={directPick}
+                  onPick={onDirectPick}
+                  composer={(room, to) => (
+                    <Composer
+                      ref={composerRef}
+                      phone={isMobile}
+                      humanHandle={me.handle}
+                      room={room}
+                      roomMembers={to ? [me.handle, to.handle] : [me.handle]}
+                      buddies={buddies}
+                      isDm
+                      daemonReachable={daemon.reachable}
+                      onOpenDm={onOpenDm}
+                      replyTo={to}
+                    />
+                  )}
+                />
+              ) : openRooms.length === 0 && !activeRoomSummary ? (
                 roomsLoaded ? (
                   <Box style={{ flex: 1, minWidth: 0 }} p="xl">
                     <RoomsPlaceholder
@@ -636,7 +682,12 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
   const routeRoom =
     route.name === 'room' || route.name === 'embed' ? route.room : undefined;
   const [activeRoom, setActiveRoom] = useState<string | undefined>(routeRoom);
-  const chatRoute = route.name === 'home' || route.name === 'room';
+  const directOpen = route.name === 'direct';
+  const chatRoute =
+    route.name === 'home' || route.name === 'room' || directOpen;
+  const [directPick, setDirectPick] = useState<string>();
+  // The view's composer mounts with the route, after the DM has opened.
+  const focusWhenOpen = useRef(false);
   const hash = useHash();
   const anchor = hash.startsWith('#m-') ? hash.slice(1) : undefined;
   const composerRef = useRef<ComposerHandle>(null);
@@ -647,7 +698,10 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
   useEffect(() => {
     if (route.name === 'room' || route.name === 'embed') {
       if (route.room !== activeRoom) setActiveRoom(route.room);
-    } else if (route.name === 'home' && activeRoom !== undefined) {
+    } else if (
+      (route.name === 'home' || route.name === 'direct') &&
+      activeRoom !== undefined
+    ) {
       setActiveRoom(undefined);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -670,8 +724,16 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
         if (!res.ok) throw new Error('dm open failed');
         const data = (await res.json()) as { room: string };
         void refetchRooms();
-        setActiveRoom(data.room);
         const embed = route.name === 'embed';
+        // A DM of the human's own opens in Messages to you, aimed at them.
+        if (!embed) {
+          setDirectPick(data.room);
+          setActiveRoom(undefined);
+          focusWhenOpen.current = true;
+          navigate(DIRECT_PATH);
+          return;
+        }
+        setActiveRoom(data.room);
         const to = `${embed ? '/embed/r' : '/r'}/${encodeURIComponent(data.room)}`;
         if (window.location.pathname !== to) {
           navigate(embed ? to + window.location.search : to);
@@ -705,7 +767,7 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
         if (!res.ok) throw new Error(await errorOf(res));
       } catch (err) {
         notifications.error(
-          `Couldn't close the room: ${err instanceof Error ? err.message : 'no answer from the server'}`
+          `Couldn't archive the room: ${err instanceof Error ? err.message : 'no answer from the server'}`
         );
         // Restore only THIS room. A blanket setRooms(snapshot) would resurrect
         // a room a concurrent close already removed and drop one that arrived
@@ -751,8 +813,42 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
   useEffect(() => {
     if (route.name !== 'home') return;
     const latest = latestActiveRoom(rooms);
-    if (latest) navigate(`/r/${encodeURIComponent(latest)}`, { replace: true });
-  }, [route.name, rooms]);
+    if (!latest) return;
+    const room = rooms.find(r => r.room === latest);
+    const to =
+      room && isMine(room, me.handle)
+        ? DIRECT_PATH
+        : `/r/${encodeURIComponent(latest)}`;
+    navigate(to, { replace: true });
+  }, [route.name, rooms, me.handle]);
+
+  useEffect(() => {
+    if (!directOpen || !focusWhenOpen.current) return;
+    focusWhenOpen.current = false;
+    composerRef.current?.focus();
+  }, [directOpen, directPick]);
+
+  const waiting = waitingCount(rooms, me.handle);
+  // Seeing the timeline reads it. A failed mark retries on the next listing.
+  useEffect(() => {
+    if (!directOpen || waiting === 0) return;
+    if (document.visibilityState !== 'visible') return;
+    void fetch('/api/chat/direct/read', { method: 'POST' })
+      .then(() => refetchRooms())
+      .catch(() => {});
+  }, [directOpen, waiting, refetchRooms]);
+  const railDirect = useMemo(
+    () => ({
+      active: directOpen,
+      waiting: directOpen ? 0 : waiting,
+      onOpen: () => {
+        setDirectPick(undefined);
+        navigate(DIRECT_PATH);
+      },
+      isMine: (room: FleetRoom) => isMine(room, me.handle),
+    }),
+    [directOpen, waiting, me.handle]
+  );
 
   const { messages, loaded: messagesLoaded } = useMessages(
     activeRoom,
@@ -898,6 +994,10 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
               composerRef={composerRef}
               onOpenDm={openDm}
               onCloseRoom={closeRoom}
+              directOpen={directOpen}
+              directPick={directPick}
+              onDirectPick={setDirectPick}
+              railDirect={railDirect}
             />
           ) : (
             <NotFoundPage />

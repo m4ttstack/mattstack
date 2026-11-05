@@ -4,6 +4,7 @@ import {
   chatBuddies,
   chatDmOpen,
   chatJoin,
+  chatMark,
   chatMessages,
   chatPost,
   chatRooms,
@@ -205,6 +206,25 @@ async function unjoinedFleetRooms(
   });
 }
 
+/** The DMs the human is an end of. Agent-to-agent DMs, which he only
+    watches, are not his. */
+function ownDms(rooms: RoomSummary[], handle: string): RoomSummary[] {
+  return rooms.filter(
+    r =>
+      r.kind === 'dm' &&
+      (r.participants?.a === handle || r.participants?.b === handle)
+  );
+}
+
+/** The newest `limit` messages across DMs, oldest first. Message ids run
+    across every room, so `before` pages the merged list as it does one room. */
+function newestAcross(lists: ChatMessage[][], limit: number): ChatMessage[] {
+  return lists
+    .flat()
+    .sort((a, b) => a.id - b.id)
+    .slice(-limit);
+}
+
 interface DmLastMessage {
   handle: string;
   name: string;
@@ -383,6 +403,63 @@ export const chat = new Hono()
       return c.json(res.data, 200);
     }
   )
+  // Messages to you: every DM the human is an end of, closed ones too, as one
+  // list. A DM whose tail fails to read is left out rather than failing the
+  // rest.
+  .get(
+    '/api/chat/direct',
+    validator('query', (value): { before?: number; limit?: number } => {
+      const v = value as { before?: unknown; limit?: unknown };
+      return {
+        before: parseIntParam(
+          typeof v?.before === 'string' ? v.before : undefined
+        ),
+        limit: parseIntParam(
+          typeof v?.limit === 'string' ? v.limit : undefined
+        ),
+      };
+    }),
+    async c => {
+      const { before, limit } = c.req.valid('query');
+      const size = limit ?? FIXTURE_PAGE_DEFAULT;
+      const handle = humanHandle(c);
+      if (fixturesEnabled()) {
+        const lists = ownDms(fixtureRooms(), handle).map(r =>
+          pageFixtureMessages(fixtureMessages(r.room), before, size)
+        );
+        return c.json({ messages: newestAcross(lists, size) }, 200);
+      }
+      const res = await chatRooms({ handle, includeArchived: true }, rtOpts());
+      if (!res.ok) return c.json({ error: res.error }, 502);
+      const pages = await Promise.all(
+        ownDms(res.data?.rooms ?? [], handle).map(r =>
+          chatMessages({ room: r.room, before, limit: size }, rtOpts()).catch(
+            () => null
+          )
+        )
+      );
+      const lists = pages.flatMap(p =>
+        p?.ok && p.data ? [p.data.messages] : []
+      );
+      return c.json({ messages: newestAcross(lists, size) }, 200);
+    }
+  )
+  // Opening Messages to you reads everything in it.
+  .post('/api/chat/direct/read', async c => {
+    if (fixturesEnabled()) return c.json({ ok: true }, 200);
+    const handle = humanHandle(c);
+    const res = await chatRooms({ handle, includeArchived: true }, rtOpts());
+    if (!res.ok) return c.json({ error: res.error }, 502);
+    const unread = ownDms(res.data?.rooms ?? [], handle).filter(
+      r => r.unread > 0
+    );
+    const marks = await Promise.all(
+      unread.map(r => chatMark({ handle, room: r.room }, rtOpts()))
+    );
+    const failed = marks.find(m => !m.ok);
+    if (failed) return c.json({ error: failed.error }, 502);
+    return c.json({ ok: true }, 200);
+  })
   // The browser never touches rt-client directly -- this route owns the
   // join. A DM row is posted into directly (the human is a member of every
   // DM by construction, and `chat:join` REFUSES dm rooms, so joining one

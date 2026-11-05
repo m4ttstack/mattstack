@@ -6,6 +6,7 @@ vi.mock('@mattstack/rt-client', () => ({
   chatMessages: vi.fn(),
   chatBuddies: vi.fn(),
   chatJoin: vi.fn(),
+  chatMark: vi.fn(),
   chatPost: vi.fn(),
   chatArchive: vi.fn(),
   chatDmOpen: vi.fn(),
@@ -1107,4 +1108,96 @@ test('the rooms write route and the invite route stay gone', async () => {
   });
   expect(invite.status).toBe(404);
   expect(rt.chatJoin).not.toHaveBeenCalled();
+});
+
+function humanDms() {
+  const dm = (room: string, a: string, b: string, unread: number) => ({
+    room,
+    memberCount: 2,
+    unread,
+    mentions: 0,
+    kind: 'dm' as const,
+    participants: { a, b, aName: a, bName: b },
+  });
+  return [
+    { room: 'build', memberCount: 3, unread: 0, mentions: 0 },
+    dm('dm-kai', 'kai', 'matt', 1),
+    dm('dm-remy', 'matt', 'remy', 0),
+    dm('dm-agents', 'kai', 'remy', 5),
+  ];
+}
+
+const row = (id: number, room: string) => ({
+  id,
+  room,
+  handle: 'kai',
+  name: 'kai',
+  body: `m${id}`,
+  mentions: [],
+  mentionNames: [],
+  postedAt: id,
+});
+
+test('direct merges the human’s DMs by id and leaves out the rest', async () => {
+  vi.mocked(rt.chatRooms).mockResolvedValue({
+    ok: true,
+    data: { rooms: humanDms() },
+  });
+  vi.mocked(rt.chatMessages).mockImplementation(async ({ room }) => ({
+    ok: true,
+    data: {
+      messages:
+        room === 'dm-kai'
+          ? [row(1, room), row(4, room)]
+          : [row(2, room), row(3, room)],
+    },
+  }));
+  const res = await routes.request('/api/chat/direct?limit=3');
+  expect(res.status).toBe(200);
+  const { messages } = await res.json();
+  expect(messages.map((m: { id: number }) => m.id)).toEqual([2, 3, 4]);
+  const asked = vi.mocked(rt.chatMessages).mock.calls.map(c => c[0].room);
+  expect(asked).toEqual(['dm-kai', 'dm-remy']);
+});
+
+test('direct asks with the closed DMs too, and passes before through', async () => {
+  vi.mocked(rt.chatRooms).mockResolvedValue({
+    ok: true,
+    data: { rooms: humanDms() },
+  });
+  await routes.request('/api/chat/direct?before=9&limit=2');
+  expect(vi.mocked(rt.chatRooms).mock.calls[0]![0]).toMatchObject({
+    includeArchived: true,
+  });
+  expect(vi.mocked(rt.chatMessages).mock.calls[0]![0]).toMatchObject({
+    before: 9,
+    limit: 2,
+  });
+});
+
+test('a DM whose tail fails is left out, the rest still answer', async () => {
+  vi.mocked(rt.chatRooms).mockResolvedValue({
+    ok: true,
+    data: { rooms: humanDms() },
+  });
+  vi.mocked(rt.chatMessages).mockImplementation(async ({ room }) =>
+    room === 'dm-kai'
+      ? { ok: false, error: 'nope' }
+      : { ok: true, data: { messages: [row(2, room)] } }
+  );
+  const { messages } = await (await routes.request('/api/chat/direct')).json();
+  expect(messages).toHaveLength(1);
+});
+
+test('reading direct marks only the human’s unread DMs', async () => {
+  vi.mocked(rt.chatRooms).mockResolvedValue({
+    ok: true,
+    data: { rooms: humanDms() },
+  });
+  vi.mocked(rt.chatMark).mockResolvedValue({ ok: true, data: {} });
+  const res = await routes.request('/api/chat/direct/read', { method: 'POST' });
+  expect(res.status).toBe(200);
+  expect(vi.mocked(rt.chatMark).mock.calls.map(c => c[0])).toEqual([
+    { handle: 'matt', room: 'dm-kai' },
+  ]);
 });
