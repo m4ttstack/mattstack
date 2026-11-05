@@ -4,7 +4,7 @@
  * goes through a merge queue so callers never have to know.
  */
 import { GitHubProvider, ReadBackFailedError } from "@mattstack/glance";
-import { forgeTokenFor } from "../enrich.ts";
+import { resolveGithubToken } from "../github-token.ts";
 import { loadSecrets } from "../linear.ts";
 import { parseIdentity } from "../settings/identity.ts";
 import { resolveMrTarget, resolveRepoTarget, type TargetInput } from "./mr-target.ts";
@@ -50,8 +50,8 @@ export async function resolveGithubTarget(input: TargetInput): Promise<GithubTar
 }
 
 async function realProvider(): Promise<GithubMergeProvider | null> {
-  const forge = await forgeTokenFor(GITHUB_HOST, await loadSecrets());
-  return forge?.token ? new GitHubProvider(GITHUB_HOST, forge.token) : null;
+  const resolved = await resolveGithubToken((await loadSecrets()).githubToken);
+  return resolved ? new GitHubProvider(GITHUB_HOST, resolved.token) : null;
 }
 
 export async function mergeOnGitHub(
