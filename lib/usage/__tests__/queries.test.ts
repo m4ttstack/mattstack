@@ -393,6 +393,22 @@ test("a run with no MR still holds messages that took one from an agent link", (
   expect(mr.runs[0]!.round).toBe(1);
 });
 
+test("rounds read in order when setup messages land on a later run", () => {
+  run("r-1", { workType: "receive-review", startedAt: NOW - 2 * DAY, mrKey: MR_A });
+  run("r-2", { workType: "receive-review", startedAt: NOW - DAY, mrKey: MR_A });
+  message({ runId: "r-2", mrKey: MR_A, ts: NOW - 3 * DAY, attribution: "session" });
+  message({ runId: "r-1", mrKey: MR_A, ts: NOW - 2 * DAY });
+  message({ runId: "r-2", mrKey: MR_A, ts: NOW - DAY });
+
+  const mr = usageMr(dbPath, MR_A);
+
+  expect(mr?.runs.map((r) => [r.runId, r.round])).toEqual([
+    ["r-1", 1],
+    ["r-2", 2],
+  ]);
+  expect(mr?.firstActivity).toBe(NOW - 3 * DAY);
+});
+
 test("usageMr lists runs in time order with their stages", () => {
   run("second", { workType: "receive-review", mrKey: MR_A, startedAt: NOW - DAY });
   run("first", { workType: "feature", mrKey: MR_A, startedAt: NOW - 2 * DAY });

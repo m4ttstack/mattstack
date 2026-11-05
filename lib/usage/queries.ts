@@ -441,7 +441,8 @@ export function usageMr(dbPath: string, mrKey: string): UsageMrData | null {
       add(stage.totals, delta);
     }
 
-    const ordered = [...entries.values()].sort((a, b) => a.firstActivity - b.firstActivity);
+    const startOf = (e: EntryFold) => e.first.started_at ?? e.firstActivity;
+    const ordered = [...entries.values()].sort((a, b) => startOf(a) - startOf(b));
     const rounds = numberRounds(ordered);
     const first = Math.min(...ordered.map((e) => e.firstActivity));
     const last = Math.max(...ordered.map((e) => e.lastActivity));
