@@ -11,6 +11,11 @@ describe("splitToolRules", () => {
     expect(splitToolRules(`Bash(jq '.a | (.b)':*) Read`)).toEqual([`Bash(jq '.a | (.b)':*)`, "Read"]);
   });
 
+  test("a lone apostrophe is not a quote, so later rules still split", () => {
+    expect(splitToolRules("Bash(echo don't:*), Read")).toEqual(["Bash(echo don't:*)", "Read"]);
+    expect(splitToolRules(`Bash(echo "unterminated:*) Read Grep`)).toEqual([`Bash(echo "unterminated:*)`, "Read", "Grep"]);
+  });
+
   test("an empty string has no rules", () => {
     expect(splitToolRules(" , ")).toEqual([]);
   });

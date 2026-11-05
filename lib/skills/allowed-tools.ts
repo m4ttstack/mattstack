@@ -4,6 +4,11 @@
  * quotes belongs to the rule: `Bash(git log, git show)` is one rule.
  */
 export function splitToolRules(value: string): string[] {
+  return split(value, true) ?? split(value, false)!;
+}
+
+/** Null when a quote never closes: a lone apostrophe (`don't`) is not a quote, so the caller splits again ignoring quotes. */
+function split(value: string, honourQuotes: boolean): string[] | null {
   const rules: string[] = [];
   let depth = 0;
   let quote: string | null = null;
@@ -11,8 +16,8 @@ export function splitToolRules(value: string): string[] {
   for (const ch of value) {
     if (quote !== null) {
       if (ch === quote) quote = null;
-    } else if (ch === '"' || ch === "'") {
-      if (depth > 0) quote = ch;
+    } else if (honourQuotes && depth > 0 && (ch === '"' || ch === "'")) {
+      quote = ch;
     } else if (ch === "(") {
       depth++;
     } else if (ch === ")") {
@@ -24,6 +29,7 @@ export function splitToolRules(value: string): string[] {
     }
     current += ch;
   }
+  if (quote !== null) return null;
   if (current.trim() !== "") rules.push(current.trim());
   return rules;
 }
