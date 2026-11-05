@@ -19,6 +19,7 @@ import { createMrUploadHandlers } from "./handlers/mr-upload.ts";
 import { createSystemProcessHandlers } from "./handlers/system-processes.ts";
 import { createSdmHandlers } from "./handlers/sdm.ts";
 import { createRunsHandlers } from "./handlers/runs.ts";
+import { createUsageHandlers } from "./handlers/usage.ts";
 import { findTreeByPath } from "../worktree/registry.ts";
 import { parseIdentity, repoIdentitySlug } from "../settings/identity.ts";
 import { createSecretsHandlers } from "./handlers/secrets.ts";
@@ -266,6 +267,7 @@ export function buildRoutedHandlers(opts: {
     ...createRunsHandlers({ log: ctx.log }, emitEvent, {
       isRunTree: (path, runRepo) => isRunTree(path, runRepo, { findTreeByPath, repoIndex: ctx.repoIndex }),
     }),
+    ...createUsageHandlers({ log: ctx.log }),
     ...createSecretsHandlers({ log: ctx.log }),
     ...createLoginsHandlers({ log: ctx.log }),
     ...createProjectMRsHandlers({ repoIndex: ctx.repoIndex, log: ctx.log }, broadcast),

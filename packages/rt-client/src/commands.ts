@@ -963,6 +963,11 @@ export interface Commands {
   "runs:get": { payload: { runId: string; repo?: string }; data: RunDetail };
   "runs:abandon": { payload: { runId: string; repo?: string; reason?: string }; data: { ok: boolean } };
   "runs:evidence": { payload: { runId: string; repo?: string } & ({ key: EvidenceImageKey | EvidenceTextKey } | EvidenceAddress); data: { mime: string; base64?: string; text?: string } };
+  "usage:mrs": { payload: { days?: number; repo?: string }; data: UsageMrsData };
+  /** `data` is null when no MR has that key. */
+  "usage:mr": { payload: { mrKey: string }; data: UsageMrData | null };
+  "usage:trends": { payload: { days: number; repo?: string }; data: UsageTrendsData };
+  "usage:status": { payload: Record<string, never>; data: UsageStatusData };
   "chat:join": { payload: { room: string; handle: string; wakeOn?: WakeMode; cwd?: string; pane?: string }; data: { handle: string; name: string; memberCount: number; unread: number } };
   "chat:leave": { payload: { room: string; handle: string }; data: Record<string, never> };
   /** `others` counts the room's members besides the author, so a caller can tell "woke nobody of 7" from "nobody else is here". */
@@ -1380,6 +1385,10 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "runs:get",
   "runs:abandon",
   "runs:evidence",
+  "usage:mrs",
+  "usage:mr",
+  "usage:trends",
+  "usage:status",
   "chat:ack",
   "chat:claim",
   "chat:release",

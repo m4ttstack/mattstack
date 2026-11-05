@@ -19,6 +19,10 @@ import type {
   ForgeTokenData,
   RunSummary,
   RunDetail,
+  UsageMrsData,
+  UsageMrData,
+  UsageTrendsData,
+  UsageStatusData,
   ChatMember,
   ChatMessage,
   ChatClaimOutcome,
@@ -189,6 +193,36 @@ export function abandonRun(
   if (repo !== undefined) payload.repo = repo;
   if (reason !== undefined) payload.reason = reason;
   return rtCommand<{ ok: boolean }>("runs:abandon", payload, { sockPath: opts.sockPath, timeoutMs: 10_000 });
+}
+
+export function usageMrs(
+  q: { days?: number; repo?: string } = {},
+  opts: RtClientOptions = {},
+): Promise<RtResponse<UsageMrsData>> {
+  const payload: Record<string, unknown> = {};
+  if (q.days !== undefined) payload.days = q.days;
+  if (q.repo !== undefined) payload.repo = q.repo;
+  return rtCommand<UsageMrsData>("usage:mrs", payload, { sockPath: opts.sockPath, timeoutMs: 10_000 });
+}
+
+export function usageMr(
+  mrKey: string,
+  opts: RtClientOptions = {},
+): Promise<RtResponse<UsageMrData | null>> {
+  return rtCommand<UsageMrData | null>("usage:mr", { mrKey }, { sockPath: opts.sockPath, timeoutMs: 10_000 });
+}
+
+export function usageTrends(
+  q: { days: number; repo?: string },
+  opts: RtClientOptions = {},
+): Promise<RtResponse<UsageTrendsData>> {
+  const payload: Record<string, unknown> = { days: q.days };
+  if (q.repo !== undefined) payload.repo = q.repo;
+  return rtCommand<UsageTrendsData>("usage:trends", payload, { sockPath: opts.sockPath, timeoutMs: 10_000 });
+}
+
+export function usageStatus(opts: RtClientOptions = {}): Promise<RtResponse<UsageStatusData>> {
+  return rtCommand<UsageStatusData>("usage:status", {}, { sockPath: opts.sockPath, timeoutMs: 10_000 });
 }
 
 // ─── Chat (RT-48 Task 6) ──────────────────────────────────────────────────

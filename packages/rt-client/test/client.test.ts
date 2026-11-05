@@ -1,5 +1,5 @@
 import { describe, expect, test, afterEach, spyOn } from "bun:test";
-import { readProjectMRs, readDiscussions, readMrsByBranch, listRuns, abandonRun, readBranchCache, chatInvite, paneDirectories, paneList, panePeek, paneSpawn, chatArchive, chatDmOpen, chatRooms, herdAnswer } from "../src/client.ts";
+import { readProjectMRs, readDiscussions, readMrsByBranch, listRuns, abandonRun, usageMrs, usageMr, usageTrends, usageStatus, readBranchCache, chatInvite, paneDirectories, paneList, panePeek, paneSpawn, chatArchive, chatDmOpen, chatRooms, herdAnswer } from "../src/client.ts";
 import { fakeDaemon } from "./fake-daemon.ts";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -221,5 +221,29 @@ describe("herdAnswer", () => {
       { gate: "gt-1", sessionId: "sess-w1" },
       { gate: "gt-1" },
     ]);
+  });
+});
+
+describe("usage verbs", () => {
+  test("usageMrs sends only the given filters; usageTrends always sends days", async () => {
+    const { sock, seen, stop } = fakeDaemon({
+      "usage:mrs": { ok: true, data: { mrs: [] } },
+      "usage:trends": { ok: true, data: { weeks: [] } },
+      "usage:status": { ok: true, data: {} },
+    });
+    stops.push(stop);
+    await usageMrs(undefined, { sockPath: sock });
+    await usageMrs({ days: 30, repo: "r" }, { sockPath: sock });
+    await usageTrends({ days: 90 }, { sockPath: sock });
+    await usageStatus({ sockPath: sock });
+    expect(seen.map((s) => s.payload)).toEqual([{}, { days: 30, repo: "r" }, { days: 90 }, {}]);
+  });
+
+  test("usageMr passes an mrKey with % ! : through unchanged", async () => {
+    const { sock, seen, stop } = fakeDaemon({ "usage:mr": { ok: true, data: null } });
+    stops.push(stop);
+    const key = "remote:gitlab.com%2Facme%2Fwidgets!12";
+    await usageMr(key, { sockPath: sock });
+    expect(seen[0]).toEqual({ cmd: "usage:mr", payload: { mrKey: key } });
   });
 });
