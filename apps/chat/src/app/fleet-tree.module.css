@@ -72,3 +72,31 @@
   flex: 1;
   min-width: 0;
 }
+
+/* Messages to you, pinned above the rooms. */
+.pinnedRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 40px;
+  margin-top: 8px;
+  padding: 0 16px;
+  color: var(--chat-ink);
+}
+
+.pinnedLabel {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--mantine-font-size-lg);
+  font-weight: 500;
+}
+
+.pinnedRow[data-waiting] .pinnedLabel {
+  font-weight: 600;
+}
+
+/* A menu's icons sit in a right gutter, so every label starts on one edge. */
+.labelIcon {
+  margin-left: auto;
+}

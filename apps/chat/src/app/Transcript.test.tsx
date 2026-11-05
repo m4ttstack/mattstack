@@ -1,7 +1,7 @@
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type { ChatMessage } from '@mattstack/rt-client';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, expect, test } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
 import './icons';
 
@@ -799,4 +799,87 @@ test('stand-in rows hold the place of a first page, and only until messages land
     <Transcript room="build" messages={[post(1, 'fred', NOON)]} loading />
   );
   expect(screen.queryByTestId('message-skeleton')).toBeNull();
+});
+
+function feedMessages(): ChatMessage[] {
+  return page(4).map((m, i) => ({
+    ...m,
+    room: i < 2 ? 'dm-a' : 'dm-b',
+    handle: i === 1 ? 'matt' : m.handle,
+  }));
+}
+
+const feed = (onPick = () => {}, picked?: string) => ({
+  url: '/api/chat/direct',
+  hears: (topic: string) => topic === 'chat/dm-a/msg',
+  faces: ['fred', 'matt'],
+  onPick,
+  target: () => picked,
+});
+
+test('a feed draws one card per conversation', () => {
+  renderWithProviders(
+    <Transcript room="direct" feed={feed()} messages={feedMessages()} />
+  );
+  expect(screen.getByTestId('direct-block-dm-a')).toContainElement(
+    screen.getByTestId('message-2')
+  );
+  expect(screen.getByTestId('direct-block-dm-b')).toContainElement(
+    screen.getByTestId('message-3')
+  );
+});
+
+test('a click picks the message’s conversation and tints all of it', () => {
+  const onPick = vi.fn();
+  renderWithProviders(
+    <Transcript
+      room="direct"
+      feed={feed(onPick, 'dm-a')}
+      messages={feedMessages()}
+    />
+  );
+  fireEvent.click(screen.getByText('m3'));
+  expect(onPick).toHaveBeenCalledWith('dm-b');
+  expect(screen.getByTestId('direct-block-dm-a')).toHaveAttribute(
+    'data-picked'
+  );
+  expect(screen.getByTestId('direct-block-dm-b')).not.toHaveAttribute(
+    'data-picked'
+  );
+});
+
+test('a feed pages older from its own url', async () => {
+  fetchMock.mockResolvedValue({
+    ok: true,
+    json: async () => ({ messages: [] }),
+  });
+  renderWithProviders(
+    <Transcript room="direct" feed={feed()} messages={page(PAGE_SIZE, 100)} />
+  );
+  fireEvent.click(await screen.findByTestId('transcript-edge'));
+  await waitFor(() =>
+    expect(String(olderRequests().at(-1)?.[0])).toMatch(
+      /^\/api\/chat\/direct\?before=/
+    )
+  );
+});
+
+test('an empty feed says so once it has loaded', () => {
+  renderWithProviders(
+    <Transcript room="direct" feed={feed()} messages={[]} empty="Nothing yet" />
+  );
+  expect(screen.getByText('Nothing yet')).toBeInTheDocument();
+});
+
+test('a click in the space around the cards clears the pick', () => {
+  const onPick = vi.fn();
+  renderWithProviders(
+    <Transcript
+      room="direct"
+      feed={feed(onPick, 'dm-a')}
+      messages={feedMessages()}
+    />
+  );
+  fireEvent.click(screen.getByTestId('transcript-column'));
+  expect(onPick).toHaveBeenCalledWith(undefined);
 });
