@@ -734,8 +734,7 @@ const postCards = () => [
     '.tui-respond-list > article.tui-reply-card, .tui-respond-list > [data-step="post"]'
   ),
 ];
-/** A reply card's post tick is its head's, and its resolve tick sits in
-    the field's footer, or in the head once the card folds; a card whose
+/** A reply card's two ticks sit on the tab under its reply; a card whose
     reply did not fit the gate keeps the plain ticks. */
 const control = (card: HTMLElement, value: 'post' | 'resolve') =>
   card.querySelector<HTMLInputElement>(
@@ -852,7 +851,7 @@ test('without its plan gate, each per-thread question still draws its reply and 
   expect($('.tui-sheet-list-tally')!.textContent).toBe('2 of 2 posting');
 });
 
-test('without its plan gate, each thread is one reply card: head tick and status, your reply, resolve in its footer', async () => {
+test('without its plan gate, each thread is one reply card: head mark and status, your reply, post and resolve in its footer', async () => {
   await render(perThreadPostGate());
   const [fix] = postCards();
   expect(fix!.tagName).toBe('ARTICLE');
@@ -864,23 +863,29 @@ test('without its plan gate, each thread is one reply card: head tick and status
   expect(head.querySelector('.tui-reply-status')!.textContent).toBe(
     'Fixedab12cd3'
   );
-  expect(head.querySelector('input')).toBe(control(fix!, 'post'));
+  expect(head.querySelector('input')).toBeNull();
+  expect(head.querySelector('.tui-reply-mark')).not.toBeNull();
   expect(fix!.querySelector('.tui-cte-lead')!.textContent).toBe('You:');
   const foot = fix!.querySelector('.tui-cte-footer')!;
-  expect(foot.textContent).toBe('Resolve thread');
-  expect(foot.querySelector('input')).toBe(control(fix!, 'resolve'));
+  expect(foot.textContent).toBe('Post replyResolve thread');
+  expect(foot.contains(control(fix!, 'post'))).toBe(true);
+  expect(foot.contains(control(fix!, 'resolve'))).toBe(true);
 });
 
-test('an unticked post tick folds the card to its head, which keeps the resolve tick', async () => {
+test('an unticked post tick holds the reply in place and keeps both ticks', async () => {
   await render(perThreadPostGate());
   const card = () => postCards()[1]!;
   await holdReply(card());
-  expect(card().hasAttribute('data-off')).toBe(true);
   expect(control(card(), 'post')!.checked).toBe(false);
   expect(card().querySelector('.tui-cte')).toBeNull();
+  const held = card().querySelector('.tui-reply-held')!;
+  expect(held.textContent).toContain('No reply, stays unresolved');
   const resolve = control(card(), 'resolve')!;
-  expect(resolve.closest('.tui-reply-head')).not.toBeNull();
+  expect(resolve.closest('.tui-cte-footer')).not.toBeNull();
   expect(resolve.checked).toBe(false);
+  await React.act(async () => resolve.click());
+  expect(held.textContent).toContain('Not posting');
+  expect(held.textContent).not.toContain('stays unresolved');
 });
 
 /** The same gate after `gate-ctx.sh fit` went over budget: every context,
@@ -1198,6 +1203,8 @@ const replyText = (card: HTMLElement) =>
   replyBox(card)?.value ?? replyView(card)?.textContent ?? null;
 const isEdited = (card: HTMLElement) =>
   card.querySelector('[data-section="comment"][data-edited]') !== null;
+const heldText = (card: HTMLElement) =>
+  card.querySelector('.tui-reply-held-text')?.textContent ?? null;
 async function openReply(card: HTMLElement) {
   if (!replyBox(card))
     await React.act(async () => {
@@ -1252,10 +1259,11 @@ test('an edit survives hold and back to post, and is what posts', async () => {
     post.focus();
     post.click();
   });
-  expect(reply.hasAttribute('data-off')).toBe(true);
   expect(reply.querySelector('.tui-cte')).toBeNull();
-  expect(document.activeElement).toBe(post);
+  expect(heldText(reply)).toBe('Kept on purpose.');
+  expect(document.activeElement).toBe(control(reply, 'post'));
   await React.act(async () => control(reply, 'post')!.click());
+  expect(document.activeElement).toBe(control(reply, 'post'));
   expect(replyText(reply)).toBe('Kept on purpose.');
   expect(isEdited(reply)).toBe(true);
   await clickSubmit();
@@ -1512,15 +1520,14 @@ test('a reply pick with no drafted words says it is drafted at posting', async (
   );
 });
 
-test('a held post-step reply folds its card; posting it again opens the reply', async () => {
+test('a held post-step reply reads in its grey box; posting it again opens the field', async () => {
   await render(perThreadPostGate(), withFixPlan());
   const reply = postCards()[1]!;
   expect(replyText(reply)).toBe('The delay is fixed by design.');
   await holdReply(reply);
-  expect(reply.hasAttribute('data-off')).toBe(true);
   expect(reply.querySelector('.tui-cte')).toBeNull();
+  expect(heldText(reply)).toBe('The delay is fixed by design.');
   await React.act(async () => control(reply, 'post')!.click());
-  expect(reply.hasAttribute('data-off')).toBe(false);
   expect(replyText(reply)).toBe('The delay is fixed by design.');
 });
 
@@ -1616,7 +1623,7 @@ test('a held post card drops its edited mark; post brings the edit back', async 
   await render(perThreadPostGate(), withFixPlan());
   const reply = postCards()[1]!;
   await editThenHold(reply);
-  expect(reply.hasAttribute('data-off')).toBe(true);
+  expect(heldText(reply)).toBe('Kept on purpose.');
   expect(isEdited(reply)).toBe(false);
   await React.act(async () => control(reply, 'post')!.click());
   expect(replyText(reply)).toBe('Kept on purpose.');

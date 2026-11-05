@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { useLayoutEffect, useRef, type ReactNode, type Ref } from 'react';
+import { CircleDashed, MessageSquareOff } from 'lucide-react';
 
 import { Chip, ICONS } from '@mattstack/tui-kit';
 import { commentState } from './CommentComposer.tsx';
@@ -9,10 +10,10 @@ import {
   CardTitle,
   CommentArea,
   DraftField,
-  GateCard,
   SaidBox,
   StatusMark,
   ThreadCode,
+  VerdictMark,
   type AgentVerdict,
   type StatusHue,
 } from './GateParts.tsx';
@@ -48,6 +49,9 @@ export interface ThreadReplyCardProps {
   /** Said in place of the other side's message when they never replied. */
   silence?: string;
   check?: { note: string; verdict: AgentVerdict };
+  /** The head's mark; a thread with a check and no call of its own takes
+      the check's. */
+  verdict?: AgentVerdict;
   draft: string;
   value: string | undefined;
   posting: boolean;
@@ -58,58 +62,147 @@ export interface ThreadReplyCardProps {
   onReset: () => void;
 }
 
-function ResolveTick({
+function ReplyTick({
   label,
-  resolve,
+  text,
+  on,
+  inputRef,
+  onChange,
 }: {
   label: string;
-  resolve: NonNullable<ThreadReplyCardProps['resolve']>;
+  text: string;
+  on: boolean;
+  inputRef: Ref<HTMLInputElement>;
+  onChange: (on: boolean) => void;
 }) {
   return (
-    <label className="tui-reply-resolve">
+    <label className="tui-reply-tick">
       <input
         type="checkbox"
         className="tui-gate-choice-input"
         data-type="checkbox"
-        data-checked={resolve.on ? '' : undefined}
-        checked={resolve.on}
-        aria-label={`${label}: resolve thread`}
-        onChange={e => resolve.onChange(e.currentTarget.checked)}
+        data-checked={on ? '' : undefined}
+        checked={on}
+        aria-label={label}
+        ref={inputRef}
+        onChange={e => onChange(e.currentTarget.checked)}
       />
-      Resolve thread
+      {text}
     </label>
   );
 }
 
-/** A reply on a review thread, in the finding card: the head's tick posts
-    the reply, and the reply is the click-to-edit comment. Unticked, the
-    card folds to its head, which keeps the resolve tick so a thread can
-    close without a reply. */
+/** A reply that will not post, greyed and read-only; ticking "Post reply"
+    is the one way back to editing it. */
+function HeldReply({
+  label,
+  selfId,
+  text,
+  untouched,
+}: {
+  label: string;
+  selfId?: string;
+  text: string;
+  /** Nothing happens to the thread at all: no reply and no resolve. */
+  untouched: boolean;
+}) {
+  return (
+    <div className="tui-reply-held" aria-label={label}>
+      <div className="tui-reply-held-head">
+        <CommentAuthor id={selfId} name="You:" />
+        <Chip
+          intent="muted"
+          variant="outline"
+          icon={
+            untouched ? (
+              <CircleDashed size={12} />
+            ) : (
+              <MessageSquareOff size={12} />
+            )
+          }
+        >
+          {untouched ? 'No reply, stays unresolved' : 'Not posting'}
+        </Chip>
+      </div>
+      <div className="tui-reply-held-text">
+        <CommentMarkdown>{text}</CommentMarkdown>
+      </div>
+    </div>
+  );
+}
+
+/** A reply on a review thread: the head shows what the agent found, and
+    the two ticks on the reply's tab say what happens to the thread. */
 export function ThreadReplyCard(p: ThreadReplyCardProps) {
   const { edited } = commentState(p.draft, p.value, true);
   const label = `Reply on ${p.label}`;
   const stacked = p.layout === 'stacked';
   const said = stacked ? p.messages.find(m => m.who) : undefined;
-  const field = (
+  const postTick = useRef<HTMLInputElement>(null);
+  const resolveTick = useRef<HTMLInputElement>(null);
+  const refocus = useRef<typeof postTick | null>(null);
+  // A tab tick remounts when the reply swaps between its field and its held
+  // box; keyboard focus follows it.
+  useLayoutEffect(() => {
+    refocus.current?.current?.focus();
+    refocus.current = null;
+  });
+  const tab = (
+    <>
+      <ReplyTick
+        label={`${p.label}: post reply`}
+        text="Post reply"
+        on={p.posting}
+        inputRef={postTick}
+        onChange={on => {
+          refocus.current = postTick;
+          p.onPosting(on);
+        }}
+      />
+      {p.resolve && (
+        <>
+          <span className="tui-reply-tab-sep" aria-hidden="true" />
+          <ReplyTick
+            label={`${p.label}: resolve thread`}
+            text="Resolve thread"
+            on={p.resolve.on}
+            inputRef={resolveTick}
+            onChange={on => {
+              refocus.current = resolveTick;
+              p.resolve?.onChange(on);
+            }}
+          />
+        </>
+      )}
+    </>
+  );
+  const field = p.posting ? (
     <DraftField
       label={label}
       draft={p.draft}
       value={p.value}
       heading="Editing reply"
       lead={<CommentAuthor id={p.selfId} name="You:" />}
-      footer={p.resolve && <ResolveTick label={p.label} resolve={p.resolve} />}
+      footer={tab}
       onChange={p.onChange}
       onReset={p.onReset}
     />
+  ) : (
+    <div className="tui-cte-wrap">
+      <HeldReply
+        label={`${label}, not posting`}
+        selfId={p.selfId}
+        text={p.value ?? p.draft}
+        untouched={!!p.resolve && !p.resolve.on}
+      />
+      <div className="tui-cte-footer">{tab}</div>
+    </div>
   );
   return (
-    <GateCard
-      label={p.label}
-      checked={p.posting}
-      tickLabel={`${p.label}: post reply`}
-      onCheck={p.onPosting}
-      head={
-        <>
+    <article className="tui-review-card tui-reply-card" aria-label={p.label}>
+      <div className="tui-review-card-head tui-reply-head">
+        <div className="tui-reply-head-label">
+          <VerdictMark verdict={p.verdict ?? p.check?.verdict} />
           <CardTitle label={p.label}>
             {p.round !== undefined && (
               <span className="tui-respond-pill tui-reply-round">
@@ -121,46 +214,43 @@ export function ThreadReplyCard(p: ThreadReplyCardProps) {
           <StatusMark {...p.status}>
             {p.sha && <code className="tui-reply-sha">{p.sha}</code>}
           </StatusMark>
-        </>
-      }
-      aside={
-        !p.posting &&
-        p.resolve && <ResolveTick label={p.label} resolve={p.resolve} />
-      }
-    >
-      <ThreadCode label={p.label} mr={p.mr} />
-      {!stacked && (p.messages.length > 0 || p.silence) && (
-        <section className="tui-reply-thread" aria-label="Thread">
-          {p.messages.map((msg, i) => (
-            <Message key={i} {...msg} />
-          ))}
-          {p.silence && (
-            <div className="tui-reply-msg tui-reply-silence">
-              <Chip
-                intent="muted"
-                variant="outline"
-                icon={ICONS['triangle-alert']}
-              >
-                {p.silence}
-              </Chip>
-            </div>
-          )}
-        </section>
-      )}
-      <CommentArea
-        label="Reply"
-        edited={edited}
-        className={stacked ? 'tui-stacked-area' : undefined}
-      >
-        {p.check && <AgentCheck {...p.check} />}
-        {said && (
-          <SaidBox who={said.who!} whoId={said.whoId} text={said.text} />
-        )}
-        <div className="tui-reply-band">
-          {said ? <Answer>{field}</Answer> : field}
         </div>
-      </CommentArea>
-    </GateCard>
+      </div>
+      <div className="tui-review-card-body">
+        <ThreadCode label={p.label} mr={p.mr} />
+        {!stacked && (p.messages.length > 0 || p.silence) && (
+          <section className="tui-reply-thread" aria-label="Thread">
+            {p.messages.map((msg, i) => (
+              <Message key={i} {...msg} />
+            ))}
+            {p.silence && (
+              <div className="tui-reply-msg tui-reply-silence">
+                <Chip
+                  intent="muted"
+                  variant="outline"
+                  icon={ICONS['triangle-alert']}
+                >
+                  {p.silence}
+                </Chip>
+              </div>
+            )}
+          </section>
+        )}
+        <CommentArea
+          label="Reply"
+          edited={p.posting && edited}
+          className={stacked ? 'tui-stacked-area' : undefined}
+        >
+          {p.check && <AgentCheck {...p.check} />}
+          {said && (
+            <SaidBox who={said.who!} whoId={said.whoId} text={said.text} />
+          )}
+          <div className="tui-reply-band">
+            {said ? <Answer>{field}</Answer> : field}
+          </div>
+        </CommentArea>
+      </div>
+    </article>
   );
 }
 

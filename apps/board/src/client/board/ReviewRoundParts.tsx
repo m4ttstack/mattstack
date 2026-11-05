@@ -97,6 +97,12 @@ export function CarryoverCard({
 }) {
   const { carry } = pick;
   const posting = isPosting(pick, form.selections);
+  const verdict =
+    carry.call === 'fixed'
+      ? 'verified'
+      : carry.call === 'pushback-accepted'
+        ? 'accepted'
+        : 'flagged';
   return (
     <ThreadReplyCard
       label={pick.label}
@@ -109,22 +115,11 @@ export function CarryoverCard({
           : []),
       ]}
       silence={carry.authorReply ? undefined : 'No reply from author'}
-      check={
-        carry.note
-          ? {
-              note: carry.note,
-              verdict:
-                carry.call === 'fixed'
-                  ? 'verified'
-                  : carry.call === 'pushback-accepted'
-                    ? 'accepted'
-                    : 'flagged',
-            }
-          : undefined
-      }
+      verdict={verdict}
+      check={carry.note ? { note: carry.note, verdict } : undefined}
       selfId={you}
       draft={carry.reply}
-      value={posting ? form.texts[pick.name] : undefined}
+      value={form.texts[pick.name]}
       posting={posting}
       onPosting={on => form.toggleMulti(pick.name, pick.post, on)}
       resolve={

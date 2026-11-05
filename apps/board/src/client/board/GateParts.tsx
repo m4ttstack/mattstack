@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Flag, ThumbsUp } from 'lucide-react';
+import { CircleDashed, Flag, ThumbsUp } from 'lucide-react';
 import { AnimatePresence, domAnimation, LazyMotion, m } from 'motion/react';
 
 import { Button, CHECK_ICON, Icon, ICONS } from '@mattstack/tui-kit';
@@ -89,7 +89,7 @@ export function CardBody({
               transitionEnd: { overflow: 'visible' },
             }}
             exit={{ height: 0, opacity: 0, overflow: 'hidden' }}
-            transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
+            transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
           >
             {children}
           </m.div>
@@ -100,15 +100,13 @@ export function CardBody({
 }
 
 /** A thread card: the tick and everything beside it are one label, so the
-    whole head toggles the card; `aside` sits outside it, in the head's
-    right end, for a control of its own. */
+    whole head toggles the card. */
 export function GateCard({
   label,
   checked,
   tickLabel,
   onCheck,
   head,
-  aside,
   className,
   children,
 }: {
@@ -117,7 +115,6 @@ export function GateCard({
   tickLabel: string;
   onCheck: (on: boolean) => void;
   head: ReactNode;
-  aside?: ReactNode;
   className?: string;
   children: ReactNode;
 }) {
@@ -140,7 +137,6 @@ export function GateCard({
           />
           {head}
         </label>
-        {aside}
       </div>
       <CardBody open={checked}>{children}</CardBody>
     </article>
@@ -326,6 +322,24 @@ const VERDICT = {
     icon: <Flag size={14} aria-hidden />,
   },
 } as const;
+
+/** The agent's verdict as a mark for a card's head; a thread it never
+    checked gets the dotted circle. Not a control, so never boxed: a tinted
+    square here would read as a tick. */
+export function VerdictMark({ verdict }: { verdict?: AgentVerdict }) {
+  const label = verdict ? VERDICT[verdict].label : 'No agent check';
+  return (
+    <span
+      className="tui-reply-mark"
+      data-verdict={verdict}
+      role="img"
+      aria-label={label}
+      title={label}
+    >
+      {verdict ? VERDICT[verdict].icon : <CircleDashed size={14} aria-hidden />}
+    </span>
+  );
+}
 
 /** What the agent found on the thread, behind a button; its note hangs
     from the button on a rule in its tone. */
