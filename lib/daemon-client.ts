@@ -16,6 +16,7 @@ import {
   TRAY_SOCK_PATH,
   API_PORT,
 } from "./daemon-config.ts";
+import { assertNotRealDaemonInTest } from "../packages/rt-client/src/test-isolation.ts";
 import { rtDir } from "./rt-paths.ts";
 import * as out from "./ui/out.ts";
 
@@ -52,6 +53,7 @@ async function trySocketQuery(
   payload?: Record<string, any>,
   timeoutMs: number = REQUEST_TIMEOUT_MS,
 ): Promise<SocketQueryAttempt> {
+  assertNotRealDaemonInTest(cmd, DAEMON_SOCK_PATH);
   if (!existsSync(DAEMON_SOCK_PATH)) {
     _lastQueryWasRefused = false;
     _lastQueryTimedOut   = false;

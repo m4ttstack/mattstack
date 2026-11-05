@@ -36,6 +36,11 @@ test("roomForIdentity: path-kind local (non-pool) repo takes the last two segmen
   expect(roomForIdentity({ kind: "path", id: "/Users/m/work/my-notes" })).toBe("work-my-notes");
 });
 
+test("roomForIdentity: a repo whose name has nothing usable in it gets no room", () => {
+  expect(roomForIdentity({ kind: "remote", id: "gitlab.example.com/acme/---" })).toBeNull();
+  expect(roomForIdentity({ kind: "path", id: "/" })).toBeNull();
+});
+
 test("deriveRoomForCwd (the CLI's sync derivation) lands on exactly what roomForIdentity's path-kind rule would for the same repo -- a real local repo, not registered in any index, proves the parity end to end", () => {
   const repoDir = realpathSync(mkdtempSync(join(tmpdir(), "chat-room-parity-")));
   initRepo(repoDir);

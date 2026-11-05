@@ -6,6 +6,7 @@ import { tmpdir } from "os";
 import { Database } from "bun:sqlite";
 import { mattstackHome } from "../rt-paths";
 import { quickCheck } from "./db";
+import { assertNotRealStateDbInTest } from "../../packages/rt-client/src/test-isolation.ts";
 import { restorePipeline, restorePipelineFromStdin } from "./backup-pipeline";
 import { findBackupTool } from "./backup-tools";
 import { writeLfsFilterConfig } from "./backup-lfs";
@@ -92,6 +93,7 @@ export async function restoreFromBackup(opts: RestoreOptions): Promise<RestoreRe
         }
 
         if (source.type === "sqlite") {
+          assertNotRealStateDbInTest(targetPath);
           const db = new Database(restoredPath, { readonly: true });
           let problems: string[];
           try {
