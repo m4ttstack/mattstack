@@ -76,7 +76,7 @@ export function AskBand({
   const [open, setOpen] = useState(false);
   const bar = useRef<HTMLDivElement>(null);
   const people = usePeople(mr);
-  const source = bandSource(mr);
+  const source = bandSource(mr, ctx.self);
   if (!source) return null;
   const band =
     source.kind === 'sent'
