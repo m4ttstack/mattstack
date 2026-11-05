@@ -191,6 +191,6 @@ only when scope said that job did not apply. A gated job that is skipped
 for any other reason fails the gate. `glitter-pty` is not part of the `e2e`
 gate, so it stays advisory.
 
-Enter the queue with `rt pr enqueue <number>`. Here, `gh pr merge` has failed
+Enter the queue with `mr_merge`, or with `rt pr enqueue <number>` by hand. Here, `gh pr merge` has failed
 with "Auto merge is not allowed for this repository" while another PR was
 queued.

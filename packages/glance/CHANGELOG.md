@@ -7,6 +7,9 @@
 - `GitProvider.enqueuePullRequest(projectPath, iid, { expectedHeadSha? })` adds a
   pull request to its branch's merge queue and returns its position and state.
   GitHub only; check `capabilities.canEnqueue`.
+- `GitProvider.fetchMergeQueueStatus(projectPath, iid)` says whether a pull
+  request's branch has a merge queue and whether the pull request is in it.
+  GitHub only.
 - `GitProvider.subscribePullRequestEvents?(projectPath, prs, callbacks)`, an
   optional push-only subscription for already-fetched MRs (no fetch, no
   poll). GitLab implements it over the same shared ActionCable connection as
