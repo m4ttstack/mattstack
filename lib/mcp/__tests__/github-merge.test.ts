@@ -163,6 +163,31 @@ describe("mergeOnGitHub with wait", () => {
     expect((await mergeOnGitHub(TARGET, { wait: true, maxWaitSeconds: 60 }, seams)).body).toEqual({ queued: true, timedOut: true });
   });
 
+  test("sleeps no longer than the time left", async () => {
+    const { seams } = polling({ enabled: true, inQueue: true }, []);
+    const naps: number[] = [];
+    const sleep = async (ms: number) => {
+      naps.push(ms);
+      await seams.sleep(ms);
+    };
+    await mergeOnGitHub(TARGET, { wait: true, maxWaitSeconds: 30 }, { ...seams, sleep });
+    expect(naps).toEqual([20_000, 10_000]);
+  });
+
+  test("stops polling once cancelled", async () => {
+    const controller = new AbortController();
+    let reads = 0;
+    const fetchMergeQueueStatus = (async () => {
+      reads++;
+      return full({ enabled: true, inQueue: true });
+    }) as GithubMergeProvider["fetchMergeQueueStatus"];
+    const { provider } = github({ enabled: true, inQueue: true }, { fetchMergeQueueStatus });
+    const sleep = async () => controller.abort();
+    const res = await mergeOnGitHub(TARGET, { wait: true }, { provider, sleep, signal: controller.signal });
+    expect(res.body).toEqual({ queued: true, timedOut: true });
+    expect(reads).toBe(1);
+  });
+
   test("rides out a failed poll", async () => {
     const { seams } = polling({ enabled: true, inQueue: true }, [new Error("502"), { enabled: true, inQueue: false, merged: true }]);
     expect((await mergeOnGitHub(TARGET, { wait: true }, seams)).body).toEqual({ merged: true });

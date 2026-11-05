@@ -59,7 +59,8 @@ async function waitForQueue(
   const deadline = seams.now() + maxWaitSeconds * 1000;
   let lastError: string | undefined;
   while (seams.now() < deadline && !seams.signal?.aborted) {
-    await seams.sleep(MERGE_WAIT_POLL_MS, seams.signal);
+    await seams.sleep(Math.min(MERGE_WAIT_POLL_MS, deadline - seams.now()), seams.signal);
+    if (seams.signal?.aborted) break;
     seams.progress?.();
     try {
       const status = await github.fetchMergeQueueStatus(target.projectPath, target.iid);
