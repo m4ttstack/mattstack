@@ -1163,7 +1163,7 @@ test('useMe: the server names the viewer, keying mentions on the handle and show
   );
 });
 
-test('useMe: before the server answers, the viewer is the default handle', () => {
+test('useMe: before the server answers, no mention reads as the viewer', () => {
   serveMe(() => new Promise<Response>(() => {}));
   renderWithProviders(
     <App
@@ -1172,10 +1172,10 @@ test('useMe: before the server answers, the viewer is the default handle', () =>
   );
   expect(
     screen.getByTestId('message-7').querySelector('[data-mention]')
-  ).toHaveAttribute('data-me', 'true');
+  ).not.toHaveAttribute('data-me', 'true');
 });
 
-test('useMe: a refused or failed answer keeps the default', async () => {
+test('useMe: a refused or failed answer claims no mention', async () => {
   serveMe(() => Promise.resolve(errorResponse(500)));
   const { unmount } = renderWithProviders(
     <App
@@ -1185,7 +1185,7 @@ test('useMe: a refused or failed answer keeps the default', async () => {
   await act(async () => {});
   expect(
     screen.getByTestId('message-7').querySelector('[data-mention]')
-  ).toHaveAttribute('data-me', 'true');
+  ).not.toHaveAttribute('data-me', 'true');
   unmount();
 
   serveMe(() => Promise.reject(new Error('network down')));
@@ -1197,5 +1197,5 @@ test('useMe: a refused or failed answer keeps the default', async () => {
   await act(async () => {});
   expect(
     screen.getByTestId('message-7').querySelector('[data-mention]')
-  ).toHaveAttribute('data-me', 'true');
+  ).not.toHaveAttribute('data-me', 'true');
 });

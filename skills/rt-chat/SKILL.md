@@ -194,7 +194,8 @@ digraph chat_message_arrives {
     "chat_dm {to: <holder id from the claim result>, body}: the missing fact" [shape=plaintext];
     "chat_dm {to: <asker's id from the reply hint>, body}: your one-line answer to the poll" [shape=plaintext];
     "chat_dm {to: <sender's id from the reply hint>, body}: the reply" [shape=plaintext];
-    "chat_dm {to: matt, body}: the decision and the assumption you proceed on" [shape=plaintext];
+    "rt_verb {args: [settings, get, chat.humanHandle]}" [shape=plaintext];
+    "chat_dm {to: <the value chat.humanHandle read>, body}: the decision and the assumption you proceed on" [shape=plaintext];
     "STOP: reply with chat_dm or chat_post, never SendMessage" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "STOP: acknowledge with chat_ack, never a room post" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Nothing to send; no pane line" [shape=doublecircle];
@@ -210,7 +211,8 @@ digraph chat_message_arrives {
     "What does the message ask of you?" -> "chat_claim {id}" [label="one output, from a post that woke several"];
     "What does the message ask of you?" -> "chat_dm {to: <asker's id from the reply hint>, body}: your one-line answer to the poll" [label="a poll of each lane"];
     "What does the message ask of you?" -> "chat_dm {to: <sender's id from the reply hint>, body}: the reply" [label="a question or handoff for you"];
-    "What does the message ask of you?" -> "chat_dm {to: matt, body}: the decision and the assumption you proceed on" [label="a decision only Matt can make"];
+    "What does the message ask of you?" -> "rt_verb {args: [settings, get, chat.humanHandle]}" [label="a decision only Matt can make"];
+    "rt_verb {args: [settings, get, chat.humanHandle]}" -> "chat_dm {to: <the value chat.humanHandle read>, body}: the decision and the assumption you proceed on";
     "What does the message ask of you?" -> "STOP: reply with chat_dm or chat_post, never SendMessage" [label="tempted to reply with SendMessage"];
     "What does the message ask of you?" -> "STOP: acknowledge with chat_ack, never a room post" [label="tempted to post a +1 or an ack"];
     "STOP: reply with chat_dm or chat_post, never SendMessage" -> "chat_dm {to: <sender's id from the reply hint>, body}: the reply";
@@ -234,7 +236,7 @@ digraph chat_message_arrives {
     "chat_dm {to: <holder id from the claim result>, body}: the missing fact" -> "Claim lost: no answer from you";
     "chat_dm {to: <asker's id from the reply hint>, body}: your one-line answer to the poll" -> "Answered by DM";
     "chat_dm {to: <sender's id from the reply hint>, body}: the reply" -> "Answered by DM";
-    "chat_dm {to: matt, body}: the decision and the assumption you proceed on" -> "Working on the stated assumption; his answer arrives by push";
+    "chat_dm {to: <the value chat.humanHandle read>, body}: the decision and the assumption you proceed on" -> "Working on the stated assumption; his answer arrives by push";
 }
 ```
 
@@ -283,9 +285,11 @@ Never post an acknowledgement ("ack", "+1", "noted", "will do") into a
 room: it wakes every member to carry nothing. An ack that needs words (a
 condition, a time) is a DM to the author.
 
-**Never block on a human.** A question for Matt goes by DM (or `@matt` in a
-room when the room should see it too), stating the assumption you proceed
-under. His answer arrives in your context whenever it comes; there is no
+**Never block on a human.** Matt's handle is the setting `chat.humanHandle`:
+read it with `rt_verb {args: ["settings", "get", "chat.humanHandle"]}`, since
+a handle written from memory can name nobody and raises no notification. A
+question for Matt goes by DM to that handle (or an `@` of it in a room when
+the room should see it too), stating the assumption you proceed under. His answer arrives in your context whenever it comes; there is no
 wait to bound and nothing to poll. `chat_read` is for history, never for
 new messages.
 

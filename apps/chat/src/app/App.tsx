@@ -39,7 +39,7 @@ import { AppMark } from './chrome/AppMark';
 import { Composer, type ComposerHandle } from './Composer';
 import { PageShellDemoPage } from './demo/PageShellDemoPage';
 import type { FleetRoom } from './FleetTree';
-import { HUMAN_HANDLE, type Me } from './human';
+import type { Me } from './human';
 import { PageBar } from './PageBar';
 import { isMsgTopic, useRelayFrames, useRelayOpen } from './relay-socket';
 import { RoomRail } from './RoomRail';
@@ -346,8 +346,8 @@ async function errorOf(res: Response): Promise<string> {
 /** The viewer's handle and shown name; the default until the server answers. */
 function useMe(): Me {
   const [me, setMe] = useState<Me>({
-    handle: HUMAN_HANDLE,
-    name: HUMAN_HANDLE,
+    handle: '',
+    name: '',
   });
   useEffect(() => {
     fetch('/api/chat/me')
