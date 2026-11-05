@@ -287,7 +287,7 @@ function RowView({
         data-mr-url={url ?? undefined}
         data-tone={status.bar ?? undefined}
         data-note={mr.note || noteOpen ? '1' : undefined}
-        data-ask={bandSource(mr) ? '1' : undefined}
+        data-ask={bandSource(mr, ctx.self) ? '1' : undefined}
         data-local={ctx.local ? '1' : undefined}
         title={ctx.local ? 'right-click for actions' : undefined}
         onClick={e => onRowClick(e, mr, ctx)}
