@@ -9,6 +9,7 @@ import { gatesRoutes } from './gates';
 import { panesRoutes } from './panes';
 import { runsRoutes } from './runs';
 import { settings } from './settings';
+import { usageRoutes } from './usage';
 import { mountSkills } from './skills';
 
 // The embed page writes settings, so only the suite's own pages may frame it.
@@ -33,6 +34,7 @@ export const routes = new Hono()
   .route('/', enrichRoutes(runsData))
   .route('/', panesRoutes(runsData))
   .route('/', gatesRoutes(runsData))
+  .route('/', usageRoutes(runsData))
   .route('/', settings)
   .route('/', agentModels)
   .route(
