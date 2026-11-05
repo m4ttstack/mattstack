@@ -242,6 +242,11 @@
   cursor: pointer;
 }
 
+/* Room for a raised box's shadow above the composer. */
+.block:last-child {
+  margin-bottom: 16px;
+}
+
 .block .msg {
   padding-inline: 12px 16px;
 }
