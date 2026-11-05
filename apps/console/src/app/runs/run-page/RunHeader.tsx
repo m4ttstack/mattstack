@@ -14,11 +14,13 @@ import {
 import { useModalForm } from '@mattstack/app-kit/forms';
 import { Icon, type IconName } from '@mattstack/app-kit/icons';
 import { notifications } from '@mattstack/app-kit/notifications';
+import { Link } from '@mattstack/app-kit/router';
 import { useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 
 import { client } from '../../api';
 import type { HeroLiveness } from '../derive/liveness';
+import type { LiveCost } from '../derive/record';
 import type { RailStage } from '../derive/stages';
 import { focusPane, LivenessBadge } from '../LivenessBadge';
 import { readApiError } from '../useRuns';
@@ -45,6 +47,29 @@ export interface RunHeaderProps {
   onViewInputs: () => void;
   /** The run's links, along the foot of the card. */
   facts?: FactProps[];
+  /** Absent until the usage read answers, or when it fails. */
+  cost?: LiveCost | null;
+}
+
+function HeadCost({ cost }: { cost: LiveCost }) {
+  return (
+    <Text
+      span
+      fz="sm"
+      lh="normal"
+      c={cost.href ? undefined : 'dimmed'}
+      className={classes.cost}
+      data-testid="live-cost"
+    >
+      {cost.href ? (
+        <Link href={cost.href} className={classes.costLink}>
+          {cost.text}
+        </Link>
+      ) : (
+        cost.text
+      )}
+    </Text>
+  );
 }
 
 /** The hero's ticket line (ticket, meta) over the run's title. */
@@ -188,6 +213,7 @@ export function RunHeader({
   canAbandon,
   onViewInputs,
   facts = [],
+  cost = null,
 }: RunHeaderProps) {
   const queryClient = useQueryClient();
   const [resumed, setResumed] = useState(false);
@@ -314,6 +340,7 @@ export function RunHeader({
             title={title}
           />
           <Group gap={8} wrap="nowrap">
+            {cost ? <HeadCost cost={cost} /> : null}
             <LivenessBadge
               liveness={liveness}
               size="lg"
