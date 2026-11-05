@@ -108,10 +108,13 @@ export function userCopyOnPath(p: UserCopyProbes, tool: string): string | null {
  * `withWellKnownBinFallback` uses: a row that probes through `p.exec` and a
  * step that looks the tool up here must agree it exists. Links stay on
  * `userCopyOnPath`, because a same-named binary in those dirs must not cost a
- * member rt's own link just because the app ran the check.
+ * member rt's own link just because the app ran the check. herdr looks in
+ * ~/.local/bin first: Upgrade installs there, so an older Homebrew copy earlier
+ * on PATH would otherwise keep the herdr row failing after every Upgrade.
  */
 function runnableUserCopy(p: UserCopyProbes, tool: string): string | null {
-  return firstUserCopy(p, tool, [...pathDirs(p), dirname(linkPath(p.home, tool)), ...wellKnownBinDirs(p.home)]);
+  const slot = dirname(linkPath(p.home, tool));
+  return firstUserCopy(p, tool, [...(tool === "herdr" ? [slot] : []), ...pathDirs(p), slot, ...wellKnownBinDirs(p.home)]);
 }
 
 function pathDirs(p: Pick<Probes, "env">): string[] {
