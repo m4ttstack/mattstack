@@ -24,6 +24,7 @@ import {
   startRefresh,
   toStatusResponse,
 } from './refresh/index.js';
+import { slackFaceUrl, slackPicture } from './slack-faces.js';
 import { getStore } from './store/index.js';
 import { resolveWindowArgs } from './util/window.js';
 import {
@@ -52,6 +53,20 @@ function windowFromQuery(c: Context) {
 }
 
 const leaderboard = new Hono()
+  .get('/api/slack-face', async c => {
+    const name = c.req.query('name');
+    if (!name || fixtureMode()) return c.json({ url: null });
+    return c.json({ url: await slackFaceUrl(name) });
+  })
+  .get('/api/slack-avatar/:person', async c => {
+    const picture = await slackPicture(c.req.param('person'));
+    if (!picture) return c.json({ error: 'not found' }, 404);
+    return c.body(picture.bytes, 200, {
+      'content-type': picture.contentType,
+      'cache-control': 'private, max-age=31536000, immutable',
+      'x-content-type-options': 'nosniff',
+    });
+  })
   .get('/api/leaderboard', async c => {
     if (fixtureMode()) {
       if (fixtureScenario() === 'cold-stalled')

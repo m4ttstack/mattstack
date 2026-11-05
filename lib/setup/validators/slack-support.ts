@@ -1,5 +1,5 @@
 import { row, type Action, type Row } from "../contract.ts";
-import { SLACK_SUPPORT_SCOPES, slackUserScopeFix } from "../slack-app.ts";
+import { SLACK_SUPPORT_CHAT_SCOPES, slackUserScopeFix } from "../slack-app.ts";
 
 export const SLACK_SUPPORT_ROW_ID = "account.slack-support";
 
@@ -29,7 +29,7 @@ export function slackSupportRow(input: { slack: SlackCheck; appId?: string; shor
   if (slack.kind === "unchecked") return row({ ...BASE, status: "skipped", detail: "Could not check Slack" });
 
   const have = new Set(slack.scopes);
-  if (SLACK_SUPPORT_SCOPES.every((s) => have.has(s))) return row({ ...BASE, status: "ready", detail: "Ready for support chats" });
+  if (SLACK_SUPPORT_CHAT_SCOPES.every((s) => have.has(s))) return row({ ...BASE, status: "ready", detail: "Ready for support chats" });
 
   const missing = shortGrant.filter((s) => !have.has(s));
   if (missing.length === 0) return row({ ...BASE, status: "skipped", detail: "Off. Connect to approve it in Slack", action: CONNECT });

@@ -14,9 +14,17 @@
   inset: 0;
 }
 
-.view {
-  scrollbar-width: thin;
-  scrollbar-color: var(--tk-border) transparent;
+/* Short rooms sit on the composer, not at the top of the page. */
+.bottom {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 100%;
+}
+
+/* Stand-in rows start at the top, so they do not crowd the message box. */
+.bottom[data-loading] {
+  justify-content: flex-start;
 }
 
 .view::-webkit-scrollbar {

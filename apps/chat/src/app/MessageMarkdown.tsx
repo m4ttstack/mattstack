@@ -4,7 +4,6 @@ import Markdown, { type Components, type Options } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import { CODE_LINE_HEIGHT, CodeBlock } from './components/CodeBlock';
-import { firstBlockOf } from './folding';
 import { remarkMentions } from './remark-mentions';
 import classes from './transcript-prose.module.css';
 
@@ -88,10 +87,6 @@ export interface MessageMarkdownProps {
   /** Parallel to `mentions`; unset matches the ids themselves (an older daemon). */
   mentionNames?: string[];
   humanHandle?: string;
-  /** Renders only the body's first markdown block -- a folded read message
-      never mounts a table or fenced block that sits later in it.
-      @default false */
-  firstBlockOnly?: boolean;
 }
 
 /** One message body. Raw HTML is skipped, links keep react-markdown's
@@ -101,7 +96,6 @@ export function MessageMarkdown({
   mentions,
   mentionNames,
   humanHandle,
-  firstBlockOnly = false,
 }: MessageMarkdownProps) {
   const remarkPlugins = useMemo<NonNullable<Options['remarkPlugins']>>(
     () => [
@@ -121,7 +115,7 @@ export function MessageMarkdown({
   );
   return (
     <Markdown remarkPlugins={remarkPlugins} skipHtml components={components}>
-      {firstBlockOnly ? firstBlockOf(body) : body}
+      {body}
     </Markdown>
   );
 }

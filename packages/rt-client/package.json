@@ -28,6 +28,18 @@
       "import": "./dist/evidence.js",
       "default": "./dist/evidence.js"
     },
+    "./face-tiles": {
+      "types": "./dist/face-tiles.d.ts",
+      "bun": "./src/face-tiles.ts",
+      "import": "./dist/face-tiles.js",
+      "default": "./dist/face-tiles.js"
+    },
+    "./face-zoom": {
+      "types": "./dist/face-zoom.d.ts",
+      "bun": "./src/face-zoom.ts",
+      "import": "./dist/face-zoom.js",
+      "default": "./dist/face-zoom.js"
+    },
     "./ci-lease": {
       "types": "./dist/ci-lease.d.ts",
       "bun": "./src/ci-lease.ts",
@@ -65,7 +77,7 @@
     "bun": ">=1.0.0"
   },
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target node --format esm --packages external && bun build src/settings/identity-codec.ts --outfile dist/settings/identity-codec.js --target browser --format esm && bun build src/gate.ts --outfile dist/gate.js --target browser --format esm && bun build src/ci-lease.ts --outfile dist/ci-lease.js --target node --format esm --packages external && bun build src/evidence.ts --outfile dist/evidence.js --target browser --format esm && tsc -p tsconfig.json",
+    "build": "bun build src/index.ts --outdir dist --target node --format esm --packages external && bun build src/settings/identity-codec.ts --outfile dist/settings/identity-codec.js --target browser --format esm && bun build src/gate.ts --outfile dist/gate.js --target browser --format esm && bun build src/ci-lease.ts --outfile dist/ci-lease.js --target node --format esm --packages external && bun build src/evidence.ts --outfile dist/evidence.js --target browser --format esm && bun build src/face-zoom.ts --outfile dist/face-zoom.js --target browser --format esm && bun build src/face-tiles.ts --outfile dist/face-tiles.js --target browser --format esm && tsc -p tsconfig.json",
     "check-types": "tsc --noEmit -p tsconfig.json",
     "prepack": "bun run build"
   },

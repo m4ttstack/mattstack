@@ -116,11 +116,7 @@ export const Sidebar = ({
       opened={sidebarOpen}
       width={sidebarWidth}
       bg={bgProp ?? bg}
-      style={
-        withBorder
-          ? { borderInlineEnd: '1px solid var(--mantine-color-default-border)' }
-          : undefined
-      }
+      border={withBorder}
       trigger={
         !hideCollapseButton && (
           <ActionIcon

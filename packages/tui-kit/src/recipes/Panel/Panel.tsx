@@ -66,6 +66,8 @@ export interface PanelOwnProps {
   /** The panel's label AND the key its collapsed state is persisted under —
       see `readCollapsed`. A straight port of mr-board's constraint. */
   title: string;
+  /** Drawn before the title, such as an avatar. */
+  lead?: ReactNode;
   /** The count badge rendered beside the title. */
   count: number;
   /** The localStorage key the collapsed-titles set is persisted under.
@@ -88,6 +90,7 @@ export const Panel = defineComponent<PanelProps_, typeof PANEL_SELECTORS, readon
   render: ({ props, getStyles, ref }) => {
     const {
       title,
+      lead,
       count,
       storageKey = PANEL_DEFAULT_STORAGE_KEY,
       children,
@@ -140,6 +143,7 @@ export const Panel = defineComponent<PanelProps_, typeof PANEL_SELECTORS, readon
           <span {...getStyles("caret")} data-part={PANEL_PARTS.caret} aria-hidden>
             {ICONS["chevron-right"]}
           </span>
+          {lead}
           {title} <span {...getStyles("count")} data-part={PANEL_PARTS.count}>{count}</span>
         </button>
         {!collapsed && (

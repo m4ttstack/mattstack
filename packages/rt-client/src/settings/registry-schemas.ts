@@ -355,6 +355,8 @@ export const SCHEMAS = {
   "rt.skills.disableModelInvocation": z
     .record(z.string(), z.array(z.string()))
     .meta({ title: "Model invocation disabled", description: "Skills with model invocation disabled, by pack.", labels: { key: "pack", value: "skills" } }),
+  "chat.humanHandle": z.string().regex(/^[a-z0-9._-]*$/),
+  "chat.displayName": z.string().min(1),
 } satisfies Record<string, z.ZodType>;
 
 export type Value<K extends keyof typeof SCHEMAS> = z.infer<(typeof SCHEMAS)[K]>;
