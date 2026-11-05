@@ -74,10 +74,10 @@ test('the stack draws one face for each end and hides from assistive tech', () =
   expect(stack.querySelectorAll('img')).toHaveLength(2);
 });
 
-test('the title carries the stack and the names', () => {
+test('the title is the names alone, the sidebar carries the faces', () => {
   const { container } = renderWithProviders(
     <DmPairTitle pair={{ a: 'kai', b: 'remy' }} />
   );
-  expect(container.querySelectorAll('img')).toHaveLength(2);
+  expect(container.querySelectorAll('img')).toHaveLength(0);
   expect(container).toHaveTextContent('kai, remy');
 });

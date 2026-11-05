@@ -31,6 +31,7 @@ import { useInterval } from 'react-interval-hook';
 import { useLocation } from 'wouter';
 import { navigate } from 'wouter/use-browser-location';
 
+import { FaceGroup } from './AgentName';
 import classes from './app.module.css';
 import { BuddiesProvider } from './buddies-context';
 import { RailSkeleton, RoomSkeleton, TitleSkeleton } from './ChatSkeleton';
@@ -247,9 +248,11 @@ function useRoomMembers(
 ): {
   members: string[];
   memberNames: ReadonlyMap<string, string>;
+  loaded: boolean;
   refetchMembers: () => void;
 } {
   const [members, setMembers] = useState<ChatMember[]>(seed ?? []);
+  const [settledRoom, setSettledRoom] = useState(seed ? room : undefined);
   // Same one-shot rule as useMessages: pending until the first defined room.
   const seedPending = useRef(seed !== undefined);
   const roomRef = useRef(room);
@@ -262,7 +265,10 @@ function useRoomMembers(
       .then(data => {
         if (roomRef.current === room) setMembers(data.members ?? []);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (roomRef.current === room) setSettledRoom(room);
+      });
   }, [room]);
 
   useEffect(() => {
@@ -292,6 +298,7 @@ function useRoomMembers(
   return {
     members: members.map(m => m.handle),
     memberNames,
+    loaded: room !== undefined && settledRoom === room,
     refetchMembers: fetchMembers,
   };
 }
@@ -401,6 +408,7 @@ interface ChatPageProps {
   daemon: ReturnType<typeof useDaemonHealth>;
   buddies: Buddy[];
   roomMembers: string[];
+  membersLoaded: boolean;
   messages: ChatMessage[];
   anchor: string | undefined;
   me: Me;
@@ -421,6 +429,7 @@ function ChatPage({
   daemon,
   buddies,
   roomMembers,
+  membersLoaded,
   messages,
   anchor,
   me,
@@ -499,6 +508,8 @@ function ChatPage({
                 <PageBar
                   room={activeRoomSummary}
                   buddies={buddies.filter(b => roomMembers.includes(b.handle))}
+                  membersLoading={!membersLoaded}
+                  onArchive={onCloseRoom}
                   reachable={daemon.reachable}
                 />
               ) : (
@@ -750,6 +761,7 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
   const {
     members: roomMembers,
     memberNames: roomMemberNames,
+    loaded: membersLoaded,
     refetchMembers,
   } = useRoomMembers(activeRoom, initialState?.members);
   const activeRoomSummary = rooms.find(r => r.room === activeRoom);
@@ -783,6 +795,8 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
   }
 
   // An open room on a phone gets its own shell; anything else falls through
+  const drawnTogether = [...roomMembers, ...messages.map(m => m.handle)];
+
   // to the desktop layout, whose PageShell drawers its sidebar.
   if (route.name === 'embed') {
     return (
@@ -795,42 +809,44 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
         reachable={daemon.reachable}
         actions={buddyActions}
       >
-        <PageShell scrollClamp>
-          <PageShell.Main>
-            <PageShell.Content contentContainer={false}>
-              <Group
-                align="stretch"
-                wrap="nowrap"
-                gap={0}
-                style={{ flex: 1, minHeight: 0, minWidth: 0 }}
-              >
-                {activeRoom && (
-                  <Transcript
-                    compact
-                    room={activeRoom}
-                    messages={messages}
-                    loading={!messagesLoaded}
-                    humanHandle={me.handle}
-                    anchor={anchor}
-                    footer={
-                      <Composer
-                        ref={composerRef}
-                        compact
-                        humanHandle={me.handle}
-                        room={activeRoom}
-                        roomMembers={roomMembers}
-                        buddies={buddies}
-                        isDm={activeRoomSummary?.kind === 'dm'}
-                        daemonReachable={daemon.reachable}
-                        onOpenDm={openDm}
-                      />
-                    }
-                  />
-                )}
-              </Group>
-            </PageShell.Content>
-          </PageShell.Main>
-        </PageShell>
+        <FaceGroup handles={drawnTogether}>
+          <PageShell scrollClamp>
+            <PageShell.Main>
+              <PageShell.Content contentContainer={false}>
+                <Group
+                  align="stretch"
+                  wrap="nowrap"
+                  gap={0}
+                  style={{ flex: 1, minHeight: 0, minWidth: 0 }}
+                >
+                  {activeRoom && (
+                    <Transcript
+                      compact
+                      room={activeRoom}
+                      messages={messages}
+                      loading={!messagesLoaded}
+                      humanHandle={me.handle}
+                      anchor={anchor}
+                      footer={
+                        <Composer
+                          ref={composerRef}
+                          compact
+                          humanHandle={me.handle}
+                          room={activeRoom}
+                          roomMembers={roomMembers}
+                          buddies={buddies}
+                          isDm={activeRoomSummary?.kind === 'dm'}
+                          daemonReachable={daemon.reachable}
+                          onOpenDm={openDm}
+                        />
+                      }
+                    />
+                  )}
+                </Group>
+              </PageShell.Content>
+            </PageShell.Main>
+          </PageShell>
+        </FaceGroup>
       </BuddiesProvider>
     );
   }
@@ -845,46 +861,49 @@ function AppContent({ initialState }: { initialState?: AppInitialState }) {
       reachable={daemon.reachable}
       actions={buddyActions}
     >
-      <MattstackShell
-        name="chat"
-        rail={false}
-        headerBorder={false}
-        mark={<AppMark size={26} />}
-      >
-        <MattstackShell.Header
-          actions={
-            <>
-              <ThemeColorButton />
-              <SettingsButton />
-            </>
-          }
-        />
-        <ScopeBar info={viewer} />
-        <ViewerChip info={viewer} />
-        {chatRoute ? (
-          <ChatPage
-            rooms={rooms}
-            roomsLoaded={roomsLoaded}
-            messagesLoaded={messagesLoaded}
-            openRooms={openRooms}
-            railRooms={railRooms}
-            activeRoom={activeRoom}
-            activeRoomSummary={activeRoomSummary}
-            selectRoom={selectRoom}
-            daemon={daemon}
-            buddies={buddies}
-            roomMembers={roomMembers}
-            messages={messages}
-            anchor={anchor}
-            me={me}
-            composerRef={composerRef}
-            onOpenDm={openDm}
-            onCloseRoom={closeRoom}
+      <FaceGroup handles={drawnTogether}>
+        <MattstackShell
+          name="chat"
+          rail={false}
+          headerBorder={false}
+          mark={<AppMark size={26} />}
+        >
+          <MattstackShell.Header
+            actions={
+              <>
+                <ThemeColorButton />
+                <SettingsButton />
+              </>
+            }
           />
-        ) : (
-          <NotFoundPage />
-        )}
-      </MattstackShell>
+          <ScopeBar info={viewer} />
+          <ViewerChip info={viewer} />
+          {chatRoute ? (
+            <ChatPage
+              rooms={rooms}
+              roomsLoaded={roomsLoaded}
+              messagesLoaded={messagesLoaded}
+              openRooms={openRooms}
+              railRooms={railRooms}
+              activeRoom={activeRoom}
+              activeRoomSummary={activeRoomSummary}
+              selectRoom={selectRoom}
+              daemon={daemon}
+              buddies={buddies}
+              roomMembers={roomMembers}
+              membersLoaded={membersLoaded}
+              messages={messages}
+              anchor={anchor}
+              me={me}
+              composerRef={composerRef}
+              onOpenDm={openDm}
+              onCloseRoom={closeRoom}
+            />
+          ) : (
+            <NotFoundPage />
+          )}
+        </MattstackShell>
+      </FaceGroup>
     </BuddiesProvider>
   );
 }

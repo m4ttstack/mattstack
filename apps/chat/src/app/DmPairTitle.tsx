@@ -38,7 +38,6 @@ export function DmNames({ pair }: { pair: DmPair }) {
 export function DmPairTitle({ pair }: { pair: DmPair }) {
   return (
     <span className={classes.title}>
-      <DmStack pair={pair} size={30} />
       <DmNames pair={pair} />
     </span>
   );

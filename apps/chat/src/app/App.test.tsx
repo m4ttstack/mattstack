@@ -163,21 +163,21 @@ const kaiRemyDms = {
 
 const avatarCount = (el: HTMLElement) => el.querySelectorAll('img').length;
 
-test('an open DM whose pair repeats in the sidebar shows avatars in the page bar', () => {
+test('an open DM whose pair repeats in the sidebar reads by name in the page bar', () => {
   window.history.replaceState(null, '', '/r/dm-2c9b7e41d0a5');
   renderWithProviders(<App initialState={kaiRemyDms} />);
   const bar = screen.getByTestId('page-bar');
   expect(bar).toHaveTextContent('kai, remy');
   expect(bar).not.toHaveTextContent('m2p4');
-  expect(avatarCount(screen.getByTestId('page-bar-title'))).toBe(2);
+  expect(avatarCount(screen.getByTestId('page-bar-title'))).toBe(0);
 });
 
-test('an open DM title carries both avatars, unique pair or not', () => {
+test('an open DM title has no faces, unique pair or not', () => {
   window.history.replaceState(null, '', '/r/dm-jay-max');
   renderWithProviders(<App initialState={kaiRemyDms} />);
   const title = screen.getByTestId('page-bar-title');
   expect(title).toHaveTextContent(/^jay, max$/);
-  expect(avatarCount(title)).toBe(2);
+  expect(avatarCount(title)).toBe(0);
 });
 
 test('a malformed room escape renders not-found instead of throwing', () => {

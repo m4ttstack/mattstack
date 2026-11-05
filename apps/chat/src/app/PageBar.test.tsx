@@ -31,10 +31,10 @@ test('the members pill shows the signed-in total and opens a roster grouped by h
   );
   const chip = screen.getByTestId('members-chip');
   expect(chip).toHaveAccessibleName('Members of #build: 3 signed in');
-  expect(chip).toHaveTextContent('3');
+  expect(chip).toHaveTextContent('4');
   await userEvent.click(chip);
   expect(await screen.findByTestId('members-dropdown')).toHaveTextContent(
-    '3 in #build'
+    '4 members'
   );
   expect(screen.getByTestId('members-wakes')).toHaveTextContent(
     'wakes: mention'
@@ -178,16 +178,14 @@ test('a member who signs out while its card is open does not reopen it when the 
   expect(screen.queryByTestId('detail-max')).toBeNull();
 });
 
-test('an empty room reads zero on the pill, with no sprites', () => {
+test('an empty room has no members button', () => {
   renderWithProviders(
     <PageBar
       room={{ room: 'rt', memberCount: 0, unread: 0, mentions: 0 }}
       buddies={[]}
     />
   );
-  const chip = screen.getByTestId('members-chip');
-  expect(chip).toHaveTextContent('0');
-  expect(avatars(chip)).toHaveLength(0);
+  expect(screen.queryByTestId('members-chip')).toBeNull();
 });
 
 test("a member row's card opens beside it, and the row stays marked while it is open", async () => {
@@ -294,7 +292,7 @@ test('a DM shows the pair as its title, wakes: all in its member popover', async
           bName: 'rt-chat-wt',
         },
       }}
-      buddies={[]}
+      buddies={[{ handle: 'deck-main', status: 'live' }]}
     />
   );
   expect(screen.getByTestId('page-bar-title')).toHaveTextContent(
@@ -415,7 +413,7 @@ test('member rows show names and stay keyed by id', async () => {
   expect(screen.getByTestId('members-row-remy')).toBeInTheDocument();
 });
 
-test("a DM title whose pair repeats shows both ends' avatars, still by name", () => {
+test('a DM title whose pair repeats reads by name, with no faces', () => {
   renderWithProviders(
     <PageBar
       room={{
@@ -432,7 +430,7 @@ test("a DM title whose pair repeats shows both ends' avatars, still by name", ()
   const title = screen.getByTestId('page-bar-title');
   expect(title).toHaveTextContent('kai, remy');
   expect(title).not.toHaveTextContent('m2p4');
-  expect(avatars(title)).toHaveLength(2);
+  expect(avatars(title)).toHaveLength(0);
 });
 
 test('a Slack chat carries a Slack badge beside its title; a plain room has none', () => {
@@ -449,4 +447,54 @@ test('a Slack chat carries a Slack badge beside its title; a plain room has none
     </SlackChatsProvider>
   );
   expect(screen.queryByTestId('page-bar-slack')).toBeNull();
+});
+
+test('the members pill holds its place while the list loads', () => {
+  renderWithProviders(
+    <PageBar
+      room={{ room: 'build', memberCount: 3, unread: 0, mentions: 0 }}
+      buddies={[]}
+      membersLoading
+    />
+  );
+  expect(screen.getByTestId('members-skeleton')).toBeInTheDocument();
+  expect(screen.queryByText('0')).toBeNull();
+});
+
+test('with nobody signed in a room still counts its members, with no faces', () => {
+  renderWithProviders(
+    <PageBar
+      room={{ room: 'build', memberCount: 1, unread: 0, mentions: 0 }}
+      buddies={[{ handle: 'xena', status: 'offline' }]}
+    />
+  );
+  const chip = screen.getByTestId('members-chip');
+  expect(chip).toHaveTextContent('1');
+  expect(chip.querySelector('img')).toBeNull();
+});
+
+test('the header archives the open room', async () => {
+  const onArchive = vi.fn();
+  renderWithProviders(
+    <PageBar
+      room={{ room: 'build', memberCount: 1, unread: 0, mentions: 0 }}
+      buddies={[]}
+      onArchive={onArchive}
+    />
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Archive room' }));
+  expect(onArchive).toHaveBeenCalledWith('build');
+});
+
+test('a live Slack chat has no archive button', () => {
+  renderWithProviders(
+    <SlackChatsProvider chats={[{ room: 'build' }]}>
+      <PageBar
+        room={{ room: 'build', memberCount: 1, unread: 0, mentions: 0 }}
+        buddies={[]}
+        onArchive={vi.fn()}
+      />
+    </SlackChatsProvider>
+  );
+  expect(screen.queryByRole('button', { name: 'Archive room' })).toBeNull();
 });

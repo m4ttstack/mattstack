@@ -1,11 +1,19 @@
-import { Badge, Box, Group, Text } from '@mattstack/app-kit/core';
+import {
+  ActionIcon,
+  Badge,
+  Box,
+  Group,
+  Skeleton,
+  Text,
+  Tooltip,
+} from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import type { RoomSummary } from '@mattstack/rt-client';
 
 import { dmPairLabel } from './display-name';
 import { DmPairTitle } from './DmPairTitle';
 import { RoomMembers, type MemberBuddy } from './RoomMembers';
-import { useSlackChat } from './slack-chats-context';
+import { useLiveSlackRoom, useSlackChat } from './slack-chats-context';
 
 /** Rendered inside `PageShell.Header`, which owns the surface, its padding and
     its border; this is the row's content. */
@@ -13,6 +21,7 @@ const PAGE_BAR_ROW = {
   height: '100%',
   width: '100%',
   minWidth: 0,
+  paddingInline: 8,
 } as const;
 
 export type PageBarBuddy = MemberBuddy;
@@ -20,6 +29,11 @@ export type PageBarBuddy = MemberBuddy;
 export interface PageBarProps {
   room: RoomSummary;
   buddies: PageBarBuddy[];
+  /** The room's member list is still on its way: the pill holds its place. */
+  membersLoading?: boolean;
+  /** Closes the room. A live Slack chat has no button: closing one says
+      goodbye to a teammate, so it stays a choice made from its row. */
+  onArchive?: (room: string) => void;
   /** The room's members with their presence: the bar counts who is in THIS
       room, the roster counts the fleet. */
   reachable?: boolean;
@@ -45,20 +59,17 @@ function roomTitle(room: RoomSummary): string {
 export function PageBar({
   room,
   buddies,
+  membersLoading = false,
+  onArchive,
   reachable = true,
   now = Date.now(),
 }: PageBarProps) {
   const slack = useSlackChat(room.room);
+  const isLive = useLiveSlackRoom();
+  const label = room.kind === 'dm' ? 'Archive conversation' : 'Archive room';
   const wakeMode = room.kind === 'dm' ? 'all' : (room.defaultWake ?? 'mention');
-
-  return (
-    <Group
-      align="center"
-      wrap="nowrap"
-      gap="sm"
-      style={PAGE_BAR_ROW}
-      data-testid="page-bar"
-    >
+  const title = (
+    <>
       {room.kind !== 'dm' && (
         <Box
           component="span"
@@ -73,11 +84,12 @@ export function PageBar({
         </Box>
       )}
       <Text
+        component="span"
         fw={500}
         size="lg"
         truncate
         data-testid="page-bar-title"
-        style={{ flex: 'none', maxWidth: '45%', minWidth: 0 }}
+        style={{ minWidth: 0, color: 'var(--tk-text-1)' }}
       >
         {room.kind === 'dm' && room.participants ? (
           <DmPairTitle pair={room.participants} />
@@ -85,6 +97,37 @@ export function PageBar({
           roomTitle(room)
         )}
       </Text>
+    </>
+  );
+
+  return (
+    <Group
+      align="center"
+      wrap="nowrap"
+      gap="sm"
+      style={PAGE_BAR_ROW}
+      data-testid="page-bar"
+    >
+      {membersLoading ? (
+        <>
+          {title}
+          <Skeleton
+            height={18}
+            width={34}
+            radius="sm"
+            data-testid="members-skeleton"
+          />
+        </>
+      ) : (
+        <RoomMembers
+          room={room}
+          buddies={buddies}
+          reachable={reachable}
+          now={now}
+          wakeMode={wakeMode}
+          title={title}
+        />
+      )}
       {slack && (
         <Badge
           variant="light"
@@ -95,19 +138,20 @@ export function PageBar({
           Slack
         </Badge>
       )}
-      <Group
-        gap="sm"
-        wrap="nowrap"
-        style={{ flex: '1 1 0%', minWidth: 0, overflowX: 'auto' }}
-      >
-        <RoomMembers
-          room={room}
-          buddies={buddies}
-          reachable={reachable}
-          now={now}
-          wakeMode={wakeMode}
-        />
-      </Group>
+      {onArchive && !isLive(room.room) && (
+        <Tooltip label={label}>
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size={28}
+            aria-label={label}
+            onClick={() => onArchive(room.room)}
+            style={{ marginLeft: 'auto', flex: 'none' }}
+          >
+            <Icon name="archive" size={16} />
+          </ActionIcon>
+        </Tooltip>
+      )}
     </Group>
   );
 }
