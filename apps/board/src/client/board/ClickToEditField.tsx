@@ -146,8 +146,17 @@ export function ClickToEditField({
   useLayoutEffect(() => {
     const el = faces.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
-    setHeight(el.offsetHeight);
-    const observer = new ResizeObserver(() => setHeight(el.offsetHeight));
+    // The box's own border counts, or a mounting field eases down from its
+    // natural height and the card around it jumps.
+    const measure = () => {
+      const box = el.parentElement;
+      setHeight(
+        el.getBoundingClientRect().height +
+          (box ? box.offsetHeight - box.clientHeight : 0)
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
