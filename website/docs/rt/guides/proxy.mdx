@@ -34,7 +34,7 @@ The CA trust step is non-fatal and runs last. If you decline it, the proxy still
 
 ## Updating the proxy
 
-When mattstack.app ships a newer portless version, setup detects the drift (comparing the installed `VERSION` file against the bundle) and shows an **Update proxy** action. The update stops the running proxy, replaces the files (stage then rename), and bootstraps the new version. One admin prompt. Until you press it, the proxy keeps serving on the version it already runs.
+When mattstack.app ships a newer portless version, setup detects the drift (comparing the installed `VERSION` file against the bundle) and shows an **Update proxy** action. The update stops the running proxy, replaces the files (stage then rename), waits for launchd to finish stopping the old one, and bootstraps the new version. One admin prompt. Until you press it, the proxy keeps serving on the version it already runs.
 
 Pre-mattstack portless installs (an existing plist with no `VERSION` file) are adopted through the same update flow.
 
