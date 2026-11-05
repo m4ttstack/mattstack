@@ -127,6 +127,11 @@
   border-radius: 6px;
 }
 
+/* Only a row with a note: spanning an empty line would add the row gap. */
+.row:has(.rowNote) .rowSwitch {
+  grid-row: 1 / span 2;
+}
+
 .row[data-no-switch] {
   grid-template-columns: minmax(0, 1fr);
 }

@@ -457,6 +457,7 @@ function SurfaceGridRow({
           onChange={() => onToggle(row.name)}
           aria-label={row.name}
           size="sm"
+          className={legendClasses.rowSwitch}
         />
       )}
       <div className={legendClasses.rowLine}>
