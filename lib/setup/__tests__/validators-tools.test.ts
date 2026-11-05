@@ -6,7 +6,7 @@ import { join } from "path";
 import { __test__ as bundleLayoutTest } from "../../bundle-layout.ts";
 import { setSetting } from "../../settings/write.ts";
 import { FINISH_GATED_ROW_IDS, STEP_IDS } from "../contract.ts";
-import { FAST_BROWSER_ADD_ACTION, toolRows, extractVersion } from "../validators/tools.ts";
+import { FAST_BROWSER_ADD_ACTION, teamToolManualSteps, toolRows, extractVersion } from "../validators/tools.ts";
 import type { ToolsSeams } from "../validators/tools.ts";
 import { fakeProbes, gitShowFromFiles, ok, missing } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
@@ -1082,6 +1082,14 @@ describe("toolRows — tool.mission-control", () => {
 });
 
 describe("toolRows — team-declared tool.team.<name>", () => {
+  test("a pack naming herdr with a brew formula still gets herdr's own script, as Install runs it", async () => {
+    const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "herdr", why: "panes", install: { brew: "herdr" } }] }];
+    const exec: ExecScript = (argv) => (argv[1] === "--version" && argv[0]!.endsWith("herdr") ? missing("herdr") : ok());
+    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.herdr");
+    expect(r.action).toEqual({ type: "install", label: "Install", tool: "herdr", via: "vendor" });
+    expect(teamToolManualSteps({ name: "herdr", why: "panes", install: { brew: "herdr" } })).toEqual({ type: "steps", label: "Show steps…", steps: ["curl -fsSL https://herdr.dev/install.sh | sh"] });
+  });
+
   test("doppler missing with a brew formula declared -> missing, install action via brew, id namespaced (R-T8-L1a)", async () => {
     const reqs: PackRequirements[] = [
       { pack: "somepack", integrations: [], tools: [{ name: "doppler", why: "reads team secrets", install: { brew: "doppler" } }] },

@@ -31,7 +31,7 @@ import { atLeast } from "../semver.ts";
 import { fits, heldCopy, runnableEngine, type Floor } from "../../engine-floor.ts";
 import { mattstackFloor } from "../mattstack-floor.ts";
 import { deployedProxyVersion, pinnedPortlessVersion, PORTLESS_LAUNCHD_PLIST, PROXY_INSTALLER_MISSING, PROXY_VERSION_PATH, proxyCaIsTrusted, proxyInstallerMissing, proxyPredatesMattstack } from "../steps/services.ts";
-import { isValidBrewFormula } from "../tools-install.ts";
+import { isValidBrewFormula, VENDOR_INSTALLERS } from "../tools-install.ts";
 import type { SecretPresence } from "./accounts.ts";
 import { writingStyleRowFor } from "./writing-style.ts";
 import { skillsOverridesRowFor } from "./skills-overrides.ts";
@@ -506,6 +506,8 @@ function isHttpsUrl(url: string): boolean {
 }
 
 function teamToolRemedyAction(req: ToolRequirement, hasBrew: boolean, verb: "Install" | "Upgrade"): Action {
+  // installTool runs rt's own vendor script for these names, whatever the pack declares.
+  if (VENDOR_INSTALLERS[req.name]) return { type: "install", label: verb, tool: req.name, via: "vendor" };
   const brew = req.install?.brew;
   // Tap syntax (owner/tap/formula) or anything else outside a bare formula
   // name never becomes a one-click Install button — matches installTool's
@@ -522,6 +524,8 @@ function teamToolRemedyAction(req: ToolRequirement, hasBrew: boolean, verb: "Ins
 
 /** The route around a failed Install, or null when the team declared no way to install the tool. A link goes first: `brew install` is what just failed. */
 export function teamToolManualSteps(req: ToolRequirement): Action | null {
+  const vendor = VENDOR_INSTALLERS[req.name];
+  if (vendor) return { type: "steps", label: "Show steps…", steps: [`curl -fsSL ${vendor.url} | ${vendor.shell}`] };
   const { brew, url } = req.install ?? {};
   const step = url && isHttpsUrl(url) ? `Download it from ${url}` : brew ? `brew install ${brew}` : null;
   return step ? { type: "steps", label: "Show steps…", steps: [step] } : null;
