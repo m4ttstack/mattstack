@@ -1,12 +1,7 @@
-import { createContext, useContext, useMemo, useRef } from 'react';
+import { createContext, useContext, useMemo } from 'react';
 import type { ReactNode } from 'react';
 
-import { HUMAN_HANDLE } from './human';
-import {
-  assignMemberLooks,
-  settleRoomLooks,
-  type MemberLook,
-} from './member-looks';
+import type { Me } from './human';
 import type { RosterBuddy } from './roster-types';
 
 export interface BuddyActions {
@@ -28,9 +23,10 @@ export interface BuddiesContextValue {
   actions?: BuddyActions;
   /** Display name for an id: the roster's, then the open room's members', then the id. */
   nameOf: (handle: string) => string;
+  /** The viewer's own name, for `handle` if it is theirs. */
+  selfName: (handle: string) => string | undefined;
   /** The avatar creature and hue assigned to an id; unset for an id the
       roster and the open room never listed, which keeps its hashed look. */
-  lookOf: (handle: string) => MemberLook | undefined;
 }
 
 const BuddiesContext = createContext<BuddiesContextValue | null>(null);
@@ -42,51 +38,17 @@ export function BuddiesProvider({
   buddies,
   roomMembers,
   memberNames,
+  me,
   now,
   reachable,
   actions,
-  humanHandle = HUMAN_HANDLE,
-  speakers,
   children,
-}: Omit<BuddiesContextValue, 'byHandle' | 'nameOf' | 'lookOf'> & {
+}: Omit<BuddiesContextValue, 'byHandle' | 'nameOf' | 'selfName'> & {
   buddies: RosterBuddy[];
   memberNames?: ReadonlyMap<string, string>;
-  humanHandle?: string;
-  /** Who posted in the open room's first page of messages, so an
-      off-roster poster still gets a look. */
-  speakers?: readonly string[];
+  me?: Me;
   children: ReactNode;
 }) {
-  // One look per person for the whole session, whatever room is open: the
-  // human, then the roster by sign-in, then off-roster ids alphabetically.
-  // The order only ever grows, so nobody's look changes once it is shown.
-  // Joined to a string so a poll with the same people keeps the memo.
-  const order = useRef<string[]>([]);
-  const lookIds = useMemo(() => {
-    const bySignIn = [...buddies]
-      .sort((a, b) => a.signedInAt - b.signedInAt)
-      .map(b => b.handle);
-    const known = new Set(bySignIn);
-    const extras = [...new Set([...(speakers ?? []), ...roomMembers])]
-      .filter(h => !known.has(h))
-      .sort();
-    const have = new Set(order.current);
-    for (const h of [humanHandle, ...bySignIn, ...extras])
-      if (!have.has(h)) {
-        have.add(h);
-        order.current.push(h);
-      }
-    return order.current.join('\n');
-  }, [buddies, roomMembers, speakers, humanHandle]);
-  const looks = useMemo(
-    () =>
-      settleRoomLooks(assignMemberLooks(lookIds.split('\n'), humanHandle), [
-        humanHandle,
-        ...(speakers ?? []),
-        ...roomMembers,
-      ]),
-    [lookIds, humanHandle, speakers, roomMembers]
-  );
   const value = useMemo<BuddiesContextValue>(() => {
     const byHandle = new Map(buddies.map(b => [b.handle, b]));
     return {
@@ -96,10 +58,13 @@ export function BuddiesProvider({
       reachable,
       actions,
       nameOf: handle =>
-        byHandle.get(handle)?.name ?? memberNames?.get(handle) ?? handle,
-      lookOf: handle => looks.get(handle),
+        (handle === me?.handle ? me.name : undefined) ??
+        byHandle.get(handle)?.name ??
+        memberNames?.get(handle) ??
+        handle,
+      selfName: handle => (handle === me?.handle ? me.name : undefined),
     };
-  }, [buddies, roomMembers, memberNames, now, reachable, actions, looks]);
+  }, [buddies, roomMembers, memberNames, me, now, reachable, actions]);
   return (
     <BuddiesContext.Provider value={value}>{children}</BuddiesContext.Provider>
   );

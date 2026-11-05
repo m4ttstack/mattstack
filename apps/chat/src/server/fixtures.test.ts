@@ -2,17 +2,13 @@ import { afterEach, expect, test } from 'vitest';
 
 import {
   FIXTURE_DM,
-  fixtureAccounts,
   fixtureBuddies,
-  fixtureDirectories,
-  fixtureInbox,
-  fixtureInvite,
+  fixtureFocus,
   fixtureMembers,
   fixtureMessages,
   fixturePanes,
   fixtureRooms,
   fixturesEnabled,
-  fixtureSpawn,
 } from './fixtures';
 
 afterEach(() => {
@@ -112,54 +108,12 @@ test('a room outside the scripted casts still returns a starter message', () => 
   expect(fixtureMessages('skills')[0]!.handle).toBe('edie');
 });
 
-test('the inbox fixtures carry the two cards the Main artboard draws', () => {
-  const inbox = fixtureInbox('matt');
-  expect(inbox.needsYou.map(c => c.handle)).toEqual(['edie', 'jay']);
-  expect(inbox.needsYou.map(c => c.kind)).toEqual(['dm', 'room']);
-  expect(inbox.openAsks.map(c => c.messageId)).toEqual([603, 602]);
-  // The reader's context message: jay's card has the one before it in the
-  // same room, which is what the artboard's `.msg.context` row draws.
-  const boxscore = fixtureMessages('boxscore');
-  expect(boxscore.map(m => m.handle)).toEqual(['max', 'jay']);
-});
-
-test('the pane fixtures cover every row state the picker artboard draws', () => {
-  const panes = fixturePanes();
-  const states = new Set(
-    panes.map(p => (p.presence ? p.presence.status : 'none'))
-  );
-  expect(states).toEqual(new Set(['live', 'idle', 'offline', 'none']));
-  expect(panes.some(p => p.agentStatus === 'working')).toBe(true);
-  expect(panes.some(p => p.agentStatus === 'blocked')).toBe(true);
-  expect(panes.some(p => p.presence?.rooms.includes('build'))).toBe(true);
-  expect(panes.every(p => p.paneId && p.workspace)).toBe(true);
-});
-
-test('invite fixtures answer per pane: a working pane queues, a blocked one refuses', () => {
-  const working = fixturePanes().find(p => p.agentStatus === 'working')!;
-  const blocked = fixturePanes().find(p => p.agentStatus === 'blocked')!;
-  const idle = fixturePanes().find(
-    p => p.agentStatus === 'idle' && !p.presence
-  )!;
-  expect(fixtureInvite(working.paneId).delivered).toBe('queued');
-  expect(fixtureInvite(blocked.paneId)).toMatchObject({
-    delivered: 'refused',
-    reason: 'at a prompt',
-  });
-  expect(fixtureInvite(idle.paneId).delivered).toBe('accepted');
-});
-
-test('directories filter by substring; accounts carry headroom; spawn returns a ready pane', () => {
-  expect(fixtureDirectories('acme').every(d => d.path.includes('acme'))).toBe(
-    true
-  );
-  expect(fixtureDirectories().length).toBeGreaterThan(
-    fixtureDirectories('acme').length
-  );
-  expect(fixtureAccounts()[0]).toMatchObject({ slot: 1, alias: 'Acme' });
-  expect(fixtureSpawn('/Users/matt/Documents/GitHub/chat')).toMatchObject({
-    ready: true,
-    pane: { cwd: '/Users/matt/Documents/GitHub/chat', agentStatus: 'idle' },
+test('focus fixtures answer true only for a pane the fixtures know', () => {
+  const known = fixturePanes()[0]!.paneId;
+  expect(fixtureFocus(known)).toEqual({ paneId: known, focused: true });
+  expect(fixtureFocus('nowhere')).toEqual({
+    paneId: 'nowhere',
+    focused: false,
   });
 });
 

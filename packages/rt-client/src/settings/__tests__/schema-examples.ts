@@ -3,6 +3,14 @@ export interface Example { good: unknown[]; bad: { value: unknown; path: (string
 const TRACKED = "remote:gitlab.example.com%2Facme%2Fapp";
 
 export const EXAMPLES: Record<string, Example> = {
+  "chat.humanHandle": {
+    good: ["matt", "pat.smith-2", ""],
+    bad: [{ value: "Matt", path: [] }],
+  },
+  "chat.displayName": {
+    good: ["matt", "Pat Smith"],
+    bad: [{ value: "", path: [] }],
+  },
   "rt.roles": {
     good: [
       {},

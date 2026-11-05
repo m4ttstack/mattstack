@@ -26,8 +26,8 @@ describe("buildSlackManifest", () => {
 
   test("the manifest declares the support scopes", () => {
     const manifest = buildSlackManifest({ name: "x", callbackPort: 1, scopes: DEFAULT_SCOPE_NEEDS }) as { oauth_config: { scopes: { user: string[] } } };
-    for (const s of ["im:history", "im:read", "im:write", "users:read"]) expect(manifest.oauth_config.scopes.user).toContain(s);
-    expect([...SLACK_SUPPORT_SCOPES].sort()).toEqual(["im:history", "im:read", "im:write", "users:read"]);
+    for (const s of ["im:history", "im:read", "im:write"]) expect(manifest.oauth_config.scopes.user).toContain(s);
+    expect([...SLACK_SUPPORT_SCOPES].sort()).toEqual(["im:history", "im:read", "im:write"]);
   });
 
   test("the board manifest yaml lists every support scope", () => {
@@ -70,7 +70,8 @@ describe("DEFAULT_SCOPE_NEEDS.user covers the board's Slack calls", () => {
   });
 
   test("nothing is requested that no board method needs", () => {
-    const needed = new Set(boardSlackMethods().flatMap((m) => BOARD_METHOD_SCOPES[m] ?? []));
+    // users:read is the daemon's: it reads the people directory for profile pictures.
+    const needed = new Set([...boardSlackMethods().flatMap((m) => BOARD_METHOD_SCOPES[m] ?? []), "users:read"]);
     expect([...DEFAULT_SCOPE_NEEDS.user].sort()).toEqual([...needed].sort());
   });
 });

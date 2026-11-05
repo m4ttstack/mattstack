@@ -64,8 +64,8 @@ function Sidebar({
           title={m.name ?? m.username}
         >
           <span className="tui-side-name">
-            <MemberInvadr id={m.username} className="tui-avatar" />{' '}
-            {m.name ?? m.username}
+            <MemberInvadr id={m.username} className="tui-avatar" />
+            <span className="tui-side-label">{m.name ?? m.username}</span>
           </span>
           <span className="tui-side-right">
             {scopeUncovered.includes(m.username) && (

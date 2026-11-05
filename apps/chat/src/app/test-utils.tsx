@@ -84,7 +84,6 @@ export interface RenderTranscriptOptions extends Pick<
   'room' | 'messages'
 > {
   humanHandle?: TranscriptProps['humanHandle'];
-  unreadCount?: TranscriptProps['unreadCount'];
   anchor?: TranscriptProps['anchor'];
 }
 
@@ -108,7 +107,6 @@ export function renderTranscriptWithFakeSocket({
   room,
   messages,
   humanHandle,
-  unreadCount,
   anchor,
 }: RenderTranscriptOptions): RenderTranscriptResult {
   installFakeWebSocket();
@@ -130,7 +128,6 @@ export function renderTranscriptWithFakeSocket({
       room={room}
       messages={messages}
       humanHandle={humanHandle}
-      unreadCount={unreadCount}
       anchor={anchor}
     />
   );

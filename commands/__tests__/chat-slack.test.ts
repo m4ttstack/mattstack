@@ -15,7 +15,7 @@ import { listAgentSafe } from "../../lib/command-tree-resolve.ts";
 import { TREE } from "../../lib/command-tree-def.ts";
 import { mcpTools } from "../../lib/mcp/tools.ts";
 import { MODULE_REGISTRY } from "../../lib/module-registry.ts";
-import { SLACK_SUPPORT_SCOPES } from "../../lib/setup/slack-app.ts";
+import { SLACK_SUPPORT_CHAT_SCOPES } from "../../lib/setup/slack-app.ts";
 import type { SlackClient } from "../../lib/slack/client.ts";
 import { closeConversation, closeStateDb, enqueueItem, getStateDb, markItemDelivered, markOpenItemDelivered } from "../../lib/state/index.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
@@ -30,7 +30,7 @@ let canned: Record<string, unknown> = {};
 const saved: Record<string, string | undefined> = {};
 
 const slack = {
-  authTest: async () => ({ userId: "U0OPER", scopes: SLACK_SUPPORT_SCOPES }),
+  authTest: async () => ({ userId: "U0OPER", scopes: SLACK_SUPPORT_CHAT_SCOPES }),
   listUsers: async () => [
     { id: "U0OPER", name: "robin", displayName: "Robin", realName: "Robin Example", title: "", deleted: false, isBot: false },
     { id: "U0TEST", name: "alex", displayName: "Alex", realName: "Alex Example", title: "Support lead", deleted: false, isBot: false },
@@ -330,7 +330,7 @@ test("a dm Slack took but the room didn't says so and links nothing", async () =
 test("slack-people prints who a chat can open with", async () => {
   const res = await run(() => slackPeople(["--json"]));
   expect(res.code).toBe(0);
-  expect(res.stdout).toBe('{"ok":true,"people":[{"name":"Alex","person":"U0TEST","title":"Support lead"}]}\n');
+  expect(res.stdout).toBe('{"ok":true,"people":[{"name":"Alex Example","person":"U0TEST","title":"Support lead"}]}\n');
 });
 
 test("slack-people prints unavailable as an answer, for a refusal and for a daemon without the verb", async () => {

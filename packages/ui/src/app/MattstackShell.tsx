@@ -84,6 +84,9 @@ export interface MattstackShellProps {
   appName?: string;
   /** Override the launcher's derived deck base URL (dev, custom domain). */
   deckBase?: string;
+  /** Drops the top bar's bottom line, for an app whose top bar meets its
+   *  sidebar as one piece of chrome. @default true */
+  headerBorder?: boolean;
   /** Puts `mark` in the rail's top spot, in place of the expand trigger,
    *  and leaves the top bar to the page's own controls: no mark and no app
    *  name there. Needs the rail. @default false */
@@ -111,10 +114,11 @@ function partition(children: ReactNode) {
  * The header surface: a translucent take on bg.level2 so the backdrop blur
  * reads as depth while staying scheme-aware.
  */
-function useHeaderProps() {
+function useHeaderProps(border: boolean) {
   const { bg } = useSchemeColors();
   return {
     style: {
+      ...(border ? {} : { borderBottom: 'none' }),
       backgroundColor: `color-mix(in srgb, ${bg.level2} 88%, transparent)`,
       backdropFilter: 'blur(8px)',
       WebkitBackdropFilter: 'blur(8px)',
@@ -131,10 +135,11 @@ function Shell({
   appName,
   deckBase,
   markInRail = false,
+  headerBorder = true,
   children,
 }: MattstackShellProps) {
   const rail = useRailState();
-  const headerProps = useHeaderProps();
+  const headerProps = useHeaderProps(headerBorder);
   const [appBarStart, setAppBarStart] = useState<HTMLElement | null>(null);
   const [appBarEnd, setAppBarEnd] = useState<HTMLElement | null>(null);
   const [appBarViewer, setAppBarViewer] = useState<HTMLElement | null>(null);

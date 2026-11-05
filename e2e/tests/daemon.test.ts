@@ -31,9 +31,11 @@ describe("fatal boot", () => {
   test("daemon parks (does not crash) while the API port is squatted, and boots once it frees", async () => {
     const { path: home, cleanup } = createTestHome();
     const bunDir = join(process.execPath, "..");
-    const port = 9411;
     const rtDir = join(home, ".mattstack", "rt");
-    const squatter = Bun.serve({ port, hostname: "127.0.0.1", fetch: () => new Response("busy") });
+    // A free port, not the daemon's default: a Mac runner shares localhost with
+    // that Mac's live daemon.
+    const squatter = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("busy") });
+    const port = squatter.port!;
     let daemon: ReturnType<typeof Bun.spawn> | undefined;
     try {
       daemon = Bun.spawn([RT_BINARY, "--daemon"], {

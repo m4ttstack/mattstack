@@ -10,6 +10,6 @@ test('displayName prefers the name and falls back to the id', () => {
 test('dmPairLabel reads names, each side falling back to its id', () => {
   expect(
     dmPairLabel({ a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' })
-  ).toBe('kai ↔ remy');
-  expect(dmPairLabel({ a: 'kai', b: 'remy' })).toBe('kai ↔ remy');
+  ).toBe('kai, remy');
+  expect(dmPairLabel({ a: 'kai', b: 'remy' })).toBe('kai, remy');
 });

@@ -1,68 +1,74 @@
-/* Workstream, room and DM rows share one hover paint, the colour `Table`'s
-   `highlightOnHover` uses. A workstream row also holds it while its agent
-   card is open (`aria-expanded`, set by the HoverCard target). */
-:where([data-mantine-color-scheme='light']) .wsRow,
-:where([data-mantine-color-scheme='light']) .listRow {
-  --row-hover: var(--mantine-color-gray-1);
-}
-
-:where([data-mantine-color-scheme='dark']) .wsRow,
-:where([data-mantine-color-scheme='dark']) .listRow {
-  --row-hover: var(--mantine-color-dark-5);
-}
-
-/* The × keeps its slot at rest and only fades in, so the badges beside it
-   never move under the pointer; `pointer-events: none` stops a click
-   landing on the invisible × instead of the row. */
-.close {
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 100ms ease;
+/* Room and DM rows share one hover paint. */
+.listRow {
+  --row-hover: var(--chat-chrome-hover);
 }
 
 @media (hover: hover) {
-  .wsRow:hover,
   .listRow:hover {
     background-color: var(--row-hover);
   }
-
-  .listRow:hover .close {
-    opacity: 1;
-    pointer-events: auto;
-  }
 }
 
-.wsRow:focus-within,
-.wsRow[aria-expanded='true'],
 .listRow:focus-within,
 .listRow[data-menu-open] {
   background-color: var(--row-hover);
 }
 
-.listRow:focus-within .close,
-.listRow[data-menu-open] .close {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-/* The selected room or DM keeps its accent wash over any hover. */
+/* The selected room or DM keeps its deeper tint over any hover. */
 .listRow[data-active] {
-  color: var(--mantine-color-accent-text);
-  background-color: color-mix(
-    in srgb,
-    var(--mantine-color-accent-text) var(--tk-wash),
-    transparent
-  );
+  background-color: var(--chat-chrome-selected);
 }
 
-.dotSlot {
-  display: inline-flex;
+.dmRow {
+  --stack-ring: var(--chat-chrome);
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--chat-chrome-line);
+  cursor: pointer;
+}
+
+.when {
   flex: none;
+  font-size: var(--mantine-font-size-xs);
+  color: var(--chat-ink-soft);
 }
 
-/* The `N more` DM control. `.ws.more`'s own `cursor: default` is right for
-   the inert offline roll-up and wrong here: this row is the only way to
-   reach a conversation the cap hides, so it reads and behaves as a control. */
-.moreRow:hover {
-  background: var(--ui-bg-4);
+.preview {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: var(--mantine-font-size-md);
+  color: color-mix(in srgb, var(--tk-text-1) 72%, var(--chat-chrome));
+}
+
+@media (hover: hover) {
+  .dmRow:hover {
+    --stack-ring: var(--chat-chrome-hover);
+    border-bottom-color: var(--chat-chrome-hover);
+    box-shadow: 0 -1px 0 var(--chat-chrome-hover);
+  }
+}
+
+/* The tint covers the divider above and its own, so no pale line edges it. */
+.dmRow[data-active] {
+  --stack-ring: var(--chat-chrome-selected);
+  border-bottom-color: var(--chat-chrome-selected);
+  box-shadow: 0 -1px 0 var(--chat-chrome-selected);
+}
+
+.dmText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
 }

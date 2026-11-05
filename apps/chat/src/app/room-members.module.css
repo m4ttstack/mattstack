@@ -107,3 +107,32 @@
   font-size: var(--mantine-font-size-xs);
   color: var(--tk-text-3);
 }
+
+/* Slack's members button: no frame until hover. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 70%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  margin-left: -8px;
+  border-radius: var(--mantine-radius-sm);
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 500;
+}
+
+.chipCount {
+  flex: none;
+}
+
+.chip:hover,
+.chip[aria-expanded='true'] {
+  background: var(--mantine-color-default-hover);
+}
+
+.chipNote {
+  font-weight: 400;
+}

@@ -20,6 +20,9 @@
     "serve-check": "bash scripts/serve-check.sh"
   },
   "dependencies": {
+    "@dicebear/core": "9.4.2",
+    "@dicebear/personas": "^9.4.2",
+    "@fontsource-variable/inter": "^5.3.0",
     "@mantine/code-highlight": "catalog:",
     "@mantine/core": "catalog:",
     "@mantine/dates": "catalog:",
@@ -36,7 +39,6 @@
     "@mattstack/settings-kit": "workspace:*",
     "@tanstack/react-query": "catalog:",
     "hono": "catalog:",
-    "invadrs": "^1.3.1",
     "lucide-react": "^1.25.0",
     "react": "catalog:",
     "react-dom": "catalog:",

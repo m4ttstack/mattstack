@@ -53,6 +53,8 @@ export type { LazyLoaderProps } from './lazy-loader/LazyLoader';
 // (Mantine has no `PageShell`/`ContentContainer`/`SlideInSidebar`/`Notch`/
 // `GradientBorder`/`AnimatedBorderBox` exports -- verified against the
 // installed package).
+export { PaneResizer, usePaneWidth } from './pane-resizer/PaneResizer';
+export type { PaneBounds } from './pane-resizer/PaneResizer';
 export { PageShell } from './page-shell/PageShell';
 export type { PageShellProps } from './page-shell/PageShell';
 export { HeatCalendar } from './heat-calendar/HeatCalendar';

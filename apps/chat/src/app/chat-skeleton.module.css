@@ -1,0 +1,54 @@
+/* Sizes follow the real rows: message rows in transcript-prose.module.css, the
+   sidebar's in fleet-tree.module.css. */
+.messages {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: 8px;
+}
+
+.message {
+  display: flex;
+  gap: 12px;
+  padding: 8px 24px 8px 20px;
+}
+
+.face {
+  flex: none;
+}
+
+/* The prose line height, so bars stack at the spacing text will. */
+.line {
+  display: flex;
+  align-items: center;
+  min-height: 23px;
+}
+
+.rail {
+  padding: 6px 0 14px;
+}
+
+.roomRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 16px;
+}
+
+.dmRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--chat-chrome-line);
+}
+
+/* On the tinted sidebar, grey bars read as dirt: they take the hue instead. */
+.rail :global(.mantine-Skeleton-root)::before {
+  background: var(--chat-chrome);
+}
+
+.rail :global(.mantine-Skeleton-root)::after {
+  background: color-mix(in srgb, var(--chat-hue) 18%, var(--chat-chrome));
+}

@@ -536,13 +536,10 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
     expect(JSON.parse(readFileSync(sessionFilePath("s7"), "utf8")).handle).toBe(id);
   });
 
-  test("resolveSignInRequest: --as continues, --name and chat.handle ask for a fresh identity with that name, neither draws", () => {
+  test("resolveSignInRequest: --as continues, --name asks for a fresh identity with that name, neither draws", () => {
     expect(__test__.resolveSignInRequest(["--as", "kai"])).toEqual({ continue: "kai" });
     expect(__test__.resolveSignInRequest(["--name", "bob"])).toEqual({ baseHandle: "bob" });
     expect(__test__.resolveSignInRequest([])).toEqual({});
-    setSetting("chat.handle", "picked", "user");
-    expect(__test__.resolveSignInRequest([])).toEqual({ baseHandle: "picked" });
-    expect(__test__.resolveSignInRequest(["--as", "kai"])).toEqual({ continue: "kai" });
   });
 
   test("sign-in never draws a name another live session holds", async () => {
@@ -630,44 +627,6 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
       expect(await runChat(["who", "r"])).toContain(handle);
     } finally {
       stop();
-      if (origSock === undefined) delete process.env.HERDR_SOCKET_PATH;
-      else process.env.HERDR_SOCKET_PATH = origSock;
-    }
-  });
-
-  test("sign-in --pane never draws baseHandle from chat.handle: with the setting pinned, the daemon still draws from the pool", async () => {
-    const uuid = "66666666-6666-6666-6666-666666666666";
-    const { sock: herdrSock, stop } = fakeHerdr((method) => {
-      if (method !== "session.snapshot") return new HerdrFakeError("invalid_request", method);
-      return {
-        snapshot: {
-          workspaces: [],
-          panes: [
-            {
-              pane_id: "w1:p1",
-              workspace_id: "w1",
-              tab_id: "w1:t1",
-              agent: "claude",
-              agent_status: "idle",
-              agent_session: { source: "claude", agent: "claude", kind: "id", value: uuid },
-            },
-          ],
-        },
-      };
-    });
-    const origSock = process.env.HERDR_SOCKET_PATH;
-    process.env.HERDR_SOCKET_PATH = herdrSock;
-    setSetting("chat.handle", "invoker-name", "user");
-    try {
-      const out = await runChat(["sign-in", "--pane", "w1:p1"]);
-      const handle = /signed in as (\S+)/.exec(out)?.[1] ?? "";
-      expect(handle).not.toBe("invoker-name");
-      expect(AGENT_NAMES).toContain(handle);
-      const call = seen.find((s) => s.cmd === "chat:sign-in");
-      expect((call?.payload as Record<string, unknown>).baseHandle).toBeUndefined();
-    } finally {
-      stop();
-      setSetting("chat.handle", "", "user");
       if (origSock === undefined) delete process.env.HERDR_SOCKET_PATH;
       else process.env.HERDR_SOCKET_PATH = origSock;
     }

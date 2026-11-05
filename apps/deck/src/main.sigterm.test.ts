@@ -9,8 +9,20 @@ import { afterAll, expect, test } from 'bun:test';
 // past its grace period into a SIGKILL. Real (non-fixture) boot, mirroring
 // board's server-sigterm.test.ts.
 const fakeHome = mkdtempSync(join(tmpdir(), 'deck-sigterm-'));
-const PORT = 47953;
-const CANARY_PORT = 47954;
+// Free ports, not fixed ones: a Mac runner shares localhost with whatever that
+// Mac is running, a leaked copy of this test included.
+function freePort(): number {
+  const probe = Bun.serve({
+    port: 0,
+    hostname: '127.0.0.1',
+    fetch: () => new Response(),
+  });
+  const port = probe.port!;
+  probe.stop(true);
+  return port;
+}
+const PORT = freePort();
+const CANARY_PORT = freePort();
 writeFileSync(join(fakeHome, 'routes.json'), '[]');
 
 const proc = Bun.spawn(

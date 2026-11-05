@@ -1,11 +1,12 @@
 .dropdown {
-  padding: var(--mantine-spacing-md);
+  padding: 16px;
+  border-radius: var(--mantine-radius-lg);
 }
 
 .card {
   display: flex;
   flex-direction: column;
-  gap: var(--mantine-spacing-md);
+  gap: 12px;
   min-width: 0;
 }
 
@@ -18,20 +19,20 @@
 .head {
   display: flex;
   align-items: center;
-  gap: var(--mantine-spacing-sm);
+  gap: 12px;
   min-width: 0;
 }
 
 .identity {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 3px;
   min-width: 0;
 }
 
 .name {
   overflow: hidden;
-  font-size: var(--mantine-font-size-lg);
+  font-size: var(--mantine-font-size-xl);
   font-weight: 700;
   line-height: 1.25;
   white-space: nowrap;
@@ -79,4 +80,16 @@
   white-space: nowrap;
   text-overflow: ellipsis;
   color: var(--tk-text-3);
+}
+
+/* The menu has less room, so it keeps the name a step smaller. */
+.card[data-in-menu] .name {
+  font-size: var(--mantine-font-size-lg);
+}
+
+.actions {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 8px;
 }

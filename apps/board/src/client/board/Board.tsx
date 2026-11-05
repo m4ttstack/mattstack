@@ -1396,10 +1396,22 @@ export function Board() {
       .sort();
     return [...listed, ...others].join('\n');
   }, [data, boardView]);
-  const memberLooks = useMemo(
-    () => assignMemberLooks(lookIds ? lookIds.split('\n') : []),
-    [lookIds]
-  );
+  // A restarted server answers with no faces until it has read Slack again,
+  // so only an empty answer keeps the last ones.
+  const seenFaces = useRef<Record<string, string>>({});
+  if (Object.keys(data?.slackFaces ?? {}).length > 0) {
+    seenFaces.current = data!.slackFaces!;
+  }
+  const faces = JSON.stringify(seenFaces.current);
+  const memberLooks = useMemo(() => {
+    const looks = assignMemberLooks(lookIds ? lookIds.split('\n') : []);
+    const known = JSON.parse(faces) as Record<string, string>;
+    for (const [username, face] of Object.entries(known)) {
+      const look = looks.get(username);
+      if (look) looks.set(username, { ...look, face });
+    }
+    return looks;
+  }, [lookIds, faces]);
 
   // Actionable gates on every row the board holds, visible rows first in
   // board order (group order, the group's own sort, stack nesting: exactly
@@ -1957,6 +1969,14 @@ export function Board() {
                   <div key={g.label} className="tui-group" style={band.style}>
                     <Panel
                       title={g.label}
+                      lead={
+                        state.group === 'author' && g.author ? (
+                          <MemberInvadr
+                            id={g.author}
+                            className="tui-group-avatar"
+                          />
+                        ) : undefined
+                      }
                       count={g.mrs.length}
                       data-hue={band.hue}
                       // Pins the LEGACY persistence key: the recipe defaults to its own

@@ -1,0 +1,67 @@
+/* The chrome takes the hue of chat's mark: a saturated top bar over a pale
+   tint, both from the theme's pink ramp. */
+:root {
+  --chat-hue: var(--tk-fill-bad);
+  --chat-bar: color-mix(in srgb, var(--chat-hue) 80%, black);
+  --chat-ink: var(--chat-ink-tint, var(--tk-text-bad-small));
+  --chat-ink-soft: color-mix(in srgb, var(--chat-ink) 72%, var(--chat-chrome));
+  --chat-chrome: color-mix(in srgb, var(--chat-hue) 7%, var(--tk-card));
+  --chat-chrome-line: color-mix(in srgb, var(--chat-hue) 14%, transparent);
+  --chat-chrome-hover: color-mix(
+    in srgb,
+    var(--chat-hue) 6%,
+    var(--chat-chrome)
+  );
+  --chat-chrome-selected: color-mix(
+    in srgb,
+    var(--chat-hue) 14%,
+    var(--chat-chrome)
+  );
+}
+
+[data-mantine-color-scheme='dark'] {
+  --chat-chrome: color-mix(in srgb, var(--chat-hue) 12%, var(--tk-bg));
+  --chat-ink: var(--tk-text-1);
+}
+
+/* Tokyo pins the app header's colour with !important. Inside the bar every
+   text token turns white, so the kit's scope and viewer chips follow. */
+:root .mantine-AppShell-header {
+  background-color: var(--chat-bar) !important;
+  color: white;
+  --tk-text-1: white;
+  --tk-text-2: rgb(255 255 255 / 85%);
+  --tk-text-3: rgb(255 255 255 / 85%);
+  --tk-text-4: rgb(255 255 255 / 85%);
+  --mantine-color-text: white;
+  --mantine-color-dimmed: rgb(255 255 255 / 85%);
+}
+
+.mantine-AppShell-header .mantine-Button-root,
+.mantine-AppShell-header .mantine-Badge-root {
+  background: rgb(0 0 0 / 22%);
+  border-color: transparent;
+  color: white;
+}
+
+.mantine-AppShell-header .mantine-ActionIcon-root,
+.mantine-AppShell-header .mantine-UnstyledButton-root {
+  color: white;
+}
+
+/* The bar's controls brighten on hover in white, never the theme's grey. */
+.mantine-AppShell-header button:hover,
+.mantine-AppShell-header [data-expanded] {
+  background: rgb(255 255 255 / 24%) !important;
+  color: white;
+}
+
+/* The app name stands clear of the org and team chips after it. */
+.mantine-AppShell-header p.mantine-Text-root:has(+ div) {
+  margin-right: 12px;
+}
+
+/* The bar's content starts where the panel's rounded corner ends. */
+.mantine-AppShell-header > .mantine-Group-root {
+  padding-inline: 20px !important;
+}

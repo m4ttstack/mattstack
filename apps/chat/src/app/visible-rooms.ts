@@ -12,3 +12,15 @@ export function visibleRooms<T extends RoomSummary>(
 ): T[] {
   return rooms.filter(r => r.archivedAt === undefined || r.room === activeRoom);
 }
+
+/** Where `/` lands: the open conversation with the newest post. A DM with no
+    participants has no name to show, so it never lands. */
+export function latestActiveRoom(rooms: RoomSummary[]): string | undefined {
+  let latest: RoomSummary | undefined;
+  for (const room of rooms) {
+    if (room.archivedAt !== undefined) continue;
+    if (room.kind === 'dm' && !room.participants) continue;
+    if ((room.lastPostedAt ?? 0) > (latest?.lastPostedAt ?? -1)) latest = room;
+  }
+  return latest?.room;
+}

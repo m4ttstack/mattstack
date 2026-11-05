@@ -248,14 +248,12 @@ test('autocomplete filters, labels and counts by the name it inserts when only t
   const recycled = await screen.findByTestId('composer-option-remy.m2p4');
   expect(recycled).toHaveTextContent('remy');
   expect(recycled).not.toHaveTextContent('m2p4');
-  expect(
-    recycled.querySelectorAll('svg[shape-rendering="crispEdges"]')
-  ).toHaveLength(1);
+  expect(recycled.querySelectorAll('img')).toHaveLength(1);
   await userEvent.click(recycled);
   expect(box).toHaveValue('@remy ');
 });
 
-test('a roster pick inserts the name and a DM placeholder reads names', () => {
+test('a roster pick inserts the name, once', () => {
   const ref = createRef<ComposerHandle>();
   renderWithProviders(
     <Composer
@@ -265,10 +263,6 @@ test('a roster pick inserts the name and a DM placeholder reads names', () => {
       roomMembers={['matt', 'remy.m2p4']}
       buddies={[{ handle: 'remy.m2p4', name: 'remy', status: 'live' }]}
     />
-  );
-  expect(screen.getByRole('textbox')).toHaveAttribute(
-    'placeholder',
-    'Message matt ↔ remy (both will wake)'
   );
   act(() => ref.current!.insertMention('remy.m2p4'));
   expect(screen.getByRole('textbox')).toHaveValue('@remy ');
@@ -328,17 +322,13 @@ test('options that share a name show their avatars; a unique name shows none', a
     </BuddiesProvider>
   );
   await userEvent.type(screen.getByRole('textbox'), '@');
-  const fills = (option: HTMLElement) =>
-    [...option.querySelectorAll('svg[shape-rendering="crispEdges"]')].map(svg =>
-      svg.getAttribute('fill')
-    );
+  const faces = (option: HTMLElement) => option.querySelectorAll('img');
   const legacy = await screen.findByTestId('composer-option-remy');
   const recycled = screen.getByTestId('composer-option-remy.m2p4');
-  expect(fills(legacy)).toHaveLength(1);
-  expect(fills(recycled)).toHaveLength(1);
-  expect(fills(legacy)[0]).not.toBe(fills(recycled)[0]);
+  expect(faces(legacy)).toHaveLength(1);
+  expect(faces(recycled)).toHaveLength(1);
   expect(recycled).not.toHaveTextContent('m2p4');
-  expect(fills(screen.getByTestId('composer-option-kai'))).toEqual([]);
+  expect(faces(screen.getByTestId('composer-option-kai'))).toHaveLength(0);
 });
 
 test('re-picking a buddy after deleting its mention text inserts it again', async () => {
@@ -406,7 +396,7 @@ test('a roster pick never adopts an @name glued to the word before it', async ()
 
 test("an open Slack chat's composer shows Only Claude sees this", () => {
   renderWithProviders(
-    <SlackChatsProvider rooms={['dm-slack']}>
+    <SlackChatsProvider chats={[{ room: 'dm-slack' }]}>
       <Composer
         room="dm-slack"
         roomMembers={['alex', 'kai']}
@@ -423,7 +413,7 @@ test("an open Slack chat's composer shows Only Claude sees this", () => {
 
 test('a normal room shows no label', () => {
   renderWithProviders(
-    <SlackChatsProvider rooms={['dm-slack']}>
+    <SlackChatsProvider chats={[{ room: 'dm-slack' }]}>
       <Composer room="build" roomMembers={['kai']} buddies={[]} />
     </SlackChatsProvider>
   );
@@ -437,36 +427,40 @@ test('a composer outside any provider shows no label', () => {
   expect(screen.queryByText('Only Claude sees this')).toBeNull();
 });
 
-test("a Slack support room's placeholder drops the both-will-wake hint", () => {
+test("a Slack chat's note names its agent when the chat says who", () => {
   renderWithProviders(
-    <SlackChatsProvider rooms={['dm-slack']}>
-      <Composer
-        room="dm-slack"
-        roomMembers={['alex', 'kai']}
-        buddies={[]}
-        isDm
-      />
+    <SlackChatsProvider chats={[{ room: 'dm-slack', agentName: 'kai' }]}>
+      <Composer room="dm-slack" roomMembers={[]} buddies={[]} isDm />
     </SlackChatsProvider>
   );
-  expect(screen.getByRole('textbox')).toHaveAttribute(
-    'placeholder',
-    'Message alex ↔ kai'
+  expect(screen.getByTestId('composer-slack-note')).toHaveTextContent(
+    'Only kai sees this'
   );
 });
 
-test('a normal DM keeps the both-will-wake hint', () => {
+test('an ended Slack chat replaces the composer with a note', () => {
   renderWithProviders(
-    <SlackChatsProvider rooms={['dm-slack']}>
-      <Composer
-        room="dm-other"
-        roomMembers={['kai', 'remy']}
-        buddies={[]}
-        isDm
-      />
+    <SlackChatsProvider chats={[{ room: 'dm-slack', closedAt: 5 }]}>
+      <Composer room="dm-slack" roomMembers={[]} buddies={[]} isDm />
     </SlackChatsProvider>
+  );
+  expect(screen.getByTestId('composer-ended')).toHaveTextContent(
+    'This chat has ended'
+  );
+  expect(screen.queryByRole('textbox')).toBeNull();
+});
+
+test('every room reads the same Message placeholder, DM or not', () => {
+  const { rerender } = renderWithProviders(
+    <Composer room="dm-1" roomMembers={['kai', 'remy']} buddies={[]} isDm />
   );
   expect(screen.getByRole('textbox')).toHaveAttribute(
     'placeholder',
-    'Message kai ↔ remy (both will wake)'
+    'Message…'
+  );
+  rerender(<Composer room="build" roomMembers={['kai']} buddies={[]} />);
+  expect(screen.getByRole('textbox')).toHaveAttribute(
+    'placeholder',
+    'Message…'
   );
 });

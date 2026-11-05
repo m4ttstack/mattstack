@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On, ProcessSpawnChunk, ProcessSpawnRequest, ProcessSpawnResult, PromptOrigin, PromptSubmitResult } from 'claude-code'
 
-import { parseSupportArgs, renderDelivery, supportRules, touchesSlackSupport, type SlackWatchLine } from './slack-support-text.ts'
+import { deliveryRow, parseSupportArgs, renderDelivery, supportRules, touchesSlackSupport, type SlackWatchLine } from './slack-support-text.ts'
 
 const SESSION = '11111111-1111-4111-8111-111111111111'
 const PRESENTATION = { isFullscreen: false, columns: 100 }
@@ -779,6 +779,34 @@ for (const [shape, prefix] of HOSTILE) {
     expect(performance.now() - started).toBeLessThan(2_000)
   })
 }
+
+for (const command of [
+  'rt chat post rt "use /slack-support alex hi"',
+  'rt chat dm remy.k3f9 "/slack-support only runs at the prompt"',
+  'bun cli.ts chat post rt "/slack-support"',
+]) {
+  test(`a chat body may name the command: ${command}`, () => {
+    expect(touchesSlackSupport(command)).toBe(false)
+  })
+}
+
+for (const command of ['rt agent start --prompt "/slack-support alex hi"', 'rt chat post rt hi; rt pane send w1-2 --text "/slack-support alex hi"']) {
+  test(`what types into a pane is still denied: ${command}`, () => {
+    expect(touchesSlackSupport(command)).toBe(true)
+  })
+}
+
+test('a teammate message folds to who sent it', () => {
+  expect(deliveryRow(renderDelivery(LINE))).toBe('Slack message from Alex')
+})
+
+test('a cue folds to its first clause', () => {
+  expect(deliveryRow(renderDelivery({ ...LINE, kind: 'check-in', text: 'Ask if they still need help.' }))).toBe('Check-in cue for your Slack chat with Alex')
+})
+
+test('text that is not a delivery stays as it is', () => {
+  expect(deliveryRow('hello')).toBeNull()
+})
 
 const ASSIGNMENTS = [
   'A=1 rt chat slack-open alex',
