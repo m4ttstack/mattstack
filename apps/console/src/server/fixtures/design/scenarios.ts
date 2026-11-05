@@ -554,6 +554,11 @@ const orgBaseRows = [
   ),
 ];
 
+const orgBaseSurfaceRows = orgBaseRows.map(row => ({
+  ...row,
+  path: `/fixture/packs/acme/attachments/${row.name}/SKILL.md`,
+}));
+
 const orgBase = {
   subject: 'stage-plan',
   composition: baseFillsDomain,
@@ -561,7 +566,7 @@ const orgBase = {
   surface: {
     pack: 'acme',
     packDir: '/fixture/packs/acme',
-    rows: orgBaseRows,
+    rows: orgBaseSurfaceRows,
   },
 } satisfies Partial<ScenarioDef>;
 

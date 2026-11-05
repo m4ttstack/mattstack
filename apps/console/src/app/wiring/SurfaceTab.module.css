@@ -4,8 +4,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px 24px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--tk-border-soft);
+  padding: 0 16px 6px;
   font-size: 12px;
   color: var(--tk-text-2);
 }
@@ -29,18 +28,13 @@
   background: linear-gradient(var(--badge-bg), var(--badge-bg)), var(--tk-card);
 }
 
-.group + .group {
-  border-top: 1px solid var(--tk-border-soft);
-}
-
 /* What the list leaves out, and where to find it. */
 .builtIn {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 2px 10px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--tk-border-soft);
+  padding: 4px 16px 16px;
   font-size: 12px;
   color: var(--tk-text-3);
 }
@@ -56,25 +50,27 @@
   }
 }
 
+.group {
+  padding-top: 6px;
+}
+
 .groupHead {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 10px 16px;
-  background: var(--tk-panel);
-}
-
-/* Only an open group rules off its head from its rows; a folded one ends at
-   the next group's rule or the footer's, never on a second line. */
-.group[data-open] .groupHead {
-  border-bottom: 1px solid var(--tk-border-soft);
+  padding: 9px 16px;
 }
 
 @media (hover: hover) {
   .groupHead:hover {
-    background: var(--tk-raised);
+    background: var(--tk-panel);
   }
+}
+
+/* Inset, so the card's clipping leaves all four sides of the ring. */
+.groupHead:focus-visible {
+  outline-offset: -2px;
 }
 
 .groupChevron {
@@ -93,10 +89,7 @@
 }
 
 .groupCount {
-  padding: 0 7px;
-  border: 1px solid var(--tk-border);
-  border-radius: 999px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--tk-text-3);
 }
 
@@ -110,7 +103,7 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 2px 22px;
-  padding: 10px 16px 12px;
+  padding: 4px 16px 12px;
 }
 
 /* The shell's `sm` breakpoint: a row's contents do not fit half a phone. */
@@ -186,7 +179,6 @@
 @media (hover: hover) {
   .row:not([data-no-switch]):hover {
     background-color: var(--tk-panel);
-    box-shadow: inset 0 0 0 1px var(--tk-border-soft);
   }
 
   .row:hover .rowEdit {

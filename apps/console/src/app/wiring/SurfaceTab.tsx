@@ -209,7 +209,7 @@ interface FilterChipProps {
  * directly), so the color itself is never a hardcoded hex.
  */
 function FilterChip({ id, label, count, active, onClick }: FilterChipProps) {
-  const { bg, text, border } = useSchemeColors();
+  const { text } = useSchemeColors();
   return (
     <UnstyledButton
       type="button"
@@ -223,8 +223,7 @@ function FilterChip({ id, label, count, active, onClick }: FilterChipProps) {
         height: 26,
         padding: '0 11px',
         borderRadius: 9999,
-        border: `1px solid ${active ? 'var(--mantine-color-accent-filled)' : border.default}`,
-        background: active ? 'var(--mantine-color-accent-filled)' : bg.level2,
+        background: active ? 'var(--mantine-color-accent-filled)' : 'var(--tk-panel)',
         color: active ? 'var(--mantine-color-accent-contrast)' : text.muted,
         fontSize: 'var(--mantine-font-size-xs)',
         whiteSpace: 'nowrap',
@@ -466,9 +465,9 @@ function SurfaceGridRow({
         </Text>
         {row.base !== undefined && (
           <KeyedBadge meaning="From the parent pack. Edit it there">
-            <Badge size="sm" variant="default" c={text.muted}>
+            <Text size="xs" c={text.dimmed}>
               {row.base}
-            </Badge>
+            </Text>
           </KeyedBadge>
         )}
         {row.kind === 'missing' && (
@@ -567,7 +566,7 @@ export function SurfaceTab({
   filterKind: hostFilter,
   onFilterKind,
 }: SurfaceTabProps) {
-  const { bg, text, border } = useSchemeColors();
+  const { text, border } = useSchemeColors();
   const surfaceQuery = useSurface(pack);
   const { show: held, bind: heldBind } = useStepLoading(surfaceQuery.isPending);
   useReportReady(!surfaceQuery.isPending && !held);
@@ -683,15 +682,7 @@ export function SurfaceTab({
       style={{ overflow: 'hidden' }}
       data-testid="surface-tab"
     >
-      <Group
-        wrap="wrap"
-        gap={10}
-        style={{
-          padding: '13px 16px',
-          borderBlock: `1px solid ${border.default}`,
-          background: bg.level3,
-        }}
-      >
+      <Group wrap="wrap" gap={10} style={{ padding: '14px 16px 10px' }}>
         <TextInput
           placeholder="Filter skills..."
           value={filterText}
@@ -827,8 +818,7 @@ export function SurfaceTab({
         gap={6}
         style={{
           borderTop: `1px solid ${border.default}`,
-          background: bg.level3,
-          padding: '14px 18px',
+          padding: '14px 16px',
         }}
       >
         <Group justify="space-between" wrap="nowrap">
