@@ -18,7 +18,8 @@ async function leftover(path: string): Promise<ReturnType<typeof Bun.spawn>> {
 }
 
 async function runHook(env: Record<string, string>): Promise<number> {
-  const hook = Bun.spawn(["bash", HOOK], { env: { PATH: process.env.PATH ?? "", ...env }, stdout: "ignore", stderr: "ignore" });
+  // The runner runs a job hook with -e, so any failing command fails the job.
+  const hook = Bun.spawn(["bash", "-e", HOOK], { env: { PATH: process.env.PATH ?? "", ...env }, stdout: "ignore", stderr: "ignore" });
   return hook.exited;
 }
 

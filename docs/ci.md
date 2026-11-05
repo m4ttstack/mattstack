@@ -123,9 +123,11 @@ a compromised dependency in one of Matt's PRs, runs as the same user as the
 runner and can disable the hook for later jobs. It still cannot read Matt's home.
 
 All five runners share the Mac's localhost, so a process a job leaves behind can
-hold a port against every later job. A job-completed hook kills anything still
-running from that runner's own `_work` folder, including after a cancelled job.
-A test must still take a free port, never a fixed one.
+hold a port against every later job. A job-completed hook stops any process
+still running a binary from that runner's own `_work` folder, such as
+`dist/rt --daemon`, including after a cancelled job. It does not catch `bun`
+or `node` running a script from there, and it does not run if the runner itself
+dies, so a test must still take a free port, never a fixed one.
 
 - **Set up:** `scripts/ci/mac-runner/install.sh`, then
   `gh variable set MAC_RUNNER --body on`. The runners are launchd daemons under
