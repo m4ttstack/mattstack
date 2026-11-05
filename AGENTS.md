@@ -162,8 +162,10 @@ bun suites and are never in the unit dirs; run them with `bun run
 
 `main` merges through a merge queue, and `mr_merge` puts a PR in it. A
 `queued: true` result is not a merge yet: pass `wait: true` to hold until it
-lands or is dropped, and to pick up a PR queued earlier. To pin the commit that was reviewed,
-use `rt pr enqueue <number> --head <sha>` instead.
+lands or is dropped, and to pick up a PR queued earlier. A dropped PR stays out
+of the queue, even after a push: once its fix is reviewed, pass `requeue: true`.
+To pin the commit that was reviewed, use `rt pr enqueue <number> --head <sha>`
+instead.
 Here, `gh pr merge` has failed with "Auto merge is not allowed for this
 repository" while another PR was queued, and `--admin` cannot bypass the queue.
 A merge still needs Matt's confirmation.

@@ -136,10 +136,26 @@ describe("mergeOnGitHub with wait", () => {
     expect((await mergeOnGitHub(TARGET, { wait: true, requeue: true }, seams)).body).toEqual({ merged: true });
   });
 
-  test("never re-queues a dropped PR unless asked", async () => {
+  test("never re-queues a dropped PR unless asked, with or without wait", async () => {
+    for (const options of [{}, { wait: true }]) {
+      const { seams, calls } = polling({ enabled: true, inQueue: false, lastRemoval: OLD }, []);
+      expect((await mergeOnGitHub(TARGET, options, seams)).body).toEqual({ dropped: true, reason: "failed_checks", at: OLD.at });
+      expect(calls).toEqual([]);
+    }
+  });
+
+  test("requeue enters the queue again without wait", async () => {
     const { seams, calls } = polling({ enabled: true, inQueue: false, lastRemoval: OLD }, []);
-    expect((await mergeOnGitHub(TARGET, { wait: true }, seams)).body).toEqual({ dropped: true, reason: "failed_checks", at: OLD.at });
-    expect(calls).toEqual([]);
+    expect((await mergeOnGitHub(TARGET, { requeue: true }, seams)).body).toEqual({ queued: true, position: 2, state: "QUEUED" });
+    expect(calls).toEqual(["enqueue"]);
+  });
+
+  test("a removal for a merge reads as merged before GitHub marks the PR merged", async () => {
+    for (const options of [{}, { wait: true }, { requeue: true }]) {
+      const { seams, calls } = polling({ enabled: true, inQueue: false, lastRemoval: { at: OLD.at, reason: "merged" } }, []);
+      expect((await mergeOnGitHub(TARGET, options, seams)).body).toEqual({ merged: true });
+      expect(calls).toEqual([]);
+    }
   });
 
   test("times out still queued, and the next call can pick it up", async () => {

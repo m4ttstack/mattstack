@@ -13,7 +13,8 @@ import { registeredIdentityForUrl, resolveMrTarget, resolveRepoTarget, type Targ
 import { err, ok, type ToolResult } from "./shared.ts";
 
 export const MERGE_WAIT_DEFAULT_SECONDS = 1500;
-export const MERGE_WAIT_MAX_SECONDS = 1800;
+// Below Claude Code's 1800 s MCP idle timeout, for a client that sends no progress token.
+export const MERGE_WAIT_MAX_SECONDS = 1500;
 const MERGE_WAIT_POLL_MS = 20_000;
 
 const GITHUB_HOST = "https://github.com";
@@ -30,7 +31,7 @@ export interface GithubMergeOptions {
   whenPipelineSucceeds?: boolean;
   /** Hold until a queued PR lands or is dropped. */
   wait?: boolean;
-  /** With wait: enter the queue again after a drop. */
+  /** Enter the queue again after a drop. */
   requeue?: boolean;
   maxWaitSeconds?: number;
 }
@@ -124,7 +125,7 @@ export async function mergeOnGitHub(
     const github = await (seams.provider ?? realProvider)();
     if (!github) return err("no GitHub token (run: gh auth login)");
     const queue = await github.fetchMergeQueueStatus(projectPath, iid);
-    if (queue.merged) return ok({ merged: true });
+    if (queue.merged || queue.lastRemoval?.reason === "merged") return ok({ merged: true });
     if (queue.enabled) {
       if (options.squash !== undefined || options.removeSourceBranch !== undefined || options.whenPipelineSucceeds !== undefined) {
         return err(`#${iid} goes through a merge queue, which applies its own merge settings and waits for checks itself, so squash, removeSourceBranch and whenPipelineSucceeds cannot apply; call mr_merge without them`);
@@ -134,7 +135,7 @@ export async function mergeOnGitHub(
         if (options.wait) return await waitForQueue(github, target, priorRemovalAt, maxWait, clock);
         return ok({ queued: true, alreadyQueued: true });
       }
-      if (options.wait && queue.lastRemoval && !options.requeue) return droppedResult(queue.lastRemoval);
+      if (queue.lastRemoval && !options.requeue) return droppedResult(queue.lastRemoval);
       const entry = await github.enqueuePullRequest(projectPath, iid);
       if (options.wait) return await waitForQueue(github, target, priorRemovalAt, maxWait, clock);
       return ok({ queued: true, position: entry.position, state: entry.state });
