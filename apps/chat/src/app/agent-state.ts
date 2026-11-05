@@ -76,13 +76,13 @@ export function stateLine(
 
 /** Parity anchor: lib/chat-room-name.ts's `slugifyChatName`, the rule rt
     names repo rooms with. */
-function slugifyChatName(raw: string): string {
+function slugifyChatName(raw: string): string | null {
   const slug = raw
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/-{2,}/g, '-')
     .replace(/^[-.]+|[-.]+$/g, '');
-  return slug || 'x';
+  return slug || null;
 }
 
 /** Whether `room` could be the room rt derives for `repo`: the slugified
@@ -92,5 +92,6 @@ function slugifyChatName(raw: string): string {
     `api`), so a caller placing an agent must disambiguate. */
 export function isRoomForRepo(room: string, repo: string): boolean {
   const slug = slugifyChatName(repo);
+  if (slug === null) return false;
   return room === slug || room.endsWith(`-${slug}`);
 }

@@ -238,7 +238,10 @@ export function unwrap<T>(res: RtResponse<T>, label: string): T {
 // herdr pane title (HERDR_PANE_ID) → <rt-repo-name>-<cwd-basename> → cwd
 // relative to $HOME → <user>-<host>. Position 0 wins over --as for every
 // verb but sign-in, which resolves its base handle through the --as-first
-// chain below BEFORE any session file exists — see resolveBaseHandle.
+// chain below BEFORE any session file exists — see resolveBaseHandle. A
+// directory with no usable name (the filesystem root) ends the chain with a
+// refusal rather than falling on to <user>-<host>: chat has no anonymous
+// identity, and a shared stand-in name would read as one real agent.
 //
 // Sign-in itself stops after --as and draws a first name from
 // lib/chat-names.ts instead (see resolveSignInRequest): the pane title
@@ -290,7 +293,7 @@ function repoDirHandle(cwd: string): string | null {
   return deriveRepoDirHandle(cwd, index);
 }
 
-function cwdRelativeHandle(cwd: string, home: string): string {
+function cwdRelativeHandle(cwd: string, home: string): string | null {
   let rel: string;
   if (cwd === home) rel = "home";
   else if (cwd.startsWith(`${home}/`)) rel = cwd.slice(home.length + 1);
@@ -298,7 +301,7 @@ function cwdRelativeHandle(cwd: string, home: string): string {
   return slugify(rel.replace(/\//g, "-"));
 }
 
-function userHostHandle(): string {
+function userHostHandle(): string | null {
   const user = process.env.USER ?? process.env.LOGNAME ?? "user";
   return slugify(`${user}-${hostname()}`);
 }
@@ -368,6 +371,14 @@ function resolvePaneRequest(args: string[]): { continue?: string } {
   return { continue: explicit };
 }
 
+function refuseNoName(): never {
+  refuse(
+    out.line("refused", "rt chat has no name for you here"),
+    out.callout("why", "You are not signed in, and this folder gives rt no name to use."),
+    out.callout("next", out.cmd("rt chat sign-in")),
+  );
+}
+
 /** The --as-first chain: what resolveHandle falls back to for an unsigned-in session. Sign-in never reads it; its request comes from resolveSignInRequest. */
 function resolveBaseHandle(args: string[]): string {
   const explicit = flagValue(args, "--as");
@@ -389,10 +400,10 @@ function resolveBaseHandle(args: string[]): string {
   if (cwd) {
     const fromRepo = repoDirHandle(cwd);
     if (fromRepo) return fromRepo;
-    return cwdRelativeHandle(cwd, process.env.HOME ?? homedir());
+    return cwdRelativeHandle(cwd, process.env.HOME ?? homedir()) ?? refuseNoName();
   }
 
-  return userHostHandle();
+  return userHostHandle() ?? refuseNoName();
 }
 
 export interface ChatIdentity {

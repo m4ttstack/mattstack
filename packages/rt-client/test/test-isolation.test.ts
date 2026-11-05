@@ -1,9 +1,22 @@
-import { describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "child_process";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { guardTestDaemonEnv, parsePasswdHome, realStoreRefusal, testRunSignal } from "../src/test-isolation.ts";
+import { repoNameForPath } from "../src/repos.ts";
+import { rtCommand } from "../src/transport.ts";
+import {
+  __test__,
+  assertNotRealDaemonInTest,
+  assertNotRealStateDbInTest,
+  guardTestDaemonEnv,
+  parsePasswdHome,
+  realDaemonRefusal,
+  realStateDbRefusal,
+  realStoreRefusal,
+  testRunSignal,
+} from "../src/test-isolation.ts";
 
 describe("guardTestDaemonEnv", () => {
   test("scrubs RT_DAEMON_SOCK and RT_APP_SOCKET and forbids both the old sock and HOME's rt.sock", () => {
@@ -124,6 +137,142 @@ describe("realStoreRefusal", () => {
     const target = "/Users/someone/.mattstack/user/settings.user.jsonc";
     expect(realStoreRefusal({ target, account, home: undefined, signal })).toContain("HOME is unset");
     expect(realStoreRefusal({ target, account, home: account, signal })).toContain(`HOME is ${account}`);
+  });
+});
+
+describe("realStateDbRefusal", () => {
+  const account = "/Users/someone";
+  const signal = "NODE_ENV=test";
+  const real = "/Users/someone/.mattstack/rt/state.db";
+
+  test("refuses the account's live state database and names the fix", () => {
+    const refusal = realStateDbRefusal({ target: real, account, home: account, signal });
+    expect(refusal).toContain(real);
+    expect(refusal).toContain("(NODE_ENV=test)");
+    expect(refusal).toContain(`HOME is ${account}`);
+    expect(refusal).toMatch(/Run bun test from the repo root/);
+  });
+
+  test("normalizes the paths it compares", () => {
+    expect(realStateDbRefusal({ target: "/Users/someone/x/../.mattstack/rt/state.db", account: "/Users/someone/", home: account, signal })).not.toBeNull();
+  });
+
+  test("allows a state db anywhere else, including a scratch db inside a worktree under ~/.mattstack/rt", () => {
+    for (const target of [
+      "/tmp/rt-tests/1-home-x/.mattstack/rt/state.db",
+      "/Users/someone/scratch/.mattstack/rt/state.db",
+      "/Users/someone/.mattstack/rt/worktrees/gh-acme-widgets/slot/state.db",
+      "/Users/someone/.mattstack/rt/runs/widgets/run-1/state.db",
+    ]) {
+      expect(realStateDbRefusal({ target, account, home: account, signal })).toBeNull();
+    }
+  });
+});
+
+describe("realDaemonRefusal", () => {
+  const account = "/Users/someone";
+  const signal = "VITEST set";
+  const real = "/Users/someone/.mattstack/rt/rt.sock";
+
+  test("refuses the account's live daemon socket, naming the command and the signal", () => {
+    const refusal = realDaemonRefusal({ cmd: "chat:post", target: real, account, home: account, signal });
+    expect(refusal).toContain('"chat:post"');
+    expect(refusal).toContain(real);
+    expect(refusal).toContain("(VITEST set)");
+    expect(refusal).toMatch(/RT_DAEMON_SOCK/);
+  });
+
+  test("allows a fixture daemon's socket", () => {
+    for (const target of ["/tmp/rt-tests/1-sock-x/rt.sock", "/Users/someone/scratch/.mattstack/rt/rt.sock"]) {
+      expect(realDaemonRefusal({ cmd: "chat:post", target, account, home: account, signal })).toBeNull();
+    }
+  });
+});
+
+describe("the live-path guards", () => {
+  let account = "";
+  const made: string[] = [];
+
+  function scratchAccount(): string {
+    account = realpathSync(mkdtempSync(join(tmpdir(), "rt-live-guard-")));
+    made.push(account);
+    __test__.setAccountHome(account);
+    return account;
+  }
+
+  afterEach(() => {
+    __test__.setAccountHome(undefined);
+    for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("assertNotRealStateDbInTest throws on the account's state db and passes a scratch one", () => {
+    scratchAccount();
+    expect(() => assertNotRealStateDbInTest(join(account, ".mattstack", "rt", "state.db"))).toThrow(/refusing to open/);
+    expect(() => assertNotRealStateDbInTest(join(account, "elsewhere", "state.db"))).not.toThrow();
+  });
+
+  test("assertNotRealDaemonInTest throws on the account's socket and passes a fixture one", () => {
+    scratchAccount();
+    expect(() => assertNotRealDaemonInTest("chat:post", join(account, ".mattstack", "rt", "rt.sock"))).toThrow(/refusing "chat:post"/);
+    expect(() => assertNotRealDaemonInTest("chat:post", join(account, "fixture", "rt.sock"))).not.toThrow();
+  });
+
+  test("rtCommand refuses the account's socket with no forbidden list armed", async () => {
+    scratchAccount();
+    const armed = process.env.RT_TEST_FORBID_SOCKS;
+    delete process.env.RT_TEST_FORBID_SOCKS;
+    try {
+      await expect(rtCommand("chat:post", {}, { sockPath: join(account, ".mattstack", "rt", "rt.sock") })).rejects.toThrow(/refusing "chat:post"/);
+    } finally {
+      process.env.RT_TEST_FORBID_SOCKS = armed;
+    }
+  });
+
+  test("an ambient RT_DAEMON_SOCK naming the account's socket is refused like the default", async () => {
+    scratchAccount();
+    const armed = process.env.RT_TEST_FORBID_SOCKS;
+    delete process.env.RT_TEST_FORBID_SOCKS;
+    process.env.RT_DAEMON_SOCK = join(account, ".mattstack", "rt", "rt.sock");
+    try {
+      await expect(rtCommand("chat:join", {})).rejects.toThrow(/refusing "chat:join"/);
+    } finally {
+      delete process.env.RT_DAEMON_SOCK;
+      process.env.RT_TEST_FORBID_SOCKS = armed;
+    }
+  });
+
+  test("a child with no preload and no forbidden list is still refused: NODE_ENV alone arms the guard", () => {
+    scratchAccount();
+    const sock = join(account, ".mattstack", "rt", "rt.sock");
+    const script = join(account, "dispatch.ts");
+    const dir = join(import.meta.dir, "..", "src");
+    writeFileSync(
+      script,
+      `import { rtCommand } from ${JSON.stringify(join(dir, "transport.ts"))};\n` +
+        `import { __test__ } from ${JSON.stringify(join(dir, "test-isolation.ts"))};\n` +
+        `__test__.setAccountHome(${JSON.stringify(account)});\n` +
+        `await rtCommand("chat:post", {}, { sockPath: ${JSON.stringify(sock)} });\n`,
+    );
+    const child = spawnSync(process.execPath, [script], {
+      cwd: account,
+      env: { PATH: process.env.PATH, HOME: account, NODE_ENV: "test", RT_DAEMON_SOCK: sock },
+      encoding: "utf8",
+    });
+    expect(child.stderr).toMatch(/refusing "chat:post"/);
+    expect(child.status).not.toBe(0);
+  });
+
+  test("repoNameForPath keeps its never-throws contract and never reads the live state db", () => {
+    scratchAccount();
+    const rtDir = join(account, ".mattstack", "rt");
+    mkdirSync(rtDir, { recursive: true });
+    const dbPath = join(rtDir, "state.db");
+    const db = new Database(dbPath, { create: true });
+    db.run("CREATE TABLE kv (ns TEXT, k TEXT, v TEXT)");
+    db.run("INSERT INTO kv VALUES ('repo-index', 'widgets', ?)", [JSON.stringify("/repos/widgets")]);
+    db.close();
+    expect(repoNameForPath("/repos/widgets", join(rtDir, "repos.json"))).toBeNull();
+    expect(existsSync(dbPath)).toBe(true);
   });
 });
 

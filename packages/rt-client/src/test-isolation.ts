@@ -11,6 +11,11 @@
  * Bun.spawn child given no env, reaches it even with the preload loaded.
  * assertNotRealStoreInTest is the backstop: setSetting, unsetSetting, team
  * create and join, and the home-repo init seam call it before writing.
+ *
+ * assertNotRealStateDbInTest and assertNotRealDaemonInTest back up the same
+ * way for state.db and rt.sock. RT_TEST_FORBID_SOCKS cannot reach those cases:
+ * with no preload it is never armed, and a Bun.spawn child with no env starts
+ * without it. Such a child keeps NODE_ENV=test, so the test-run signal does.
  */
 import { spawnSync } from "child_process";
 import { homedir, userInfo } from "os";
@@ -69,11 +74,43 @@ export function realStoreRefusal({ target, account, home, signal }: StoreWriteCh
   const guarded = resolve(account, ".mattstack");
   const path = resolve(target);
   if (path !== guarded && !path.startsWith(`${guarded}${sep}`)) return null;
-  const homeNote = home === undefined ? "HOME is unset" : `HOME is ${home}`;
   return (
-    `rt: refusing to write ${path} during a test run (${signal}): it is under this account's real ${guarded} (${homeNote}). ` +
-    "Run bun test from the repo root so the bunfig.toml test preload points HOME at a scratch dir. " +
-    "If the preload was loaded, look for a test that unsets HOME or a Bun.spawn with no env."
+    `rt: refusing to write ${path} during a test run (${signal}): it is under this account's real ${guarded} (${homeNote(home)}). ` +
+    ISOLATION_FIX
+  );
+}
+
+const ISOLATION_FIX =
+  "Run bun test from the repo root so the bunfig.toml test preload points HOME at a scratch dir. " +
+  "If the preload was loaded, look for a test that unsets HOME or a Bun.spawn with no env.";
+
+function homeNote(home: string | undefined): string {
+  return home === undefined ? "HOME is unset" : `HOME is ${home}`;
+}
+
+function realRtPath(account: string, file: string): string {
+  return join(resolve(account), ".mattstack", "rt", file);
+}
+
+/**
+ * The refusal message when `target` is the account's live state.db, else null.
+ * An exact match, not the prefix realStoreRefusal uses: rt's worktree pool and
+ * run stores also live under ~/.mattstack/rt, and a test's scratch db may sit
+ * in either.
+ */
+export function realStateDbRefusal({ target, account, home, signal }: StoreWriteCheck): string | null {
+  const path = resolve(target);
+  if (path !== realRtPath(account, "state.db")) return null;
+  return `rt: refusing to open ${path} during a test run (${signal}): it is this account's live state database (${homeNote(home)}). ${ISOLATION_FIX}`;
+}
+
+/** The refusal message when `target` is the account's live daemon socket, else null. */
+export function realDaemonRefusal({ cmd, target, account, home, signal }: StoreWriteCheck & { cmd: string }): string | null {
+  const path = resolve(target);
+  if (path !== realRtPath(account, "rt.sock")) return null;
+  return (
+    `rt: refusing "${cmd}" at ${path} during a test run (${signal}): it is this account's live daemon, which writes the real state database (${homeNote(home)}). ` +
+    `${ISOLATION_FIX} An ambient RT_DAEMON_SOCK reaches it too.`
   );
 }
 
@@ -116,3 +153,26 @@ export function assertNotRealStoreInTest(target: string): void {
   const refusal = realStoreRefusal({ target, account: accountHome(), home: process.env.HOME, signal });
   if (refusal !== null) throw new Error(refusal);
 }
+
+/** Throws before a test run opens the account's live state.db; a no-op outside test runs. */
+export function assertNotRealStateDbInTest(target: string): void {
+  const signal = testRunSignal(process.env, entryModule());
+  if (signal === null) return;
+  const refusal = realStateDbRefusal({ target, account: accountHome(), home: process.env.HOME, signal });
+  if (refusal !== null) throw new Error(refusal);
+}
+
+/** Throws before a test run dispatches at the account's live daemon; a no-op outside test runs. */
+export function assertNotRealDaemonInTest(cmd: string, target: string): void {
+  const signal = testRunSignal(process.env, entryModule());
+  if (signal === null) return;
+  const refusal = realDaemonRefusal({ cmd, target, account: accountHome(), home: process.env.HOME, signal });
+  if (refusal !== null) throw new Error(refusal);
+}
+
+export const __test__ = {
+  /** Names a scratch dir as the account home, so a guard test that regresses can only ever reach that dir. */
+  setAccountHome(path: string | undefined): void {
+    accountHomeCache = path;
+  },
+};

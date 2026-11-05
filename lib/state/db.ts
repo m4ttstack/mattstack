@@ -19,6 +19,7 @@ import { warn } from "../ui/warn.ts";
 import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync } from "fs";
 import { dirname, join } from "path";
+import { assertNotRealStateDbInTest } from "../../packages/rt-client/src/test-isolation.ts";
 import { rtDir } from "../rt-paths.ts";
 
 export type DbFlavor = "cli" | "daemon";
@@ -732,6 +733,7 @@ function runMigrations(db: Database, dir: string): void {
  * `getStateDb()` is the production lazy singleton built on top of this.
  */
 export function openStateDb(path: string, flavor: DbFlavor = "cli"): Database {
+  assertNotRealStateDbInTest(path);
   mkdirSync(dirname(path), { recursive: true });
 
   let db: Database | undefined;
@@ -770,6 +772,7 @@ export function openStateDb(path: string, flavor: DbFlavor = "cli"): Database {
     stamps a schema another build owns; equal-or-behind opens and migrates
     normally (data-preserving, IF NOT EXISTS). A missing file is created. */
 export function openStateDbGuarded(path: string): Database {
+  assertNotRealStateDbInTest(path);
   if (existsSync(path)) {
     const probe = new Database(path, { readonly: true });
     let userVersion: number;

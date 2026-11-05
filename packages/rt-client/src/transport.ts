@@ -9,7 +9,7 @@
  */
 import { homedir } from "os";
 import { join } from "path";
-import { parseForbidSocks } from "./test-isolation.ts";
+import { assertNotRealDaemonInTest, parseForbidSocks } from "./test-isolation.ts";
 
 export interface RtResponse<T = unknown> {
   ok: boolean;
@@ -63,8 +63,10 @@ export const DEFAULT_SOCK = defaultSock();
  * listed socket throws instead of degrading. A degrade envelope could be
  * tolerated by the calling test; escaping isolation must fail the run loudly.
  * A malformed list throws too rather than silently disarming the guard.
+ * The account's own rt.sock throws in any test run, armed or not.
  */
 function assertSockNotForbidden(cmd: string, sockPath: string): void {
+  assertNotRealDaemonInTest(cmd, sockPath);
   const raw = process.env.RT_TEST_FORBID_SOCKS;
   if (!raw) return;
   const forbidden = parseForbidSocks(raw);

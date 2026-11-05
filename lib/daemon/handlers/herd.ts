@@ -158,7 +158,7 @@ const herdOrigin = (paneRef: string | undefined, session: string, questions: Gat
     : undefined;
 
 export function workspaceLabel(herdId: string): string { return `herd: ${herdId}`; }
-export function roomName(herdId: string): string { return slugifyChatName(`herd-${herdId}`); }
+export function roomName(herdId: string): string { return slugifyChatName(`herd-${herdId}`)!; }
 export function jobDir(jobsRoot: string, herdId: string, job: string): string { return join(jobsRoot, herdId, job); }
 
 export function createHerdHandlers(deps: HerdDeps) {
