@@ -412,12 +412,65 @@ test('DM on a sender’s card opens the pair’s room and focuses the composer t
     })
   );
   await screen.findByTestId(`dm-row-${dmRoom.room}`);
-  expect(window.location.pathname).toBe(`/r/${dmRoom.room}`);
+  expect(window.location.pathname).toBe('/messages');
   // `focus()` defers through requestAnimationFrame.
   await waitFor(() =>
     expect(screen.getByRole('textbox', { name: 'Message' })).toHaveFocus()
   );
   expect(screen.queryByText(/direct message to/)).toBeNull();
+});
+
+test('Messages to you lists the human’s DMs in one timeline, with no thread row', async () => {
+  installFetchMock();
+  const now = Date.now();
+  const room = (id: string, other: string) => ({
+    room: id,
+    memberCount: 2,
+    unread: 0,
+    mentions: 0,
+    kind: 'dm' as const,
+    participants: { a: other, b: 'matt', aName: other, bName: 'matt' },
+  });
+  const message = (id: number, inRoom: string, handle: string) => ({
+    id,
+    room: inRoom,
+    handle,
+    name: handle,
+    body: `from ${handle}`,
+    mentions: [],
+    mentionNames: [],
+    postedAt: now - (10 - id) * 1000,
+  });
+  fetchMock.mockImplementation(async (url: string) => ({
+    ok: true,
+    json: async () =>
+      String(url) === '/api/chat/me'
+        ? { handle: 'matt', name: 'matt' }
+        : String(url).startsWith('/api/chat/direct')
+          ? {
+              messages: [message(1, 'dm-a', 'kai'), message(2, 'dm-b', 'remy')],
+            }
+          : {},
+  }));
+  window.history.pushState({}, '', '/messages');
+  renderWithProviders(
+    <App
+      initialState={{
+        daemonReachable: true,
+        buddies: [],
+        rooms: [room('dm-a', 'kai'), room('dm-b', 'remy')],
+      }}
+    />
+  );
+  expect(await screen.findByText('from kai')).toBeInTheDocument();
+  expect(screen.getByText('from remy')).toBeInTheDocument();
+  expect(screen.queryByTestId('page-bar')).toBeNull();
+  expect(screen.queryByTestId('dm-row-dm-a')).toBeNull();
+  const box = screen.getByRole('textbox', { name: 'Message' });
+  expect(box).toHaveAttribute('placeholder', 'Reply to remy');
+
+  await userEvent.click(screen.getByText('from kai'));
+  expect(box).toHaveAttribute('placeholder', 'Reply to kai');
 });
 
 test('Focus pane on a buddy in a herdr pane posts to that pane’s focus route', async () => {
@@ -642,7 +695,7 @@ test('a failed close restores the row and says so', async () => {
   );
   await closeFromMenu('ghost');
   expect(
-    await screen.findByText("Couldn't close the room: nope")
+    await screen.findByText("Couldn't archive the room: nope")
   ).toBeInTheDocument();
   expect(screen.getByTestId('room-row-ghost')).toBeInTheDocument();
 });
@@ -697,7 +750,7 @@ test('the row leaves the rail before the close resolves, and comes back when it 
   });
 
   expect(
-    await screen.findByText("Couldn't close the room: boom")
+    await screen.findByText("Couldn't archive the room: boom")
   ).toBeInTheDocument();
   expect(screen.getByTestId('room-row-ghost')).toBeInTheDocument();
 });

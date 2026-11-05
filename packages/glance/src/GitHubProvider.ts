@@ -2036,17 +2036,37 @@ export class GitHubProvider implements GitProvider {
     const query = `
       query GlanceMergeQueueStatus($owner: String!, $repo: String!, $number: Int!) {
         repository(owner: $owner, name: $repo) {
-          pullRequest(number: $number) { isMergeQueueEnabled isInMergeQueue }
+          pullRequest(number: $number) {
+            isMergeQueueEnabled
+            isInMergeQueue
+            state
+            timelineItems(last: 1, itemTypes: [REMOVED_FROM_MERGE_QUEUE_EVENT]) {
+              nodes { ... on RemovedFromMergeQueueEvent { createdAt reason } }
+            }
+          }
         }
       }
     `;
     const data = await this.graphqlOrThrow<{
-      repository?: { pullRequest?: { isMergeQueueEnabled: boolean; isInMergeQueue: boolean } | null } | null;
+      repository?: {
+        pullRequest?: {
+          isMergeQueueEnabled: boolean;
+          isInMergeQueue: boolean;
+          state: string;
+          timelineItems: { nodes: Array<{ createdAt: string; reason: string | null }> };
+        } | null;
+      } | null;
     }>('fetchMergeQueueStatus', query, { owner, repo, number: mrIid });
 
     const pr = data.repository?.pullRequest;
     if (!pr) throw new Error(`fetchMergeQueueStatus failed: GitHub returned no pull request for ${projectPath}!${mrIid}`);
-    return { enabled: pr.isMergeQueueEnabled, inQueue: pr.isInMergeQueue };
+    const removal = pr.timelineItems.nodes[0];
+    return {
+      enabled: pr.isMergeQueueEnabled,
+      inQueue: pr.isInMergeQueue,
+      merged: pr.state === 'MERGED',
+      lastRemoval: removal ? { at: removal.createdAt, reason: removal.reason ?? 'unknown' } : null
+    };
   }
 
   /** Fails with GitHub's own message when the branch has no merge queue. */
