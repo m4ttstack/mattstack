@@ -462,14 +462,15 @@ async function runDevBundleLeg(
     return errorLeg("dev-bundle", DEV_BUNDLE_LABEL, `git checkout ${ctx.sha.slice(0, 12)} failed: ${execTail(checkout)}`);
   }
 
+  // The clone is fresh, so the workspace has never been installed, and
+  // fetch-deps.sh runs repo scripts whose imports reach workspace packages.
+  const install = await seams.exec(["bun", "install", "--frozen-lockfile"], { cwd: bundleDir });
+  if (install.exitCode !== 0) return errorLeg("dev-bundle", DEV_BUNDLE_LABEL, `bun install failed: ${execTail(install)}`);
+
   const fetchDeps = await seams.exec(["scripts/fetch-deps.sh", "arm64"], { cwd: bundleDir });
   if (fetchDeps.exitCode !== 0) {
     return errorLeg("dev-bundle", DEV_BUNDLE_LABEL, `fetch-deps.sh failed: ${execTail(fetchDeps)}`);
   }
-
-  // The clone is fresh, so the workspace has never been installed.
-  const install = await seams.exec(["bun", "install", "--frozen-lockfile"], { cwd: bundleDir });
-  if (install.exitCode !== 0) return errorLeg("dev-bundle", DEV_BUNDLE_LABEL, `bun install failed: ${execTail(install)}`);
 
   const buildApps = await seams.exec(["bun", "scripts/build-apps.ts", "--arch", "arm64"], { cwd: bundleDir });
   if (buildApps.exitCode !== 0) return errorLeg("dev-bundle", DEV_BUNDLE_LABEL, `scripts/build-apps.ts failed: ${execTail(buildApps)}`);
