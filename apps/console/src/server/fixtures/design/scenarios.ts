@@ -476,6 +476,90 @@ const attachmentRow = (status: 'in-sync' | 'stale') => ({
   orphanFiles: [],
 });
 
+/** A pack the size of a real team's, so the Surface tab reads as it does in use. */
+const orgBaseRows = [
+  ...['rebase-worktree', 'review', 'shepherdr', 'watch-ci', 'work'].map(
+    name => ({
+      name,
+      kind: 'compiled' as const,
+      status: 'public' as const,
+      disableModelInvocation:
+        name === 'rebase-worktree' ? ('on' as const) : ('off' as const),
+    })
+  ),
+  ...[
+    'checkout',
+    'receive-review',
+    'release-notes',
+    'self-review',
+    'ship',
+    'standup',
+    'sync-open-mrs',
+    'stage-evidence',
+    'stage-gates',
+    'stage-implement',
+    'stage-plan',
+    'stage-provision',
+    'stage-self-review',
+    'stage-ship',
+    'stage-watch-ci',
+  ].map(name => ({
+    name,
+    kind: 'compiled' as const,
+    status: 'internal' as const,
+  })),
+  ...[
+    'conventions',
+    'design',
+    'domain-schema-check',
+    'lore',
+    'provision',
+    'query-entity',
+    'evidence-a11y',
+    'evidence-policy',
+    'plan-policy',
+    'plan-policy-lite',
+    'plan-policy-strict',
+  ].map(name => ({
+    name,
+    kind: 'hand-authored' as const,
+    status: 'internal' as const,
+  })),
+  ...[
+    'dev-servers',
+    'feature-flags',
+    'get-bearer-token',
+    'preflight-checks',
+    'qa-data',
+    'session-replay',
+  ].map(name => ({
+    name,
+    kind: 'compiled' as const,
+    status:
+      name === 'feature-flags' ? ('public' as const) : ('internal' as const),
+    base: BASE,
+    basePath: `/fixture/org/packs/${BASE}/attachments/${name}/SKILL.md`,
+    ...(name === 'feature-flags'
+      ? { disableModelInvocation: 'off' as const }
+      : {}),
+  })),
+  ...['board-doctor', 'board-doctor-api', 'board-respond', 'board-review'].map(
+    name => ({
+      name,
+      kind: 'compiled' as const,
+      status: 'internal' as const,
+      base: BASE,
+      fill: true as const,
+      basePath: `/fixture/org/packs/${BASE}/attachments/${name}/SKILL.md`,
+    })
+  ),
+];
+
+const orgBaseSurfaceRows = orgBaseRows.map(row => ({
+  ...row,
+  path: `/fixture/packs/acme/attachments/${row.name}/SKILL.md`,
+}));
+
 const orgBase = {
   subject: 'stage-plan',
   composition: baseFillsDomain,
@@ -483,11 +567,7 @@ const orgBase = {
   surface: {
     pack: 'acme',
     packDir: '/fixture/packs/acme',
-    rows: [
-      { name: 'dev-servers', kind: 'compiled', status: 'internal', base: BASE },
-      { name: 'gates', kind: 'compiled', status: 'internal' },
-      { name: 'plan-policy', kind: 'hand-authored', status: 'internal' },
-    ],
+    rows: orgBaseSurfaceRows,
   },
 } satisfies Partial<ScenarioDef>;
 

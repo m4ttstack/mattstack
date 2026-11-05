@@ -2,22 +2,26 @@ import type { FocusGroups } from '../graph/model/focusModel';
 import { suffixOf, type SkillsComposition } from '../outline';
 import type { SkillsSurfaceRow } from '../useWiring';
 
-export type SurfaceGroupId =
-  'commands' | 'stages' | 'fills' | 'unwired' | 'base';
+export type SurfaceGroupId = 'commands' | 'reference' | 'stages' | 'fills';
 
 export const SURFACE_GROUP_ORDER: SurfaceGroupId[] = [
   'commands',
+  'reference',
   'stages',
   'fills',
-  'unwired',
-  'base',
 ];
+
+export function isBuiltIn(group: SurfaceGroupId): boolean {
+  return group === 'stages' || group === 'fills';
+}
 
 /**
  * Which group a pack skill lists under on the Surface tab, read from the
  * same focus groups the Graph sidebar draws so the two tabs agree. First
- * match wins: the parent pack's copies, a pipeline's stages, the pack's
- * verbs, the standard skills a binding plugs in, then whatever nothing uses.
+ * match wins: a base fill, a base reference skill, a pipeline's stages, the
+ * pack's verbs, the standard skills a binding plugs in, then the rest. A
+ * stage or team fill that is already public lists with what agents see, so
+ * it can be turned off.
  */
 export function surfaceGroupsOf(
   rows: readonly SkillsSurfaceRow[],
@@ -42,17 +46,23 @@ export function surfaceGroupsOf(
   for (const row of rows) {
     out.set(
       row.name,
-      row.base !== undefined
-        ? 'base'
-        : stages.has(row.name)
-          ? 'stages'
-          : commands.has(row.name)
-            ? 'commands'
-            : fills.has(row.name) && !unwired.has(row.name)
-              ? 'fills'
-              : row.kind === 'compiled'
-                ? 'commands'
-                : 'unwired'
+      row.fill
+        ? 'fills'
+        : row.base !== undefined
+          ? 'reference'
+          : stages.has(row.name)
+            ? row.status === 'public'
+              ? 'commands'
+              : 'stages'
+            : commands.has(row.name)
+              ? 'commands'
+              : fills.has(row.name) && !unwired.has(row.name)
+                ? row.status === 'public'
+                  ? 'reference'
+                  : 'fills'
+                : row.kind === 'compiled'
+                  ? 'commands'
+                  : 'reference'
     );
   }
   return out;

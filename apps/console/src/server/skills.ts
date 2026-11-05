@@ -202,6 +202,8 @@ interface SkillsCheckAttachmentRow {
   status: 'in-sync' | 'stale' | 'never-compiled' | 'orphaned';
   staleFiles: string[];
   orphanFiles: string[];
+  /** Set on a base reference skill's public entry, which shares its name with the copy. */
+  side?: 'skills';
 }
 interface SkillsCheckResponse {
   pack: string;
@@ -254,6 +256,10 @@ interface SkillsSurfaceRow {
   status: 'public' | 'internal';
   /** Names the base a base-owned row came from. Optional because an rt older than the field answers without it. */
   base?: string;
+  /** Set on a base fill, which cannot be switched on. Optional because an rt older than the field answers without it. */
+  fill?: true;
+  /** The base pack's own file for a row copied from one. Optional because an rt older than the field answers without it. */
+  basePath?: string;
   /** The row's SKILL.md. Optional because an rt older than the field answers without it. */
   path?: string;
   /** Absent on a row that cannot have model invocation disabled. */

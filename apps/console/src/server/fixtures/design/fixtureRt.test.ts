@@ -470,8 +470,7 @@ describe('the org base scenarios', () => {
     };
     expect(surface.pack).toBe('acme');
     expect(surface.packDir).toBe('/fixture/packs/acme');
-    expect(surface.rows).toContainEqual({
-      name: 'dev-servers',
+    expect(surface.rows.find(r => r.name === 'dev-servers')).toMatchObject({
       kind: 'compiled',
       status: 'internal',
       base: 'acme-base',
