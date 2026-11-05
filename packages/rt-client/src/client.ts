@@ -413,6 +413,14 @@ export function chatSlackPeople(o: RtClientOptions = {}): Promise<RtResponse<Com
   return rtCommand<Commands["chat:slack-people"]["data"]>("chat:slack-people", {}, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 60_000 });
 }
 
+export function chatSlackAvatars(o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-avatars"]["data"]>> {
+  return rtCommand<Commands["chat:slack-avatars"]["data"]>("chat:slack-avatars", {}, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 60_000 });
+}
+
+export function chatSlackAvatarFile(a: Commands["chat:slack-avatar-file"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-avatar-file"]["data"]>> {
+  return rtCommand<Commands["chat:slack-avatar-file"]["data"]>("chat:slack-avatar-file", a, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 30_000 });
+}
+
 export function chatSlackPending(a: Commands["chat:slack-pending"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-pending"]["data"]>> {
   return rtCommand<Commands["chat:slack-pending"]["data"]>("chat:slack-pending", { agentHandle: a.agentHandle }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }

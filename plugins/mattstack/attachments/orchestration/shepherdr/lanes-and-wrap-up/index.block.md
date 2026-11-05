@@ -25,6 +25,8 @@ flowchart TB
     gate_merge_lane
     forge_host{Forge?}
     mr_merge[/"mr_merge {mrUrl}"/]
+    merge_queue{Target branch has a merge queue?}
+    rt_pr_enqueue[/rt pr enqueue <pr>/]
     gh_pr_merge[/gh pr merge <pr>/]
     herd_lanes_after_merge[/"herd_lanes {herd, job}: after the merge call"/]
     merged_on_repo{Merged on the repo?}
@@ -79,8 +81,11 @@ flowchart TB
     gate_merge_lane -->|merge| forge_host
     gate_merge_lane -->|not yet, or hold| back_to_watch_loop
     forge_host -->|GitLab| mr_merge
-    forge_host -->|GitHub| gh_pr_merge
+    forge_host -->|GitHub| merge_queue
+    merge_queue -->|yes| rt_pr_enqueue
+    merge_queue -->|no| gh_pr_merge
     mr_merge --> herd_lanes_after_merge
+    rt_pr_enqueue --> herd_lanes_after_merge
     gh_pr_merge --> herd_lanes_after_merge
     herd_lanes_after_merge --> merged_on_repo
     merged_on_repo -->|yes| flip_lane_ticket
@@ -89,6 +94,7 @@ flowchart TB
     merged_on_repo -->|no row: quote the skipped reason| shepherd_off_script
     lane_claimed_merge -->|yes| unmerged_reports_spent
     lane_claimed_merge -->|no: it waits on the integration job, the gate or a human's merge| back_to_watch_loop
+    lane_claimed_merge -->|no: your enqueue is still in the merge queue| back_to_watch_loop
     lane_claimed_merge -->|no: your own merge call did not land| shepherd_off_script
     unmerged_reports_spent -->|no| chat_dm_merge_state
     unmerged_reports_spent -->|yes: budget spent| shepherd_off_script

@@ -9,6 +9,7 @@ import type { Logger } from "pino";
 import { lazyChildLogger } from "../../daemon-logger.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { SLACK_SUPPORT_SCOPES } from "../../setup/slack-app.ts";
+import { createSlackAvatars } from "../../slack/avatars.ts";
 import { SlackError, type SlackClient, type SlackUser } from "../../slack/client.ts";
 import { slackClientFromSecrets } from "../../slack/daemon-client.ts";
 import {
@@ -20,6 +21,7 @@ import {
   ensureSlackIdentity,
   identityName,
   isValidChatName,
+  listLatestClosedConversations,
   listOpenConversations,
   markOpenItemDelivered,
   markWatcherSeen,
@@ -49,7 +51,7 @@ const SLACKBOT_ID = "USLACKBOT";
 // Slack's ids hold a digit, which keeps a capitalised name such as WILL out of this.
 const SLACK_ID_SHAPE = /^[UW][A-Z0-9]*[0-9][A-Z0-9]*$/;
 
-const SLACK_CHAT_COMMANDS = ["chat:slack-open", "chat:slack-close", "chat:slack-status", "chat:slack-people", "chat:slack-pending", "chat:slack-delivered", "chat:slack-ticket"] as const;
+const SLACK_CHAT_COMMANDS = ["chat:slack-open", "chat:slack-close", "chat:slack-status", "chat:slack-people", "chat:slack-avatars", "chat:slack-avatar-file", "chat:slack-pending", "chat:slack-delivered", "chat:slack-ticket"] as const;
 
 const defaultLog = lazyChildLogger("slack-chat");
 
@@ -120,6 +122,8 @@ export function createSlackChatHandlers(opts: {
   log?: Logger;
   /** Resolves null when no Slack token is set; real by default, fakeable the same way chat's is. */
   slackClient?: () => Promise<SlackClient | null>;
+  avatarFetch?: typeof fetch;
+  avatarDir?: () => string;
   notify?: (title: string, message: string) => void;
   now?: () => number;
 }): { [K in (typeof SLACK_CHAT_COMMANDS)[number]]: (payload: unknown) => Promise<CommandResult<K>> } {
@@ -128,6 +132,19 @@ export function createSlackChatHandlers(opts: {
   const slackClient = opts.slackClient ?? slackClientFromSecrets;
   const now = opts.now ?? Date.now;
   const closeDeps = { db, client: slackClient, notify: opts.notify ?? slackDeskNotify, post: slackRoomPoster(db, opts.emitEvent, log), now };
+
+  const avatars = createSlackAvatars({
+    client: slackClient,
+    log,
+    now,
+    ...(opts.avatarFetch ? { fetchImpl: opts.avatarFetch } : {}),
+    ...(opts.avatarDir ? { dir: opts.avatarDir } : {}),
+  });
+
+  function slackPerson(c: SlackConversation) {
+    const version = avatars.version(c.slackUserId);
+    return { handle: c.slackHandle, ...(version ? { avatarId: c.slackUserId, avatarVersion: version } : {}) };
+  }
 
   function conversationForClose(agentHandle: string | undefined, pane: string | undefined): SlackConversation | undefined {
     if (pane !== undefined) return listOpenConversations(db).find((c) => presenceForHandle(c.agentHandle, db)?.pane === pane);
@@ -261,14 +278,22 @@ export function createSlackChatHandlers(opts: {
         return {
           id: c.id,
           room: c.room,
+          ...slackPerson(c),
           ...(pane ? { pane } : {}),
           name: identityName(c.slackHandle, db),
+          agentName: identityName(c.agentHandle, db),
           displayName: c.slackDisplayName,
           openedAt: c.openedAt,
           lastActiveAt: c.lastActiveAt,
         };
       });
-      return { ok: true, data: { conversations } };
+      const closed = listLatestClosedConversations(db).map((c) => ({
+        room: c.room,
+        ...slackPerson(c),
+        agentName: identityName(c.agentHandle, db),
+        closedAt: c.closedAt ?? c.lastActiveAt,
+      }));
+      return { ok: true, data: { conversations, closed } };
     },
 
     "chat:slack-people": async (): Promise<CommandResult<"chat:slack-people">> => {
@@ -284,6 +309,16 @@ export function createSlackChatHandlers(opts: {
         log.warn({ err }, "chat: Slack people could not be read");
         return slackRefusal(`Slack did not answer (${slackFailureCode(err)})`);
       }
+    },
+
+    "chat:slack-avatars": async (): Promise<CommandResult<"chat:slack-avatars">> => {
+      return { ok: true, data: { people: await avatars.people() } };
+    },
+
+    "chat:slack-avatar-file": async (rawPayload: unknown): Promise<CommandResult<"chat:slack-avatar-file">> => {
+      const { person } = rawPayload as Commands["chat:slack-avatar-file"]["payload"];
+      const file = typeof person === "string" ? await avatars.picture(person) : null;
+      return { ok: true, data: file ? { file } : {} };
     },
 
     "chat:slack-pending": async (rawPayload: unknown): Promise<CommandResult<"chat:slack-pending">> => {

@@ -1449,6 +1449,23 @@ export const TREE: Record<string, CommandNode> = {
     },
   },
 
+  pr: {
+    description: "Pull request verbs for GitHub repos",
+    subcommands: {
+      enqueue: {
+        description: "Add a PR to the merge queue",
+        module: "./commands/pr.ts",
+        fn: "prEnqueue",
+        omitBehavior: { exempt: "a free-form PR number" },
+        args: [
+          { name: "PR", type: "text", placeholder: "123", hint: "PR number" },
+          { name: "Head", flag: "--head", type: "text", placeholder: "<40-character sha>", hint: "Refuse unless the branch is at this full sha" },
+          { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
+        ],
+      },
+    },
+  },
+
   ci: {
     description: "CI attendant lease and pipeline watch",
     subcommands: {
@@ -3387,6 +3404,18 @@ export const TREE: Record<string, CommandNode> = {
         args: [
           { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
           { name: "Rotate", flag: "--rotate", type: "boolean", default: false, hint: "Issue a new board token even if the switchboard already knows your board; a board still using the old one stops working" },
+          SETUP_JSON_ARG,
+        ],
+      },
+      announce: {
+        description: "As an org admin, send a notification to everyone in your org",
+        module: "./commands/team.ts",
+        fn: "teamAnnounce",
+        omitBehavior: { exempt: "an announcement's words cannot be listed" },
+        args: [
+          { name: "Title", type: "text", placeholder: "Update rt today", hint: "A short headline, up to 80 characters" },
+          { name: "Message", flag: "--message", type: "text", placeholder: "v2.29 fixes the sign-in bug", hint: "The details, up to 500 characters" },
+          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
           SETUP_JSON_ARG,
         ],
       },

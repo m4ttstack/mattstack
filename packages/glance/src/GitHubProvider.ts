@@ -26,7 +26,9 @@ import type {
   Discussion,
   InvalidationBatch,
   JobDetail,
+  EnqueuePullRequestInput,
   MergePullRequestInput,
+  MergeQueueEntry,
   MRDetail,
   Note,
   NoteAuthor,
@@ -613,6 +615,7 @@ export class GitHubProvider implements GitProvider {
     canUnapprove: true,
     canRebase: false,
     canAutoMerge: true,
+    canEnqueue: true,
     canResolveDiscussions: true,
     canRetryPipeline: true,
     canRequestReReview: true,
@@ -2013,6 +2016,34 @@ export class GitHubProvider implements GitProvider {
         `setAutoMerge failed: GitHub accepted the mutation but reported no auto-merge on ${projectPath}!${mrIid}`
       );
     }
+  }
+
+  /** Fails with GitHub's own message when the branch has no merge queue. */
+  async enqueuePullRequest(
+    projectPath: string,
+    mrIid: number,
+    input: EnqueuePullRequestInput = {}
+  ): Promise<MergeQueueEntry> {
+    const nodeId = await this.pullRequestNodeId('enqueuePullRequest', projectPath, mrIid);
+    const mutation = `
+      mutation GlanceEnqueue($id: ID!, $head: GitObjectID) {
+        enqueuePullRequest(input: { pullRequestId: $id, expectedHeadOid: $head }) {
+          mergeQueueEntry { position state }
+        }
+      }
+    `;
+
+    const data = await this.graphqlOrThrow<{
+      enqueuePullRequest?: { mergeQueueEntry?: MergeQueueEntry | null };
+    }>('enqueuePullRequest', mutation, { id: nodeId, head: input.expectedHeadSha ?? null });
+
+    const entry = data.enqueuePullRequest?.mergeQueueEntry;
+    if (!entry) {
+      throw new Error(
+        `enqueuePullRequest failed: GitHub accepted the mutation but reported no queue entry on ${projectPath}!${mrIid}`
+      );
+    }
+    return entry;
   }
 
   /**

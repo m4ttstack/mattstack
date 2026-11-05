@@ -7,6 +7,9 @@ board works exactly as it does without it.
 
 What it adds:
 
+- **Org announcements.** Org owners and admins can send everyone a macOS
+  notification with `rt team announce`. A running board shows it within a
+  minute, and anything over a day old is dropped.
 - **Live peer badges.** When a peer's board reports a review going into or out
   of flight on one of your MRs, your row picks up the badge.
 - **Request re-review.** A row action on your own MR ("ask `<reviewer>`'s

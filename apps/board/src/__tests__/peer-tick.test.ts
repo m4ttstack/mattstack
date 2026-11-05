@@ -105,6 +105,8 @@ function fakeDeps(): MaterializeDeps & {
     nudges,
     resolutions,
     logs,
+    isOrgAdmin: () => true,
+    async notifyAnnouncement() {},
     writePeerReview(s) {
       peerReviews.push(s);
       return true;
@@ -186,6 +188,30 @@ describe('runPeerTick', () => {
     expect(client.acked).toEqual([['boom', 'fine']]);
   });
 
+  test('waits for an announcement banner to settle before acking', async () => {
+    const outbox = freshDb();
+    const client = fakeClient([
+      envelope({
+        id: 'ann',
+        type: 'announcement',
+        receivedAt: Date.now(),
+        payload: { title: 'Update rt', message: 'Today please' },
+      }),
+    ]);
+    const deps = fakeDeps();
+    let release: () => void = () => {};
+    deps.notifyAnnouncement = () =>
+      new Promise<void>(resolve => {
+        release = resolve;
+      });
+    const tick = runPeerTick(client, deps, outbox);
+    await new Promise(r => setTimeout(r, 20));
+    expect(client.acked).toEqual([]);
+    release();
+    await tick;
+    expect(client.acked).toEqual([['ann']]);
+  });
+
   test('acks nothing when the inbox call fails', async () => {
     const outbox = freshDb();
     const client = fakeClient(null);
@@ -243,5 +269,25 @@ describe('runPeerTick', () => {
       outbox
     );
     expect(events).toEqual(['ok']);
+  });
+
+  test('a throwing role read does not stop the batch', async () => {
+    const deps = fakeDeps();
+    deps.isOrgAdmin = () => {
+      throw new Error('bad store');
+    };
+    const client = fakeClient([
+      envelope({
+        id: 'a1',
+        from: 'admin1',
+        type: 'announcement',
+        receivedAt: Date.now(),
+        payload: { title: 'Update rt', message: 'Today please' },
+      }),
+      envelope({ id: 'r1' }),
+    ]);
+    await runPeerTick(client, deps);
+    expect(deps.peerReviews).toHaveLength(1);
+    expect(client.acked).toEqual([['a1', 'r1']]);
   });
 });

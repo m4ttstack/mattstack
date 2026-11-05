@@ -110,4 +110,11 @@ describe("slack client", () => {
     expect(await c.openDm("U0TEST")).toBe("D0TEST");
     expect(await c.listUsers()).toEqual([{ id: "U0TEST", name: "alex", displayName: "alex", realName: "Alex", title: "", deleted: false, isBot: false }]);
   });
+
+  test("listUsers keeps an https profile picture and drops anything else", async () => {
+    const member = (id: string, image_192?: string) => ({ id, profile: { image_192 } });
+    const f = fakeFetch([{ body: { ok: true, members: [member("U1", "https://avatars.slack-edge.com/a.png"), member("U2", "http://x.test/a.png"), member("U3")] } }]);
+    const users = await createSlackClient("t", f.impl).listUsers();
+    expect(users.map((u) => u.avatar)).toEqual(["https://avatars.slack-edge.com/a.png", undefined, undefined]);
+  });
 });
