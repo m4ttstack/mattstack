@@ -883,3 +883,19 @@ test('a click in the space around the cards clears the pick', () => {
   fireEvent.click(screen.getByTestId('transcript-column'));
   expect(onPick).toHaveBeenCalledWith(undefined);
 });
+
+test('a click out of a portal does not reach the cards', () => {
+  const onPick = vi.fn();
+  renderWithProviders(
+    <Transcript
+      room="direct"
+      feed={feed(onPick, 'dm-a')}
+      messages={feedMessages()}
+    />
+  );
+  const portalled = document.createElement('div');
+  document.body.append(portalled);
+  fireEvent.click(portalled);
+  expect(onPick).not.toHaveBeenCalled();
+  portalled.remove();
+});

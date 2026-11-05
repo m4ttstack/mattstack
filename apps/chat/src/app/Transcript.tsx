@@ -48,6 +48,22 @@ const HOLD_BREAKERS = [
   'keydown',
 ] as const;
 
+/** The first row on screen, and where it sits. In a feed the oldest message
+    can be anywhere, so this is the row to keep still; `moving` names rooms
+    about to move, whose rows cannot be the anchor. */
+function topVisibleRow(
+  view: HTMLElement,
+  moving?: ReadonlySet<string>
+): { id: number; offset: number } | null {
+  const top = view.getBoundingClientRect().top;
+  for (const row of view.querySelectorAll<HTMLElement>('[id^="m-"]')) {
+    const rect = row.getBoundingClientRect();
+    if (rect.bottom <= top || moving?.has(row.dataset.room ?? '')) continue;
+    return { id: Number(row.id.slice('m-'.length)), offset: rect.top - top };
+  }
+  return null;
+}
+
 /** Where message `id` sits in `view`, as an offset from the view's top. */
 function rowOffset(view: HTMLElement, id: number): number | null {
   const el = document.getElementById(`m-${id}`);
@@ -298,6 +314,7 @@ function MessageRow({
     <div
       id={`m-${message.id}`}
       data-testid={`message-${message.id}`}
+      data-room={message.room}
       className={prose.msg}
       data-grouped={grouped || undefined}
     >
@@ -415,6 +432,7 @@ export function Transcript({
   const slack = useSlackChat(room);
   const inset = compact ? COMPACT_INSET : INSET;
   const url = feed?.url ?? `/api/chat/messages/${room}`;
+  const isFeed = feed !== undefined;
   const [messages, setMessages] = useState(initialMessages);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [olderExhausted, setOlderExhausted] = useState(false);
@@ -517,11 +535,22 @@ export function Transcript({
         if (roomRef.current !== room) return;
         const next = mergeMessages(messagesRef.current, data.messages ?? []);
         const added = next.length - messagesRef.current.length;
-        if (added > 0 && awayRef.current) setNewSinceAway(n => n + added);
+        if (added > 0 && awayRef.current) {
+          setNewSinceAway(n => n + added);
+          const view = scrollView();
+          // A post moves its card to the bottom, under a scrolled-up reader.
+          if (isFeed && view) {
+            const known = new Set(messagesRef.current.map(m => m.id));
+            const moving = new Set(
+              next.filter(m => !known.has(m.id)).map(m => m.room)
+            );
+            pendingHold.current = topVisibleRow(view, moving);
+          }
+        }
         setMessages(next);
       })
       .catch(() => {});
-  }, [room, url]);
+  }, [room, url, isFeed]);
   useRelayFrames(frame => {
     const ours = feed
       ? typeof frame.topic === 'string' && feed.hears(frame.topic)
@@ -626,7 +655,11 @@ export function Transcript({
         const view = scrollView();
         const offset = view ? rowOffset(view, oldest.id) : null;
         pendingHold.current =
-          offset === null ? null : { id: oldest.id, offset };
+          isFeed && view
+            ? topVisibleRow(view)
+            : offset === null
+              ? null
+              : { id: oldest.id, offset };
         setMessages(prev => {
           const known = new Set(prev.map(m => m.id));
           const additions = older.filter(m => !known.has(m.id));
@@ -646,8 +679,10 @@ export function Transcript({
 
   // A click that selected text, or landed on a link, was not a pick.
   const pickBlock = (event: MouseEvent<HTMLDivElement>, blockRoom: string) => {
+    const target = event.target as HTMLElement;
+    if (!event.currentTarget.contains(target)) return;
     if (window.getSelection()?.toString()) return;
-    if ((event.target as HTMLElement).closest('a, button')) return;
+    if (target.closest('a, button')) return;
     feed?.onPick(blockRoom);
   };
 
@@ -684,6 +719,9 @@ export function Transcript({
           feed &&
           (event => {
             const target = event.target as HTMLElement;
+            // A portalled card still bubbles its clicks through here.
+            if (!event.currentTarget.contains(target)) return;
+            if (window.getSelection()?.toString()) return;
             if (!target.closest(`.${prose.block}, a, button`)) {
               feed.onPick(undefined);
             }

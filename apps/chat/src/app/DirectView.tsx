@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Center, Stack, Text } from '@mattstack/app-kit/core';
 import type { ChatMessage, RoomSummary } from '@mattstack/rt-client';
 
@@ -39,7 +39,8 @@ export function DirectView({
   onPick: (room: string | undefined) => void;
   composer: (
     room: string,
-    to: { handle: string; name: string } | undefined
+    to: { handle: string; name: string } | undefined,
+    onDraftChange: (hasDraft: boolean) => void
   ) => ReactNode;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -63,6 +64,23 @@ export function DirectView({
     };
   }, []);
 
+  // A draft belongs to who it was started for: a newer sender must not
+  // retarget it, and a click beside the cards must not either.
+  const draftOpen = useRef(false);
+  const heldForDraft = useRef(false);
+  const draftChanged = (room: string, hasDraft: boolean) => {
+    draftOpen.current = hasDraft;
+    if (hasDraft && picked === undefined) {
+      heldForDraft.current = true;
+      onPick(room);
+    } else if (!hasDraft && heldForDraft.current) {
+      heldForDraft.current = false;
+      onPick(undefined);
+    }
+  };
+  const pick = useRef(onPick);
+  pick.current = onPick;
+
   const feed = useMemo<TranscriptFeed>(() => {
     const known = new Map(rooms.map(r => [r.room, r]));
     return {
@@ -79,15 +97,21 @@ export function DirectView({
         return room === undefined || isMine(room, me);
       },
       target: list => picked ?? newestSenderRoom(list, me),
-      onPick,
+      onPick: room => {
+        if (room === undefined && draftOpen.current) return;
+        heldForDraft.current = false;
+        pick.current(room);
+      },
     };
-  }, [rooms, me, picked, onPick]);
+  }, [rooms, me, picked]);
 
   const footer = (list: ChatMessage[]) => {
     const target = feed.target(list);
     if (!target) return null;
     const summary = rooms.find(r => r.room === target);
-    return composer(target, summary && otherEnd(summary, me));
+    return composer(target, summary && otherEnd(summary, me), hasDraft =>
+      draftChanged(target, hasDraft)
+    );
   };
 
   return (

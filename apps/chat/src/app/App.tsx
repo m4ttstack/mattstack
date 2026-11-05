@@ -445,11 +445,13 @@ interface ChatPageProps {
   anchor: string | undefined;
   me: Me;
   composerRef: RefObject<ComposerHandle | null>;
-  onOpenDm: (handle: string) => void;
+  onOpenDm: (handle: string, draft?: string) => void;
   onCloseRoom: (room: string) => void;
   /** Messages to you is the open view. */
   directOpen: boolean;
   directPick: string | undefined;
+  /** What was typed in a room before a DM opened from its `@` list. */
+  directDraft: string | undefined;
   onDirectPick: (room: string | undefined) => void;
   railDirect: RoomRailProps['direct'];
 }
@@ -475,6 +477,7 @@ function ChatPage({
   onCloseRoom,
   directOpen,
   directPick,
+  directDraft,
   onDirectPick,
   railDirect,
 }: ChatPageProps) {
@@ -588,7 +591,7 @@ function ChatPage({
                   me={me.handle}
                   picked={directPick}
                   onPick={onDirectPick}
-                  composer={(room, to) => (
+                  composer={(room, to, onDraftChange) => (
                     <Composer
                       ref={composerRef}
                       phone={isMobile}
@@ -600,6 +603,8 @@ function ChatPage({
                       daemonReachable={daemon.reachable}
                       onOpenDm={onOpenDm}
                       replyTo={to}
+                      onDraftChange={onDraftChange}
+                      prefill={directDraft ? { body: directDraft } : undefined}
                     />
                   )}
                 />
@@ -715,6 +720,7 @@ function AppContent({
   const chatRoute =
     route.name === 'home' || route.name === 'room' || directOpen;
   const [directPick, setDirectPick] = useState<string>();
+  const [directDraft, setDirectDraft] = useState<string>();
   // The view's composer mounts with the route, after the DM has opened.
   const focusWhenOpen = useRef(false);
   const hash = useHash();
@@ -743,7 +749,7 @@ function AppContent({
   }
 
   const openDm = useCallback(
-    async (handle: string) => {
+    async (handle: string, draft?: string) => {
       try {
         const res = await fetch('/api/chat/dm/open', {
           method: 'POST',
@@ -758,6 +764,11 @@ function AppContent({
         if (!embed) {
           setDirectPick(data.room);
           setActiveRoom(undefined);
+          if (window.location.pathname === DIRECT_PATH) {
+            composerRef.current?.focus();
+            return;
+          }
+          setDirectDraft(draft?.trim() ? draft : undefined);
           focusWhenOpen.current = true;
           navigate(DIRECT_PATH);
           return;
@@ -857,22 +868,37 @@ function AppContent({
     composerRef.current?.focus();
   }, [directOpen, directPick]);
 
-  const waiting = waitingCount(rooms, me.handle);
-  // Seeing the timeline reads it. A failed mark retries on the next listing.
+  // The pick and the carried draft belong to one visit to the view.
   useEffect(() => {
-    if (!directOpen || waiting === 0) return;
+    if (directOpen) return;
+    setDirectPick(undefined);
+    setDirectDraft(undefined);
+  }, [directOpen]);
+
+  const waiting = waitingCount(rooms, me.handle);
+  const marking = useRef(false);
+  // Seeing the timeline reads it. Each listing tries again, so a failed mark
+  // or a tab that was hidden catches up on the next one.
+  useEffect(() => {
+    if (!directOpen || waiting === 0 || marking.current) return;
     if (document.visibilityState !== 'visible') return;
+    marking.current = true;
     void fetch('/api/chat/direct/read', { method: 'POST' })
-      .then(() => refetchRooms())
-      .catch(() => {});
-  }, [directOpen, waiting, refetchRooms]);
+      .then(res => {
+        if (res.ok) void refetchRooms();
+      })
+      .catch(() => {})
+      .finally(() => {
+        marking.current = false;
+      });
+  }, [directOpen, waiting, rooms, refetchRooms]);
   const railDirect = useMemo(
     () => ({
       active: directOpen,
       waiting: directOpen ? 0 : waiting,
       onOpen: () => {
         setDirectPick(undefined);
-        navigate(DIRECT_PATH);
+        if (window.location.pathname !== DIRECT_PATH) navigate(DIRECT_PATH);
       },
       isMine: (room: FleetRoom) => isMine(room, me.handle),
     }),
@@ -1025,6 +1051,7 @@ function AppContent({
               onCloseRoom={closeRoom}
               directOpen={directOpen}
               directPick={directPick}
+              directDraft={directDraft}
               onDirectPick={setDirectPick}
               railDirect={railDirect}
             />

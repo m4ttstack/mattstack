@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  useEffect,
   useId,
   useImperativeHandle,
   useRef,
@@ -87,7 +88,7 @@ export interface ComposerProps {
   compact?: boolean;
   /** A buddy outside the room was picked in the `@` popover: the caller
       opens the DM room and moves there; the draft stays in this instance. */
-  onOpenDm?: (handle: string) => void;
+  onOpenDm?: (handle: string, draft: string) => void;
   /**
    * Seeds the draft, and the mentions posted with it, so a reply can open
    * with its recipient already tagged. Read ONCE, at mount: a caller that
@@ -98,6 +99,8 @@ export interface ComposerProps {
   /** Messages to you: who `room` reaches. Their face and name say where this
       goes, since the view holds several DMs. */
   replyTo?: { handle: string; name: string };
+  /** Whether the box holds a draft, each time that changes. */
+  onDraftChange?: (hasDraft: boolean) => void;
   /** Called after a post has landed and the draft has cleared. */
   onPosted?: () => void;
 }
@@ -280,6 +283,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
       onOpenDm,
       prefill,
       replyTo,
+      onDraftChange,
       onPosted,
     },
     ref
@@ -296,6 +300,12 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
     const [focused, setFocused] = useState(false);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     useAutoGrowTextarea(textareaRef, value);
+    const hasDraft = value.trim() !== '';
+    const reportDraft = useRef(onDraftChange);
+    reportDraft.current = onDraftChange;
+    useEffect(() => {
+      reportDraft.current?.(hasDraft);
+    }, [hasDraft]);
     const ctx = useBuddies();
     const slackChat = useSlackChat(room);
     const slackNoteId = useId();
@@ -359,9 +369,12 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
     }
 
     function switchToDm(handle: string) {
+      const draft = token
+        ? value.slice(0, token.start) + value.slice(token.end)
+        : value;
       replaceToken('');
       closePopover();
-      onOpenDm?.(handle);
+      onOpenDm?.(handle, draft);
     }
 
     function insertHere() {

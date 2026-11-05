@@ -478,6 +478,12 @@ export const chat = new Hono()
       const lists = pages.flatMap(p =>
         p?.ok && p.data ? [p.data.messages] : []
       );
+      // A short older page reads as the end of history, and a cursor past a
+      // missing DM skips its rows, so those failures must say so.
+      const failed = lists.length < pages.length;
+      if (failed && (before !== undefined || lists.length === 0)) {
+        return c.json({ error: 'could not read every DM' }, 502);
+      }
       return c.json({ messages: newestAcross(lists, size) }, 200);
     }
   )
@@ -527,7 +533,12 @@ export const chat = new Hono()
     }
     const handle = humanHandle(c);
 
-    const roomsRes = await chatRooms({ handle }, rtOpts());
+    // Closed rooms too: a post revives one, and a closed DM must not fall
+    // through to the join below, which refuses DM rooms.
+    const roomsRes = await chatRooms(
+      { handle, includeArchived: true },
+      rtOpts()
+    );
     if (!roomsRes.ok || !roomsRes.data) {
       return c.json({ error: roomsRes.error ?? 'rooms: no data' }, 502);
     }

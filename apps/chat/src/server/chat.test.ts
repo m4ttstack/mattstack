@@ -1221,3 +1221,47 @@ test('slack-face answers null for a name nobody matches', async () => {
   const res = await routes.request('/api/chat/slack-face?name=Nobody');
   expect(await res.json()).toEqual({ url: null });
 });
+
+test('a post into a closed DM goes straight in, with no join', async () => {
+  vi.mocked(rt.chatRooms).mockResolvedValue({
+    ok: true,
+    data: { rooms: humanDms() },
+  });
+  vi.mocked(rt.chatPost).mockResolvedValue({
+    ok: true,
+    data: { id: 1 },
+  } as never);
+  const res = await routes.request('/api/chat/post', {
+    method: 'POST',
+    body: JSON.stringify({ room: 'dm-kai', body: 'hi' }),
+  });
+  expect(res.status).toBe(200);
+  expect(vi.mocked(rt.chatRooms).mock.calls[0]![0]).toMatchObject({
+    includeArchived: true,
+  });
+  expect(rt.chatJoin).not.toHaveBeenCalled();
+});
+
+test('an older page with a failed DM is an error, not the end of history', async () => {
+  vi.mocked(rt.chatRooms).mockResolvedValue({
+    ok: true,
+    data: { rooms: humanDms() },
+  });
+  vi.mocked(rt.chatMessages).mockImplementation(async ({ room }) =>
+    room === 'dm-kai'
+      ? { ok: false, error: 'nope' }
+      : { ok: true, data: { messages: [row(2, room)] } }
+  );
+  const res = await routes.request('/api/chat/direct?before=9');
+  expect(res.status).toBe(502);
+});
+
+test('a first page where every DM fails is an error, not an empty list', async () => {
+  vi.mocked(rt.chatRooms).mockResolvedValue({
+    ok: true,
+    data: { rooms: humanDms() },
+  });
+  vi.mocked(rt.chatMessages).mockResolvedValue({ ok: false, error: 'nope' });
+  const res = await routes.request('/api/chat/direct');
+  expect(res.status).toBe(502);
+});
