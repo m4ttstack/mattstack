@@ -50,9 +50,10 @@ The dev app (`/Applications/mattstack-dev.app`) takes code from three places.
 - **Manifest keys in `mattstack.deck.json` are read only at register or
   adopt.** After a manifest change, run `deck register --dir <absolute path>`.
 - **Tray and shim changes need a dev app rebuild**: in a scratch tree at the
-  target commit, `scripts/fetch-deps.sh arm64`, then `bun install
-  --frozen-lockfile` (`build-apps` runs turbo over `packages/*` and needs
-  `node_modules` in the scratch tree), then `bun scripts/build-apps.ts`,
+  target commit, `bun install --frozen-lockfile` first (`fetch-deps.sh`
+  runs repo scripts that import workspace packages, and `build-apps` runs
+  turbo over `packages/*`; both need `node_modules` in the scratch tree),
+  then `scripts/fetch-deps.sh arm64`, then `bun scripts/build-apps.ts`,
   then in each of `extensions/vscode/rt-context` and `skill-blocks`
   `bun run build && bunx vsce package --no-dependencies --out <name>.vsix`,
   then `RT_VSIX=<rt-context.vsix path> RT_SKILL_BLOCKS_VSIX=<skill-blocks.vsix
