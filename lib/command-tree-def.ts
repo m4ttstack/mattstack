@@ -1759,6 +1759,18 @@ export const TREE: Record<string, CommandNode> = {
       { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit machine-readable JSON instead of the plain rendering (join/leave/archive/post/read/rooms/who/mark/prune/buddies/dm/away/back/sign-in/sign-out/invite)" },
     ],
     subcommands: {
+      avatar: {
+        description: "Get a chat handle's face as a picture file",
+        hidden: true,
+        module: "./commands/chat-avatar.ts",
+        fn: "chatAvatar",
+        args: [
+          { name: "Handle", type: "text", placeholder: "remy.a1b2", hint: "The chat handle" },
+          { name: "Size", flag: "--size", type: "text", optional: true, placeholder: "44", hint: "Width and height in pixels of a generated face; a Slack photo keeps its own size" },
+          { name: "Alongside", flag: "--alongside", type: "text", optional: true, placeholder: "kit.c3d4,ash.e5f6", hint: "The other handles drawn with this one, comma separated, so tiles in a group stay apart" },
+          { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
+        ],
+      },
       "slack-open": {
         description: "Open a Slack support chat with a teammate",
         hidden: true,

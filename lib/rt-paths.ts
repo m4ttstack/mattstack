@@ -52,6 +52,11 @@ export function slackAvatarsDir(): string {
   return join(rtDir(), "slack-avatars");
 }
 
+/** Generated chat faces drawn as PNGs, for apps that can't draw their SVG. */
+export function chatFacesDir(): string {
+  return join(rtDir(), "chat-faces");
+}
+
 /** rt's state dir before RT-33, as rc files spell it; shell-integration.ts recognises the history hook rt wrote there. */
 export const LEGACY_RT_DIR_IN_RC = "~/.rt";
 

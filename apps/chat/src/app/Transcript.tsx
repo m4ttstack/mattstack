@@ -8,7 +8,6 @@ import {
 } from 'react';
 import type { MouseEvent, ReactNode, RefObject } from 'react';
 import { Box, Button, Group, Stack, Text } from '@mattstack/app-kit/core';
-import { Icon, type IconName } from '@mattstack/app-kit/icons';
 import type { ChatMessage } from '@mattstack/rt-client';
 import ScrollToBottom, {
   useAnimating,
@@ -217,36 +216,30 @@ export function continuesGroup(
 }
 
 /** A quiet centred line: the day, or where the chat begins. */
-function Marker({
-  icon,
-  label,
-  testId,
-}: {
-  icon: IconName;
-  label: string;
-  testId: string;
-}) {
+function Marker({ label, testId }: { label: string; testId: string }) {
   return (
-    <Group
-      gap={6}
-      justify="center"
-      wrap="nowrap"
-      data-testid={testId}
-      style={{
-        padding: '10px 0',
-        color: 'var(--tk-text-3)',
-        fontSize: 'var(--mantine-font-size-xs)',
-      }}
-    >
-      <Icon name={icon} size={13} />
-      <span>{label}</span>
-    </Group>
+    <>
+      <div className={prose.dayLine} />
+      <div className={prose.dayPill} data-testid={testId}>
+        {label}
+      </div>
+    </>
   );
 }
 
-function startLabel(postedAt: number): string {
-  const day = dayLabel(postedAt);
-  return `This chat started ${/^(Today|Yesterday)$/.test(day) ? day.toLowerCase() : day}`;
+/** Messages with their list positions, a run per day. A day is the scope its
+    sticky label stays inside, so the next day pushes it off. */
+function byDay(messages: ChatMessage[]) {
+  const days: { message: ChatMessage; i: number }[][] = [];
+  messages.forEach((message, i) => {
+    const day = days.at(-1);
+    if (day && dayKey(day[0]!.message.postedAt) === dayKey(message.postedAt)) {
+      day.push({ message, i });
+    } else {
+      days.push([{ message, i }]);
+    }
+  });
+  return days;
 }
 
 function ClosedNote({ at }: { at: number }) {
@@ -781,33 +774,27 @@ export function Transcript({
                         </Fragment>
                       );
                     })
-                  : messages.map((message, i) => (
-                      <Fragment key={message.id}>
-                        {i === 0 && olderExhausted ? (
-                          <Marker
-                            icon="history"
-                            label={startLabel(message.postedAt)}
-                            testId="transcript-start"
-                          />
-                        ) : (
-                          (i === 0 ||
-                            dayKey(messages[i - 1]!.postedAt) !==
-                              dayKey(message.postedAt)) && (
-                            <Marker
-                              icon="calendar"
-                              label={dayLabel(message.postedAt)}
-                              testId="day-divider"
-                            />
-                          )
-                        )}
-                        <MessageRow
-                          message={message}
-                          humanHandle={humanHandle}
-                          compact={compact}
-                          grouped={continuesGroup(messages[i - 1], message)}
-                          dated={false}
+                  : byDay(messages).map((day, d) => (
+                      <div key={day[0]!.message.id}>
+                        <Marker
+                          label={dayLabel(day[0]!.message.postedAt)}
+                          testId={
+                            d === 0 && olderExhausted
+                              ? 'transcript-start'
+                              : 'day-divider'
+                          }
                         />
-                      </Fragment>
+                        {day.map(({ message, i }) => (
+                          <MessageRow
+                            key={message.id}
+                            message={message}
+                            humanHandle={humanHandle}
+                            compact={compact}
+                            grouped={continuesGroup(messages[i - 1], message)}
+                            dated={false}
+                          />
+                        ))}
+                      </div>
                     ))}
               </Stack>
               {!loading && messages.length === 0 && empty}
