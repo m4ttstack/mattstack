@@ -457,14 +457,14 @@ A tool's `install` says how a member gets it. `install.download` pins the binary
   "install": {
     "url": "https://docs.doppler.com/docs/install-cli",
     "download": {
-      "arm64": { "url": "https://example.com/doppler_darwin_arm64.tar.gz", "sha256": "<64 hex>", "extract": "doppler" },
-      "x86_64": { "url": "https://example.com/doppler_darwin_amd64.tar.gz", "sha256": "<64 hex>", "extract": "doppler" }
+      "arm64": { "url": "https://example.com/doppler_darwin_arm64.tar.gz", "sha256": "<64 lowercase hex>", "extract": "doppler" },
+      "x86_64": { "url": "https://example.com/doppler_darwin_amd64.tar.gz", "sha256": "<64 lowercase hex>", "extract": "doppler" }
     }
   }
 }
 ```
 
-`arm64` is Apple silicon and `x86_64` is Intel. A download must be an https link. `extract` names the binary inside a `.tar.gz`, `.tgz`, `.tar.xz` or `.zip`; leave it out when the link is the binary itself. A Mac whose processor has no pin gets the `install.url` link instead.
+`arm64` is Apple silicon and `x86_64` is Intel. A download must be an https link, and its `sha256` is 64 lowercase hex characters. `extract` names the binary inside a `.tar.gz`, `.tgz`, `.tar.xz` or `.zip`; leave it out when the link is the binary itself. A Mac whose processor has no pin gets the `install.url` link instead.
 
 ## Pulling now
 

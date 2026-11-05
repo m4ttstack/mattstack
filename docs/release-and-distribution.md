@@ -19,8 +19,8 @@ One tag (`v*`) produces, via `.github/workflows/release.yml` on macos-15:
   (MAT-395): `build.sh` signs every plain file under `Contents/Helpers`
   individually, codesign stores those signatures as extended attributes, and
   Sparkle's `BinaryDelta` refuses to diff xattr'd trees. `appcast.sh`
-  tolerates the delta failure and every update ships as the full zip (~830 MB since the app went universal; v2.28.0 was 465 MB)
-  zip; the update leg is proven on that path. Revisit only if the user base
+  tolerates the delta failure and every update ships as the full zip (~830 MB since the app went universal; v2.28.0 was 465 MB);
+  the update leg is proven on that path. Revisit only if the user base
   or update cadence makes delta bandwidth matter, or if the Helpers tree is
   restructured for another reason.
 - `appcast.xml` — the Sparkle feed (`scripts/release/appcast.sh`)
