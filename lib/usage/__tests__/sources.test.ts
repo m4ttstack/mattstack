@@ -47,7 +47,7 @@ test("copies a run and its stages", () => {
       { name: "plan", status: "done", startedAt: 1000, endedAt: 2000 },
       { name: "build", status: "running", startedAt: 2000 },
     ],
-    fields: [field("mr", "https://github.com/acme/widgets/pull/7")],
+    fields: [field("mr", "https://github.com/acme/widgets/pull/7"), field("branch", "web-123-cart")],
   });
   expect(snapshotRuns(db, runs, M)).toEqual({ runs: 1, skipped: 0, unresolvedMr: 0 });
   expect(db.query("SELECT * FROM usage_runs").all()).toEqual([
@@ -64,7 +64,7 @@ test("copies a run and its stages", () => {
       mr_key: `${REPO}!7`,
       mr_url: "https://github.com/acme/widgets/pull/7",
       ticket: "ACME-1",
-      branch: "goodwin/mat-1",
+      branch: "web-123-cart",
     },
   ]);
   expect(
@@ -85,6 +85,17 @@ test("reads the mr field directly", () => {
     { run_id: "run-1", mr_key: `${REPO}!405`, mr_url: null },
     { run_id: "run-2", mr_key: null, mr_url: null },
     { run_id: "run-3", mr_key: null, mr_url: null },
+  ]);
+});
+
+test("a current session missing from the list still links, after the list", () => {
+  seedRun(runs, REPO, "run-1", 1000, 1, {
+    fields: [field("claude-sessions", '["s-1"]'), field("claude-session", "s-2")],
+  });
+  snapshotRuns(db, runs, M);
+  expect(db.query("SELECT session_id FROM usage_sessions ORDER BY rowid").all()).toEqual([
+    { session_id: "s-1" },
+    { session_id: "s-2" },
   ]);
 });
 

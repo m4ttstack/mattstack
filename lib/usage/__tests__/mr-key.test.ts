@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { serializeIdentity } from "../../../packages/rt-client/src/settings/identity-codec.ts";
-import { runKind } from "../../../apps/console/src/app/runs/derive/kind";
+import { runKind } from "../../../apps/console/src/app/runs/derive/kind.ts";
 import { kindOf, mrKeyFromField, mrKeyFromSubject, mrKeyFromUrl } from "../mr-key";
 
 const id = (path: string) => serializeIdentity({ kind: "remote", id: path });

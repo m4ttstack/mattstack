@@ -78,20 +78,20 @@ function readRunDb(path: string): RunSnapshot[] {
   }
 }
 
-function sessionsOf(fields: Map<string, string>): string[] {
-  const list = fields.get("claude-sessions");
-  if (list !== undefined) {
-    try {
-      const parsed: unknown = JSON.parse(list);
-      if (Array.isArray(parsed) && parsed.every((s) => typeof s === "string")) {
-        return parsed.filter((s) => s !== "");
-      }
-    } catch {
-      // a malformed list falls back to claude-session
-    }
+function sessionList(raw: string | undefined): string[] {
+  if (raw === undefined) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.every((s) => typeof s === "string") ? parsed : [];
+  } catch {
+    return [];
   }
-  const single = fields.get("claude-session");
-  return single ? [single] : [];
+}
+
+// The two fields are written apart, and an older rt writes only claude-session.
+function sessionsOf(fields: Map<string, string>): string[] {
+  const sessions = [...sessionList(fields.get("claude-sessions")), fields.get("claude-session") ?? ""];
+  return [...new Set(sessions)].filter((s) => s !== "");
 }
 
 const UPSERT_RUN = `
@@ -174,9 +174,7 @@ export function snapshotRuns(db: Database, runsRoot: string, machineId: string):
   return result;
 }
 
-// The board's review, respond and doctor launches share one tab label shape
-// and pass no `label`, so only an agent started with a label naming doctor is
-// recognized.
+// Board launches pass no label; classifyAgentSessions finds those from the transcript.
 function isDoctor(agent: AgentLink): boolean {
   return /\bdoctor\b/i.test(agent.label ?? "");
 }
