@@ -12,6 +12,20 @@
   padding: 0 16px;
 }
 
+.headCost {
+  flex: none;
+  white-space: nowrap;
+}
+
+.statLink {
+  color: var(--tk-text-accent);
+  text-decoration: none;
+}
+
+.statLink:hover {
+  text-decoration: underline;
+}
+
 .abandoned {
   padding: 0 24px;
 }

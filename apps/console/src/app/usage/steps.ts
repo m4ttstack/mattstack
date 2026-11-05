@@ -2,8 +2,12 @@ import type {
   UsageKind,
   UsageMrData,
   UsageMrEntry,
+  UsageOutside,
+  UsageStageRow,
   UsageTotals,
 } from '@mattstack/rt-client';
+
+import { daySpan } from './format';
 
 export type StepRow =
   | {
@@ -12,9 +16,33 @@ export type StepRow =
       label: string;
       level: 'group' | 'child';
       kind: UsageKind;
+      /** The line under the label: when, and how much was subagents. */
+      note?: string;
       totals: UsageTotals;
     }
   | { type: 'elsewhere'; key: string; label: string };
+
+const OUTSIDE_LABEL: Record<UsageOutside, string> = {
+  before: 'Before the first stage',
+  between: 'Between stages',
+  after: 'After the last stage',
+  none: 'No stages recorded',
+};
+
+function stageLabel(stage: UsageStageRow): string {
+  if (stage.outside) return OUTSIDE_LABEL[stage.outside];
+  const attempt =
+    stage.attempt && stage.attempt > 1 ? ` (attempt ${stage.attempt})` : '';
+  return `${stage.name}${attempt}`;
+}
+
+function outsideNote(stage: UsageStageRow): string | undefined {
+  if (!stage.outside || stage.firstActivity === null) return undefined;
+  const when = daySpan(stage.firstActivity, stage.lastActivity!);
+  const share =
+    stage.totals.cost > 0 ? stage.subagentCost / stage.totals.cost : 0;
+  return share > 0 ? `${when}, ${Math.round(share * 100)}% subagents` : when;
+}
 
 function groupLabel(entry: UsageMrEntry): string {
   switch (entry.kind) {
@@ -72,10 +100,9 @@ export function stepRows(mr: UsageMrData): StepRow[] {
       group,
       ...entry.stages.map((stage): StepRow => ({
         type: 'step',
-        key: `${key}-${stage.name}-${stage.attempt}`,
-        label: stage.name
-          ? `${stage.name}${stage.attempt && stage.attempt > 1 ? ` (attempt ${stage.attempt})` : ''}`
-          : 'Outside stages',
+        key: `${key}-${stage.name}-${stage.attempt}-${stage.outside}`,
+        label: stageLabel(stage),
+        note: outsideNote(stage),
         level: 'child',
         kind: entry.kind,
         totals: stage.totals,

@@ -5,14 +5,10 @@ import {
   Paper,
   SegmentedControl,
   Stack,
-  Table,
   Text,
 } from '@mattstack/app-kit/core';
-import { Icon } from '@mattstack/app-kit/icons';
-import { Link } from '@mattstack/app-kit/router';
 import type {
   UsageModelRow,
-  UsageMrRow,
   UsagePipelineRow,
   UsageTotals,
 } from '@mattstack/rt-client';
@@ -26,12 +22,14 @@ import {
   compact,
   KIND_ORDER,
   modelName,
-  mrParts,
-  mrSummary,
-  usageMrHref,
+  nextMrOrder,
+  sortMrs,
   usd,
+  type MrSort,
+  type MrSortOrder,
 } from './format';
-import { KindBar, KindLegend, ShareBar } from './KindBar';
+import { KindLegend, ShareBar } from './KindBar';
+import { UsageMrList } from './UsageMrList';
 import classes from './UsagePage.module.css';
 import { UsageRepoSelect } from './UsageRepoSelect';
 import { UsageStats, type UsageStat } from './UsageStats';
@@ -40,7 +38,6 @@ import {
   useUsageMrs,
   useUsageStatus,
   useUsageTrends,
-  type EnrichmentOf,
   type UsageRange,
 } from './useUsage';
 import { averageWeek, WeeklyChart } from './WeeklyChart';
@@ -50,6 +47,10 @@ const RANGES = [
   { value: '90', label: '90 days' },
   { value: 'all', label: 'All' },
 ];
+
+const MR_SORTS: MrSort[] = ['cost', 'date', 'output', 'cacheRead'];
+
+const CONTENT_FRAME = { maw: 1680, my: 0, px: 40, py: 28 };
 
 const VIEWS = [
   { value: 'mrs', label: 'MRs' },
@@ -61,6 +62,7 @@ export function parseUsageSearch(search: string): {
   range: UsageRange;
   view: 'mrs' | 'trends';
   repo: string | null;
+  order: MrSortOrder;
 } {
   const params = new URLSearchParams(search);
   const asked = params.get('range');
@@ -70,6 +72,10 @@ export function parseUsageSearch(search: string): {
     range: rangeValue === 'all' ? null : Number(rangeValue),
     view: params.get('view') === 'trends' ? 'trends' : 'mrs',
     repo: params.get('repo'),
+    order: {
+      sort: MR_SORTS.find(s => s === params.get('sort')) ?? 'cost',
+      dir: params.get('dir') === 'asc' ? 'asc' : 'desc',
+    },
   };
 }
 
@@ -78,111 +84,25 @@ export function parseUsageSearch(search: string): {
 function useUsageUrl() {
   useSearch();
   const { search, pathname } = window.location;
-  const { rangeValue, range, view, repo } = parseUsageSearch(search);
-  const set = (key: string, value: string | null) => {
+  const { rangeValue, range, view, repo, order } = parseUsageSearch(search);
+  const update = (patch: Record<string, string | null>) => {
     const next = new URLSearchParams(search);
-    if (value) next.set(key, value);
-    else next.delete(key);
+    for (const [key, value] of Object.entries(patch)) {
+      if (value) next.set(key, value);
+      else next.delete(key);
+    }
     const qs = next.toString();
     navigate(qs ? `${pathname}?${qs}` : pathname, { replace: true });
   };
-  return { rangeValue, range, view, repo, set };
-}
-
-function MrRow({
-  row,
-  enrichment,
-}: {
-  row: UsageMrRow;
-  enrichment: EnrichmentOf;
-}) {
-  const { number } = mrParts(row.mrKey);
-  const title = enrichment(row.branch)?.ticket?.title;
-  return (
-    <Table.Tr className={classes.row}>
-      <Table.Td className={classes.name}>
-        <Link href={usageMrHref(row.mrKey)} className={classes.link}>
-          <Group gap={8} wrap="nowrap">
-            {row.ticket ? (
-              <Text fz="md" fw={700} lh="normal" className={classes.ticket}>
-                {row.ticket}
-              </Text>
-            ) : null}
-            <Text fz="md" fw={row.ticket ? 400 : 700} lh="normal" truncate>
-              {title ?? row.branch ?? number}
-            </Text>
-          </Group>
-        </Link>
-        <Text fz="sm" c="dimmed" lh="normal" truncate mt={3}>
-          {`${number} ${mrSummary(row)}`.trim()}
-        </Text>
-      </Table.Td>
-      <Table.Td className={classes.bar}>
-        <Link
-          href={usageMrHref(row.mrKey)}
-          className={classes.barLink}
-          tabIndex={-1}
-          aria-hidden
-        >
-          <KindBar cost={row.costByKind} />
-        </Link>
-      </Table.Td>
-      <Table.Td ta="right" c="dimmed" className={classes.num}>
-        {compact(row.totals.output)}
-      </Table.Td>
-      <Table.Td ta="right" c="dimmed" className={classes.num}>
-        {compact(row.totals.cacheRead)}
-      </Table.Td>
-      <Table.Td ta="right" fw={700} className={classes.num}>
-        {usd(row.totals.cost)}
-      </Table.Td>
-      <Table.Td className={classes.chevron}>
-        <Icon name="chevronRight" size={16} />
-      </Table.Td>
-    </Table.Tr>
-  );
-}
-
-function MrsView({
-  rows,
-  enrichment,
-}: {
-  rows: UsageMrRow[];
-  enrichment: EnrichmentOf;
-}) {
-  const kinds = KIND_ORDER.filter(k => rows.some(r => r.costByKind[k] > 0));
-  return (
-    <Paper variant="ground" withBorder radius={12} className={classes.table}>
-      <Table variant="soft" noPaper highlightOnHover horizontalSpacing={16}>
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>MR</Table.Th>
-            <Table.Th>
-              <KindLegend kinds={kinds} />
-            </Table.Th>
-            <Table.Th ta="right" className={classes.num}>
-              Output
-            </Table.Th>
-            <Table.Th ta="right" className={classes.num}>
-              Cache read
-            </Table.Th>
-            <Table.Th ta="right" className={classes.num}>
-              <Group gap={3} justify="flex-end" wrap="nowrap">
-                Est. cost
-                <Icon name="arrowDown" size={12} />
-              </Group>
-            </Table.Th>
-            <Table.Th />
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {rows.map(row => (
-            <MrRow key={row.mrKey} row={row} enrichment={enrichment} />
-          ))}
-        </Table.Tbody>
-      </Table>
-    </Paper>
-  );
+  const set = (key: string, value: string | null) => update({ [key]: value });
+  const sortBy = (sort: MrSort) => {
+    const next = nextMrOrder(order, sort);
+    update({
+      sort: next.sort === 'cost' ? null : next.sort,
+      dir: next.dir === 'desc' ? null : next.dir,
+    });
+  };
+  return { rangeValue, range, view, repo, order, set, sortBy };
 }
 
 function BreakdownCard({
@@ -275,10 +195,10 @@ export function UsagePage() {
   );
   const status = useUsageStatus();
 
+  const { sort, dir } = url.order;
   const rows = useMemo(
-    () =>
-      [...(mrs.data?.mrs ?? [])].sort((a, b) => b.totals.cost - a.totals.cost),
-    [mrs.data]
+    () => sortMrs(mrs.data?.mrs ?? [], { sort, dir }),
+    [mrs.data, sort, dir]
   );
   const enrichment = useUsageEnrichment(rows.map(r => r.branch));
 
@@ -337,7 +257,11 @@ export function UsagePage() {
   ];
 
   return (
-    <PageShell headerHeight={PAGE_ROW_HEIGHT} compactHeader>
+    <PageShell
+      headerHeight={PAGE_ROW_HEIGHT}
+      compactHeader
+      scrollClamp={!onTrends}
+    >
       <PageShell.Main>
         <PageShell.Header
           title="Usage"
@@ -350,9 +274,16 @@ export function UsagePage() {
           }
         />
         <PageShell.Content
-          contentContainerProps={{ maw: 1680, my: 0, px: 40, py: 28 }}
+          contentContainer
+          contentContainerProps={
+            onTrends ? CONTENT_FRAME : { ...CONTENT_FRAME, h: '100%' }
+          }
         >
-          <div className={classes.page} data-testid="usage-page">
+          <div
+            className={classes.page}
+            data-clamped={!onTrends || undefined}
+            data-testid="usage-page"
+          >
             <UsageRepoSelect
               value={url.repo}
               onChange={repo => url.set('repo', repo)}
@@ -428,7 +359,13 @@ export function UsagePage() {
               ) : (
                 <>
                   <UsageStats stats={mrStats} />
-                  <MrsView rows={rows} enrichment={enrichment} />
+                  <UsageMrList
+                    rows={rows}
+                    enrichment={enrichment}
+                    order={url.order}
+                    onSort={url.sortBy}
+                    resetKey={`${url.rangeValue} ${url.repo} ${sort} ${dir}`}
+                  />
                 </>
               )
             ) : null}

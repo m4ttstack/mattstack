@@ -51,8 +51,12 @@ describe('stepRows', () => {
     const stage = {
       attempt: 1,
       status: 'done',
+      outside: null,
       startedAt: 1,
       endedAt: 2,
+      firstActivity: 1,
+      lastActivity: 2,
+      subagentCost: 0,
       totals: totals(1),
     };
     expect(
@@ -61,11 +65,36 @@ describe('stepRows', () => {
           stages: [
             { ...stage, name: 'plan' },
             { ...stage, name: 'implement', attempt: 2 },
-            { ...stage, name: null, attempt: null },
+            { ...stage, name: null, attempt: null, outside: 'after' },
           ],
         }),
       ])
-    ).toEqual(['Work run', 'plan', 'implement (attempt 2)', 'Outside stages']);
+    ).toEqual([
+      'Work run',
+      'plan',
+      'implement (attempt 2)',
+      'After the last stage',
+    ]);
+  });
+
+  it('says when messages outside the stages ran, and how much was subagents', () => {
+    const outside = {
+      name: null,
+      attempt: null,
+      outside: 'between',
+      status: null,
+      startedAt: null,
+      endedAt: null,
+      firstActivity: new Date(2026, 9, 9).getTime(),
+      lastActivity: new Date(2026, 9, 10).getTime(),
+      subagentCost: 1,
+      totals: { ...totals(1), cost: 2 },
+    } as const;
+    const [, step] = stepRows(mr([entry('work', { stages: [outside] })]));
+    expect(step).toMatchObject({
+      label: 'Between stages',
+      note: 'Oct 9 to Oct 10, 50% subagents',
+    });
   });
 
   it('shows the teammate review a round answers, then the response', () => {
