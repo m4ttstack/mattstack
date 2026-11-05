@@ -23,6 +23,7 @@ import { STEPS } from "./steps/index.ts";
 import { MIGRATIONS, migrationEventId, SHARED_STORE_MIGRATIONS, SHARED_STORE_REFUSAL, type MigrationDef } from "./migrations/index.ts";
 import { drawPhaseWords, STEP_PHASES } from "./run-phases.ts";
 import { readSetupState, setupStatePath, storedVersion, updateSetupState, type SetupRun } from "./state.ts";
+import { updateAttention } from "./update.ts";
 import { discoverOrgs, readTeamSnapshot, type TeamSnapshot, type SettingsReader } from "./team-settings.ts";
 import type { SecretPresence } from "./validators/accounts.ts";
 
@@ -462,11 +463,6 @@ export interface UpdateOutcome {
   id: EventId;
   state: StepState;
   detail?: string;
-}
-
-/** The outcomes of an update run that need the person: what its notification lists and what makes the app open Setup status. */
-export function updateAttention(outcomes: readonly UpdateOutcome[]): UpdateOutcome[] {
-  return outcomes.filter((o) => o.state === "needs-you" || o.state === "failed");
 }
 
 function updateNeedsYou(outcomes: readonly UpdateOutcome[]): boolean {

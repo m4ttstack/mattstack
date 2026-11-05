@@ -58,7 +58,6 @@ import { roleFor } from "../lib/team/roles.ts";
 import { NO_MANIFEST_DETAIL, setupPackFlow } from "../lib/setup/pack.ts";
 import { planBlocks, rowTitles } from "../lib/setup/plan-blocks.ts";
 import { composePlan, enrichSnapshotForge, realSecretPresence } from "../lib/setup/plan.ts";
-import { composeForm } from "../lib/setup/form.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { checkCheckout, checkCloneTarget, configuredRepoRoots, resolvePlacements, takenFor, trackedIdentities, writePlacement, type CheckoutCheck } from "../lib/setup/repo-placement.ts";
 import { checkRepoRoot, stageRepoRoot } from "../lib/setup/repo-root.ts";
@@ -212,7 +211,11 @@ export function realApplyDeps(): ApplyDeps {
       return confirm({ message });
     },
     notify: (category, title, message, id) => notifyEnabled(category, title, message, undefined, undefined, id),
-    setupNeedsYou: async () => stageNeedsYou((await composeForm(probes, { secrets: realSecretPresence(), orgs: listOrgs() })).stage),
+    // Imported lazily: the daemon's graph reaches this file, and form.ts reaches the CLI picker chain.
+    setupNeedsYou: async () => {
+      const { composeForm } = await import("../lib/setup/form.ts");
+      return stageNeedsYou((await composeForm(probes, { secrets: realSecretPresence(), orgs: listOrgs() })).stage);
+    },
     devAppNotice: () => devAppNotice({ probes, flavor: processFlavor(), gh: () => resolveTool(probes, "gh").exec }),
     updateLock: createUpdateLock(updateLockPath(probes.home)),
     runLock: createUpdateLock(runLockPath, { maxAgeMs: APPLY_RUN_LOCK_MAX_AGE_MS }),
