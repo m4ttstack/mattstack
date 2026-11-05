@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { machineSettingsPath } from "../../rt-paths.ts";
 import { setSetting } from "../../settings/write.ts";
-import { CRON_RELOAD_AFTER_MS, parseCronConfig, loadCronConfig, startCron, type CronTrigger } from "../cron.ts";
+import { CRON_RELOAD_AFTER_MS, parseCronConfig, loadCronConfig, readTail, startCron, type CronTrigger } from "../cron.ts";
 
 const log = { info: () => {}, warn: () => {} };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -393,5 +393,50 @@ describe("a failed cron command", () => {
 
   test("a clean exit logs no stderr", async () => {
     expect(await runOnce("echo chatter >&2")).toEqual([]);
+  });
+
+  test("a chatty failure logs its last lines, no more", async () => {
+    const [warning] = await runOnce("i=0; while [ $i -lt 5000 ]; do echo \"line $i of noise that fills the pipe\" >&2; i=$((i+1)); done; exit 1");
+    const lines = warning!.split("\n");
+    expect(lines).toHaveLength(20);
+    expect(lines.at(-1)).toBe("line 4999 of noise that fills the pipe");
+  });
+});
+
+describe("readTail", () => {
+  const encoder = new TextEncoder();
+  const streamOf = (...chunks: string[]) =>
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+        controller.close();
+      },
+    });
+
+  test("returns all of a stream under the limit", async () => {
+    expect(await readTail(streamOf("ab", "cd"), 10)).toBe("abcd");
+  });
+
+  test("keeps only the last bytes, across chunks", async () => {
+    expect(await readTail(streamOf("aaaa", "bbbb", "cccc"), 6)).toBe("bbcccc");
+  });
+
+  test("keeps the end of one chunk bigger than the limit", async () => {
+    expect(await readTail(streamOf("abcdefgh"), 3)).toBe("fgh");
+  });
+
+  test("an empty stream reads empty", async () => {
+    expect(await readTail(streamOf())).toBe("");
+  });
+
+  test("a stream far past the limit returns only the limit", async () => {
+    let pulled = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (pulled++ === 1000) return controller.close();
+        controller.enqueue(new Uint8Array(1024).fill(97));
+      },
+    });
+    expect((await readTail(stream, 2048)).length).toBe(2048);
   });
 });
