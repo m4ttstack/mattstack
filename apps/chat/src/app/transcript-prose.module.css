@@ -256,7 +256,7 @@
 }
 
 .block .msg {
-  padding-inline: 16px;
+  padding-inline: 16px 32px;
 }
 
 @media (hover: hover) {
