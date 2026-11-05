@@ -96,6 +96,14 @@ function buildIntoTempDir(): string {
   );
   if (faceTiles.exitCode !== 0) throw new Error(`bun build (face-tiles) failed:\n${faceTiles.stderr.toString()}`);
 
+  // Mirrors the package build's eighth entry: the generated face (target
+  // browser) for the ./face-avatar subpath.
+  const faceAvatar = Bun.spawnSync(
+    ["bun", "build", "src/face-avatar.ts", "--outfile", join(outDir, "face-avatar.js"), "--target", "browser", "--format", "esm"],
+    { cwd: pkgDir, stdout: "pipe", stderr: "pipe" },
+  );
+  if (faceAvatar.exitCode !== 0) throw new Error(`bun build (face-avatar) failed:\n${faceAvatar.stderr.toString()}`);
+
   const types = Bun.spawnSync(
     ["bunx", "tsc", "-p", "tsconfig.json", "--outDir", outDir],
     { cwd: pkgDir, stdout: "pipe", stderr: "pipe" },
