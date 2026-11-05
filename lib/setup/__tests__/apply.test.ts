@@ -1834,6 +1834,30 @@ function updateStep(id: StepId, outcome: StepOutcome, updateSafe: true | undefin
 }
 
 // An update stamps lastApplyAt like any run, but it is not a full apply.
+describe("runUpdateWith: the done line says when setup needs you", () => {
+  const done = (events: ApplyEvent[]) => events.findLast((e) => e.event === "done");
+
+  test("a step that needs you or failed marks done with needsYou, which the app opens Setup status on", async () => {
+    for (const outcome of [{ state: "needs-you" as const, detail: "sign in" }, { state: "failed" as const, detail: "boom" }]) {
+      const { ctx, events } = testCtx();
+      await runUpdateWith([updateStep("path.link", outcome)], [], ctx);
+      expect(done(events)).toMatchObject({ event: "done", needsYou: true });
+    }
+  });
+
+  test("a clean run carries no needsYou", async () => {
+    const { ctx, events } = testCtx();
+    await runUpdateWith([updateStep("path.link", { state: "done" })], [], ctx);
+    expect(done(events)).toEqual({ event: "done", ok: true });
+  });
+
+  test("a retry stays quiet, as its notification does", async () => {
+    const { ctx, events } = testCtx();
+    await runUpdateWith([], [fakeMigration("2026-11-05-retry", async () => ({ state: "needs-you", detail: "later" }))], ctx, { retry: true });
+    expect(done(events)).not.toHaveProperty("needsYou");
+  });
+});
+
 describe("runUpdateWith and the finished state", () => {
   const STATE = "/fake-home/.mattstack/rt/setup-state.json";
 
@@ -1952,7 +1976,7 @@ describe("runUpdateWith", () => {
 
     expect(events.filter((e) => e.event === "step" && e.state === "done").length).toBe(1);
     const done = events.at(-1);
-    expect(done).toEqual({ event: "done", ok: false, failedStep: "path.link", failedSteps: ["path.link", "claude.permissions"] });
+    expect(done).toEqual({ event: "done", ok: false, failedStep: "path.link", failedSteps: ["path.link", "claude.permissions"], needsYou: true });
     expect(result.failedSteps).toEqual(["path.link", "claude.permissions"]);
   });
 
@@ -1971,7 +1995,7 @@ describe("runUpdateWith", () => {
     expect(readSetupState(ctx.p).migrations).toEqual(["after"]);
     expect(result.outcomes.map((o) => `${o.id}:${o.state}`)).toEqual(["migration.bad:failed", "migration.after:done", "path.link:done", "verify:done"]);
     expect(result.failedSteps).toEqual(["migration.bad"]);
-    expect(events.at(-1)).toEqual({ event: "done", ok: false, failedStep: "migration.bad", failedSteps: ["migration.bad"] });
+    expect(events.at(-1)).toEqual({ event: "done", ok: false, failedStep: "migration.bad", failedSteps: ["migration.bad"], needsYou: true });
   });
 
   test("a step throwing a plain Error is a bug: reported failed, later items skipped, rethrown after exactly one done", async () => {
@@ -1985,7 +2009,7 @@ describe("runUpdateWith", () => {
     await expect(runUpdateWith(steps, [], ctx)).rejects.toThrow("kaboom");
 
     expect(ran).toEqual([]);
-    expect(events.filter((e) => e.event === "done")).toEqual([{ event: "done", ok: false, failedStep: "path.link", failedSteps: ["path.link"] }]);
+    expect(events.filter((e) => e.event === "done")).toEqual([{ event: "done", ok: false, failedStep: "path.link", failedSteps: ["path.link"], needsYou: true }]);
     expect(events).toContainEqual({ event: "step", id: "path.link", state: "failed", detail: "bug: kaboom" });
   });
 

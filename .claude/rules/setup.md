@@ -162,8 +162,11 @@ change there is an admin's `rt settings set` or a layout change, see the
 runs once per machine and is recorded when `done` or `skipped`. One that
 must wait for something outside this Mac (an org layout this rt does not
 read) returns `partial`: unrecorded, so it runs again, and no notification. The tray
-only spawns the verb and routes the `setup_update` notification click to the
-Setup status window; put no decision in Swift.
+only spawns the verb, opens the Setup status window when its `done` line
+carries `needsYou` (set by `runUpdateWith` from the same outcomes the
+notification lists, never on a retry), and routes the `setup_update`
+notification click to that window; put no decision in Swift. The window opens
+whether or not notifications are on.
 
 ## Your repos
 

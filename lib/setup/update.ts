@@ -4,7 +4,7 @@
  * to tell the person when something needs them.
  */
 
-import type { UpdateOutcome } from "./apply.ts";
+import { updateAttention, type UpdateOutcome } from "./apply.ts";
 import type { Probes } from "./probes.ts";
 import { isSetupFinished, readSetupState } from "./state.ts";
 
@@ -42,7 +42,7 @@ export function decideUpdate(p: Pick<Probes, "exists" | "home" | "readFile" | "n
 export const SETUP_UPDATE_CATEGORY = "setup_update";
 
 export function updateNotification(version: string, outcomes: UpdateOutcome[]): { id: string; title: string; message: string } | null {
-  const attention = outcomes.filter((o) => o.state === "needs-you" || o.state === "failed");
+  const attention = updateAttention(outcomes);
   if (attention.length === 0) return null;
   return {
     id: `${SETUP_UPDATE_CATEGORY}:${version}`,

@@ -464,6 +464,15 @@ export interface UpdateOutcome {
   detail?: string;
 }
 
+/** The outcomes of an update run that need the person: what its notification lists and what makes the app open Setup status. */
+export function updateAttention(outcomes: readonly UpdateOutcome[]): UpdateOutcome[] {
+  return outcomes.filter((o) => o.state === "needs-you" || o.state === "failed");
+}
+
+function updateNeedsYou(outcomes: readonly UpdateOutcome[]): boolean {
+  return updateAttention(outcomes).length > 0;
+}
+
 export interface UpdateRunResult {
   ok: boolean;
   failedSteps: EventId[];
@@ -575,6 +584,8 @@ export async function runUpdateWith(steps: StepDef[], migrations: MigrationDef[]
       event: "done",
       ok,
       ...(failedSteps.length > 0 ? { failedStep: failedSteps[0], failedSteps } : {}),
+      // The app opens Setup status on this; a retry stays quiet, like its notification.
+      ...(!retry && updateNeedsYou(outcomes) ? { needsYou: true as const } : {}),
     });
   }
 
