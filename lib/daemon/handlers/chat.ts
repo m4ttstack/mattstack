@@ -855,10 +855,13 @@ export function postAndNotify(
   }
   // Independent of chat_members / wake_on: agents create rooms via
   // join-creates, so the human is typically not a member yet, and a
-  // member with wake_on='none' must still get a desk alert.
+  // member with wake_on='none' must still get a desk alert. A DM counts only
+  // when the human is dm.a or dm.b: dmRoomFor seats them as a silent member
+  // of every DM between two agents.
   const humanHandle = getSetting<string>("chat.humanHandle").value;
-  const allMentions = resolveMentions(body, mentions, db);
-  if (humanHandle && allMentions.includes(humanHandle)) {
+  const slackRoom = dm !== null && (isSlackIdentity(dm.a) || isSlackIdentity(dm.b));
+  const dmToHuman = dm !== null && (dm.a === humanHandle || dm.b === humanHandle);
+  if (humanHandle && handle !== humanHandle && !slackRoom && (dmToHuman || resolveMentions(body, mentions, db).includes(humanHandle))) {
     try {
       const authorName = identityName(handle, db);
       const title = dm ? `DM from ${authorName}` : `#${room}`;
