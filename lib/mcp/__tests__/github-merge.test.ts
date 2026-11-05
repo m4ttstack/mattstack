@@ -4,10 +4,13 @@ import { mergeOnGitHub, resolveGithubTarget, type GithubMergeProvider } from "..
 
 const TARGET = { projectPath: "acme/app", iid: 12 };
 
-function github(queue: { enabled: boolean; inQueue: boolean }, over: Partial<GithubMergeProvider> = {}) {
+type Status = { enabled: boolean; inQueue: boolean; merged?: boolean; lastRemoval?: { at: string; reason: string } | null };
+const full = (s: Status) => ({ merged: false, lastRemoval: null, ...s });
+
+function github(queue: Status, over: Partial<GithubMergeProvider> = {}) {
   const calls: string[] = [];
   const provider = {
-    fetchMergeQueueStatus: async () => queue,
+    fetchMergeQueueStatus: async () => full(queue),
     enqueuePullRequest: async () => {
       calls.push("enqueue");
       return { position: 2, state: "QUEUED" };
@@ -27,20 +30,20 @@ function github(queue: { enabled: boolean; inQueue: boolean }, over: Partial<Git
 describe("mergeOnGitHub", () => {
   test("a queued repo enqueues and reports the position", async () => {
     const { provider, calls } = github({ enabled: true, inQueue: false });
-    expect((await mergeOnGitHub(TARGET, {}, provider)).body).toEqual({ queued: true, position: 2, state: "QUEUED" });
+    expect((await mergeOnGitHub(TARGET, {}, { provider })).body).toEqual({ queued: true, position: 2, state: "QUEUED" });
     expect(calls).toEqual(["enqueue"]);
   });
 
   test("a PR already in the queue is left there", async () => {
     const { provider, calls } = github({ enabled: true, inQueue: true });
-    expect((await mergeOnGitHub(TARGET, {}, provider)).body).toEqual({ queued: true, alreadyQueued: true });
+    expect((await mergeOnGitHub(TARGET, {}, { provider })).body).toEqual({ queued: true, alreadyQueued: true });
     expect(calls).toEqual([]);
   });
 
   test("a queued repo refuses options the queue cannot honour, without touching the PR", async () => {
     for (const options of [{ squash: true }, { removeSourceBranch: false }, { whenPipelineSucceeds: true }]) {
       const { provider, calls } = github({ enabled: true, inQueue: false });
-      const res = await mergeOnGitHub(TARGET, options, provider);
+      const res = await mergeOnGitHub(TARGET, options, { provider });
       expect(res.ok).toBe(false);
       expect(res.error).toContain("merge queue");
       expect(calls).toEqual([]);
@@ -49,20 +52,20 @@ describe("mergeOnGitHub", () => {
 
   test("a repo with no queue merges directly with the caller's options", async () => {
     const { provider, calls } = github({ enabled: false, inQueue: false });
-    expect((await mergeOnGitHub(TARGET, { squash: true, removeSourceBranch: true }, provider)).body).toEqual({ merged: true });
+    expect((await mergeOnGitHub(TARGET, { squash: true, removeSourceBranch: true }, { provider })).body).toEqual({ merged: true });
     expect(calls).toEqual(['merge {"squash":true,"shouldRemoveSourceBranch":true}']);
   });
 
   test("a repo with no queue arms auto-merge for whenPipelineSucceeds", async () => {
     const { provider, calls } = github({ enabled: false, inQueue: false });
-    expect((await mergeOnGitHub(TARGET, { whenPipelineSucceeds: true }, provider)).body).toEqual({ autoMerge: true });
+    expect((await mergeOnGitHub(TARGET, { whenPipelineSucceeds: true }, { provider })).body).toEqual({ autoMerge: true });
     expect(calls).toEqual(["autoMerge"]);
   });
 
   test("only an observed merge reads as merged", async () => {
     const mergePullRequest = (async () => ({ state: "opened" })) as unknown as GithubMergeProvider["mergePullRequest"];
     const { provider } = github({ enabled: false, inQueue: false }, { mergePullRequest });
-    expect((await mergeOnGitHub(TARGET, {}, provider)).body).toEqual({ requested: "merge", verified: false, state: "opened" });
+    expect((await mergeOnGitHub(TARGET, {}, { provider })).body).toEqual({ requested: "merge", verified: false, state: "opened" });
   });
 
   test("a merge whose read-back failed is unverified, not failed", async () => {
@@ -70,7 +73,7 @@ describe("mergeOnGitHub", () => {
       throw Object.assign(Object.create(ReadBackFailedError.prototype), { writeApplied: true });
     }) as unknown as GithubMergeProvider["mergePullRequest"];
     const { provider } = github({ enabled: false, inQueue: false }, { mergePullRequest });
-    expect((await mergeOnGitHub(TARGET, {}, provider)).body).toEqual({ requested: "merge", verified: false });
+    expect((await mergeOnGitHub(TARGET, {}, { provider })).body).toEqual({ requested: "merge", verified: false });
   });
 
   test("a failed queue lookup stops before any write", async () => {
@@ -78,14 +81,94 @@ describe("mergeOnGitHub", () => {
       throw new Error("fetchMergeQueueStatus failed: 502");
     };
     const { provider, calls } = github({ enabled: true, inQueue: false }, { fetchMergeQueueStatus });
-    const res = await mergeOnGitHub(TARGET, {}, provider);
+    const res = await mergeOnGitHub(TARGET, {}, { provider });
     expect(res.error).toBe("fetchMergeQueueStatus failed: 502");
     expect(calls).toEqual([]);
   });
 
   test("no token is refused", async () => {
-    const res = await mergeOnGitHub(TARGET, {}, async () => null);
+    const res = await mergeOnGitHub(TARGET, {}, { provider: async () => null });
     expect(res.error).toContain("gh auth login");
+  });
+});
+
+describe("mergeOnGitHub with wait", () => {
+  /** Each poll reads the next status; the last one repeats. */
+  function polling(first: Status, later: Array<Status | Error>) {
+    const reads = [first, ...later];
+    let i = 0;
+    const fetchMergeQueueStatus = async () => {
+      const next = reads[Math.min(i++, reads.length - 1)]!;
+      if (next instanceof Error) throw next;
+      return full(next);
+    };
+    const made = github(first, { fetchMergeQueueStatus: fetchMergeQueueStatus as GithubMergeProvider["fetchMergeQueueStatus"] });
+    let now = 0;
+    const seams = { provider: made.provider, now: () => now, sleep: async (ms: number) => { now += ms; } };
+    return { ...made, seams };
+  }
+  const OLD = { at: "2026-01-01T00:00:00Z", reason: "failed_checks" };
+  const NEW = { at: "2026-01-02T00:00:00Z", reason: "merge_conflict" };
+
+  test("queues, then reports the merge", async () => {
+    const { seams, calls } = polling({ enabled: true, inQueue: false }, [{ enabled: true, inQueue: true }, { enabled: true, inQueue: false, merged: true }]);
+    expect((await mergeOnGitHub(TARGET, { wait: true }, seams)).body).toEqual({ merged: true });
+    expect(calls).toEqual(["enqueue"]);
+  });
+
+  test("joins a PR already queued without enqueuing it again", async () => {
+    const { seams, calls } = polling({ enabled: true, inQueue: true }, [{ enabled: true, inQueue: false, merged: true }]);
+    expect((await mergeOnGitHub(TARGET, { wait: true }, seams)).body).toEqual({ merged: true });
+    expect(calls).toEqual([]);
+  });
+
+  test("reports a drop with GitHub's reason", async () => {
+    const { seams } = polling({ enabled: true, inQueue: true }, [{ enabled: true, inQueue: false, lastRemoval: NEW }]);
+    expect((await mergeOnGitHub(TARGET, { wait: true }, seams)).body).toEqual({ dropped: true, reason: "merge_conflict", at: NEW.at });
+  });
+
+  test("a removal from before the wait does not read as a drop", async () => {
+    const { seams } = polling({ enabled: true, inQueue: false, lastRemoval: OLD }, [
+      { enabled: true, inQueue: false, lastRemoval: OLD },
+      { enabled: true, inQueue: true, lastRemoval: OLD },
+      { enabled: true, inQueue: false, merged: true, lastRemoval: OLD },
+    ]);
+    expect((await mergeOnGitHub(TARGET, { wait: true, requeue: true }, seams)).body).toEqual({ merged: true });
+  });
+
+  test("never re-queues a dropped PR unless asked", async () => {
+    const { seams, calls } = polling({ enabled: true, inQueue: false, lastRemoval: OLD }, []);
+    expect((await mergeOnGitHub(TARGET, { wait: true }, seams)).body).toEqual({ dropped: true, reason: "failed_checks", at: OLD.at });
+    expect(calls).toEqual([]);
+  });
+
+  test("times out still queued, and the next call can pick it up", async () => {
+    const { seams } = polling({ enabled: true, inQueue: true }, []);
+    expect((await mergeOnGitHub(TARGET, { wait: true, maxWaitSeconds: 60 }, seams)).body).toEqual({ queued: true, timedOut: true });
+  });
+
+  test("rides out a failed poll", async () => {
+    const { seams } = polling({ enabled: true, inQueue: true }, [new Error("502"), { enabled: true, inQueue: false, merged: true }]);
+    expect((await mergeOnGitHub(TARGET, { wait: true }, seams)).body).toEqual({ merged: true });
+  });
+
+  test("names the last error when polling never recovers", async () => {
+    const { seams } = polling({ enabled: true, inQueue: true }, [new Error("502")]);
+    expect((await mergeOnGitHub(TARGET, { wait: true, maxWaitSeconds: 60 }, seams)).body).toEqual({ queued: true, timedOut: true, lastError: "502" });
+  });
+
+  test("an already merged PR returns merged, with or without wait", async () => {
+    for (const options of [{}, { wait: true }]) {
+      const { seams, calls } = polling({ enabled: true, inQueue: false, merged: true }, []);
+      expect((await mergeOnGitHub(TARGET, options, seams)).body).toEqual({ merged: true });
+      expect(calls).toEqual([]);
+    }
+  });
+
+  test("a repo with no queue merges directly and has nothing to wait for", async () => {
+    const { seams, calls } = polling({ enabled: false, inQueue: false }, []);
+    expect((await mergeOnGitHub(TARGET, { wait: true }, seams)).body).toEqual({ merged: true });
+    expect(calls).toEqual(["merge {}"]);
   });
 });
 
