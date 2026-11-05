@@ -189,6 +189,8 @@ export function linkAgents(db: Database, agents: AgentLink[], machineId: string)
       agent_mr_key = excluded.agent_mr_key,
       agent_kind = CASE WHEN usage_sessions.agent_kind = 'doctor' THEN 'doctor' ELSE excluded.agent_kind END`);
   const linkSession = db.query(LINK_RUN_SESSION);
+  // A skipped test run has no usage_runs row, so its adopting agent must not link.
+  const knownRun = db.query("SELECT 1 FROM usage_runs WHERE machine_id = ? AND run_id = ?");
   db.transaction(() => {
     for (const agent of agents) {
       if (!agent.sessionId || !agent.subject) continue;
@@ -202,7 +204,7 @@ export function linkAgents(db: Database, agents: AgentLink[], machineId: string)
         );
       } else if (agent.subject.startsWith("run:")) {
         const runId = agent.subject.slice(4);
-        if (runId) linkSession.run(machineId, agent.sessionId, runId);
+        if (runId && knownRun.get(machineId, runId)) linkSession.run(machineId, agent.sessionId, runId);
       }
     }
   })();

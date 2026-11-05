@@ -180,7 +180,16 @@ test("a mr: agent links session to MR", () => {
   ]);
 });
 
+test("a run: agent for a skipped test run writes no link", () => {
+  seedRun(runs, REPO, "run-t", 1000, 1, { fields: [field("test", "1")] });
+  snapshotRuns(db, runs, M);
+  linkAgents(db, [agent({ subject: "run:run-t" })], M);
+  expect(db.query("SELECT COUNT(*) AS n FROM usage_sessions").get()).toEqual({ n: 0 });
+});
+
 test("a run: agent adds a session to that run", () => {
+  seedRun(runs, REPO, "run-9", 1000, 1);
+  snapshotRuns(db, runs, M);
   linkAgents(db, [agent({ subject: "run:run-9" })], M);
   expect(db.query("SELECT * FROM usage_sessions").all()).toEqual([
     {
@@ -219,6 +228,9 @@ test("agents without a session or a known subject write no link", () => {
 });
 
 test("linkedSessionIds lists this machine's sessions only", () => {
+  seedRun(runs, REPO, "run-9", 1000, 1);
+  snapshotRuns(db, runs, M);
+  snapshotRuns(db, runs, "machine-b");
   linkAgents(db, [agent({ subject: "run:run-9" })], M);
   linkAgents(db, [agent({ sessionId: "s-other", subject: "run:run-9" })], "machine-b");
   expect(linkedSessionIds(db, M)).toEqual(new Set(["s-1"]));
