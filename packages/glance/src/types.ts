@@ -555,16 +555,6 @@ export interface UpdatePullRequestInput {
  */
 export type MergeMethod = 'merge' | 'squash' | 'rebase';
 
-/**
- * Input for merging (accepting) a pull request / merge request.
- *
- * All fields are **optional**. On GitLab, omitting them defers to the
- * project-level settings configured in the forge UI (merge method, squash
- * policy, delete-source-branch, etc.), matching how the web UI works. On
- * GitHub, the REST merge endpoint does not defer to those settings the way
- * the web UI does: for example, an omitted `mergeMethod` becomes "merge",
- * not the repository's configured default.
- */
 export interface EnqueuePullRequestInput {
   /** Refuse the enqueue unless the branch is still at this commit. */
   expectedHeadSha?: string;
@@ -577,6 +567,16 @@ export interface MergeQueueEntry {
   state: string;
 }
 
+/**
+ * Input for merging (accepting) a pull request / merge request.
+ *
+ * All fields are **optional**. On GitLab, omitting them defers to the
+ * project-level settings configured in the forge UI (merge method, squash
+ * policy, delete-source-branch, etc.), matching how the web UI works. On
+ * GitHub, the REST merge endpoint does not defer to those settings the way
+ * the web UI does: for example, an omitted `mergeMethod` becomes "merge",
+ * not the repository's configured default.
+ */
 export interface MergePullRequestInput {
   /** Merge commit message. Omit to use the provider/project default. */
   commitMessage?: string;

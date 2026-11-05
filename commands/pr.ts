@@ -21,7 +21,32 @@ export interface PrEnqueueDeps {
 
 export type PrEnqueueResult =
   | { ok: true; pr: number; position: number; state: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string; next?: string };
+
+const USAGE = "rt pr enqueue <number> [--head <sha>] [--json]";
+
+/** GitHub's GitObjectID refuses a short sha. */
+const FULL_SHA = /^[0-9a-f]{40}$/i;
+
+type Parsed = { pr: number; head?: string } | { error: string };
+
+function parseArgs(args: string[]): Parsed {
+  const positional: string[] = [];
+  let head: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "--head") {
+      head = args[++i];
+      if (!head || !FULL_SHA.test(head)) return { error: "--head needs a full 40-character sha" };
+    } else if (arg.startsWith("-")) {
+      return { error: `Unknown option ${arg}` };
+    } else {
+      positional.push(arg);
+    }
+  }
+  if (positional.length !== 1 || !/^[1-9]\d*$/.test(positional[0]!)) return { error: "Which one PR number should go in the queue?" };
+  return { pr: Number(positional[0]), ...(head && { head }) };
+}
 
 function realDeps(cwd: string): PrEnqueueDeps {
   return {
@@ -36,19 +61,16 @@ function realDeps(cwd: string): PrEnqueueDeps {
 }
 
 export async function runPrEnqueue(args: string[], deps: PrEnqueueDeps): Promise<PrEnqueueResult> {
-  const headAt = args.indexOf("--head");
-  const head = headAt >= 0 ? args[headAt + 1] : undefined;
-  if (headAt >= 0 && (!head || head.startsWith("--"))) return { ok: false, error: "--head requires a sha" };
-  const number = args.find((a, i) => !a.startsWith("--") && (headAt < 0 || i !== headAt + 1));
-  const pr = Number(number);
-  if (!Number.isInteger(pr) || pr <= 0) return { ok: false, error: "usage: rt pr enqueue <number> [--head <sha>] [--json]" };
+  const parsed = parseArgs(args);
+  if ("error" in parsed) return { ok: false, error: parsed.error, next: USAGE };
+  const { pr, head } = parsed;
 
   const url = await deps.originUrl();
   const remote = url ? parseRemoteUrl(url) : null;
   if (!url || !remote) return { ok: false, error: "could not read this checkout's origin remote" };
   const forge = await deps.forgeToken(url);
   if (forge?.forge !== "github") return { ok: false, error: "rt pr enqueue only works on GitHub repos" };
-  if (!forge.token) return { ok: false, error: "no GitHub token (run: gh auth login)" };
+  if (!forge.token) return { ok: false, error: "No GitHub token found", next: "gh auth login" };
 
   try {
     const entry = await deps.enqueue(remote.host, forge.token, remote.projectPath, pr, head);
@@ -61,7 +83,7 @@ export async function runPrEnqueue(args: string[], deps: PrEnqueueDeps): Promise
 export async function prEnqueue(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const result = await runPrEnqueue(args.filter(a => a !== "--json"), realDeps(process.cwd()));
-  if (!result.ok) exitUserError(new UserActionableError("pr-enqueue-failed", result.error), json);
+  if (!result.ok) exitUserError(new UserActionableError("pr-enqueue-failed", result.error, {}, { next: result.next }), json);
   if (json) out.json(result);
   else out.print(out.line("done", `#${result.pr} queued at position ${result.position}`, result.state));
 }

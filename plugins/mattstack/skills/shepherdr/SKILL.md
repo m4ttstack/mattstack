@@ -800,7 +800,7 @@ brief unless `brief` is new, and keeps the job's model, effort and account
 unless passed. The old session's open and parked gates close as abandoned so the new
 worker re-asks; answered ones are marked consumed.
 
-<!-- part: block:shepherdr/lanes-and-wrap-up source=mattstack:shepherdr version=0.32.42 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/index.block.md lines=5-124 -->
+<!-- part: block:shepherdr/lanes-and-wrap-up source=mattstack:shepherdr version=0.32.42 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/index.block.md lines=5-125 -->
 ## Lanes and wrap-up
 
 ```dot
@@ -895,6 +895,7 @@ digraph shepherdr_lanes {
     merged_on_repo -> shepherd_off_script [label="no row: quote the skipped reason"];
     lane_claimed_merge -> unmerged_reports_spent [label="yes"];
     lane_claimed_merge -> back_to_watch_loop [label="no: it waits on the integration job, the gate or a human's merge"];
+    lane_claimed_merge -> back_to_watch_loop [label="no: your enqueue is still in the merge queue"];
     lane_claimed_merge -> shepherd_off_script [label="no: your own merge call did not land"];
     unmerged_reports_spent -> chat_dm_merge_state [label="no"];
     unmerged_reports_spent -> shepherd_off_script [label="yes: budget spent"];
@@ -1016,11 +1017,12 @@ hand, and anything unmeasured as "not verified".
 Quote the disposal refusal as the guard gave it. In hidden mode, also offer
 the Bash command `rt herd stop --hidden` (no tool runs it); never run it unprompted. <!-- mcp-lint: allow -->
 
-<!-- part: block:shepherdr/what-the-lanes-graph-cannot-show source=mattstack:shepherdr version=0.32.42 path=attachments/orchestration/shepherdr/what-the-lanes-graph-cannot-show.block.md lines=9-18 -->
+<!-- part: block:shepherdr/what-the-lanes-graph-cannot-show source=mattstack:shepherdr version=0.32.42 path=attachments/orchestration/shepherdr/what-the-lanes-graph-cannot-show.block.md lines=9-19 -->
 ## What the lanes graph cannot show
 
 - **The two objective checks.** `herd_lanes {herd}` returns a row per active job (`commits`; `drift.files`, committed and uncommitted work since the merge base; `collidesWith`) plus herd-wide `collisions`. Compare each job's `drift.files` against its write fence yourself; no fence is stored. A job whose tree is gone has no row (it is in `skipped` with a reason), and the drift check skips it.
 - **A report is a claim, not a merge.** Answer "Merged on the repo?" from the job's row `merge.state` (GitHub or GitLab) alone, never the report or a forge read of your own: `merged` is yes; `open`, `closed` or `none` is no; `unknown` goes to the off-script gate with the read's error. A lane with no row (a merge can dispose its tree) goes there with its `skipped` reason, and the proposed move closes the lane once the user confirms the merge. The row's `unmergedReports` feeds `Unmerged reports for this lane spent?` (see **Budgets**).
+- **The merge queue.** Answer `Target branch has a merge queue?` from the PR's `isMergeQueueEnabled`, and tell a queued PR from a dropped one by `isInMergeQueue`; `gh pr view` does not expose either, so read them with `gh api graphql`. A queued PR's row reads `open` until the queue lands it. One the queue dropped is a merge call that did not land.
 - **Job state is the daemon's.** It marks a job `done` when its report is published.
 - **The integration job.** Its brief merges or cherry-picks the job branches, runs full verification, carries the shipping conventions, and reports. The first is `integration-1`; a lane that joined after it spawned gets the next number, and that brief covers only the lanes no integration job has merged.
 - **Domain hook: after the report.** Unbound: the integration job merges. Bound domain rules may define what follows a report (the worker ships through its own skill chain, the shepherd merges after a gate, or a human merges on the forge and the lane closes when `herd_lanes` reads `merged`; how jobs feeding one deliverable integrate) and whether it waits for the user to ask. Fixing and pushing stay with workers.

@@ -1459,7 +1459,7 @@ export const TREE: Record<string, CommandNode> = {
         omitBehavior: { exempt: "a free-form PR number" },
         args: [
           { name: "PR", type: "text", placeholder: "123", hint: "PR number" },
-          { name: "Head", flag: "--head", type: "text", placeholder: "abc1234", hint: "Refuse unless the branch is at this commit" },
+          { name: "Head", flag: "--head", type: "text", placeholder: "<40-character sha>", hint: "Refuse unless the branch is at this full sha" },
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
         ],
       },

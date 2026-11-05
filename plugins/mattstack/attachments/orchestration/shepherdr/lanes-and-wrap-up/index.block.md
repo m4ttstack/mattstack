@@ -94,6 +94,7 @@ flowchart TB
     merged_on_repo -->|no row: quote the skipped reason| shepherd_off_script
     lane_claimed_merge -->|yes| unmerged_reports_spent
     lane_claimed_merge -->|no: it waits on the integration job, the gate or a human's merge| back_to_watch_loop
+    lane_claimed_merge -->|no: your enqueue is still in the merge queue| back_to_watch_loop
     lane_claimed_merge -->|no: your own merge call did not land| shepherd_off_script
     unmerged_reports_spent -->|no| chat_dm_merge_state
     unmerged_reports_spent -->|yes: budget spent| shepherd_off_script
