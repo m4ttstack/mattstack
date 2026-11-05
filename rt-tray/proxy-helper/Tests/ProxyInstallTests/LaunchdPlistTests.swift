@@ -39,6 +39,8 @@ private let goldenPlist = """
     <string>0</string>
     <key>PORTLESS_WILDCARD</key>
     <string>0</string>
+    <key>PORTLESS_UNPRIVILEGED</key>
+    <string>0</string>
     <key>PORTLESS_TLD</key>
     <string>localhost,mattstack</string>
     <key>HOME</key>
@@ -106,6 +108,7 @@ final class LaunchdPlistTests: XCTestCase {
         // portless refuses a certificate for a host outside its configured
         // TLDs, so an unnamed .mattstack fails the TLS handshake.
         XCTAssertEqual(env["PORTLESS_TLD"], "localhost,mattstack")
+        XCTAssertEqual(env["PORTLESS_UNPRIVILEGED"], "0")
         // portless chowns what it writes back to SUDO_UID; without these the
         // root daemon leaves root-owned files in the user's own state dir.
         XCTAssertEqual(env["SUDO_UID"], "501")

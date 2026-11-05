@@ -35,6 +35,9 @@ enum LaunchdPlist {
             ("PORTLESS_HTTPS", "1"),
             ("PORTLESS_LAN", "0"),
             ("PORTLESS_WILDCARD", "0"),
+            // Left unset, a stale proxy.unprivileged marker in the state dir
+            // would switch the root daemon to wildcard routing with hosts sync off.
+            ("PORTLESS_UNPRIVILEGED", "0"),
             // portless refuses a certificate for a host outside these, so every
             // TLD a route uses has to be named here.
             ("PORTLESS_TLD", "localhost,mattstack"),

@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
@@ -583,6 +589,44 @@ test('PUT override is refused while the app is live', async () => {
     error: 'live mode owns this route; stop live first',
   });
   clearLive('livey');
+});
+
+test('clearing an override restores every host of the app', async () => {
+  const routesFile = join(dir, 'routes.json');
+  writeFileSync(
+    routesFile,
+    JSON.stringify([
+      { hostname: 'ov.localhost', port: 18101, pid: 0 },
+      { hostname: 'ov.mattstack', port: 18101, pid: 0 },
+    ])
+  );
+  putRecord({
+    name: 'ov',
+    managedBy: 'rt',
+    port: 18101,
+    kind: 'service',
+    createdAt: '',
+  });
+  const override = (devPort: number | null) =>
+    api('/api/v1/apps/ov/override', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ devPort }),
+    });
+  expect((await override(5174)).status).toBe(200);
+  // portless alias writes every TLD the proxy runs, so an edit during an override moves both hosts.
+  writeFileSync(
+    routesFile,
+    JSON.stringify([
+      { hostname: 'ov.localhost', port: 5174, pid: 0 },
+      { hostname: 'ov.mattstack', port: 5174, pid: 0 },
+    ])
+  );
+
+  expect((await override(null)).status).toBe(200);
+
+  const routes = JSON.parse(readFileSync(routesFile, 'utf8'));
+  expect(routes.map((r: { port: number }) => r.port)).toEqual([18101, 18101]);
 });
 
 test('mutations through a public host are forbidden', async () => {
