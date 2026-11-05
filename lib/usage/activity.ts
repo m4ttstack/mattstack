@@ -8,7 +8,7 @@ const MAX_TEXT = 500;
 
 /** Text Claude Code wraps in a tag of its own; a prompt that merely starts with a tag stays. */
 const WRAPPER =
-  /^<(task-notification|local-command-stdout|local-command-stderr|local-command-caveat|bash-input|bash-stdout|bash-stderr|system-reminder)\b/;
+  /^<(agent-message|cross-session-message|task-notification|local-command-stdout|local-command-stderr|local-command-caveat|bash-input|bash-stdout|bash-stderr|system-reminder)\b/;
 const COMMAND_NAME = /<command-name>\s*([^<]+?)\s*<\/command-name>/;
 const COMMAND_ARGS = /<command-args>\s*([^<]*?)\s*<\/command-args>/;
 
@@ -54,7 +54,7 @@ function promptText(raw: string): string | null {
     const args = COMMAND_ARGS.exec(text)?.[1];
     return args ? `${command[1]} ${args}` : command[1]!;
   }
-  if (text === "" || WRAPPER.test(text) || text.startsWith("[Request interrupted")) return null;
+  if (!/\w/.test(text) || WRAPPER.test(text) || text.startsWith("[Request interrupted")) return null;
   return text;
 }
 
