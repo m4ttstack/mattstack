@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync } from "fs";
+import { existsSync, mkdirSync } from "fs";
+import { userInfo } from "os";
 import { join } from "path";
 import { rtDir } from "../../rt-paths.ts";
 import { rtSelfArgv } from "../../rt-self.ts";
@@ -107,4 +108,16 @@ describe("spawnUsageSweep", () => {
     await spawnUsageSweep({ argv: ["rt"], spawn: next.spawn });
     expect(next.calls).toHaveLength(1);
   });
+
+  test("the real spawn runs the sweep from source and exits 0", async () => {
+    const realHome = userInfo().homedir;
+    const home = process.env.HOME;
+    if (!home || home === realHome) {
+      throw new Error(`refusing to run the real sweep: HOME is ${home}, the account home`);
+    }
+    mkdirSync(rtDir(), { recursive: true });
+    await expect(spawnUsageSweep()).resolves.toBeUndefined();
+    expect(existsSync(join(rtDir(), "rt.sock"))).toBe(false);
+    expect(existsSync(join(rtDir(), "rt.pid"))).toBe(false);
+  }, 120_000);
 });
