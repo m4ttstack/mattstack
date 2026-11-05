@@ -365,6 +365,7 @@ export function UsagePage() {
                     order={url.order}
                     onSort={url.sortBy}
                     resetKey={`${url.rangeValue} ${url.repo} ${sort} ${dir}`}
+                    showRepo={url.repo === null}
                   />
                 </>
               )

@@ -67,12 +67,14 @@ function MrRow({
   row,
   index,
   enrichment,
+  showRepo,
 }: {
   row: UsageMrRow;
   index: number;
   enrichment: EnrichmentOf;
+  showRepo: boolean;
 }) {
-  const { number } = mrParts(row.mrKey);
+  const { number, repo } = mrParts(row.mrKey);
   const title = enrichment(row.branch)?.ticket?.title;
   return (
     <div role="row" aria-rowindex={index + 2} className={classes.row}>
@@ -96,11 +98,18 @@ function MrRow({
           </span>
         </Link>
         <Text fz="sm" c="dimmed" lh="normal" truncate mt={3}>
-          {`${number} ${mrSummary(row)}`.trim()}
+          {`${showRepo ? `${repo} ` : ''}${number} ${mrSummary(row)}`.trim()}
         </Text>
       </div>
-      <div role="cell">
-        <KindBar cost={row.costByKind} />
+      <div role="cell" className={classes.bar}>
+        <Link
+          href={usageMrHref(row.mrKey)}
+          className={classes.barLink}
+          tabIndex={-1}
+          aria-hidden
+        >
+          <KindBar cost={row.costByKind} />
+        </Link>
       </div>
       <Text role="cell" fz="sm" c="dimmed" ta="right">
         {shortDate(row.lastActivity)}
@@ -130,12 +139,14 @@ export function UsageMrList({
   order,
   onSort,
   resetKey,
+  showRepo,
 }: {
   rows: UsageMrRow[];
   enrichment: EnrichmentOf;
   order: MrSortOrder;
   onSort: (sort: MrSort) => void;
   resetKey: string;
+  showRepo: boolean;
 }) {
   const kinds = KIND_ORDER.filter(k => rows.some(r => r.costByKind[k] > 0));
   const { ref, height } = useElementSize<HTMLDivElement>();
@@ -149,40 +160,47 @@ export function UsageMrList({
       aria-label="MRs"
       aria-rowcount={rows.length + 1}
     >
-      <div role="row" aria-rowindex={1} className={classes.head}>
-        <div role="columnheader">MR</div>
-        <div role="columnheader" aria-label="Cost by kind">
-          <KindLegend kinds={kinds} />
+      <div className={classes.frame}>
+        <div role="row" aria-rowindex={1} className={classes.head}>
+          <div role="columnheader">MR</div>
+          <div role="columnheader" aria-label="Cost by kind">
+            <KindLegend kinds={kinds} />
+          </div>
+          {SORT_COLUMNS.map(column => (
+            <SortHeader
+              key={column.sort}
+              {...column}
+              order={order}
+              onSort={onSort}
+            />
+          ))}
+          <div role="columnheader" aria-label="Open" />
         </div>
-        {SORT_COLUMNS.map(column => (
-          <SortHeader
-            key={column.sort}
-            {...column}
-            order={order}
-            onSort={onSort}
+        <div
+          ref={ref}
+          className={classes.rows}
+          style={{
+            height: rows.length * ROW_HEIGHT,
+            minHeight: Math.min(rows.length, MIN_ROWS_SHOWN) * ROW_HEIGHT,
+          }}
+        >
+          <VirtualList
+            key={resetKey}
+            items={rows}
+            getItemKey={row => row.mrKey}
+            estimateSize={() => ROW_HEIGHT}
+            overscan={8}
+            maxHeight={height}
+            renderRow={(row, index) => (
+              <MrRow
+                row={row}
+                index={index}
+                enrichment={enrichment}
+                showRepo={showRepo}
+              />
+            )}
           />
-        ))}
-        <div role="columnheader" aria-label="Open" />
-      </div>
-      <div
-        ref={ref}
-        className={classes.rows}
-        style={{
-          height: rows.length * ROW_HEIGHT,
-          minHeight: Math.min(rows.length, MIN_ROWS_SHOWN) * ROW_HEIGHT,
-        }}
-      >
-        <VirtualList
-          key={resetKey}
-          items={rows}
-          getItemKey={row => row.mrKey}
-          estimateSize={() => ROW_HEIGHT}
-          overscan={8}
-          maxHeight={height}
-          renderRow={(row, index) => (
-            <MrRow row={row} index={index} enrichment={enrichment} />
-          )}
-        />
+        </div>
       </div>
     </Paper>
   );

@@ -78,6 +78,7 @@ describe('stepRows', () => {
   });
 
   it('says when messages outside the stages ran, and how much was subagents', () => {
+    const thisYear = new Date().getFullYear();
     const outside = {
       name: null,
       attempt: null,
@@ -85,8 +86,8 @@ describe('stepRows', () => {
       status: null,
       startedAt: null,
       endedAt: null,
-      firstActivity: new Date(2026, 9, 9).getTime(),
-      lastActivity: new Date(2026, 9, 10).getTime(),
+      firstActivity: new Date(thisYear, 9, 9).getTime(),
+      lastActivity: new Date(thisYear, 9, 10).getTime(),
       subagentCost: 1,
       totals: { ...totals(1), cost: 2 },
     } as const;

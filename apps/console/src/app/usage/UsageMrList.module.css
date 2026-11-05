@@ -6,7 +6,16 @@
   flex-direction: column;
   width: 100%;
   min-height: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.frame {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-width: 880px;
+  min-height: 0;
 }
 
 .head,
@@ -86,6 +95,16 @@
 
 .ticket {
   flex: none;
+}
+
+.bar {
+  position: relative;
+  z-index: 1;
+}
+
+.barLink {
+  display: block;
+  padding-block: 8px;
 }
 
 .chevron {

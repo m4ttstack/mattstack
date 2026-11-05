@@ -1006,10 +1006,7 @@ describe('RunDetail: finished run', () => {
       expect(outcomesOf(header)).toEqual(['Requested changes on !412'])
     );
     await waitFor(() =>
-      expect(statsOf(header).map(([id]) => id)).toEqual([
-        'duration',
-        'waiting',
-      ])
+      expect(statsOf(header).map(([id]) => id)).toEqual(['duration', 'waiting'])
     );
     expect(tabsOf(record).map(([name]) => name)).toEqual(['Story', 'Inputs']);
   });
