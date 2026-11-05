@@ -250,8 +250,13 @@
   background-color: var(--mantine-color-default-hover);
 }
 
+/* Raised off the page by the same shadow as the app's menus. The hairline
+   keeps it standing in dark mode, where the shadow barely shows. */
 .block[data-picked] {
-  background-color: color-mix(in srgb, var(--tk-text-1) 7%, transparent);
+  background-color: var(--tk-card);
+  box-shadow:
+    0 0 0 1px var(--tk-border-soft),
+    var(--mantine-shadow-md);
 }
 
 .blockLine {
