@@ -24,6 +24,28 @@ export interface CronLog {
 }
 
 const DEFAULT_DEBOUNCE_MS = 5000;
+const STDERR_TAIL_LINES = 20;
+const STDERR_TAIL_BYTES = 64 * 1024;
+const STDERR_LOG_CHARS = 4 * 1024;
+const STDERR_GRACE_MS = 250;
+
+/** Drains a stream holding only its last `maxBytes`, so a chatty command cannot grow the daemon's memory. `text` reads what has arrived so far. */
+export function tailStream(stream: ReadableStream<Uint8Array>, maxBytes = STDERR_TAIL_BYTES) {
+  const chunks: Uint8Array[] = [];
+  let held = 0;
+  const done = (async () => {
+    for await (const chunk of stream) {
+      chunks.push(chunk);
+      held += chunk.length;
+      while (held - chunks[0]!.length >= maxBytes) held -= chunks.shift()!.length;
+    }
+  })();
+  return {
+    done,
+    heldBytes: () => held,
+    text: () => Buffer.concat(chunks).subarray(-maxBytes).toString("utf8"),
+  };
+}
 
 export function parseCronConfig(value: unknown): CronConfig {
   const raw = (value ?? {}) as { triggers?: unknown };
@@ -86,9 +108,19 @@ function defaultRunCommand(argv: string[], trigger: CronTrigger, log: CronLog): 
     // strands the PATH the daemon overlays onto process.env at boot
     // (lib/daemon.ts resolveUserPath) and leaves any non-absolute argv[0]
     // (a "#!/usr/bin/env node" shebang, "pnpm", ...) unresolvable.
-    const proc = Bun.spawn(argv, { stdin: "ignore", stdout: "ignore", stderr: "ignore", env: { ...process.env } });
+    const proc = Bun.spawn(argv, { stdin: "ignore", stdout: "ignore", stderr: "pipe", env: { ...process.env } });
     log.info(`cron ${trigger.name}: spawned "${argv.join(" ")}" (pid ${proc.pid})`);
-    void proc.exited.then((code) => log.info(`cron ${trigger.name}: exited ${code}`));
+    // stderr is drained as the command runs, so a chatty pass never fills the
+    // pipe and blocks; only a failure's tail reaches the log.
+    const stderr = tailStream(proc.stderr);
+    void proc.exited.then(async (code) => {
+      if (code === 0) return log.info(`cron ${trigger.name}: exited 0`);
+      // A background child can hold stderr open long after the command exits,
+      // so the exit line waits for the pipe only briefly.
+      await Promise.race([stderr.done, Bun.sleep(STDERR_GRACE_MS)]);
+      const tail = stderr.text().trimEnd().split("\n").slice(-STDERR_TAIL_LINES).join("\n").slice(-STDERR_LOG_CHARS);
+      log.warn(`cron ${trigger.name}: exited ${code}${tail ? `: ${tail}` : ""}`);
+    });
   } catch (err) {
     // A failed spawn is a log line, nothing more; the next matching event
     // tries again. No retry policy here by design.
