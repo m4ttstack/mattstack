@@ -272,7 +272,7 @@ test("an earlier copy from another subagent of the session keeps its attribution
   ]);
 });
 
-test("an earlier copy from a different session clears attribution before it re-attributes", async () => {
+test("an earlier copy from a different session attributes to that session's run", async () => {
   workRun("run-1", "s-late", T0);
   seedRun(runs, REPO, "run-2", T0, 1, {
     status: "running",
@@ -293,6 +293,45 @@ test("an earlier copy from a different session clears attribution before it re-a
       mr_key: null,
       attribution: "run",
     },
+  ]);
+});
+
+test("an earlier copy from a different session clears attribution held by a final run", async () => {
+  seedRun(runs, REPO, "run-1", T0, 1, {
+    status: "completed",
+    stages: [
+      { name: "build", status: "completed", startedAt: T0, endedAt: T0 + 10 * MINUTE },
+      {
+        name: "review",
+        status: "completed",
+        startedAt: T0 + 10 * MINUTE,
+        endedAt: T0 + 20 * MINUTE,
+      },
+    ],
+    fields: [{ key: "claude-sessions", value: JSON.stringify(["s-late", "s-early"]) }],
+  });
+  const runDb = new Database(join(runs, REPO, "run-1", "state.db"));
+  runDb.exec(`UPDATE runs SET ended_at = ${T0 + 20 * MINUTE}`);
+  runDb.close();
+
+  transcript("s-late", line("m-1", 15 * MINUTE));
+  await runSweep(input());
+  expect(rows()).toMatchObject([{ session_id: "s-late", stage: "review" }]);
+
+  transcript("s-early", line("m-1", 1000));
+  await runSweep(input({ now: NOW + MINUTE }));
+  expect(rows()).toMatchObject([{ session_id: "s-early", ts: T0 + 1000, stage: "build" }]);
+});
+
+test("a machine id failure on a later sweep does not fork the rows", async () => {
+  workRun("run-1", "s-1");
+  const path = transcript("s-1", line("m-1", 1000));
+  await runSweep(input());
+  appendFileSync(path, line("m-2", 2000));
+  await runSweep(input({ machineId: async () => null, now: NOW + MINUTE }));
+  expect(rows().map((r) => [r.machine_id, r.message_id])).toEqual([
+    [M, "m-1"],
+    [M, "m-2"],
   ]);
 });
 

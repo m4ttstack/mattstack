@@ -63,6 +63,29 @@ test("a stable id is used as is", async () => {
   db.close();
 });
 
+test("a stored id wins over a different stable id", async () => {
+  const db = openUsageDb(join(dir, "usage.db"));
+  await machineIdFor(db, async () => "first");
+  let asked = false;
+  const id = await machineIdFor(db, async () => {
+    asked = true;
+    return "second";
+  });
+  expect(id).toBe("first");
+  expect(asked).toBe(false);
+  db.close();
+});
+
+test("a stable id is stored on first use", async () => {
+  const db = openUsageDb(join(dir, "usage.db"));
+  await machineIdFor(db, async () => "abc");
+  expect(await machineIdFor(db, async () => null)).toBe("abc");
+  expect(db.query("SELECT value FROM usage_meta WHERE key = 'machine_id'").get()).toEqual({
+    value: "abc",
+  });
+  db.close();
+});
+
 test("readonly open of a missing file returns null", () => {
   expect(openUsageDbReadonly(join(dir, "missing.db"))).toBeNull();
 });

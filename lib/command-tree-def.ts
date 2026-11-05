@@ -1821,6 +1821,7 @@ export const TREE: Record<string, CommandNode> = {
 
   usage: {
     description: "Token usage for pipeline runs",
+    hidden: true,
     subcommands: {
       sweep: {
         description: "Read new token usage from your Claude Code sessions",

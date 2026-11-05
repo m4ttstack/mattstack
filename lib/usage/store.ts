@@ -115,16 +115,11 @@ export async function machineIdFor(
   db: Database,
   stable: () => Promise<string | null>,
 ): Promise<string> {
-  const id = await stable();
-  if (id) return id;
-  const row = db.query("SELECT value FROM usage_meta WHERE key = 'machine_id'").get() as
-    | { value: string }
-    | null;
+  const select = db.query("SELECT value FROM usage_meta WHERE key = 'machine_id'");
+  const row = select.get() as { value: string } | null;
   if (row) return row.value;
-  const made = crypto.randomUUID();
+  const made = (await stable()) ?? crypto.randomUUID();
   db.query("INSERT OR IGNORE INTO usage_meta (key, value) VALUES ('machine_id', ?)").run(made);
-  const stored = db.query("SELECT value FROM usage_meta WHERE key = 'machine_id'").get() as {
-    value: string;
-  };
+  const stored = select.get() as { value: string };
   return stored.value;
 }
