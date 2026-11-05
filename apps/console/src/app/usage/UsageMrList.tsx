@@ -21,6 +21,7 @@ import type { EnrichmentOf } from './useUsage';
 
 /** The list only windows rows of a known height: `.row` holds it. */
 const ROW_HEIGHT = 56;
+const HEAD_HEIGHT = 36;
 const MIN_ROWS_SHOWN = 3;
 
 const SORT_COLUMNS: Array<{ sort: MrSort; label: string }> = [
@@ -106,7 +107,6 @@ function MrRow({
           href={usageMrHref(row.mrKey)}
           className={classes.barLink}
           tabIndex={-1}
-          aria-hidden
         >
           <KindBar cost={row.costByKind} />
         </Link>
@@ -132,7 +132,8 @@ function MrRow({
 
 /** Rows scroll inside the card so the stats and the sort headers stay put.
     The box asks for every row and flex shrinks it to the room left, so a
-    short list keeps a short card and a long one measures the page. */
+    short list keeps a short card and a long one measures the page. The floor
+    sits on the card, so a window too short for it scrolls the page instead. */
 export function UsageMrList({
   rows,
   enrichment,
@@ -156,6 +157,10 @@ export function UsageMrList({
       withBorder
       radius={12}
       className={classes.table}
+      style={{
+        minHeight:
+          HEAD_HEIGHT + Math.min(rows.length, MIN_ROWS_SHOWN) * ROW_HEIGHT,
+      }}
       role="table"
       aria-label="MRs"
       aria-rowcount={rows.length + 1}
@@ -179,10 +184,7 @@ export function UsageMrList({
         <div
           ref={ref}
           className={classes.rows}
-          style={{
-            height: rows.length * ROW_HEIGHT,
-            minHeight: Math.min(rows.length, MIN_ROWS_SHOWN) * ROW_HEIGHT,
-          }}
+          style={{ height: rows.length * ROW_HEIGHT }}
         >
           <VirtualList
             key={resetKey}
