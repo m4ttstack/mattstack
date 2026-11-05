@@ -249,24 +249,28 @@ The UI decides how to show the gap.
 `lib/usage/pricing.ts` holds one table keyed by model id. Cost is computed at
 read time, never stored, so a corrected price applies to all history.
 
-Per million tokens, from the claude-api skill's table cached 2026-10-06:
+Per million tokens, confirmed 2026-11-04 against
+platform.claude.com/docs/en/about-claude/pricing:
 
 | Model | Input | Output | Cache read |
 |---|---:|---:|---:|
-| `claude-fable-5-1`, `claude-fable-5` | $10 | $50 | $0.25 for 5.1 |
-| `claude-opus-5-5` | $4 | $20 | $0.20 |
-| `claude-opus-5`, `-4-8`, `-4-7`, `-4-6` | $5 | $25 | 0.1× input |
-| `claude-sonnet-5-5`, `claude-sonnet-5` | $2 | $10 | $0.20 for 5.5 |
-| `claude-sonnet-4-6` | $3 | $15 | 0.1× input |
-| `claude-haiku-5-5` | $0.10 | $0.50 | Confirm |
-| `claude-haiku-4-5` | $1 | $5 | 0.1× input |
+| `claude-fable-5-1` | $10 | $50 | $0.25 (0.025x) |
+| `claude-fable-5` | $10 | $50 | $1 (0.1x) |
+| `claude-opus-5-5` | $4 | $20 | $0.20 (0.05x) |
+| `claude-opus-5`, `-4-8`, `-4-7`, `-4-6`, `-4-5` | $5 | $25 | $0.50 (0.1x) |
+| `claude-sonnet-5-5` | $2 | $10 | $0.10 (0.05x) |
+| `claude-sonnet-5` | $2 | $10 | $0.20 (0.1x) |
+| `claude-sonnet-4-6`, `-4-5` | $3 | $15 | $0.30 (0.1x) |
+| `claude-haiku-5-5` | $0.10 | $0.50 | $0.01 (0.1x) |
+| `claude-haiku-4-5` | $1 | $5 | $0.10 (0.1x) |
 
-Cache writes are 1.25× input for 5-minute and 2× for 1-hour. Fast mode
-(`speed: "fast"`) is 2× on Opus 5.5 and Opus 5. Haiku 5.5 charges $0.50 / $2.50
-past 100K prompt tokens.
-
-Before shipping, confirm every row and multiplier against the live pricing page
-in the skill's `shared/live-sources.md`, including the gaps marked above.
+Cache writes are 1.25x input for 5-minute and 2x for 1-hour. Fast mode
+(`speed: "fast"`) is 2x on Opus 5.5, Opus 5 and Opus 4.8, and the cache
+multipliers stack on the fast input price, so cache rates double too. On any
+other model `fast` prices as standard. Haiku 5.5 is the only model with a
+long-context tier: a request whose prompt (input plus cache reads and writes)
+exceeds 100K tokens pays $0.50 input, $2.50 output, $0.05 cache read. A model
+id's trailing `-YYYYMMDD` is stripped before lookup.
 
 A model missing from the table contributes tokens but no cost, and the
 response says so through `unpricedTokens`, so a new model reads as incomplete
