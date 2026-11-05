@@ -315,3 +315,9 @@ describe("accountHome", () => {
     }
   });
 });
+
+test("a child that inherits the preload's forbid list is a test run under any NODE_ENV", () => {
+  expect(testRunSignal({ NODE_ENV: "development", RT_TEST_FORBID_SOCKS: "[]" }, "/bin/rt")).toBe(
+    "RT_TEST_FORBID_SOCKS set",
+  );
+});
