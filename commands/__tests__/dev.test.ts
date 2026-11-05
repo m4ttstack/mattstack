@@ -60,7 +60,7 @@ describe("rt dev", () => {
 
   test.each([
     ["dev-no-repo-root", "This Mac has no repo folder chosen yet", "rt setup repo-root set <folder>"],
-    ["dev-tool-missing", "go is not installed", "brew install go"],
+    ["dev-tool-missing", "go is not installed", "open https://go.dev/dl/"],
     ["dev-clone-missing", "Your mattstack clone is gone", "rt dev setup"],
   ])("%s is a needs-you note with its next command, not a failure", (code, message, next) => {
     const f = failureBlocks(new UserActionableError(code, message, {}, { next }));

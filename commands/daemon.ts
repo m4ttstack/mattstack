@@ -943,7 +943,7 @@ async function runTerminalViewer(logPaths: string[]): Promise<void> {
       stdio: "inherit",
     });
   } else {
-    out.print(out.line("running", "Following the daemon's logs", "Ctrl-C to stop"), out.callout("tip", ["For a richer view, install lnav: ", out.cmd("brew install lnav")]));
+    out.print(out.line("running", "Following the daemon's logs", "Ctrl-C to stop"), out.callout("tip", ["For a richer view, install lnav: ", out.cmd("open https://lnav.org/downloads")]));
     // sh -c pipeline avoids Bun's stream-as-stdio limitation between two spawns.
     const quoted = logPaths.map(p => JSON.stringify(p)).join(" ");
     viewer = spawn("sh", ["-c", `tail -F ${quoted} | bunx pino-pretty`], {
@@ -1106,7 +1106,7 @@ export async function runWebViewer(
 ): Promise<void> {
   const bin = seams.findLogdy();
   if (!bin) {
-    seams.fail({ title: "rt could not find logdy", why: "It ships with the app, and it was not there or on your PATH.", next: [out.cmd("brew install logdy"), ", or ", out.cmd("rt daemon logs --terminal")] });
+    seams.fail({ title: "rt could not find logdy", why: "It ships with the app, and it was not there or on your PATH.", next: [out.cmd("rt daemon logs --terminal"), " for now, and reinstall mattstack.app"] });
     return seams.exit(1);
   }
 

@@ -95,7 +95,7 @@ describe("backup tool resolution", () => {
   });
 
   test("requireBackupTool names the tool and both remedies", () => {
-    expect(() => requireBackupTool("git-lfs", () => null)).toThrow(/git-lfs not found.*mattstack\.app.*brew install git-lfs/s);
+    expect(() => requireBackupTool("git-lfs", () => null)).toThrow(/git-lfs not found.*mattstack\.app.*reinstall the app/s);
   });
 
   test("requireBackupTool returns the bundled path when there is one", () => {

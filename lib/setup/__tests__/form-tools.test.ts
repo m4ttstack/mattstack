@@ -134,9 +134,9 @@ describe("toolsRows", () => {
   });
 
   test("a failed install reads failed: Retry runs the same install, Show steps carries the manual route", () => {
-    const drawn = only(inputs([widgetMissing()], { prepare: FAILED, tools: [{ ...WIDGET, install: { brew: "widget-cli" } }] }));
+    const drawn = only(inputs([widgetMissing()], { prepare: FAILED, tools: [{ ...WIDGET, install: { url: "https://example.com/widget-cli" } }] }));
     expect(drawn).toMatchObject({ state: "todo", tone: "failed", detail: "brew said no", action: { ...INSTALL, label: "Retry" }, waiting: "Installing…", optional: false });
-    expect(drawn.secondary).toEqual({ type: "steps", label: "Show steps…", steps: ["brew install widget-cli"] });
+    expect(drawn.secondary).toEqual({ type: "steps", label: "Show steps…", steps: ["Download it from https://example.com/widget-cli"] });
   });
 
   test("a press failure reads failed, ahead of a background failure", () => {
@@ -151,11 +151,9 @@ describe("toolsRows", () => {
     expect(only(inputs([widgetMissing(DOWNLOAD)], { prepare: pressOnly }))).toMatchObject({ detail: "brew said no again", action: DOWNLOAD });
   });
 
-  test("a tool the team also links for download shows the link, not the brew install that just failed", () => {
-    const both = only(inputs([widgetMissing()], { prepare: FAILED, tools: [{ ...WIDGET, install: { brew: "widget-cli", url: "https://example.com/widget-cli" } }] }));
-    expect(both.secondary).toEqual({ type: "steps", label: "Show steps…", steps: ["Download it from https://example.com/widget-cli"] });
-    const http = only(inputs([widgetMissing()], { prepare: FAILED, tools: [{ ...WIDGET, install: { brew: "widget-cli", url: "http://example.com/widget-cli" } }] }));
-    expect(http.secondary).toEqual({ type: "steps", label: "Show steps…", steps: ["brew install widget-cli"] });
+  test("a link that is not https never becomes the manual route", () => {
+    const http = only(inputs([widgetMissing()], { prepare: FAILED, tools: [{ ...WIDGET, install: { url: "http://example.com/widget-cli" } }] }));
+    expect("secondary" in http).toBe(false);
   });
 
   test("a failed sign-in tool's install reads failed too", () => {
