@@ -236,11 +236,7 @@
 /* Edge to edge with no margin, so a hover or pick tint ends on the line. */
 .blockLine {
   height: 1px;
-  background: color-mix(
-    in srgb,
-    var(--mantine-color-cyan-filled) 40%,
-    transparent
-  );
+  background: var(--tk-border);
 }
 
 /* In Messages to you a click aims the reply, so a conversation answers the
@@ -255,11 +251,7 @@
 
 /* The conversation a reply will go to, once a message has picked it. */
 .msg[data-picked] {
-  background-color: color-mix(
-    in srgb,
-    var(--mantine-color-cyan-filled) var(--tk-wash),
-    transparent
-  );
+  background-color: color-mix(in srgb, var(--tk-text-1) 7%, transparent);
 }
 
 /* A conversation carries its own room, at the list's ends too, so a tint

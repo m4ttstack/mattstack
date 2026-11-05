@@ -257,6 +257,7 @@ function MessageRow({
   hovered,
   runStart,
   runEnd,
+  dated,
   onPick,
   onHover,
 }: {
@@ -268,6 +269,8 @@ function MessageRow({
   hovered: boolean;
   runStart: boolean;
   runEnd: boolean;
+  /** No day lines around it, so the row names its own day. */
+  dated: boolean;
   onPick?: (room: string) => void;
   onHover?: () => void;
 }) {
@@ -284,7 +287,9 @@ function MessageRow({
       title={new Date(message.postedAt).toLocaleString()}
       style={{ flex: 'none' }}
     >
-      {localTime(message.postedAt)}
+      {dated && dayKey(message.postedAt) !== dayKey(Date.now())
+        ? `${dayLabel(message.postedAt)} ${localTime(message.postedAt)}`
+        : localTime(message.postedAt)}
     </Text>
   );
   const name = (
@@ -741,7 +746,7 @@ export function Transcript({
                         data-testid="direct-separator"
                       />
                     )}
-                    {i === 0 && olderExhausted && !feed ? (
+                    {feed ? null : i === 0 && olderExhausted ? (
                       <Marker
                         icon="history"
                         label={startLabel(message.postedAt)}
@@ -765,6 +770,7 @@ export function Transcript({
                       grouped={continuesGroup(shown[i - 1], message)}
                       picked={feed?.picked === message.room}
                       hovered={feed !== undefined && hoveredRun === runs[i]}
+                      dated={feed !== undefined}
                       runStart={feed !== undefined && runs[i] === i}
                       runEnd={
                         feed !== undefined &&
