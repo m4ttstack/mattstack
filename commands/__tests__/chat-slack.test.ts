@@ -330,7 +330,7 @@ test("a dm Slack took but the room didn't says so and links nothing", async () =
 test("slack-people prints who a chat can open with", async () => {
   const res = await run(() => slackPeople(["--json"]));
   expect(res.code).toBe(0);
-  expect(res.stdout).toBe('{"ok":true,"people":[{"name":"Alex","person":"U0TEST","title":"Support lead"}]}\n');
+  expect(res.stdout).toBe('{"ok":true,"people":[{"name":"Alex Example","person":"U0TEST","title":"Support lead"}]}\n');
 });
 
 test("slack-people prints unavailable as an answer, for a refusal and for a daemon without the verb", async () => {

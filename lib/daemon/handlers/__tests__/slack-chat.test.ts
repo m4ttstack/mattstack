@@ -358,7 +358,7 @@ test("slack-people lists everyone an open can reach, sorted by shown name, and o
 });
 
 test("slack-people cleans the name and the title, and leaves out a title that cleans to nothing", async () => {
-  const users = [OPERATOR, user("U0A", "Alex Example", { displayName: "Alex\n(he/him)", title: "Lead\u202e [ops]" }), user("U0B", "Sam Example", { title: "🎉" })];
+  const users = [OPERATOR, user("U0A", "Alex\n(he/him)", { displayName: "Ali", title: "Lead\u202e [ops]" }), user("U0B", "Sam Example", { title: "🎉" })];
   const res = await harness({ users }).handlers["chat:slack-people"]({});
   if (!res.ok) throw new Error(res.error);
   expect(res.data.people).toEqual([
@@ -369,7 +369,7 @@ test("slack-people cleans the name and the title, and leaves out a title that cl
 
 test("a name or title cut across an astral letter stays well-formed, so one profile can't break the list", async () => {
   const astral = `A${"𝓐".repeat(30)}`;
-  const users = [OPERATOR, user("U0A", "Alex Example", { displayName: astral, title: astral })];
+  const users = [OPERATOR, user("U0A", astral, { title: astral })];
   const res = await harness({ users }).handlers["chat:slack-people"]({});
   if (!res.ok) throw new Error(res.error);
   const [person] = res.data.people;
@@ -386,7 +386,7 @@ test("a stored display name cut across an astral letter stays well-formed", asyn
 });
 
 test("the cut keeps forty letters, however many units they take", async () => {
-  const users = [OPERATOR, user("U0A", "x", { displayName: "𝓐".repeat(50) })];
+  const users = [OPERATOR, user("U0A", "𝓐".repeat(50))];
   const res = await harness({ users }).handlers["chat:slack-people"]({});
   if (!res.ok) throw new Error(res.error);
   expect(Array.from(res.data.people[0]!.name)).toHaveLength(40);

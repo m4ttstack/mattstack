@@ -66,6 +66,11 @@ function shownName(user: SlackUser): string {
   return [user.displayName, user.realName, user.name].map(cleanDisplayName).find(Boolean) ?? "";
 }
 
+/** A picker lists full names, so two people with short display names read apart. */
+function fullName(user: SlackUser): string {
+  return [user.realName, user.displayName, user.name].map(cleanDisplayName).find(Boolean) ?? "";
+}
+
 function firstName(user: SlackUser): string {
   return shownName(user).split(" ")[0] ?? "";
 }
@@ -302,7 +307,7 @@ export function createSlackChatHandlers(opts: {
         if ("ok" in directory) return directory;
         const people = directory.people.map((u) => {
           const title = cleanDisplayName(u.title);
-          return { name: shownName(u), person: u.id, ...(title ? { title } : {}) };
+          return { name: fullName(u), person: u.id, ...(title ? { title } : {}) };
         });
         return { ok: true, data: { people: people.sort(byShownName) } };
       } catch (err) {
