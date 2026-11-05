@@ -11,6 +11,8 @@ vi.mock('@mattstack/rt-client', () => ({
   chatArchive: vi.fn(),
   chatDmOpen: vi.fn(),
   chatSlackAvatarFile: vi.fn(),
+  chatSlackAvatars: vi.fn(),
+  matchSlackFaces: vi.fn(() => ({ person: 'U1' })),
   chatSlackStatus: vi.fn(),
   paneList: vi.fn(),
   daemonHealth: vi.fn(),
@@ -1200,4 +1202,22 @@ test('reading direct marks only the human’s unread DMs', async () => {
   expect(vi.mocked(rt.chatMark).mock.calls.map(c => c[0])).toEqual([
     { handle: 'matt', room: 'dm-kai' },
   ]);
+});
+
+test('slack-face names the viewer’s picture, with its version', async () => {
+  vi.mocked(rt.matchSlackFaces).mockReturnValue({ person: 'U1' });
+  vi.mocked(rt.chatSlackAvatars).mockResolvedValue({
+    ok: true,
+    data: { people: [{ id: 'U1', version: 'v9' }] },
+  } as never);
+  const res = await routes.request('/api/chat/slack-face?name=Pat%20Lee');
+  expect(await res.json()).toEqual({
+    url: '/api/chat/slack-avatar/U1?v=v9',
+  });
+});
+
+test('slack-face answers null for a name nobody matches', async () => {
+  vi.mocked(rt.matchSlackFaces).mockReturnValue({});
+  const res = await routes.request('/api/chat/slack-face?name=Nobody');
+  expect(await res.json()).toEqual({ url: null });
 });

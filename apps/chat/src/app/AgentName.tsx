@@ -9,13 +9,7 @@ import {
 } from 'react';
 import { createAvatar } from '@dicebear/core';
 import * as personas from '@dicebear/personas';
-import {
-  Box,
-  Button,
-  Group,
-  Popover,
-  Text,
-} from '@mattstack/app-kit/core';
+import { Box, Button, Group, Popover, Text } from '@mattstack/app-kit/core';
 import {
   FACE_TILES,
   faceSeed,

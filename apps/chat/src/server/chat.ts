@@ -9,9 +9,11 @@ import {
   chatPost,
   chatRooms,
   chatSlackAvatarFile,
+  chatSlackAvatars,
   chatSlackStatus,
   chatWho,
   getSetting,
+  matchSlackFaces,
   paneList,
   type AgentStatus,
   type ChatMessage,
@@ -206,6 +208,28 @@ async function unjoinedFleetRooms(
   });
 }
 
+const SLACK_PEOPLE_FRESH_MS = 60 * 60_000;
+
+type SlackPeople = NonNullable<
+  Awaited<ReturnType<typeof chatSlackAvatars>>['data']
+>['people'];
+
+let slackPeople: SlackPeople = [];
+let slackPeopleAt = 0;
+
+/** The daemon reads the directory hourly, so a page load need not ask more. */
+async function knownSlackPeople(): Promise<SlackPeople> {
+  if (slackPeopleAt && Date.now() - slackPeopleAt < SLACK_PEOPLE_FRESH_MS) {
+    return slackPeople;
+  }
+  const res = await chatSlackAvatars(rtOpts());
+  if (res.ok && res.data?.people.length) {
+    slackPeople = res.data.people;
+    slackPeopleAt = Date.now();
+  }
+  return slackPeople;
+}
+
 /** The DMs the human is an end of. Agent-to-agent DMs, which he only
     watches, are not his. */
 function ownDms(rooms: RoomSummary[], handle: string): RoomSummary[] {
@@ -318,6 +342,19 @@ export const chat = new Hono()
       'cache-control': 'private, max-age=31536000, immutable',
       'x-content-type-options': 'nosniff',
     });
+  })
+  // A person's picture by name, for the viewer's own face: the human has no
+  // Slack chat to carry one. Null unless exactly one Slack person has the name.
+  .get('/api/chat/slack-face', async c => {
+    const name = c.req.query('name');
+    if (!name || fixturesEnabled()) return c.json({ url: null }, 200);
+    const people = await knownSlackPeople();
+    const id = matchSlackFaces([['person', name]], people).person;
+    const version = people.find(p => p.id === id)?.version ?? '';
+    return c.json(
+      { url: id ? `/api/chat/slack-avatar/${id}?v=${version}` : null },
+      200
+    );
   })
   .get('/api/chat/who/:room', async c => {
     const room = c.req.param('room');

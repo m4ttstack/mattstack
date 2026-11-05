@@ -1,7 +1,13 @@
 import type { ChatMessage, RoomSummary } from '@mattstack/rt-client';
 import { expect, test } from 'vitest';
 
-import { isMine, newestSenderRoom, otherEnd, waitingCount } from './direct';
+import {
+  blocksByLatest,
+  isMine,
+  newestSenderRoom,
+  otherEnd,
+  waitingCount,
+} from './direct';
 
 function dm(room: string, a: string, b: string, unread = 0): RoomSummary {
   return {
@@ -57,4 +63,11 @@ test('only the human’s own DMs count as waiting', () => {
       'matt'
     )
   ).toBe(3);
+});
+
+test('a reply brings its whole conversation down, unsplit', () => {
+  const row = (id: number, room: string) => ({ id, room }) as ChatMessage;
+  expect(
+    blocksByLatest([row(1, 'a'), row(2, 'b'), row(3, 'a')]).map(m => m.id)
+  ).toEqual([2, 1, 3]);
 });

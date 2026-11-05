@@ -362,6 +362,25 @@ function useMe(): Me {
   return me;
 }
 
+/** The viewer's Slack picture, found by their full name. */
+function useOwnSlackFace(name: string | null | undefined): string | undefined {
+  const [url, setUrl] = useState<string>();
+  useEffect(() => {
+    if (!name) return;
+    let cancelled = false;
+    fetch(`/api/chat/slack-face?name=${encodeURIComponent(name)}`)
+      .then(res => jsonOrThrow<{ url?: string | null }>(res))
+      .then(data => {
+        if (!cancelled) setUrl(data.url ?? undefined);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [name]);
+  return url;
+}
+
 function ChatSidebar({
   rooms,
   buddies,
@@ -641,20 +660,32 @@ function ChatPage({
  */
 export function App({ initialState }: { initialState?: AppInitialState } = {}) {
   const slackChats = useSlackChats();
+  const me = useMe();
+  // Your org, team and role for the top bar, as console shows them.
+  const viewer = useViewer();
+  const ownFace = useOwnSlackFace(viewer?.viewer?.name);
   return (
-    <SlackChatsProvider chats={slackChats}>
-      <AppContent initialState={initialState} />
+    <SlackChatsProvider
+      chats={slackChats}
+      own={ownFace ? { handle: me.handle, url: ownFace } : undefined}
+    >
+      <AppContent initialState={initialState} me={me} viewer={viewer} />
     </SlackChatsProvider>
   );
 }
 
-function AppContent({ initialState }: { initialState?: AppInitialState }) {
+function AppContent({
+  initialState,
+  me,
+  viewer,
+}: {
+  initialState?: AppInitialState;
+  me: Me;
+  viewer: ReturnType<typeof useViewer>;
+}) {
   const [path] = useLocation();
   const route = useAppRoute();
-  const me = useMe();
   const daemon = useDaemonHealth(initialState?.daemonReachable);
-  // Your org, team and role for the top bar, as console shows them.
-  const viewer = useViewer();
   const { buddies, refetchBuddies } = useBuddies(initialState?.buddies);
   const {
     rooms,

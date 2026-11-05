@@ -39,3 +39,20 @@ export function waitingCount(
 ): number {
   return rooms.reduce((n, r) => n + (isMine(r, me) ? r.unread : 0), 0);
 }
+
+/** One block per conversation, the most recently active last, each in time
+    order, so a reply to an old conversation brings all of it down instead of
+    splitting it. Takes the list in time order. */
+export function blocksByLatest(
+  messages: readonly ChatMessage[]
+): ChatMessage[] {
+  const blocks = new Map<string, ChatMessage[]>();
+  for (const message of messages) {
+    const block = blocks.get(message.room);
+    if (block) block.push(message);
+    else blocks.set(message.room, [message]);
+  }
+  return [...blocks.values()]
+    .sort((a, b) => a.at(-1)!.id - b.at(-1)!.id)
+    .flat();
+}

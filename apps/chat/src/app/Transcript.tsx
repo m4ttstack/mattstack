@@ -18,6 +18,7 @@ import ScrollToBottom, {
 import { AgentName, FaceGroup, HandleAvatar } from './AgentName';
 import { MessageSkeleton } from './ChatSkeleton';
 import { dayKey, dayLabel, localTime } from './day-label';
+import { blocksByLatest } from './direct';
 import { MessageMarkdown } from './MessageMarkdown';
 import { NewPill } from './NewPill';
 import { useRelayFrames, useRelayOpen } from './relay-socket';
@@ -665,9 +666,10 @@ export function Transcript({
   loadOlderRef.current = () => void loadOlder();
 
   // A conversation hovers as one, so each message knows where its run began.
+  const shown = feed ? blocksByLatest(messages) : messages;
   let runStart = 0;
-  const runs = messages.map((message, i) => {
-    if (message.room !== messages[i - 1]?.room) runStart = i;
+  const runs = shown.map((message, i) => {
+    if (message.room !== shown[i - 1]?.room) runStart = i;
     return runStart;
   });
 
@@ -731,8 +733,14 @@ export function Transcript({
               )}
 
               <Stack gap={0} onMouseLeave={() => setHoveredRun(undefined)}>
-                {messages.map((message, i) => (
+                {shown.map((message, i) => (
                   <Fragment key={message.id}>
+                    {feed && i > 0 && shown[i - 1]!.room !== message.room && (
+                      <div
+                        className={prose.blockLine}
+                        data-testid="direct-separator"
+                      />
+                    )}
                     {i === 0 && olderExhausted && !feed ? (
                       <Marker
                         icon="history"
@@ -741,7 +749,7 @@ export function Transcript({
                       />
                     ) : (
                       (i === 0 ||
-                        dayKey(messages[i - 1]!.postedAt) !==
+                        dayKey(shown[i - 1]!.postedAt) !==
                           dayKey(message.postedAt)) && (
                         <Marker
                           icon="calendar"
@@ -750,27 +758,17 @@ export function Transcript({
                         />
                       )
                     )}
-                    {feed &&
-                      i > 0 &&
-                      messages[i - 1]!.room !== message.room &&
-                      dayKey(messages[i - 1]!.postedAt) ===
-                        dayKey(message.postedAt) && (
-                        <div
-                          className={prose.blockLine}
-                          data-testid="direct-separator"
-                        />
-                      )}
                     <MessageRow
                       message={message}
                       humanHandle={humanHandle}
                       compact={compact}
-                      grouped={continuesGroup(messages[i - 1], message)}
+                      grouped={continuesGroup(shown[i - 1], message)}
                       picked={feed?.picked === message.room}
                       hovered={feed !== undefined && hoveredRun === runs[i]}
                       runStart={feed !== undefined && runs[i] === i}
                       runEnd={
                         feed !== undefined &&
-                        messages[i + 1]?.room !== message.room
+                        shown[i + 1]?.room !== message.room
                       }
                       onPick={feed?.onPick}
                       onHover={feed && (() => setHoveredRun(runs[i]))}

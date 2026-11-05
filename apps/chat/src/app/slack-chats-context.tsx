@@ -38,16 +38,21 @@ const SlackChatsContext = createContext<SlackChatsValue>({
 /** Rooms that hold a Slack support chat, open or closed. */
 export function SlackChatsProvider({
   chats,
+  own,
   children,
 }: {
   chats: readonly SlackChat[];
+  /** The viewer's own picture: they have no Slack chat to carry one. */
+  own?: { handle: string; url: string };
   children: ReactNode;
 }) {
+  const ownHandle = own?.handle;
+  const ownUrl = own?.url;
   const value = useMemo(
     () => ({
       byRoom: new Map(chats.map(c => [c.room, c])),
-      avatars: new Map(
-        chats.flatMap(c =>
+      avatars: new Map([
+        ...chats.flatMap(c =>
           c.handle && c.avatarId
             ? [
                 [
@@ -56,10 +61,11 @@ export function SlackChatsProvider({
                 ] as const,
               ]
             : []
-        )
-      ),
+        ),
+        ...(ownHandle && ownUrl ? [[ownHandle, ownUrl] as const] : []),
+      ]),
     }),
-    [chats]
+    [chats, ownHandle, ownUrl]
   );
   return (
     <SlackChatsContext.Provider value={value}>
