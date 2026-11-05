@@ -48,7 +48,7 @@ scripts/e2e-cleanroom.sh --artifact ~/Downloads/mattstack-2.8.0.dmg --home "$(mk
 
 Fetches and sha256-verifies rt-tray's bundled third-party helper tools (Sparkle, plus every `Contents/Helpers` binary — jq, bun, node, gh, glab, gitq, age, age-keygen, zstd, git-lfs, sops, fast-browser) per `rt-tray/deps.lock`.
 
-A row whose `archive` is `make-src` is compiled here from its sha-pinned source tarball (`make <name>` in the extracted dir) rather than downloaded as a binary — zstd's case, since the project publishes no darwin-arm64 build and a Homebrew bottle links dylibs only `/opt/homebrew` carries. Anything built this way is then checked with `otool -L`: a binary linking outside `/usr/lib` and `/System` fails the fetch, because it would not run on a Mac without the build machine's extras.
+A row whose `archive` is `make-src` is compiled here from its sha-pinned source tarball (`make <name>` in the extracted dir) rather than downloaded as a binary — zstd's case, since the project publishes no darwin build and a Homebrew bottle links dylibs only `/opt/homebrew` carries. Anything built this way is then checked with `otool -L`: a binary linking outside `/usr/lib` and `/System` fails the fetch, because it would not run on a Mac without the build machine's extras.
 
 ## release/
 

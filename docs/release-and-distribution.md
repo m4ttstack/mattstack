@@ -19,7 +19,7 @@ One tag (`v*`) produces, via `.github/workflows/release.yml` on macos-15:
   (MAT-395): `build.sh` signs every plain file under `Contents/Helpers`
   individually, codesign stores those signatures as extended attributes, and
   Sparkle's `BinaryDelta` refuses to diff xattr'd trees. `appcast.sh`
-  tolerates the delta failure and every update ships as the full ~260 MB
+  tolerates the delta failure and every update ships as the full zip (~830 MB since the app went universal; v2.28.0 was 465 MB)
   zip; the update leg is proven on that path. Revisit only if the user base
   or update cadence makes delta bandwidth matter, or if the Helpers tree is
   restructured for another reason.
@@ -68,7 +68,7 @@ signed with a warning when they are not; a **tag** hard-fails without them).
   runs every helper from inside the signed bundle (`--version` smoke).
   Adding a helper = a deps.lock entry; check-bundle picks it up from the
   lock, no script edit.
-- A helper the project publishes no darwin-arm64 binary for is compiled by
+- A helper the project publishes no darwin binary for is compiled by
   `fetch-deps.sh` from its sha-pinned source release (`archive: "make-src"`,
   zstd today) rather than lifted from a Homebrew bottle, which links dylibs
   under `/opt/homebrew` that a user's Mac does not have. Every make-src
@@ -80,6 +80,39 @@ signed with a warning when they are not; a **tag** hard-fails without them).
   silently invalidates Login Items and TCC/FDA grants. Build into scratch.
 - Updating the installed app (Sparkle or manual) costs the FDA grant —
   quit the app first, expect to re-grant after.
+
+## One universal app
+
+The release app runs on Apple silicon and Intel Macs. Every binary in it carries
+both an arm64 and an x86_64 slice. The build reaches that in four places:
+
+- **deps.lock.** Each prebuilt helper row pins its Intel download in an
+  `x86_64` object (`url`, `sha256`, `extract`) beside the arm64 pin. npm rows
+  and buildtool rows are the same on both chips and carry none. make-src and
+  go-src rows build for each chip from one source archive. `scripts/lib/deps-lock.ts
+  --slice x86_64` swaps each pin in, and refuses a prebuilt helper that has
+  none. The lock's top-level `arch` stays `arm64`: an older rt's parser
+  rejects any other value, and an updated app's still-running daemon reads
+  the new lock with that parser. A version bump edits both urls, and
+  `deps-lock-file.test.ts` fails when an Intel url names a different version.
+- **Fetch and tree rows.** `fetch-deps.sh x86_64` and `build-apps.ts --arch
+  x86_64` fill `rt-tray/deps/x86_64`, each beside its arm64 run. The x86_64
+  app pass sets `MATTSTACK_BUN_TARGET=bun-darwin-x64`, which each app's compile
+  script hands to `bun build --compile --target`, and smoke-tests the result
+  under Rosetta.
+- **The merge.** `scripts/merge-universal.ts` writes `rt-tray/deps/universal`:
+  each Mach-O pair goes through `lipo -create`, and every other file comes from
+  the arm64 slice (node's `config.gypi` is the one file that differs, and
+  build.sh prunes it). It fails on a binary only one slice carries, or a slice
+  holding the wrong chip.
+- **build.sh and the CLI.** `RT_DEPS_ARCH=universal` bundles from
+  `deps/universal` and builds the Swift targets with `--arch arm64 --arch
+  x86_64`. release.yml compiles `rt` and `rt-ui` once per chip and lipos
+  each pair. `check-bundle.sh --universal` fails on any binary missing a
+  slice and runs rt's Intel slice under Rosetta.
+
+Dev builds stay arm64 only (`build.sh dev`, `rt release update-machine`'s
+dev bundle, the staged dev app), so a dev app rebuild costs no extra time.
 
 ## Privileged proxy helper (mattstack-proxy-install)
 
