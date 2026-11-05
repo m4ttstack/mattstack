@@ -1,4 +1,5 @@
-import { existsSync } from "fs";
+import { createReadStream, existsSync } from "fs";
+import { createInterface } from "readline";
 import type { UsageActivityData, UsageActivityQuery } from "../../packages/rt-client/src/commands.ts";
 import { OUTSIDE_CASE, reading } from "./queries.ts";
 
@@ -107,7 +108,8 @@ async function collect(path: string, ids: Set<string>, into: Collected): Promise
   let waiting: Prompt[] = [];
   let latest: Prompt | null = null;
   let started = false;
-  for (const line of (await Bun.file(path).text()).split("\n")) {
+  const lines = createInterface({ input: createReadStream(path, { encoding: "utf8" }), crlfDelay: Infinity });
+  for await (const line of lines) {
     if (
       !line.includes('"type":"user"') &&
       !line.includes('"type":"assistant"') &&
