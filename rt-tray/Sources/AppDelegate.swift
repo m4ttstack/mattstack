@@ -679,7 +679,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             let outcome = SetupUpdateOutcome.parse(stdout: r.stdout)
             TrayLog.info("setup update after launch",
                          ["exit": Int(r.exitCode), "ok": outcome.ok, "skipped": outcome.skipped ?? "",
-                          "failedSteps": outcome.failedSteps.joined(separator: ",")])
+                          "failedSteps": outcome.failedSteps.joined(separator: ","), "needsYou": outcome.needsYou])
+            if outcome.needsYou { coordinator.openSetupStatus() }
         } catch {
             TrayLog.warn("setup update failed to start", ["err": (error as? RtClientError)?.copy ?? "rt setup update failed to start."])
         }

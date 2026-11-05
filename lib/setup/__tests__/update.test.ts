@@ -1,6 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import { fakeProbes } from "./fakes.ts";
-import { decideUpdate, updateNotification, SETUP_UPDATE_CATEGORY } from "../update.ts";
+import { decideUpdate, readsSetupStatusAfterUpdate, stageNeedsYou, updateNotification, SETUP_UPDATE_CATEGORY } from "../update.ts";
+
+describe("which setup status opens the window after an update", () => {
+  test("only a screen the person can act on", () => {
+    for (const stage of ["invite", "paused", "tools", "connect", "this-mac"] as const) expect(stageNeedsYou(stage)).toBe(true);
+    for (const stage of ["ready", "waiting", "running", "macos", "path"] as const) expect(stageNeedsYou(stage)).toBe(false);
+    expect(stageNeedsYou(null)).toBe(false);
+  });
+
+  test("a dev version never reads setup status, since it never stamps as current", () => {
+    expect(readsSetupStatusAfterUpdate("dev")).toBe(false);
+    expect(readsSetupStatusAfterUpdate("2.29.1")).toBe(true);
+  });
+});
 
 const DAEMON = "/fake-home/.mattstack/rt/daemon.json";
 const STATE = "/fake-home/.mattstack/rt/setup-state.json";

@@ -236,7 +236,7 @@ export type ApplyEvent =
   | { event: "log"; id: EventId; line: string }
   | { event: "progress"; id: EventId; label: string; percent: number; note?: string }
   | { event: "need"; id: EventId; request: NeedRequest }
-  | { event: "done"; ok: boolean; failedStep?: EventId; failedSteps?: EventId[]; skipped?: "not-set-up" | "current" | "running" };
+  | { event: "done"; ok: boolean; failedStep?: EventId; failedSteps?: EventId[]; skipped?: "not-set-up" | "current" | "running"; needsYou?: true };
 
 export function envelope<T extends object>(body: T, now: Date = new Date()): T & { contract: 1; at: string } {
   return { contract: CONTRACT_VERSION, at: now.toISOString(), ...body };

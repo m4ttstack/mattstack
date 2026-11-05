@@ -162,8 +162,16 @@ change there is an admin's `rt settings set` or a layout change, see the
 runs once per machine and is recorded when `done` or `skipped`. One that
 must wait for something outside this Mac (an org layout this rt does not
 read) returns `partial`: unrecorded, so it runs again, and no notification. The tray
-only spawns the verb and routes the `setup_update` notification click to the
-Setup status window; put no decision in Swift.
+only spawns the verb, opens the Setup status window when its `done` line
+carries `needsYou`, and routes the `setup_update` notification click to that
+window; put no decision in Swift. `runUpdateWith` sets `needsYou` when a step
+needs the person or failed, or when a whole `rt setup form` read
+(`setupNeedsYou`) lands on a stage the person can act on (`stageNeedsYou` in
+`lib/setup/update.ts`), so a row no update step owns still opens it. Only a
+run that stamps the version sets it, so a Mac left not-ready opens the window
+once per version; a retry and a step bug never set it, since neither stamps,
+and a `dev` version never reads the form, since it never stamps as current. The window opens whether or not notifications are on;
+the notification still lists only the steps.
 
 ## Your repos
 

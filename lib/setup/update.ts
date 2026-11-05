@@ -41,8 +41,35 @@ export function decideUpdate(p: Pick<Probes, "exists" | "home" | "readFile" | "n
 
 export const SETUP_UPDATE_CATEGORY = "setup_update";
 
+/**
+ * The outcomes of an update run that need the person: what its notification
+ * lists and what makes the app open Setup status. Lives here, not in apply.ts:
+ * the daemon reaches this file, and apply.ts reaches the CLI picker chain.
+ */
+export function updateAttention(outcomes: readonly UpdateOutcome[]): UpdateOutcome[] {
+  return outcomes.filter((o) => o.state === "needs-you" || o.state === "failed");
+}
+
+/**
+ * The setup status stages that open the window after an update: a screen the
+ * person can act on. Waiting is on an admin, running is another run's bar, and
+ * macos also reads as todo when the tray does not answer the permissions read
+ * in time, so none of those opens it. Plain strings rather than form.ts's
+ * FormStage: the daemon reaches this file, and form.ts reaches the CLI picker chain.
+ */
+const STAGES_THAT_NEED_YOU: ReadonlySet<string> = new Set(["invite", "paused", "tools", "connect", "this-mac"]);
+
+export function stageNeedsYou(stage: string | null): boolean {
+  return stage !== null && STAGES_THAT_NEED_YOU.has(stage);
+}
+
+/** A `dev` version never stamps as current, so a setup status read there would open the window at every launch. */
+export function readsSetupStatusAfterUpdate(version: string): boolean {
+  return version !== DEV_VERSION;
+}
+
 export function updateNotification(version: string, outcomes: UpdateOutcome[]): { id: string; title: string; message: string } | null {
-  const attention = outcomes.filter((o) => o.state === "needs-you" || o.state === "failed");
+  const attention = updateAttention(outcomes);
   if (attention.length === 0) return null;
   return {
     id: `${SETUP_UPDATE_CATEGORY}:${version}`,
