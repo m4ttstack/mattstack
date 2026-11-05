@@ -98,7 +98,17 @@ PLIST
   sudo chown root:wheel "$plist"
   sudo chmod 644 "$plist"
   sudo launchctl bootout "system/$label" 2>/dev/null || true
-  sudo launchctl bootstrap system "$plist"
+  # A runner can outlive its bootout, and launchd can refuse the bootstrap with
+  # error 5 just after one, which would stop the install with later runners undone.
+  for _ in $(seq 1 30); do
+    launchctl print "system/$label" >/dev/null 2>&1 || break
+    sleep 1
+  done
+  for attempt in $(seq 1 18); do
+    sudo launchctl bootstrap system "$plist" && break
+    [ "$attempt" -lt 18 ] || exit 1
+    sleep 5
+  done
 done
 
 rm -f "$TARBALL"
