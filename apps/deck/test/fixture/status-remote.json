@@ -6,6 +6,7 @@
   "total": 4,
   "nextPort": 11012,
   "proxyStale": false,
+  "publicDomainBound": true,
   "autoHeal": null,
   "apps": [
     {
@@ -33,7 +34,7 @@
       "override": null,
       "publicFollowsOverride": false,
       "self": false,
-      "managedBy": "mattstack",
+      "managedBy": "user",
       "issues": [],
       "record": {
         "kind": "service",

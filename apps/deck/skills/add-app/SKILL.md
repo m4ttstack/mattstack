@@ -757,7 +757,8 @@ app's row on the board. Never report it as visibility set.
 - `deck config init` and a bare `deck register` act on the current
   directory, so run `deck config init` from the app directory. This skill
   always passes `--dir <appDir>` to register, so it works from anywhere.
-- Apps are published by default. Publish controls visibility only at the
+- Apps are private by default, and mattstack's own apps are never public.
+  Publish controls visibility only at the
   bound public domain; `<name>.localhost` and `<name>.mattstack` are always
   local to this machine, so a teammate on another machine reaches an app
   only once a domain is bound.

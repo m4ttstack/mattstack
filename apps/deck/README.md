@@ -172,6 +172,8 @@ password <name>`. It's served by Deck's own gateway; no accounts
   `rt secrets set deck cfZoneId` / `cfDnsToken` (Zone.DNS:Edit). Then
   per-app, layer on a password, a Google sign-in allowlist of people or
   domains, or both.
+  Publishing needs a connected domain, and mattstack's own apps are never
+  public.
 - **Serve it while your laptop is off**: `deck remote <name> on` redeploys
   the app to Railway and points its public hostname there instead of the
   tunnel; `deck push <name>` redeploys it again after a local change;
