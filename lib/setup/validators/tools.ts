@@ -31,7 +31,7 @@ import { atLeast } from "../semver.ts";
 import { fits, heldCopy, runnableEngine, type Floor } from "../../engine-floor.ts";
 import { mattstackFloor } from "../mattstack-floor.ts";
 import { deployedProxyVersion, pinnedPortlessVersion, PORTLESS_LAUNCHD_PLIST, PROXY_INSTALLER_MISSING, PROXY_VERSION_PATH, proxyCaIsTrusted, proxyInstallerMissing, proxyPredatesMattstack } from "../steps/services.ts";
-import { isValidBrewFormula } from "../tools-install.ts";
+import { isValidBrewFormula, VENDOR_INSTALLERS } from "../tools-install.ts";
 import type { SecretPresence } from "./accounts.ts";
 import { writingStyleRowFor } from "./writing-style.ts";
 import { skillsOverridesRowFor } from "./skills-overrides.ts";
@@ -82,8 +82,8 @@ export function named(name: string, version: string): string {
   return version ? `${name} ${version}` : name;
 }
 
-function provisionedInstallAction(tool: string, hasBrew: boolean, label: "Install" | "Upgrade" = "Install"): Action {
-  return { type: "install", label, tool, via: hasBrew ? "brew" : "vendor" };
+function provisionedInstallAction(tool: string, label: "Install" | "Upgrade" = "Install"): Action {
+  return { type: "install", label, tool, via: "vendor" };
 }
 
 function exec(p: Probes, argv: string[], timeoutMs = PROBE_TIMEOUT_MS): Promise<ExecResult> {
@@ -110,19 +110,19 @@ function parseHerdrClaudeState(stdout: string): { known: boolean; installed: boo
   return { known: true, installed: state.toLowerCase().startsWith("current"), state };
 }
 
-async function herdrRow(p: Probes, opts: { hasBrew: boolean }, seams: ToolsSeams): Promise<Row> {
+async function herdrRow(p: Probes, seams: ToolsSeams): Promise<Row> {
   const base = { id: "tool.herdr", kind: "tool" as const, title: "herdr", why: "Drives Herdr panes for remote-control and multi-agent workflows.", required: true };
 
   // The copy herdr.integration will run, so the row never reports on a different one.
   const herdr = seams.resolveTool(p, "herdr").exec ?? ["herdr"];
   const versionRes = await exec(p, [...herdr, "--version"]);
-  if (versionRes.code === 127) return row({ ...base, status: "missing", detail: "herdr is not installed", action: provisionedInstallAction("herdr", opts.hasBrew) });
+  if (versionRes.code === 127) return row({ ...base, status: "missing", detail: "herdr is not installed", action: provisionedInstallAction("herdr") });
   if (versionRes.code === 124) return row({ ...base, status: "error", detail: "herdr did not answer in time" });
   if (versionRes.code !== 0) return row({ ...base, status: "error", detail: `Could not run herdr (exit ${versionRes.code})` });
 
   const version = extractVersion(versionRes.stdout);
   if (!atLeast(version, HERDR_FLOOR)) {
-    return row({ ...base, status: "invalid", detail: /^[0-9]/.test(version) ? `${named("herdr", version)} is older than ${HERDR_FLOOR}` : `rt could not read herdr's version (it needs ${HERDR_FLOOR} or newer)`, action: provisionedInstallAction("herdr", opts.hasBrew, "Upgrade") });
+    return row({ ...base, status: "invalid", detail: /^[0-9]/.test(version) ? `${named("herdr", version)} is older than ${HERDR_FLOOR}` : `rt could not read herdr's version (it needs ${HERDR_FLOOR} or newer)`, action: provisionedInstallAction("herdr", "Upgrade") });
   }
 
   const integrationRes = await exec(p, [...herdr, "integration", "status"]);
@@ -145,11 +145,11 @@ async function herdrRow(p: Probes, opts: { hasBrew: boolean }, seams: ToolsSeams
 
 // ─── tool.claude ───────────────────────────────────────────────────────────
 
-async function claudeRow(p: Probes, opts: { hasBrew: boolean }): Promise<Row> {
+async function claudeRow(p: Probes): Promise<Row> {
   const base = { id: "tool.claude", kind: "tool" as const, title: "Claude Code", why: "Runs the agent sessions rt drives and hands work off to.", required: true, recheck: "on-activate" as const };
 
   const versionRes = await exec(p, ["claude", "--version"]);
-  if (versionRes.code === 127) return row({ ...base, status: "missing", detail: "Claude Code is not installed", action: provisionedInstallAction("claude", opts.hasBrew) });
+  if (versionRes.code === 127) return row({ ...base, status: "missing", detail: "Claude Code is not installed", action: provisionedInstallAction("claude") });
   if (versionRes.code === 124) return row({ ...base, status: "error", detail: "Claude Code did not answer in time" });
   if (versionRes.code !== 0) return row({ ...base, status: "error", detail: `Could not run Claude Code (exit ${versionRes.code})` });
   const version = extractVersion(versionRes.stdout);
@@ -506,6 +506,8 @@ function isHttpsUrl(url: string): boolean {
 }
 
 function teamToolRemedyAction(req: ToolRequirement, hasBrew: boolean, verb: "Install" | "Upgrade"): Action {
+  // installTool runs rt's own vendor script for these names, whatever the pack declares.
+  if (VENDOR_INSTALLERS[req.name]) return { type: "install", label: verb, tool: req.name, via: "vendor" };
   const brew = req.install?.brew;
   // Tap syntax (owner/tap/formula) or anything else outside a bare formula
   // name never becomes a one-click Install button — matches installTool's
@@ -522,6 +524,8 @@ function teamToolRemedyAction(req: ToolRequirement, hasBrew: boolean, verb: "Ins
 
 /** The route around a failed Install, or null when the team declared no way to install the tool. A link goes first: `brew install` is what just failed. */
 export function teamToolManualSteps(req: ToolRequirement): Action | null {
+  const vendor = VENDOR_INSTALLERS[req.name];
+  if (vendor) return { type: "steps", label: "Show steps…", steps: [`curl -fsSL ${vendor.url} | ${vendor.shell}`] };
   const { brew, url } = req.install ?? {};
   const step = url && isHttpsUrl(url) ? `Download it from ${url}` : brew ? `brew install ${brew}` : null;
   return step ? { type: "steps", label: "Show steps…", steps: [step] } : null;
@@ -807,8 +811,8 @@ export async function toolRows(
   const fastBrowser = await probeFastBrowser(p, seams);
   const solo = opts.solo === true;
   const rows: Row[] = [
-    await herdrRow(p, opts, seams),
-    await claudeRow(p, opts),
+    await herdrRow(p, seams),
+    await claudeRow(p),
     fastBrowserRow(fastBrowser, solo),
     fastBrowserExtensionRow(p, fastBrowser, solo),
     editorRow(seams),

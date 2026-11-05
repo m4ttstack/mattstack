@@ -28,16 +28,19 @@ import { updateSetupState } from "./state.ts";
  * a team-declared `install.url` from a pack's requirements.jsonc is never
  * looked up here and never auto-executed (see the `manual-install-required`
  * refusal in installTool).
+ *
+ * These run even on a Mac with Homebrew: brew's claude-code and herdr put
+ * the binary somewhere setup's later rows did not find it. Both scripts
+ * install into ~/.local/bin, which is where the install is verified.
+ * `shell` is the one each vendor's own docs pipe the script to.
  */
-export const VENDOR_INSTALLERS: Record<string, string> = {
-  herdr: "https://herdr.dev/install.sh",
-  claude: "https://claude.ai/install.sh",
+export const VENDOR_INSTALLERS: Record<string, { url: string; shell: "sh" | "bash" }> = {
+  herdr: { url: "https://herdr.dev/install.sh", shell: "sh" },
+  claude: { url: "https://claude.ai/install.sh", shell: "bash" },
 };
 
 /** The only hosts a hardcoded VENDOR_INSTALLERS entry may point at — closes the door on a future entry (or a typo) silently widening what rt will fetch-and-run. */
 const VENDOR_ALLOWED_HOSTS = new Set(["herdr.dev", "claude.ai", "bun.sh"]);
-
-export const BREW_FORMULAE: Record<string, string> = { herdr: "herdr", claude: "claude-code" };
 
 /**
  * A team-declared `install.brew` runs as `brew install <formula>` — tap
@@ -179,10 +182,9 @@ function linkOutcomeDetail(outcome: LinkOutcome): string {
 /** The branch `installTool` would take for `tool`, without installing; null where it would refuse (a team's download URL, a tap formula, or no method at all). */
 export async function installRoute(p: Probes, tool: string, reqs: PackRequirements[], hasBrew: boolean, seams: ToolsInstallSeams = REAL_SEAMS): Promise<"bundled" | "brew" | "vendor" | null> {
   if (seams.bundledToolExec(p, tool)) return "bundled";
-  const teamBrew = reqs.flatMap((r) => r.tools).find((t) => t.name === tool)?.install?.brew;
-  const formula = BREW_FORMULAE[tool] ?? (teamBrew !== undefined && isValidBrewFormula(teamBrew) ? teamBrew : undefined);
-  if (hasBrew && formula) return "brew";
   if (VENDOR_INSTALLERS[tool]) return "vendor";
+  const teamBrew = reqs.flatMap((r) => r.tools).find((t) => t.name === tool)?.install?.brew;
+  if (hasBrew && teamBrew !== undefined && isValidBrewFormula(teamBrew)) return "brew";
   return null;
 }
 
@@ -199,14 +201,13 @@ export async function installTool(p: Probes, tool: string, reqs: PackRequirement
   const teamBrew = teamTool?.install?.brew;
   const teamBrewValid = teamBrew !== undefined && isValidBrewFormula(teamBrew);
 
-  const brewCheck = await p.exec(["brew", "--version"], { timeoutMs: PROBE_TIMEOUT_MS });
-  const formula = BREW_FORMULAE[tool] ?? (teamBrewValid ? teamBrew : undefined);
-  if (brewCheck.code === 0 && formula) {
-    return runInstallerAndVerify(p, tool, "brew", ["brew", "install", formula], `brew install ${formula}`, `installed via brew (${formula})`);
-  }
+  const vendor = VENDOR_INSTALLERS[tool];
+  if (vendor) return runVendorInstaller(p, tool, vendor.url, { shell: vendor.shell, verify: [join(p.home, ".local", "bin", tool), "--version"] });
 
-  const hardcodedUrl = VENDOR_INSTALLERS[tool];
-  if (hardcodedUrl) return runVendorInstaller(p, tool, hardcodedUrl);
+  const brewCheck = await p.exec(["brew", "--version"], { timeoutMs: PROBE_TIMEOUT_MS });
+  if (brewCheck.code === 0 && teamBrewValid) {
+    return runInstallerAndVerify(p, tool, "brew", ["brew", "install", teamBrew], `brew install ${teamBrew}`, `installed via brew (${teamBrew})`);
+  }
 
   // R-T21-b: a team pack's install.url is free-form text authored by
   // whoever wrote that team's requirements.jsonc — the same trust boundary
