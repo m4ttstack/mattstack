@@ -68,11 +68,11 @@ export async function runPrEnqueue(args: string[], deps: PrEnqueueDeps): Promise
   const url = await deps.originUrl();
   const remote = url ? parseRemoteUrl(url) : null;
   if (!url || !remote) return { ok: false, error: "could not read this checkout's origin remote" };
-  const forge = await deps.forgeToken(url);
-  if (forge?.forge !== "github") return { ok: false, error: "rt pr enqueue only works on GitHub repos" };
-  if (!forge.token) return { ok: false, error: "No GitHub token found", next: "gh auth login" };
 
   try {
+    const forge = await deps.forgeToken(url);
+    if (forge?.forge !== "github") return { ok: false, error: "rt pr enqueue only works on GitHub repos" };
+    if (!forge.token) return { ok: false, error: "No GitHub token found", next: "gh auth login" };
     const entry = await deps.enqueue(remote.host, forge.token, remote.projectPath, pr, head);
     return { ok: true, pr, ...entry };
   } catch (err) {

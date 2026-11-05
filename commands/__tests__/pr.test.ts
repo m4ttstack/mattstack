@@ -49,6 +49,11 @@ describe("runPrEnqueue", () => {
       .toEqual({ ok: false, error: "could not read this checkout's origin remote" });
   });
 
+  test("reports a failure to load credentials", async () => {
+    const forgeToken = async () => { throw new Error("secrets store is locked"); };
+    expect(await runPrEnqueue(["1"], deps({ forgeToken }).d)).toEqual({ ok: false, error: "secrets store is locked" });
+  });
+
   test("reports the forge's refusal", async () => {
     const enqueue = async () => { throw new Error("enqueuePullRequest failed: head moved"); };
     expect(await runPrEnqueue(["1"], deps({ enqueue }).d)).toEqual({ ok: false, error: "enqueuePullRequest failed: head moved" });

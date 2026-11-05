@@ -162,9 +162,9 @@ bun suites and are never in the unit dirs; run them with `bun run
 
 `main` merges through a merge queue. Run `rt pr enqueue <number>` once a PR is
 approved and green, with `--head <sha>` to pin the commit that was reviewed.
-`gh pr merge` fails with "Auto merge is not allowed for this repository"
-whenever another PR is queued, and `--admin` cannot bypass the queue. A merge
-still needs Matt's confirmation.
+Here, `gh pr merge` has failed with "Auto merge is not allowed for this
+repository" while another PR was queued, and `--admin` cannot bypass the queue.
+A merge still needs Matt's confirmation.
 
 ### Run `bun test` from the repo root
 
