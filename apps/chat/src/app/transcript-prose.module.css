@@ -233,10 +233,10 @@
 }
 
 /* Messages to you: where one conversation ends and the next begins. */
+/* Edge to edge with no margin, so a hover or pick tint ends on the line. */
 .blockLine {
   height: 1px;
-  margin: 8px 24px 8px 20px;
-  background: var(--tk-border);
+  background: var(--tk-border-soft);
 }
 
 /* In Messages to you a click aims the reply, so a conversation answers the
