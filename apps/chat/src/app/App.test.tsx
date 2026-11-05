@@ -1216,7 +1216,7 @@ test('useMe: the server names the viewer, keying mentions on the handle and show
   );
 });
 
-test('useMe: before the server answers, the viewer is the default handle', () => {
+test('useMe: before the server answers, no mention reads as the viewer', () => {
   serveMe(() => new Promise<Response>(() => {}));
   renderWithProviders(
     <App
@@ -1225,10 +1225,35 @@ test('useMe: before the server answers, the viewer is the default handle', () =>
   );
   expect(
     screen.getByTestId('message-7').querySelector('[data-mention]')
-  ).toHaveAttribute('data-me', 'true');
+  ).not.toHaveAttribute('data-me', 'true');
 });
 
-test('useMe: a refused or failed answer keeps the default', async () => {
+test('useMe: a refused answer is asked again until the server names the viewer', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    let answers = 0;
+    serveMe(() =>
+      Promise.resolve(
+        ++answers === 1
+          ? errorResponse(500)
+          : jsonResponse({ handle: 'matt', name: 'matt' })
+      )
+    );
+    renderWithProviders(<App initialState={twoRooms} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5100);
+    });
+    expect(answers).toBe(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5100);
+    });
+    expect(answers).toBe(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('useMe: a refused or failed answer claims no mention', async () => {
   serveMe(() => Promise.resolve(errorResponse(500)));
   const { unmount } = renderWithProviders(
     <App
@@ -1238,7 +1263,7 @@ test('useMe: a refused or failed answer keeps the default', async () => {
   await act(async () => {});
   expect(
     screen.getByTestId('message-7').querySelector('[data-mention]')
-  ).toHaveAttribute('data-me', 'true');
+  ).not.toHaveAttribute('data-me', 'true');
   unmount();
 
   serveMe(() => Promise.reject(new Error('network down')));
@@ -1250,5 +1275,5 @@ test('useMe: a refused or failed answer keeps the default', async () => {
   await act(async () => {});
   expect(
     screen.getByTestId('message-7').querySelector('[data-mention]')
-  ).toHaveAttribute('data-me', 'true');
+  ).not.toHaveAttribute('data-me', 'true');
 });
