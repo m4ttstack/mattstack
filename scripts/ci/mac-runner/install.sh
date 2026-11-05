@@ -104,9 +104,9 @@ PLIST
     launchctl print "system/$label" >/dev/null 2>&1 || break
     sleep 1
   done
-  for attempt in 1 2 3 4 5 6; do
+  for attempt in $(seq 1 18); do
     sudo launchctl bootstrap system "$plist" && break
-    [ "$attempt" -lt 6 ] || exit 1
+    [ "$attempt" -lt 18 ] || exit 1
     sleep 5
   done
 done
