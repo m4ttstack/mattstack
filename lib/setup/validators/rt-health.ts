@@ -258,6 +258,24 @@ async function interceptsRow(p: Probes): Promise<Row> {
   const pathBroken = anyInstalled && shellPath !== null && !shellPath.includes(binDir);
   const pathNote = pathBroken ? `. Also, ${binDir} is not on your shell's PATH, so intercepts will not fire` : "";
 
+  const foreign = report.find((r) => r.foreign);
+  if (foreign?.foreign) {
+    const { command, foreign: path } = foreign;
+    return row({
+      ...base,
+      status: "needs-you",
+      detail: `rt did not make ${path}, so rt left it alone, and ${command} intercepts can't fire. Move it aside, then reinstall the shims`,
+      action: {
+        type: "steps",
+        label: "Show steps…",
+        steps: [
+          `Move it aside: mv ${path} ${path}.not-rt`,
+          `If it was ${command} itself, install ${command} somewhere else on your PATH, such as with Homebrew`,
+          "Run: rt intercept install",
+        ],
+      },
+    });
+  }
   if (missing.length > 0) {
     return row({ ...base, status: "needs-you", detail: `Not installed yet: ${missing.map((r) => r.command).join(", ")}. Run rt intercept install${pathNote}`, action: REINSTALL_SHIMS_ACTION });
   }

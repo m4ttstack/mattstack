@@ -392,6 +392,27 @@ describe("rtHealthRows — tool.intercepts", () => {
     expect(r.action).toEqual({ type: "run", label: "Re-install shims", verb: ["intercept", "install"] });
     expect(r.detail).toStartWith("Not installed yet: ghosttool. Run rt intercept install");
   });
+
+  test("a file rt did not make at the shim path -> names it and gives steps, never Re-install shims, which would leave it alone", async () => {
+    const { writeInterceptRules } = await import("../../endpoint/shim.ts");
+    writeInterceptRules([{ command: "ghosttool", repo: "acme", repoRemote: null, matches: [] }]);
+    const bin = join(home, ".local", "bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "ghosttool"), "Ïúíþ real binary", { mode: 0o755 });
+    const p = fakeProbes({ home, env: appEnv, exec: memberShell(`${bin}:/usr/bin`) });
+    const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.intercepts");
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toBe(`rt did not make ${bin}/ghosttool, so rt left it alone, and ghosttool intercepts can't fire. Move it aside, then reinstall the shims`);
+    expect(r.action).toEqual({
+      type: "steps",
+      label: "Show steps…",
+      steps: [
+        `Move it aside: mv ${bin}/ghosttool ${bin}/ghosttool.not-rt`,
+        "If it was ghosttool itself, install ghosttool somewhere else on your PATH, such as with Homebrew",
+        "Run: rt intercept install",
+      ],
+    });
+  });
 });
 
 describe("rtHealthRows — tool.shell (fully Probes-driven)", () => {
