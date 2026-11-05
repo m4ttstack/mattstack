@@ -238,12 +238,16 @@ A message that widens the brief or gives permission holds from then on.
 
 Act on the cue in that turn. A check-in cue asks you to check in: ask if they
 still need help and say the chat will close soon. A close cue asks you to close:
-write the farewell yourself and call `chat_slack_close` at once, because the
+follow `Write the farewell` and call `chat_slack_close` at once, because the
 daemon closes with no farewell two minutes later.
 
 ### Write the farewell
 
-Two or three lines: what was sorted, what is still with the operator. The daemon
+When the chat's last message is yours, with no reply since, call
+`chat_slack_close` with no `farewell`: the daemon's closing line follows
+yours, so a farewell would be a third message in a row.
+
+Otherwise, two or three lines: what was sorted, what is still with the operator. The daemon
 adds its own closing line after yours, so leave out how the chat ends or how to
 reach anyone. Check the farewell against `Never send`.
 
