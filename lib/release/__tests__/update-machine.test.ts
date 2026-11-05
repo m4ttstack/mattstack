@@ -301,6 +301,15 @@ function fakeSeams(opts: Options = {}): {
 }
 
 describe("rt release update-machine", () => {
+  test("the dev bundle installs the clone's packages before fetch-deps runs its scripts", async () => {
+    const { seams, calls } = fakeSeams();
+    await runUpdateMachine(seams, { yes: true });
+    const install = calls.indexOf("bun install --frozen-lockfile");
+    const fetchDeps = calls.findIndex((c) => c.startsWith("scripts/fetch-deps.sh"));
+    expect(install).toBeGreaterThan(-1);
+    expect(install).toBeLessThan(fetchDeps);
+  });
+
   test("runs all seven legs in order and reports ok when the machine is healthy", async () => {
     const { seams } = fakeSeams();
     const report = await runUpdateMachine(seams, { yes: true });
