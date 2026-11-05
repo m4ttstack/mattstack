@@ -17,7 +17,7 @@
 }
 
 .dot[data-tone='gray'] {
-  background: var(--tk-text-3);
+  background: var(--tk-line-1);
 }
 
 .dot[data-tone='accent'] {

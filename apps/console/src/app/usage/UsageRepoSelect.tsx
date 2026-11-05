@@ -3,6 +3,7 @@ import { MattstackShell } from '@mattstack/app-kit/app';
 import { Select } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
+import { repoPath } from '../runs/repoLabel';
 import { mrParts } from './format';
 import { useUsageMrs, type UsageRange } from './useUsage';
 
@@ -25,8 +26,9 @@ export function UsageRepoSelect({
       const { repoKey, repo } = mrParts(row.mrKey);
       seen.set(repoKey, repo);
     }
+    if (value && !seen.has(value)) seen.set(value, repoPath(value));
     return [...seen].map(([key, label]) => ({ value: key, label }));
-  }, [everyRepo.data]);
+  }, [everyRepo.data, value]);
   return (
     <MattstackShell.AppBar>
       <Select

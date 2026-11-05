@@ -36,6 +36,16 @@ export function fillWeeks(weeks: UsageWeekRow[]): WeekBar[] {
   return bars;
 }
 
+/** Over the whole range, since a week with no usage still counts. */
+export function averageWeek(
+  cost: number,
+  range: number | null,
+  weeks: UsageWeekRow[]
+): number {
+  const count = range ? range / 7 : fillWeeks(weeks).length;
+  return count > 0 ? cost / count : 0;
+}
+
 function costOf(week: WeekBar, kind: UsageKind): number {
   return week.byKind[kind]?.cost ?? 0;
 }
@@ -60,7 +70,14 @@ export function WeeklyChart({ weeks }: { weeks: UsageWeekRow[] }) {
   const bars = fillWeeks(weeks);
   const peak = Math.max(...bars.map(w => w.cost), 0);
   return (
-    <div className={classes.chart} data-testid="usage-weeks">
+    <div
+      className={classes.chart}
+      data-testid="usage-weeks"
+      role="img"
+      aria-label={`Estimated cost per week: ${bars
+        .map(w => `${shortDay(w.weekStart)} ${usd(w.cost)}`)
+        .join(', ')}`}
+    >
       {bars.map(week => (
         <Tooltip key={week.weekStart} label={<WeekTip week={week} />}>
           <div className={classes.column}>

@@ -42,8 +42,15 @@
 }
 
 .bar {
+  position: relative;
+  z-index: 1;
   width: 180px;
   min-width: 180px;
+}
+
+.barLink {
+  display: block;
+  padding-block: 8px;
 }
 
 .num {

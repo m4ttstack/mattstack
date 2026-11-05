@@ -43,7 +43,7 @@ import {
   type EnrichmentOf,
   type UsageRange,
 } from './useUsage';
-import { WeeklyChart } from './WeeklyChart';
+import { averageWeek, WeeklyChart } from './WeeklyChart';
 
 const RANGES = [
   { value: '30', label: '30 days' },
@@ -56,21 +56,36 @@ const VIEWS = [
   { value: 'trends', label: 'Trends' },
 ];
 
-const DAY_MS = 86_400_000;
+export function parseUsageSearch(search: string): {
+  rangeValue: string;
+  range: UsageRange;
+  view: 'mrs' | 'trends';
+  repo: string | null;
+} {
+  const params = new URLSearchParams(search);
+  const asked = params.get('range');
+  const rangeValue = RANGES.some(r => r.value === asked) ? asked! : '30';
+  return {
+    rangeValue,
+    range: rangeValue === 'all' ? null : Number(rangeValue),
+    view: params.get('view') === 'trends' ? 'trends' : 'mrs',
+    repo: params.get('repo'),
+  };
+}
 
+/** wouter's `useSearch` is `decodeURI`'d, which strips a layer off a repo
+    identity's `%2F`, so this only subscribes and the raw string is parsed. */
 function useUsageUrl() {
-  const params = new URLSearchParams(useSearch());
-  const rangeValue = params.get('range') ?? '30';
-  const view = params.get('view') === 'trends' ? 'trends' : 'mrs';
-  const repo = params.get('repo');
+  useSearch();
+  const { search, pathname } = window.location;
+  const { rangeValue, range, view, repo } = parseUsageSearch(search);
   const set = (key: string, value: string | null) => {
-    const next = new URLSearchParams(params);
+    const next = new URLSearchParams(search);
     if (value) next.set(key, value);
     else next.delete(key);
     const qs = next.toString();
-    navigate(qs ? `/usage?${qs}` : '/usage', { replace: true });
+    navigate(qs ? `${pathname}?${qs}` : pathname, { replace: true });
   };
-  const range: UsageRange = rangeValue === 'all' ? null : Number(rangeValue);
   return { rangeValue, range, view, repo, set };
 }
 
@@ -103,7 +118,14 @@ function MrRow({
         </Text>
       </Table.Td>
       <Table.Td className={classes.bar}>
-        <KindBar cost={row.costByKind} />
+        <Link
+          href={usageMrHref(row.mrKey)}
+          className={classes.barLink}
+          tabIndex={-1}
+          aria-hidden
+        >
+          <KindBar cost={row.costByKind} />
+        </Link>
       </Table.Td>
       <Table.Td ta="right" c="dimmed" className={classes.num}>
         {compact(row.totals.output)}
@@ -169,7 +191,7 @@ function BreakdownCard({
   total,
 }: {
   title: string;
-  rows: Array<{ label: string; totals: UsageTotals }>;
+  rows: Array<{ key: string; label: string; totals: UsageTotals }>;
   total: number;
 }) {
   return (
@@ -179,7 +201,7 @@ function BreakdownCard({
       </Text>
       <Stack gap={10}>
         {rows.map(row => (
-          <div key={row.label} className={classes.breakdown}>
+          <div key={row.key} className={classes.breakdown}>
             <Text fz="md" lh="normal" truncate>
               {row.label}
             </Text>
@@ -197,25 +219,31 @@ function BreakdownCard({
 const pipelineRows = (rows: UsagePipelineRow[]) =>
   [...rows]
     .sort((a, b) => b.totals.cost - a.totals.cost)
-    .map(r => ({ label: r.pipeline ?? 'no run', totals: r.totals }));
+    .map(r => ({
+      key: r.pipeline ?? '',
+      label: r.pipeline ?? 'no run',
+      totals: r.totals,
+    }));
 
 const modelRows = (rows: UsageModelRow[]) =>
   [...rows]
     .sort((a, b) => b.totals.cost - a.totals.cost)
-    .map(r => ({ label: modelName(r.model), totals: r.totals }));
+    .map(r => ({
+      key: r.model ?? '',
+      label: modelName(r.model),
+      totals: r.totals,
+    }));
 
+/** The doubled window holds the current one, so what is left is the window
+    before it. A placeholder from another range says nothing about this one. */
 function changeStat(
   cost: number,
   range: UsageRange,
-  now: number,
-  earlier: ReturnType<typeof useUsageTrends>['data']
+  earlier: ReturnType<typeof useUsageTrends>
 ): UsageStat {
   const label = range ? `vs last ${range} days` : 'vs earlier';
-  const before = range
-    ? (earlier?.weeks ?? [])
-        .filter(w => w.weekStart < now - range * DAY_MS)
-        .reduce((sum, w) => sum + w.totals.cost, 0)
-    : 0;
+  const whole = earlier.isPlaceholderData ? undefined : earlier.data;
+  const before = range && whole ? whole.totals.cost - cost : 0;
   if (before <= 0) return { key: 'change', value: '—', label };
   const change = Math.round(((cost - before) / before) * 100);
   return {
@@ -225,13 +253,27 @@ function changeStat(
   };
 }
 
+function emptyHint(
+  sweptAt: number | null,
+  range: UsageRange,
+  repo: string | null
+): string {
+  if (!sweptAt) return 'rt reads token usage from your runs every 5 minutes.';
+  if (repo) return 'Try all repos.';
+  return range ? 'Try a longer range.' : 'Nothing has run through a pipeline.';
+}
+
 export function UsagePage() {
   const url = useUsageUrl();
   const mrs = useUsageMrs(url.range, url.repo);
-  const trends = useUsageTrends(url.range, url.repo);
-  const earlier = useUsageTrends(url.range ? url.range * 2 : null, url.repo);
+  const onTrends = url.view === 'trends';
+  const trends = useUsageTrends(url.range, url.repo, onTrends);
+  const earlier = useUsageTrends(
+    url.range ? url.range * 2 : null,
+    url.repo,
+    onTrends && url.range !== null
+  );
   const status = useUsageStatus();
-  const now = useMemo(() => Date.now(), []);
 
   const rows = useMemo(
     () =>
@@ -242,7 +284,11 @@ export function UsagePage() {
 
   const summary = mrs.data?.summary;
   const weeks = trends.data?.weeks ?? [];
-  const failed = mrs.isError || trends.isError;
+  const failed = mrs.isError || (onTrends && trends.isError);
+  const hasData = onTrends
+    ? trends.isSuccess && weeks.length > 0
+    : (summary?.mrCount ?? 0) > 0;
+  const settled = onTrends ? trends.isSuccess : mrs.isSuccess;
   const usedKinds = KIND_ORDER.filter(k =>
     weeks.some(w => w.byKind[k].cost > 0)
   );
@@ -283,11 +329,11 @@ export function UsagePage() {
     { key: 'cost', value: usd(trendCost), label: 'estimated cost' },
     {
       key: 'average',
-      value: usd(weeks.length ? trendCost / weeks.length : 0),
+      value: usd(averageWeek(trendCost, url.range, weeks)),
       label: 'average week',
     },
     { key: 'mrs', value: summary?.mrCount ?? 0, label: 'MRs' },
-    changeStat(trendCost, url.range, now, earlier.data),
+    changeStat(trendCost, url.range, earlier),
   ];
 
   return (
@@ -348,13 +394,8 @@ export function UsagePage() {
               </RetryAlert>
             ) : null}
 
-            {summary && summary.mrCount > 0 ? (
-              url.view === 'mrs' ? (
-                <>
-                  <UsageStats stats={mrStats} />
-                  <MrsView rows={rows} enrichment={enrichment} />
-                </>
-              ) : (
+            {hasData ? (
+              onTrends ? (
                 <>
                   <UsageStats stats={trendStats} />
                   <Paper
@@ -384,6 +425,11 @@ export function UsagePage() {
                     />
                   </div>
                 </>
+              ) : (
+                <>
+                  <UsageStats stats={mrStats} />
+                  <MrsView rows={rows} enrichment={enrichment} />
+                </>
               )
             ) : null}
 
@@ -393,7 +439,7 @@ export function UsagePage() {
               </Text>
             ) : null}
 
-            {summary && summary.mrCount === 0 ? (
+            {settled && !hasData ? (
               <Paper
                 variant="ground"
                 withBorder
@@ -405,9 +451,7 @@ export function UsagePage() {
                     {sweptAt ? 'No usage in this range.' : 'No usage yet.'}
                   </Text>
                   <Text fz="md" lh="normal" c="dimmed">
-                    {sweptAt
-                      ? 'Try a longer range.'
-                      : 'rt reads token usage from your runs every 5 minutes.'}
+                    {emptyHint(sweptAt, url.range, url.repo)}
                   </Text>
                 </Stack>
               </Paper>

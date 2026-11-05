@@ -85,7 +85,7 @@ function SideCard({
   whole,
 }: {
   title: string;
-  rows: Array<{ label: string; totals: UsageTotals }>;
+  rows: Array<{ key: string; label: string; totals: UsageTotals }>;
   whole: number;
 }) {
   return (
@@ -95,7 +95,7 @@ function SideCard({
       </Text>
       <Stack gap={12}>
         {rows.map(row => (
-          <Stack key={row.label} gap={5}>
+          <Stack key={row.key} gap={5}>
             <Group justify="space-between" gap={8} wrap="nowrap">
               <Text fz="md" lh="normal" truncate>
                 {row.label}
@@ -117,7 +117,7 @@ export function UsageMrPage({ mrKey }: { mrKey: string }) {
   const status = useUsageStatus();
   const mr = query.data;
   const enrichment = useUsageEnrichment([mr?.branch ?? null]);
-  const { repo, number } = mrParts(mrKey);
+  const { repoKey, repo, number } = mrParts(mrKey);
   const enriched = enrichment(mr?.branch ?? null);
   const name = mr?.ticket ?? number;
   const title = enriched?.ticket?.title ?? mr?.branch ?? repo;
@@ -151,7 +151,7 @@ export function UsageMrPage({ mrKey }: { mrKey: string }) {
         >
           <div className={classes.page} data-testid="usage-mr-page">
             <UsageRepoSelect
-              value={null}
+              value={repoKey}
               onChange={next =>
                 navigate(
                   next ? `/usage?repo=${encodeURIComponent(next)}` : '/usage'
@@ -263,6 +263,7 @@ export function UsageMrPage({ mrKey }: { mrKey: string }) {
                       rows={[...mr.byModel]
                         .sort((a, b) => b.totals.cost - a.totals.cost)
                         .map(r => ({
+                          key: r.model ?? '',
                           label: modelName(r.model),
                           totals: r.totals,
                         }))}
@@ -271,8 +272,8 @@ export function UsageMrPage({ mrKey }: { mrKey: string }) {
                       title="By agent"
                       whole={mr.totals.cost}
                       rows={[
-                        { label: 'Main session', totals: mr.main },
-                        { label: 'Subagents', totals: mr.subagent },
+                        { key: 'main', label: 'Main session', totals: mr.main },
+                        { key: 'sub', label: 'Subagents', totals: mr.subagent },
                       ]}
                     />
                   </Stack>
