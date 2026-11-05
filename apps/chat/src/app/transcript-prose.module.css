@@ -259,8 +259,10 @@
   padding-inline: 16px;
 }
 
-.block:hover {
-  background-color: color-mix(in srgb, var(--tk-text-1) 6%, transparent);
+@media (hover: hover) {
+  .block:hover {
+    background-color: color-mix(in srgb, var(--tk-text-1) 6%, transparent);
+  }
 }
 
 /* The rest are etched into the page; the one a reply goes to lifts out of it.
