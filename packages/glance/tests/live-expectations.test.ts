@@ -43,6 +43,7 @@ describe('expectation tables', () => {
   test('only optional interface methods may be declared absent', () => {
     const OPTIONAL: string[] = [
       'fetchPullRequestsByBranches',
+      'enqueuePullRequest',
       'watchEvents',
       'subscribePullRequestEvents',
       'fetchMergeRequestIndex',

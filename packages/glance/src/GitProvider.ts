@@ -4,7 +4,9 @@ import type {
   Discussion,
   InvalidationBatch,
   JobDetail,
+  EnqueuePullRequestInput,
   MergePullRequestInput,
+  MergeQueueEntry,
   MergeRequestIndexRow,
   MergeRequestMetrics,
   MRDetail,
@@ -525,6 +527,19 @@ export interface GitProvider {
    * Check `capabilities.canAutoMerge` before calling.
    */
   setAutoMerge(projectPath: string, mrIid: number): Promise<void>;
+
+  /**
+   * Add a pull request to its target branch's merge queue.
+   * On GitHub: GraphQL `enqueuePullRequest`. Unlike `mergePullRequest`, this
+   * works while other entries are queued. `expectedHeadSha` refuses the
+   * enqueue if the branch has moved since it was reviewed.
+   * GitLab leaves this absent. Check `capabilities.canEnqueue` before calling.
+   */
+  enqueuePullRequest?(
+    projectPath: string,
+    mrIid: number,
+    input?: EnqueuePullRequestInput,
+  ): Promise<MergeQueueEntry>;
 
   /**
    * Cancel a previously enabled auto-merge.

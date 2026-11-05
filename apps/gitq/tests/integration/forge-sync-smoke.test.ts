@@ -95,6 +95,7 @@ function mockProvider(prs: PullRequest[]): GitProvider {
       canUnapprove: true,
       canRebase: true,
       canAutoMerge: true,
+      canEnqueue: false,
       canResolveDiscussions: true,
       canRetryPipeline: true,
       canRequestReReview: true,
