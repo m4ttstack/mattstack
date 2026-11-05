@@ -30,11 +30,18 @@ describe("release.yml", () => {
     expect(buildAppsCheckout.with["persist-credentials"]).toBe(false);
     expect(wf.jobs["build-apps"].steps.some((s: any) => /certificate/i.test(s.name ?? ""))).toBe(false);
   });
-  test("arm64 only — no x64 compile, no tarballs", () => {
-    const text = JSON.stringify(wf);
-    expect(text).not.toContain("bun-darwin-x64");
-    expect(text).not.toContain("tar.gz");
-    expect(text).toContain("bun-darwin-arm64");
+  test("one universal app: every binary built for both chips and merged, no per-chip tarballs", () => {
+    const step = (job: string, n: string) => wf.jobs[job].steps.find((s: any) => (s.name ?? "").startsWith(n));
+    expect(JSON.stringify(wf)).not.toContain("tar.gz");
+    expect(step("build-apps", "Build the tree rows (arm64)").run).toContain("--arch arm64");
+    expect(step("build-apps", "Build the tree rows (x86_64)").run).toContain("--arch x86_64");
+    expect(step("release", "Compile rt").run).toContain("lipo -create dist/rt-arm64 dist/rt-x64 -output dist/rt");
+    expect(step("release", "Build rt-ui").run).toContain("lipo -create");
+    expect(step("release", "Fetch bundled dependencies").run).toContain("fetch-deps.sh x86_64");
+    expect(idx("Land the tree rows")).toBeLessThan(idx("Merge the two slices"));
+    expect(idx("Merge the two slices")).toBeLessThan(idx("Build mattstack.app"));
+    expect(step("release", "Build mattstack.app").env.RT_DEPS_ARCH).toBe("universal");
+    expect(step("release", "Assert the bundle contract").run).toContain("--universal");
   });
   test("the train is ordered: compile → deps → land tree rows → build → contract → version assert → notarize app → zip → clean-room → dmg → notarize dmg → appcast → checksums → release", () => {
     expect(idx("Compile rt")).toBeLessThan(idx("Fetch bundled dependencies"));
