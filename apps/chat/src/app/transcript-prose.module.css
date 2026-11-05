@@ -238,7 +238,7 @@
   height: 1px;
   background: color-mix(
     in srgb,
-    var(--mantine-color-cyan-filled) 24%,
+    var(--mantine-color-cyan-filled) 40%,
     transparent
   );
 }
