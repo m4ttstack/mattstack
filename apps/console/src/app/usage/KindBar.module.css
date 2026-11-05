@@ -1,0 +1,57 @@
+.track {
+  display: flex;
+  gap: 2px;
+  width: calc(var(--bar-scale) * 100%);
+  min-width: 4px;
+  height: 8px;
+}
+
+.segment {
+  flex: var(--share) 1 0;
+  min-width: 2px;
+  height: 100%;
+}
+
+.segment:first-child {
+  border-radius: 4px 0 0 4px;
+}
+
+.segment:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+.segment:only-child {
+  border-radius: 4px;
+}
+
+.swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.segment[data-kind='work'],
+.swatch[data-kind='work'] {
+  background: var(--tk-fill-accent);
+}
+
+.segment[data-kind='review'],
+.swatch[data-kind='review'] {
+  background: var(--tk-fill-gold);
+}
+
+.segment[data-kind='respond'],
+.swatch[data-kind='respond'] {
+  background: var(--tk-fill-cyan);
+}
+
+.segment[data-kind='doctor'],
+.swatch[data-kind='doctor'] {
+  background: var(--tk-fill-purple);
+}
+
+.segment[data-kind='other'],
+.swatch[data-kind='other'] {
+  background: var(--tk-line-1);
+}

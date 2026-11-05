@@ -1,0 +1,64 @@
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  height: 200px;
+  width: 100%;
+}
+
+.column {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 100%;
+}
+
+.value,
+.day {
+  flex: none;
+  white-space: nowrap;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  max-width: 44px;
+  height: calc(var(--height) * (100% - 52px));
+  min-height: 3px;
+}
+
+.segment {
+  flex: var(--share) 1 0;
+  min-height: 2px;
+  width: 100%;
+}
+
+.segment:first-child {
+  border-radius: 4px 4px 0 0;
+}
+
+.segment[data-kind='work'] {
+  background: var(--tk-fill-accent);
+}
+
+.segment[data-kind='review'] {
+  background: var(--tk-fill-gold);
+}
+
+.segment[data-kind='respond'] {
+  background: var(--tk-fill-cyan);
+}
+
+.segment[data-kind='doctor'] {
+  background: var(--tk-fill-purple);
+}
+
+.segment[data-kind='other'] {
+  background: var(--tk-line-1);
+}

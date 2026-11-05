@@ -7,6 +7,7 @@ import {
   Bot,
   Boxes,
   Braces,
+  ChartColumn,
   Circle,
   CircleAlert,
   CircleCheck,
@@ -63,6 +64,7 @@ import {
 } from 'lucide-react';
 
 registerIcons({
+  chartColumn: lucideWrapperFn(ChartColumn),
   boxes: lucideWrapperFn(Boxes),
   fileCog: lucideWrapperFn(FileCog),
   sliders: lucideWrapperFn(SlidersHorizontal),

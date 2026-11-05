@@ -162,6 +162,12 @@ function mrData(
   };
 }
 
+const EARLIER_WEEK_COSTS: Array<Record<UsageKind, number>> = [
+  { work: 62, review: 9, respond: 21, doctor: 4, other: 2 },
+  { work: 41, review: 12, respond: 14, doctor: 0, other: 1 },
+  { work: 88, review: 7, respond: 33, doctor: 11, other: 3 },
+];
+
 const KEY_FULL = 'remote:github.com%2Facme%2Fwidgets!123';
 const KEY_REVIEW = 'remote:github.com%2Facme%2Fwidgets!124';
 
@@ -212,17 +218,17 @@ export function usageFixture(): UsageFixture {
         })
       ),
       entry({
-        runId: 'r-doctor-1',
-        sessionId: null,
+        runId: null,
+        sessionId: 's-doctor-1',
         kind: 'doctor',
         round: null,
-        pipeline: 'doctor',
-        status: 'done',
+        pipeline: null,
+        status: null,
         start: WEEK + 4 * DAY + 14 * HOUR,
         hours: 1,
         main: tot(200, 6000, 900_000, 50_000, 2.2),
         subagent: tot(0, 0, 0, 0, 0),
-        stages: [['diagnose', 1, 'done', tot(200, 6000, 900_000, 50_000, 2.2)]],
+        stages: [[null, null, null, tot(200, 6000, 900_000, 50_000, 2.2)]],
       }),
     ]
   );
@@ -234,17 +240,19 @@ export function usageFixture(): UsageFixture {
     'feature/cart-discounts',
     [
       entry({
-        runId: null,
-        sessionId: 's-review-1',
+        runId: 'r-review-1',
+        sessionId: null,
         kind: 'review',
         round: null,
-        pipeline: null,
-        status: null,
+        pipeline: 'review',
+        status: 'done',
         start: WEEK + 4 * DAY + 16 * HOUR,
         hours: 1,
         main: tot(500, 12000, 2_000_000, 120_000, 4.6),
         subagent: tot(0, 0, 0, 0, 0),
-        stages: [[null, null, null, tot(500, 12000, 2_000_000, 120_000, 4.6)]],
+        stages: [
+          ['review', 1, 'done', tot(500, 12000, 2_000_000, 120_000, 4.6)],
+        ],
       }),
     ]
   );
@@ -281,6 +289,19 @@ export function usageFixture(): UsageFixture {
       UsageTotals
     >,
   };
+  const earlierWeeks = EARLIER_WEEK_COSTS.map((costs, i) => {
+    const byKind = Object.fromEntries(
+      KINDS.map(k => [k, tot(0, costs[k] * 2000, 0, 0, costs[k])])
+    ) as Record<UsageKind, UsageTotals>;
+    const start = new Date(WEEK);
+    start.setDate(start.getDate() - 7 * (EARLIER_WEEK_COSTS.length - i));
+    return {
+      weekStart: start.getTime(),
+      totals: sum(Object.values(byKind)),
+      byKind,
+    };
+  });
+  const weeks = [...earlierWeeks, week];
 
   return {
     mrs: {
@@ -293,13 +314,13 @@ export function usageFixture(): UsageFixture {
     },
     mr: key => all.find(d => d.mrKey === key) ?? null,
     trends: {
-      weeks: [week],
-      totals: week.totals,
+      weeks,
+      totals: sum(weeks.map(w => w.totals)),
       byPipeline: [
         { pipeline: 'feature', totals: full.runs[0]!.totals },
         { pipeline: 'respond', totals: kindTotals('respond') },
-        { pipeline: 'doctor', totals: kindTotals('doctor') },
-        { pipeline: null, totals: kindTotals('review') },
+        { pipeline: 'review', totals: kindTotals('review') },
+        { pipeline: null, totals: kindTotals('doctor') },
       ],
       byModel: seenModels(
         sum(all.map(d => d.main)),
