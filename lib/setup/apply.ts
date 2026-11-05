@@ -524,7 +524,22 @@ function updateItems(steps: StepDef[], migrations: MigrationDef[], applied: read
  * pending) runs only the leads and the pending migrations: a Mac stuck on one
  * migration pays little per launch and never restarts its apps.
  */
-export async function runUpdateWith(steps: StepDef[], migrations: MigrationDef[], ctx: ApplyContext, opts: { retry?: boolean } = {}): Promise<UpdateRunResult> {
+/** False when the read throws: a form rt cannot read must not keep the window opening. */
+async function setupStillNeedsYou(read: (() => Promise<boolean>) | undefined, ctx: ApplyContext, id: EventId | undefined): Promise<boolean> {
+  if (!read) return false;
+  try {
+    return await read();
+  } catch (err) {
+    if (id) ctx.log(id, `warn: setup status not read after the update: ${err instanceof Error ? err.message : String(err)}`);
+    return false;
+  }
+}
+
+/**
+ * `setupNeedsYou` reads whether setup status has a row waiting on the person
+ * (its stage is not ready), so a row no update step owns still opens Setup status.
+ */
+export async function runUpdateWith(steps: StepDef[], migrations: MigrationDef[], ctx: ApplyContext, opts: { retry?: boolean; setupNeedsYou?: () => Promise<boolean> } = {}): Promise<UpdateRunResult> {
   settleLegacyFinish(ctx);
   const retry = opts.retry === true;
   const items = updateItems(steps, migrations, readSetupState(ctx.p).migrations, retry);
@@ -580,14 +595,15 @@ export async function runUpdateWith(steps: StepDef[], migrations: MigrationDef[]
     }
     const ok = failedSteps.length === 0;
     persistTerminalState(ctx, ok, lastRanId, true);
+    // The app opens Setup status on this. Only a stamped run sets it, so a Mac left
+    // not-ready opens it once per version. A retry and a bug stay quiet: neither stamps,
+    // so either would reopen the window at every launch.
+    const needsYou = !retry && !bug && (updateNeedsYou(outcomes) || (await setupStillNeedsYou(opts.setupNeedsYou, ctx, lastRanId)));
     ctx.emit({
       event: "done",
       ok,
       ...(failedSteps.length > 0 ? { failedStep: failedSteps[0], failedSteps } : {}),
-      // The app opens Setup status on this. A retry stays quiet, like its notification,
-      // and so does a bug: the rethrow below skips the notification and the stamp, so the
-      // window would open at every launch with nothing to show.
-      ...(!retry && !bug && updateNeedsYou(outcomes) ? { needsYou: true as const } : {}),
+      ...(needsYou ? { needsYou: true as const } : {}),
     });
   }
 

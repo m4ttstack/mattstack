@@ -58,6 +58,7 @@ import { roleFor } from "../lib/team/roles.ts";
 import { NO_MANIFEST_DETAIL, setupPackFlow } from "../lib/setup/pack.ts";
 import { planBlocks, rowTitles } from "../lib/setup/plan-blocks.ts";
 import { composePlan, enrichSnapshotForge, realSecretPresence } from "../lib/setup/plan.ts";
+import { composeForm } from "../lib/setup/form.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { checkCheckout, checkCloneTarget, configuredRepoRoots, resolvePlacements, takenFor, trackedIdentities, writePlacement, type CheckoutCheck } from "../lib/setup/repo-placement.ts";
 import { checkRepoRoot, stageRepoRoot } from "../lib/setup/repo-root.ts";
@@ -180,6 +181,8 @@ export interface ApplyDeps {
   version?: string;
   /** Overrides the shipped migrations list for `rt setup update`. */
   migrations?: MigrationDef[];
+  /** Whether setup status still has a row waiting on the person after an update run; absent reads only the run's own steps. */
+  setupNeedsYou?: () => Promise<boolean>;
   /** Posts the update run's needs-you notification; defaults to the preference-gated notifier. */
   notify?: (category: string, title: string, message: string, id: string) => void;
   /** Looks for a newer dev app on every launch whose setup has finished, stamped or not; absent means no check. Never touches the exit code or the update stamp. */
@@ -209,6 +212,7 @@ export function realApplyDeps(): ApplyDeps {
       return confirm({ message });
     },
     notify: (category, title, message, id) => notifyEnabled(category, title, message, undefined, undefined, id),
+    setupNeedsYou: async () => (await composeForm(probes, { secrets: realSecretPresence(), orgs: listOrgs() })).stage !== "ready",
     devAppNotice: () => devAppNotice({ probes, flavor: processFlavor(), gh: () => resolveTool(probes, "gh").exec }),
     updateLock: createUpdateLock(updateLockPath(probes.home)),
     runLock: createUpdateLock(runLockPath, { maxAgeMs: APPLY_RUN_LOCK_MAX_AGE_MS }),
@@ -573,7 +577,7 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
     });
     await human?.settle();
     const retry = decision.kind === "run" && decision.retry === true;
-    const result: UpdateRunResult = await runUpdateWith(deps.steps ?? STEPS, deps.migrations ?? MIGRATIONS, ctx, { retry });
+    const result: UpdateRunResult = await runUpdateWith(deps.steps ?? STEPS, deps.migrations ?? MIGRATIONS, ctx, { retry, ...(deps.setupNeedsYou ? { setupNeedsYou: deps.setupNeedsYou } : {}) });
     const lastId = result.outcomes.at(-1)?.id;
     if (lockError && lastId) emit({ event: "log", id: lastId, line: `warn: setup update lock not taken, running unguarded: ${lockError}` });
 

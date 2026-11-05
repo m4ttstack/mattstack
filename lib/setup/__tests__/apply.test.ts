@@ -1851,6 +1851,30 @@ describe("runUpdateWith: the done line says when setup needs you", () => {
     expect(done(events)).toEqual({ event: "done", ok: true });
   });
 
+  test("a clean run still marks needsYou when setup status has a row waiting", async () => {
+    const { ctx, events } = testCtx();
+    await runUpdateWith([updateStep("path.link", { state: "done" })], [], ctx, { setupNeedsYou: async () => true });
+    expect(done(events)).toEqual({ event: "done", ok: true, needsYou: true });
+  });
+
+  test("a setup status read that throws is logged and never marks needsYou", async () => {
+    const { ctx, events } = testCtx();
+    await runUpdateWith([updateStep("path.link", { state: "done" })], [], ctx, { setupNeedsYou: async () => { throw new Error("no tray"); } });
+    expect(done(events)).toEqual({ event: "done", ok: true });
+    expect(events).toContainEqual({ event: "log", id: "path.link", line: "warn: setup status not read after the update: no tray" });
+  });
+
+  test("a retry or a step bug never reads setup status into needsYou", async () => {
+    const retried = testCtx();
+    await runUpdateWith([], [fakeMigration("2026-11-05-wait", async () => ({ state: "done" }))], retried.ctx, { retry: true, setupNeedsYou: async () => true });
+    expect(done(retried.events)).not.toHaveProperty("needsYou");
+
+    const buggy = testCtx();
+    const broken: StepDef = { ...updateStep("path.link", { state: "done" }), run: async () => { throw new Error("bug"); } };
+    await expect(runUpdateWith([broken], [], buggy.ctx, { setupNeedsYou: async () => true })).rejects.toThrow("bug");
+    expect(done(buggy.events)).not.toHaveProperty("needsYou");
+  });
+
   test("a retry stays quiet, as its notification does", async () => {
     const { ctx, events } = testCtx();
     await runUpdateWith([], [fakeMigration("2026-11-05-retry", async () => ({ state: "needs-you", detail: "later" }))], ctx, { retry: true });

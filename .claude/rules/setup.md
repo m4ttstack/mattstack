@@ -163,10 +163,14 @@ runs once per machine and is recorded when `done` or `skipped`. One that
 must wait for something outside this Mac (an org layout this rt does not
 read) returns `partial`: unrecorded, so it runs again, and no notification. The tray
 only spawns the verb, opens the Setup status window when its `done` line
-carries `needsYou` (set by `runUpdateWith` from the same outcomes the
-notification lists, never on a retry), and routes the `setup_update`
-notification click to that window; put no decision in Swift. The window opens
-whether or not notifications are on.
+carries `needsYou`, and routes the `setup_update` notification click to that
+window; put no decision in Swift. `runUpdateWith` sets `needsYou` when a step
+needs the person or failed, or when a whole `rt setup form` read
+(`setupNeedsYou`) lands on any stage but ready, so a row no update step owns
+still opens it. Only a run that stamps the version sets it, so a Mac left
+not-ready opens the window once per version; a retry and a step bug never set
+it, since neither stamps. The window opens whether or not notifications are on;
+the notification still lists only the steps.
 
 ## Your repos
 
