@@ -3,8 +3,10 @@ import { Stack } from '@mattstack/app-kit/core';
 import type { GateRow } from '@mattstack/rt-client';
 import { useSearch } from 'wouter';
 
+import { useUsageRun } from '../../usage/useUsage';
 import { gateStage } from '../derive/gates';
 import { heroLiveness } from '../derive/liveness';
+import { liveCost } from '../derive/record';
 import { heldSpans } from '../derive/run';
 import { railStages, stageAttempts } from '../derive/stages';
 import { GatePanels, typingTarget } from './GatePanel';
@@ -128,6 +130,7 @@ export function RunPage({
   const { now, kind, gates, facts, story, drawer, pathHref } = parts;
   const linkedGateId = useGateDeepLink(gates);
   usePruneGateDrafts(gates);
+  const usage = useUsageRun(runId, { live: true });
   const { live, answerable, handoff, mine } = facts;
 
   const rail =
@@ -193,6 +196,7 @@ export function RunPage({
         canAbandon={run.attention.needs && run.attention.reason === 'stale'}
         onViewInputs={drawer.open}
         facts={parts.factRows}
+        cost={usage.data === undefined ? null : liveCost(usage.data)}
       />
       {parts.gatesFailed ? (
         <GatesUnreadable onRetry={() => void parts.retryGates()} />

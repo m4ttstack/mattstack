@@ -189,7 +189,9 @@ export async function usageActivity(
 
   const collected: Collected = { prompts: [], agents: [], tools: new Map(), seenTools: new Set() };
   let transcripts = 0;
+  let sessionsMissing = 0;
   for (const { ids, paths } of found.values()) {
+    if (paths.length === 0) sessionsMissing++;
     for (const path of paths) {
       await collect(path, ids, collected);
       transcripts++;
@@ -199,6 +201,7 @@ export async function usageActivity(
   const agents = collected.agents.sort((a, b) => a.ts - b.ts);
   return {
     transcriptFound: transcripts > 0,
+    sessionsMissing,
     prompts: prompts.slice(0, MAX_PROMPTS),
     promptCount: prompts.length,
     agents: agents.slice(0, MAX_AGENTS),

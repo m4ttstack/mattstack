@@ -584,6 +584,8 @@ export interface UsageActivityQuery {
 /** Read from the transcript on request, never stored. `*Count` is the total before the list's cap. */
 export interface UsageActivityData {
   transcriptFound: boolean;
+  /** Sessions in the row with no transcript left on this Mac; their part of the row is not listed. */
+  sessionsMissing: number;
   prompts: Array<{ ts: number; text: string }>;
   promptCount: number;
   agents: Array<{ ts: number; description: string; type: string | null }>;
