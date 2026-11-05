@@ -95,6 +95,19 @@ describe("rt intercept, read by a person", () => {
     );
   });
 
+  test("status: a file rt did not make at the shim path says to move it aside, never just install, which leaves it alone", () => {
+    const foreign = { command: "doppler", repo: "example.com/acme/widgets", installed: true, current: false, foreign: "/Users/sample/.local/bin/doppler" };
+    expect(renderPlain(statusBlocks([report[0]!, foreign], { "example.com/acme/widgets": 2 }, true, { stale: false }))).toBe(
+      [
+        "[running] The rt daemon is running",
+        "[ok] pnpm  example.com/acme/widgets, 2 rules",
+        "[needs you] doppler  example.com/acme/widgets, 2 rules; rt did not make /Users/sample/.local/bin/doppler, so rt left it alone",
+        "  next: Move /Users/sample/.local/bin/doppler aside, then run rt intercept install",
+        "",
+      ].join("\n"),
+    );
+  });
+
   test("status with everything current needs no next step", () => {
     expect(renderPlain(statusBlocks([report[0]!], { "example.com/acme/widgets": 2 }, true, { stale: false }))).toBe(
       "[running] The rt daemon is running\n[ok] pnpm  example.com/acme/widgets, 2 rules\n",

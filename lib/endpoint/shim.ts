@@ -409,11 +409,13 @@ export function uninstallShims(): { removed: string[] } {
   return { removed };
 }
 
-/** Verify probe: for every distinct rule command, whether a shim exists on disk and whether it's current. */
-export function shimReport(): Array<{ command: string; repo: string; installed: boolean; current: boolean }> {
+type ShimState = { command: string; repo: string; installed: boolean; current: boolean; foreign?: string };
+
+/** Verify probe: for every distinct rule command, whether a shim exists on disk and whether it's current. `foreign` is the path when the file there is not rt's, which `installShims` never overwrites. */
+export function shimReport(): ShimState[] {
   const rules = loadInterceptRules();
   const seen = new Set<string>();
-  const report: Array<{ command: string; repo: string; installed: boolean; current: boolean }> = [];
+  const report: ShimState[] = [];
   for (const rule of rules) {
     if (seen.has(rule.command)) continue;
     seen.add(rule.command);
@@ -431,6 +433,7 @@ export function shimReport(): Array<{ command: string; repo: string; installed: 
       repo: rule.repo,
       installed: existing !== null,
       current: existing === renderInterceptShim(rule.command),
+      ...(existing !== null && !existing.includes(GENERATED_MARKER) ? { foreign: path } : {}),
     });
   }
   return report;
