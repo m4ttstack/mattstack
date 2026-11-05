@@ -1,6 +1,14 @@
-import { Fragment, useState } from 'react';
-import { Box, Group, Menu, Text } from '@mattstack/app-kit/core';
+import { Fragment, useState, type ReactNode } from 'react';
+import {
+  ActionIcon,
+  Box,
+  Group,
+  Menu,
+  Text,
+  Tooltip,
+} from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
+import { modals } from '@mattstack/app-kit/modals';
 import { notifications } from '@mattstack/app-kit/notifications';
 import type { RoomSummary } from '@mattstack/rt-client';
 
@@ -11,6 +19,7 @@ import { DmNames, DmStack } from './DmPairTitle';
 import classes from './fleet-tree.module.css';
 import { MUTED_XS } from './presence-bits';
 import type { RosterBuddy } from './roster-types';
+import { useLiveSlackRoom } from './slack-chats-context';
 
 /** Room and DM rows, one step up, so the tree has a visible hierarchy. */
 const CHROME_SIZE = 'var(--mantine-font-size-lg)';
@@ -72,9 +81,11 @@ export function listedBuddies(
 export function SectionLabel({
   label,
   detail,
+  action,
 }: {
   label: string;
   detail?: string;
+  action?: ReactNode;
 }) {
   return (
     <Group
@@ -93,16 +104,54 @@ export function SectionLabel({
       >
         {label}
       </Text>
-      {detail && (
-        <Text
-          component="span"
-          data-testid="section-detail"
-          style={{ ...MUTED_XS, color: 'var(--chat-ink-soft)' }}
-        >
-          {detail}
-        </Text>
-      )}
+      <Group gap={6} wrap="nowrap">
+        {detail && (
+          <Text
+            component="span"
+            data-testid="section-detail"
+            style={{ ...MUTED_XS, color: 'var(--chat-ink-soft)' }}
+          >
+            {detail}
+          </Text>
+        )}
+        {action}
+      </Group>
     </Group>
+  );
+}
+
+/** Closes every DM but a live Slack chat, whose close says goodbye to a
+    teammate and so stays a choice of its own. */
+function ArchiveAllDms({
+  rooms,
+  onClose,
+}: {
+  rooms: readonly FleetRoom[];
+  onClose: (room: string) => void;
+}) {
+  const isLive = useLiveSlackRoom();
+  const archivable = rooms.filter(room => !isLive(room.room));
+  if (archivable.length === 0) return null;
+  const confirm = () =>
+    modals.confirm({
+      title: 'Archive all direct messages?',
+      message: `${archivable.length} ${archivable.length === 1 ? 'conversation leaves' : 'conversations leave'} the sidebar. A new message brings one back.`,
+      labels: { confirm: 'Archive all', cancel: 'Cancel' },
+      onConfirm: () => archivable.forEach(room => onClose(room.room)),
+    });
+  return (
+    <Tooltip label="Archive all">
+      <ActionIcon
+        variant="subtle"
+        color="gray"
+        size={22}
+        aria-label="Archive all direct messages"
+        onClick={confirm}
+        style={{ color: 'var(--chat-ink-soft)' }}
+      >
+        <Icon name="archive" size={14} />
+      </ActionIcon>
+    </Tooltip>
   );
 }
 
@@ -385,7 +434,13 @@ export function FleetTree({
       {namedDms.length > 0 && (
         <>
           <Box style={{ height: 10 }} />
-          <SectionLabel label="Direct" detail={String(namedDms.length)} />
+          <SectionLabel
+            label="Direct"
+            detail={String(namedDms.length)}
+            action={
+              onClose && <ArchiveAllDms rooms={namedDms} onClose={onClose} />
+            }
+          />
           {namedDms.map(room => (
             <DmRow
               key={room.room}

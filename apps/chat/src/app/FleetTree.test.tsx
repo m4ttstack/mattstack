@@ -9,6 +9,7 @@ import { BuddiesProvider } from './buddies-context';
 import { dayLabel, localTime } from './day-label';
 import { FleetTree, listedBuddies, type FleetRoom } from './FleetTree';
 import type { RosterBuddy } from './roster-types';
+import { SlackChatsProvider } from './slack-chats-context';
 
 const NOW = 1_700_000_000_000;
 const DAY = 86_400_000;
@@ -328,4 +329,38 @@ test('with no close handler a row has no menu', async () => {
   fireEvent.contextMenu(screen.getByTestId('dm-row-dm-jay-max'));
   expect(screen.queryByTestId('room-context-rt')).toBeNull();
   expect(screen.queryByTestId('dm-context-dm-jay-max')).toBeNull();
+});
+
+test('archive all closes every DM but a live Slack chat, after a confirm', async () => {
+  const onClose = vi.fn();
+  const dms = [
+    dm('alex', 'sam', { room: 'dm-1' }),
+    dm('alex', 'jo', { room: 'dm-2' }),
+  ];
+  renderWithProviders(
+    <SlackChatsProvider chats={[{ room: 'dm-2' }]}>
+      <FleetTree rooms={[]} dms={dms} onClose={onClose} />
+    </SlackChatsProvider>
+  );
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Archive all direct messages' })
+  );
+  expect(onClose).not.toHaveBeenCalled();
+  await userEvent.click(
+    await screen.findByRole('button', { name: 'Archive all' })
+  );
+  expect(onClose).toHaveBeenCalledTimes(1);
+  expect(onClose).toHaveBeenCalledWith('dm-1');
+});
+
+test('with only a live Slack chat there is nothing to archive', () => {
+  const dms = [dm('alex', 'jo', { room: 'dm-2' })];
+  renderWithProviders(
+    <SlackChatsProvider chats={[{ room: 'dm-2' }]}>
+      <FleetTree rooms={[]} dms={dms} onClose={vi.fn()} />
+    </SlackChatsProvider>
+  );
+  expect(
+    screen.queryByRole('button', { name: 'Archive all direct messages' })
+  ).toBeNull();
 });

@@ -72,6 +72,15 @@ export function useSlackChat(room: string): SlackChat | undefined {
   return useContext(SlackChatsContext).byRoom.get(room);
 }
 
+/** Whether a room holds a Slack chat that hasn't ended. */
+export function useLiveSlackRoom(): (room: string) => boolean {
+  const { byRoom } = useContext(SlackChatsContext);
+  return room => {
+    const chat = byRoom.get(room);
+    return chat !== undefined && chat.closedAt === undefined;
+  };
+}
+
 export function useSlackAvatar(handle: string): string | undefined {
   return useContext(SlackChatsContext).avatars.get(handle);
 }
