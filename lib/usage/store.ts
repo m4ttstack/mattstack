@@ -100,15 +100,19 @@ export function openUsageDb(path: string): Database {
   db.exec("PRAGMA journal_mode = WAL;");
   const row = db.query("PRAGMA user_version").get() as { user_version: number };
   if (row.user_version < USAGE_SCHEMA_VERSION) {
-    db.exec(SCHEMA);
-    db.exec(`PRAGMA user_version = ${USAGE_SCHEMA_VERSION};`);
+    db.transaction(() => {
+      db.exec(SCHEMA);
+      db.exec(`PRAGMA user_version = ${USAGE_SCHEMA_VERSION};`);
+    }).immediate();
   }
   return db;
 }
 
 export function openUsageDbReadonly(path: string): Database | null {
   if (!existsSync(path)) return null;
-  return new Database(path, { readonly: true });
+  const db = new Database(path, { readonly: true });
+  db.exec("PRAGMA busy_timeout = 250;");
+  return db;
 }
 
 export async function machineIdFor(

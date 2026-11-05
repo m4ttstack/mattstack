@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
@@ -36,6 +37,28 @@ test("opening creates every table", () => {
     USAGE_SCHEMA_VERSION,
   );
   db.close();
+});
+
+test("a schema that fails partway leaves no tables and no version", () => {
+  const path = join(dir, "usage.db");
+  const seeded = new Database(path);
+  seeded.exec("CREATE TABLE seed (a); CREATE INDEX usage_meta ON seed (a);");
+  seeded.close();
+  expect(() => openUsageDb(path)).toThrow("usage_meta");
+  const db = new Database(path);
+  expect(db.query("SELECT name FROM sqlite_master WHERE type = 'table'").all()).toEqual([
+    { name: "seed" },
+  ]);
+  expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 0 });
+  db.close();
+});
+
+test("a read handle waits briefly for a writer", () => {
+  const path = join(dir, "usage.db");
+  openUsageDb(path).close();
+  const db = openUsageDbReadonly(path);
+  expect(db?.query("PRAGMA busy_timeout").get()).toEqual({ timeout: 250 });
+  db?.close();
 });
 
 test("reopening keeps rows", () => {
