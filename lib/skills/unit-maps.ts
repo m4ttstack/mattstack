@@ -2,11 +2,12 @@ import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import type { BlockDiagnostic } from "./blocks/diagnostics.ts";
 import { HEADER_COMMENT } from "./compile.ts";
+import { MAP_FILE } from "./emitted.ts";
 import { FRONTMATTER_RE } from "./frontmatter-re.ts";
 import { closeMap, ID_RE, isKey, KEY_TOKEN_RE, keyBody, leftoverTokens, openingLine, unitId, type PointerMap, type Target, type UnitTable } from "./pointers.ts";
 import type { CompiledFile, PlannedAttachments, Side, StageEntry } from "./types.ts";
 
-export const MAP_FILE = "compiled.json";
+export { MAP_FILE };
 const UNIT_SKILL_MD = "SKILL.md";
 
 /** One compiled unit before its closure is known: its own keys, and the leaf of every unit it reads by path. */

@@ -40,7 +40,7 @@ interface Fixture {
   installed: (name: string) => string;
 }
 
-/** A pack with public alpha, gamma and locked, an internal hidden, a public-listed base unit, and an installed copy of the same skills. */
+/** A pack with public alpha, gamma and locked, an internal hidden, a public-listed base fill, and an installed copy of the same skills. */
 function fixture(opts: { packDir?: string; marketplace?: string | null; plugin?: string; extra?: string[] } = {}): Fixture {
   const plugin = opts.plugin ?? "widgets";
   const extra = opts.extra ?? [];
@@ -50,7 +50,7 @@ function fixture(opts: { packDir?: string; marketplace?: string | null; plugin?:
   for (const name of extra) put(join(packDir, "skills", name, "SKILL.md"), plain(name));
   for (const name of ["alpha", "gamma", "hidden"]) put(join(packDir, "skills", name, "SKILL.md"), plain(name));
   put(join(packDir, "skills", "locked", "SKILL.md"), lockedSource);
-  put(join(packDir, "attachments", "base-unit", "SKILL.md"), plain("base-unit"));
+  put(join(packDir, "attachments", "base-unit", "SKILL.md"), "---\nname: base-unit\nmetadata:\n  provides: base-unit@1\n---\nbody\n");
   put(join(packDir, "attachments", "base-unit", "compiled.json"), JSON.stringify({ base: "acme-base", version: null, files: ["SKILL.md"] }));
 
   const version = join(process.env.HOME!, ".claude", "plugins", "cache", "market", plugin, "1.0.0");
@@ -231,9 +231,25 @@ describe("rt skills disable-model-invocation set", () => {
     expect(read(fx.installed("alpha"))).toBe(plain("alpha"));
   });
 
+  test("a base reference skill that is on takes the setting on its installed door", async () => {
+    const fx = fixture();
+    const copy = JSON.stringify({ base: "acme-base", version: null, files: ["SKILL.md"] });
+    put(join(fx.packDir, "pack", "surface.jsonc"), JSON.stringify({ public: ["alpha", "gamma", "locked", "base-ref"] }));
+    put(join(fx.packDir, "attachments", "base-ref", "SKILL.md"), plain("base-ref"));
+    put(join(fx.packDir, "attachments", "base-ref", "compiled.json"), copy);
+    put(join(fx.packDir, "skills", "base-ref", "SKILL.md"), plain("base-ref"));
+    put(join(fx.packDir, "skills", "base-ref", "compiled.json"), copy);
+    put(fx.installed("base-ref"), plain("base-ref"));
+
+    await skillsDisableModelInvocation(["set", "base-ref", "--on", "--pack", "widgets", "--json"]);
+
+    expect(chosen()).toEqual({ "widgets@market": ["base-ref"] });
+    expect(read(fx.installed("base-ref"))).toContain("disable-model-invocation: true");
+  });
+
   for (const [label, names, reason] of [
     ["an internal row", ["hidden"], "hidden"],
-    ["a base row", ["base-unit"], "acme-base"],
+    ["a base fill", ["base-unit"], "base-unit"],
     ["an unknown name", ["nope"], "nope"],
     ["a good name beside an internal one", ["alpha", "hidden"], "hidden"],
   ] as const) {

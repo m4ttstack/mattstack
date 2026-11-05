@@ -36,13 +36,12 @@ const fills = (...names: string[]) => ({
 });
 
 describe('surfaceGroupsOf', () => {
-  it('orders the groups commands, stages, fills, standard, then the parent pack', () => {
+  it('orders the groups commands, reference skills, stages, then fills', () => {
     expect(SURFACE_GROUP_ORDER).toEqual([
       'commands',
+      'reference',
       'stages',
       'fills',
-      'unwired',
-      'base',
     ]);
   });
 
@@ -63,17 +62,34 @@ describe('surfaceGroupsOf', () => {
       review: 'commands',
       'stage-plan': 'stages',
       criteria: 'fills',
-      notes: 'unwired',
+      notes: 'reference',
     });
   });
 
-  it('files a parent pack copy under base before anything else matches', () => {
+  it('files a base reference skill and a base fill by what they do', () => {
     const groups = surfaceGroupsOf(
-      [row('stage-ship', 'compiled', { base: 'acme-base' })],
+      [
+        row('stage-ship', 'compiled', { base: 'acme-base' }),
+        row('board-review', 'compiled', { base: 'acme-base', fill: true }),
+      ],
       GROUPS,
       undefined
     );
-    expect(groups.get('stage-ship')).toBe('base');
+    expect(groups.get('stage-ship')).toBe('reference');
+    expect(groups.get('board-review')).toBe('fills');
+  });
+
+  it('lists a public fill or stage with what agents see, so it can be turned off', () => {
+    const groups = surfaceGroupsOf(
+      [
+        row('criteria', 'hand-authored', { status: 'public' }),
+        row('stage-plan', 'compiled', { status: 'public' }),
+      ],
+      GROUPS,
+      fills('criteria') as never
+    );
+    expect(groups.get('criteria')).toBe('reference');
+    expect(groups.get('stage-plan')).toBe('commands');
   });
 
   it('keeps a fill nothing binds out of Fills', () => {
@@ -82,16 +98,16 @@ describe('surfaceGroupsOf', () => {
       GROUPS,
       fills('loose') as never
     );
-    expect(groups.get('loose')).toBe('unwired');
+    expect(groups.get('loose')).toBe('reference');
   });
 
-  it('falls back by kind with no composition yet: compiled to Commands, the rest to standard', () => {
+  it('falls back by kind with no composition yet: compiled to Commands, the rest to reference skills', () => {
     const groups = surfaceGroupsOf(
       [row('ship'), row('context', 'hand-authored')],
       null,
       undefined
     );
     expect(groups.get('ship')).toBe('commands');
-    expect(groups.get('context')).toBe('unwired');
+    expect(groups.get('context')).toBe('reference');
   });
 });

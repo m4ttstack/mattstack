@@ -678,6 +678,38 @@ describe("skillsCompile", () => {
     return { mattstackDir, packDir, baseDir };
   }
 
+  test("a base reference skill on the surface gets a door, stays checked and goes when it is switched off", async () => {
+    const { mattstackDir, packDir, baseDir } = seedBaseFixture();
+    const flags = ["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir];
+    const door = join(packDir, "skills", "feature-flags");
+    writeFile(join(baseDir, "attachments", "feature-flags", "SKILL.md"), "---\nname: feature-flags\ndescription: Use when a flag governs the work\n---\nFlags.\n");
+    writeFile(join(packDir, "pack", "surface.jsonc"), JSON.stringify({ public: ["watch-ci", "feature-flags"] }));
+
+    expect((await runExpectingCleanExit(() => skillsCompile(flags))).errors).toEqual([]);
+    expect(readFileSync(join(door, "SKILL.md"), "utf8")).toContain(`description: "Use when a flag governs the work"`);
+    expect(readFileSync(join(packDir, "attachments", "feature-flags", "SKILL.md"), "utf8")).toContain("Flags.");
+
+    const check = async () => {
+      const io = captureSkills();
+      try {
+        await runExpectingCleanExit(() => skillsCheck([...flags, "--json"]));
+        return JSON.parse(io.stdout()) as { attachments: { name: string; status: string }[] };
+      } finally {
+        io.restore();
+      }
+    };
+    const fresh = await check();
+    expect(fresh.attachments.filter((row) => row.name === "feature-flags").map((row) => row.status)).toEqual(["in-sync", "in-sync"]);
+
+    writeFileSync(join(door, "SKILL.md"), `${readFileSync(join(door, "SKILL.md"), "utf8")}tampered\n`);
+    expect((await check()).attachments.filter((row) => row.name === "feature-flags").map((row) => row.status)).toEqual(["in-sync", "stale"]);
+
+    writeFile(join(packDir, "pack", "surface.jsonc"), JSON.stringify({ public: ["watch-ci"] }));
+    expect((await runExpectingCleanExit(() => skillsCompile(flags))).errors).toEqual([]);
+    expect(existsSync(door)).toBe(false);
+    expect(existsSync(join(packDir, "attachments", "feature-flags", "SKILL.md"))).toBe(true);
+  });
+
   test("composition tags a base fill, its prop value and binder prop, and names the base the pack extends", async () => {
     const { mattstackDir, packDir } = seedBaseFixture();
 

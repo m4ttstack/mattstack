@@ -127,9 +127,11 @@ reports when its content is ready through `contentReady.ts`, and the unsynced to
   need a compile or were never compiled, then what Claude has and the one step that moves it on
   (Compile Skill Pack, then N changes to publish with See changes and Publish, or Install latest).
   Under it, the org base and pipeline cards (`health.tsx`'s helpers) and the skills list
-  (`SurfaceTab.tsx`): the pack's skills in foldable groups (`model/surfaceGroups.ts`: commands,
-  pipeline stages, fills, other standard skills, then the parent pack's, folded), each with its
-  public switch, its kind badge and a health note when it needs attention. A row with
+  (`SurfaceTab.tsx`): only what a switch can change, in foldable groups
+  (`model/surfaceGroups.ts`: commands and reference skills), each row with its switch, the base
+  pack's name if it came from one, and a health note when it needs attention. Stages and fills
+  are one line linking to Overview, unless one is already public or Needs attention lists it. A
+  base reference skill can be switched on, and its pencil opens the base pack's file. A row with
   `disableModelInvocation` has a gear with one menu item that posts at once, outside the staged
   changes and the pack's write lock, since it writes the person's settings and installed copy, not
   the pack; on or locked, the row says so on a second line.

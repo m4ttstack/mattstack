@@ -76,7 +76,8 @@ function renderSurfaceTab(
     verbs?: { name: string; sourcePath?: string }[];
     fills?: unknown[];
   } = {},
-  health?: ReadonlyMap<string, 'stale' | 'never-compiled'>
+  health?: ReadonlyMap<string, 'stale' | 'never-compiled'>,
+  onOpenOverview?: () => void
 ) {
   surfaceGet.mockResolvedValue(ok({ pack: 'demo', packDir: '/p', rows }));
   // The open-in-editor link joins composition by name; default to none so the
@@ -96,22 +97,10 @@ function renderSurfaceTab(
   });
   const view = renderWithProviders(
     <QueryClientProvider client={queryClient}>
-      <SurfaceTab pack="demo" health={health} />
+      <SurfaceTab pack="demo" health={health} onOpenOverview={onOpenOverview} />
     </QueryClientProvider>
   );
   return Object.assign(view, { queryClient });
-}
-
-/** Unfolds one group of the list by its head. */
-async function openGroup(id: string) {
-  const group = await screen.findByTestId(`surface-group-${id}`);
-  const head = within(group).getAllByRole('button')[0]!;
-  if (head.getAttribute('aria-expanded') !== 'true')
-    await userEvent.click(head);
-  // The rows stay hidden until the unfold's transition ends.
-  await waitFor(() =>
-    expect(within(group).getAllByRole('switch').length).toBeGreaterThan(0)
-  );
 }
 
 /** A badge's meaning shows in its hover card once the pointer rests. */
@@ -171,61 +160,120 @@ describe('SurfaceTab: a row an org base pack owns', () => {
       kind: 'compiled',
       status: 'internal',
       base: 'acme-base',
+      basePath: '/org/packs/acme-base/attachments/dev-servers/SKILL.md',
+    },
+    {
+      name: 'board-review',
+      kind: 'compiled',
+      status: 'internal',
+      base: 'acme-base',
+      fill: true,
     },
     { name: 'ship', kind: 'compiled', status: 'public' },
   ];
 
-  it('lists it under the parent pack, folded until opened', async () => {
+  it('lists a reference skill with the base named and a working switch', async () => {
     renderSurfaceTab(BASE_ROWS);
-    const group = await screen.findByTestId('surface-group-base');
+    const group = await screen.findByTestId('surface-group-reference');
+    const row = within(group).getByTestId('surface-row-dev-servers');
 
-    expect(group).toHaveTextContent('From the parent pack');
-    expect(within(group).getAllByRole('button')[0]).toHaveAttribute(
-      'aria-expanded',
-      'false'
-    );
-    expect(screen.getByTestId('surface-group-commands')).toHaveAttribute(
-      'data-open'
+    expect(within(row).getByText('acme-base')).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: /^dev-servers$/ })).toBeEnabled();
+  });
+
+  it('stages a base reference skill like any other', async () => {
+    renderSurfaceTab(BASE_ROWS);
+    await userEvent.click(
+      await screen.findByRole('switch', { name: /^dev-servers$/ })
     );
 
-    await openGroup('base');
-    expect(within(group).getAllByRole('button')[0]).toHaveAttribute(
-      'aria-expanded',
-      'true'
-    );
-    expect(window.localStorage.getItem('console-surface-group-base')).toBe(
-      'true'
+    expect(screen.getByText('1 change staged')).toBeInTheDocument();
+  });
+
+  it('leaves a base fill out of the list', async () => {
+    renderSurfaceTab(BASE_ROWS);
+    await screen.findByTestId('surface-row-dev-servers');
+
+    expect(
+      screen.queryByTestId('surface-row-board-review')
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('surface-built-in')).toHaveTextContent(
+      '0 stages and 1 fill are built into other skills'
     );
   });
 
-  it('shows a from-base badge and locks the toggle, while a plain compiled row keeps both', async () => {
+  it('counts the From chip over the listed rows, and hides it with no base', async () => {
     renderSurfaceTab(BASE_ROWS);
-    await openGroup('base');
-    const row = await screen.findByTestId('surface-row-dev-servers');
-
-    expect(within(row).getByText('from acme-base')).toBeInTheDocument();
-    expect(within(row).queryByText('compiled')).not.toBeInTheDocument();
-    expect(
-      screen.getByRole('switch', { name: /^dev-servers$/ })
-    ).toBeDisabled();
-
-    const plain = screen.getByTestId('surface-row-ship');
-    expect(within(plain).getByText('compiled')).toBeInTheDocument();
-    expect(screen.getByRole('switch', { name: /^ship$/ })).toBeEnabled();
+    expect(await screen.findByTestId('surface-filter-base')).toHaveTextContent(
+      'From acme-base1'
+    );
   });
+});
 
-  it('says why on hover', async () => {
-    renderSurfaceTab(BASE_ROWS);
-    await openGroup('base');
-    const row = await screen.findByTestId('surface-row-dev-servers');
+describe('SurfaceTab: a listed skill with no files', () => {
+  it('can be staged off the list, but never on', async () => {
+    renderSurfaceTab([
+      { name: 'gone', kind: 'missing', status: 'public' },
+      { name: 'lost', kind: 'missing', status: 'internal' },
+    ]);
 
-    await userEvent.hover(within(row).getByTestId('surface-lock-dev-servers'));
+    await userEvent.click(
+      await screen.findByRole('switch', { name: /^lost$/ })
+    );
+    expect(screen.getByText('Nothing staged')).toBeInTheDocument();
 
+    await userEvent.click(screen.getByRole('switch', { name: /^gone$/ }));
+    expect(screen.getByText('1 change staged')).toBeInTheDocument();
     expect(
-      await screen.findByText(
-        'The org base pack decides. Verbs read it from attachments/, so it stays internal.'
-      )
+      screen.getByText('gone comes off the surface list')
     ).toBeInTheDocument();
+  });
+});
+
+describe('SurfaceTab: stages and fills', () => {
+  const COMPOSITION = {
+    verbs: [{ name: 'work', sourcePath: '/p/skills/work/SKILL.md' }],
+    fills: [
+      {
+        binding: 'demo:criteria',
+        name: 'criteria',
+        sourcePath: '/p/fills/criteria/SKILL.md',
+      },
+    ],
+  };
+  const ROWS_WITH_FILL = [
+    { name: 'work', kind: 'compiled', status: 'public' },
+    { name: 'criteria', kind: 'hand-authored', status: 'internal' },
+  ];
+
+  it('links out of the list', async () => {
+    const onOpenOverview = vi.fn();
+    renderSurfaceTab(ROWS_WITH_FILL, COMPOSITION, undefined, onOpenOverview);
+    await screen.findByTestId('surface-row-work');
+
+    expect(
+      screen.queryByTestId('surface-row-criteria')
+    ).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'See Overview' }));
+    expect(onOpenOverview).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a stale one under Needs attention, with no switch', async () => {
+    renderSurfaceTab(
+      ROWS_WITH_FILL,
+      COMPOSITION,
+      new Map([['criteria', 'stale' as const]])
+    );
+    await screen.findByTestId('surface-row-work');
+
+    await userEvent.click(screen.getByTestId('surface-filter-needs attention'));
+
+    expect(await screen.findByTestId('surface-row-criteria')).toHaveTextContent(
+      'source newer'
+    );
+    expect(
+      screen.queryByRole('switch', { name: /^criteria$/ })
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -444,21 +492,24 @@ describe('SurfaceTab: filters', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('the Standard chip narrows to standard rows', async () => {
-    renderSurfaceTab();
+  it('the From chip narrows to rows from the base', async () => {
+    renderSurfaceTab([
+      ...ROWS,
+      {
+        name: 'dev-servers',
+        kind: 'compiled',
+        status: 'internal',
+        base: 'acme-base',
+      },
+    ]);
     await screen.findByTestId('surface-row-watch-ci');
 
-    await userEvent.click(screen.getByTestId('surface-filter-standard'));
+    await userEvent.click(screen.getByTestId('surface-filter-base'));
 
-    expect(screen.getByTestId('surface-row-model-tiering')).toBeInTheDocument();
+    expect(screen.getByTestId('surface-row-dev-servers')).toBeInTheDocument();
     expect(screen.queryByTestId('surface-row-review')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('surface-row-ship')).not.toBeInTheDocument();
-    expect(
-      screen.queryByTestId('surface-row-watch-ci')
-    ).not.toBeInTheDocument();
   });
 });
-
 describe('SurfaceTab: staging resets on pack switch', () => {
   it('drops a staged change when the pack changes, even if the new pack shares the row signature', async () => {
     const user = userEvent.setup();
@@ -497,7 +548,10 @@ describe('SurfaceTab: staging resets on pack switch', () => {
 
 describe('SurfaceTab: open in editor', () => {
   it('links a row to its source, joining composition by name (verb) and binding suffix (fill)', async () => {
-    renderSurfaceTab(ROWS, {
+    const rows = ROWS.map(row =>
+      row.name === 'model-tiering' ? { ...row, status: 'public' } : row
+    );
+    renderSurfaceTab(rows, {
       verbs: [{ name: 'review', sourcePath: '/p/skills/review/SKILL.md' }],
       fills: [
         {
@@ -522,33 +576,24 @@ describe('SurfaceTab: open in editor', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('offers no editor button on a base row, which compile rewrites', async () => {
-    renderSurfaceTab(
-      [
-        {
-          name: 'dev-servers',
-          kind: 'compiled',
-          status: 'internal',
-          base: 'acme-base',
-        },
-        { name: 'review', kind: 'compiled', status: 'public' },
-      ],
+  it("links a base row to the base pack's file, never the team's copy", async () => {
+    renderSurfaceTab([
       {
-        verbs: [
-          { name: 'dev-servers', sourcePath: '/p/skills/dev-servers/SKILL.md' },
-          { name: 'review', sourcePath: '/p/skills/review/SKILL.md' },
-        ],
-      }
-    );
+        name: 'dev-servers',
+        kind: 'compiled',
+        status: 'internal',
+        base: 'acme-base',
+        path: '/p/attachments/dev-servers/SKILL.md',
+        basePath: '/org/packs/acme-base/attachments/dev-servers/SKILL.md',
+      },
+    ]);
 
     expect(
-      await screen.findByTestId('surface-open-review')
-    ).toBeInTheDocument();
-    await openGroup('base');
-    await screen.findByTestId('surface-row-dev-servers');
-    expect(
-      screen.queryByTestId('surface-open-dev-servers')
-    ).not.toBeInTheDocument();
+      await screen.findByTestId('surface-open-dev-servers')
+    ).toHaveAttribute(
+      'href',
+      'vscode://file/org/packs/acme-base/attachments/dev-servers/SKILL.md'
+    );
   });
 
   it("links a standalone skill through the row's own path", async () => {
@@ -574,24 +619,17 @@ describe('SurfaceTab: what the switch and badges mean', () => {
     const key = await screen.findByTestId('surface-switch-key');
 
     expect(key).toHaveTextContent("OnIn agents' skill list");
-    expect(key).toHaveTextContent('OffReached only through another skill');
+    expect(key).toHaveTextContent(
+      'OffOnly reached if another skill points here'
+    );
   });
 
-  it('names each kind on its badge, standard for one not compiled, and says what it means on hover', async () => {
+  it('shows no compiled or standard badge', async () => {
     renderSurfaceTab();
-    const standard = await screen.findByTestId('surface-row-model-tiering');
-    const compiled = screen.getByTestId('surface-row-review');
+    const row = await screen.findByTestId('surface-row-review');
 
-    expect(within(standard).getByText('standard')).toBeInTheDocument();
-    expect(within(standard).queryByText(/fill|hand/)).not.toBeInTheDocument();
-    await hoverMeaning(
-      within(standard).getByText('standard'),
-      'Installed as written'
-    );
-    await hoverMeaning(
-      within(compiled).getByText('compiled'),
-      'Built from blocks and fills'
-    );
+    expect(within(row).queryByText('compiled')).not.toBeInTheDocument();
+    expect(screen.queryByText('standard')).not.toBeInTheDocument();
   });
 
   it('says a base row is edited in the parent pack', async () => {
@@ -603,11 +641,10 @@ describe('SurfaceTab: what the switch and badges mean', () => {
         base: 'acme-base',
       },
     ]);
-    await openGroup('base');
     const row = await screen.findByTestId('surface-row-dev-servers');
 
     await hoverMeaning(
-      within(row).getByText('from acme-base'),
+      within(row).getByText('acme-base'),
       'From the parent pack. Edit it there'
     );
   });
@@ -631,11 +668,7 @@ describe('SurfaceTab: groups', () => {
       screen
         .getAllByTestId(/^surface-group-/)
         .map(group => group.getAttribute('data-testid'))
-    ).toEqual([
-      'surface-group-commands',
-      'surface-group-unwired',
-      'surface-group-base',
-    ]);
+    ).toEqual(['surface-group-commands', 'surface-group-reference']);
     const commands = screen.getByTestId('surface-group-commands');
     expect(
       within(commands)
@@ -646,8 +679,7 @@ describe('SurfaceTab: groups', () => {
       'surface-row-ship',
       'surface-row-watch-ci',
     ]);
-    expect(commands).toHaveTextContent('Commands3');
-    expect(commands).toHaveTextContent('2 public');
+    expect(commands).toHaveTextContent('Commands');
   });
 });
 
@@ -782,7 +814,6 @@ describe('SurfaceTab: disable model invocation', () => {
 
   it('a row without the field has no gear and no second line', async () => {
     await renderRows();
-    await openGroup('base');
     for (const name of ['gates', 'dev-servers']) {
       expect(gear(name)).not.toBeInTheDocument();
       expect(row(name)).not.toHaveTextContent(LINE);
@@ -792,7 +823,7 @@ describe('SurfaceTab: disable model invocation', () => {
   it('leaves the legend alone', async () => {
     await renderRows();
     expect(screen.getByTestId('surface-switch-key')).toHaveTextContent(
-      "OnIn agents' skill listOffReached only through another skill"
+      "OnIn agents' skill listOffOnly reached if another skill points here"
     );
   });
 

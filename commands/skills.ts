@@ -416,10 +416,17 @@ type SkillEntry = { name: string; group: string | null; dir: string };
 function enumerateSkillEntries(root: string, into: Map<string, SkillEntry> = new Map()): Map<string, SkillEntry> {
   // surface.jsonc is keyed by bare skill name, so two groups carrying the same
   // leaf would be indistinguishable to every surface operation -- refuse rather
-  // than let one silently shadow the other.
+  // than let one silently shadow the other. A base skill's door gives way to
+  // a team skill of its name: compile removes the door.
+  const isDoor = (entry: SkillEntry) => entry.group === null && isEmittedAttachmentDir(entry.dir) && basename(root) === "skills";
   const add = (entry: SkillEntry) => {
     const clash = into.get(entry.name);
     if (clash && clash.dir !== entry.dir) {
+      if (isDoor(entry)) return;
+      if (isDoor(clash)) {
+        into.set(entry.name, entry);
+        return;
+      }
       throw new SkillsUsageError(
         `skill name "${entry.name}" appears twice (${clash.dir} and ${entry.dir}); skill names must be unique within a pack`,
       );
@@ -1184,9 +1191,10 @@ function basePlanFor(resolved: Resolved, verbSides: Record<string, Side>): BaseA
     team: resolved.teamContext,
     loadInclude: (name) => loadInclude(name, resolved.pluginRoots),
     identity: identityIfAny(resolved),
+    publicNames: new Set(resolved.surface?.public ?? []),
   });
   if (pluginName || plan.base === null || plan.emits.length === 0) return plan;
-  return { base: null, emits: [], kept: [], stale: [], retired: [], errors: [`${resolved.team} extends ${plan.base.name}, but it has no .claude-plugin/plugin.json name to give {{pack.name}}`] };
+  return { base: null, emits: [], kept: [], stale: [], retired: [], doors: [], staleDoors: [], errors: [`${resolved.team} extends ${plan.base.name}, but it has no .claude-plugin/plugin.json name to give {{pack.name}}`] };
 }
 
 /** What a compile or check writes or reads: its targets, the base plan, and the identity each unit's id is stamped with. */
@@ -1369,6 +1377,8 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     for (const s of plan.stale) removeEmittedUnit(resolved.packDir, s.name, writes);
     for (const rel of plan.retired) removeCompiledDir(resolved.packDir, join(resolved.packDir, "attachments", rel), writes);
     for (const e of emits) writeCompiledVerb(resolved.packDir, join(resolved.packDir, "attachments", e.name), e, writes);
+    for (const name of plan.staleDoors) removeCompiledDir(resolved.packDir, join(resolved.packDir, "skills", name), writes);
+    for (const door of plan.doors) writeCompiledVerb(resolved.packDir, join(resolved.packDir, "skills", door.name), door, writes);
     for (const { target, outcome } of outcomes) {
       if (!outcome.ok) continue;
       const { verb, isPublic } = target;
@@ -1400,6 +1410,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     // nothing, so it gets no such credit -- its stale dirs stay on disk.
     const wouldBeSwept = new Set<string>();
     if (!write && !blocked) {
+      for (const name of plan.staleDoors) wouldBeSwept.add(name);
       for (const { target, outcome } of outcomes) {
         if (!outcome.ok) continue;
         const stale = otherSideDir(resolved.packDir, target.verb.name, target.isPublic);
@@ -1731,6 +1742,8 @@ type AttachmentCheckRow = {
   status: "in-sync" | "stale" | "never-compiled" | "orphaned";
   staleFiles: string[];
   orphanFiles: string[];
+  /** Set on a base reference skill's public entry at skills/<name>, which shares its name with the copy. */
+  side?: "skills";
 };
 
 export type CheckPayload = {
@@ -1808,8 +1821,8 @@ function badSkillFrontmatter(skills: { file: string; text: string }[]): BlockDia
 }
 
 /** Files a run leaves beside the copy (a script's __pycache__, a git-ignored output) are not drift, matching the verb rows. */
-function leftovers(packDir: string, name: string): string[] {
-  const rel = join("attachments", name);
+function leftovers(packDir: string, name: string, side: Side = "attachments"): string[] {
+  const rel = join(side, name);
   const files = listFilesRecursive(join(packDir, rel)).filter((f) => !isSkippedAttachmentPath(f));
   const ignored = gitIgnoredFiles(packDir, files.map((f) => join(rel, f)));
   return files.filter((f) => !ignored.has(join(rel, f))).sort();
@@ -1817,11 +1830,13 @@ function leftovers(packDir: string, name: string): string[] {
 
 function attachmentRows(packDir: string, plan: BaseAttachmentPlan): AttachmentCheckRow[] {
   const rows: AttachmentCheckRow[] = [];
-  for (const emit of plan.emits) {
-    const dir = join(packDir, "attachments", emit.name);
+  const copies = [...plan.emits.map((unit) => ({ unit, side: "attachments" as const })), ...plan.doors.map((unit) => ({ unit, side: "skills" as const }))];
+  for (const { unit: emit, side } of copies) {
+    const dir = join(packDir, side, emit.name);
     const base = plan.base!.name;
+    const sideField = side === "skills" ? { side } : {};
     if (!existsSync(dir)) {
-      rows.push({ name: emit.name, base, status: "never-compiled", staleFiles: [], orphanFiles: [] });
+      rows.push({ name: emit.name, base, status: "never-compiled", staleFiles: [], orphanFiles: [], ...sideField });
       continue;
     }
     const staleFiles: string[] = [];
@@ -1843,11 +1858,14 @@ function attachmentRows(packDir: string, plan: BaseAttachmentPlan): AttachmentCh
       if (!readFileSync(dest).equals(readFileSync(file.copyFrom)) || executable(dest) !== executable(file.copyFrom)) staleFiles.push(file.path);
     }
     const expected = new Set(emit.files.map((f) => f.path));
-    const orphanFiles = leftovers(packDir, emit.name).filter((f) => !expected.has(f));
-    rows.push({ name: emit.name, base, status: staleFiles.length > 0 || orphanFiles.length > 0 ? "stale" : "in-sync", staleFiles, orphanFiles });
+    const orphanFiles = leftovers(packDir, emit.name, side).filter((f) => !expected.has(f));
+    rows.push({ name: emit.name, base, status: staleFiles.length > 0 || orphanFiles.length > 0 ? "stale" : "in-sync", staleFiles, orphanFiles, ...sideField });
   }
   for (const s of plan.stale) {
     rows.push({ name: s.name, base: null, status: "orphaned", staleFiles: [], orphanFiles: leftovers(packDir, s.name) });
+  }
+  for (const name of plan.staleDoors) {
+    rows.push({ name, base: null, status: "orphaned", staleFiles: [], orphanFiles: leftovers(packDir, name, "skills"), side: "skills" });
   }
   return rows;
 }
@@ -2114,7 +2132,8 @@ export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[]
     if (row.status === "never-compiled") {
       blocks.push(out.line("stale", row.name, `not copied from ${row.base} yet`));
     } else if (row.status === "orphaned") {
-      blocks.push(out.line("stale", row.name, payload.extendsBase ? "its base no longer has it" : "this pack no longer extends a base"));
+      const why = row.side === "skills" ? "compile removes this public entry" : payload.extendsBase ? "its base no longer has it" : "this pack no longer extends a base";
+      blocks.push(out.line("stale", row.name, why));
     } else {
       const files = [...row.staleFiles, ...row.orphanFiles.map((f) => `${f} (orphan)`)].join(", ");
       blocks.push(out.line("stale", row.name, `changed since the last compile: ${files}`));
@@ -3161,6 +3180,10 @@ export type SurfaceRow = {
   kind: "compiled" | "hand-authored" | "missing";
   status: "public" | "internal";
   base?: string;
+  /** A base fill: built into other skills, so it cannot be switched on. */
+  fill?: true;
+  /** The base pack's own file, for a row copied from one. */
+  basePath?: string;
   path?: string;
   disableModelInvocation?: "on" | "off" | "locked";
 };
@@ -3279,6 +3302,13 @@ function stageNamesFor(flags: SurfaceFlags, packDir: string): Set<string> {
   }
 }
 
+function baseSourcePath(packDir: string, copyDir: string, base: string): string | null {
+  const org = orgOfPackDir(packDir);
+  if (!org) return null;
+  const path = join(org.root, "mattstack", "org", "packs", base, "attachments", relativePath(join(packDir, "attachments"), copyDir), "SKILL.md");
+  return existsSync(path) ? path : null;
+}
+
 export function computeRows(
   packDir: string,
   verbNames: Set<string>,
@@ -3295,15 +3325,20 @@ export function computeRows(
   const names = new Set<string>([...allNames, ...publicSet, ...stageNames]);
   const shown = [...names].sort().filter((name) => skillEntries.has(name) || !isTemplate(name, attachmentEntries.get(name)?.dir, verbNames, stageNames));
   const rows = shown.map((name) => {
-    const dir = skillEntries.get(name)?.dir ?? attachmentEntries.get(name)?.dir ?? null;
+    const copyDir = attachmentEntries.get(name)?.dir ?? null;
+    const dir = skillEntries.get(name)?.dir ?? copyDir;
     const isStage = stageNames.has(name);
     const origin = dir ? originOfDir(dir) : {};
     const base = "origin" in origin ? origin.base : null;
+    const fill = base !== null && copyDir !== null && sourceProvidesContract(join(copyDir, "SKILL.md"));
+    const basePath = base !== null && copyDir !== null ? baseSourcePath(packDir, copyDir, base) : null;
     return {
       name,
       kind: isStage ? ("compiled" as const) : allNames.has(name) ? classify(name, dir, verbNames) : ("missing" as const),
-      status: (base === null && publicSet.has(name) ? "public" : "internal") as "public" | "internal",
+      status: (!fill && publicSet.has(name) ? "public" : "internal") as "public" | "internal",
       ...(base === null ? {} : { base }),
+      ...(fill ? { fill: true as const } : {}),
+      ...(basePath ? { basePath } : {}),
       ...(dir && existsSync(join(dir, "SKILL.md")) ? { path: join(dir, "SKILL.md") } : {}),
     };
   });
@@ -3513,12 +3548,15 @@ async function runSet(names: string[], want: "public" | "internal", flags: Surfa
   const verbNames = new Set(readVerbRoster(packDir).map((v) => v.name));
   const { skillsNames, allNames, attachmentEntries } = collectRegistry(packDir, verbNames);
   const stageNames = stageNamesFor(flags, packDir);
+  const surface = readSurface(packDir);
 
   // Validated before anything is written: an unknown name in a list of ten
   // must not leave the other nine applied. A declared-but-never-compiled
-  // stage passes here even with no directory on either side.
+  // stage passes here even with no directory on either side, and a listed
+  // name whose files are gone can still come off the list.
   for (const name of names) {
-    if (!allNames.has(name) && !stageNames.has(name)) {
+    const delisting = want === "internal" && surface?.public.includes(name) === true;
+    if (!allNames.has(name) && !stageNames.has(name) && !delisting) {
       throw new SkillsUsageError(
         `"${name}" is not a known skill or verb in this pack (checked skills/, attachments/, stubs.jsonc)`,
       );
@@ -3529,16 +3567,15 @@ async function runSet(names: string[], want: "public" | "internal", flags: Surfa
     for (const name of names) {
       const dir = attachmentEntries.get(name)?.dir;
       const origin = dir ? originOfDir(dir) : {};
-      if ("origin" in origin) {
-        const title = `${name} comes from ${origin.base}`;
-        const why = "The org base pack decides. Verbs read it from attachments/, so it stays internal.";
+      if (dir && "origin" in origin && sourceProvidesContract(join(dir, "SKILL.md"))) {
+        const title = `${name} is a fill from ${origin.base}`;
+        const why = "Fills are built into other skills, so it stays internal.";
         throw new SkillsRefusal(`${title}. ${why}`, { title, why });
       }
       if (isTemplate(name, dir, verbNames, stageNames)) throw templateRefusal(name);
     }
   }
 
-  const surface = readSurface(packDir);
   const publicSet = surface ? new Set(surface.public) : defaultPublicSet(skillsNames, verbNames);
 
   for (const name of names) {
@@ -3627,7 +3664,7 @@ async function runPalette(flags: SurfaceFlags): Promise<void> {
 
   refuseUnlessPackOwned(packDir);
   const { filterableMultiselect } = await import("../lib/pick-wrappers.ts");
-  const editable = rows.filter((row) => row.base === undefined);
+  const editable = rows.filter((row) => row.fill !== true);
   const options = editable.map((row) => ({
     value: row.name,
     label: row.name,
@@ -3769,7 +3806,7 @@ function disableModelInvocationPlugin(packDir: string, flags: SurfaceFlags, disc
 }
 
 function disableModelInvocationEligible(row: SurfaceRow): boolean {
-  return row.status === "public" && row.base === undefined && row.path !== undefined;
+  return row.status === "public" && row.path !== undefined;
 }
 
 const pluginOf = (key: string): string => key.slice(0, key.lastIndexOf("@"));
@@ -3843,7 +3880,6 @@ function sourceProvidesContract(path: string): boolean {
 function refuseDisableModelInvocationName(name: string, row: SurfaceRow | undefined, key: string): SkillsRefusal | null {
   if (!row) return disableModelInvocationRefusal(`${name} is not a skill in this pack`);
   if (neverDisabled(pluginOf(key), name) || (row.path !== undefined && sourceProvidesContract(row.path))) return disableModelInvocationRefusal(`${name} cannot have model invocation disabled`, "It stays invocable because other skills name it.");
-  if (row.base !== undefined) return disableModelInvocationRefusal(`${name} comes from ${row.base}`, "The org base pack decides how it runs.");
   if (row.status !== "public") return disableModelInvocationRefusal(`${name} is an internal skill`, "Only public skills can have model invocation disabled.");
   if (row.path === undefined) return disableModelInvocationRefusal(`${name} has no files in this pack`);
   if (row.disableModelInvocation === "locked") return disableModelInvocationRefusal(`${name} already has model invocation disabled`, "The pack sets that itself, so you cannot change it here.");
