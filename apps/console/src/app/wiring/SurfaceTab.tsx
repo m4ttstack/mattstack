@@ -223,7 +223,9 @@ function FilterChip({ id, label, count, active, onClick }: FilterChipProps) {
         height: 26,
         padding: '0 11px',
         borderRadius: 9999,
-        background: active ? 'var(--mantine-color-accent-filled)' : 'var(--tk-panel)',
+        background: active
+          ? 'var(--mantine-color-accent-filled)'
+          : 'var(--tk-panel)',
         color: active ? 'var(--mantine-color-accent-contrast)' : text.muted,
         fontSize: 'var(--mantine-font-size-xs)',
         whiteSpace: 'nowrap',
@@ -726,11 +728,7 @@ export function SurfaceTab({
                 );
               if (members.length === 0) return null;
               return (
-                <SurfaceGroup
-                  key={id}
-                  id={id}
-                  filtering={filtering}
-                >
+                <SurfaceGroup key={id} id={id} filtering={filtering}>
                   {members.map(row => (
                     <SurfaceGridRow
                       key={row.name}

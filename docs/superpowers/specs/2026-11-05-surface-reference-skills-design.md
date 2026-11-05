@@ -105,11 +105,6 @@ Layout:
 - **Console:** groups, tags, chips, the built-in line and the open link. Only
   a row with a switch is staged, and only it takes the hover style.
 
-## Mock
-
-`docs/apps/design/console/console.pen`, frames "Surface two bands", from before
-the bottom band was dropped. Skill names there are generic stand-ins.
-
 ## Left to the builder
 
 - How the generated skill names its target: `${CLAUDE_SKILL_DIR}` relative or a

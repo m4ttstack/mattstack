@@ -517,6 +517,7 @@ const orgBaseRows = [
     'query-entity',
     'evidence-a11y',
     'evidence-policy',
+    'plan-policy',
     'plan-policy-lite',
     'plan-policy-strict',
   ].map(name => ({
