@@ -38,6 +38,9 @@ struct InstallOp {
     var emit: (String) -> Void = Report.step
     /// How long to give the freshly bootstrapped daemon to mint the CA.
     var caWait: TimeInterval = 20
+    /// How long to wait for launchd to finish stopping the old daemon.
+    var unloadWait: TimeInterval = 15
+    var pause: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
 
     static func run(homebrew: Bool) -> Int32 {
         // Everything below assumes root; refusing here keeps an unescalated run
@@ -151,7 +154,14 @@ struct InstallOp {
         // the normal case; on a re-install it drops the running daemon so
         // bootstrap can load the replaced plist.
         _ = runCommand(["/bin/launchctl", "bootout", "system/" + LaunchdPlist.label])
-        let bootstrap = runCommand(["/bin/launchctl", "bootstrap", "system", LaunchdPlist.path])
+        // bootout returns while launchd is still stopping the old daemon, and a
+        // bootstrap in that window fails with 5 (Input/output error).
+        waitForUnload()
+        var bootstrap = runCommand(["/bin/launchctl", "bootstrap", "system", LaunchdPlist.path])
+        if bootstrap.status == Self.bootstrapStillUnloading {
+            waitForUnload()
+            bootstrap = runCommand(["/bin/launchctl", "bootstrap", "system", LaunchdPlist.path])
+        }
         guard bootstrap.status == 0 else {
             emit("bootstrap failed (\(bootstrap.status)): \(condensed(bootstrap.output))")
             teardown()
@@ -173,6 +183,20 @@ struct InstallOp {
         if let brew { emit(Report.homebrewLine(brew)) }
         emit(Report.trustLine(outcome.state))
         return ExitCode.ok
+    }
+
+    static let bootstrapStillUnloading: Int32 = 5
+    private static let unloadPoll: TimeInterval = 0.25
+
+    /// `launchctl print` fails once the label is gone. A label still loaded at
+    /// the deadline is left to bootstrap, whose error then says what is wrong.
+    private func waitForUnload() {
+        let polls = max(1, Int(unloadWait / Self.unloadPoll))
+        for attempt in 0..<polls {
+            let loaded = runCommand(["/bin/launchctl", "print", "system/" + LaunchdPlist.label])
+            if loaded.status != 0 { return }
+            if attempt < polls - 1 { pause(Self.unloadPoll) }
+        }
     }
 
     private func waitForCA() {
