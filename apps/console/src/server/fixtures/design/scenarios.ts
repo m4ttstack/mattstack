@@ -484,7 +484,31 @@ const orgBase = {
     pack: 'acme',
     packDir: '/fixture/packs/acme',
     rows: [
-      { name: 'dev-servers', kind: 'compiled', status: 'internal', base: BASE },
+      {
+        name: 'dev-servers',
+        kind: 'compiled',
+        status: 'internal',
+        base: BASE,
+        basePath: '/fixture/org/packs/acme-base/attachments/dev-servers/SKILL.md',
+      },
+      {
+        name: 'feature-flags',
+        kind: 'compiled',
+        status: 'public',
+        base: BASE,
+        basePath:
+          '/fixture/org/packs/acme-base/attachments/feature-flags/SKILL.md',
+        disableModelInvocation: 'on',
+      },
+      {
+        name: 'board-review',
+        kind: 'compiled',
+        status: 'internal',
+        base: BASE,
+        fill: true,
+        basePath:
+          '/fixture/org/packs/acme-base/attachments/board-review/SKILL.md',
+      },
       { name: 'gates', kind: 'compiled', status: 'internal' },
       { name: 'plan-policy', kind: 'hand-authored', status: 'internal' },
     ],
