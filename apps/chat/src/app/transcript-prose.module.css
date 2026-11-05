@@ -238,7 +238,7 @@
   margin: 0 20px 12px;
   padding: 8px 0;
   border-radius: var(--mantine-radius-lg);
-  box-shadow: 0 0 0 1px var(--tk-border-soft);
+  background-color: color-mix(in srgb, var(--tk-text-1) 3%, transparent);
   cursor: pointer;
 }
 
@@ -251,13 +251,13 @@
 }
 
 .block:hover {
-  background-color: var(--mantine-color-default-hover);
+  background-color: color-mix(in srgb, var(--tk-text-1) 6%, transparent);
 }
 
-/* Raised off the page by the same shadow as the app's menus. */
+/* The rest sit flat in a faint fill; the one a reply goes to lifts out of it. */
 .block[data-picked] {
   background-color: var(--tk-card);
   box-shadow:
     0 0 0 1px var(--tk-border),
-    var(--mantine-shadow-md);
+    var(--mantine-shadow-lg);
 }
