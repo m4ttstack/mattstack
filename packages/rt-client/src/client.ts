@@ -21,6 +21,7 @@ import type {
   RunDetail,
   UsageMrsData,
   UsageMrData,
+  UsageRunData,
   UsageTrendsData,
   UsageStatusData,
   ChatMember,
@@ -210,6 +211,13 @@ export function usageMr(
   opts: RtClientOptions = {},
 ): Promise<RtResponse<UsageMrData | null>> {
   return rtCommand<UsageMrData | null>("usage:mr", { mrKey }, { sockPath: opts.sockPath, timeoutMs: 10_000 });
+}
+
+export function usageRun(
+  runId: string,
+  opts: RtClientOptions = {},
+): Promise<RtResponse<UsageRunData | null>> {
+  return rtCommand<UsageRunData | null>("usage:run", { runId }, { sockPath: opts.sockPath, timeoutMs: 10_000 });
 }
 
 export function usageTrends(

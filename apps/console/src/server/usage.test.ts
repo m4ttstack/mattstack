@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@mattstack/rt-client', () => ({
   usageMrs: vi.fn(),
   usageMr: vi.fn(),
+  usageRun: vi.fn(),
   usageTrends: vi.fn(),
   usageStatus: vi.fn(),
 }));
@@ -48,6 +49,14 @@ describe('usage api', () => {
     expect(rt.usageMr).toHaveBeenCalledWith(key);
     expect(res.status).toBe(200);
     expect(await res.json()).toBeNull();
+  });
+
+  it('reads one run and refuses a missing run id', async () => {
+    vi.mocked(rt.usageRun).mockResolvedValue({ ok: true, data: null });
+    const res = await get(usageRoutes(), '/api/usage/run?runId=run-1');
+    expect(rt.usageRun).toHaveBeenCalledWith('run-1');
+    expect(res.status).toBe(200);
+    expect((await get(usageRoutes(), '/api/usage/run')).status).toBe(400);
   });
 
   it('answers 400 for a missing mrKey, a missing trends days or a junk days', async () => {

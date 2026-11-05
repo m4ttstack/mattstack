@@ -79,7 +79,9 @@ WebSocket wire-up.
 
 `/usage` and `/usage/:mrKey` show estimated token cost per MR on this Mac, read from rt's
 `usage:*` verbs. rt's sweep fills `usage.db` every 5 minutes, so these pages lag live runs. The
-list has two views, MRs and Trends, in `?view=`; range and repo are `?range=` and `?repo=`. An MR
+list has two views, MRs and Trends, in `?view=`; range and repo are `?range=` and `?repo=`, and the
+MR rows are windowed by `VirtualList`, sorted by `?sort=` and `?dir=`. A finished run's header
+shows its cost from `usage:run` and links to its MR's page. An MR
 key is a repo identity plus `!<number>`, so its route re-canonicalizes it the way `/runs/:repo`
 does. Titles and MR state are not in the store: they come from the runs pages' branch enrichment.
 A teammate's review has no run on this Mac, so `steps.ts` draws it as "not on this Mac".

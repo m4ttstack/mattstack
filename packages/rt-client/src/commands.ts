@@ -517,13 +517,21 @@ export interface UsageMrsData {
   summary: { mrCount: number; totals: UsageTotals; medianCost: number };
 }
 
-/** `name` and `attempt` are null on the row for a run's messages outside every stage. */
+/** When a run's message fell outside every stage; `none` is a run with no stages at all. */
+export type UsageOutside = "before" | "between" | "after" | "none";
+
+/** `name` and `attempt` are null, and `outside` set, on a row of a run's messages outside every stage. */
 export interface UsageStageRow {
   name: string | null;
   attempt: number | null;
+  outside: UsageOutside | null;
   status: string | null;
   startedAt: number | null;
   endedAt: number | null;
+  /** The messages' own span, null on a stage with none. */
+  firstActivity: number | null;
+  lastActivity: number | null;
+  subagentCost: number;
   totals: UsageTotals;
 }
 
@@ -554,6 +562,14 @@ export interface UsageMrData extends UsageSplits {
   totals: UsageTotals;
   costByKind: Record<UsageKind, number>;
   runs: UsageMrEntry[];
+}
+
+/** What one run cost, beside the MR it counts toward. `mrCost` is null with no MR. */
+export interface UsageRunData {
+  runId: string;
+  mrKey: string | null;
+  totals: UsageTotals;
+  mrCost: number | null;
 }
 
 /** `weekStart` is local Monday midnight, epoch ms. */
@@ -967,6 +983,7 @@ export interface Commands {
   "usage:mrs": { payload: { days?: number; repo?: string }; data: UsageMrsData };
   /** `data` is null when no MR has that key. */
   "usage:mr": { payload: { mrKey: string }; data: UsageMrData | null };
+  "usage:run": { payload: { runId: string }; data: UsageRunData | null };
   "usage:trends": { payload: { days: number; repo?: string }; data: UsageTrendsData };
   "usage:status": { payload: Record<string, never>; data: UsageStatusData };
   "chat:join": { payload: { room: string; handle: string; wakeOn?: WakeMode; cwd?: string; pane?: string }; data: { handle: string; name: string; memberCount: number; unread: number } };
@@ -1391,6 +1408,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "runs:evidence",
   "usage:mrs",
   "usage:mr",
+  "usage:run",
   "usage:trends",
   "usage:status",
   "chat:ack",

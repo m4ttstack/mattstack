@@ -654,14 +654,12 @@ function RespondSheetBody({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gate.gateId, picks.length]);
   const { posting, resolving } = postTally(picks, form.selections);
-  // A held thread keeps its edit in the form but shows the draft, so the card
-  // shows only what will post.
   const postingPick = (p: PostPick) => {
     const v = form.selections[p.name];
     return Array.isArray(v) && v.includes(p.post);
   };
-  // A reply card: the header's tick posts, the reviewer's comment reads
-  // above the reply when the plan gate's thread is known.
+  // A reply card: the agent's verdict and the reviewer's comment read above
+  // the reply when the plan gate's thread is known.
   const replyCard = (p: PostPick, thread?: ThreadCtx) => {
     const live = postingPick(p);
     const reply = p.reply!;
@@ -686,6 +684,7 @@ function RespondSheetBody({
               }
             : undefined
         }
+        verdict={thread && THREAD_CALL[thread.verdict.call].check}
         check={(() => {
           // A reply-only thread's call was settled on the plan gate.
           const verdict =
@@ -709,7 +708,7 @@ function RespondSheetBody({
         }
         selfId={mr?.author.username}
         draft={reply.text}
-        value={live ? form.texts[p.name] : undefined}
+        value={form.texts[p.name]}
         posting={live}
         onPosting={on => form.toggleMulti(p.name, p.post, on)}
         resolve={

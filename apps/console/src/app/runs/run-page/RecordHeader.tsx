@@ -1,4 +1,4 @@
-import { Fragment } from 'react';
+import { Fragment, useState } from 'react';
 import {
   Accordion,
   Divider,
@@ -7,6 +7,7 @@ import {
   Stack,
   Text,
 } from '@mattstack/app-kit/core';
+import { Link } from '@mattstack/app-kit/router';
 import type { RunOutcome } from '@mattstack/rt-client';
 
 import accordion from '../accordion.module.css';
@@ -20,10 +21,32 @@ import { FactsStrip, type FactProps } from './SideCards';
 /** The boards name each stat cell by its role. */
 const STAT_LAYER: Record<RecordStatId, string> = {
   duration: 'Stat duration',
-  decisions: 'Stat decisions',
+  cost: 'Stat cost',
   took: 'Stat took',
   waiting: 'Stat waiting',
 };
+
+/** The cost while the stats are folded away, so it never needs opening. */
+function HeadCost({ stat }: { stat: RecordStat }) {
+  const text = `${stat.value} cost`;
+  return (
+    <Text
+      span
+      fz="sm"
+      lh="normal"
+      className={classes.headCost}
+      data-testid="head-cost"
+    >
+      {stat.href ? (
+        <Link href={stat.href} className={classes.statLink}>
+          {text}
+        </Link>
+      ) : (
+        text
+      )}
+    </Text>
+  );
+}
 
 export interface RecordHeaderProps {
   ticket: string | null;
@@ -51,6 +74,8 @@ export function RecordHeader({
   abandoned = null,
   facts = [],
 }: RecordHeaderProps) {
+  const [details, setDetails] = useState<string | null>(null);
+  const cost = stats.find(s => s.id === 'cost');
   const hero = (
     <Paper
       variant="ground"
@@ -61,6 +86,8 @@ export function RecordHeader({
       data-parity="Hero"
     >
       <Accordion
+        value={details}
+        onChange={setDetails}
         chevronPosition="right"
         classNames={{
           item: classes.item,
@@ -79,6 +106,7 @@ export function RecordHeader({
               title={title}
             />
             {outcome ? <OutcomeBadge outcome={outcome} /> : null}
+            {cost && details === null ? <HeadCost stat={cost} /> : null}
             <Accordion.Control aria-label="Run details">
               <Text span fz="sm" c="dimmed">
                 Details
@@ -96,7 +124,15 @@ export function RecordHeader({
                     {i > 0 ? <Divider orientation="vertical" /> : null}
                     <Stat
                       value={s.value}
-                      label={s.label}
+                      label={
+                        s.href ? (
+                          <Link href={s.href} className={classes.statLink}>
+                            {s.label}
+                          </Link>
+                        ) : (
+                          s.label
+                        )
+                      }
                       size="h2"
                       className={classes.stat}
                       data-stat={s.id}

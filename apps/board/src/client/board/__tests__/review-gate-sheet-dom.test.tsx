@@ -1172,6 +1172,42 @@ describe('a later round', () => {
     ]);
   });
 
+  test('each earlier thread heads its card with the agent verdict, not a tick', () => {
+    const { container } = renderSheet(roundThreeGate());
+    const verdicts: Record<string, string> = {
+      fixed: 'Agent verified',
+      'pushback-accepted': 'Agent accepted',
+      'not-fixed': 'Agent flagged',
+    };
+    for (const [call, label] of Object.entries(verdicts)) {
+      const head = cardFor(container, call).querySelector('.tui-reply-head')!;
+      expect(head.querySelector('input')).toBeNull();
+      expect(
+        head.querySelector('.tui-reply-mark')!.getAttribute('aria-label')
+      ).toBe(label);
+    }
+  });
+
+  test('a thread with both ticks off stays open, says so, and sends nothing', async () => {
+    const { container, submitted } = renderSheet(roundThreeGate());
+    await untick(container, 'not-fixed', 'post');
+    const card = cardFor(container, 'not-fixed');
+    expect(card.textContent).toContain('No reply, stays unresolved');
+    expect(tickFor(container, 'not-fixed', 'resolve')!.checked).toBe(false);
+    await submit(container);
+    expect(submitted().answers[threadNameFor('not-fixed')]).toEqual([]);
+  });
+
+  test('unticking post alone resolves the thread with no reply', async () => {
+    const { container, submitted } = renderSheet(roundThreeGate());
+    await untick(container, 'fixed', 'post');
+    expect(cardFor(container, 'fixed').textContent).toContain('Not posting');
+    await submit(container);
+    const picked = submitted().answers[threadNameFor('fixed')] as string[];
+    expect(picked).toHaveLength(1);
+    expect(picked[0]).toStartWith('resolve:');
+  });
+
   test('submitting sends each thread its picked values, and an edited reply as text', async () => {
     const { container, submitted } = renderSheet(roundThreeGate());
     await untick(container, 'fixed', 'resolve');

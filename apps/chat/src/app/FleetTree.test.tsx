@@ -259,14 +259,14 @@ test('the right-click menu closes a room or a conversation, named for which', as
   fireEvent.contextMenu(screen.getByTestId('room-row-rt'));
   const roomMenu = await screen.findByTestId('room-context-rt');
   const closeRoom = within(roomMenu).getByTestId('room-context-close');
-  expect(closeRoom).toHaveTextContent('Close room');
+  expect(closeRoom).toHaveTextContent('Archive room');
   await userEvent.click(closeRoom);
   expect(onClose).toHaveBeenCalledWith('rt');
 
   fireEvent.contextMenu(screen.getByTestId('dm-row-dm-jay-max'));
   const dmMenu = await screen.findByTestId('dm-context-dm-jay-max');
   const closeDm = within(dmMenu).getByTestId('room-context-close');
-  expect(closeDm).toHaveTextContent('Close conversation');
+  expect(closeDm).toHaveTextContent('Archive conversation');
   await userEvent.click(closeDm);
   expect(onClose).toHaveBeenCalledWith('dm-jay-max');
 });

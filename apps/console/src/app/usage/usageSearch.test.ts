@@ -24,6 +24,26 @@ describe('parseUsageSearch', () => {
   });
 });
 
+describe('parseUsageSearch order', () => {
+  it('defaults to the costliest first', () => {
+    expect(parseUsageSearch('').order).toEqual({ sort: 'cost', dir: 'desc' });
+  });
+
+  it('reads a sort and direction', () => {
+    expect(parseUsageSearch('?sort=date&dir=asc').order).toEqual({
+      sort: 'date',
+      dir: 'asc',
+    });
+  });
+
+  it('reads an unknown sort as the default', () => {
+    expect(parseUsageSearch('?sort=nope&dir=up').order).toEqual({
+      sort: 'cost',
+      dir: 'desc',
+    });
+  });
+});
+
 describe('averageWeek', () => {
   it('counts the weeks of the range, not only the weeks with usage', () => {
     expect(averageWeek(300, 30, [])).toBeCloseTo(70, 0);

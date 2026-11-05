@@ -4,13 +4,16 @@ import {
   chatBuddies,
   chatDmOpen,
   chatJoin,
+  chatMark,
   chatMessages,
   chatPost,
   chatRooms,
   chatSlackAvatarFile,
+  chatSlackAvatars,
   chatSlackStatus,
   chatWho,
   getSetting,
+  matchSlackFaces,
   paneList,
   type AgentStatus,
   type ChatMessage,
@@ -205,6 +208,47 @@ async function unjoinedFleetRooms(
   });
 }
 
+const SLACK_PEOPLE_FRESH_MS = 60 * 60_000;
+
+type SlackPeople = NonNullable<
+  Awaited<ReturnType<typeof chatSlackAvatars>>['data']
+>['people'];
+
+let slackPeople: SlackPeople = [];
+let slackPeopleAt = 0;
+
+/** The daemon reads the directory hourly, so a page load need not ask more. */
+async function knownSlackPeople(): Promise<SlackPeople> {
+  if (slackPeopleAt && Date.now() - slackPeopleAt < SLACK_PEOPLE_FRESH_MS) {
+    return slackPeople;
+  }
+  const res = await chatSlackAvatars(rtOpts());
+  if (res.ok && res.data?.people.length) {
+    slackPeople = res.data.people;
+    slackPeopleAt = Date.now();
+  }
+  return slackPeople;
+}
+
+/** The DMs the human is an end of. Agent-to-agent DMs, which he only
+    watches, are not his. */
+function ownDms(rooms: RoomSummary[], handle: string): RoomSummary[] {
+  return rooms.filter(
+    r =>
+      r.kind === 'dm' &&
+      (r.participants?.a === handle || r.participants?.b === handle)
+  );
+}
+
+/** The newest `limit` messages across DMs, oldest first. Message ids run
+    across every room, so `before` pages the merged list as it does one room. */
+function newestAcross(lists: ChatMessage[][], limit: number): ChatMessage[] {
+  return lists
+    .flat()
+    .sort((a, b) => a.id - b.id)
+    .slice(-limit);
+}
+
 interface DmLastMessage {
   handle: string;
   name: string;
@@ -299,6 +343,19 @@ export const chat = new Hono()
       'x-content-type-options': 'nosniff',
     });
   })
+  // A person's picture by name, for the viewer's own face: the human has no
+  // Slack chat to carry one. Null unless exactly one Slack person has the name.
+  .get('/api/chat/slack-face', async c => {
+    const name = c.req.query('name');
+    if (!name || fixturesEnabled()) return c.json({ url: null }, 200);
+    const people = await knownSlackPeople();
+    const id = matchSlackFaces([['person', name]], people).person;
+    const version = people.find(p => p.id === id)?.version ?? '';
+    return c.json(
+      { url: id ? `/api/chat/slack-avatar/${id}?v=${version}` : null },
+      200
+    );
+  })
   .get('/api/chat/who/:room', async c => {
     const room = c.req.param('room');
     if (fixturesEnabled())
@@ -383,6 +440,69 @@ export const chat = new Hono()
       return c.json(res.data, 200);
     }
   )
+  // Messages to you: every DM the human is an end of, closed ones too, as one
+  // list. A DM whose tail fails to read is left out rather than failing the
+  // rest.
+  .get(
+    '/api/chat/direct',
+    validator('query', (value): { before?: number; limit?: number } => {
+      const v = value as { before?: unknown; limit?: unknown };
+      return {
+        before: parseIntParam(
+          typeof v?.before === 'string' ? v.before : undefined
+        ),
+        limit: parseIntParam(
+          typeof v?.limit === 'string' ? v.limit : undefined
+        ),
+      };
+    }),
+    async c => {
+      const { before, limit } = c.req.valid('query');
+      const size = limit ?? FIXTURE_PAGE_DEFAULT;
+      const handle = humanHandle(c);
+      if (fixturesEnabled()) {
+        const lists = ownDms(fixtureRooms(), handle).map(r =>
+          pageFixtureMessages(fixtureMessages(r.room), before, size)
+        );
+        return c.json({ messages: newestAcross(lists, size) }, 200);
+      }
+      const res = await chatRooms({ handle, includeArchived: true }, rtOpts());
+      if (!res.ok) return c.json({ error: res.error }, 502);
+      const pages = await Promise.all(
+        ownDms(res.data?.rooms ?? [], handle).map(r =>
+          chatMessages({ room: r.room, before, limit: size }, rtOpts()).catch(
+            () => null
+          )
+        )
+      );
+      const lists = pages.flatMap(p =>
+        p?.ok && p.data ? [p.data.messages] : []
+      );
+      // A short older page reads as the end of history, and a cursor past a
+      // missing DM skips its rows, so those failures must say so.
+      const failed = lists.length < pages.length;
+      if (failed && (before !== undefined || lists.length === 0)) {
+        return c.json({ error: 'could not read every DM' }, 502);
+      }
+      return c.json({ messages: newestAcross(lists, size) }, 200);
+    }
+  )
+  // Opening Messages to you reads everything in it.
+  .post('/api/chat/direct/read', async c => {
+    if (fixturesEnabled()) return c.json({ ok: true }, 200);
+    const handle = humanHandle(c);
+    const res = await chatRooms({ handle, includeArchived: true }, rtOpts());
+    if (!res.ok) return c.json({ error: res.error }, 502);
+    const unread = ownDms(res.data?.rooms ?? [], handle).filter(
+      r => r.unread > 0
+    );
+    const marks = await Promise.all(
+      unread.map(r => chatMark({ handle, room: r.room }, rtOpts()))
+    );
+    const failed = marks.find(m => !m.ok);
+    if (failed) return c.json({ error: failed.error }, 502);
+    return c.json({ ok: true }, 200);
+  })
   // The browser never touches rt-client directly -- this route owns the
   // join. A DM row is posted into directly (the human is a member of every
   // DM by construction, and `chat:join` REFUSES dm rooms, so joining one
@@ -413,7 +533,12 @@ export const chat = new Hono()
     }
     const handle = humanHandle(c);
 
-    const roomsRes = await chatRooms({ handle }, rtOpts());
+    // Closed rooms too: a post revives one, and a closed DM must not fall
+    // through to the join below, which refuses DM rooms.
+    const roomsRes = await chatRooms(
+      { handle, includeArchived: true },
+      rtOpts()
+    );
     if (!roomsRes.ok || !roomsRes.data) {
       return c.json({ error: roomsRes.error ?? 'rooms: no data' }, 502);
     }
