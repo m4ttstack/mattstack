@@ -1,9 +1,15 @@
 import {
+  isLocalRequest,
+  type LocalServer,
+} from '@mattstack/app-server/local-request';
+import {
+  usageActivity,
   usageMr,
   usageMrs,
   usageRun,
   usageStatus,
   usageTrends,
+  type UsageOutside,
 } from '@mattstack/rt-client';
 import { Hono } from 'hono';
 
@@ -11,6 +17,8 @@ import {
   FIXTURE_OUTAGE,
   type RunsFixture,
 } from './fixtures/design/runsFixture';
+
+const OUTSIDE = new Set<UsageOutside>(['before', 'between', 'after', 'none']);
 
 /** The daemon refuses past this too; checking here makes the fixture refuse alike. */
 const MAX_DAYS = 3650;
@@ -56,6 +64,25 @@ export function usageRoutes(fixture: RunsFixture | null = null) {
       if (fixture?.outage) return c.json({ error: FIXTURE_OUTAGE }, 502);
       if (fixture) return c.json(null, 200);
       const res = await usageRun(runId);
+      if (!res.ok) return c.json({ error: res.error }, 502);
+      return c.json(res.data ?? null, 200);
+    })
+    .get('/api/usage/activity', async c => {
+      if (!isLocalRequest(c.req.raw, c.env as LocalServer | undefined))
+        return c.json({ error: 'forbidden' }, 403);
+      const { runId, sessionId, stage, attempt, outside } = c.req.query();
+      if (!runId && !sessionId)
+        return c.json({ error: 'runId or sessionId is required' }, 400);
+      if (outside && !OUTSIDE.has(outside as UsageOutside))
+        return c.json({ error: 'unknown outside window' }, 400);
+      if (fixture?.outage) return c.json({ error: FIXTURE_OUTAGE }, 502);
+      if (fixture) return c.json(null, 200);
+      const res = await usageActivity({
+        ...(runId ? { runId } : {}),
+        ...(sessionId ? { sessionId } : {}),
+        ...(stage ? { stage, attempt: Number(attempt) || 1 } : {}),
+        ...(outside ? { outside: outside as UsageOutside } : {}),
+      });
       if (!res.ok) return c.json({ error: res.error }, 502);
       return c.json(res.data ?? null, 200);
     })

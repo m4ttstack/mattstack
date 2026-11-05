@@ -572,6 +572,25 @@ export interface UsageRunData {
   mrCost: number | null;
 }
 
+/** One row of an MR's steps: a run, or an agent-only session, narrowed to a stage or an outside window. */
+export interface UsageActivityQuery {
+  runId?: string;
+  sessionId?: string;
+  stage?: string;
+  attempt?: number;
+  outside?: UsageOutside;
+}
+
+/** Read from the transcript on request, never stored. `*Count` is the total before the list's cap. */
+export interface UsageActivityData {
+  transcriptFound: boolean;
+  prompts: Array<{ ts: number; text: string }>;
+  promptCount: number;
+  agents: Array<{ ts: number; description: string; type: string | null }>;
+  agentCount: number;
+  tools: Array<{ name: string; count: number }>;
+}
+
 /** `weekStart` is local Monday midnight, epoch ms. */
 export interface UsageWeekRow { weekStart: number; totals: UsageTotals; byKind: Record<UsageKind, UsageTotals> }
 
@@ -998,6 +1017,8 @@ export interface Commands {
   /** `data` is null when no MR has that key. */
   "usage:mr": { payload: { mrKey: string }; data: UsageMrData | null };
   "usage:run": { payload: { runId: string }; data: UsageRunData | null };
+  /** Socket only: this carries prompt text, so it has no REST route. */
+  "usage:activity": { payload: UsageActivityQuery; data: UsageActivityData | null };
   "usage:trends": { payload: { days: number; repo?: string }; data: UsageTrendsData };
   "usage:status": { payload: Record<string, never>; data: UsageStatusData };
   "chat:join": { payload: { room: string; handle: string; wakeOn?: WakeMode; cwd?: string; pane?: string }; data: { handle: string; name: string; memberCount: number; unread: number } };
@@ -1424,6 +1445,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "usage:mrs",
   "usage:mr",
   "usage:run",
+  "usage:activity",
   "usage:trends",
   "usage:status",
   "chat:ack",

@@ -98,6 +98,9 @@ export function mrSummary(row: UsageMrRow): string {
   return parts.join(', ');
 }
 
+/** An MCP tool's id ends in the name people know it by. */
+export const toolName = (id: string) => id.split('__').at(-1) ?? id;
+
 /** `claude-opus-5-5` reads `Opus 5.5`; an id of another shape stays as is. */
 export function modelName(model: string | null): string {
   if (!model) return 'Unknown';

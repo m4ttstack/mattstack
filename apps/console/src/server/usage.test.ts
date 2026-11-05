@@ -5,6 +5,7 @@ vi.mock('@mattstack/rt-client', () => ({
   usageMrs: vi.fn(),
   usageMr: vi.fn(),
   usageRun: vi.fn(),
+  usageActivity: vi.fn(),
   usageTrends: vi.fn(),
   usageStatus: vi.fn(),
 }));
@@ -14,7 +15,11 @@ const { runsFixture } = await import('./fixtures/design/runsFixture');
 const rt = await import('@mattstack/rt-client');
 
 const get = (app: ReturnType<typeof usageRoutes>, path: string) =>
-  app.fetch(new Request(`http://localhost${path}`));
+  app.fetch(
+    new Request(`http://localhost${path}`, {
+      headers: { host: 'localhost:11001' },
+    })
+  );
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -57,6 +62,42 @@ describe('usage api', () => {
     expect(rt.usageRun).toHaveBeenCalledWith('run-1');
     expect(res.status).toBe(200);
     expect((await get(usageRoutes(), '/api/usage/run')).status).toBe(400);
+  });
+
+  it('narrows an activity read to one stage or outside window', async () => {
+    vi.mocked(rt.usageActivity).mockResolvedValue({ ok: true, data: null });
+    await get(
+      usageRoutes(),
+      '/api/usage/activity?runId=r&stage=ship&attempt=2'
+    );
+    expect(rt.usageActivity).toHaveBeenLastCalledWith({
+      runId: 'r',
+      stage: 'ship',
+      attempt: 2,
+    });
+    await get(usageRoutes(), '/api/usage/activity?runId=r&outside=after');
+    expect(rt.usageActivity).toHaveBeenLastCalledWith({
+      runId: 'r',
+      outside: 'after',
+    });
+  });
+
+  it('refuses an activity read with no run or an unknown window', async () => {
+    const app = usageRoutes();
+    expect((await get(app, '/api/usage/activity')).status).toBe(400);
+    expect(
+      (await get(app, '/api/usage/activity?runId=r&outside=later')).status
+    ).toBe(400);
+  });
+
+  it('serves prompt text only to a local request', async () => {
+    const res = await usageRoutes().fetch(
+      new Request('http://localhost/api/usage/activity?runId=r', {
+        headers: { host: 'console.example.com' },
+      })
+    );
+    expect(res.status).toBe(403);
+    expect(rt.usageActivity).not.toHaveBeenCalled();
   });
 
   it('answers 400 for a missing mrKey, a missing trends days or a junk days', async () => {

@@ -1,3 +1,4 @@
+import { usageActivity } from "../../usage/activity.ts";
 import { usageMr, usageMrs, usageRun, usageStatus, usageTrends } from "../../usage/queries.ts";
 import { usageDbPath } from "../../usage/store.ts";
 import type { HandlerContext, CommandResult } from "./types.ts";
@@ -6,6 +7,7 @@ import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 type UsageHandlers = { "usage:mrs": (payload: unknown) => Promise<CommandResult<"usage:mrs">> }
   & { "usage:mr": (payload: unknown) => Promise<CommandResult<"usage:mr">> }
   & { "usage:run": (payload: unknown) => Promise<CommandResult<"usage:run">> }
+  & { "usage:activity": (payload: unknown) => Promise<CommandResult<"usage:activity">> }
   & { "usage:trends": (payload: unknown) => Promise<CommandResult<"usage:trends">> }
   & { "usage:status": (payload: unknown) => Promise<CommandResult<"usage:status">> };
 
@@ -66,6 +68,18 @@ export function createUsageHandlers(
         return { ok: true as const, data: usageRun(dbPath(), runId) };
       } catch (err) {
         ctx.log.warn({ err, runId }, "usage:run failed");
+        return { ok: false as const, error: String(err) };
+      }
+    },
+    "usage:activity": async (rawPayload: unknown): Promise<CommandResult<"usage:activity">> => {
+      const payload = rawPayload as Commands["usage:activity"]["payload"] | undefined;
+      if (!payload?.runId && !payload?.sessionId) {
+        return { ok: false as const, error: "missing runId or sessionId" };
+      }
+      try {
+        return { ok: true as const, data: await usageActivity(dbPath(), payload) };
+      } catch (err) {
+        ctx.log.warn({ err }, "usage:activity failed");
         return { ok: false as const, error: String(err) };
       }
     },

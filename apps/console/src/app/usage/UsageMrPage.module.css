@@ -39,6 +39,15 @@
   padding-left: 34px;
 }
 
+.stepOpen {
+  display: block;
+  color: inherit;
+}
+
+.stepOpen:hover {
+  text-decoration: underline;
+}
+
 .barCell {
   width: 200px;
   min-width: 200px;
