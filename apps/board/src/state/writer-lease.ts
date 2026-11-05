@@ -68,7 +68,15 @@ export const LEASE_BEAT_MS = 15_000;
 export function claimWriterLease(io: WriterLeaseIo): LeaseResult {
   return io.transact(held => {
     const now = io.now();
-    if (held && !free(held, io, now) && held.rank >= io.rank) return null;
+    // Our own pid holding it means a `bun --watch` reload re-ran this module
+    // inside the same process: the lease is still ours, not a rival's.
+    if (
+      held &&
+      held.pid !== io.pid &&
+      !free(held, io, now) &&
+      held.rank >= io.rank
+    )
+      return null;
     return { pid: io.pid, rank: io.rank, bootedAt: now, beatAt: now };
   });
 }

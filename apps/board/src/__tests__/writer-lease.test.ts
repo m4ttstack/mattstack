@@ -74,6 +74,18 @@ describe('claimWriterLease', () => {
     expect(deps.stored).toEqual(held());
   });
 
+  test('reclaims a lease its own pid holds after a bun --watch reload', () => {
+    const deps = io({ row: held({ pid: 42, rank: 1 }), pid: 42, rank: 1 });
+
+    expect(claimWriterLease(deps)).toBe('held');
+    expect(deps.stored).toEqual({
+      pid: 42,
+      rank: 1,
+      bootedAt: NOW,
+      beatAt: NOW,
+    });
+  });
+
   test('takes over from a holder whose process is gone', () => {
     const deps = io({ row: held(), alive: () => false });
 
