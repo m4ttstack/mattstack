@@ -1,5 +1,7 @@
-import { Stack } from '@mattstack/app-kit/core';
+import { Badge, Stack, UnstyledButton } from '@mattstack/app-kit/core';
+import { Icon } from '@mattstack/app-kit/icons';
 
+import classes from './fleet-tree.module.css';
 import {
   FleetTree,
   listedBuddies,
@@ -24,6 +26,38 @@ export interface RoomRailProps {
   onCloseRoom?: (room: string) => void;
   /** Inside `PageShell.Sidebar`: the sidebar is the surface, so no card. */
   sidebar?: boolean;
+  /** Messages to you, pinned above the rooms. Its DMs leave `Direct`. */
+  direct?: {
+    active: boolean;
+    waiting: number;
+    onOpen: () => void;
+    isMine: (room: FleetRoom) => boolean;
+  };
+}
+
+/** The one place the human's own DMs are read. */
+function DirectRow({
+  active,
+  waiting,
+  onOpen,
+}: NonNullable<RoomRailProps['direct']>) {
+  return (
+    <UnstyledButton
+      className={`${classes.listRow} ${classes.pinnedRow}`}
+      data-testid="direct-row"
+      data-active={active || undefined}
+      data-waiting={waiting > 0 || undefined}
+      onClick={onOpen}
+    >
+      <Icon name="atSign" size={18} />
+      <span className={classes.pinnedLabel}>Messages to you</span>
+      {waiting > 0 && (
+        <Badge size="sm" circle color="bad" variant="filled">
+          {waiting}
+        </Badge>
+      )}
+    </UnstyledButton>
+  );
 }
 
 /**
@@ -39,12 +73,13 @@ export function RoomRail({
   daemonReachable = true,
   onCloseRoom,
   sidebar = false,
+  direct,
 }: RoomRailProps) {
   // A `dm` room with no participants has no pair to be named by, and
   // falling into channelRooms would render its hashed room id (`roomLabel`
   // in FleetTree.tsx falls back to `#${room.room}` there).
   const directRooms = rooms
-    .filter(r => r.kind === 'dm' && r.participants)
+    .filter(r => r.kind === 'dm' && r.participants && !direct?.isMine(r))
     .sort((a, b) => (b.lastPostedAt ?? 0) - (a.lastPostedAt ?? 0));
   const channelRooms = rooms.filter(r => r.kind !== 'dm');
   const working = listedBuddies(channelRooms, buddies).filter(
@@ -67,6 +102,7 @@ export function RoomRail({
       }}
       data-testid="room-rail"
     >
+      {direct && <DirectRow {...direct} />}
       <SectionLabel
         label="Rooms"
         detail={daemonReachable ? `${working} working` : 'last known'}

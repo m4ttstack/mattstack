@@ -78,7 +78,7 @@ test('choosing DM instead hands the handle to onOpenDm, drops the @ token and ke
     'can you take the flaky one? @'
   );
   await userEvent.click(await screen.findByText('board-fix-auth'));
-  expect(onOpenDm).toHaveBeenCalledWith('board-fix-auth');
+  expect(onOpenDm).toHaveBeenCalledWith('board-fix-auth', expect.any(String));
   expect(screen.getByRole('textbox')).toHaveValue(
     'can you take the flaky one? '
   );

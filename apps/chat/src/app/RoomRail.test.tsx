@@ -223,3 +223,42 @@ test('DMs read newest post first, one with no post last', () => {
     screen.getAllByTestId(/^dm-row-/).map(row => row.dataset.testid)
   ).toEqual(['dm-row-dm-new', 'dm-row-dm-old', 'dm-row-dm-none']);
 });
+
+test('Messages to you sits above the rooms, takes the human’s DMs out of Direct and counts them', async () => {
+  const onOpen = vi.fn();
+  renderWithProviders(
+    <RoomRail
+      rooms={[
+        {
+          room: 'dm-mine',
+          memberCount: 2,
+          unread: 2,
+          mentions: 0,
+          kind: 'dm',
+          participants: { a: 'kai', b: 'matt', aName: 'kai', bName: 'matt' },
+        },
+        {
+          room: 'dm-theirs',
+          memberCount: 2,
+          unread: 0,
+          mentions: 0,
+          kind: 'dm',
+          participants: { a: 'kai', b: 'remy', aName: 'kai', bName: 'remy' },
+        },
+      ]}
+      direct={{
+        active: false,
+        waiting: 2,
+        onOpen,
+        isMine: r => r.room === 'dm-mine',
+      }}
+    />
+  );
+  const row = screen.getByTestId('direct-row');
+  expect(row).toHaveTextContent('Messages to you');
+  expect(row).toHaveTextContent('2');
+  expect(screen.queryByTestId('dm-row-dm-mine')).toBeNull();
+  expect(screen.getByTestId('dm-row-dm-theirs')).toBeInTheDocument();
+  await userEvent.click(row);
+  expect(onOpen).toHaveBeenCalled();
+});

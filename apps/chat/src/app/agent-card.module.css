@@ -1,6 +1,11 @@
 .dropdown {
   padding: 16px;
-  border-radius: var(--mantine-radius-lg);
+  border-radius: var(--mantine-radius-sm);
+}
+
+/* The same card as a submenu, past the padding every menu's theme class sets. */
+.subDropdown.subDropdown.subDropdown {
+  padding: 16px !important;
 }
 
 .card {
@@ -8,12 +13,6 @@
   flex-direction: column;
   gap: 12px;
   min-width: 0;
-}
-
-/* The menu item's own padding, so the card's text lines up with the action
-   items below it. */
-.card[data-in-menu] {
-  padding: var(--mantine-spacing-sm);
 }
 
 .head {

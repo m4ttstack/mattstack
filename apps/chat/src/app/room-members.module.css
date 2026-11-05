@@ -3,7 +3,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--mantine-spacing-sm);
-  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  padding: 0 20px 8px;
 }
 
 .title {
@@ -98,7 +98,7 @@
 }
 
 .withheld {
-  padding: var(--mantine-spacing-sm);
+  padding: 8px 20px;
   font-size: var(--mantine-font-size-sm);
   color: var(--tk-text-3);
 }

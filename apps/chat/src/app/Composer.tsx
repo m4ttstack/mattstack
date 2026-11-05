@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  useEffect,
   useId,
   useImperativeHandle,
   useRef,
@@ -22,7 +23,7 @@ import { notifications } from '@mattstack/app-kit/notifications';
 import type { AgentStatus, BuddyStatus } from '@mattstack/rt-client';
 
 import { agentState, type AgentState } from './agent-state';
-import { AgentName } from './AgentName';
+import { AgentName, HandleAvatar } from './AgentName';
 import { useBuddies } from './buddies-context';
 import classes from './composer.module.css';
 import { doing, type DoingLine } from './doing';
@@ -87,7 +88,7 @@ export interface ComposerProps {
   compact?: boolean;
   /** A buddy outside the room was picked in the `@` popover: the caller
       opens the DM room and moves there; the draft stays in this instance. */
-  onOpenDm?: (handle: string) => void;
+  onOpenDm?: (handle: string, draft: string) => void;
   /**
    * Seeds the draft, and the mentions posted with it, so a reply can open
    * with its recipient already tagged. Read ONCE, at mount: a caller that
@@ -95,6 +96,11 @@ export interface ComposerProps {
    * also what discards the previous draft on purpose.
    */
   prefill?: { body: string; mentions?: string[] };
+  /** Messages to you: who `room` reaches. Their face and name say where this
+      goes, since the view holds several DMs. */
+  replyTo?: { handle: string; name: string };
+  /** Whether the box holds a draft, each time that changes. */
+  onDraftChange?: (hasDraft: boolean) => void;
   /** Called after a post has landed and the draft has cleared. */
   onPosted?: () => void;
 }
@@ -276,6 +282,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
       compact = false,
       onOpenDm,
       prefill,
+      replyTo,
+      onDraftChange,
       onPosted,
     },
     ref
@@ -292,6 +300,12 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
     const [focused, setFocused] = useState(false);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     useAutoGrowTextarea(textareaRef, value);
+    const hasDraft = value.trim() !== '';
+    const reportDraft = useRef(onDraftChange);
+    reportDraft.current = onDraftChange;
+    useEffect(() => {
+      reportDraft.current?.(hasDraft);
+    }, [hasDraft]);
     const ctx = useBuddies();
     const slackChat = useSlackChat(room);
     const slackNoteId = useId();
@@ -355,9 +369,12 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
     }
 
     function switchToDm(handle: string) {
+      const draft = token
+        ? value.slice(0, token.start) + value.slice(token.end)
+        : value;
       replaceToken('');
       closePopover();
-      onOpenDm?.(handle);
+      onOpenDm?.(handle, draft);
     }
 
     function insertHere() {
@@ -460,7 +477,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
       ? phone
         ? 'rt daemon unreachable'
         : "Can't post: rt daemon unreachable. Your draft is kept."
-      : 'Message…';
+      : replyTo
+        ? `Reply to ${replyTo.name}`
+        : 'Message…';
 
     const inputBorderColor = !daemonReachable
       ? BORDER
@@ -510,7 +529,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
           withArrow={false}
           trapFocus={false}
           returnFocus={false}
-          radius="md"
+          radius="sm"
           withinPortal
         >
           <Popover.Target>
@@ -529,6 +548,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
                 padding: compact ? '6px 6px 6px 12px' : '8px 8px 8px 14px',
               }}
             >
+              {replyTo && (
+                <span className={classes.replyFace}>
+                  <HandleAvatar
+                    handle={replyTo.handle}
+                    variant="inline"
+                    size={22}
+                  />
+                </span>
+              )}
               <textarea
                 ref={textareaRef}
                 rows={1}
@@ -583,11 +611,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
             data-testid="composer-popover"
             style={{
               background: 'var(--tk-panel)',
-              border: `1px solid ${BORDER}`,
-              borderRadius: 'var(--mantine-radius-md)',
               padding: 'var(--mantine-spacing-xs)',
-              boxShadow:
-                '0 10px 30px rgba(0,0,0,0.28), 0 2px 8px rgba(0,0,0,0.18)',
             }}
           >
             <Stack gap={1}>

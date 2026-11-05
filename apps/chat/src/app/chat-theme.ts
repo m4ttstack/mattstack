@@ -1,4 +1,4 @@
-import { createTheme, Menu } from '@mattstack/app-kit/core';
+import { createTheme, HoverCard, Menu, Popover } from '@mattstack/app-kit/core';
 
 import menu from './menu.module.css';
 
@@ -22,13 +22,17 @@ import menu from './menu.module.css';
  * answer for both.
  */
 export const chatTheme = createTheme({
-  // The mock's corners: rows 6, code blocks and menus 8, the message box 12.
+  // The mock's corners: rows and menus 6, code blocks 8, the message box 12.
   radius: { xs: '4px', sm: '6px', md: '8px', lg: '12px', xl: '16px' },
   defaultRadius: 'md',
+  // Slack's floating surfaces: the frame's hairline under one soft shadow.
+  shadows: { md: '0 4px 16px rgb(0 0 0 / 14%)' },
   // Inter, not the suite's system stack: at chat's 12 to 14px SF renders too
   // light for reading long posts on the soft page background.
   fontFamily: "'Inter Variable', -apple-system, 'Segoe UI', sans-serif",
   components: {
+    Popover: Popover.extend({ defaultProps: { radius: 'sm' } }),
+    HoverCard: HoverCard.extend({ defaultProps: { radius: 'sm' } }),
     Menu: Menu.extend({
       classNames: {
         dropdown: menu.menuDropdown,

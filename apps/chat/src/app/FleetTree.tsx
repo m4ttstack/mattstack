@@ -211,7 +211,7 @@ function RowMenu({
       position="bottom-start"
       offset={2}
       width={240}
-      radius="md"
+      radius="sm"
       shadow="md"
       withinPortal
       transitionProps={{ duration: 0 }}
@@ -221,8 +221,8 @@ function RowMenu({
         {panes.length > 0 && (
           <>
             <Menu.Label>
-              <Icon name="terminal" size={14} />
               Focus pane
+              <Icon name="terminal" size={14} className={classes.labelIcon} />
             </Menu.Label>
             {panes.map(pane => (
               <Menu.Item
@@ -238,17 +238,17 @@ function RowMenu({
         )}
         <Menu.Item
           data-testid="room-context-copy"
-          leftSection={<Icon name="link" size={16} />}
+          rightSection={<Icon name="link" size={16} />}
           onClick={copyLink}
         >
           Copy link
         </Menu.Item>
         <Menu.Item
           data-testid="room-context-close"
-          leftSection={<Icon name="close" size={16} />}
+          rightSection={<Icon name="archive" size={16} />}
           onClick={() => onClose(room.room)}
         >
-          {room.kind === 'dm' ? 'Close conversation' : 'Close room'}
+          {room.kind === 'dm' ? 'Archive conversation' : 'Archive room'}
         </Menu.Item>
       </Menu.Dropdown>
     </Menu>

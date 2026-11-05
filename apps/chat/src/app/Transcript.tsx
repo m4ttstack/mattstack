@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { ReactNode, RefObject } from 'react';
+import type { MouseEvent, ReactNode, RefObject } from 'react';
 import { Box, Button, Group, Stack, Text } from '@mattstack/app-kit/core';
 import { Icon, type IconName } from '@mattstack/app-kit/icons';
 import type { ChatMessage } from '@mattstack/rt-client';
@@ -15,9 +15,10 @@ import ScrollToBottom, {
   useScrollTo,
 } from 'react-scroll-to-bottom';
 
-import { AgentName, HandleAvatar } from './AgentName';
+import { AgentName, FaceGroup, HandleAvatar } from './AgentName';
 import { MessageSkeleton } from './ChatSkeleton';
 import { dayKey, dayLabel, localTime } from './day-label';
+import { blocksByLatest } from './direct';
 import { MessageMarkdown } from './MessageMarkdown';
 import { NewPill } from './NewPill';
 import { useRelayFrames, useRelayOpen } from './relay-socket';
@@ -46,6 +47,22 @@ const HOLD_BREAKERS = [
   'pointerdown',
   'keydown',
 ] as const;
+
+/** The first row on screen, and where it sits. In a feed the oldest message
+    can be anywhere, so this is the row to keep still; `moving` names rooms
+    about to move, whose rows cannot be the anchor. */
+function topVisibleRow(
+  view: HTMLElement,
+  moving?: ReadonlySet<string>
+): { id: number; offset: number } | null {
+  const top = view.getBoundingClientRect().top;
+  for (const row of view.querySelectorAll<HTMLElement>('[id^="m-"]')) {
+    const rect = row.getBoundingClientRect();
+    if (rect.bottom <= top || moving?.has(row.dataset.room ?? '')) continue;
+    return { id: Number(row.id.slice('m-'.length)), offset: rect.top - top };
+  }
+  return null;
+}
 
 /** Where message `id` sits in `view`, as an offset from the view's top. */
 function rowOffset(view: HTMLElement, id: number): number | null {
@@ -141,16 +158,36 @@ function ScrollHandle({ handle }: { handle: RefObject<ScrollControl | null> }) {
   return null;
 }
 
+/** Several conversations read as one list, in place of a room's own. */
+export interface TranscriptFeed {
+  /** Pages like `/api/chat/messages/:room`: `limit`, and `before` an id. */
+  url: string;
+  /** Whether a relay topic is a post into this list. */
+  hears: (topic: string) => boolean;
+  /** Everyone the list can draw. Taken from the conversations, not the rows,
+      so a new post or an older page never recolours a face. */
+  faces: readonly string[];
+  /** The conversation a reply goes to now, which draws raised. */
+  target: (messages: ChatMessage[]) => string | undefined;
+  /** A message picks its conversation; the space around them clears it. */
+  onPick: (room: string | undefined) => void;
+}
+
 export interface TranscriptProps {
+  /** With a `feed`, only the key its state resets on. */
   room: string;
+  feed?: TranscriptFeed;
   messages: ChatMessage[];
   /** The human's own handle -- a mention of it gets the `.at.me` wash. */
   humanHandle?: string;
   /** Element id of the message a `#m-<id>` link points at; scrolled into
       view once per room+anchor, the first time it is in the list. */
   anchor?: string;
-  /** The `Composer`, below the messages in the same column. */
-  footer?: ReactNode;
+  /** The `Composer`, below the messages in the same column. A function gets
+      the list as it stands now, live posts and older pages included. */
+  footer?: ReactNode | ((messages: ChatMessage[]) => ReactNode);
+  /** Shown once a loaded list has nothing in it. */
+  empty?: ReactNode;
   /** Flush on the host's own background, with no inset: the phone shell draws
       its own chrome. @default false */
   bare?: boolean;
@@ -172,6 +209,7 @@ export function continuesGroup(
 ): boolean {
   return (
     previous !== undefined &&
+    previous.room === message.room &&
     previous.handle === message.handle &&
     message.postedAt - previous.postedAt <= GROUP_GAP_MS &&
     dayKey(previous.postedAt) === dayKey(message.postedAt)
@@ -231,11 +269,14 @@ function MessageRow({
   humanHandle,
   compact,
   grouped,
+  dated,
 }: {
   message: ChatMessage;
   humanHandle: string | undefined;
   compact: boolean;
   grouped: boolean;
+  /** No day lines around it, so the row names its own day. */
+  dated: boolean;
 }) {
   const time = (
     <Text
@@ -244,7 +285,9 @@ function MessageRow({
       title={new Date(message.postedAt).toLocaleString()}
       style={{ flex: 'none' }}
     >
-      {localTime(message.postedAt)}
+      {dated && dayKey(message.postedAt) !== dayKey(Date.now())
+        ? `${dayLabel(message.postedAt)} ${localTime(message.postedAt)}`
+        : localTime(message.postedAt)}
     </Text>
   );
   const name = (
@@ -271,6 +314,7 @@ function MessageRow({
     <div
       id={`m-${message.id}`}
       data-testid={`message-${message.id}`}
+      data-room={message.room}
       className={prose.msg}
       data-grouped={grouped || undefined}
     >
@@ -375,16 +419,20 @@ function mergeMessages(
  */
 export function Transcript({
   room,
+  feed,
   messages: initialMessages,
   humanHandle,
   anchor,
   footer,
+  empty,
   bare = false,
   loading = false,
   compact = false,
 }: TranscriptProps) {
   const slack = useSlackChat(room);
   const inset = compact ? COMPACT_INSET : INSET;
+  const url = feed?.url ?? `/api/chat/messages/${room}`;
+  const isFeed = feed !== undefined;
   const [messages, setMessages] = useState(initialMessages);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [olderExhausted, setOlderExhausted] = useState(false);
@@ -481,19 +529,33 @@ export function Transcript({
   }, [room, anchor, messages, olderExhausted, loadingOlder]);
 
   const refetchTail = useCallback(() => {
-    void fetch(`/api/chat/messages/${room}?limit=${PAGE_SIZE}`)
+    void fetch(`${url}?limit=${PAGE_SIZE}`)
       .then(res => res.json())
       .then((data: { messages?: ChatMessage[] }) => {
         if (roomRef.current !== room) return;
         const next = mergeMessages(messagesRef.current, data.messages ?? []);
         const added = next.length - messagesRef.current.length;
-        if (added > 0 && awayRef.current) setNewSinceAway(n => n + added);
+        if (added > 0 && awayRef.current) {
+          setNewSinceAway(n => n + added);
+          const view = scrollView();
+          // A post moves its card to the bottom, under a scrolled-up reader.
+          if (isFeed && view) {
+            const known = new Set(messagesRef.current.map(m => m.id));
+            const moving = new Set(
+              next.filter(m => !known.has(m.id)).map(m => m.room)
+            );
+            pendingHold.current = topVisibleRow(view, moving);
+          }
+        }
         setMessages(next);
       })
       .catch(() => {});
-  }, [room]);
+  }, [room, url, isFeed]);
   useRelayFrames(frame => {
-    if (frame.topic === `chat/${room}/msg`) refetchTail();
+    const ours = feed
+      ? typeof frame.topic === 'string' && feed.hears(frame.topic)
+      : frame.topic === `chat/${room}/msg`;
+    if (ours) refetchTail();
   });
   useRelayOpen(reconnect => {
     if (reconnect) refetchTail();
@@ -534,7 +596,8 @@ export function Transcript({
   // lazy code highlighter) stays pinned rather than easing the view down.
   const openedRoom = useRef<string | null>(null);
   useLayoutEffect(() => {
-    if (anchor || messages[0]?.room !== room) return;
+    if (anchor || messages.length === 0) return;
+    if (!feed && messages[0]?.room !== room) return;
     if (openedRoom.current === room) return;
     openedRoom.current = room;
     const view = scrollView();
@@ -557,7 +620,7 @@ export function Transcript({
     }
     hold.current?.();
     hold.current = stop;
-  }, [room, anchor, messages]);
+  }, [room, anchor, messages, feed]);
 
   useLayoutEffect(() => {
     const pending = pendingHold.current;
@@ -580,9 +643,7 @@ export function Transcript({
     const forRoom = room;
     const current = () => roomRef.current === forRoom;
     try {
-      const res = await fetch(
-        `/api/chat/messages/${room}?before=${oldest.id}&limit=${PAGE_SIZE}`
-      );
+      const res = await fetch(`${url}?before=${oldest.id}&limit=${PAGE_SIZE}`);
       if (!current()) return;
       // An error page is not an empty page: the edge stays retryable.
       if (!res.ok) return;
@@ -594,7 +655,11 @@ export function Transcript({
         const view = scrollView();
         const offset = view ? rowOffset(view, oldest.id) : null;
         pendingHold.current =
-          offset === null ? null : { id: oldest.id, offset };
+          isFeed && view
+            ? topVisibleRow(view)
+            : offset === null
+              ? null
+              : { id: oldest.id, offset };
         setMessages(prev => {
           const known = new Set(prev.map(m => m.id));
           const additions = older.filter(m => !known.has(m.id));
@@ -612,7 +677,18 @@ export function Transcript({
   }
   loadOlderRef.current = () => void loadOlder();
 
-  return (
+  // A click that selected text, or landed on a link, was not a pick.
+  const pickBlock = (event: MouseEvent<HTMLDivElement>, blockRoom: string) => {
+    const target = event.target as HTMLElement;
+    if (!event.currentTarget.contains(target)) return;
+    if (window.getSelection()?.toString()) return;
+    if (target.closest('a, button')) return;
+    feed?.onPick(blockRoom);
+  };
+
+  const target = feed?.target(messages);
+
+  const list = (
     <Box
       style={{
         // `minWidth: 0` so a long pasted path wraps inside the panel rather
@@ -622,7 +698,12 @@ export function Transcript({
         minHeight: 0,
         display: 'flex',
         flexDirection: 'column',
-        background: bare ? undefined : 'var(--tk-card)',
+        // A white card only rises off something darker than itself.
+        background: bare
+          ? undefined
+          : feed
+            ? 'color-mix(in srgb, var(--tk-bg) 50%, var(--tk-card))'
+            : 'var(--tk-card)',
       }}
       data-testid="transcript"
     >
@@ -634,6 +715,18 @@ export function Transcript({
         ref={scrollBoxRef}
         data-testid="transcript-scroll"
         className={scrollClasses.box}
+        onClick={
+          feed &&
+          (event => {
+            const target = event.target as HTMLElement;
+            // A portalled card still bubbles its clicks through here.
+            if (!event.currentTarget.contains(target)) return;
+            if (window.getSelection()?.toString()) return;
+            if (!target.closest(`.${prose.block}, a, button`)) {
+              feed.onPick(undefined);
+            }
+          })
+        }
         style={{ flex: 1, minHeight: 0 }}
       >
         <ScrollToBottom
@@ -663,34 +756,61 @@ export function Transcript({
               )}
 
               <Stack gap={0}>
-                {messages.map((message, i) => (
-                  <Fragment key={message.id}>
-                    {i === 0 && olderExhausted ? (
-                      <Marker
-                        icon="history"
-                        label={startLabel(message.postedAt)}
-                        testId="transcript-start"
-                      />
-                    ) : (
-                      (i === 0 ||
-                        dayKey(messages[i - 1]!.postedAt) !==
-                          dayKey(message.postedAt)) && (
-                        <Marker
-                          icon="calendar"
-                          label={dayLabel(message.postedAt)}
-                          testId="day-divider"
+                {feed
+                  ? blocksByLatest(messages).map(block => {
+                      const blockRoom = block[0]!.room;
+                      return (
+                        <Fragment key={blockRoom}>
+                          <div
+                            className={prose.block}
+                            data-testid={`direct-block-${blockRoom}`}
+                            data-picked={target === blockRoom || undefined}
+                            onClick={event => pickBlock(event, blockRoom)}
+                          >
+                            {block.map((message, i) => (
+                              <MessageRow
+                                key={message.id}
+                                message={message}
+                                humanHandle={humanHandle}
+                                compact={compact}
+                                grouped={continuesGroup(block[i - 1], message)}
+                                dated
+                              />
+                            ))}
+                          </div>
+                        </Fragment>
+                      );
+                    })
+                  : messages.map((message, i) => (
+                      <Fragment key={message.id}>
+                        {i === 0 && olderExhausted ? (
+                          <Marker
+                            icon="history"
+                            label={startLabel(message.postedAt)}
+                            testId="transcript-start"
+                          />
+                        ) : (
+                          (i === 0 ||
+                            dayKey(messages[i - 1]!.postedAt) !==
+                              dayKey(message.postedAt)) && (
+                            <Marker
+                              icon="calendar"
+                              label={dayLabel(message.postedAt)}
+                              testId="day-divider"
+                            />
+                          )
+                        )}
+                        <MessageRow
+                          message={message}
+                          humanHandle={humanHandle}
+                          compact={compact}
+                          grouped={continuesGroup(messages[i - 1], message)}
+                          dated={false}
                         />
-                      )
-                    )}
-                    <MessageRow
-                      message={message}
-                      humanHandle={humanHandle}
-                      compact={compact}
-                      grouped={continuesGroup(messages[i - 1], message)}
-                    />
-                  </Fragment>
-                ))}
+                      </Fragment>
+                    ))}
               </Stack>
+              {!loading && messages.length === 0 && empty}
               {slack?.closedAt !== undefined && (
                 <ClosedNote at={slack.closedAt} />
               )}
@@ -718,9 +838,13 @@ export function Transcript({
             bare ? undefined : { padding: `0 ${inset} ${compact ? 10 : 20}px` }
           }
         >
-          <div className={prose.col}>{footer}</div>
+          <div className={prose.col}>
+            {typeof footer === 'function' ? footer(messages) : footer}
+          </div>
         </Box>
       )}
     </Box>
   );
+  if (!feed) return list;
+  return <FaceGroup handles={feed.faces}>{list}</FaceGroup>;
 }
