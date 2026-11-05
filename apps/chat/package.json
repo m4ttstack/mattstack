@@ -20,8 +20,6 @@
     "serve-check": "bash scripts/serve-check.sh"
   },
   "dependencies": {
-    "@dicebear/core": "9.4.2",
-    "@dicebear/personas": "^9.4.2",
     "@fontsource-variable/inter": "^5.3.0",
     "@mantine/code-highlight": "catalog:",
     "@mantine/core": "catalog:",
@@ -51,6 +49,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@dicebear/personas": "9.4.2",
     "@eslint/js": "^10.0.1",
     "@ianvs/prettier-plugin-sort-imports": "^4.7.1",
     "@testing-library/jest-dom": "^6.9.1",

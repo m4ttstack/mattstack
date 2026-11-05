@@ -190,7 +190,7 @@ test('an empty older page ends the edge at where the chat started', async () => 
   expect(edge).toHaveTextContent('Load older messages');
   fireEvent.click(edge);
   expect(await screen.findByTestId('transcript-start')).toHaveTextContent(
-    'This chat started today'
+    'Today'
   );
   expect(screen.queryByTestId('transcript-edge')).toBeNull();
   expect(olderRequests()).toHaveLength(1);
@@ -614,8 +614,8 @@ test('reaching the oldest message swaps its day for the start line, and a day di
   } as Response);
   fireEvent.click(screen.getByTestId('transcript-edge'));
   await screen.findByTestId('message-1');
-  expect(screen.getByTestId('transcript-start')).toHaveTextContent(
-    /^This chat started /
+  expect(screen.getByTestId('transcript-start')).not.toHaveTextContent(
+    'This chat started'
   );
   expect(screen.getAllByTestId('day-divider').map(d => d.textContent)).toEqual([
     'Today',

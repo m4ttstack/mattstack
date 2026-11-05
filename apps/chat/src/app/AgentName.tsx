@@ -7,15 +7,9 @@ import {
   type HTMLAttributes,
   type ReactNode,
 } from 'react';
-import { createAvatar } from '@dicebear/core';
-import * as personas from '@dicebear/personas';
 import { Box, Button, Group, Popover, Text } from '@mattstack/app-kit/core';
-import {
-  FACE_TILES,
-  faceSeed,
-  faceTiles,
-  ownTile,
-} from '@mattstack/rt-client/face-tiles';
+import { generatedFace } from '@mattstack/rt-client/face-avatar';
+import { faceSeed, faceTiles, ownTile } from '@mattstack/rt-client/face-tiles';
 import { faceZoom } from '@mattstack/rt-client/face-zoom';
 
 import cardClasses from './agent-card.module.css';
@@ -82,16 +76,11 @@ export function FaceGroup({
 
 const faces = new Map<string, string>();
 
-/** A name's generated face, so a name keeps its persona across sessions and
-    machines. */
 function faceUri(seed: string, tile: number): string {
   const key = `${seed}/${tile}`;
   const known = faces.get(key);
   if (known) return known;
-  const uri = createAvatar(personas, {
-    seed,
-    backgroundColor: [FACE_TILES[tile]!],
-  }).toDataUri();
+  const uri = generatedFace(seed, tile).toDataUri();
   faces.set(key, uri);
   return uri;
 }

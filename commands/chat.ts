@@ -101,7 +101,7 @@ import type {
 
 // ─── arg parsing (commands/events.ts conventions) ────────────────────────────
 
-const FLAGS_WITH_VALUES = new Set(["--as", "--name", "--wake-on", "--limit", "--since", "--room", "--sock", "--session", "--status", "--file", "--last", "--note", "--pane", "--upto"]);
+const FLAGS_WITH_VALUES = new Set(["--as", "--name", "--wake-on", "--limit", "--since", "--room", "--sock", "--session", "--status", "--file", "--last", "--note", "--pane", "--upto", "--size", "--alongside"]);
 
 export function positional(args: string[]): string | undefined {
   for (let i = 0; i < args.length; i++) {

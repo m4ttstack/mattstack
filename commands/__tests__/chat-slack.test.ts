@@ -436,7 +436,9 @@ test("slack-open is hidden and absent from the agent-safe list and the MCP roste
 
 test("every Slack verb names a registered export the dispatcher can call with its context", async () => {
   const mod = await MODULE_REGISTRY["./commands/chat-slack.ts"]!();
-  for (const [name, node] of Object.entries(TREE.chat!.subcommands!)) {
+  const verbs = Object.entries(TREE.chat!.subcommands!).filter(([name]) => name.startsWith("slack-"));
+  expect(verbs.length).toBeGreaterThan(0);
+  for (const [name, node] of verbs) {
     expect(node.module, name).toBe("./commands/chat-slack.ts");
     expect(typeof mod[node.fn!], name).toBe("function");
     expect(mod[node.fn!].length, name).toBe(1);

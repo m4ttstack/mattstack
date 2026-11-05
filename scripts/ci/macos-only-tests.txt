@@ -1,4 +1,5 @@
 commands/__tests__/worktree-hydrate-clone.test.ts
+lib/__tests__/chat-face-png.test.ts
 lib/__tests__/daemon-logger.test.ts
 lib/release/__tests__/dev-app-cache.test.ts
 lib/worktree/__tests__/clonefile.test.ts

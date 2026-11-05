@@ -246,9 +246,9 @@
     0 0 0 0 transparent;
   cursor: pointer;
   transition:
-    background-color 180ms ease-out,
-    box-shadow 180ms ease-out,
-    transform 180ms ease-out;
+    background-color 100ms ease-out,
+    box-shadow 100ms ease-out,
+    transform 100ms ease-out;
 }
 
 .block:first-child {
@@ -273,7 +273,7 @@
   box-shadow:
     inset 0 0 0 transparent,
     inset 0 0 0 0 transparent,
-    0 0 0 1px var(--tk-border-soft),
+    0 0 0 2px color-mix(in srgb, var(--chat-hue) 45%, transparent),
     0 2px 8px rgb(0 0 0 / 14%);
   transform: translateY(-1px);
 }
@@ -282,4 +282,32 @@
   .block {
     transition: none;
   }
+}
+
+/* A day's line stays in the list; its label sticks to the top of the view
+   until the next day pushes it off, as Slack's does. */
+.dayLine {
+  height: 1px;
+  margin: 32px 20px 0;
+  background: var(--tk-border-soft);
+}
+
+.dayPill {
+  position: sticky;
+  top: 8px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  width: fit-content;
+  height: 28px;
+  margin: -15px auto 16px;
+  padding: 0 12px;
+  border-radius: 14px;
+  background: var(--tk-card);
+  box-shadow:
+    0 0 0 1px var(--tk-border-soft),
+    0 1px 3px rgb(0 0 0 / 12%);
+  font-size: var(--mantine-font-size-md);
+  font-weight: 500;
+  color: var(--tk-text-1);
 }
