@@ -264,9 +264,9 @@
 
 /* The room around the line sits inside the rows, so a tint still meets it. */
 .msg:has(+ .blockLine) {
-  padding-bottom: 24px;
+  padding-bottom: 32px;
 }
 
 .blockLine + .msg {
-  padding-top: 24px;
+  padding-top: 32px;
 }
