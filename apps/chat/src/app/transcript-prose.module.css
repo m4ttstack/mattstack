@@ -232,40 +232,32 @@
   padding: 0 3px;
 }
 
-/* Messages to you: a conversation is a box inside the column. It answers the
-   pointer as a whole, since a click aims the reply at it. The rows give up as
-   much side padding as the box sits in, so faces keep their column. */
+/* Messages to you: every conversation is a card on the composer's edges,
+   and answers the pointer as a whole, since a click aims the reply at it. */
 .block {
-  margin: 0 8px;
+  margin: 0 20px 12px;
   padding: 8px 0;
-  border-radius: var(--mantine-radius-md);
+  border-radius: var(--mantine-radius-lg);
+  box-shadow: 0 0 0 1px var(--tk-border-soft);
   cursor: pointer;
 }
 
-/* Room for a raised box's shadow above the composer. */
-.block:last-child {
-  margin-bottom: 16px;
+.block:first-child {
+  margin-top: 16px;
 }
 
 .block .msg {
-  padding-inline: 12px 16px;
+  padding-inline: 16px;
 }
 
 .block:hover {
   background-color: var(--mantine-color-default-hover);
 }
 
-/* Raised off the page by the same shadow as the app's menus. The hairline
-   keeps it standing in dark mode, where the shadow barely shows. */
+/* Raised off the page by the same shadow as the app's menus. */
 .block[data-picked] {
   background-color: var(--tk-card);
   box-shadow:
-    0 0 0 1px var(--tk-border-soft),
+    0 0 0 1px var(--tk-border),
     var(--mantine-shadow-md);
-}
-
-.blockLine {
-  height: 1px;
-  margin: 6px 20px;
-  background: var(--tk-border-soft);
 }

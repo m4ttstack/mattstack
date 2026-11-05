@@ -817,14 +817,16 @@ const feed = (onPick = () => {}, picked?: string) => ({
   picked,
 });
 
-test('a feed draws one line where the conversation changes, and none within it', () => {
+test('a feed draws one card per conversation', () => {
   renderWithProviders(
     <Transcript room="direct" feed={feed()} messages={feedMessages()} />
   );
-  expect(screen.getAllByTestId('direct-separator')).toHaveLength(1);
-  expect(
-    screen.getByTestId('direct-block-dm-b').previousElementSibling
-  ).toHaveAttribute('data-testid', 'direct-separator');
+  expect(screen.getByTestId('direct-block-dm-a')).toContainElement(
+    screen.getByTestId('message-2')
+  );
+  expect(screen.getByTestId('direct-block-dm-b')).toContainElement(
+    screen.getByTestId('message-3')
+  );
 });
 
 test('a click picks the message’s conversation and tints all of it', () => {
@@ -869,7 +871,7 @@ test('an empty feed says so once it has loaded', () => {
   expect(screen.getByText('Nothing yet')).toBeInTheDocument();
 });
 
-test('a click in the space around the messages clears the pick', () => {
+test('a click in the space around the cards clears the pick', () => {
   const onPick = vi.fn();
   renderWithProviders(
     <Transcript
@@ -878,6 +880,6 @@ test('a click in the space around the messages clears the pick', () => {
       messages={feedMessages()}
     />
   );
-  fireEvent.click(screen.getByTestId('direct-separator'));
+  fireEvent.click(screen.getByTestId('transcript-column'));
   expect(onPick).toHaveBeenCalledWith(undefined);
 });

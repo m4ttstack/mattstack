@@ -712,16 +712,10 @@ export function Transcript({
 
               <Stack gap={0}>
                 {feed
-                  ? blocksByLatest(messages).map((block, b) => {
+                  ? blocksByLatest(messages).map(block => {
                       const blockRoom = block[0]!.room;
                       return (
                         <Fragment key={blockRoom}>
-                          {b > 0 && (
-                            <div
-                              className={prose.blockLine}
-                              data-testid="direct-separator"
-                            />
-                          )}
                           <div
                             className={prose.block}
                             data-testid={`direct-block-${blockRoom}`}
