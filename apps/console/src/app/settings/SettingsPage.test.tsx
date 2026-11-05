@@ -35,6 +35,16 @@ vi.mock('../config/useSettings', () => ({
   }),
 }));
 
+// The loader's hold is timed, so a load past its threshold under CI load would
+// keep the list off screen after the index appears.
+vi.mock('../StepLoader', async importOriginal => ({
+  ...(await importOriginal<typeof import('../StepLoader')>()),
+  useStepLoading: (loading: boolean) => ({
+    show: loading,
+    bind: { loading, onFinished: () => {} },
+  }),
+}));
+
 const { SettingsPage } = await import('./SettingsPage');
 
 function def(key: string, over: Partial<SettingDefWire> = {}): SettingDefWire {
@@ -157,6 +167,13 @@ function renderPage() {
   );
 }
 
+/** The index and filter render before the settings load, so waiting on either
+    says nothing about the list. */
+async function renderLoadedPage() {
+  renderPage();
+  await screen.findByTestId('settings-list');
+}
+
 /** Lays the sections out at fixed offsets inside the content frame's
     viewport, which jsdom never measures, and scrolls that viewport. */
 function frame(offsets: Record<string, number>, height = 400) {
@@ -244,7 +261,7 @@ describe('SettingsPage', () => {
   });
 
   it('lists groups in the index with their counts and renders sections', async () => {
-    renderPage();
+    await renderLoadedPage();
     const index = await screen.findByRole('navigation', {
       name: 'settings groups',
     });
@@ -258,7 +275,7 @@ describe('SettingsPage', () => {
   });
 
   it('composes the kit shell: the index in its sidebar, sections in its content frame', async () => {
-    renderPage();
+    await renderLoadedPage();
     const index = await screen.findByRole('navigation', {
       name: 'settings groups',
     });
@@ -293,7 +310,7 @@ describe('SettingsPage', () => {
     const desktopWidth = window.innerWidth;
     window.innerWidth = 500;
     try {
-      renderPage();
+      await renderLoadedPage();
       await screen.findByLabelText('filter settings');
       await userEvent.click(
         await screen.findByRole('button', { name: 'Open sidebar' })
@@ -315,7 +332,7 @@ describe('SettingsPage', () => {
   });
 
   it('filters by key and description, keeps the query in the URL, and Esc clears it', async () => {
-    renderPage();
+    await renderLoadedPage();
     const filter = await screen.findByLabelText('filter settings');
     await userEvent.type(filter, 'days');
     expect(screen.getByText('2 of 18')).toBeInTheDocument();
@@ -326,7 +343,7 @@ describe('SettingsPage', () => {
   });
 
   it('greys out index groups with no match and says how many are hidden', async () => {
-    renderPage();
+    await renderLoadedPage();
     const index = await screen.findByRole('navigation', {
       name: 'settings groups',
     });
@@ -353,7 +370,7 @@ describe('SettingsPage', () => {
   });
 
   it('shows an empty state when nothing matches', async () => {
-    renderPage();
+    await renderLoadedPage();
     await userEvent.type(
       await screen.findByLabelText('filter settings'),
       'kubernetes'
@@ -790,7 +807,7 @@ describe('open rows', () => {
       if (wrote && url.startsWith('/api/settings/defs')) rereads++;
       return defsResponse();
     });
-    renderPage();
+    await renderLoadedPage();
     await userEvent.click(
       await screen.findByRole('radio', { name: 'machine' })
     );

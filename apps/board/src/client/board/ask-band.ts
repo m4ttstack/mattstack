@@ -2,6 +2,7 @@
     this MR: this board's own ask of it, or a review their board started and
     lost, which the same band lets you ask for again. Kept off the status
     line and its "+N active" count, since the work is remote. */
+import { isOwnMr } from '../../view.ts';
 import type {
   BoardMRWithReview,
   PeerReviewInfo,
@@ -270,9 +271,14 @@ export type BandSource =
   | { kind: 'peer'; peer: PeerReviewInfo };
 
 /** What the row's band shows: this board's own ask first, else a peer's
-    errored review nobody has dismissed. */
-export function bandSource(mr: BoardMRWithReview): BandSource | null {
+    errored review nobody has dismissed. Review state reaches the whole team,
+    but only the author can ask for that review again. */
+export function bandSource(
+  mr: BoardMRWithReview,
+  self: string | null
+): BandSource | null {
   if (mr.sentNudge) return { kind: 'sent', sent: mr.sentNudge };
+  if (!isOwnMr(mr, self)) return null;
   const peer = (mr.peerReviews ?? []).find(
     p => p.status === 'error' && p.dismissedAt === undefined
   );
@@ -282,9 +288,10 @@ export function bandSource(mr: BoardMRWithReview): BandSource | null {
 /** The band's dismiss, as the local board takes it: a sent ask is dropped
     outright; a peer's lost review is stamped on that reviewer's state. */
 export function bandDismissRequest(
-  mr: BoardMRWithReview
+  mr: BoardMRWithReview,
+  self: string | null
 ): { path: string; body: Record<string, string> } | null {
-  const source = bandSource(mr);
+  const source = bandSource(mr, self);
   if (!source || !mr.webUrl) return null;
   return source.kind === 'sent'
     ? { path: '/nudge/dismiss', body: { mrUrl: mr.webUrl } }
@@ -297,18 +304,22 @@ export function bandDismissRequest(
 /** What a sent retry settles: the peer failure it replaced, stamped
     dismissed so it cannot resurface once the new ask is gone. */
 export function bandRetrySettles(
-  mr: BoardMRWithReview
+  mr: BoardMRWithReview,
+  self: string | null
 ): { path: string; body: Record<string, string> } | null {
-  return bandSource(mr)?.kind === 'peer' ? bandDismissRequest(mr) : null;
+  return bandSource(mr, self)?.kind === 'peer'
+    ? bandDismissRequest(mr, self)
+    : null;
 }
 
 /** The band's retry: the same kind of ask to the same teammate (/nudge
     replaces the recorded ask, so the new one scraps the old), or a fresh
     re-review from the peer whose own review was lost. */
 export function bandRetryAction(
-  mr: BoardMRWithReview
+  mr: BoardMRWithReview,
+  self: string | null
 ): Extract<ActionRequest, { kind: 'ask' }> | null {
-  const source = bandSource(mr);
+  const source = bandSource(mr, self);
   if (!source) return null;
   return source.kind === 'sent'
     ? {
