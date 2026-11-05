@@ -13,6 +13,7 @@ import * as restore from "../../lib/state/backup-restore.ts";
 import { closeStateDb, getStateDb, listStateBackups, stateDbPath } from "../../lib/state/index.ts";
 import { stateBackup, stateRestore } from "../state.ts";
 import { stateBackupStatus } from "../state-backup-status.ts";
+import { __test__ as isolation } from "../../packages/rt-client/src/test-isolation.ts";
 
 const origHome = process.env.HOME;
 const origExitCode = process.exitCode;
@@ -51,6 +52,17 @@ function identity() {
   writeFileSync(key, "AGE-SECRET-KEY-1SAMPLE\n");
   return key;
 }
+
+test("restoring a copy over the live db is refused", async () => {
+  const copy = join(home, "copy.db");
+  state.openStateDb(copy).close();
+  isolation.setAccountHome(home);
+  try {
+    await expect(stateRestore([copy, "--force"])).rejects.toThrow(/refusing to open/);
+  } finally {
+    isolation.setAccountHome(undefined);
+  }
+});
 
 test("local backup pins ok, path and the pruned array", async () => {
   await stateBackup(["--local", "--json"]);

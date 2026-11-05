@@ -26,6 +26,7 @@ import { isDaemonRunning } from "../lib/daemon-client.ts";
 import { shellQuote } from "../lib/herdr-launch.ts";
 import { flagValue } from "../lib/cli-args.ts";
 import { mattstackHome } from "../lib/rt-paths.ts";
+import { assertNotRealStateDbInTest } from "../packages/rt-client/src/test-isolation.ts";
 import {
   backupTo,
   closeStateDb,
@@ -276,6 +277,7 @@ export async function stateRestore(args: string[], _ctx: CommandContext = {}): P
 
   closeStateDb();
   const dest = stateDbPath();
+  assertNotRealStateDbInTest(dest);
   mkdirSync(dirname(dest), { recursive: true });
   copyFileSync(source, dest);
   for (const sidecar of [`${dest}-wal`, `${dest}-shm`]) {

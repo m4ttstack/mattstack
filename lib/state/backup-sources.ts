@@ -2,6 +2,7 @@ import { join } from "path";
 import { existsSync, mkdirSync } from "fs";
 import { spawn } from "bun";
 import { Database } from "bun:sqlite";
+import { assertNotRealStateDbInTest } from "../../packages/rt-client/src/test-isolation.ts";
 import { mattstackHome } from "../rt-paths";
 
 export interface BackupSource {
@@ -39,6 +40,7 @@ export async function snapshotSource(
   const destPath = join(destDir, `${baseName}${source.ext}`);
 
   if (source.type === "sqlite") {
+    assertNotRealStateDbInTest(fullPath);
     const db = new Database(fullPath, { readonly: true });
     try {
       db.query("VACUUM INTO ?").run(destPath);
