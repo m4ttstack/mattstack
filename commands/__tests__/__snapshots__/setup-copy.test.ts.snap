@@ -602,7 +602,7 @@ exports[`the setup plan's shape and copy plan: the copy is what the copy table s
   "tool.arch.detail": "Could not read your processor type",
   "tool.arch.optionalNote": null,
   "tool.arch.title": "Processor",
-  "tool.arch.why": "mattstack ships an Apple-silicon (arm64) build; Intel Macs are not supported.",
+  "tool.arch.why": "mattstack runs on Apple silicon and Intel Macs.",
   "tool.chrome.action.label": "Download",
   "tool.chrome.detail": "Google Chrome is not installed",
   "tool.chrome.optionalNote": null,
@@ -700,7 +700,6 @@ exports[`the setup plan's shape and copy plan: the copy is what the copy table s
   "tool.state-backup.action.label": "Show steps…",
   "tool.state-backup.action.steps": [
     "Update mattstack.app; it ships age, zstd and git-lfs",
-    "Or install them yourself: brew install age zstd git-lfs",
     "Then re-run rt setup status",
   ],
   "tool.state-backup.detail": "Not installed: age, zstd, git-lfs",
@@ -1161,7 +1160,7 @@ exports[`the setup plan's shape and copy status: the copy is what the copy table
   "tool.arch.detail": "Could not read your processor type",
   "tool.arch.optionalNote": null,
   "tool.arch.title": "Processor",
-  "tool.arch.why": "mattstack ships an Apple-silicon (arm64) build; Intel Macs are not supported.",
+  "tool.arch.why": "mattstack runs on Apple silicon and Intel Macs.",
   "tool.chrome.action.label": "Download",
   "tool.chrome.detail": "Google Chrome is not installed",
   "tool.chrome.optionalNote": null,
@@ -1259,7 +1258,6 @@ exports[`the setup plan's shape and copy status: the copy is what the copy table
   "tool.state-backup.action.label": "Show steps…",
   "tool.state-backup.action.steps": [
     "Update mattstack.app; it ships age, zstd and git-lfs",
-    "Or install them yourself: brew install age zstd git-lfs",
     "Then re-run rt setup status",
   ],
   "tool.state-backup.detail": "Not installed: age, zstd, git-lfs",

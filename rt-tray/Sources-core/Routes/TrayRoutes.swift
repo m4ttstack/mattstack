@@ -24,7 +24,7 @@ public struct TrayRoutes: Sendable {
 
     public static let paths: Set<String> = ["/permissions", "/permissions/request", "/services", "/services/register",
                                             "/services/restart", "/privileged/proxy-install", "/privileged/proxy-trust",
-                                            "/privileged/homebrew", "/update/check", "/version", "/window/open"]
+                                            "/update/check", "/version", "/window/open"]
 
     public func handle(method: String, path: String, body: Data?) async -> RouteResponse? {
         let isNeed = path.hasPrefix("/setup/need/")
@@ -47,11 +47,9 @@ public struct TrayRoutes: Sendable {
             guard let label = field("label", in: body) else { return bad("label is required") }
             return RouteResponse(status: 200, body: "{\"ok\":\(await services.restart(label: label))}")
         case ("POST", "/privileged/proxy-install"):
-            return encode(await needs.performPrivileged(op: "proxy-install", homebrew: flag("homebrew", in: body)))
+            return encode(await needs.performPrivileged(op: "proxy-install"))
         case ("POST", "/privileged/proxy-trust"):
-            return encode(await needs.performPrivileged(op: "proxy-trust", homebrew: flag("homebrew", in: body)))
-        case ("POST", "/privileged/homebrew"):
-            return encode(await needs.performPrivileged(op: "homebrew"))
+            return encode(await needs.performPrivileged(op: "proxy-trust"))
         case ("GET", _) where isNeed:
             let id = String(path.dropFirst("/setup/need/".count))
             guard !id.isEmpty else { return bad("need id is required") }
@@ -79,6 +77,5 @@ public struct TrayRoutes: Sendable {
         return (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
     }
     private func field(_ name: String, in body: Data?) -> String? { object(body)?[name] as? String }
-    private func flag(_ name: String, in body: Data?) -> Bool { object(body)?[name] as? Bool == true }
     private func list(_ name: String, in body: Data?) -> [String]? { object(body)?[name] as? [String] }
 }

@@ -119,10 +119,9 @@ struct TestDrivePrivileged: PrivilegedInstalling {
     let toasts: TestDriveToasts
     let delay: TimeInterval
 
-    func proxyInstall(homebrew: Bool) async -> NeedResult { await askAdmin() }
+    func proxyInstall() async -> NeedResult { await askAdmin() }
     func proxyRemove() async -> NeedResult { await askAdmin() }
-    func proxyTrust(homebrew: Bool) async -> NeedResult { await askAdmin() }
-    func homebrew() async -> NeedResult { await askAdmin() }
+    func proxyTrust() async -> NeedResult { await askAdmin() }
 
     private func askAdmin() async -> NeedResult {
         await toasts.show(TestDriveCopy.wouldAskAdmin)

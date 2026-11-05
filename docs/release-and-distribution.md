@@ -19,8 +19,8 @@ One tag (`v*`) produces, via `.github/workflows/release.yml` on macos-15:
   (MAT-395): `build.sh` signs every plain file under `Contents/Helpers`
   individually, codesign stores those signatures as extended attributes, and
   Sparkle's `BinaryDelta` refuses to diff xattr'd trees. `appcast.sh`
-  tolerates the delta failure and every update ships as the full ~260 MB
-  zip; the update leg is proven on that path. Revisit only if the user base
+  tolerates the delta failure and every update ships as the full zip (~830 MB since the app went universal; v2.28.0 was 465 MB);
+  the update leg is proven on that path. Revisit only if the user base
   or update cadence makes delta bandwidth matter, or if the Helpers tree is
   restructured for another reason.
 - `appcast.xml` — the Sparkle feed (`scripts/release/appcast.sh`)
@@ -68,7 +68,7 @@ signed with a warning when they are not; a **tag** hard-fails without them).
   runs every helper from inside the signed bundle (`--version` smoke).
   Adding a helper = a deps.lock entry; check-bundle picks it up from the
   lock, no script edit.
-- A helper the project publishes no darwin-arm64 binary for is compiled by
+- A helper the project publishes no darwin binary for is compiled by
   `fetch-deps.sh` from its sha-pinned source release (`archive: "make-src"`,
   zstd today) rather than lifted from a Homebrew bottle, which links dylibs
   under `/opt/homebrew` that a user's Mac does not have. Every make-src
@@ -81,6 +81,39 @@ signed with a warning when they are not; a **tag** hard-fails without them).
 - Updating the installed app (Sparkle or manual) costs the FDA grant —
   quit the app first, expect to re-grant after.
 
+## One universal app
+
+The release app runs on Apple silicon and Intel Macs. Every binary in it carries
+both an arm64 and an x86_64 slice. The build reaches that in four places:
+
+- **deps.lock.** Each prebuilt helper row pins its Intel download in an
+  `x86_64` object (`url`, `sha256`, `extract`) beside the arm64 pin. npm rows
+  and buildtool rows are the same on both chips and carry none. make-src and
+  go-src rows build for each chip from one source archive. `scripts/lib/deps-lock.ts
+  --slice x86_64` swaps each pin in, and refuses a prebuilt helper that has
+  none. The lock's top-level `arch` stays `arm64`: an older rt's parser
+  rejects any other value, and an updated app's still-running daemon reads
+  the new lock with that parser. A version bump edits both urls, and
+  `deps-lock-file.test.ts` fails when an Intel url names a different version.
+- **Fetch and tree rows.** `fetch-deps.sh x86_64` and `build-apps.ts --arch
+  x86_64` fill `rt-tray/deps/x86_64`, each beside its arm64 run. The x86_64
+  app pass sets `MATTSTACK_BUN_TARGET=bun-darwin-x64`, which each app's compile
+  script hands to `bun build --compile --target`, and smoke-tests the result
+  under Rosetta.
+- **The merge.** `scripts/merge-universal.ts` writes `rt-tray/deps/universal`:
+  each Mach-O pair goes through `lipo -create`, and every other file comes from
+  the arm64 slice (node's `config.gypi` is the one file that differs, and
+  build.sh prunes it). It fails on a binary only one slice carries, or a slice
+  holding the wrong chip.
+- **build.sh and the CLI.** `RT_DEPS_ARCH=universal` bundles from
+  `deps/universal` and builds the Swift targets with `--arch arm64 --arch
+  x86_64`. release.yml compiles `rt` and `rt-ui` once per chip and lipos
+  each pair. `check-bundle.sh --universal` fails on any binary missing a
+  slice and runs rt's Intel slice under Rosetta.
+
+Dev builds stay arm64 only (`build.sh dev`, `rt release update-machine`'s
+dev bundle, the staged dev app), so a dev app rebuild costs no extra time.
+
 ## Privileged proxy helper (mattstack-proxy-install)
 
 The bundle ships a first-party Swift helper, `rt-tray/proxy-helper/`, built
@@ -90,8 +123,8 @@ install portless as a root LaunchDaemon on 443 instead of skipping. portless
 itself is vendored and pinned through `rt-tray/deps.lock` like any other
 third-party tool (`bundlePath: Contents/Helpers/portless-dist`); the already
 bundled `node` row runs it, so no extra runtime ships. The helper's argv
-contract (`install [--homebrew]`, `remove`, `trust [--homebrew]`, `homebrew`,
-`--version`) is consumed by
+contract (`install`, `remove`, `trust`, `--version`, each exactly that and
+nothing more) is consumed by
 `PrivilegedInstaller.swift` in this same repo, which is why it is a checked-in
 SwiftPM target rather than a deps.lock-pinned release artifact.
 
@@ -139,28 +172,6 @@ helper's `trust` op, reached through its own tray route
 `POST /privileged/proxy-trust` beside
 `/privileged/proxy-install`), so no remedy can point at a route that disagrees
 with what the row reported.
-
-Homebrew rides the same admin prompt. When rt's need carries `homebrew: true`
-(no brew on the Mac and no earlier attempt on record), the tray passes
-`--homebrew` to `install` or `trust`; a Mac whose proxy needs nothing gets the
-`homebrew` verb alone, through `POST /privileged/homebrew`. The helper skips it
-when `/opt/homebrew/bin/brew` or `/usr/local/bin/brew` exists, and reports
-`failed` without downloading on a Mac the package's Distribution.xml would
-refuse (wrong architecture or too old a macOS). Otherwise it downloads the
-package pinned in `rt-tray/proxy-helper/homebrew-pin.json` into a fresh 0700
-directory of this run's own under the root-owned proxy tree (curl gives up on a
-stalled transfer, the whole download is capped at 15 minutes, and a file more
-than 1 MiB over the pinned size is refused), refuses bytes whose sha256 differs from the pin,
-runs `installer -pkg <package> -target /` with no time limit (killing it midway
-would leave a half-installed prefix whose `bin/brew` reads as present), and
-deletes the download whatever happened. `gen-pins.sh` compiles the pin in and
-accepts only a `.pkg` on Homebrew's own GitHub release for the pinned version,
-so nothing at run time (argv, the request, a user-writable file) names what
-root installs. Homebrew runs first and is never fatal: its outcome travels on
-its own line (`MATTSTACK_HOMEBREW=ok|present|failed`) just before the trust
-line. Moving to a newer Homebrew is a pin-file change: the version, the release
-asset's URL, its sha256 and size, and the architecture and minimum macOS its
-Distribution.xml names.
 
 A version-drifted proxy (the deployed `/Library/Application
 Support/mattstack/proxy/VERSION` disagreeing with the bundle's pinned

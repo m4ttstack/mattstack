@@ -51,7 +51,7 @@ describe("applyExpectations", () => {
   });
 
   test("a validator's required state is never lowered", () => {
-    const input = rowOf("tool.herdr", "missing", { required: true, optionalNote: null, action: { type: "install", label: "Install", tool: "herdr", via: "brew" } });
+    const input = rowOf("tool.herdr", "missing", { required: true, optionalNote: null, action: { type: "install", label: "Install", tool: "herdr", via: "download" } });
     expect(one(input)).toEqual(input);
   });
 

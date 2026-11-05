@@ -6,15 +6,45 @@ describe("parseRequirements", () => {
   test("parses tools, keeps known integrations, and reports an unknown one", () => {
     const result = parseRequirements(
       "acme",
-      '{ "tools":[{"name":"doppler","floor":"3.0.0","why":"secrets","install":{"brew":"dopplerhq/cli/doppler"},"connect":{"integration":"doppler"}}], "integrations":["gitlab","linear","bogus"] }',
+      '{ "tools":[{"name":"doppler","floor":"3.0.0","why":"secrets","install":{"url":"https://docs.doppler.com/docs/install-cli"},"connect":{"integration":"doppler"}}], "integrations":["gitlab","linear","bogus"] }',
     );
 
     expect(result.pack).toBe("acme");
     expect(result.tools).toEqual([
-      { name: "doppler", floor: "3.0.0", why: "secrets", install: { brew: "dopplerhq/cli/doppler" }, connect: { integration: "doppler" } },
+      { name: "doppler", floor: "3.0.0", why: "secrets", install: { url: "https://docs.doppler.com/docs/install-cli" }, connect: { integration: "doppler" } },
     ]);
     expect(result.integrations).toEqual(["gitlab", "linear"]);
     expect(result.error).toContain("bogus");
+  });
+
+  describe("install.download", () => {
+    const pin = { url: "https://example.com/doppler_darwin_arm64.tar.gz", sha256: "a".repeat(64), extract: "doppler" };
+    const parseWith = (download: unknown) =>
+      parseRequirements("acme", JSON.stringify({ tools: [{ name: "doppler", why: "secrets", install: { download } }] }));
+
+    test("keeps a pin per processor, defaulting extract to the download itself", () => {
+      const result = parseWith({ arm64: pin, x86_64: { url: "https://example.com/doppler_amd64", sha256: "b".repeat(64) } });
+      expect(result.error).toBeUndefined();
+      expect(result.tools[0]!.install!.download).toEqual({ arm64: pin, x86_64: { url: "https://example.com/doppler_amd64", sha256: "b".repeat(64), extract: "" } });
+    });
+
+    test("an older pack's install.brew is ignored", () => {
+      const result = parseRequirements("acme", '{ "tools":[{"name":"jq","why":"json","install":{"brew":"jq"}}] }');
+      expect(result.tools[0]!.install).toEqual({});
+      expect(result.error).toBeUndefined();
+    });
+
+    test.each([
+      ["not https", { arm64: { ...pin, url: "http://example.com/x" } }, "arm64.url must be an https link"],
+      ["a bad sha256", { arm64: { ...pin, sha256: "abc" } }, "arm64.sha256"],
+      ["an extract leaving the archive", { arm64: { ...pin, extract: "../../bin/sh" } }, "arm64.extract"],
+      ["an unknown processor", { ppc: pin }, 'unknown processor "ppc"'],
+      ["not an object", "https://example.com", "must be an object"],
+    ])("reports %s and keeps the tool without the pins", (_label, download, message) => {
+      const result = parseWith(download);
+      expect(result.error).toContain(message);
+      expect(result.tools[0]!.install!.download).toBeUndefined();
+    });
   });
 
   test("invalid JSON yields an empty, error-carrying result", () => {

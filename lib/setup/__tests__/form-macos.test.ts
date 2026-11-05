@@ -11,8 +11,8 @@ function reply(fda: PermissionsReply["fda"]["status"], notifications: Notificati
   return { fda: { status: fda }, notifications: { status: notifications }, loginItems: { status: "enabled" } };
 }
 
-const FANCY_DONE: FancyUrls = { state: "done", detail: "Allowed", brewMissing: false };
-const FANCY_TODO: FancyUrls = { state: "todo", detail: "Not set up yet", brewMissing: true };
+const FANCY_DONE: FancyUrls = { state: "done", detail: "Allowed" };
+const FANCY_TODO: FancyUrls = { state: "todo", detail: "Not set up yet" };
 
 function rows(fda: PermissionsReply["fda"]["status"], notifications: NotificationStatus, fancyUrls: FancyUrls = FANCY_DONE): FormRow[] {
   return macosRows({ permissions: permissionRows(reply(fda, notifications), null), notifications, fancyUrls });

@@ -3,6 +3,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { parseDepsLock, servedAppCatalog } from "../bundle-layout.ts";
 import { upstreamForToolRow } from "../release/preflight.ts";
+import { rowsFor } from "../../scripts/lib/deps-lock.ts";
 
 const LOCK_PATH = join(import.meta.dir, "..", "..", "rt-tray", "deps.lock");
 
@@ -12,6 +13,18 @@ describe("rt-tray/deps.lock", () => {
   test("parses under the schema", () => {
     expect(lock.schema).toBe(1);
     expect(lock.arch).toBe("arm64");
+  });
+  test("every prebuilt helper has an Intel pin for the universal build", () => {
+    expect(() => rowsFor(lock.tools, "x86_64")).not.toThrow();
+  });
+  // A version bump that edits only the arm64 url would ship the old Intel
+  // binary inside the new universal one.
+  test("each Intel pin downloads the same version as its arm64 pin", () => {
+    for (const t of lock.tools) {
+      if (!t.x86_64) continue;
+      expect(t.x86_64.url, t.name).toContain(t.version);
+      expect(t.x86_64.url, t.name).not.toBe(t.url);
+    }
   });
   test("every suite app is bundled; sparkle is a build tool", () => {
     const by = Object.fromEntries(lock.tools.map((t) => [t.name, t]));

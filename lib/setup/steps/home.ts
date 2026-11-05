@@ -167,7 +167,7 @@ const MISSING_EXECUTABLE_STDERR = /Executable not found in \$PATH: "([^"]+)"/;
 function missingToolRemedy(stderr: string): string | null {
   const tool = MISSING_EXECUTABLE_STDERR.exec(stderr)?.[1];
   if (tool === undefined) return null;
-  return `${tool} is missing. Reinstall mattstack.app, or install it yourself (brew install ${tool === "age-keygen" ? "age" : tool}), then Retry`;
+  return `${tool} is missing. Reinstall mattstack.app, then Retry`;
 }
 
 /** Stderr that names a remote/auth failure on its own terms, with no ambiguity about which end of the wire failed. */

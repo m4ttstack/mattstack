@@ -35,7 +35,7 @@ export type Action =
   | { type: "connect"; label: string; integration: Integration; fields: ConnectField[]; alternatives?: { id: string; label: string }[]; create?: { label: string; url: string }; verb?: string[] }
   | { type: "oauth"; label: string; integration: Integration; verb: string[] }
   | { type: "owner-once"; label: string; integration: Integration; fields: ConnectField[] }
-  | { type: "install"; label: string; tool: string; via: "brew" | "vendor" | "apple-clt" | "bundled-link" }
+  | { type: "install"; label: string; tool: string; via: "download" | "vendor" | "apple-clt" | "bundled-link" }
   | { type: "link-bundled"; label: string; tool: string }
   | { type: "steps"; label: string; steps: string[] }
   // `waiting` is the line the app shows once the page is open, until the row reads ready; `again`
@@ -220,7 +220,7 @@ export type StepId = (typeof STEP_IDS)[number];
 export type NeedRequest =
   | { type: "app-register-services"; plists: string[] }
   | { type: "app-unregister-services"; plists: string[] }
-  | { type: "app-privileged"; op: "proxy-install" | "proxy-remove" | "proxy-trust" | "homebrew"; homebrew?: true };
+  | { type: "app-privileged"; op: "proxy-install" | "proxy-remove" | "proxy-trust" };
 
 /** Uninstall streams the same event shapes with these ids (contract §uninstall: "NDJSON like apply"). */
 export type UninstallActionId = "services.unregister" | "deck.managed-remove" | "proxy.remove" | "path.unlink" | "shell.remove" | "extension.uninstall" | "plugins.uninstall" | "cron.uninstall" | "data" | "app.trash";

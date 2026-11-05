@@ -446,6 +446,26 @@ An org admin can require a tool for every team in `org/requirements.jsonc` in th
 
 When a new required tool lands on a Mac that already finished setup, mattstack sends one notification, once the tool has read missing on two pulls in a row. Opening setup shows a short tools screen to install it, and **Done** closes it. A broken org file never blocks setup: it shows as a row under **Setup status**.
 
+### How a tool installs
+
+A tool's `install` says how a member gets it. `install.download` pins the binary for each kind of Mac, and the tool's row gets a one-click **Install**: mattstack downloads the file, refuses it unless its sha256 matches, and puts the tool in `~/.local/bin`. `install.url` is a page the member opens to install it by hand.
+
+```jsonc
+{
+  "name": "doppler",
+  "why": "Reads the team's secrets",
+  "install": {
+    "url": "https://docs.doppler.com/docs/install-cli",
+    "download": {
+      "arm64": { "url": "https://example.com/doppler_darwin_arm64.tar.gz", "sha256": "<64 lowercase hex>", "extract": "doppler" },
+      "x86_64": { "url": "https://example.com/doppler_darwin_amd64.tar.gz", "sha256": "<64 lowercase hex>", "extract": "doppler" }
+    }
+  }
+}
+```
+
+`arm64` is Apple silicon and `x86_64` is Intel. A download must be an https link, and its `sha256` is 64 lowercase hex characters. `extract` names the binary inside a `.tar.gz`, `.tgz`, `.tar.xz` or `.zip`; leave it out when the link is the binary itself. A Mac whose processor has no pin gets the `install.url` link instead.
+
 ## Pulling now
 
 ```bash

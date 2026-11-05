@@ -117,18 +117,6 @@ final class TrustStepTests: XCTestCase {
         XCTAssertTrue(lines.first?.hasPrefix("trust: failed could not stage") == true, "got: \(lines)")
     }
 
-    // rt reads both outcomes off the one reply, and the trust line stays the
-    // last thing before the exit trailer.
-    func testTrustWithHomebrewRunsHomebrewFirstAndReportsItBeforeTheTrustLine() {
-        fs.existingPaths.insert("/opt/homebrew/bin/brew")
-        var op = makeOp()
-        var step = HomebrewStep(fs: fs, runner: runner, pins: .fixture())
-        step.emit = { [self] in lines.append($0) }
-        op.homebrew = step
-        XCTAssertEqual(op.execute(), ExitCode.ok)
-        XCTAssertEqual(lines, ["homebrew: present (/opt/homebrew/bin/brew)", "trust: ok", "MATTSTACK_HOMEBREW=present", "MATTSTACK_TRUST=ok"])
-    }
-
     func testAlreadyTrustedIsReportedWithoutAskingAgain() {
         runner.handler = { _ in CommandResult(status: 0, output: "") }
         XCTAssertEqual(makeOp().execute(), ExitCode.ok)

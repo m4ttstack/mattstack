@@ -19,9 +19,24 @@ export interface ToolRequirement {
   name: string;
   floor?: string;
   why: string;
-  install?: { brew?: string; url?: string };
+  install?: ToolInstall;
   connect?: { integration: Integration } | { verb: string[]; label: string };
   optional?: boolean;
+}
+
+export type HostArch = "arm64" | "x86_64";
+
+/** A team-pinned binary for one processor: rt downloads `url`, checks `sha256`, and installs `extract` (or the download itself when "") as ~/.local/bin/<name>. */
+export interface ToolDownloadPin {
+  url: string;
+  sha256: string;
+  extract: string;
+}
+
+export interface ToolInstall {
+  /** A page the member opens to install it by hand. */
+  url?: string;
+  download?: Partial<Record<HostArch, ToolDownloadPin>>;
 }
 
 export interface PackRequirements {
@@ -106,11 +121,16 @@ function parseToolRequirement(t: unknown, index: number, packName: string): { to
   if (typeof o.floor === "string") result.floor = o.floor;
   if (typeof o.optional === "boolean") result.optional = o.optional;
 
+  let installError: string | undefined;
   if (typeof o.install === "object" && o.install !== null) {
     const i = o.install as Record<string, unknown>;
-    const install: { brew?: string; url?: string } = {};
-    if (typeof i.brew === "string") install.brew = i.brew;
+    const install: ToolInstall = {};
     if (typeof i.url === "string") install.url = i.url;
+    if (i.download !== undefined) {
+      const parsed = parseDownload(i.download);
+      if (typeof parsed === "string") installError = `${packLabel(packName)}tool "${result.name}" install.download ${parsed}, so it has no one-click install`;
+      else install.download = parsed;
+    }
     result.install = install;
   }
 
@@ -128,7 +148,37 @@ function parseToolRequirement(t: unknown, index: number, packName: string): { to
     }
   }
 
-  return { tool: result, error: connectError };
+  const errors = [installError, connectError].filter((e): e is string => e !== undefined);
+  return { tool: result, error: errors.length > 0 ? errors.join("; ") : undefined };
+}
+
+const SHA256 = /^[0-9a-f]{64}$/;
+
+/** The pins, or a phrase saying what is wrong with them. */
+function parseDownload(d: unknown): Partial<Record<HostArch, ToolDownloadPin>> | string {
+  if (typeof d !== "object" || d === null || Array.isArray(d)) return "must be an object keyed by arm64 and x86_64";
+  const pins: Partial<Record<HostArch, ToolDownloadPin>> = {};
+  for (const [arch, pin] of Object.entries(d as Record<string, unknown>)) {
+    if (arch !== "arm64" && arch !== "x86_64") return `has an unknown processor "${arch}" (use arm64 or x86_64)`;
+    if (typeof pin !== "object" || pin === null) return `${arch} must be an object with url and sha256`;
+    const { url, sha256, extract = "" } = pin as Record<string, unknown>;
+    if (typeof url !== "string" || !isHttps(url)) return `${arch}.url must be an https link`;
+    if (typeof sha256 !== "string" || !SHA256.test(sha256)) return `${arch}.sha256 must be 64 lowercase hex characters`;
+    if (typeof extract !== "string" || extract.startsWith("/") || extract.split("/").includes("..")) {
+      return `${arch}.extract must be a path inside the archive`;
+    }
+    pins[arch] = { url, sha256, extract };
+  }
+  return pins;
+}
+
+function isHttps(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && parsed.hostname !== "";
+  } catch {
+    return false;
+  }
 }
 
 /** stripJsonc + shape validation. Unknown integration ids and malformed tool entries are dropped, not fatal — the pack still yields whatever parsed, plus `error` naming what was dropped. Totally unparsable JSON or a non-object root yields empty tools/integrations with `error` set. */

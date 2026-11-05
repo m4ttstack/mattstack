@@ -29,12 +29,17 @@ jobs:
         with:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
-      - name: Build the tree rows
+      # The x86_64 pass smoke-tests each Intel artifact under Rosetta.
+      - name: Install Rosetta
+        run: sudo softwareupdate --install-rosetta --agree-to-license
+      - name: Build the tree rows (arm64)
         run: bun scripts/build-apps.ts --arch arm64
+      - name: Build the tree rows (x86_64)
+        run: bun scripts/build-apps.ts --arch x86_64
       # upload-artifact strips executable bits and dereferences symlinks;
       # tar keeps the binaries runnable.
       - name: Pack the handoff
-        run: tar czf apps-handoff.tgz -C rt-tray/deps/arm64 .
+        run: tar czf apps-handoff.tgz -C rt-tray/deps arm64 x86_64
       - uses: actions/upload-artifact@v4
         with:
           name: apps-handoff
@@ -139,22 +144,28 @@ jobs:
       # ── Inputs to the bundle ─────────────────────────────────────────────────
       # RT_VERSION here keeps the tag's "v" prefix — cli.ts's own contract
       # (see its RT_VERSION comment) expects that form for `rt --version`.
-      - name: Compile rt (arm64)
+      - name: Compile rt (universal)
         shell: bash
         run: |
           ENGINE="$(jq -r .version plugins/mattstack/.claude-plugin/plugin.json)"
-          bun build --compile --target=bun-darwin-arm64 --no-compile-autoload-bunfig --no-compile-autoload-dotenv ./cli.ts --outfile dist/rt --define RT_VERSION='"${{ steps.meta.outputs.tag }}"' --define MATTSTACK_ENGINE="\"$ENGINE\""
+          for target in arm64 x64; do
+            bun build --compile --target=bun-darwin-$target --no-compile-autoload-bunfig --no-compile-autoload-dotenv ./cli.ts --outfile dist/rt-$target --define RT_VERSION='"${{ steps.meta.outputs.tag }}"' --define MATTSTACK_ENGINE="\"$ENGINE\""
+          done
+          lipo -create dist/rt-arm64 dist/rt-x64 -output dist/rt
 
       - uses: actions/setup-go@v5
         with:
           go-version-file: ui/go.mod
           cache-dependency-path: ui/go.sum
-      - name: Build rt-ui (arm64)
-        run: bun run ui:build
+      - name: Build rt-ui (universal)
+        shell: bash
         env:
           RT_VERSION: ${{ steps.meta.outputs.tag }}
           GOOS: darwin
-          GOARCH: arm64
+        run: |
+          GOARCH=arm64 bun run ui:build && mv ui/dist/rt-ui ui/dist/rt-ui-arm64
+          GOARCH=amd64 bun run ui:build && mv ui/dist/rt-ui ui/dist/rt-ui-amd64
+          lipo -create ui/dist/rt-ui-arm64 ui/dist/rt-ui-amd64 -output ui/dist/rt-ui
 
       # ADVISORY, not blocking: the 86ms threshold has never been calibrated
       # against macos-15 (this runner) — continue-on-error keeps a bad
@@ -179,7 +190,9 @@ jobs:
           restore-keys: mattstack-deps-${{ runner.os }}-
 
       - name: Fetch bundled dependencies
-        run: scripts/fetch-deps.sh arm64
+        run: |
+          scripts/fetch-deps.sh arm64
+          scripts/fetch-deps.sh x86_64
 
       - name: Land the tree rows
         uses: actions/download-artifact@v4
@@ -187,9 +200,12 @@ jobs:
           name: apps-handoff
           path: handoff
       - run: |
-          mkdir -p rt-tray/deps/arm64
-          tar xzf handoff/apps-handoff.tgz -C rt-tray/deps/arm64
-          ls rt-tray/deps/arm64
+          mkdir -p rt-tray/deps
+          tar xzf handoff/apps-handoff.tgz -C rt-tray/deps
+          ls rt-tray/deps/arm64 rt-tray/deps/x86_64
+
+      - name: Merge the two slices into universal binaries
+        run: bun scripts/merge-universal.ts
 
       # Saved straight after the fetch, so a run that fails later (notarize,
       # clean room) still keeps its downloads. Files deps.lock no longer pins
@@ -197,7 +213,7 @@ jobs:
       - name: Prune dependency downloads
         if: steps.deps-cache.outputs.cache-hit != 'true'
         run: |
-          keep="$(jq -r '.tools[].sha256' rt-tray/deps.lock)"
+          keep="$(jq -r '.tools[] | .sha256, (.x86_64.sha256 // empty)' rt-tray/deps.lock)"
           for f in "$HOME"/Library/Caches/mattstack-deps/*; do
             [ -e "$f" ] || continue
             grep -qxF "$(basename "$f" | cut -d- -f1)" <<<"$keep" || rm -f "$f"
@@ -264,13 +280,17 @@ jobs:
       - name: Build mattstack.app
         env:
           RT_DAEMON_BIN: ${{ github.workspace }}/dist/rt
+          RT_UI_BIN: ${{ github.workspace }}/ui/dist/rt-ui
           RT_VERSION: ${{ steps.meta.outputs.version }}
           RT_REQUIRE_DEPS: "1"
           RT_BUILD_TOOL: swift
+          RT_DEPS_ARCH: universal
         run: rt-tray/build.sh release
 
       - name: Assert the bundle contract
-        run: rt-tray/check-bundle.sh --app rt-tray/mattstack.app
+        run: |
+          sudo softwareupdate --install-rosetta --agree-to-license
+          rt-tray/check-bundle.sh --app rt-tray/mattstack.app --universal
 
       # Skipped on dispatch: the synthetic dry-run tag is not the stamped
       # version by design (see Release metadata), so there is nothing to assert.

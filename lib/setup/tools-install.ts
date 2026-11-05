@@ -5,7 +5,7 @@
  * Claude integration, fast-browser's runtime, the editor extension).
  *
  * Every exec here is bounded and re-probed: an installer's exit code alone
- * is never trusted as proof the tool now works (brew/vendor can exit 0 on a
+ * is never trusted as proof the tool now works (an installer can exit 0 on a
  * broken shim), and apple-clt's `xcode-select --install` triggers an
  * asynchronous OS dialog that can never be waited on — this never reports
  * more than "the dialog was triggered."
@@ -17,7 +17,7 @@ import { appBundlePath, bundledToolExec, resolveTool } from "../deps/resolve.ts"
 import { detectEditors, type DetectedEditor } from "../editors.ts";
 import { UserActionableError } from "../errors.ts";
 import type { Probes } from "./probes.ts";
-import type { PackRequirements } from "./requirements.ts";
+import type { HostArch, PackRequirements, ToolDownloadPin } from "./requirements.ts";
 import { updateSetupState } from "./state.ts";
 
 /**
@@ -42,21 +42,9 @@ export const VENDOR_INSTALLERS: Record<string, { url: string; shell: "sh" | "bas
 /** The only hosts a hardcoded VENDOR_INSTALLERS entry may point at — closes the door on a future entry (or a typo) silently widening what rt will fetch-and-run. */
 const VENDOR_ALLOWED_HOSTS = new Set(["herdr.dev", "claude.ai", "bun.sh"]);
 
-/**
- * A team-declared `install.brew` runs as `brew install <formula>` — tap
- * syntax (`owner/tap/formula`) taps an arbitrary GitHub repo and evaluates
- * its Ruby, the same escalation R-T21-b closed for `install.url`. Only a
- * bare homebrew-core formula name is eligible for the one-click Install
- * button; anything else falls through to a shown-not-run remedy.
- */
-const BARE_FORMULA_RE = /^[a-z0-9][a-z0-9@+._-]*$/;
-export function isValidBrewFormula(formula: string): boolean {
-  return BARE_FORMULA_RE.test(formula);
-}
-
 /** A team-declared `--version`/probe must never hang `rt tools install` forever. */
 const PROBE_TIMEOUT_MS = 5000;
-/** brew/vendor installs (and the vendor download step) are slow and network-bound; bounded, never run in tests. */
+/** Downloads and vendor installs are slow and network-bound; bounded, never run in tests. */
 const INSTALL_TIMEOUT_MS = 5 * 60_000;
 const EXTENSION_INSTALL_TIMEOUT_MS = 30_000;
 
@@ -68,6 +56,13 @@ export interface ToolsInstallSeams {
   link: typeof link;
   detectEditors: typeof detectEditors;
   findVsixes: (p: Pick<Probes, "exists" | "home">) => string[];
+  /** The processor whose pinned download installTool takes; the running binary's by default. */
+  hostArch?: () => HostArch;
+}
+
+/** process.arch names the slice of the universal rt binary that is running. */
+export function hostArch(): HostArch {
+  return process.arch === "x64" ? "x86_64" : "arm64";
 }
 
 /** The editor extensions the app bundle carries, in install order. */
@@ -89,7 +84,7 @@ const REAL_SEAMS: ToolsInstallSeams = { resolveTool, bundledToolExec, link, dete
 
 // ─── installTool ───────────────────────────────────────────────────────────
 
-export type InstallVia = "brew" | "vendor" | "apple-clt" | "bundled-link";
+export type InstallVia = "download" | "vendor" | "apple-clt" | "bundled-link";
 export interface InstallResult {
   via: InstallVia;
   ok: boolean;
@@ -180,12 +175,16 @@ function linkOutcomeDetail(outcome: LinkOutcome): string {
 }
 
 /** The branch `installTool` would take for `tool`, without installing; null where it would refuse (a team's download URL, a tap formula, or no method at all). */
-export async function installRoute(p: Probes, tool: string, reqs: PackRequirements[], hasBrew: boolean, seams: ToolsInstallSeams = REAL_SEAMS): Promise<"bundled" | "brew" | "vendor" | null> {
+export async function installRoute(p: Probes, tool: string, reqs: PackRequirements[], seams: ToolsInstallSeams = REAL_SEAMS): Promise<"bundled" | "download" | "vendor" | null> {
   if (seams.bundledToolExec(p, tool)) return "bundled";
   if (VENDOR_INSTALLERS[tool]) return "vendor";
-  const teamBrew = reqs.flatMap((r) => r.tools).find((t) => t.name === tool)?.install?.brew;
-  if (hasBrew && teamBrew !== undefined && isValidBrewFormula(teamBrew)) return "brew";
+  if (teamPin(reqs, tool, (seams.hostArch ?? hostArch)())) return "download";
   return null;
+}
+
+/** The team's pinned download for this processor, if the pack declares one. */
+export function teamPin(reqs: PackRequirements[], tool: string, arch: HostArch): ToolDownloadPin | undefined {
+  return reqs.flatMap((r) => r.tools).find((t) => t.name === tool)?.install?.download?.[arch];
 }
 
 export async function installTool(p: Probes, tool: string, reqs: PackRequirements[], seams: ToolsInstallSeams = REAL_SEAMS): Promise<InstallResult> {
@@ -198,16 +197,13 @@ export async function installTool(p: Probes, tool: string, reqs: PackRequirement
   }
 
   const teamTool = reqs.flatMap((r) => r.tools).find((t) => t.name === tool);
-  const teamBrew = teamTool?.install?.brew;
-  const teamBrewValid = teamBrew !== undefined && isValidBrewFormula(teamBrew);
 
   const vendor = VENDOR_INSTALLERS[tool];
   if (vendor) return runVendorInstaller(p, tool, vendor.url, { shell: vendor.shell, verify: [join(p.home, ".local", "bin", tool), "--version"] });
 
-  const brewCheck = await p.exec(["brew", "--version"], { timeoutMs: PROBE_TIMEOUT_MS });
-  if (brewCheck.code === 0 && teamBrewValid) {
-    return runInstallerAndVerify(p, tool, "brew", ["brew", "install", teamBrew], `brew install ${teamBrew}`, `installed via brew (${teamBrew})`);
-  }
+  const arch = (seams.hostArch ?? hostArch)();
+  const pin = teamPin(reqs, tool, arch);
+  if (pin) return installPinnedDownload(p, tool, pin);
 
   // R-T21-b: a team pack's install.url is free-form text authored by
   // whoever wrote that team's requirements.jsonc — the same trust boundary
@@ -221,21 +217,69 @@ export async function installTool(p: Probes, tool: string, reqs: PackRequirement
     );
   }
 
-  // A team-declared install.brew rt won't auto-run (tap syntax, a path, or
-  // anything else outside a bare formula name) is shown the same way, never
-  // silently dropped and never auto-executed — same trust boundary as above.
-  if (teamBrew !== undefined && !teamBrewValid) {
-    throw new UserActionableError(
-      "manual-install-required",
-      `${tool}'s team pack names the brew formula ${teamBrew}, and rt only runs a plain formula name for you. Install it yourself: brew install ${teamBrew}`,
-    );
+  if (teamTool?.install?.download) {
+    throw new UserActionableError("no-installer", `${tool}'s team pack pins no download for this Mac's processor (${arch})`);
   }
-
   throw new UserActionableError("no-installer", `no install method known for ${tool}`);
 }
 
+const ARCHIVE_KINDS: [suffix: string, kind: "tar" | "zip"][] = [[".tar.gz", "tar"], [".tgz", "tar"], [".tar.xz", "tar"], [".tar", "tar"], [".zip", "zip"]];
+
+function archiveKind(url: string): "tar" | "zip" | "raw" {
+  const path = new URL(url).pathname.toLowerCase();
+  return ARCHIVE_KINDS.find(([suffix]) => path.endsWith(suffix))?.[1] ?? "raw";
+}
+
+/**
+ * The pin's url and sha256 come from the team's pack, so nothing here runs
+ * before the sha256 check passes, and the install path is rt's own: the
+ * pack's tool name, already checked as a bare command by the reader.
+ */
+async function installPinnedDownload(p: Probes, tool: string, pin: ToolDownloadPin): Promise<InstallResult> {
+  const fail = (detail: string): InstallResult => ({ via: "download", ok: false, detail });
+  const work = join(p.env.TMPDIR ?? "/tmp", "rt-team-install", tool);
+  await p.exec(["rm", "-rf", work], { timeoutMs: PROBE_TIMEOUT_MS });
+  p.mkdirp(work);
+  const file = join(work, "download");
+
+  const fetched = await p.exec(["curl", "-fsSL", pin.url, "-o", file], { timeoutMs: INSTALL_TIMEOUT_MS });
+  if (fetched.code === 124) return fail(`Downloading ${tool} did not finish in time`);
+  if (fetched.code !== 0) return fail(`Downloading ${tool} failed (exit ${fetched.code}): ${firstLine(fetched.stderr || fetched.stdout)}`);
+
+  const sum = await p.exec(["shasum", "-a", "256", file], { timeoutMs: PROBE_TIMEOUT_MS });
+  const got = sum.stdout.trim().split(/\s+/)[0] ?? "";
+  if (sum.code !== 0 || got !== pin.sha256) return fail(`The ${tool} download did not match the team's pinned sha256, so nothing was installed`);
+
+  let source = file;
+  const kind = archiveKind(pin.url);
+  if (kind !== "raw") {
+    const unpacked = join(work, "unpacked");
+    p.mkdirp(unpacked);
+    const argv = kind === "zip" ? ["ditto", "-x", "-k", file, unpacked] : ["tar", "-xf", file, "-C", unpacked];
+    const res = await p.exec(argv, { timeoutMs: INSTALL_TIMEOUT_MS });
+    if (res.code !== 0) return fail(`Unpacking the ${tool} download failed: ${firstLine(res.stderr || res.stdout)}`);
+    source = pin.extract ? join(unpacked, pin.extract) : unpacked;
+  }
+
+  const dest = join(p.home, ".local", "bin", tool);
+  p.mkdirp(dirname(dest));
+  const placed = await p.exec(["install", "-m", "0755", source, dest], { timeoutMs: PROBE_TIMEOUT_MS });
+  if (placed.code !== 0) return fail(`Installing ${tool} into ~/.local/bin failed: ${firstLine(placed.stderr || placed.stdout)}`);
+
+  const verify = await p.exec([dest, "--version"], { timeoutMs: PROBE_TIMEOUT_MS });
+  if (verify.code !== 0) return fail(`${tool} was installed, but it still does not run (exit ${verify.code})`);
+  return { via: "download", ok: true, detail: "installed from the team's pinned download" };
+}
+
 export const BUN_INSTALLER_URL = "https://bun.sh/install";
-const DEV_TOOL_DOWNLOAD: Record<"go" | "node", string> = { go: "https://go.dev/dl/", node: "https://nodejs.org/en/download" };
+export const GO_DOWNLOAD_PAGE = "https://go.dev/dl/";
+const GO_RELEASES_URL = "https://go.dev/dl/?mode=json&include=all";
+
+interface GoRelease {
+  version: string;
+  stable: boolean;
+  files: { filename: string; os: string; arch: string; kind: string; sha256: string }[];
+}
 
 /**
  * The dev toolchain `rt dev setup` needs, installed for real rather than
@@ -243,36 +287,78 @@ const DEV_TOOL_DOWNLOAD: Record<"go" | "node", string> = { go: "https://go.dev/d
  * that shipped a binary is retired or updated. The version and arguments are
  * rt's own, never caller text.
  */
-export async function installDevTool(p: Probes, tool: "bun" | "go" | "node", version: string): Promise<InstallResult> {
+export async function installDevTool(p: Probes, tool: "bun" | "go", version: string, seams: Pick<ToolsInstallSeams, "hostArch"> = {}): Promise<InstallResult> {
   if (tool === "bun") {
     return runVendorInstaller(p, "bun", BUN_INSTALLER_URL, { shell: "bash", args: [`bun-v${version}`], verify: [join(p.home, ".bun", "bin", "bun"), "--version"] });
   }
-  const brew = await p.exec(["brew", "--version"], { timeoutMs: PROBE_TIMEOUT_MS });
-  if (brew.code !== 0) {
-    throw new UserActionableError(
-      "dev-tool-no-brew",
-      `${tool} needs installing, and this Mac has no Homebrew`,
-      {},
-      {
-        why: "Install it from its download page, then run this again.",
-        next: `open ${DEV_TOOL_DOWNLOAD[tool]}`,
-      },
-    );
+  return installGo(p, version, (seams.hostArch ?? hostArch)());
+}
+
+function noGoRelease(why: string): UserActionableError {
+  return new UserActionableError("dev-tool-no-release", "rt could not find the Go release to install", {}, { why, next: `open ${GO_DOWNLOAD_PAGE}` });
+}
+
+/** A "1.26" pin takes the newest stable 1.26.x; a "1.26.5" pin takes exactly that release. */
+function pickGoArchive(releases: GoRelease[], pin: string, arch: HostArch): { version: string; filename: string; sha256: string } | null {
+  const goArch = arch === "x86_64" ? "amd64" : "arm64";
+  const matches = releases.filter((r) => r.stable && (r.version === `go${pin}` || r.version.startsWith(`go${pin}.`)));
+  matches.sort((a, b) => b.version.slice(2).localeCompare(a.version.slice(2), undefined, { numeric: true }));
+  for (const release of matches) {
+    const file = release.files.find((f) => f.os === "darwin" && f.arch === goArch && f.kind === "archive");
+    if (file) return { version: release.version, filename: file.filename, sha256: file.sha256 };
   }
-  const prefix = (await p.exec(["brew", "--prefix"], { timeoutMs: PROBE_TIMEOUT_MS })).stdout.trim() || "/opt/homebrew";
-  const verify = [join(prefix, "bin", tool), tool === "go" ? "version" : "--version"];
-  return runInstallerAndVerify(p, tool, "brew", ["brew", "install", tool], `brew install ${tool}`, `installed via brew (${tool})`, verify);
+  return null;
+}
+
+async function installGo(p: Probes, pin: string, arch: HostArch): Promise<InstallResult> {
+  const fail = (detail: string): InstallResult => ({ via: "download", ok: false, detail });
+  const res = await p.fetch(GO_RELEASES_URL, { timeoutMs: 30_000 }).catch(() => null);
+  if (!res || res.status !== 200) throw noGoRelease("go.dev did not answer. Check your internet connection.");
+  let releases: GoRelease[];
+  try {
+    releases = JSON.parse(res.body) as GoRelease[];
+  } catch {
+    throw noGoRelease("go.dev's release list could not be read.");
+  }
+  const archive = pickGoArchive(releases, pin, arch);
+  if (!archive) throw noGoRelease(`go.dev lists no stable Go ${pin} for this Mac's processor (${arch}).`);
+
+  const work = join(p.env.TMPDIR ?? "/tmp", "rt-dev-install");
+  p.mkdirp(work);
+  const file = join(work, archive.filename);
+  const fetched = await p.exec(["curl", "-fsSL", `${GO_DOWNLOAD_PAGE}${archive.filename}`, "-o", file], { timeoutMs: INSTALL_TIMEOUT_MS });
+  if (fetched.code !== 0) return fail(`Downloading ${archive.version} failed (exit ${fetched.code}): ${firstLine(fetched.stderr || fetched.stdout)}`);
+  const sum = await p.exec(["shasum", "-a", "256", file], { timeoutMs: PROBE_TIMEOUT_MS });
+  if (sum.code !== 0 || sum.stdout.trim().split(/\s+/)[0] !== archive.sha256) {
+    return fail(`The ${archive.version} download did not match go.dev's sha256, so nothing was installed`);
+  }
+
+  const toolchain = join(p.home, ".mattstack", "toolchains", archive.version);
+  await p.exec(["rm", "-rf", toolchain], { timeoutMs: PROBE_TIMEOUT_MS });
+  p.mkdirp(toolchain);
+  const unpacked = await p.exec(["tar", "-xzf", file, "-C", toolchain], { timeoutMs: INSTALL_TIMEOUT_MS });
+  if (unpacked.code !== 0) return fail(`Unpacking ${archive.version} failed: ${firstLine(unpacked.stderr || unpacked.stdout)}`);
+
+  const bin = join(p.home, ".local", "bin");
+  p.mkdirp(bin);
+  for (const name of ["go", "gofmt"]) {
+    const linked = await p.exec(["ln", "-sfn", join(toolchain, "go", "bin", name), join(bin, name)], { timeoutMs: PROBE_TIMEOUT_MS });
+    if (linked.code !== 0) return fail(`Linking ${name} into ~/.local/bin failed: ${firstLine(linked.stderr || linked.stdout)}`);
+  }
+  const verify = await p.exec([join(bin, "go"), "version"], { timeoutMs: PROBE_TIMEOUT_MS });
+  if (verify.code !== 0) return fail(`${archive.version} was installed, but go still does not run (exit ${verify.code})`);
+  return { via: "download", ok: true, detail: `installed ${archive.version} from go.dev` };
 }
 
 /**
  * Runs the installer argv, then re-probes `<tool> --version` before
  * reporting success — an installer's own exit code is never sufficient
- * proof by itself (brew/vendor can exit 0 over a broken shim).
+ * proof by itself (an installer can exit 0 over a broken shim).
  */
 async function runInstallerAndVerify(
   p: Probes,
   tool: string,
-  via: "brew" | "vendor",
+  via: "vendor",
   argv: string[],
   label: string,
   successDetail: string,

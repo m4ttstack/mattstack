@@ -21,7 +21,7 @@ describe("signInTools", () => {
   });
 
   test("a tool with no connect is not a sign-in tool", () => {
-    expect(signInTools([pack([{ name: "jq", why: "json", install: { brew: "jq" } }])])).toEqual([]);
+    expect(signInTools([pack([{ name: "jq", why: "json", install: { url: "https://jqlang.org/download/" } }])])).toEqual([]);
   });
 
   test("a pack tool connecting StrongDM is not a sign-in tool", () => {

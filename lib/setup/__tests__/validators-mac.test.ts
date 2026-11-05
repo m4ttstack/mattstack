@@ -100,8 +100,15 @@ describe("macRows: tool.arch", () => {
     expect(r.required).toBe(true);
   });
 
-  test("x86_64 -> invalid, unsupported architecture", async () => {
+  test("x86_64 -> ready: the app is universal", async () => {
     const execScript: ExecScript = (argv) => (argv[0] === "uname" ? ok("x86_64\n") : ok());
+    const r = await pickRow(macRows(fakeProbes({ exec: execScript })), "tool.arch");
+    expect(r.status).toBe("ready");
+    expect(r.detail).toContain("Intel");
+  });
+
+  test("any other processor -> invalid", async () => {
+    const execScript: ExecScript = (argv) => (argv[0] === "uname" ? ok("ppc\n") : ok());
     const r = await pickRow(macRows(fakeProbes({ exec: execScript })), "tool.arch");
     expect(r.status).toBe("invalid");
   });

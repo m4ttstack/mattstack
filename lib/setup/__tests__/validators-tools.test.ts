@@ -115,19 +115,19 @@ describe("extractVersion", () => {
 describe("toolRows — tool.herdr", () => {
   test("127 with brew available -> missing, install action via herdr's own script", async () => {
     const exec: ExecScript = (argv) => (argv[0] === "herdr" && argv[1] === "--version" ? missing("herdr") : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
     expect(r.status).toBe("missing");
     expect(r.action).toEqual({ type: "install", label: "Install", tool: "herdr", via: "vendor" });
   });
 
   test("127 with no brew -> install action via vendor", async () => {
     const exec: ExecScript = (argv) => (argv[0] === "herdr" && argv[1] === "--version" ? missing("herdr") : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: false, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
     expect(r.action).toEqual({ type: "install", label: "Install", tool: "herdr", via: "vendor" });
   });
 
   test("--version times out -> error, never missing/needs-you", async () => {
-    const r = await pickRow(toolRows(fakeProbes({ exec: TIMEOUT }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
+    const r = await pickRow(toolRows(fakeProbes({ exec: TIMEOUT }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
     expect(r.status).toBe("error");
     expect(r.detail).toContain("did not answer in time");
   });
@@ -142,7 +142,7 @@ describe("toolRows — tool.herdr", () => {
       return argv[0] === "herdr" ? ok("0.1.0\n") : ok();
     };
     const seams = { ...NOOP_SEAMS, resolveTool: (_p: unknown, tool: string) => ({ tool, bundled: null, exec: tool === "herdr" ? [brewed] : null, userCopy: tool === "herdr" ? brewed : null, linked: false, chosen: tool === "herdr" ? brewed : null }) };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, seams), "tool.herdr");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, seams), "tool.herdr");
     expect(r.status).toBe("ready");
     expect(seen).toContainEqual([brewed, "--version"]);
     expect(seen).toContainEqual([brewed, "integration", "status"]);
@@ -161,7 +161,7 @@ describe("toolRows — tool.herdr", () => {
     };
     const p = fakeProbes({ home, env: { PATH: "/usr/bin:/bin" }, exec, files: { [`${home}/.local/bin/herdr`]: "#!/bin/sh\n# mattstack-link: herdr\nexec x\n", [brewed]: "bin" } });
     const seams = { ...NOOP_SEAMS, resolveTool };
-    expect((await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, seams), "tool.herdr")).status).toBe("ready");
+    expect((await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, seams), "tool.herdr")).status).toBe("ready");
     expect(seen).toContainEqual([brewed, "--version"]);
     expect(seen.some((argv) => argv[0] === "herdr")).toBe(false);
   });
@@ -174,7 +174,7 @@ describe("toolRows — tool.herdr", () => {
       }
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
     expect(r.status).toBe("ready");
     expect(r.detail).toBe("herdr 0.8.0, Claude integration installed");
     expect(r.required).toBe(true);
@@ -188,7 +188,7 @@ describe("toolRows — tool.herdr", () => {
       }
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("herdr 0.9.0, Claude integration not installed");
     expect(r.action).toEqual({ type: "run", label: "Install integration", verb: ["tools", "setup", "herdr"] });
@@ -203,7 +203,7 @@ describe("toolRows — tool.herdr", () => {
       if (argv[0] === "herdr" && argv[1] === "integration") return ok("codex: current (v7) (/x)\n");
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
     expect(r.status).toBe("error");
   });
 
@@ -213,7 +213,7 @@ describe("toolRows — tool.herdr", () => {
       if (argv[0] === "herdr" && argv[1] === "integration") return { code: 124, stdout: "", stderr: "" };
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
     expect(r.status).toBe("error");
   });
 
@@ -223,13 +223,13 @@ describe("toolRows — tool.herdr", () => {
       if (argv[0] === "herdr" && argv[1] === "integration") return { code: 1, stdout: "", stderr: "boom" };
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
     expect(r.status).toBe("error");
   });
 
   test("below floor -> invalid, with an upgrade action (R-T7-b, no dead end)", async () => {
     const exec: ExecScript = (argv) => (argv[0] === "herdr" && argv[1] === "--version" ? ok("0.7.4\n") : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
     expect(r.status).toBe("invalid");
     expect(r.detail).toBe("herdr 0.7.4 is older than 0.7.5");
     expect(r.action).toEqual({ type: "install", label: "Upgrade", tool: "herdr", via: "vendor" });
@@ -239,14 +239,14 @@ describe("toolRows — tool.herdr", () => {
 describe("toolRows — tool.claude", () => {
   test("127 -> missing, install action", async () => {
     const exec: ExecScript = (argv) => (argv[0] === "claude" && argv[1] === "--version" ? missing("claude") : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("missing");
     expect(r.action).toEqual({ type: "install", label: "Install", tool: "claude", via: "vendor" });
     expect(r.recheck).toBe("on-activate");
   });
 
   test("--version times out -> error", async () => {
-    const r = await pickRow(toolRows(fakeProbes({ exec: TIMEOUT }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec: TIMEOUT }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("error");
   });
 
@@ -256,7 +256,7 @@ describe("toolRows — tool.claude", () => {
       if (argv[0] === "claude" && argv[1] === "auth" && argv[2] === "status") return ok(JSON.stringify({ loggedIn: true, authMethod: "claude.ai" }));
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("ready");
     expect(r.detail).toBe("Claude Code 1.2.3, signed in");
   });
@@ -267,7 +267,7 @@ describe("toolRows — tool.claude", () => {
       if (argv[0] === "claude" && argv[1] === "auth") return ok(JSON.stringify({ loggedIn: false }));
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("needs-you");
     // The binary gates Install; the sign-in never does.
     expect(r.required).toBe(false);
@@ -279,7 +279,7 @@ describe("toolRows — tool.claude", () => {
       if (argv[0] === "claude" && argv[1] === "auth") return ok(JSON.stringify({ loggedIn: false }));
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.detail).toBe("Not signed in yet");
     expect(r.action).toEqual({ type: "run", label: "Sign in to Claude", verb: ["setup", "claude", "connect"] });
     expect(r.optionalNote).toBeNull();
@@ -293,7 +293,7 @@ describe("toolRows — tool.claude", () => {
         if (argv[0] === "claude" && argv[1] === "auth") return answer;
         return ok();
       };
-      const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+      const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
       const steps = r.action?.type === "steps" ? r.action.steps : [];
       for (const text of [r.detail, ...steps]) {
         expect(text).not.toContain("terminal");
@@ -308,7 +308,7 @@ describe("toolRows — tool.claude", () => {
       if (argv[0] === "claude" && argv[1] === "auth") return { code: 1, stdout: "", stderr: "unknown command \"auth\"" };
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toContain("sign-in could not be checked");
     expect(r.action).not.toBeNull();
@@ -320,7 +320,7 @@ describe("toolRows — tool.claude", () => {
       if (argv[0] === "claude" && argv[1] === "auth") return { code: 1, stdout: "Unknown subcommand: auth", stderr: "" };
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toContain("sign-in could not be checked");
   });
@@ -331,7 +331,7 @@ describe("toolRows — tool.claude", () => {
       if (argv[0] === "claude" && argv[1] === "auth") return { code: 1, stdout: "", stderr: "not logged in" };
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("Not signed in yet");
   });
@@ -342,7 +342,7 @@ describe("toolRows — tool.claude", () => {
       if (argv[0] === "claude" && argv[1] === "auth") return { code: 124, stdout: "", stderr: "" };
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("error");
   });
 
@@ -352,14 +352,14 @@ describe("toolRows — tool.claude", () => {
       if (argv[0] === "claude" && argv[1] === "auth") return ok("garbled non-json output");
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("error");
   });
 });
 
 describe("toolRows — tool.fast-browser", () => {
   test("not resolvable -> missing with the link-bundled action, and this is the one state that gates", async () => {
-    const r = await pickRow(toolRows(fakeProbes(), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.fast-browser");
+    const r = await pickRow(toolRows(fakeProbes(), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.fast-browser");
     expect(r.status).toBe("missing");
     expect(r.required).toBe(true);
     expect(r.action).toEqual({ type: "link-bundled", label: "Use mattstack's", tool: "fast-browser" });
@@ -376,7 +376,7 @@ describe("toolRows — tool.fast-browser", () => {
 
   test("real fully healthy envelope -> ready, and doctor ran through the resolved exec (C2)", async () => {
     const p = fakeProbes({ exec: doctorExec(REAL_DOCTOR) });
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
     expect(p.calls.exec).toContainEqual(["node", "fast-browser.mjs", "doctor", "--checks", "runtime-checksum,extension-installed,extension-loaded,pairing,data-permissions", "--json"]);
     expect(r.status).toBe("ready");
   });
@@ -388,7 +388,7 @@ describe("toolRows — tool.fast-browser", () => {
       return ok(JSON.stringify(REAL_DOCTOR));
     };
     const p = fakeProbes({ exec });
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
     expect(p.calls.exec).toContainEqual(["node", "fast-browser.mjs", "doctor", "--json"]);
     expect(r.status).toBe("ready");
   });
@@ -399,7 +399,7 @@ describe("toolRows — tool.fast-browser", () => {
   test("runtime-checksum check fails does not gate, even with Chrome installed", async () => {
     const p = fakeProbes({ exec: doctorExec(withCheckStatus(REAL_DOCTOR, "runtime-checksum", "fail")) });
     p.mkdirp("/Applications/Google Chrome.app");
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
     expect(r.status).toBe("needs-you");
     expect(r.required).toBe(false);
     expect(r.optionalNote).toBe("Installed by Install (fastbrowser.setup).");
@@ -411,7 +411,7 @@ describe("toolRows — tool.fast-browser", () => {
   // is the check that reads that file.
   test("runtime installed but setup never finished (no config.json) -> needs-you with Run setup, not ready", async () => {
     const p = fakeProbes({ exec: doctorExec(SETUP_INCOMPLETE_DOCTOR, 1) });
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("The runtime is ready, but setup needs to run again");
     expect(r.required).toBe(false);
@@ -427,7 +427,7 @@ describe("toolRows — tool.fast-browser", () => {
       `${p.home}/.local/bin/fast-browser`,
       '#!/bin/sh\n# Managed by fast-browser setup; rewritten on every setup run. Do not edit.\nexec /usr/bin/env node "/worktrees/gone/bin/fast-browser.mjs" "$@"\n',
     );
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("The fast-browser command points at a copy that no longer exists");
     expect(r.required).toBe(false);
@@ -437,13 +437,13 @@ describe("toolRows — tool.fast-browser", () => {
   test("launcher that still runs -> ready, whoever wrote it", async () => {
     const p = fakeProbes({ exec: doctorExec(REAL_DOCTOR) });
     p.writeFile(`${p.home}/.local/bin/fast-browser`, "#!/bin/sh\necho someone else\n");
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
     expect(r.status).toBe("ready");
   });
 
   test("data-permissions check absent from the report -> error, not a guessed ready", async () => {
     const p = fakeProbes({ exec: doctorExec(withoutCheck(REAL_DOCTOR, "data-permissions")) });
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
     expect(r.status).toBe("error");
     expect(r.detail).toContain("no permissions check");
     expect(r.required).toBe(false);
@@ -451,7 +451,7 @@ describe("toolRows — tool.fast-browser", () => {
 
   test("solo: a pending (needs-you) branch carries the solo note too, not just the not-resolvable branch", async () => {
     const p = fakeProbes({ exec: doctorExec(withCheckStatus(REAL_DOCTOR, "runtime-checksum", "fail")) });
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS, solo: true }, fastBrowserSeams()), "tool.fast-browser");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS, solo: true }, fastBrowserSeams()), "tool.fast-browser");
     expect(r.status).toBe("needs-you");
     expect(r.required).toBe(false);
     expect(r.optionalNote).toBe("Works without this; only the browser skills need it.");
@@ -462,7 +462,7 @@ describe("toolRows — tool.fast-browser", () => {
   // so it must never read as the same "not ready" a real fail reads as.
   test("runtime-checksum check absent from the report -> error, not a guessed needs-you", async () => {
     const p = fakeProbes({ exec: doctorExec(withoutCheck(REAL_DOCTOR, "runtime-checksum")) });
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
     expect(r.status).toBe("error");
     expect(r.detail).toContain("no runtime check");
     expect(r.required).toBe(false);
@@ -470,20 +470,20 @@ describe("toolRows — tool.fast-browser", () => {
 
   test("doctor exits non-zero but prints a parseable healthy report -> ready, not error (M8)", async () => {
     const p = fakeProbes({ exec: doctorExec(REAL_DOCTOR, 1) });
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
     expect(r.status).toBe("ready");
   });
 
   test("doctor parse failure -> error with the stderr head, and still does not gate", async () => {
     const exec: ExecScript = (argv) => (argv[2] === "doctor" ? { code: 1, stdout: "", stderr: "boom\nmore detail" } : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
     expect(r.status).toBe("error");
     expect(r.detail).toContain("boom");
     expect(r.required).toBe(false);
   });
 
   test("doctor times out -> error, and still does not gate", async () => {
-    const r = await pickRow(toolRows(fakeProbes({ exec: TIMEOUT }), [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
+    const r = await pickRow(toolRows(fakeProbes({ exec: TIMEOUT }), [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
     expect(r.status).toBe("error");
     expect(r.detail).toContain("timed out");
     expect(r.required).toBe(false);
@@ -492,7 +492,7 @@ describe("toolRows — tool.fast-browser", () => {
   test("one doctor run feeds both rows", async () => {
     const p = fakeProbes({ exec: doctorExec(REAL_DOCTOR) });
     p.mkdirp("/Applications/Google Chrome.app");
-    const rows = await toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams());
+    const rows = await toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams());
     expect(rows.map((r) => r.id)).toContain("tool.fast-browser-extension");
     expect(p.calls.exec.filter((argv) => argv[2] === "doctor").length).toBe(1);
   });
@@ -511,13 +511,13 @@ describe("toolRows — tool.fast-browser", () => {
       if (argv[0] === "herdr" && argv[1] === "--version") seenTimeouts.herdr = execOpts?.timeoutMs;
       return ok();
     };
-    await toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams());
+    await toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams());
     expect(seenTimeouts.doctor).toBe(45_000);
     expect(seenTimeouts.herdr).toBe(5000);
   });
 
   test("solo: the binary row is optional and the extension row never gates Finish", async () => {
-    const rows = await toolRows(fakeProbes(), [], { hasBrew: true, secrets: NO_SECRETS, solo: true }, NOOP_SEAMS);
+    const rows = await toolRows(fakeProbes(), [], { arch: "arm64", secrets: NO_SECRETS, solo: true }, NOOP_SEAMS);
     const fb = rows.find((r) => r.id === "tool.fast-browser")!;
     expect(fb.required).toBe(false);
     expect(fb.optionalNote).toBe("Works without this; only the browser skills need it.");
@@ -541,7 +541,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
 
   test("no Chrome -> skipped, nothing to load it into", async () => {
     const p = fakeProbes({ exec: doctorExec(REAL_DOCTOR) });
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("skipped");
     expect(r.required).toBe(false);
   });
@@ -551,7 +551,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
   // The row is no longer waivable, so its copy must never offer a skip.
   test("a profile mattstack cannot read asks for Full Disk Access and never offers a skip", async () => {
     const p = withChrome(doctorExec(withCheckStatus(REAL_DOCTOR, "extension-installed", "warn")));
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("mattstack cannot read Chrome's profile. Turn on Full Disk Access for mattstack, then Re-check");
     expect(r.action).toEqual({ type: "steps", label: "Show steps…", steps: ["Turn on Full Disk Access for mattstack in System Settings, then Re-check"] });
@@ -564,7 +564,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
   // manual, so pairing belongs only to the auto-mode "not paired yet" row.
   test("not loaded offers the same button", async () => {
     const p = withChrome(doctorExec(withCheckStatus(REAL_DOCTOR, "extension-loaded", "fail")));
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
     expect(r.required).toBe(false);
     expect(r.detail).toBe("Not loaded in Chrome");
@@ -574,7 +574,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
   // The extension ships on the Chrome Web Store; doctor's remedy for a missing
   // one still walks a fresh user through Developer mode and Load unpacked.
   test("a missing extension offers Add to Chrome, opening the Web Store", async () => {
-    const r = await pickRow(toolRows(withChrome(doctorExec(SETUP_INCOMPLETE_DOCTOR)), [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
+    const r = await pickRow(toolRows(withChrome(doctorExec(SETUP_INCOMPLETE_DOCTOR)), [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("The pinned Chrome extension is not installed.");
     expect(r.action).toEqual(FAST_BROWSER_ADD_ACTION);
@@ -587,7 +587,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
   test("extension-installed fails while extension-loaded passes -> needs-you with doctor's message and the load steps", async () => {
     const report = withCheck(REAL_DOCTOR, "extension-installed", { status: "fail", message: "The pinned Chrome extension is not installed." });
     const p = withChrome(doctorExec(withCheck(report, "extension-loaded", { message: "No managed Chrome extension load to verify." })));
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("The pinned Chrome extension is not installed.");
     expect(r.action).toEqual(FAST_BROWSER_ADD_ACTION);
@@ -599,7 +599,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
   test("extension-installed fails with a remedy -> the row's steps are doctor's remedy", async () => {
     const remediation = "Chrome updates it once the store has 0.2.12. To check now, open chrome://extensions, turn on Developer mode, and click Update.";
     const report = withCheck(REAL_DOCTOR, "extension-installed", { status: "fail", message: "The Chrome Web Store copy is at 0.2.11; this Fast Browser pins 0.2.12.", remediation });
-    const r = await pickRow(toolRows(withChrome(doctorExec(report)), [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
+    const r = await pickRow(toolRows(withChrome(doctorExec(report)), [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
     expect(r.action).toEqual({ type: "steps", label: "Show steps…", steps: [remediation] });
   });
@@ -608,7 +608,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
   // field fails the whole plan and the checklist never loads.
   test("a non-string remedy or message from doctor falls back instead of reaching the row", async () => {
     const report = withCheck(REAL_DOCTOR, "extension-installed", { status: "fail", message: 42, remediation: { text: "x" } });
-    const r = await pickRow(toolRows(withChrome(doctorExec(report)), [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
+    const r = await pickRow(toolRows(withChrome(doctorExec(report)), [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
     expect(typeof r.detail).toBe("string");
     expect(r.action).toEqual(FAST_BROWSER_ADD_ACTION);
@@ -619,14 +619,14 @@ describe("toolRows - tool.fast-browser-extension", () => {
   test("extension-loaded fails with a remedy -> the row's steps are doctor's remedy", async () => {
     const remediation = "Open chrome://extensions and click the reload arrow on Fast Browser.";
     const report = withCheck(REAL_DOCTOR, "extension-loaded", { status: "fail", remediation });
-    const r = await pickRow(toolRows(withChrome(doctorExec(report)), [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
+    const r = await pickRow(toolRows(withChrome(doctorExec(report)), [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
     expect(r.action).toEqual({ type: "steps", label: "Show steps…", steps: [remediation] });
   });
 
   test("extension-installed check absent from the report -> error naming the remedy", async () => {
     const p = withChrome(doctorExec(withoutCheck(REAL_DOCTOR, "extension-installed")));
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("error");
     expect(r.detail).toContain("no extension check");
     expect(r.action).toEqual({ type: "run", label: "Re-check", verb: ["setup", "status"] });
@@ -638,7 +638,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
   // check's status rather than inventing an additional rule.
   test("loaded but unpaired keeps the pairing steps", async () => {
     const p = withChrome(doctorExec(withCheckStatus(REAL_DOCTOR, "pairing", "fail")));
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toContain("not paired");
     const steps = (r.action as { steps: string[] }).steps;
@@ -651,7 +651,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
 
   test("real fully healthy envelope -> ready (C2: both Fast Browser rows read ready)", async () => {
     const p = withChrome(doctorExec(REAL_DOCTOR));
-    const rows = await toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams());
+    const rows = await toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams());
     expect(rows.find((r) => r.id === "tool.fast-browser")?.status).toBe("ready");
     expect(rows.find((r) => r.id === "tool.fast-browser-extension")?.status).toBe("ready");
   });
@@ -660,7 +660,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
   // has to carry the way out; Skip for now must never be the only affordance.
   test("extension-loaded check absent from the report -> error naming the remedy, not a false ready or a false accusation", async () => {
     const p = withChrome(doctorExec(withoutCheck(REAL_DOCTOR, "extension-loaded")));
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("error");
     expect(r.detail).toContain("extension-loaded");
     expect(r.detail).toContain("update Fast Browser, then Re-check");
@@ -669,7 +669,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
 
   test("pairing check absent from the report -> error naming the remedy, not a false ready or a false accusation", async () => {
     const p = withChrome(doctorExec(withoutCheck(REAL_DOCTOR, "pairing")));
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("error");
     expect(r.detail).toContain("pairing");
     expect(r.detail).toContain("update Fast Browser, then Re-check");
@@ -680,13 +680,13 @@ describe("toolRows - tool.fast-browser-extension", () => {
   // fact would just double the noise.
   test("doctor unreadable -> skipped, deferring to the Fast Browser row", async () => {
     const p = withChrome(() => ({ code: 1, stdout: "", stderr: "boom" }));
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("skipped");
   });
 
   test("the extension row is finish-gated, matching the contract's finish-gated ids", async () => {
     const p = withChrome(doctorExec(withCheckStatus(REAL_DOCTOR, "extension-loaded", "fail")));
-    const rows = await toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams());
+    const rows = await toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams());
     expect(rows.filter((r) => r.finishGated).map((r) => r.id)).toEqual([...FINISH_GATED_ROW_IDS]);
   });
 
@@ -700,7 +700,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
       doctorExec(withoutCheck(REAL_DOCTOR, "extension-installed")),
     ];
     for (const exec of scenarios) {
-      const r = await pickRow(toolRows(withChrome(exec), [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
+      const r = await pickRow(toolRows(withChrome(exec), [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
       expect(r.action).not.toBeNull();
       expect(["open-url", "steps", "run"]).toContain(r.action!.type);
     }
@@ -721,7 +721,7 @@ describe("toolRows — well-formed-JSON-but-wrong-shape doctor payloads: no thro
   }
 
   async function assertCouldNotBeRead(report: unknown) {
-    const rows = await toolRows(withChrome(doctorExec(report)), [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams());
+    const rows = await toolRows(withChrome(doctorExec(report)), [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams());
     const main = rows.find((r) => r.id === "tool.fast-browser")!;
     expect(main.status).toBe("error");
     const extension = rows.find((r) => r.id === "tool.fast-browser-extension")!;
@@ -744,7 +744,7 @@ describe("toolRows — well-formed-JSON-but-wrong-shape doctor payloads: no thro
   });
 
   test("valid fixture is unaffected by the shape hardening (regression guard)", async () => {
-    const rows = await toolRows(withChrome(doctorExec(REAL_DOCTOR)), [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams());
+    const rows = await toolRows(withChrome(doctorExec(REAL_DOCTOR)), [], { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams());
     expect(rows.find((r) => r.id === "tool.fast-browser")?.status).toBe("ready");
     expect(rows.find((r) => r.id === "tool.fast-browser-extension")?.status).toBe("ready");
   });
@@ -756,7 +756,7 @@ describe("toolRows - tool.plugins", () => {
   }
 
   test("real plugin listing, every baseline plugin present and enabled -> ready", async () => {
-    const r = await pickRow(toolRows(fakeProbes({ exec: listExec(ok(REAL_PLUGIN_LIST_JSON)) }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.plugins");
+    const r = await pickRow(toolRows(fakeProbes({ exec: listExec(ok(REAL_PLUGIN_LIST_JSON)) }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.plugins");
     expect(r.status).toBe("ready");
     expect(r.required).toBe(false);
     expect(r.optionalNote).toBe("Installed by Install (plugins.install).");
@@ -767,7 +767,7 @@ describe("toolRows - tool.plugins", () => {
   // silently read as "no plugins" (missing) or "ready"; it can't be parsed as
   // JSON at all, so it reads as the one status that says rt could not tell.
   test("real human-format listing text (no --json) -> error, never a silent empty-install read (C1)", async () => {
-    const r = await pickRow(toolRows(fakeProbes({ exec: listExec(ok(REAL_PLUGIN_LIST_TXT)) }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.plugins");
+    const r = await pickRow(toolRows(fakeProbes({ exec: listExec(ok(REAL_PLUGIN_LIST_TXT)) }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.plugins");
     expect(r.status).toBe("error");
     expect(r.status).not.toBe("missing");
     expect(r.status).not.toBe("ready");
@@ -775,7 +775,7 @@ describe("toolRows - tool.plugins", () => {
 
   test("chat missing from the real listing -> missing, naming only what is absent", async () => {
     const list = pluginListJsonWithout("chat@mattstack");
-    const r = await pickRow(toolRows(fakeProbes({ exec: listExec(ok(list)) }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.plugins");
+    const r = await pickRow(toolRows(fakeProbes({ exec: listExec(ok(list)) }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.plugins");
     expect(r.status).toBe("missing");
     expect(r.detail).toContain("chat@mattstack");
     expect(r.detail).not.toContain("fast-browser@mattstack");
@@ -787,10 +787,10 @@ describe("toolRows - tool.plugins", () => {
       JSON.stringify(
         REAL_PLUGIN_ENTRIES.filter((e) => e.id !== "superpowers@claude-plugins-official").concat([{ id: "superpowers@superpowers-marketplace", enabled } as RealPluginEntry]),
       );
-    const ready = await pickRow(toolRows(fakeProbes({ exec: listExec(ok(swap(true))) }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.plugins");
+    const ready = await pickRow(toolRows(fakeProbes({ exec: listExec(ok(swap(true))) }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.plugins");
     expect(ready.status).toBe("ready");
 
-    const off = await pickRow(toolRows(fakeProbes({ exec: listExec(ok(swap(false))) }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.plugins");
+    const off = await pickRow(toolRows(fakeProbes({ exec: listExec(ok(swap(false))) }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.plugins");
     expect(off.status).toBe("needs-you");
     expect(off.detail).toContain("superpowers@superpowers-marketplace");
   });
@@ -800,7 +800,7 @@ describe("toolRows - tool.plugins", () => {
   // must not satisfy it.
   test("an id that only shares a prefix with a baseline entry does not count", async () => {
     const entries = REAL_PLUGIN_ENTRIES.filter((e) => e.id !== "chat@mattstack").concat([{ id: "chat@mattstack-fork", enabled: true } as { id: string; enabled: boolean }]);
-    const r = await pickRow(toolRows(fakeProbes({ exec: listExec(ok(JSON.stringify(entries))) }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.plugins");
+    const r = await pickRow(toolRows(fakeProbes({ exec: listExec(ok(JSON.stringify(entries))) }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.plugins");
     expect(r.status).toBe("missing");
     expect(r.detail).toContain("chat@mattstack");
   });
@@ -811,19 +811,19 @@ describe("toolRows - tool.plugins", () => {
   // a broken install (that would make it critical in status mode).
   test("every baseline plugin present but one is disabled -> needs-you, naming it, with an enable action", async () => {
     const list = pluginListJsonWithDisabled("fast-browser@mattstack");
-    const r = await pickRow(toolRows(fakeProbes({ exec: listExec(ok(list)) }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.plugins");
+    const r = await pickRow(toolRows(fakeProbes({ exec: listExec(ok(list)) }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.plugins");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toContain("fast-browser@mattstack");
     expect(r.action).toEqual({ type: "run", label: "Enable plugins", verb: ["setup", "pack"] });
   });
 
   test("claude not installed -> skipped", async () => {
-    const r = await pickRow(toolRows(fakeProbes({ exec: listExec(missing("claude")) }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.plugins");
+    const r = await pickRow(toolRows(fakeProbes({ exec: listExec(missing("claude")) }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.plugins");
     expect(r.status).toBe("skipped");
   });
 
   test("claude plugin list times out -> error", async () => {
-    const r = await pickRow(toolRows(fakeProbes({ exec: listExec({ code: 124, stdout: "", stderr: "" }) }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.plugins");
+    const r = await pickRow(toolRows(fakeProbes({ exec: listExec({ code: 124, stdout: "", stderr: "" }) }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.plugins");
     expect(r.status).toBe("error");
     expect(r.detail).toContain("did not answer in time");
   });
@@ -831,7 +831,7 @@ describe("toolRows - tool.plugins", () => {
   // A crashed or misconfigured CLI is a real failure this row could not see
   // past; "skipped" would read as "nothing to check here", which it is not.
   test("claude plugin list fails for any other reason -> error, not skipped", async () => {
-    const r = await pickRow(toolRows(fakeProbes({ exec: listExec({ code: 3, stdout: "", stderr: "boom" }) }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.plugins");
+    const r = await pickRow(toolRows(fakeProbes({ exec: listExec({ code: 3, stdout: "", stderr: "boom" }) }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.plugins");
     expect(r.status).toBe("error");
     expect(r.detail).toContain("exit 3");
   });
@@ -839,7 +839,7 @@ describe("toolRows - tool.plugins", () => {
   test("claude plugin list runs once for tool.plugins and the pack rows together", async () => {
     const p = fakeProbes({ exec: listExec(ok(REAL_PLUGIN_LIST_JSON)) });
     const reqs: PackRequirements[] = [{ pack: "acme", tools: [], integrations: [] }];
-    await toolRows(p, reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS);
+    await toolRows(p, reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS);
     expect(p.calls.exec.filter((argv) => argv[1] === "plugin" && argv[2] === "list").length).toBe(1);
   });
 });
@@ -851,7 +851,7 @@ describe("toolRows — well-formed-JSON-but-wrong-shape plugin list payloads: no
 
   async function assertErrorPath(stdout: string) {
     const reqs: PackRequirements[] = [{ pack: "acme", integrations: [], tools: [] }];
-    const rows = await toolRows(fakeProbes({ exec: listExec(ok(stdout)) }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS);
+    const rows = await toolRows(fakeProbes({ exec: listExec(ok(stdout)) }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS);
     const plugins = rows.find((r) => r.id === "tool.plugins")!;
     expect(plugins.status).toBe("error");
     expect(plugins.detail).toBe("Claude Code's plugin list could not be read");
@@ -876,14 +876,14 @@ describe("toolRows — well-formed-JSON-but-wrong-shape plugin list payloads: no
 
   test("valid fixture is unaffected by the shape hardening (regression guard)", async () => {
     const reqs: PackRequirements[] = [{ pack: "acme", integrations: [], tools: [] }];
-    const rows = await toolRows(fakeProbes({ exec: listExec(ok(REAL_PLUGIN_LIST_JSON)) }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS);
+    const rows = await toolRows(fakeProbes({ exec: listExec(ok(REAL_PLUGIN_LIST_JSON)) }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS);
     expect(rows.find((r) => r.id === "tool.plugins")?.status).toBe("ready");
   });
 });
 
 describe("toolRows — tool.editor", () => {
   test("no editors detected -> skipped, works-without-this note", async () => {
-    const r = await pickRow(toolRows(fakeProbes(), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.editor");
+    const r = await pickRow(toolRows(fakeProbes(), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.editor");
     expect(r.status).toBe("skipped");
     expect(r.detail).toBe("No editor found. rt works without one");
     expect(r.required).toBe(false);
@@ -893,7 +893,7 @@ describe("toolRows — tool.editor", () => {
   test("editors detected -> ready, names listed", async () => {
     const editors: DetectedEditor[] = [{ name: "Cursor", cliPath: "/x/cursor", appPath: "/Applications/Cursor.app" }];
     const seams: ToolsSeams = { ...NOOP_SEAMS, detectEditors: () => editors };
-    const r = await pickRow(toolRows(fakeProbes(), [], { hasBrew: true, secrets: NO_SECRETS }, seams), "tool.editor");
+    const r = await pickRow(toolRows(fakeProbes(), [], { arch: "arm64", secrets: NO_SECRETS }, seams), "tool.editor");
     expect(r.status).toBe("ready");
     expect(r.detail).toBe("Cursor");
   });
@@ -929,7 +929,7 @@ describe("toolRows — tool.state-backup", () => {
 
   async function backupRow(where: Record<string, Where>) {
     const seams = backupSeams(where);
-    return pickRow(toolRows(fakeProbes(), [], { hasBrew: true, secrets: NO_SECRETS }, seams), "tool.state-backup");
+    return pickRow(toolRows(fakeProbes(), [], { arch: "arm64", secrets: NO_SECRETS }, seams), "tool.state-backup");
   }
 
   const all = (place: Where): Record<string, Where> => Object.fromEntries(BACKUP_TOOLS.map((t) => [t, place]));
@@ -964,7 +964,6 @@ describe("toolRows — tool.state-backup", () => {
       label: "Show steps…",
       steps: [
         "Update mattstack.app; it ships age, zstd and git-lfs",
-        "Or install them yourself: brew install git-lfs",
         "Then re-run rt setup status",
       ],
     });
@@ -990,7 +989,7 @@ describe("toolRows — tool.state-backup", () => {
 describe("toolRows — tool.chrome / tool.chrome-signin", () => {
   test("not required by any pack, not found -> missing, required false, on-activate", async () => {
     const p = fakeProbes({});
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.chrome");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.chrome");
     expect(r.status).toBe("missing");
     expect(r.required).toBe(false);
     expect(r.recheck).toBe("on-activate");
@@ -1000,20 +999,20 @@ describe("toolRows — tool.chrome / tool.chrome-signin", () => {
   test("required by a pack and found at /Applications -> ready, required true", async () => {
     const p = fakeProbes({ dirs: { "/Applications/Google Chrome.app": [] } });
     const reqs: PackRequirements[] = [{ pack: "somepack", tools: [], integrations: [], chrome: { required: true } }];
-    const r = await pickRow(toolRows(p, reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.chrome");
+    const r = await pickRow(toolRows(p, reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.chrome");
     expect(r.status).toBe("ready");
     expect(r.required).toBe(true);
   });
 
   test("found under ~/Applications -> ready", async () => {
     const p = fakeProbes({ home: "/fake-home", dirs: { "/fake-home/Applications/Google Chrome.app": [] } });
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.chrome");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.chrome");
     expect(r.status).toBe("ready");
   });
 
   test("a pack declaring chrome.signedIntoApp adds tool.chrome-signin as needs-you, on-activate", async () => {
     const reqs: PackRequirements[] = [{ pack: "somepack", tools: [], integrations: [], chrome: { required: true, signedIntoApp: "work@example.com" } }];
-    const rows = await toolRows(fakeProbes(), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS);
+    const rows = await toolRows(fakeProbes(), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS);
     const r = rows.find((row) => row.id === "tool.chrome-signin");
     expect(r).toBeDefined();
     expect(r?.status).toBe("needs-you");
@@ -1022,7 +1021,7 @@ describe("toolRows — tool.chrome / tool.chrome-signin", () => {
   });
 
   test("no pack declares chrome.signedIntoApp -> no tool.chrome-signin row", async () => {
-    const rows = await toolRows(fakeProbes(), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS);
+    const rows = await toolRows(fakeProbes(), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS);
     expect(rows.find((row) => row.id === "tool.chrome-signin")).toBeUndefined();
   });
 });
@@ -1031,7 +1030,7 @@ describe("toolRows — tool.mission-control", () => {
   test("Control+Up bound (enabled=1) -> needs-you, on-activate", async () => {
     const stdout = `{\n    32 = {\n        enabled = 1;\n        value = {\n            type = standard;\n        };\n    };\n}`;
     const exec: ExecScript = (argv) => (argv[0] === "defaults" ? ok(stdout) : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.mission-control");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.mission-control");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("Control+Up opens Mission Control, and rt's picker needs it");
     expect(r.action).toEqual({ type: "open-settings", label: "Open Keyboard Settings…", target: "keyboard" });
@@ -1041,21 +1040,21 @@ describe("toolRows — tool.mission-control", () => {
   test("Control+Up unbound (enabled=0) -> ready", async () => {
     const stdout = `{\n    32 = {\n        enabled = 0;\n        value = {\n            type = standard;\n        };\n    };\n}`;
     const exec: ExecScript = (argv) => (argv[0] === "defaults" ? ok(stdout) : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.mission-control");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.mission-control");
     expect(r.status).toBe("ready");
   });
 
   test("key 32 absent entirely -> needs-you (R-T8-L1c: macOS's factory default binds it, absence is not free)", async () => {
     const stdout = `{\n    79 = {\n        enabled = 0;\n    };\n}`;
     const exec: ExecScript = (argv) => (argv[0] === "defaults" ? ok(stdout) : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.mission-control");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.mission-control");
     expect(r.status).toBe("needs-you");
   });
 
   test("key 32 present but its enabled field is missing -> needs-you (can't confirm unbound)", async () => {
     const stdout = `{\n    32 = {\n        value = {\n            type = standard;\n        };\n    };\n}`;
     const exec: ExecScript = (argv) => (argv[0] === "defaults" ? ok(stdout) : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.mission-control");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.mission-control");
     expect(r.status).toBe("needs-you");
   });
 
@@ -1064,54 +1063,63 @@ describe("toolRows — tool.mission-control", () => {
     // enabled=0 — a leaky window would wrongly read 33's value as 32's.
     const stdout = `{\n    32 = {\n        value = {\n            type = standard;\n        };\n    };\n    33 = {\n        enabled = 0;\n    };\n}`;
     const exec: ExecScript = (argv) => (argv[0] === "defaults" ? ok(stdout) : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.mission-control");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.mission-control");
     expect(r.status).toBe("needs-you");
   });
 
   test("exec fails (non-timeout) -> skipped, not error", async () => {
     const exec: ExecScript = (argv) => (argv[0] === "defaults" ? missing("defaults") : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.mission-control");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.mission-control");
     expect(r.status).toBe("skipped");
   });
 
   test("exec times out -> error, never skipped or needs-you", async () => {
     const exec: ExecScript = (argv) => (argv[0] === "defaults" ? { code: 124, stdout: "", stderr: "" } : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.mission-control");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.mission-control");
     expect(r.status).toBe("error");
   });
 });
 
 describe("toolRows — team-declared tool.team.<name>", () => {
-  test("a pack naming herdr with a brew formula still gets herdr's own script, as Install runs it", async () => {
-    const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "herdr", why: "panes", install: { brew: "herdr" } }] }];
+  test("a pack pinning a herdr download still gets herdr's own script, as Install runs it", async () => {
+    const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "herdr", why: "panes", install: { download: { arm64: { url: "https://example.com/doppler_arm64.tar.gz", sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", extract: "doppler" } } } }] }];
     const exec: ExecScript = (argv) => (argv[1] === "--version" && argv[0]!.endsWith("herdr") ? missing("herdr") : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.herdr");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.herdr");
     expect(r.action).toEqual({ type: "install", label: "Install", tool: "herdr", via: "vendor" });
-    expect(teamToolManualSteps({ name: "herdr", why: "panes", install: { brew: "herdr" } })).toEqual({ type: "steps", label: "Show steps…", steps: ["curl -fsSL https://herdr.dev/install.sh | sh"] });
+    expect(teamToolManualSteps({ name: "herdr", why: "panes" })).toEqual({ type: "steps", label: "Show steps…", steps: ["curl -fsSL https://herdr.dev/install.sh | sh"] });
   });
 
-  test("doppler missing with a brew formula declared -> missing, install action via brew, id namespaced (R-T8-L1a)", async () => {
+  test("doppler missing with a download pinned for this processor -> missing, install action via download, id namespaced (R-T8-L1a)", async () => {
     const reqs: PackRequirements[] = [
-      { pack: "somepack", integrations: [], tools: [{ name: "doppler", why: "reads team secrets", install: { brew: "doppler" } }] },
+      { pack: "somepack", integrations: [], tools: [{ name: "doppler", why: "reads team secrets", install: { download: { arm64: { url: "https://example.com/doppler_arm64.tar.gz", sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", extract: "doppler" } } } }] },
     ];
     const exec: ExecScript = (argv) => (argv[0] === "doppler" && argv[1] === "--version" ? missing("doppler") : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.doppler");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.doppler");
     expect(r.status).toBe("missing");
-    expect(r.action).toEqual({ type: "install", label: "Install", tool: "doppler", via: "brew" });
+    expect(r.action).toEqual({ type: "install", label: "Install", tool: "doppler", via: "download" });
     expect(r.required).toBe(true);
+  });
+
+  test("a download pinned only for the other processor falls back to the pack's link", async () => {
+    const reqs: PackRequirements[] = [
+      { pack: "somepack", integrations: [], tools: [{ name: "doppler", why: "reads team secrets", install: { url: "https://docs.example.com/doppler", download: { arm64: { url: "https://example.com/doppler_arm64.tar.gz", sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", extract: "doppler" } } } }] },
+    ];
+    const exec: ExecScript = (argv) => (argv[0] === "doppler" && argv[1] === "--version" ? missing("doppler") : ok());
+    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { arch: "x86_64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.doppler");
+    expect(r.action).toEqual({ type: "open-url", label: "Download", url: "https://docs.example.com/doppler" });
   });
 
   test("--version times out -> error", async () => {
     const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "doppler", why: "reads team secrets" }] }];
     const exec: ExecScript = (argv) => (argv[0] === "doppler" && argv[1] === "--version" ? { code: 124, stdout: "", stderr: "" } : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.doppler");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.doppler");
     expect(r.status).toBe("error");
   });
 
   test("a team tool that collides with a built-in name (e.g. 'chrome') never overwrites the built-in row", async () => {
     const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "chrome", why: "a pack-declared chrome helper" }] }];
     const exec: ExecScript = (argv) => (argv[0] === "chrome" && argv[1] === "--version" ? ok("1.0.0\n") : ok());
-    const rows = await toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS);
+    const rows = await toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS);
     expect(rows.filter((r) => r.id === "tool.chrome")).toHaveLength(1);
     expect(rows.find((r) => r.id === "tool.team.chrome")?.status).toBe("ready");
   });
@@ -1119,16 +1127,16 @@ describe("toolRows — team-declared tool.team.<name>", () => {
   test("declared optional -> required false, with a real optionalNote (L12)", async () => {
     const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "ldcli", why: "reads flags", optional: true }] }];
     const exec: ExecScript = (argv) => (argv[0] === "ldcli" && argv[1] === "--version" ? missing("ldcli") : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.ldcli");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.ldcli");
     expect(r.required).toBe(false);
     expect(r.optionalNote).not.toBeNull();
     expect(r.optionalNote).toContain("reads flags");
   });
 
-  test("missing with no brew and an install url -> open-url action", async () => {
+  test("missing with no pinned download and an install url -> open-url action", async () => {
     const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "sdm", why: "db tunnels", install: { url: "https://x/sdm" } }] }];
     const exec: ExecScript = (argv) => (argv[0] === "sdm" && argv[1] === "--version" ? missing("sdm") : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: false, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.sdm");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.sdm");
     expect(r.action).toEqual({ type: "open-url", label: "Download", url: "https://x/sdm" });
   });
 
@@ -1136,15 +1144,15 @@ describe("toolRows — team-declared tool.team.<name>", () => {
     for (const url of ["http://x/sdm", "file:///Applications/sdm", "javascript:alert(1)", "not a url", "https://"]) {
       const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "sdm", why: "db tunnels", install: { url } }] }];
       const exec: ExecScript = (argv) => (argv[0] === "sdm" && argv[1] === "--version" ? missing("sdm") : ok());
-      const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: false, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.sdm");
+      const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.sdm");
       expect(r.action).toEqual({ type: "steps", label: "Show steps…", steps: ["Install sdm", "Then re-run rt setup status"] });
     }
   });
 
-  test("missing with neither brew nor url -> steps action", async () => {
+  test("missing with neither a pinned download nor a url -> steps action", async () => {
     const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "widget", why: "does widget things" }] }];
     const exec: ExecScript = (argv) => (argv[0] === "widget" && argv[1] === "--version" ? missing("widget") : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.widget");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.widget");
     expect(r.status).toBe("missing");
     expect(r.action?.type).toBe("steps");
   });
@@ -1152,23 +1160,23 @@ describe("toolRows — team-declared tool.team.<name>", () => {
   test("present and above floor -> ready with version detail", async () => {
     const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "doppler", why: "reads team secrets", floor: "3.0.0" }] }];
     const exec: ExecScript = (argv) => (argv[0] === "doppler" && argv[1] === "--version" ? ok("3.5.0\n") : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.doppler");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.doppler");
     expect(r.status).toBe("ready");
     expect(r.detail).toBe("doppler 3.5.0");
   });
 
   test("present but below floor -> invalid, with an upgrade action (R-T7-b)", async () => {
-    const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "doppler", why: "reads team secrets", floor: "3.0.0", install: { brew: "doppler" } }] }];
+    const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "doppler", why: "reads team secrets", floor: "3.0.0", install: { download: { arm64: { url: "https://example.com/doppler_arm64.tar.gz", sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", extract: "doppler" } } } }] }];
     const exec: ExecScript = (argv) => (argv[0] === "doppler" && argv[1] === "--version" ? ok("2.0.0\n") : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.doppler");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.doppler");
     expect(r.status).toBe("invalid");
-    expect(r.action).toEqual({ type: "install", label: "Upgrade", tool: "doppler", via: "brew" });
+    expect(r.action).toEqual({ type: "install", label: "Upgrade", tool: "doppler", via: "download" });
   });
 
-  test("below floor with no brew/url -> steps action naming the upgrade", async () => {
+  test("below floor with no pinned download or url -> steps action naming the upgrade", async () => {
     const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "widget", why: "does widget things", floor: "3.0.0" }] }];
     const exec: ExecScript = (argv) => (argv[0] === "widget" && argv[1] === "--version" ? ok("2.0.0\n") : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.widget");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.widget");
     expect(r.status).toBe("invalid");
     expect(r.action).toEqual({ type: "steps", label: "Show steps…", steps: ["Upgrade widget to 3.0.0+", "Then re-run rt setup status"] });
   });
@@ -1176,7 +1184,7 @@ describe("toolRows — team-declared tool.team.<name>", () => {
   test("a connect field on the requirement doesn't affect this row's readiness", async () => {
     const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "doppler", why: "reads team secrets", connect: { integration: "doppler" } }] }];
     const exec: ExecScript = (argv) => (argv[0] === "doppler" && argv[1] === "--version" ? ok("1.0.0\n") : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.doppler");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.doppler");
     expect(r.status).toBe("ready");
   });
 
@@ -1186,7 +1194,7 @@ describe("toolRows — team-declared tool.team.<name>", () => {
       { pack: "b-pack", integrations: [], tools: [{ name: "doppler", why: "from b-pack" }] },
     ];
     const exec: ExecScript = (argv) => (argv[0] === "doppler" && argv[1] === "--version" ? ok("1.0.0\n") : ok());
-    const rows = await toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS);
+    const rows = await toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS);
     expect(rows.filter((row) => row.id === "tool.team.doppler")).toHaveLength(1);
     expect(rows.find((row) => row.id === "tool.team.doppler")?.why).toBe("from a-pack");
   });
@@ -1196,26 +1204,26 @@ describe("toolRows: a tool that prints no version", () => {
   const silent = (name: string): ExecScript => (argv) => (argv[0] === name && argv[1] === "--version" ? ok("") : ok());
 
   test("an unreadable version says so, with the status unchanged", async () => {
-    const r = await pickRow(toolRows(fakeProbes({ exec: silent("herdr") }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
+    const r = await pickRow(toolRows(fakeProbes({ exec: silent("herdr") }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
     expect(r.detail).toBe("rt could not read herdr's version (it needs 0.7.5 or newer)");
     expect(r.status).toBe("invalid");
   });
 
   test("nonnumeric herdr output says its version could not be read", async () => {
     const exec: ExecScript = (argv) => (argv[0] === "herdr" && argv[1] === "--version" ? ok("  development build\n") : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
     expect(r.detail).toBe("rt could not read herdr's version (it needs 0.7.5 or newer)");
     expect(r.status).toBe("invalid");
     expect(r.action).toEqual({ type: "install", label: "Upgrade", tool: "herdr", via: "vendor" });
   });
 
   test("nonnumeric team tool output says its version could not be read", async () => {
-    const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "widget", why: "does widget things", floor: "3.0.0", install: { brew: "widget" } }] }];
+    const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "widget", why: "does widget things", floor: "3.0.0", install: { download: { arm64: { url: "https://example.com/widget", sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", extract: "" } } } }] }];
     const exec: ExecScript = (argv) => (argv[0] === "widget" && argv[1] === "--version" ? ok("  development build\n") : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.widget");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.widget");
     expect(r.detail).toBe("rt could not read widget's version (it needs 3.0.0 or newer)");
     expect(r.status).toBe("invalid");
-    expect(r.action).toEqual({ type: "install", label: "Upgrade", tool: "widget", via: "brew" });
+    expect(r.action).toEqual({ type: "install", label: "Upgrade", tool: "widget", via: "download" });
   });
 
   test("Claude Code signed in reads without a dangling comma", async () => {
@@ -1224,7 +1232,7 @@ describe("toolRows: a tool that prints no version", () => {
       if (argv[0] === "claude" && argv[1] === "auth") return ok(JSON.stringify({ loggedIn: true }));
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.detail).toBe("Claude Code, signed in");
   });
 
@@ -1234,23 +1242,23 @@ describe("toolRows: a tool that prints no version", () => {
       if (argv[0] === "claude" && argv[1] === "auth") return { code: 1, stdout: "", stderr: "error: unknown command 'auth'" };
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.detail).toBe("Claude Code is installed, but the sign-in could not be checked. Confirm you are signed in");
   });
 
   test("a team tool below its floor, with and without a version", async () => {
     const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "widget", why: "does widget things", floor: "3.0.0" }] }];
     const versioned: ExecScript = (argv) => (argv[0] === "widget" && argv[1] === "--version" ? ok("2.0.0\n") : ok());
-    const withVersion = await pickRow(toolRows(fakeProbes({ exec: versioned }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.widget");
+    const withVersion = await pickRow(toolRows(fakeProbes({ exec: versioned }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.widget");
     expect(withVersion.detail).toBe("widget 2.0.0 is older than 3.0.0");
-    const without = await pickRow(toolRows(fakeProbes({ exec: silent("widget") }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.widget");
+    const without = await pickRow(toolRows(fakeProbes({ exec: silent("widget") }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.widget");
     expect(without.detail).toBe("rt could not read widget's version (it needs 3.0.0 or newer)");
     expect(without.status).toBe("invalid");
   });
 
   test("a team tool with no floor is ready under its bare name", async () => {
     const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "widget", why: "does widget things" }] }];
-    const r = await pickRow(toolRows(fakeProbes({ exec: silent("widget") }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.widget");
+    const r = await pickRow(toolRows(fakeProbes({ exec: silent("widget") }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.widget");
     expect(r.status).toBe("ready");
     expect(r.detail).toBe("widget");
   });
@@ -1261,7 +1269,7 @@ describe("toolRows — pack.<pack>", () => {
     const reqs: PackRequirements[] = [{ pack: "beta", integrations: [], tools: [] }];
     const listWithBeta = JSON.stringify([...REAL_PLUGIN_ENTRIES, { id: "beta@acme-market", enabled: true }]);
     const exec: ExecScript = (argv) => (argv[0] === "claude" && argv[1] === "plugin" && argv[2] === "list" ? ok(listWithBeta) : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "pack.beta");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "pack.beta");
     expect(r.status).toBe("ready");
     expect(r.detail).toBe("Installed");
     expect(r.required).toBe(false);
@@ -1271,7 +1279,7 @@ describe("toolRows — pack.<pack>", () => {
   test("real plugin listing does not contain the pack -> missing, installed-by-Install detail", async () => {
     const reqs: PackRequirements[] = [{ pack: "acme", integrations: [], tools: [] }];
     const exec: ExecScript = (argv) => (argv[0] === "claude" && argv[1] === "plugin" && argv[2] === "list" ? ok(REAL_PLUGIN_LIST_JSON) : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "pack.acme");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "pack.acme");
     expect(r.status).toBe("missing");
     expect(r.detail).toBe("Not installed yet");
     expect(r.action).toEqual({ type: "run", label: "Install plugins", verb: ["setup", "apply", "--only", "plugins.install"] });
@@ -1283,21 +1291,21 @@ describe("toolRows — pack.<pack>", () => {
   test("a shorter pack name never matches as a prefix of a longer real id (L11)", async () => {
     const reqs: PackRequirements[] = [{ pack: "fast", integrations: [], tools: [] }];
     const exec: ExecScript = (argv) => (argv[0] === "claude" && argv[1] === "plugin" && argv[2] === "list" ? ok(REAL_PLUGIN_LIST_JSON) : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "pack.fast");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "pack.fast");
     expect(r.status).toBe("missing");
   });
 
   test("claude missing (127) -> skipped", async () => {
     const reqs: PackRequirements[] = [{ pack: "acme", integrations: [], tools: [] }];
     const exec: ExecScript = (argv) => (argv[0] === "claude" ? missing("claude") : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "pack.acme");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "pack.acme");
     expect(r.status).toBe("skipped");
   });
 
   test("claude plugin list times out -> error, not skipped", async () => {
     const reqs: PackRequirements[] = [{ pack: "acme", integrations: [], tools: [] }];
     const exec: ExecScript = (argv) => (argv[0] === "claude" && argv[1] === "plugin" ? { code: 124, stdout: "", stderr: "" } : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "pack.acme");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "pack.acme");
     expect(r.status).toBe("error");
   });
 
@@ -1306,14 +1314,14 @@ describe("toolRows — pack.<pack>", () => {
   test("real human-format listing text (no --json) -> error, not a silent missing", async () => {
     const reqs: PackRequirements[] = [{ pack: "acme", integrations: [], tools: [] }];
     const exec: ExecScript = (argv) => (argv[0] === "claude" && argv[1] === "plugin" && argv[2] === "list" ? ok(REAL_PLUGIN_LIST_TXT) : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "pack.acme");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "pack.acme");
     expect(r.status).toBe("error");
   });
 
   test("a malformed pack's requirements.jsonc error surfaces as an error row, not silently dropped (R-T8-L1b)", async () => {
     const reqs: PackRequirements[] = [{ pack: "broken-pack", integrations: [], tools: [], error: "invalid JSON: Unexpected end of input" }];
     const exec: ExecScript = (argv) => (argv[0] === "claude" && argv[1] === "plugin" && argv[2] === "list" ? ok(REAL_PLUGIN_LIST_JSON) : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "pack.broken-pack");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "pack.broken-pack");
     expect(r.status).toBe("error");
     expect(r.detail).toBe("invalid JSON: Unexpected end of input");
   });
@@ -1324,7 +1332,7 @@ describe("toolRows — pack.<pack>", () => {
       { pack: "other-pack", integrations: [], tools: [] },
     ];
     const exec: ExecScript = (argv) => (argv[0] === "claude" && argv[1] === "plugin" ? ok(REAL_PLUGIN_LIST_JSON) : ok());
-    const rows = await toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS);
+    const rows = await toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS);
     expect(rows.filter((row) => row.id.startsWith("pack."))).toHaveLength(2);
   });
 
@@ -1332,7 +1340,7 @@ describe("toolRows — pack.<pack>", () => {
   // runs even with zero pack requirements.
   test("no pack requirements at all -> claude plugin list still runs once, for tool.plugins", async () => {
     const p = fakeProbes({});
-    await toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS);
+    await toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS);
     expect(p.calls.exec.filter((argv) => argv[0] === "claude" && argv[1] === "plugin" && argv[2] === "list")).toHaveLength(1);
   });
 });
@@ -1375,7 +1383,7 @@ describe("Done-screen contract: optional rows with a manual action", () => {
       if (argv[0] === "widget" || argv[0] === "sdm") return missing(argv[0]!);
       return ok();
     };
-    const rows = await toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS);
+    const rows = await toolRows(fakeProbes({ exec }), reqs, { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS);
 
     // The scenario must actually reach the rows this test exists to guard;
     // otherwise a change that stops emitting one of them would pass here
@@ -1393,7 +1401,7 @@ describe("Done-screen contract: optional rows with a manual action", () => {
     const exec: ExecScript = (argv) => (argv[2] === "doctor" ? ok(JSON.stringify(withCheckStatus(REAL_DOCTOR, "extension-loaded", "fail"))) : ok());
     const p = fakeProbes({ exec });
     p.mkdirp("/Applications/Google Chrome.app");
-    const rows = await toolRows(p, reqs, { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams());
+    const rows = await toolRows(p, reqs, { arch: "arm64", secrets: NO_SECRETS }, fastBrowserSeams());
 
     const extension = rows.find((r) => r.id === "tool.fast-browser-extension")!;
     expect(extension.action?.type).toBe("open-url");
@@ -1428,7 +1436,7 @@ describe("toolRows: tool.linear-mcp", () => {
   const hosted = { type: "http", url: "https://mcp.linear.app/mcp", headers: { Authorization: "Bearer k" } };
   const conf = (config: unknown) => ({ [`${HOME}/.claude.json`]: JSON.stringify(config) });
   const rowFor = (files: Record<string, string>, secrets: SecretPresence) =>
-    pickRow(toolRows(fakeProbes({ home: HOME, env: {}, files }), [], { hasBrew: true, secrets }, NOOP_SEAMS), "tool.linear-mcp");
+    pickRow(toolRows(fakeProbes({ home: HOME, env: {}, files }), [], { arch: "arm64", secrets }, NOOP_SEAMS), "tool.linear-mcp");
 
   test("a Linear MCP named linear -> ready", async () => {
     const r = await rowFor(conf({ mcpServers: { linear: hosted } }), HAS_KEY);
@@ -1478,7 +1486,7 @@ describe("toolRows: tool.linear-mcp", () => {
 
   describe("a team that doesn't use Linear", () => {
     const rowOff = (files: Record<string, string>, secrets: SecretPresence) =>
-      pickRow(toolRows(fakeProbes({ home: HOME, env: {}, files }), [], { hasBrew: true, secrets, usesLinear: false }, NOOP_SEAMS), "tool.linear-mcp");
+      pickRow(toolRows(fakeProbes({ home: HOME, env: {}, files }), [], { arch: "arm64", secrets, usesLinear: false }, NOOP_SEAMS), "tool.linear-mcp");
 
     test("not connected: skipped, so it never holds Finish, and Connect stays offered", async () => {
       const r = await rowOff(conf({}), NO_SECRETS);
@@ -1511,7 +1519,7 @@ describe("toolRows: tool.linear-mcp", () => {
   test("a config that exists but cannot be read -> error naming the file", async () => {
     const path = `${HOME}/.claude.json`;
     const p = fakeProbes({ home: HOME, env: {}, files: conf({}), unreadable: [path] });
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: HAS_KEY }, NOOP_SEAMS), "tool.linear-mcp");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: HAS_KEY }, NOOP_SEAMS), "tool.linear-mcp");
     expect([r.status, r.required]).toEqual(["error", false]);
     expect(r.detail).toContain(".claude.json");
   });
@@ -1522,7 +1530,7 @@ describe("toolRows: tool.linear-mcp", () => {
         throw new Error("keychain locked");
       },
     };
-    const rows = await toolRows(fakeProbes({ home: HOME, env: {}, files: conf({}) }), [], { hasBrew: true, secrets: exploding }, NOOP_SEAMS);
+    const rows = await toolRows(fakeProbes({ home: HOME, env: {}, files: conf({}) }), [], { arch: "arm64", secrets: exploding }, NOOP_SEAMS);
     const r = rows.find((row) => row.id === "tool.linear-mcp")!;
     expect([r.status, r.required]).toEqual(["error", false]);
     expect(r.detail).toContain("keychain locked");
@@ -1602,7 +1610,7 @@ describe("toolRows: tool.proxy", () => {
     writePinnedPortless("0.15.6");
     setSetting("mattstack.appPath", appRoot, "machine");
     const p = fakeProbes({ home, env: { PATH: "" }, dirs: { [appRoot]: [] } });
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
     expect(r.status).toBe("skipped");
     expect(r.action ?? null).toBeNull();
     expect(r.detail).toBe("This build has no local proxy installer, so apps serve on their own ports");
@@ -1612,7 +1620,7 @@ describe("toolRows: tool.proxy", () => {
     writePinnedPortless("0.15.6");
     setSetting("mattstack.appPath", appRoot, "machine");
     const p = fakeProbes({ home, env: { PATH: "" }, files: { [PORTLESS_LAUNCHD_PLIST]: "plist" }, dirs: { [appRoot]: [] } });
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
     expect(r.status).toBe("skipped");
     expect(r.action ?? null).toBeNull();
   });
@@ -1620,7 +1628,7 @@ describe("toolRows: tool.proxy", () => {
   test("plist absent -> missing, with the install action", async () => {
     writePinnedPortless("0.15.6");
     const p = bundledProxyProbes();
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
     expect(r.status).toBe("missing");
     expect(r.required).toBe(false);
     expect(r.action).toEqual({ type: "run", label: "Install proxy", verb: ["setup", "apply", "--only", "proxy.install"] });
@@ -1641,7 +1649,7 @@ describe("toolRows: tool.proxy", () => {
   test("plist present, VERSION == pinned, CA trusted -> ready", async () => {
     writePinnedPortless("0.15.6");
     const p = installedProxyProbes(true);
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
     expect(r.status).toBe("ready");
     expect(r.detail).toBe("portless 0.15.6");
     expect(p.calls.exec).toContainEqual(["security", "verify-cert", "-c", join(home, ".portless", "ca.pem"), "-L", "-l", "-p", "ssl"]);
@@ -1652,7 +1660,7 @@ describe("toolRows: tool.proxy", () => {
   // is the only place that says so.
   test("plist present, VERSION == pinned, CA untrusted -> needs-you, with the trust action", async () => {
     writePinnedPortless("0.15.6");
-    const r = await pickRow(toolRows(installedProxyProbes(false), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
+    const r = await pickRow(toolRows(installedProxyProbes(false), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("Browsers will warn until the proxy certificate is trusted");
     expect(r.action).toEqual({ type: "run", label: "Trust certificate", verb: ["setup", "apply", "--only", "proxy.install"] });
@@ -1666,7 +1674,7 @@ describe("toolRows: tool.proxy", () => {
     const p = bundledProxyProbes({
       files: { [PORTLESS_LAUNCHD_PLIST]: "<plist/>", "/Library/Application Support/mattstack/proxy/VERSION": "0.15.6\n" },
     });
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
     expect(r.status).toBe("needs-you");
     expect(p.calls.exec).not.toContainEqual(expect.arrayContaining(["verify-cert"]));
   });
@@ -1676,7 +1684,7 @@ describe("toolRows: tool.proxy", () => {
     const p = bundledProxyProbes({
       files: { [PORTLESS_LAUNCHD_PLIST]: "<plist/>", "/Library/Application Support/mattstack/proxy/VERSION": "0.15.6\n" },
     });
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("The proxy runs portless 0.15.6; this build ships 0.16.0");
     expect(r.action).toEqual({ type: "run", label: "Update proxy", verb: ["setup", "apply", "--only", "proxy.install"] });
@@ -1688,7 +1696,7 @@ describe("toolRows: tool.proxy", () => {
   test("plist present, no VERSION at all -> needs-you, adopted by the update action", async () => {
     writePinnedPortless("0.15.6");
     const p = bundledProxyProbes({ files: { [PORTLESS_LAUNCHD_PLIST]: "<plist/>" } });
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("A portless install from before mattstack is present. Update proxy adopts it");
     expect(r.action).toEqual({ type: "run", label: "Update proxy", verb: ["setup", "apply", "--only", "proxy.install"] });
@@ -1701,7 +1709,7 @@ describe("toolRows: tool.proxy", () => {
       files: { [PORTLESS_LAUNCHD_PLIST]: "<plist/>", [versionPath]: "0.15.6" },
       unreadable: [versionPath],
     });
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
     expect(r.status).toBe("error");
     expect(r.detail).toContain(versionPath);
   });
@@ -1713,14 +1721,14 @@ describe("toolRows: tool.proxy", () => {
     const p = bundledProxyProbes({
       files: { [PORTLESS_LAUNCHD_PLIST]: "<plist/>", "/Library/Application Support/mattstack/proxy/VERSION": "  \n" },
     });
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
     expect(r.status).toBe("error");
   });
 
   test("never required, so it can neither block Install nor fail verify", async () => {
     writePinnedPortless("0.15.6");
     const p = bundledProxyProbes();
-    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
     expect(r.required).toBe(false);
   });
 
@@ -1733,8 +1741,8 @@ describe("toolRows: tool.proxy", () => {
   test("every remedy names a real step, alone, and drift's names the one that updates", async () => {
     writePinnedPortless("0.16.0");
     const rows = await Promise.all([
-      pickRow(toolRows(bundledProxyProbes(), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy"),
-      pickRow(toolRows(installedProxyProbes(false), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy"),
+      pickRow(toolRows(bundledProxyProbes(), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy"),
+      pickRow(toolRows(installedProxyProbes(false), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy"),
     ]);
     expect(rows.map((r) => r.status)).toEqual(["missing", "needs-you"]);
     for (const r of rows) {
@@ -1787,7 +1795,7 @@ async function toolRowsFor(opts: {
       : (argv.includes("list") ? { code: 0, stdout: JSON.stringify(opts.pluginList), stderr: "" } : { code: 0, stdout: "", stderr: "" })),
   });
   const engine = opts.engine === undefined ? "0.30.28" : opts.engine;
-  return toolRows(p, [], { hasBrew: false, secrets: NO_SECRETS, teamSlug: "acme", activeTeam: opts.activeTeam ?? null }, { ...NOOP_SEAMS, engine: () => engine });
+  return toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS, teamSlug: "acme", activeTeam: opts.activeTeam ?? null }, { ...NOOP_SEAMS, engine: () => engine });
 }
 
 test("a team-served pack gets a row even with no requirements.jsonc, naming its version", async () => {
@@ -1895,7 +1903,7 @@ test("tool.plugins is held with no action when the mattstack catalog floor is ab
 });
 
 describe("toolRows: org requirements", () => {
-  const orgOpts = { hasBrew: true, secrets: NO_SECRETS };
+  const orgOpts = { arch: "arm64" as const, secrets: NO_SECRETS };
   const exec: ExecScript = () => ({ code: 0, stdout: "[]", stderr: "" });
 
   test("an orgOnly entry draws no pack row and still draws its tool", async () => {
