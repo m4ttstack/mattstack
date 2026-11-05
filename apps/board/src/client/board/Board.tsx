@@ -1396,9 +1396,12 @@ export function Board() {
       .sort();
     return [...listed, ...others].join('\n');
   }, [data, boardView]);
-  // A restarted server answers with no faces until it has read Slack again.
+  // A restarted server answers with no faces until it has read Slack again,
+  // so only an empty answer keeps the last ones.
   const seenFaces = useRef<Record<string, string>>({});
-  seenFaces.current = { ...seenFaces.current, ...data?.slackFaces };
+  if (Object.keys(data?.slackFaces ?? {}).length > 0) {
+    seenFaces.current = data!.slackFaces!;
+  }
   const faces = JSON.stringify(seenFaces.current);
   const memberLooks = useMemo(() => {
     const looks = assignMemberLooks(lookIds ? lookIds.split('\n') : []);
