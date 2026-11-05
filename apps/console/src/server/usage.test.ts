@@ -111,7 +111,7 @@ describe('usage api', () => {
     expect(rt.usageMrs).not.toHaveBeenCalled();
   });
 
-  describe('the fixture matches the daemon\'s shapes', () => {
+  describe("the fixture matches the daemon's shapes", () => {
     const { usage } = runsFixture('runs');
     const entries = usage.mrs.mrs.flatMap(r => usage.mr(r.mrKey)!.runs);
 

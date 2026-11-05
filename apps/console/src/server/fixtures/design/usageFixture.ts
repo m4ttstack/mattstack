@@ -97,7 +97,14 @@ function entry(s: EntrySpec): UsageMrEntry {
   const stages: UsageStageRow[] = s.stages.map(
     ([name, attempt, status, totals]) => {
       if (name === null)
-        return { name, attempt, status, startedAt: null, endedAt: null, totals };
+        return {
+          name,
+          attempt,
+          status,
+          startedAt: null,
+          endedAt: null,
+          totals,
+        };
       const startedAt = at;
       at += span;
       return { name, attempt, status, startedAt, endedAt: at, totals };
