@@ -105,18 +105,23 @@ function canBind(port: number): boolean {
  * The role pool has to be a block of ports genuinely free on THIS machine or
  * the allocator's bind-probe would (correctly) skip past the first one and the
  * "first port in the pool" assertion would fail for a reason that has nothing
- * to do with the settings resolver. 42500 keeps clear of endpoint.test.ts's
- * 42100-42400 window so the two suites cannot fight over a port.
+ * to do with the settings resolver. This window keeps clear of
+ * endpoint.test.ts's, and the search starts at a random block because Mac
+ * runners share localhost, so two jobs must not walk up from the same base.
  */
 function findFreePoolBase(size = 6): number {
-  for (let base = 42500; base <= 42800; base += 10) {
+  const first = 46000;
+  const blocks = 300;
+  const start = Math.floor(Math.random() * blocks);
+  for (let i = 0; i < blocks; i++) {
+    const base = first + ((start + i) % blocks) * 10;
     let ok = true;
     for (let p = base; p < base + size; p++) {
       if (!canBind(p)) { ok = false; break; }
     }
     if (ok) return base;
   }
-  throw new Error("no free block of pool ports in 42500-42800 — something local is squatting the range");
+  throw new Error("no free block of pool ports in 46000-48990: something local is squatting the range");
 }
 
 /** Off a terminal rt prints plain text; a styled run is stripped before asserting. */

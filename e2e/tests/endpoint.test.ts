@@ -99,18 +99,23 @@ function canBind(port: number): boolean {
  * The role pool has to be a block of ports that are genuinely free on THIS
  * machine, or the allocator's bind-probe would (correctly) skip past the first
  * one and the "first port in the pool" assertions would fail for a reason that
- * has nothing to do with rt. 42100 is the spec's example base; if something
- * local already owns part of that block we walk up rather than fail.
+ * has nothing to do with rt. The search starts at a random block because Mac
+ * runners share localhost: two jobs walking up from the same base both see it
+ * free, and one then loses it to the other.
  */
 function findFreePoolBase(size = 6): number {
-  for (let base = 42100; base <= 42400; base += 10) {
+  const first = 43000;
+  const blocks = 300;
+  const start = Math.floor(Math.random() * blocks);
+  for (let i = 0; i < blocks; i++) {
+    const base = first + ((start + i) % blocks) * 10;
     let ok = true;
     for (let p = base; p < base + size; p++) {
       if (!canBind(p)) { ok = false; break; }
     }
     if (ok) return base;
   }
-  throw new Error("no free block of pool ports in 42100-42400 — something local is squatting the range");
+  throw new Error("no free block of pool ports in 43000-45990: something local is squatting the range");
 }
 
 /** True once something answers HTTP on `port` (the fake server replies "ok"). */
@@ -241,7 +246,9 @@ describe("rt endpoint / intercept (just-works e2e)", () => {
 
     // The intercepted "real" binary: prints what it was given, and (only when
     // handed a pidfile path) leaves a background HTTP server bound to $PORT so
-    // a later allocation sees a genuinely LISTENING port.
+    // a later allocation sees a genuinely LISTENING port. It exits by itself
+    // because a cancelled job never reaches afterAll, and the runner's orphan
+    // cleanup cannot see it through this test's hermetic env.
     tmpBin = join(home, "testbin");
     mkdirSync(tmpBin, { recursive: true });
     const fakestart = join(tmpBin, "fakestart");
@@ -251,7 +258,7 @@ describe("rt endpoint / intercept (just-works e2e)", () => {
         "#!/bin/sh",
         'echo "PORT=$PORT ARGS=$*"',
         'if [ -n "$PORT" ] && [ -n "$RT_FAKESTART_PIDFILE" ]; then',
-        "  bun -e 'Bun.serve({ port: Number(process.env.PORT), fetch: () => new Response(\"ok\") })' >/dev/null 2>&1 &",
+        "  bun -e 'Bun.serve({ port: Number(process.env.PORT), fetch: () => new Response(\"ok\") }); setTimeout(() => process.exit(0), 600_000)' >/dev/null 2>&1 &",
         '  echo $! > "$RT_FAKESTART_PIDFILE"',
         "fi",
         "",
@@ -325,6 +332,9 @@ describe("rt endpoint / intercept (just-works e2e)", () => {
   }, 60_000);
 
   afterAll(async () => {
+    // A failed assertion can stop the test before it records the server's pid.
+    const pidFile = join(home, "server-main.pid");
+    if (existsSync(pidFile)) serverPids.push(Number(readFileSync(pidFile, "utf8").trim()));
     for (const pid of serverPids) {
       try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ }
     }
