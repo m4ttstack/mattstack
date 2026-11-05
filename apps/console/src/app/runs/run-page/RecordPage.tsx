@@ -3,6 +3,7 @@ import { Badge, Stack, Tabs, Text } from '@mattstack/app-kit/core';
 import { readEvidence } from '@mattstack/rt-client/evidence';
 import { useLocation, useSearch } from 'wouter';
 
+import { useUsageRun } from '../../usage/useUsage';
 import {
   abandonReason,
   recordEnd,
@@ -66,7 +67,8 @@ export function RecordPage({
 
   const end = recordEnd(run, now);
   const meta = `${run.pipeline} pipeline · ${recordSpan(run.started_at, end.at)}`;
-  const stats = recordStats({ run, gates: logGates, now });
+  const cost = useUsageRun(runId);
+  const stats = recordStats({ run, gates: logGates, now, cost: cost.data });
   const evidenceValue = parts.evidenceField?.value;
   const evidence =
     kind === 'work' ? readEvidence(evidenceValue ?? undefined) : null;

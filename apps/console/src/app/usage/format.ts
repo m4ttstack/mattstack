@@ -58,6 +58,37 @@ export function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
+export type MrSort = 'cost' | 'date' | 'output' | 'cacheRead';
+
+export interface MrSortOrder {
+  sort: MrSort;
+  dir: 'asc' | 'desc';
+}
+
+const MR_SORT_VALUE: Record<MrSort, (row: UsageMrRow) => number> = {
+  cost: row => row.totals.cost,
+  date: row => row.lastActivity,
+  output: row => row.totals.output,
+  cacheRead: row => row.totals.cacheRead,
+};
+
+/** Ties fall back to the key so a re-sort never shuffles equal rows. */
+export function sortMrs(
+  rows: UsageMrRow[],
+  { sort, dir }: MrSortOrder
+): UsageMrRow[] {
+  const value = MR_SORT_VALUE[sort];
+  const sign = dir === 'asc' ? 1 : -1;
+  return [...rows].sort(
+    (a, b) => sign * (value(a) - value(b)) || a.mrKey.localeCompare(b.mrKey)
+  );
+}
+
+export function nextMrOrder(order: MrSortOrder, sort: MrSort): MrSortOrder {
+  if (order.sort !== sort) return { sort, dir: 'desc' };
+  return { sort, dir: order.dir === 'desc' ? 'asc' : 'desc' };
+}
+
 /** What an MR's money went on, in words: `work run, 3 rounds`. */
 export function mrSummary(row: UsageMrRow): string {
   const parts: string[] = [];
@@ -93,6 +124,25 @@ const DAY_FORMAT = new Intl.DateTimeFormat('en-US', {
 });
 
 export const shortDay = (at: number) => DAY_FORMAT.format(at);
+
+const DATE_FORMAT = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+});
+
+/** The year only shows when it is not this one. */
+export const shortDate = (at: number, now = Date.now()) =>
+  new Date(at).getFullYear() === new Date(now).getFullYear()
+    ? shortDay(at)
+    : DATE_FORMAT.format(at);
+
+/** `Oct 9`, or `Oct 9 to Oct 10` across days. */
+export function daySpan(from: number, to: number): string {
+  const first = shortDate(from);
+  const last = shortDate(to);
+  return first === last ? first : `${first} to ${last}`;
+}
 
 const TIME_FORMAT = new Intl.DateTimeFormat('en-US', {
   hour: 'numeric',

@@ -78,6 +78,7 @@ const REST_ROUTES: Record<string, { cmd: string; method: string }> = {
   "/api/runs":          { cmd: "runs:list", method: "GET" },
   "/api/usage/mrs":     { cmd: "usage:mrs", method: "GET" },
   "/api/usage/mr":      { cmd: "usage:mr", method: "GET" },
+  "/api/usage/run":     { cmd: "usage:run", method: "GET" },
   "/api/usage/trends":  { cmd: "usage:trends", method: "GET" },
   "/api/usage/status":  { cmd: "usage:status", method: "GET" },
   "/api/reconciler":       { cmd: "reconciler:status", method: "GET" },

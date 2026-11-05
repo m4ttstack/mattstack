@@ -7,7 +7,9 @@ import type {
   UsageMrEntry,
   UsageMrRow,
   UsageMrsData,
+  UsageOutside,
   UsagePipelineRow,
+  UsageRunData,
   UsageSplits,
   UsageStageRow,
   UsageStatusData,
@@ -52,6 +54,7 @@ interface MrDetailRow extends MessageRow {
   stage: string | null;
   attempt: number | null;
   is_subagent: number;
+  outside: UsageOutside | null;
 }
 
 interface Scope {
@@ -295,6 +298,23 @@ export function usageMrs(
   });
 }
 
+export function usageRun(dbPath: string, runId: string): UsageRunData | null {
+  return reading<UsageRunData | null>(dbPath, null, (db) => {
+    const rows = selectMessages(db, { where: "m.run_id = $runId", params: { $runId: runId } }, [
+      "m.mr_key",
+    ]) as MessageRow[];
+    if (rows.length === 0) return null;
+    const totals = emptyTotals();
+    for (const row of rows) add(totals, totalsOf(row));
+
+    const mrKey = rows.find((row) => row.mr_key !== null)?.mr_key ?? null;
+    if (mrKey === null) return { runId, mrKey, totals, mrCost: null };
+    const onMr = selectMessages(db, { where: "m.mr_key = $mrKey", params: { $mrKey: mrKey } }, []) as MessageRow[];
+    const mrCost = onMr.reduce((sum, row) => sum + totalsOf(row).cost, 0);
+    return { runId, mrKey, totals, mrCost };
+  });
+}
+
 interface SplitFold {
   totals: UsageTotals;
   models: Map<string | null, UsageTotals>;
@@ -321,10 +341,20 @@ function splitsOf(fold: SplitFold): UsageSplits & { totals: UsageTotals } {
   };
 }
 
+interface StageFold {
+  name: string | null;
+  attempt: number | null;
+  outside: UsageOutside | null;
+  firstActivity: number;
+  lastActivity: number;
+  subagentCost: number;
+  totals: UsageTotals;
+}
+
 interface EntryFold {
   first: MrDetailRow;
   splits: SplitFold;
-  stages: Map<string, { name: string | null; attempt: number | null; totals: UsageTotals }>;
+  stages: Map<string, StageFold>;
   firstActivity: number;
   lastActivity: number;
 }
@@ -337,9 +367,20 @@ interface StageRecord {
   ended_at: number | null;
 }
 
-function stageKey(name: string | null, attempt: number | null): string {
-  return `${name}\0${attempt}`;
+function stageKey(name: string | null, attempt: number | null, outside: UsageOutside | null = null): string {
+  return `${name}\0${attempt}\0${outside}`;
 }
+
+const IN_RUN_STAGES = "FROM usage_stages s WHERE s.machine_id = m.machine_id AND s.run_id = m.run_id";
+
+const OUTSIDE_STAGES = `CASE
+  WHEN m.stage IS NOT NULL OR m.run_id IS NULL THEN NULL
+  WHEN NOT EXISTS (SELECT 1 ${IN_RUN_STAGES}) THEN 'none'
+  WHEN m.ts < (SELECT MIN(s.started_at) ${IN_RUN_STAGES}) THEN 'before'
+  WHEN m.ts > (SELECT MAX(s.ended_at) ${IN_RUN_STAGES}) THEN 'after'
+  ELSE 'between' END AS outside`;
+
+const OUTSIDE_ORDER: Record<UsageOutside, number> = { before: 0, between: 1, after: 2, none: 3 };
 
 function stageRows(db: Database, entry: EntryFold): UsageStageRow[] {
   const { machine_id, run_id } = entry.first;
@@ -354,21 +395,34 @@ function stageRows(db: Database, entry: EntryFold): UsageStageRow[] {
           .all(machine_id, run_id)
   ) as StageRecord[];
 
-  const rows: UsageStageRow[] = records.map((s) => ({
-    name: s.name,
-    attempt: s.attempt,
-    status: s.status,
-    startedAt: s.started_at,
-    endedAt: s.ended_at,
-    totals: entry.stages.get(stageKey(s.name, s.attempt))?.totals ?? emptyTotals(),
-  }));
+  const rows: UsageStageRow[] = records.map((s) => {
+    const fold = entry.stages.get(stageKey(s.name, s.attempt));
+    return {
+      name: s.name,
+      attempt: s.attempt,
+      outside: null,
+      status: s.status,
+      startedAt: s.started_at,
+      endedAt: s.ended_at,
+      firstActivity: fold?.firstActivity ?? null,
+      lastActivity: fold?.lastActivity ?? null,
+      subagentCost: fold?.subagentCost ?? 0,
+      totals: fold?.totals ?? emptyTotals(),
+    };
+  });
   rows.sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0));
 
   const recorded = new Set(records.map((s) => stageKey(s.name, s.attempt)));
   const unrecorded = [...entry.stages]
     .filter(([key]) => !recorded.has(key))
-    .map(([, s]) => ({ ...s, status: null, startedAt: null, endedAt: null }));
-  return [...rows, ...unrecorded];
+    .map(([, s]) => ({ ...s, status: null, startedAt: null, endedAt: null }))
+    .sort((a, b) => outsideRank(a.outside) - outsideRank(b.outside));
+  const before = unrecorded.filter((s) => s.outside === "before");
+  return [...before, ...rows, ...unrecorded.filter((s) => s.outside !== "before")];
+}
+
+function outsideRank(outside: UsageOutside | null): number {
+  return outside === null ? -1 : OUTSIDE_ORDER[outside];
 }
 
 function entryRow(db: Database, entry: EntryFold, round: number | null): UsageMrEntry {
@@ -406,6 +460,7 @@ export function usageMr(dbPath: string, mrKey: string): UsageMrData | null {
         "m.stage",
         "m.attempt",
         "m.subagent_id IS NOT NULL AS is_subagent",
+        OUTSIDE_STAGES,
       ],
     ) as MrDetailRow[];
     if (rows.length === 0) return null;
@@ -436,13 +491,24 @@ export function usageMr(dbPath: string, mrKey: string): UsageMrData | null {
       entry.firstActivity = Math.min(entry.firstActivity, row.first_ts);
       entry.lastActivity = Math.max(entry.lastActivity, row.last_ts);
 
-      const stageId = stageKey(row.stage, row.attempt);
+      const stageId = stageKey(row.stage, row.attempt, row.outside);
       let stage = entry.stages.get(stageId);
       if (!stage) {
-        stage = { name: row.stage, attempt: row.attempt, totals: emptyTotals() };
+        stage = {
+          name: row.stage,
+          attempt: row.attempt,
+          outside: row.outside,
+          firstActivity: row.first_ts,
+          lastActivity: row.last_ts,
+          subagentCost: 0,
+          totals: emptyTotals(),
+        };
         entry.stages.set(stageId, stage);
       }
       add(stage.totals, delta);
+      stage.firstActivity = Math.min(stage.firstActivity, row.first_ts);
+      stage.lastActivity = Math.max(stage.lastActivity, row.last_ts);
+      if (row.is_subagent) stage.subagentCost += delta.cost;
     }
 
     const startOf = (e: EntryFold) => e.first.started_at ?? e.firstActivity;

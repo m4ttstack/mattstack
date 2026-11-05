@@ -103,14 +103,29 @@ function entry(s: EntrySpec): UsageMrEntry {
         return {
           name,
           attempt,
+          outside: 'after',
           status,
           startedAt: null,
           endedAt: null,
+          firstActivity: at,
+          lastActivity: at + HOUR,
+          subagentCost: 0,
           totals,
         };
       const startedAt = at;
       at += span;
-      return { name, attempt, status, startedAt, endedAt: at, totals };
+      return {
+        name,
+        attempt,
+        outside: null,
+        status,
+        startedAt,
+        endedAt: at,
+        firstActivity: startedAt,
+        lastActivity: at,
+        subagentCost: 0,
+        totals,
+      };
     }
   );
   return {

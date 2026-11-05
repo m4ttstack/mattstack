@@ -41,7 +41,12 @@ export const HeaderMerged: S = {
       }}
       stats={[
         { id: 'duration', value: '2h 32m', label: 'start to merge' },
-        { id: 'decisions', value: '8', label: 'decisions' },
+        {
+          id: 'cost',
+          value: '$41.20',
+          label: 'of $162.61 on this MR',
+          href: '/usage/acme',
+        },
         { id: 'took', value: '6 of 8', label: 'took the recommendation' },
         { id: 'waiting', value: '25m', label: 'waiting on you' },
       ]}
@@ -59,7 +64,7 @@ export const HeaderAbandoned: S = {
       outcome={{ status: 'abandoned' }}
       stats={[
         { id: 'duration', value: '2h 32m', label: 'start to end' },
-        { id: 'decisions', value: '3', label: 'decisions' },
+        { id: 'cost', value: '$12.04', label: 'estimated cost' },
         { id: 'waiting', value: '40m', label: 'waiting on you' },
       ]}
       abandoned="“Superseded by WEB-430”"
@@ -80,7 +85,12 @@ export const HeaderReview: S = {
       }}
       stats={[
         { id: 'duration', value: '23m', label: 'start to end' },
-        { id: 'decisions', value: '1', label: 'decision' },
+        {
+          id: 'cost',
+          value: '$3.10',
+          label: 'of $41.20 on this MR',
+          href: '/usage/acme',
+        },
         { id: 'waiting', value: '6m', label: 'waiting on you' },
       ]}
     />

@@ -1,6 +1,7 @@
 import {
   usageMr,
   usageMrs,
+  usageRun,
   usageStatus,
   usageTrends,
 } from '@mattstack/rt-client';
@@ -46,6 +47,15 @@ export function usageRoutes(fixture: RunsFixture | null = null) {
       if (fixture?.outage) return c.json({ error: FIXTURE_OUTAGE }, 502);
       if (fixture) return c.json(fixture.usage.mr(mrKey), 200);
       const res = await usageMr(mrKey);
+      if (!res.ok) return c.json({ error: res.error }, 502);
+      return c.json(res.data ?? null, 200);
+    })
+    .get('/api/usage/run', async c => {
+      const runId = c.req.query('runId');
+      if (!runId) return c.json({ error: 'runId is required' }, 400);
+      if (fixture?.outage) return c.json({ error: FIXTURE_OUTAGE }, 502);
+      if (fixture) return c.json(null, 200);
+      const res = await usageRun(runId);
       if (!res.ok) return c.json({ error: res.error }, 502);
       return c.json(res.data ?? null, 200);
     })

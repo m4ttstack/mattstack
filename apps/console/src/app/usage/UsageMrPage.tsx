@@ -56,6 +56,11 @@ function StepLine({ row, whole }: { row: StepRow; whole: number }) {
         <Text fz="md" fw={group ? 700 : 400} lh="normal">
           {row.label}
         </Text>
+        {row.note ? (
+          <Text fz="sm" c="dimmed" lh="normal" mt={2}>
+            {row.note}
+          </Text>
+        ) : null}
       </Table.Td>
       <Table.Td ta="right" c="dimmed">
         {compact(row.totals.messages)}

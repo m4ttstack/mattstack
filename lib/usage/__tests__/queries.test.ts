@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { usageMr, usageMrs, usageStatus, usageTrends } from "../queries.ts";
+import { usageMr, usageMrs, usageRun, usageStatus, usageTrends } from "../queries.ts";
 import { openUsageDb } from "../store.ts";
 
 const M = "machine-a";
@@ -178,6 +178,26 @@ function seedMixedMr(): void {
   message({ runId: "v", mrKey: MR_A, input: 3 * MILLION, ts: NOW - 3 * DAY });
   message({ session: "s-doc", mrKey: MR_A, input: 4 * MILLION, ts: NOW - 2 * DAY, attribution: "session" });
 }
+
+test("a run reports its own cost beside its MR's whole cost", () => {
+  seedMixedMr();
+  const run = usageRun(dbPath, "r")!;
+  expect(run.mrKey).toBe(MR_A);
+  expect(run.totals.cost).toBeCloseTo(10, 6);
+  expect(run.mrCost).toBeCloseTo(50, 6);
+});
+
+test("a run with no MR has no MR cost", () => {
+  message({ runId: "loose", input: MILLION, ts: NOW - DAY });
+  const run = usageRun(dbPath, "loose")!;
+  expect(run.mrKey).toBeNull();
+  expect(run.mrCost).toBeNull();
+  expect(run.totals.cost).toBeCloseTo(5, 6);
+});
+
+test("a run with no messages reads as nothing", () => {
+  expect(usageRun(dbPath, "missing")).toBeNull();
+});
 
 test("an MR total adds work, respond, review and doctor", () => {
   seedMixedMr();
@@ -433,6 +453,36 @@ test("usageMr lists runs in time order with their stages", () => {
     [null, null, 7],
   ]);
   expect(first!.stages[0]!.status).toBe("done");
+});
+
+test("a run's messages outside its stages split by when they fell", () => {
+  const start = NOW - 2 * DAY;
+  run("w", { mrKey: MR_A, startedAt: start });
+  stage("w", "plan", 1, start);
+  stage("w", "ship", 1, start + 5000);
+  const outside = { runId: "w", mrKey: MR_A, attribution: "session" };
+  message({ ...outside, input: 1, ts: start - 100 });
+  message({ runId: "w", mrKey: MR_A, input: 2, stage: "plan", attempt: 1, attribution: "stage", ts: start + 10 });
+  message({ ...outside, input: 3, ts: start + 2000 });
+  message({ ...outside, input: 4, ts: start + 9000 });
+  message({ ...outside, input: 5, ts: start + 9500 });
+  const rows = usageMr(dbPath, MR_A)!.runs[0]!.stages;
+  expect(rows.map((s) => [s.name, s.outside, s.totals.input])).toEqual([
+    [null, "before", 1],
+    ["plan", null, 2],
+    ["ship", null, 0],
+    [null, "between", 3],
+    [null, "after", 9],
+  ]);
+  const after = rows.at(-1)!;
+  expect([after.firstActivity, after.lastActivity]).toEqual([start + 9000, start + 9500]);
+});
+
+test("a run with no stages keeps its messages on one row", () => {
+  run("w", { mrKey: MR_A });
+  message({ runId: "w", mrKey: MR_A, input: 7, attribution: "run" });
+  const rows = usageMr(dbPath, MR_A)!.runs[0]!.stages;
+  expect(rows.map((s) => [s.name, s.outside, s.totals.input])).toEqual([[null, "none", 7]]);
 });
 
 test("by-model and main-vs-subagent splits add up to the total", () => {

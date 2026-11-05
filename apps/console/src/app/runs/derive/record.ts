@@ -3,9 +3,11 @@ import type {
   GateRow,
   RunFieldRow,
   RunSummary,
+  UsageRunData,
 } from '@mattstack/rt-client';
 
 import { isMine } from '../../../shared/gate-waiting';
+import { usageMrHref, usd } from '../../usage/format';
 import { contextSchema } from './answers';
 import { formatClock } from './clock';
 import { formatDuration } from './duration';
@@ -64,18 +66,34 @@ export function recommendationTally(gates: GateRow[]): {
   return { took, of };
 }
 
-export type RecordStatId = 'duration' | 'decisions' | 'took' | 'waiting';
+export type RecordStatId = 'duration' | 'cost' | 'took' | 'waiting';
 
 export interface RecordStat {
   id: RecordStatId;
   value: string;
   label: string;
+  /** Where the label goes, when it opens more. */
+  href?: string;
 }
 
 export interface RecordStatsInput {
   run: RunSummary;
   gates: GateRow[];
   now: number;
+  /** Absent until the sweep has read the run. */
+  cost?: UsageRunData | null;
+}
+
+function costStat({ totals, mrKey, mrCost }: UsageRunData): RecordStat {
+  const value = usd(totals.cost);
+  if (mrKey === null || mrCost === null)
+    return { id: 'cost', value, label: 'estimated cost' };
+  return {
+    id: 'cost',
+    value,
+    label: `of ${usd(mrCost)} on this MR`,
+    href: usageMrHref(mrKey),
+  };
 }
 
 /** The record header's numbers, each only where it applies to the run. */
@@ -83,6 +101,7 @@ export function recordStats({
   run,
   gates,
   now,
+  cost = null,
 }: RecordStatsInput): RecordStat[] {
   const end = recordEnd(run, now);
   const stats: RecordStat[] = [
@@ -92,13 +111,7 @@ export function recordStats({
       label: end.merged ? 'start to merge' : 'start to end',
     },
   ];
-  const decided = answeredQuestionCount(gates);
-  if (decided > 0)
-    stats.push({
-      id: 'decisions',
-      value: String(decided),
-      label: decided === 1 ? 'decision' : 'decisions',
-    });
+  if (cost) stats.push(costStat(cost));
   const tally = recommendationTally(gates);
   if (tally.of > 0)
     stats.push({

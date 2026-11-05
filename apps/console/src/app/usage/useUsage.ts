@@ -65,6 +65,20 @@ export function useUsageMr(mrKey: string) {
   });
 }
 
+/** A missing cost only hides one number on the run page, so it never retries. */
+export function useUsageRun(runId: string) {
+  return useQuery({
+    queryKey: ['usage', 'run', runId],
+    staleTime: STALE_MS,
+    retry: false,
+    queryFn: async () => {
+      const res = await client.api.usage.run.$get({ query: { runId } });
+      if (!res.ok) throw await readApiError(res, 'usage');
+      return res.json();
+    },
+  });
+}
+
 export function useUsageStatus() {
   return useQuery({
     queryKey: ['usage', 'status'],

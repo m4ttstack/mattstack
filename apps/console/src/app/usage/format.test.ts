@@ -6,6 +6,9 @@ import {
   modelName,
   mrParts,
   mrSummary,
+  nextMrOrder,
+  shortDate,
+  sortMrs,
   usageMrHref,
   usd,
 } from './format';
@@ -19,6 +22,55 @@ function row(over: Partial<UsageMrRow>): UsageMrRow {
     ...over,
   } as UsageMrRow;
 }
+
+describe('MR sorting', () => {
+  const rows = [
+    row({ mrKey: 'a', lastActivity: 1, totals: { cost: 5 } as never }),
+    row({ mrKey: 'b', lastActivity: 3, totals: { cost: 1 } as never }),
+    row({ mrKey: 'c', lastActivity: 2, totals: { cost: 5 } as never }),
+  ];
+  const keys = (list: UsageMrRow[]) => list.map(r => r.mrKey);
+
+  it('sorts by date both ways', () => {
+    expect(keys(sortMrs(rows, { sort: 'date', dir: 'desc' }))).toEqual([
+      'b',
+      'c',
+      'a',
+    ]);
+    expect(keys(sortMrs(rows, { sort: 'date', dir: 'asc' }))).toEqual([
+      'a',
+      'c',
+      'b',
+    ]);
+  });
+
+  it('breaks a tie by key and leaves the input alone', () => {
+    expect(keys(sortMrs(rows, { sort: 'cost', dir: 'desc' }))).toEqual([
+      'a',
+      'c',
+      'b',
+    ]);
+    expect(keys(rows)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('starts a new column highest first, then flips it', () => {
+    const date = nextMrOrder({ sort: 'cost', dir: 'asc' }, 'date');
+    expect(date).toEqual({ sort: 'date', dir: 'desc' });
+    expect(nextMrOrder(date, 'date')).toEqual({ sort: 'date', dir: 'asc' });
+  });
+});
+
+describe('shortDate', () => {
+  const now = new Date(2026, 10, 5).getTime();
+
+  it('drops the year when it is this one', () => {
+    expect(shortDate(new Date(2026, 9, 8).getTime(), now)).toBe('Oct 8');
+  });
+
+  it('keeps an older year', () => {
+    expect(shortDate(new Date(2025, 9, 8).getTime(), now)).toBe('Oct 8, 2025');
+  });
+});
 
 describe('usage format', () => {
   it('reads the repo and number out of an MR key', () => {

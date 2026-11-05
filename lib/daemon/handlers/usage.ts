@@ -1,10 +1,11 @@
-import { usageMr, usageMrs, usageStatus, usageTrends } from "../../usage/queries.ts";
+import { usageMr, usageMrs, usageRun, usageStatus, usageTrends } from "../../usage/queries.ts";
 import { usageDbPath } from "../../usage/store.ts";
 import type { HandlerContext, CommandResult } from "./types.ts";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 
 type UsageHandlers = { "usage:mrs": (payload: unknown) => Promise<CommandResult<"usage:mrs">> }
   & { "usage:mr": (payload: unknown) => Promise<CommandResult<"usage:mr">> }
+  & { "usage:run": (payload: unknown) => Promise<CommandResult<"usage:run">> }
   & { "usage:trends": (payload: unknown) => Promise<CommandResult<"usage:trends">> }
   & { "usage:status": (payload: unknown) => Promise<CommandResult<"usage:status">> };
 
@@ -54,6 +55,17 @@ export function createUsageHandlers(
         return { ok: true as const, data: usageMr(dbPath(), mrKey) };
       } catch (err) {
         ctx.log.warn({ err, mrKey }, "usage:mr failed");
+        return { ok: false as const, error: String(err) };
+      }
+    },
+    "usage:run": async (rawPayload: unknown): Promise<CommandResult<"usage:run">> => {
+      const payload = rawPayload as Commands["usage:run"]["payload"] | undefined;
+      const runId = typeof payload?.runId === "string" ? payload.runId.trim() : "";
+      if (!runId) return { ok: false as const, error: "missing runId" };
+      try {
+        return { ok: true as const, data: usageRun(dbPath(), runId) };
+      } catch (err) {
+        ctx.log.warn({ err, runId }, "usage:run failed");
         return { ok: false as const, error: String(err) };
       }
     },
