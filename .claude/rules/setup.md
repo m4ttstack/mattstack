@@ -166,10 +166,11 @@ only spawns the verb, opens the Setup status window when its `done` line
 carries `needsYou`, and routes the `setup_update` notification click to that
 window; put no decision in Swift. `runUpdateWith` sets `needsYou` when a step
 needs the person or failed, or when a whole `rt setup form` read
-(`setupNeedsYou`) lands on any stage but ready, so a row no update step owns
-still opens it. Only a run that stamps the version sets it, so a Mac left
-not-ready opens the window once per version; a retry and a step bug never set
-it, since neither stamps. The window opens whether or not notifications are on;
+(`setupNeedsYou`) lands on a stage the person can act on (`stageNeedsYou` in
+`lib/setup/update.ts`), so a row no update step owns still opens it. Only a
+run that stamps the version sets it, so a Mac left not-ready opens the window
+once per version; a retry and a step bug never set it, since neither stamps,
+and a `dev` version never reads the form, since it never stamps as current. The window opens whether or not notifications are on;
 the notification still lists only the steps.
 
 ## Your repos

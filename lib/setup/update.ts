@@ -5,6 +5,7 @@
  */
 
 import { updateAttention, type UpdateOutcome } from "./apply.ts";
+import type { FormStage } from "./form.ts";
 import type { Probes } from "./probes.ts";
 import { isSetupFinished, readSetupState } from "./state.ts";
 
@@ -40,6 +41,23 @@ export function decideUpdate(p: Pick<Probes, "exists" | "home" | "readFile" | "n
 }
 
 export const SETUP_UPDATE_CATEGORY = "setup_update";
+
+/**
+ * The setup status stages that open the window after an update: a screen the
+ * person can act on. Waiting is on an admin, running is another run's bar, and
+ * macos also reads as todo when the tray does not answer the permissions read
+ * in time, so none of those opens it.
+ */
+const STAGES_THAT_NEED_YOU: ReadonlySet<FormStage> = new Set<FormStage>(["invite", "paused", "tools", "connect", "this-mac"]);
+
+export function stageNeedsYou(stage: FormStage | null): boolean {
+  return stage !== null && STAGES_THAT_NEED_YOU.has(stage);
+}
+
+/** A `dev` version never stamps as current, so a setup status read there would open the window at every launch. */
+export function readsSetupStatusAfterUpdate(version: string): boolean {
+  return version !== DEV_VERSION;
+}
 
 export function updateNotification(version: string, outcomes: UpdateOutcome[]): { id: string; title: string; message: string } | null {
   const attention = updateAttention(outcomes);

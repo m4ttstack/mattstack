@@ -28,7 +28,7 @@ import { createApplyContext, runApplyWith, runUpdateWith, type ApplyContext, typ
 import { APPLY_RUN_LOCK_MAX_AGE_MS, applyRunLockPath, attachToRun, recordingEmit, resumePoint } from "../lib/setup/apply-run.ts";
 import { ignoreClosedPipes } from "../lib/setup/closed-pipes.ts";
 import { MIGRATIONS, type MigrationDef } from "../lib/setup/migrations/index.ts";
-import { decideUpdate, pendingMigrationIds, rtVersion, updateNotification, SETUP_UPDATE_CATEGORY } from "../lib/setup/update.ts";
+import { decideUpdate, pendingMigrationIds, readsSetupStatusAfterUpdate, rtVersion, stageNeedsYou, updateNotification, SETUP_UPDATE_CATEGORY } from "../lib/setup/update.ts";
 import { createUpdateLock, lockHeldByLiveRun, updateLockPath, type UpdateLock } from "../lib/setup/update-lock.ts";
 import { readSetupState, updateSetupState } from "../lib/setup/state.ts";
 import { notifyEnabled } from "../lib/notifier.ts";
@@ -212,7 +212,7 @@ export function realApplyDeps(): ApplyDeps {
       return confirm({ message });
     },
     notify: (category, title, message, id) => notifyEnabled(category, title, message, undefined, undefined, id),
-    setupNeedsYou: async () => (await composeForm(probes, { secrets: realSecretPresence(), orgs: listOrgs() })).stage !== "ready",
+    setupNeedsYou: async () => stageNeedsYou((await composeForm(probes, { secrets: realSecretPresence(), orgs: listOrgs() })).stage),
     devAppNotice: () => devAppNotice({ probes, flavor: processFlavor(), gh: () => resolveTool(probes, "gh").exec }),
     updateLock: createUpdateLock(updateLockPath(probes.home)),
     runLock: createUpdateLock(runLockPath, { maxAgeMs: APPLY_RUN_LOCK_MAX_AGE_MS }),
@@ -577,7 +577,7 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
     });
     await human?.settle();
     const retry = decision.kind === "run" && decision.retry === true;
-    const result: UpdateRunResult = await runUpdateWith(deps.steps ?? STEPS, deps.migrations ?? MIGRATIONS, ctx, { retry, ...(deps.setupNeedsYou ? { setupNeedsYou: deps.setupNeedsYou } : {}) });
+    const result: UpdateRunResult = await runUpdateWith(deps.steps ?? STEPS, deps.migrations ?? MIGRATIONS, ctx, { retry, ...(deps.setupNeedsYou && readsSetupStatusAfterUpdate(version) ? { setupNeedsYou: deps.setupNeedsYou } : {}) });
     const lastId = result.outcomes.at(-1)?.id;
     if (lockError && lastId) emit({ event: "log", id: lastId, line: `warn: setup update lock not taken, running unguarded: ${lockError}` });
 

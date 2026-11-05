@@ -194,6 +194,14 @@ describe("rt setup update", () => {
     expect(jsonEvents(next.lines)).toEqual([{ event: "done", ok: true, skipped: "current" }]);
   });
 
+  test("a dev build never opens Setup status for setup status alone, since it runs at every launch", async () => {
+    let reads = 0;
+    const deps = updateDeps({ probes: fakeProbes({ files: { [DAEMON]: "{}" } }), version: "dev", setupNeedsYou: async () => { reads++; return true; } });
+    await run(deps, ["--json"]);
+    expect(reads).toBe(0);
+    expect(jsonEvents(deps.lines).at(-1)).toEqual({ event: "done", ok: true });
+  });
+
   test("a run streams plan, steps and done, stamps the version, prints the summary, exits 0 and posts nothing when all clear", async () => {
     const deps = updateDeps({ probes: fakeProbes({ files: { [DAEMON]: "{}" } }) });
     const cap = capturePlain();
