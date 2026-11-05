@@ -404,6 +404,23 @@ let formActionRunnerChecks: [Check] = [
         c.expectEqual(await MainActor.run { runner.errors[id] }, nil, "rt's failed row carries the failure")
         c.expectEqual(await MainActor.run { runner.waiting[id] }, nil)
     },
+    Check("FormActionRunner: a failed install press whose read comes back done shows no error") { c in
+        let rt = ScriptedRt()
+        let box = await MainActor.run { RunnerBox() }
+        let id = "tool.team.doppler"
+        let readBack = FormRow(id: id, title: "Doppler", subtext: "", state: .done, detail: "doppler 3.75.3")
+        let runner = await MainActor.run {
+            FormActionRunner(rt: rt, needs: NeedBroker(services: FakeServices(), privileged: FakePrivileged()), effects: FakeEffects(log: EventLog())) {
+                box.runner?.reconcile(with: [readBack])
+            }
+        }
+        await MainActor.run { box.runner = runner }
+        let row = FormRow(id: id, title: "Doppler", subtext: "", state: .todo, detail: "",
+                          action: RowAction(type: .install, label: "Install", tool: "doppler", via: "brew"), waiting: "Installing…")
+        await runner.perform(row)
+        c.expectEqual(await MainActor.run { runner.errors[id] }, nil)
+        c.expectEqual(await MainActor.run { runner.waiting[id] }, nil)
+    },
     Check("FormActionRunner: a press of a row's second action shows its steps, and the row's own action still runs its install") { c in
         let rt = ScriptedRt()
         let (runner, _) = await makeRunner(rt, log: EventLog())

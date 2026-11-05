@@ -64,8 +64,8 @@ public final class FormActionRunner: ObservableObject {
     /// `setup slack connect` would open a second Allow tab on a callback port already taken.
     @Published public private(set) var running: Set<String> = []
 
-    /// Rows rt's last read drew as failed.
-    private var readFailed: Set<String> = []
+    /// Rows rt's last read drew as failed or done: either way the app's own error has nothing left to say.
+    private var readSettled: Set<String> = []
 
     private let rt: RtRunning
     private let needs: NeedBroker
@@ -122,7 +122,7 @@ public final class FormActionRunner: ObservableObject {
         await reload()
         if let heldError {
             waiting[row.id] = nil
-            if !readFailed.contains(row.id) { errors[row.id] = heldError }
+            if !readSettled.contains(row.id) { errors[row.id] = heldError }
         }
     }
 
@@ -140,7 +140,7 @@ public final class FormActionRunner: ObservableObject {
 
     public func reconcile(with rows: [FormRow]) {
         for row in rows {
-            if row.tone == .failed { readFailed.insert(row.id) } else { readFailed.remove(row.id) }
+            if row.tone == .failed || row.state == .done { readSettled.insert(row.id) } else { readSettled.remove(row.id) }
             if row.state == .done { waiting[row.id] = nil }
             if row.state == .done || row.tone == .failed { errors[row.id] = nil }
         }
