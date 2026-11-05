@@ -55,7 +55,7 @@ describe("parseRequirements", () => {
     const result = parseRequirements("acme", JSON.stringify({ tools: [{ name, why: "fine" }, { name: "ok", why: "fine" }], integrations: [] }));
 
     expect(result.tools).toEqual([{ name: "ok", why: "fine" }]);
-    expect(result.error).toContain("tools[0]");
+    expect(result.error).toBe('pack "acme": tools[0] name must be a plain command like "gh", with no path or spaces, skipped');
   });
 
   test.each(["gh", "acme-api", "node20", "python3.12", "g++", "foo_bar"])("a bare command name is kept: %p", (name) => {

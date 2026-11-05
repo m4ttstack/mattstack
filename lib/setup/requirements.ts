@@ -95,8 +95,11 @@ const BARE_COMMAND = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/;
 function parseToolRequirement(t: unknown, index: number, packName: string): { tool: ToolRequirement | null; error?: string } {
   if (typeof t !== "object" || t === null) return { tool: null, error: `${packLabel(packName)}tools[${index}] is malformed, skipped` };
   const o = t as Record<string, unknown>;
-  if (typeof o.name !== "string" || typeof o.why !== "string" || !BARE_COMMAND.test(o.name)) {
+  if (typeof o.name !== "string" || typeof o.why !== "string") {
     return { tool: null, error: `${packLabel(packName)}tools[${index}] is malformed, skipped` };
+  }
+  if (!BARE_COMMAND.test(o.name)) {
+    return { tool: null, error: `${packLabel(packName)}tools[${index}] name must be a plain command like "gh", with no path or spaces, skipped` };
   }
 
   const result: ToolRequirement = { name: o.name, why: o.why };
