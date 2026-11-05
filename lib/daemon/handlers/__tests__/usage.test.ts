@@ -64,6 +64,15 @@ describe("usage handlers", () => {
     expect((await h["usage:trends"]({ days: 3650 })).ok).toBe(true);
   });
 
+  test("usage:activity needs a run or a session, and has no REST route", async () => {
+    expect((await make()["usage:activity"]({})).ok).toBe(false);
+    const res = await make()["usage:activity"]({ runId: "missing" });
+    expect(res.ok).toBe(true);
+    expect(res.data).toBeNull();
+    const routes = await Bun.file(new URL("../../api-server.ts", import.meta.url)).text();
+    expect(routes).not.toContain("usage:activity");
+  });
+
   test("usage:status returns ok with no database", async () => {
     const res = await make()["usage:status"]({});
     expect(res.ok).toBe(true);

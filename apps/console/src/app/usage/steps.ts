@@ -1,4 +1,5 @@
 import type {
+  UsageActivityQuery,
   UsageKind,
   UsageMrData,
   UsageMrEntry,
@@ -18,6 +19,8 @@ export type StepRow =
       kind: UsageKind;
       /** The line under the label: when, and how much was subagents. */
       note?: string;
+      /** Names this row to read what its session was doing. */
+      activity: UsageActivityQuery;
       totals: UsageTotals;
     }
   | { type: 'elsewhere'; key: string; label: string };
@@ -59,6 +62,25 @@ function groupLabel(entry: UsageMrEntry): string {
   }
 }
 
+function entryActivity(entry: UsageMrEntry): UsageActivityQuery {
+  return entry.runId
+    ? { runId: entry.runId }
+    : { sessionId: entry.sessionId ?? '' };
+}
+
+function stageActivity(
+  entry: UsageMrEntry,
+  stage: UsageStageRow
+): UsageActivityQuery {
+  const scope = entryActivity(entry);
+  if (stage.outside) return { ...scope, outside: stage.outside };
+  return {
+    ...scope,
+    stage: stage.name ?? '',
+    attempt: stage.attempt ?? 1,
+  };
+}
+
 function entryKey(entry: UsageMrEntry): string {
   return entry.runId ?? entry.sessionId ?? String(entry.firstActivity);
 }
@@ -75,6 +97,7 @@ export function stepRows(mr: UsageMrData): StepRow[] {
       label: groupLabel(entry),
       level: 'group',
       kind: entry.kind,
+      activity: entryActivity(entry),
       totals: entry.totals,
     };
     if (entry.kind === 'respond') {
@@ -91,6 +114,7 @@ export function stepRows(mr: UsageMrData): StepRow[] {
           label: 'Your response',
           level: 'child',
           kind: entry.kind,
+          activity: entryActivity(entry),
           totals: entry.totals,
         },
       ];
@@ -105,6 +129,7 @@ export function stepRows(mr: UsageMrData): StepRow[] {
         note: outsideNote(stage),
         level: 'child',
         kind: entry.kind,
+        activity: stageActivity(entry, stage),
         totals: stage.totals,
       })),
     ];

@@ -46,6 +46,18 @@ const mr = (runs: UsageMrEntry[]) => ({ runs }) as UsageMrData;
 const labels = (runs: UsageMrEntry[]) =>
   stepRows(mr(runs)).map(row => row.label);
 
+const STAGE = {
+  attempt: 1,
+  outside: null,
+  status: 'done',
+  startedAt: 1,
+  endedAt: 2,
+  firstActivity: 1,
+  lastActivity: 2,
+  subagentCost: 0,
+  totals: totals(1),
+};
+
 describe('stepRows', () => {
   it('lists a work run with its stages under it', () => {
     const stage = {
@@ -96,6 +108,27 @@ describe('stepRows', () => {
       label: 'Between stages',
       note: 'Oct 9 to Oct 10, 50% subagents',
     });
+  });
+
+  it('names the stage or window a row reads its activity from', () => {
+    const rows = stepRows(
+      mr([
+        entry('work', {
+          runId: 'r',
+          stages: [
+            { ...STAGE, name: 'ship', attempt: 2 },
+            { ...STAGE, name: null, attempt: null, outside: 'after' },
+          ],
+        }),
+      ])
+    );
+    expect(
+      rows.map(row => (row.type === 'step' ? row.activity : null))
+    ).toEqual([
+      { runId: 'r' },
+      { runId: 'r', stage: 'ship', attempt: 2 },
+      { runId: 'r', outside: 'after' },
+    ]);
   });
 
   it('shows the teammate review a round answers, then the response', () => {

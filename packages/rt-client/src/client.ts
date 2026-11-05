@@ -22,6 +22,8 @@ import type {
   UsageMrsData,
   UsageMrData,
   UsageRunData,
+  UsageActivityData,
+  UsageActivityQuery,
   UsageTrendsData,
   UsageStatusData,
   ChatMember,
@@ -218,6 +220,17 @@ export function usageRun(
   opts: RtClientOptions = {},
 ): Promise<RtResponse<UsageRunData | null>> {
   return rtCommand<UsageRunData | null>("usage:run", { runId }, { sockPath: opts.sockPath, timeoutMs: 10_000 });
+}
+
+export function usageActivity(
+  q: UsageActivityQuery,
+  opts: RtClientOptions = {},
+): Promise<RtResponse<UsageActivityData | null>> {
+  return rtCommand<UsageActivityData | null>(
+    "usage:activity",
+    { ...q },
+    { sockPath: opts.sockPath, timeoutMs: 10_000 },
+  );
 }
 
 export function usageTrends(
