@@ -63,6 +63,35 @@ describe("base reference skills on the surface", () => {
     expect(skillMd).not.toContain("allowed-tools");
   });
 
+  test("a door carries allowed-tools rules that do not name the skill's folder", () => {
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), "---\nname: feature-flags\ndescription: Flags\nallowed-tools: Bash(gh api:*), Bash(${CLAUDE_SKILL_DIR}/run.sh:*), Read\n---\nFlags.\n");
+    const skillMd = (planFor("feature-flags").doors[0]!.files[0] as { content: string }).content;
+    expect(skillMd).toContain('allowed-tools:\n  - "Bash(gh api:*)"\n  - "Read"\n---\n');
+    expect(skillMd).not.toContain("run.sh");
+  });
+
+  test("a list of allowed-tools carries over the same way", () => {
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), "---\nname: feature-flags\ndescription: Flags\nallowed-tools:\n  - Bash(git log, git show)\n  - Bash(${CLAUDE_SKILL_DIR}/run.sh)\n---\nFlags.\n");
+    const skillMd = (planFor("feature-flags").doors[0]!.files[0] as { content: string }).content;
+    expect(skillMd).toContain('allowed-tools:\n  - "Bash(git log, git show)"\n---\n');
+  });
+
+  test("a door with only folder rules carries no allowed-tools", () => {
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), "---\nname: feature-flags\ndescription: Flags\nallowed-tools: Bash(${CLAUDE_SKILL_DIR}/run.sh:*)\n---\nFlags.\n");
+    expect((planFor("feature-flags").doors[0]!.files[0] as { content: string }).content).not.toContain("allowed-tools");
+  });
+
+  test("a door hands its arguments on when the skill names them", () => {
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), "---\nname: feature-flags\ndescription: Flags\n---\nCheck the flag $ARGUMENTS.\n");
+    const skillMd = (planFor("feature-flags").doors[0]!.files[0] as { content: string }).content;
+    expect(skillMd).toEndWith("follow it. It names its arguments with placeholders that are not filled in there. The arguments are: $ARGUMENTS\n");
+  });
+
+  test("a door for a skill that names no arguments says nothing of them", () => {
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), reference);
+    expect((planFor("feature-flags").doors[0]!.files[0] as { content: string }).content).not.toContain("ARGUMENTS");
+  });
+
   test("a door keeps a skill's own disable-model-invocation", () => {
     put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), "---\nname: feature-flags\ndescription: Flags\ndisable-model-invocation: true\n---\nFlags.\n");
     expect((planFor("feature-flags").doors[0]!.files[0] as { content: string }).content).toContain("disable-model-invocation: true\n");

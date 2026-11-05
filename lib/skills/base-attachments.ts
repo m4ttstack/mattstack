@@ -123,13 +123,54 @@ function doorRefusal(packDir: string, label: string, name: string, skillMd: stri
   return null;
 }
 
-/** Only what names the skill: anything else in the frontmatter, such as allowed-tools, reads paths from the attachments copy. */
+const SKILL_DIR_TOKEN = "${CLAUDE_SKILL_DIR}";
+
+/** Splits an allowed-tools string at the commas outside parentheses, so `Bash(a, b)` stays one rule. */
+function splitToolRules(value: string): string[] {
+  const rules: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    if (ch === "(") depth++;
+    else if (ch === ")") depth = Math.max(0, depth - 1);
+    else if (ch === "," && depth === 0) {
+      rules.push(value.slice(start, i));
+      start = i + 1;
+    }
+  }
+  rules.push(value.slice(start));
+  return rules.map((rule) => rule.trim()).filter((rule) => rule !== "");
+}
+
+/** A rule naming the skill's own folder would mean the door's folder, not the copy's, so only rules without it carry over. */
+function doorToolRules(value: unknown): string[] {
+  const rules = typeof value === "string" ? splitToolRules(value) : Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+  return rules.filter((rule) => !rule.includes(SKILL_DIR_TOKEN));
+}
+
+/** Only what names the skill and what holds wherever it is read from; anything that reads paths from the copy stays there. */
 function doorHead(name: string, skillMd: string): string {
   const { frontmatter } = stripFrontmatter(skillMd);
   const lines = [`name: ${name}`];
   lines.push(`description: ${JSON.stringify(frontmatter.description)}`);
   if (frontmatter["disable-model-invocation"] === true) lines.push("disable-model-invocation: true");
+  const rules = doorToolRules(frontmatter["allowed-tools"]);
+  if (rules.length > 0) lines.push("allowed-tools:", ...rules.map((rule) => `  - ${JSON.stringify(rule)}`));
   return `---\n${lines.join("\n")}\n---\n`;
+}
+
+/** Claude Code fills in arguments only in the skill it loads, so the copy read by path never gets them. */
+const ARGUMENT_PLACEHOLDER_RE = /\$(?:ARGUMENTS\b|\d)/;
+
+/**
+ * Claude Code loads the door, so its own `${CLAUDE_SKILL_DIR}` is real, the
+ * same exemption hand-written skills have from the pointer rule.
+ */
+function doorBody(rel: string, skillMd: string): string {
+  const read = `Read \`${hostDir(rel, "attachments")}/SKILL.md\` and follow it.`;
+  if (!ARGUMENT_PLACEHOLDER_RE.test(stripFrontmatter(skillMd).body)) return `${read}\n`;
+  return `${read} It names its arguments with placeholders that are not filled in there. The arguments are: $ARGUMENTS\n`;
 }
 
 function doorFor(base: BaseRef, rel: string, skillMd: string): BaseDoor {
@@ -137,7 +178,7 @@ function doorFor(base: BaseRef, rel: string, skillMd: string): BaseDoor {
   return {
     name,
     files: [
-      { path: "SKILL.md", content: `${doorHead(name, skillMd)}${HEADER_COMMENT}\n\nRead \`${hostDir(rel, "attachments")}/SKILL.md\` and follow it.\n` },
+      { path: "SKILL.md", content: `${doorHead(name, skillMd)}${HEADER_COMMENT}\n\n${doorBody(rel, skillMd)}` },
       { path: PROVENANCE_FILE, content: JSON.stringify({ base: base.name, version: base.version, files: ["SKILL.md"] }, null, 2) + "\n" },
     ],
   };
