@@ -57,7 +57,7 @@ describe('localSyncOutcome', () => {
 
 describe('syncBranchLocally', () => {
   test('a daemon failure stops with the error', async () => {
-    const out = await syncBranchLocally('r', 'feat', (async () => ({
+    const out = await syncBranchLocally('r', 'feat', undefined, (async () => ({
       ok: false,
       error: 'daemon down',
     })) as never);
@@ -65,5 +65,21 @@ describe('syncBranchLocally', () => {
       kind: 'stopped',
       message: 'rt sync failed: daemon down',
     });
+  });
+});
+
+test('a paused tree rides along as the tree to sync in', async () => {
+  let payload: unknown;
+  await syncBranchLocally('r', 'feat', '/trees/paused', (async (
+    _verb: string,
+    p: unknown
+  ) => {
+    payload = p;
+    return { ok: false, error: 'x' };
+  }) as never);
+  expect(payload).toEqual({
+    repoName: 'r',
+    branch: 'feat',
+    tree: '/trees/paused',
   });
 });

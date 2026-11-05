@@ -80,6 +80,9 @@ export interface DoctorState {
       skill. Every launch and resume that resolves a skill rewrites it, so
       choosing a pack clears it; only a promptless reopen leaves it as it was. */
   noPack?: boolean;
+  /** The worktree a local sync left a rebase paused in, for a retry and a
+      resumed pane to go back to. */
+  pausedTree?: string;
   startedAt: number;
   updatedAt: number;
 }
@@ -120,6 +123,7 @@ export function writeDoctorState(
     reopenedAt: patch.reopenedAt,
     dismissedAt: patch.dismissedAt,
     noPack: patch.noPack,
+    pausedTree: patch.pausedTree,
     startedAt: now,
     updatedAt: now,
   };
@@ -159,12 +163,18 @@ export function attachDoctors<T extends { webUrl?: string | null }>(
     recompute fixClasses from), while draftBin is re-derivable and folded
     in here so callers need only this one call. */
 export function doctorResumeDispatchFields(
-  state: Pick<DoctorState, 'tier' | 'fixClasses'> | undefined
-): { tier?: string; fixClasses?: string[]; draftBin: string } {
+  state: Pick<DoctorState, 'tier' | 'fixClasses' | 'pausedTree'> | undefined
+): {
+  tier?: string;
+  fixClasses?: string[];
+  draftBin: string;
+  pausedTree?: string;
+} {
   return {
     tier: state?.tier,
     fixClasses: state?.fixClasses,
     draftBin: draftBinPath(),
+    pausedTree: state?.pausedTree,
   };
 }
 

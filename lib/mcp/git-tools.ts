@@ -28,10 +28,12 @@ export function syncChildEnv(base: Record<string, string | undefined>, cwd: stri
 
 export type GitRunner = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 
-export const realGitRunner: GitRunner = async (args, cwd) => {
-  const r = await runCapture(["git", ...args], { cwd, stderr: "pipe", timeoutMs: 120_000, env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(cwd) }) });
+export const gitRunnerWith = (extra: Record<string, string>): GitRunner => async (args, cwd) => {
+  const r = await runCapture(["git", ...args], { cwd, stderr: "pipe", timeoutMs: 120_000, env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(cwd), ...extra }) });
   return { code: r.exitCode, stdout: r.stdout, stderr: r.stderr };
 };
+
+export const realGitRunner: GitRunner = gitRunnerWith({});
 
 const PROTECTED = new Set(["main", "master"]);
 const DETACHED = "refusing to push a detached HEAD";
@@ -372,11 +374,13 @@ async function localIsNewerRewrite(cwd: string, git: GitRunner, remoteRef: strin
 
 const SYNC_TIMEOUT_MS = 300_000;
 
-export const realSyncRunner = async (cwd: string): Promise<{ code: number; stdout: string; stderr: string }> => {
+export const syncRunnerWith = (extra: Record<string, string>) => async (cwd: string): Promise<{ code: number; stdout: string; stderr: string }> => {
   const [exe, ...rest] = rtSelfArgv();
-  const r = await runCapture([exe!, ...rest, "sync", "--json", "--no-agent"], { cwd, stderr: "pipe", timeoutMs: SYNC_TIMEOUT_MS, env: syncChildEnv(childEnv(), cwd) });
+  const r = await runCapture([exe!, ...rest, "sync", "--json", "--no-agent"], { cwd, stderr: "pipe", timeoutMs: SYNC_TIMEOUT_MS, env: { ...syncChildEnv(childEnv(), cwd), ...extra } });
   return { code: r.timedOut ? 124 : r.exitCode, stdout: r.stdout, stderr: r.stderr };
 };
+
+export const realSyncRunner = syncRunnerWith({});
 
 export type BranchSyncKind = "synced" | "up-to-date" | "dirty-tree" | "conflict" | "stacked-refused" | "stack-unverified" | "push-refused" | "error";
 

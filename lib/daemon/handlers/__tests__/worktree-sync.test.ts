@@ -17,6 +17,7 @@ function harness(over: Partial<WorktreeSyncDeps> = {}) {
     },
     dispose: async (p) => { calls.disposed.push(p.tree); },
     holders: async () => [],
+    knownTree: (_repo, path) => path === "/trees/paused",
     sync: async (path) => { calls.synced.push(path); return synced("synced", { pushed: true }); },
     ...over,
   };
@@ -83,6 +84,34 @@ describe("worktree:sync", () => {
   test("a rebase an earlier sync paused comes back as a conflict", async () => {
     const { run } = harness({ sync: async () => synced("error", { refusal: "a rebase is in progress; finish it with git rebase --continue" }) });
     expect(await data(run({ repoName: "r", branch: "feat" }))).toMatchObject({ kind: "conflict", path: "/trees/elrond", refusal: null });
+  });
+
+  test("a named tree is synced in place, with no check or provision", async () => {
+    let checked = false;
+    const { run, calls } = harness({ check: async () => { checked = true; throw new Error("unused"); } });
+    const d = await data(run({ repoName: "r", branch: "feat", tree: "/trees/paused" }));
+    expect(checked).toBe(false);
+    expect(calls.provisioned).toBe(0);
+    expect(calls.synced).toEqual(["/trees/paused"]);
+    expect(d.path).toBe("/trees/paused");
+  });
+
+  test("a named tree the registry does not know is refused", async () => {
+    const { run, calls } = harness();
+    const d = await data(run({ repoName: "r", branch: "feat", tree: "/elsewhere" }));
+    expect(d.kind).toBe("no-tree");
+    expect(calls.synced).toEqual([]);
+  });
+
+  test("a branch found nowhere is refused, and the tree it cut is disposed", async () => {
+    const { run, calls } = harness({
+      ...noTree,
+      provision: async () => ({ ok: true, data: { tree: "new-tree", path: "/trees/new", branch: "feat", wasOnDeck: true, readyAt: null, branchState: "new" } as any }),
+    });
+    const d = await data(run({ repoName: "r", branch: "feat" }));
+    expect(d).toMatchObject({ kind: "no-tree", refusal: "feat is not on origin or this Mac" });
+    expect(calls.synced).toEqual([]);
+    expect(calls.disposed).toEqual(["new-tree"]);
   });
 
   test("names a missing branch", async () => {

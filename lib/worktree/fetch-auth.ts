@@ -31,6 +31,24 @@ type GitRunner = (cwd: string, args: string[], opts: { timeoutMs?: number; signa
 
 const AUTH_FAILURE_RE = /could not read (Username|Password)|terminal prompts disabled|Authentication failed|HTTP Basic: Access denied|Invalid username or password|returned error: 40[13]/i;
 
+export const isAuthFailure = (text: string): boolean => AUTH_FAILURE_RE.test(text);
+
+/**
+ * The same credentials as git config env vars, which every git a child
+ * process starts (rt sync's fetch and push included) reads.
+ */
+export function fetchAuthEnv(auth: FetchAuth): Record<string, string> {
+  const pairs: string[] = [];
+  for (let i = 0; i < auth.args.length; i++) if (auth.args[i] === "-c" && auth.args[i + 1] !== undefined) pairs.push(auth.args[++i]!);
+  const env: Record<string, string> = { ...auth.env, GIT_CONFIG_COUNT: String(pairs.length) };
+  pairs.forEach((pair, i) => {
+    const eq = pair.indexOf("=");
+    env[`GIT_CONFIG_KEY_${i}`] = pair.slice(0, eq);
+    env[`GIT_CONFIG_VALUE_${i}`] = pair.slice(eq + 1);
+  });
+  return env;
+}
+
 /** A token read is a keychain unlock plus a sops decrypt; freshen fetches every pool tree each pass. */
 const TOKEN_TTL_MS = 5 * 60_000;
 const tokenCache = new Map<string, { value: string; at: number }>();

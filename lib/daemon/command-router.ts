@@ -186,6 +186,7 @@ export function buildRoutedHandlers(opts: {
       return treeHolders(path);
     },
     sync: runBranchSync,
+    knownTree: (repoName, path) => findTreeByPath(path)?.repoName === repoName,
   });
   const worktreeTriageHandlers = createWorktreeTriageHandlers(
     { repoIndex: ctx.repoIndex, cache: ctx.cache, log: ctx.log },

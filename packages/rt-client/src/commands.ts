@@ -1386,7 +1386,8 @@ export interface Commands {
 
   "worktree:provision-check": { payload: { repoName: string; ticket?: string; ticketTitle?: string; branch?: string }; data: WorktreeProvisionCheckData };
   "worktree:provision": { payload: { repoName: string; branch?: string; ticket?: string; ticketTitle?: string; disposal?: "job" | "merge"; owner?: string }; data: WorktreeProvisionData };
-  "worktree:sync": { payload: { repoName: string; branch: string }; data: WorktreeSyncData };
+  /** `tree` is the worktree an earlier sync paused a rebase in. */
+  "worktree:sync": { payload: { repoName: string; branch: string; tree?: string }; data: WorktreeSyncData };
   "worktree:create": { payload: { repoName: string; onDeck?: boolean }; data: WorktreeCreateData };
   "worktree:dispose": { payload: { repoName?: string; owner?: string; tree?: string; force?: boolean; callerPid?: number }; data: WorktreeDisposeData };
   "worktree:list": { payload: { repoName?: string }; data: WorktreeListData };

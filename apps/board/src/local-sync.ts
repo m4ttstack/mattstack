@@ -45,11 +45,12 @@ type SyncCommand = typeof rtCommand<Commands['worktree:sync']['data']>;
 export async function syncBranchLocally(
   repoName: string,
   branch: string,
+  pausedTree?: string,
   command: SyncCommand = rtCommand
 ): Promise<LocalSyncOutcome> {
   const res = await command(
     'worktree:sync',
-    { repoName, branch },
+    { repoName, branch, ...(pausedTree ? { tree: pausedTree } : {}) },
     { timeoutMs: LOCAL_SYNC_TIMEOUT_MS }
   );
   if (!res.ok || !res.data)

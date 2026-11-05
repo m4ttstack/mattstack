@@ -3032,6 +3032,7 @@ const httpServer = Bun.serve({
             });
           LOCAL_SYNCS.add(parsed.mrUrl);
           try {
+            const priorPaused = existing?.pausedTree;
             writeDoctorState(statePath, {
               mrUrl: parsed.mrUrl,
               iid: parsed.iid,
@@ -3040,13 +3041,18 @@ const httpServer = Bun.serve({
               boardTabId: boardTabId ?? '',
               ...FRESH_SYNC_ROW,
             });
-            const outcome = await syncBranchLocally(repo, mr.sourceBranch);
+            const outcome = await syncBranchLocally(
+              repo,
+              mr.sourceBranch,
+              priorPaused
+            );
             if (outcome.kind === 'clean') {
               // The row is settled, so no doctor line stays on it.
               writeDoctorState(statePath, {
                 status: 'done',
                 message: outcome.message,
                 dismissedAt: Date.now(),
+                pausedTree: null as unknown as undefined,
               });
               return Response.json({ ok: true, synced: outcome.message });
             }
@@ -3054,11 +3060,12 @@ const httpServer = Bun.serve({
               writeDoctorState(statePath, {
                 status: 'sync-stopped',
                 message: outcome.message,
+                pausedTree: null as unknown as undefined,
               });
               return new Response(outcome.message, { status: 409 });
             }
             pausedTree = outcome.tree;
-            writeDoctorState(statePath, { status: 'queued' });
+            writeDoctorState(statePath, { status: 'queued', pausedTree });
           } finally {
             LOCAL_SYNCS.delete(parsed.mrUrl);
           }

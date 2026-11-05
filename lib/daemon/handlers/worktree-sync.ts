@@ -40,6 +40,8 @@ export interface WorktreeSyncDeps {
   provision: (payload: Commands["worktree:provision"]["payload"]) => Promise<Reply<"worktree:provision">>;
   dispose: (payload: { repoName: string; tree: string }) => Promise<unknown>;
   holders: (path: string) => Promise<TreeHolder[]>;
+  /** Whether `path` is one of `repoName`'s registered worktrees. */
+  knownTree: (repoName: string, path: string) => boolean;
   sync: (path: string) => Promise<SyncResult>;
 }
 
@@ -63,15 +65,20 @@ export function createWorktreeSyncHandler(deps: WorktreeSyncDeps) {
     if (typeof repoName !== "string" || !repoName) return { ok: false, error: "repoName is required" };
     if (typeof branch !== "string" || !branch) return { ok: false, error: "branch is required" };
 
-    const check = await deps.check({ repoName, branch });
-    if (!check.ok) return { ok: true, data: before("no-tree", null, explainError(check.error)) };
-    const { attached } = check.data;
+    // A paused rebase detaches HEAD, so the registry may no longer list the
+    // tree under its branch; the caller names it instead.
+    const named = typeof payload?.tree === "string" && payload.tree ? payload.tree : null;
+    if (named && !deps.knownTree(repoName, named)) return { ok: true, data: before("no-tree", null, `${named} is not one of this repo's worktrees`) };
+    const check = named ? null : await deps.check({ repoName, branch });
+    if (check && !check.ok) return { ok: true, data: before("no-tree", null, explainError(check.error)) };
+    const attached = check?.data.attached ?? [];
     if (attached.length > 1) return { ok: true, data: before("no-tree", null, explainError("branch-duplicated")) };
 
     let path: string;
     let created: string | null = null;
-    if (attached[0]) {
-      path = attached[0].path;
+    const existing = named ?? attached[0]?.path;
+    if (existing) {
+      path = existing;
       let holders: TreeHolder[];
       try {
         holders = await deps.holders(path);
@@ -84,6 +91,12 @@ export function createWorktreeSyncHandler(deps: WorktreeSyncDeps) {
       if (!made.ok) return { ok: true, data: before("no-tree", null, explainError(made.error)) };
       path = made.data.path;
       created = made.data.tree;
+      // Provision cuts a branch it finds nowhere from the default branch,
+      // which would read as "already up to date".
+      if (made.data.branchState === "new") {
+        await deps.dispose({ repoName, tree: created });
+        return { ok: true, data: before("no-tree", null, `${branch} is not on origin or this Mac`) };
+      }
     }
 
     const r = resumable(await deps.sync(path));
