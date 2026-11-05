@@ -277,3 +277,4 @@ export {
 } from "./latch.ts";
 export type { LatchKind } from "./latch.ts";
 export { matchSlackFaces, type SlackPerson } from "./slack-faces.ts";
+export * from "./announcement.ts";

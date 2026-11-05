@@ -511,6 +511,27 @@ test("a note renders as the row's last line, and only when there is one", async 
 test('a review a peer board lost marks the row to grow for its band, as a sent ask does', async () => {
   await render([
     mr({
+      author: { username: 'me', name: 'Me' },
+      peerReviews: [
+        {
+          mrUrl: URL,
+          iid: 1418,
+          reviewer: 'grace',
+          status: 'error',
+          reason: 'pane closed',
+          updatedAt: NOW - 60_000,
+        },
+      ],
+    } as never),
+  ]);
+  const row = container.querySelector('.tui-row')!;
+  expect(row.getAttribute('data-ask')).toBe('1');
+  expect(row.querySelector('.tui-ask')).not.toBeNull();
+});
+
+test("a review a peer board lost on a teammate's MR leaves the row without a band", async () => {
+  await render([
+    mr({
       peerReviews: [
         {
           mrUrl: URL,
@@ -524,8 +545,8 @@ test('a review a peer board lost marks the row to grow for its band, as a sent a
     }),
   ]);
   const row = container.querySelector('.tui-row')!;
-  expect(row.getAttribute('data-ask')).toBe('1');
-  expect(row.querySelector('.tui-ask')).not.toBeNull();
+  expect(row.getAttribute('data-ask')).toBeNull();
+  expect(row.querySelector('.tui-ask')).toBeNull();
 });
 
 test('"dismiss note" saves an empty note, which is the clear', async () => {
