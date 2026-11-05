@@ -195,7 +195,7 @@ A reviewer board's re-review thread (see [Asking for a re-review through the MR]
 
 To let it do more, change those settings. `cleanApiRebase` lets it start a rebase on the server. The `checkout` tier with `mechanicalLint` or `codeFix` lets it fix code and push, usually through a team pack's doctor skill. If it needs a decision, it asks on the board. The board closes its pane when it is done.
 
-**rebase locally** launches the doctor with one job: rebase the branch onto its target in a local checkout, resolve conflicts and force-push with lease. It needs a doctor skill: the `doctorSkill` setting, or a `board:doctor` binding in the pack of the board tab you are on, else your team's pack. Without one, the item is hidden; **rebase on target** in the **gitlab** flyout rebases on the server instead.
+**rebase locally** first tries `rt sync`, which rebases the branch onto its target in a local checkout with no agent; a clean rebase ends with a toast. On a conflict, it launches the doctor with one job: finish the paused rebase, resolve the conflicts and force-push with lease. Any other stop shows **sync stopped** on the row with rt's reason. It needs a doctor skill: the `doctorSkill` setting, or a `board:doctor` binding in the pack of the board tab you are on, else your team's pack. Without one, the item is hidden; **rebase on target** in the **gitlab** flyout rebases on the server instead.
 
 #### When a work run owns the branch
 

@@ -84,10 +84,10 @@ The run engine returns results and opens no gates; the skill asks any question a
 | `mr_update` | Edit an open MR's `title`, `description`, `addLabels`, `removeLabels` or `squash`; at least one (GitLab only). |
 | `mr_upload` | Upload one local image or video, or up to 20 in order, to the project and get back the markdown that embeds each (GitLab only). |
 | `respond_post_execute` | Carry out a review response in one call: push the fixes when a fix was picked, post the replies and resolve the threads, exactly as the recorded decisions say. A reply already on the MR is not posted twice (GitLab only). |
-| `mr_merge` | Merge an MR now, optionally squashing and deleting the source branch, or enable auto-merge with `whenPipelineSucceeds: true`; reports what it observed after the request (GitLab only). |
+| `mr_merge` | Merge an MR or PR now, optionally squashing and deleting the source branch, or enable auto-merge with `whenPipelineSucceeds: true` (GitLab); on a GitHub repo with a merge queue it queues the PR, and `wait: true` holds until it lands or is dropped. Reports what it observed after the request. |
 | `mr_map` | List a repo's open MRs, read live from GitLab, joined to the local worktrees holding their branches (GitLab only). |
 
-`mr_merge` goes through GitLab like a merge from its web page: GitLab still enforces the project's approval and pipeline rules. The skill that calls it holds its own ship gate, which is where you say go.
+`mr_merge` goes through the forge like a merge from its web page: GitLab still enforces the project's approval and pipeline rules, and on GitHub a repo with a merge queue lands the PR through it. The skill that calls it holds its own ship gate, which is where you say go.
 
 ### MR reads
 

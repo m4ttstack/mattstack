@@ -25,7 +25,7 @@ Use the `deck` command, or open the dashboard at `https://deck.localhost`. deck 
 
 **Debug against a dev server.** `deck override myapp 5173` makes `myapp.localhost` serve port 5173. `deck override myapp off` clears it.
 
-**Share an app on your terms.** Nothing is public until you say so. Options are a casual public URL with `portless --funnel`, a password gate (`deck password <name>`), or your own domain with `deck domain yourdomain.dev`, plus a Google sign-in allowlist of people or domains with `deck access`. Publish or unpublish with `deck publish <name> on|off`. Do not share through `--ngrok`, because it defeats deck's local-only controls.
+**Share an app on your terms.** Nothing is public until you say so: an app you never switched on stays private, and publishing needs a connected domain. mattstack's own apps (board, console, chat and the rest) are never public. Options are a casual public URL with `portless --funnel`, a password gate (`deck password <name>`), or your own domain with `deck domain yourdomain.dev`, plus a Google sign-in allowlist of people or domains with `deck access`. Publish or unpublish with `deck publish <name> on|off`. Do not share through `--ngrok`, because it defeats deck's local-only controls.
 
 **Serve while your laptop is off.** `deck remote <name> on` redeploys the app to Railway and points its public hostname there. `deck push <name>` redeploys after a local change, and `deck remote <name> off` moves it back.
 
