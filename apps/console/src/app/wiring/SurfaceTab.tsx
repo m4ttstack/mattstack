@@ -338,52 +338,20 @@ function ModelInvocationMenu({
   );
 }
 
-const GROUPS: Record<
-  SurfaceGroupId,
-  { title: string; icon: IconName; note: (n: SurfaceGroupNote) => string }
-> = {
-  commands: {
-    title: 'Commands',
-    icon: 'squareTerminal',
-    note: ({ publicCount, total }) => `${publicCount} of ${total} on`,
-  },
-  reference: {
-    title: 'Reference skills',
-    icon: 'fileText',
-    note: ({ publicCount, total }) => `${publicCount} of ${total} on`,
-  },
-  stages: {
-    title: 'Pipeline stages',
-    icon: 'workflow',
-    note: ({ pipeline }) =>
-      pipeline ? `Run by /${pipeline}` : 'Run by a pipeline',
-  },
-  fills: {
-    title: 'Fills',
-    icon: 'puzzle',
-    note: () => 'Plugged into blocks',
-  },
-};
-
-type SurfaceGroupNote = {
-  publicCount: number;
-  total: number;
-  pipeline: string | null;
+const GROUPS: Record<SurfaceGroupId, { title: string; icon: IconName }> = {
+  commands: { title: 'Commands', icon: 'squareTerminal' },
+  reference: { title: 'Reference skills', icon: 'fileText' },
+  stages: { title: 'Pipeline stages', icon: 'workflow' },
+  fills: { title: 'Fills', icon: 'puzzle' },
 };
 
 /** One group of the list: a head that folds it, then its rows. */
 function SurfaceGroup({
   id,
-  rows,
-  publicCount,
-  pipeline,
   filtering,
   children,
 }: {
   id: SurfaceGroupId;
-  rows: readonly SkillsSurfaceRow[];
-  publicCount: number;
-  pipeline: string | null;
   /** A filter's matches stay in view whatever the head was left at. */
   filtering: boolean;
   children: React.ReactNode;
@@ -412,12 +380,7 @@ function SurfaceGroup({
           data-open={opened || undefined}
         />
         <Icon name={group.icon} size={14} color="var(--tk-text-2)" />
-        <span className={legendClasses.groupLabel}>
-          <span className={legendClasses.groupTitle}>{group.title}</span>
-          <span className={legendClasses.groupNote}>
-            {group.note({ publicCount, total: rows.length, pipeline })}
-          </span>
-        </span>
+        <span className={legendClasses.groupTitle}>{group.title}</span>
       </UnstyledButton>
       <Collapse expanded={opened}>
         <div className={legendClasses.groupRows}>{children}</div>
@@ -610,9 +573,6 @@ export function SurfaceTab({
     const groups = comp ? buildFocusGroups(comp, undefined, rows) : null;
     return surfaceGroupsOf(rows, groups, comp);
   }, [compositionQuery.data, rows]);
-  const pipelineName =
-    compositionQuery.data?.verbs.find(verb => verb.name === 'work')?.name ??
-    null;
 
   const [filterText, setFilterText] = useState('');
   const [ownFilter, setOwnFilter] = useState<SurfaceFilterKind>('all');
@@ -769,11 +729,6 @@ export function SurfaceTab({
                 <SurfaceGroup
                   key={id}
                   id={id}
-                  rows={members}
-                  publicCount={
-                    members.filter(row => row.status === 'public').length
-                  }
-                  pipeline={pipelineName}
                   filtering={filtering}
                 >
                   {members.map(row => (
