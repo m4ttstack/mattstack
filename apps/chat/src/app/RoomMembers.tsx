@@ -8,6 +8,7 @@ import {
 import { AnimatedChevron, Icon } from '@mattstack/app-kit/icons';
 import type { AgentStatus, RoomSummary } from '@mattstack/rt-client';
 
+import cardClasses from './agent-card.module.css';
 import { agentState, isRoomForRepo, type AgentState } from './agent-state';
 import { AgentCard, CARD_WIDTH, SpriteAvatar } from './AgentName';
 import { useBuddies } from './buddies-context';
@@ -94,6 +95,7 @@ function MemberItem({
   now,
   active,
   onActive,
+  onDone,
 }: {
   member: MemberBuddy;
   room: RoomSummary;
@@ -101,6 +103,7 @@ function MemberItem({
   now: number;
   active: boolean;
   onActive: (open: boolean) => void;
+  onDone: () => void;
 }) {
   const ctx = useBuddies();
   const roster = ctx?.byHandle.get(member.handle);
@@ -123,7 +126,7 @@ function MemberItem({
       position="right-start"
       offset={DROPDOWN_DOCK_OFFSET}
       width={CARD_WIDTH}
-      radius="md"
+      radius="sm"
       floatingStrategy="fixed"
       opened={active}
       onChange={onActive}
@@ -138,14 +141,14 @@ function MemberItem({
           {label}
         </Menu.Sub.Item>
       </Menu.Sub.Target>
-      <Menu.Sub.Dropdown>
+      <Menu.Sub.Dropdown className={cardClasses.subDropdown}>
         <AgentCard
           buddy={roster}
           reachable={reachable}
           now={now}
           inRoom
           task={doing(member, now)}
-          inMenu
+          onAction={onDone}
         />
       </Menu.Sub.Dropdown>
     </Menu.Sub>
@@ -237,6 +240,10 @@ export function RoomMembers({
 
   const item = (b: MemberBuddy) => (
     <MemberItem
+      onDone={() => {
+        setActiveHandle(null);
+        setOpened(false);
+      }}
       key={b.handle}
       member={b}
       room={room}
@@ -258,7 +265,7 @@ export function RoomMembers({
       position="bottom-start"
       width={DROPDOWN_WIDTH}
       shadow="md"
-      radius="md"
+      radius="sm"
       withinPortal
     >
       <Menu.Target>

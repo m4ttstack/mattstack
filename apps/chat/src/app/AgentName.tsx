@@ -9,14 +9,7 @@ import {
 } from 'react';
 import { createAvatar } from '@dicebear/core';
 import * as personas from '@dicebear/personas';
-import {
-  Box,
-  Button,
-  Group,
-  Menu,
-  Popover,
-  Text,
-} from '@mattstack/app-kit/core';
+import { Box, Button, Group, Popover, Text } from '@mattstack/app-kit/core';
 import {
   FACE_TILES,
   faceSeed,
@@ -280,16 +273,15 @@ export function AgentCard({
   now: nowProp,
   inRoom: inRoomProp,
   task,
-  inMenu = false,
+  onAction,
 }: {
   buddy: RosterBuddy;
   reachable?: boolean;
   now?: number;
   inRoom?: boolean;
   task?: DoingLine | null;
-  /** Inside a `Menu` dropdown: the actions are menu items under a divider,
-      so they take the menu's hover, keyboard and close-on-click. */
-  inMenu?: boolean;
+  /** Called after any action, for a host that closes around the card. */
+  onAction?: () => void;
 }) {
   const ctx = useBuddies();
   const reachable = reachableProp ?? ctx?.reachable ?? true;
@@ -316,7 +308,7 @@ export function AgentCard({
   const summary = (
     <>
       <div className={cardClasses.head}>
-        <SpriteAvatar handle={buddy.handle} size={inMenu ? 'md' : 'xl'} />
+        <SpriteAvatar handle={buddy.handle} size="xl" />
         <div className={cardClasses.identity}>
           <span className={cardClasses.name}>{displayName(buddy)}</span>
           <span
@@ -356,41 +348,10 @@ export function AgentCard({
       )}
     </>
   );
-  if (inMenu) {
-    return (
-      <div data-testid={`detail-${buddy.handle}`}>
-        <div className={cardClasses.card} data-in-menu>
-          {summary}
-        </div>
-        {actions && (
-          <>
-            <Menu.Divider />
-            {canFocus && (
-              <Menu.Item
-                onClick={() => actions.focusPane?.(buddy.pane!)}
-                data-testid={`card-focus-${buddy.handle}`}
-              >
-                Focus pane
-              </Menu.Item>
-            )}
-            <Menu.Item
-              disabled={!inRoom}
-              onClick={() => actions.mention(buddy.handle)}
-              data-testid={`card-mention-${buddy.handle}`}
-            >
-              Mention
-            </Menu.Item>
-            <Menu.Item
-              onClick={() => actions.dm(buddy.handle)}
-              data-testid={`card-dm-${buddy.handle}`}
-            >
-              Message
-            </Menu.Item>
-          </>
-        )}
-      </div>
-    );
-  }
+  const act = (run: () => void) => () => {
+    run();
+    onAction?.();
+  };
   return (
     <div className={cardClasses.card} data-testid={`detail-${buddy.handle}`}>
       {summary}
@@ -400,7 +361,7 @@ export function AgentCard({
             size="sm"
             px={8}
             variant="default"
-            onClick={() => actions.dm(buddy.handle)}
+            onClick={act(() => actions.dm(buddy.handle))}
             data-testid={`card-dm-${buddy.handle}`}
           >
             Message
@@ -410,7 +371,7 @@ export function AgentCard({
             px={8}
             variant="default"
             disabled={!inRoom}
-            onClick={() => actions.mention(buddy.handle)}
+            onClick={act(() => actions.mention(buddy.handle))}
             data-testid={`card-mention-${buddy.handle}`}
           >
             Mention
@@ -420,7 +381,7 @@ export function AgentCard({
               size="sm"
               px={8}
               variant="default"
-              onClick={() => actions.focusPane?.(buddy.pane!)}
+              onClick={act(() => actions.focusPane?.(buddy.pane!))}
               data-testid={`card-focus-${buddy.handle}`}
             >
               Focus pane

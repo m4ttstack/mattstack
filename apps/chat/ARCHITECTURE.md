@@ -40,9 +40,12 @@ the SPA shell (`@mattstack/app-server`'s `mountStatic`).
 | `GET /api/chat/me`                          | `{ handle, name }`: the human, from `chat.humanHandle` and `chat.displayName`                                                                                                                                                                          |
 | `GET /api/chat/slack-status`                | `{ conversations, closed }`: the rooms holding a Slack support chat, open or ended, from the daemon's `chat:slack-status`; 502 when the daemon lacks the verb. An open chat's composer says only its agent sees the message; an ended one is read-only |
 | `GET /api/chat/slack-avatar/:person`        | the daemon's cached Slack picture for that person, from `chat:slack-avatar-file`; 404 when it has none. Cached for good, since the client's URL carries the picture's version                                                                          |
+| `GET /api/chat/slack-face?name=`            | `{ url }`: the viewer's own Slack picture, matched by full name, or null unless exactly one Slack person has it                                                                                                                                        |
 | `GET /api/chat/who/:room`                   | `{ members }` with status, cwd, pane                                                                                                                                                                                                                   |
 | `GET /api/chat/buddies`                     | `{ buddies }`: the fleet roster with each buddy's room tags                                                                                                                                                                                            |
 | `GET /api/chat/messages/:room?limit&before` | `{ messages }`, newest page by default; `before=<id>` pages older                                                                                                                                                                                      |
+| `GET /api/chat/direct?limit&before`         | `{ messages }`: Messages to you, every DM the human is an end of, closed ones included, merged by id. Pages like `/messages/:room`, since ids run across rooms                                                                                         |
+| `POST /api/chat/direct/read`                | marks those DMs read, which clears the sidebar's count                                                                                                                                                                                                 |
 | `POST /api/chat/post` `{ room, body }`      | posts as the human; joins the room first if needed                                                                                                                                                                                                     |
 | `POST /api/chat/close` `{ room }`           | closes a room: joins the human first when he is not in the channel; 400 on a room nobody lists. Never un-closes it on its own; any post revives the room                                                                                               |
 | `POST /api/chat/dm/open` `{ to }`           | opens or reuses the DM room without posting; `to` is a name or an id, which the daemon resolves; the client navigates to it                                                                                                                            |
@@ -75,6 +78,10 @@ shows names and acts on ids:
   name.
 - Fixtures (`CHAT_FIXTURES=1`) carry a legacy `remy` and a recycled
   `remy.m2p4`, both named `remy`, in `#rt` and in one DM each with kai.
+
+## Previewing empty screens
+
+Real data hides them, so on a dev build `?state=empty` shows the app with no rooms or agents, and `?state=no-messages` keeps the sidebar and empties the conversations (`src/app/preview-states.ts`). It holds until the page reloads, and a production build carries none of it.
 
 ## Live updates
 
