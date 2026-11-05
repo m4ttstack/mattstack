@@ -17,7 +17,7 @@ const SLACK_OAUTH: Action = { type: "oauth", label: "Connect Slack", integration
 const LINEAR_CONNECT: Action = { type: "connect", label: "Connect", integration: "linear", fields: [{ name: "apiKey", label: "Linear API key", secret: true, hint: "lin_api_…" }] };
 const CLAUDE_SIGNIN: Action = { type: "run", label: "Sign in to Claude", verb: ["setup", "claude", "connect"] };
 const SDM_CONNECT: Action = { type: "connect", label: "Connect", integration: "sdm", fields: [{ name: "email", label: "StrongDM email", secret: false }] };
-const HERDR_INSTALL: Action = { type: "install", label: "Install", tool: "herdr", via: "brew" };
+const HERDR_INSTALL: Action = { type: "install", label: "Install", tool: "herdr", via: "download" };
 
 function r(id: string, status: Row["status"], detail: string, over: Partial<Row> = {}): Row {
   return row({ id, kind: id.startsWith("account.") ? "account" : "tool", title: id, why: `why ${id}`, required: true, status, detail, ...over });
@@ -158,7 +158,7 @@ describe("connectRows", () => {
   });
 
   test("herdr too old still shows with its Upgrade", () => {
-    const upgrade: Action = { type: "install", label: "Upgrade", tool: "herdr", via: "brew" };
+    const upgrade: Action = { type: "install", label: "Upgrade", tool: "herdr", via: "download" };
     const rows = connectRows(inputs({ plan: plan(swap(joinerRows(), r("tool.herdr", "invalid", "herdr 0.6.0 is older than 0.7.5", { action: upgrade }))) }));
     expect(pick(rows, "tool.herdr").action).toEqual(upgrade);
   });
@@ -227,7 +227,7 @@ describe("connectRows", () => {
   });
 
   test("Claude reads Installing while the background install runs", () => {
-    const missing = swap(joinerRows(), r("tool.claude", "missing", "Claude Code is not installed", { action: { type: "install", label: "Install", tool: "claude", via: "brew" } }));
+    const missing = swap(joinerRows(), r("tool.claude", "missing", "Claude Code is not installed", { action: { type: "install", label: "Install", tool: "claude", via: "download" } }));
     const busy = pick(connectRows(inputs({ plan: plan(missing), prepare: prepare({ items: ["claude"] }) })), "claude");
     expect([busy.state, busy.detail, busy.action]).toEqual(["busy", "Installing…", null]);
     expect(busy.title).toBe("Claude");
@@ -272,10 +272,10 @@ describe("connectRows", () => {
   });
 
   test("a sign-in tool walks Installing, Sign in, then done", () => {
-    const missing = swap(joinerRows(), r("tool.team.doppler", "missing", "doppler is not installed", { action: { type: "install", label: "Install", tool: "doppler", via: "brew" } }));
+    const missing = swap(joinerRows(), r("tool.team.doppler", "missing", "doppler is not installed", { action: { type: "install", label: "Install", tool: "doppler", via: "download" } }));
     expect(pick(connectRows(inputs({ plan: plan(missing), prepare: prepare({ items: ["doppler"] }) })), "signin.doppler").state).toBe("busy");
     const install = pick(connectRows(inputs({ plan: plan(missing) })), "signin.doppler");
-    expect([install.state, install.action]).toEqual(["todo", { type: "install", label: "Install", tool: "doppler", via: "brew" }]);
+    expect([install.state, install.action]).toEqual(["todo", { type: "install", label: "Install", tool: "doppler", via: "download" }]);
 
     const signIn = pick(connectRows(inputs()), "signin.doppler");
     expect(signIn.state).toBe("todo");

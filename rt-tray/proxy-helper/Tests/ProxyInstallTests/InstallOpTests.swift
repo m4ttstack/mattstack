@@ -15,13 +15,6 @@ final class RecordingFileOps: FileOps {
     var failWritesTo: Set<String> = []
     var failRemovesOf: Set<String> = []
     var failReplacesTo: Set<String> = []
-    /// Answers stat for a path ahead of everything else: a root segment the
-    /// console user owns, or one anybody can write.
-    var statOverrides: [String: PathStat] = [:]
-    /// What read() hands back, so fileHash describes the bytes a download put
-    /// there.
-    var contents: [String: Data] = [:]
-    private(set) var directories: Set<String> = []
 
     /// Every mutating call, in order, as "<op> <path>". Lets a test assert that
     /// a stage was chmod/chown'd BEFORE it was renamed into place.
@@ -36,28 +29,11 @@ final class RecordingFileOps: FileOps {
     private(set) var owners: [String: String] = [:]
 
     func list(_ root: URL) throws -> [String] { [] }
-    func read(_ path: URL) throws -> Data { contents[path.path] ?? Data() }
+    func read(_ path: URL) throws -> Data { Data() }
 
     func stat(_ path: URL) throws -> PathStat? {
-        if let override = statOverrides[path.path] { return override }
         if symlinkPaths.contains(path.path) { return PathStat(uid: 501, isSymlink: true) }
-        if directories.contains(path.path) { return PathStat(uid: 0, isDirectory: true) }
         return existingPaths.contains(path.path) ? PathStat(uid: 0, isRegularFile: true) : nil
-    }
-
-    /// A regular file with `data` in it, as a download leaves one.
-    func place(_ path: String, _ data: Data) {
-        existingPaths.insert(path)
-        contents[path] = data
-    }
-
-    // Exclusive, matching mkdir(2): anything already at the path, a symlink
-    // included, is a refusal.
-    func makePrivateDirectory(_ path: URL) throws {
-        if try stat(path) != nil { throw ProxyInstallError("mkdir: \(path.path) already exists") }
-        directories.insert(path.path)
-        modes[path.path] = 0o700
-        ops.append("mkdir-private \(path.path)")
     }
 
     func mkdir(_ path: URL) throws { made.append(path.path); ops.append("mkdir \(path.path)") }
@@ -101,7 +77,6 @@ final class RecordingFileOps: FileOps {
     func removeTree(_ path: URL) throws {
         if failRemovesOf.contains(path.path) { throw ProxyInstallError("remove refused: \(path.path)") }
         existingPaths.remove(path.path)
-        directories.remove(path.path)
         removed.append(path.path)
         ops.append("remove \(path.path)")
     }
@@ -320,33 +295,6 @@ final class InstallOpTests: XCTestCase {
         let index = try XCTUnwrap(runner.calls.firstIndex(of: addTrustArgv))
         XCTAssertEqual(runner.timeouts[index], 120)
         XCTAssertNil(runner.timeouts[0], "launchctl and visudo answer on their own; only a dialog needs a bound")
-    }
-
-    // Homebrew goes first so a proxy failure cannot cost it, and its line sits
-    // before the trust line the app reads second to last.
-    func testHomebrewRunsFirstAndReportsBeforeTheTrustLine() {
-        fs.existingPaths.insert("/usr/local/bin/brew")
-        var op = makeOp()
-        var step = HomebrewStep(fs: fs, runner: runner, pins: .fixture())
-        step.emit = { [self] in lines.append($0) }
-        op.homebrew = step
-        XCTAssertEqual(op.execute(), 0)
-        XCTAssertEqual(lines, [
-            "homebrew: present (/usr/local/bin/brew)", "copy: ok", "plist: ok", "sudoers: ok", "bootstrap: ok",
-            "trust: ok", "MATTSTACK_HOMEBREW=present", "MATTSTACK_TRUST=ok",
-        ])
-    }
-
-    // Homebrew already ran by the time the proxy failed, so the reply still
-    // says what it did; a retry then knows not to fetch it again.
-    func testAFailedProxyInstallStillReportsHomebrew() {
-        fs.existingPaths.insert("/usr/local/bin/brew")
-        var op = makeOp(copyFails: true)
-        var step = HomebrewStep(fs: fs, runner: runner, pins: .fixture())
-        step.emit = { [self] in lines.append($0) }
-        op.homebrew = step
-        XCTAssertEqual(op.execute(), 70)
-        XCTAssertEqual(lines.last, "MATTSTACK_HOMEBREW=present")
     }
 
     func testCopyFailureStopsBeforeAnythingPrivilegedRuns() {

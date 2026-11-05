@@ -10,7 +10,7 @@ const DOPPLER: ToolRequirement = { name: "doppler", why: "Pulls your dev secrets
 const ACME_LOGIN: ToolRequirement = { name: "acme-api", why: "", connect: { verb: ["acme-api", "login"], label: "Log in" } };
 const WIDGET: ToolRequirement = { name: "widget-cli", why: "Builds the widgets" };
 
-const INSTALL: Action = { type: "install", label: "Install", tool: "widget-cli", via: "brew" };
+const INSTALL: Action = { type: "install", label: "Install", tool: "widget-cli", via: "download" };
 const DOWNLOAD: Action = { type: "open-url", label: "Download", url: "https://example.com/widget-cli" };
 const STEPS: Action = { type: "steps", label: "Show steps…", steps: ["Install widget-cli", "Then re-run rt setup status"] };
 

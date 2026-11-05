@@ -1588,10 +1588,10 @@ describe("createApplyContext: a terminal run asks the app's routes directly", ()
 
   // Left to the need protocol, a terminal run would wait ten minutes for an
   // answer no app ever sends.
-  test("Homebrew goes to its own route, and an app without it fails at once with no need", async () => {
+  test("an app without the trust route fails at once with no need", async () => {
     const { ctx, events } = await terminalCtx(fakeTray({ ...reachable }));
 
-    expect(await ctx.need("proxy.install", { type: "app-privileged", op: "homebrew" })).toMatchObject({ ok: false, unserved: true });
+    expect(await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-trust" })).toMatchObject({ ok: false });
     expect(events.some((e) => e.event === "need")).toBe(false);
   });
 
@@ -1705,7 +1705,7 @@ describe("createApplyContext: an unattended run pauses instead of prompting", ()
   test("an unattended run never emits an admin need", async () => {
     const posts: string[] = [];
     const routes = Object.fromEntries(
-      ["proxy-install", "proxy-trust", "homebrew"].map((op) => [
+      ["proxy-install", "proxy-trust"].map((op) => [
         `POST /privileged/${op}`,
         () => {
           posts.push(op);
@@ -1715,8 +1715,8 @@ describe("createApplyContext: an unattended run pauses instead of prompting", ()
     );
     for (const env of [{}, APP_SOCKET]) {
       const { ctx, events } = await unattendedCtx(fakeTray({ ...reachable, ...routes }), env);
-      for (const op of ["proxy-install", "proxy-trust", "homebrew"] as const) {
-        expect(await ctx.need("proxy.install", { type: "app-privileged", op, homebrew: true })).toBe("unattended");
+      for (const op of ["proxy-install", "proxy-trust"] as const) {
+        expect(await ctx.need("proxy.install", { type: "app-privileged", op })).toBe("unattended");
       }
       expect(await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-remove" })).toBe("unattended");
       expect(events).toEqual([]);

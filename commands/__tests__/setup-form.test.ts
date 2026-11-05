@@ -16,12 +16,11 @@ class ExitSentinel extends Error {
 
 const STATE = "/fake-home/.mattstack/rt/setup-state.json";
 
-/** Every screen answered on a Just me Mac: the proxy, its certificate and Homebrew in place, a folder for new clones chosen, and (in setup state) settings kept on this Mac. */
+/** Every screen answered on a Just me Mac: the proxy and its certificate in place, a folder for new clones chosen, and (in setup state) settings kept on this Mac. */
 const ANSWERED_FILES = {
   [PORTLESS_LAUNCHD_PLIST]: "<plist/>",
   [PROXY_VERSION_PATH]: "0.9.0",
   "/fake-home/.portless/ca.pem": "pem",
-  "/opt/homebrew/bin/brew": "",
   "/fake-home/.mattstack/rt/repo-root.json": JSON.stringify({ root: "/fake-home/code" }),
 };
 
@@ -265,7 +264,7 @@ describe("rt setup form on a finished Mac with a new team tool", () => {
   const FINISHED_AT = "2025-12-31T23:55:00.000Z";
   const DOPPLER_REQ = { name: "doppler", why: "Pulls your dev secrets", connect: { integration: "doppler" } };
   const WIDGET_REQ = { name: "widget-cli", why: "Builds the widgets" };
-  const INSTALL = { type: "install" as const, label: "Install", tool: "widget-cli", via: "brew" as const };
+  const INSTALL = { type: "install" as const, label: "Install", tool: "widget-cli", via: "download" as const };
   const SLACK_OAUTH = { type: "oauth" as const, label: "Connect Slack", integration: "slack" as const, verb: ["setup", "slack", "connect"] };
 
   const widgetMissing = r("tool.team.widget-cli", "missing", "widget-cli is not installed", { action: INSTALL });

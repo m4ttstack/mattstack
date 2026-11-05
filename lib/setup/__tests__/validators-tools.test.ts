@@ -1903,7 +1903,7 @@ test("tool.plugins is held with no action when the mattstack catalog floor is ab
 });
 
 describe("toolRows: org requirements", () => {
-  const orgOpts = { arch: "arm64", secrets: NO_SECRETS };
+  const orgOpts = { arch: "arm64" as const, secrets: NO_SECRETS };
   const exec: ExecScript = () => ({ code: 0, stdout: "[]", stderr: "" });
 
   test("an orgOnly entry draws no pack row and still draws its tool", async () => {

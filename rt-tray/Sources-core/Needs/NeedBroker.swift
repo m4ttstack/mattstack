@@ -14,7 +14,7 @@ public struct NeedOutcome: Codable, Equatable, Sendable {
 /// polling until its own 10-minute timeout instead of being told a story.
 public actor NeedBroker {
     private struct Call { let token: UUID; let task: Task<NeedResult, Never> }
-    private struct Dialog { let op: String?; let homebrew: Bool; let task: Task<NeedResult, Never> }
+    private struct Dialog { let op: String?; let task: Task<NeedResult, Never> }
 
     private let services: ServicesProviding
     private let privileged: PrivilegedInstalling
@@ -48,28 +48,24 @@ public actor NeedBroker {
 
     /// tray.sock's direct privileged routes, for an rt the app did not spawn:
     /// no need id is recorded, but the one admin dialog is shared all the same.
-    public func performPrivileged(op: String, homebrew: Bool = false) async -> NeedResult {
-        await privilegedTask(NeedRequest(type: "app-privileged", plists: nil, op: op, homebrew: homebrew ? true : nil)).value
+    public func performPrivileged(op: String) async -> NeedResult {
+        await privilegedTask(NeedRequest(type: "app-privileged", plists: nil, op: op)).value
     }
 
     private func privilegedTask(_ request: NeedRequest) -> Task<NeedResult, Never> {
         let open = dialog
-        let homebrew = request.homebrew == true
-        // A dialog that did not ask for Homebrew cannot answer one that does:
-        // its reply has no Homebrew line, which rt records as Homebrew failed.
-        if let open, open.op == request.op, open.homebrew || !homebrew { return open.task }
+        if let open, open.op == request.op { return open.task }
         let privileged = self.privileged
         let task = Task<NeedResult, Never> {
             if let open { _ = await open.task.value }
             switch request.op {
-            case "proxy-install": return await privileged.proxyInstall(homebrew: homebrew)
+            case "proxy-install": return await privileged.proxyInstall()
             case "proxy-remove": return await privileged.proxyRemove()
-            case "proxy-trust": return await privileged.proxyTrust(homebrew: homebrew)
-            case "homebrew": return await privileged.homebrew()
+            case "proxy-trust": return await privileged.proxyTrust()
             default: return NeedResult(ok: false, detail: "unknown need type app-privileged\(request.op.map { "/\($0)" } ?? "")")
             }
         }
-        dialog = Dialog(op: request.op, homebrew: homebrew, task: task)
+        dialog = Dialog(op: request.op, task: task)
         Task { _ = await task.value; self.dialogClosed(task) }
         return task
     }

@@ -440,7 +440,7 @@ function macosSection(): FormRow[] {
   return macosRows({
     permissions: [fda],
     notifications: stateGet("granted-notifications") > 0 ? "authorized" : "notDetermined",
-    fancyUrls: { state: fancy ? "done" : "todo", detail: fancy ? FANCY_URLS_DETAIL.done : FANCY_URLS_DETAIL.noProxy, brewMissing: false },
+    fancyUrls: { state: fancy ? "done" : "todo", detail: fancy ? FANCY_URLS_DETAIL.done : FANCY_URLS_DETAIL.noProxy },
   });
 }
 
@@ -527,10 +527,10 @@ function newToolRows(): FormRow[] {
   const base = { id: "tool.team.doppler", title: integrationDef("doppler").title, subtext: c.subtext, watch: true };
   if (preparing("tool")) return [formRow({ ...base, state: "busy", detail: FORM_COPY.installing, action: null })];
   if (!stateGet("prepare-tool-until")) {
-    const install: Action = { type: "install", label: "Install", tool: "doppler", via: "brew" };
+    const install: Action = { type: "install", label: "Install", tool: "doppler", via: "download" };
     if (scenario !== "new-tool-failed") return [formRow({ ...base, state: "todo", detail: "", action: install, waiting: FORM_COPY.installing })];
-    const secondary: Action = { type: "steps", label: "Show steps…", steps: ["brew install doppler"] };
-    return [formRow({ ...base, state: "todo", tone: "failed", detail: "Homebrew could not install it", action: { ...install, label: FORM_COPY.tools.retry }, secondary, waiting: FORM_COPY.installing })];
+    const secondary: Action = { type: "steps", label: "Show steps…", steps: ["Download it from https://docs.doppler.com/docs/install-cli"] };
+    return [formRow({ ...base, state: "todo", tone: "failed", detail: "The download failed", action: { ...install, label: FORM_COPY.tools.retry }, secondary, waiting: FORM_COPY.installing })];
   }
   const row = dopplerRow();
   return [{ ...row, id: base.id, detail: row.state === "todo" ? "" : row.detail }];

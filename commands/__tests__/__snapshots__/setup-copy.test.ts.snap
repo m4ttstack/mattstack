@@ -700,7 +700,6 @@ exports[`the setup plan's shape and copy plan: the copy is what the copy table s
   "tool.state-backup.action.label": "Show steps…",
   "tool.state-backup.action.steps": [
     "Update mattstack.app; it ships age, zstd and git-lfs",
-    "Or install them yourself: brew install age zstd git-lfs",
     "Then re-run rt setup status",
   ],
   "tool.state-backup.detail": "Not installed: age, zstd, git-lfs",
@@ -1259,7 +1258,6 @@ exports[`the setup plan's shape and copy status: the copy is what the copy table
   "tool.state-backup.action.label": "Show steps…",
   "tool.state-backup.action.steps": [
     "Update mattstack.app; it ships age, zstd and git-lfs",
-    "Or install them yourself: brew install age zstd git-lfs",
     "Then re-run rt setup status",
   ],
   "tool.state-backup.detail": "Not installed: age, zstd, git-lfs",

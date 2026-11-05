@@ -250,7 +250,7 @@ describe("thisMacRows", () => {
   });
 
   test("a sign-in tool the connect screen draws never comes back here", () => {
-    const sdm = r("tool.team.sdm", "missing", "sdm is not installed", { finishGated: true, waivable: false, action: { type: "install", label: "Install", tool: "sdm", via: "brew" }, waitsForInstall: true });
+    const sdm = r("tool.team.sdm", "missing", "sdm is not installed", { finishGated: true, waivable: false, action: { type: "install", label: "Install", tool: "sdm", via: "download" }, waitsForInstall: true });
     const list = thisMacRows(inputs({ ranOk: true, signIn: [{ name: "sdm", why: "", connect: { integration: "sdm" } }], plan: plan([placeRow(WIDGETS, "ready"), sdm]) }));
     expect(list.some((x) => x.id === "tool.team.sdm")).toBe(false);
   });

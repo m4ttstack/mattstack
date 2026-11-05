@@ -45,14 +45,14 @@ function failedPresses(p: ReturnType<typeof fakeProbes>) {
 }
 
 test("a failed install lands in the accounts record, and the next install that works takes it off", async () => {
-  const install = spyOn(toolsInstallModule, "installTool").mockResolvedValue({ via: "brew", ok: false, detail: "brew said no" });
+  const install = spyOn(toolsInstallModule, "installTool").mockResolvedValue({ via: "download", ok: false, detail: "the download failed" });
   const exit = spyOn(process, "exit").mockImplementation(((c?: number) => { throw new Error(`exit ${c}`); }) as typeof process.exit);
   const io = captureOut();
   const p = fakeProbes({ home: "/home/x" });
   try {
     await expect(toolsInstall(["doppler", "--json"], {}, p)).rejects.toThrow("exit 1");
-    expect(failedPresses(p)).toEqual([{ tool: "doppler", detail: "brew said no" }]);
-    install.mockResolvedValue({ via: "brew", ok: true, detail: "installed" });
+    expect(failedPresses(p)).toEqual([{ tool: "doppler", detail: "the download failed" }]);
+    install.mockResolvedValue({ via: "download", ok: true, detail: "installed" });
     await toolsInstall(["doppler", "--json"], {}, p);
     expect(failedPresses(p)).toEqual([]);
   } finally {
