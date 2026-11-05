@@ -106,19 +106,28 @@ function doorsOnDisk(packDir: string): string[] {
   return listDirs(skillsDir).filter((name) => isEmittedAttachmentDir(join(skillsDir, name)));
 }
 
-/** The team's own skill of this name wins, grouped or not: a door never writes over a folder compile did not make. */
+/** The team's own skill of this name wins, grouped or not. */
 function hasTeamSkill(packDir: string, name: string): boolean {
   const skillsDir = join(packDir, "skills");
   const own = join(skillsDir, name);
-  if (existsSync(own) && !isEmittedAttachmentDir(own)) return true;
+  if (existsSync(join(own, "SKILL.md")) && !isEmittedAttachmentDir(own)) return true;
   return listDirs(skillsDir).some((group) => existsSync(join(skillsDir, group, name, "SKILL.md")));
+}
+
+/** Why a public unit cannot have its door, or null when it can. A door never writes over a folder compile did not make. */
+function doorRefusal(packDir: string, label: string, name: string, skillMd: string): string | null {
+  const own = join(packDir, "skills", name);
+  if (existsSync(own) && !isEmittedAttachmentDir(own)) return `${label} cannot be public: skills/${name} already holds a folder compile did not make; rename one of them`;
+  const { description } = stripFrontmatter(skillMd).frontmatter;
+  if (typeof description !== "string" || description.trim() === "") return `${label} cannot be public: its SKILL.md has no description for agents to match on`;
+  return null;
 }
 
 /** Only what names the skill: anything else in the frontmatter, such as allowed-tools, reads paths from the attachments copy. */
 function doorHead(name: string, skillMd: string): string {
   const { frontmatter } = stripFrontmatter(skillMd);
   const lines = [`name: ${name}`];
-  if (typeof frontmatter.description === "string") lines.push(`description: ${JSON.stringify(frontmatter.description)}`);
+  lines.push(`description: ${JSON.stringify(frontmatter.description)}`);
   if (frontmatter["disable-model-invocation"] === true) lines.push("disable-model-invocation: true");
   return `---\n${lines.join("\n")}\n---\n`;
 }
@@ -365,13 +374,16 @@ export function planBaseAttachments(input: {
   }
 
   errors.push(...unrenderedPointers(pointers, emits));
-  if (errors.length > 0) return { base, emits: [], kept, stale: [], retired: [], doors: [], staleDoors: [], errors };
   const doors = emits.flatMap((emit) => {
+    const name = leafOf(emit.name);
     const skillMd = emit.files.find((f) => f.path === "SKILL.md");
-    if (!publicNames?.has(leafOf(emit.name)) || hasTeamSkill(packDir, leafOf(emit.name))) return [];
+    if (!publicNames?.has(name) || hasTeamSkill(packDir, name)) return [];
     if (!emit.source || isFill(emit.source.dir) || !skillMd || !("content" in skillMd)) return [];
-    return [doorFor(base, emit.name, skillMd.content)];
+    const refusal = doorRefusal(packDir, `${base.name} attachment ${emit.name}`, name, skillMd.content);
+    if (refusal) errors.push(refusal);
+    return refusal ? [] : [doorFor(base, emit.name, skillMd.content)];
   });
+  if (errors.length > 0) return { base, emits: [], kept, stale: [], retired: [], doors: [], staleDoors: [], errors };
   const staleDoors = doorsOnDisk(packDir).filter((name) => !doors.some((door) => door.name === name));
   return { base, emits, kept, stale, retired, doors, staleDoors, errors };
 }

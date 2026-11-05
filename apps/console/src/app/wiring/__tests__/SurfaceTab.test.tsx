@@ -210,6 +210,26 @@ describe('SurfaceTab: a row an org base pack owns', () => {
   });
 });
 
+describe('SurfaceTab: a listed skill with no files', () => {
+  it('can be staged off the list, but never on', async () => {
+    renderSurfaceTab([
+      { name: 'gone', kind: 'missing', status: 'public' },
+      { name: 'lost', kind: 'missing', status: 'internal' },
+    ]);
+
+    await userEvent.click(
+      await screen.findByRole('switch', { name: /^lost$/ })
+    );
+    expect(screen.getByText('Nothing staged')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('switch', { name: /^gone$/ }));
+    expect(screen.getByText('1 change staged')).toBeInTheDocument();
+    expect(
+      screen.getByText('gone comes off the surface list')
+    ).toBeInTheDocument();
+  });
+});
+
 describe('SurfaceTab: stages and fills', () => {
   const COMPOSITION = {
     verbs: [{ name: 'work', sourcePath: '/p/skills/work/SKILL.md' }],

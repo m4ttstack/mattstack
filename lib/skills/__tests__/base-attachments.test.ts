@@ -64,7 +64,7 @@ describe("base reference skills on the surface", () => {
   });
 
   test("a door keeps a skill's own disable-model-invocation", () => {
-    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), "---\nname: feature-flags\ndisable-model-invocation: true\n---\nFlags.\n");
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), "---\nname: feature-flags\ndescription: Flags\ndisable-model-invocation: true\n---\nFlags.\n");
     expect((planFor("feature-flags").doors[0]!.files[0] as { content: string }).content).toContain("disable-model-invocation: true\n");
   });
 
@@ -98,11 +98,27 @@ describe("base reference skills on the surface", () => {
     expect(planFor("feature-flags").doors).toEqual([]);
   });
 
-  test("a base unit named like a team skill group never replaces the group", () => {
-    put(join(baseDir(), "attachments", "grp", "SKILL.md"), "---\nname: grp\n---\nbase\n");
+  test("a base unit named like a team skill group is refused, never replacing the group", () => {
+    put(join(baseDir(), "attachments", "grp", "SKILL.md"), "---\nname: grp\ndescription: Base\n---\nbase\n");
     put(join(packDir(), "skills", "grp", "own", "SKILL.md"), "---\nname: own\n---\nmine\n");
-    expect(planFor("grp").doors).toEqual([]);
+    const result = planFor("grp");
+    expect(result.doors).toEqual([]);
+    expect(result.errors).toEqual(["acme-base attachment grp cannot be public: skills/grp already holds a folder compile did not make; rename one of them"]);
   });
+
+  test("a stray folder at the door's path is refused", () => {
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), reference);
+    put(join(packDir(), "skills", "feature-flags", "scratch.txt"), "notes\n");
+    expect(planFor("feature-flags").errors).toEqual(["acme-base attachment feature-flags cannot be public: skills/feature-flags already holds a folder compile did not make; rename one of them"]);
+  });
+
+  for (const [label, line] of [["no", ""], ["a blank", "description: ''\n"], ["a non-string", "description: 3\n"]] as const) {
+    test(`${label} description cannot go public`, () => {
+      put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), `---\nname: feature-flags\n${line}---\nFlags.\n`);
+      expect(planFor("feature-flags").errors).toEqual(["acme-base attachment feature-flags cannot be public: its SKILL.md has no description for agents to match on"]);
+      expect(planFor().errors).toEqual([]);
+    });
+  }
 
   test("an unlisted one gets no door", () => {
     put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), reference);

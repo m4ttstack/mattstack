@@ -1367,6 +1367,15 @@ describe("emitted base attachments", () => {
     }
   });
 
+  test("a door gives way to a team skill of its name, in a group", () => {
+    const packDir = withEmitted(["dev-servers"]);
+    writeFile(join(packDir, "skills", "dev-servers", "SKILL.md"), "---\nname: dev-servers\n---\ndoor\n");
+    writeFile(join(packDir, "skills", "dev-servers", "compiled.json"), provenance);
+    writeFile(join(packDir, "skills", "grp", "dev-servers", "SKILL.md"), "---\nname: dev-servers\n---\nmine\n");
+    const { rows } = computeRows(packDir, new Set(), { public: ["dev-servers"] }, new Set());
+    expect(rows.find((r) => r.name === "dev-servers")).toMatchObject({ status: "public", path: join(packDir, "skills", "grp", "dev-servers", "SKILL.md") });
+  });
+
   test("a listed name whose files are gone can still come off the list", async () => {
     const packDir = withEmitted(["gone"]);
     await skillsSurface(["set", "gone", "--internal", "--pack-dir", packDir, "--json"]);

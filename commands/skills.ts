@@ -416,10 +416,17 @@ type SkillEntry = { name: string; group: string | null; dir: string };
 function enumerateSkillEntries(root: string, into: Map<string, SkillEntry> = new Map()): Map<string, SkillEntry> {
   // surface.jsonc is keyed by bare skill name, so two groups carrying the same
   // leaf would be indistinguishable to every surface operation -- refuse rather
-  // than let one silently shadow the other.
+  // than let one silently shadow the other. A base skill's door gives way to
+  // a team skill of its name: compile removes the door.
+  const isDoor = (entry: SkillEntry) => entry.group === null && isEmittedAttachmentDir(entry.dir) && basename(root) === "skills";
   const add = (entry: SkillEntry) => {
     const clash = into.get(entry.name);
     if (clash && clash.dir !== entry.dir) {
+      if (isDoor(entry)) return;
+      if (isDoor(clash)) {
+        into.set(entry.name, entry);
+        return;
+      }
       throw new SkillsUsageError(
         `skill name "${entry.name}" appears twice (${clash.dir} and ${entry.dir}); skill names must be unique within a pack`,
       );
@@ -2125,7 +2132,7 @@ export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[]
     if (row.status === "never-compiled") {
       blocks.push(out.line("stale", row.name, `not copied from ${row.base} yet`));
     } else if (row.status === "orphaned") {
-      const why = row.side === "skills" ? "the surface no longer lists it" : payload.extendsBase ? "its base no longer has it" : "this pack no longer extends a base";
+      const why = row.side === "skills" ? "compile removes this public entry" : payload.extendsBase ? "its base no longer has it" : "this pack no longer extends a base";
       blocks.push(out.line("stale", row.name, why));
     } else {
       const files = [...row.staleFiles, ...row.orphanFiles.map((f) => `${f} (orphan)`)].join(", ");
