@@ -64,6 +64,7 @@ import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, re
 import { syncAdminSecrets, type AdminSecretsResult, type TokenOutcome } from "../lib/team/admin-secrets.ts";
 import { canonicalHandle, readAdminToken, readPeeredBoards, realReadAdminSecret, realReadLocalSecret, type ReadAdminSecret, type ReadLocalSecret } from "../lib/team/board-peers.ts";
 import { MembersKeyError, MembersSyncAbortedError, membersAddToTeam, membersDropFromTeam, membersRemove, membersSetTeams, membersSync, realMembersSeams, teamRemote, type BoardPeeringOutcome, type MembersSeams, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
+import { sendAnnouncement } from "../lib/team/announce.ts";
 import { peerOwnBoard, realPeerSeams, type PeerResult, type PeerSeams } from "../lib/team/peer.ts";
 import { publishTeam } from "../lib/team/publish.ts";
 import { renameOrg, type ConvergeOutcome, type RenameResult, type RenameSeams } from "../lib/team/rename.ts";
@@ -123,6 +124,8 @@ export interface TeamDeps {
   renameSeams?: Partial<RenameSeams>;
   /** The forge reads and writes `rt team forge-access` makes; real by default. */
   forgeAccessSeams?: ForgeAccessSeams;
+  /** The announcement send, seamed so a test never reaches the switchboard; real by default. */
+  announce?: typeof sendAnnouncement;
 }
 
 async function defaultReadCode(json: boolean): Promise<string> {
@@ -197,6 +200,7 @@ const REFUSAL_CODES = new Set([
   "invite-off-main",
   "org-detached",
   "peer-needs-admin",
+  "announce-not-admin",
   "board-registered-elsewhere",
   "bad-org-name",
   "rename-not-admin",
@@ -396,6 +400,50 @@ export async function teamPeer(args: string[], _ctx: CommandContext = {}, deps: 
       return;
     }
     out.print(...peerBlocks(result));
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
+    throw err;
+  }
+}
+
+const ANNOUNCE_USAGE = 'rt team announce "<title>" --message "<text>" [--team <org>] [--json]';
+
+/** A send reaches the whole org with no recall, so the title must come first, and any token that is not the title, `--message`, `--team` or `--json` is refused rather than dropped. */
+function announceArgsAreClean(args: string[]): boolean {
+  let positionals = 0;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === "--message" || a === "--team") {
+      const value = args[++i];
+      if (a === "--message" && (value === "--team" || value === "--json")) return false;
+      continue;
+    }
+    if (a === "--json") continue;
+    if (a.startsWith("--")) return false;
+    positionals++;
+  }
+  return positionals === 0 || (positionals === 1 && !args[0]!.startsWith("--"));
+}
+
+export async function teamAnnounce(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  if (!announceArgsAreClean(args)) usageError(deps, json, "Put the title first, quote the title and the message, and use only the flags below.", ANNOUNCE_USAGE);
+  const title = positional(args, ["--message", "--team"])[0];
+  const message = flagValue(args, "--message");
+  if (!title) usageError(deps, json, "What should the announcement's title be?", ANNOUNCE_USAGE);
+  if (!message) usageError(deps, json, "What should the announcement say?", ANNOUNCE_USAGE);
+  try {
+    const slug = resolveTeamSlug(args, "team announce");
+    const result = await (deps.announce ?? sendAnnouncement)(deps.probes, slug, { title, message }, { readLocalSecret: deps.readLocalSecret ?? realReadLocalSecret });
+    if (json) {
+      deps.print(JSON.stringify(envelope(result)));
+      return;
+    }
+    out.print(
+      result.delivered > 0
+        ? out.line("done", `Queued for ${result.delivered} ${result.delivered === 1 ? "board" : "boards"}`, "people see it within a minute if their board is running")
+        : out.line("needs-you", "Nobody will get this", "no other boards are connected"),
+    );
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;
