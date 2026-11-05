@@ -86,6 +86,7 @@ export interface RespondInfo {
 }
 export type DoctorStatus =
   | 'queued'
+  | 'syncing'
   | 'diagnosing'
   | 'rebasing'
   | 'fixing'

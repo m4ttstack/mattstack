@@ -101,6 +101,8 @@ Hand the domain skill:
 
 - **The MR** (`mrUrl`), the tier (`--tier api` or the checkout tier), the
   `--fix-classes` allowlist, and the operator note as context.
+- **`--paused-tree <root>`**, verbatim, when the launch carried it: the
+  domain skill resolves the rebase already paused there.
 - **`--draft-bin`** and its exact call: `<draft-bin> doctor-draft <mrUrl>
 <iid> <kind> <body...> --state <state>`. Every outbound MR note is a
   held draft through it; never post a note directly.

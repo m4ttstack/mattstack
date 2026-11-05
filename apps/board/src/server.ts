@@ -121,6 +121,7 @@ import {
   doctorResumeDispatchFields,
   parseDoctorRequestBody,
   planStandDown,
+  failOrphanedSyncs,
   pruneDoctorStates,
   readDoctorStates,
   STAND_DOWN_PANE_MESSAGE,
@@ -205,6 +206,11 @@ import {
   RESPOND_IN_FLIGHT,
   REVIEW_IN_FLIGHT,
 } from './launch-dedup.ts';
+import {
+  LOCAL_SYNCS,
+  syncBranchLocally,
+  type LocalSyncOutcome,
+} from './local-sync.ts';
 import { launchErrorMessage } from './launch-error.ts';
 import { hasLocalOrigin, isLocalRequest, requireJsonBody } from './local.ts';
 import {
@@ -2188,6 +2194,7 @@ const httpServer = Bun.serve({
           pruneReviewStates(onBoard);
           pruneRespondStates(onBoard);
           pruneDoctorStates(onBoard);
+          failOrphanedSyncs(LOCAL_SYNCS);
           // Fire-and-forget: this sits on the /data.json request path and
           // must never block or fail the response on a slow/failed daemon call.
           void pruneOffBoardGates(gateCache.rows(), onBoard, {
@@ -3019,6 +3026,49 @@ const httpServer = Bun.serve({
             'no doctor skill is set up for this board tab, so nothing can rebase in a checkout',
             { status: 409 }
           );
+        const statePath = doctorFilePath(parsed.mrUrl);
+        let pausedTree: string | undefined;
+        if (parsed.mode === 'rebase') {
+          if (LOCAL_SYNCS.has(parsed.mrUrl))
+            return new Response('a sync is already running on this MR', {
+              status: 409,
+            });
+          LOCAL_SYNCS.add(parsed.mrUrl);
+          let outcome: LocalSyncOutcome;
+          try {
+            writeDoctorState(statePath, {
+              mrUrl: parsed.mrUrl,
+              iid: parsed.iid,
+              status: 'syncing',
+              message: undefined,
+              origin: 'manual',
+              boardTabId: boardTabId ?? '',
+              tabId: undefined,
+              paneId: undefined,
+              dismissedAt: undefined,
+            });
+            outcome = await syncBranchLocally(repo, mr.sourceBranch);
+          } finally {
+            LOCAL_SYNCS.delete(parsed.mrUrl);
+          }
+          if (outcome.kind === 'clean') {
+            // The row is settled, so no doctor line stays on it.
+            writeDoctorState(statePath, {
+              status: 'done',
+              message: outcome.message,
+              dismissedAt: Date.now(),
+            });
+            return Response.json({ ok: true, synced: outcome.message });
+          }
+          if (outcome.kind === 'stopped') {
+            writeDoctorState(statePath, {
+              status: 'error',
+              message: outcome.message,
+            });
+            return new Response(outcome.message, { status: 409 });
+          }
+          pausedTree = outcome.tree;
+        }
         const triage = loadTriageConfig();
         // Token validation happens here, OUTSIDE the lock, since it's a
         // network round-trip and the lock must never sit open for that long.
@@ -3065,7 +3115,6 @@ const httpServer = Bun.serve({
                 .filter(Boolean)
                 .join('. ')
             : note;
-        const statePath = doctorFilePath(parsed.mrUrl);
         writeDoctorState(statePath, {
           mrUrl: parsed.mrUrl,
           iid: parsed.iid,
@@ -3091,6 +3140,7 @@ const httpServer = Bun.serve({
           tier,
           fixClasses,
           draftBin: manual.draftBin,
+          pausedTree,
         })
           .then(result => {
             void clearHandoffsAfterLaunch(parsed.mrUrl);

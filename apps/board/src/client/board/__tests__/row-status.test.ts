@@ -1219,6 +1219,21 @@ describe('rowStatus: respond lane', () => {
 });
 
 describe('rowStatus: doctor lane', () => {
+  test('a local sync spins with nothing to focus', () => {
+    const [line] = candidateLines(
+      mr({ doctor: { status: 'syncing', origin: 'manual' } }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({
+      tone: 'work',
+      word: 'syncing…',
+      spin: true,
+      verbs: [],
+    });
+  });
+
   test('an auto doctor watching CI is a working line with the auto detail', () => {
     const [line] = candidateLines(
       mr({ doctor: { status: 'watching', origin: 'auto' } }),

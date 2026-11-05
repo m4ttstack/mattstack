@@ -260,6 +260,7 @@ export function useLaunchAction(opts: {
   startToast: LaunchFlowDeps['startToast'];
   reload: () => void;
   started: string;
+  doneMessage?: LaunchFlowDeps['doneMessage'];
   failureMessage?: LaunchFlowDeps['failureMessage'];
 }): (
   mr: BoardMR,
@@ -278,6 +279,7 @@ export function useLaunchAction(opts: {
     startToast,
     reload,
     started,
+    doneMessage,
     failureMessage,
   } = opts;
   return useCallback(
@@ -302,6 +304,7 @@ export function useLaunchAction(opts: {
         verbing,
         noun,
         started,
+        doneMessage,
         failureMessage,
       };
       return runLaunchFlow(deps, mr, { ...extra, note }, intent);
@@ -316,6 +319,7 @@ export function useLaunchAction(opts: {
       addToast,
       startToast,
       reload,
+      doneMessage,
       failureMessage,
     ]
   );

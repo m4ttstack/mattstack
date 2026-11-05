@@ -17,6 +17,7 @@ import {
  */
 export type DoctorStatus =
   | 'queued'
+  | 'syncing'
   | 'diagnosing'
   | 'rebasing'
   | 'fixing'
@@ -195,6 +196,24 @@ export function planStandDown(
     paneToNudge: isInFlight && existing.paneId ? existing.paneId : null,
     clearDoctorState: true,
   };
+}
+
+/** A sync runs inside this server's request, so a `syncing` row with no
+    running sync is one a restart cut off, and nothing else would end it. */
+export function failOrphanedSyncs(
+  running: ReadonlySet<string>,
+  now: number = Date.now(),
+  db: Database = getStateDb()
+): void {
+  for (const [mrUrl, state] of readDoctorStates(db)) {
+    if (state.status === 'syncing' && !running.has(mrUrl))
+      writeDoctorState(
+        doctorFilePath(mrUrl),
+        { status: 'error', message: 'the board restarted during the sync' },
+        now,
+        db
+      );
+  }
 }
 
 export function parseDoctorRequestBody(

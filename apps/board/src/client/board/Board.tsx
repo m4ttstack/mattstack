@@ -623,6 +623,23 @@ export function Board() {
     startToast,
     reload: load,
   });
+  // The server answers once rt sync has finished, so both toasts say how it
+  // went; a conflict answers like any doctor launch.
+  const rebaseLocalAction = useLaunchAction({
+    axis: 'doctor',
+    path: '/doctor',
+    verbing: 'syncing',
+    started: 'doctor called on the conflicts',
+    noun: 'local rebase',
+    optimistic: optimisticLifecycle,
+    addToast,
+    startToast,
+    reload: load,
+    doneMessage: (result, mr) =>
+      result.body?.synced ? `${result.body.synced}: ${mrRef(mr)}` : undefined,
+    failureMessage: (result, mr) =>
+      `couldn't sync ${mrRef(mr)}${result.text ? `: ${result.text}` : ` (${result.status})`}`,
+  });
   // Resume actions: axis null means useLaunchAction's setQueued/rollback are
   // no-ops, matching today's handleResume (which never claimed a badge before
   // the reload settled). Bespoke failureMessage restores handleResume's own
@@ -697,9 +714,9 @@ export function Board() {
         case 'doctor':
           return doctorAction(mr, { tabId: state.tab }, note, intent, quiet);
         case 'rebase-local':
-          // The doctor chassis scoped to a checkout rebase: the fallback when
-          // the GitLab-side rebase can't (conflicts) or didn't work.
-          return doctorAction(
+          // rt sync first; on a conflict the doctor chassis, scoped to the
+          // paused rebase.
+          return rebaseLocalAction(
             mr,
             { mode: 'rebase', tabId: state.tab },
             note,
@@ -715,6 +732,7 @@ export function Board() {
       respondAction,
       resumeRespondAction,
       doctorAction,
+      rebaseLocalAction,
       state.tab,
     ]
   );
