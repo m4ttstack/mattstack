@@ -13,6 +13,7 @@ import { notifications } from '@mattstack/app-kit/notifications';
 import type { RoomSummary } from '@mattstack/rt-client';
 
 import { isRoomForRepo } from './agent-state';
+import { FaceGroup } from './AgentName';
 import { useBuddies } from './buddies-context';
 import { dayKey, dayLabel, localTime } from './day-label';
 import { DmNames, DmStack } from './DmPairTitle';
@@ -373,7 +374,9 @@ function DmRow({
       }}
       className={`${classes.listRow} ${classes.dmRow}`}
     >
-      <DmStack pair={pair} size={40} />
+      <FaceGroup handles={[pair.a, pair.b]}>
+        <DmStack pair={pair} size={40} />
+      </FaceGroup>
       <div className={classes.dmText}>
         <Group gap="sm" justify="space-between" wrap="nowrap">
           <Text
