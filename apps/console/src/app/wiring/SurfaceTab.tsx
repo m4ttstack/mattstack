@@ -503,6 +503,8 @@ function SurfaceGridRow({
             {effectLine(row, next)}
           </Text>
         ) : null}
+      </div>
+      <div className={legendClasses.rowActions}>
         {sourcePath && (
           <Tooltip label="Open in editor" openDelay={300}>
             <ActionIcon

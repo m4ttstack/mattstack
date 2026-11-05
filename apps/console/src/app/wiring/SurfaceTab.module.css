@@ -117,9 +117,9 @@
    the wash is the panel's near-white, so an off switch keeps its contrast. */
 .row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   column-gap: 11px;
-  row-gap: 4px;
+  row-gap: 6px;
   align-items: center;
   /* A neighbour in the list can stretch this row taller; the first line stays
      at the top, so switches line up across the two columns. */
@@ -127,16 +127,39 @@
   border-radius: 6px;
 }
 
+.rowSwitch {
+  grid-column: 1;
+}
+
+.rowActions {
+  grid-column: 3;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
 /* Only a row with a note: spanning an empty line would add the row gap. */
-.row:has(.rowNote) .rowSwitch {
+.row:has(.rowNote) .rowSwitch,
+.row:has(.rowNote) .rowActions {
   grid-row: 1 / span 2;
 }
 
 .row[data-no-switch] {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.row[data-no-switch] .rowLine {
+  grid-column: 1;
+}
+
+.row[data-no-switch] .rowActions {
+  grid-column: 2;
 }
 
 .rowLine {
+  grid-column: 2;
+  grid-row: 1;
   display: flex;
   align-items: center;
   gap: 11px;
