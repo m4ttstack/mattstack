@@ -103,7 +103,7 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   column-gap: 11px;
-  row-gap: 1px;
+  row-gap: 4px;
   align-items: center;
   /* A neighbour in the list can stretch this row taller; the first line stays
      at the top, so switches line up across the two columns. */
