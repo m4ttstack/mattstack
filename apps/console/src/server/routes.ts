@@ -10,6 +10,7 @@ import { panesRoutes } from './panes';
 import { runsRoutes } from './runs';
 import { settings } from './settings';
 import { mountSkills } from './skills';
+import { usageRoutes } from './usage';
 
 // The embed page writes settings, so only the suite's own pages may frame it.
 export const EMBED_FRAME_ANCESTORS =
@@ -33,6 +34,7 @@ export const routes = new Hono()
   .route('/', enrichRoutes(runsData))
   .route('/', panesRoutes(runsData))
   .route('/', gatesRoutes(runsData))
+  .route('/', usageRoutes(runsData))
   .route('/', settings)
   .route('/', agentModels)
   .route(

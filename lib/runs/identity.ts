@@ -16,5 +16,19 @@ export function recordIdentity(db: Database, env: NodeJS.ProcessEnv, now: number
       "INSERT OR REPLACE INTO fields (run_id, key, value, produced_by, at) SELECT id, ?, ?, 'run', ? FROM runs",
       [key, value, now],
     );
+    if (key === "claude-session") appendSession(db, current?.value, value, now);
   }
+}
+
+// Readers fall back to claude-session while the list is absent, so it is
+// seeded from that field only when a different session first appears.
+function appendSession(db: Database, previous: string | undefined, session: string, now: number): void {
+  const row = db.query("SELECT value FROM fields WHERE key='claude-sessions'").get() as { value: string } | undefined;
+  const list: string[] = row ? JSON.parse(row.value) : previous ? [previous] : [];
+  if (list.includes(session)) return;
+  list.push(session);
+  db.run(
+    "INSERT OR REPLACE INTO fields (run_id, key, value, produced_by, at) SELECT id, 'claude-sessions', ?, 'run', ? FROM runs",
+    [JSON.stringify(list), now],
+  );
 }

@@ -47,4 +47,60 @@ describe("recordIdentity", () => {
     expect(db.query("SELECT COUNT(*) AS n FROM fields").get()).toEqual({ n: 0 });
     db.close();
   });
+
+  describe("claude-sessions", () => {
+    const sessions = (db: Database) => JSON.parse(field(db, "claude-sessions")!.value);
+    const rec = (db: Database, id: string, now: number) => recordIdentity(db, { CLAUDE_CODE_SESSION_ID: id }, now);
+
+    test("a first session records a one-item list", () => {
+      const db = dbWithRun();
+      rec(db, "s1", 100);
+      expect(sessions(db)).toEqual(["s1"]);
+      expect(field(db, "claude-sessions")!.produced_by).toBe("run");
+      db.close();
+    });
+
+    test("a new session appends", () => {
+      const db = dbWithRun();
+      rec(db, "s1", 100);
+      rec(db, "s2", 200);
+      expect(sessions(db)).toEqual(["s1", "s2"]);
+      expect(field(db, "claude-session")!.value).toBe("s2");
+      db.close();
+    });
+
+    test("returning to an old session does not duplicate it", () => {
+      const db = dbWithRun();
+      rec(db, "s1", 100);
+      rec(db, "s2", 200);
+      rec(db, "s1", 300);
+      expect(sessions(db)).toEqual(["s1", "s2"]);
+      db.close();
+    });
+
+    test("an unchanged session leaves fields.at alone", () => {
+      const db = dbWithRun();
+      rec(db, "s1", 100);
+      rec(db, "s1", 500);
+      expect(field(db, "claude-session")!.at).toBe(100);
+      expect(field(db, "claude-sessions")!.at).toBe(100);
+      db.close();
+    });
+
+    test("an existing claude-session seeds the list", () => {
+      const db = dbWithRun();
+      db.run("INSERT INTO fields (run_id, key, value, produced_by, at) VALUES ('r1', 'claude-session', 's0', 'run', 50)");
+      rec(db, "s1", 100);
+      expect(sessions(db)).toEqual(["s0", "s1"]);
+      db.close();
+    });
+
+    test("a lone existing claude-session seen again writes no list", () => {
+      const db = dbWithRun();
+      db.run("INSERT INTO fields (run_id, key, value, produced_by, at) VALUES ('r1', 'claude-session', 's0', 'run', 50)");
+      rec(db, "s0", 100);
+      expect(field(db, "claude-sessions") ?? null).toBeNull();
+      db.close();
+    });
+  });
 });

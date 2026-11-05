@@ -30,6 +30,7 @@ describe('storyFields', () => {
       'gate',
       'waiting-gate',
       'claude-session',
+      'claude-sessions',
       'herdr-pane',
       'agent',
       'pipeline-stages',

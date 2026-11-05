@@ -7,6 +7,7 @@ export const PLUMBING_KEYS: ReadonlySet<string> = new Set([
   'gate',
   'waiting-gate',
   'claude-session',
+  'claude-sessions',
   'herdr-pane',
   'agent',
   'pipeline-stages',

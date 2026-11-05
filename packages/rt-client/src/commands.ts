@@ -480,6 +480,107 @@ export interface RunFieldRow { key: string; value: string; produced_by: string; 
 export interface RunDecisionRow { contract: string; scope: string; selection: string; decided_by: string; decided_at: number; }
 export interface RunDetail { run: RunSummary; stages: RunStageRow[]; fields: RunFieldRow[]; decisions: RunDecisionRow[]; schemaAhead: boolean; }
 
+/** Duplicated shape on purpose: mirrors lib/usage/mr-key.ts's UsageKind. */
+export type UsageKind = "work" | "review" | "respond" | "doctor" | "other";
+
+export interface UsageTotals {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  messages: number;
+  /** Estimated USD, covering priced models only. */
+  cost: number;
+  /** Tokens from models with no price, so a new model reads as incomplete rather than cheap. */
+  unpricedTokens: number;
+}
+
+export interface UsageModelRow { model: string | null; totals: UsageTotals }
+
+export interface UsageSplits { byModel: UsageModelRow[]; main: UsageTotals; subagent: UsageTotals }
+
+export interface UsageMrRow {
+  mrKey: string;
+  url: string | null;
+  ticket: string | null;
+  branch: string | null;
+  firstActivity: number;
+  lastActivity: number;
+  totals: UsageTotals;
+  costByKind: Record<UsageKind, number>;
+  runCount: number;
+  roundCount: number;
+}
+
+export interface UsageMrsData {
+  mrs: UsageMrRow[];
+  summary: { mrCount: number; totals: UsageTotals; medianCost: number };
+}
+
+/** `name` and `attempt` are null on the row for a run's messages outside every stage. */
+export interface UsageStageRow {
+  name: string | null;
+  attempt: number | null;
+  status: string | null;
+  startedAt: number | null;
+  endedAt: number | null;
+  totals: UsageTotals;
+}
+
+/** One run, or one agent-only session when `runId` is null. */
+export interface UsageMrEntry extends UsageSplits {
+  runId: string | null;
+  sessionId: string | null;
+  kind: UsageKind;
+  /** Position among the MR's respond runs, from 1. Null on every other kind. */
+  round: number | null;
+  pipeline: string | null;
+  status: string | null;
+  startedAt: number | null;
+  endedAt: number | null;
+  firstActivity: number;
+  lastActivity: number;
+  totals: UsageTotals;
+  stages: UsageStageRow[];
+}
+
+export interface UsageMrData extends UsageSplits {
+  mrKey: string;
+  url: string | null;
+  ticket: string | null;
+  branch: string | null;
+  firstActivity: number;
+  lastActivity: number;
+  totals: UsageTotals;
+  costByKind: Record<UsageKind, number>;
+  runs: UsageMrEntry[];
+}
+
+/** `weekStart` is local Monday midnight, epoch ms. */
+export interface UsageWeekRow { weekStart: number; totals: UsageTotals; byKind: Record<UsageKind, UsageTotals> }
+
+export interface UsagePipelineRow { pipeline: string | null; totals: UsageTotals }
+
+export interface UsageTrendsData {
+  /** Weeks with no messages are left out. */
+  weeks: UsageWeekRow[];
+  totals: UsageTotals;
+  byPipeline: UsagePipelineRow[];
+  byModel: UsageModelRow[];
+}
+
+export interface UsageStatusData {
+  lastSweepAt: number | null;
+  lastSweepMs: number | null;
+  messages: number;
+  runs: number;
+  skippedLines: number;
+  conflicts: number;
+  skippedRate: number;
+  unpricedModels: string[];
+  sessionsMissingTranscript: number;
+}
+
 export type AgentSurface = "herdr" | "headless";
 
 /** The reconciler's per-agent snapshot: one row per agent it knows about, live or not. */
@@ -863,6 +964,11 @@ export interface Commands {
   "runs:get": { payload: { runId: string; repo?: string }; data: RunDetail };
   "runs:abandon": { payload: { runId: string; repo?: string; reason?: string }; data: { ok: boolean } };
   "runs:evidence": { payload: { runId: string; repo?: string } & ({ key: EvidenceImageKey | EvidenceTextKey } | EvidenceAddress); data: { mime: string; base64?: string; text?: string } };
+  "usage:mrs": { payload: { days?: number; repo?: string }; data: UsageMrsData };
+  /** `data` is null when no MR has that key. */
+  "usage:mr": { payload: { mrKey: string }; data: UsageMrData | null };
+  "usage:trends": { payload: { days: number; repo?: string }; data: UsageTrendsData };
+  "usage:status": { payload: Record<string, never>; data: UsageStatusData };
   "chat:join": { payload: { room: string; handle: string; wakeOn?: WakeMode; cwd?: string; pane?: string }; data: { handle: string; name: string; memberCount: number; unread: number } };
   "chat:leave": { payload: { room: string; handle: string }; data: Record<string, never> };
   /** `others` counts the room's members besides the author, so a caller can tell "woke nobody of 7" from "nobody else is here". */
@@ -1283,6 +1389,10 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "runs:get",
   "runs:abandon",
   "runs:evidence",
+  "usage:mrs",
+  "usage:mr",
+  "usage:trends",
+  "usage:status",
   "chat:ack",
   "chat:claim",
   "chat:release",

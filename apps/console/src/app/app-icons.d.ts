@@ -1,5 +1,6 @@
 declare module '@mattstack/app-kit/icons' {
   interface AppIcons {
+    chartColumn: true;
     workflow: true;
     boxes: true;
     fileCog: true;

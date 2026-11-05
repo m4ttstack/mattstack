@@ -16,8 +16,8 @@ const WRITE_RES = [
 const PART_RE = /^<!-- part: (.*) -->$/;
 
 export const RT_WRITTEN_KEYS: readonly string[] = [
-  "work-type", "ticket", "repo", "mode", "claude-session", "herdr-pane",
-  "agent", "pipeline-stages", "hold", "gate", "waiting-gate",
+  "work-type", "ticket", "repo", "mode", "claude-session", "claude-sessions",
+  "herdr-pane", "agent", "pipeline-stages", "hold", "gate", "waiting-gate",
 ];
 export const RT_WRITTEN_PREFIXES: readonly string[] = ["extra.context-dropped.", "extra.gate-source."];
 

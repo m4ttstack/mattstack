@@ -11,7 +11,9 @@
         "iid": 421,
         "webUrl": "https://gitlab.com/acme/web/-/merge_requests/421",
         "state": "merged",
-        "pipeline": { "status": "success" }
+        "pipeline": {
+          "status": "success"
+        }
       }
     },
     "web-418-assignee-filter": {
@@ -40,7 +42,9 @@
         "iid": 409,
         "webUrl": "https://gitlab.com/acme/web/-/merge_requests/409",
         "state": "opened",
-        "pipeline": { "status": "running" }
+        "pipeline": {
+          "status": "running"
+        }
       }
     },
     "web-409-tracking-summary": {
@@ -53,7 +57,9 @@
         "iid": 405,
         "webUrl": "https://gitlab.com/acme/web/-/merge_requests/405",
         "state": "merged",
-        "pipeline": { "status": "success" }
+        "pipeline": {
+          "status": "success"
+        }
       }
     },
     "web-401-readonly-admin-menu-hidden-by-role-in-the-nav-config-and-the-command-palette-and-the-settings-sidebar": {
@@ -66,7 +72,9 @@
         "iid": 398,
         "webUrl": "https://gitlab.com/acme/web/-/merge_requests/398",
         "state": "merged",
-        "pipeline": { "status": "success" }
+        "pipeline": {
+          "status": "success"
+        }
       }
     },
     "web-406-orders-table-focus-rings": {
@@ -79,7 +87,9 @@
         "iid": 406,
         "webUrl": "https://gitlab.com/acme/web/-/merge_requests/406",
         "state": "merged",
-        "pipeline": { "status": "success" }
+        "pipeline": {
+          "status": "success"
+        }
       }
     },
     "web-388-dedupe-contacts": {
@@ -100,7 +110,9 @@
         "iid": 380,
         "webUrl": "https://gitlab.com/acme/web/-/merge_requests/380",
         "state": "merged",
-        "pipeline": { "status": "success" }
+        "pipeline": {
+          "status": "success"
+        }
       }
     },
     "web-366-note-author": {
@@ -125,7 +137,9 @@
         "iid": 412,
         "webUrl": "https://gitlab.com/acme/web/-/merge_requests/412",
         "state": "opened",
-        "pipeline": { "status": "success" }
+        "pipeline": {
+          "status": "success"
+        }
       }
     },
     "web-377-courier-name": {
@@ -135,6 +149,28 @@
         "url": "https://linear.app/acme/issue/WEB-377"
       },
       "mr": null
+    },
+    "web-123-cart-totals": {
+      "ticket": {
+        "identifier": "WEB-123",
+        "title": "Cart totals round down on discounts",
+        "url": "https://linear.app/acme/issue/WEB-123"
+      },
+      "mr": {
+        "iid": 123,
+        "webUrl": "https://github.com/acme/widgets/pull/123",
+        "state": "merged",
+        "pipeline": null
+      }
+    },
+    "feature/cart-discounts": {
+      "ticket": null,
+      "mr": {
+        "iid": 124,
+        "webUrl": "https://github.com/acme/widgets/pull/124",
+        "state": "opened",
+        "pipeline": null
+      }
     }
   }
 }

@@ -57,6 +57,7 @@ import { discoverOrgs, readTeamSnapshot, readUserIntegrationOverrides, type Team
 import { createRealAgeKeySeam } from "./home/age-key.ts";
 import { readSecret, createRealSecretsExecSeam, type SecretsSeams } from "./secrets/store.ts";
 import { startPeerWaker } from "./daemon/peer-waker.ts";
+import { spawnUsageSweep } from "./daemon/usage-sweep.ts";
 import { readSwitchboardToken } from "./daemon/handlers/secrets.ts";
 import { readBoardSwitchboardToken } from "./team/board-token.ts";
 import { collectPing, readPingVersions, runningInVirtualMachine } from "./telemetry/ping.ts";
@@ -852,6 +853,12 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
             if (removed.length > 0) log.info({ removed: removed.length }, "pruned old pipeline runs");
           },
           { bootDelayMs: 60_000, intervalMs: 24 * 60 * 60 * 1000 },
+          log,
+        ));
+        sweepHandles.push(scheduleSweep(
+          "usage-sweep",
+          () => spawnUsageSweep(),
+          { bootDelayMs: 120_000, intervalMs: 5 * 60 * 1000 },
           log,
         ));
         // rt.logRetentionDays is read fresh each sweep so a mid-run settings
