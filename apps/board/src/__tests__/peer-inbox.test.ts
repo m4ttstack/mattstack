@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
+import type { AnnouncementPayload } from '@mattstack/rt-client';
 import type { Envelope, NudgeResult } from '../peer/envelope.ts';
 import { materializeEnvelope, type MaterializeDeps } from '../peer/inbox.ts';
 import type { NudgeState } from '../peer/nudges.ts';
@@ -33,6 +34,7 @@ function fakeDeps(): MaterializeDeps & {
     };
   }>;
   finishes: FinishCall[];
+  announced: Array<{ id: string; payload: AnnouncementPayload; from: string }>;
   /** The sender each resolve or finish call named, in call order. */
   froms: Array<string | undefined>;
   logs: string[];
@@ -50,7 +52,17 @@ function fakeDeps(): MaterializeDeps & {
   const finishes: FinishCall[] = [];
   const froms: Array<string | undefined> = [];
   const logs: string[] = [];
+  const announced: Array<{
+    id: string;
+    payload: AnnouncementPayload;
+    from: string;
+  }> = [];
   return {
+    announced,
+    isOrgAdmin: u => u === 'admin1',
+    async notifyAnnouncement(id, payload, from) {
+      announced.push({ id, payload, from });
+    },
     froms,
     peerReviews,
     nudges,
@@ -666,5 +678,76 @@ describe('materializeEnvelope', () => {
         at: 5,
       },
     ]);
+  });
+});
+
+const now = 1_000_000_000;
+const DAY = 86_400_000;
+
+function announcement(over: Partial<Envelope> = {}): Envelope {
+  return envelope({
+    type: 'announcement',
+    payload: { title: 'Update rt', message: 'Today please' },
+    ...over,
+  });
+}
+
+describe('announcement', () => {
+  test('from an org admin notifies with the envelope id', () => {
+    const deps = fakeDeps();
+    materializeEnvelope(
+      announcement({ id: 'a1', from: 'admin1', receivedAt: now }),
+      deps,
+      now
+    );
+    expect(deps.announced).toEqual([
+      {
+        id: 'a1',
+        payload: { title: 'Update rt', message: 'Today please' },
+        from: 'admin1',
+      },
+    ]);
+  });
+  test('from anyone else is dropped and logged', () => {
+    const deps = fakeDeps();
+    materializeEnvelope(
+      announcement({ from: 'member1', receivedAt: now }),
+      deps,
+      now
+    );
+    expect(deps.announced).toEqual([]);
+    expect(deps.logs).toHaveLength(1);
+  });
+  test('over a day old is dropped', () => {
+    const deps = fakeDeps();
+    materializeEnvelope(
+      announcement({ from: 'admin1', receivedAt: now - DAY - 1 }),
+      deps,
+      now
+    );
+    expect(deps.announced).toEqual([]);
+  });
+  test('exactly a day old still shows', () => {
+    const deps = fakeDeps();
+    materializeEnvelope(
+      announcement({ from: 'admin1', receivedAt: now - DAY }),
+      deps,
+      now
+    );
+    expect(deps.announced).toHaveLength(1);
+  });
+  test('a malformed one is logged', () => {
+    const deps = fakeDeps();
+    materializeEnvelope(
+      announcement({
+        from: 'admin1',
+        receivedAt: now,
+        payload: { title: '' },
+      }),
+      deps,
+      now
+    );
+    expect(deps.announced).toEqual([]);
+    expect(deps.logs).toHaveLength(1);
   });
 });
