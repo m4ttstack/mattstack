@@ -86,6 +86,7 @@ test("lists the prompts, subagents and tools of an after-the-last-stage window",
   ]);
   const data = await after();
   expect(data?.transcriptFound).toBe(true);
+  expect(data?.sessionsMissing).toBe(0);
   expect(texts(data)).toEqual(["the reviewer wants a smaller diff"]);
   expect(data?.tools).toEqual([
     { name: "Agent", count: 1 },
@@ -204,6 +205,7 @@ test("says when the transcript is gone", async () => {
   rmSync(transcript([]));
   const data = await after();
   expect(data?.transcriptFound).toBe(false);
+  expect(data?.sessionsMissing).toBe(1);
   expect(data?.prompts).toEqual([]);
 });
 
@@ -222,6 +224,17 @@ test("fails when a transcript cannot be read", async () => {
   mkdirSync(path);
   db.query("INSERT INTO usage_files (path, session_id) VALUES (?, ?)").run(path, "s");
   await expect(after()).rejects.toThrow();
+});
+
+test("counts a session whose transcript is gone beside one that is still here", async () => {
+  seedRun();
+  message("after-other", T + 6000, { runId: "r", session: "gone" });
+  rmSync(transcript([], "gone"));
+  transcript([user(T + 4000, "still here"), assistant(T + 5000, "after-1", { type: "text", text: "ok" })]);
+  const data = await after();
+  expect(data?.transcriptFound).toBe(true);
+  expect(data?.sessionsMissing).toBe(1);
+  expect(texts(data)).toEqual(["still here"]);
 });
 
 test("reads an agent-only session by its id", async () => {
