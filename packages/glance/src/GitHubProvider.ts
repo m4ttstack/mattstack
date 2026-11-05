@@ -29,6 +29,7 @@ import type {
   EnqueuePullRequestInput,
   MergePullRequestInput,
   MergeQueueEntry,
+  MergeQueueStatus,
   MRDetail,
   Note,
   NoteAuthor,
@@ -2016,6 +2017,24 @@ export class GitHubProvider implements GitProvider {
         `setAutoMerge failed: GitHub accepted the mutation but reported no auto-merge on ${projectPath}!${mrIid}`
       );
     }
+  }
+
+  async fetchMergeQueueStatus(projectPath: string, mrIid: number): Promise<MergeQueueStatus> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    const query = `
+      query GlanceMergeQueueStatus($owner: String!, $repo: String!, $number: Int!) {
+        repository(owner: $owner, name: $repo) {
+          pullRequest(number: $number) { isMergeQueueEnabled isInMergeQueue }
+        }
+      }
+    `;
+    const data = await this.graphqlOrThrow<{
+      repository?: { pullRequest?: { isMergeQueueEnabled: boolean; isInMergeQueue: boolean } | null } | null;
+    }>('fetchMergeQueueStatus', query, { owner, repo, number: mrIid });
+
+    const pr = data.repository?.pullRequest;
+    if (!pr) throw new Error(`fetchMergeQueueStatus failed: GitHub returned no pull request for ${projectPath}!${mrIid}`);
+    return { enabled: pr.isMergeQueueEnabled, inQueue: pr.isInMergeQueue };
   }
 
   /** Fails with GitHub's own message when the branch has no merge queue. */

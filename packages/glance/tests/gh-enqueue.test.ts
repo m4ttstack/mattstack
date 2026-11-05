@@ -19,6 +19,21 @@ function providerWith(payload: unknown) {
 
 const QUEUED = { enqueuePullRequest: { mergeQueueEntry: { position: 2, state: 'QUEUED' } } };
 
+describe('fetchMergeQueueStatus', () => {
+  test('reads both flags for the pull request', async () => {
+    const { provider, mutations } = providerWith({
+      repository: { pullRequest: { isMergeQueueEnabled: true, isInMergeQueue: false } }
+    });
+    expect(await provider.fetchMergeQueueStatus('o/r', 5)).toEqual({ enabled: true, inQueue: false });
+    expect(mutations[0]!.variables).toEqual({ owner: 'o', repo: 'r', number: 5 });
+  });
+
+  test('a missing pull request is a failure, not a repo with no queue', async () => {
+    const { provider } = providerWith({ repository: { pullRequest: null } });
+    await expect(provider.fetchMergeQueueStatus('o/r', 5)).rejects.toThrow('no pull request for o/r!5');
+  });
+});
+
 describe('enqueuePullRequest', () => {
   test('returns the queue entry and pins the expected head', async () => {
     const { provider, mutations } = providerWith(QUEUED);
