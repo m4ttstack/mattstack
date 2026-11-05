@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { indexTranscripts, readFrom, type TranscriptFile } from "../transcripts.ts";
@@ -153,6 +153,75 @@ test("a malformed line is skipped and counted", () => {
 
 test("ts is epoch ms", () => {
   expect(readFrom(fixture(entry("m1") + "\n"), 0).messages[0]!.ts).toBe(Date.UTC(2026, 0, 2));
+});
+
+test("cacheWrite5m is 0 when only the 1h counter is present", () => {
+  const f = fixture(entry("m1", { cache_creation: { ephemeral_1h_input_tokens: 491 } }) + "\n");
+  const m = readFrom(f, 0).messages[0]!;
+  expect(m.cacheWrite5m).toBe(0);
+  expect(m.cacheWrite1h).toBe(491);
+});
+
+test("cacheWrite5m is 0 with only the top-level total", () => {
+  const f = fixture(entry("m1", { cache_creation_input_tokens: 50 }) + "\n");
+  expect(readFrom(f, 0).messages[0]!.cacheWrite5m).toBe(0);
+});
+
+test("an assistant line without usage counts as skipped", () => {
+  const line = JSON.stringify({ type: "assistant", message: { id: "m1", model: "x", usg: {} } });
+  const r = readFrom(fixture(line + "\n"), 0);
+  expect(r.skippedLines).toBe(1);
+  expect(r.messages).toEqual([]);
+});
+
+test("a line with usage outside message is ignored without counting", () => {
+  const line = JSON.stringify({ type: "user", toolUseResult: { usage: { input_tokens: 1 } } });
+  const r = readFrom(fixture(line + "\n"), 0);
+  expect(r.skippedLines).toBe(0);
+  expect(r.messages).toEqual([]);
+});
+
+test("an entry missing id, model or timestamp counts as skipped", () => {
+  const u = { input_tokens: 1 };
+  const lines = [
+    JSON.stringify({ timestamp: "2026-01-02T00:00:00.000Z", message: { model: "m", usage: u } }),
+    JSON.stringify({ timestamp: "2026-01-02T00:00:00.000Z", message: { id: "a", usage: u } }),
+    JSON.stringify({ message: { id: "b", model: "m", usage: u } }),
+  ];
+  const r = readFrom(fixture(lines.join("\n") + "\n"), 0);
+  expect(r.skippedLines).toBe(3);
+  expect(r.messages).toEqual([]);
+});
+
+test("lines spanning chunk boundaries parse and offsets stay exact", () => {
+  const full = ["m1", "m2", "m3", "m4"].map((id) => entry(id)).join("\n") + "\n";
+  const partial = entry("m5").slice(0, 30);
+  for (const chunk of [7, 64, 100, 1000]) {
+    const r = readFrom(fixture(full + partial), 0, chunk);
+    expect(r.messages.map((m) => m.messageId)).toEqual(["m1", "m2", "m3", "m4"]);
+    expect(r.nextOffset).toBe(Buffer.byteLength(full));
+    expect(r.skippedLines).toBe(0);
+  }
+});
+
+test("a deleted file reads as empty", () => {
+  const f = fixture(entry("m1") + "\n");
+  rmSync(f.path);
+  expect(readFrom(f, 0)).toEqual({ messages: [], nextOffset: 0, skippedLines: 0 });
+});
+
+test("a directory where the file should be reads as empty", () => {
+  const path = join(dir, "d.jsonl");
+  mkdirSync(path);
+  expect(readFrom({ ...fixture(""), path }, 0).messages).toEqual([]);
+});
+
+test("config dirs sharing one projects tree are listed once", () => {
+  session("c1", "s1");
+  mkdirSync(join(dir, "c2"), { recursive: true });
+  symlinkSync(join(dir, "c1", "projects"), join(dir, "c2", "projects"));
+  const files = indexTranscripts([join(dir, "c2"), join(dir, "c1")], new Set(["s1"]));
+  expect(files.length).toBe(1);
 });
 
 test("subagent messages carry the file's session and subagent fields", () => {

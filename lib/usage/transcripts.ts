@@ -1,4 +1,12 @@
-import { closeSync, openSync, readdirSync, readFileSync, readSync, statSync } from "fs";
+import {
+  closeSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  readSync,
+  realpathSync,
+  statSync,
+} from "fs";
 import { join } from "path";
 
 export interface TranscriptFile {
@@ -54,9 +62,18 @@ export function indexTranscripts(
 ): TranscriptFile[] {
   const files: TranscriptFile[] = [];
   const claimed = new Set<string>();
+  const listed = new Set<string>();
   for (const configDir of configDirs) {
     const found = new Set<string>();
     const projectsDir = join(configDir, "projects");
+    let real: string;
+    try {
+      real = realpathSync(projectsDir);
+    } catch {
+      continue;
+    }
+    if (listed.has(real)) continue;
+    listed.add(real);
     for (const project of listDir(projectsDir)) {
       if (!project.isDirectory()) continue;
       const projectDir = join(projectsDir, project.name);
@@ -107,59 +124,52 @@ function str(v: unknown): string | null {
   return typeof v === "string" ? v : null;
 }
 
+const DEFAULT_CHUNK_BYTES = 16 * 1024 * 1024;
+
 export function readFrom(
   file: TranscriptFile,
   offset: number,
+  chunkBytes = DEFAULT_CHUNK_BYTES,
 ): { messages: UsageMessage[]; nextOffset: number; skippedLines: number } {
+  const empty = { messages: [], nextOffset: offset, skippedLines: 0 };
+  let fd: number;
   let size: number;
   try {
     size = statSync(file.path).size;
+    if (size <= offset) return empty;
+    fd = openSync(file.path, "r");
   } catch {
-    return { messages: [], nextOffset: offset, skippedLines: 0 };
+    return empty;
   }
-  if (size <= offset) return { messages: [], nextOffset: offset, skippedLines: 0 };
-
-  const buf = Buffer.alloc(size - offset);
-  const fd = openSync(file.path, "r");
-  let got = 0;
-  try {
-    while (got < buf.length) {
-      const n = readSync(fd, buf, got, buf.length - got, offset + got);
-      if (n === 0) break;
-      got += n;
-    }
-  } finally {
-    closeSync(fd);
-  }
-
-  const end = buf.subarray(0, got).lastIndexOf(0x0a);
-  if (end < 0) return { messages: [], nextOffset: offset, skippedLines: 0 };
 
   const byId = new Map<string, UsageMessage>();
   let skippedLines = 0;
-  const text = buf.subarray(0, end).toString("utf8");
-  for (const line of text.split("\n")) {
-    if (line.trim() === "" || !line.includes('"usage"')) continue;
+
+  const handleLine = (line: Buffer) => {
+    const hasUsage = line.includes('"usage"');
+    if (!hasUsage) {
+      if (line.includes('"type":"assistant"')) skippedLines++;
+      return;
+    }
     let entry: any;
     try {
-      entry = JSON.parse(line);
+      entry = JSON.parse(line.toString("utf8"));
     } catch {
       skippedLines++;
-      continue;
+      return;
     }
     const message = entry?.message;
     const usage = message?.usage;
-    if (!usage || typeof usage !== "object") continue;
+    if (!usage || typeof usage !== "object") return;
     const model = str(message.model);
-    if (model === "<synthetic>") continue;
+    if (model === "<synthetic>") return;
     const messageId = str(message.id);
     const ts = Date.parse(entry.timestamp);
     if (!messageId || !model || Number.isNaN(ts)) {
       skippedLines++;
-      continue;
+      return;
     }
     const cc = usage.cache_creation;
-    const has5m = cc && typeof cc === "object" && "ephemeral_5m_input_tokens" in cc;
     byId.set(messageId, {
       messageId,
       sessionId: file.sessionId,
@@ -171,14 +181,36 @@ export function readFrom(
       input: num(usage.input_tokens),
       output: num(usage.output_tokens),
       cacheRead: num(usage.cache_read_input_tokens),
-      cacheWrite5m: has5m
-        ? num(cc.ephemeral_5m_input_tokens)
-        : num(usage.cache_creation_input_tokens) - num(cc?.ephemeral_1h_input_tokens),
+      cacheWrite5m: num(cc?.ephemeral_5m_input_tokens),
       cacheWrite1h: num(cc?.ephemeral_1h_input_tokens),
       thinking: num(usage.output_tokens_details?.thinking_tokens),
       speed: str(usage.speed),
       serviceTier: str(usage.service_tier),
     });
+  };
+
+  let consumed = offset;
+  let carry: Buffer = Buffer.alloc(0);
+  let pos = offset;
+  try {
+    const chunk = Buffer.alloc(Math.min(chunkBytes, size - offset));
+    while (pos < size) {
+      const n = readSync(fd, chunk, 0, Math.min(chunk.length, size - pos), pos);
+      if (n === 0) break;
+      pos += n;
+      const data = carry.length ? Buffer.concat([carry, chunk.subarray(0, n)]) : chunk.subarray(0, n);
+      let start = 0;
+      for (let nl = data.indexOf(0x0a, start); nl >= 0; nl = data.indexOf(0x0a, start)) {
+        if (nl > start) handleLine(data.subarray(start, nl));
+        start = nl + 1;
+      }
+      consumed += start;
+      carry = Buffer.from(data.subarray(start));
+    }
+  } catch {
+    // a read failure keeps what was consumed so far; the rest is retried next sweep
+  } finally {
+    closeSync(fd);
   }
-  return { messages: [...byId.values()], nextOffset: offset + end + 1, skippedLines };
+  return { messages: [...byId.values()], nextOffset: consumed, skippedLines };
 }
