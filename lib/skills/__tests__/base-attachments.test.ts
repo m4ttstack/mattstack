@@ -81,15 +81,15 @@ describe("base reference skills on the surface", () => {
     expect((planFor("feature-flags").doors[0]!.files[0] as { content: string }).content).not.toContain("allowed-tools");
   });
 
-  test("a door hands its arguments on when the skill names them", () => {
-    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), "---\nname: feature-flags\ndescription: Flags\n---\nCheck the flag $ARGUMENTS.\n");
-    const skillMd = (planFor("feature-flags").doors[0]!.files[0] as { content: string }).content;
-    expect(skillMd).toEndWith("follow it. It names its arguments with placeholders that are not filled in there. The arguments are: $ARGUMENTS\n");
+  test("a door names no argument placeholder, so a $1 in the copy's shell is never filled in", () => {
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), "---\nname: feature-flags\ndescription: Flags\n---\nRun `awk '{print $1}'` on $ARGUMENTS.\n");
+    expect((planFor("feature-flags").doors[0]!.files[0] as { content: string }).content).not.toMatch(/\$(ARGUMENTS|\d)/);
   });
 
-  test("a door for a skill that names no arguments says nothing of them", () => {
-    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), reference);
-    expect((planFor("feature-flags").doors[0]!.files[0] as { content: string }).content).not.toContain("ARGUMENTS");
+  test("a space-separated allowed-tools string carries over rule by rule", () => {
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), "---\nname: feature-flags\ndescription: Flags\nallowed-tools: Read Bash(git add *) Bash(${CLAUDE_SKILL_DIR}/x.sh) Grep\n---\nFlags.\n");
+    const skillMd = (planFor("feature-flags").doors[0]!.files[0] as { content: string }).content;
+    expect(skillMd).toContain('allowed-tools:\n  - "Read"\n  - "Bash(git add *)"\n  - "Grep"\n---\n');
   });
 
   test("a door keeps a skill's own disable-model-invocation", () => {
