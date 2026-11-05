@@ -1,5 +1,4 @@
 import { createReadStream, existsSync } from "fs";
-import { createInterface } from "readline";
 import type { UsageActivityData, UsageActivityQuery } from "../../packages/rt-client/src/commands.ts";
 import { OUTSIDE_CASE, reading } from "./queries.ts";
 
@@ -101,6 +100,17 @@ function countTools(entry: any, ts: number, into: Collected): void {
   }
 }
 
+/** Transcripts reach hundreds of MB, so a read never holds a whole file or blocks the daemon. */
+async function* linesOf(path: string): AsyncGenerator<string> {
+  let rest = "";
+  for await (const chunk of createReadStream(path, { encoding: "utf8" })) {
+    const parts = (rest + chunk).split("\n");
+    rest = parts.pop() ?? "";
+    yield* parts;
+  }
+  yield rest;
+}
+
 /** Matches by message id, not by time, since a row's messages can sit either side of another
     stage's. A prompt counts when the reply to it is in scope; the first reply in scope also
     brings the prompt before it, which is what set that work off. */
@@ -108,8 +118,7 @@ async function collect(path: string, ids: Set<string>, into: Collected): Promise
   let waiting: Prompt[] = [];
   let latest: Prompt | null = null;
   let started = false;
-  const lines = createInterface({ input: createReadStream(path, { encoding: "utf8" }), crlfDelay: Infinity });
-  for await (const line of lines) {
+  for await (const line of linesOf(path)) {
     if (
       !line.includes('"type":"user"') &&
       !line.includes('"type":"assistant"') &&

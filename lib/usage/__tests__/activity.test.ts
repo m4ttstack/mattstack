@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { usageActivity } from "../activity.ts";
@@ -205,6 +205,23 @@ test("says when the transcript is gone", async () => {
   const data = await after();
   expect(data?.transcriptFound).toBe(false);
   expect(data?.prompts).toEqual([]);
+});
+
+test("reads a line longer than a stream chunk", async () => {
+  seedRun();
+  transcript([
+    user(T + 4000, "the long one", { filler: "é".repeat(200_000) }),
+    assistant(T + 5000, "after-1", { type: "text", text: "done" }),
+  ]);
+  expect(texts(await after())).toEqual(["the long one"]);
+});
+
+test("fails when a transcript cannot be read", async () => {
+  seedRun();
+  const path = join(dir, "unreadable.jsonl");
+  mkdirSync(path);
+  db.query("INSERT INTO usage_files (path, session_id) VALUES (?, ?)").run(path, "s");
+  await expect(after()).rejects.toThrow();
 });
 
 test("reads an agent-only session by its id", async () => {
