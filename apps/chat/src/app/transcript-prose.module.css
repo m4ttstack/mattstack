@@ -238,10 +238,10 @@
   margin: 0 20px 12px;
   padding: 8px 0;
   border-radius: var(--mantine-radius-lg);
-  background-color: color-mix(in srgb, var(--tk-text-1) 4%, transparent);
+  background-color: color-mix(in srgb, var(--tk-text-1) 2%, transparent);
   box-shadow:
-    inset 0 2px 4px rgb(0 0 0 / 10%),
-    inset 0 0 0 1px rgb(0 0 0 / 5%),
+    inset 0 1px 3px rgb(0 0 0 / 7%),
+    inset 0 0 0 1px rgb(0 0 0 / 4%),
     0 0 0 0 transparent,
     0 0 0 0 transparent;
   cursor: pointer;
@@ -261,7 +261,7 @@
 
 @media (hover: hover) {
   .block:hover {
-    background-color: color-mix(in srgb, var(--tk-text-1) 6%, transparent);
+    background-color: color-mix(in srgb, var(--tk-text-1) 5%, transparent);
   }
 }
 
