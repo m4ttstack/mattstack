@@ -55,6 +55,9 @@ private final class SlowRt: RtRunning, @unchecked Sendable {
 }
 
 @MainActor
+private final class RunnerBox { var runner: FormActionRunner? }
+
+@MainActor
 private func makeRunner(_ rt: RtRunning, log: EventLog, signInTimeout: TimeInterval = FormActionRunner.signInTimeout) -> (FormActionRunner, FakeEffects) {
     let effects = FakeEffects(log: log)
     let runner = FormActionRunner(rt: rt, needs: NeedBroker(services: FakeServices(), privileged: FakePrivileged()),
@@ -379,6 +382,27 @@ let formActionRunnerChecks: [Check] = [
         row.tone = .failed
         await MainActor.run { runner.reconcile(with: [row]) }
         c.expectEqual(await MainActor.run { runner.errors[row.id] }, nil)
+    },
+    Check("FormActionRunner: a failed install press keeps Installing until rt's read, and a row that reads failed never shows the app's error") { c in
+        let rt = ScriptedRt()
+        let seen = EventLog()
+        let box = await MainActor.run { RunnerBox() }
+        let id = "tool.team.doppler"
+        let readBack = FormRow(id: id, title: "Doppler", subtext: "", state: .todo, tone: .failed, detail: "Homebrew could not install it",
+                               action: RowAction(type: .install, label: "Retry", tool: "doppler", via: "brew"))
+        let runner = await MainActor.run {
+            FormActionRunner(rt: rt, needs: NeedBroker(services: FakeServices(), privileged: FakePrivileged()), effects: FakeEffects(log: EventLog())) {
+                seen.append("error=\(box.runner?.errors[id] ?? "nil") waiting=\(box.runner?.waiting[id] ?? "nil")")
+                box.runner?.reconcile(with: [readBack])
+            }
+        }
+        await MainActor.run { box.runner = runner }
+        let row = FormRow(id: id, title: "Doppler", subtext: "", state: .todo, detail: "",
+                          action: RowAction(type: .install, label: "Install", tool: "doppler", via: "brew"), waiting: "Installing…")
+        await runner.perform(row)
+        c.expectEqual(seen.all, ["error=nil waiting=Installing…"], "the read sees Installing, not an amber error")
+        c.expectEqual(await MainActor.run { runner.errors[id] }, nil, "rt's failed row carries the failure")
+        c.expectEqual(await MainActor.run { runner.waiting[id] }, nil)
     },
     Check("FormActionRunner: a press of a row's second action shows its steps, and the row's own action still runs its install") { c in
         let rt = ScriptedRt()

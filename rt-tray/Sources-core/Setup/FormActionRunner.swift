@@ -64,6 +64,9 @@ public final class FormActionRunner: ObservableObject {
     /// `setup slack connect` would open a second Allow tab on a callback port already taken.
     @Published public private(set) var running: Set<String> = []
 
+    /// Rows rt's last read drew as failed.
+    private var readFailed: Set<String> = []
+
     private let rt: RtRunning
     private let needs: NeedBroker
     private let effects: FormEffects
@@ -83,6 +86,7 @@ public final class FormActionRunner: ObservableObject {
         let dispatched = row.action.map { RowActionDispatcher.dispatch($0, fieldValues: values, alternative: alternative) }
         if case .rtVerb = dispatched, running.contains(row.id) { return }
         errors[row.id] = nil
+        var heldError: String?
         if let action = row.action, let dispatched {
             switch dispatched {
             case .openURL(let url):
@@ -99,6 +103,12 @@ public final class FormActionRunner: ObservableObject {
                     _ = await runVerb(then + ["--json"], stdin: nil, row: row)
                 }
                 running.remove(row.id)
+                // rt records a failed press, and the tools screen reads it back as a failed row, so the app's
+                // own error waits for that read under Installing rather than drawing amber first.
+                if action.type == .install, let error = errors.removeValue(forKey: row.id) {
+                    heldError = error
+                    waiting[row.id] = row.waiting
+                }
             case .showSteps(let steps):
                 sheet = .steps(row, steps)
                 return
@@ -110,6 +120,10 @@ public final class FormActionRunner: ObservableObject {
             }
         }
         await reload()
+        if let heldError {
+            waiting[row.id] = nil
+            if !readFailed.contains(row.id) { errors[row.id] = heldError }
+        }
     }
 
     /// The person closed a sheet: whatever it asked them to do may have landed by now.
@@ -126,6 +140,7 @@ public final class FormActionRunner: ObservableObject {
 
     public func reconcile(with rows: [FormRow]) {
         for row in rows {
+            if row.tone == .failed { readFailed.insert(row.id) } else { readFailed.remove(row.id) }
             if row.state == .done { waiting[row.id] = nil }
             if row.state == .done || row.tone == .failed { errors[row.id] = nil }
         }
