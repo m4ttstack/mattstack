@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { HEADER_COMMENT } from "../compile.ts";
+import { HEADER_COMMENT, hasCompiledHeader } from "../compile.ts";
 import { newTeamContext, type TeamContext } from "../team-params.ts";
 import type { AttachmentSource } from "../types.ts";
 import { isEmittedAttachmentDir, isEmittedAttachmentText, isSkippedAttachmentPath, maskProvenanceVersion, planBaseAttachments, plannedAttachmentsOf, walkAttachmentFiles } from "../base-attachments.ts";
@@ -26,6 +26,58 @@ beforeEach(() => {
   put(join(packDir(), "pack", "skills.jsonc"), JSON.stringify({ extends: "acme-base" }));
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+describe("base reference skills on the surface", () => {
+  const reference = "---\nname: feature-flags\ndescription: Use when a flag governs the work\n---\nFlags.\n";
+  const planFor = (...names: string[]) => planBaseAttachments({ packDir: packDir(), packName: "widgets", verbSides: {}, team: null, publicNames: new Set(names) });
+
+  test("a public one gets a door that sends the agent to its attachments copy", () => {
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), reference);
+    const result = planFor("feature-flags");
+    expect(result.errors).toEqual([]);
+    expect(result.doors.map((d) => d.name)).toEqual(["feature-flags"]);
+    const skillMd = result.doors[0]!.files.find((f) => f.path === "SKILL.md") as { content: string };
+    expect(skillMd.content).toBe(`---\nname: feature-flags\ndescription: Use when a flag governs the work\n---\n${HEADER_COMMENT}\n\nRead \`\${CLAUDE_SKILL_DIR}/../../attachments/feature-flags/SKILL.md\` and follow it.\n`);
+    expect(result.emits.map((e) => e.name)).toEqual(["feature-flags"]);
+  });
+
+  test("the written door reads as compile output with its base", () => {
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), reference);
+    const dir = join(packDir(), "skills", "feature-flags");
+    for (const file of planFor("feature-flags").doors[0]!.files) put(join(dir, file.path), (file as { content: string }).content);
+    expect(hasCompiledHeader(dir)).toBe(true);
+    expect(isEmittedAttachmentDir(dir)).toBe(true);
+  });
+
+  test("a grouped unit's door sits at its leaf and points at the group", () => {
+    put(join(baseDir(), "attachments", "refs", "feature-flags", "SKILL.md"), reference);
+    const door = planFor("feature-flags").doors[0]!;
+    expect(door.name).toBe("feature-flags");
+    expect((door.files[0] as { content: string }).content).toContain("attachments/refs/feature-flags/SKILL.md");
+  });
+
+  test("an unlisted one gets no door", () => {
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), reference);
+    expect(planFor().doors).toEqual([]);
+  });
+
+  test("a board fill stays internal even when listed", () => {
+    put(join(baseDir(), "pack", "skills.jsonc"), JSON.stringify({ base: true, bindings: { "board:review": { review: "acme-base:board-review" } } }));
+    put(join(baseDir(), "attachments", "board-review", "SKILL.md"), "---\nname: board-review\nmetadata:\n  provides: mr-review@2\n---\nReview.\n");
+    const result = planFor("board-review");
+    expect(result.emits.map((e) => e.name)).toEqual(["board-review"]);
+    expect(result.doors).toEqual([]);
+  });
+
+  test("a door the surface dropped is stale, and a team's own skill never is", () => {
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), reference);
+    put(join(packDir(), "skills", "feature-flags", "SKILL.md"), `---\nname: feature-flags\n---\n${HEADER_COMMENT}\n`);
+    put(join(packDir(), "skills", "feature-flags", "compiled.json"), emittedMarker);
+    put(join(packDir(), "skills", "own", "SKILL.md"), "---\nname: own\n---\nmine\n");
+    expect(planFor().staleDoors).toEqual(["feature-flags"]);
+    expect(planFor("feature-flags").staleDoors).toEqual([]);
+  });
+});
 
 describe("planBaseAttachments", () => {
   test("emits every non-fill attachment with compiled.json listing its files", () => {

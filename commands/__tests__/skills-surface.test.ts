@@ -4,7 +4,7 @@ import { captureSkills, runExpectingCleanExit } from "../../lib/skills/__tests__
 import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { HEADER_COMMENT } from "../../lib/skills/compile.ts";
 import { execFileSync } from "child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { Readable } from "node:stream";
 import { tmpdir } from "os";
 import { dirname, join, resolve } from "path";
@@ -1310,23 +1310,60 @@ describe("emitted base attachments", () => {
     return packDir;
   }
 
-  test("a row carries its base and reads internal even when the file lists it public", () => {
+  function withFill(publicList: string[]): string {
+    const packDir = withEmitted(publicList);
+    writeFile(join(packDir, "attachments", "board-review", "SKILL.md"), "---\nname: board-review\nmetadata:\n  provides: mr-review@2\n---\nbody\n");
+    writeFile(join(packDir, "attachments", "board-review", "compiled.json"), provenance);
+    return packDir;
+  }
+
+  test("a reference row carries its base and follows the file", () => {
     const packDir = withEmitted(["dev-servers"]);
     const { rows } = computeRows(packDir, new Set(), { public: ["dev-servers"] }, new Set());
-    expect(rows.find((r) => r.name === "dev-servers")).toEqual({ name: "dev-servers", kind: "compiled", status: "internal", base: "acme-base", path: join(packDir, "attachments", "dev-servers", "SKILL.md") });
+    expect(rows.find((r) => r.name === "dev-servers")).toEqual({ name: "dev-servers", kind: "compiled", status: "public", base: "acme-base", path: join(packDir, "attachments", "dev-servers", "SKILL.md") });
     expect(rows.find((r) => r.name === "helper")).not.toHaveProperty("base");
   });
 
-  for (const json of [[], ["--json"]]) test(`making one public is refused ${json.length ? "as JSON" : "for a person"}`, async () => {
-    const packDir = withEmitted([]);
+  test("a fill row reads internal even when the file lists it public", () => {
+    const packDir = withFill(["board-review"]);
+    const { rows } = computeRows(packDir, new Set(), { public: ["board-review"] }, new Set());
+    expect(rows.find((r) => r.name === "board-review")).toMatchObject({ status: "internal", base: "acme-base", fill: true });
+  });
+
+  test("a written door still reads as the base's, and names the base's own file", () => {
+    const org = realpathSync(mkdtempSync(join(tmpdir(), "rt-surface-org-")));
+    const packDir = join(org, "mattstack", "teams", "widgets", "plugin");
+    writeFile(join(org, "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme" }));
+    writeFile(join(org, "mattstack", "org", "packs", "acme-base", "attachments", "dev-servers", "SKILL.md"), "---\nname: dev-servers\n---\nbody\n");
+    writeFile(join(packDir, "attachments", "dev-servers", "SKILL.md"), "---\nname: dev-servers\n---\nbody\n");
+    writeFile(join(packDir, "attachments", "dev-servers", "compiled.json"), provenance);
+    writeFile(join(packDir, "skills", "dev-servers", "SKILL.md"), "---\nname: dev-servers\n---\ndoor\n");
+    writeFile(join(packDir, "skills", "dev-servers", "compiled.json"), provenance);
+    try {
+      const { rows } = computeRows(packDir, new Set(), { public: ["dev-servers"] }, new Set());
+      expect(rows.find((r) => r.name === "dev-servers")).toEqual({
+        name: "dev-servers",
+        kind: "compiled",
+        status: "public",
+        base: "acme-base",
+        basePath: join(org, "mattstack", "org", "packs", "acme-base", "attachments", "dev-servers", "SKILL.md"),
+        path: join(packDir, "skills", "dev-servers", "SKILL.md"),
+      });
+    } finally {
+      rmSync(org, { recursive: true, force: true });
+    }
+  });
+
+  for (const json of [[], ["--json"]]) test(`making a fill public is refused ${json.length ? "as JSON" : "for a person"}`, async () => {
+    const packDir = withFill([]);
     const before = readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8");
-    const result = await runExpectingCleanExit(() => skillsSurface(["set", "dev-servers", "--public", "--pack-dir", packDir, ...json]));
+    const result = await runExpectingCleanExit(() => skillsSurface(["set", "board-review", "--public", "--pack-dir", packDir, ...json]));
     expect(result.exitCode).toBe(2);
     expect(readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8")).toBe(before);
     if (json.length) {
-      expect(JSON.parse(io.lines().at(-1)!)).toEqual({ ok: false, dryRun: false, set: [{ name: "dev-servers", want: "public" }], moved: [], recorded: [], compileErrors: ["dev-servers comes from acme-base. The org base pack decides. Verbs read it from attachments/, so it stays internal."] });
+      expect(JSON.parse(io.lines().at(-1)!)).toEqual({ ok: false, dryRun: false, set: [{ name: "board-review", want: "public" }], moved: [], recorded: [], compileErrors: ["board-review is a fill from acme-base. Fills are built into other skills, so it stays internal."] });
     } else {
-      expect(io.stderr()).toStartWith("[refused] dev-servers comes from acme-base");
+      expect(io.stderr()).toStartWith("[refused] board-review is a fill from acme-base");
     }
   });
 

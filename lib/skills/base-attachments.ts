@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { dirname, join } from "path";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { boardOnlyBaseFills, mergedBindings } from "./board-fills.ts";
-import { hasCompiledHeader, unresolvedRelativePaths } from "./compile.ts";
+import { hasCompiledHeader, HEADER_COMMENT, unresolvedRelativePaths } from "./compile.ts";
 import { handPathDiagnostics } from "./hand-paths.ts";
 import { FRONTMATTER_RE } from "./frontmatter-re.ts";
 import { hostDir } from "./layout.ts";
@@ -21,6 +21,8 @@ export type BaseRef = { name: string; dir: string; version: string | null };
 /** `pointers` is set when the copy's files were keyed: its own keys and the leaf of every unit it reads by path. */
 export type EmittedAttachment = { name: string; files: CompiledFile[]; warnings: string[]; source?: PlannedSource; pointers?: { keys: Record<string, Target>; reads: string[] } };
 export type StaleAttachment = { name: string; why: "dropped" | "no-base" };
+/** A base reference skill's public entry at skills/<name>; its content stays at attachments/, where other skills read it. */
+export type BaseDoor = { name: string; files: CompiledFile[] };
 export type BaseAttachmentPlan = {
   base: BaseRef | null;
   emits: EmittedAttachment[];
@@ -28,6 +30,9 @@ export type BaseAttachmentPlan = {
   stale: StaleAttachment[];
   /** Folders a since-retired verb compiled at a unit's path; compile removes each before copying the unit there. */
   retired: string[];
+  doors: BaseDoor[];
+  /** Doors on disk the surface no longer lists; compile removes each. */
+  staleDoors: string[];
   errors: string[];
 };
 
@@ -116,6 +121,22 @@ export function listEmittedUnits(attachmentsDir: string): string[] {
   return units;
 }
 
+function doorsOnDisk(packDir: string): string[] {
+  const skillsDir = join(packDir, "skills");
+  return listDirs(skillsDir).filter((name) => isEmittedAttachmentDir(join(skillsDir, name)));
+}
+
+function doorFor(base: BaseRef, rel: string, skillMd: string): BaseDoor {
+  const head = skillMd.match(FRONTMATTER_RE)?.[0] ?? "";
+  return {
+    name: rel.slice(rel.lastIndexOf("/") + 1),
+    files: [
+      { path: "SKILL.md", content: `${head}${HEADER_COMMENT}\n\nRead \`${hostDir(rel, "attachments")}/SKILL.md\` and follow it.\n` },
+      { path: PROVENANCE_FILE, content: JSON.stringify({ base: base.name, version: base.version, files: ["SKILL.md"] }, null, 2) + "\n" },
+    ],
+  };
+}
+
 type BaseUnit = { rel: string; srcDir: string };
 
 function baseUnits(baseName: string, attachmentsDir: string, errors: string[]): BaseUnit[] {
@@ -181,18 +202,20 @@ export function planBaseAttachments(input: {
   loadInclude?: (name: string) => AttachmentSource;
   /** The team pack's plugin identity, which stamps each copy's id; without a version, nothing is keyed. */
   identity?: { name: string; version: string } | null;
+  /** The names the team's surface lists public. */
+  publicNames?: ReadonlySet<string>;
 }): BaseAttachmentPlan {
-  const { packDir, packName, verbSides, team, loadInclude, identity } = input;
+  const { packDir, packName, verbSides, team, loadInclude, identity, publicNames } = input;
   const own = readJsoncObject(join(packDir, "pack", "skills.jsonc"));
   const ext = own?.extends;
   const attachmentsDir = join(packDir, "attachments");
   const onDiskEmitted = listEmittedUnits(attachmentsDir);
 
   if (ext === undefined) {
-    return { base: null, emits: [], kept: [], stale: onDiskEmitted.map((name) => ({ name, why: "no-base" as const })), retired: [], errors: [] };
+    return { base: null, emits: [], kept: [], stale: onDiskEmitted.map((name) => ({ name, why: "no-base" as const })), retired: [], doors: [], staleDoors: doorsOnDisk(packDir), errors: [] };
   }
   const base = resolveBase(packDir, packName, ext);
-  if (typeof base === "string") return { base: null, emits: [], kept: [], stale: [], retired: [], errors: [base] };
+  if (typeof base === "string") return { base: null, emits: [], kept: [], stale: [], retired: [], doors: [], staleDoors: [], errors: [base] };
 
   const errors: string[] = [];
   const kept: string[] = [];
@@ -345,8 +368,14 @@ export function planBaseAttachments(input: {
   }
 
   errors.push(...unrenderedPointers(pointers, emits));
-  if (errors.length > 0) return { base, emits: [], kept, stale: [], retired: [], errors };
-  return { base, emits, kept, stale, retired, errors };
+  if (errors.length > 0) return { base, emits: [], kept, stale: [], retired: [], doors: [], staleDoors: [], errors };
+  const doors = emits.flatMap((emit) => {
+    const skillMd = emit.files.find((f) => f.path === "SKILL.md");
+    if (!publicNames?.has(leafOf(emit.name)) || !emit.source || isFill(emit.source.dir) || !skillMd || !("content" in skillMd)) return [];
+    return [doorFor(base, emit.name, skillMd.content)];
+  });
+  const staleDoors = doorsOnDisk(packDir).filter((name) => !doors.some((door) => door.name === name));
+  return { base, emits, kept, stale, retired, doors, staleDoors, errors };
 }
 
 /** `unit` is the base copy the pointer sits in; `target` is what its `{{pack.path}}` named. */
