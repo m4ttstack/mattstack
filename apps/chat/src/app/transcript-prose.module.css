@@ -250,11 +250,7 @@
 }
 
 /* The conversation a reply will go to, once a message has picked it. */
-/* Warm, as Slack marks a message, so it reads apart from any theme colour. */
+/* Neutral, a step past the hover, so it sits with any theme colour. */
 .msg[data-picked] {
-  background-color: color-mix(
-    in srgb,
-    var(--mantine-color-gold-filled) var(--tk-wash),
-    transparent
-  );
+  background-color: var(--ui-bg-4);
 }
