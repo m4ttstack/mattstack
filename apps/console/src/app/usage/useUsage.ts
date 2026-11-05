@@ -1,4 +1,7 @@
-import type { BranchEnrichment } from '@mattstack/rt-client';
+import type {
+  BranchEnrichment,
+  UsageActivityQuery,
+} from '@mattstack/rt-client';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
 import { client } from '../api';
@@ -74,6 +77,23 @@ export function useUsageRun(runId: string) {
     queryFn: async () => {
       const res = await client.api.usage.run.$get({ query: { runId } });
       if (!res.ok) throw await readApiError(res, 'usage');
+      return res.json();
+    },
+  });
+}
+
+export function useUsageActivity(q: UsageActivityQuery | null) {
+  return useQuery({
+    queryKey: ['usage', 'activity', q],
+    enabled: q !== null,
+    staleTime: STALE_MS,
+    retry: false,
+    queryFn: async () => {
+      const query = Object.fromEntries(
+        Object.entries(q ?? {}).map(([key, value]) => [key, String(value)])
+      );
+      const res = await client.api.usage.activity.$get({ query });
+      if (!res.ok) throw await readApiError(res, 'usage activity');
       return res.json();
     },
   });

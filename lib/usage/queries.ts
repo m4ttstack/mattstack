@@ -168,7 +168,7 @@ function hasSchema(db: Database): boolean {
   );
 }
 
-function reading<T>(dbPath: string, empty: T, read: (db: Database) => T): T {
+export function reading<T>(dbPath: string, empty: T, read: (db: Database) => T): T {
   const db = openUsageDbReadonly(dbPath);
   if (!db) return empty;
   try {
@@ -373,12 +373,14 @@ function stageKey(name: string | null, attempt: number | null, outside: UsageOut
 
 const IN_RUN_STAGES = "FROM usage_stages s WHERE s.machine_id = m.machine_id AND s.run_id = m.run_id";
 
-const OUTSIDE_STAGES = `CASE
+export const OUTSIDE_CASE = `CASE
   WHEN m.stage IS NOT NULL OR m.run_id IS NULL THEN NULL
   WHEN NOT EXISTS (SELECT 1 ${IN_RUN_STAGES}) THEN 'none'
   WHEN m.ts < (SELECT MIN(s.started_at) ${IN_RUN_STAGES}) THEN 'before'
   WHEN m.ts > (SELECT MAX(s.ended_at) ${IN_RUN_STAGES}) THEN 'after'
-  ELSE 'between' END AS outside`;
+  ELSE 'between' END`;
+
+const OUTSIDE_STAGES = `${OUTSIDE_CASE} AS outside`;
 
 const OUTSIDE_ORDER: Record<UsageOutside, number> = { before: 0, between: 1, after: 2, none: 3 };
 

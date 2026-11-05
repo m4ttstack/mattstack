@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   Anchor,
   Badge,
@@ -7,6 +8,7 @@ import {
   Stack,
   Table,
   Text,
+  UnstyledButton,
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import { Link } from '@mattstack/app-kit/router';
@@ -25,13 +27,22 @@ import {
   usd,
 } from './format';
 import { ShareBar } from './KindBar';
+import { StepActivity } from './StepActivity';
 import { stepRows, type StepRow } from './steps';
 import classes from './UsageMrPage.module.css';
 import { UsageRepoSelect } from './UsageRepoSelect';
 import { UsageStats } from './UsageStats';
 import { useUsageEnrichment, useUsageMr, useUsageStatus } from './useUsage';
 
-function StepLine({ row, whole }: { row: StepRow; whole: number }) {
+function StepLine({
+  row,
+  whole,
+  onOpen,
+}: {
+  row: StepRow;
+  whole: number;
+  onOpen: (row: OpenStep) => void;
+}) {
   if (row.type === 'elsewhere')
     return (
       <Table.Tr>
@@ -53,9 +64,14 @@ function StepLine({ row, whole }: { row: StepRow; whole: number }) {
   return (
     <Table.Tr className={group ? classes.group : undefined}>
       <Table.Td className={group ? undefined : classes.child}>
-        <Text fz="md" fw={group ? 700 : 400} lh="normal">
-          {row.label}
-        </Text>
+        <UnstyledButton
+          className={classes.stepOpen}
+          onClick={() => onOpen(row)}
+        >
+          <Text span fz="md" fw={group ? 700 : 400} lh="normal">
+            {row.label}
+          </Text>
+        </UnstyledButton>
         {row.note ? (
           <Text fz="sm" c="dimmed" lh="normal" mt={2}>
             {row.note}
@@ -83,6 +99,8 @@ function StepLine({ row, whole }: { row: StepRow; whole: number }) {
     </Table.Tr>
   );
 }
+
+type OpenStep = Extract<StepRow, { type: 'step' }>;
 
 function SideCard({
   title,
@@ -129,9 +147,11 @@ export function UsageMrPage({ mrKey }: { mrKey: string }) {
   const state = enriched?.mr?.state;
   const counts = mr ? runCounts(mr) : null;
   const sweptAt = status.data?.lastSweepAt ?? null;
+  const [openStep, setOpenStep] = useState<OpenStep | null>(null);
 
   return (
     <PageShell headerHeight={PAGE_ROW_HEIGHT} compactHeader>
+      <StepActivity step={openStep} onClose={() => setOpenStep(null)} />
       <PageShell.Main>
         <PageShell.Header
           title={
@@ -256,6 +276,7 @@ export function UsageMrPage({ mrKey }: { mrKey: string }) {
                             key={row.key}
                             row={row}
                             whole={mr.totals.cost}
+                            onOpen={setOpenStep}
                           />
                         ))}
                       </Table.Tbody>
