@@ -236,7 +236,11 @@
 /* Edge to edge with no margin, so a hover or pick tint ends on the line. */
 .blockLine {
   height: 1px;
-  background: var(--tk-border-soft);
+  background: color-mix(
+    in srgb,
+    var(--mantine-color-cyan-filled) 24%,
+    transparent
+  );
 }
 
 /* In Messages to you a click aims the reply, so a conversation answers the
