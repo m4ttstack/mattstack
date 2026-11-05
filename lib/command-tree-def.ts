@@ -1449,6 +1449,23 @@ export const TREE: Record<string, CommandNode> = {
     },
   },
 
+  pr: {
+    description: "Pull request verbs for GitHub repos",
+    subcommands: {
+      enqueue: {
+        description: "Add a PR to the merge queue",
+        module: "./commands/pr.ts",
+        fn: "prEnqueue",
+        omitBehavior: { exempt: "a free-form PR number" },
+        args: [
+          { name: "PR", type: "text", placeholder: "123", hint: "PR number" },
+          { name: "Head", flag: "--head", type: "text", placeholder: "abc1234", hint: "Refuse unless the branch is at this commit" },
+          { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
+        ],
+      },
+    },
+  },
+
   ci: {
     description: "CI attendant lease and pipeline watch",
     subcommands: {
