@@ -36,7 +36,7 @@ export function DirectView({
   rooms: RoomSummary[];
   me: string;
   picked: string | undefined;
-  onPick: (room: string) => void;
+  onPick: (room: string | undefined) => void;
   composer: (
     room: string,
     to: { handle: string; name: string } | undefined

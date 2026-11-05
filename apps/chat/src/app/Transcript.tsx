@@ -149,7 +149,8 @@ export interface TranscriptFeed {
   hears: (topic: string) => boolean;
   /** The conversation a message click picked. */
   picked?: string;
-  onPick: (room: string) => void;
+  /** A message picks its conversation; the space around them clears it. */
+  onPick: (room: string | undefined) => void;
 }
 
 export interface TranscriptProps {
@@ -683,6 +684,15 @@ export function Transcript({
         ref={scrollBoxRef}
         data-testid="transcript-scroll"
         className={scrollClasses.box}
+        onClick={
+          feed &&
+          (event => {
+            const target = event.target as HTMLElement;
+            if (!target.closest(`.${prose.msg}, a, button`)) {
+              feed.onPick(undefined);
+            }
+          })
+        }
         style={{ flex: 1, minHeight: 0 }}
       >
         <ScrollToBottom

@@ -431,7 +431,7 @@ interface ChatPageProps {
   /** Messages to you is the open view. */
   directOpen: boolean;
   directPick: string | undefined;
-  onDirectPick: (room: string) => void;
+  onDirectPick: (room: string | undefined) => void;
   railDirect: RoomRailProps['direct'];
 }
 

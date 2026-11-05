@@ -864,3 +864,16 @@ test('an empty feed says so once it has loaded', () => {
   );
   expect(screen.getByText('Nothing yet')).toBeInTheDocument();
 });
+
+test('a click in the space around the messages clears the pick', () => {
+  const onPick = vi.fn();
+  renderWithProviders(
+    <Transcript
+      room="direct"
+      feed={feed(onPick, 'dm-a')}
+      messages={feedMessages()}
+    />
+  );
+  fireEvent.click(screen.getByTestId('direct-separator'));
+  expect(onPick).toHaveBeenCalledWith(undefined);
+});
