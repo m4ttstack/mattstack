@@ -1186,6 +1186,84 @@ test("dm posts to the human notify when the recipient is matt, titled by sender 
   expect(notifications[0]).toMatchObject({ title: "DM from agent" });
 });
 
+test("a DM to the human links to that message in the viewer", async () => {
+  setSetting("chat.viewerUrl", "https://chat.example/", "user");
+  try {
+    const h = freshHandlers();
+    await h["chat:sign-in"]({ sessionId: "s1", continue: "agent" });
+    const dm = await h["chat:dm"]({ from: "agent", to: "matt", body: "ping" });
+    if (!dm.ok) throw new Error(dm.error);
+    expect(peekNotifications()[0]).toMatchObject({ url: `https://chat.example/r/${dm.data.room}#m-${dm.data.id}` });
+  } finally {
+    setSetting("chat.viewerUrl", "", "user");
+  }
+});
+
+test("a DM to a human whose handle is not the default notifies", async () => {
+  setSetting("chat.humanHandle", "robin", "user");
+  try {
+    const h = freshHandlers();
+    await h["chat:sign-in"]({ sessionId: "s1", continue: "agent" });
+    await h["chat:dm"]({ from: "agent", to: "robin", body: "ping" });
+    expect(peekNotifications()).toHaveLength(1);
+  } finally {
+    setSetting("chat.humanHandle", "matt", "user");
+  }
+});
+
+test("an agent's chat:post into its DM with the human notifies without a mention", async () => {
+  const h = freshHandlers();
+  await h["chat:sign-in"]({ sessionId: "s1", continue: "agent" });
+  const opened = await h["chat:dm-open"]({ from: "agent", to: "matt" });
+  if (!opened.ok) throw new Error(opened.error);
+  await h["chat:post"]({ room: opened.data.room, handle: "agent", body: "the decision" });
+  expect(peekNotifications()).toHaveLength(1);
+  expect(peekNotifications()[0]).toMatchObject({ title: "DM from agent" });
+});
+
+test("a quiet post into the human's DM stays silent", async () => {
+  const h = freshHandlers();
+  await h["chat:sign-in"]({ sessionId: "s1", continue: "agent" });
+  const opened = await h["chat:dm-open"]({ from: "agent", to: "matt" });
+  if (!opened.ok) throw new Error(opened.error);
+  await h["chat:post"]({ room: opened.data.room, handle: "agent", body: "for the record", quiet: true });
+  expect(peekNotifications()).toHaveLength(0);
+});
+
+test("the human's own DM never notifies them, even when it names them", async () => {
+  const h = freshHandlers();
+  await h["chat:sign-in"]({ sessionId: "s1", continue: "agent" });
+  const dm = await h["chat:dm"]({ from: "matt", to: "agent", body: "@matt reminder to self" });
+  if (!dm.ok) throw new Error(dm.error);
+  await h["chat:post"]({ room: dm.data.room, handle: "matt", body: "and another" });
+  expect(peekNotifications()).toHaveLength(0);
+});
+
+test("the human's own room post never notifies them, even when it names them", async () => {
+  const h = freshHandlers();
+  await h["chat:join"]({ room: "r", handle: "matt" });
+  await h["chat:post"]({ room: "r", handle: "matt", body: "@matt note to self" });
+  expect(peekNotifications()).toHaveLength(0);
+});
+
+test("a DM between two agents does not notify the human, who is only its silent member", async () => {
+  const h = freshHandlers();
+  await h["chat:sign-in"]({ sessionId: "s1", continue: "a" });
+  await h["chat:sign-in"]({ sessionId: "s2", continue: "b" });
+  const dm = await h["chat:dm"]({ from: "a", to: "b", body: "hi" });
+  if (!dm.ok) throw new Error(dm.error);
+  await h["chat:post"]({ room: dm.data.room, handle: "b", body: "hi back" });
+  expect(h.db.query("SELECT 1 FROM chat_members WHERE room = ? AND handle = 'matt'").get(dm.data.room)).not.toBeNull();
+  expect(peekNotifications()).toHaveLength(0);
+});
+
+test("every message in a DM burst to the human notifies, as a mention burst does", async () => {
+  const h = freshHandlers();
+  await h["chat:sign-in"]({ sessionId: "s1", continue: "agent" });
+  for (const body of ["one", "two", "three"]) await h["chat:dm"]({ from: "agent", to: "matt", body });
+  expect(peekNotifications().map((event) => event.message)).toEqual(["agent: one", "agent: two", "agent: three"]);
+});
+
 test("chat:rooms marks a dm and chat:who carries presence statuses", async () => {
   const h = freshHandlers();
   await h["chat:sign-in"]({ sessionId: "s1", continue: "a" });

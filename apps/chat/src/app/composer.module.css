@@ -13,3 +13,11 @@
   font-size: var(--mantine-font-size-lg);
   color: var(--tk-text-3);
 }
+
+/* Centres the face on the box's first line as the box grows upward. */
+.replyFace {
+  display: inline-flex;
+  flex: none;
+  align-self: flex-start;
+  margin-top: 4px;
+}

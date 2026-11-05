@@ -2,13 +2,14 @@
  * lib/daemon/__tests__/chat-slack-participant.test.ts: a Slack teammate sitting in an rt chat DM room.
  */
 import { Database } from "bun:sqlite";
-import { expect, spyOn, test } from "bun:test";
+import { beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { Logger } from "pino";
 import type { InboxBinding } from "../../claude-registry.ts";
 import { herdrRequest } from "../../herdr/client.ts";
+import { drainNotifications, peekNotifications } from "../../notifier.ts";
 import { SlackError, createSlackClient, type SlackClient } from "../../slack/client.ts";
 import { SLACK_PREFIX, closingLine } from "../../slack/format.ts";
 import {
@@ -355,6 +356,39 @@ test("chat_dm into a closed conversation's room is refused", async () => {
   expect(res.error).toContain("closed");
   expect(h.posts).toEqual([]);
   expect(messages(h, room)).toEqual([]);
+});
+
+beforeEach(() => {
+  drainNotifications();
+});
+
+test("a teammate's Slack message that names the human does not notify", async () => {
+  const h = harness();
+  const { room } = await openChat(h);
+
+  h.fromSlack(room, SLACK_ID, "@matt can you look at this");
+
+  expect(peekNotifications()).toHaveLength(0);
+});
+
+test("a pane's reply to the teammate that names the human does not notify", async () => {
+  const h = harness();
+  const { agent } = await openChat(h);
+
+  const res = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "@matt will follow up", sessionId: PANE_SESSION });
+
+  expect(res.ok).toBe(true);
+  expect(peekNotifications()).toHaveLength(0);
+});
+
+test("the outcome DM to the human notifies", async () => {
+  const h = harness();
+  const { agent } = await openChat(h);
+
+  const res = await h.handlers["chat:dm"]({ from: agent, to: "matt", body: "Outcome: sorted", sessionId: PANE_SESSION });
+
+  expect(res.ok).toBe(true);
+  expect(peekNotifications()).toHaveLength(1);
 });
 
 test("a post from the operator in the room never reaches Slack", async () => {
