@@ -1361,9 +1361,9 @@ test('slack-status passes the open chats through', async () => {
     {
       id: 1,
       room: 'dm-slack',
-      handle: 'alex-slack',
+      handle: 'slack-alex',
       name: 'alex-slack',
-      agentName: 'slack-1',
+      agentName: 'alex-slack',
       displayName: 'Alex Example',
       openedAt: 1,
       lastActiveAt: 2,
