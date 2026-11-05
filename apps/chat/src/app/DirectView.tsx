@@ -67,6 +67,11 @@ export function DirectView({
     const known = new Map(rooms.map(r => [r.room, r]));
     return {
       url: FEED_URL,
+      faces: rooms.flatMap(r =>
+        isMine(r, me) && r.participants
+          ? [r.participants.a, r.participants.b]
+          : []
+      ),
       // A room this list has not met yet may be a first DM to the human.
       hears: topic => {
         if (!isMsgTopic(topic)) return false;

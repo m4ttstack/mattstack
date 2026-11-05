@@ -812,6 +812,7 @@ function feedMessages(): ChatMessage[] {
 const feed = (onPick = () => {}, picked?: string) => ({
   url: '/api/chat/direct',
   hears: (topic: string) => topic === 'chat/dm-a/msg',
+  faces: ['fred', 'matt'],
   onPick,
   picked,
 });

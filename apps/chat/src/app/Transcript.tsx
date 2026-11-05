@@ -147,6 +147,9 @@ export interface TranscriptFeed {
   url: string;
   /** Whether a relay topic is a post into this list. */
   hears: (topic: string) => boolean;
+  /** Everyone the list can draw. Taken from the conversations, not the rows,
+      so a new post or an older page never recolours a face. */
+  faces: readonly string[];
   /** The conversation a message click picked. */
   picked?: string;
   /** A message picks its conversation; the space around them clears it. */
@@ -811,5 +814,5 @@ export function Transcript({
     </Box>
   );
   if (!feed) return list;
-  return <FaceGroup handles={messages.map(m => m.handle)}>{list}</FaceGroup>;
+  return <FaceGroup handles={feed.faces}>{list}</FaceGroup>;
 }
