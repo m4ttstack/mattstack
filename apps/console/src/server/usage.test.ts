@@ -111,6 +111,80 @@ describe('usage api', () => {
     expect(rt.usageMrs).not.toHaveBeenCalled();
   });
 
+  describe('the fixture matches the daemon\'s shapes', () => {
+    const { usage } = runsFixture('runs');
+    const entries = usage.mrs.mrs.flatMap(r => usage.mr(r.mrKey)!.runs);
+
+    it('lists MRs newest first', () => {
+      const last = usage.mrs.mrs.map(r => r.lastActivity);
+      expect(last).toEqual(last.toSorted((a, b) => b - a));
+    });
+
+    it('lists only the models it saw', () => {
+      const rows = [
+        ...entries.flatMap(e => e.byModel),
+        ...usage.mrs.mrs.flatMap(r => usage.mr(r.mrKey)!.byModel),
+        ...usage.trends.byModel,
+      ];
+      for (const { totals } of rows)
+        expect(totals.output + totals.cacheRead).toBeGreaterThan(0);
+    });
+
+    it('gives a null stage no times, and recorded stages their own', () => {
+      const stages = entries.flatMap(e => e.stages);
+      for (const s of stages.filter(x => x.name === null)) {
+        expect(s.startedAt).toBeNull();
+        expect(s.endedAt).toBeNull();
+      }
+      const work = entries.find(e => e.kind === 'work')!;
+      const [plan, implement] = work.stages;
+      expect(plan!.startedAt).toBe(work.startedAt);
+      expect(plan!.endedAt).toBe(implement!.startedAt);
+      expect(implement!.endedAt).toBe(work.endedAt);
+    });
+
+    it('starts its week at local Monday midnight', () => {
+      const week = new Date(usage.trends.weeks[0]!.weekStart);
+      expect(week.getDay()).toBe(1);
+      expect(week.getHours()).toBe(0);
+    });
+
+    it('counts its runs from the data', () => {
+      const runs = new Set(entries.map(e => e.runId).filter(Boolean));
+      expect(usage.status.runs).toBe(runs.size);
+    });
+  });
+
+  it('the empty fixture answers empty usage', async () => {
+    const app = usageRoutes(runsFixture('runs-empty'));
+    const body = async (path: string) => (await get(app, path)).json();
+    const zero = {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      cost: 0,
+      unpricedTokens: 0,
+    };
+    expect(await body('/api/usage/mrs')).toEqual({
+      mrs: [],
+      summary: { mrCount: 0, totals: zero, medianCost: 0 },
+    });
+    expect(await body('/api/usage/mr?mrKey=x')).toBeNull();
+    expect(await body('/api/usage/trends?days=30')).toEqual({
+      weeks: [],
+      totals: zero,
+      byPipeline: [],
+      byModel: [],
+    });
+    expect(await body('/api/usage/status')).toMatchObject({
+      lastSweepAt: null,
+      lastSweepMs: null,
+      messages: 0,
+      runs: 0,
+    });
+  });
+
   it('the outage fixture answers 502', async () => {
     const app = usageRoutes(runsFixture('runs-outage'));
     for (const p of [

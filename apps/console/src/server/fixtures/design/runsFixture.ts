@@ -34,7 +34,11 @@ import type { EffectiveInputsPayload } from '../../effectiveInputs';
 import { LEGACY_IMAGE_MIME } from '../../legacyEvidence';
 import { onDisk } from './fixtureRt';
 import type { FixtureScenario } from './scenarios';
-import { usageFixture, type UsageFixture } from './usageFixture';
+import {
+  emptyUsageFixture,
+  usageFixture,
+  type UsageFixture,
+} from './usageFixture';
 
 /** What a route answers a write with under a design fixture. */
 export const FIXTURE_READ_ONLY = 'the design fixture is read-only';
@@ -332,7 +336,7 @@ export function runsFixture(scenario: FixtureScenario): RunsFixture {
 
   return {
     outage: scenario === 'runs-outage',
-    usage: usageFixture(),
+    usage: scenario === 'runs-empty' ? emptyUsageFixture() : usageFixture(),
 
     async asOf(runId) {
       const { clock } = await index();

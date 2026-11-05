@@ -1,8 +1,4 @@
-/**
- * `CONSOLE_FIXTURE=design` data for the usage reads: invented `acme/widgets`
- * MRs. Totals are summed from the rows beneath them, so the figures add up by
- * construction.
- */
+/** `CONSOLE_FIXTURE=design` data for the usage reads: invented `acme/widgets` MRs. */
 import type {
   UsageKind,
   UsageModelRow,
@@ -65,10 +61,19 @@ const tot = (
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
-/** Monday 2026-11-02 00:00 UTC, the fixture's week. */
-const WEEK = Date.UTC(2026, 10, 2);
+/** Local Monday midnight, as `mondayOf` in lib/usage/queries.ts. */
+const WEEK = new Date(2026, 10, 2).getTime();
 const OPUS = 'claude-opus-4-8';
 const SONNET = 'claude-sonnet-5-5';
+
+function seenModels(main: UsageTotals, subagent: UsageTotals): UsageModelRow[] {
+  return [
+    { model: OPUS, totals: main },
+    { model: SONNET, totals: subagent },
+  ].filter(
+    ({ totals: t }) => t.input + t.output + t.cacheRead + t.cacheWrite > 0
+  );
+}
 
 interface EntrySpec {
   runId: string | null;
@@ -86,20 +91,18 @@ interface EntrySpec {
 
 function entry(s: EntrySpec): UsageMrEntry {
   const totals = sum([s.main, s.subagent]);
+  const span =
+    (s.hours * HOUR) / s.stages.filter(([name]) => name !== null).length;
+  let at = s.start;
   const stages: UsageStageRow[] = s.stages.map(
-    ([name, attempt, status, t]) => ({
-      name,
-      attempt,
-      status,
-      startedAt: s.runId ? s.start : null,
-      endedAt: s.runId ? s.start + s.hours * HOUR : null,
-      totals: t,
-    })
+    ([name, attempt, status, totals]) => {
+      if (name === null)
+        return { name, attempt, status, startedAt: null, endedAt: null, totals };
+      const startedAt = at;
+      at += span;
+      return { name, attempt, status, startedAt, endedAt: at, totals };
+    }
   );
-  const byModel: UsageModelRow[] = [
-    { model: OPUS, totals: s.main },
-    { model: SONNET, totals: s.subagent },
-  ];
   return {
     runId: s.runId,
     sessionId: s.sessionId,
@@ -112,7 +115,7 @@ function entry(s: EntrySpec): UsageMrEntry {
     firstActivity: s.start,
     lastActivity: s.start + s.hours * HOUR,
     totals,
-    byModel,
+    byModel: seenModels(s.main, s.subagent),
     main: s.main,
     subagent: s.subagent,
     stages,
@@ -145,10 +148,7 @@ function mrData(
     lastActivity: Math.max(...entries.map(e => e.lastActivity)),
     totals: sum(entries.map(e => e.totals)),
     costByKind,
-    byModel: [
-      { model: OPUS, totals: main },
-      { model: SONNET, totals: subagent },
-    ],
+    byModel: seenModels(main, subagent),
     main,
     subagent,
     runs: entries,
@@ -233,7 +233,7 @@ export function usageFixture(): UsageFixture {
         round: null,
         pipeline: null,
         status: null,
-        start: WEEK + 2 * DAY + 11 * HOUR,
+        start: WEEK + 4 * DAY + 16 * HOUR,
         hours: 1,
         main: tot(500, 12000, 2_000_000, 120_000, 4.6),
         subagent: tot(0, 0, 0, 0, 0),
@@ -255,7 +255,7 @@ export function usageFixture(): UsageFixture {
     roundCount: d.runs.filter(r => r.kind === 'respond').length,
   });
   const all = [full, reviewOnly];
-  const rows = all.map(row).sort((a, b) => b.totals.cost - a.totals.cost);
+  const rows = all.map(row).sort((a, b) => b.lastActivity - a.lastActivity);
   const costs = rows.map(r => r.totals.cost).sort((a, b) => a - b);
   const mid = Math.floor(costs.length / 2);
   const medianCost = round(
@@ -294,16 +294,35 @@ export function usageFixture(): UsageFixture {
         { pipeline: 'doctor', totals: kindTotals('doctor') },
         { pipeline: null, totals: kindTotals('review') },
       ],
-      byModel: [
-        { model: OPUS, totals: sum(all.map(d => d.main)) },
-        { model: SONNET, totals: sum(all.map(d => d.subagent)) },
-      ],
+      byModel: seenModels(
+        sum(all.map(d => d.main)),
+        sum(all.map(d => d.subagent))
+      ),
     },
     status: {
       lastSweepAt: WEEK + 5 * DAY,
       lastSweepMs: 840,
       messages: 4210,
-      runs: 6,
+      runs: new Set(all.flatMap(d => d.runs.flatMap(r => r.runId ?? []))).size,
+      skippedLines: 0,
+      conflicts: 0,
+      skippedRate: 0,
+      unpricedModels: [],
+      sessionsMissingTranscript: 0,
+    },
+  };
+}
+
+export function emptyUsageFixture(): UsageFixture {
+  return {
+    mrs: { mrs: [], summary: { mrCount: 0, totals: ZERO, medianCost: 0 } },
+    mr: () => null,
+    trends: { weeks: [], totals: ZERO, byPipeline: [], byModel: [] },
+    status: {
+      lastSweepAt: null,
+      lastSweepMs: null,
+      messages: 0,
+      runs: 0,
       skippedLines: 0,
       conflicts: 0,
       skippedRate: 0,
