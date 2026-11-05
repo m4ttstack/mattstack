@@ -17,7 +17,7 @@ export type SweepSpawn = (
 ) => SweepChild;
 
 const spawnChild: SweepSpawn = (argv, opts) =>
-  Bun.spawn(argv, { ...opts, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+  Bun.spawn(argv, { cwd: opts.cwd, env: opts.env, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
 
 /** The daemon's own entry is lib/daemon.ts from source, so Bun.main there is not the CLI. */
 const CLI_ENTRY = join(import.meta.dir, "..", "..", "cli.ts");
