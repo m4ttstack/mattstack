@@ -555,6 +555,18 @@ export interface UpdatePullRequestInput {
  */
 export type MergeMethod = 'merge' | 'squash' | 'rebase';
 
+export interface EnqueuePullRequestInput {
+  /** Refuse the enqueue unless the branch is still at this commit. */
+  expectedHeadSha?: string;
+}
+
+export interface MergeQueueEntry {
+  /** 1 is the front of the queue. */
+  position: number;
+  /** The forge's own state, such as `QUEUED` or `AWAITING_CHECKS`. */
+  state: string;
+}
+
 /**
  * Input for merging (accepting) a pull request / merge request.
  *
@@ -604,6 +616,8 @@ export interface ProviderCapabilities {
   canRebase: boolean;
   /** Can enable automatic merge when pipeline succeeds. */
   canAutoMerge: boolean;
+  /** Can add a pull request to the target branch's merge queue. */
+  canEnqueue: boolean;
   /** Can resolve / unresolve discussion threads. */
   canResolveDiscussions: boolean;
   /** Can retry a pipeline. */

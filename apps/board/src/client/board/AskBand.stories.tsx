@@ -116,6 +116,7 @@ const states: Array<[string, SentNudgeInfo]> = [
 ];
 const peerFailed = {
   webUrl: 'https://example.invalid/peer-failed',
+  author: { username: 'me', name: 'Me' },
   peerReviews: [
     {
       mrUrl: 'https://example.invalid/peer-failed',
@@ -130,6 +131,7 @@ const peerFailed = {
 const miraPeople = people([{ username: 'mira-fixture', name: 'Mira' }]);
 const ctx = {
   local: true,
+  self: 'me',
   onAskRetry: () => {},
   onAskDismiss: () => {},
 } as unknown as RowContext;

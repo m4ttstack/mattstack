@@ -291,6 +291,21 @@ describe("evaluateShepherd", () => {
     expect(evaluateShepherd(herd(), s, cfg)).toEqual({ kind: "healthy" });
   });
 
+  test("unread DMs are healthy once every job is closed: nobody is left to wait on the shepherd", () => {
+    const s = sensors({ ...shepherdIdle, unreadDmMentionsFor: () => 1, jobs: () => [job({ status: "closed" }), job({ name: "job-b", status: "closed" })] });
+    expect(evaluateShepherd(herd(), s, cfg)).toEqual({ kind: "healthy" });
+  });
+
+  test("unread DMs stay wedged while any job is not closed", () => {
+    const s = sensors({ ...shepherdIdle, unreadDmMentionsFor: () => 1, jobs: () => [job({ status: "closed" }), job({ name: "job-b", status: "active" })] });
+    expect(evaluateShepherd(herd(), s, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "1 unread DM/mention waiting" });
+  });
+
+  test("an open human gate stays wedged with every job closed: the person is still waiting", () => {
+    const s = sensors({ ...shepherdIdle, openHumanGates: () => [{ id: "g-9", ageMs: 6 * MIN }], jobs: () => [job({ status: "closed" })] });
+    expect(evaluateShepherd(herd(), s, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "human gate g-9 open 6m unanswered" });
+  });
+
   test("(b) unread DMs/mentions for the shepherd handle while idle are wedged on the fast path", () => {
     const s = sensors({ ...shepherdIdle, unreadDmMentionsFor: (h) => (h === "shepherd" ? 2 : 0) });
     expect(evaluateShepherd(herd(), s, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "2 unread DM/mentions waiting" });

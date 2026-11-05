@@ -59,6 +59,7 @@ const provider = createProvider('gitlab', 'https://gitlab.com', token, {
 | `unapprovePullRequest(path, iid)` | Remove your approval |
 | `setAutoMerge(path, iid)` | Enable auto-merge when pipeline passes |
 | `cancelAutoMerge(path, iid)` | Cancel auto-merge |
+| `enqueuePullRequest(path, iid, input?)` | Add a PR to the merge queue (GitHub) |
 | `retryPipeline(path, pipelineId)` | Retry a pipeline |
 | `requestReReview(path, iid, usernames?)` | Request re-review |
 | `resolveDiscussion(path, iid, discussionId)` | Resolve a discussion thread |

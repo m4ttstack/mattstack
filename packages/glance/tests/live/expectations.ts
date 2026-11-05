@@ -76,6 +76,11 @@ export const GITHUB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
     capability: 'canRebase',
     note: 'Permanent. GitHub update-branch merges base into head, which is not a rebase.'
   },
+  enqueuePullRequest: {
+    support: 'supported',
+    capability: 'canEnqueue',
+    note: 'Needs a branch with a merge queue, which the fixture repos do not have, so the conformance harness cannot exercise it.'
+  },
   setAutoMerge: {
     support: 'approximate',
     capability: 'canAutoMerge',
@@ -170,6 +175,11 @@ export const GITLAB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   approvePullRequest: { support: 'supported', capability: 'canApprove' },
   unapprovePullRequest: { support: 'supported', capability: 'canUnapprove' },
   rebasePullRequest: { support: 'supported', capability: 'canRebase' },
+  enqueuePullRequest: {
+    support: 'absent',
+    capability: 'canEnqueue',
+    note: 'GitLab merge trains are not wired up.'
+  },
   setAutoMerge: {
     support: 'supported',
     capability: 'canAutoMerge',

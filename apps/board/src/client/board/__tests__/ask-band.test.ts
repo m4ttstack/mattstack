@@ -351,8 +351,18 @@ describe('peerFailureBandModel', () => {
 });
 
 describe('bandSource', () => {
+  const ED = {
+    id: 'gitlab:2',
+    username: 'ed',
+    name: 'Ed',
+    avatarUrl: null,
+  };
   const mr = (over: Partial<BoardMRWithReview>): BoardMRWithReview =>
-    ({ iid: 1418, ...over }) as BoardMRWithReview;
+    ({
+      iid: 1418,
+      author: { username: 'me', name: 'Me' },
+      ...over,
+    }) as BoardMRWithReview;
   const errored = (over: Partial<PeerReviewInfo> = {}): PeerReviewInfo => ({
     mrUrl: 'https://gitlab.example.com/acme/webapp/-/merge_requests/1418',
     iid: 1418,
@@ -362,9 +372,35 @@ describe('bandSource', () => {
     ...over,
   });
 
+  test("a teammate's MR gets no band for a review a peer's board lost", () => {
+    const theirs = mr({
+      webUrl: 'https://gitlab.example.com/acme/webapp/-/merge_requests/1418',
+      author: ED,
+      peerReviews: [errored()],
+    });
+    expect(bandSource(theirs, 'me')).toBeNull();
+    expect(bandRetryAction(theirs, 'me')).toBeNull();
+    expect(bandDismissRequest(theirs, 'me')).toBeNull();
+  });
+
+  test('a board with no seat gets no band for a lost peer review', () => {
+    expect(bandSource(mr({ peerReviews: [errored()] }), null)).toBeNull();
+  });
+
+  test("an ask this board sent stays on a teammate's MR", () => {
+    const s = sent({ kind: 'respond' });
+    const theirs = mr({
+      author: ED,
+      sentNudge: s,
+    });
+    expect(bandSource(theirs, 'me')).toEqual({ kind: 'sent', sent: s });
+  });
+
   test('a sent ask wins the band', () => {
     const s = sent({});
-    expect(bandSource(mr({ sentNudge: s, peerReviews: [errored()] }))).toEqual({
+    expect(
+      bandSource(mr({ sentNudge: s, peerReviews: [errored()] }), 'me')
+    ).toEqual({
       kind: 'sent',
       sent: s,
     });
@@ -372,7 +408,7 @@ describe('bandSource', () => {
 
   test('an errored peer review nobody dismissed takes the band when nothing was sent', () => {
     const p = errored();
-    expect(bandSource(mr({ peerReviews: [p] }))).toEqual({
+    expect(bandSource(mr({ peerReviews: [p] }), 'me')).toEqual({
       kind: 'peer',
       peer: p,
     });
@@ -380,58 +416,61 @@ describe('bandSource', () => {
 
   test('a dismissed error, or a review in any other state, leaves no band', () => {
     expect(
-      bandSource(mr({ peerReviews: [errored({ dismissedAt: NOW })] }))
+      bandSource(mr({ peerReviews: [errored({ dismissedAt: NOW })] }), 'me')
     ).toBeNull();
     for (const status of ['queued', 'reviewing', 'done'])
-      expect(bandSource(mr({ peerReviews: [errored({ status })] }))).toBeNull();
-    expect(bandSource(mr({}))).toBeNull();
+      expect(
+        bandSource(mr({ peerReviews: [errored({ status })] }), 'me')
+      ).toBeNull();
+    expect(bandSource(mr({}), 'me')).toBeNull();
   });
 
   const URL = 'https://gitlab.example.com/acme/webapp/-/merge_requests/1418';
 
   test('dismiss drops a sent ask, or stamps the one peer state that failed', () => {
     expect(
-      bandDismissRequest(mr({ webUrl: URL, sentNudge: sent({}) }))
+      bandDismissRequest(mr({ webUrl: URL, sentNudge: sent({}) }), 'me')
     ).toEqual({ path: '/nudge/dismiss', body: { mrUrl: URL } });
     expect(
-      bandDismissRequest(mr({ webUrl: URL, peerReviews: [errored()] }))
+      bandDismissRequest(mr({ webUrl: URL, peerReviews: [errored()] }), 'me')
     ).toEqual({
       path: '/peer-review/dismiss',
       body: { mrUrl: URL, reviewer: 'grace' },
     });
-    expect(bandDismissRequest(mr({ webUrl: URL }))).toBeNull();
-    expect(bandDismissRequest(mr({ sentNudge: sent({}) }))).toBeNull();
+    expect(bandDismissRequest(mr({ webUrl: URL }), 'me')).toBeNull();
+    expect(bandDismissRequest(mr({ sentNudge: sent({}) }), 'me')).toBeNull();
   });
 
   test('retry asks the same kind again, or a fresh re-review from the peer who lost theirs', () => {
     expect(
-      bandRetryAction(mr({ sentNudge: sent({ kind: 'review' }) }))
+      bandRetryAction(mr({ sentNudge: sent({ kind: 'review' }) }), 'me')
     ).toEqual({ kind: 'ask', ask: 'review', reviewer: 'grace' });
-    expect(bandRetryAction(mr({ sentNudge: sent({}) }))).toEqual({
+    expect(bandRetryAction(mr({ sentNudge: sent({}) }), 'me')).toEqual({
       kind: 'ask',
       ask: 're-review',
       reviewer: 'grace',
     });
-    expect(bandRetryAction(mr({ peerReviews: [errored()] }))).toEqual({
+    expect(bandRetryAction(mr({ peerReviews: [errored()] }), 'me')).toEqual({
       kind: 'ask',
       ask: 're-review',
       reviewer: 'grace',
     });
-    expect(bandRetryAction(mr({}))).toBeNull();
+    expect(bandRetryAction(mr({}), 'me')).toBeNull();
   });
 
   test('a sent retry settles the peer failure it replaced, and nothing else', () => {
     expect(
-      bandRetrySettles(mr({ webUrl: URL, peerReviews: [errored()] }))
+      bandRetrySettles(mr({ webUrl: URL, peerReviews: [errored()] }), 'me')
     ).toEqual({
       path: '/peer-review/dismiss',
       body: { mrUrl: URL, reviewer: 'grace' },
     });
     expect(
       bandRetrySettles(
-        mr({ webUrl: URL, sentNudge: sent({}), peerReviews: [errored()] })
+        mr({ webUrl: URL, sentNudge: sent({}), peerReviews: [errored()] }),
+        'me'
       )
     ).toBeNull();
-    expect(bandRetrySettles(mr({ webUrl: URL }))).toBeNull();
+    expect(bandRetrySettles(mr({ webUrl: URL }), 'me')).toBeNull();
   });
 });
