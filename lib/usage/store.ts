@@ -96,8 +96,8 @@ export function usageDbPath(): string {
 export function openUsageDb(path: string): Database {
   mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);
-  db.exec("PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA busy_timeout = 5000;");
+  db.exec("PRAGMA journal_mode = WAL;");
   const row = db.query("PRAGMA user_version").get() as { user_version: number };
   if (row.user_version < USAGE_SCHEMA_VERSION) {
     db.exec(SCHEMA);

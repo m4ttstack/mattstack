@@ -1819,6 +1819,20 @@ export const TREE: Record<string, CommandNode> = {
     subcommands: progressSubcommands,
   },
 
+  usage: {
+    description: "Token usage for pipeline runs",
+    subcommands: {
+      sweep: {
+        description: "Read new token usage from your Claude Code sessions",
+        module: "./commands/usage.ts",
+        fn: "usageSweepCommand",
+        hidden: true,
+        omitBehavior: { exempt: "run by the daemon on a timer" },
+        args: [],
+      },
+    },
+  },
+
   intercept: {
     description: "Generic dev-command interception (PATH shims, port claiming)",
     subcommands: interceptSubcommands,
