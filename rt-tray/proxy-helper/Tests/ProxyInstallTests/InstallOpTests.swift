@@ -144,6 +144,8 @@ let addTrustArgv = TrustStep.addArgv(ProxyPaths.trustedCaStage)
 private let visudoArgv = ["/usr/sbin/visudo", "-c", "-f", Sudoers.stagePath]
 private let bootoutArgv = ["/bin/launchctl", "bootout", "system/sh.portless.proxy"]
 private let bootstrapArgv = ["/bin/launchctl", "bootstrap", "system", LaunchdPlist.path]
+private let printArgv = ["/bin/launchctl", "print", "system/sh.portless.proxy"]
+private let notLoaded = CommandResult(status: 113, output: "Could not find service")
 
 final class InstallOpTests: XCTestCase {
     private var fs = RecordingFileOps()
@@ -165,6 +167,7 @@ final class InstallOpTests: XCTestCase {
     private func answer(_ overrides: @escaping ([String]) -> CommandResult? = { _ in nil }) {
         runner.handler = { argv in
             if let answer = overrides(argv) { return answer }
+            if argv == printArgv { return notLoaded }
             return argv == verifyArgv
                 ? CommandResult(status: 1, output: "not trusted")
                 : CommandResult(status: 0, output: "")
@@ -187,13 +190,14 @@ final class InstallOpTests: XCTestCase {
             })
         op.emit = { [self] in lines.append($0) }
         op.caWait = 0
+        op.pause = { _ in }
         return op
     }
 
     func testHappyPathRunsTheStepsInOrder() {
         XCTAssertEqual(makeOp().execute(), 0)
         XCTAssertEqual(copiedInto?.path, ProxyPaths.root)
-        XCTAssertEqual(runner.calls, [visudoArgv, bootoutArgv, bootstrapArgv, verifyArgv, addTrustArgv])
+        XCTAssertEqual(runner.calls, [visudoArgv, bootoutArgv, printArgv, bootstrapArgv, verifyArgv, addTrustArgv])
         XCTAssertEqual(fs.replaced.map(\.to), [LaunchdPlist.path, Sudoers.path, ProxyPaths.trustedCa])
         XCTAssertEqual(fs.written[LaunchdPlist.stagePath]?.isEmpty, false)
         XCTAssertEqual(
@@ -420,6 +424,32 @@ final class InstallOpTests: XCTestCase {
 
         runner.handler = { _ in CommandResult(status: 0, output: "") }
         XCTAssertEqual(makeOp().execute(), 0)
+    }
+
+    // bootout returns before launchd has finished stopping the old daemon, and
+    // a bootstrap in that window fails with 5 (Input/output error).
+    func testBootstrapWaitsForTheOldDaemonToUnload() {
+        var stillLoaded = 2
+        answer { argv in
+            guard argv == printArgv else { return nil }
+            if stillLoaded > 0 { stillLoaded -= 1; return CommandResult(status: 0, output: "state = running") }
+            return notLoaded
+        }
+        XCTAssertEqual(makeOp().execute(), 0)
+        let bootstrapAt = runner.calls.firstIndex(of: bootstrapArgv)!
+        XCTAssertEqual(runner.calls[..<bootstrapAt].filter { $0 == printArgv }.count, 3)
+    }
+
+    func testBootstrapRetriesOnceAfterAnInputOutputError() {
+        var bootstraps = 0
+        answer { argv in
+            guard argv == bootstrapArgv else { return nil }
+            bootstraps += 1
+            return bootstraps == 1 ? CommandResult(status: 5, output: "Bootstrap failed: 5: Input/output error") : CommandResult(status: 0, output: "")
+        }
+        XCTAssertEqual(makeOp().execute(), 0)
+        XCTAssertEqual(bootstraps, 2)
+        XCTAssertTrue(lines.contains("bootstrap: ok"))
     }
 
     // bootout has no service to tear down on a first install, so its failure is
