@@ -75,6 +75,7 @@ export const MODULE_REGISTRY: Record<string, () => Promise<any>> = {
   "./commands/plugin.ts": () => import("../commands/plugin.ts"),
   "./commands/worktree.ts": () => import("../commands/worktree.ts"),
   "./commands/worktree-hook.ts": () => import("../commands/worktree-hook.ts"),
+  "./commands/worktree-branch-sync.ts": () => import("../commands/worktree-branch-sync.ts"),
   "./commands/intercept.ts": () => import("../commands/intercept.ts"),
   "./commands/endpoint.ts": () => import("../commands/endpoint.ts"),
   "./commands/deps.ts": () => import("../commands/deps.ts"),
