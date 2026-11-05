@@ -38,6 +38,7 @@ sudo mkdir -p "$HOOK_DIR"
 sudo install -o root -g wheel -m 755 "$(command -v bun)" "$HOOK_DIR/bun"
 sudo install -o root -g wheel -m 644 scripts/ci/macos-runner.ts "$HOOK_DIR/macos-runner.ts"
 sudo install -o root -g wheel -m 755 scripts/ci/mac-runner/job-started.sh "$HOOK_DIR/job-started.sh"
+sudo install -o root -g wheel -m 755 scripts/ci/mac-runner/job-completed.sh "$HOOK_DIR/job-completed.sh"
 
 # The runner user's commands below cannot start from a directory in your home.
 cd /
@@ -87,6 +88,8 @@ for i in $(seq 1 "$COUNT"); do
     <key>HOME</key><string>$CI_HOME</string>
     <key>PATH</key><string>$CI_HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>ACTIONS_RUNNER_HOOK_JOB_STARTED</key><string>$HOOK_DIR/job-started.sh</string>
+    <key>ACTIONS_RUNNER_HOOK_JOB_COMPLETED</key><string>$HOOK_DIR/job-completed.sh</string>
+    <key>MAC_RUNNER_DIR</key><string>$dir</string>
     <key>MAC_RUNNER_CACHE</key><string>$CI_HOME/.cache/mac-runner</string>
   </dict>
 </dict>
