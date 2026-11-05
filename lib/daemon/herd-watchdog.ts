@@ -168,10 +168,14 @@ export function evaluateShepherd(herd: HerdRow, s: WatchdogSensors, cfg: Watchdo
 
   const gate = oldest(s.openHumanGates(herdPrefix(herd.id)).filter((g) => g.ageMs >= ms(cfg.shepherdFastMins)));
   if (gate) return { kind: "wedged", path: "fast", evidence: `human gate ${gate.id} open ${minutes(gate.ageMs)}m unanswered` };
-  const unread = s.unreadDmMentionsFor(herd.shepherdHandle);
+  const jobs = s.jobs(herd.id);
+  // A shepherd that signed off never reads its DMs, so a finished herd left
+  // unwrapped would otherwise notify every notifyQuietMins for good. A herd
+  // with no jobs yet is starting, not finished.
+  const finished = jobs.length > 0 && jobs.every((job) => job.status === "closed");
+  const unread = finished ? 0 : s.unreadDmMentionsFor(herd.shepherdHandle);
   if (unread > 0) return { kind: "wedged", path: "fast", evidence: `${plural(unread, "unread DM/mention")} waiting` };
 
-  const jobs = s.jobs(herd.id);
   for (const job of jobs) {
     const lingering = finishedLingering(job, s, cfg, now);
     if (lingering) return { kind: "wedged", path: "fast", evidence: lingering.evidence };
