@@ -1,0 +1,49 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  contain: inline-size;
+}
+
+.crumb {
+  color: inherit;
+  text-decoration: none;
+}
+
+.crumb:hover {
+  text-decoration: underline;
+}
+
+.name {
+  flex: none;
+}
+
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 16px;
+  align-items: start;
+  width: 100%;
+}
+
+.table {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.group {
+  background: var(--tk-panel);
+}
+
+.child {
+  padding-left: 34px;
+}
+
+.barCell {
+  width: 200px;
+  min-width: 200px;
+}
+
+.card {
+  padding: 14px 16px;
+}

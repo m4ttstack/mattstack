@@ -3,35 +3,37 @@ import { renderHook } from '@testing-library/react';
 import { expect, test } from 'vitest';
 
 import { BuddiesProvider, useBuddies } from './buddies-context';
-import { ACCENT_LOOK, themePalette } from './member-looks';
+import type { Me } from './human';
 import type { RosterBuddy } from './roster-types';
 
-function row(handle: string, signedInAt: number): RosterBuddy {
+function row(handle: string, name: string): RosterBuddy {
   return {
     sessionId: `s-${handle}`,
     handle,
     baseHandle: handle,
-    name: handle,
-    signedInAt,
-    lastSeenAt: signedInAt,
+    name,
+    signedInAt: 1,
+    lastSeenAt: 1,
     status: 'offline',
     rooms: [],
   };
 }
 
-const buddies = [
-  row('old-1', 1),
-  row('old-2', 2),
-  row('kai', 3),
-  row('remy', 4),
-];
-
-function looksFor(roomMembers: string[], speakers?: string[]) {
+function context({
+  buddies = [],
+  memberNames,
+  me,
+}: {
+  buddies?: RosterBuddy[];
+  memberNames?: ReadonlyMap<string, string>;
+  me?: Me;
+}) {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <BuddiesProvider
       buddies={buddies}
-      roomMembers={roomMembers}
-      speakers={speakers}
+      roomMembers={[]}
+      memberNames={memberNames}
+      me={me}
       now={10}
       reachable
     >
@@ -41,62 +43,35 @@ function looksFor(roomMembers: string[], speakers?: string[]) {
   return renderHook(() => useBuddies()!, { wrapper }).result.current;
 }
 
-test('everyone goes by sign-in and the human keeps accent', () => {
-  const palette = themePalette(6);
-  const ctx = looksFor(['remy', 'kai']);
-  expect(ctx.lookOf('old-1')!.hue).toEqual(palette[0]);
-  expect(ctx.lookOf('remy')!.hue).toEqual(palette[3]);
-  expect(ctx.lookOf('matt')!.hue).toBe(ACCENT_LOOK);
-  expect(ctx.lookOf('stranger')).toBeUndefined();
+test('outside a provider there is no context', () => {
+  expect(renderHook(() => useBuddies()).result.current).toBeNull();
 });
 
-test('off-roster ids in the room come after the roster', () => {
-  const ctx = looksFor(['kai', 'ghost'], ['left-room']);
-  const palette = themePalette(6);
-  expect(ctx.lookOf('ghost')!.hue).toEqual(palette[4]);
-  expect(ctx.lookOf('left-room')!.hue).toEqual(palette[5]);
+test('byHandle keys on the id, so a shared name stays two entries', () => {
+  const ctx = context({
+    buddies: [row('remy', 'remy'), row('remy.x', 'remy')],
+  });
+  expect([...ctx.byHandle.keys()]).toEqual(['remy', 'remy.x']);
 });
 
-interface RoomProps {
-  room: string;
-  roomMembers: string[];
-  speakers?: string[];
-}
-
-function renderRoom(initial: RoomProps) {
-  let props = initial;
-  const { result, rerender } = renderHook(() => useBuddies()!, {
-    wrapper: ({ children }: { children: ReactNode }) => (
-      <BuddiesProvider
-        buddies={buddies}
-        roomMembers={props.roomMembers}
-        speakers={props.speakers}
-        now={10}
-        reachable
-      >
-        {children}
-      </BuddiesProvider>
-    ),
+test('nameOf reads the viewer, then the roster, then the room, then the id', () => {
+  const ctx = context({
+    buddies: [row('kai.1', 'kai'), row('alex', 'on the roster')],
+    memberNames: new Map([
+      ['kai.1', 'room kai'],
+      ['ghost.2', 'ghost'],
+    ]),
+    me: { handle: 'alex', name: 'Alex' },
   });
-  return {
-    result,
-    update: (next: RoomProps) => {
-      props = next;
-      rerender();
-    },
-  };
-}
+  expect(ctx.nameOf('alex')).toBe('Alex');
+  expect(ctx.nameOf('kai.1')).toBe('kai');
+  expect(ctx.nameOf('ghost.2')).toBe('ghost');
+  expect(ctx.nameOf('stranger')).toBe('stranger');
+});
 
-test("switching rooms never changes anyone's look", () => {
-  const { result, update } = renderRoom({
-    room: 'rt',
-    roomMembers: ['kai'],
-    speakers: ['kai'],
-  });
-  const before = ['kai', 'remy', 'old-1'].map(h => result.current.lookOf(h));
-  update({ room: 'board', roomMembers: ['remy'], speakers: ['remy', 'new'] });
-  expect(['kai', 'remy', 'old-1'].map(h => result.current.lookOf(h))).toEqual(
-    before
-  );
-  expect(result.current.lookOf('new')).toBeDefined();
+test('selfName answers only for the viewer', () => {
+  const ctx = context({ me: { handle: 'alex', name: 'Alex' } });
+  expect(ctx.selfName('alex')).toBe('Alex');
+  expect(ctx.selfName('kai')).toBeUndefined();
+  expect(context({}).selfName('alex')).toBeUndefined();
 });

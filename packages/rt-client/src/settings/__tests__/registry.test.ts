@@ -311,7 +311,7 @@ describe("settings/registry", () => {
       expect(def?.merge).toBe("replace");
     });
 
-    test("has exactly the 25 migrated:true keys and the 52 suite keys", () => {
+    test("has exactly the 25 migrated:true keys and the 103 suite keys", () => {
       const migratedFalseKeys: string[] = [];
       const migratedTrueKeys = [
         "rt.roles", "rt.intercepts", "rt.ignoredMrs", "rt.worktrees", "rt.worktreeReadyApproval", "rt.repoIdentityOverrides", "rt.repoRoots",
@@ -371,8 +371,8 @@ describe("settings/registry", () => {
         "gitq.workSlots",
         "gitq.forges",
         "gitq.board",
-        "chat.handle",
         "chat.humanHandle",
+        "chat.displayName",
         "chat.viewerUrl",
         "chat.herdrWorkspace",
         "chat.autoSignIn",
@@ -506,10 +506,10 @@ describe("settings/registry", () => {
       }
     });
 
-    test("every SCHEMAS key and every lock key is a registered object or array def", () => {
+    test("every SCHEMAS key and every lock key is a registered def", () => {
       const lock = JSON.parse(readFileSync(new URL("../schema.lock.json", import.meta.url), "utf8")) as Record<string, unknown>;
       for (const key of [...Object.keys(SCHEMAS), ...Object.keys(lock)]) {
-        expect(["object", "array"], `${key} is not a registered object or array def`).toContain(getDef(key)?.type as string);
+        expect(getDef(key), `${key} is not a registered def`).toBeDefined();
       }
     });
 

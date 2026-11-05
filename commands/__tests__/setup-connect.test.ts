@@ -1073,7 +1073,7 @@ describe("integrationConnect — slack (OAuth flow)", () => {
 
     const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string; scopesSeen: string[] };
     expect(body.status).toBe("invalid");
-    expect(body.detail).toContain("add channels:read, groups:read, channels:history, groups:history, reactions:read under User Token Scopes at https://api.slack.com/apps/A0TEAM/oauth");
+    expect(body.detail).toContain("add channels:read, groups:read, channels:history, groups:history, reactions:read, users:read under User Token Scopes at https://api.slack.com/apps/A0TEAM/oauth");
     expect(body.scopesSeen).toEqual(["reactions:write", "chat:write"]);
     expect(writerWrites).toEqual([]);
   });
@@ -1092,10 +1092,10 @@ describe("integrationConnect — slack (OAuth flow)", () => {
       return url.searchParams.get("user_scope")!.split(",");
     }
 
-    test("asks for the four support scopes alongside the defaults", async () => {
+    test("asks for the support scopes alongside the defaults", async () => {
       const scopes = await openedScopes(["--json", "--support-chat"]);
       expect(scopes).toEqual([...DEFAULT_SCOPE_NEEDS.user, ...SLACK_SUPPORT_SCOPES]);
-      for (const s of ["im:history", "im:read", "im:write", "users:read"]) expect(scopes).toContain(s);
+      for (const s of ["im:history", "im:read", "im:write"]) expect(scopes).toContain(s);
     });
 
     test("without the flag asks for none of them", async () => {
@@ -1121,11 +1121,11 @@ describe("integrationConnect — slack (OAuth flow)", () => {
 
       const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
       expect(body.status).toBe("invalid");
-      expect(body.detail).toContain("add im:history, im:read, im:write, users:read under User Token Scopes at https://api.slack.com/apps/A0TEAM/oauth");
+      expect(body.detail).toContain("add im:history, im:read, im:write under User Token Scopes at https://api.slack.com/apps/A0TEAM/oauth");
       expect(body.detail).toContain("support chat");
       expect(body.detail).not.toContain("than the board needs");
       expect(writerWrites).toEqual([]);
-      expect(readSetupState(deps.probes).slackSupportShort).toEqual(["im:history", "im:read", "im:write", "users:read"]);
+      expect(readSetupState(deps.probes).slackSupportShort).toEqual(["im:history", "im:read", "im:write"]);
     });
 
     function failedConnect(failure: Error) {
@@ -1143,7 +1143,7 @@ describe("integrationConnect — slack (OAuth flow)", () => {
       return (JSON.parse(deps.lines[0]!) as { error: { message: string } }).error.message;
     }
 
-    const SUPPORT_FIX = "add im:history, im:read, im:write, users:read under User Token Scopes at https://api.slack.com/apps/A0TEAM/oauth";
+    const SUPPORT_FIX = "add im:history, im:read, im:write under User Token Scopes at https://api.slack.com/apps/A0TEAM/oauth";
 
     test("a timeout names only the support scopes, and covers Slack refusing and the browser being left", async () => {
       const deps = failedConnect(new SlackCallbackTimeoutError());

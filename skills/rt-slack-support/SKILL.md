@@ -84,8 +84,8 @@ the likely cause changes what you say to the teammate, nothing else.
 The setting's value is the operator's chat handle, written `<operator>` below.
 
 Send the first `chat_dm` to `<handle>`. It says hello, names the problem as you
-understand it, and asks for what you need first. It ends the turn: nothing
-arrives until they answer.
+understand it, and asks for what you need first. That call is the turn's last
+act, as in `Where a turn ends`: nothing arrives until they answer.
 
 ## Every turn after that
 
@@ -161,6 +161,12 @@ digraph slack_support_turn {
 One message can hold several of these: do each, in one reply. Take a hand-off
 or a close last.
 
+### Where a turn ends
+
+A turn ends on its last `chat_dm`. The tool result closes the turn: your message
+after it is empty, because the operator reads the chat in the UI. The pane gets
+one line in a whole chat, at the end of `The outcome DM`.
+
 ### The reply
 
 Every reply to the teammate is `chat_dm` to `<handle>`, whoever's message
@@ -232,12 +238,16 @@ A message that widens the brief or gives permission holds from then on.
 
 Act on the cue in that turn. A check-in cue asks you to check in: ask if they
 still need help and say the chat will close soon. A close cue asks you to close:
-write the farewell yourself and call `chat_slack_close` at once, because the
+follow `Write the farewell` and call `chat_slack_close` at once, because the
 daemon closes with no farewell two minutes later.
 
 ### Write the farewell
 
-Two or three lines: what was sorted, what is still with the operator. The daemon
+When the chat's last message is yours, with no reply since, call
+`chat_slack_close` with no `farewell`: the daemon's closing line follows
+yours, so a farewell would be a third message in a row.
+
+Otherwise, two or three lines: what was sorted, what is still with the operator. The daemon
 adds its own closing line after yours, so leave out how the chat ends or how to
 reach anyone. Check the farewell against `Never send`.
 

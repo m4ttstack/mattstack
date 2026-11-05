@@ -560,6 +560,13 @@ export interface EnqueuePullRequestInput {
   expectedHeadSha?: string;
 }
 
+export interface MergeQueueStatus {
+  /** Whether this pull request's target branch uses a merge queue. */
+  enabled: boolean;
+  /** Whether this pull request is in that queue now. */
+  inQueue: boolean;
+}
+
 export interface MergeQueueEntry {
   /** 1 is the front of the queue. */
   position: number;

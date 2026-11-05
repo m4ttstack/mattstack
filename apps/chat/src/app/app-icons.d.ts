@@ -1,11 +1,10 @@
 declare module '@mattstack/app-kit/icons' {
   interface AppIcons {
+    archive: true;
     hash: true;
-    userPlus: true;
-    unfoldVertical: true;
-    foldVertical: true;
-    inbox: true;
+    history: true;
     messageSquare: true;
+    palette: true;
   }
 }
 export {};

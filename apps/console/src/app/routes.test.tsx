@@ -27,6 +27,25 @@ function routeAt(path: string): AppRoute {
   return route;
 }
 
+describe('useAppRoute: /usage', () => {
+  const key = 'remote:github.com%2Facme%2Fwidgets!123';
+
+  it('matches the Usage page', () => {
+    expect(routeAt('/usage')).toEqual({ name: 'usage' });
+  });
+
+  it('restores the exact MR key from its link', () => {
+    expect(routeAt(`/usage/${encodeURIComponent(key)}`)).toEqual({
+      name: 'usage-mr',
+      mrKey: key,
+    });
+  });
+
+  it('reads a segment that is no MR key as not found', () => {
+    expect(routeAt('/usage/nothing')).toEqual({ name: 'not-found' });
+  });
+});
+
 describe('useAppRoute: /packs', () => {
   it('matches the Packs page', () => {
     expect(routeAt('/packs')).toEqual({ name: 'packs' });

@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } 
 import { tmpdir } from "os";
 import { dirname, join, relative } from "path";
 import type { Logger } from "pino";
-import { SLACK_SUPPORT_SCOPES } from "../../setup/slack-app.ts";
+import { SLACK_SUPPORT_CHAT_SCOPES } from "../../setup/slack-app.ts";
 import type { SlackClient } from "../client.ts";
 import { createChatHandlers } from "../../daemon/handlers/chat.ts";
 import { createSlackChatHandlers } from "../../daemon/handlers/slack-chat.ts";
@@ -37,7 +37,7 @@ afterEach(() => {
 function harness() {
   const db = openStateDb(join(home, `state-${n++}.db`));
   const client = {
-    authTest: async () => ({ userId: "U0OPER", scopes: SLACK_SUPPORT_SCOPES }),
+    authTest: async () => ({ userId: "U0OPER", scopes: SLACK_SUPPORT_CHAT_SCOPES }),
     listUsers: async () => [
       { id: "U0OPER", name: "robin", displayName: "", realName: "Robin Example", title: "", deleted: false, isBot: false },
       { id: "U0TEST", name: "alex", displayName: "", realName: "Alex Example", title: "", deleted: false, isBot: false },

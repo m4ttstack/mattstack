@@ -75,6 +75,15 @@ into a named function or a route is registered unchained.
 server-side event needs to reach the client live, it goes through this relay list, not a bespoke
 WebSocket wire-up.
 
+## Usage (`src/app/usage/`, `src/server/usage.ts`)
+
+`/usage` and `/usage/:mrKey` show estimated token cost per MR on this Mac, read from rt's
+`usage:*` verbs. rt's sweep fills `usage.db` every 5 minutes, so these pages lag live runs. The
+list has two views, MRs and Trends, in `?view=`; range and repo are `?range=` and `?repo=`. An MR
+key is a repo identity plus `!<number>`, so its route re-canonicalizes it the way `/runs/:repo`
+does. Titles and MR state are not in the store: they come from the runs pages' branch enrichment.
+A teammate's review has no run on this Mac, so `steps.ts` draws it as "not on this Mac".
+
 ## Packs page (`src/app/wiring/`)
 
 The Packs page (`WiringMap.tsx`, route `/packs`; old `/wiring` links redirect there with their query) shows a mattstack skill pack read from

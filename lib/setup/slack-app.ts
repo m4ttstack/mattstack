@@ -16,11 +16,14 @@ export interface SlackScopeNeeds {
 
 export const DEFAULT_SCOPE_NEEDS: SlackScopeNeeds = {
   bot: ["chat:write", "reactions:write", "channels:read", "users:read"],
-  user: ["channels:read", "groups:read", "channels:history", "groups:history", "reactions:read", "reactions:write", "chat:write"],
+  user: ["channels:read", "groups:read", "channels:history", "groups:history", "reactions:read", "reactions:write", "chat:write", "users:read"],
 };
 
 /** Opt-in: im:history lets a token read all of a person's DMs, so only the operator who runs a support chat asks for these. */
-export const SLACK_SUPPORT_SCOPES = ["im:history", "im:read", "im:write", "users:read"];
+export const SLACK_SUPPORT_SCOPES = ["im:history", "im:read", "im:write"];
+
+/** What a support chat needs from a token: finding the teammate takes the default users:read too. */
+export const SLACK_SUPPORT_CHAT_SCOPES = [...SLACK_SUPPORT_SCOPES, "users:read"];
 
 export function missingSlackUserScopes(granted: string[]): string[] {
   const have = new Set(granted);

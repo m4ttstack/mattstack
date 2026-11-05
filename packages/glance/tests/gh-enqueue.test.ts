@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 /** The transport is stubbed; nothing here touches a network. */
 import { describe, expect, test } from 'bun:test';
+import { ReadBackFailedError } from '../src/errors.ts';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
 import { GitLabProvider } from '../src/GitLabProvider.ts';
 
@@ -18,6 +19,33 @@ function providerWith(payload: unknown) {
 }
 
 const QUEUED = { enqueuePullRequest: { mergeQueueEntry: { position: 2, state: 'QUEUED' } } };
+
+describe('mergePullRequest read-back', () => {
+  test('a merge whose read-back fails says the write landed', async () => {
+    const { provider } = providerWith({});
+    (provider as any).fetchSingleMR = async () => {
+      throw new Error('502');
+    };
+    const failure = await provider.mergePullRequest('o/r', 5).catch(e => e);
+    expect(failure).toBeInstanceOf(ReadBackFailedError);
+    expect(failure.writeApplied).toBe(true);
+  });
+});
+
+describe('fetchMergeQueueStatus', () => {
+  test('reads both flags for the pull request', async () => {
+    const { provider, mutations } = providerWith({
+      repository: { pullRequest: { isMergeQueueEnabled: true, isInMergeQueue: false } }
+    });
+    expect(await provider.fetchMergeQueueStatus('o/r', 5)).toEqual({ enabled: true, inQueue: false });
+    expect(mutations[0]!.variables).toEqual({ owner: 'o', repo: 'r', number: 5 });
+  });
+
+  test('a missing pull request is a failure, not a repo with no queue', async () => {
+    const { provider } = providerWith({ repository: { pullRequest: null } });
+    await expect(provider.fetchMergeQueueStatus('o/r', 5)).rejects.toThrow('no pull request for o/r!5');
+  });
+});
 
 describe('enqueuePullRequest', () => {
   test('returns the queue entry and pins the expected head', async () => {

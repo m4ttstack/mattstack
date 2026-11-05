@@ -44,6 +44,7 @@ describe('expectation tables', () => {
     const OPTIONAL: string[] = [
       'fetchPullRequestsByBranches',
       'enqueuePullRequest',
+      'fetchMergeQueueStatus',
       'watchEvents',
       'subscribePullRequestEvents',
       'fetchMergeRequestIndex',
