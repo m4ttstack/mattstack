@@ -348,7 +348,16 @@ export function ClickToEditField({
                 </AnimatePresence>
               </div>
             </m.div>
-            {footer && <div className="tui-cte-footer">{footer}</div>}
+            {footer && (
+              // A press must not blur the textarea: the blur closes the field,
+              // the tab slides up, and the mouse-up misses the tick.
+              <div
+                className="tui-cte-footer"
+                onMouseDown={e => e.preventDefault()}
+              >
+                {footer}
+              </div>
+            )}
             {hint && (editing || variant === 'plain') && (
               // At rest, plain's hint is the hover "Click to edit" pill; the
               // textbox already says it edits, so the pill stays out of the

@@ -323,11 +323,11 @@ const VERDICT = {
   },
 } as const;
 
-/** The agent's verdict as a mark for a card's head; a thread it never
-    checked gets the dotted circle. Not a control, so never boxed: a tinted
+/** The agent's verdict as a mark for a card's head; a thread with no known
+    verdict gets the dotted circle. Not a control, so never boxed: a tinted
     square here would read as a tick. */
 export function VerdictMark({ verdict }: { verdict?: AgentVerdict }) {
-  const label = verdict ? VERDICT[verdict].label : 'No agent check';
+  const label = verdict ? VERDICT[verdict].label : 'No agent verdict';
   return (
     <span
       className="tui-reply-mark"

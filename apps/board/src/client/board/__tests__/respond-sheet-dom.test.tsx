@@ -1520,6 +1520,41 @@ test('a reply pick with no drafted words says it is drafted at posting', async (
   );
 });
 
+test('a reply card heads with the plan verdict, even with nothing to expand', async () => {
+  await render(perThreadPostGate(), withFixPlan());
+  const reply = postCards()[1]!;
+  expect(
+    reply.querySelector('.tui-reply-mark')!.getAttribute('aria-label')
+  ).toMatch(/^Agent /);
+});
+
+test('with no plan gate, a reply card claims no agent verdict', async () => {
+  await render(perThreadPostGate());
+  expect(
+    postCards()[1]!.querySelector('.tui-reply-mark')!.getAttribute('aria-label')
+  ).toBe('No agent verdict');
+});
+
+test('pressing the tab leaves the open field alone, so the click lands', async () => {
+  await render(perThreadPostGate(), withFixPlan());
+  const reply = postCards()[1]!;
+  await openReply(reply);
+  const press = new MouseEvent('mousedown', {
+    bubbles: true,
+    cancelable: true,
+  });
+  control(reply, 'post')!.dispatchEvent(press);
+  expect(press.defaultPrevented).toBe(true);
+});
+
+test('a reply emptied before holding says so', async () => {
+  await render(perThreadPostGate(), withFixPlan());
+  const reply = postCards()[1]!;
+  await typeInto(reply, '');
+  await holdReply(reply);
+  expect(heldText(reply)).toBe('Empty comment');
+});
+
 test('a held post-step reply reads in its grey box; posting it again opens the field', async () => {
   await render(perThreadPostGate(), withFixPlan());
   const reply = postCards()[1]!;

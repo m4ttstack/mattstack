@@ -49,8 +49,7 @@ export interface ThreadReplyCardProps {
   /** Said in place of the other side's message when they never replied. */
   silence?: string;
   check?: { note: string; verdict: AgentVerdict };
-  /** The head's mark; a thread with a check and no call of its own takes
-      the check's. */
+  /** The head's mark; absent when no agent call is known for the thread. */
   verdict?: AgentVerdict;
   draft: string;
   value: string | undefined;
@@ -107,7 +106,7 @@ function HeldReply({
   untouched: boolean;
 }) {
   return (
-    <div className="tui-reply-held" aria-label={label}>
+    <div className="tui-reply-held" role="group" aria-label={label}>
       <div className="tui-reply-held-head">
         <CommentAuthor id={selfId} name="You:" />
         <Chip
@@ -125,7 +124,11 @@ function HeldReply({
         </Chip>
       </div>
       <div className="tui-reply-held-text">
-        <CommentMarkdown>{text}</CommentMarkdown>
+        {text.trim() === '' ? (
+          <p className="tui-field-preview-empty">Empty comment</p>
+        ) : (
+          <CommentMarkdown>{text}</CommentMarkdown>
+        )}
       </div>
     </div>
   );
@@ -202,7 +205,7 @@ export function ThreadReplyCard(p: ThreadReplyCardProps) {
     <article className="tui-review-card tui-reply-card" aria-label={p.label}>
       <div className="tui-review-card-head tui-reply-head">
         <div className="tui-reply-head-label">
-          <VerdictMark verdict={p.verdict ?? p.check?.verdict} />
+          <VerdictMark verdict={p.verdict} />
           <CardTitle label={p.label}>
             {p.round !== undefined && (
               <span className="tui-respond-pill tui-reply-round">

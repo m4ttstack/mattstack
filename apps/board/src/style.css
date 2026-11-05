@@ -5008,7 +5008,7 @@ a.tui-id-card-ref:focus-visible {
   background: color-mix(in srgb, var(--fill-accent) 32%, var(--card));
 }
 /* A reply that will not post: recessed from the band, and spaced to the
-   field's own lines so ticking Post reply never moves the card. */
+   field's own lines so a short reply holds its place when Post reply flips. */
 .tui-reply-held {
   display: flex;
   flex-direction: column;
@@ -5032,6 +5032,9 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-reply-held-text {
   display: -webkit-box;
+  /* Line-clamp stops at paragraphs and lists; a code block or table needs
+     the height cap too. */
+  max-height: 3em;
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -5047,10 +5050,10 @@ a.tui-id-card-ref:focus-visible {
   color: var(--text-3);
 }
 .tui-reply-mark[data-verdict='verified'] {
-  color: var(--text-ok);
+  color: var(--text-ok-vivid);
 }
 .tui-reply-mark[data-verdict='accepted'] {
-  color: var(--text-accent);
+  color: var(--text-accent-vivid);
 }
 .tui-reply-mark:is(
   [data-verdict='flagged'],
