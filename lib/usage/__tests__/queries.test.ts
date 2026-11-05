@@ -303,6 +303,19 @@ test("ticket, branch and url come from the latest run", () => {
   expect([mr.ticket, mr.branch, mr.url]).toEqual(["WEB-2", "new", "u2"]);
 });
 
+test("url survives a later run that has none", () => {
+  run("first", { mrKey: MR_A, startedAt: NOW - 3 * DAY, ticket: "WEB-1", url: "u1" });
+  run("middle", { mrKey: MR_A, startedAt: NOW - 2 * DAY, ticket: "WEB-2", url: "u2" });
+  run("last", { mrKey: MR_A, startedAt: NOW - DAY, ticket: "WEB-3", url: null });
+  message({ runId: "last", mrKey: MR_A, input: 1 });
+  message({ runId: "first", mrKey: MR_A, input: 1 });
+  message({ runId: "middle", mrKey: MR_A, input: 1 });
+  const row = usageMrs(dbPath, { now: NOW }).mrs[0]!;
+  expect([row.url, row.ticket]).toEqual(["u2", "WEB-3"]);
+  const mr = usageMr(dbPath, MR_A)!;
+  expect([mr.url, mr.ticket]).toEqual(["u2", "WEB-3"]);
+});
+
 test("an MR with no run has null ticket, branch and url", () => {
   agentLink("s-doc", "agent-1", "doctor", MR_A);
   message({ session: "s-doc", mrKey: MR_A, input: 1, attribution: "session" });
@@ -567,8 +580,17 @@ test("status reports the sweep, rows and gaps", () => {
   runLink("s-1", "w");
   runLink("s-gone", "w");
   agentLink("s-gone", "agent-1", "other", null);
-  db.query("INSERT INTO usage_files (path, session_id) VALUES ('/t/s-1.jsonl', 's-1')").run();
-  db.query("INSERT INTO usage_files (path, session_id) VALUES ('/t/null.jsonl', NULL)").run();
+  runLink("s-deleted", "w");
+  runLink("s-partly", "w");
+  const kept = join(dir, "kept.jsonl");
+  writeFileSync(kept, "");
+  const file = db.query("INSERT INTO usage_files (path, session_id) VALUES (?, ?)");
+  file.run(kept, "s-1");
+  file.run(join(dir, "gone.jsonl"), "s-deleted");
+  file.run(join(dir, "also-gone.jsonl"), "s-partly");
+  file.run(join(dir, "kept-too.jsonl"), "s-partly");
+  writeFileSync(join(dir, "kept-too.jsonl"), "");
+  file.run(join(dir, "null.jsonl"), null);
   message({ runId: "w", mrKey: MR_A, input: 1 });
   message({ runId: "w", mrKey: MR_A, input: 1 });
   message({ runId: "w", model: "claude-future-9", input: 1 });
@@ -582,6 +604,6 @@ test("status reports the sweep, rows and gaps", () => {
     conflicts: 3,
     skippedRate: 2 / 6,
     unpricedModels: ["claude-future-9", "claude-future-9-20270101"],
-    sessionsMissingTranscript: 1,
+    sessionsMissingTranscript: 2,
   });
 });

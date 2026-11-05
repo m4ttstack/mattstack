@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { existsSync } from "fs";
 import type {
   UsageKind,
   UsageModelRow,
@@ -185,9 +186,29 @@ function runOrder(a: { started_at: number | null }, b: { started_at: number | nu
   return (a.started_at ?? 0) - (b.started_at ?? 0);
 }
 
+interface RunPick {
+  latest: MessageRow | null;
+  latestWithUrl: MessageRow | null;
+}
+
+function pickRun(pick: RunPick, row: MessageRow): void {
+  if (row.run_id === null) return;
+  if (!pick.latest || runOrder(pick.latest, row) < 0) pick.latest = row;
+  if (row.mr_url === null) return;
+  if (!pick.latestWithUrl || runOrder(pick.latestWithUrl, row) < 0) pick.latestWithUrl = row;
+}
+
+function runFields(pick: RunPick): { url: string | null; ticket: string | null; branch: string | null } {
+  return {
+    url: pick.latestWithUrl?.mr_url ?? null,
+    ticket: pick.latest?.ticket ?? null,
+    branch: pick.latest?.branch ?? null,
+  };
+}
+
 interface MrFold {
   row: UsageMrRow;
-  latestRun: MessageRow | null;
+  pick: RunPick;
   runs: Set<string>;
   respondRuns: Set<string>;
 }
@@ -198,10 +219,10 @@ function foldMr(fold: MrFold, row: MessageRow): void {
   fold.row.costByKind[kindFor(row)] += delta.cost;
   fold.row.firstActivity = Math.min(fold.row.firstActivity, row.first_ts);
   fold.row.lastActivity = Math.max(fold.row.lastActivity, row.last_ts);
+  pickRun(fold.pick, row);
   if (row.run_id === null) return;
   fold.runs.add(runIdentity(row));
   if (kindFor(row) === "respond") fold.respondRuns.add(runIdentity(row));
-  if (!fold.latestRun || runOrder(fold.latestRun, row) < 0) fold.latestRun = row;
 }
 
 export function usageMrs(
@@ -239,7 +260,7 @@ export function usageMrs(
             runCount: 0,
             roundCount: 0,
           },
-          latestRun: null,
+          pick: { latest: null, latestWithUrl: null },
           runs: new Set(),
           respondRuns: new Set(),
         };
@@ -254,9 +275,7 @@ export function usageMrs(
       if (since !== null && fold.row.lastActivity < since) continue;
       mrs.push({
         ...fold.row,
-        url: fold.latestRun?.mr_url ?? null,
-        ticket: fold.latestRun?.ticket ?? null,
-        branch: fold.latestRun?.branch ?? null,
+        ...runFields(fold.pick),
         runCount: fold.runs.size,
         roundCount: fold.respondRuns.size,
       });
@@ -390,12 +409,12 @@ export function usageMr(dbPath: string, mrKey: string): UsageMrData | null {
     const splits = emptySplits();
     const costByKind = byKindOf(() => 0);
     const entries = new Map<string, EntryFold>();
-    let latestRun: MrDetailRow | null = null;
+    const pick: RunPick = { latest: null, latestWithUrl: null };
     for (const row of rows) {
       const delta = totalsOf(row);
       foldSplits(splits, row, delta);
       costByKind[kindFor(row)] += delta.cost;
-      if (row.run_id !== null && (!latestRun || runOrder(latestRun, row) < 0)) latestRun = row;
+      pickRun(pick, row);
 
       const key = `${runIdentity(row)}\0${row.agent_session}`;
       let entry = entries.get(key);
@@ -429,9 +448,7 @@ export function usageMr(dbPath: string, mrKey: string): UsageMrData | null {
     return {
       ...splitsOf(splits),
       mrKey,
-      url: latestRun?.mr_url ?? null,
-      ticket: latestRun?.ticket ?? null,
-      branch: latestRun?.branch ?? null,
+      ...runFields(pick),
       firstActivity: first,
       lastActivity: last,
       costByKind,
@@ -519,6 +536,18 @@ function countOf(db: Database, sql: string): number {
   return (db.query(sql).get() as { n: number }).n;
 }
 
+// usage_files rows outlive their transcripts, so a row alone does not prove the file is still there.
+function sessionsMissingTranscript(db: Database): number {
+  const files = db
+    .query("SELECT path, session_id FROM usage_files WHERE session_id IS NOT NULL")
+    .all() as { path: string; session_id: string }[];
+  const present = new Set(files.filter((f) => existsSync(f.path)).map((f) => f.session_id));
+  const linked = db.query("SELECT DISTINCT session_id FROM usage_sessions").all() as {
+    session_id: string;
+  }[];
+  return linked.filter((s) => !present.has(s.session_id)).length;
+}
+
 export function usageStatus(dbPath: string): UsageStatusData {
   const empty: UsageStatusData = {
     lastSweepAt: null,
@@ -548,11 +577,7 @@ export function usageStatus(dbPath: string): UsageStatusData {
       conflicts: metaNumber(db, "conflicts") ?? 0,
       skippedRate: seen === 0 ? 0 : skippedLines / seen,
       unpricedModels: models.map((m) => m.model).filter((m) => costOf(m, noTokens, null) === null),
-      sessionsMissingTranscript: countOf(
-        db,
-        `SELECT COUNT(DISTINCT session_id) AS n FROM usage_sessions
-         WHERE session_id NOT IN (SELECT session_id FROM usage_files WHERE session_id IS NOT NULL)`,
-      ),
+      sessionsMissingTranscript: sessionsMissingTranscript(db),
     };
   });
 }
