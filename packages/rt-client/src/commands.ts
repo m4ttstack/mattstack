@@ -488,6 +488,7 @@ export interface UsageTotals {
   output: number;
   cacheRead: number;
   cacheWrite: number;
+  messages: number;
   /** Estimated USD, covering priced models only. */
   cost: number;
   /** Tokens from models with no price, so a new model reads as incomplete rather than cheap. */

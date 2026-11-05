@@ -1,9 +1,10 @@
 .track {
   display: flex;
-  gap: 2px;
-  width: calc(var(--bar-scale) * 100%);
-  min-width: 4px;
+  gap: 1px;
+  width: 100%;
   height: 8px;
+  overflow: hidden;
+  border-radius: 2px;
 }
 
 .segment {
@@ -12,46 +13,52 @@
   height: 100%;
 }
 
-.segment:first-child {
-  border-radius: 4px 0 0 4px;
+.shareTrack {
+  width: 100%;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--tk-inset);
 }
 
-.segment:last-child {
-  border-radius: 0 4px 4px 0;
-}
-
-.segment:only-child {
-  border-radius: 4px;
+.fill {
+  display: block;
+  width: calc(var(--share) * 100%);
+  height: 100%;
 }
 
 .swatch {
   flex: none;
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
+  width: 8px;
+  height: 8px;
 }
 
 .segment[data-kind='work'],
+.fill[data-kind='work'],
 .swatch[data-kind='work'] {
   background: var(--tk-fill-accent);
 }
 
-.segment[data-kind='review'],
-.swatch[data-kind='review'] {
-  background: var(--tk-fill-gold);
+.segment[data-kind='respond'],
+.fill[data-kind='respond'],
+.swatch[data-kind='respond'] {
+  background: var(--tk-fill-ok);
 }
 
-.segment[data-kind='respond'],
-.swatch[data-kind='respond'] {
-  background: var(--tk-fill-cyan);
+.segment[data-kind='review'],
+.fill[data-kind='review'],
+.swatch[data-kind='review'] {
+  background: var(--tk-fill-warn);
 }
 
 .segment[data-kind='doctor'],
+.fill[data-kind='doctor'],
 .swatch[data-kind='doctor'] {
   background: var(--tk-fill-purple);
 }
 
 .segment[data-kind='other'],
+.fill[data-kind='other'],
 .swatch[data-kind='other'] {
   background: var(--tk-line-1);
 }

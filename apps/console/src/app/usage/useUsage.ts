@@ -1,7 +1,8 @@
+import type { BranchEnrichment } from '@mattstack/rt-client';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
 import { client } from '../api';
-import { readApiError } from '../runs/useRuns';
+import { readApiError, useRunsEnrich } from '../runs/useRuns';
 
 /** The sweep's period: nothing newer exists sooner than this. */
 const STALE_MS = 60_000;
@@ -12,14 +13,17 @@ export type UsageRange = number | null;
 /** The daemon's cap; trends always needs a range. */
 const ALL_DAYS = 3650;
 
-export function useUsageMrs(range: UsageRange) {
+export function useUsageMrs(range: UsageRange, repo: string | null = null) {
   return useQuery({
-    queryKey: ['usage', 'mrs', range],
+    queryKey: ['usage', 'mrs', range, repo],
     staleTime: STALE_MS,
     placeholderData: keepPreviousData,
     queryFn: async () => {
       const res = await client.api.usage.mrs.$get({
-        query: range === null ? {} : { days: String(range) },
+        query: {
+          ...(range === null ? {} : { days: String(range) }),
+          ...(repo ? { repo } : {}),
+        },
       });
       if (!res.ok) throw await readApiError(res, 'usage');
       return res.json();
@@ -27,14 +31,17 @@ export function useUsageMrs(range: UsageRange) {
   });
 }
 
-export function useUsageTrends(range: UsageRange) {
+export function useUsageTrends(days: number | null, repo: string | null) {
   return useQuery({
-    queryKey: ['usage', 'trends', range],
+    queryKey: ['usage', 'trends', days, repo],
     staleTime: STALE_MS,
     placeholderData: keepPreviousData,
     queryFn: async () => {
       const res = await client.api.usage.trends.$get({
-        query: { days: String(range ?? ALL_DAYS) },
+        query: {
+          days: String(Math.min(days ?? ALL_DAYS, ALL_DAYS)),
+          ...(repo ? { repo } : {}),
+        },
       });
       if (!res.ok) throw await readApiError(res, 'usage trends');
       return res.json();
@@ -64,4 +71,19 @@ export function useUsageStatus() {
       return res.json();
     },
   });
+}
+
+export type EnrichmentOf = (
+  branch: string | null
+) => BranchEnrichment | undefined;
+
+/** Titles are not in the store: they come from the same branch enrichment
+    the runs pages read. */
+export function useUsageEnrichment(
+  branches: Array<string | null>
+): EnrichmentOf {
+  const known = branches.filter((b): b is string => b !== null);
+  const enrich = useRunsEnrich(known).data as
+    Record<string, BranchEnrichment> | undefined;
+  return branch => (branch ? enrich?.[branch] : undefined);
 }

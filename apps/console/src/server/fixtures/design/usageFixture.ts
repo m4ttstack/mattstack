@@ -24,6 +24,7 @@ const ZERO: UsageTotals = {
   output: 0,
   cacheRead: 0,
   cacheWrite: 0,
+  messages: 0,
   cost: 0,
   unpricedTokens: 0,
 };
@@ -37,6 +38,7 @@ function sum(rows: UsageTotals[]): UsageTotals {
       output: a.output + t.output,
       cacheRead: a.cacheRead + t.cacheRead,
       cacheWrite: a.cacheWrite + t.cacheWrite,
+      messages: a.messages + t.messages,
       cost: round(a.cost + t.cost),
       unpricedTokens: a.unpricedTokens + t.unpricedTokens,
     }),
@@ -55,6 +57,7 @@ const tot = (
   output,
   cacheRead,
   cacheWrite,
+  messages: Math.ceil(output / 400),
   cost,
   unpricedTokens: 0,
 });
@@ -63,7 +66,7 @@ const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 /** Local Monday midnight, as `mondayOf` in lib/usage/queries.ts. */
 const WEEK = new Date(2026, 10, 2).getTime();
-const OPUS = 'claude-opus-4-8';
+const OPUS = 'claude-opus-5-5';
 const SONNET = 'claude-sonnet-5-5';
 
 function seenModels(main: UsageTotals, subagent: UsageTotals): UsageModelRow[] {
@@ -163,9 +166,17 @@ function mrData(
 }
 
 const EARLIER_WEEK_COSTS: Array<Record<UsageKind, number>> = [
-  { work: 62, review: 9, respond: 21, doctor: 4, other: 2 },
-  { work: 41, review: 12, respond: 14, doctor: 0, other: 1 },
-  { work: 88, review: 7, respond: 33, doctor: 11, other: 3 },
+  { work: 58, respond: 14, review: 8, doctor: 0, other: 1 },
+  { work: 66, respond: 16, review: 10, doctor: 3, other: 1 },
+  { work: 50, respond: 12, review: 9, doctor: 0, other: 1 },
+  { work: 72, respond: 20, review: 7, doctor: 4, other: 2 },
+  { work: 81, respond: 24, review: 11, doctor: 2, other: 2 },
+  { work: 64, respond: 23, review: 9, doctor: 5, other: 1 },
+  { work: 70, respond: 21, review: 8, doctor: 0, other: 1 },
+  { work: 92, respond: 34, review: 13, doctor: 4, other: 3 },
+  { work: 77, respond: 26, review: 12, doctor: 2, other: 1 },
+  { work: 69, respond: 24, review: 10, doctor: 0, other: 1 },
+  { work: 74, respond: 30, review: 8, doctor: 3, other: 2 },
 ];
 
 const KEY_FULL = 'remote:github.com%2Facme%2Fwidgets!123';
@@ -302,6 +313,8 @@ export function usageFixture(): UsageFixture {
     };
   });
   const weeks = [...earlierWeeks, week];
+  const kindOverWeeks = (kind: UsageKind) =>
+    sum(weeks.map(w => w.byKind[kind]));
 
   return {
     mrs: {
@@ -317,15 +330,15 @@ export function usageFixture(): UsageFixture {
       weeks,
       totals: sum(weeks.map(w => w.totals)),
       byPipeline: [
-        { pipeline: 'feature', totals: full.runs[0]!.totals },
-        { pipeline: 'respond', totals: kindTotals('respond') },
-        { pipeline: 'review', totals: kindTotals('review') },
-        { pipeline: null, totals: kindTotals('doctor') },
+        { pipeline: 'feature', totals: kindOverWeeks('work') },
+        { pipeline: 'receive-review', totals: kindOverWeeks('respond') },
+        { pipeline: 'review', totals: kindOverWeeks('review') },
+        {
+          pipeline: null,
+          totals: sum([kindOverWeeks('doctor'), kindOverWeeks('other')]),
+        },
       ],
-      byModel: seenModels(
-        sum(all.map(d => d.main)),
-        sum(all.map(d => d.subagent))
-      ),
+      byModel: seenModels(sum(weeks.map(w => w.totals)), tot(0, 0, 0, 0, 0)),
     },
     status: {
       lastSweepAt: WEEK + 5 * DAY,

@@ -163,6 +163,7 @@ describe('usage api', () => {
       output: 0,
       cacheRead: 0,
       cacheWrite: 0,
+      messages: 0,
       cost: 0,
       unpricedTokens: 0,
     };

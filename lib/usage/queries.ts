@@ -42,6 +42,7 @@ interface MessageRow {
   cache_read: number;
   cache_write_5m: number;
   cache_write_1h: number;
+  messages: number;
   first_ts: number;
   last_ts: number;
 }
@@ -83,6 +84,7 @@ function selectMessages(db: Database, scope: Scope, dims: string[]): unknown[] {
          m.model, m.speed,
          SUM(m.input) AS input, SUM(m.output) AS output, SUM(m.cache_read) AS cache_read,
          SUM(m.cache_write_5m) AS cache_write_5m, SUM(m.cache_write_1h) AS cache_write_1h,
+         COUNT(*) AS messages,
          MIN(m.ts) AS first_ts, MAX(m.ts) AS last_ts
          ${dims.map((d) => `, ${d}`).join("")}
        FROM usage_messages m
@@ -95,7 +97,7 @@ function selectMessages(db: Database, scope: Scope, dims: string[]): unknown[] {
 }
 
 function emptyTotals(): UsageTotals {
-  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, unpricedTokens: 0 };
+  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, messages: 0, cost: 0, unpricedTokens: 0 };
 }
 
 function byKindOf<T>(make: () => T): Record<UsageKind, T> {
@@ -120,6 +122,7 @@ function totalsOf(row: MessageRow): UsageTotals {
     output: row.output,
     cacheRead: row.cache_read,
     cacheWrite,
+    messages: row.messages,
     cost: cost ?? 0,
     unpricedTokens: cost === null ? row.input + row.output + row.cache_read + cacheWrite : 0,
   };
@@ -130,6 +133,7 @@ function add(into: UsageTotals, from: UsageTotals): void {
   into.output += from.output;
   into.cacheRead += from.cacheRead;
   into.cacheWrite += from.cacheWrite;
+  into.messages += from.messages;
   into.cost += from.cost;
   into.unpricedTokens += from.unpricedTokens;
 }

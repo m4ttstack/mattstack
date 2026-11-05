@@ -1,0 +1,29 @@
+.line {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+}
+
+.stat {
+  flex: 1 1 0;
+  padding: 0 18px;
+}
+
+.dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.dot[data-tone='gray'] {
+  background: var(--tk-text-3);
+}
+
+.dot[data-tone='accent'] {
+  background: var(--tk-fill-accent);
+}
+
+.dot[data-tone='ok'] {
+  background: var(--tk-fill-ok);
+}

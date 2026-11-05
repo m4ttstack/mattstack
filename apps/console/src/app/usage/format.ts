@@ -1,6 +1,7 @@
 import type {
   UsageKind,
-  UsageMrEntry,
+  UsageMrData,
+  UsageMrRow,
   UsageTotals,
 } from '@mattstack/rt-client';
 
@@ -8,8 +9,8 @@ import { repoPath } from '../runs/repoLabel';
 
 export const KIND_ORDER: UsageKind[] = [
   'work',
-  'review',
   'respond',
+  'review',
   'doctor',
   'other',
 ];
@@ -30,19 +31,22 @@ export function usd(cost: number): string {
 export function compact(n: number): string {
   if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
-  if (n >= 1e3) return `${Math.round(n / 1e3)}K`;
+  if (n >= 1e4) return `${Math.round(n / 1e3)}K`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
   return String(n);
 }
 
-export function allTokens(t: UsageTotals): number {
-  return t.input + t.output + t.cacheRead + t.cacheWrite;
-}
-
 /** An MR key is `<serialized repo>!<number>`. */
-export function mrParts(mrKey: string): { repo: string; number: string } {
+export function mrParts(mrKey: string): {
+  repoKey: string;
+  repo: string;
+  number: string;
+} {
   const bang = mrKey.lastIndexOf('!');
+  const repoKey = mrKey.slice(0, bang);
   return {
-    repo: repoPath(mrKey.slice(0, bang)),
+    repoKey,
+    repo: repoPath(repoKey),
     number: `!${mrKey.slice(bang + 1)}`,
   };
 }
@@ -50,10 +54,37 @@ export function mrParts(mrKey: string): { repo: string; number: string } {
 export const usageMrHref = (mrKey: string) =>
   `/usage/${encodeURIComponent(mrKey)}`;
 
-export function entryLabel(entry: UsageMrEntry): string {
-  if (entry.kind === 'respond' && entry.round !== null)
-    return `Round ${entry.round}`;
-  return KIND_LABEL[entry.kind];
+export function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
+/** What an MR's money went on, in words: `work run, 3 rounds`. */
+export function mrSummary(row: UsageMrRow): string {
+  const parts: string[] = [];
+  if (row.costByKind.work > 0) parts.push('work run');
+  else if (row.costByKind.review > 0) parts.push('review only');
+  if (row.roundCount > 0) parts.push(plural(row.roundCount, 'round'));
+  return parts.join(', ');
+}
+
+/** `claude-opus-5-5` reads `Opus 5.5`; an id of another shape stays as is. */
+export function modelName(model: string | null): string {
+  if (!model) return 'Unknown';
+  const m = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(model);
+  if (!m) return model;
+  const family = m[1]!.charAt(0).toUpperCase() + m[1]!.slice(1);
+  return `${family} ${m[2]}${m[3] ? `.${m[3]}` : ''}`;
+}
+
+export function spokenOn(totals: UsageTotals, whole: number): number {
+  return whole > 0 ? totals.cost / whole : 0;
+}
+
+export function runCounts(mr: UsageMrData): { runs: number; rounds: number } {
+  return {
+    runs: mr.runs.filter(r => r.runId !== null).length,
+    rounds: mr.runs.filter(r => r.kind === 'respond').length,
+  };
 }
 
 const DAY_FORMAT = new Intl.DateTimeFormat('en-US', {
@@ -62,3 +93,10 @@ const DAY_FORMAT = new Intl.DateTimeFormat('en-US', {
 });
 
 export const shortDay = (at: number) => DAY_FORMAT.format(at);
+
+const TIME_FORMAT = new Intl.DateTimeFormat('en-US', {
+  hour: 'numeric',
+  minute: '2-digit',
+});
+
+export const clockTime = (at: number) => TIME_FORMAT.format(at);
