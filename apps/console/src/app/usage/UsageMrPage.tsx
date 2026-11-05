@@ -148,10 +148,15 @@ export function UsageMrPage({ mrKey }: { mrKey: string }) {
   const counts = mr ? runCounts(mr) : null;
   const sweptAt = status.data?.lastSweepAt ?? null;
   const [openStep, setOpenStep] = useState<OpenStep | null>(null);
+  const [stepOpened, setStepOpened] = useState(false);
 
   return (
     <PageShell headerHeight={PAGE_ROW_HEIGHT} compactHeader>
-      <StepActivity step={openStep} onClose={() => setOpenStep(null)} />
+      <StepActivity
+        step={openStep}
+        opened={stepOpened}
+        onClose={() => setStepOpened(false)}
+      />
       <PageShell.Main>
         <PageShell.Header
           title={
@@ -276,7 +281,10 @@ export function UsageMrPage({ mrKey }: { mrKey: string }) {
                             key={row.key}
                             row={row}
                             whole={mr.totals.cost}
-                            onOpen={setOpenStep}
+                            onOpen={step => {
+                              setOpenStep(step);
+                              setStepOpened(true);
+                            }}
                           />
                         ))}
                       </Table.Tbody>

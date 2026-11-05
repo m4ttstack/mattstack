@@ -15,7 +15,11 @@ const { runsFixture } = await import('./fixtures/design/runsFixture');
 const rt = await import('@mattstack/rt-client');
 
 const get = (app: ReturnType<typeof usageRoutes>, path: string) =>
-  app.fetch(new Request(`http://localhost${path}`));
+  app.fetch(
+    new Request(`http://localhost${path}`, {
+      headers: { host: 'localhost:11001' },
+    })
+  );
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -84,6 +88,16 @@ describe('usage api', () => {
     expect(
       (await get(app, '/api/usage/activity?runId=r&outside=later')).status
     ).toBe(400);
+  });
+
+  it('serves prompt text only to a local request', async () => {
+    const res = await usageRoutes().fetch(
+      new Request('http://localhost/api/usage/activity?runId=r', {
+        headers: { host: 'console.example.com' },
+      })
+    );
+    expect(res.status).toBe(403);
+    expect(rt.usageActivity).not.toHaveBeenCalled();
   });
 
   it('answers 400 for a missing mrKey, a missing trends days or a junk days', async () => {

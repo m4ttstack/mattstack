@@ -1,4 +1,8 @@
 import {
+  isLocalRequest,
+  type LocalServer,
+} from '@mattstack/app-server/local-request';
+import {
   usageActivity,
   usageMr,
   usageMrs,
@@ -64,6 +68,8 @@ export function usageRoutes(fixture: RunsFixture | null = null) {
       return c.json(res.data ?? null, 200);
     })
     .get('/api/usage/activity', async c => {
+      if (!isLocalRequest(c.req.raw, c.env as LocalServer | undefined))
+        return c.json({ error: 'forbidden' }, 403);
       const { runId, sessionId, stage, attempt, outside } = c.req.query();
       if (!runId && !sessionId)
         return c.json({ error: 'runId or sessionId is required' }, 400);

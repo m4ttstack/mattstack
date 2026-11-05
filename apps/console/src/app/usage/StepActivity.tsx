@@ -117,15 +117,17 @@ function ActivityBody({ data }: { data: UsageActivityData }) {
 /** What a step's session was doing, read from its transcript on open. */
 export function StepActivity({
   step,
+  opened,
   onClose,
 }: {
   step: { label: string; note?: string; activity: UsageActivityQuery } | null;
+  opened: boolean;
   onClose: () => void;
 }) {
   const activity = useUsageActivity(step?.activity ?? null);
   return (
     <Drawer
-      opened={step !== null}
+      opened={opened}
       onClose={onClose}
       position="right"
       size={640}
