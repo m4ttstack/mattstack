@@ -30,8 +30,8 @@ note on ready; it never moves a stage, a button or Finish.
 
 A tool's `name` must be a bare command (`BARE_COMMAND` in
 `lib/setup/requirements.ts`), since the daemon runs `<name> --version` after a
-pull with no click. A name carrying a path is a malformed entry, so a file in
-the pulled clone is never what runs.
+pull with no click. An entry whose name carries a path or a space is skipped
+with an error naming the rule, so a file in the pulled clone is never what runs.
 
 ## New tool notices
 
