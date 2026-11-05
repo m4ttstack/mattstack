@@ -246,9 +246,9 @@
     0 0 0 0 transparent;
   cursor: pointer;
   transition:
-    background-color 180ms ease-out,
-    box-shadow 180ms ease-out,
-    transform 180ms ease-out;
+    background-color 100ms ease-out,
+    box-shadow 100ms ease-out,
+    transform 100ms ease-out;
 }
 
 .block:first-child {
@@ -273,7 +273,7 @@
   box-shadow:
     inset 0 0 0 transparent,
     inset 0 0 0 0 transparent,
-    0 0 0 1px var(--tk-border-soft),
+    0 0 0 2px color-mix(in srgb, var(--chat-hue) 45%, transparent),
     0 2px 8px rgb(0 0 0 / 14%);
   transform: translateY(-1px);
 }
