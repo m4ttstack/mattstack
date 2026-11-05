@@ -261,6 +261,7 @@ export function statusBlocks(report: ReturnType<typeof shimReport>, rulesByRepo:
   for (const entry of report) {
     const hint = `${entry.repo}, ${rulesText(rulesByRepo[entry.repo] ?? 0)}`;
     if (entry.installed && entry.current) blocks.push(out.line("done", entry.command, hint));
+    else if (entry.foreign) blocks.push(out.line("needs-you", entry.command, `${hint}; rt did not make ${entry.foreign}, so rt left it alone`));
     else if (entry.installed) blocks.push(out.line("stale", entry.command, `${hint}; its shim is out of date`));
     else blocks.push(out.line("pending", entry.command, `${hint}; not installed yet`));
   }
@@ -268,7 +269,9 @@ export function statusBlocks(report: ReturnType<typeof shimReport>, rulesByRepo:
   // edit can leave them behind without any shim looking wrong: it is its own
   // line, on the empty and the populated path alike.
   if (stale.stale) blocks.push(out.line("stale", "The saved rules are behind your settings", stale.reason));
-  if (stale.stale || report.some((entry) => !entry.installed || !entry.current)) blocks.push(out.callout("next", out.cmd("rt intercept install")));
+  const foreign = report.find((entry) => entry.foreign)?.foreign;
+  if (foreign && !stale.stale) blocks.push(out.callout("next", [`Move ${foreign} aside, then run `, out.cmd("rt intercept install")]));
+  else if (stale.stale || report.some((entry) => !entry.installed || !entry.current)) blocks.push(out.callout("next", out.cmd("rt intercept install")));
   return blocks;
 }
 
