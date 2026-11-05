@@ -12,6 +12,7 @@ import { existsSync, readFileSync } from "fs";
 import { createRequire } from "module";
 import { homedir } from "os";
 import { dirname, join } from "path";
+import { assertNotRealStateDbInTest } from "./test-isolation.ts";
 
 function defaultReposJsonPath(): string {
   // Duplicates the ~/.mattstack/rt layout: rt-client has no dependency on rt's
@@ -63,6 +64,7 @@ function repoNameFromStateDb(repoPath: string, dbPath: string): string | null {
   const DatabaseCtor = loadBunSqliteDatabase(import.meta.url);
   if (!DatabaseCtor) return null;
   try {
+    assertNotRealStateDbInTest(dbPath);
     const db = new DatabaseCtor(dbPath, { readonly: true });
     try {
       const rows = db.query("SELECT k, v FROM kv WHERE ns = 'repo-index';").all() as RepoIndexRow[];
