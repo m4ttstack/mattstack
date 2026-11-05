@@ -1367,6 +1367,12 @@ describe("emitted base attachments", () => {
     }
   });
 
+  test("a listed name whose files are gone can still come off the list", async () => {
+    const packDir = withEmitted(["gone"]);
+    await skillsSurface(["set", "gone", "--internal", "--pack-dir", packDir, "--json"]);
+    expect(readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8")).not.toContain("gone");
+  });
+
   test("a grouped emitted unit tags its leaf row", () => {
     const packDir = withEmitted([]);
     writeFile(join(packDir, "attachments", "refs", "feature-flags", "SKILL.md"), "---\nname: feature-flags\n---\nbody\n");

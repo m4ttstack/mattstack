@@ -202,6 +202,8 @@ interface SkillsCheckAttachmentRow {
   status: 'in-sync' | 'stale' | 'never-compiled' | 'orphaned';
   staleFiles: string[];
   orphanFiles: string[];
+  /** Set on a base reference skill's public entry, which shares its name with the copy. */
+  side?: 'skills';
 }
 interface SkillsCheckResponse {
   pack: string;

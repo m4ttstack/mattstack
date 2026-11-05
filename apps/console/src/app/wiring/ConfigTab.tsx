@@ -333,7 +333,7 @@ export function ConfigTab({
     ...(check?.attachments ?? [])
       .filter(copy => copy.status !== 'in-sync')
       .map(copy => ({
-        key: `copy:${copy.base ?? ''}:${copy.name}`,
+        key: `copy:${copy.base ?? ''}:${copy.name}:${copy.side ?? ''}`,
         name: copy.name,
         why: baseCopyWhy(copy),
       })),

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, statSync } from "fs";
 import { join, posix } from "path";
 import { fencedLines, relevelDelta, shiftHeadings } from "./blocks/headings.ts";
+import { isEmittedAttachmentDir } from "./emitted.ts";
 import { defaultPipeline } from "./pipelines.ts";
 import { firstTeamMarker, resolveTeamMarkers, type TeamContext } from "./team-params.ts";
 import type { AttachmentSource, PlaceholderContext, PlannedAttachments, Side, StageEntry } from "./types.ts";
@@ -439,7 +440,8 @@ function resolvePackPath(view: PackPathView, arg: string | undefined, raw: strin
   if (!packRoot) throw new Error(`${where}: ${raw} -- pack.path needs a pack root`);
   const { unit, unitFile, planned } = plannedUnit(view.plannedAttachments, attachment, file);
   const onAttachments = planned ? planned.size > 0 : isDirectory(join(packRoot, "attachments", unit));
-  const onSkills = isDirectory(join(packRoot, "skills", unit));
+  // A base skill's public door is not a second copy: its content stays at attachments/.
+  const onSkills = isDirectory(join(packRoot, "skills", unit)) && !isEmittedAttachmentDir(join(packRoot, "skills", unit));
   if (onAttachments && onSkills) throw new Error(`${where}: ${raw} -- ${unit} exists under both attachments/ and skills/`);
   const side = onAttachments ? "attachments" : onSkills ? "skills" : null;
   if (!side) throw new Error(`${where}: ${raw} -- ${unit} is not a directory under attachments/ or skills/`);

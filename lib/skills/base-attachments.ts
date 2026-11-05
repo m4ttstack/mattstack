@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { dirname, join } from "path";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { boardOnlyBaseFills, mergedBindings } from "./board-fills.ts";
+import { isEmittedAttachmentDir, isEmittedAttachmentText } from "./emitted.ts";
 import { hasCompiledHeader, HEADER_COMMENT, unresolvedRelativePaths } from "./compile.ts";
 import { handPathDiagnostics } from "./hand-paths.ts";
 import { FRONTMATTER_RE } from "./frontmatter-re.ts";
@@ -16,6 +17,7 @@ import { keyFiles, leafOf, MAP_FILE, unitTableOf, writtenBeforeCompile } from ".
 import type { AttachmentSource, CompiledFile, PlaceholderContext, PlannedAttachments, PlannedSource, Side } from "./types.ts";
 
 export const PROVENANCE_FILE = MAP_FILE;
+export { isEmittedAttachmentDir, isEmittedAttachmentText };
 
 export type BaseRef = { name: string; dir: string; version: string | null };
 /** `pointers` is set when the copy's files were keyed: its own keys and the leaf of every unit it reads by path. */
@@ -35,28 +37,6 @@ export type BaseAttachmentPlan = {
   staleDoors: string[];
   errors: string[];
 };
-
-/** A hand-authored data file may also be called compiled.json, so only compile's own shape marks a folder as output. */
-export function isEmittedAttachmentText(text: string | null): boolean {
-  if (text === null) return false;
-  try {
-    const parsed: unknown = JSON.parse(text);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
-    const { base, files, version } = parsed as { base?: unknown; files?: unknown; version?: unknown };
-    return typeof base === "string" && Array.isArray(files) && Object.hasOwn(parsed, "version") && (typeof version === "string" || version === null);
-  } catch {
-    return false;
-  }
-}
-
-export function isEmittedAttachmentDir(dir: string): boolean {
-  const path = join(dir, PROVENANCE_FILE);
-  try {
-    return statSync(path).isFile() && isEmittedAttachmentText(readFileSync(path, "utf8"));
-  } catch {
-    return false;
-  }
-}
 
 export function maskProvenanceVersion(text: string): string {
   return text.replace(/"version": (?:"[^"]*"|null)/, '"version": "*"');
@@ -126,12 +106,29 @@ function doorsOnDisk(packDir: string): string[] {
   return listDirs(skillsDir).filter((name) => isEmittedAttachmentDir(join(skillsDir, name)));
 }
 
+/** The team's own skill of this name wins, grouped or not: a door never writes over a folder compile did not make. */
+function hasTeamSkill(packDir: string, name: string): boolean {
+  const skillsDir = join(packDir, "skills");
+  const own = join(skillsDir, name);
+  if (existsSync(own) && !isEmittedAttachmentDir(own)) return true;
+  return listDirs(skillsDir).some((group) => existsSync(join(skillsDir, group, name, "SKILL.md")));
+}
+
+/** Only what names the skill: anything else in the frontmatter, such as allowed-tools, reads paths from the attachments copy. */
+function doorHead(name: string, skillMd: string): string {
+  const { frontmatter } = stripFrontmatter(skillMd);
+  const lines = [`name: ${name}`];
+  if (typeof frontmatter.description === "string") lines.push(`description: ${JSON.stringify(frontmatter.description)}`);
+  if (frontmatter["disable-model-invocation"] === true) lines.push("disable-model-invocation: true");
+  return `---\n${lines.join("\n")}\n---\n`;
+}
+
 function doorFor(base: BaseRef, rel: string, skillMd: string): BaseDoor {
-  const head = skillMd.match(FRONTMATTER_RE)?.[0] ?? "";
+  const name = rel.slice(rel.lastIndexOf("/") + 1);
   return {
-    name: rel.slice(rel.lastIndexOf("/") + 1),
+    name,
     files: [
-      { path: "SKILL.md", content: `${head}${HEADER_COMMENT}\n\nRead \`${hostDir(rel, "attachments")}/SKILL.md\` and follow it.\n` },
+      { path: "SKILL.md", content: `${doorHead(name, skillMd)}${HEADER_COMMENT}\n\nRead \`${hostDir(rel, "attachments")}/SKILL.md\` and follow it.\n` },
       { path: PROVENANCE_FILE, content: JSON.stringify({ base: base.name, version: base.version, files: ["SKILL.md"] }, null, 2) + "\n" },
     ],
   };
@@ -371,7 +368,8 @@ export function planBaseAttachments(input: {
   if (errors.length > 0) return { base, emits: [], kept, stale: [], retired: [], doors: [], staleDoors: [], errors };
   const doors = emits.flatMap((emit) => {
     const skillMd = emit.files.find((f) => f.path === "SKILL.md");
-    if (!publicNames?.has(leafOf(emit.name)) || !emit.source || isFill(emit.source.dir) || !skillMd || !("content" in skillMd)) return [];
+    if (!publicNames?.has(leafOf(emit.name)) || hasTeamSkill(packDir, leafOf(emit.name))) return [];
+    if (!emit.source || isFill(emit.source.dir) || !skillMd || !("content" in skillMd)) return [];
     return [doorFor(base, emit.name, skillMd.content)];
   });
   const staleDoors = doorsOnDisk(packDir).filter((name) => !doors.some((door) => door.name === name));

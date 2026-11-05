@@ -67,7 +67,9 @@ function effectLine(
       : `compiled into skills/${row.name}/`;
   }
   if (row.kind === 'missing') {
-    return `${row.name} has no files on disk -- rt will reject this name`;
+    return next === 'internal'
+      ? `${row.name} comes off the surface list`
+      : `${row.name} has no files on disk -- rt will reject this name`;
   }
   return next === 'public'
     ? `attachments/${row.name}/ → skills/${row.name}/`
@@ -130,10 +132,10 @@ function useSurfaceStaging(rows: SkillsSurfaceRow[], pack: string) {
 
   function toggle(name: string) {
     const row = rows.find(r => r.name === name);
-    // A `missing` skill has no files on disk; rt rejects it either direction,
-    // so it can be read but never staged; a base fill stays internal because
-    // rt refuses to make it public.
-    if (!row || row.kind === 'missing' || row.fill) return;
+    // A `missing` skill has no files on disk, so rt only takes it off the
+    // list; a base fill stays internal because rt refuses to make it public.
+    if (!row || row.fill) return;
+    if (row.kind === 'missing' && row.status !== 'public') return;
     setStaged(prev => {
       const next = new Map(prev);
       const current = next.get(name) ?? row.status;

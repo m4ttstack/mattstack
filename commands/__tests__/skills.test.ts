@@ -686,7 +686,7 @@ describe("skillsCompile", () => {
     writeFile(join(packDir, "pack", "surface.jsonc"), JSON.stringify({ public: ["watch-ci", "feature-flags"] }));
 
     expect((await runExpectingCleanExit(() => skillsCompile(flags))).errors).toEqual([]);
-    expect(readFileSync(join(door, "SKILL.md"), "utf8")).toContain("description: Use when a flag governs the work");
+    expect(readFileSync(join(door, "SKILL.md"), "utf8")).toContain(`description: "Use when a flag governs the work"`);
     expect(readFileSync(join(packDir, "attachments", "feature-flags", "SKILL.md"), "utf8")).toContain("Flags.");
 
     const check = async () => {

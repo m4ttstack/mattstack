@@ -1735,6 +1735,8 @@ type AttachmentCheckRow = {
   status: "in-sync" | "stale" | "never-compiled" | "orphaned";
   staleFiles: string[];
   orphanFiles: string[];
+  /** Set on a base reference skill's public entry at skills/<name>, which shares its name with the copy. */
+  side?: "skills";
 };
 
 export type CheckPayload = {
@@ -1825,8 +1827,9 @@ function attachmentRows(packDir: string, plan: BaseAttachmentPlan): AttachmentCh
   for (const { unit: emit, side } of copies) {
     const dir = join(packDir, side, emit.name);
     const base = plan.base!.name;
+    const sideField = side === "skills" ? { side } : {};
     if (!existsSync(dir)) {
-      rows.push({ name: emit.name, base, status: "never-compiled", staleFiles: [], orphanFiles: [] });
+      rows.push({ name: emit.name, base, status: "never-compiled", staleFiles: [], orphanFiles: [], ...sideField });
       continue;
     }
     const staleFiles: string[] = [];
@@ -1849,13 +1852,13 @@ function attachmentRows(packDir: string, plan: BaseAttachmentPlan): AttachmentCh
     }
     const expected = new Set(emit.files.map((f) => f.path));
     const orphanFiles = leftovers(packDir, emit.name, side).filter((f) => !expected.has(f));
-    rows.push({ name: emit.name, base, status: staleFiles.length > 0 || orphanFiles.length > 0 ? "stale" : "in-sync", staleFiles, orphanFiles });
+    rows.push({ name: emit.name, base, status: staleFiles.length > 0 || orphanFiles.length > 0 ? "stale" : "in-sync", staleFiles, orphanFiles, ...sideField });
   }
   for (const s of plan.stale) {
     rows.push({ name: s.name, base: null, status: "orphaned", staleFiles: [], orphanFiles: leftovers(packDir, s.name) });
   }
   for (const name of plan.staleDoors) {
-    rows.push({ name, base: null, status: "orphaned", staleFiles: [], orphanFiles: leftovers(packDir, name, "skills") });
+    rows.push({ name, base: null, status: "orphaned", staleFiles: [], orphanFiles: leftovers(packDir, name, "skills"), side: "skills" });
   }
   return rows;
 }
@@ -2122,7 +2125,8 @@ export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[]
     if (row.status === "never-compiled") {
       blocks.push(out.line("stale", row.name, `not copied from ${row.base} yet`));
     } else if (row.status === "orphaned") {
-      blocks.push(out.line("stale", row.name, payload.extendsBase ? "its base no longer has it" : "this pack no longer extends a base"));
+      const why = row.side === "skills" ? "the surface no longer lists it" : payload.extendsBase ? "its base no longer has it" : "this pack no longer extends a base";
+      blocks.push(out.line("stale", row.name, why));
     } else {
       const files = [...row.staleFiles, ...row.orphanFiles.map((f) => `${f} (orphan)`)].join(", ");
       blocks.push(out.line("stale", row.name, `changed since the last compile: ${files}`));
@@ -3537,12 +3541,15 @@ async function runSet(names: string[], want: "public" | "internal", flags: Surfa
   const verbNames = new Set(readVerbRoster(packDir).map((v) => v.name));
   const { skillsNames, allNames, attachmentEntries } = collectRegistry(packDir, verbNames);
   const stageNames = stageNamesFor(flags, packDir);
+  const surface = readSurface(packDir);
 
   // Validated before anything is written: an unknown name in a list of ten
   // must not leave the other nine applied. A declared-but-never-compiled
-  // stage passes here even with no directory on either side.
+  // stage passes here even with no directory on either side, and a listed
+  // name whose files are gone can still come off the list.
   for (const name of names) {
-    if (!allNames.has(name) && !stageNames.has(name)) {
+    const delisting = want === "internal" && surface?.public.includes(name) === true;
+    if (!allNames.has(name) && !stageNames.has(name) && !delisting) {
       throw new SkillsUsageError(
         `"${name}" is not a known skill or verb in this pack (checked skills/, attachments/, stubs.jsonc)`,
       );
@@ -3562,7 +3569,6 @@ async function runSet(names: string[], want: "public" | "internal", flags: Surfa
     }
   }
 
-  const surface = readSurface(packDir);
   const publicSet = surface ? new Set(surface.public) : defaultPublicSet(skillsNames, verbNames);
 
   for (const name of names) {

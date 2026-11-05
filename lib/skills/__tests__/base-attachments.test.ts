@@ -37,7 +37,7 @@ describe("base reference skills on the surface", () => {
     expect(result.errors).toEqual([]);
     expect(result.doors.map((d) => d.name)).toEqual(["feature-flags"]);
     const skillMd = result.doors[0]!.files.find((f) => f.path === "SKILL.md") as { content: string };
-    expect(skillMd.content).toBe(`---\nname: feature-flags\ndescription: Use when a flag governs the work\n---\n${HEADER_COMMENT}\n\nRead \`\${CLAUDE_SKILL_DIR}/../../attachments/feature-flags/SKILL.md\` and follow it.\n`);
+    expect(skillMd.content).toBe(`---\nname: feature-flags\ndescription: "Use when a flag governs the work"\n---\n${HEADER_COMMENT}\n\nRead \`\${CLAUDE_SKILL_DIR}/../../attachments/feature-flags/SKILL.md\` and follow it.\n`);
     expect(result.emits.map((e) => e.name)).toEqual(["feature-flags"]);
   });
 
@@ -54,6 +54,54 @@ describe("base reference skills on the surface", () => {
     const door = planFor("feature-flags").doors[0]!;
     expect(door.name).toBe("feature-flags");
     expect((door.files[0] as { content: string }).content).toContain("attachments/refs/feature-flags/SKILL.md");
+  });
+
+  test("a door carries the name and description, never paths the copy owns", () => {
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), "---\nname: feature-flags\ndescription: >-\n  Use when a flag\n  governs the work\nallowed-tools: Bash(${CLAUDE_SKILL_DIR}/run.sh:*)\n---\nFlags.\n");
+    const skillMd = (planFor("feature-flags").doors[0]!.files[0] as { content: string }).content;
+    expect(skillMd).toStartWith('---\nname: feature-flags\ndescription: "Use when a flag governs the work"\n---\n');
+    expect(skillMd).not.toContain("allowed-tools");
+  });
+
+  test("a door keeps a skill's own disable-model-invocation", () => {
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), "---\nname: feature-flags\ndisable-model-invocation: true\n---\nFlags.\n");
+    expect((planFor("feature-flags").doors[0]!.files[0] as { content: string }).content).toContain("disable-model-invocation: true\n");
+  });
+
+  test("a pointer to a skill with a door still resolves to its attachments copy", () => {
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), reference);
+    put(join(baseDir(), "attachments", "kit", "SKILL.md"), "---\nname: kit\n---\nSee {{pack.path:feature-flags/SKILL.md}}.\n");
+    const door = planFor("feature-flags").doors[0]!;
+    for (const file of door.files) put(join(packDir(), "skills", "feature-flags", file.path), (file as { content: string }).content);
+
+    const on = planFor("feature-flags");
+    expect(on.errors).toEqual([]);
+    expect((on.emits.find((e) => e.name === "kit")!.files.find((f) => f.path === "SKILL.md") as { content: string }).content).toContain("attachments/feature-flags/SKILL.md");
+
+    const off = planFor();
+    expect(off.errors).toEqual([]);
+    expect(off.staleDoors).toEqual(["feature-flags"]);
+  });
+
+  test("a grouped unit never writes over the team's skill of that name", () => {
+    put(join(baseDir(), "attachments", "refs", "feature-flags", "SKILL.md"), reference);
+    put(join(packDir(), "skills", "feature-flags", "SKILL.md"), "---\nname: feature-flags\n---\nmine\n");
+    const result = planFor("feature-flags");
+    expect(result.errors).toEqual([]);
+    expect(result.doors).toEqual([]);
+    expect(result.staleDoors).toEqual([]);
+  });
+
+  test("a team skill in a group of the same name takes the door's place", () => {
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), reference);
+    put(join(packDir(), "skills", "grp", "feature-flags", "SKILL.md"), "---\nname: feature-flags\n---\nmine\n");
+    expect(planFor("feature-flags").doors).toEqual([]);
+  });
+
+  test("a base unit named like a team skill group never replaces the group", () => {
+    put(join(baseDir(), "attachments", "grp", "SKILL.md"), "---\nname: grp\n---\nbase\n");
+    put(join(packDir(), "skills", "grp", "own", "SKILL.md"), "---\nname: own\n---\nmine\n");
+    expect(planFor("grp").doors).toEqual([]);
   });
 
   test("an unlisted one gets no door", () => {
