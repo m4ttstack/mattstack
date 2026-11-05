@@ -8,7 +8,6 @@ import {
 } from 'react';
 import type { MouseEvent, ReactNode, RefObject } from 'react';
 import { Box, Button, Group, Stack, Text } from '@mattstack/app-kit/core';
-import { Icon, type IconName } from '@mattstack/app-kit/icons';
 import type { ChatMessage } from '@mattstack/rt-client';
 import ScrollToBottom, {
   useAnimating,
@@ -217,21 +216,12 @@ export function continuesGroup(
 }
 
 /** A quiet centred line: the day, or where the chat begins. */
-function Marker({
-  icon,
-  label,
-  testId,
-}: {
-  icon: IconName;
-  label: string;
-  testId: string;
-}) {
+function Marker({ label, testId }: { label: string; testId: string }) {
   return (
     <>
       <div className={prose.dayLine} />
       <div className={prose.dayPill} data-testid={testId}>
-        <Icon name={icon} size={15} />
-        <span>{label}</span>
+        {label}
       </div>
     </>
   );
@@ -250,11 +240,6 @@ function byDay(messages: ChatMessage[]) {
     }
   });
   return days;
-}
-
-function startLabel(postedAt: number): string {
-  const day = dayLabel(postedAt);
-  return `This chat started ${/^(Today|Yesterday)$/.test(day) ? day.toLowerCase() : day}`;
 }
 
 function ClosedNote({ at }: { at: number }) {
@@ -791,19 +776,14 @@ export function Transcript({
                     })
                   : byDay(messages).map((day, d) => (
                       <div key={day[0]!.message.id}>
-                        {d === 0 && olderExhausted ? (
-                          <Marker
-                            icon="history"
-                            label={startLabel(day[0]!.message.postedAt)}
-                            testId="transcript-start"
-                          />
-                        ) : (
-                          <Marker
-                            icon="calendar"
-                            label={dayLabel(day[0]!.message.postedAt)}
-                            testId="day-divider"
-                          />
-                        )}
+                        <Marker
+                          label={dayLabel(day[0]!.message.postedAt)}
+                          testId={
+                            d === 0 && olderExhausted
+                              ? 'transcript-start'
+                              : 'day-divider'
+                          }
+                        />
                         {day.map(({ message, i }) => (
                           <MessageRow
                             key={message.id}
