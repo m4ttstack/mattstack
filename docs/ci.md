@@ -136,6 +136,49 @@ dies, so a test must still take a free port, never a fixed one.
   variable up when it starts.
 - **Remove:** clear the variable, then `scripts/ci/mac-runner/uninstall.sh`.
 
+### Changing the runners
+
+The runners run from copies outside the repo: the hooks, the routing rule and
+bun in `/usr/local/mattstack-ci/`, and one plist per runner in
+`/Library/LaunchDaemons/dev.mattstack.ci-runner-<n>.plist`. A merge changes
+neither, so a change to a hook or a plist setting does nothing until the
+installer runs. The workflows run the repo's `macos-runner.ts`, so a merged
+routing change applies at once while the hook keeps enforcing the old rule, and
+it can refuse jobs the new rule sends to the Mac until the installer runs.
+
+- **Who runs it:** Matt, in a real terminal. It needs sudo's password, which
+  an agent cannot give, and a shell started with `!` has no TTY.
+- **From where:** a new clone of `main` each time, since a shared checkout or
+  an older clone can lag it:
+
+  ```bash
+  dir=$(mktemp -d /tmp/mattstack-install.XXXXXX)
+  gh repo clone m4ttstack/mattstack "$dir" -- --depth 1
+  cd "$dir"
+  scripts/ci/mac-runner/install.sh
+  ```
+
+- **When:** with every runner idle and the merge queue empty. It restarts all
+  the runners, which kills their jobs and drops any PR in the queue. A PR can
+  enter the queue at any moment, so check right before running it.
+- **A partial run:** rerun the installer once the runners are idle. It rewrites
+  every plist and restarts every runner.
+- **Check it:** `launchctl print system/dev.mattstack.ci-runner-<n>` lists a
+  runner's environment, and
+  `gh api repos/m4ttstack/mattstack/actions/runners --jq '.runners[] | "\(.name) \(.status) busy=\(.busy)"'`
+  shows whether GitHub sees it. A restarted runner reads offline for up to a
+  minute.
+
+A PR stuck on an old route needs a new push, since a rerun reuses the workflow
+the run started with. Queue runs use the merged tree, so they switch at once.
+
+### A process left on a runner
+
+To find what holds a port, use `nc -z -G 2 127.0.0.1 <port>` and
+`ps -axo pid,ppid,user,lstart,command | grep mattstack-ci`. `lsof` shows nothing
+here, since the process belongs to another user. Killing one needs Matt's
+`sudo kill <pid>` in a real terminal.
+
 ## What e2e skips
 
 `e2e-tests` compiles `cli.ts` and runs `e2e/` under the bunfig preload, so
