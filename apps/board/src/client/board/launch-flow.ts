@@ -89,8 +89,7 @@ export async function runLaunchFlow(
     toast?.done(
       result.body?.focused
         ? `${deps.noun} already running for ${mrRef(mr)}... focused its tab`
-        : (deps.doneMessage?.(result, mr) ??
-            `${deps.started} for ${mrRef(mr)}`)
+        : (deps.doneMessage?.(result, mr) ?? `${deps.started} for ${mrRef(mr)}`)
     );
   }
   deps.reload();

@@ -24,7 +24,8 @@ export type DoctorStatus =
   | 'fixing'
   | 'watching'
   | 'done'
-  | 'error';
+  | 'error'
+  | 'sync-stopped';
 
 export type DoctorOrigin = 'auto' | 'manual';
 
@@ -219,7 +220,10 @@ export function failOrphanedSyncs(
     if (state.status === 'syncing' && !running.has(mrUrl))
       writeDoctorState(
         doctorFilePath(mrUrl),
-        { status: 'error', message: 'the board restarted during the sync' },
+        {
+          status: 'sync-stopped',
+          message: 'the board restarted during the sync',
+        },
         now,
         db
       );

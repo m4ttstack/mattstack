@@ -1,4 +1,8 @@
-import { rtCommand, type Commands, type WorktreeSyncData } from '@mattstack/rt-client';
+import {
+  rtCommand,
+  type Commands,
+  type WorktreeSyncData,
+} from '@mattstack/rt-client';
 
 /** Provisioning plus rt sync's own five-minute ceiling. */
 const LOCAL_SYNC_TIMEOUT_MS = 8 * 60_000;
@@ -21,11 +25,10 @@ const STOP_WORDS: Partial<Record<WorktreeSyncData['kind'], string>> = {
 };
 
 export function localSyncOutcome(data: WorktreeSyncData): LocalSyncOutcome {
+  if (data.kind === 'synced' && data.pushed)
+    return { kind: 'clean', message: 'rebased and pushed' };
   if (data.kind === 'synced')
-    return {
-      kind: 'clean',
-      message: data.pushed ? 'rebased and pushed' : 'rebased, not pushed',
-    };
+    return { kind: 'stopped', message: 'rebased, not pushed' };
   if (data.kind === 'up-to-date')
     return { kind: 'clean', message: 'already up to date' };
   if (data.kind === 'conflict' && data.path)

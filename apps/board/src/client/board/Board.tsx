@@ -631,6 +631,7 @@ export function Board() {
     verbing: 'syncing',
     started: 'doctor called on the conflicts',
     noun: 'local rebase',
+    claims: 'syncing',
     optimistic: optimisticLifecycle,
     addToast,
     startToast,

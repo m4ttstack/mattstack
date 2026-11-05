@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import type { WorktreeSyncData } from '@mattstack/rt-client';
 
+import type { WorktreeSyncData } from '@mattstack/rt-client';
 import { localSyncOutcome, syncBranchLocally } from '../local-sync.ts';
 
 const data = (over: Partial<WorktreeSyncData>): WorktreeSyncData => ({
@@ -19,6 +19,13 @@ describe('localSyncOutcome', () => {
     expect(localSyncOutcome(data({}))).toEqual({
       kind: 'clean',
       message: 'rebased and pushed',
+    });
+  });
+
+  test('a sync that did not push stays on the row', () => {
+    expect(localSyncOutcome(data({ pushed: false }))).toEqual({
+      kind: 'stopped',
+      message: 'rebased, not pushed',
     });
   });
 

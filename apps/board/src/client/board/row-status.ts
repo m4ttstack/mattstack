@@ -750,6 +750,13 @@ function doctorLine(mr: BoardMRWithReview, now: number): Candidate | null {
           { kind: 'dismiss', label: 'dismiss', domain: 'doctor' },
         ],
       };
+    case 'sync-stopped':
+      return {
+        tone: 'bad',
+        word: DOCTOR_LABEL[d.status],
+        detail: d.message || undefined,
+        verbs: [{ kind: 'dismiss', label: 'dismiss', domain: 'doctor' }],
+      };
   }
 }
 

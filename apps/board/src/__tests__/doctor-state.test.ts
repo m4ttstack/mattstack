@@ -290,7 +290,7 @@ describe('failOrphanedSyncs', () => {
     syncing('u/1');
     failOrphanedSyncs(new Set(), 2, db);
     expect(readDoctorStates(db).get('u/1')).toMatchObject({
-      status: 'error',
+      status: 'sync-stopped',
       message: 'the board restarted during the sync',
     });
   });

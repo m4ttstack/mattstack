@@ -119,10 +119,10 @@ import {
   attachDoctors,
   doctorFilePath,
   doctorResumeDispatchFields,
-  parseDoctorRequestBody,
-  planStandDown,
   failOrphanedSyncs,
   FRESH_SYNC_ROW,
+  parseDoctorRequestBody,
+  planStandDown,
   pruneDoctorStates,
   readDoctorStates,
   STAND_DOWN_PANE_MESSAGE,
@@ -207,8 +207,8 @@ import {
   RESPOND_IN_FLIGHT,
   REVIEW_IN_FLIGHT,
 } from './launch-dedup.ts';
-import { LOCAL_SYNCS, syncBranchLocally } from './local-sync.ts';
 import { launchErrorMessage } from './launch-error.ts';
+import { LOCAL_SYNCS, syncBranchLocally } from './local-sync.ts';
 import { hasLocalOrigin, isLocalRequest, requireJsonBody } from './local.ts';
 import {
   doctorSkillTabs,
@@ -3052,7 +3052,7 @@ const httpServer = Bun.serve({
             }
             if (outcome.kind === 'stopped') {
               writeDoctorState(statePath, {
-                status: 'error',
+                status: 'sync-stopped',
                 message: outcome.message,
               });
               return new Response(outcome.message, { status: 409 });

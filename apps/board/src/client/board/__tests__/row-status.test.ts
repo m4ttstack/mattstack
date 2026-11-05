@@ -1219,6 +1219,21 @@ describe('rowStatus: respond lane', () => {
 });
 
 describe('rowStatus: doctor lane', () => {
+  test('a stopped sync names itself, not a stuck doctor', () => {
+    const [line] = candidateLines(
+      mr({ doctor: { status: 'sync-stopped', message: 'tree is dirty' } }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({
+      tone: 'bad',
+      word: 'sync stopped',
+      detail: 'tree is dirty',
+    });
+    expect(line?.verbs.map(v => v.kind)).toEqual(['dismiss']);
+  });
+
   test('a local sync spins with nothing to focus', () => {
     const [line] = candidateLines(
       mr({ doctor: { status: 'syncing', origin: 'manual' } }),

@@ -99,6 +99,7 @@ const DOCTOR_LABEL: Record<DoctorStatus, string> = {
   // what every finished run actually did.
   done: 'diagnosed',
   error: 'doctor stuck',
+  'sync-stopped': 'sync stopped',
 };
 
 const DOCTOR_ACTIVE = new Set<DoctorStatus>([
