@@ -16,6 +16,10 @@ export {
   abandonRun,
   runEvidence,
   runEvidenceAt,
+  usageMrs,
+  usageMr,
+  usageTrends,
+  usageStatus,
   chatJoin,
   chatLeave,
   chatAck,
@@ -142,6 +146,19 @@ export type {
   RunFieldRow,
   RunDecisionRow,
   RunDetail,
+  UsageKind,
+  UsageTotals,
+  UsageModelRow,
+  UsageSplits,
+  UsageMrRow,
+  UsageMrsData,
+  UsageStageRow,
+  UsageMrEntry,
+  UsageMrData,
+  UsageWeekRow,
+  UsagePipelineRow,
+  UsageTrendsData,
+  UsageStatusData,
   WakeMode,
   ChatMember,
   ChatMessage,
@@ -276,4 +293,5 @@ export {
   LATCH_MARKER, LATCH_MARKER_ERROR, LATCH_MARKER_QUEUED, LATCH_MARKER_RUNNING, LATCH_MARKER_SPENT, latchKindOf,
 } from "./latch.ts";
 export type { LatchKind } from "./latch.ts";
+export { matchSlackFaces, type SlackPerson } from "./slack-faces.ts";
 export * from "./announcement.ts";

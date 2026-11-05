@@ -34,6 +34,11 @@ import type { EffectiveInputsPayload } from '../../effectiveInputs';
 import { LEGACY_IMAGE_MIME } from '../../legacyEvidence';
 import { onDisk } from './fixtureRt';
 import type { FixtureScenario } from './scenarios';
+import {
+  emptyUsageFixture,
+  usageFixture,
+  type UsageFixture,
+} from './usageFixture';
 
 /** What a route answers a write with under a design fixture. */
 export const FIXTURE_READ_ONLY = 'the design fixture is read-only';
@@ -56,6 +61,8 @@ export interface RunsFixture {
   /** The `runs-outage` scenario: the runs, run, gates and effective-inputs
       reads answer 502 `FIXTURE_OUTAGE`. */
   readonly outage: boolean;
+  /** The usage reads' data; `outage` answers them 502 too. */
+  readonly usage: UsageFixture;
   /** The board's "as of" time: a run page's for `runId`, else the runs pages'. */
   asOf(runId?: string): Promise<number>;
   listRuns(repo?: string): Promise<RunSummary[]>;
@@ -329,6 +336,7 @@ export function runsFixture(scenario: FixtureScenario): RunsFixture {
 
   return {
     outage: scenario === 'runs-outage',
+    usage: scenario === 'runs-empty' ? emptyUsageFixture() : usageFixture(),
 
     async asOf(runId) {
       const { clock } = await index();

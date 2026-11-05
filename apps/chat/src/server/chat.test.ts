@@ -4,19 +4,14 @@ vi.mock('@mattstack/rt-client', () => ({
   chatRooms: vi.fn(),
   chatWho: vi.fn(),
   chatMessages: vi.fn(),
-  chatMark: vi.fn(),
   chatBuddies: vi.fn(),
   chatJoin: vi.fn(),
   chatPost: vi.fn(),
   chatArchive: vi.fn(),
   chatDmOpen: vi.fn(),
-  chatInvite: vi.fn(),
+  chatSlackAvatarFile: vi.fn(),
   chatSlackStatus: vi.fn(),
   paneList: vi.fn(),
-  panePeek: vi.fn(),
-  paneSpawn: vi.fn(),
-  paneAccounts: vi.fn(),
-  paneDirectories: vi.fn(),
   daemonHealth: vi.fn(),
   getSetting: vi.fn(() => ({ value: 'matt' })),
 }));
@@ -919,171 +914,6 @@ test('POST /api/chat/dm is gone', async () => {
   expect(res.status).toBe(404);
 });
 
-test('POST /api/chat/rooms joins as the human (creating the room), posts the seed, returns its id', async () => {
-  vi.mocked(rt.chatJoin).mockResolvedValueOnce({
-    ok: true,
-    data: { handle: 'matt', name: 'matt', memberCount: 1, unread: 0 },
-  });
-  vi.mocked(rt.chatPost).mockResolvedValueOnce({
-    ok: true,
-    data: { id: 42, recipients: [], recipientNames: [], others: 0 },
-  });
-  const res = await routes.request('/api/chat/rooms', {
-    method: 'POST',
-    body: JSON.stringify({
-      room: 'codegen-split',
-      seed: 'Goal: halve the bundle',
-      wakeOn: 'all',
-    }),
-  });
-  expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({ room: 'codegen-split', seedId: 42 });
-  expect(rt.chatJoin).toHaveBeenCalledWith(
-    { room: 'codegen-split', handle: 'matt', wakeOn: 'all' },
-    expect.anything()
-  );
-  expect(rt.chatPost).toHaveBeenCalledWith(
-    { room: 'codegen-split', handle: 'matt', body: 'Goal: halve the bundle' },
-    expect.anything()
-  );
-  expect(vi.mocked(rt.chatJoin).mock.invocationCallOrder[0]).toBeLessThan(
-    vi.mocked(rt.chatPost).mock.invocationCallOrder[0]
-  );
-});
-
-test('POST /api/chat/rooms without a seed only joins; a bad name is 400; a failed seed is 502 after the room exists', async () => {
-  vi.mocked(rt.chatJoin).mockResolvedValueOnce({
-    ok: true,
-    data: { handle: 'matt', name: 'matt', memberCount: 1, unread: 0 },
-  });
-  const bare = await routes.request('/api/chat/rooms', {
-    method: 'POST',
-    body: JSON.stringify({ room: 'quiet' }),
-  });
-  expect(await bare.json()).toEqual({ room: 'quiet' });
-  expect(rt.chatPost).not.toHaveBeenCalled();
-  expect(
-    (
-      await routes.request('/api/chat/rooms', {
-        method: 'POST',
-        body: JSON.stringify({ room: 'Bad Room' }),
-      })
-    ).status
-  ).toBe(400);
-  vi.mocked(rt.chatJoin).mockResolvedValueOnce({
-    ok: true,
-    data: { handle: 'matt', name: 'matt', memberCount: 1, unread: 0 },
-  });
-  vi.mocked(rt.chatPost).mockResolvedValueOnce({
-    ok: false,
-    error: 'post refused',
-  });
-  const failed = await routes.request('/api/chat/rooms', {
-    method: 'POST',
-    body: JSON.stringify({ room: 'x', seed: 's' }),
-  });
-  expect(failed.status).toBe(502);
-  expect(await failed.json()).toEqual({ error: 'post refused', room: 'x' });
-});
-
-test('POST /api/chat/invite invites each pane in order with the human as from, and returns every result', async () => {
-  vi.mocked(rt.chatInvite)
-    .mockResolvedValueOnce({
-      ok: true,
-      data: { paneId: 'w1:p1', delivered: 'accepted' },
-    })
-    .mockResolvedValueOnce({
-      ok: true,
-      data: { paneId: 'w1:p2', delivered: 'refused', reason: 'at a prompt' },
-    });
-  const res = await routes.request('/api/chat/invite', {
-    method: 'POST',
-    body: JSON.stringify({
-      room: 'build',
-      panes: [{ paneId: 'w1:p1', note: 'vite' }, { paneId: 'w1:p2' }],
-    }),
-  });
-  expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({
-    results: [
-      { paneId: 'w1:p1', delivered: 'accepted' },
-      { paneId: 'w1:p2', delivered: 'refused', reason: 'at a prompt' },
-    ],
-  });
-  expect(vi.mocked(rt.chatInvite).mock.calls[0]![0]).toEqual({
-    paneId: 'w1:p1',
-    room: 'build',
-    note: 'vite',
-    from: 'matt',
-  });
-  expect(vi.mocked(rt.chatInvite).mock.calls[1]![0]).toEqual({
-    paneId: 'w1:p2',
-    room: 'build',
-    from: 'matt',
-  });
-});
-
-test('POST /api/chat/invite turns an rt failure for one pane into a refused result rather than failing the batch', async () => {
-  vi.mocked(rt.chatInvite)
-    .mockResolvedValueOnce({ ok: false, error: 'herdr unavailable: gone' })
-    .mockResolvedValueOnce({
-      ok: true,
-      data: { paneId: 'w1:p2', delivered: 'queued' },
-    });
-  const res = await routes.request('/api/chat/invite', {
-    method: 'POST',
-    body: JSON.stringify({
-      room: 'build',
-      panes: [{ paneId: 'w1:p1' }, { paneId: 'w1:p2' }],
-    }),
-  });
-  expect(await res.json()).toEqual({
-    results: [
-      {
-        paneId: 'w1:p1',
-        delivered: 'refused',
-        reason: 'herdr unavailable: gone',
-      },
-      { paneId: 'w1:p2', delivered: 'queued' },
-    ],
-  });
-  expect(
-    (
-      await routes.request('/api/chat/invite', {
-        method: 'POST',
-        body: JSON.stringify({ room: 'build', panes: [] }),
-      })
-    ).status
-  ).toBe(400);
-});
-
-test('fixtures mode answers POST /api/chat/rooms without touching the daemon: a seed gets a seedId, no seed gets just the room, a bad name still 400s', async () => {
-  process.env.CHAT_FIXTURES = '1';
-  const seeded = await routes.request('/api/chat/rooms', {
-    method: 'POST',
-    body: JSON.stringify({ room: 'codegen-split', seed: 'goal: halve it' }),
-  });
-  expect(seeded.status).toBe(200);
-  expect(await seeded.json()).toEqual({ room: 'codegen-split', seedId: 1 });
-
-  const bare = await routes.request('/api/chat/rooms', {
-    method: 'POST',
-    body: JSON.stringify({ room: 'quiet' }),
-  });
-  expect(await bare.json()).toEqual({ room: 'quiet' });
-
-  expect(
-    (
-      await routes.request('/api/chat/rooms', {
-        method: 'POST',
-        body: JSON.stringify({ room: 'Bad Room' }),
-      })
-    ).status
-  ).toBe(400);
-  expect(rt.chatJoin).not.toHaveBeenCalled();
-  expect(rt.chatPost).not.toHaveBeenCalled();
-});
-
 test('fixtures mode pages GET /api/chat/messages like the daemon: the newest `limit`, `before` walking older, oldest first', async () => {
   process.env.CHAT_FIXTURES = '1';
   const ids = async (query: string) =>
@@ -1098,136 +928,6 @@ test('fixtures mode pages GET /api/chat/messages like the daemon: the newest `li
   expect(await ids('?before=605&limit=2')).toEqual([603, 604]);
   expect(await ids('?before=601&limit=2')).toEqual([]);
   expect(await ids('')).toEqual([601, 602, 603, 604, 605, 606, 607, 608, 609]);
-  expect(rt.chatMessages).not.toHaveBeenCalled();
-});
-
-test('fixtures mode answers POST /api/chat/invite from fixtureInvite, keyed by pane state, without touching the daemon', async () => {
-  process.env.CHAT_FIXTURES = '1';
-  const res = await routes.request('/api/chat/invite', {
-    method: 'POST',
-    body: JSON.stringify({
-      room: 'build',
-      // fixturePanes(): fred is 'working', june is 'blocked', otis is 'idle'.
-      panes: [{ paneId: 'w3f:p2' }, { paneId: 'w9c:p3' }, { paneId: 'w2d:p1' }],
-    }),
-  });
-  expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({
-    results: [
-      { paneId: 'w3f:p2', delivered: 'queued' },
-      { paneId: 'w9c:p3', delivered: 'refused', reason: 'at a prompt' },
-      { paneId: 'w2d:p1', delivered: 'accepted' },
-    ],
-  });
-  expect(rt.chatInvite).not.toHaveBeenCalled();
-
-  expect(
-    (
-      await routes.request('/api/chat/invite', {
-        method: 'POST',
-        body: JSON.stringify({ room: 'build', panes: [] }),
-      })
-    ).status
-  ).toBe(400);
-});
-
-test('GET /api/chat/inbox fetches only unread rooms, capped at 50, and builds the payload as matt', async () => {
-  vi.mocked(rt.chatRooms).mockResolvedValueOnce({
-    ok: true,
-    data: {
-      rooms: [
-        { room: 'rt', memberCount: 5, unread: 200, mentions: 1 },
-        { room: 'skills', memberCount: 3, unread: 0, mentions: 0 },
-      ],
-    },
-  });
-  vi.mocked(rt.chatMessages).mockResolvedValueOnce({
-    ok: true,
-    data: {
-      messages: [
-        {
-          id: 900,
-          room: 'rt',
-          handle: 'jay',
-          name: 'jay',
-          body: '@matt take a look',
-          mentions: ['matt'],
-          mentionNames: ['matt'],
-          postedAt: 1,
-        },
-      ],
-    },
-  });
-
-  const res = await routes.request('/api/chat/inbox?handle=matt');
-  expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({
-    needsYou: [
-      {
-        room: 'rt',
-        kind: 'room',
-        messageId: 900,
-        handle: 'jay',
-        name: 'jay',
-        postedAt: 1,
-        excerpt: '@matt take a look',
-        reason: 'mention',
-      },
-    ],
-    openAsks: [],
-    // mentions is 0, not 1: the room's single mention is the needsYou card
-    // above, so it must not also be counted here.
-    elsewhere: [{ room: 'rt', kind: 'room', unread: 199, mentions: 0 }],
-  });
-  expect(rt.chatMessages).toHaveBeenCalledTimes(1);
-  expect(rt.chatMessages).toHaveBeenCalledWith(
-    { room: 'rt', limit: 50 },
-    expect.anything()
-  );
-});
-
-test('GET /api/chat/inbox 502s when the room listing itself fails', async () => {
-  vi.mocked(rt.chatRooms).mockResolvedValueOnce({
-    ok: false,
-    error: 'daemon unreachable',
-  });
-  const res = await routes.request('/api/chat/inbox?handle=matt');
-  expect(res.status).toBe(502);
-  expect(await res.json()).toEqual({ error: 'daemon unreachable' });
-});
-
-test('GET /api/chat/inbox degrades a failed per-room message fetch to elsewhere rather than 502ing', async () => {
-  vi.mocked(rt.chatRooms).mockResolvedValueOnce({
-    ok: true,
-    data: {
-      rooms: [{ room: 'rt', memberCount: 5, unread: 3, mentions: 0 }],
-    },
-  });
-  vi.mocked(rt.chatMessages).mockResolvedValueOnce({
-    ok: false,
-    error: 'boom',
-  });
-  const res = await routes.request('/api/chat/inbox?handle=matt');
-  expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({
-    needsYou: [],
-    openAsks: [],
-    elsewhere: [{ room: 'rt', kind: 'room', unread: 3, mentions: 0 }],
-  });
-});
-
-test('fixtures mode answers GET /api/chat/inbox from fixtureInbox without touching the daemon', async () => {
-  process.env.CHAT_FIXTURES = '1';
-  const res = await routes.request('/api/chat/inbox?handle=matt');
-  expect(res.status).toBe(200);
-  const body = (await res.json()) as {
-    needsYou: unknown[];
-    openAsks: { room: string; reason: string }[];
-    elsewhere: { room: string }[];
-  };
-  expect(body.openAsks.every(c => c.reason === 'open-ask')).toBe(true);
-  expect(body.elsewhere.map(e => e.room)).toContain('rt');
-  expect(rt.chatRooms).not.toHaveBeenCalled();
   expect(rt.chatMessages).not.toHaveBeenCalled();
 });
 
@@ -1361,7 +1061,9 @@ test('slack-status passes the open chats through', async () => {
     {
       id: 1,
       room: 'dm-slack',
+      handle: 'slack.alex',
       name: 'alex-slack',
+      agentName: 'max',
       displayName: 'Alex Example',
       openedAt: 1,
       lastActiveAt: 2,
@@ -1369,11 +1071,11 @@ test('slack-status passes the open chats through', async () => {
   ];
   vi.mocked(rt.chatSlackStatus).mockResolvedValueOnce({
     ok: true,
-    data: { conversations },
+    data: { conversations, closed: [] },
   });
   const res = await routes.request('/api/chat/slack-status');
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({ conversations });
+  expect(await res.json()).toEqual({ conversations, closed: [] });
 });
 
 test('slack-status is a 502 when the daemon refuses, as an old daemon does', async () => {
@@ -1391,4 +1093,18 @@ test('slack-status under fixtures names one open chat and never calls the daemon
   const body = (await res.json()) as { conversations: { room: string }[] };
   expect(body.conversations).toHaveLength(1);
   expect(rt.chatSlackStatus).not.toHaveBeenCalled();
+});
+
+test('the rooms write route and the invite route stay gone', async () => {
+  const rooms = await routes.request('/api/chat/rooms', {
+    method: 'POST',
+    body: JSON.stringify({ room: 'build' }),
+  });
+  expect(rooms.status).toBe(404);
+  const invite = await routes.request('/api/chat/invite', {
+    method: 'POST',
+    body: JSON.stringify({ room: 'build', panes: [{ paneId: 'w1:p1' }] }),
+  });
+  expect(invite.status).toBe(404);
+  expect(rt.chatJoin).not.toHaveBeenCalled();
 });

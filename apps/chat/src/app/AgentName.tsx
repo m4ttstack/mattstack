@@ -1,13 +1,29 @@
 import {
-  Avatar,
+  cloneElement,
+  createContext,
+  useContext,
+  useMemo,
+  useState,
+  type HTMLAttributes,
+  type ReactNode,
+} from 'react';
+import { createAvatar } from '@dicebear/core';
+import * as personas from '@dicebear/personas';
+import {
   Box,
   Button,
   Group,
-  HoverCard,
   Menu,
+  Popover,
   Text,
 } from '@mattstack/app-kit/core';
-import { Invadr } from 'invadrs/react';
+import {
+  FACE_TILES,
+  faceSeed,
+  faceTiles,
+  ownTile,
+} from '@mattstack/rt-client/face-tiles';
+import { faceZoom } from '@mattstack/rt-client/face-zoom';
 
 import cardClasses from './agent-card.module.css';
 import classes from './agent-name.module.css';
@@ -17,7 +33,7 @@ import { displayName } from './display-name';
 import { doing, type DoingLine } from './doing';
 import { MUTED_XS } from './presence-bits';
 import type { RosterBuddy } from './roster-types';
-import { speakerHue, type SpeakerHue } from './speaker-hue';
+import { useSlackAvatar } from './slack-chats-context';
 import { StateDot } from './StateDot';
 
 export type AgentNameVariant = 'inline' | 'name';
@@ -56,27 +72,76 @@ export const MESSAGE_HANDLE: AgentNameSize = {
   meta: 'var(--mantine-font-size-xs)',
 };
 
-/** A handle's sprite in its assigned creature and hue, the one its name
-    chip shares. A handle with no assigned look hashes its creature and
-    takes the chip's own hashed hue, so the two still match. */
+const FaceTiles = createContext<ReadonlyMap<string, number> | null>(null);
+
+/** The people drawn together, whose tiles must differ: one DM or one room. */
+export function FaceGroup({
+  handles,
+  children,
+}: {
+  handles: readonly string[];
+  children: ReactNode;
+}) {
+  const key = [...new Set(handles)].sort().join('\n');
+  const tiles = useMemo(() => faceTiles(key ? key.split('\n') : []), [key]);
+  return <FaceTiles.Provider value={tiles}>{children}</FaceTiles.Provider>;
+}
+
+const faces = new Map<string, string>();
+
+/** A name's generated face, so a name keeps its persona across sessions and
+    machines. */
+function faceUri(seed: string, tile: number): string {
+  const key = `${seed}/${tile}`;
+  const known = faces.get(key);
+  if (known) return known;
+  const uri = createAvatar(personas, {
+    seed,
+    backgroundColor: [FACE_TILES[tile]!],
+  }).toDataUri();
+  faces.set(key, uri);
+  return uri;
+}
+
 function HandleSprite({ handle, size }: { handle: string; size: number }) {
-  const look = useBuddies()?.lookOf(handle);
-  return look ? (
-    <Invadr
-      id={handle}
-      palette={[look.hue.avatar]}
-      sprite={look.sprite}
-      color={0}
-      size={size}
+  const seed = faceSeed(handle);
+  const tile = useContext(FaceTiles)?.get(handle) ?? ownTile(seed);
+  const avatar = useSlackAvatar(handle);
+  const [failed, setFailed] = useState<string>();
+  const [zoom, setZoom] = useState(1);
+  const face = avatar && avatar !== failed ? avatar : undefined;
+  if (face) {
+    return (
+      <span
+        className={classes.avatar}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: '28%',
+          overflow: 'hidden',
+        }}
+      >
+        <img
+          src={face}
+          alt=""
+          width={size}
+          height={size}
+          className={classes.photo}
+          style={zoom === 1 ? undefined : { transform: `scale(${zoom})` }}
+          onLoad={event => setZoom(faceZoom(event.currentTarget))}
+          onError={() => setFailed(face)}
+        />
+      </span>
+    );
+  }
+  return (
+    <img
+      src={faceUri(seed, tile)}
+      alt=""
+      width={size}
+      height={size}
       className={classes.avatar}
-    />
-  ) : (
-    <Invadr
-      id={handle}
-      palette={[speakerHue(handle).text]}
-      color={0}
-      size={size}
-      className={classes.avatar}
+      style={{ borderRadius: '28%' }}
     />
   );
 }
@@ -93,34 +158,20 @@ export function HandleAvatar({
   return <HandleSprite handle={handle} size={size ?? AVATAR_SIZE[variant]} />;
 }
 
-export const CARD_WIDTH = 320;
+export const CARD_WIDTH = 340;
 
-const SPRITE_IN_AVATAR = { sm: 16, md: 24 } as const;
+const FACE_SIZE = { sm: 26, md: 38, xl: 64 } as const;
 
-/** A handle's sprite on the kit's own avatar tile, for lists and cards where
-    a bare pixel sprite reads ragged against text. */
+/** A handle's face at a list or card size. */
 export function SpriteAvatar({
   handle,
   size,
 }: {
   handle: string;
-  size: keyof typeof SPRITE_IN_AVATAR;
+  size: keyof typeof FACE_SIZE;
 }) {
-  return (
-    <Avatar size={size} radius="xl" color="gray" variant="light">
-      <HandleSprite handle={handle} size={SPRITE_IN_AVATAR[size]} />
-    </Avatar>
-  );
+  return <HandleSprite handle={handle} size={FACE_SIZE[size]} />;
 }
-
-/** Carries the per-speaker hue into `.hueChip`'s CSS as two custom
-    properties (text and fill are different role tokens now, so one
-    variable can no longer serve both `color` and the background wash),
-    since the colors themselves are only known at render time. */
-type HueStyle = React.CSSProperties & {
-  '--speaker-hue': string;
-  '--speaker-hue-fill': string;
-};
 
 export interface AgentNameProps {
   handle: string;
@@ -134,13 +185,10 @@ export interface AgentNameProps {
       For touch surfaces (the phone drawer) and dense lists that should not
       react to hover (the sidebar DM rows). */
   withCard?: boolean;
-  /** `false` drops the invadrs sprite that otherwise leads every handle.
+  /** `false` drops the face that otherwise leads every handle.
       For dense rows (the sidebar's DM list) where a fifth icon per row
       is more noise than signal. @default true */
   withAvatar?: boolean;
-  /** `inline` only: renders the handle as a chip in this hue (color and
-      wash background). Unset keeps today's plain-name rendering. */
-  hue?: SpeakerHue;
   /** `inline` only: the handle's type size and its sprite's, for a caller
       whose row is not the message header's. Unset keeps the header's own. */
   size?: AgentNameSize;
@@ -268,7 +316,7 @@ export function AgentCard({
   const summary = (
     <>
       <div className={cardClasses.head}>
-        <SpriteAvatar handle={buddy.handle} size="md" />
+        <SpriteAvatar handle={buddy.handle} size={inMenu ? 'md' : 'xl'} />
         <div className={cardClasses.identity}>
           <span className={cardClasses.name}>{displayName(buddy)}</span>
           <span
@@ -347,48 +395,47 @@ export function AgentCard({
     <div className={cardClasses.card} data-testid={`detail-${buddy.handle}`}>
       {summary}
       {actions && (
-        <Group gap="sm">
-          {canFocus && (
-            <Button
-              size="compact-sm"
-              onClick={() => actions.focusPane?.(buddy.pane!)}
-              data-testid={`card-focus-${buddy.handle}`}
-            >
-              Focus pane
-            </Button>
-          )}
+        <div className={cardClasses.actions}>
           <Button
-            size="compact-sm"
-            variant="subtle"
-            color="gray"
+            size="sm"
+            px={8}
+            variant="default"
+            onClick={() => actions.dm(buddy.handle)}
+            data-testid={`card-dm-${buddy.handle}`}
+          >
+            Message
+          </Button>
+          <Button
+            size="sm"
+            px={8}
+            variant="default"
             disabled={!inRoom}
             onClick={() => actions.mention(buddy.handle)}
             data-testid={`card-mention-${buddy.handle}`}
           >
             Mention
           </Button>
-          <Button
-            size="compact-sm"
-            variant="subtle"
-            color="gray"
-            onClick={() => actions.dm(buddy.handle)}
-            data-testid={`card-dm-${buddy.handle}`}
-          >
-            Message
-          </Button>
-        </Group>
+          {canFocus && (
+            <Button
+              size="sm"
+              px={8}
+              variant="default"
+              onClick={() => actions.focusPane?.(buddy.pane!)}
+              data-testid={`card-focus-${buddy.handle}`}
+            >
+              Focus pane
+            </Button>
+          )}
+        </div>
       )}
     </div>
   );
 }
 
-/** Opens the agent card beside whatever it wraps. `right-start` docks it to
-    the right of a list (the sidebar, the room dropdown), level with the row,
-    so the list itself never moves or hides under the pointer. */
-export function AgentHoverCard({
+/** Opens the agent card from a click on whatever it wraps. An action in the
+    card closes it. */
+export function AgentCardPopover({
   buddy,
-  position = 'bottom-start',
-  offset,
   reachable,
   now,
   inRoom,
@@ -396,27 +443,42 @@ export function AgentHoverCard({
   children,
 }: {
   buddy: RosterBuddy;
-  position?: 'bottom-start' | 'right-start';
-  offset?: number;
   reachable?: boolean;
   now?: number;
   inRoom?: boolean;
   task?: DoingLine | null;
-  children: React.ReactElement;
+  children: React.ReactElement<HTMLAttributes<HTMLElement>>;
 }) {
+  const [opened, setOpened] = useState(false);
+  const toggle = () => setOpened(o => !o);
   return (
-    <HoverCard
-      position={position}
-      offset={offset}
+    <Popover
+      opened={opened}
+      onChange={setOpened}
+      position="bottom-start"
       width={CARD_WIDTH}
-      openDelay={500}
-      closeDelay={120}
       withinPortal
       shadow="md"
       classNames={{ dropdown: cardClasses.dropdown }}
     >
-      <HoverCard.Target>{children}</HoverCard.Target>
-      <HoverCard.Dropdown>
+      <Popover.Target>
+        {cloneElement(children, {
+          role: 'button',
+          tabIndex: 0,
+          'aria-expanded': opened,
+          onClick: toggle,
+          onKeyDown: event => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            toggle();
+          },
+        })}
+      </Popover.Target>
+      <Popover.Dropdown
+        onClick={event => {
+          if ((event.target as HTMLElement).closest('button')) setOpened(false);
+        }}
+      >
         <AgentCard
           buddy={buddy}
           reachable={reachable}
@@ -424,13 +486,13 @@ export function AgentHoverCard({
           inRoom={inRoom}
           task={task}
         />
-      </HoverCard.Dropdown>
-    </HoverCard>
+      </Popover.Dropdown>
+    </Popover>
   );
 }
 
 /** A handle, wherever one is rendered. The name never truncates; the repo
-    token beside it does. Hover opens the buddy's card when presence knows
+    token beside it does. A click opens the buddy's card when presence knows
     the handle; a handle presence does not know (a human, an offline row) is
     plain text. */
 export function AgentName({
@@ -443,13 +505,17 @@ export function AgentName({
   reachable: reachableProp,
   now,
   inRoom,
-  hue,
   size,
   task,
 }: AgentNameProps) {
   const ctx = useBuddies();
   const buddy = buddyProp ?? ctx?.byHandle.get(handle);
-  const shown = name ?? buddy?.name ?? ctx?.nameOf(handle) ?? handle;
+  const shown =
+    ctx?.selfName(handle) ??
+    name ??
+    buddy?.name ??
+    ctx?.nameOf(handle) ??
+    handle;
   const repo = repoToken(buddy);
   const showTask = task && task.kind !== 'away';
 
@@ -461,7 +527,7 @@ export function AgentName({
         wrap="nowrap"
         align="center"
         component="span"
-        className={hue ? undefined : classes.name}
+        className={classes.name}
         style={{ minWidth: 0 }}
       >
         <Group
@@ -469,17 +535,7 @@ export function AgentName({
           wrap="nowrap"
           align="center"
           component="span"
-          className={hue ? classes.hueChip : undefined}
-          data-testid={hue ? 'speaker-chip' : undefined}
-          style={
-            hue
-              ? ({
-                  flex: 'none',
-                  '--speaker-hue': hue.text,
-                  '--speaker-hue-fill': hue.fill,
-                } as HueStyle)
-              : { flex: 'none' }
-          }
+          style={{ flex: 'none' }}
         >
           {withAvatar && (
             <HandleAvatar
@@ -525,7 +581,7 @@ export function AgentName({
   if (!withCard || !buddy) return label;
 
   return (
-    <AgentHoverCard
+    <AgentCardPopover
       buddy={buddy}
       reachable={reachableProp}
       now={now}
@@ -538,6 +594,6 @@ export function AgentName({
         // A sender sizes to its text, or the wash would run to the margin.
         <Box className={`${classes.target} ${classes.targetFit}`}>{label}</Box>
       )}
-    </AgentHoverCard>
+    </AgentCardPopover>
   );
 }

@@ -1,10 +1,9 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
 import {
-  Avatar,
   Badge,
-  Button,
   Menu,
   ScrollArea,
+  UnstyledButton,
 } from '@mattstack/app-kit/core';
 import { AnimatedChevron, Icon } from '@mattstack/app-kit/icons';
 import type { AgentStatus, RoomSummary } from '@mattstack/rt-client';
@@ -31,7 +30,6 @@ const GROUPS: { state: SignedInState; word: string }[] = [
   { state: 'done', word: 'Done' },
 ];
 
-const STACK_MAX = 3;
 const DROPDOWN_WIDTH = 320;
 /** Rows a group shows before its "N more". */
 const GROUP_CAP = 8;
@@ -125,7 +123,7 @@ function MemberItem({
       position="right-start"
       offset={DROPDOWN_DOCK_OFFSET}
       width={CARD_WIDTH}
-      radius="lg"
+      radius="md"
       floatingStrategy="fixed"
       opened={active}
       onChange={onActive}
@@ -154,8 +152,8 @@ function MemberItem({
   );
 }
 
-/** The room's members behind one pill: who (their sprites) and how many.
-    The dropdown lists them by herdr state, an agent waiting on the human
+/** The room's title opens its members, as a Slack channel's name does. The
+    dropdown lists them by herdr state, an agent waiting on the human
     first; each row's card opens as its submenu. */
 export function RoomMembers({
   room,
@@ -163,12 +161,15 @@ export function RoomMembers({
   reachable,
   now,
   wakeMode,
+  title,
 }: {
   room: RoomSummary;
   buddies: MemberBuddy[];
   reachable: boolean;
   now: number;
   wakeMode: string;
+  /** The room's name: with the count, the whole thing opens the list. */
+  title: ReactNode;
 }) {
   const ctx = useBuddies();
   const [opened, setOpened] = useState(false);
@@ -181,7 +182,6 @@ export function RoomMembers({
     ...g,
     members: signedIn.filter(b => agentState(b) === g.state),
   })).filter(g => g.members.length > 0);
-  const stack = groups.flatMap(g => g.members).slice(0, STACK_MAX);
   const roomLabel = room.kind === 'dm' ? 'conversation' : `#${room.room}`;
   const nameOf = (b: MemberBuddy) =>
     b.name ?? ctx?.nameOf(b.handle) ?? b.handle;
@@ -233,6 +233,8 @@ export function RoomMembers({
     if (!open) setActiveHandle(null);
   };
 
+  if (buddies.length === 0) return <>{title}</>;
+
   const item = (b: MemberBuddy) => (
     <MemberItem
       key={b.handle}
@@ -256,34 +258,27 @@ export function RoomMembers({
       position="bottom-start"
       width={DROPDOWN_WIDTH}
       shadow="md"
-      radius="lg"
+      radius="md"
       withinPortal
     >
       <Menu.Target>
-        <Button
-          variant="default"
-          size="sm"
+        <UnstyledButton
+          className={classes.chip}
           data-testid="members-chip"
           aria-label={`Members of ${roomLabel}: ${signedIn.length} signed in${reachable ? '' : ', last known'}`}
-          leftSection={
-            stack.length > 0 ? (
-              <Avatar.Group spacing="xs">
-                {stack.map(b => (
-                  <SpriteAvatar key={b.handle} handle={b.handle} size="sm" />
-                ))}
-              </Avatar.Group>
-            ) : undefined
-          }
-          rightSection={<AnimatedChevron opened={opened} size={14} />}
         >
-          {signedIn.length}
-          {!reachable && ' · last known'}
-        </Button>
+          {title}
+          {room.kind !== 'dm' && (
+            <span className={classes.chipCount}>{buddies.length}</span>
+          )}
+          {!reachable && <span className={classes.chipNote}>last known</span>}
+          <AnimatedChevron opened={opened} size={14} />
+        </UnstyledButton>
       </Menu.Target>
       <Menu.Dropdown data-testid="members-dropdown">
         <div className={classes.header}>
           <span className={classes.title}>
-            {signedIn.length} in {roomLabel}
+            {buddies.length} {buddies.length === 1 ? 'member' : 'members'}
           </span>
           <span className={classes.wakes} data-testid="members-wakes">
             wakes: {wakeMode}
@@ -293,6 +288,8 @@ export function RoomMembers({
           <ScrollArea.Autosize
             mah={LIST_MAX_HEIGHT}
             scrollbars="y"
+            scrollbarSize={8}
+            offsetScrollbars="y"
             classNames={{ root: classes.list, content: classes.listContent }}
           >
             {groups.map(g => (

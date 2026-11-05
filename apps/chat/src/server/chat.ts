@@ -1,20 +1,19 @@
+import { readFile } from 'node:fs/promises';
 import {
   chatArchive,
   chatBuddies,
   chatDmOpen,
-  chatInvite,
   chatJoin,
-  chatMark,
   chatMessages,
   chatPost,
   chatRooms,
+  chatSlackAvatarFile,
   chatSlackStatus,
   chatWho,
   getSetting,
   paneList,
   type AgentStatus,
   type ChatMessage,
-  type InviteResult,
   type RoomSummary,
   type RtClientOptions,
 } from '@mattstack/rt-client';
@@ -24,16 +23,12 @@ import { validator } from 'hono/validator';
 
 import {
   fixtureBuddies,
-  fixtureInbox,
-  fixtureInvite,
-  fixtureMark,
   fixtureMembers,
   fixtureMessages,
   fixtureRooms,
   fixturesEnabled,
   fixtureSlackStatus,
 } from './fixtures';
-import { buildInbox } from './inbox';
 
 /**
  * Resolved at CALL time (mirrors rt-client's own `defaultSock()` convention):
@@ -272,37 +267,11 @@ export const chat = new Hono()
     const rooms = await withDmLastMessage([...joined, ...extra]);
     return c.json({ rooms }, 200);
   })
-  // `RoomSummary.unread` is a count, not a cursor id -- the daemon keeps
-  // the actual read position internally and never exposes it. The newest
-  // `min(unread, 50)` messages in a room stand in for "after the cursor",
-  // fetched with the existing paging (no `before`, so `chatMessages`
-  // returns the newest page). A room whose message fetch fails still
-  // contributes its unread/mentions counts to `elsewhere` via `buildInbox`.
-  .get('/api/chat/inbox', async c => {
+  // Who the viewer is: the handle that keys rooms, and the name shown for it.
+  .get('/api/chat/me', c => {
     const handle = humanHandle(c);
-    if (fixturesEnabled()) return c.json(fixtureInbox(handle), 200);
-
-    const roomsRes = await chatRooms({ handle }, rtOpts());
-    if (!roomsRes.ok || !roomsRes.data) {
-      return c.json({ error: roomsRes.error ?? 'rooms: no data' }, 502);
-    }
-    const unreadRooms = roomsRes.data.rooms.filter(r => r.unread > 0);
-
-    const pages = await Promise.all(
-      unreadRooms.map(r =>
-        chatMessages(
-          { room: r.room, limit: Math.min(r.unread, 50) },
-          rtOpts()
-        ).catch(() => null)
-      )
-    );
-    const pagesByRoom = new Map<string, ChatMessage[]>();
-    unreadRooms.forEach((r, i) => {
-      const res = pages[i];
-      if (res?.ok && res.data) pagesByRoom.set(r.room, res.data.messages);
-    });
-
-    return c.json(buildInbox(unreadRooms, pagesByRoom, handle), 200);
+    const name = getSetting<string | undefined>('chat.displayName').value;
+    return c.json({ handle, name: name || handle }, 200);
   })
   // The app makes no Slack call of its own: the daemon says which rooms hold
   // an open support chat. A daemon without the verb answers !ok, a 502 here,
@@ -314,6 +283,21 @@ export const chat = new Hono()
       return c.json({ error: res.error ?? 'slack-status: no data' }, 502);
     }
     return c.json(res.data, 200);
+  })
+  .get('/api/chat/slack-avatar/:person', async c => {
+    const res = await chatSlackAvatarFile(
+      { person: c.req.param('person') },
+      rtOpts()
+    );
+    const file = res.ok ? res.data?.file : undefined;
+    if (!file) return c.json({ error: 'not found' }, 404);
+    const bytes = await readFile(file.path).catch(() => null);
+    if (!bytes) return c.json({ error: 'not found' }, 404);
+    return c.body(bytes, 200, {
+      'content-type': file.contentType,
+      'cache-control': 'private, max-age=31536000, immutable',
+      'x-content-type-options': 'nosniff',
+    });
   })
   .get('/api/chat/who/:room', async c => {
     const room = c.req.param('room');
@@ -395,26 +379,6 @@ export const chat = new Hono()
         );
       }
       const res = await chatMessages({ room, before, limit }, rtOpts());
-      if (!res.ok) return c.json({ error: res.error }, 502);
-      return c.json(res.data, 200);
-    }
-  )
-  // Mirrors runs.ts's abandon route: an absent body lands `room` as
-  // undefined and the handler still runs; a malformed body raises before
-  // the handler and reaches `app.onError` as JSON.
-  .post(
-    '/api/chat/mark',
-    validator('json', (value): { room?: string } => {
-      const v = value as { room?: unknown } | undefined;
-      return { room: typeof v?.room === 'string' ? v.room : undefined };
-    }),
-    async c => {
-      const { room } = c.req.valid('json');
-      if (fixturesEnabled()) {
-        fixtureMark(room);
-        return c.json({ ok: true }, 200);
-      }
-      const res = await chatMark({ handle: humanHandle(c), room }, rtOpts());
       if (!res.ok) return c.json({ error: res.error }, 502);
       return c.json(res.data, 200);
     }
@@ -527,89 +491,4 @@ export const chat = new Hono()
     const res = await chatDmOpen({ from, to }, rtOpts());
     if (!res.ok) return c.json({ error: res.error }, 502);
     return c.json(res.data, 200);
-  })
-  // Join-creates, so "create a room" is the human joining it; the seed is
-  // the first post. A room whose seed fails still exists, so the error
-  // carries the room name and the client keeps the draft.
-  .post('/api/chat/rooms', async c => {
-    let raw: { room?: unknown; seed?: unknown; wakeOn?: unknown };
-    try {
-      raw = await c.req.json();
-    } catch {
-      return c.json({ error: 'Malformed JSON in request body' }, 400);
-    }
-    const room = typeof raw?.room === 'string' ? raw.room : '';
-    if (!CHAT_NAME.test(room))
-      return c.json({ error: 'room must match ^[a-z0-9._-]+$' }, 400);
-    const seed =
-      typeof raw?.seed === 'string' && raw.seed.trim() ? raw.seed : undefined;
-    if (fixturesEnabled())
-      return c.json(seed ? { room, seedId: 1 } : { room }, 200);
-    const wakeOn =
-      raw?.wakeOn === 'all' ||
-      raw?.wakeOn === 'mention' ||
-      raw?.wakeOn === 'none'
-        ? raw.wakeOn
-        : undefined;
-    const handle = humanHandle(c);
-    const joinRes = await chatJoin(
-      wakeOn ? { room, handle, wakeOn } : { room, handle },
-      rtOpts()
-    );
-    if (!joinRes.ok) return c.json({ error: joinRes.error }, 502);
-    if (!seed) return c.json({ room }, 200);
-    const postRes = await chatPost({ room, handle, body: seed }, rtOpts());
-    if (!postRes.ok) return c.json({ error: postRes.error, room }, 502);
-    return c.json({ room, seedId: postRes.data?.id }, 200);
-  })
-  // Sequential on purpose: each invite types into a live terminal.
-  .post('/api/chat/invite', async c => {
-    let raw: { room?: unknown; panes?: unknown };
-    try {
-      raw = await c.req.json();
-    } catch {
-      return c.json({ error: 'Malformed JSON in request body' }, 400);
-    }
-    const room = typeof raw?.room === 'string' ? raw.room : '';
-    if (!CHAT_NAME.test(room))
-      return c.json({ error: 'room must match ^[a-z0-9._-]+$' }, 400);
-    const panes = Array.isArray(raw?.panes)
-      ? raw.panes.flatMap((p): { paneId: string; note?: string }[] =>
-          p &&
-          typeof p === 'object' &&
-          typeof (p as { paneId?: unknown }).paneId === 'string'
-            ? [
-                {
-                  paneId: (p as { paneId: string }).paneId,
-                  ...(typeof (p as { note?: unknown }).note === 'string' &&
-                  (p as { note: string }).note.trim()
-                    ? { note: (p as { note: string }).note }
-                    : {}),
-                },
-              ]
-            : []
-        )
-      : [];
-    if (panes.length === 0)
-      return c.json({ error: 'panes must name at least one pane' }, 400);
-    if (fixturesEnabled())
-      return c.json({ results: panes.map(p => fixtureInvite(p.paneId)) }, 200);
-    const from = humanHandle(c);
-    const results: InviteResult[] = [];
-    for (const p of panes) {
-      const res = await chatInvite(
-        { paneId: p.paneId, room, from, ...(p.note ? { note: p.note } : {}) },
-        rtOpts()
-      );
-      results.push(
-        res.ok && res.data
-          ? res.data
-          : {
-              paneId: p.paneId,
-              delivered: 'refused',
-              reason: res.error ?? 'invite failed',
-            }
-      );
-    }
-    return c.json({ results }, 200);
   });

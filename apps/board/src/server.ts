@@ -16,6 +16,8 @@ import {
 } from '@mattstack/glance';
 import type { MRDetail, PullRequest } from '@mattstack/glance';
 import {
+  chatSlackAvatarFile,
+  chatSlackAvatars,
   eventsHead,
   eventsList,
   gateAnswer as gateAnswerFacility,
@@ -25,6 +27,7 @@ import {
   getRun,
   getSetting,
   listOrgs,
+  matchSlackFaces,
   paneList,
   readDiscussions,
   readProjectMRs,
@@ -34,6 +37,7 @@ import {
   type ForgeFileDiffData,
   type ForgeGetData,
   type GateRow,
+  type SlackPerson,
 } from '@mattstack/rt-client';
 import { settingsHandler } from '@mattstack/settings-kit/server';
 import pkg from '../package.json';
@@ -1823,6 +1827,43 @@ async function refreshMemberNames(): Promise<void> {
     })
   );
 }
+let slackPeople: (SlackPerson & { version?: string })[] = [];
+let slackPeopleFetchedAt = 0;
+/** Kept across polls: a lookup or a name refresh that fails must not take a
+    face away. */
+const knownSlackFaces = new Map<string, string>();
+
+/** rt reads Slack; this keeps its answer for the board's poll to match against. */
+function refreshSlackPeople(): void {
+  if (slackPeopleFetchedAt && Date.now() - slackPeopleFetchedAt < NAMES_TTL_MS)
+    return;
+  slackPeopleFetchedAt = Date.now();
+  void chatSlackAvatars()
+    .then(res => {
+      if (res.ok && res.data?.people.length) {
+        slackPeople = res.data.people;
+        knownSlackFaces.clear();
+      } else {
+        slackPeopleFetchedAt = 0;
+      }
+    })
+    .catch(() => {
+      slackPeopleFetchedAt = 0;
+    });
+}
+
+function currentSlackFaces(mrs: readonly BoardMR[]): Record<string, string> {
+  const authors = mrs.map(mr => [mr.author.username, mr.author.name] as const);
+  const matched = matchSlackFaces([...authors, ...memberNames], slackPeople);
+  const versions = new Map(slackPeople.map(p => [p.id, p.version]));
+  for (const [username, id] of Object.entries(matched))
+    knownSlackFaces.set(
+      username,
+      `/api/slack-avatar/${id}?v=${versions.get(id) ?? ''}`
+    );
+  return Object.fromEntries(knownSlackFaces);
+}
+
 // Fire-and-forget: a hung/down daemon must not delay Bun.serve() by the
 // full getGitlabToken() timeout at boot. Every consumer already renders a
 // null display name (falls back to member.name / username) until this
@@ -2008,6 +2049,21 @@ const httpServer = Bun.serve({
     // Board's settings are edited in console's embedded settings page, which
     // writes the store without passing through this process: the modal
     // posts here after each write so the running config picks it up.
+    if (pathname.startsWith('/api/slack-avatar/')) {
+      const res = await chatSlackAvatarFile({
+        person: pathname.slice('/api/slack-avatar/'.length),
+      });
+      const file = res.ok ? res.data?.file : undefined;
+      if (!file || !(await Bun.file(file.path).exists()))
+        return new Response('not found', { status: 404 });
+      return new Response(Bun.file(file.path), {
+        headers: {
+          'content-type': file.contentType,
+          'cache-control': 'private, max-age=31536000, immutable',
+          'x-content-type-options': 'nosniff',
+        },
+      });
+    }
     if (pathname === '/api/config/reload' && req.method === 'POST') {
       if (!isLocalRequest(req, server))
         return Response.json({ error: 'local only' }, { status: 403 });
@@ -2150,6 +2206,7 @@ const httpServer = Bun.serve({
           pruneNudges(onBoard);
         }
         if (!snapshot.fetchError) refreshOwnerTeamsInBackground(snapshot.mrs);
+        refreshSlackPeople();
         const { mrs: mrsWithOrphans, orphans } = await withRowState(visibleMrs);
         return new Response(
           JSON.stringify({
@@ -2157,6 +2214,7 @@ const httpServer = Bun.serve({
             defaultMember: config.defaultMember,
             tokenUser: readMemory().identity?.username ?? null,
             members: buildRoster(visible, visibleMrs, memberNames),
+            slackFaces: currentSlackFaces(snapshot.mrs),
             allMembers: config.members.map(m => ({
               username: m.username,
               name: memberNames.get(m.username) ?? m.name ?? null,

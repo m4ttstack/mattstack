@@ -12,7 +12,7 @@ import type { TeamSnapshot } from "../team-settings.ts";
 import { fakeProbes } from "./fakes.ts";
 
 const CONNECT: Action = { type: "oauth", label: "Connect", integration: "slack", verb: ["setup", "slack", "connect", "--support-chat"] };
-const DEFAULTS = ["channels:read", "groups:read", "channels:history", "groups:history", "reactions:read", "reactions:write", "chat:write"];
+const DEFAULTS = ["channels:read", "groups:read", "channels:history", "groups:history", "reactions:read", "reactions:write", "chat:write", "users:read"];
 
 function team(overrides: Partial<TeamSnapshot> = {}): TeamSnapshot {
   return { slug: "acme", integrations: {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null, ...overrides };
@@ -82,7 +82,7 @@ describe("slackSupportRow", () => {
   });
 
   test("one of the four missing still offers Connect", () => {
-    const r = slackSupportRow({ slack: { kind: "connected", scopes: [...DEFAULTS, "im:read", "im:write", "users:read"] } });
+    const r = slackSupportRow({ slack: { kind: "connected", scopes: [...DEFAULTS, "im:read", "im:write"] } });
     expect(r.action).toEqual(CONNECT);
   });
 
@@ -90,7 +90,7 @@ describe("slackSupportRow", () => {
     const r = slackSupportRow({ slack: { kind: "connected", scopes: DEFAULTS }, shortGrant: SLACK_SUPPORT_SCOPES, appId: "A0TEAM" });
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe(
-      "Slack app is missing scopes. Ask its owner to add im:history, im:read, im:write, users:read under User Token Scopes at https://api.slack.com/apps/A0TEAM/oauth, then connect again",
+      "Slack app is missing scopes. Ask its owner to add im:history, im:read, im:write under User Token Scopes at https://api.slack.com/apps/A0TEAM/oauth, then connect again",
     );
     expect(r.action).toEqual(CONNECT);
   });

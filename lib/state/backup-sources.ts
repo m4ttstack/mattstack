@@ -15,6 +15,7 @@ export interface BackupSource {
 export const BACKUP_SOURCES: BackupSource[] = [
   { app: "rt", type: "sqlite", sourcePath: "rt/state.db", ext: ".db" },
   { app: "rt", type: "sqlite", sourcePath: "rt/gates.db", ext: ".db" },
+  { app: "rt", type: "sqlite", sourcePath: "rt/usage.db", ext: ".db" },
   { app: "board", type: "sqlite", sourcePath: "board/state.db", ext: ".db" },
   { app: "gitq", type: "dir", sourcePath: "gitq/stacks", ext: ".tar" },
 ];

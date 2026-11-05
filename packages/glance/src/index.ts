@@ -34,6 +34,7 @@ export type {
   EnqueuePullRequestInput,
   MergePullRequestInput,
   MergeQueueEntry,
+  MergeQueueStatus,
   MergeMethod,
   ProviderCapabilities,
   BranchProtectionRule,

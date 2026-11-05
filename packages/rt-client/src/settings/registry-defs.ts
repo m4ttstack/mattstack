@@ -835,20 +835,20 @@ const ROWS: readonly SettingDef[] = [
 
   // --- chat (RT-48 Task 7) -------------------------------------------------
   {
-    key: "chat.handle",
-    type: "string",
-    scopes: ["user"],
-    defaultNote: "Taken from the pane title, the repo, or this Mac.",
-    merge: "replace",
-    description: "Explicit rt chat handle for this developer on this machine; overrides the derived <repo>-<dir> handle when set.",
-  },
-  {
     key: "chat.humanHandle",
     type: "string",
     scopes: ["user"],
     default: "matt",
     merge: "replace",
     description: "The human's own chat handle, so agents can @-mention them by name.",
+  },
+  {
+    key: "chat.displayName",
+    type: "string",
+    scopes: ["user"],
+    merge: "replace",
+    defaultNote: "Shows your chat handle.",
+    description: "The name the chat viewer shows for you. Your handle stays as it is, so your rooms and DMs do not move.",
   },
   {
     key: "chat.viewerUrl",

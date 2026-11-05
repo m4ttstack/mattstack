@@ -7,6 +7,7 @@ import type {
   EnqueuePullRequestInput,
   MergePullRequestInput,
   MergeQueueEntry,
+  MergeQueueStatus,
   MergeRequestIndexRow,
   MergeRequestMetrics,
   MRDetail,
@@ -540,6 +541,13 @@ export interface GitProvider {
     mrIid: number,
     input?: EnqueuePullRequestInput,
   ): Promise<MergeQueueEntry>;
+
+  /**
+   * Whether a pull request's target branch uses a merge queue, and whether
+   * the pull request is in it now. GitLab leaves this absent.
+   * Check `capabilities.canEnqueue` before calling.
+   */
+  fetchMergeQueueStatus?(projectPath: string, mrIid: number): Promise<MergeQueueStatus>;
 
   /**
    * Cancel a previously enabled auto-merge.

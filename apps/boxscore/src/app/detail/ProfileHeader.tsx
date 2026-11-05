@@ -1,6 +1,10 @@
+import { useState, type ReactNode } from 'react';
+
 import { ActionIcon, Avatar, Button, Menu } from '@mattstack/app-kit/core';
 import { Link } from '@mattstack/app-kit/router';
+import { faceZoom } from '@mattstack/rt-client/face-zoom';
 import type { MetricKey, UserRow } from '../../shared/types';
+import { useSlackFace } from '../hooks/useSlackFace';
 import { initials } from '../model/labels';
 import { previewHref, usePersonHref } from '../preview/preview';
 import { Glyph } from '../ui/Glyph';
@@ -8,6 +12,22 @@ import { YouBadge } from '../ui/YouBadge';
 import classes from './detail.module.css';
 
 export const displayName = (u: UserRow): string => u.name ?? u.username;
+
+function FacePhoto({ src, fallback }: { src: string; fallback: ReactNode }) {
+  const [zoom, setZoom] = useState(1);
+  const [failed, setFailed] = useState<string>();
+  if (failed === src) return fallback;
+  return (
+    <img
+      src={src}
+      alt=""
+      className={classes.facePhoto}
+      style={zoom === 1 ? undefined : { transform: `scale(${zoom})` }}
+      onLoad={event => setZoom(faceZoom(event.currentTarget))}
+      onError={() => setFailed(src)}
+    />
+  );
+}
 
 function Step({
   label,
@@ -71,6 +91,8 @@ export function ProfileHeader({
 }) {
   const personHref = usePersonHref();
   const name = displayName(person);
+  const face = useSlackFace(name);
+  const monogram = <span data-parity="Initials">{initials(name)}</span>;
   const at = people.findIndex(u => u.username === person.username);
   const you = person.isCurrentUser;
   return (
@@ -99,7 +121,7 @@ export function ProfileHeader({
             variant={you ? 'filled' : 'default'}
             data-parity="Avatar"
           >
-            <span data-parity="Initials">{initials(name)}</span>
+            {face ? <FacePhoto src={face} fallback={monogram} /> : monogram}
           </Avatar>
           <div className={classes.profileText}>
             <div className={classes.nameLine}>

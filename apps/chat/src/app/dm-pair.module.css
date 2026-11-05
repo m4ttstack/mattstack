@@ -1,0 +1,43 @@
+.title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.names {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stack {
+  position: relative;
+  flex: none;
+  width: var(--stack-size);
+  height: var(--stack-size);
+}
+
+/* `--stack-ring` is the surface behind, so the two tiles read as separate. */
+.tile {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 66%;
+  height: 66%;
+  border-radius: 30%;
+  background: var(--tk-card);
+  box-shadow: 0 0 0 1.5px var(--stack-ring, var(--tk-card));
+}
+
+.tile:first-child {
+  top: 0;
+  left: 0;
+}
+
+.tile:last-child {
+  right: 0;
+  bottom: 0;
+}

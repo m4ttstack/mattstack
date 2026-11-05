@@ -158,10 +158,11 @@ The apps' packages under `packages/*` and `apps/*` are vitest or their own
 bun suites and are never in the unit dirs; run them with `bun run
 <app>:test` or `bun run check`.
 
-### Merge through the queue with `rt pr enqueue`
+### Merge with `mr_merge`
 
-`main` merges through a merge queue. Run `rt pr enqueue <number>` once a PR is
-approved and green, with `--head <sha>` to pin the commit that was reviewed.
+`main` merges through a merge queue, and `mr_merge` puts a PR in it. A
+`queued: true` result is not a merge yet. To pin the commit that was reviewed,
+use `rt pr enqueue <number> --head <sha>` instead.
 Here, `gh pr merge` has failed with "Auto merge is not allowed for this
 repository" while another PR was queued, and `--admin` cannot bypass the queue.
 A merge still needs Matt's confirmation.

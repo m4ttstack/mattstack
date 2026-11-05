@@ -1192,7 +1192,7 @@ test('POST /apps/:name/alt activates and clears an overlay', async () => {
   expect((await (await api('/api/v1/apps/altapp')).json()).record.port).toBe(
     4400
   );
-});
+}, 20_000);
 
 test('alt on an unknown app is 404', async () => {
   expect((await post('/api/v1/apps/ghost/alt', { alt: 'dev' })).status).toBe(

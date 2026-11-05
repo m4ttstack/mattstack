@@ -1,0 +1,15 @@
+/* Grey until there is something to send. */
+.send.send:disabled,
+.send.send[data-disabled] {
+  background: var(--ui-bg-4);
+  color: var(--tk-text-4);
+  border: 0;
+}
+
+.ended {
+  height: 46px;
+  border-radius: var(--mantine-radius-lg);
+  background: var(--ui-bg-4);
+  font-size: var(--mantine-font-size-lg);
+  color: var(--tk-text-3);
+}

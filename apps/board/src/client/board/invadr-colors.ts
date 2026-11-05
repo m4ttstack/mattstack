@@ -67,6 +67,8 @@ export interface MemberLook {
   color: number;
   fill: string;
   palette: readonly string[];
+  /** The person's Slack picture, when one matched. */
+  face?: string;
 }
 
 /** Each person's look, in the order given. Colours go out in palette order,
