@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { machineSettingsPath } from "../../rt-paths.ts";
 import { setSetting } from "../../settings/write.ts";
-import { CRON_RELOAD_AFTER_MS, parseCronConfig, loadCronConfig, readTail, startCron, type CronTrigger } from "../cron.ts";
+import { CRON_RELOAD_AFTER_MS, parseCronConfig, loadCronConfig, startCron, tailStream, type CronTrigger } from "../cron.ts";
 
 const log = { info: () => {}, warn: () => {} };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -373,37 +373,49 @@ describe("startCron", () => {
 });
 
 describe("a failed cron command", () => {
-  const runOnce = async (script: string) => {
+  const runOnce = async (script: string, opts: { failing: boolean } = { failing: true }) => {
     const warns: string[] = [];
     const cron = startCron(
       { triggers: [{ name: "t", event: "tick", run: ["sh", "-c", script], debounceMs: 5 }] },
       { log: { info: () => {}, warn: (m) => warns.push(m) } },
     );
     cron.onBroadcast("tick", null);
-    await sleep(500);
+    const started = Date.now();
+    if (!opts.failing) await sleep(500);
+    while (opts.failing && warns.length === 0 && Date.now() - started < 20_000) await sleep(20);
     cron.dispose();
-    return warns;
+    return { warns, ms: Date.now() - started };
   };
 
   test("logs the tail of its stderr with the exit code", async () => {
-    expect(await runOnce("echo first >&2; echo db schema too new >&2; exit 3")).toEqual([
-      "cron t: exited 3: first\ndb schema too new",
-    ]);
+    const { warns } = await runOnce("echo first >&2; echo db schema too new >&2; exit 3");
+    expect(warns).toEqual(["cron t: exited 3: first\ndb schema too new"]);
   });
 
   test("a clean exit logs no stderr", async () => {
-    expect(await runOnce("echo chatter >&2")).toEqual([]);
+    expect((await runOnce("echo chatter >&2", { failing: false })).warns).toEqual([]);
   });
 
   test("a chatty failure logs its last lines, no more", async () => {
-    const [warning] = await runOnce("i=0; while [ $i -lt 5000 ]; do echo \"line $i of noise that fills the pipe\" >&2; i=$((i+1)); done; exit 1");
-    const lines = warning!.split("\n");
+    const { warns } = await runOnce("i=0; while [ $i -lt 5000 ]; do echo \"line $i of noise that fills the pipe\" >&2; i=$((i+1)); done; exit 1");
+    const lines = warns[0]!.split("\n");
     expect(lines).toHaveLength(20);
     expect(lines.at(-1)).toBe("line 4999 of noise that fills the pipe");
   });
+
+  test("one long line stays bounded in the log", async () => {
+    const { warns } = await runOnce("head -c 30000 /dev/zero | tr '\\0' x >&2; exit 1");
+    expect(warns[0]!.length).toBeLessThan(4200);
+  });
+
+  test("a background child holding stderr open does not hold up the exit line", async () => {
+    const { warns, ms } = await runOnce("echo before >&2; sleep 5 & exit 2");
+    expect(warns).toEqual(["cron t: exited 2: before"]);
+    expect(ms).toBeLessThan(4000);
+  });
 });
 
-describe("readTail", () => {
+describe("tailStream", () => {
   const encoder = new TextEncoder();
   const streamOf = (...chunks: string[]) =>
     new ReadableStream<Uint8Array>({
@@ -412,31 +424,57 @@ describe("readTail", () => {
         controller.close();
       },
     });
+  const readAll = async (stream: ReadableStream<Uint8Array>, maxBytes?: number) => {
+    const tail = tailStream(stream, maxBytes);
+    await tail.done;
+    return tail.text();
+  };
 
   test("returns all of a stream under the limit", async () => {
-    expect(await readTail(streamOf("ab", "cd"), 10)).toBe("abcd");
+    expect(await readAll(streamOf("ab", "cd"), 10)).toBe("abcd");
   });
 
   test("keeps only the last bytes, across chunks", async () => {
-    expect(await readTail(streamOf("aaaa", "bbbb", "cccc"), 6)).toBe("bbcccc");
+    expect(await readAll(streamOf("aaaa", "bbbb", "cccc"), 6)).toBe("bbcccc");
   });
 
   test("keeps the end of one chunk bigger than the limit", async () => {
-    expect(await readTail(streamOf("abcdefgh"), 3)).toBe("fgh");
+    expect(await readAll(streamOf("abcdefgh"), 3)).toBe("fgh");
   });
 
   test("an empty stream reads empty", async () => {
-    expect(await readTail(streamOf())).toBe("");
+    expect(await readAll(streamOf())).toBe("");
   });
 
-  test("a stream far past the limit returns only the limit", async () => {
+  test("never holds more than the limit and one chunk while reading", async () => {
     let pulled = 0;
+    let peak = 0;
     const stream = new ReadableStream<Uint8Array>({
       pull(controller) {
+        peak = Math.max(peak, tail.heldBytes());
         if (pulled++ === 1000) return controller.close();
         controller.enqueue(new Uint8Array(1024).fill(97));
       },
     });
-    expect((await readTail(stream, 2048)).length).toBe(2048);
+    const tail = tailStream(stream, 2048);
+    await tail.done;
+    expect(tail.text().length).toBe(2048);
+    expect(peak).toBeGreaterThan(0);
+    expect(peak).toBeLessThanOrEqual(2048 + 1024);
+  });
+
+  test("text reads what has arrived before the stream ends", async () => {
+    let finish = () => {};
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode("so far"));
+        finish = () => controller.close();
+      },
+    });
+    const tail = tailStream(stream);
+    await sleep(20);
+    expect(tail.text()).toBe("so far");
+    finish();
+    await tail.done;
   });
 });
