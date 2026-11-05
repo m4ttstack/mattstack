@@ -162,6 +162,7 @@ export function statusPhrase(mr: BoardMR): { text: string; hue: PillHue } {
 
 const REVIEW_IN_FLIGHT = new Set<ReviewStatus>(['queued', 'reviewing']);
 const DOCTOR_WORKING = new Set<DoctorStatus>([
+  'syncing',
   'diagnosing',
   'rebasing',
   'fixing',
@@ -705,6 +706,13 @@ function doctorLine(mr: BoardMRWithReview, now: number): Candidate | null {
   switch (d.status) {
     case 'queued':
       return { tone: 'quiet', word: DOCTOR_LABEL[d.status], verbs: [] };
+    case 'syncing':
+      return {
+        tone: 'work',
+        word: DOCTOR_LABEL[d.status],
+        spin: true,
+        verbs: [],
+      };
     case 'diagnosing':
     case 'rebasing':
     case 'fixing':
@@ -741,6 +749,13 @@ function doctorLine(mr: BoardMRWithReview, now: number): Candidate | null {
           { kind: 'call-doctor', label: 'call again' },
           { kind: 'dismiss', label: 'dismiss', domain: 'doctor' },
         ],
+      };
+    case 'sync-stopped':
+      return {
+        tone: 'bad',
+        word: DOCTOR_LABEL[d.status],
+        detail: d.message || undefined,
+        verbs: [{ kind: 'dismiss', label: 'dismiss', domain: 'doctor' }],
       };
   }
 }

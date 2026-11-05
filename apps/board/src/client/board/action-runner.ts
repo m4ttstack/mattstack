@@ -149,7 +149,7 @@ const LAUNCH_WORDING: Record<LaunchFlow, { done: string; noun: string }> = {
   respond: { done: 'response started on', noun: 'response' },
   'resume-respond': { done: 'response resumed on', noun: 'response' },
   doctor: { done: 'doctor called on', noun: 'doctor' },
-  'rebase-local': { done: 'local rebase started on', noun: 'local rebase' },
+  'rebase-local': { done: 'local rebase ran on', noun: 'local rebase' },
 };
 
 async function post(

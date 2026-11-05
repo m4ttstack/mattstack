@@ -182,6 +182,7 @@ export interface SkillPromptOpts {
   fixClasses?: string[];
   /** Doctor only: absolute path to the board's draft-writer CLI. */
   draftBin?: string;
+  pausedTree?: string;
   /** Free-text instruction from the human who launched the pane, appended to
       the prompt as a trailing paragraph the wrapper skills know to honor. */
   note?: string;
@@ -271,6 +272,7 @@ function dispatchArgs(o: SkillPromptOpts, skillPath?: string | null): string {
     o.fixClasses && (o.fixClasses.length ? o.fixClasses.join(',') : 'none')
   );
   flag('--draft-bin', o.draftBin);
+  flag('--paused-tree', o.pausedTree);
   return parts.join(FLAG_SEPARATOR);
 }
 
@@ -409,6 +411,8 @@ export interface LaunchPaneOpts {
   fixClasses?: string[];
   /** Doctor only: absolute path to the board's draft-writer CLI. */
   draftBin?: string;
+  /** Doctor only: the worktree where rt sync left a rebase paused on conflicts. */
+  pausedTree?: string;
   /** Respond only: rides the dispatch prompt as `--round <n>` (see
       respond-state.ts's respondFreshDispatchFields). With a person it is that
       person's response round; without one, one more than the prior in-run
@@ -588,6 +592,7 @@ export async function launchDoctor(
       tier: opts.tier,
       fixClasses: opts.fixClasses,
       draftBin: opts.draftBin,
+      pausedTree: opts.pausedTree,
       note: opts.note,
     },
     resolvePath

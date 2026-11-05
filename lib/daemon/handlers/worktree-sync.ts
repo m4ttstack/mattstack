@@ -1,0 +1,96 @@
+import { join } from "path";
+import type { Commands, WorktreeSyncData } from "../../../packages/rt-client/src/index.ts";
+import { explainError } from "../../explain-error.ts";
+import { rtSelfArgv } from "../../rt-self.ts";
+import { childEnv, runCapture } from "../../subprocess.ts";
+import { describeHolders, type TreeHolder } from "../reconciler/tree-holders.ts";
+
+/** The daemon's own entry is lib/daemon.ts from source, so Bun.main there is not the CLI. */
+const CLI_ENTRY = join(import.meta.dir, "..", "..", "..", "cli.ts");
+
+/** rt sync's own five-minute ceiling plus the checks around it. */
+const BRANCH_SYNC_TIMEOUT_MS = 330_000;
+
+export type SyncResult = Pick<WorktreeSyncData, "kind" | "pushed" | "oldHead" | "newHead" | "refusal">;
+
+type Run = (argv: [string, ...string[]], opts: { cwd: string; timeoutMs: number; stderr: "pipe"; env: Record<string, string | undefined> }) => Promise<{ exitCode: number; stdout: string; stderr: string; timedOut?: boolean }>;
+
+const syncError = (refusal: string): SyncResult => ({ kind: "error", pushed: false, oldHead: null, newHead: null, refusal });
+
+export async function runBranchSync(path: string, run: Run = runCapture): Promise<SyncResult> {
+  const [exe, ...rest] = rtSelfArgv({ main: CLI_ENTRY });
+  const r = await run([exe!, ...rest, "worktree", "branch-sync"], {
+    cwd: path,
+    timeoutMs: BRANCH_SYNC_TIMEOUT_MS,
+    stderr: "pipe",
+    env: { ...childEnv(), GIT_TERMINAL_PROMPT: "0", RT_BATCH: "1", RT_SKIP_SETUP: "1" },
+  });
+  if (r.timedOut) return syncError(`rt sync timed out after ${BRANCH_SYNC_TIMEOUT_MS / 1000}s`);
+  try {
+    const body = JSON.parse(r.stdout) as SyncResult;
+    if (typeof body?.kind === "string") return body;
+  } catch { /* falls through to the error below */ }
+  return syncError(`rt sync gave no result (exit ${r.exitCode}): ${r.stderr.trim().split("\n").slice(-1)[0] ?? ""}`);
+}
+
+type Reply<C extends keyof Commands> = { ok: true; data: Commands[C]["data"] } | { ok: false; error: string };
+
+export interface WorktreeSyncDeps {
+  check: (payload: Commands["worktree:provision-check"]["payload"]) => Promise<Reply<"worktree:provision-check">>;
+  provision: (payload: Commands["worktree:provision"]["payload"]) => Promise<Reply<"worktree:provision">>;
+  dispose: (payload: { repoName: string; tree: string }) => Promise<unknown>;
+  holders: (path: string) => Promise<TreeHolder[]>;
+  sync: (path: string) => Promise<SyncResult>;
+}
+
+const before = (kind: WorktreeSyncData["kind"], path: string | null, refusal: string): WorktreeSyncData =>
+  ({ kind, path, provisioned: false, pushed: false, oldHead: null, newHead: null, refusal });
+
+// A paused rebase is what the doctor picks up, and after a failed push the
+// rebased commits exist only in this tree.
+const KEEPS_TREE = new Set<WorktreeSyncData["kind"]>(["conflict", "push-refused"]);
+
+// branch_sync's own refusal text; a retry after a failed doctor launch lands
+// on the rebase the last sync paused.
+const REBASE_IN_PROGRESS = /^a rebase is in progress/;
+const resumable = (r: SyncResult): SyncResult =>
+  r.kind === "error" && REBASE_IN_PROGRESS.test(r.refusal ?? "") ? { ...r, kind: "conflict", refusal: null } : r;
+
+export function createWorktreeSyncHandler(deps: WorktreeSyncDeps) {
+  return async (payload: any): Promise<Reply<"worktree:sync">> => {
+    const repoName = payload?.repoName;
+    const branch = payload?.branch;
+    if (typeof repoName !== "string" || !repoName) return { ok: false, error: "repoName is required" };
+    if (typeof branch !== "string" || !branch) return { ok: false, error: "branch is required" };
+
+    const check = await deps.check({ repoName, branch });
+    if (!check.ok) return { ok: true, data: before("no-tree", null, explainError(check.error)) };
+    const { attached } = check.data;
+    if (attached.length > 1) return { ok: true, data: before("no-tree", null, explainError("branch-duplicated")) };
+
+    let path: string;
+    let created: string | null = null;
+    if (attached[0]) {
+      path = attached[0].path;
+      let holders: TreeHolder[];
+      try {
+        holders = await deps.holders(path);
+      } catch (err) {
+        return { ok: true, data: before("tree-busy", path, `could not check who is working in ${path}: ${String(err)}`) };
+      }
+      if (holders.length > 0) return { ok: true, data: before("tree-busy", path, `${describeHolders(holders)} is working in ${path}`) };
+    } else {
+      const made = await deps.provision({ repoName, branch, disposal: "merge" });
+      if (!made.ok) return { ok: true, data: before("no-tree", null, explainError(made.error)) };
+      path = made.data.path;
+      created = made.data.tree;
+    }
+
+    const r = resumable(await deps.sync(path));
+    if (created && !KEEPS_TREE.has(r.kind)) await deps.dispose({ repoName, tree: created });
+    return {
+      ok: true,
+      data: { kind: r.kind, path, provisioned: created !== null, pushed: r.pushed, oldHead: r.oldHead, newHead: r.newHead, refusal: r.refusal },
+    };
+  };
+}

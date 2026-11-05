@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import {
   doctorFilePath,
   doctorResumeDispatchFields,
+  failOrphanedSyncs,
   parseDoctorRequestBody,
   planStandDown,
   readDoctorStates,
@@ -274,4 +275,43 @@ describe('planStandDown', () => {
       clearDoctorState: true,
     });
   });
+});
+
+describe('failOrphanedSyncs', () => {
+  const syncing = (mrUrl: string) =>
+    writeDoctorState(
+      doctorFilePath(mrUrl),
+      { mrUrl, iid: 1, status: 'syncing' },
+      1,
+      db
+    );
+
+  test('a sync no request is running ends in an error', () => {
+    syncing('u/1');
+    failOrphanedSyncs(new Set(), 2, db);
+    expect(readDoctorStates(db).get('u/1')).toMatchObject({
+      status: 'sync-stopped',
+      message: 'the board restarted during the sync',
+    });
+  });
+
+  test('a running sync is left alone', () => {
+    syncing('u/2');
+    failOrphanedSyncs(new Set(['u/2']), 2, db);
+    expect(readDoctorStates(db).get('u/2')?.status).toBe('syncing');
+  });
+});
+
+test('dispatchPrompt carries the paused tree', async () => {
+  const prompt = await dispatchPrompt(
+    'board:doctor',
+    {
+      mrUrl: 'u/3',
+      statePath: 'state',
+      statusBin: 'bin',
+      pausedTree: '/trees/elrond',
+    },
+    async () => null
+  );
+  expect(prompt).toContain('--paused-tree /trees/elrond');
 });

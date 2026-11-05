@@ -31,9 +31,12 @@ export function useOptimisticLifecycle(data: BoardData | null) {
     setState(s => clearServerTruth(s, data.mrs));
   }, [data]);
 
-  const queue = useCallback((axis: Axis, url: string) => {
-    setState(s => setQueued(s, axis, url));
-  }, []);
+  const queue = useCallback(
+    (axis: Axis, url: string, status?: 'queued' | 'syncing') => {
+      setState(s => setQueued(s, axis, url, status));
+    },
+    []
+  );
 
   const rollbackOne = useCallback((axis: Axis, url: string) => {
     setState(s => rollback(s, axis, url));
@@ -260,6 +263,9 @@ export function useLaunchAction(opts: {
   startToast: LaunchFlowDeps['startToast'];
   reload: () => void;
   started: string;
+  /** What the row claims on the click; a sync is not a queued doctor. */
+  claims?: 'queued' | 'syncing';
+  doneMessage?: LaunchFlowDeps['doneMessage'];
   failureMessage?: LaunchFlowDeps['failureMessage'];
 }): (
   mr: BoardMR,
@@ -278,6 +284,8 @@ export function useLaunchAction(opts: {
     startToast,
     reload,
     started,
+    claims,
+    doneMessage,
     failureMessage,
   } = opts;
   return useCallback(
@@ -294,7 +302,9 @@ export function useLaunchAction(opts: {
       const deps: LaunchFlowDeps = {
         post: payload => postAction(path, payload),
         setQueued:
-          axis && url ? () => optimistic.setQueued(axis, url) : () => {},
+          axis && url
+            ? () => optimistic.setQueued(axis, url, claims)
+            : () => {},
         rollback: axis && url ? () => optimistic.rollback(axis, url) : () => {},
         addToast: quiet ? () => {} : addToast,
         startToast: quiet ? () => SILENT_TOAST : startToast,
@@ -302,6 +312,7 @@ export function useLaunchAction(opts: {
         verbing,
         noun,
         started,
+        doneMessage,
         failureMessage,
       };
       return runLaunchFlow(deps, mr, { ...extra, note }, intent);
@@ -316,6 +327,8 @@ export function useLaunchAction(opts: {
       addToast,
       startToast,
       reload,
+      claims,
+      doneMessage,
       failureMessage,
     ]
   );

@@ -1282,6 +1282,12 @@ export const TREE: Record<string, CommandNode> = {
           { name: "Remove", flag: "--remove", type: "boolean", default: false, hint: "Handle a WorktreeRemove event (courtesy guarded dispose)" },
         ],
       },
+      "branch-sync": {
+        description: "The daemon's way to run branch_sync in this worktree (one JSON result on stdout); never call directly",
+        module: "./commands/worktree-branch-sync.ts",
+        fn: "branchSyncCommand",
+        hidden: true,
+      },
       "is-registered": {
         description: "Claude Code EnterWorktree permission check endpoint (exit 0 when the path is an rt worktree); never call directly",
         module: "./commands/worktree-hook.ts",

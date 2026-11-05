@@ -22,6 +22,9 @@ export interface LaunchFlowDeps {
   noun: string;
   /** The launch toast's done text, before the MR ref: "review started". */
   started: string;
+  /** Overrides `started` when the answer says what happened, as a local
+      rebase's does. */
+  doneMessage?: (result: ActionResult, mr: BoardMR) => string | undefined;
   /** Overrides the default failure toast (`couldn't launch ${noun} for !${iid}
       (${status})`). Resume actions use this to surface the server's own
       response text, matching today's handleResume (`resume review failed for
@@ -86,7 +89,7 @@ export async function runLaunchFlow(
     toast?.done(
       result.body?.focused
         ? `${deps.noun} already running for ${mrRef(mr)}... focused its tab`
-        : `${deps.started} for ${mrRef(mr)}`
+        : (deps.doneMessage?.(result, mr) ?? `${deps.started} for ${mrRef(mr)}`)
     );
   }
   deps.reload();
