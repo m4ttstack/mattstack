@@ -23,7 +23,7 @@ import { deriveRepoIdentity, type RepoIdentity } from "./settings/identity.ts";
 import { slugifyChatName } from "./chat-room-name.ts";
 import { runCapture } from "./subprocess.ts";
 
-export function roomForIdentity(id: RepoIdentity): string {
+export function roomForIdentity(id: RepoIdentity): string | null {
   if (id.kind === "remote") {
     const last = id.id.split("/").pop() ?? id.id;
     return slugifyChatName(last);

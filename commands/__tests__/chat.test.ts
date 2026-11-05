@@ -1235,7 +1235,7 @@ describe("chat handle derivation — worktree fixtures", () => {
     const fallback = __test__.cwdRelativeHandle(brokenPath, root);
     expect(fallback).not.toBe("feature");
     expect(fallback).not.toBe(__test__.userHostHandle());
-    expect(fallback.length).toBeGreaterThan(0);
+    expect(fallback?.length).toBeGreaterThan(0);
   });
 
   test("resolveMainWorktreePath: a directory .git is its own main worktree", () => {
@@ -1262,7 +1262,64 @@ describe("chat handle derivation — worktree fixtures", () => {
 
   test("slugify never produces a name outside ^[a-z0-9._-]+$", () => {
     expect(__test__.slugify("Acme/Dev Gamma!!")).toMatch(/^[a-z0-9._-]+$/);
-    expect(__test__.slugify("   ")).toMatch(/^[a-z0-9._-]+$/);
+  });
+
+  test("slugify gives no name for a label with nothing usable in it", () => {
+    for (const label of ["", "   ", "---", "...", "///", "\u2733\u2733"]) expect(__test__.slugify(label)).toBeNull();
+  });
+
+  test("the filesystem root gives no cwd handle", () => {
+    expect(__test__.cwdRelativeHandle("/", root)).toBeNull();
+  });
+});
+
+describe("a caller rt has no name for", () => {
+  const atRoot = () => spyOn(process, "cwd").mockReturnValue("/");
+
+  test("rooms is refused at / and never reaches the daemon", async () => {
+    const cwd = atRoot();
+    try {
+      const { code, stdout, stderr } = await runChatRaw(["rooms", "--json"]);
+      expect(code).toBe(1);
+      expect(stdout).toBe("");
+      expect(stderr).toContain("rt chat has no name for you here");
+      expect(stderr).toContain("rt chat sign-in");
+      expect(seen).toEqual([]);
+    } finally {
+      cwd.mockRestore();
+    }
+  });
+
+  test("a write is refused too, so no identity called x can appear", async () => {
+    const cwd = atRoot();
+    try {
+      const { code } = await runChatRaw(["join", "lobby"]);
+      expect(code).toBe(1);
+      expect(seen).toEqual([]);
+    } finally {
+      cwd.mockRestore();
+    }
+  });
+
+  test("--as still names the caller at /", async () => {
+    const cwd = atRoot();
+    try {
+      expect(await runChat(["join", "lobby", "--as", "scout"])).toContain("joined #lobby as scout");
+    } finally {
+      cwd.mockRestore();
+    }
+  });
+
+  test("sign-in still works at /: it draws a name of its own", async () => {
+    const cwd = atRoot();
+    try {
+      const { code, stdout } = await runChatRaw(["sign-in", "--session", "root-session"]);
+      expect(code).toBe(0);
+      expect(stdout).toContain("signed in as");
+      expect(stdout).toContain("no room joined");
+    } finally {
+      cwd.mockRestore();
+    }
   });
 });
 

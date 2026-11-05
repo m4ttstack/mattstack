@@ -79,4 +79,9 @@ describe('isRoomForRepo', () => {
   test('without the repo identity, the suffix rule also matches an unrelated room', () => {
     expect(isRoomForRepo('acme-api', 'api')).toBe(true);
   });
+
+  test('a repo label with nothing usable in it matches no room', () => {
+    expect(isRoomForRepo('x', '---')).toBe(false);
+    expect(isRoomForRepo('acme-x', '---')).toBe(false);
+  });
 });
