@@ -27,7 +27,6 @@ import { AgentName, HandleAvatar } from './AgentName';
 import { useBuddies } from './buddies-context';
 import classes from './composer.module.css';
 import { doing, type DoingLine } from './doing';
-import { HUMAN_HANDLE } from './human';
 import { useSlackChat } from './slack-chats-context';
 import { StateDot, StateWord } from './StateDot';
 import { useAutoGrowTextarea } from './use-auto-grow-textarea';
@@ -72,8 +71,7 @@ export interface ComposerProps {
   /** The fleet, not the room -- same source `FleetTree` reads, so the
       popover can offer a DM to a buddy who has never joined this room. */
   buddies: ComposerBuddy[];
-  /** @default HUMAN_HANDLE (`./human`), the same single source every other
-      caller of the human's own handle reads. */
+  /** The viewer's own handle, from `/api/chat/me`. */
   humanHandle?: string;
   /** True inside a DM room: narrows the popover to the other participant
       and drops `@here` (there is nobody else to wake). @default false */
@@ -275,7 +273,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
       room,
       roomMembers,
       buddies,
-      humanHandle = HUMAN_HANDLE,
+      humanHandle = '',
       isDm = false,
       daemonReachable = true,
       phone = false,

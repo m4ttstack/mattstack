@@ -76,11 +76,10 @@ describe("fatal boot", () => {
   test("daemon status --json never claims 'running' while parked on a squatted API port, and does once it recovers", async () => {
     const { path: home, cleanup } = createTestHome();
     const bunDir = join(process.execPath, "..");
-    // A different port than the sibling test above, so parallel test files
-    // can never collide on the same bound TCP port.
-    const port = 9412;
     const rtDir = join(home, ".mattstack", "rt");
-    const squatter = Bun.serve({ port, hostname: "127.0.0.1", fetch: () => new Response("busy") });
+    // A free port, for the same reason as the test above.
+    const squatter = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("busy") });
+    const port = squatter.port!;
     let daemon: ReturnType<typeof Bun.spawn> | undefined;
     try {
       // `rt daemon status` short-circuits to "not installed" before it ever
