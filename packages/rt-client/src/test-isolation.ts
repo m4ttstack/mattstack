@@ -53,13 +53,11 @@ const TEST_FILE = /[._](test|spec)\.[cm]?[jt]sx?$/;
  * Which signal marks this process as a test run, or null outside one.
  * `bun test` sets NODE_ENV=test only when NODE_ENV is unset, so its entry
  * module (Bun.main is the running test file) is checked too. NODE_ENV also
- * marks a child a test spawned with the runner's env. The preload's forbid
- * list marks one too, for a shell that exported its own NODE_ENV.
+ * marks a child a test spawned with the runner's env.
  */
 export function testRunSignal(env: NodeJS.ProcessEnv, main: string | undefined): string | null {
   if (env.NODE_ENV === "test") return "NODE_ENV=test";
   if (env.VITEST !== undefined) return "VITEST set";
-  if (env.RT_TEST_FORBID_SOCKS !== undefined) return "RT_TEST_FORBID_SOCKS set";
   if (main !== undefined && TEST_FILE.test(main)) return `entry module ${main}`;
   return null;
 }
