@@ -250,7 +250,10 @@
 }
 
 /* The conversation a reply will go to, once a message has picked it. */
-/* Neutral, a step past the hover, so it sits with any theme colour. */
 .msg[data-picked] {
-  background-color: var(--ui-bg-4);
+  background-color: color-mix(
+    in srgb,
+    var(--mantine-color-cyan-filled) var(--tk-wash),
+    transparent
+  );
 }
