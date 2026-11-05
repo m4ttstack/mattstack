@@ -873,7 +873,7 @@ export function Board() {
 
   const handleAskDismiss = useCallback(
     (mr: BoardMRWithReview) => {
-      const req = bandDismissRequest(mr);
+      const req = bandDismissRequest(mr, seatRef.current);
       if (!req) return;
       postAction(req.path, req.body).then(result => {
         if (!result.ok) {
@@ -1150,9 +1150,9 @@ export function Board() {
   );
   const handleAskRetry = useCallback(
     (mr: BoardMRWithReview) => {
-      const action = bandRetryAction(mr);
+      const action = bandRetryAction(mr, seatRef.current);
       if (!action) return;
-      const settles = bandRetrySettles(mr);
+      const settles = bandRetrySettles(mr, seatRef.current);
       void runOne(action, mr, runner).then(result => {
         if (settles && result?.ok)
           void postAction(settles.path, settles.body).then(() => load());

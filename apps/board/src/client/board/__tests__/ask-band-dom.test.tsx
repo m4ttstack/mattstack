@@ -37,6 +37,7 @@ const mrWith = (sent?: Partial<SentNudgeInfo>): BoardMRWithReview =>
   ({
     iid: 1418,
     webUrl: 'https://gitlab.example.com/acme/webapp/-/merge_requests/1418',
+    author: { username: 'me', name: 'Me' },
     gates: [],
     ...(sent
       ? {
@@ -52,7 +53,7 @@ const mrWith = (sent?: Partial<SentNudgeInfo>): BoardMRWithReview =>
   }) as unknown as BoardMRWithReview;
 
 function ctx(over: Partial<RowContext> = {}): RowContext {
-  return { local: true, ...over } as RowContext;
+  return { local: true, self: 'me', ...over } as RowContext;
 }
 
 let container: HTMLElement;
