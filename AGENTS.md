@@ -158,6 +158,14 @@ The apps' packages under `packages/*` and `apps/*` are vitest or their own
 bun suites and are never in the unit dirs; run them with `bun run
 <app>:test` or `bun run check`.
 
+### Merge through the queue with `rt pr enqueue`
+
+`main` merges through a merge queue. Run `rt pr enqueue <number>` once a PR is
+approved and green, with `--head <sha>` to pin the commit that was reviewed.
+`gh pr merge` fails with "Auto merge is not allowed for this repository"
+whenever another PR is queued, and `--admin` cannot bypass the queue. A merge
+still needs Matt's confirmation.
+
 ### Run `bun test` from the repo root
 
 bun reads `bunfig.toml` only from the cwd, never a parent, so a run started
