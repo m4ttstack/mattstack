@@ -23,7 +23,7 @@ import {
   SUDOERS_PATH,
   sudoersInstallCommand,
 } from '../../core/proxy-restart.ts';
-import { setRoutePort } from '../../core/routes-writer.ts';
+import { setAppRoutesPort, setRoutePort } from '../../core/routes-writer.ts';
 import {
   clearOverride,
   clearPassword,
@@ -1051,7 +1051,11 @@ async function applyOverride(
   if (devPortRaw == null || devPortRaw === '') {
     const ov = getOverride(app);
     if (ov) {
-      setRoutePort(app, ov.basePort);
+      // An edit during the override re-aliases every TLD onto the dev port, so restoring only .localhost would strand the rest there.
+      setAppRoutesPort(app, ov.basePort, [
+        MATTSTACK_TLD,
+        ...getPlatformSettings().tlds,
+      ]);
       clearOverride(app);
       deps.onRouteWrite();
     }
