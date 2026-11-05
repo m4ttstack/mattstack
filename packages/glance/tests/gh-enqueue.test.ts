@@ -35,10 +35,36 @@ describe('mergePullRequest read-back', () => {
 describe('fetchMergeQueueStatus', () => {
   test('reads both flags for the pull request', async () => {
     const { provider, mutations } = providerWith({
-      repository: { pullRequest: { isMergeQueueEnabled: true, isInMergeQueue: false } }
+      repository: {
+        pullRequest: {
+          isMergeQueueEnabled: true,
+          isInMergeQueue: false,
+          state: 'OPEN',
+          timelineItems: { nodes: [{ createdAt: '2026-01-01T00:00:00Z', reason: 'failed_checks' }] }
+        }
+      }
     });
-    expect(await provider.fetchMergeQueueStatus('o/r', 5)).toEqual({ enabled: true, inQueue: false });
+    expect(await provider.fetchMergeQueueStatus('o/r', 5)).toEqual({
+      enabled: true,
+      inQueue: false,
+      merged: false,
+      lastRemoval: { at: '2026-01-01T00:00:00Z', reason: 'failed_checks' }
+    });
     expect(mutations[0]!.variables).toEqual({ owner: 'o', repo: 'r', number: 5 });
+  });
+
+  test('a merged pull request that never left a queue has no removal', async () => {
+    const { provider } = providerWith({
+      repository: {
+        pullRequest: { isMergeQueueEnabled: false, isInMergeQueue: false, state: 'MERGED', timelineItems: { nodes: [] } }
+      }
+    });
+    expect(await provider.fetchMergeQueueStatus('o/r', 5)).toEqual({
+      enabled: false,
+      inQueue: false,
+      merged: true,
+      lastRemoval: null
+    });
   });
 
   test('a missing pull request is a failure, not a repo with no queue', async () => {

@@ -565,6 +565,10 @@ export interface MergeQueueStatus {
   enabled: boolean;
   /** Whether this pull request is in that queue now. */
   inQueue: boolean;
+  /** Whether this pull request has merged. */
+  merged: boolean;
+  /** The last time it left the queue, or null if it never has. */
+  lastRemoval: { at: string; reason: string } | null;
 }
 
 export interface MergeQueueEntry {

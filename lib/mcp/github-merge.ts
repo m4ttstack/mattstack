@@ -3,13 +3,19 @@
  * daemon's provider context is GitLab-only, and it asks GitHub whether the PR
  * goes through a merge queue so callers never have to know.
  */
-import { GitHubProvider, ReadBackFailedError } from "@mattstack/glance";
+import { GitHubProvider, ReadBackFailedError, type MergeQueueStatus } from "@mattstack/glance";
 import { resolveGithubToken } from "../github-token.ts";
 import { loadSecrets } from "../linear.ts";
 import { parseIdentity } from "../settings/identity.ts";
 import { isRepoRegistered } from "../repo-index.ts";
+import { abortableSleep } from "./ci-tools.ts";
 import { registeredIdentityForUrl, resolveMrTarget, resolveRepoTarget, type TargetInput } from "./mr-target.ts";
 import { err, ok, type ToolResult } from "./shared.ts";
+
+export const MERGE_WAIT_DEFAULT_SECONDS = 1500;
+// Below Claude Code's 1800 s MCP idle timeout, for a client that sends no progress token.
+export const MERGE_WAIT_MAX_SECONDS = 1500;
+const MERGE_WAIT_POLL_MS = 20_000;
 
 const GITHUB_HOST = "https://github.com";
 const GITHUB_ID_PREFIX = "github.com/";
@@ -23,6 +29,51 @@ export interface GithubMergeOptions {
   squash?: boolean;
   removeSourceBranch?: boolean;
   whenPipelineSucceeds?: boolean;
+  /** Hold until a queued PR lands or is dropped. */
+  wait?: boolean;
+  /** Enter the queue again after a drop. */
+  requeue?: boolean;
+  maxWaitSeconds?: number;
+}
+
+export interface GithubMergeSeams {
+  provider?: () => Promise<GithubMergeProvider | null>;
+  now?: () => number;
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+  signal?: AbortSignal;
+  progress?: () => void;
+}
+
+function droppedResult(removal: NonNullable<MergeQueueStatus["lastRemoval"]>): ToolResult {
+  return ok({ dropped: true, reason: removal.reason, at: removal.at });
+}
+
+/** A removal that predates this wait says nothing about it, and GitHub can report a just-queued PR as out of the queue for a moment. */
+async function waitForQueue(
+  github: GithubMergeProvider,
+  target: GithubTarget,
+  priorRemovalAt: string | undefined,
+  maxWaitSeconds: number,
+  seams: Required<Pick<GithubMergeSeams, "now" | "sleep">> & Pick<GithubMergeSeams, "signal" | "progress">,
+): Promise<ToolResult> {
+  const deadline = seams.now() + maxWaitSeconds * 1000;
+  let lastError: string | undefined;
+  while (seams.now() < deadline && !seams.signal?.aborted) {
+    await seams.sleep(Math.min(MERGE_WAIT_POLL_MS, deadline - seams.now()), seams.signal);
+    if (seams.signal?.aborted) break;
+    seams.progress?.();
+    try {
+      const status = await github.fetchMergeQueueStatus(target.projectPath, target.iid);
+      lastError = undefined;
+      if (status.merged) return ok({ merged: true });
+      const removal = status.lastRemoval;
+      if (removal?.reason === "merged") return ok({ merged: true });
+      if (!status.inQueue && removal && removal.at !== priorRemovalAt) return droppedResult(removal);
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : String(e);
+    }
+  }
+  return ok({ queued: true, timedOut: true, ...(lastError && { lastError }) });
 }
 
 function githubProject(identity: string): string | null {
@@ -66,19 +117,28 @@ async function realProvider(): Promise<GithubMergeProvider | null> {
 export async function mergeOnGitHub(
   target: GithubTarget,
   options: GithubMergeOptions,
-  provider: () => Promise<GithubMergeProvider | null> = realProvider,
+  seams: GithubMergeSeams = {},
 ): Promise<ToolResult> {
   const { projectPath, iid } = target;
+  const clock = { now: seams.now ?? Date.now, sleep: seams.sleep ?? abortableSleep, signal: seams.signal, progress: seams.progress };
+  const maxWait = options.maxWaitSeconds ?? MERGE_WAIT_DEFAULT_SECONDS;
   try {
-    const github = await provider();
+    const github = await (seams.provider ?? realProvider)();
     if (!github) return err("no GitHub token (run: gh auth login)");
     const queue = await github.fetchMergeQueueStatus(projectPath, iid);
+    if (queue.merged || queue.lastRemoval?.reason === "merged") return ok({ merged: true });
     if (queue.enabled) {
       if (options.squash !== undefined || options.removeSourceBranch !== undefined || options.whenPipelineSucceeds !== undefined) {
         return err(`#${iid} goes through a merge queue, which applies its own merge settings and waits for checks itself, so squash, removeSourceBranch and whenPipelineSucceeds cannot apply; call mr_merge without them`);
       }
-      if (queue.inQueue) return ok({ queued: true, alreadyQueued: true });
+      const priorRemovalAt = queue.lastRemoval?.at;
+      if (queue.inQueue) {
+        if (options.wait) return await waitForQueue(github, target, priorRemovalAt, maxWait, clock);
+        return ok({ queued: true, alreadyQueued: true });
+      }
+      if (queue.lastRemoval && !options.requeue) return droppedResult(queue.lastRemoval);
       const entry = await github.enqueuePullRequest(projectPath, iid);
+      if (options.wait) return await waitForQueue(github, target, priorRemovalAt, maxWait, clock);
       return ok({ queued: true, position: entry.position, state: entry.state });
     }
     if (options.whenPipelineSucceeds === true) {
