@@ -181,5 +181,7 @@ environment, real HOME included (pass `childEnv()` from `lib/subprocess.ts`).
 seam refuse a test-run write into the account's real `~/.mattstack` settings
 stores (`packages/rt-client/src/test-isolation.ts`). A test run also throws
 on the account's own `state.db` and `rt.sock`, preload or not, so a chat
-fixture can't reach the live database through the daemon. Nothing guards the
+fixture can't reach the live database through the daemon. A child counts as a
+test run through `NODE_ENV=test`, so one whose env sets it to anything else
+escapes this. Nothing guards the
 rest of `~/.mattstack` (other databases, logs, runtime files) the same way.
