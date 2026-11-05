@@ -823,7 +823,7 @@ test('a feed draws one line where the conversation changes, and none within it',
   );
   expect(screen.getAllByTestId('direct-separator')).toHaveLength(1);
   expect(
-    screen.getByTestId('message-3').previousElementSibling
+    screen.getByTestId('direct-block-dm-b').previousElementSibling
   ).toHaveAttribute('data-testid', 'direct-separator');
 });
 
@@ -838,9 +838,12 @@ test('a click picks the message’s conversation and tints all of it', () => {
   );
   fireEvent.click(screen.getByText('m3'));
   expect(onPick).toHaveBeenCalledWith('dm-b');
-  expect(screen.getByTestId('message-1')).toHaveAttribute('data-picked');
-  expect(screen.getByTestId('message-2')).toHaveAttribute('data-picked');
-  expect(screen.getByTestId('message-3')).not.toHaveAttribute('data-picked');
+  expect(screen.getByTestId('direct-block-dm-a')).toHaveAttribute(
+    'data-picked'
+  );
+  expect(screen.getByTestId('direct-block-dm-b')).not.toHaveAttribute(
+    'data-picked'
+  );
 });
 
 test('a feed pages older from its own url', async () => {

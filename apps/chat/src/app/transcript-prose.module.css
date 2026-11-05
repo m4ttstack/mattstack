@@ -232,34 +232,30 @@
   padding: 0 3px;
 }
 
-/* Messages to you: where one conversation ends and the next begins. */
-/* Edge to edge with no margin, so a hover or pick tint ends on the line. */
-.blockLine {
-  height: 1px;
-  background: var(--tk-border);
-}
-
-/* In Messages to you a click aims the reply, so a conversation answers the
-   pointer as a whole, as a Slack message does. */
-.msg[data-pickable] {
+/* Messages to you: a conversation is a box inside the column. It answers the
+   pointer as a whole, since a click aims the reply at it. The rows give up as
+   much side padding as the box sits in, so faces keep their column. */
+.block {
+  margin: 0 8px;
+  padding: 8px 0;
+  border-radius: var(--mantine-radius-md);
   cursor: pointer;
 }
 
-.msg[data-hovered] {
+.block .msg {
+  padding-inline: 12px 16px;
+}
+
+.block:hover {
   background-color: var(--mantine-color-default-hover);
 }
 
-/* The conversation a reply will go to, once a message has picked it. */
-.msg[data-picked] {
+.block[data-picked] {
   background-color: color-mix(in srgb, var(--tk-text-1) 7%, transparent);
 }
 
-/* A conversation carries its own room, at the list's ends too, so a tint
-   still meets the line between two of them. */
-.msg[data-run-start] {
-  padding-top: 32px;
-}
-
-.msg[data-run-end] {
-  padding-bottom: 32px;
+.blockLine {
+  height: 1px;
+  margin: 6px 20px;
+  background: var(--tk-border-soft);
 }

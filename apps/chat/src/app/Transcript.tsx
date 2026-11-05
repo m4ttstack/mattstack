@@ -253,33 +253,15 @@ function MessageRow({
   humanHandle,
   compact,
   grouped,
-  picked,
-  hovered,
-  runStart,
-  runEnd,
   dated,
-  onPick,
-  onHover,
 }: {
   message: ChatMessage;
   humanHandle: string | undefined;
   compact: boolean;
   grouped: boolean;
-  picked: boolean;
-  hovered: boolean;
-  runStart: boolean;
-  runEnd: boolean;
   /** No day lines around it, so the row names its own day. */
   dated: boolean;
-  onPick?: (room: string) => void;
-  onHover?: () => void;
 }) {
-  // A click that selected text, or landed on a link, was not a pick.
-  const pick = (event: MouseEvent<HTMLDivElement>) => {
-    if (window.getSelection()?.toString()) return;
-    if ((event.target as HTMLElement).closest('a, button')) return;
-    onPick?.(message.room);
-  };
   const time = (
     <Text
       component="span"
@@ -318,13 +300,6 @@ function MessageRow({
       data-testid={`message-${message.id}`}
       className={prose.msg}
       data-grouped={grouped || undefined}
-      data-picked={picked || undefined}
-      data-hovered={hovered || undefined}
-      data-run-start={runStart || undefined}
-      data-run-end={runEnd || undefined}
-      data-pickable={onPick ? true : undefined}
-      onClick={onPick ? pick : undefined}
-      onMouseEnter={onHover}
     >
       {compact ? (
         <div className={prose.content}>
@@ -445,7 +420,6 @@ export function Transcript({
   const [olderExhausted, setOlderExhausted] = useState(false);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const [newSinceAway, setNewSinceAway] = useState(0);
-  const [hoveredRun, setHoveredRun] = useState<number>();
   const scrollBoxRef = useRef<HTMLDivElement>(null);
   const columnRef = useRef<HTMLDivElement>(null);
   // Set before an older page is prepended; consumed once the DOM has the
@@ -670,13 +644,12 @@ export function Transcript({
   }
   loadOlderRef.current = () => void loadOlder();
 
-  // A conversation hovers as one, so each message knows where its run began.
-  const shown = feed ? blocksByLatest(messages) : messages;
-  let runStart = 0;
-  const runs = shown.map((message, i) => {
-    if (message.room !== shown[i - 1]?.room) runStart = i;
-    return runStart;
-  });
+  // A click that selected text, or landed on a link, was not a pick.
+  const pickBlock = (event: MouseEvent<HTMLDivElement>, blockRoom: string) => {
+    if (window.getSelection()?.toString()) return;
+    if ((event.target as HTMLElement).closest('a, button')) return;
+    feed?.onPick(blockRoom);
+  };
 
   const list = (
     <Box
@@ -704,7 +677,7 @@ export function Transcript({
           feed &&
           (event => {
             const target = event.target as HTMLElement;
-            if (!target.closest(`.${prose.msg}, a, button`)) {
+            if (!target.closest(`.${prose.block}, a, button`)) {
               feed.onPick(undefined);
             }
           })
@@ -737,50 +710,66 @@ export function Transcript({
                 />
               )}
 
-              <Stack gap={0} onMouseLeave={() => setHoveredRun(undefined)}>
-                {shown.map((message, i) => (
-                  <Fragment key={message.id}>
-                    {feed && i > 0 && shown[i - 1]!.room !== message.room && (
-                      <div
-                        className={prose.blockLine}
-                        data-testid="direct-separator"
-                      />
-                    )}
-                    {feed ? null : i === 0 && olderExhausted ? (
-                      <Marker
-                        icon="history"
-                        label={startLabel(message.postedAt)}
-                        testId="transcript-start"
-                      />
-                    ) : (
-                      (i === 0 ||
-                        dayKey(shown[i - 1]!.postedAt) !==
-                          dayKey(message.postedAt)) && (
-                        <Marker
-                          icon="calendar"
-                          label={dayLabel(message.postedAt)}
-                          testId="day-divider"
+              <Stack gap={0}>
+                {feed
+                  ? blocksByLatest(messages).map((block, b) => {
+                      const blockRoom = block[0]!.room;
+                      return (
+                        <Fragment key={blockRoom}>
+                          {b > 0 && (
+                            <div
+                              className={prose.blockLine}
+                              data-testid="direct-separator"
+                            />
+                          )}
+                          <div
+                            className={prose.block}
+                            data-testid={`direct-block-${blockRoom}`}
+                            data-picked={feed.picked === blockRoom || undefined}
+                            onClick={event => pickBlock(event, blockRoom)}
+                          >
+                            {block.map((message, i) => (
+                              <MessageRow
+                                key={message.id}
+                                message={message}
+                                humanHandle={humanHandle}
+                                compact={compact}
+                                grouped={continuesGroup(block[i - 1], message)}
+                                dated
+                              />
+                            ))}
+                          </div>
+                        </Fragment>
+                      );
+                    })
+                  : messages.map((message, i) => (
+                      <Fragment key={message.id}>
+                        {i === 0 && olderExhausted ? (
+                          <Marker
+                            icon="history"
+                            label={startLabel(message.postedAt)}
+                            testId="transcript-start"
+                          />
+                        ) : (
+                          (i === 0 ||
+                            dayKey(messages[i - 1]!.postedAt) !==
+                              dayKey(message.postedAt)) && (
+                            <Marker
+                              icon="calendar"
+                              label={dayLabel(message.postedAt)}
+                              testId="day-divider"
+                            />
+                          )
+                        )}
+                        <MessageRow
+                          message={message}
+                          humanHandle={humanHandle}
+                          compact={compact}
+                          grouped={continuesGroup(messages[i - 1], message)}
+                          dated={false}
                         />
-                      )
-                    )}
-                    <MessageRow
-                      message={message}
-                      humanHandle={humanHandle}
-                      compact={compact}
-                      grouped={continuesGroup(shown[i - 1], message)}
-                      picked={feed?.picked === message.room}
-                      hovered={feed !== undefined && hoveredRun === runs[i]}
-                      dated={feed !== undefined}
-                      runStart={feed !== undefined && runs[i] === i}
-                      runEnd={
-                        feed !== undefined &&
-                        shown[i + 1]?.room !== message.room
-                      }
-                      onPick={feed?.onPick}
-                      onHover={feed && (() => setHoveredRun(runs[i]))}
-                    />
-                  </Fragment>
-                ))}
+                      </Fragment>
+                    ))}
               </Stack>
               {!loading && messages.length === 0 && empty}
               {slack?.closedAt !== undefined && (

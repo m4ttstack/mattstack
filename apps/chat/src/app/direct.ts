@@ -45,14 +45,12 @@ export function waitingCount(
     splitting it. Takes the list in time order. */
 export function blocksByLatest(
   messages: readonly ChatMessage[]
-): ChatMessage[] {
+): ChatMessage[][] {
   const blocks = new Map<string, ChatMessage[]>();
   for (const message of messages) {
     const block = blocks.get(message.room);
     if (block) block.push(message);
     else blocks.set(message.room, [message]);
   }
-  return [...blocks.values()]
-    .sort((a, b) => a.at(-1)!.id - b.at(-1)!.id)
-    .flat();
+  return [...blocks.values()].sort((a, b) => a.at(-1)!.id - b.at(-1)!.id);
 }
