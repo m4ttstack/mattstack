@@ -14,6 +14,8 @@
 #                                                         # resolves against the
 #                                                         # caller's cwd, not
 #                                                         # this script's dir.
+#   --universal   also assert every binary carries arm64 and x86_64, and run
+#                 rt's Intel slice under Rosetta (the release passes it)
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ORIG_PWD="$(pwd)"
@@ -582,6 +584,37 @@ check_sparkle() { # app
 }
 check_sparkle "$PROD"
 [ -n "$DEV" ] && check_sparkle "$DEV"
+
+# ─── Universal: every binary runs on Apple silicon and Intel ────────────────
+# Opt-in like --notarized: the release passes --universal, so a binary that
+# lost its Intel slice fails here instead of on an Intel Mac.
+check_universal() { # app
+    local app="$1" exe f archs total=0 thin=0 first=""
+    exe="$(plist "$app/Contents/Info.plist" CFBundleExecutable)"
+    while IFS= read -r -d '' f; do
+        file -b "$f" | grep -q "Mach-O" || continue
+        total=$((total + 1))
+        archs="$(lipo -archs "$f" 2>/dev/null)"
+        case " $archs " in *" arm64 "*) case " $archs " in *" x86_64 "*) continue ;; esac ;; esac
+        thin=$((thin + 1)); [ -n "$first" ] || first="${f#"$app"/} ($archs)"
+    done < <(find "$app" -type f -print0)
+    [ "$total" -gt 0 ] || { fail "$exe: no Mach-O files found to check"; return; }
+    [ "$thin" -eq 0 ] \
+        && pass "$exe: all $total binaries carry arm64 and x86_64" \
+        || fail "$exe: $thin of $total binaries lack arm64 or x86_64, first: $first"
+    local home out
+    home="$(mktemp -d)"; CLEANUP+=("$home")
+    if ! arch -x86_64 /usr/bin/true 2>/dev/null; then
+        fail "$exe: Rosetta is not installed, so the Intel slice of rt cannot be run here"
+    elif out="$(env -i HOME="$home" PATH=/usr/bin:/bin arch -x86_64 "$app/Contents/MacOS/rt" --version 2>&1)"; then
+        pass "$exe: rt's Intel slice runs ($(printf '%s' "$out" | head -1))"
+    else
+        fail "$exe: rt's Intel slice failed: $(printf '%s' "$out" | head -1)"
+    fi
+}
+UNIVERSAL=false
+for arg in "$@"; do [ "$arg" = "--universal" ] && UNIVERSAL=true; done
+$UNIVERSAL && check_universal "$PROD"
 
 # ─── Dev shim exit-code contract ────────────────────────────────────────────
 # Config source is state.db (RT-48/MAT-383 §9: kv table, ns='dev-mode',

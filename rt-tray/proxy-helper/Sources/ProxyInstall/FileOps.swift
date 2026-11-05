@@ -51,10 +51,6 @@ protocol FileOps {
     /// nil when the path does not exist. Never follows a final symlink.
     func stat(_ path: URL) throws -> PathStat?
     func mkdir(_ path: URL) throws
-    /// mkdir(2) at mode 0700: one level, and a refusal when anything at all is
-    /// already at `path`, a symlink included. What root writes inside it
-    /// nobody else can reach, swap or read before root is done with it.
-    func makePrivateDirectory(_ path: URL) throws
     /// Copies a file or a directory tree. A symlink is copied as a symlink, so
     /// the staged copy still reports one to stat.
     func copyItem(from: URL, to: URL) throws
@@ -178,12 +174,6 @@ struct RealFileOps: FileOps {
 
     func mkdir(_ path: URL) throws {
         try fm.createDirectory(at: path, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o755])
-    }
-
-    func makePrivateDirectory(_ path: URL) throws {
-        guard Darwin.mkdir(path.path, 0o700) == 0 else {
-            throw ProxyInstallError("mkdir(\(path.path)): \(String(cString: strerror(errno)))")
-        }
     }
 
     func copyItem(from: URL, to: URL) throws { try fm.copyItem(at: from, to: to) }

@@ -15,7 +15,7 @@ import type { RelayClient } from "../../team/relay-client.ts";
 import type { TeamSnapshot } from "../team-settings.ts";
 import { runApplyWith, type ApplyContext, type StepDef, type StepOutcome } from "../apply.ts";
 import type { ApplyEvent } from "../contract.ts";
-import { readSetupState, updateSetupState } from "../state.ts";
+import { readSetupState, setupStatePath, updateSetupState } from "../state.ts";
 import { STEPS } from "../steps/index.ts";
 import { writePlacement } from "../repo-placement.ts";
 import type { SetupIntent } from "../intent.ts";
@@ -103,8 +103,6 @@ function detailOf(outcome: StepOutcome): string | undefined {
 // only their own `exists`/`readFile` calls are injectable — so a "tool is
 // bundled" test needs a real temp bundle root, not just fakeProbes state.
 
-/** With brew present, proxy.install asks for the proxy alone; the Homebrew tests drop it. */
-const BREW = "/opt/homebrew/bin/brew";
 
 function lockTool(name: string, sha: string) {
   return { name, version: "0.1.0", license: "MIT", url: `https://x/${name}.tgz`, sha256: sha.repeat(64), archive: "raw", extract: "", bundlePath: `${HELPERS_DIR}/${name}`, exec: [`${HELPERS_DIR}/${name}`], exposeByDefault: true, entitlements: "none", status: "bundled", kind: "helper" };
@@ -251,7 +249,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
   describe("proxy.install", () => {
     test("requests the privileged proxy-install op; ok reply -> done", async () => {
       let captured: unknown;
-      const { ctx } = makeCtx(fakeProbes({ home, files: { [BREW]: "bin" } }), {
+      const { ctx } = makeCtx(fakeProbes({ home }), {
         need: async (id, request) => {
           captured = request;
           return { ok: true, detail: "proxy installed" };
@@ -357,7 +355,6 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const p = fakeProbes({
         home,
         files: {
-          [BREW]: "bin",
           [PORTLESS_LAUNCHD_PLIST]: "<plist/>",
           [PROXY_VERSION_PATH]: "0.15.6\n",
           [join(home, ".portless", "ca.pem")]: "-----BEGIN CERTIFICATE-----",
@@ -384,7 +381,6 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
         overrides: {
           files: {
             [join(appRoot, "Contents/Helpers/mattstack-proxy-install")]: "bin",
-            [BREW]: "bin",
             [PORTLESS_LAUNCHD_PLIST]: "<plist/>",
           },
         },
@@ -412,7 +408,6 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
         overrides: {
           files: {
             [join(appRoot, "Contents/Helpers/mattstack-proxy-install")]: "bin",
-            [BREW]: "bin",
             [PORTLESS_LAUNCHD_PLIST]: "<plist/>",
             [PROXY_VERSION_PATH]: "0.15.6\n",
           },
@@ -440,7 +435,6 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
         overrides: {
           files: {
             [join(appRoot, "Contents/Helpers/mattstack-proxy-install")]: "bin",
-            [BREW]: "bin",
             [PORTLESS_LAUNCHD_PLIST]: "<plist/>",
             [PROXY_VERSION_PATH]: "0.1.0\n",
             [join(home, ".portless", "ca.pem")]: "-----BEGIN CERTIFICATE-----",
@@ -484,7 +478,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const ca = join(home, ".portless", "ca.pem");
       const p = fakeProbes({
         home,
-        files: { [BREW]: "bin", [PORTLESS_LAUNCHD_PLIST]: "<plist/>", [PROXY_VERSION_PATH]: "0.15.6\n", [ca]: "-----BEGIN CERTIFICATE-----" },
+        files: { [PORTLESS_LAUNCHD_PLIST]: "<plist/>", [PROXY_VERSION_PATH]: "0.15.6\n", [ca]: "-----BEGIN CERTIFICATE-----" },
         exec: async (argv) => ({ code: argv[0] === "security" ? 1 : 0, stdout: "", stderr: "" }),
       });
       let captured: unknown;
@@ -504,7 +498,6 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const p = fakeProbes({
         home,
         files: {
-          [BREW]: "bin",
           [PORTLESS_LAUNCHD_PLIST]: "<plist/>",
           [PROXY_VERSION_PATH]: "0.15.6\n",
           [join(home, ".portless", "ca.pem")]: "-----BEGIN CERTIFICATE-----",
@@ -525,7 +518,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
     test("installed at the pinned version but the CA never appeared: still raises the trust op", async () => {
       const p = fakeProbes({
         home,
-        files: { [BREW]: "bin", [PORTLESS_LAUNCHD_PLIST]: "<plist/>", [PROXY_VERSION_PATH]: "0.15.6\n" },
+        files: { [PORTLESS_LAUNCHD_PLIST]: "<plist/>", [PROXY_VERSION_PATH]: "0.15.6\n" },
       });
       let captured: unknown;
       const { ctx } = makeCtx(p, {
@@ -577,7 +570,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
     });
   });
 
-  describe("proxy.install and Homebrew", () => {
+  describe("proxy.install prompts", () => {
     const trusted = async () => ({ code: 0, stdout: "", stderr: "" });
 
     function proxyInPlace(files: Record<string, string> = {}): ReturnType<typeof fakeProbes> {
@@ -604,127 +597,53 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       };
     }
 
-    test("a fresh install asks for Homebrew in the same prompt when brew is missing", async () => {
-      const { need, requests } = capture("copy: ok\nMATTSTACK_TRUST=ok\nMATTSTACK_HOMEBREW=ok");
-      await proxyInstallStep.run(makeCtx(fakeProbes({ home }), { need }).ctx);
-      expect(requests).toStrictEqual([{ type: "app-privileged", op: "proxy-install", homebrew: true }]);
-    });
-
-    test("with brew present the install asks for the proxy alone", async () => {
+    test("a fresh install asks for the proxy alone", async () => {
       const { need, requests } = capture("copy: ok\nMATTSTACK_TRUST=ok");
-      await proxyInstallStep.run(makeCtx(fakeProbes({ home, files: { [BREW]: "bin" } }), { need }).ctx);
+      await proxyInstallStep.run(makeCtx(fakeProbes({ home }), { need }).ctx);
       expect(requests).toStrictEqual([{ type: "app-privileged", op: "proxy-install" }]);
     });
 
-    test("an untrusted proxy without brew asks for both in the trust prompt", async () => {
+    test("an untrusted proxy asks for the trust prompt alone", async () => {
       const p = fakeProbes({
         home,
         files: { [PORTLESS_LAUNCHD_PLIST]: "<plist/>", [PROXY_VERSION_PATH]: "0.15.6\n", [join(home, ".portless", "ca.pem")]: "-----BEGIN CERTIFICATE-----" },
         exec: async (argv) => ({ code: argv[0] === "security" ? 1 : 0, stdout: "", stderr: "" }),
       });
-      const { need, requests } = capture("trust: ok\nMATTSTACK_TRUST=ok\nMATTSTACK_HOMEBREW=ok");
+      const { need, requests } = capture("trust: ok\nMATTSTACK_TRUST=ok");
       await proxyInstallStep.run(makeCtx(p, { need }).ctx);
-      expect(requests).toStrictEqual([{ type: "app-privileged", op: "proxy-trust", homebrew: true }]);
-    });
-
-    // The P1 row offers Allow in exactly this state, so answering "Already
-    // installed" here would leave a button that does nothing, forever.
-    test("an installed, current, trusted proxy without brew asks for Homebrew only", async () => {
-      const p = proxyInPlace();
-      const { need, requests } = capture("homebrew: ok\nMATTSTACK_HOMEBREW=ok");
-      const outcome = await proxyInstallStep.run(makeCtx(p, { need }).ctx);
-      expect(requests).toStrictEqual([{ type: "app-privileged", op: "homebrew" }]);
-      expect(outcome.state).toBe("done");
-      expect(outcome.detail).not.toBe("Already installed");
-      expect(readSetupState(p).homebrew?.outcome).toBe("ok");
+      expect(requests).toStrictEqual([{ type: "app-privileged", op: "proxy-trust" }]);
     });
 
     test("everything in place raises no prompt", async () => {
       const { need, requests } = capture("");
-      const outcome = await proxyInstallStep.run(makeCtx(proxyInPlace({ [BREW]: "bin" }), { need }).ctx);
+      const outcome = await proxyInstallStep.run(makeCtx(proxyInPlace(), { need }).ctx);
       expect(requests).toEqual([]);
       expect(outcome).toEqual({ state: "done", detail: "Already installed" });
     });
 
-    test("a Homebrew failure keeps the step done and says so", async () => {
-      const { need } = capture("copy: ok\nMATTSTACK_TRUST=ok\nMATTSTACK_HOMEBREW=failed");
-      const outcome = await proxyInstallStep.run(makeCtx(fakeProbes({ home }), { need }).ctx);
-      expect(outcome.state).toBe("done");
-      expect(outcome.detail?.startsWith("Homebrew did not install")).toBe(true);
-      expect(outcome.detail).toContain("copy: ok");
-    });
-
-    test("the Homebrew outcome is recorded", async () => {
-      const p = fakeProbes({ home });
-      const { need } = capture("copy: ok\nMATTSTACK_TRUST=ok\nMATTSTACK_HOMEBREW=failed");
-      await proxyInstallStep.run(makeCtx(p, { need }).ctx);
-      expect(readSetupState(p).homebrew?.outcome).toBe("failed");
-    });
-
-    test("a reply with no Homebrew line records a failure", async () => {
-      const p = fakeProbes({ home });
-      const { need } = capture("copy: ok\nMATTSTACK_TRUST=ok");
-      await proxyInstallStep.run(makeCtx(p, { need }).ctx);
-      expect(readSetupState(p).homebrew).toMatchObject({ outcome: "failed", detail: "The helper did not report on Homebrew" });
-    });
-
-    test("a cancelled prompt records nothing, so the next Allow asks again", async () => {
-      const p = fakeProbes({ home });
-      const { ctx } = makeCtx(p, { need: async () => ({ ok: false, detail: "admin prompt cancelled" }) });
-      expect((await proxyInstallStep.run(ctx)).state).toBe("failed");
-      expect(readSetupState(p).homebrew).toBeUndefined();
-    });
-
-    // For op homebrew the proxy is already fine, so a cancel is the person
-    // declining Homebrew. Unrecorded, Retry would raise the same dialog forever.
-    test("a cancelled Homebrew-only prompt records the decline and never asks again", async () => {
-      const p = proxyInPlace();
-      const { ctx } = makeCtx(p, { need: async () => ({ ok: false, detail: "User cancelled" }) });
-      expect((await proxyInstallStep.run(ctx)).state).toBe("failed");
-      expect(readSetupState(p).homebrew).toMatchObject({ outcome: "failed", detail: "User cancelled" });
-
+    // A Mac set up by an older build can carry a homebrew record in setup state.
+    test("a stale homebrew record in setup state raises no prompt", async () => {
+      const p = proxyInPlace({ [setupStatePath(home)]: JSON.stringify({ v: 2, homebrew: { at: "2026-10-30T00:00:00.000Z", outcome: "failed" } }) });
       const { need, requests } = capture("");
-      expect((await proxyInstallStep.run(makeCtx(p, { need }).ctx)).state).toBe("done");
+      expect(await proxyInstallStep.run(makeCtx(p, { need }).ctx)).toEqual({ state: "done", detail: "Already installed" });
       expect(requests).toEqual([]);
     });
 
-    test("an app with no route for the combined install fails at once and records nothing", async () => {
-      const p = fakeProbes({ home });
-      const { ctx } = makeCtx(p, { need: async (_id, request) => (await askAppDirectly(fakeTray({}), request))! });
+    test("an app with no route for the install fails at once", async () => {
+      const { ctx } = makeCtx(fakeProbes({ home }), { need: async (_id, request) => (await askAppDirectly(fakeTray({}), request))! });
       expect((await proxyInstallStep.run(ctx)).state).toBe("failed");
-      expect(readSetupState(p).homebrew).toBeUndefined();
     });
 
-    test("an app with no Homebrew route fails at once and records nothing", async () => {
-      const p = proxyInPlace();
-      const { ctx } = makeCtx(p, { need: async (_id, request) => (await askAppDirectly(fakeTray({}), request))! });
-      expect((await proxyInstallStep.run(ctx)).state).toBe("failed");
-      expect(readSetupState(p).homebrew).toBeUndefined();
-    });
-
-    // An unattended run never reached a person, so the attended Retry must still ask.
-    test("an unattended pause records nothing about Homebrew, on either prompt", async () => {
-      for (const p of [fakeProbes({ home }), proxyInPlace()]) {
+    test("an unattended pause fails with the Retry remedy, on either prompt", async () => {
+      const untrusted = fakeProbes({
+        home,
+        files: { [PORTLESS_LAUNCHD_PLIST]: "<plist/>", [PROXY_VERSION_PATH]: "0.15.6\n", [join(home, ".portless", "ca.pem")]: "-----BEGIN CERTIFICATE-----" },
+        exec: async (argv) => ({ code: argv[0] === "security" ? 1 : 0, stdout: "", stderr: "" }),
+      });
+      for (const p of [fakeProbes({ home }), untrusted]) {
         const { ctx } = makeCtx(p, { need: async () => "unattended" });
         expect(await proxyInstallStep.run(ctx)).toMatchObject({ state: "failed", remedy: "Press Retry and answer the macOS prompt" });
-        expect(readSetupState(p).homebrew).toBeUndefined();
       }
-    });
-
-    test("a request without Homebrew records nothing", async () => {
-      const p = fakeProbes({ home, files: { [BREW]: "bin" } });
-      const { need } = capture("copy: ok\nMATTSTACK_TRUST=ok");
-      await proxyInstallStep.run(makeCtx(p, { need }).ctx);
-      expect(readSetupState(p).homebrew).toBeUndefined();
-    });
-
-    test("a recorded attempt never asks for Homebrew again", async () => {
-      const p = proxyInPlace();
-      updateSetupState(p, (s) => ({ ...s, homebrew: { at: "2026-10-30T00:00:00.000Z", outcome: "failed" } }));
-      const { need, requests } = capture("");
-      const outcome = await proxyInstallStep.run(makeCtx(p, { need }).ctx);
-      expect(requests).toEqual([]);
-      expect(outcome.state).toBe("done");
     });
   });
 

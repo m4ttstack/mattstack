@@ -228,13 +228,7 @@ describe("askAppDirectly", () => {
     expect(await askAppDirectly(tray, { type: "app-privileged", op: "proxy-trust" })).toEqual({ ok: false, detail: "declined" });
   });
 
-  test("op homebrew posts to its own privileged route", async () => {
-    const tray = fakeTray({ "POST /privileged/homebrew": () => ({ status: 200, json: { ok: true, detail: "MATTSTACK_HOMEBREW=ok" } }) });
-
-    expect(await askAppDirectly(tray, { type: "app-privileged", op: "homebrew" })).toEqual({ ok: true, detail: "MATTSTACK_HOMEBREW=ok" });
-  });
-
-  test("the homebrew flag rides the install and trust routes' body, and is absent when not asked", async () => {
+  test("the install and trust routes post no body", async () => {
     const bodies: Record<string, unknown> = {};
     const tray = fakeTray({
       "POST /privileged/proxy-install": (body) => {
@@ -247,22 +241,9 @@ describe("askAppDirectly", () => {
       },
     });
 
-    await askAppDirectly(tray, { type: "app-privileged", op: "proxy-install", homebrew: true });
-    await askAppDirectly(tray, { type: "app-privileged", op: "proxy-trust", homebrew: true });
-    expect(bodies).toEqual({ install: { homebrew: true }, trust: { homebrew: true } });
-
     await askAppDirectly(tray, { type: "app-privileged", op: "proxy-install" });
-    expect(bodies.install).toBeUndefined();
-  });
-
-  test("an app that serves no homebrew route fails at once, marked as never done", async () => {
-    const tray = fakeTray({});
-
-    expect(await askAppDirectly(tray, { type: "app-privileged", op: "homebrew" })).toEqual({
-      ok: false,
-      unserved: true,
-      detail: "mattstack.app answered /privileged/homebrew with status 404",
-    });
+    await askAppDirectly(tray, { type: "app-privileged", op: "proxy-trust" });
+    expect(bodies).toEqual({ install: undefined, trust: undefined });
   });
 
   test("a request the app serves no route for is left to the need protocol", async () => {
@@ -295,7 +276,6 @@ describe("askAppDirectly", () => {
 
     expect(await askAppDirectly(tray, { type: "app-privileged", op: "proxy-install" })).toEqual({
       ok: false,
-      unserved: true,
       detail: "mattstack.app answered /privileged/proxy-install with status 500",
     });
   });

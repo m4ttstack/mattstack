@@ -17,7 +17,7 @@ function deps(json?: (v: unknown) => void) {
   const installed: string[] = [];
   const install: typeof installTool = async (_p, tool) => {
     installed.push(tool);
-    return { via: "brew", ok: true, detail: "ok" };
+    return { via: "download", ok: true, detail: "ok" };
   };
   const d: PrepareDeps = {
     probes: fakeProbes({ home: "/fake-home", exec: (argv) => (argv[1] === "--version" && argv[0] !== "brew" ? missing(argv[0]!) : ok()) }),

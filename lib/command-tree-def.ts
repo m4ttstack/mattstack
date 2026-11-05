@@ -3177,7 +3177,7 @@ export const TREE: Record<string, CommandNode> = {
     description: "Install or run the setup verb for a tool from a setup plan row",
     subcommands: {
       install: {
-        description: "Install a tool (brew, vendor curl|sh, apple-clt, or the bundled copy)",
+        description: "Install a tool a setup row needs",
         module: "./commands/tools.ts",
         fn: "toolsInstall",
         omitBehavior: "picker",

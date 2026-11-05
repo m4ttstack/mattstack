@@ -147,6 +147,33 @@ describe("parseDepsLock serve", () => {
   });
 });
 
+describe("parseDepsLock x86_64 pin", () => {
+  const pin = { url: "https://x/fzf-amd64.tar.gz", sha256: "d".repeat(64), extract: "fzf" };
+  const withPin = (x86_64: unknown, base: object = LOCK.tools[0]!) =>
+    JSON.stringify({ ...LOCK, tools: [{ ...base, x86_64 }] });
+  test("keeps a valid pin on a fetched row", () => {
+    expect(parseDepsLock(withPin(pin)).tools[0]!.x86_64).toEqual(pin);
+  });
+  test("rejects a pin that is not an object, or lacks a url, a 64-hex sha256 or an extract", () => {
+    expect(() => parseDepsLock(withPin("https://x"))).toThrow(/x86_64 must be an object/);
+    expect(() => parseDepsLock(withPin({ ...pin, sha256: "nope" }))).toThrow(/x86_64\.sha256/);
+    expect(() => parseDepsLock(withPin({ ...pin, url: "" }))).toThrow(/x86_64\.url/);
+    expect(() => parseDepsLock(withPin({ url: pin.url, sha256: pin.sha256 }))).toThrow(/x86_64\.extract/);
+  });
+  test("rejects a pin whose extract walks out of the archive", () => {
+    expect(() => parseDepsLock(withPin({ ...pin, extract: "../evil" }))).toThrow(/x86_64\.extract/);
+  });
+  test("rejects a pin on a tree row", () => {
+    const tree = { name: "board", version: "", license: "MIT", source: "tree", archive: "raw", extract: "",
+      bundlePath: `${HELPERS_DIR}/board`, exec: [`${HELPERS_DIR}/board`], exposeByDefault: false,
+      entitlements: "jit", status: "bundled", kind: "helper" };
+    expect(() => parseDepsLock(withPin(pin, tree))).toThrow(/tree row must not carry x86_64/);
+  });
+  test("freezes the pin", () => {
+    expect(Object.isFrozen(parseDepsLock(withPin(pin)).tools[0]!.x86_64)).toBe(true);
+  });
+});
+
 describe("parseDepsLock path safety", () => {
   test("rejects an absolute bundlePath", () => {
     const bad = { ...LOCK, tools: [{ ...LOCK.tools[0], bundlePath: "/etc/passwd" }] };

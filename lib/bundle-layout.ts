@@ -59,6 +59,17 @@ export interface DepsLockTool {
   source?: DepsLockSource;
   /** The app's skills/ directory ships at Contents/Helpers/skills/<name>. Tree rows only. */
   skills?: boolean;
+  /**
+   * The Intel download beside the arm64 pin above; the release merges both
+   * into one universal binary. Fetched rows only.
+   */
+  x86_64?: DepsLockArchPin;
+}
+
+export interface DepsLockArchPin {
+  url: string;
+  sha256: string;
+  extract: string;
 }
 
 export interface DepsLock {
@@ -110,6 +121,19 @@ function validateServe(t: DepsLockTool, servedPorts: Map<number, string>): void 
   Object.freeze(serve);
 }
 
+function validateArchPin(name: string, pin: unknown): void {
+  if (typeof pin !== "object" || pin === null || Array.isArray(pin)) {
+    throw new Error(`deps.lock: ${name} x86_64 must be an object`);
+  }
+  const { url, sha256, extract } = pin as Record<string, unknown>;
+  if (typeof url !== "string" || !url) throw new Error(`deps.lock: ${name} x86_64.url must be a non-empty string`);
+  if (typeof sha256 !== "string" || !SHA256.test(sha256)) throw new Error(`deps.lock: ${name} x86_64.sha256 must be 64 hex characters`);
+  if (typeof extract !== "string" || isUnsafeRelativePath(extract)) {
+    throw new Error(`deps.lock: ${name} x86_64.extract must be a relative in-archive path`);
+  }
+  Object.freeze(pin);
+}
+
 /** True for an absolute path or one that walks up via a ".." segment — neither is a safe archive-relative path. */
 function isUnsafeRelativePath(p: string): boolean {
   return isAbsolute(p) || p.split("/").includes("..");
@@ -139,7 +163,7 @@ export function parseDepsLock(text: string): DepsLock {
       for (const field of FETCHED_STRING_FIELDS) {
         if (row[field] !== undefined) throw new Error(`deps.lock: tools[${i}] tree row must not carry ${field}`);
       }
-      for (const field of ["repo", "subdir"] as const) {
+      for (const field of ["repo", "subdir", "x86_64"] as const) {
         if (row[field] !== undefined) throw new Error(`deps.lock: tools[${i}] tree row must not carry ${field}`);
       }
       if (row.kind !== "helper") throw new Error(`deps.lock: tools[${i}] tree row must be a helper`);
@@ -193,6 +217,7 @@ export function parseDepsLock(text: string): DepsLock {
       }
     });
     if (t.serve !== undefined) validateServe(t, servedPorts);
+    if (t.x86_64 !== undefined) validateArchPin(name, t.x86_64);
 
     if (row.source === "tree") {
       // Built from this checkout, not fetched: no pin to require or forbid here.

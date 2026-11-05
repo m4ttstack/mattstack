@@ -118,8 +118,8 @@ describe("probeDevTools", () => {
 describe("installCommandFor", () => {
   test("names the exact command a person runs", () => {
     expect(installCommandFor("bun", "1.4.2")).toBe("curl -fsSL https://bun.sh/install | bash -s bun-v1.4.2");
-    expect(installCommandFor("go", "1.26.5")).toBe("brew install go");
-    expect(installCommandFor("node", null)).toBe("brew install node");
+    expect(installCommandFor("go", "1.26.5")).toBe("open https://go.dev/dl/");
+    expect(installCommandFor("node", null)).toBe("open https://nodejs.org/en/download");
     expect(installCommandFor("git", null)).toBe("xcode-select --install");
   });
 });

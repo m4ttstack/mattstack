@@ -944,7 +944,7 @@ test("new-tool-failed: the row reads failed and Retry runs the same install", as
   const section = async () => (await run("new-tool-failed", ["setup", "form", "--section", "tools", "--json"], "", state)).lines[0];
   const failed = await section();
   expect(failed.sections.tools[0]).toMatchObject({
-    state: "todo", tone: "failed", detail: "Homebrew could not install it", optional: false,
+    state: "todo", tone: "failed", detail: "The download failed", optional: false,
     action: { type: "install", label: "Retry", tool: "doppler" },
     secondary: { type: "steps", label: "Show steps…" },
   });

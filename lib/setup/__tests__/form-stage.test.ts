@@ -193,7 +193,7 @@ describe("formStage on a finished Mac", () => {
   });
 });
 
-const FANCY_DONE: FancyUrls = { state: "done", detail: "Allowed", brewMissing: false };
+const FANCY_DONE: FancyUrls = { state: "done", detail: "Allowed" };
 const SDM_CONNECT: Action = { type: "connect", label: "Connect", integration: "sdm", fields: [{ name: "email", label: "StrongDM email", secret: false }] };
 const SHELL_RECHECK: Action = { type: "run", label: "Re-check", verb: ["setup", "apply", "--only", "shell.setup"] };
 const DOPPLER: ToolRequirement = { name: "doppler", why: "Pulls your dev secrets", connect: { integration: "doppler" } };
@@ -228,7 +228,7 @@ function formFixRows(): Row[] {
   return [
     // Denied stays denied: macOS never asks twice, and the row reads done.
     r("perm.notifications", "needs-you", "Denied"),
-    r("tool.herdr", "missing", "herdr is not installed", { action: { type: "install", label: "Install", tool: "herdr", via: "brew" } }),
+    r("tool.herdr", "missing", "herdr is not installed", { action: { type: "install", label: "Install", tool: "herdr", via: "download" } }),
     r("tool.team.widget-cli", "missing", "widget-cli is not installed", { finishGated: true, waivable: false, action: { type: "open-url", label: "Download", url: "https://example.com/widget-cli" } }),
     r("account.sdm", "missing", "No StrongDM account connected yet", { action: SDM_CONNECT }),
   ];

@@ -69,11 +69,9 @@ export async function prepareTools(p: Probes, stage: PrepareStage, reqs: PackReq
 
   const required = (tools: ToolRequirement[]) => tools.filter((t) => !t.optional);
   const team = firstByName([...required(signInTools(reqs)), ...required(reqs.flatMap((r) => r.tools))]);
-  let hasBrew: boolean | null = null;
   for (const tool of team) {
     if (items.includes(tool.name) || !(await missingBinary(p, tool.name))) continue;
-    hasBrew ??= (await p.exec(["brew", "--version"], { timeoutMs: PROBE_TIMEOUT_MS })).code === 0;
-    if ((await installRoute(p, tool.name, reqs, hasBrew)) !== null) items.push(tool.name);
+    if ((await installRoute(p, tool.name, reqs)) !== null) items.push(tool.name);
   }
   // Last, so the Claude Code it integrates into is already installed.
   if (resolveTool(p, FAST_BROWSER).exec) items.push(FAST_BROWSER);

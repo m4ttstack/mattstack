@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { DepsLockTool } from "../../lib/bundle-layout.ts";
-import { toTsvRow } from "../lib/deps-lock.ts";
+import { rowsFor, toTsvRow } from "../lib/deps-lock.ts";
 
 function tool(overrides: Partial<DepsLockTool> = {}): DepsLockTool {
   return {
@@ -81,5 +81,32 @@ describe("deps-lock.ts TSV emitter", () => {
   });
   test("a fetched row's 12th field is empty", () => {
     expect(toTsvRow(tool()).split("\t")[11]).toBe("");
+  });
+});
+
+describe("deps-lock.ts rowsFor", () => {
+  const pin = { url: "https://example.com/x-amd64", sha256: "b".repeat(64), extract: "x-amd64/x" };
+  test("arm64 rows keep their own url, sha256 and extract", () => {
+    const [row] = rowsFor([tool({ x86_64: pin })], "arm64");
+    expect(row!.url).toBe("https://example.com/x");
+  });
+  test("x86_64 rows take the pin's url, sha256 and extract", () => {
+    const [row] = rowsFor([tool({ x86_64: pin })], "x86_64");
+    expect([row!.url, row!.sha256, row!.extract]).toEqual([pin.url, pin.sha256, pin.extract]);
+  });
+  test("x86_64 passes through rows that are the same on both chips or built per chip", () => {
+    const rows = rowsFor([
+      tool({ name: "npmtool", archive: "npm", extract: "package" }),
+      tool({ name: "zstd", archive: "make-src", extract: "zstd-1" }),
+      tool({ name: "gotool", archive: "go-src", extract: "gotool-1" }),
+      tool({ name: "sparkle", kind: "buildtool", bundlePath: "tools/sparkle", exec: ["tools/sparkle/bin/x"] }),
+      tool({ name: "board", url: undefined, sha256: undefined, source: "tree" }),
+      tool({ name: "later", status: "pending", url: "", sha256: "" }),
+    ], "x86_64");
+    expect(rows.map((r) => r.name)).toEqual(["npmtool", "zstd", "gotool", "sparkle", "board", "later"]);
+    expect(rows.map((r) => r.url)).toEqual(["https://example.com/x", "https://example.com/x", "https://example.com/x", "https://example.com/x", undefined, ""]);
+  });
+  test("x86_64 refuses a bundled prebuilt helper with no pin", () => {
+    expect(() => rowsFor([tool({ name: "jq" })], "x86_64")).toThrow(/jq has no x86_64 pin/);
   });
 });

@@ -14,6 +14,7 @@ import { isSetupFinished, readSetupState, type SetupRun } from "./state.ts";
 import { discoverOrgs } from "./team-settings.ts";
 import { SETUP_UPDATE_CATEGORY } from "./update.ts";
 import { lockHeldByLiveRun, updateLockPath } from "./update-lock.ts";
+import { hostArch } from "./tools-install.ts";
 import { dedupeTeamTools, teamToolRow } from "./validators/tools.ts";
 
 export interface ToolNotices {
@@ -101,7 +102,7 @@ export async function runToolNotices(p: Probes, slug: string, notify: (title: st
   const required = dedupeTeamTools(reqs).filter((tool) => !tool.optional);
   const missing: MissingTool[] = [];
   for (const tool of required) {
-    const row = await teamToolRow(p, tool, false);
+    const row = await teamToolRow(p, tool, hostArch());
     if (row.status === "missing") missing.push({ name: tool.name, title: toolTitle(tool) });
   }
 

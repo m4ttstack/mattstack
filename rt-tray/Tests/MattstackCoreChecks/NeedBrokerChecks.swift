@@ -8,12 +8,10 @@ private final class HeldPrivileged: PrivilegedInstalling, @unchecked Sendable {
     private var answer: NeedResult?
     private(set) var installs = 0
     private(set) var trusts = 0
-    private(set) var installFlags: [Bool] = []
 
-    func proxyInstall(homebrew: Bool) async -> NeedResult { bump { installs += 1; installFlags.append(homebrew) }; return await held() }
-    func proxyTrust(homebrew: Bool) async -> NeedResult { bump { trusts += 1 }; return await held() }
+    func proxyInstall() async -> NeedResult { bump { installs += 1 }; return await held() }
+    func proxyTrust() async -> NeedResult { bump { trusts += 1 }; return await held() }
     func proxyRemove() async -> NeedResult { NeedResult(ok: true, detail: "") }
-    func homebrew() async -> NeedResult { await held() }
 
     func answerAll(_ result: NeedResult) {
         lock.lock(); answer = result; let w = waiters; waiters = []; lock.unlock()
@@ -32,7 +30,6 @@ private final class HeldPrivileged: PrivilegedInstalling, @unchecked Sendable {
 
 private let installReq = NeedRequest(type: "app-privileged", plists: nil, op: "proxy-install")
 private let trustReq = NeedRequest(type: "app-privileged", plists: nil, op: "proxy-trust")
-private let installWithBrewReq = NeedRequest(type: "app-privileged", plists: nil, op: "proxy-install", homebrew: true)
 
 private func settle() async throws { try await Task.sleep(nanoseconds: 30_000_000) }
 
@@ -100,56 +97,13 @@ let needBrokerChecks: [Check] = [
         c.expectEqual(pr.trusts, 1)
         c.expectEqual(await broker.outcome(id: "proxy.install").state, "done", "a direct call never touches a need id's outcome")
     },
-    Check("NeedBroker: a proxy install with homebrew passes the flag") { c in
-        let pr = FakePrivileged()
-        let broker = NeedBroker(services: FakeServices(), privileged: pr)
-        _ = await broker.perform(id: "proxy.install", request: installWithBrewReq)
-        _ = await broker.perform(id: "proxy.trust", request: NeedRequest(type: "app-privileged", plists: nil, op: "proxy-trust", homebrew: true))
-        _ = await broker.perform(id: "proxy.plain", request: installReq)
-        c.expectEqual(pr.installFlags, [true, false], "absent reads as not asked")
-        c.expectEqual(pr.trustFlags, [true])
-        c.expectEqual(pr.homebrews, 0, "the flag rides the proxy op's own prompt, never a second one")
-    },
-    // rt reads a refusal of op homebrew as the person declining Homebrew, so
-    // the op must reach the helper rather than the unknown-need answer.
-    Check("NeedBroker: the homebrew op runs the helper's homebrew verb") { c in
+    Check("NeedBroker: an app-privileged op it does not know is refused, not run") { c in
         let pr = FakePrivileged()
         let broker = NeedBroker(services: FakeServices(), privileged: pr)
         let result = await broker.perform(id: "proxy.install", request: NeedRequest(type: "app-privileged", plists: nil, op: "homebrew"))
-        c.expectEqual(pr.homebrews, 1)
-        c.expectEqual(pr.calls, 0, "Homebrew alone never reinstalls the proxy")
+        c.expectEqual(result, NeedResult(ok: false, detail: "unknown need type app-privileged/homebrew"))
+        c.expectEqual(pr.calls, 0)
         c.expectEqual(pr.trusts, 0)
-        c.expectEqual(result, NeedResult(ok: true, detail: "homebrew: ok\nMATTSTACK_HOMEBREW=ok"))
-        c.expectEqual(await broker.outcome(id: "proxy.install").state, "done")
-    },
-    // Joining would hand back a reply with no Homebrew line, which rt records
-    // as a Homebrew failure and never asks about again.
-    Check("NeedBroker: an install that asks for Homebrew waits out an open one that does not") { c in
-        let pr = HeldPrivileged()
-        let broker = NeedBroker(services: FakeServices(), privileged: pr)
-        let plain = Task { await broker.perform(id: "proxy.install", request: installReq) }
-        try await settle()
-        await broker.forgetAll()
-        let withBrew = Task { await broker.perform(id: "proxy.install", request: installWithBrewReq) }
-        try await settle()
-        c.expectEqual(pr.installs, 1, "one dialog on screen at a time")
-        pr.answerAll(NeedResult(ok: true, detail: "MATTSTACK_TRUST=ok"))
-        _ = await plain.value
-        _ = await withBrew.value
-        c.expectEqual(pr.installFlags, [false, true])
-    },
-    Check("NeedBroker: a retry without Homebrew joins an open install that already asks for it") { c in
-        let pr = HeldPrivileged()
-        let broker = NeedBroker(services: FakeServices(), privileged: pr)
-        let withBrew = Task { await broker.perform(id: "proxy.install", request: installWithBrewReq) }
-        try await settle()
-        await broker.forgetAll()
-        let plain = Task { await broker.perform(id: "proxy.install", request: installReq) }
-        try await settle()
-        pr.answerAll(NeedResult(ok: true, detail: "MATTSTACK_HOMEBREW=ok\nMATTSTACK_TRUST=ok"))
-        _ = await withBrew.value
-        c.expectEqual(await plain.value.detail, "MATTSTACK_HOMEBREW=ok\nMATTSTACK_TRUST=ok")
-        c.expectEqual(pr.installFlags, [true])
     },
     Check("NeedBroker: forget(ids:) clears only the named ids") { c in
         let broker = NeedBroker(services: FakeServices(), privileged: FakePrivileged())

@@ -113,7 +113,7 @@ enum FastSetupSnapshot {
     private static func rowPages() -> [(String, AnyView)] {
         [
             ("rows-tile", card([Rows.fdaGranted, Rows.notificationsAsk, Rows.fancyUrls], style: .tile)),
-            ("rows-tile-long-done", card([Rows.fdaGranted, Rows.notificationsAllowed, Rows.fancyUrlsBrewFailed], style: .tile)),
+            ("rows-tile-long-done", card([Rows.fdaGranted, Rows.notificationsAllowed, Rows.fancyUrlsNoInstaller], style: .tile)),
             ("rows-tile-states", card([Rows.notificationsOff, Rows.fancyUrls, Rows.fda],
                                       waiting: [Rows.fancyUrls.id: Rows.fancyUrls.waiting ?? ""],
                                       errors: [Rows.fda.id: "System Settings did not open. Open it yourself, then come back"], style: .tile)),
@@ -172,7 +172,7 @@ enum FastSetupSnapshot {
             ("macos-notifications-off", page([Rows.fdaGranted, Rows.notificationsOff, Rows.fancyUrls])),
             ("macos-fancy-urls-long-detail", window(VStack(spacing: 0) {
                 MacOSScreenBody(rows: [Rows.fdaGranted, Rows.notificationsAllowed, Rows.fancyUrlsNoInstaller], waiting: [:], errors: [:]) { _, _, _ in }
-                card([Rows.fancyUrlsBrewFailed]).padding(.top, -32)
+                card([Rows.fancyUrlsNoInstaller]).padding(.top, -32)
             }, .macos)),
         ]
     }
@@ -361,9 +361,9 @@ enum FastSetupSnapshot {
     /// with no reason on a tool simply missing or signed out.
     enum ToolsRows {
         private static let why = "For running your dev servers"
-        private static let install = RowAction(type: .install, label: "Install", tool: "doppler", via: "brew")
-        private static let retry = RowAction(type: .install, label: "Retry", tool: "doppler", via: "brew")
-        private static let steps = RowAction(type: .steps, label: "Show steps…", steps: ["brew install doppler"])
+        private static let install = RowAction(type: .install, label: "Install", tool: "doppler", via: "download")
+        private static let retry = RowAction(type: .install, label: "Retry", tool: "doppler", via: "download")
+        private static let steps = RowAction(type: .steps, label: "Show steps…", steps: ["Download it from https://docs.doppler.com/docs/install-cli"])
         static let doppler = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: why, state: .todo,
                                      detail: "", action: install, waiting: "Installing…", watch: true)
         static let dopplerInstalling = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: why, state: .busy,
@@ -374,17 +374,17 @@ enum FastSetupSnapshot {
         static let dopplerDone = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: why, state: .done,
                                          detail: "Signed in as janedoe", watch: true)
         static let dopplerFailed = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: why, state: .todo, tone: .failed,
-                                           detail: "Homebrew could not install it", action: retry, secondary: steps,
+                                           detail: "The download failed", action: retry, secondary: steps,
                                            waiting: "Installing…", watch: true)
         static let dopplerFailedLong = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: why, state: .todo, tone: .failed,
-                                               detail: "brew install doppler failed: the formula could not be downloaded, so nothing was installed",
+                                               detail: "Downloading doppler failed (exit 22): the requested URL returned error: 404",
                                                action: retry, secondary: steps, waiting: "Installing…", watch: true)
         static let ldcli = FormRow(id: "tool.team.ldcli", title: "ldcli", subtext: "For reading feature flags", state: .todo,
                                    detail: "",
                                    action: RowAction(type: .openURL, label: "Download", url: "https://example.com/ldcli"), watch: true)
         static let ldcliFailed = FormRow(id: "tool.team.ldcli", title: "ldcli", subtext: "For reading feature flags", state: .todo, tone: .failed,
-                                         detail: "Homebrew could not install it",
-                                         action: RowAction(type: .install, label: "Retry", tool: "ldcli", via: "brew"),
+                                         detail: "The download failed",
+                                         action: RowAction(type: .install, label: "Retry", tool: "ldcli", via: "download"),
                                          waiting: "Installing…", watch: true)
     }
 
@@ -883,7 +883,7 @@ enum FastSetupSnapshot {
     enum MockRows {
         /// Lines wider than the control column: each wraps inside its chip and never leaves the card.
         static let busyLong = FormRow(id: "tool.team.acme-cli", title: "acme-cli", subtext: "Runs acme's dev servers", state: .busy,
-                                      detail: "Installing acme-cli from the team's Homebrew tap, then linking it into your PATH so every shell finds it…")
+                                      detail: "Installing acme-cli from the team's pinned download, then linking it into your PATH so every shell finds it…")
         static let waitingLong = FormRow(id: "signin.doppler", title: "Doppler", subtext: "For running your dev servers", state: .waiting,
                                          detail: "Your code is WXYZ-1234. Confirm it in your browser, then come back here and this row turns green",
                                          action: RowAction(type: .openURL, label: "Sign in", url: "https://example.com/login", again: "Open again"))
@@ -965,10 +965,6 @@ enum FastSetupSnapshot {
                                                   subtext: "Grant mattstack apps permission to use .mattstack", state: .done,
                                                   detail: "This build has no local proxy installer, so apps serve on their own ports",
                                                   waiting: "Waiting for your admin password in the macOS dialog…", watch: true)
-        static let fancyUrlsBrewFailed = FormRow(id: "mac.fancy-urls", title: "Fancy URLs",
-                                                 subtext: "Grant mattstack apps permission to use .mattstack", state: .done,
-                                                 detail: "Homebrew did not install. Tools that need it say so on their own rows",
-                                                 waiting: "Waiting for your admin password in the macOS dialog…", watch: true)
         static let fancyUrlsAllowed = FormRow(id: "mac.fancy-urls", title: "Fancy URLs",
                                               subtext: "Grant mattstack apps permission to use .mattstack", state: .done, detail: "Allowed",
                                               waiting: "Waiting for your admin password in the macOS dialog…", watch: true)

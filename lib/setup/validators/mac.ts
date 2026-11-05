@@ -58,19 +58,20 @@ async function archRow(p: Probes): Promise<Row> {
     id: "tool.arch",
     kind: "tool" as const,
     title: "Processor",
-    why: "mattstack ships an Apple-silicon (arm64) build; Intel Macs are not supported.",
+    why: "mattstack runs on Apple silicon and Intel Macs.",
     required: true,
   };
   const res = await p.exec(["uname", "-m"]);
   const arch = res.stdout.trim();
 
   // Same honesty ruling as macosVersionRow: a probe that couldn't run reports
-  // "error", not "invalid": only a definite non-arm64 result is invalid.
+  // "error", not "invalid": only a definite unsupported result is invalid.
   if (res.code !== 0 || !arch) {
     return row({ ...base, status: "error", detail: "Could not read your processor type" });
   }
   if (arch === "arm64") return row({ ...base, status: "ready", detail: "Apple silicon (arm64)" });
-  return row({ ...base, status: "invalid", detail: `This Mac is ${arch}; rt needs Apple silicon` });
+  if (arch === "x86_64") return row({ ...base, status: "ready", detail: "Intel (x86_64)" });
+  return row({ ...base, status: "invalid", detail: `This Mac is ${arch}; rt needs Apple silicon or Intel` });
 }
 
 async function pathRow(p: Probes): Promise<Row> {

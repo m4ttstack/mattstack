@@ -1,6 +1,6 @@
 import Foundation
 
-enum Op: Equatable { case version, install(homebrew: Bool), remove, trust(homebrew: Bool), homebrew, usage }
+enum Op: Equatable { case version, install, remove, trust, usage }
 
 enum ProxyInstallMain {
     /// Exact shapes only: this argv reaches a root process, so anything it
@@ -8,12 +8,9 @@ enum ProxyInstallMain {
     static func parse(argv: [String]) -> Op {
         switch Array(argv.dropFirst()) {
         case ["--version"]: return .version
-        case ["install"]: return .install(homebrew: false)
-        case ["install", "--homebrew"]: return .install(homebrew: true)
+        case ["install"]: return .install
         case ["remove"]: return .remove
-        case ["trust"]: return .trust(homebrew: false)
-        case ["trust", "--homebrew"]: return .trust(homebrew: true)
-        case ["homebrew"]: return .homebrew
+        case ["trust"]: return .trust
         default: return .usage
         }
     }
@@ -24,14 +21,12 @@ case .version:
     print("mattstack-proxy-install \(HelperVersion.value) protocol 1")
     exit(0)
 case .usage:
-    Report.step("usage: mattstack-proxy-install install [--homebrew]|remove|trust [--homebrew]|homebrew|--version")
+    Report.step("usage: mattstack-proxy-install install|remove|trust|--version")
     Report.finish(ExitCode.usage)
-case .install(let homebrew):
-    Report.finish(InstallOp.run(homebrew: homebrew))
+case .install:
+    Report.finish(InstallOp.run())
 case .remove:
     Report.finish(RemoveOp.run())
-case .trust(let homebrew):
-    Report.finish(TrustOp.run(homebrew: homebrew))
-case .homebrew:
-    Report.finish(HomebrewOp.run())
+case .trust:
+    Report.finish(TrustOp.run())
 }

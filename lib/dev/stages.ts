@@ -17,7 +17,7 @@ export async function ensureTools(s: DevSeams, pins: DevPins, io: StageIO): Prom
   for (const t of tools.filter((x) => x.need === "required" && x.state !== "ready")) {
     const command = installCommandFor(t.name, t.wanted);
     const what = t.state === "too-old" ? `${t.name} ${t.version} is older than the ${t.wanted} mattstack needs` : `${t.name} is not installed`;
-    if (t.name === "git" || !s.interactive) {
+    if (t.name === "git" || t.name === "node" || !s.interactive) {
       throw new UserActionableError("dev-tool-missing", what, {}, { next: command });
     }
     if (!(await io.pause(() => s.confirm(`${what}. Install ${t.name} ${t.wanted} now?`)))) {

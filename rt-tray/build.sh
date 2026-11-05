@@ -9,6 +9,8 @@ set -euo pipefail
 #   ./build.sh install    release + copy to /Applications + launch
 #
 # Env: RT_DAEMON_BIN RT_VSIX RT_SKILL_BLOCKS_VSIX RT_VERSION RT_REQUIRE_DEPS SPARKLE_PUBLIC_ED_KEY RT_BUILD_TOOL
+#      RT_DEPS_ARCH (arm64, the default, or universal: helpers from deps/universal,
+#      Swift built for arm64 and x86_64; RT_DAEMON_BIN and RT_UI_BIN must be universal too)
 #      RT_SANDBOX_PRESIGN (sandboxed dev gates only — never CI, never a real release)
 #
 # The bundle id, daemon label, and display name live ONLY here; Info.plist is a
@@ -43,7 +45,21 @@ fi
 
 APP_BUNDLE="$SCRIPT_DIR/$APP_NAME.app"
 CONTENTS="$APP_BUNDLE/Contents"
-DEPS_DIR="$SCRIPT_DIR/deps/arm64"
+DEPS_ARCH="${RT_DEPS_ARCH:-arm64}"
+case "$DEPS_ARCH" in
+    arm64)     SWIFT_ARCH_FLAGS=(); XCODE_ARCH_ARGS=(-destination 'platform=macOS,arch=arm64') ;;
+    universal) SWIFT_ARCH_FLAGS=(--arch arm64 --arch x86_64)
+               XCODE_ARCH_ARGS=(-destination 'generic/platform=macOS' ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO) ;;
+    *) echo "  ✗ RT_DEPS_ARCH=$DEPS_ARCH (expected arm64|universal)" >&2; exit 1 ;;
+esac
+DEPS_DIR="$SCRIPT_DIR/deps/$DEPS_ARCH"
+if [ "$DEPS_ARCH" = universal ]; then
+    FETCH_HINT="scripts/fetch-deps.sh arm64 and x86_64, build-apps.ts for both, then scripts/merge-universal.ts"
+else
+    FETCH_HINT="scripts/fetch-deps.sh arm64"
+fi
+# --show-bin-path differs once --arch is passed (.build/apple/Products/Release).
+swift_release_bin() { swift build -c release "${SWIFT_ARCH_FLAGS[@]+"${SWIFT_ARCH_FLAGS[@]}"}" --show-bin-path; }
 SU_FEED_URL="https://github.com/m4ttstack/mattstack/releases/latest/download/appcast.xml"
 ENTITLEMENTS_JIT="$REPO_DIR/scripts/entitlements.plist"
 
@@ -86,29 +102,29 @@ if [ "$RT_BUILD_TOOL" = xcode ]; then
     xcodegen generate --spec "$SCRIPT_DIR/project.yml" --project "$SCRIPT_DIR" >/dev/null
     DERIVED="$SCRIPT_DIR/.build-xcode"
     xcodebuild -project "$SCRIPT_DIR/mattstack.xcodeproj" -scheme "$SCHEME" -configuration Release \
-        -derivedDataPath "$DERIVED" -destination 'platform=macOS,arch=arm64' \
+        -derivedDataPath "$DERIVED" "${XCODE_ARCH_ARGS[@]}" \
         CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | sed 's/^/  /'
     XCODE_APP="$DERIVED/Build/Products/Release/$APP_NAME.app"
     [ -d "$XCODE_APP" ] || { echo "  ✗ xcodebuild produced no $XCODE_APP"; exit 1; }
     BINARY="$XCODE_APP/Contents/MacOS/$APP_NAME"
     if [ "$IS_DEV" = true ]; then
-        swift build -c release --product rt-daemon-shim 2>&1 | sed 's/^/  /'
-        SHIM_BINARY="$SCRIPT_DIR/.build/release/rt-daemon-shim"
-        swift build -c release --product deck-dev-shim 2>&1 | sed 's/^/  /'
-        DECK_SHIM_BINARY="$SCRIPT_DIR/.build/release/deck-dev-shim"
+        swift build -c release "${SWIFT_ARCH_FLAGS[@]+"${SWIFT_ARCH_FLAGS[@]}"}" --product rt-daemon-shim 2>&1 | sed 's/^/  /'
+        SHIM_BINARY="$(swift_release_bin)/rt-daemon-shim"
+        swift build -c release "${SWIFT_ARCH_FLAGS[@]+"${SWIFT_ARCH_FLAGS[@]}"}" --product deck-dev-shim 2>&1 | sed 's/^/  /'
+        DECK_SHIM_BINARY="$(swift_release_bin)/deck-dev-shim"
     fi
 else
     if [ "$BUILD_CONFIG" = "debug" ]; then
         swift build 2>&1 | sed 's/^/  /'
         BINARY="$SCRIPT_DIR/.build/debug/$PRODUCT_NAME"
     elif [ "$IS_DEV" = true ]; then
-        swift build -c release 2>&1 | sed 's/^/  /'
-        BINARY="$SCRIPT_DIR/.build/release/$PRODUCT_NAME"
-        SHIM_BINARY="$SCRIPT_DIR/.build/release/rt-daemon-shim"
-        DECK_SHIM_BINARY="$SCRIPT_DIR/.build/release/deck-dev-shim"
+        swift build -c release "${SWIFT_ARCH_FLAGS[@]+"${SWIFT_ARCH_FLAGS[@]}"}" 2>&1 | sed 's/^/  /'
+        BINARY="$(swift_release_bin)/$PRODUCT_NAME"
+        SHIM_BINARY="$(swift_release_bin)/rt-daemon-shim"
+        DECK_SHIM_BINARY="$(swift_release_bin)/deck-dev-shim"
     else
-        swift build -c release --product "$PRODUCT_NAME" 2>&1 | sed 's/^/  /'
-        BINARY="$SCRIPT_DIR/.build/release/$PRODUCT_NAME"
+        swift build -c release "${SWIFT_ARCH_FLAGS[@]+"${SWIFT_ARCH_FLAGS[@]}"}" --product "$PRODUCT_NAME" 2>&1 | sed 's/^/  /'
+        BINARY="$(swift_release_bin)/$PRODUCT_NAME"
     fi
 fi
 [ -f "$BINARY" ] || { echo "  ✗ Build failed — binary not found at $BINARY"; exit 1; }
@@ -201,7 +217,7 @@ bundle_helpers() {
         # Fatal by default: a warn-and-continue here silently produces a bundle
         # with NO helpers, which then passes every gate that only asserts the
         # helpers it can find. Set RT_REQUIRE_DEPS=0 to opt out deliberately.
-        if [ "${RT_REQUIRE_DEPS:-1}" = 1 ]; then echo "  ✗ $DEPS_DIR missing — run scripts/fetch-deps.sh arm64 (RT_REQUIRE_DEPS=0 to build without helpers)"; exit 1; fi
+        if [ "${RT_REQUIRE_DEPS:-1}" = 1 ]; then echo "  ✗ $DEPS_DIR missing — run $FETCH_HINT (RT_REQUIRE_DEPS=0 to build without helpers)"; exit 1; fi
         echo "  ⚠ $DEPS_DIR missing — Helpers skipped (RT_REQUIRE_DEPS=0 set)"
         return
     fi
@@ -221,7 +237,7 @@ bundle_helpers() {
         name="${FIELDS[0]}"; version="${FIELDS[1]}"; bundlePath="${FIELDS[6]}"; ent="${FIELDS[7]}"; status="${FIELDS[8]}"
         if [ "$status" != bundled ]; then echo "  · $name: pending, not in this build"; continue; fi
         src="$DEPS_DIR/$name"
-        [ -e "$src" ] || { echo "  ✗ $name not fetched at $src — run scripts/fetch-deps.sh arm64"; exit 1; }
+        [ -e "$src" ] || { echo "  ✗ $name not fetched at $src — run $FETCH_HINT"; exit 1; }
         dest="$APP_BUNDLE/$bundlePath"
         rm -rf "$dest"; mkdir -p "$(dirname "$dest")"
         cp -R "$src" "$dest"
@@ -549,8 +565,10 @@ done
 if [ "$IS_DEV" != true ]; then
     bash "$REPO_DIR/rt-tray/proxy-helper/scripts/gen-pins.sh" "$RT_VERSION" \
         "$CONTENTS/Helpers/portless-dist" "$CONTENTS/Helpers/node/bin/node"
-    ( cd "$REPO_DIR/rt-tray/proxy-helper" && swift build -c release --disable-sandbox )
-    cp "$REPO_DIR/rt-tray/proxy-helper/.build/release/ProxyInstall" "$CONTENTS/Helpers/mattstack-proxy-install"
+    PROXY_BIN="$(cd "$REPO_DIR/rt-tray/proxy-helper" \
+        && swift build -c release --disable-sandbox "${SWIFT_ARCH_FLAGS[@]+"${SWIFT_ARCH_FLAGS[@]}"}" >&2 \
+        && swift build -c release --disable-sandbox "${SWIFT_ARCH_FLAGS[@]+"${SWIFT_ARCH_FLAGS[@]}"}" --show-bin-path)"
+    cp "$PROXY_BIN/ProxyInstall" "$CONTENTS/Helpers/mattstack-proxy-install"
     chmod +x "$CONTENTS/Helpers/mattstack-proxy-install"
     xattr -cr "$CONTENTS/Helpers/mattstack-proxy-install" 2>/dev/null || true
     # Signed here rather than through HELPER_ENTITLEMENTS: the loop has already

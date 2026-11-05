@@ -100,65 +100,77 @@ describe("installTool — tool.herdr / tool.claude (vendor installers, never bre
   });
 });
 
-describe("installTool — a team's own brew formula", () => {
-  const doppler: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "doppler", why: "reads secrets", install: { brew: "doppler-cli" } }] }];
+describe("installTool — a team's pinned download", () => {
+  const armPin = { url: "https://example.com/doppler_darwin_arm64.tar.gz", sha256: "a".repeat(64), extract: "doppler" };
+  const intelPin = { url: "https://example.com/doppler_darwin_amd64", sha256: "b".repeat(64), extract: "" };
+  const reqsWith = (install: PackRequirements["tools"][number]["install"]): PackRequirements[] =>
+    [{ pack: "somepack", integrations: [], tools: [{ name: "doppler", why: "reads secrets", install }] }];
+  const seamsFor = (arch: "arm64" | "x86_64"): ToolsInstallSeams => ({ ...NOOP_SEAMS, hostArch: () => arch });
+  const shaOk = (sha: string): ExecScript => (argv) => (argv[0] === "shasum" ? ok(`${sha}  ${argv[3]}\n`) : ok("3.0.0"));
 
-  test("brew install exits non-zero -> error, not claimed installed", async () => {
-    const exec: ExecScript = (argv) => {
-      if (argv[0] === "brew" && argv[1] === "--version") return ok();
-      if (argv[0] === "brew" && argv[1] === "install") return { code: 1, stdout: "", stderr: "boom" };
-      return ok();
-    };
-    const p = fakeProbes({ exec });
-    const result = await installTool(p, "doppler", doppler, NOOP_SEAMS);
-    expect(result).toEqual({ via: "brew", ok: false, detail: expect.stringContaining("exit 1") });
+  test("downloads this processor's pin, checks its sha256, unpacks it and installs it into ~/.local/bin", async () => {
+    const p = fakeProbes({ exec: shaOk(armPin.sha256) });
+    const result = await installTool(p, "doppler", reqsWith({ download: { arm64: armPin, x86_64: intelPin } }), seamsFor("arm64"));
+    const curl = p.calls.exec.find((argv) => argv[0] === "curl")!;
+    expect(curl.slice(0, 3)).toEqual(["curl", "-fsSL", armPin.url]);
+    const file = curl[4]!;
+    expect(p.calls.exec).toContainEqual(["shasum", "-a", "256", file]);
+    const tar = p.calls.exec.find((argv) => argv[0] === "tar")!;
+    expect(tar.slice(0, 3)).toEqual(["tar", "-xf", file]);
+    const dest = join(p.home, ".local", "bin", "doppler");
+    expect(p.calls.exec).toContainEqual(["install", "-m", "0755", join(tar[4]!, "doppler"), dest]);
+    expect(p.calls.exec).toContainEqual([dest, "--version"]);
+    expect(result).toEqual({ via: "download", ok: true, detail: "installed from the team's pinned download" });
   });
 
-  test("brew install times out (124) -> honest error, never installed", async () => {
-    const exec: ExecScript = (argv) => {
-      if (argv[0] === "brew" && argv[1] === "--version") return ok();
-      if (argv[0] === "brew" && argv[1] === "install") return { code: 124, stdout: "", stderr: "" };
-      return ok();
-    };
-    const p = fakeProbes({ exec });
-    const result = await installTool(p, "doppler", doppler, NOOP_SEAMS);
-    expect(result.ok).toBe(false);
-    expect(result.detail).toContain("did not finish in time");
+  test("an Intel Mac takes the x86_64 pin, and a pin with no extract installs the download itself", async () => {
+    const p = fakeProbes({ exec: shaOk(intelPin.sha256) });
+    const result = await installTool(p, "doppler", reqsWith({ download: { arm64: armPin, x86_64: intelPin } }), seamsFor("x86_64"));
+    const curl = p.calls.exec.find((argv) => argv[0] === "curl")!;
+    expect(curl[2]).toBe(intelPin.url);
+    expect(p.calls.exec.some((argv) => argv[0] === "tar" || argv[0] === "ditto")).toBe(false);
+    expect(p.calls.exec).toContainEqual(["install", "-m", "0755", curl[4]!, join(p.home, ".local", "bin", "doppler")]);
+    expect(result.ok).toBe(true);
   });
 
-  test("brew install exits 0 but the tool still isn't runnable -> not claimed installed", async () => {
-    const exec: ExecScript = (argv) => {
-      if (argv[0] === "brew" && argv[1] === "--version") return ok();
-      if (argv[0] === "brew" && argv[1] === "install") return ok();
-      if (argv[0] === "doppler" && argv[1] === "--version") return missing("doppler");
-      return ok();
-    };
+  test("a sha256 that does not match installs nothing", async () => {
+    const p = fakeProbes({ exec: shaOk("c".repeat(64)) });
+    const result = await installTool(p, "doppler", reqsWith({ download: { arm64: armPin } }), seamsFor("arm64"));
+    expect(result).toEqual({ via: "download", ok: false, detail: expect.stringContaining("did not match the team's pinned sha256") });
+    expect(p.calls.exec.some((argv) => argv[0] === "tar" || argv[0] === "install")).toBe(false);
+  });
+
+  test("a failed download is honest and installs nothing", async () => {
+    const exec: ExecScript = (argv) => (argv[0] === "curl" ? { code: 22, stdout: "", stderr: "404" } : ok());
     const p = fakeProbes({ exec });
-    const result = await installTool(p, "doppler", doppler, NOOP_SEAMS);
+    const result = await installTool(p, "doppler", reqsWith({ download: { arm64: armPin } }), seamsFor("arm64"));
+    expect(result).toEqual({ via: "download", ok: false, detail: expect.stringContaining("Downloading doppler failed") });
+    expect(p.calls.exec.some((argv) => argv[0] === "shasum" || argv[0] === "install")).toBe(false);
+  });
+
+  test("installed, but the tool still does not run -> not claimed installed", async () => {
+    const exec: ExecScript = (argv) => (argv[0] === "shasum" ? ok(`${armPin.sha256}  x\n`) : argv[1] === "--version" ? missing("doppler") : ok());
+    const p = fakeProbes({ exec });
+    const result = await installTool(p, "doppler", reqsWith({ download: { arm64: armPin } }), seamsFor("arm64"));
     expect(result.ok).toBe(false);
     expect(result.detail).toContain("still does not run");
   });
-});
 
-describe("installTool — team-declared tool via reqs", () => {
-  test("team tool with install.brew -> that formula", async () => {
-    const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "doppler", why: "reads secrets", install: { brew: "doppler-cli" } }] }];
-    const exec: ExecScript = (argv) => {
-      if (argv[0] === "brew" && argv[1] === "--version") return ok();
-      if (argv[0] === "brew" && argv[1] === "install") return ok();
-      if (argv[0] === "doppler" && argv[1] === "--version") return ok("3.0.0");
-      return ok();
-    };
-    const p = fakeProbes({ exec });
-    const result = await installTool(p, "doppler", reqs, NOOP_SEAMS);
-    expect(p.calls.exec).toContainEqual(["brew", "install", "doppler-cli"]);
-    expect(result).toEqual({ via: "brew", ok: true, detail: "installed via brew (doppler-cli)" });
+  test("no pin for this processor sends the member to the pack's install link", async () => {
+    const p = fakeProbes({ exec: shaOk(armPin.sha256) });
+    await expect(installTool(p, "doppler", reqsWith({ url: "https://docs.example.com/install", download: { arm64: armPin } }), seamsFor("x86_64")))
+      .rejects.toThrow(/Install it yourself: https:\/\/docs.example.com\/install/);
+    expect(p.calls.exec.some((argv) => argv[0] === "curl")).toBe(false);
   });
 
-  test("no bundled tool, no brew formula, no vendor url -> UserActionableError no-installer", async () => {
+  test("no pin for this processor and no link -> no-installer naming the processor", async () => {
+    const p = fakeProbes({ exec: shaOk(armPin.sha256) });
+    await expect(installTool(p, "doppler", reqsWith({ download: { arm64: armPin } }), seamsFor("x86_64"))).rejects.toThrow(/x86_64/);
+  });
+
+  test("no bundled tool, no pinned download, no vendor installer -> UserActionableError no-installer", async () => {
     const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "mystery", why: "unlisted" }] }];
-    const exec: ExecScript = (argv) => (argv[0] === "brew" && argv[1] === "--version" ? missing("brew") : ok());
-    const p = fakeProbes({ exec });
+    const p = fakeProbes({ exec: () => ok() });
     await expect(installTool(p, "mystery", reqs, NOOP_SEAMS)).rejects.toThrow(UserActionableError);
   });
 });
@@ -673,31 +685,30 @@ describe("parseCltLabel — catalog order", () => {
 });
 
 describe("installRoute", () => {
-  test("installRoute names brew for a plain formula with brew present", async () => {
-    const reqs: PackRequirements[] = [{ pack: "widgets", integrations: [], tools: [{ name: "jq", why: "json", install: { brew: "jq" } }] }];
+  const pin = { url: "https://example.com/jq-macos-arm64", sha256: "a".repeat(64), extract: "" };
+  test("names the route installTool would take, without running anything", async () => {
+    const reqs: PackRequirements[] = [{ pack: "widgets", integrations: [], tools: [{ name: "jq", why: "json", install: { download: { arm64: pin } } }] }];
     const p = fakeProbes();
-    expect(await installRoute(p, "jq", reqs, true, NOOP_SEAMS)).toBe("brew");
-    expect(await installRoute(p, "jq", reqs, false, NOOP_SEAMS)).toBeNull();
-    expect(await installRoute(p, "claude", [], false, NOOP_SEAMS)).toBe("vendor");
-    expect(await installRoute(p, "claude", [], true, NOOP_SEAMS)).toBe("vendor");
-    expect(await installRoute(p, "herdr", [], true, NOOP_SEAMS)).toBe("vendor");
-    expect(await installRoute(p, "gh", [], false, { ...NOOP_SEAMS, bundledToolExec: () => ["/bundle/Contents/Helpers/gh"] })).toBe("bundled");
+    expect(await installRoute(p, "jq", reqs, { ...NOOP_SEAMS, hostArch: () => "arm64" })).toBe("download");
+    expect(await installRoute(p, "jq", reqs, { ...NOOP_SEAMS, hostArch: () => "x86_64" })).toBeNull();
+    expect(await installRoute(p, "claude", [], NOOP_SEAMS)).toBe("vendor");
+    expect(await installRoute(p, "herdr", [], NOOP_SEAMS)).toBe("vendor");
+    expect(await installRoute(p, "gh", [], { ...NOOP_SEAMS, bundledToolExec: () => ["/bundle/Contents/Helpers/gh"] })).toBe("bundled");
     expect(p.calls.exec).toEqual([]);
   });
 
-  test("installRoute is null for a download-only tool", async () => {
+  test("is null for a tool with only a link or nothing at all", async () => {
     const reqs: PackRequirements[] = [
       {
         pack: "widgets",
         integrations: [],
         tools: [
           { name: "acme-api", why: "the api", install: { url: "https://acme.example/install" } },
-          { name: "tapped", why: "a tap", install: { brew: "acme/tap/tapped" } },
           { name: "steps", why: "by hand" },
         ],
       },
     ];
     const p = fakeProbes();
-    for (const tool of ["acme-api", "tapped", "steps"]) expect(await installRoute(p, tool, reqs, true, NOOP_SEAMS)).toBeNull();
+    for (const tool of ["acme-api", "steps"]) expect(await installRoute(p, tool, reqs, NOOP_SEAMS)).toBeNull();
   });
 });

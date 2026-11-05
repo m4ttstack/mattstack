@@ -48,7 +48,7 @@ describe("state backup init", () => {
       const output = io.stderr();
       expect(output).toContain("rt cannot find age, zstd, git-lfs");
       expect(output).toContain("mattstack.app");
-      expect(output).toContain("brew install age zstd git-lfs");
+      expect(output).toContain("Reinstall the app");
     } finally {
       process.env.PATH = origPath;
       exitSpy.mockRestore();

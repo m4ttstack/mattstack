@@ -84,7 +84,7 @@ rt verify --json    # structured JSON for tooling
 
 `rt verify` is a read-only render of the same plan `rt setup plan` computes. It
 does not install anything. Rows marked required are the critical ones: macOS
-version, Command Line Tools, arm64 architecture, the `rt` binary, absence of
+version, Command Line Tools, the processor (Apple silicon or Intel), the `rt` binary, absence of
 split legacy state dirs, the app bundle, the daemon, the install flavor,
 herdr, Claude, the browser helper, plus credential and forge-reachability
 groups. The editor extension, the vsix, shell integration, the `~/.local/bin`
@@ -150,10 +150,11 @@ git push --tags
 
 `.github/workflows/release.yml` then:
 
-1. Compiles `rt` for `bun-darwin-arm64` and builds the Go `rt-ui` helper for
-   arm64.
-2. Fetches the pinned helper binaries listed in `rt-tray/deps.lock`.
-3. Builds `mattstack.app` with the version baked into `Info.plist`, packages
+1. Compiles `rt` and the Go `rt-ui` helper for arm64 and x86_64, and joins
+   each pair with `lipo`.
+2. Fetches the pinned helper binaries listed in `rt-tray/deps.lock` for both
+   chips, and joins them with `scripts/merge-universal.ts`.
+3. Builds a universal `mattstack.app` with the version baked into `Info.plist`, packages
    `rt-context.vsix` into `Contents/Resources/`, and signs and notarizes.
 4. Runs a clean-room install from the built `.zip` on a fresh macOS runner:
    `rt --post-install`, a PATH check, `rt daemon install`, then
@@ -162,8 +163,8 @@ git push --tags
    `mattstack-<version>.zip`, Sparkle `.delta` files, `appcast.xml`, and
    `SHA256SUMS`.
 
-rt ships an Apple silicon (arm64) build only. Intel Macs are not supported, and
-`rt verify` fails the architecture row on one.
+The release is one universal app that runs on Apple silicon and Intel Macs.
+Dev builds (`rt-tray/build.sh dev`, the dev app) stay arm64 only.
 
 Updates reach users through Sparkle, driven by mattstack.app. rt never
 downloads or installs anything itself.

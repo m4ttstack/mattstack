@@ -33,7 +33,7 @@ export async function stateBackupInit(_args: string[], _ctx: CommandContext = {}
   const resolved = new Map(BACKUP_TOOLS.map((name) => [name, findBackupTool(name)]));
   const absent = BACKUP_TOOLS.filter((name) => !resolved.get(name));
   if (absent.length > 0) {
-    out.fail({ title: `rt cannot find ${absent.join(", ")}`, why: "They ship inside mattstack.app.", next: out.cmd(`brew install ${absent.join(" ")}`) });
+    out.fail({ title: `rt cannot find ${absent.join(", ")}`, why: "They ship inside mattstack.app. Reinstall the app." });
     process.exit(1);
   }
   const gitLfs = resolved.get("git-lfs")!;

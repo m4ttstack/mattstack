@@ -55,15 +55,6 @@ final class PipedOutputTests: XCTestCase {
         XCTAssertTrue(result.output.hasSuffix("MATTSTACK_EXIT=77\n"), "got: \(result.output)")
     }
 
-    // The homebrew verb downloads and installs as root, so unescalated it
-    // must stop before it touches the network or the proxy tree.
-    func testHomebrewRefusesUnescalatedAndStillEmitsTheTrailer() throws {
-        try XCTSkipIf(getuid() == 0, "root would download and install Homebrew for real")
-        let result = runPiped(["homebrew"])
-        XCTAssertEqual(result.reason, .exit)
-        XCTAssertTrue(result.output.hasSuffix("MATTSTACK_EXIT=77\n"), "got: \(result.output)")
-    }
-
     func testUsageTrailerSurvivesPipedStdout() {
         let result = runPiped([])
         XCTAssertEqual(result.reason, .exit)

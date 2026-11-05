@@ -8,7 +8,7 @@
  * setup — so it is emitted required:false with a real optionalNote here; a
  * later composePlan(mode) does the id-keyed post-pass that flips it to
  * required:true once `setup status` runs post-install. Every other row in
- * this group has a user-doable remedy (sign in, brew install, download,
+ * this group has a user-doable remedy (sign in, install, download,
  * flip a setting) and is required exactly per the table below.
  *
  * RULING R-T8-L1a: every team-declared tool row is id'd `tool.team.<name>`
@@ -26,12 +26,12 @@ import { callableBySkills, claudeJsonPath, linearServerNames, nameTaken, readCla
 import { parsePluginList, readServedPacks, type ServedPack } from "../pack-cache.ts";
 import { activeTeamFor } from "../../team/active-team.ts";
 import type { ExecResult, Probes } from "../probes.ts";
-import type { PackRequirements, ToolRequirement } from "../requirements.ts";
+import type { HostArch, PackRequirements, ToolRequirement } from "../requirements.ts";
 import { atLeast } from "../semver.ts";
 import { fits, heldCopy, runnableEngine, type Floor } from "../../engine-floor.ts";
 import { mattstackFloor } from "../mattstack-floor.ts";
 import { deployedProxyVersion, pinnedPortlessVersion, PORTLESS_LAUNCHD_PLIST, PROXY_INSTALLER_MISSING, PROXY_VERSION_PATH, proxyCaIsTrusted, proxyInstallerMissing, proxyPredatesMattstack } from "../steps/services.ts";
-import { isValidBrewFormula, VENDOR_INSTALLERS } from "../tools-install.ts";
+import { VENDOR_INSTALLERS } from "../tools-install.ts";
 import type { SecretPresence } from "./accounts.ts";
 import { writingStyleRowFor } from "./writing-style.ts";
 import { skillsOverridesRowFor } from "./skills-overrides.ts";
@@ -505,33 +505,25 @@ function isHttpsUrl(url: string): boolean {
   }
 }
 
-function teamToolRemedyAction(req: ToolRequirement, hasBrew: boolean, verb: "Install" | "Upgrade"): Action {
+function teamToolRemedyAction(req: ToolRequirement, arch: HostArch, verb: "Install" | "Upgrade"): Action {
   // installTool runs rt's own vendor script for these names, whatever the pack declares.
   if (VENDOR_INSTALLERS[req.name]) return { type: "install", label: verb, tool: req.name, via: "vendor" };
-  const brew = req.install?.brew;
-  // Tap syntax (owner/tap/formula) or anything else outside a bare formula
-  // name never becomes a one-click Install button — matches installTool's
-  // own refusal, so the row and the action it offers agree.
-  if (brew && hasBrew && isValidBrewFormula(brew)) return { type: "install", label: verb, tool: req.name, via: "brew" };
+  if (req.install?.download?.[arch]) return { type: "install", label: verb, tool: req.name, via: "download" };
   // A pack is team-authored, so its link opens in the browser only over https.
   if (req.install?.url && isHttpsUrl(req.install.url)) return { type: "open-url", label: "Download", url: req.install.url };
-  if (brew && !isValidBrewFormula(brew)) {
-    return { type: "steps", label: "Show steps…", steps: [`This pack's install.brew (${brew}) is not a plain formula name, so rt will not run it for you`, `brew install ${brew}`, "Then re-run rt setup status"] };
-  }
   const step = verb === "Upgrade" && req.floor ? `Upgrade ${req.name} to ${req.floor}+` : `Install ${req.name}`;
   return { type: "steps", label: "Show steps…", steps: [step, "Then re-run rt setup status"] };
 }
 
-/** The route around a failed Install, or null when the team declared no way to install the tool. A link goes first: `brew install` is what just failed. */
+/** The route around a failed Install, or null when the team declared no way to install the tool by hand. */
 export function teamToolManualSteps(req: ToolRequirement): Action | null {
   const vendor = VENDOR_INSTALLERS[req.name];
   if (vendor) return { type: "steps", label: "Show steps…", steps: [`curl -fsSL ${vendor.url} | ${vendor.shell}`] };
-  const { brew, url } = req.install ?? {};
-  const step = url && isHttpsUrl(url) ? `Download it from ${url}` : brew ? `brew install ${brew}` : null;
-  return step ? { type: "steps", label: "Show steps…", steps: [step] } : null;
+  const url = req.install?.url;
+  return url && isHttpsUrl(url) ? { type: "steps", label: "Show steps…", steps: [`Download it from ${url}`] } : null;
 }
 
-export async function teamToolRow(p: Probes, req: ToolRequirement, hasBrew: boolean): Promise<Row> {
+export async function teamToolRow(p: Probes, req: ToolRequirement, arch: HostArch): Promise<Row> {
   const base = {
     id: `tool.team.${req.name}`,
     kind: "tool" as const,
@@ -542,13 +534,13 @@ export async function teamToolRow(p: Probes, req: ToolRequirement, hasBrew: bool
   };
 
   const res = await exec(p, [req.name, "--version"]);
-  if (res.code === 127) return row({ ...base, status: "missing", detail: `${req.name} is not installed`, action: teamToolRemedyAction(req, hasBrew, "Install") });
+  if (res.code === 127) return row({ ...base, status: "missing", detail: `${req.name} is not installed`, action: teamToolRemedyAction(req, arch, "Install") });
   if (res.code === 124) return row({ ...base, status: "error", detail: `${req.name} did not answer in time` });
   if (res.code !== 0) return row({ ...base, status: "error", detail: `Could not run ${req.name} (exit ${res.code})` });
 
   const version = extractVersion(res.stdout);
   if (req.floor && !atLeast(version, req.floor)) {
-    return row({ ...base, status: "invalid", detail: /^[0-9]/.test(version) ? `${named(req.name, version)} is older than ${req.floor}` : `rt could not read ${req.name}'s version (it needs ${req.floor} or newer)`, action: teamToolRemedyAction(req, hasBrew, "Upgrade") });
+    return row({ ...base, status: "invalid", detail: /^[0-9]/.test(version) ? `${named(req.name, version)} is older than ${req.floor}` : `rt could not read ${req.name}'s version (it needs ${req.floor} or newer)`, action: teamToolRemedyAction(req, arch, "Upgrade") });
   }
   return row({ ...base, status: "ready", detail: named(req.name, version) });
 }
@@ -727,7 +719,6 @@ function stateBackupRow(p: Probes, seams: ToolsSeams): Row {
         label: "Show steps…",
         steps: [
           "Update mattstack.app; it ships age, zstd and git-lfs",
-          `Or install them yourself: brew install ${missing.join(" ")}`,
           "Then re-run rt setup status",
         ],
       },
@@ -803,9 +794,9 @@ export async function toolRows(
   p: Probes,
   reqs: PackRequirements[],
   // Optional, not required: the existing test call sites pass only
-  // { hasBrew, secrets }, and tests are inside the root tsconfig, so a required
+  // { arch, secrets }, and tests are inside the root tsconfig, so a required
   // field turns `bunx tsc --noEmit` red while `bun test` stays green.
-  opts: { hasBrew: boolean; secrets: SecretPresence; teamSlug?: string; solo?: boolean; activeTeam?: string | null; usesLinear?: boolean },
+  opts: { arch: HostArch; secrets: SecretPresence; teamSlug?: string; solo?: boolean; activeTeam?: string | null; usesLinear?: boolean },
   seams: ToolsSeams = REAL_SEAMS,
 ): Promise<Row[]> {
   const fastBrowser = await probeFastBrowser(p, seams);
@@ -826,7 +817,7 @@ export async function toolRows(
   rows.push(await proxyRow(p));
   rows.push(stateBackupRow(p, seams));
 
-  for (const tool of dedupeTeamTools(reqs)) rows.push(await teamToolRow(p, tool, opts.hasBrew));
+  for (const tool of dedupeTeamTools(reqs)) rows.push(await teamToolRow(p, tool, opts.arch));
 
   // One listing feeds tool.plugins and every pack row; tool.plugins is
   // unconditional, so there is no longer a case where nothing needs it.

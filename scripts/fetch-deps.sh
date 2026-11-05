@@ -1,10 +1,11 @@
 #!/bin/bash
-# scripts/fetch-deps.sh [arm64]
+# scripts/fetch-deps.sh [arm64|x86_64]
 # Downloads every bundled tool in rt-tray/deps.lock, verifies sha256 before
 # extracting, and unpacks it into rt-tray/deps/<arch>/<name> (helpers) or
 # rt-tray/deps/tools/<name> (build tools, dest derived from the lock's own
 # bundlePath). Idempotent: a tool whose unpack stamp already matches the
-# locked sha256 is skipped.
+# locked sha256 is skipped. The x86_64 slice takes each row's x86_64 pin;
+# scripts/merge-universal.ts joins the two slices for a release.
 #
 # To add a tool: download it once, run `shasum -a 256 <download>`, and paste
 # the url plus that hash into rt-tray/deps.lock by hand, then re-run this
@@ -16,7 +17,8 @@ ARCH="arm64"
 for a in "$@"; do
   case "$a" in
     arm64) ARCH=arm64 ;;
-    *) echo "usage: $0 [arm64]" >&2; exit 2 ;;
+    x86_64) ARCH=x86_64 ;;
+    *) echo "usage: $0 [arm64|x86_64]" >&2; exit 2 ;;
   esac
 done
 
@@ -28,19 +30,22 @@ CACHE="${RT_DEPS_CACHE:-$HOME/Library/Caches/mattstack-deps}"
 mkdir -p "$DEPS" "$TOOLS" "$CACHE"
 
 LOCK_ARCH="$(bun "$DEPS_LOCK_TS" ${RT_DEPS_LOCK:+--lock "$RT_DEPS_LOCK"} --arch)"
-if [ "$LOCK_ARCH" != "$ARCH" ]; then
-  echo "  x deps.lock arch is $LOCK_ARCH, this run wants $ARCH" >&2
+if [ "$LOCK_ARCH" != "arm64" ]; then
+  echo "  x deps.lock arch is $LOCK_ARCH, this script reads an arm64 lock" >&2
   exit 1
 fi
 
-# A make-src row compiles with the host toolchain's defaults, so an x86_64 Mac
-# would drop an x86_64 binary into deps/arm64 and every downstream check would
-# pass: the linkage gate reads library paths, never the CPU type.
+# Rows built here (make-src, go-src) cross-compile for $ARCH explicitly; an
+# arm64 host keeps the arm64 slice's toolchain defaults matching what ships.
 HOST_ARCH="$(uname -m)"
 if [ "$HOST_ARCH" != "arm64" ]; then
   echo "  x build host is $HOST_ARCH; deps/$ARCH must be built on arm64" >&2
   exit 1
 fi
+case "$ARCH" in
+  arm64) GOARCH_FOR=arm64 ;;
+  x86_64) GOARCH_FOR=amd64 ;;
+esac
 
 sha() { shasum -a 256 "$1" | cut -d' ' -f1; }
 
@@ -164,7 +169,7 @@ unpack() { # name archive-file archive-kind extract-path dest
         }
       fi
       version_for_build="${extract#*-}"
-      (cd "$tmp/$extract" && go build -trimpath -ldflags "-s -w -X main.version=$version_for_build -X main.revision=rtpatch" -o "$dest" .) || {
+      (cd "$tmp/$extract" && GOOS=darwin GOARCH="$GOARCH_FOR" CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$version_for_build -X main.revision=rtpatch" -o "$dest" .) || {
         echo "  x $name: go build failed" >&2
         rm -rf "$tmp"
         exit 1
@@ -182,7 +187,7 @@ unpack() { # name archive-file archive-kind extract-path dest
         rm -rf "$tmp"
         exit 1
       fi
-      if ! make -C "$tmp/$extract" "$name" -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)" > "$tmp/make.log" 2>&1; then
+      if ! make -C "$tmp/$extract" "$name" CC="cc -arch $ARCH" -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)" > "$tmp/make.log" 2>&1; then
         echo "  x $name: make failed" >&2
         tail -20 "$tmp/make.log" >&2
         rm -rf "$tmp"
@@ -246,7 +251,7 @@ split_tsv() {
 # otherwise iterate zero rows and this script would report Done. and exit 0.
 TSV="$(mktemp)"
 trap 'rm -f "$TSV"' EXIT
-bun "$DEPS_LOCK_TS" ${RT_DEPS_LOCK:+--lock "$RT_DEPS_LOCK"} > "$TSV"
+bun "$DEPS_LOCK_TS" ${RT_DEPS_LOCK:+--lock "$RT_DEPS_LOCK"} --slice "$ARCH" > "$TSV"
 ROWS="$(wc -l < "$TSV" | tr -d ' ')"
 if [ "$ROWS" -eq 0 ]; then
   echo "  x deps.lock produced no rows" >&2

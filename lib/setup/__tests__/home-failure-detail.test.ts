@@ -72,15 +72,10 @@ describe("failureDetail", () => {
 describe("homeInitRemedy: missing executable", () => {
   // The exact stderr that dead-ended every clean-Mac install. The old remedy
   // was "Check the error above, then Retry" — true, and unactionable.
-  test("names the tool, and maps age-keygen to the package that provides it", () => {
+  test("names the missing tool and sends the member to reinstall the app that ships it", () => {
     const remedy = homeInitRemedy('error: Executable not found in $PATH: "age-keygen"');
-    expect(remedy).toContain("age-keygen");
-    expect(remedy).toContain("Reinstall mattstack.app");
-    expect(remedy).toContain("brew install age"); // the formula is `age`, not `age-keygen`
-  });
-
-  test("a tool whose name matches its package is not rewritten", () => {
-    expect(homeInitRemedy('error: Executable not found in $PATH: "sops"')).toContain("brew install sops");
+    expect(remedy).toBe("age-keygen is missing. Reinstall mattstack.app, then Retry");
+    expect(homeInitRemedy('error: Executable not found in $PATH: "sops"')).toBe("sops is missing. Reinstall mattstack.app, then Retry");
   });
 
   // The missing-binary check runs first precisely because this stderr would

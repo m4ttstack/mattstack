@@ -26,5 +26,5 @@ export function findBackupTool(name: BackupTool, which?: Which): string | null {
 export function requireBackupTool(name: BackupTool, which?: Which): string {
   const found = findBackupTool(name, which);
   if (found) return found;
-  throw new Error(`${name} not found. It ships inside mattstack.app — install the app, or: brew install ${name}`);
+  throw new Error(`${name} not found. It ships inside mattstack.app; reinstall the app`);
 }

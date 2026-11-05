@@ -7,11 +7,9 @@ public struct NeedResult: Codable, Equatable, Sendable {
 }
 
 public protocol PrivilegedInstalling: Sendable {
-    /// `homebrew` installs Homebrew inside the same admin prompt.
-    func proxyInstall(homebrew: Bool) async -> NeedResult
+    func proxyInstall() async -> NeedResult
     func proxyRemove() async -> NeedResult
-    func proxyTrust(homebrew: Bool) async -> NeedResult
-    func homebrew() async -> NeedResult
+    func proxyTrust() async -> NeedResult
 }
 
 public protocol PrivilegeEscalator: Sendable {
@@ -21,7 +19,6 @@ public protocol PrivilegeEscalator: Sendable {
 public enum ProxyHelper {
     public static let relativePath = "Contents/Helpers/mattstack-proxy-install"
     public static func path(bundlePath: String) -> String { bundlePath + "/" + relativePath }
-    public static func arguments(verb: String, homebrew: Bool) -> [String] { homebrew ? [verb, "--homebrew"] : [verb] }
     /// macOS asks for the certificate separately, under its own authorization
     /// (`com.apple.trust-settings.admin`, which caches nothing), so promising a
     /// single prompt would be untrue every time.
@@ -29,6 +26,4 @@ public enum ProxyHelper {
     public static let trustPromptText = "mattstack needs administrator access to trust the local proxy's certificate, so browsers stop warning about the board and deck."
     /// `remove` deletes the trust settings rather than writing them, so it
     /// raises no second dialog and must not promise one.
-    public static let removePromptText = "mattstack needs administrator access to remove the local HTTPS proxy (portless)."
-    public static let homebrewPromptText = "mattstack needs administrator access to install Homebrew."
-}
+    public static let removePromptText = "mattstack needs administrator access to remove the local HTTPS proxy (portless)."}

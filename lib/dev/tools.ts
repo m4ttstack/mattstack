@@ -31,7 +31,7 @@ interface Spec {
 const SPECS: readonly Spec[] = [
   { name: "git", need: "required", versionArgs: ["--version"], parse: (o) => o.match(/git version (\d+(?:\.\d+)*)/)?.[1] ?? null, fallbackDirs: () => ["/usr/bin"] },
   { name: "bun", need: "required", versionArgs: ["--version"], parse: (o) => o.trim().match(/^(\d+\.\d+\.\d+)/)?.[1] ?? null, fallbackDirs: (h) => [join(h, ".bun", "bin"), "/opt/homebrew/bin"] },
-  { name: "go", need: "required", versionArgs: ["version"], parse: (o) => o.match(/go(\d+\.\d+(?:\.\d+)?)/)?.[1] ?? null, fallbackDirs: () => ["/opt/homebrew/bin", "/usr/local/go/bin", "/usr/local/bin"] },
+  { name: "go", need: "required", versionArgs: ["version"], parse: (o) => o.match(/go(\d+\.\d+(?:\.\d+)?)/)?.[1] ?? null, fallbackDirs: (h) => [join(h, ".local", "bin"), "/opt/homebrew/bin", "/usr/local/go/bin", "/usr/local/bin"] },
   { name: "node", need: "warning", versionArgs: ["--version"], parse: (o) => o.trim().match(/^v?(\d+\.\d+\.\d+)/)?.[1] ?? null, fallbackDirs: () => ["/opt/homebrew/bin", "/usr/local/bin"] },
 ];
 
@@ -147,9 +147,9 @@ export function installCommandFor(name: DevToolName, wanted: string | null): str
     case "bun":
       return `curl -fsSL https://bun.sh/install | bash -s bun-v${wanted}`;
     case "go":
-      return "brew install go";
+      return "open https://go.dev/dl/";
     case "node":
-      return "brew install node";
+      return "open https://nodejs.org/en/download";
     case "git":
       return "xcode-select --install";
   }

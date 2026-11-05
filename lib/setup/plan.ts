@@ -36,6 +36,7 @@ import { orgRows } from "./validators/org.ts";
 import { forgeAccessRow } from "./validators/org-forge-access.ts";
 import { repoPlacementRows } from "./validators/repos.ts";
 import { readTeamSnapshotStatus, rtHealthRows } from "./validators/rt-health.ts";
+import { hostArch } from "./tools-install.ts";
 import { INSTALLED_BY_INSTALL_NOTE, toolRows } from "./validators/tools.ts";
 import { WRITING_STYLE_ROW_ID } from "./validators/writing-style.ts";
 
@@ -96,11 +97,6 @@ function tccSummary(res: DaemonResponse | null): { blocked: number; total: numbe
   const data = res.data as { blocked?: unknown[]; totalRepos?: number } | undefined;
   if (!data || !Array.isArray(data.blocked) || typeof data.totalRepos !== "number") return null;
   return { blocked: data.blocked.length, total: data.totalRepos };
-}
-
-async function detectHasBrew(p: Probes): Promise<boolean> {
-  const res = await p.exec(["brew", "--version"]);
-  return res.code === 0;
 }
 
 const REBUILD_ACTION = { type: "run" as const, label: "Re-check", verb: ["setup", "status"] };
@@ -223,9 +219,9 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
     }),
     buildGroup("access", () => accessRows(i.p, snapshot, intent, userOverrides, i.secrets, solo)),
     buildGroup("tools", async () => {
-      const [hasBrew, healthRows] = await Promise.all([detectHasBrew(i.p), rtHealthRows(i.p, { ci: i.ci })]);
+      const healthRows = await rtHealthRows(i.p, { ci: i.ci });
       const usesLinear = teamDeclaresIntegration(snapshot, reqs, "linear");
-      const tools = await toolRows(i.p, reqs, { hasBrew, secrets: i.secrets, teamSlug: team.slug, solo, activeTeam: pendingJoinTeam(intent, i.orgs), usesLinear });
+      const tools = await toolRows(i.p, reqs, { arch: hostArch(), secrets: i.secrets, teamSlug: team.slug, solo, activeTeam: pendingJoinTeam(intent, i.orgs), usesLinear });
       const repos = await repoPlacementRows(i.p, team, snapshot);
       const boardFields = boardTeamFieldsRowFor(i.p, { solo, teamFor: () => (i.orgs.includes(team.slug) ? activeTeamFor(i.p, team.slug).team : null) });
       return [...tools, ...repos, ...healthRows, ...(boardFields ? [boardFields] : [])];

@@ -14,7 +14,7 @@
     "serve": "bun run src/server/server.ts",
     "build": "bun build src/cli/main.ts --outfile dist/gitq.js --target node --format esm --external @mattstack/glance --external picomatch --external @cfworker/json-schema --external jsonc-parser",
     "build:client": "bun run scripts/build-client.ts",
-    "build:binary": "bun run build:client && bun build --compile src/compiled.ts --outfile dist/gitq",
+    "build:binary": "bun run build:client && bun build --compile ${MATTSTACK_BUN_TARGET:+--target=$MATTSTACK_BUN_TARGET} src/compiled.ts --outfile dist/gitq",
     "prepublishOnly": "bun run check-types && bun run build",
     "release": "bun run scripts/release.ts"
   },

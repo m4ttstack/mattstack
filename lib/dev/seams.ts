@@ -31,7 +31,7 @@ export interface DevSeams extends DevAppInstallSeams {
   repoRoot(): string | null;
   storedSourcePath(): string | null;
   saveSourcePath(sourcePath: string, bunPath: string): void;
-  installDevTool(tool: "bun" | "go" | "node", version: string): Promise<InstallResult>;
+  installDevTool(tool: "bun" | "go", version: string): Promise<InstallResult>;
   /** The gh argv to run: the app's copy, else one on PATH; null when neither exists. */
   gh(): string[] | null;
   devWrapperOwnsRt(): boolean;

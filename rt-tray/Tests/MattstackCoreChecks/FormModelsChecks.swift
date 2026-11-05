@@ -126,19 +126,19 @@ let formModelsChecks: [Check] = [
         c.expectEqual(rows[2].tone, .unknown, "a tone this app does not know never fails the read")
     },
     Check("FormModels: a failed tools row decodes its tone and second action; an rt older than the field sends neither") { c in
-        let extra = #","tone":"failed","secondary":{"type":"steps","label":"Show steps…","steps":["brew install doppler"]}"#
+        let extra = #","tone":"failed","secondary":{"type":"steps","label":"Show steps…","steps":["Download it from https://docs.doppler.com/docs/install-cli"]}"#
         let form = try decodeForm(sectionJSON("connect", [row("tool.team.doppler", extra: extra), row("tool.team.ldcli")]))
         let rows = try c.requireSome(form.sections.connect)
         c.expectEqual(rows[0].tone, .failed)
         c.expectEqual(rows[0].secondary?.type, .steps)
-        c.expectEqual(rows[0].secondary?.steps, ["brew install doppler"])
+        c.expectEqual(rows[0].secondary?.steps, ["Download it from https://docs.doppler.com/docs/install-cli"])
         c.expectEqual(rows[0].secondaryPress?.action, rows[0].secondary)
         c.expectEqual(rows[1].tone, nil)
         c.expectEqual(rows[1].secondary, nil)
         c.expectEqual(rows[1].secondaryPress, nil)
     },
     Check("FormModels: the app's error shows under any row but a failed one, whose failure rt already draws") { c in
-        let failed = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: "", state: .todo, tone: .failed, detail: "Homebrew could not install it")
+        let failed = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: "", state: .todo, tone: .failed, detail: "The download failed")
         c.expectEqual(failed.shownError("rt tools install failed"), nil)
         let plain = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: "", state: .todo, detail: "")
         c.expectEqual(plain.shownError("rt tools install failed"), "rt tools install failed")

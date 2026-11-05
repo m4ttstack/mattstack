@@ -55,6 +55,29 @@ describe("build-apps", () => {
     expect(smokeHome.startsWith(tmpdir())).toBe(true);
   });
 
+  test("an x86_64 pass hands each recipe the Intel compile target and lands in deps/x86_64", async () => {
+    const work = mkdtempSync(join(tmpdir(), "build-apps-"));
+    const apps = join(work, "apps");
+    const dir = fakeApp(apps, "epsilon");
+    writeFileSync(join(dir, "mattstack.deck.json"), JSON.stringify({ name: "epsilon", bundle: {
+      build: `printf '%s' "$MATTSTACK_BUN_TARGET" > dist/epsilon && chmod 755 dist/epsilon`, artifact: "dist/epsilon",
+    } }));
+    const lock = join(work, "deps.lock");
+    writeFileSync(lock, JSON.stringify({ schema: 1, arch: "arm64", tools: [
+      { name: "epsilon", version: "", license: "MIT", source: "tree", archive: "raw", extract: "",
+        bundlePath: "Contents/Helpers/epsilon", exec: ["Contents/Helpers/epsilon"], exposeByDefault: false,
+        entitlements: "jit", status: "bundled", kind: "helper" } ] }));
+    const deps = join(work, "deps");
+    const smoked: string[] = [];
+    await buildTreeRows({
+      appsRoot: apps, depsRoot: deps, lockPath: lock, arch: "x86_64", log: () => {},
+      smoke: (artifact) => { smoked.push(artifact); return 0; },
+    });
+    expect(readFileSync(join(deps, "x86_64", "epsilon"), "utf8")).toBe("bun-darwin-x64");
+    expect(existsSync(join(deps, "arm64", "epsilon"))).toBe(false);
+    expect(smoked).toEqual([join(dir, "dist", "epsilon")]);
+  });
+
   test("refuses an artifact the recipe did not produce", async () => {
     const work = mkdtempSync(join(tmpdir(), "build-apps-"));
     const apps = join(work, "apps");
