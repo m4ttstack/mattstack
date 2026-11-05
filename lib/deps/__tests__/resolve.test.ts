@@ -176,6 +176,17 @@ describe("bundled-tool resolution", () => {
       expect(resolveTool(p, "claude").exec).toEqual([local]);
     });
 
+    test("herdr's own install in ~/.local/bin beats a Homebrew copy earlier on PATH", () => {
+      const local = linkPath(home, "herdr");
+      const p = bundleProbe({ env: { PATH: `/opt/homebrew/bin:${LAUNCHD_PATH}:${join(home, ".local", "bin")}` }, files: { "/opt/homebrew/bin/herdr": "old", [local]: "#!/bin/sh\nreal-herdr\n" } });
+      expect(resolveTool(p, "herdr").exec).toEqual([local]);
+    });
+
+    test("any other tool keeps PATH order over ~/.local/bin", () => {
+      const p = bundleProbe({ env: { PATH: `/opt/homebrew/bin:${join(home, ".local", "bin")}` }, files: { "/opt/homebrew/bin/claude": "a", [linkPath(home, "claude")]: "#!/bin/sh\nreal-claude\n" } });
+      expect(resolveTool(p, "claude").exec).toEqual(["/opt/homebrew/bin/claude"]);
+    });
+
     test("finds nothing when no well-known dir has it", () => {
       const resolution = resolveTool(bundleProbe({ env: { PATH: LAUNCHD_PATH } }), "claude");
       expect(resolution.exec).toBeNull();
