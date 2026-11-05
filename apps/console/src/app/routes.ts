@@ -6,6 +6,8 @@ export type AppRoute =
   | { name: 'run'; repo: string; runId: string }
   | { name: 'gate'; id: string }
   | { name: 'search' }
+  | { name: 'usage' }
+  | { name: 'usage-mr'; mrKey: string }
   | { name: 'packs' }
   | { name: 'old-wiring' }
   | { name: 'settings' }
@@ -39,6 +41,15 @@ function canonicalRepo(raw: string): string | undefined {
     : decoded;
 }
 
+/** An MR key is a repo identity plus `!<number>`, so its repo half needs the
+    same treatment. */
+function canonicalMrKey(raw: string): string | undefined {
+  const bang = raw.lastIndexOf('!');
+  if (bang === -1) return undefined;
+  const repo = canonicalRepo(raw.slice(0, bang));
+  return repo === undefined ? undefined : `${repo}${raw.slice(bang)}`;
+}
+
 /**
  * The app's route table, as a hook: the current location in, a structured
  * route out. `/runs/<repo>/<runId>` carries a serialized repo identity in the
@@ -50,6 +61,8 @@ function canonicalRepo(raw: string): string | undefined {
 export function useAppRoute(): AppRoute {
   const [isBoard] = useRoute('/');
   const [isSearch] = useRoute('/search');
+  const [isUsage] = useRoute('/usage');
+  const [isUsageMr, usageMrParams] = useRoute('/usage/:mrKey');
   const [isPacks] = useRoute('/packs');
   const [isOldWiring] = useRoute('/wiring');
   const [isSettings] = useRoute('/settings');
@@ -60,6 +73,13 @@ export function useAppRoute(): AppRoute {
 
   if (isBoard) return { name: 'board' };
   if (isSearch) return { name: 'search' };
+  if (isUsage) return { name: 'usage' };
+  if (isUsageMr) {
+    const mrKey = canonicalMrKey(usageMrParams.mrKey ?? '');
+    return mrKey !== undefined
+      ? { name: 'usage-mr', mrKey }
+      : { name: 'not-found' };
+  }
   if (isPacks) return { name: 'packs' };
   if (isOldWiring) return { name: 'old-wiring' };
   if (isSettings) return { name: 'settings' };

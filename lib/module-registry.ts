@@ -92,4 +92,5 @@ export const MODULE_REGISTRY: Record<string, () => Promise<any>> = {
   "./commands/services.ts": () => import("../commands/services.ts"),
   "./commands/tools.ts": () => import("../commands/tools.ts"),
   "./commands/uninstall.ts": () => import("../commands/uninstall.ts"),
+  "./commands/usage.ts": () => import("../commands/usage.ts"),
 };
