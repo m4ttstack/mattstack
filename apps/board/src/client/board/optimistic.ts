@@ -31,9 +31,10 @@ const REVIEW_ACTIVE = new Set(['queued', 'reviewing']);
 export function setQueued(
   s: OptimisticState,
   axis: Axis,
-  url: string
+  url: string,
+  status: 'queued' | 'syncing' = 'queued'
 ): OptimisticState {
-  return { ...s, [axis]: { ...s[axis], [url]: { status: 'queued' } } };
+  return { ...s, [axis]: { ...s[axis], [url]: { status } } };
 }
 
 /** Undo an optimistic claim -- a launch request that failed or errored before

@@ -86,12 +86,14 @@ export interface RespondInfo {
 }
 export type DoctorStatus =
   | 'queued'
+  | 'syncing'
   | 'diagnosing'
   | 'rebasing'
   | 'fixing'
   | 'watching'
   | 'done'
-  | 'error';
+  | 'error'
+  | 'sync-stopped';
 export interface DoctorInfo {
   status: DoctorStatus;
   /** The rt agent running the doctor, matched against a gone pane. */

@@ -201,6 +201,8 @@ export type {
   WorktreeListData,
   WorktreeTreeRef,
   WorktreeProvisionCheckData,
+  WorktreeSyncData,
+  WorktreeSyncKind,
 } from "./commands.ts";
 
 export { subscribe, createRelay, DEFAULT_WS_URL } from "./relay.ts";

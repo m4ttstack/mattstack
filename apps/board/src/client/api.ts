@@ -19,6 +19,7 @@ export interface ActionResult {
     status?: string;
     reactions?: string[];
     reason?: string;
+    synced?: string;
   } | null;
   text: string;
 }

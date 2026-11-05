@@ -89,6 +89,7 @@ const RESPOND_ACTIVE = new Set<RespondStatus>([
 
 const DOCTOR_LABEL: Record<DoctorStatus, string> = {
   queued: 'doctor queued',
+  syncing: 'syncing…',
   diagnosing: 'diagnosing…',
   rebasing: 'rebasing…',
   fixing: 'fixing…',
@@ -98,10 +99,12 @@ const DOCTOR_LABEL: Record<DoctorStatus, string> = {
   // what every finished run actually did.
   done: 'diagnosed',
   error: 'doctor stuck',
+  'sync-stopped': 'sync stopped',
 };
 
 const DOCTOR_ACTIVE = new Set<DoctorStatus>([
   'queued',
+  'syncing',
   'diagnosing',
   'rebasing',
   'fixing',

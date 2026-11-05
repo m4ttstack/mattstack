@@ -563,7 +563,7 @@ test('a bulk local rebase skips MRs a live work run owns too', async () => {
   );
   expect(events).toEqual([
     'launch rebase-local !1 {"quiet":true}',
-    "toast local rebase started on !1 · skipped !2, Pip's run is active",
+    "toast local rebase ran on !1 · skipped !2, Pip's run is active",
     'reload false',
   ]);
 });
