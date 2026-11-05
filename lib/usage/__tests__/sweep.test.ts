@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   appendFileSync,
   mkdirSync,
@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { seedRun } from "../../runs/__tests__/fixtures.ts";
+import { usageMr, usageMrs } from "../queries.ts";
 import type { AgentLink } from "../sources.ts";
 import { openUsageDb } from "../store.ts";
 import { runSweep, type SweepInput } from "../sweep.ts";
@@ -118,7 +119,7 @@ function setMeta(key: string, value: string): void {
   inDb((db) => db.query("INSERT INTO usage_meta (key, value) VALUES (?, ?)").run(key, value));
 }
 
-test("one MR total with no double counting", async () => {
+test("each kind of link lands its messages on the MR", async () => {
   workRun("run-work", "s-work", T0);
   workRun("run-respond-1", "s-respond-1", T0 + 10 * MINUTE);
   workRun("run-respond-2", "s-respond-2", T0 + 20 * MINUTE);
@@ -217,6 +218,24 @@ test("a backward mtime rereads the file from 0", async () => {
   utimesSync(path, new Date(T0), new Date(T0));
   expect((await runSweep(input({ now: NOW + MINUTE }))).messages).toBe(1);
   expect(rows()).toMatchObject([{ output: 99 }]);
+});
+
+test("rewritten bytes before the offset are not read again", async () => {
+  workRun("run-1", "s-1");
+  const path = transcript("s-1", line("m-1", 1000, 10));
+  await runSweep(input());
+  const before = rows();
+
+  writeFileSync(path, line("m-1", 1000, 99));
+  expect(await runSweep(input({ now: NOW + MINUTE }))).toMatchObject({ messages: 0, conflicts: 0 });
+  expect(rows()).toEqual(before);
+
+  appendFileSync(path, line("m-2", 2000, 20));
+  expect((await runSweep(input({ now: NOW + 2 * MINUTE }))).messages).toBe(1);
+  expect(rows()).toMatchObject([
+    { message_id: "m-1", output: 10 },
+    { message_id: "m-2", output: 20 },
+  ]);
 });
 
 test("deleting a run DB and transcript keeps its rows", async () => {
@@ -546,6 +565,147 @@ test("an unresolved MR is logged at debug", async () => {
   await runSweep(input({ log: { warn: () => {}, debug: (c, m) => debug.push([c, m]) } }));
   expect(debug).toHaveLength(1);
   expect(debug[0]?.[0]).toEqual({ unresolvedMr: 1 });
+});
+
+describe("one MR, swept and read back", () => {
+  const FINISHED = T0 + 90 * MINUTE;
+  const AFTER = FINISHED + MINUTE;
+
+  function kindRun(
+    id: string,
+    workType: string,
+    startMin: number,
+    sessions: string[],
+    stage: string,
+    mr: string | null = MR_URL,
+  ): void {
+    const startedAt = T0 + startMin * MINUTE;
+    seedRun(runs, REPO, id, startedAt, 1, {
+      status: "running",
+      stages: [{ name: stage, status: "running", startedAt }],
+      fields: [
+        ...(mr ? [{ key: "mr", value: mr }] : []),
+        { key: "claude-session", value: sessions.at(-1) ?? "" },
+        { key: "claude-sessions", value: JSON.stringify(sessions) },
+      ],
+    });
+    const db = new Database(join(runs, REPO, id, "state.db"));
+    db.run("UPDATE runs SET work_type = ?", [workType]);
+    db.close();
+  }
+
+  function finish(id: string, endMin: number): void {
+    const db = new Database(join(runs, REPO, id, "state.db"));
+    db.run("UPDATE runs SET status = 'done', ended_at = ?", [T0 + endMin * MINUTE]);
+    db.run("UPDATE stages SET status = 'done', ended_at = ?", [T0 + endMin * MINUTE]);
+    db.close();
+  }
+
+  const DOCTOR_HEAD = `${JSON.stringify({
+    type: "user",
+    message: { content: "<command-name>/board:doctor</command-name>" },
+  })}\n`;
+
+  function seedMr(): AgentLink[] {
+    kindRun("run-work", "feature", 10, ["s-work", "s-work-2"], "build");
+    transcript("s-work", line("m-setup", 5 * MINUTE, 1), line("m-build", 12 * MINUTE, 2));
+    subagentTranscript("s-work", "aaa", line("m-sub", 13 * MINUTE, 4));
+    transcript("s-work-2", line("m-build", 12 * MINUTE, 2), line("m-resumed", 23 * MINUTE, 8));
+
+    kindRun("run-r1", "receive-review", 40, ["s-r1"], "respond");
+    transcript("s-r1", line("m-r1", 41 * MINUTE, 16));
+    kindRun("run-r2", "receive-review", 50, ["s-r2"], "respond", null);
+    transcript("s-r2", line("m-r2", 51 * MINUTE, 32));
+
+    kindRun("run-shared-a", "review", 60, ["s-shared"], "review");
+    kindRun("run-shared-b", "review", 65, ["s-shared"], "review");
+    transcript("s-shared", line("m-sh1", 61 * MINUTE, 64), line("m-sh2", 66 * MINUTE, 128));
+
+    transcript("s-doctor", DOCTOR_HEAD, line("m-doc", 70 * MINUTE, 256));
+    return [mrAgent("s-r2"), mrAgent("s-doctor")];
+  }
+  const OUTPUT = 511;
+
+  const byRun = (key: string) =>
+    usageMr(dbPath, key)?.runs.map((r) => [r.runId, r.kind, r.round, r.totals.output]);
+
+  async function sweepFinished(agents: AgentLink[]): Promise<void> {
+    for (const [id, end] of [
+      ["run-work", 30],
+      ["run-r1", 45],
+      ["run-r2", 55],
+      ["run-shared-a", 62],
+      ["run-shared-b", 68],
+    ] as const) {
+      finish(id, end);
+    }
+    await runSweep(input({ agents, now: AFTER }));
+    await runSweep(input({ agents, now: AFTER + MINUTE }));
+  }
+
+  test("every kind of run counts once on one MR", async () => {
+    const agents = seedMr();
+    const result = await runSweep(input({ agents, now: FINISHED }));
+    // The resumed session replays m-build, which the conflict count reports.
+    expect(result).toMatchObject({ conflicts: 1, skippedLines: 0 });
+
+    const expected = [
+      ["run-work", "work", null, 15],
+      ["run-r1", "respond", 1, 16],
+      ["run-r2", "respond", 2, 32],
+      ["run-shared-a", "review", null, 64],
+      ["run-shared-b", "review", null, 128],
+      [null, "doctor", null, 256],
+    ];
+    expect(byRun(MR_KEY)).toEqual(expected);
+    expect(usageMr(dbPath, MR_KEY)?.totals.output).toBe(OUTPUT);
+    expect(rows().length).toBe(9);
+
+    const list = usageMrs(dbPath, { now: FINISHED });
+    expect(list.summary.mrCount).toBe(1);
+    expect(list.mrs[0]).toMatchObject({ mrKey: MR_KEY, runCount: 5, roundCount: 2 });
+    expect(list.summary.totals.output).toBe(OUTPUT);
+  });
+
+  test("final totals survive deleting the run DBs and transcripts", async () => {
+    const agents = seedMr();
+    await runSweep(input({ agents, now: FINISHED }));
+    await sweepFinished(agents);
+    const settled = usageMr(dbPath, MR_KEY);
+    const listed = usageMrs(dbPath, { now: AFTER });
+    expect(settled?.totals.output).toBe(OUTPUT);
+
+    rmSync(runs, { recursive: true, force: true });
+    mkdirSync(runs);
+    rmSync(join(config, "projects"), { recursive: true, force: true });
+    await runSweep(input({ now: AFTER + 2 * MINUTE }));
+
+    expect(usageMr(dbPath, MR_KEY)).toEqual(settled);
+    expect(usageMrs(dbPath, { now: AFTER })).toEqual(listed);
+  });
+
+  test("a reopened run re-attributes and the total holds", async () => {
+    kindRun("run-work", "feature", 10, ["s-work"], "build");
+    transcript("s-work", line("m-1", 12 * MINUTE, 2), line("m-late", 40 * MINUTE, 4));
+    finish("run-work", 30);
+    await runSweep(input({ now: AFTER }));
+    await runSweep(input({ now: AFTER + MINUTE }));
+    const late = () => rows().find((r) => r.message_id === "m-late");
+    expect(late()).toMatchObject({ attribution: "session", stage: null });
+
+    const db = new Database(join(runs, REPO, "run-work", "state.db"));
+    db.run("UPDATE runs SET status = 'running', ended_at = NULL");
+    db.run(
+      "INSERT INTO stages (run_id, name, status, attempt, started_at) VALUES ('run-work', 'build', 'running', 2, ?)",
+      [T0 + 35 * MINUTE],
+    );
+    db.close();
+    await runSweep(input({ now: AFTER + 2 * MINUTE }));
+
+    expect(late()).toMatchObject({ attribution: "stage", stage: "build", attempt: 2 });
+    expect(usageMr(dbPath, MR_KEY)?.totals.output).toBe(6);
+    expect(rows().length).toBe(2);
+  });
 });
 
 test("a new row starts unattributed", async () => {
