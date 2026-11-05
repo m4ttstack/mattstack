@@ -41,6 +41,7 @@ import {
   resolveSoleHerd, withLandingHint,
   type McpToolDef, type ToolResult,
 } from "./shared.ts";
+import { mergeOnGitHub, resolveGithubTarget } from "./github-merge.ts";
 
 export type { McpToolDef } from "./shared.ts";
 
@@ -772,18 +773,27 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_merge",
-      description: `GitLab only. Merge the MR now (GitLab still enforces approvals and pipeline rules), optionally squashing and deleting the source branch; whenPipelineSucceeds: true instead enables auto-merge, which GitLab may fire at once when the pipeline has already passed. Auto-merge applies the project's own merge settings, so whenPipelineSucceeds cannot be combined with squash or removeSourceBranch. The MR is read back after the request, and the result is what was observed: merged: true when it merged; autoMerge: true (whenPipelineSucceeds only) when auto-merge is enabled; an error carrying GitLab's mergeError when one is set; otherwise {requested, verified: false, state} (state when known), meaning GitLab accepted the request but the outcome was not observed, so re-read with mr_view before assuming either way. ${REPO_NAME_RULE}`,
+      description: `Merge an MR or PR on GitLab or GitHub. On GitHub it asks GitHub whether the PR goes through a merge queue and takes the right path: queued PRs return {queued: true, position, state} or {queued: true, alreadyQueued: true}, and landing is still to come. A PR enters the queue only once it is ready (approved, required checks green); before that GitHub refuses and the error says why, so wait for green and call again. A queue applies its own merge settings and waits for checks, so squash, removeSourceBranch and whenPipelineSucceeds are refused there. Otherwise it merges now (the forge still enforces approvals and pipeline rules), optionally squashing and deleting the source branch; whenPipelineSucceeds: true instead enables auto-merge, which may fire at once when the pipeline has already passed. Auto-merge applies the project's own merge settings, so whenPipelineSucceeds cannot be combined with squash or removeSourceBranch. The result is what was observed: merged: true when it merged; autoMerge: true (whenPipelineSucceeds only) when auto-merge is enabled; an error carrying GitLab's mergeError when one is set; otherwise {requested, verified: false, state} (state when known), meaning the forge accepted the request but the outcome was not observed, so re-read the MR before assuming either way. ${REPO_NAME_RULE} On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.`,
       inputSchema: {
         type: "object",
         properties: { ...MR_TARGET_PROPS, squash: { type: "boolean" }, removeSourceBranch: { type: "boolean" }, whenPipelineSucceeds: { type: "boolean" } },
         additionalProperties: false,
       },
-      shellForms: ["glab mr merge"],
+      shellForms: ["glab mr merge", "gh pr merge"],
       async handler(input) {
         const bad = checkOptional(input, [{ name: "squash", type: "boolean" }, { name: "removeSourceBranch", type: "boolean" }, { name: "whenPipelineSucceeds", type: "boolean" }]);
         if (bad) return err(bad);
         if (input.whenPipelineSucceeds === true && (input.squash !== undefined || input.removeSourceBranch !== undefined)) {
           return err("whenPipelineSucceeds enables auto-merge, which uses the project's merge settings and cannot take squash or removeSourceBranch");
+        }
+        const github = await resolveGithubTarget(input);
+        if (github && "error" in github) return err(github.error);
+        if (github) {
+          return mergeOnGitHub(github, {
+            ...(typeof input.squash === "boolean" && { squash: input.squash }),
+            ...(typeof input.removeSourceBranch === "boolean" && { removeSourceBranch: input.removeSourceBranch }),
+            ...(typeof input.whenPipelineSucceeds === "boolean" && { whenPipelineSucceeds: input.whenPipelineSucceeds }),
+          });
         }
         const target = await resolveMrTarget(input);
         if (!target.ok) return err(target.error);

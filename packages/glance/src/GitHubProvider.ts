@@ -29,6 +29,7 @@ import type {
   EnqueuePullRequestInput,
   MergePullRequestInput,
   MergeQueueEntry,
+  MergeQueueStatus,
   MRDetail,
   Note,
   NoteAuthor,
@@ -77,6 +78,7 @@ import { RequestError } from '@octokit/request-error';
 // catch only works while the two copies dedupe to one module instance, which
 // requires this package's @octokit/graphql range to track @octokit/core's.
 import { GraphqlResponseError } from '@octokit/graphql';
+import { ReadBackFailedError } from './errors.ts';
 
 // ---------------------------------------------------------------------------
 // GitHub REST API response shapes (only fields we consume)
@@ -921,15 +923,26 @@ export class GitHubProvider implements GitProvider {
     mrIid: number,
     verb: 'Created' | 'Updated' | 'Merged'
   ): Promise<PullRequest> {
+    const details = { operation: `fetchSingleMR after ${verb}`, projectPath, iid: mrIid, writeApplied: true };
     let warning: FetchPullRequestsWarning | undefined;
-    const pr = await this.fetchSingleMR(projectPath, mrIid, null, w => {
-      warning = w;
-    });
+    let pr: PullRequest | null;
+    try {
+      pr = await this.fetchSingleMR(projectPath, mrIid, null, w => {
+        warning = w;
+      });
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      throw new ReadBackFailedError(`${verb} PR #${mrIid} but could not verify it afterward: ${reason}`, {
+        ...details,
+        cause: err
+      });
+    }
     if (pr) return pr;
-    throw new Error(
+    throw new ReadBackFailedError(
       warning
         ? `${verb} PR #${mrIid} but could not verify it afterward: ${warning.message}`
-        : `${verb} PR #${mrIid} but it was not found when refetched`
+        : `${verb} PR #${mrIid} but it was not found when refetched`,
+      details
     );
   }
 
@@ -2016,6 +2029,24 @@ export class GitHubProvider implements GitProvider {
         `setAutoMerge failed: GitHub accepted the mutation but reported no auto-merge on ${projectPath}!${mrIid}`
       );
     }
+  }
+
+  async fetchMergeQueueStatus(projectPath: string, mrIid: number): Promise<MergeQueueStatus> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    const query = `
+      query GlanceMergeQueueStatus($owner: String!, $repo: String!, $number: Int!) {
+        repository(owner: $owner, name: $repo) {
+          pullRequest(number: $number) { isMergeQueueEnabled isInMergeQueue }
+        }
+      }
+    `;
+    const data = await this.graphqlOrThrow<{
+      repository?: { pullRequest?: { isMergeQueueEnabled: boolean; isInMergeQueue: boolean } | null } | null;
+    }>('fetchMergeQueueStatus', query, { owner, repo, number: mrIid });
+
+    const pr = data.repository?.pullRequest;
+    if (!pr) throw new Error(`fetchMergeQueueStatus failed: GitHub returned no pull request for ${projectPath}!${mrIid}`);
+    return { enabled: pr.isMergeQueueEnabled, inQueue: pr.isInMergeQueue };
   }
 
   /** Fails with GitHub's own message when the branch has no merge queue. */
