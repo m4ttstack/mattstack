@@ -26,11 +26,9 @@ import { StepLoader, useStepLoading } from '../StepLoader';
 import { useReportReady } from './contentReady';
 import { buildFocusGroups } from './graph/model/focusModel';
 import {
-  hasSwitch,
   isBuiltIn,
-  SURFACE_BANDS,
+  SURFACE_GROUP_ORDER,
   surfaceGroupsOf,
-  type SurfaceBandId,
   type SurfaceGroupId,
 } from './model/surfaceGroups';
 import { suffixOf } from './outline';
@@ -370,41 +368,13 @@ const GROUPS: Record<
 
 type SurfaceGroupNote = { publicCount: number; pipeline: string | null };
 
-const BANDS: Record<SurfaceBandId, string> = {
-  agents: "Can be in agents' skill list",
-  'built-in': 'Built into other skills',
-};
-
-/** One band of the list: its head, then its groups. */
-function SurfaceBand({
-  id,
-  note,
-  children,
-}: {
-  id: SurfaceBandId;
-  note: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className={legendClasses.band} data-testid={`surface-band-${id}`}>
-      <div className={legendClasses.bandHead}>
-        <span className={legendClasses.bandTitle}>{BANDS[id]}</span>
-        <span className={legendClasses.bandNote}>{note}</span>
-      </div>
-      {id === 'agents' && <SwitchKey />}
-      {children}
-    </section>
-  );
-}
-
-/** One group of the list: a head that folds it (a band of skills built into
-    others starts folded, since little in it changes here), then its rows. */
+/** One group of the list: a head that folds it, then its rows. */
 function SurfaceGroup({
   id,
   rows,
   publicCount,
   pipeline,
-  forceOpen,
+  filtering,
   children,
 }: {
   id: SurfaceGroupId;
@@ -412,15 +382,15 @@ function SurfaceGroup({
   publicCount: number;
   pipeline: string | null;
   /** A filter's matches stay in view whatever the head was left at. */
-  forceOpen: boolean;
+  filtering: boolean;
   children: React.ReactNode;
 }) {
   const group = GROUPS[id];
   const [open, setOpen] = useLocalStorage<boolean>({
     key: `console-surface-group-${id}`,
-    defaultValue: !isBuiltIn(id),
+    defaultValue: true,
   });
-  const opened = forceOpen || (open ?? !isBuiltIn(id));
+  const opened = filtering || (open ?? true);
   return (
     <section
       className={legendClasses.group}
@@ -568,8 +538,14 @@ function SurfaceGridRow({
 /** A skill's build state, as the Config tab's health strip counts it. */
 export type SkillHealth = 'stale' | 'never-compiled';
 
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
 export interface SurfaceTabProps {
   pack: string;
+  /** Opens the tab that shows pipelines, stages and fills. */
+  onOpenOverview?: () => void;
   /** Skills whose build needs attention; their rows say so, and a filter
       shows only them. */
   health?: ReadonlyMap<string, SkillHealth>;
@@ -586,6 +562,7 @@ export interface SurfaceTabProps {
  */
 export function SurfaceTab({
   pack,
+  onOpenOverview,
   health,
   filterKind: hostFilter,
   onFilterKind,
@@ -635,26 +612,43 @@ export function SurfaceTab({
   const filterKind = hostFilter ?? ownFilter;
   const setFilterKind = onFilterKind ?? setOwnFilter;
   const attentionCount = health?.size ?? 0;
-  const baseName = rows.find(row => row.base !== undefined)?.base ?? null;
-  const baseCount = rows.filter(row => row.base !== undefined).length;
   const filtering = filterText.trim() !== '' || filterKind !== 'all';
 
   // Counts (and the kind/status filters) read the on-disk `rows`, never the
   // staged map -- a chip is a category of skill, not a preview of what Apply
   // will produce, so toggling a row must not shuffle it between chips.
+  const listed = useMemo(
+    () =>
+      rows.filter(row => {
+        const group = groupOf.get(row.name);
+        return group === undefined || !isBuiltIn(group);
+      }),
+    [rows, groupOf]
+  );
   const counts = useMemo(() => {
     let publicCount = 0;
-    for (const row of rows) if (row.status === 'public') publicCount += 1;
+    for (const row of listed) if (row.status === 'public') publicCount += 1;
     return {
-      all: rows.length,
+      all: listed.length,
       public: publicCount,
-      internal: rows.length - publicCount,
+      internal: listed.length - publicCount,
     };
-  }, [rows]);
+  }, [listed]);
+  const builtIn = useMemo(() => {
+    const groups = rows.map(row => groupOf.get(row.name));
+    return {
+      stages: groups.filter(group => group === 'stages').length,
+      fills: groups.filter(group => group === 'fills').length,
+    };
+  }, [rows, groupOf]);
+
+  const baseRows = listed.filter(row => row.base !== undefined);
+  const baseName = baseRows[0]?.base ?? null;
 
   const filteredRows = useMemo(() => {
     const needle = filterText.trim().toLowerCase();
-    return rows.filter(row => {
+    // A stage or fill with a stale build still has to be found from here.
+    return (filterKind === 'attention' ? rows : listed).filter(row => {
       if (needle && !row.name.toLowerCase().includes(needle)) return false;
       if (filterKind === 'public') return row.status === 'public';
       if (filterKind === 'internal') return row.status === 'internal';
@@ -662,7 +656,7 @@ export function SurfaceTab({
       if (filterKind === 'attention') return health?.has(row.name) ?? false;
       return true;
     });
-  }, [rows, filterText, filterKind, health]);
+  }, [rows, listed, filterText, filterKind, health]);
 
   const lines = [
     commandLine(delta.toPublic, 'public'),
@@ -721,7 +715,7 @@ export function SurfaceTab({
           <FilterChip
             id="base"
             label={`From ${baseName}`}
-            count={baseCount}
+            count={baseRows.length}
             active={filterKind === 'base'}
             onClick={() => setFilterKind('base')}
           />
@@ -755,76 +749,76 @@ export function SurfaceTab({
         </Box>
       ) : (
         <div data-testid="surface-grid">
+          <SwitchKey />
           {filteredRows.length === 0 ? (
             <Text size="sm" c={text.dimmed} style={{ gridColumn: '1 / -1' }}>
               No skills match this filter.
             </Text>
           ) : (
-            SURFACE_BANDS.map(band => {
-              const inBand = filteredRows.filter(row =>
-                band.groups.includes(groupOf.get(row.name) ?? 'reference')
-              );
-              if (inBand.length === 0) return null;
+            SURFACE_GROUP_ORDER.map(id => {
+              // What agents see comes first, then the rest by name.
+              const members = filteredRows
+                .filter(row => groupOf.get(row.name) === id)
+                .sort(
+                  (a, b) =>
+                    Number(b.status === 'public') -
+                      Number(a.status === 'public') ||
+                    a.name.localeCompare(b.name)
+                );
+              if (members.length === 0) return null;
               return (
-                <SurfaceBand
-                  key={band.id}
-                  id={band.id}
-                  note={
-                    band.id === 'agents'
-                      ? `${counts.public} on`
-                      : 'No switch'
+                <SurfaceGroup
+                  key={id}
+                  id={id}
+                  rows={members}
+                  publicCount={
+                    members.filter(row => row.status === 'public').length
                   }
+                  pipeline={pipelineName}
+                  filtering={filtering}
                 >
-                  {band.groups.map(id => {
-                    // What agents see comes first, then the rest by name.
-                    const members = inBand
-                      .filter(
-                        row => (groupOf.get(row.name) ?? 'reference') === id
-                      )
-                      .sort(
-                        (a, b) =>
-                          Number(b.status === 'public') -
-                            Number(a.status === 'public') ||
-                          a.name.localeCompare(b.name)
-                      );
-                    if (members.length === 0) return null;
-                    return (
-                      <SurfaceGroup
-                        key={id}
-                        id={id}
-                        rows={members}
-                        publicCount={
-                          members.filter(row => row.status === 'public').length
-                        }
-                        pipeline={pipelineName}
-                        forceOpen={filtering}
-                      >
-                        {members.map(row => (
-                          <SurfaceGridRow
-                            key={row.name}
-                            row={row}
-                            health={health?.get(row.name) ?? null}
-                            next={staged.get(row.name) ?? row.status}
-                            switchable={hasSwitch(row, id)}
-                            onToggle={toggle}
-                            onSetModelInvocation={(name, on) =>
-                              modelInvocationSet.mutate({ name, on })
-                            }
-                            sourcePath={
-                              row.base !== undefined
-                                ? (row.basePath ?? null)
-                                : (row.path ??
-                                  sourceByName.get(row.name) ??
-                                  null)
-                            }
-                          />
-                        ))}
-                      </SurfaceGroup>
-                    );
-                  })}
-                </SurfaceBand>
+                  {members.map(row => (
+                    <SurfaceGridRow
+                      key={row.name}
+                      row={row}
+                      health={health?.get(row.name) ?? null}
+                      next={staged.get(row.name) ?? row.status}
+                      switchable={!isBuiltIn(id)}
+                      onToggle={toggle}
+                      onSetModelInvocation={(name, on) =>
+                        modelInvocationSet.mutate({ name, on })
+                      }
+                      sourcePath={
+                        row.base !== undefined
+                          ? (row.basePath ?? null)
+                          : (row.path ?? sourceByName.get(row.name) ?? null)
+                      }
+                    />
+                  ))}
+                </SurfaceGroup>
               );
             })
+          )}
+          {builtIn.stages + builtIn.fills > 0 && (
+            <div
+              className={legendClasses.builtIn}
+              data-testid="surface-built-in"
+            >
+              <span>
+                {plural(builtIn.stages, 'stage', 'stages')} and{' '}
+                {plural(builtIn.fills, 'fill', 'fills')} are built into other
+                skills
+              </span>
+              {onOpenOverview && (
+                <UnstyledButton
+                  type="button"
+                  className={legendClasses.builtInLink}
+                  onClick={onOpenOverview}
+                >
+                  See Overview
+                </UnstyledButton>
+              )}
+            </div>
           )}
         </div>
       )}

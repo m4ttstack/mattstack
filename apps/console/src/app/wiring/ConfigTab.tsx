@@ -407,6 +407,7 @@ export function ConfigTab({
 
       <SurfaceTab
         pack={pack}
+        onOpenOverview={() => patch({ tab: 'graph' })}
         health={health}
         filterKind={filterKind}
         onFilterKind={setFilterKind}

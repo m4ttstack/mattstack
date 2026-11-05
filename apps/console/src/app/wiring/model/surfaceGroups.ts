@@ -4,25 +4,15 @@ import type { SkillsSurfaceRow } from '../useWiring';
 
 export type SurfaceGroupId = 'commands' | 'reference' | 'stages' | 'fills';
 
-export type SurfaceBandId = 'agents' | 'built-in';
-
-export const SURFACE_BANDS: { id: SurfaceBandId; groups: SurfaceGroupId[] }[] =
-  [
-    { id: 'agents', groups: ['commands', 'reference'] },
-    { id: 'built-in', groups: ['stages', 'fills'] },
-  ];
+export const SURFACE_GROUP_ORDER: SurfaceGroupId[] = [
+  'commands',
+  'reference',
+  'stages',
+  'fills',
+];
 
 export function isBuiltIn(group: SurfaceGroupId): boolean {
   return group === 'stages' || group === 'fills';
-}
-
-/** A skill that is already on keeps its switch wherever it lists, so it can be turned off. */
-export function hasSwitch(
-  row: SkillsSurfaceRow,
-  group: SurfaceGroupId | undefined
-): boolean {
-  if (row.fill) return false;
-  return row.status === 'public' || group === undefined || !isBuiltIn(group);
 }
 
 /**
@@ -30,8 +20,8 @@ export function hasSwitch(
  * same focus groups the Graph sidebar draws so the two tabs agree. First
  * match wins: a base fill, a base reference skill, a pipeline's stages, the
  * pack's verbs, the standard skills a binding plugs in, then the rest. A
- * team's fill that is already public lists as a reference skill, since
- * agents see it.
+ * stage or team fill that is already public lists with what agents see, so
+ * it can be turned off.
  */
 export function surfaceGroupsOf(
   rows: readonly SkillsSurfaceRow[],
@@ -61,7 +51,9 @@ export function surfaceGroupsOf(
         : row.base !== undefined
           ? 'reference'
           : stages.has(row.name)
-            ? 'stages'
+            ? row.status === 'public'
+              ? 'commands'
+              : 'stages'
             : commands.has(row.name)
               ? 'commands'
               : fills.has(row.name) && !unwired.has(row.name)

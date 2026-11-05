@@ -56,19 +56,21 @@ Moving the copy to `skills/` was dropped: the board only finds its fills at
 
 Layout:
 
-1. **Two bands (picked).** Top: Commands and Reference skills, with switches.
-   Bottom, folded: Pipeline stages and Fills, without switches.
-2. Flat groups by role. Smallest change, but stages and fills stay as
-   prominent as what the tab governs.
-3. Keep the parent group, split in two. Reference skills stay in two places.
+1. **Only what a switch can change (picked).** Commands and Reference skills
+   list. One line counts the stages and fills built into other skills and links
+   to Overview. A stale stage or fill still shows under Needs attention.
+2. Two bands, with stages and fills folded below. Dropped after using it: those
+   rows had nothing to do.
+3. Flat groups by role. Smallest change, same problem.
+4. Keep the parent group, split in two. Reference skills stay in two places.
 
 ## Decided by Matt
 
 - Team's `pack/surface.jsonc` decides, so one team's choice leaves other teams
   alone.
 - The generated skill, as above.
-- Two bands. The tab drops the `compiled` and `standard` badges and keeps
-  `source newer`.
+- The tab lists only what a switch can change. It drops the `compiled` and
+  `standard` badges and keeps `source newer`.
 - An open-in-editor link on base rows, pointing at the base pack's source file
   rather than the team's generated copy.
 - Disable model invocation works on a base reference skill that is on.
@@ -77,13 +79,13 @@ Layout:
 
 - Only base skills with no `provides` can be switched on. A base fill stays
   refused by `rt skills surface set`.
-- A fill that is already public, such as `model-tiering` in the mattstack
-  pack, lists under Reference skills with its switch, so it can be turned off.
+- A fill or stage that is already public, such as `model-tiering` in the
+  mattstack pack, lists with what agents see, so it can be turned off.
 - A `from-base` tag replaces the parent group. Its text is the base pack's name.
 - Filter chips: All, On, Off, From `<base>`, Needs attention. They count what
   is on disk, never what is staged. Public and Internal become On and Off.
-- Group notes follow the mock: Commands shows the count that are on, Reference
-  skills reads "Read when needed", the bottom band reads "No switch".
+- Commands shows the count that are on. Reference skills reads "Read when
+  needed".
 - The Off key reads "Only reached if another skill points here", since a
   reference skill with no pointer is not reached at all.
 
@@ -100,13 +102,13 @@ Layout:
 - **Disable model invocation:** eligibility and refusal stop rejecting a public
   base reference skill. Test that the setting lands on the installed generated
   skill.
-- **Console:** bands, tags, chips and the open link. Only a row that can be
-  switched is staged.
+- **Console:** groups, tags, chips, the built-in line and the open link. Only
+  a row with a switch is staged, and only it takes the hover style.
 
 ## Mock
 
-`docs/apps/design/console/console.pen`, frames "Surface two bands". Skill names
-there are generic stand-ins.
+`docs/apps/design/console/console.pen`, frames "Surface two bands", from before
+the bottom band was dropped. Skill names there are generic stand-ins.
 
 ## Left to the builder
 
