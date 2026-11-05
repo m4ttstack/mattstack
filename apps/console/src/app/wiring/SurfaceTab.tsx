@@ -26,8 +26,11 @@ import { StepLoader, useStepLoading } from '../StepLoader';
 import { useReportReady } from './contentReady';
 import { buildFocusGroups } from './graph/model/focusModel';
 import {
-  SURFACE_GROUP_ORDER,
+  hasSwitch,
+  isBuiltIn,
+  SURFACE_BANDS,
   surfaceGroupsOf,
+  type SurfaceBandId,
   type SurfaceGroupId,
 } from './model/surfaceGroups';
 import { suffixOf } from './outline';
@@ -130,9 +133,9 @@ function useSurfaceStaging(rows: SkillsSurfaceRow[], pack: string) {
   function toggle(name: string) {
     const row = rows.find(r => r.name === name);
     // A `missing` skill has no files on disk; rt rejects it either direction,
-    // so it can be read but never staged; a base row stays internal because
+    // so it can be read but never staged; a base fill stays internal because
     // rt refuses to make it public.
-    if (!row || row.kind === 'missing' || row.base !== undefined) return;
+    if (!row || row.kind === 'missing' || row.fill) return;
     setStaged(prev => {
       const next = new Map(prev);
       const current = next.get(name) ?? row.status;
@@ -145,21 +148,6 @@ function useSurfaceStaging(rows: SkillsSurfaceRow[], pack: string) {
 
   return { staged, delta, toggle, discard: () => setStaged(new Map()) };
 }
-
-const KIND_BADGE: Record<
-  SkillsSurfaceRow['kind'],
-  { label: string; color: string }
-> = {
-  compiled: { label: 'compiled', color: 'purple' },
-  'hand-authored': { label: 'standard', color: 'cyan' },
-  missing: { label: 'missing', color: 'bad' },
-};
-
-const KIND_MEANING: Record<SkillsSurfaceRow['kind'], string> = {
-  compiled: 'Built from blocks and fills',
-  'hand-authored': 'Installed as written',
-  missing: 'No files on disk',
-};
 
 /** What the switch means, one quiet line above the list it governs; the
     group headings and each badge's hover card carry the rest. */
@@ -174,7 +162,7 @@ function SwitchKey() {
       <span className={legendClasses.switchKeyItem}>
         <Icon name="toggleLeft" size={16} color="var(--tk-text-3)" />
         <span className={legendClasses.switchKeyTerm}>Off</span>
-        Reached only through another skill
+        Only reached if another skill points here
       </span>
     </div>
   );
@@ -195,24 +183,20 @@ function KeyedBadge({
   );
 }
 
-const BASE_LOCK_LABEL =
-  'The org base pack decides. Verbs read it from attachments/, so it stays internal.';
-
 export type SurfaceFilterKind =
-  'all' | 'public' | 'internal' | 'standard' | 'compiled' | 'attention';
+  'all' | 'public' | 'internal' | 'base' | 'attention';
 
-const FILTER_CHIPS: { key: SurfaceFilterKind; label: string }[] = [
+const FILTER_CHIPS: { key: 'all' | 'public' | 'internal'; label: string }[] = [
   { key: 'all', label: 'All' },
-  { key: 'public', label: 'Public' },
-  { key: 'internal', label: 'Internal' },
-  { key: 'standard', label: 'Standard' },
-  { key: 'compiled', label: 'Compiled' },
+  { key: 'public', label: 'On' },
+  { key: 'internal', label: 'Off' },
 ];
 
 /** Surface.dc.html's `.rrow` radius (8px), the theme's `lg` step. */
 const ROW_RADIUS = 'var(--mantine-radius-lg)';
 
 interface FilterChipProps {
+  id: string;
   label: string;
   count?: number;
   active: boolean;
@@ -226,14 +210,14 @@ interface FilterChipProps {
  * vars though (the same ones `WiringMap`'s bullet styling already uses
  * directly), so the color itself is never a hardcoded hex.
  */
-function FilterChip({ label, count, active, onClick }: FilterChipProps) {
+function FilterChip({ id, label, count, active, onClick }: FilterChipProps) {
   const { bg, text, border } = useSchemeColors();
   return (
     <UnstyledButton
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      data-testid={`surface-filter-${label.toLowerCase()}`}
+      data-testid={`surface-filter-${id}`}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -259,6 +243,7 @@ function FilterChip({ label, count, active, onClick }: FilterChipProps) {
 interface SurfaceGridRowProps {
   row: SkillsSurfaceRow;
   next: 'public' | 'internal';
+  switchable: boolean;
   onToggle: (name: string) => void;
   /** Absolute path to the skill's source, joined from composition; null when
       it has no on-disk source to open (e.g. a `missing` row). */
@@ -363,7 +348,12 @@ const GROUPS: Record<
   commands: {
     title: 'Commands',
     icon: 'squareTerminal',
-    note: ({ publicCount }) => `${publicCount} public`,
+    note: ({ publicCount }) => `${publicCount} on`,
+  },
+  reference: {
+    title: 'Reference skills',
+    icon: 'fileText',
+    note: () => 'Read when needed',
   },
   stages: {
     title: 'Pipeline stages',
@@ -376,41 +366,61 @@ const GROUPS: Record<
     icon: 'puzzle',
     note: () => 'Plugged into blocks',
   },
-  unwired: {
-    title: 'Other standard skills',
-    icon: 'fileText',
-    note: () => 'Not plugged into a block',
-  },
-  base: {
-    title: 'From the parent pack',
-    icon: 'lock',
-    note: () => 'Set there, not here',
-  },
 };
 
 type SurfaceGroupNote = { publicCount: number; pipeline: string | null };
 
-/** One group of the list: a head that folds it (the parent pack's copies
-    start folded, since nothing in them can change here), then its rows. */
+const BANDS: Record<SurfaceBandId, string> = {
+  agents: "Can be in agents' skill list",
+  'built-in': 'Built into other skills',
+};
+
+/** One band of the list: its head, then its groups. */
+function SurfaceBand({
+  id,
+  note,
+  children,
+}: {
+  id: SurfaceBandId;
+  note: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className={legendClasses.band} data-testid={`surface-band-${id}`}>
+      <div className={legendClasses.bandHead}>
+        <span className={legendClasses.bandTitle}>{BANDS[id]}</span>
+        <span className={legendClasses.bandNote}>{note}</span>
+      </div>
+      {id === 'agents' && <SwitchKey />}
+      {children}
+    </section>
+  );
+}
+
+/** One group of the list: a head that folds it (a band of skills built into
+    others starts folded, since little in it changes here), then its rows. */
 function SurfaceGroup({
   id,
   rows,
   publicCount,
   pipeline,
+  forceOpen,
   children,
 }: {
   id: SurfaceGroupId;
   rows: readonly SkillsSurfaceRow[];
   publicCount: number;
   pipeline: string | null;
+  /** A filter's matches stay in view whatever the head was left at. */
+  forceOpen: boolean;
   children: React.ReactNode;
 }) {
   const group = GROUPS[id];
   const [open, setOpen] = useLocalStorage<boolean>({
     key: `console-surface-group-${id}`,
-    defaultValue: id !== 'base',
+    defaultValue: !isBuiltIn(id),
   });
-  const opened = open ?? id !== 'base';
+  const opened = forceOpen || (open ?? !isBuiltIn(id));
   return (
     <section
       className={legendClasses.group}
@@ -448,6 +458,7 @@ function SurfaceGroup({
 function SurfaceGridRow({
   row,
   next,
+  switchable,
   onToggle,
   sourcePath,
   health,
@@ -456,24 +467,14 @@ function SurfaceGridRow({
   const { bg, text, border } = useSchemeColors();
   const editorHref = useEditorHref();
   const staged = next !== row.status;
-  const locked = row.base !== undefined;
-  const badge = KIND_BADGE[row.kind];
   const modelInvocation = row.disableModelInvocation;
-  const toggle = (
-    <Switch
-      checked={next === 'public'}
-      onChange={() => onToggle(row.name)}
-      aria-label={row.name}
-      disabled={locked}
-      size="sm"
-    />
-  );
 
   return (
     <Box
       px="sm"
       py={6}
       className={legendClasses.row}
+      data-no-switch={switchable ? undefined : true}
       bg={staged ? bg.color('accent') : undefined}
       style={{
         border: `1px solid ${staged ? border.color('accent') : 'transparent'}`,
@@ -481,37 +482,34 @@ function SurfaceGridRow({
       }}
       data-testid={`surface-row-${row.name}`}
     >
-      {locked ? (
-        <Tooltip label={BASE_LOCK_LABEL} openDelay={300}>
-          <span
-            data-testid={`surface-lock-${row.name}`}
-            style={{ display: 'inline-flex', flex: 'none' }}
-          >
-            {toggle}
-          </span>
-        </Tooltip>
-      ) : (
-        toggle
+      {switchable && (
+        <Switch
+          checked={next === 'public'}
+          onChange={() => onToggle(row.name)}
+          aria-label={row.name}
+          size="sm"
+        />
       )}
       <div className={legendClasses.rowLine}>
         <Text size="sm" fw={600} style={{ flex: 'none' }}>
           {row.name}
         </Text>
-        {locked ? (
+        {row.base !== undefined && (
           <KeyedBadge meaning="From the parent pack. Edit it there">
             <Badge size="sm" variant="default" c={text.muted}>
-              from {row.base}
+              {row.base}
             </Badge>
           </KeyedBadge>
-        ) : (
-          <KeyedBadge meaning={KIND_MEANING[row.kind]}>
+        )}
+        {row.kind === 'missing' && (
+          <KeyedBadge meaning="No files on disk">
             <Badge
               size="sm"
               variant="light"
-              color={badge.color}
+              color="bad"
               className={legendClasses.kindBadge}
             >
-              {badge.label}
+              missing
             </Badge>
           </KeyedBadge>
         )}
@@ -535,7 +533,7 @@ function SurfaceGridRow({
             {effectLine(row, next)}
           </Text>
         ) : null}
-        {sourcePath && !locked && (
+        {sourcePath && (
           <Tooltip label="Open in editor" openDelay={300}>
             <ActionIcon
               component="a"
@@ -637,6 +635,9 @@ export function SurfaceTab({
   const filterKind = hostFilter ?? ownFilter;
   const setFilterKind = onFilterKind ?? setOwnFilter;
   const attentionCount = health?.size ?? 0;
+  const baseName = rows.find(row => row.base !== undefined)?.base ?? null;
+  const baseCount = rows.filter(row => row.base !== undefined).length;
+  const filtering = filterText.trim() !== '' || filterKind !== 'all';
 
   // Counts (and the kind/status filters) read the on-disk `rows`, never the
   // staged map -- a chip is a category of skill, not a preview of what Apply
@@ -657,8 +658,7 @@ export function SurfaceTab({
       if (needle && !row.name.toLowerCase().includes(needle)) return false;
       if (filterKind === 'public') return row.status === 'public';
       if (filterKind === 'internal') return row.status === 'internal';
-      if (filterKind === 'standard') return row.kind === 'hand-authored';
-      if (filterKind === 'compiled') return row.kind === 'compiled';
+      if (filterKind === 'base') return row.base !== undefined;
       if (filterKind === 'attention') return health?.has(row.name) ?? false;
       return true;
     });
@@ -710,20 +710,25 @@ export function SurfaceTab({
         {FILTER_CHIPS.map(chip => (
           <FilterChip
             key={chip.key}
+            id={chip.key}
             label={chip.label}
-            count={
-              chip.key === 'all' ||
-              chip.key === 'public' ||
-              chip.key === 'internal'
-                ? counts[chip.key]
-                : undefined
-            }
+            count={counts[chip.key]}
             active={filterKind === chip.key}
             onClick={() => setFilterKind(chip.key)}
           />
         ))}
+        {baseName !== null && (
+          <FilterChip
+            id="base"
+            label={`From ${baseName}`}
+            count={baseCount}
+            active={filterKind === 'base'}
+            onClick={() => setFilterKind('base')}
+          />
+        )}
         {attentionCount > 0 && (
           <FilterChip
+            id="needs attention"
             label="Needs attention"
             count={attentionCount}
             active={filterKind === 'attention'}
@@ -750,49 +755,74 @@ export function SurfaceTab({
         </Box>
       ) : (
         <div data-testid="surface-grid">
-          <SwitchKey />
           {filteredRows.length === 0 ? (
             <Text size="sm" c={text.dimmed} style={{ gridColumn: '1 / -1' }}>
               No skills match this filter.
             </Text>
           ) : (
-            SURFACE_GROUP_ORDER.map(id => {
-              // What agents see comes first, then the rest by name.
-              const members = filteredRows
-                .filter(row => groupOf.get(row.name) === id)
-                .sort(
-                  (a, b) =>
-                    Number(b.status === 'public') -
-                      Number(a.status === 'public') ||
-                    a.name.localeCompare(b.name)
-                );
-              if (members.length === 0) return null;
+            SURFACE_BANDS.map(band => {
+              const inBand = filteredRows.filter(row =>
+                band.groups.includes(groupOf.get(row.name) ?? 'reference')
+              );
+              if (inBand.length === 0) return null;
               return (
-                <SurfaceGroup
-                  key={id}
-                  id={id}
-                  rows={members}
-                  publicCount={
-                    members.filter(row => row.status === 'public').length
+                <SurfaceBand
+                  key={band.id}
+                  id={band.id}
+                  note={
+                    band.id === 'agents'
+                      ? `${counts.public} on`
+                      : 'No switch'
                   }
-                  pipeline={pipelineName}
                 >
-                  {members.map(row => (
-                    <SurfaceGridRow
-                      key={row.name}
-                      row={row}
-                      health={health?.get(row.name) ?? null}
-                      next={staged.get(row.name) ?? row.status}
-                      onToggle={toggle}
-                      onSetModelInvocation={(name, on) =>
-                        modelInvocationSet.mutate({ name, on })
-                      }
-                      sourcePath={
-                        row.path ?? sourceByName.get(row.name) ?? null
-                      }
-                    />
-                  ))}
-                </SurfaceGroup>
+                  {band.groups.map(id => {
+                    // What agents see comes first, then the rest by name.
+                    const members = inBand
+                      .filter(
+                        row => (groupOf.get(row.name) ?? 'reference') === id
+                      )
+                      .sort(
+                        (a, b) =>
+                          Number(b.status === 'public') -
+                            Number(a.status === 'public') ||
+                          a.name.localeCompare(b.name)
+                      );
+                    if (members.length === 0) return null;
+                    return (
+                      <SurfaceGroup
+                        key={id}
+                        id={id}
+                        rows={members}
+                        publicCount={
+                          members.filter(row => row.status === 'public').length
+                        }
+                        pipeline={pipelineName}
+                        forceOpen={filtering}
+                      >
+                        {members.map(row => (
+                          <SurfaceGridRow
+                            key={row.name}
+                            row={row}
+                            health={health?.get(row.name) ?? null}
+                            next={staged.get(row.name) ?? row.status}
+                            switchable={hasSwitch(row, id)}
+                            onToggle={toggle}
+                            onSetModelInvocation={(name, on) =>
+                              modelInvocationSet.mutate({ name, on })
+                            }
+                            sourcePath={
+                              row.base !== undefined
+                                ? (row.basePath ?? null)
+                                : (row.path ??
+                                  sourceByName.get(row.name) ??
+                                  null)
+                            }
+                          />
+                        ))}
+                      </SurfaceGroup>
+                    );
+                  })}
+                </SurfaceBand>
               );
             })
           )}

@@ -1,11 +1,31 @@
-/* The switch's meaning, one quiet line between the filter row and the
-   groups it explains. */
+.band + .band {
+  border-top: 1px solid var(--tk-border-soft);
+}
+
+.bandHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px 10px;
+}
+
+.bandTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tk-text-1);
+}
+
+.bandNote {
+  font-size: 12px;
+  color: var(--tk-text-3);
+}
+
+/* The switch's meaning, one quiet line under the band it governs. */
 .switchKey {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 24px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--tk-border-soft);
+  padding: 0 16px 12px;
   font-size: 12px;
   color: var(--tk-text-2);
 }
@@ -29,7 +49,7 @@
   background: linear-gradient(var(--badge-bg), var(--badge-bg)), var(--tk-card);
 }
 
-.group + .group {
+.group {
   border-top: 1px solid var(--tk-border-soft);
 }
 
@@ -111,6 +131,10 @@
   border-radius: 6px;
 }
 
+.row[data-no-switch] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .rowLine {
   display: flex;
   align-items: center;
@@ -128,6 +152,10 @@
   font-size: var(--mantine-font-size-xs);
   line-height: 1.25;
   color: var(--tk-text-3);
+}
+
+.row[data-no-switch] .rowNote {
+  grid-column: 1;
 }
 
 .rowNoteInfo {
