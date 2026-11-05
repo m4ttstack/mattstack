@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 /** The transport is stubbed; nothing here touches a network. */
 import { describe, expect, test } from 'bun:test';
+import { ReadBackFailedError } from '../src/errors.ts';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
 import { GitLabProvider } from '../src/GitLabProvider.ts';
 
@@ -18,6 +19,18 @@ function providerWith(payload: unknown) {
 }
 
 const QUEUED = { enqueuePullRequest: { mergeQueueEntry: { position: 2, state: 'QUEUED' } } };
+
+describe('mergePullRequest read-back', () => {
+  test('a merge whose read-back fails says the write landed', async () => {
+    const { provider } = providerWith({});
+    (provider as any).fetchSingleMR = async () => {
+      throw new Error('502');
+    };
+    const failure = await provider.mergePullRequest('o/r', 5).catch(e => e);
+    expect(failure).toBeInstanceOf(ReadBackFailedError);
+    expect(failure.writeApplied).toBe(true);
+  });
+});
 
 describe('fetchMergeQueueStatus', () => {
   test('reads both flags for the pull request', async () => {

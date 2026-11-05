@@ -90,14 +90,26 @@ describe("mergeOnGitHub", () => {
 });
 
 describe("resolveGithubTarget", () => {
+  const registered = { identityForUrl: async () => ({ identity: "remote:github.com%2Facme%2Fapp" }) };
+
   test("reads a pull request URL, with or without a trailing path", async () => {
-    expect(await resolveGithubTarget({ mrUrl: "https://github.com/acme/app/pull/12" })).toEqual(TARGET);
-    expect(await resolveGithubTarget({ mrUrl: "https://github.com/acme/app/pull/12/files?x=1" })).toEqual(TARGET);
+    expect(await resolveGithubTarget({ mrUrl: "https://github.com/acme/app/pull/12" }, registered)).toEqual(TARGET);
+    expect(await resolveGithubTarget({ mrUrl: "https://github.com/acme/app/pull/12/files?x=1" }, registered)).toEqual(TARGET);
+  });
+
+  test("refuses a repo rt has not registered, before any provider exists", async () => {
+    const res = await resolveGithubTarget({ mrUrl: "https://github.com/someone/else/pull/12" });
+    expect(res).toEqual({ error: expect.stringContaining("not registered with rt") });
   });
 
   test("refuses an iid that disagrees with the URL", async () => {
-    expect(await resolveGithubTarget({ mrUrl: "https://github.com/acme/app/pull/12", iid: 13 }))
+    expect(await resolveGithubTarget({ mrUrl: "https://github.com/acme/app/pull/12", iid: 13 }, registered))
       .toEqual({ error: "iid 13 does not match mrUrl's pull request 12" });
+  });
+
+  test("refuses a raw identity for a repo rt has not registered", async () => {
+    const res = await resolveGithubTarget({ repoName: "remote:github.com%2Fsomeone%2Felse", iid: 12 }, { isRegistered: () => false });
+    expect(res).toEqual({ error: expect.stringContaining("not registered with rt") });
   });
 
   test("leaves a GitLab URL to the GitLab path", async () => {

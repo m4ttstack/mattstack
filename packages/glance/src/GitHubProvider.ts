@@ -78,6 +78,7 @@ import { RequestError } from '@octokit/request-error';
 // catch only works while the two copies dedupe to one module instance, which
 // requires this package's @octokit/graphql range to track @octokit/core's.
 import { GraphqlResponseError } from '@octokit/graphql';
+import { ReadBackFailedError } from './errors.ts';
 
 // ---------------------------------------------------------------------------
 // GitHub REST API response shapes (only fields we consume)
@@ -922,15 +923,26 @@ export class GitHubProvider implements GitProvider {
     mrIid: number,
     verb: 'Created' | 'Updated' | 'Merged'
   ): Promise<PullRequest> {
+    const details = { operation: `fetchSingleMR after ${verb}`, projectPath, iid: mrIid, writeApplied: true };
     let warning: FetchPullRequestsWarning | undefined;
-    const pr = await this.fetchSingleMR(projectPath, mrIid, null, w => {
-      warning = w;
-    });
+    let pr: PullRequest | null;
+    try {
+      pr = await this.fetchSingleMR(projectPath, mrIid, null, w => {
+        warning = w;
+      });
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      throw new ReadBackFailedError(`${verb} PR #${mrIid} but could not verify it afterward: ${reason}`, {
+        ...details,
+        cause: err
+      });
+    }
     if (pr) return pr;
-    throw new Error(
+    throw new ReadBackFailedError(
       warning
         ? `${verb} PR #${mrIid} but could not verify it afterward: ${warning.message}`
-        : `${verb} PR #${mrIid} but it was not found when refetched`
+        : `${verb} PR #${mrIid} but it was not found when refetched`,
+      details
     );
   }
 
