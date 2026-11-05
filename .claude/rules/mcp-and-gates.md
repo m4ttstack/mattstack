@@ -103,7 +103,7 @@ retries, rebase, create, update, upload, merge). `mr_review_submit` posts a
 review the way GitLab's own submit does: pending comments, one publish with
 the summary and a reviewed state, then the approval; it refuses when the
 caller already has pending comments on the MR, because a publish would post
-those too. `mr_merge` is on the server (GitLab still enforces approvals and
+those too. `mr_merge` is on the server for both forges (the forge still enforces approvals and
 pipeline rules); the skill's ship gate is the human check. `mr_upload` is
 the one tool that sends a local file off the machine, so its daemon guard
 (`lib/daemon/upload-guard.ts`) refuses anything outside the target repo's

@@ -53,6 +53,18 @@ async function identitiesByOriginRemote(host: string, projectPath: string): Prom
   return matches;
 }
 
+/** The registered repo a web URL's host and project name, or why there is none. */
+export async function registeredIdentityForUrl(host: string, projectPath: string): Promise<{ identity: string } | { error: string }> {
+  const direct = identityFromRemote(`https://${host}/${projectPath}`);
+  if (!direct) return { error: MR_URL_SHAPE };
+  const directWire = serializeIdentity(direct);
+  if (isRepoRegistered(directWire)) return { identity: directWire };
+  const matches = await identitiesByOriginRemote(host, projectPath);
+  if (matches.length > 1) return { error: `mrUrl matches more than one registered repo: ${matches.join(", ")}; pass repoName to pick one` };
+  if (matches.length === 0) return { error: `mrUrl names ${direct.id} (${directWire}), which is not registered with rt; run rt repos register in its checkout first` };
+  return { identity: matches[0]! };
+}
+
 export async function resolveRepoTarget(input: TargetInput): Promise<RepoTarget> {
   if (input.repoName !== undefined && typeof input.repoName !== "string") return { ok: false, error: '"repoName" must be a string' };
   if (input.iid !== undefined && !isPositiveInt(input.iid)) return { ok: false, error: '"iid" must be a positive integer' };
@@ -65,21 +77,9 @@ export async function resolveRepoTarget(input: TargetInput): Promise<RepoTarget>
   if (mrUrl) {
     const parsed = parseMrUrl(mrUrl);
     if (!parsed) return { ok: false, error: MR_URL_SHAPE };
-    const direct = identityFromRemote(`https://${parsed.host}/${parsed.projectPath}`);
-    if (!direct) return { ok: false, error: MR_URL_SHAPE };
-    const directWire = serializeIdentity(direct);
-    if (isRepoRegistered(directWire)) {
-      fromUrl = { identity: directWire, iid: parsed.iid };
-    } else {
-      const matches = await identitiesByOriginRemote(parsed.host, parsed.projectPath);
-      if (matches.length > 1) {
-        return { ok: false, error: `mrUrl matches more than one registered repo: ${matches.join(", ")}; pass repoName to pick one` };
-      }
-      if (matches.length === 0) {
-        return { ok: false, error: `mrUrl names ${direct.id} (${directWire}), which is not registered with rt; run rt repos register in its checkout first` };
-      }
-      fromUrl = { identity: matches[0]!, iid: parsed.iid };
-    }
+    const found = await registeredIdentityForUrl(parsed.host, parsed.projectPath);
+    if ("error" in found) return { ok: false, error: found.error };
+    fromUrl = { identity: found.identity, iid: parsed.iid };
   }
 
   let fromName: string | undefined;

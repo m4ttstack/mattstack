@@ -23,11 +23,7 @@ flowchart TB
     herd_spawn_integration[/"herd_spawn {herd, job: integration-<n>, brief, model, effort, account?}"/]
     chat_dm_ship_chain[/"chat_dm {to: <job handle>, body: ship through your skill chain}"/]
     gate_merge_lane
-    forge_host{Forge?}
     mr_merge[/"mr_merge {mrUrl}"/]
-    merge_queue{Target branch has a merge queue?}
-    rt_pr_enqueue[/rt pr enqueue <pr>/]
-    gh_pr_merge[/gh pr merge <pr>/]
     herd_lanes_after_merge[/"herd_lanes {herd, job}: after the merge call"/]
     merged_on_repo{Merged on the repo?}
     lane_claimed_merge{Did this lane claim the merge itself?}
@@ -78,15 +74,9 @@ flowchart TB
     herd_brief_integration --> herd_spawn_integration
     herd_spawn_integration --> back_to_watch_loop
     chat_dm_ship_chain --> back_to_watch_loop
-    gate_merge_lane -->|merge| forge_host
+    gate_merge_lane -->|merge| mr_merge
     gate_merge_lane -->|not yet, or hold| back_to_watch_loop
-    forge_host -->|GitLab| mr_merge
-    forge_host -->|GitHub| merge_queue
-    merge_queue -->|yes| rt_pr_enqueue
-    merge_queue -->|no| gh_pr_merge
     mr_merge --> herd_lanes_after_merge
-    rt_pr_enqueue --> herd_lanes_after_merge
-    gh_pr_merge --> herd_lanes_after_merge
     herd_lanes_after_merge --> merged_on_repo
     merged_on_repo -->|yes| flip_lane_ticket
     merged_on_repo -->|no: open, closed or none| lane_claimed_merge
