@@ -1,73 +1,69 @@
-A setup release. Setting up a Mac is now a few fast screens: your repos first, then one question about where your settings live, with a GitHub sign-in that makes a private backup repo for you. Team packs now install from git.
+A release for teams and agents. An org can now require tools for every team, and a Mac that already finished setup hears about a new one on a short tools screen. Chat is rebuilt to Slack's layout with one home for messages to you, Console shows what each MR cost, and `mr_merge` merges GitHub PRs through the merge queue.
 
-Also in this release: the board says "follow-up review" everywhere and lets you reply to MR comments from the threads drawer, you can choose which pack skills Claude may invoke on its own, and `EnterWorktree` into an rt worktree no longer asks first.
+Also in this release: `.mattstack` addresses work again on portless 0.16.0, deck apps are private by default, and the board's **rebase locally** tries `rt sync` before it starts an agent.
 
-### Setup
+### Setup and teams
 
-- setup is a few fast screens: your repos first, then this Mac's settings, then one progress bar (#961)
-- "Your settings" asks where your settings live: on this Mac, or in a private GitHub repo that a new Mac restores from (#961)
-- with no GitHub token, **Sign in to GitHub** opens your browser once, and rt makes the private repo for you (#961)
-- a settings folder that already has a remote is backed up there; rt never creates a second repo, and a remote rt can't restore from asks for a new URL (#972)
-- a Mac set up before this release counts its existing remote as its answer, so it is not asked again (#972)
-- after a run with a step left to fix, the footer reads **Finish setup**, and fixing that row finishes setup on its own (#972)
-- opened from **Setup status…** on a finished Mac, the last screen is titled **Setup status**, and the window shows no step counter (#972)
-- the progress bar shows a playful word for each step, never what the step is doing; a paused step still says plainly what broke (#972)
-- the editor row is **Editor extensions** (skill blocks and rt context), and a missing extension no longer holds Finish (#972)
-- creating a team from Settings on a Just me Mac no longer stalls **Set up this Mac** (#969)
-- declining notifications no longer pauses the run (#965)
-- setup finds a Homebrew-installed Claude Code under launchd's minimal PATH (#963)
+- an org can require tools for every team in `org/requirements.jsonc`; a team's own entry wins, and a pack can leave an org tool out with `excludeOrg` (#992)
+- on a finished Mac, a newly required tool sends one notification once it reads missing on two pulls in a row, and setup opens a short tools screen to install it (#992)
+- a broken org requirements file never blocks setup; it shows as a row under **Setup status** (#992)
+- `rt team announce` lets org owners and admins send a notification to every teammate's Mac (#1000)
+- `board.agent.model`, `board.agent.effort` and `board.triage` take org and team values, which each developer can still override (#954)
+- herdr and claude install with their own install scripts, never Homebrew, and herdr's own copy wins over an older Homebrew one (#952)
 
-### Skills and packs
+### Local proxy and deck
 
-- team packs install from git; on update, setup migration `2026-11-02-team-packs-from-git` reinstalls the packs you already have (#968)
-- `rt skills disable-model-invocation` chooses which pack skills Claude may invoke on its own, per user (#968)
-- the mattstack plugin is 0.32.38 and asks for this release's engine, so a pack that starts using `rt deps resolve --path` waits for this app (#970)
-- `rt deps resolve --path` prints the resolved path alone (#967)
-- the review engines take an optional rule selector, off unless `review.ruleSelector` is on (#948, #951, #957)
-- self-review's diff takes in untracked files (#949)
-- review panes no longer stall at the domain skill's hand-back (#962)
-- `EnterWorktree` into a worktree rt's registry holds no longer asks; the daemon's dialog auto-accept and `panes.relocationAutoAccept` are gone (#953, #955)
-- `EnterWorktree` never waits on a person: a path that no longer exists, or a folder that isn't an rt worktree, is refused at once with what to do instead (#977)
-- `rt runs` leaves out runs a validation harness started; `--include-tests` lists them (#979)
-- pack reads cache Claude's plugin list, so they no longer start a `claude plugin list` each time (#982)
-- the console's pack reads no longer get cut off when they run long (#981)
+- `.mattstack` addresses work on portless 0.16.0: the proxy service now names both the `.localhost` and `.mattstack` TLDs (#1004)
+- `deck override <app> off` puts every one of the app's addresses back on its port, not only `.localhost` (#1004)
+- apps you never switched on are private, publishing needs a connected domain, and mattstack's own apps are never public (#1005)
+
+### Chat
+
+- chat is rebuilt to Slack's layout, with a resizable sidebar, and shows real Slack pictures in chat, board and boxscore (#1008)
+- **Messages to you** collects every DM you are part of in one list, with an unread count in the sidebar (#1015)
+- an agent's post into its DM with you notifies you without a mention; your own posts and rooms with a Slack participant never do (#1017)
+- rt:chat and the viewer read your handle from `chat.humanHandle`, so agents no longer DM a handle you no longer use (#1018)
+- `rt chat avatar` gives an app a handle's chat face as a file (#1019)
+- `/slack-support <person> <problem>` lets Claude help a teammate over your real Slack DM until it's sorted, then close and report (#995)
+
+### Console
+
+- the **Usage** page adds up each MR's tokens across its work run, reviews, responses and doctor sessions, with a sortable MR list, weekly trends and estimated costs (#1014, #1021)
+- a run's estimated cost shows in its header and links to its MR's cost (#1021)
+- click a Usage step to read what its session was doing (#1025)
+- the **Surface** tab can switch on a reference skill from the org's base pack, and lists only what a switch can change (#1024)
 
 ### Board
 
-- "re-review" is "follow-up review" in the row menu, asks to a teammate, the ask cards and the Needs me group
-- follow-up review is offered on someone else's MR only when you reviewed it (approved, left a review or opened a thread)
-- reply to MR comments from the threads drawer
-- the posting question shows the re-review ask as its own card, ticked by default
-- a reviewer's approval answers their earlier Overview comments, so a response skips them
-- an errored peer review offers a retry of that teammate's agent review
-- your own roster entry remembers its own Show picks
-- review gate comments edit on click, one card per finding, and every gate header shows the review loop's timeline (#947, #950)
-- animated latch states with queue, retry and landing, and a full-width latch banner (#958, #960, #971)
-- a sunny empty state on a review with no findings
-- the Slack marks tooltip says whether you or someone else marked it
-- WebKit fixes for the gate sheet's head, round bar and avatars
-- the comments drawer is wider, keeps thread cards from squashing, and ends with the same reached-the-end marker as the gates
-- the row menu leads with set auto-merge when only CI is left, and a respond-again row sits under respond
-- a teammate's agent review that was lost shows in the ask band, with retry and dismiss (#984)
-- the ask band's trail opens above the row when it's near the bottom edge
+- **rebase locally** tries `rt sync` first, so a clean rebase needs no agent; on a conflict, the doctor finishes the paused rebase (#1027)
+- thread cards show the agent's verdict, and **Post reply** sits beside **Resolve thread** (#1023)
+- a teammate's lost review shows its retry and dismiss only on your own MR (#1010)
+- a reload during live mode no longer drops the board to read-only
 
-### Menu bar app
+### Agents and merging
 
-- a downloaded update installs once mattstack's windows are closed and setup isn't running, trying again every minute; a notification says when it is waiting and when it has landed, and **Update Available** installs it at once (#978)
-- the process panel no longer leaks memory or keeps polling after you close it, which slowed the app down after hours open (#983)
-- app windows can be inspected with Web Inspector in every build (#980)
-- **Settings > Notifications** has a sound **Preset**: Calm (Sober 2, Sober 3, Sosumi), now the default, or Lively, the built-in tones
+- `mr_merge` merges GitHub PRs, through the merge queue when the repo has one, and `wait: true` holds until the PR lands or is dropped (#1012, #1013)
+- `rt pr enqueue` adds a PR to the merge queue (#1011)
+- `rt check` runs a repo's own pre-push check, and `git_push` refuses a red push and posts the result on the commit (#991, #994, #997)
+- `rt skills` picks one plugin install per name, preferring your user install over a stale project one (#941)
+- the herd watchdog stops sending notifications about unread DMs on a herd whose jobs are all closed (#1006)
+- a failed cron command logs the tail of its stderr (#956)
+- a bare `Bearer` token is masked anywhere in logs, not only after `Authorization:` (#993)
+- the mattstack plugin is 0.32.45 and asks for this release's engine, so a Mac on an older app keeps its current plugin until it updates
 
-### Bundled tools
+### Menu bar app and dev
 
-- gh 2.103.3, glab 1.127.0, node 26.13.0 (LTS) and cloudflared 2026.10.7 (#966, #974)
-- fast-browser 0.1.19: recording a GIF no longer leaves video on, which made later sessions refuse saved dev logins
-- held: Sparkle stays at 2.10.0; 2.10.1 ships in a release of its own, since it changes the updater (#975)
-- held: portless stays at 0.15.9; 0.15.13 stops answering for the apps' `.mattstack` addresses (#976)
+- `rt dev update --release` swaps a dev app built on this Mac for the release's dev app (#989)
+- the telemetry page shows local times and leads with the Macs not on the latest release (#1002, #1003)
+- fast-browser's plugin pin is refreshed (#998)
 
-### Upgrading
+### Existing installs
 
-- a Mac that waived the Fast Browser extension row before sees that row ask again after updating, since Finish now honors a waiver on only three rows (#961)
-- a Mac that never picked notification sounds now hears the Calm preset; choose Lively in **Settings > Notifications** for the earlier tones
+- after updating, **Setup status** shows **Update proxy** until you press it; it takes one admin password, and `.mattstack` keeps working on the old proxy meanwhile
+- if you connected Slack before this release, **Setup status** asks you to reconnect it once to grant `users:read`
 
-**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.27.0...v2.28.0
+### Held pins
+
+- glab stays at 1.127.0 (1.128.0 is out) and Sparkle at 2.10.0 (2.10.1 is out); Sparkle gets its own release
+
+**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.28.0...v2.29.0

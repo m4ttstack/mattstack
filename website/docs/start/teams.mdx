@@ -440,6 +440,12 @@ The row has no button, and it never holds up setup. Once you update the app, the
 
 `rt --version --json` shows the engine your app runs, beside rt's version.
 
+### Tools the whole org needs
+
+An org admin can require a tool for every team in `org/requirements.jsonc` in the org repo. Setup reads it alongside each team pack's own requirements. When the org and a team both name a tool, the team's entry wins, and a team pack can leave out an org tool with `excludeOrg`.
+
+When a new required tool lands on a Mac that already finished setup, mattstack sends one notification, once the tool has read missing on two pulls in a row. Opening setup shows a short tools screen to install it, and **Done** closes it. A broken org file never blocks setup: it shows as a row under **Setup status**.
+
 ## Pulling now
 
 ```bash
