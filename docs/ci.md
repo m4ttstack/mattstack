@@ -18,7 +18,8 @@ own changes.
 |---|---|---|---|
 | checks | `scope` | ubuntu | always |
 | checks | `static` | ubuntu | always (turbo's `--affected` narrows the apps gates) |
-| checks | `unit` (1-3 shards) | macOS | anything left after the drop-outs below; `full` or `changed` mode |
+| checks | `unit` (1-3 shards) | ubuntu | anything left after the drop-outs below; `full` or `changed` mode |
+| checks | `unit-macos` | macOS (see [The Mac runner](#the-mac-runner)) | a `full` run, or a `changed` run that reaches a test on the Mac-only list (below) |
 | checks | `guards` | ubuntu | whenever `unit` is not `full`: runs the `no-*` guards |
 | checks | `go` | ubuntu | `ui/`, `package.json`, `checks.yml`, the scope script |
 | checks | `deck-macos` | macOS | `apps/deck/`, any non-docs file under `packages/` or at the repo root, `scripts/turbo.sh`, `checks.yml`, the scope script |
@@ -28,7 +29,8 @@ own changes.
 | e2e | `e2e-tests` | macOS | anything the compiled binary or the e2e run can reach (below) |
 | e2e | `glitter-pty` | macOS | the paths in `GLITTER_TRIGGERS` (the board's inputs, `e2e.yml`, the scope script) |
 | purity | `purity` | ubuntu | always |
-| unit-linux-probe | `probe` | ubuntu | its own workflow file, or by hand; advisory, never fails a PR |
+| timings | `timings` | ubuntu | its own workflow file, or by hand; never a required check |
+| nightly-macos | `unit` (3 shards), `report` | macOS, ubuntu | every night, by hand, or its own workflow file; never a required check |
 
 ## The unit shards' modes
 
@@ -54,7 +56,7 @@ instead; a reader no test imports forces full. Then:
 - **changed**: `--changed=HEAD^1` over what is left, which is all
   TypeScript. Scope sizes the run from `test-timings.json`: the selected
   tests' recorded time against a full shard's, so a small change takes one
-  macOS runner and a wide one up to three. The estimate only sets wall time;
+  runner and a wide one up to three. The estimate only sets wall time;
   bun's `--changed` still picks the tests.
 
 "Read by path" means a unit test or one of its imports names the file:
@@ -68,6 +70,65 @@ imports never drops out. A `no-*` guard never counts as a reader, since
 are never checked: the tests that read the site are guards, and `static`'s
 `docs:check` covers the generated reference.
 
+## Tests that need a Mac
+
+`scripts/ci/macos-only-tests.txt` lists the unit tests that cannot run on
+ubuntu, one bare repo-relative path per line. `unit` passes each one to
+`--path-ignore-patterns`, where a `./` prefix matches nothing and would leave
+the test on ubuntu, so the scope test refuses one. The
+`no-macos-list-drift` guard refuses an entry whose file is gone.
+
+| Test | Needs |
+|---|---|
+| `commands/__tests__/worktree-hydrate-clone.test.ts` | `clonefile(2)` |
+| `lib/__tests__/daemon-logger.test.ts` | native stderr redirect, a no-op elsewhere |
+| `lib/release/__tests__/dev-app-cache.test.ts` | `codesign` |
+| `lib/worktree/__tests__/clonefile.test.ts` | `clonefile(2)` |
+| `rt-tray/vm/run/helpers/__tests__/install-chrome.test.ts` | `plutil`, `ditto` |
+| `scripts/__tests__/fetch-deps-make-src.test.ts` | `otool`, `lipo`, `cc -dynamiclib` |
+| `scripts/__tests__/render-launchagents.test.ts` | `PlistBuddy`, `plutil` |
+
+`unit-macos` runs the whole list on a `full` run. On a `changed` run it takes
+the listed tests the diff reaches, by import or by a path a test reads, or the
+whole list when the diff touches a workspace package, since the import walk
+stops at a bare import. Nothing reached skips it.
+
+A new test that needs a Mac fails on ubuntu on its own PR, and the author adds
+it there. One gated with `process.platform !== "darwin"` would pass on ubuntu
+without running, so the same guard requires it on the list. A test that only
+names a Mac path, identity or tool gets made portable instead, and a flake
+gets fixed, never listed.
+
+`nightly-macos.yml` runs the whole suite on macOS every night, so a bug only a
+Mac shows, in a file not on the list, can reach main and is caught the next
+night. `rt check` still runs a changed file's tests on the developer's Mac. A
+red night opens one issue, and a later red comments on it.
+
+## The Mac runner
+
+Matt's PRs and queue runs can use self-hosted runners on his Mac instead of
+GitHub's macOS pool, so a GitHub macOS outage does not stop them landing.
+Everything else stays on `macos-latest`: another author's PR, a queue batch
+holding one, and the nightly.
+
+The `scope` and `changes` jobs run `scripts/ci/macos-runner.ts`, and the macOS
+jobs read `runs-on` from its output. It picks the Mac only when the
+`MAC_RUNNER` repo variable is `on`. A PR can edit that routing, so it is not the
+protection: a job-started hook on the Mac runs the same rule from a root-owned
+copy and fails any job it refuses before checkout. Change the rule, then rerun
+the installer, or the Mac keeps the old copy.
+
+The hook stops jobs it refuses, not a job it admits. An admitted job, including
+a compromised dependency in one of Matt's PRs, runs as the same user as the
+runner and can disable the hook for later jobs. It still cannot read Matt's home.
+
+- **Set up:** `scripts/ci/mac-runner/install.sh`, then
+  `gh variable set MAC_RUNNER --body on`. The runners are launchd daemons under
+  a separate `mattstack-ci` user that cannot read your home.
+- **Back to GitHub's runners:** `gh variable delete MAC_RUNNER`. A run picks the
+  variable up when it starts.
+- **Remove:** clear the variable, then `scripts/ci/mac-runner/uninstall.sh`.
+
 ## What e2e skips
 
 `e2e-tests` compiles `cli.ts` and runs `e2e/` under the bunfig preload, so
@@ -78,6 +139,40 @@ under `ui/`, workflow files other than `e2e.yml`, and rt TypeScript outside
 test, a script). Workspace packages always count, since `cli.ts` reaches
 them through bare imports, and so does a `packages/*/package.json` change,
 since `e2e/setup.ts` rebuilds the binary on one.
+
+## Before you push
+
+`rt check` runs the repo's check command from the tree root, and `git_push`
+runs it first and refuses a red push. `rt.check` is a user or machine scope
+setting, per repo, because `git_push` runs the command with no prompt: nothing
+in a team or org store can run on your Mac. For this repo set it to
+`{"command": "bun scripts/ci/local-check.ts", "timeoutSeconds": 900}`; a full
+run takes about ten minutes, past the 600s default. The script takes
+`RT_CHECK_BASE` and `RT_CHECK_HEAD`, asks `test-scope.ts` what a PR with that
+diff would run, and runs the same unit selection the shards use:
+`bun test <dirs> --changed=<base>` split across half the cores (at most six
+processes) with `test-timings.json`, then the tests CI reads by path in their
+own call. A diff the scope script would skip runs nothing, and a diff it would
+make full runs the whole suite. The `no-*` guards are left to the `guards` job
+unless the run is full, which `RT_CHECK_FULL=1` forces. A full run builds
+`packages/rt-client` first, as CI's postinstall does, since the suite checks
+that `dist/` is fresh; a scoped run does not. This runs on your Mac, so it
+takes every selected test, the Mac-only list included. The exit code is the
+verdict, and the last stdout line is a JSON summary (`mode`, `selected`,
+`passed`, `failed`, `durationMs`, `failures`), printed on red too, where
+`failedTests` adds the failing tests' names, 20 at most. `selected` counts the
+tests that ran, and a run that ran none reports `skip`. A failure
+before any test runs (a bad ref, a syntax error in the scope script) prints
+`mode: "error"` and exits 1; a SIGTERM or SIGINT stops the test processes. It
+runs unit tests only: no typecheck, e2e or path-gated job.
+
+A run posts the `rt/local-check` commit status for its verdict: green as
+success, red as failure, and an error (a timeout, a command that could not
+run) as error. Nothing is posted for a dirty tree, a HEAD that moved during the
+run, a commit not yet on the remote, `--no-status`, a host other than github.com, a `--base`
+ref that is not a commit, or a HEAD rt cannot read. That status is the pusher's attestation that this sha ran its scoped tests on
+their machine, and anyone who can push can post it. The merge queue's full, hosted run is
+still what lands a tree, so a wrong local status cannot break `main`.
 
 ## Jobs left ungated
 

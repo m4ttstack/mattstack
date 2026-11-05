@@ -66,21 +66,36 @@ function humanHandle(): string {
   return getSetting<string>("chat.humanHandle").value;
 }
 
+const SLACK_ID_PREFIX = "slack.";
+const SLACK_NAME_SUFFIX = "-slack";
+const SLACK_NAME_MAX = 24;
+
+/** True for a Slack teammate's id: session-less, no presence row, spoken for only by the Slack bridge. */
+export function isSlackIdentity(id: string): boolean {
+  return id.startsWith(SLACK_ID_PREFIX);
+}
+
+/** True when `x` has the shape of a Slack teammate's display name, which a session may not take. */
+export function isSlackName(x: string): boolean {
+  return x.endsWith(SLACK_NAME_SUFFIX);
+}
+
 /** Why `x` can never be continued by an agent session, or undefined when it can. */
 export function fixedIdentityRefusal(x: string): string | undefined {
   if (x === humanHandle()) return "that handle speaks for the human";
   if (x === HERD_SYSTEM_ID) return "that handle is the herd's system poster";
+  if (isSlackIdentity(x)) return "that handle belongs to a Slack teammate";
   return undefined;
 }
 
 /**
- * The three names no session may resolve to, mint as, or shadow: the
- * human's handle, the herd's system poster, and the "here" mention sigil.
- * A live identity minted under one of these as its display name (a shadow)
- * must never be what a lookup for that name reaches.
+ * The names no session may resolve to, mint as, or shadow: the human's
+ * handle, the herd's system poster, the "here" mention sigil, and any id in
+ * the Slack namespace. A live identity minted under one of these as its
+ * display name (a shadow) must never be what a lookup for that name reaches.
  */
 export function isFixedChatName(x: string): boolean {
-  return x === humanHandle() || x === HERD_SYSTEM_ID || x === "here";
+  return x === humanHandle() || x === HERD_SYSTEM_ID || x === "here" || isSlackIdentity(x);
 }
 
 const SELECT_LIVE_BY_NAME_SQL = `
@@ -106,10 +121,12 @@ function base36Suffix(seed: string, length: number): string {
 
 function freshId(base: string, sessionId: string | null, mintedAt: number, db: Database): string {
   const seed = `${sessionId ?? ""}:${mintedAt}`;
-  const short = `${base}.${base36Suffix(seed, 4)}`;
+  // An id is `<base>.<suffix>`, so a base of "slack" would land in the Slack namespace.
+  const idBase = isSlackIdentity(`${base}.`) ? `agent-${base}` : base;
+  const short = `${idBase}.${base36Suffix(seed, 4)}`;
   if (!isKnownId(short, db)) return short;
   for (let salt = 0; ; salt++) {
-    const id = `${base}.${base36Suffix(salt === 0 ? seed : `${seed}:${salt}`, 6)}`;
+    const id = `${idBase}.${base36Suffix(salt === 0 ? seed : `${seed}:${salt}`, 6)}`;
     if (!isKnownId(id, db)) return id;
   }
 }
@@ -128,6 +145,44 @@ export function mintIdentity(
   });
   // BEGIN IMMEDIATE when standalone: the known-id probe and the insert must
   // hold the write lock together or a racing mint lands the same id.
+  return db.inTransaction ? run() : run.immediate();
+}
+
+function chatNameCharset(raw: string): string {
+  return raw.toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, SLACK_NAME_MAX);
+}
+
+/** A profile field the teammate controls, so this is the only form of it the support rules ever see. */
+export function cleanSlackName(raw: string, userId: string): string {
+  const cleaned = chatNameCharset(raw);
+  // resolveHandle short-circuits on the `slack.` namespace, so a name inside it could never reach its id.
+  return cleaned && !isSlackIdentity(cleaned) ? cleaned : chatNameCharset(userId);
+}
+
+// Runs inside BEGIN IMMEDIATE on the daemon thread, where a spin holds the write lock and stops the daemon.
+const SLACK_NAME_ATTEMPTS = 1000;
+
+function freeSlackName(base: string, db: Database): string {
+  for (let suffix = 1; suffix <= SLACK_NAME_ATTEMPTS; suffix++) {
+    const name = suffix === 1 ? `${base}${SLACK_NAME_SUFFIX}` : `${base}-${suffix}${SLACK_NAME_SUFFIX}`;
+    const named = db.query(SELECT_LATEST_BY_NAME_SQL).get(name);
+    if (!named && !isFixedChatName(name) && !isKnownId(name, db)) return name;
+  }
+  throw new Error(`chat: no free name for Slack teammate base "${base}"`);
+}
+
+/** The teammate's identity, minted on first sight and keyed by Slack user id so it survives across conversations. */
+export function ensureSlackIdentity(userId: string, rawFirstName: string, db: Database = getStateDb()): IdentityRow {
+  const id = `${SLACK_ID_PREFIX}${userId.toLowerCase()}`;
+  const run = db.transaction((): IdentityRow => {
+    const existing = getIdentity(id, db);
+    if (existing) return existing;
+    const baseName = cleanSlackName(rawFirstName, userId);
+    const name = freeSlackName(baseName, db);
+    const mintedAt = Date.now();
+    db.query(INSERT_IDENTITY_SQL).run(id, name, baseName, mintedAt, null);
+    return { id, name, baseName, mintedAt, sessionId: null };
+  });
   return db.inTransaction ? run() : run.immediate();
 }
 

@@ -12,6 +12,7 @@ import {
   existingPluginDirs,
   isPluginTree,
   jobsFor,
+  macosOnlyTests,
   pluginDirs,
   prPluginDirs,
   ROOT,
@@ -19,8 +20,10 @@ import {
   rtTriggeredPluginDirs,
   selectedTests,
   shardCount,
+  splitForMacos,
   unitDirs,
   websiteChanged,
+  type Decision,
   type ScopeInput,
 } from "../test-scope.ts";
 
@@ -259,7 +262,7 @@ describe("unitDirs", () => {
     for (const dir of dirs) expect(dir.startsWith("./")).toBe(true);
     expect(dirs).toContain("./lib");
     expect(dirs).toContain("./commands");
-    expect(pkg.scripts["test:timings"]).toMatch(/\bbun run test\b/);
+    expect(readFileSync(join(ROOT, "scripts/ci/timings.sh"), "utf8")).toMatch(/\bbun run test\b/);
     expect(pkg.scripts["test:watch"]).toMatch(/\bbun run test\b/);
     expect(pkg.scripts["test:all"]).toMatch(/\bbun run test\b/);
     const dirsList = dirs.join(" ");
@@ -431,7 +434,8 @@ describe("websiteChanged", () => {
 });
 
 describe("workflow wiring", () => {
-  type Job = { needs?: string | string[]; if?: string; outputs?: Record<string, string> };
+  type Step = { name?: string; run?: string };
+  type Job = { needs?: string | string[]; if?: string; outputs?: Record<string, string>; "runs-on"?: string; steps?: Step[] };
   function jobs(file: string): Record<string, Job> {
     return (Bun.YAML.parse(readFileSync(join(ROOT, ".github", "workflows", file), "utf8")) as { jobs: Record<string, Job> }).jobs;
   }
@@ -450,9 +454,56 @@ describe("workflow wiring", () => {
     expect(all[gate]!.if).toBe("always()");
   });
 
+  function runs(job: Job): string {
+    return (job.steps ?? []).map((step) => step.run ?? "").join("\n");
+  }
+
+  describe.each([
+    ["checks.yml", "unit"],
+    ["timings.yml", "timings"],
+  ])("%s %s", (file, name) => {
+    test("runs on ubuntu and leaves out every test on the macOS list", () => {
+      const job = jobs(file)[name]!;
+      expect(job["runs-on"]).toBe("ubuntu-latest");
+      expect(runs(job)).toContain("sed 's/^/--path-ignore-patterns=/' scripts/ci/macos-only-tests.txt");
+    });
+
+    test("sets its git identity at system scope: the preload moves HOME, so a global one never reaches a test", () => {
+      expect(runs(jobs(file)[name]!)).toContain("git config --system user.name");
+    });
+  });
+
+  test("unit-macos runs on macOS, only when scope names tests", () => {
+    const job = jobs("checks.yml")["unit-macos"]!;
+    expect(job["runs-on"]).toBe("${{ fromJSON(needs.scope.outputs.macos_runner) }}");
+    expect(job.if).toBe("needs.scope.outputs.macos != ''");
+    expect(runs(job)).toContain("$TESTS");
+  });
+
+  describe("the checks gate on unit-macos", () => {
+    const passing = { SCOPE: "success", STATIC: "success", GO: "success", DECK: "success", UNIT: "success", UNIT_MACOS: "success", GUARDS: "success", HERDR_CHAT: "success", MATTSTACK: "success", WEBSITE: "success", MODE: "full", RUN_GO: "true", RUN_DECK: "true", RUN_MACOS: "./a.test.ts" };
+    function gate(env: Record<string, string>): number {
+      const script = jobs("checks.yml").checks!.steps!.find((step) => step.name === "Every gate passed")!.run!;
+      return Bun.spawnSync(["bash", "-c", script], { env: { PATH: process.env.PATH ?? "", ...passing, ...env }, stdout: "pipe", stderr: "pipe" }).exitCode;
+    }
+
+    test("a pass passes", () => {
+      expect(gate({})).toBe(0);
+    });
+    test("a skip passes when scope named no tests", () => {
+      expect(gate({ UNIT_MACOS: "skipped", RUN_MACOS: "" })).toBe(0);
+    });
+    test("a skip fails when scope named tests", () => {
+      expect(gate({ UNIT_MACOS: "skipped" })).toBe(1);
+    });
+    test.each(["failure", "cancelled"])("a %s fails", (result) => {
+      expect(gate({ UNIT_MACOS: result })).toBe(1);
+    });
+  });
+
   test.each(["checks.yml", "e2e.yml"])("every scope output %s reads is one the script writes", (file) => {
     const scope = Object.values(jobs(file)).find((job) => job.outputs)!;
-    const written = new Set(["mode", "shards", "extra", "dirs", "always", "plugins", ...jobKeys]);
+    const written = new Set(["mode", "shards", "extra", "dirs", "always", "plugins", "macos", "macos_runner", ...jobKeys]);
     for (const name of Object.keys(scope.outputs!)) expect(written.has(name)).toBe(true);
   });
 });
@@ -480,6 +531,101 @@ describe("shard sizing", () => {
 
   test("no timings file keeps three shards", () => {
     expect(shardCount("changed", ["a.test.ts"], {})).toBe(3);
+  });
+});
+
+describe("the macOS-only list", () => {
+  const list = macosOnlyTests();
+
+  test("entries are bare paths: a ./ pattern ignores nothing, and ubuntu would run the Mac test", () => {
+    for (const f of list) expect(f).not.toStartWith("./");
+  });
+
+  test("entries are sorted with no repeats", () => {
+    expect(list).toEqual([...new Set(list)].sort());
+  });
+
+  test("a blank line is no entry", () => {
+    const root = mkdtempSync(join(tmpdir(), "test-scope-macos-list-"));
+    try {
+      const file = join(root, "list.txt");
+      writeFileSync(file, "b.test.ts\n\na.test.ts\n");
+      expect(macosOnlyTests(file)).toEqual(["b.test.ts", "a.test.ts"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("splitForMacos", () => {
+  const list = ["lib/__tests__/mac-a.test.ts", "scripts/__tests__/mac-b.test.ts"];
+  const plain = "lib/__tests__/plain.test.ts";
+  const decision = (mode: Decision["mode"], extra?: string[]): Decision => ({ mode, reason: "r", extra });
+
+  test("a full run takes the whole list", () => {
+    expect(splitForMacos(decision("full"), [], [], list).macos).toEqual(list);
+  });
+
+  test("a skip takes nothing", () => {
+    expect(splitForMacos(decision("skip"), [], [], list).macos).toEqual([]);
+  });
+
+  test("a changed run takes only the listed tests the diff reaches", () => {
+    const split = splitForMacos(decision("changed"), ["lib/mac-a.ts"], [list[0]!, plain], list);
+    expect(split.macos).toEqual([list[0]!]);
+  });
+
+  test("a changed run that reaches no listed test takes nothing", () => {
+    expect(splitForMacos(decision("changed"), ["lib/x.ts"], [plain], list).macos).toEqual([]);
+  });
+
+  test("a listed extra runs on macOS and leaves the ubuntu extra", () => {
+    const split = splitForMacos(decision("changed", [list[1]!, plain]), ["rt-tray/x.sh"], [list[1]!, plain], list);
+    expect(split.macos).toEqual([list[1]!]);
+    expect(split.extra).toEqual([plain]);
+  });
+
+  test("shard sizing leaves listed tests out, since ubuntu does not run them", () => {
+    const split = splitForMacos(decision("changed"), ["lib/mac-a.ts"], [list[0]!, plain], list);
+    expect(split.ubuntu).toEqual([plain]);
+  });
+
+  test("a workspace package change takes the whole list, since the import walk cannot follow a bare import", () => {
+    expect(splitForMacos(decision("changed"), ["packages/rt-client/src/index.ts"], [plain], list).macos).toEqual(list);
+    expect(splitForMacos(decision("changed"), ["packages/git-core/src/diff.ts"], [], list).macos).toEqual(list);
+  });
+
+  test("a doc in a workspace package changes no test", () => {
+    expect(splitForMacos(decision("changed"), ["packages/rt-client/README.md"], [plain], list).macos).toEqual([]);
+  });
+
+  test("the real graph reaches a listed test from the module it imports", () => {
+    const selected = selectedTests(["lib/worktree/clonefile.ts"], real.tests, real.graph);
+    expect(splitForMacos(decision("changed"), ["lib/worktree/clonefile.ts"], selected, macosOnlyTests()).macos).toContain("lib/worktree/__tests__/clonefile.test.ts");
+  });
+
+  test("the live tree: a shell script a listed test reads comes through as an extra", () => {
+    const changed = ["rt-tray/scripts/render-launchagents.sh"];
+    const d = decide(prInput(changed));
+    expect(splitForMacos(d, changed, d.extra ?? [], macosOnlyTests()).macos).toEqual(["scripts/__tests__/render-launchagents.test.ts"]);
+  });
+});
+
+describe("the scope script's output", () => {
+  test("a merge queue run writes the whole list to macos=, ./ prefixed for bun test", () => {
+    const root = mkdtempSync(join(tmpdir(), "test-scope-output-"));
+    try {
+      const file = join(root, "out");
+      const run = Bun.spawnSync(["bun", join(ROOT, "scripts/ci/test-scope.ts")], {
+        cwd: ROOT,
+        env: { ...process.env, EVENT_NAME: "merge_group", GITHUB_OUTPUT: file },
+      });
+      expect(run.exitCode).toBe(0);
+      const line = readFileSync(file, "utf8").split("\n").find((l) => l.startsWith("macos="));
+      expect(line).toBe(`macos=${macosOnlyTests().map((f) => `./${f}`).join(" ")}`);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

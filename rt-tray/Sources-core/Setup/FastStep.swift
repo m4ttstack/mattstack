@@ -18,12 +18,19 @@ public enum FastStep {
         switch screen {
         case .loading: return nil
         case .ready: return "Done"
+        case .tools: return "Setup status"
         default: break
         }
         let place: FastSetupScreen = screen == .paused ? .running : screen
         let named = path.flatMap(order(path:)).flatMap { $0.contains(place) ? $0 : nil }
         guard let walk = named ?? order(path: implied(by: place)), let index = walk.firstIndex(of: place) else { return nil }
         return "\(index + 1) of \(walk.count)"
+    }
+
+    /// Setup status is not a step in setup, so it shows no counter; its tools and ready screens carry that name.
+    public static func label(for screen: FastSetupScreen, path: String?, entry: SetupEntry) -> String? {
+        guard entry == .status else { return counter(for: screen, path: path) }
+        return screen == .tools || screen == .ready ? "Setup status" : nil
     }
 
     private static func implied(by screen: FastSetupScreen) -> String {

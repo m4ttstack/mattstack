@@ -1,0 +1,81 @@
+name: Nightly macOS
+
+# PRs and the merge queue run the unit suite on ubuntu plus the Mac-only list,
+# so a bug only a Mac shows, in a file not on the list, lands and is caught
+# here. A schedule cannot run from a branch, so a PR touching this file runs it.
+on:
+  schedule:
+    - cron: "17 7 * * *" # 2am CDT, daily
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/nightly-macos.yml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - name: Install backup dependencies
+        run: brew install age zstd git-lfs
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Unit tests, shard ${{ matrix.shard }} of 3
+        env:
+          SHARD: ${{ matrix.shard }}
+          EVENT_NAME: nightly
+        run: |
+          start=$(date +%s)
+          dirs=$(bun scripts/ci/test-scope.ts --explain | sed -n 's/^dirs=//p')
+          # An empty list would make bun test run every file in the repo,
+          # e2e included; fail loudly instead.
+          [ -n "$dirs" ] || { echo "scope produced no unit directories"; exit 1; }
+          # shellcheck disable=SC2086
+          scripts/ci/unit-halves.sh "$SHARD" 3 $dirs --timings=test-timings.json
+          echo "shard $SHARD of 3: $(( $(date +%s) - start ))s"
+
+  # A scheduled run's failure only emails whoever last edited this file, and an
+  # unseen red defeats the point of the run. A job GitHub cancels while it waits
+  # for a runner does not trip failure(), and that run tested nothing.
+  report:
+    needs: unit
+    if: always() && needs.unit.result != 'success' && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TITLE: Nightly macOS unit suite is red
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RESULT: ${{ needs.unit.result }}
+        run: |
+          number=$(gh issue list --state open --limit 200 --json number,title --jq '.[] | select(.title == env.TITLE) | .number' | head -1)
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "Not green again ($RESULT): $RUN"
+          else
+            gh issue create --title "$TITLE" --body "The nightly macOS run of the unit suite ended $RESULT: $RUN"
+          fi

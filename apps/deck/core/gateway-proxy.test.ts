@@ -245,3 +245,24 @@ test('a websocket upstream sees the public Host, the edge stamp, and no client x
   expect(seen.get('x-mattstack-edge')).toBe('public');
   expect(seen.has('x-forwarded-host')).toBe(false);
 });
+
+test('a mattstack app is never served publicly, even with a saved on', async () => {
+  writeSettings(true);
+  reloadSettings();
+  const { putRecord, deleteRecord } =
+    await import('../src/registry/records.ts');
+  putRecord({
+    name: APP,
+    managedBy: 'rt',
+    port: base.port as number,
+    kind: 'service',
+    createdAt: '',
+  });
+  try {
+    const res = await fetch(`${origin}/`, { headers: { host: HOST } });
+    expect(res.status).toBe(404);
+    expect(await res.text()).not.toBe('DEV');
+  } finally {
+    deleteRecord(APP);
+  }
+});

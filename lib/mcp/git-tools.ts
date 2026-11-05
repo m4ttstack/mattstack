@@ -2,6 +2,9 @@ import { existsSync } from "fs";
 import { dirname, resolve } from "path";
 import { rtCommand, type Commands } from "../../packages/rt-client/src/index.ts";
 import { ensureLease } from "../ci/lease-guard.ts";
+import { checkTree, realCheckDeps, type CheckRun } from "../check/index.ts";
+import { postStatus } from "../check/status.ts";
+import { hasCheck, stopped } from "../check/run.ts";
 import { explainError } from "../explain-error.ts";
 import { loadRepoIndex } from "../repo-index.ts";
 import { rtSelfArgv } from "../rt-self.ts";
@@ -11,6 +14,7 @@ import { forgeArgv } from "../team/forge.ts";
 import { GIT_GLOBAL_OPTS } from "../skills/mcp-lint.ts";
 import { childEnv, runCapture } from "../subprocess.ts";
 import { resolveRepoTarget } from "./mr-target.ts";
+import { remoteDefault } from "./remote-default.ts";
 import { checkOptional, err, MR_TARGET_PROPS, ok, type McpToolDef, type ToolResult } from "./shared.ts";
 import { checkRegisteredTree, gitChildEnv, realTreeGuardDeps, type TreeGuardDeps } from "./tree-guard.ts";
 
@@ -43,25 +47,6 @@ export async function currentBranch(cwd: string, git: GitRunner): Promise<string
   const full = r.stdout.trim();
   if (!full.startsWith(HEADS) || full.length === HEADS.length) return null;
   return full.slice(HEADS.length);
-}
-
-/** Every name the remote's default branch may have, or null when none is
-    known, which callers must refuse rather than treat as "no default".
-    `refs/remotes/<remote>/HEAD` can be missing, or stale after the server's
-    default moves (a fetch never updates it), so the remote is asked too and
-    both answers are protected. `primary` prefers the remote's answer, the
-    order rt sync resolves its rebase target in. */
-async function remoteDefault(cwd: string, git: GitRunner, remote = "origin"): Promise<{ names: string[]; primary: string } | null> {
-  const prefix = `refs/remotes/${remote}/`;
-  const sym = await git(["symbolic-ref", "--quiet", `${prefix}HEAD`], cwd);
-  const symRef = sym.code === 0 ? sym.stdout.trim() : "";
-  const local = symRef.startsWith(prefix) && symRef.length > prefix.length ? symRef.slice(prefix.length) : null;
-  const ls = await git(["ls-remote", "--symref", "--end-of-options", remote, "HEAD"], cwd);
-  const match = ls.code === 0 ? ls.stdout.match(/^ref:\s+refs\/heads\/(\S+)\s+HEAD/m) : null;
-  const asked = match ? match[1]! : null;
-  const primary = asked ?? local;
-  if (primary === null) return null;
-  return { names: [...new Set([asked, local].filter((n): n is string => n !== null))], primary };
 }
 
 // git follows a push rejection with several `hint:` lines, which would push
@@ -117,7 +102,7 @@ async function priorPipeline(openMr: (branch: string) => Promise<OpenMrLookup>, 
 // upstream; an explicit refspec pushes exactly one ref either way.
 export async function gitPush(
   cwd: string,
-  opts: { forceWithLease?: boolean; setUpstream?: boolean },
+  opts: { forceWithLease?: boolean; setUpstream?: boolean; /** Push this commit, not HEAD, so a moved HEAD cannot send what was never checked. */ sha?: string },
   git: GitRunner,
   openMr?: (branch: string) => Promise<OpenMrLookup>,
 ): Promise<ToolResult> {
@@ -137,7 +122,7 @@ export async function gitPush(
   if (opts.setUpstream) {
     remote = "origin";
     remoteBranch = branch;
-    args.push("-u");
+    if (!opts.sha) args.push("-u");
   } else {
     const upstream = await git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], cwd);
     if (upstream.code !== 0) return err(`${branch} has no upstream; ${asOrigin}`);
@@ -156,14 +141,27 @@ export async function gitPush(
     if (remoteDef === null) return err(`refusing to push ${branch}: its upstream is ${full}, whose remote's default branch could not be determined`);
     if (remoteDef.names.includes(remoteBranch)) return err(`refusing to push ${branch}: its upstream ${full} is ${remote}'s default branch; ${asOrigin}`);
   }
-  // A remote name comes from config and may start with a dash.
-  args.push("--end-of-options", remote, `HEAD:refs/heads/${remoteBranch}`);
+  // A remote name comes from config and may start with a dash. An empty source
+  // would make this a delete refspec, so an empty sha falls back to HEAD.
+  args.push("--end-of-options", remote, `${opts.sha || "HEAD"}:refs/heads/${remoteBranch}`);
   const head = await git(["rev-parse", "--verify", "HEAD"], cwd);
   if (head.code !== 0) return err(`git rev-parse --verify HEAD failed: ${detail(head)}`);
   const before = openMr ? await priorPipeline(openMr, branch) : {};
   const r = await git(args, cwd);
   if (r.code !== 0) return err(`git push failed: ${detail(r)}`);
-  return ok({ pushed: true, branch, sha: head.stdout.trim(), forceWithLease: opts.forceWithLease === true, upstream: `${remote}/${remoteBranch}`, ...before });
+  const tracking = opts.sha && opts.setUpstream ? await writeUpstream(cwd, git, branch, remote, remoteBranch) : {};
+  return ok({ pushed: true, branch, sha: opts.sha || head.stdout.trim(), forceWithLease: opts.forceWithLease === true, upstream: `${remote}/${remoteBranch}`, ...before, ...tracking });
+}
+
+// git's -u records nothing for a bare sha source, so a pinned push writes the
+// remote and merge keys itself. Unlike -u it never adds branch.<name>.rebase
+// under branch.autoSetupRebase. The push has landed, so a failure only reports.
+async function writeUpstream(cwd: string, git: GitRunner, branch: string, remote: string, remoteBranch: string): Promise<{ upstreamError?: string }> {
+  for (const [key, value] of [[`branch.${branch}.remote`, remote], [`branch.${branch}.merge`, `refs/heads/${remoteBranch}`]] as const) {
+    const r = await git(["config", key, value], cwd);
+    if (r.code !== 0) return { upstreamError: detail(r) };
+  }
+  return {};
 }
 
 export async function gitPull(cwd: string, git: GitRunner): Promise<ToolResult> {
@@ -604,6 +602,63 @@ export interface GitToolDeps {
   authoredOpenMrs: (identity: string) => Promise<AuthoredMrs>;
   repoTrees: (identity: string) => Promise<RepoTrees>;
   ensureLease?: typeof ensureLease;
+  /** Whether the repo names a check; the default reads the setting over `realCheckDeps`. */
+  hasCheck?: (tree: string) => boolean;
+  /** Runs the repo's configured check on the tree; the default is `checkTree` over `realCheckDeps`. */
+  check?: (tree: string, opts: { post: boolean; signal?: AbortSignal }) => Promise<CheckRun>;
+  /** Posts the verdict on the pushed sha; the default is `postStatus` over `realCheckDeps`. */
+  postCheck?: typeof postStatus;
+  /** The serialized identity a status is posted under; the default is `realCheckDeps.identity`. */
+  identity?: (tree: string) => string;
+}
+
+async function headSha(path: string, git: GitRunner): Promise<string> {
+  const r = await git(["rev-parse", "--verify", "HEAD"], path);
+  return r.code === 0 ? r.stdout.trim() : "";
+}
+
+/** A check that threw ran nothing, so it is an error verdict carrying the reason. */
+function thrownCheck(e: unknown, sha: string): CheckRun {
+  return { result: stopped(e instanceof Error ? e.message : String(e), { sha, dirty: false }, ""), status: null };
+}
+
+async function runPushCheck(path: string, deps: GitToolDeps, signal: AbortSignal | undefined): Promise<CheckRun> {
+  try {
+    return await (deps.check ?? ((tree, o) => checkTree(tree, o, realCheckDeps)))(path, { post: false, ...(signal && { signal }) });
+  } catch (e) {
+    return thrownCheck(e, await headSha(path, deps.git));
+  }
+}
+
+const HEAD_MOVED = "HEAD moved during the check";
+
+/** A verdict is for the sha it ran on; a different HEAD now makes it an error rather than a pass or fail of what gets pushed. */
+function movedDuring(run: CheckRun, now: string): CheckRun {
+  const result = run.result;
+  if (!result.configured || result.sha === "" || now === "" || now === result.sha) return run;
+  return { ...run, result: { ...result, verdict: "error", reason: HEAD_MOVED } };
+}
+
+function refusalWhy(verdict: "red" | "error"): string {
+  return `The repo's check ${verdict === "red" ? "failed" : "could not give a clean answer"}, so nothing was pushed. Run rt check to see why. To push anyway and post the result, pass allowRed: true; to push without running or posting the check, pass skipCheck: true.`;
+}
+
+async function postPushed(run: CheckRun, path: string, sha: string, deps: GitToolDeps): Promise<void> {
+  const result = run.result;
+  if (!result.configured) return;
+  if (result.notRun) {
+    run.status = { posted: false, reason: "not-run" };
+    return;
+  }
+  if (result.sha !== sha) {
+    run.status = { posted: false, reason: "head-moved" };
+    return;
+  }
+  if (result.dirty) {
+    run.status = { posted: false, reason: "dirty-tree" };
+    return;
+  }
+  run.status = await (deps.postCheck ?? postStatus)((deps.identity ?? realCheckDeps.identity)(path), sha, result, realCheckDeps);
 }
 
 export const realGitToolDeps: GitToolDeps = {
@@ -629,18 +684,42 @@ export function gitToolDefs(deps: GitToolDeps): McpToolDef[] {
   return [
     {
       name: "git_push",
-      description: "Push the tree's current branch as exactly one ref (HEAD to refs/heads/<branch>; no tags, no submodules) to the same-named branch on its upstream's remote, or to origin/<branch> with setUpstream: true, which also makes that the upstream. Force is only ever --force-with-lease --force-if-includes. Refuses a detached HEAD; main, master and origin's default branch, and any push when origin's default cannot be read; a branch with no upstream unless setUpstream: true; an upstream with a different branch name, or one that is its own remote's default branch, or whose remote's default branch cannot be read (setUpstream: true pushes as origin/<branch> instead). Returns the pushed sha and, read from GitLab just before the push, the branch's open MR (mr: {iid, url} or null) and that MR's latest pipeline id (priorPipelineId), so a CI watch can tell the push's pipeline from the one already there. mrLookup is \"unavailable\" when the forge could not be read (a GitHub repo, the daemon down), in which case mr: null is not proof there is none; the push goes ahead either way.",
-      inputSchema: { type: "object", properties: { ...TREE_PROP, forceWithLease: { type: "boolean" }, setUpstream: { type: "boolean" }, leaseMrUrl: { type: "string", description: "The MR or PR https URL whose CI lease this session must hold (or can claim) for the push to run. Refused with pushed: false while another owner holds a fresh lease." } }, required: ["tree"], additionalProperties: false },
+      description: "Push the tree's current branch as exactly one ref (HEAD, or the exact sha the check ran on when one ran on the current HEAD, to refs/heads/<branch>; no tags, no submodules) to the same-named branch on its upstream's remote, or to origin/<branch> with setUpstream: true, which also makes that the upstream. Force is only ever --force-with-lease --force-if-includes. Before pushing it runs the repo's configured check (rt.check; rt check runs the same one) and, once the push succeeds, posts the verdict on the pushed sha as a GitHub commit status (a forge refusal never fails the push, and a dirty tree is never posted); a repo with no check pushes with check: null. A red or errored check, or a check that cannot run, refuses with pushed: false, refusal: \"check-red\" or \"check-error\", check (the verdict, summary, failing files and failing test names), why (how to push anyway) and next: \"rt check\"; a HEAD that moved during the check counts as an error and is never posted; allowRed: true pushes anyway and still posts the result, skipCheck: true runs and posts nothing and wins over allowRed. Refuses a detached HEAD; main, master and origin's default branch, and any push when origin's default cannot be read; a branch with no upstream unless setUpstream: true; an upstream with a different branch name, or one that is its own remote's default branch, or whose remote's default branch cannot be read (setUpstream: true pushes as origin/<branch> instead). Returns the pushed sha (and upstreamError when setUpstream could not be recorded after a push that landed) and, read from GitLab just before the push, the branch's open MR (mr: {iid, url} or null) and that MR's latest pipeline id (priorPipelineId), so a CI watch can tell the push's pipeline from the one already there. mrLookup is \"unavailable\" when the forge could not be read (a GitHub repo, the daemon down), in which case mr: null is not proof there is none; the push goes ahead either way.",
+      inputSchema: { type: "object", properties: { ...TREE_PROP, forceWithLease: { type: "boolean" }, setUpstream: { type: "boolean" }, allowRed: { type: "boolean", description: "Push even when the check is red or errored, and post that result." }, skipCheck: { type: "boolean", description: "Run no check and post no status." }, leaseMrUrl: { type: "string", description: "The MR or PR https URL whose CI lease this session must hold (or can claim) for the push to run. Refused with pushed: false while another owner holds a fresh lease." } }, required: ["tree"], additionalProperties: false },
       shellForms: ["git push", "rt git push"],
-      handler: (input, env) => guarded(async (path, input, repoName) => {
-        const bad = checkOptional(input, [{ name: "forceWithLease", type: "boolean" }, { name: "setUpstream", type: "boolean" }, { name: "leaseMrUrl", type: "string" }]);
+      handler: (input, env, signal) => guarded(async (path, input, repoName) => {
+        const bad = checkOptional(input, [{ name: "forceWithLease", type: "boolean" }, { name: "setUpstream", type: "boolean" }, { name: "allowRed", type: "boolean" }, { name: "skipCheck", type: "boolean" }, { name: "leaseMrUrl", type: "string" }]);
         if (bad) return err(bad);
         if (input.leaseMrUrl !== undefined) {
           const branch = await currentBranch(path, deps.git);
           const lease = (deps.ensureLease ?? ensureLease)(input.leaseMrUrl as string, env, branch === null ? {} : { branch });
           if (!lease.ok) return "refused" in lease ? ok({ pushed: false, refused: lease.refused, holder: lease.holder }) : err(lease.error);
         }
-        return gitPush(path, { forceWithLease: input.forceWithLease === true, setUpstream: input.setUpstream === true }, deps.git, (branch) => deps.openMr(repoName, branch));
+        let run: CheckRun | null = null;
+        let checkedSha: string | undefined;
+        if (input.skipCheck !== true && (deps.hasCheck ?? ((tree) => hasCheck(tree, realCheckDeps)))(path)) {
+          // A push gitPush will refuse anyway (main, detached HEAD) must not spend a check first.
+          const pushable = await pushableBranch(path, deps.git);
+          if ("error" in pushable) return err(pushable.error);
+          const ran = await runPushCheck(path, deps, signal);
+          if (signal?.aborted) return err("git_push was cancelled during the check; nothing was pushed");
+          const now = await headSha(path, deps.git);
+          const checked = movedDuring(ran, now);
+          if (checked.result.configured) {
+            run = checked;
+            if (now !== "" && checked.result.sha === now) checkedSha = now;
+            const verdict = checked.result.verdict;
+            if (verdict !== "green" && input.allowRed !== true) {
+              return ok({ pushed: false, refusal: verdict === "red" ? "check-red" : "check-error", check: checked, why: refusalWhy(verdict), next: "rt check" });
+            }
+          }
+        }
+        if (signal?.aborted) return err("git_push was cancelled before the push; nothing was pushed");
+        const pushed = await gitPush(path, { forceWithLease: input.forceWithLease === true, setUpstream: input.setUpstream === true, ...(checkedSha && { sha: checkedSha }) }, deps.git, (branch) => deps.openMr(repoName, branch));
+        if (!pushed.ok || pushed.body === null || typeof pushed.body !== "object") return pushed;
+        const body = pushed.body as { sha: string };
+        if (run) await postPushed(run, path, body.sha, deps);
+        return ok({ ...body, check: run });
       })(input),
     },
     {

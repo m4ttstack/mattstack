@@ -480,12 +480,18 @@ describe("gate_open", () => {
     expect(f.log).toEqual([]);
   });
 
-  test("a mode-000 findingsPath fails the guard's realpath and is refused as missing before anything opens", async () => {
+  test("a mode-000 findingsPath is refused before anything opens", async () => {
     const f = rooted();
     const p = copy(FIXTURE.findingsV2, "unreadable.json");
     chmodSync(p, 0o000);
     const res = await open({ kind: "review-post", review: { findingsPath: p, extras: loadJson(FIXTURE.extras) }, ...RUN }, f);
-    expect(res.error).toBe(`review.findingsPath: file does not exist: ${p}`);
+    // macOS's realpath opens the file, so the guard refuses it as missing.
+    // Linux's only walks the path, so the guard passes and the read refuses it.
+    expect(res.error).toBe(
+      process.platform === "darwin"
+        ? `review.findingsPath: file does not exist: ${p}`
+        : `review.findingsPath: cannot read ${p}: EACCES: permission denied, open '${p}'`,
+    );
     expect(f.log).toEqual([]);
   });
 

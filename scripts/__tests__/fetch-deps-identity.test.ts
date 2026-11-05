@@ -3,6 +3,7 @@ import { execFileSync } from "child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { fakeArm64Path } from "./fake-arm64-host.ts";
 
 const REPO = join(import.meta.dir, "..", "..");
 const SCRIPT = join(REPO, "scripts", "fetch-deps.sh");
@@ -18,7 +19,7 @@ afterAll(() => {
 function runScript(): string {
   return execFileSync("bash", [SCRIPT, "arm64"], {
     encoding: "utf8",
-    env: { ...process.env, RT_DEPS_LOCK: lockPath, RT_DEPS_ROOT: depsRoot, RT_DEPS_CACHE: join(work, "cache") },
+    env: { ...process.env, PATH: fakeArm64Path(work), RT_DEPS_LOCK: lockPath, RT_DEPS_ROOT: depsRoot, RT_DEPS_CACHE: join(work, "cache") },
   });
 }
 

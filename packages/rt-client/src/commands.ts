@@ -298,6 +298,18 @@ export interface HerdStatusData {
  */
 export type WakeMode = "mention" | "all" | "none";
 
+export type SlackItemKind = "message" | "operator-slack" | "check-in" | "close-request" | "closed";
+
+export interface SlackItem {
+  id: number;
+  conversationId: number;
+  kind: SlackItemKind;
+  fromHandle: string | null;
+  text: string;
+  createdAt: number;
+  deliveredAt: number | null;
+}
+
 export interface ChatMember {
   room: string;
   handle: string;
@@ -910,7 +922,7 @@ export interface Commands {
   "chat:away": { payload: { sessionId: string; text: string }; data: Record<string, never> };
   "chat:back": { payload: { sessionId: string }; data: Record<string, never> };
   "chat:buddies": { payload: Record<string, never>; data: { buddies: Array<PresenceRow & { status: BuddyStatus }> } };
-  "chat:dm": { payload: { from: string; to: string; body: string; sessionId?: string; pane?: string }; data: { room: string; id: number; recipients: string[]; recipientNames: string[] } };
+  "chat:dm": { payload: { from: string; to: string; body: string; sessionId?: string; pane?: string }; data: { room: string; id: number; recipients: string[]; recipientNames: string[]; /** Set only when something shaped like a credential was removed before the message went to Slack. */ redacted?: true; /** Set only when Slack took the message but the room record could not be written, and `id` is then 0. */ note?: string } };
   "chat:archive": { payload: { room: string; handle: string; archived: boolean }; data: { room: string; archivedAt: number | null } };
   "chat:dm-open": { payload: { from: string; to: string; sessionId?: string }; data: { room: string; created: boolean } };
 
@@ -922,6 +934,13 @@ export interface Commands {
   /** Records an existing Claude session as an agent so `agent:resume` can reopen it; launches nothing. Idempotent per session. */
   "agent:adopt": { payload: { sessionId: string; repo: string; subject?: string; label?: string }; data: AgentRecord };
   "chat:invite": { payload: { paneId: string; room: string; note?: string; from: string; callerPane?: string }; data: InviteResult };
+  "chat:slack-open": { payload: { agentHandle: string; sessionId?: string; person: string }; data: { conversationId: number; handle: string; name: string; frameMarker: string; room: string } };
+  "chat:slack-close": { payload: { agentHandle?: string; sessionId?: string; pane?: string; farewell?: string }; data: { conversationId: number; closed: boolean; /** Set only when something shaped like a credential was removed from the farewell before it went to Slack. */ redacted?: true } };
+  "chat:slack-status": { payload: Record<string, never>; data: { conversations: { id: number; room: string; pane?: string; name: string; displayName: string; openedAt: number; lastActiveAt: number }[] } };
+  "chat:slack-people": { payload: Record<string, never>; data: { people: { name: string; /** The Slack user id, which `/slack-support` takes as the person. */ person: string; title?: string }[] } };
+  "chat:slack-pending": { payload: { agentHandle: string }; data: { items: SlackItem[]; open: boolean; conversation?: { id: number; handle: string; name: string; operator: string; marker: string } } };
+  "chat:slack-delivered": { payload: { id: number }; data: { delivered: boolean } };
+  "chat:slack-ticket": { payload: { agentHandle: string; sessionId?: string; kind: "bug" | "feature"; title: string; problem: string; idea: string; acceptance: string[] }; data: { path: string } };
   "pane:list": { payload: Record<string, never>; data: { panes: ChatPane[] } };
   "pane:peek": { payload: { paneId: string; lines?: number }; data: { paneId: string; lines: string[] } };
   "pane:accounts": { payload: Record<string, never>; data: { accounts: PaneAccount[] } };
@@ -1286,6 +1305,13 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "agent:list",
   "agent:adopt",
   "chat:invite",
+  "chat:slack-open",
+  "chat:slack-close",
+  "chat:slack-status",
+  "chat:slack-people",
+  "chat:slack-pending",
+  "chat:slack-delivered",
+  "chat:slack-ticket",
   "pane:list",
   "pane:peek",
   "pane:accounts",

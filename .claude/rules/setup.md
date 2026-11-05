@@ -18,8 +18,9 @@ paths:
 
 Setup is screens drawn from one verb and one run. `rt setup form` (hidden,
 `commands/setup-form.ts`, `lib/setup/form.ts`) answers which screen setup is
-on (`formStage`: macos, path, invite, waiting, connect, this-mac, running,
-paused, ready) and each section's rows (`--section macos|invite|restore|connect|this-mac|create`).
+on (`formStage`: macos, path, invite, waiting, connect, this-mac, tools, running,
+paused, ready) and each section's rows (`--section macos|invite|restore|connect|this-mac|tools|create`).
+The `tools` stage, its rows and org requirements are in `setup-tools.md`.
 The tray draws what it returns: no decision in Swift about which rows a
 member needs, where setup resumes or a row's state. A run still going
 outranks the macos stage, and P1 skips rt's read for the cards only on a Mac
@@ -59,11 +60,13 @@ that blocks Install or Finish must have a screen, or setup can never end:
   `extraRows` with `afterRun: true`); `formStage` lands it on this-mac, not the bar.
 
 A new blocking row that fits none of these strands the member. A `settings`
-target (`tool.mission-control`, `tool.chrome-signin`, `skills.overrides`) is
+target (`tool.mission-control`, `tool.chrome-signin`, `skills.overrides`,
+`account.slack-support`) is
 never required and never finish-gated, carries no `waivable`, and shows only
 in the tray's Settings (`SettingsExtras`: General's Keyboard and Skill
-overrides sections, the Fast Browser pane), never in setup. Those three stay
-in `WAIVABLE_ROW_IDS`, so a stored waiver still reads on the row and
+overrides sections, the Fast Browser pane; `account.slack-support` in the
+accounts group, which Settings > Accounts draws), never in setup. All but
+`account.slack-support` stay in `WAIVABLE_ROW_IDS`, so a stored waiver still reads on the row and
 `rt setup unwaive` can still clear it; `waived` is what the app keys on,
 never the note's wording. A finish-gated row carries `waivable` on every
 emit (an app reading a row without it treats the row as waivable).
@@ -72,7 +75,7 @@ A required row with a fault must offer an action that can clear it: an
 actionless required row is an Install nobody can reach. On the fast screens
 a `steps` action opens rt's steps in a sheet (`FormActionRunner.sheet`), a
 `choose` wider than a two-option segment opens a picker sheet, and a todo
-row shows its `detail` as rt's reason under the subtext. An action type the
+row with a `detail` shows it as rt's reason under the subtext. An action type the
 app does not know draws "Needs a newer mattstack", and its row still holds
 the footer while rt counts it open. A pack tool's Download link is offered
 only over https; any other `install.url` falls back to steps. A connect action may
@@ -94,7 +97,7 @@ Swift side too.
 On an unfinished Mac the tray asks macOS for nothing before the macos
 screen: no notification prompt, login item or Mission Control notice at
 launch (`LaunchPrompts`). The login item registers when setup finishes, or
-whenever a run lands on ready. App updates are held while
+whenever a run lands on ready or tools. App updates are held while
 setup runs, window or not.
 
 ## Setup after an update

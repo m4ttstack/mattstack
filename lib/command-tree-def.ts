@@ -671,6 +671,9 @@ function integrationNode(id: string, title: string): CommandNode {
       hint: "Confirm a self-hosted GitLab (e.g. gitlab.example.com). A team-declared host is never used until you confirm it here",
     });
   }
+  if (id === "slack") {
+    connectArgs.push({ name: "Support chat", flag: "--support-chat", type: "boolean", default: false, hint: "Also ask for the direct message scopes a support chat needs" });
+  }
   const subcommands: Record<string, CommandNode> = {
     status: {
       description: `${title}: check this account`,
@@ -1029,6 +1032,22 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
     },
+  },
+
+  check: {
+    description: "Run this repo's own pre-push check here and post the result on the commit",
+    module: "./commands/check.ts",
+    fn: "checkCommand",
+    omitBehavior: { exempt: "running the check is the command; it takes no required argument" },
+    context: "worktree",
+    agentSafe: true,
+    agentTimeoutMs: 960_000,
+    args: [
+      { name: "Full", flag: "--full", type: "boolean", default: false, hint: "Ask the repo's command for its whole suite, not the scoped selection" },
+      { name: "No status", flag: "--no-status", type: "boolean", default: false, hint: "Run without posting the result on the commit" },
+      { name: "Base", flag: "--base", type: "text", placeholder: "origin/main", hint: "Diff against this ref instead of the merge base with the default branch" },
+      { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the result as JSON" },
+    ],
   },
 
   hooks: {
@@ -1591,7 +1610,10 @@ export const TREE: Record<string, CommandNode> = {
         description: "Update your tools and dev app",
         module: "./commands/dev.ts",
         fn: "devUpdate",
-        args: [SETUP_JSON_ARG],
+        args: [
+          { name: "Release", flag: "--release", type: "boolean", default: false, hint: "Swap a dev app built on this Mac for the release's" },
+          SETUP_JSON_ARG,
+        ],
       },
     },
   },
@@ -1688,9 +1710,9 @@ export const TREE: Record<string, CommandNode> = {
     ],
   },
 
-  // Self-dispatching leaf: chat() routes its own verbs (join/leave/archive/
-  // post/read/rooms/who/mark/prune/sign-in/sign-out/away/back/buddies/dm/invite),
-  // so all args flow through rather than a subcommand map.
+  // chat() routes its own verbs (join/leave/archive/post/read/rooms/who/mark/
+  // prune/sign-in/sign-out/away/back/buddies/dm/invite), so their args flow
+  // through. Only the Slack support verbs are subcommands.
   chat: {
     description: "Group chat for agents and their human, over the rt daemon",
     module: "./commands/chat.ts",
@@ -1719,6 +1741,65 @@ export const TREE: Record<string, CommandNode> = {
       { name: "Quiet", flag: "--quiet", type: "boolean", default: false, hint: "For post: put the message on the room record without waking anyone (it stays unread and catches up in a later delivery); for sign-out: suppress output (the SessionEnd hook's flag)" },
       { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit machine-readable JSON instead of the plain rendering (join/leave/archive/post/read/rooms/who/mark/prune/buddies/dm/away/back/sign-in/sign-out/invite)" },
     ],
+    subcommands: {
+      "slack-open": {
+        description: "Open a Slack support chat with a teammate",
+        hidden: true,
+        module: "./commands/chat-slack.ts",
+        fn: "slackOpen",
+        args: [
+          { name: "Person", type: "text", placeholder: "alex", hint: "The teammate's Slack name" },
+          { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
+        ],
+      },
+      "slack-people": {
+        description: "List the people a Slack support chat can open with",
+        hidden: true,
+        module: "./commands/chat-slack.ts",
+        fn: "slackPeople",
+        args: [{ name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the list as JSON" }],
+      },
+      "slack-watch": {
+        description: "Print each waiting Slack support message as it arrives",
+        hidden: true,
+        module: "./commands/chat-slack.ts",
+        fn: "slackWatchVerb",
+        args: [{ name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print one JSON line per message" }],
+      },
+      "slack-delivered": {
+        description: "Confirm a Slack support message reached the session",
+        hidden: true,
+        module: "./commands/chat-slack.ts",
+        fn: "slackDelivered",
+        args: [
+          { name: "Item", type: "text", placeholder: "4821", hint: "The id from the watcher's line" },
+          { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
+        ],
+      },
+      "slack-ticket": {
+        description: "Write a bug report or feature request from a Slack support chat",
+        hidden: true,
+        module: "./commands/chat-slack.ts",
+        fn: "slackTicket",
+        args: [{ name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Read the ticket as JSON on stdin and print the result as JSON" }],
+      },
+      "slack-close": {
+        description: "Close a Slack support chat",
+        module: "./commands/chat-slack.ts",
+        fn: "slackClose",
+        args: [
+          { name: "Pane", flag: "--pane", type: "text", optional: true, placeholder: "w1:p1", hint: "The pane whose chat to close; this session's own chat when left out" },
+          { name: "Farewell file", flag: "--farewell-file", type: "text", optional: true, placeholder: "farewell.txt", hint: "A file holding the goodbye to send first; this session's own chat only" },
+          { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
+        ],
+      },
+      "slack-status": {
+        description: "See which panes have a Slack support chat open",
+        module: "./commands/chat-slack.ts",
+        fn: "slackStatus",
+        args: [{ name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the list as JSON" }],
+      },
+    },
   },
 
   runs: {
@@ -2859,9 +2940,10 @@ export const TREE: Record<string, CommandNode> = {
         hidden: true,
         args: [
           SETUP_JSON_ARG,
-          { name: "Section", flag: "--section", type: "text", placeholder: "macos", hint: "Only this part: macos, invite, restore, connect, this-mac or create" },
+          { name: "Section", flag: "--section", type: "text", placeholder: "macos", hint: "Only this part: macos, invite, restore, connect, this-mac, tools or create" },
           { name: "Forge", flag: "--forge", type: "text", placeholder: "gitlab", hint: "github or gitlab, for the create section" },
           { name: "Host", flag: "--host", type: "text", placeholder: "gitlab.com", hint: "A self-hosted forge's host" },
+          { name: "Acknowledge tools", flag: "--ack-tools", type: "boolean", default: false, hint: "Mark the new team tools as seen" },
         ],
       },
       prepare: {

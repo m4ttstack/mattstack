@@ -16,7 +16,7 @@ describe("resolveLivePane", () => {
     expect(resolveLivePane({ paneId: "w1:p6", sessionId: "s-a" }, panes)?.paneRef).toBe("w1:p8");
   });
   test("layer 3: unique worktree match", () => {
-    const panes = [pane({ paneRef: "w1:p3", cwd: "/private/tmp/wt" })];
+    const panes = [pane({ paneRef: "w1:p3", cwd: process.platform === "darwin" ? "/private/tmp/wt" : "/tmp/wt" })];
     expect(resolveLivePane({ paneId: "w1:p6", worktree: "/tmp/wt" }, panes)?.paneRef).toBe("w1:p3");
   });
   test("layer 3 never claims a pane that belongs to another session", () => {

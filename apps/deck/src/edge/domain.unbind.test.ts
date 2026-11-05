@@ -17,6 +17,7 @@ const { FakeCfDns } = await import('../../test/fixture/remote.ts');
 const { getPlatformSettings, reloadPlatformSettings, updatePlatformSettings } =
   await import('../api/platform-settings.ts');
 const { reloadRegistry, putRecord } = await import('../registry/records.ts');
+const { setPublished } = await import('../../core/settings.ts');
 
 const CLOUDFLARED = '/opt/homebrew/bin/cloudflared';
 let cfDir: string;
@@ -113,6 +114,7 @@ test('unbind lists tunnel-served apps that will go offline and requires force', 
     kind: 'service',
     createdAt: new Date().toISOString(),
   });
+  await setPublished('blog', true);
   const r = await unbindDomain(
     { tunnel, manager, dns },
     { cloudflaredDir: cfDir }

@@ -15,9 +15,10 @@ struct FastSetupHandlers {
     var pausedAction: (RowAction) -> Void
     var openHome: () -> Void
     var readAgain: () -> Void
+    var toolsDone: () -> Void
 
     static let inert = FastSetupHandlers(choose: { _ in }, join: {}, create: {}, restore: {}, start: {}, hide: {}, retry: {},
-                                         pausedAction: { _ in }, openHome: {}, readAgain: {})
+                                         pausedAction: { _ in }, openHome: {}, readAgain: {}, toolsDone: {})
 }
 
 /// The coordinator's state for the screens that run a verb of their own.
@@ -50,8 +51,7 @@ struct FastSetupView: View {
 
     var body: some View {
         let drawn = drawn
-        // Setup status is not a step in setup, so it shows no counter.
-        FastWindowChrome(step: flow.entry == .status ? nil : FastStep.counter(for: drawn, path: stepPath)) { screen(drawn) }
+        FastWindowChrome(step: FastStep.label(for: drawn, path: stepPath, entry: flow.entry)) { screen(drawn) }
             .onAppear { shown = drawn }
             .onChange(of: drawn) { _, now in shown = now }
             .frame(width: SetupWindowController.width)
@@ -106,6 +106,10 @@ struct FastSetupView: View {
             ThisMacScreenBody(teamName: teamPath ? latest?.team?.name : nil, solo: stepPath == "solo", rows: form.rows(for: "this-mac") ?? [],
                               waiting: actions.waiting, errors: actions.errors, startReady: read?.startReady ?? false, start: read?.start, status: flow.entry == .status,
                               onAction: perform, onBack: back, onStart: handlers.start)
+        case .tools:
+            ToolsScreenBody(tools: form.read(carrying: "tools")?.tools, rows: form.rows(for: "tools") ?? [],
+                            waiting: actions.waiting, errors: actions.errors, isAcking: status.busy == .tools,
+                            failure: status.failures[.tools], onAction: perform, onLater: handlers.hide, onDone: handlers.toolsDone)
         case .running:
             RunScreen(model: install, startedAt: status.runStartedAt, paused: nil, onHide: handlers.hide,
                       onRetry: handlers.retry, onPausedAction: handlers.pausedAction)
@@ -115,7 +119,7 @@ struct FastSetupView: View {
         case .ready:
             // Only a read lands on ready, and every read carries rt's home.
             if let home = latest?.home ?? form.whole?.home {
-                ReadyScreenBody(home: home, onOpen: handlers.openHome)
+                ReadyScreenBody(home: home, notice: flow.entry == .status ? form.whole?.orgNotice : nil, onOpen: handlers.openHome)
             }
         }
     }

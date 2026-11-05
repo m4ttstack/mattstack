@@ -9,6 +9,8 @@ import type { Logger } from "pino";
 import {
   ackMessage,
   claimMessage,
+  conversationForAgent,
+  conversationForRoom,
   releaseClaim,
   isValidChatName,
   joinRoom,
@@ -28,12 +30,16 @@ import {
   roomDefaultWake,
   listMembers,
   dmRoomFor,
+  dmRoomName,
   dmParticipants,
   getAgent,
   getIdentity,
   identityName,
   identityNames,
+  isSlackIdentity,
+  latestConversationForRoom,
   resolveHandle,
+  touchConversation,
   signIn,
   signOut,
   setAway,
@@ -51,15 +57,20 @@ import {
   type BuddyStatus,
   type PresenceRow,
   type RegistryDeps,
+  type SlackConversation,
   type WakeMode,
   type StalePendingRow,
 } from "../../state/index.ts";
+import { SlackError, postHonouringRetryAfter, type SlackClient } from "../../slack/client.ts";
+import { slackClientFromSecrets } from "../../slack/daemon-client.ts";
+import { redactSecrets, SLACK_PREFIX, withPrefix } from "../../slack/format.ts";
 import { CHAT_NOTIFICATION_CATEGORY, notifyEnabled } from "../../notifier.ts";
 import { chatViewerUrl, readChatViewerUrlSetting } from "../../chat-viewer-url.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { herdrRequest } from "../../herdr/client.ts";
 import { injectIntoPane, herdrError } from "../inject.ts";
 import { resolvePaneRef } from "../pane-ref-socket.ts";
+import { finishClose, slackDeskNotify } from "../slack-lifecycle.ts";
 import type { HerdrSnapshot } from "./pane.ts";
 import { resolveInbox, inboxAlive } from "../../claude-registry.ts";
 import { withProcessSession } from "../pane-process-session.ts";
@@ -74,7 +85,7 @@ import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 import type { CommandResult } from "./types.ts";
 
 export type InboxDeps = { resolve: typeof resolveInbox; deliver: typeof deliverToInbox };
-const defaultInboxDeps: InboxDeps = { resolve: resolveInbox, deliver: deliverToInbox };
+export const defaultInboxDeps: InboxDeps = { resolve: resolveInbox, deliver: deliverToInbox };
 // Fallback only: real wiring threads ctx.log in from command-router.ts.
 const defaultLog = lazyChildLogger("chat");
 
@@ -117,9 +128,9 @@ function assertionError(fn: () => void): ReturnType<typeof failureFrom> | null {
 }
 
 /** Generous, not tight: bounds a single message body without constraining any real conversation. */
-const MAX_BODY_BYTES = 64 * 1024;
+export const MAX_BODY_BYTES = 64 * 1024;
 
-function isValidBody(body: unknown): body is string {
+export function isValidBody(body: unknown): body is string {
   return typeof body === "string" && body.length > 0 && Buffer.byteLength(body, "utf8") <= MAX_BODY_BYTES;
 }
 
@@ -403,7 +414,7 @@ export function planSweepTargets(
   aliveSessionIds: Set<string>,
 ): StalePendingRow[] {
   return stale.filter((pair) => {
-    if (pair.wakeOn === "none") return false;
+    if (pair.wakeOn === "none" || isSlackIdentity(pair.handle)) return false;
     const presence = presenceByHandle.get(pair.handle);
     if (!presence || presence.signedOutAt !== undefined) return false;
     return aliveSessionIds.has(presence.sessionId);
@@ -795,20 +806,27 @@ async function findPaneSessionRetrying(
  * presenceForHandle plus a full registry scan run per recipient, and a
  * queued call lets chat:post's response get built before that work starts,
  * rather than paying it inline on the request path.
+ *
+ * `fromSlack` is the bridge's alone and never comes from a command payload.
+ * Slack text must not cross the inbox socket, and slack_items is its delivery
+ * record, so both participants are marked delivered in the same tick as the
+ * insert: nothing can bundle or sweep it afterwards.
  */
-function postAndNotify(
+export function postAndNotify(
   db: Database,
   emitEvent: (topic: string, payload?: unknown) => unknown,
-  args: { room: string; handle: string; body: string; mentions?: string[]; quiet?: boolean },
+  args: { room: string; handle: string; body: string; mentions?: string[]; quiet?: boolean; fromSlack?: boolean },
   inboxDeps: InboxDeps,
   herdr: typeof herdrRequest,
   deliveryChains: Map<string, Promise<void>>,
   log: Logger,
   retryDelayMs: number,
 ): { id: number; recipients: string[] } | undefined {
-  const { room, handle, body, mentions, quiet } = args;
+  const { room, handle, body, mentions, quiet, fromSlack } = args;
   const posted = postMessage({ room, handle, body, mentions, quiet }, db);
   if (!posted) return undefined;
+  const dm = dmParticipants(room, db);
+  if (fromSlack && dm) for (const member of [dm.a, dm.b]) markDelivered(room, member, posted.id, db);
   // Outbound activity is itself presence: shared by chat:post and chat:dm
   // (both funnel through here), so the author's own row never goes stale
   // just because it happens to be a quiet stretch of pure sending.
@@ -823,13 +841,12 @@ function postAndNotify(
   } catch (err) {
     log.warn({ err, id: posted.id, room }, "chat: emit for the posted message threw; message is durable, this emit was not");
   }
-  const dm = dmParticipants(room, db);
   // A quiet post is the record without the interruption: it stays unread (so
   // peek and the viewer still surface it) and catches up inside whatever
   // bundle a later ordinary message causes, but it wakes nobody itself --
   // neither an agent's inbox below nor the human's desk further down.
   if (quiet) return { id: posted.id, recipients: [] };
-  for (const recipient of posted.recipients) {
+  for (const recipient of fromSlack ? [] : posted.recipients) {
     queueMicrotask(() => {
       deliverSerialized(deliveryChains, db, inboxDeps, herdr, log, retryDelayMs, recipient, { room, dm: dm !== null, id: posted.id }).catch((err) => {
         log.warn({ err, room, recipient, id: posted.id }, "chat: inbox delivery failed");
@@ -862,6 +879,16 @@ function postAndNotify(
   return posted;
 }
 
+/** A `fromSlack` post wakes no inbox, so the delivery seams never run. */
+export function slackRoomPoster(
+  db: Database,
+  emitEvent: (topic: string, payload?: unknown) => unknown,
+  log: Logger,
+): (args: { room: string; handle: string; body: string; fromSlack: true }) => { id: number } | undefined {
+  const unusedChains = new Map<string, Promise<void>>();
+  return (args) => postAndNotify(db, emitEvent, args, defaultInboxDeps, herdrRequest, unusedChains, log, 0);
+}
+
 /**
  * A handle with no identity and no presence row can still post (unsigned
  * scripts, legacy handles), except from a pane or session signed in as
@@ -883,6 +910,66 @@ function unreachableSenderRefusal(
   if (!holder) return null;
   const message = `This ${holder.where} is signed in as ${holder.row.name}; post as ${holder.row.name}`;
   return { ok: false, error: `chat: ${message}`, failure: { code: "pane-signed-in", message } };
+}
+
+export type SlackRefusal = { ok: false; error: string; failure: { code: string; message: string } };
+
+const SLACK_NOT_RECORDED = "Slack has this message, but it could not be saved to the room, so do not send it again";
+
+export function slackRefusal(message: string): SlackRefusal {
+  return { ok: false, error: `chat: ${message}`, failure: { code: "slack-chat", message } };
+}
+
+/** Whether the session is the one signed in as this handle; a missing session never is. */
+export function sessionSeatedOn(handle: string, sessionId: string | undefined, db: Database): boolean {
+  return sessionId !== undefined && presenceForHandle(handle, db)?.sessionId === sessionId;
+}
+
+/**
+ * Where a DM between these two goes, decided before the room exists so a
+ * refusal leaves no orphan room. `conversation` set means Slack. That route
+ * reaches a real person, so unlike an ordinary DM it requires the session
+ * seated on the handle: assertSessionOwnsHandle passes a missing session or a
+ * pruned row.
+ */
+function slackRoute(fromId: string, toId: string, sessionId: string | undefined, db: Database): { refused: SlackRefusal } | { refused?: undefined; conversation?: SlackConversation } {
+  if (isSlackIdentity(fromId)) return { refused: slackRefusal(`${identityName(fromId, db)} speaks only through Slack`) };
+  const latest = latestConversationForRoom(dmRoomName(fromId, toId), db);
+  if (latest && latest.closedAt !== null) return { refused: slackRefusal("This Slack chat is closed, so the message was not sent") };
+  if (latest?.agentHandle === fromId) {
+    if (!sessionSeatedOn(fromId, sessionId, db)) {
+      return { refused: slackRefusal("Only the session signed in as this pane can send to its Slack chat, so sign in and try again") };
+    }
+    return { conversation: latest };
+  }
+  if (isSlackIdentity(toId)) return { refused: slackRefusal(`Only the pane holding ${identityName(toId, db)}'s open Slack chat can message them`) };
+  return {};
+}
+
+/**
+ * Sends first so a failure reaches the pane with no chat row behind it.
+ * `stored` is what the chat row keeps: redacted, and without the prefix.
+ */
+async function deliverSlackReply(
+  client: () => Promise<SlackClient | null>,
+  conversation: SlackConversation,
+  body: string,
+  sleep: (ms: number) => Promise<void>,
+  log: Logger,
+): Promise<{ ok: true; stored: string; redacted: boolean } | { ok: false; error: string }> {
+  const { text, redacted } = redactSecrets(body);
+  const outgoing = withPrefix(text);
+  const stored = outgoing.slice(SLACK_PREFIX.length);
+  if (!stored) return { ok: false, error: "chat: that message is empty without the prefix, so it was not sent" };
+  try {
+    const slack = await client();
+    if (!slack) return { ok: false, error: "chat: Slack is not connected on this machine, so the message was not sent" };
+    await postHonouringRetryAfter(slack, conversation.slackChannel, outgoing, sleep);
+  } catch (err) {
+    log.warn({ err, conversation: conversation.id }, "chat: Slack reply failed");
+    return { ok: false, error: `chat: Slack did not take the message (${err instanceof SlackError ? err.code : "the token could not be read"})` };
+  }
+  return { ok: true, stored, redacted };
 }
 
 /** One line, because Claude Code dispatches a slash command from the first line only. */
@@ -913,6 +1000,12 @@ export function createChatHandlers(opts: {
   retryDelayMs?: number;
   /** Shared with createChatDeliverySweep so the periodic sweep chains behind the same in-flight post deliveries instead of racing them; defaults to a private map when the caller (a bare createChatHandlers test) has no sweep. */
   deliveryChains?: Map<string, Promise<void>>;
+  /** Resolves null when no Slack token is set; real by default, fakeable the same way inboxDeps is. */
+  slackClient?: () => Promise<SlackClient | null>;
+  /** The wait for Slack's Retry-After; overridable so a test doesn't pay it. */
+  slackSleep?: (ms: number) => Promise<void>;
+  /** The operator's desk notice for a Slack chat a sign-out closed; real by default. */
+  slackNotify?: (title: string, message: string) => void;
 }): {
   // A mapped type over CHAT_COMMANDS with a direct `unknown` payload, not
   // `Pick<TypedHandlers, ...>`: a wider `unknown` param still satisfies
@@ -936,6 +1029,9 @@ export function createChatHandlers(opts: {
   // Also shared with the delivery sweep when the caller passes one in, so a
   // sweep re-delivery chains behind rather than races an in-flight post.
   const deliveryChains = opts.deliveryChains ?? new Map<string, Promise<void>>();
+  const slackClient = opts.slackClient ?? slackClientFromSecrets;
+  const slackSleep = opts.slackSleep ?? ((ms: number) => Bun.sleep(ms));
+  const slackCloseDeps = { db, client: slackClient, notify: opts.slackNotify ?? slackDeskNotify, post: slackRoomPoster(db, emitEvent, log), now: Date.now };
   const resolveMention = (m: string): string => (m === "here" ? m : resolveHandle(m, db));
   const namesOf = (ids: string[]): string[] => {
     const names = identityNames(ids, db);
@@ -980,6 +1076,11 @@ export function createChatHandlers(opts: {
       const invalidMention = payload.mentions?.find((m) => !isValidChatName(m));
       if (invalidMention !== undefined) return { ok: false, error: `invalid handle "${invalidMention}"` };
       const handle = resolveHandle(payload.handle, db);
+      if (isSlackIdentity(handle)) return slackRefusal(`${identityName(handle, db)} speaks only through Slack`);
+      const conversation = conversationForRoom(room, db);
+      if (conversation?.agentHandle === handle) {
+        return slackRefusal(`A post here never reaches Slack, so reply to ${identityName(conversation.slackHandle, db)} with chat_dm`);
+      }
       const unreachable = unreachableSenderRefusal(handle, { pane: payload.pane }, db, registryDeps);
       if (unreachable) return unreachable;
       const mentions = payload.mentions?.map(resolveMention);
@@ -1223,7 +1324,7 @@ export function createChatHandlers(opts: {
       // auto-derived names (nameSource "derived") are skipped for a pool draw.
       if (continueId === undefined && resolvedBase === undefined) {
         const binding = inboxDeps.resolve(sessionId);
-        if (binding?.name && binding.nameSource === "user" && isValidChatName(binding.name)) resolvedBase = binding.name;
+        if (binding?.name && binding.nameSource === "user" && isValidChatName(binding.name) && !isSlackIdentity(binding.name)) resolvedBase = binding.name;
       }
       // The identity `rt agent start` (or herd:spawn) reserved rides on the
       // agent record, never on the session name (that becomes the pane title).
@@ -1311,8 +1412,16 @@ export function createChatHandlers(opts: {
       }
       if (!sessionId) return { ok: false, error: "chat: sign-out requires a sessionId or --pane" };
       deleteChatSession(sessionId);
-      if (!presenceForSession(sessionId, db)) return { ok: true, data: { sessionId } };
+      const presence = presenceForSession(sessionId, db);
+      if (!presence) return { ok: true, data: { sessionId } };
       signOut(sessionId, undefined, db);
+      // Not awaited: this runs on SessionEnd's short budget. finishClose marks the row closed before its first Slack send.
+      const held = conversationForAgent(presence.handle, db);
+      if (held) {
+        finishClose(held.id, "pane-gone", undefined, slackCloseDeps).catch((err) => {
+          log.warn({ err, conversation: held.id }, "chat: sign-out could not close its Slack chat");
+        });
+      }
       return { ok: true, data: { sessionId } };
     },
 
@@ -1346,6 +1455,8 @@ export function createChatHandlers(opts: {
       const toId = resolveHandle(to, db);
       const refused = assertionError(() => assertSessionOwnsHandle(fromId, sessionId, db)) ?? unreachableSenderRefusal(fromId, { pane: payload.pane, sessionId }, db, registryDeps);
       if (refused) return refused;
+      const route = slackRoute(fromId, toId, sessionId, db);
+      if (route.refused) return route.refused;
       const humanHandle = getSetting<string>("chat.humanHandle").value;
       if (!isValidChatName(humanHandle)) {
         return { ok: false, error: `chat: chat.humanHandle setting is empty or invalid ("${humanHandle}")` };
@@ -1356,12 +1467,35 @@ export function createChatHandlers(opts: {
       } catch (dmErr) {
         return { ok: false, error: dmErr instanceof Error ? dmErr.message : String(dmErr) };
       }
+      const { conversation } = route;
+      const sent = conversation ? await deliverSlackReply(slackClient, conversation, body, slackSleep, log) : undefined;
+      if (sent && !sent.ok) return sent;
       // Recipient travels in `mentions`, not the body, so the transcript
       // shows the text as typed and the desk still notifies when `to` is
       // the human.
-      const posted = postAndNotify(db, emitEvent, { room, handle: fromId, body, mentions: [toId] }, inboxDeps, herdr, deliveryChains, log, retryDelayMs);
-      if (!posted) return { ok: false, error: "chat: dm failed (retry budget exhausted)" };
-      return { ok: true, data: { room, id: posted.id, recipients: posted.recipients, recipientNames: namesOf(posted.recipients) } };
+      let posted: ReturnType<typeof postAndNotify>;
+      let writeError: unknown;
+      // A Slack post can't be taken back, so a failure from here on would have the pane send it twice.
+      try {
+        posted = postAndNotify(db, emitEvent, { room, handle: fromId, body: sent?.stored ?? body, mentions: [toId] }, inboxDeps, herdr, deliveryChains, log, retryDelayMs);
+        if (posted && conversation) {
+          markDelivered(room, toId, posted.id, db);
+          // The pane answers every check-in, so its reply can't count as activity, or a teammate who left is asked forever.
+          if (conversation.checkedInAt === null) touchConversation(conversation.id, Date.now(), db);
+        }
+      } catch (err) {
+        if (!conversation) throw err;
+        writeError = err;
+      }
+      if (conversation && (!posted || writeError)) {
+        log.warn({ err: writeError, conversation: conversation.id, recorded: posted !== undefined }, "chat: Slack took the reply but the chat records could not be finished");
+      }
+      if (!posted) {
+        if (!conversation) return { ok: false, error: "chat: dm failed (retry budget exhausted)" };
+        return { ok: true, data: { room, id: 0, recipients: [toId], recipientNames: namesOf([toId]), note: SLACK_NOT_RECORDED, ...(sent?.redacted ? { redacted: true as const } : {}) } };
+      }
+      const data = { room, id: posted.id, recipients: posted.recipients, recipientNames: namesOf(posted.recipients) };
+      return { ok: true, data: sent?.redacted ? { ...data, redacted: true } : data };
     },
 
     "chat:invite": async (rawPayload: unknown): Promise<CommandResult<"chat:invite">> => {
@@ -1396,7 +1530,7 @@ export function createChatHandlers(opts: {
       if (!isValidChatName(to)) return { ok: false, error: `invalid handle "${to}"` };
       const fromId = resolveHandle(from, db);
       const toId = resolveHandle(to, db);
-      const refused = assertionError(() => assertSessionOwnsHandle(fromId, sessionId, db));
+      const refused = assertionError(() => assertSessionOwnsHandle(fromId, sessionId, db)) ?? slackRoute(fromId, toId, sessionId, db).refused;
       if (refused) return refused;
       const humanHandle = getSetting<string>("chat.humanHandle").value;
       if (!isValidChatName(humanHandle)) {

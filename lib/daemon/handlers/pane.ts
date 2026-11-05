@@ -11,6 +11,7 @@ import { cswapExec, listCswapAccounts, readCswapAccounts } from "../../cswap.ts"
 import { herdrRequest, waitTimeout, type HerdrResult } from "../../herdr/client.ts";
 import { trayRequest } from "../../daemon-client.ts";
 import { herdrError, injectAfterTurn, injectIntoPane } from "../inject.ts";
+import { SLACK_OPEN_REFUSAL, opensSlackChat, slackOpenRefused } from "../../slack/format.ts";
 import { resolvePaneRef } from "../pane-ref-socket.ts";
 import { attendPane } from "../attend.ts";
 import { sessionFromPaneProcess, withProcessSession } from "../pane-process-session.ts";
@@ -319,6 +320,7 @@ export function createPaneHandlers(opts: {
     "pane:spawn": async (rawPayload: unknown, signal?: AbortSignal): Promise<CommandResult<"pane:spawn">> => {
       const payload = rawPayload as Commands["pane:spawn"]["payload"];
       const { cwd, account, model, effort, prompt } = payload;
+      if (opensSlackChat(prompt)) return slackOpenRefused();
       if (!cwd || !cwd.startsWith("/")) return { ok: false, error: "cwd must be an absolute path" };
       if (account) {
         const { accounts, stillRunning } = await readCswapAccounts(cswapRun, 15_000);
@@ -416,6 +418,9 @@ export function createPaneHandlers(opts: {
 
     "pane:send": async (rawPayload: unknown): Promise<CommandResult<"pane:send">> => {
       const payload = rawPayload as Commands["pane:send"]["payload"];
+      if ((payload.callerPane || payload.selfSession) && (opensSlackChat(payload.text) || opensSlackChat(payload.continuation))) {
+        return { ok: true, data: { paneId: payload.paneId, delivered: "refused", reason: SLACK_OPEN_REFUSAL } };
+      }
       const target = (payload.selfSession && (await livePane(payload.selfSession, payload.paneId))) || payload.paneId;
       const { paneId, sockPath } = resolvePaneRef(target);
       const res = await injectIntoPane({ paneId, text: payload.text, callerPane: payload.callerPane, herdr, sockPath });

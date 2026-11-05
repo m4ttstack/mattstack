@@ -225,7 +225,8 @@ describe("composePlan", () => {
       expect(tools.find((r) => r.id === "tool.fast-browser")!.required).toBe(true);
       expect(tools.find((r) => r.id === "tool.fast-browser-extension")!.finishGated).toBe(true);
       const accounts = plan.groups.find((g) => g.id === "accounts")!.rows;
-      const expected = { restore: [], create: [["account.github", true]], join: [["account.github", true], ["accounts.after-install", false]] }[intent.mode as "restore" | "create" | "join"];
+      const support = ["account.slack-support", false];
+      const expected = { restore: [], create: [["account.github", true], support], join: [["account.github", true], support, ["accounts.after-install", false]] }[intent.mode as "restore" | "create" | "join"];
       expect(accounts.map((r) => [r.id, r.required])).toEqual(expected);
       if (isJoin) expect(tools.some((r) => r.id.startsWith("team."))).toBe(true);
     }
@@ -249,6 +250,12 @@ describe("composePlan", () => {
     writeIntent(p, intent);
 
     const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"], teamOverride: "acme" });
+    expect(plan.team).toEqual({ slug: "acme", name: "acme", mode: "none" });
+  });
+
+  test("with several clones the plan reads the first org by name, whatever order they were listed in", async () => {
+    const p = fakeProbes({ exec: readyExec, tray: grantedTray });
+    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["zeta", "acme"] });
     expect(plan.team).toEqual({ slug: "acme", name: "acme", mode: "none" });
   });
 

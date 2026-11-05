@@ -80,6 +80,7 @@ enum AXID {
     static let fastRestoreRepo = "setup.fast.restore.repo"
     static let fastRestoreKey = "setup.fast.restore.key"
     static let fastRestoreFailure = "setup.fast.restore.failure"
+    static let fastToolsFailure = "setup.fast.tools.failure"
 
     // Install
     static let logCopy = "setup.install.log.copy"

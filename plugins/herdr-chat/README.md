@@ -10,13 +10,15 @@ Built in Rust with ratatui, themed to match herdr.
 
 ## Features
 
-- **Launcher**: one popup with every feature and quick action behind the
-  lowercase letter of its direct binding.
+- **Launcher**: one popup with every feature and quick action, except Slack
+  support, behind the lowercase letter of its direct binding.
 - **Broadcast**: send one message into a selection of panes.
 - **Peek**: who's online, what's unread, at a glance.
 - **Quick-send**: fire a line at a room or DM without leaving your pane.
 - **Sign in / sign out**: put a pane on (or take it off) the chat buddy list
   on a hotkey.
+- **Slack support**: turn a Slack support chat on or off for a pane. On types
+  `/slack-support <person> <problem>` into the pane, the only way a chat opens.
 - **Jump**: from a chat mention to that agent's pane.
 - **Open viewer**: hand off to the web viewer for reading and composing.
 
@@ -36,12 +38,15 @@ herdr-chat sign-in --json --pane w1:p1
 herdr-chat sign-out --json --pane w1:p1
 herdr-chat jump --json --handle scout
 herdr-chat open-viewer --json
+herdr-chat slack-status --json
+herdr-chat slack-people --json
+herdr-chat slack-close --json --pane w1:p1
 ```
 
-`status`, `targets` and `jump` have no other mode, so `--json` is optional
+`status`, `targets`, `jump` and `slack-people` have no other mode, so `--json` is optional
 there and changes nothing.
 
-Three rules hold across every verb. `--json` never prompts and never falls
+Three rules hold across every verb except `slack-people`. `--json` never prompts and never falls
 back to the TUI, so a missing required flag is an error. A failure prints
 `{"error":"..."}` on stdout and exits non-zero. And two verbs deliberately stop
 short of acting: `jump` answers where a handle is and moves no focus, and
@@ -60,9 +65,12 @@ breaking it.
 
 | Verb | Input | Keys it prints |
 | --- | --- | --- |
-| `status` | `--pane <id>`, else `HERDR_PANE_ID`; required | `handle`, `name`, `state`, `pane`, `signedIn`, `rooms` |
-| `sign-in` | `--pane <id>`, else `HERDR_PANE_ID`; required | the same six, read back after the sign |
-| `sign-out` | `--pane <id>`, else `HERDR_PANE_ID`; required | the same six |
+| `status` | `--pane <id>`, else `HERDR_PANE_ID`; required | `handle`, `name`, `state`, `pane`, `signedIn`, `rooms`, `slackChat` |
+| `sign-in` | `--pane <id>`, else `HERDR_PANE_ID`; required | the same seven, read back after the sign |
+| `sign-out` | `--pane <id>`, else `HERDR_PANE_ID`; required | the same seven |
+| `slack-status` | none | `conversations` |
+| `slack-people` | none | `ok`, then `people`, or `reason` and `error` |
+| `slack-close` | `--pane <id>`, else `HERDR_PANE_ID`; required | `ok`, `conversationId`, `closed` |
 | `peek` | none | `buddies`, `rooms` |
 | `targets` | none | `rooms`, `people`, `labels` |
 | `quick-send` | `--to '#room'` or `--to '@name'`, `--body <text>` | `ok`, `to` |
@@ -76,6 +84,33 @@ The nested rows: a `peek` buddy is `handle`, `name`, `paneId`, `status`, `repo`,
 `kai ↔ remy`, else the room); a `broadcast` result is `paneId`, `ok`,
 `delivered`, `error`.
 
+`slackChat` on a `status` has three states. `{ name, displayName, openedAt }`
+is the Slack support chat open in that pane (`name` is the identity chat
+resolves on, `displayName` is what to draw). `null` means rt answered and the
+pane has no chat (a pane that isn't signed in is not asked, and reads `null`).
+The key left out means the lookup failed, whether an old rt with no Slack verbs
+or a daemon that couldn't answer, so a caller should not offer On. The rest of
+the status is unaffected. A `slack-status` conversation is
+`id`, `room`, `pane`, `name`, `displayName`, `openedAt`, `lastActiveAt` (`pane`
+is `null` when the agent holding the chat has no pane in the roster).
+
+`slack-people` lists who a chat can open with, sorted by `name`, as
+`{"ok":true,"people":[{"name":"Alex Example","person":"U0TEST","title":"Support lead"}]}`.
+`name` and `title` are for reading (a title Slack has none for is left out, and
+it tells two people with one name apart). `person` is the Slack user id to type
+as the command's person. When Slack isn't connected, lacks the scopes or fails,
+or rt can't answer, it prints
+`{"ok":false,"reason":"unavailable","error":"..."}`. That is an answer, not one
+of the failures above, so it exits zero.
+
+On has no verb of its own: a
+caller types `/slack-support <person> <problem>` into the pane with `rt pane
+send`, from a process that carries no pane identity (the daemon refuses that
+command from a pane), then reads `slackChat` on `status` to learn whether it
+ran, because `rt pane send` reports `queued` for a slash command that ran.
+`slack-close`'s `closed` is `false` while the pane is still saying goodbye:
+the close has started and the chat stays listed until it ends.
+
 `targets` prints prefixed strings (`#room` under `rooms`, `@name` under
 `people`) and `quick-send --to` takes one back. A bare name is refused rather
 than guessed at between a room and a person. `labels` maps each of those
@@ -84,7 +119,8 @@ names, and every other string maps to itself.
 
 Absent values are `null`, never a missing key: `handle`, `name` and `pane` on a
 `status`, a peek buddy's `paneId` / `repo` / `branch` / `title`, and a
-broadcast result's `error`.
+broadcast result's `error`. The one exception is `slackChat` on a `status`,
+described above, where a missing key carries its own meaning.
 
 ### Handles and names
 
@@ -126,9 +162,11 @@ It takes a value on some verbs and is a boolean on others. The split stands:
 herdr's plugin manifest invokes the boolean entrypoints by name, so renaming
 one breaks every installed copy of the plugin.
 
-- **`status`, `sign-in`, `sign-out`**: `--pane <id>` is the pane to act on.
-- **`broadcast`, `peek`, `quick-send`, `launcher`**: `--pane` is a boolean, the
-  popup entrypoint that runs the TUI in the pane herdr just opened. A headless
+- **`status`, `sign-in`, `sign-out`, `slack-close`**: `--pane <id>` is the pane
+  to act on.
+- **`broadcast`, `peek`, `quick-send`, `launcher`, `slack-support`**: `--pane`
+  is a boolean, the popup entrypoint that runs the TUI in the pane herdr just
+  opened. A headless
   caller never passes it.
 
 The flags only the `--json` path reads (`--panes` and `--body` on `broadcast`,
@@ -161,16 +199,18 @@ MacBook Pro: roughly 170 MB of repository (56 MB of it git history) plus
 the 230 MB release build (measured on 2026-09-27).
 
 This builds the plugin and registers its actions (`launcher`, `broadcast`,
-`peek`, `quick-send`, `sign-in`, `sign-out`, `open-viewer`) and its popup
+`peek`, `quick-send`, `sign-in`, `sign-out`, `slack-support`, `open-viewer`) and its popup
 panes. It does not bind any keys... herdr keybindings are a user-config
 concern, not a manifest capability, so the plugin can't declare them for you.
 
 ## Usage
 
-Everything hangs off the launcher: bind it to a key (below), hit it in any
-pane, and every feature sits behind one lowercase letter. Sign a pane in
-first (`sign-in`) so it's on the buddy list; from there broadcast, peek,
-quick-send, and the viewer hand-off are all one keypress away.
+Almost everything hangs off the launcher: bind it to a key (below), hit it in
+any pane, and every feature except Slack support sits behind one lowercase
+letter. Slack support needs a key of its own, because it acts on the pane the
+key fired in. Sign a pane in first (`sign-in`) so it's on the buddy list; from
+there broadcast, peek, quick-send, and the viewer hand-off are all one keypress
+away.
 
 To try an action before binding anything:
 
@@ -189,7 +229,7 @@ id:
 key = "prefix+C"
 type = "plugin_action"
 command = "m4ttstack.chat.launcher"
-description = "chat launcher: every feature behind one key"
+description = "chat launcher"
 
 [[keys.command]]
 key = "prefix+B"
@@ -220,6 +260,12 @@ key = "prefix+O"
 type = "plugin_action"
 command = "m4ttstack.chat.sign-out"
 description = "sign out of chat"
+
+[[keys.command]]
+key = "prefix+L"
+type = "plugin_action"
+command = "m4ttstack.chat.slack-support"
+description = "Slack support chat for this pane"
 ```
 
 herdr's lowercase letters are mostly taken by its own defaults, so shifted

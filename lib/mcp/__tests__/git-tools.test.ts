@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { execFileSync } from "child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -6,6 +7,10 @@ import { branchSyncPreflight, branchSyncSweep, gitChildEnv, gitPull, gitPush, gi
 import type { CiLease } from "../../../packages/rt-client/src/index.ts";
 import type { GuardResult } from "../../ci/lease-guard.ts";
 import type { TreeGuardDeps } from "../tree-guard.ts";
+import type { CheckRun } from "../../check/index.ts";
+import type { CheckResult } from "../../check/run.ts";
+import { postStatus } from "../../check/status.ts";
+import { childEnv } from "../../subprocess.ts";
 
 const GIT_PATHS = "rev-parse --git-path rebase-merge --git-path rebase-apply";
 
@@ -31,8 +36,9 @@ const onFeature: Script = {
   "rev-parse --abbrev-ref --symbolic-full-name @{u}": { stdout: "origin/feat/x\n" },
   "rev-parse --verify HEAD": { stdout: "abc1234\n" },
 };
-/** No MR on any branch: what the git tools read when a test is not about the forge. */
-const noForge: Pick<GitToolDeps, "openMr" | "resolveRepo" | "authoredOpenMrs" | "repoTrees"> = {
+/** No MR on any branch and no check configured: what the git tools read when a test is not about the forge. */
+const noForge: Pick<GitToolDeps, "openMr" | "resolveRepo" | "authoredOpenMrs" | "repoTrees" | "check"> = {
+  check: async () => ({ result: { configured: false }, status: null }),
   openMr: async () => ({ ok: true, mr: null }),
   resolveRepo: async () => ({ ok: false, error: "no repo in this test" }),
   authoredOpenMrs: async () => ({ ok: true, mrs: [], complete: true }),
@@ -299,7 +305,7 @@ describe("git_push reports what it pushed", () => {
       calls.push("<mr lookup>");
       return { ok: true, mr: { iid: 7, url: "https://forge/mr/7", pipelineId: 991 } };
     }, {}, calls);
-    expect(r).toEqual({ ok: true, body: { pushed: true, branch: "feat/x", sha: "abc1234", forceWithLease: false, upstream: "origin/feat/x", mr: { iid: 7, url: "https://forge/mr/7" }, priorPipelineId: 991, mrLookup: "read", tree: "/t" } });
+    expect(r).toEqual({ ok: true, body: { pushed: true, branch: "feat/x", sha: "abc1234", forceWithLease: false, upstream: "origin/feat/x", mr: { iid: 7, url: "https://forge/mr/7" }, priorPipelineId: 991, mrLookup: "read", check: null, tree: "/t" } });
     expect(asked).toEqual([["r", "feat/x"]]);
     expect(calls.indexOf("<mr lookup>")).toBeLessThan(calls.indexOf(PUSH));
   });
@@ -328,6 +334,311 @@ describe("git_push reports what it pushed", () => {
     const r = await push(async () => ({ ok: true, mr: null }), { "rev-parse --verify HEAD": { code: 128, stderr: "fatal: bad HEAD" } }, calls);
     expect(r.ok).toBe(false);
     expect(calls).not.toContain(PUSH);
+  });
+});
+
+describe("git_push runs the repo's check", () => {
+  const guard: TreeGuardDeps = { repoIndex: () => ({ r: "/t" }), treeByPath: () => null, realpath: (p) => p, worktreeRoots: () => [], hasGitEntry: () => false, ignoredBy: () => false };
+  const PUSH = "push --no-follow-tags --recurse-submodules=no --end-of-options origin HEAD:refs/heads/feat/x";
+  const PINNED = "push --no-follow-tags --recurse-submodules=no --end-of-options origin abc1234:refs/heads/feat/x";
+  const pushes = (calls: string[]) => calls.filter((c) => c.startsWith("push "));
+  const result = (over: Partial<Extract<CheckResult, { configured: true }>> = {}): Extract<CheckResult, { configured: true }> => ({
+    configured: true, verdict: "green", summary: { mode: "changed", selected: 3, passed: 3, failed: 0, durationMs: 1000, failures: [] },
+    sha: "abc1234", base: "b", dirty: false, command: "bun check", outputTail: "", fromCache: false, ...over,
+  });
+  const run = (over: Partial<Extract<CheckResult, { configured: true }>> = {}): CheckRun => ({ result: result(over), status: null });
+  const POSTED = { posted: true as const, context: "rt/local-check", state: "success" as const, description: "d" };
+
+  const setup = (check: (calls: string[], script: Script) => GitToolDeps["check"], input: Record<string, unknown> = {}, postOutcome: Awaited<ReturnType<typeof import("../../check/status.ts").postStatus>> = POSTED) => {
+    const calls: string[] = [];
+    const posts: Array<[string, string, Extract<CheckResult, { configured: true }>]> = [];
+    const script: Script = { ...onFeature, [PUSH]: {}, [PINNED]: {} };
+    const tool = gitToolDefs({
+      ...noForge,
+      git: fakeGit(script, calls),
+      guard,
+      sync: async () => ({ code: 0, stdout: "", stderr: "" }),
+      hasCheck: () => true,
+      check: check(calls, script),
+      identity: () => "remote:github.com%2Facme%2Fapp",
+      postCheck: async (identity, sha, result) => { calls.push("<post>"); posts.push([identity, sha, result]); return postOutcome; },
+    }).find((t) => t.name === "git_push")!;
+    return { call: (signal?: AbortSignal) => tool.handler({ tree: "/t", ...input }, {} as NodeJS.ProcessEnv, signal), calls, posts, script };
+  };
+  const checkReturning = (r: CheckRun | { result: { configured: false }; status: null }, asked: Array<{ tree: string; post: boolean }> = [], during: () => void = () => {}) => (calls: string[]): GitToolDeps["check"] => async (tree, o) => {
+    calls.push("<check>");
+    asked.push({ tree, post: o.post });
+    during();
+    return r as CheckRun;
+  };
+
+  test("an unconfigured repo pushes with check: null and posts nothing", async () => {
+    const t = setup(checkReturning({ result: { configured: false }, status: null }));
+    const r = await t.call();
+    expect(r.body).toMatchObject({ pushed: true, check: null });
+    expect(t.posts).toEqual([]);
+  });
+  test("a green check runs before the push, asks for no post of its own, and is posted on the pushed sha afterwards", async () => {
+    const asked: Array<{ tree: string; post: boolean }> = [];
+    const t = setup(checkReturning(run(), asked));
+    const r = await t.call();
+    expect(asked).toEqual([{ tree: "/t", post: false }]);
+    expect(t.calls.indexOf("<check>")).toBeLessThan(t.calls.indexOf(PINNED));
+    expect(t.calls.indexOf(PINNED)).toBeLessThan(t.calls.indexOf("<post>"));
+    expect(t.posts.map((p) => p.slice(0, 2))).toEqual([["remote:github.com%2Facme%2Fapp", "abc1234"]]);
+    expect(r.body).toMatchObject({ pushed: true, sha: "abc1234", check: { result: { verdict: "green" }, status: POSTED } });
+  });
+  test("a red check refuses with check-red and next rt check, and pushes and posts nothing", async () => {
+    const red = run({ verdict: "red", outputTail: "FAIL lib/a.test.ts" });
+    const t = setup(checkReturning(red));
+    const r = await t.call();
+    expect(r).toEqual({ ok: true, body: { pushed: false, refusal: "check-red", check: red, why: expect.stringContaining("allowRed"), next: "rt check", tree: "/t" } });
+    expect((r.body as { why: string }).why).toContain("skipCheck");
+    expect((r.body as { why: string }).why).toContain("check failed");
+    expect(pushes(t.calls)).toEqual([]);
+    expect(t.posts).toEqual([]);
+  });
+  test("a red refusal's check names the failing tests", async () => {
+    const summary = { mode: "changed", selected: 3, passed: 2, failed: 1, durationMs: 1000, failures: ["lib/a.test.ts"], failedTests: ["cart > rounds up"] };
+    const t = setup(checkReturning(run({ verdict: "red", summary })));
+    expect((await t.call()).body).toMatchObject({ refusal: "check-red", check: { result: { summary: { failures: ["lib/a.test.ts"], failedTests: ["cart > rounds up"] } } } });
+  });
+  test("an error check refuses with check-error", async () => {
+    const t = setup(checkReturning(run({ verdict: "error", reason: "timed out after 600s" })));
+    const r = await t.call();
+    expect(r.body).toMatchObject({ pushed: false, refusal: "check-error", next: "rt check" });
+    expect(pushes(t.calls)).toEqual([]);
+  });
+  test("a check that throws refuses with check-error carrying the reason, and pushes nothing", async () => {
+    const t = setup(() => async () => { throw new Error("unknown variable ${nope}"); });
+    const r = await t.call();
+    expect(r.ok).toBe(true);
+    expect(r.body).toMatchObject({ pushed: false, refusal: "check-error", next: "rt check", check: { result: { configured: true, verdict: "error", reason: "unknown variable ${nope}" } } });
+    expect(pushes(t.calls)).toEqual([]);
+  });
+  test("allowRed pushes a red check and posts the failure", async () => {
+    const t = setup(checkReturning(run({ verdict: "red" })), { allowRed: true }, { ...POSTED, state: "failure" });
+    const r = await t.call();
+    expect(r.body).toMatchObject({ pushed: true, check: { result: { verdict: "red" }, status: { posted: true, state: "failure" } } });
+    expect(t.posts.map((p) => p.slice(0, 2))).toEqual([["remote:github.com%2Facme%2Fapp", "abc1234"]]);
+  });
+  test("allowRed pushes an error check too", async () => {
+    const t = setup(checkReturning(run({ verdict: "error" })), { allowRed: true });
+    expect((await t.call()).body).toMatchObject({ pushed: true });
+  });
+  test("allowRed still pushes when the check throws, and posts the error with its reason", async () => {
+    const t = setup(() => async () => { throw new Error("boom"); }, { allowRed: true });
+    const r = await t.call();
+    expect(r.body).toMatchObject({ pushed: true, check: { result: { verdict: "error", reason: "boom", sha: "abc1234" }, status: POSTED } });
+    expect(t.posts).toHaveLength(1);
+    expect(t.posts[0]![2]).toMatchObject({ verdict: "error", reason: "boom" });
+  });
+  test("a thrown check's message stays local when allowRed posts it", async () => {
+    const argv: string[][] = [];
+    const statusDeps = { exec: async (a: string[]) => { argv.push(a); return { stdout: "", stderr: "", exitCode: 0 }; }, hostname: () => "hilbert" };
+    const tool = gitToolDefs({
+      ...noForge, git: fakeGit({ ...onFeature, [PINNED]: {} }), guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }),
+      hasCheck: () => true,
+      check: async () => { throw new Error("Authorization: Bearer s3cr3t-bearer-value"); },
+      identity: () => "remote:github.com%2Facme%2Fapp",
+      postCheck: (identity, sha, result) => postStatus(identity, sha, result, statusDeps),
+    }).find((t) => t.name === "git_push")!;
+    const r = await tool.handler({ tree: "/t", allowRed: true }, {} as NodeJS.ProcessEnv);
+    expect(r.body).toMatchObject({ pushed: true, check: { status: { posted: true, description: "error: the check could not run" } } });
+    expect(argv[0]!.join(" ")).not.toContain("s3cr3t");
+  });
+  test("a cancelled check pushes nothing", async () => {
+    const ctrl = new AbortController();
+    const t = setup(checkReturning(run(), [], () => ctrl.abort()));
+    const r = await t.call(ctrl.signal);
+    expect(r.ok).toBe(false);
+    expect(pushes(t.calls)).toEqual([]);
+    expect(t.posts).toEqual([]);
+  });
+  test("the signal reaches the check", async () => {
+    const ctrl = new AbortController();
+    let seen: AbortSignal | undefined;
+    const t = setup(() => async (_tree, o) => { seen = o.signal; return run(); });
+    await t.call(ctrl.signal);
+    expect(seen).toBe(ctrl.signal);
+  });
+  test("a head that moves during the check is refused as check-error, and the override still pushes", async () => {
+    const moveHead = (script: Script) => { script["rev-parse --verify HEAD"] = { stdout: "def5678\n" }; };
+    const refused = setup((c, script) => checkReturning(run(), [], () => moveHead(script))(c));
+    const r = await refused.call();
+    expect(r.body).toMatchObject({ pushed: false, refusal: "check-error", check: { result: { verdict: "error", reason: "HEAD moved during the check" } } });
+    expect(pushes(refused.calls)).toEqual([]);
+    expect(refused.posts).toEqual([]);
+    const forced = setup((c, script) => checkReturning(run(), [], () => moveHead(script))(c), { allowRed: true });
+    const f = await forced.call();
+    expect(f.body).toMatchObject({ pushed: true, sha: "def5678", check: { status: { posted: false, reason: "head-moved" } } });
+    expect(forced.posts).toEqual([]);
+  });
+  test("a verdict for another sha than the pushed one is never posted", async () => {
+    const t = setup(checkReturning(run({ sha: "0000000" })), { allowRed: true });
+    const r = await t.call();
+    expect(r.body).toMatchObject({ pushed: true, check: { status: { posted: false, reason: "head-moved" } } });
+    expect(t.posts).toEqual([]);
+  });
+  test("a push gitPush will refuse never runs the check, and returns its error", async () => {
+    const calls: string[] = [];
+    const tool = gitToolDefs({
+      ...noForge, git: fakeGit({ ...onFeature, ...on("main") }, calls), guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }),
+      hasCheck: () => true,
+      check: async () => { calls.push("<check>"); return run(); },
+    }).find((t) => t.name === "git_push")!;
+    const r = await tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("refusing to push main");
+    expect(calls).not.toContain("<check>");
+    expect(calls.filter((c) => c.startsWith("ls-remote"))).toHaveLength(0);
+  });
+  test("a repo with no check asks origin nothing beyond what the push itself asks", async () => {
+    const lsRemotes = async (hasCheck: boolean, input: Record<string, unknown>) => {
+      const calls: string[] = [];
+      const tool = gitToolDefs({
+        ...noForge, git: fakeGit({ ...onFeature, [PUSH]: {} }, calls), guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }),
+        hasCheck: () => hasCheck,
+        check: async () => { calls.push("<check>"); return { result: { configured: false }, status: null }; },
+      }).find((t) => t.name === "git_push")!;
+      await tool.handler({ tree: "/t", ...input }, {} as NodeJS.ProcessEnv);
+      expect(calls).not.toContain("<check>");
+      return calls.filter((c) => c.startsWith("ls-remote")).length;
+    };
+    expect(await lsRemotes(false, {})).toBe(await lsRemotes(true, { skipCheck: true }));
+  });
+  test("skipCheck runs nothing and posts nothing", async () => {
+    const t = setup(checkReturning(run()), { skipCheck: true });
+    const r = await t.call();
+    expect(t.calls).not.toContain("<check>");
+    expect(t.posts).toEqual([]);
+    expect(r.body).toMatchObject({ pushed: true, check: null });
+  });
+  test("skipCheck beats allowRed", async () => {
+    const t = setup(checkReturning(run({ verdict: "red" })), { skipCheck: true, allowRed: true });
+    const r = await t.call();
+    expect(t.calls).not.toContain("<check>");
+    expect(r.body).toMatchObject({ pushed: true, check: null });
+  });
+  test("a cached green is reused and posted", async () => {
+    const t = setup(checkReturning(run({ fromCache: true })));
+    const r = await t.call();
+    expect(t.posts).toHaveLength(1);
+    expect(r.body).toMatchObject({ check: { result: { fromCache: true } } });
+  });
+  test("a forge refusal never fails the push", async () => {
+    const t = setup(checkReturning(run()), {}, { posted: false, reason: "gh-failed", detail: "HTTP 403" });
+    const r = await t.call();
+    expect(r.ok).toBe(true);
+    expect(r.body).toMatchObject({ pushed: true, check: { status: { posted: false, reason: "gh-failed" } } });
+  });
+  test("a check that never ran is never posted, even under allowRed", async () => {
+    const t = setup(checkReturning(run({ verdict: "error", notRun: true, reason: "could not read HEAD" })), { allowRed: true });
+    const r = await t.call();
+    expect(t.posts).toEqual([]);
+    expect(r.body).toMatchObject({ pushed: true, check: { status: { posted: false, reason: "not-run" } } });
+  });
+  test("a moved HEAD reports head-moved even though the run marked it dirty", async () => {
+    const t = setup(checkReturning(run({ sha: "0000000", dirty: true, headMoved: true })), { allowRed: true });
+    const r = await t.call();
+    expect(t.posts).toEqual([]);
+    expect(r.body).toMatchObject({ pushed: true, check: { status: { posted: false, reason: "head-moved" } } });
+  });
+  test("a green check pushes the sha it ran on, not HEAD", async () => {
+    const t = setup(checkReturning(run()));
+    await t.call();
+    expect(pushes(t.calls)).toEqual([PINNED]);
+  });
+  test("allowRed pins the sha of the verdict it posts", async () => {
+    const t = setup(checkReturning(run({ verdict: "red" })), { allowRed: true }, { ...POSTED, state: "failure" });
+    await t.call();
+    expect(pushes(t.calls)).toEqual([PINNED]);
+  });
+  test("a HEAD that moved during the check has no checked sha, so allowRed pushes HEAD", async () => {
+    const moveHead = (script: Script) => { script["rev-parse --verify HEAD"] = { stdout: "def5678\n" }; };
+    const t = setup((c, script) => checkReturning(run(), [], () => moveHead(script))(c), { allowRed: true });
+    await t.call();
+    expect(pushes(t.calls)).toEqual([PUSH]);
+  });
+  test("a check with no sha pins nothing", async () => {
+    const t = setup(checkReturning(run({ verdict: "error", sha: "", notRun: true })), { allowRed: true });
+    await t.call();
+    expect(pushes(t.calls)).toEqual([PUSH]);
+  });
+  test("an unconfigured repo pushes HEAD, byte for byte", async () => {
+    const none = setup(checkReturning({ result: { configured: false }, status: null }));
+    await none.call();
+    expect(pushes(none.calls)).toEqual([PUSH]);
+    const skipped = setup(checkReturning(run()), { skipCheck: true });
+    await skipped.call();
+    expect(pushes(skipped.calls)).toEqual([PUSH]);
+  });
+  test("a cancel just before the push pushes nothing, with or without a check", async () => {
+    const ctrl = new AbortController();
+    ctrl.abort();
+    const t = setup(checkReturning(run()), { skipCheck: true });
+    const r = await t.call(ctrl.signal);
+    expect(r.ok).toBe(false);
+    expect(pushes(t.calls)).toEqual([]);
+
+    const during = new AbortController();
+    const calls: string[] = [];
+    const base = fakeGit({ ...onFeature, [PINNED]: {} }, calls);
+    let checked = false;
+    const tool = gitToolDefs({
+      ...noForge,
+      git: async (args, cwd) => {
+        if (checked && args.join(" ") === "rev-parse --verify HEAD") during.abort();
+        return base(args, cwd);
+      },
+      guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }),
+      hasCheck: () => true,
+      check: async () => { checked = true; return run(); },
+    }).find((tool) => tool.name === "git_push")!;
+    const cancelled = await tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv, during.signal);
+    expect(cancelled.ok).toBe(false);
+    expect(cancelled.error).toContain("before the push");
+    expect(pushes(calls)).toEqual([]);
+  });
+  test("a dirty tree pushes if green but never posts", async () => {
+    const t = setup(checkReturning(run({ dirty: true })));
+    const r = await t.call();
+    expect(t.posts).toEqual([]);
+    expect(r.body).toMatchObject({ pushed: true, check: { status: { posted: false, reason: "dirty-tree" } } });
+  });
+  test("a push that fails posts nothing", async () => {
+    const calls: string[] = [];
+    const posts: string[] = [];
+    const tool = gitToolDefs({
+      ...noForge, git: fakeGit({ ...onFeature, [PINNED]: { code: 1, stderr: "rejected" } }, calls), guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }),
+      hasCheck: () => true, check: async () => run(), identity: () => "i", postCheck: async () => { posts.push("x"); return POSTED; },
+    }).find((t) => t.name === "git_push")!;
+    const r = await tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv);
+    expect(r.ok).toBe(false);
+    expect(posts).toEqual([]);
+  });
+  test("allowRed and skipCheck must be booleans", async () => {
+    const t = setup(checkReturning(run()), { allowRed: "yes" });
+    expect((await t.call()).ok).toBe(false);
+    expect(t.calls).not.toContain("<check>");
+  });
+  test("a refused lease never runs the check", async () => {
+    const calls: string[] = [];
+    const tool = gitToolDefs({
+      ...noForge, git: fakeGit({ ...onFeature, [PUSH]: {} }, calls), guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }),
+      ensureLease: () => ({ ok: false, refused: "held", holder: { owner: "o" } }) as never,
+      check: async () => { calls.push("<check>"); return run(); },
+    }).find((t) => t.name === "git_push")!;
+    const r = await tool.handler({ tree: "/t", leaseMrUrl: "https://forge/mr/1" }, {} as NodeJS.ProcessEnv);
+    expect(r.body).toMatchObject({ pushed: false });
+    expect(calls).not.toContain("<check>");
+  });
+
+  test("lib/mcp/git-tools.ts imports first in a fresh process despite lib/check importing it back", async () => {
+    const root = join(import.meta.dir, "..", "..", "..");
+    const p = Bun.spawn(["bun", "-e", 'await import("./lib/mcp/git-tools.ts");'], { cwd: root, env: childEnv(), stdout: "pipe", stderr: "pipe" });
+    const [code, stderr] = [await p.exited, await new Response(p.stderr).text()];
+    expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
   });
 });
 
@@ -1242,5 +1553,91 @@ describe("git_push leaseMrUrl", () => {
     const r = await tool.handler({ tree: "/elsewhere", leaseMrUrl: MR }, env);
     expect(r.ok).toBe(false);
     expect(guardCalls).toEqual([]);
+  });
+});
+
+describe("gitPush with a pinned sha, over real git", () => {
+  const g = (cwd: string, ...args: string[]) =>
+    execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { cwd, stdio: "pipe" }).toString().trim();
+  let dir: string;
+  let tree: string;
+  let origin: string;
+
+  beforeEach(() => {
+    dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-pin-")));
+    origin = join(dir, "origin.git");
+    tree = join(dir, "tree");
+    execFileSync("git", ["init", "--bare", "-b", "main", origin], { stdio: "pipe" });
+    execFileSync("git", ["init", "-b", "main", tree], { stdio: "pipe" });
+    g(tree, "commit", "--allow-empty", "-m", "one");
+    g(tree, "remote", "add", "origin", origin);
+    g(tree, "push", "origin", "main");
+    g(tree, "fetch", "origin");
+    g(tree, "checkout", "-b", "feat/x");
+    g(tree, "commit", "--allow-empty", "-m", "two");
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  test("setUpstream still sets the upstream, which -u alone would not with a sha source", async () => {
+    const sha = g(tree, "rev-parse", "HEAD");
+    const r = await gitPush(tree, { setUpstream: true, sha }, realGitRunner);
+    expect(r.body).toMatchObject({ pushed: true, sha, upstream: "origin/feat/x" });
+    expect(g(tree, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")).toBe("origin/feat/x");
+    expect(r.body).not.toHaveProperty("upstreamError");
+  });
+
+  test("a HEAD that moved after the check stays local, and the checked sha lands", async () => {
+    const sha = g(tree, "rev-parse", "HEAD");
+    g(tree, "commit", "--allow-empty", "-m", "unchecked");
+    const r = await gitPush(tree, { setUpstream: true, sha }, realGitRunner);
+    expect(r.body).toMatchObject({ pushed: true, sha });
+    expect(g(origin, "rev-parse", "refs/heads/feat/x")).toBe(sha);
+  });
+
+  test("a later push with no flags finds the upstream", async () => {
+    await gitPush(tree, { setUpstream: true, sha: g(tree, "rev-parse", "HEAD") }, realGitRunner);
+    g(tree, "commit", "--allow-empty", "-m", "three");
+    const r = await gitPush(tree, {}, realGitRunner);
+    expect(r.body).toMatchObject({ pushed: true });
+  });
+
+  test("a forced push pins the sha too", async () => {
+    await gitPush(tree, { setUpstream: true }, realGitRunner);
+    g(tree, "commit", "--amend", "--allow-empty", "-m", "two again");
+    const sha = g(tree, "rev-parse", "HEAD");
+    const r = await gitPush(tree, { forceWithLease: true, sha }, realGitRunner);
+    expect(r.body).toMatchObject({ pushed: true, sha, forceWithLease: true });
+    expect(g(origin, "rev-parse", "refs/heads/feat/x")).toBe(sha);
+  });
+
+  test("an upstream that cannot be written is reported, since the push has landed", async () => {
+    const failing: GitRunner = async (args, cwd) => (args[0] === "config" ? { code: 1, stdout: "", stderr: "could not lock config file" } : realGitRunner(args, cwd));
+    const r = await gitPush(tree, { setUpstream: true, sha: g(tree, "rev-parse", "HEAD") }, failing);
+    expect(r.body).toMatchObject({ pushed: true, upstreamError: "could not lock config file" });
+  });
+
+  test("an empty sha pushes HEAD, never the delete refspec", async () => {
+    const head = g(tree, "rev-parse", "HEAD");
+    await gitPush(tree, { setUpstream: true }, realGitRunner);
+    const calls: string[][] = [];
+    const spy: GitRunner = (args, cwd) => {
+      calls.push(args);
+      return realGitRunner(args, cwd);
+    };
+    const r = await gitPush(tree, { sha: "" }, spy);
+    expect(calls.find((a) => a[0] === "push")?.at(-1)).toBe("HEAD:refs/heads/feat/x");
+    expect(r.body).toMatchObject({ pushed: true, sha: head });
+    expect(g(origin, "rev-parse", "refs/heads/feat/x")).toBe(head);
+  });
+
+  test("with no sha the -u push is unchanged", async () => {
+    const calls: string[][] = [];
+    const spy: GitRunner = (args, cwd) => {
+      calls.push(args);
+      return realGitRunner(args, cwd);
+    };
+    await gitPush(tree, { setUpstream: true }, spy);
+    expect(calls.find((a) => a[0] === "push")).toEqual(["push", "--no-follow-tags", "--recurse-submodules=no", "-u", "--end-of-options", "origin", "HEAD:refs/heads/feat/x"]);
+    expect(calls.some((a) => a[0] === "config")).toBe(false);
   });
 });

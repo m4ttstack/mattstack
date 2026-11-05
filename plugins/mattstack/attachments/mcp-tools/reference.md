@@ -2425,7 +2425,7 @@ Whether the tree's checked-out branch is a member of a tracked stack. Returns {b
 ### git_push
 
 <!-- mcp-lint: allow -->
-Push the tree's current branch as exactly one ref (HEAD to refs/heads/<branch>; no tags, no submodules) to the same-named branch on its upstream's remote, or to origin/<branch> with setUpstream: true, which also makes that the upstream. Force is only ever --force-with-lease --force-if-includes. Refuses a detached HEAD; main, master and origin's default branch, and any push when origin's default cannot be read; a branch with no upstream unless setUpstream: true; an upstream with a different branch name, or one that is its own remote's default branch, or whose remote's default branch cannot be read (setUpstream: true pushes as origin/<branch> instead). Returns the pushed sha and, read from GitLab just before the push, the branch's open MR (mr: {iid, url} or null) and that MR's latest pipeline id (priorPipelineId), so a CI watch can tell the push's pipeline from the one already there. mrLookup is "unavailable" when the forge could not be read (a GitHub repo, the daemon down), in which case mr: null is not proof there is none; the push goes ahead either way.
+Push the tree's current branch as exactly one ref (HEAD, or the exact sha the check ran on when one ran on the current HEAD, to refs/heads/<branch>; no tags, no submodules) to the same-named branch on its upstream's remote, or to origin/<branch> with setUpstream: true, which also makes that the upstream. Force is only ever --force-with-lease --force-if-includes. Before pushing it runs the repo's configured check (rt.check; rt check runs the same one) and, once the push succeeds, posts the verdict on the pushed sha as a GitHub commit status (a forge refusal never fails the push, and a dirty tree is never posted); a repo with no check pushes with check: null. A red or errored check, or a check that cannot run, refuses with pushed: false, refusal: "check-red" or "check-error", check (the verdict, summary, failing files and failing test names), why (how to push anyway) and next: "rt check"; a HEAD that moved during the check counts as an error and is never posted; allowRed: true pushes anyway and still posts the result, skipCheck: true runs and posts nothing and wins over allowRed. Refuses a detached HEAD; main, master and origin's default branch, and any push when origin's default cannot be read; a branch with no upstream unless setUpstream: true; an upstream with a different branch name, or one that is its own remote's default branch, or whose remote's default branch cannot be read (setUpstream: true pushes as origin/<branch> instead). Returns the pushed sha (and upstreamError when setUpstream could not be recorded after a push that landed) and, read from GitLab just before the push, the branch's open MR (mr: {iid, url} or null) and that MR's latest pipeline id (priorPipelineId), so a CI watch can tell the push's pipeline from the one already there. mrLookup is "unavailable" when the forge could not be read (a GitHub repo, the daemon down), in which case mr: null is not proof there is none; the push goes ahead either way.
 
 ```json
 {
@@ -2440,6 +2440,14 @@ Push the tree's current branch as exactly one ref (HEAD to refs/heads/<branch>; 
     },
     "setUpstream": {
       "type": "boolean"
+    },
+    "allowRed": {
+      "type": "boolean",
+      "description": "Push even when the check is red or errored, and post that result."
+    },
+    "skipCheck": {
+      "type": "boolean",
+      "description": "Run no check and post no status."
     },
     "leaseMrUrl": {
       "type": "string",
@@ -3479,6 +3487,82 @@ Invite another herdr pane into a chat room: types /chat:join <room> (with an opt
   "required": [
     "pane",
     "room"
+  ],
+  "additionalProperties": false
+}
+```
+
+### chat_slack_close
+
+<!-- mcp-lint: allow -->
+Close this pane's Slack support chat, sending farewell to the teammate first. Acts only on the chat this session holds. A credential-shaped string in the farewell is removed before it is sent, and the result then says redacted. Requires a signed-in chat session; call chat_sign_in first.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "farewell": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "farewell"
+  ],
+  "additionalProperties": false
+}
+```
+
+### chat_slack_status
+
+<!-- mcp-lint: allow -->
+List the Slack support chats that are open on this machine, with their room, pane and last activity. Requires a signed-in chat session; call chat_sign_in first.
+
+```json
+{
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### chat_slack_ticket
+
+<!-- mcp-lint: allow -->
+Write a bug report or feature request for this pane's open Slack support chat, and return the path of the file it wrote. kind is bug or feature; acceptance is a list of testable points. Requires a signed-in chat session; call chat_sign_in first.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "bug",
+        "feature"
+      ]
+    },
+    "title": {
+      "type": "string"
+    },
+    "problem": {
+      "type": "string"
+    },
+    "idea": {
+      "type": "string"
+    },
+    "acceptance": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "kind",
+    "title",
+    "problem",
+    "idea",
+    "acceptance"
   ],
   "additionalProperties": false
 }

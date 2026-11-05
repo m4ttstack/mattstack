@@ -6,6 +6,7 @@ import MattstackCore
 /// in the centred body, still the screen's primary and Return key.
 struct ReadyScreenBody: View {
     let home: FormHome
+    var notice: FormOrgNotice? = nil
     let onOpen: () -> Void
 
     var body: some View {
@@ -19,6 +20,18 @@ struct ReadyScreenBody: View {
                 .keyboardShortcut(.defaultAction)
                 .fixedSize()
                 .accessibilityIdentifier(AXID.fastPrimary(FastSetupScreen.ready.rawValue))
+            if let notice {
+                Color.clear.frame(width: 1, height: 6)
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 13))
+                        .foregroundColor(FastTheme.warning)
+                        .accessibilityHidden(true)
+                    Text(notice.title).font(FastTheme.note).foregroundColor(FastTheme.textSecondary)
+                }
+                Text(notice.detail).font(.system(size: 11)).foregroundColor(FastTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .multilineTextAlignment(.center)
         .accessibilityElement(children: .contain)

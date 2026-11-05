@@ -92,13 +92,14 @@ export async function findDevRelease(s: DevSeams): Promise<ChosenDevRelease> {
   return chosen;
 }
 
-export async function ensureDevApp(s: DevSeams, io: StageIO, mode: "setup" | "update", chosen?: ChosenDevRelease): Promise<StageEnding> {
+export async function ensureDevApp(s: DevSeams, io: StageIO, mode: "setup" | "update", chosen?: ChosenDevRelease, opts: { replaceLocal?: boolean } = {}): Promise<StageEnding> {
   const installed = await readInstalledDevApp(s.probes);
-  if (mode === "update" && installed && !installed.releaseBuild) {
-    return { status: "skipped", title: "Your dev app was built on this Mac", hint: "rt only updates a dev app that came from a release" };
+  const local = installed !== null && !installed.releaseBuild;
+  if (mode === "update" && local && !opts.replaceLocal) {
+    return { status: "skipped", title: "Your dev app was built on this Mac", hint: "Swap in the release's dev app with rt dev update --release" };
   }
   const pick = chosen ?? (await findDevRelease(s));
-  if (installed && compareVersions(installed.version, pick.release.version) >= 0) {
+  if (installed && !(local && opts.replaceLocal) && compareVersions(installed.version, pick.release.version) >= 0) {
     return { status: "skipped", title: `Dev app ${installed.version} is current` };
   }
   io.sub(`Downloading the dev app ${pick.release.version}`);

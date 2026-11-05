@@ -199,6 +199,11 @@ export const EXAMPLES: Record<string, Example> = {
     bad: [{ value: { hooks: { "pre-commit": "off" } }, path: ["hooks", "pre-commit"] }],
     layer: [{ hooks: { "pre-push": false } }],
   },
+  "rt.check": {
+    good: [{}, { command: "bun scripts/ci/local-check.ts" }, { command: "bun run check:local", timeoutSeconds: 900 }, { timeoutSeconds: 2_147_483 }],
+    bad: [{ value: { command: 7 }, path: ["command"] }, { value: { timeoutSeconds: 2_147_484 }, path: ["timeoutSeconds"] }],
+    layer: [{ timeoutSeconds: 300 }],
+  },
   "rt.trustedBrowserOrigins": { good: [[], ["http://localhost:5173"]], bad: [{ value: [5173], path: [0] }] },
   "rt.mcp.uploadRoots": { good: [[], ["/Users/me/Screenshots"]], bad: [{ value: ["/a", 7], path: [1] }] },
   "rt.picker.hidden": { good: [[], ["pane", "worktree provision"]], bad: [{ value: ["pane", 7], path: [1] }] },

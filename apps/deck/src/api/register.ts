@@ -14,6 +14,7 @@ import {
   getLive,
   getOverride,
   renameAppSettings,
+  setPublished,
 } from '../../core/settings.ts';
 import type { CfDns } from '../edge/cf-dns.ts';
 import { renameOAuth } from '../edge/oauth.ts';
@@ -424,6 +425,9 @@ async function teardownRecord(
   }
   deleteRecord(record.name);
   removeIcon(record.name);
+  // A later app reusing this name must not inherit its public state. The
+  // setter refuses while the store is unreadable, and removal still stands.
+  await setPublished(record.name, false).catch(() => {});
   return { ok: true, issues };
 }
 
@@ -1104,10 +1108,9 @@ export async function editApp(
 
   if (renaming) {
     deleteRecord(oldName);
-    // Settings are keyed by app name, and an unknown name reads as
-    // published:true with no password — so the entry has to travel with the
-    // record, or renaming quietly publishes a private, password-protected app
-    // the moment the new hostname goes live.
+    // Settings are keyed by app name, and an unknown name reads as private
+    // with no password, so the entry has to travel with the record or a
+    // rename drops the app's published state and password.
     renameAppSettings(oldName, next.name);
     // The sign-in rule is keyed by name too, and an unknown name reads as
     // { mode: "off" } — without this the emails/domains allowlist is silently

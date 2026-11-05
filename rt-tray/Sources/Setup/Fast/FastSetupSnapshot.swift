@@ -45,7 +45,7 @@ enum FastSetupSnapshot {
 
     #if DEBUG
     /// Each screen adds its own pages here.
-    private static let registered: [@MainActor () -> [(String, AnyView)]] = [themePages, rowPages, macosPages, pathPages, invitePages, createPages, restorePages, waitingPages, connectPages, thisMacPages, runPages, readyPages, containerPages, testDrivePages]
+    private static let registered: [@MainActor () -> [(String, AnyView)]] = [themePages, rowPages, macosPages, pathPages, invitePages, createPages, restorePages, waitingPages, connectPages, thisMacPages, toolsPages, runPages, readyPages, containerPages, testDrivePages]
 
     /// A screen body in the window the mocks draw: outline, rounded corners, title bar dots, glow.
     static func window(_ view: some View, _ screen: FastSetupScreen, path: String? = nil) -> AnyView {
@@ -332,6 +332,62 @@ enum FastSetupSnapshot {
         ]
     }
 
+    /// T2 to T7. T1 is the notification, which rt sends.
+    @MainActor
+    private static func toolsPages() -> [(String, AnyView)] {
+        typealias R = ToolsRows
+        func page(_ heading: String, _ rows: [FormRow], allDone: Bool = false, failure: String? = nil) -> AnyView {
+            window(ToolsScreenBody(tools: FormTools(heading: heading, allDone: allDone), rows: rows, waiting: [:], errors: [:],
+                                   isAcking: false, failure: failure, onAction: { _, _, _ in }, onLater: {}, onDone: {}),
+                   .tools, path: "join")
+        }
+        let one = "One new tool for your team"
+        return [
+            ("tools-t2-missing", page(one, [R.doppler])),
+            ("tools-t3-installing", page(one, [R.dopplerInstalling])),
+            ("tools-t4-sign-in", page(one, [R.dopplerSignIn])),
+            ("tools-t5-all-set", page("You're all set", [R.dopplerDone], allDone: true)),
+            ("tools-all-set-no-rows", page("You're all set", [], allDone: true)),
+            ("tools-t6-two", page("2 new tools for your team", [R.doppler, R.ldcli])),
+            ("tools-t7-failed", page(one, [R.dopplerFailed])),
+            ("tools-t7-retry-alone", page(one, [R.ldcliFailed])),
+            ("tools-t7-long-failure", page(one, [R.dopplerFailedLong])),
+            ("tools-ack-failed", page("You're all set", [R.dopplerDone], allDone: true,
+                                      failure: "rt couldn't record that: the settings store is locked by another run")),
+        ]
+    }
+
+    /// What `toolsRows` in lib/setup/form.ts emits: a sign-in tool from `signInRow`, any other from `extraRow`,
+    /// with no reason on a tool simply missing or signed out.
+    enum ToolsRows {
+        private static let why = "For running your dev servers"
+        private static let install = RowAction(type: .install, label: "Install", tool: "doppler", via: "brew")
+        private static let retry = RowAction(type: .install, label: "Retry", tool: "doppler", via: "brew")
+        private static let steps = RowAction(type: .steps, label: "Show steps…", steps: ["brew install doppler"])
+        static let doppler = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: why, state: .todo,
+                                     detail: "", action: install, waiting: "Installing…", watch: true)
+        static let dopplerInstalling = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: why, state: .busy,
+                                               detail: "Installing…", watch: true)
+        static let dopplerSignIn = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: why, state: .todo,
+                                           detail: "",
+                                           action: RowAction(type: .run, label: "Sign in", verb: ["setup", "doppler", "connect"]), watch: true)
+        static let dopplerDone = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: why, state: .done,
+                                         detail: "Signed in as janedoe", watch: true)
+        static let dopplerFailed = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: why, state: .todo, tone: .failed,
+                                           detail: "Homebrew could not install it", action: retry, secondary: steps,
+                                           waiting: "Installing…", watch: true)
+        static let dopplerFailedLong = FormRow(id: "tool.team.doppler", title: "Doppler", subtext: why, state: .todo, tone: .failed,
+                                               detail: "brew install doppler failed: the formula could not be downloaded, so nothing was installed",
+                                               action: retry, secondary: steps, waiting: "Installing…", watch: true)
+        static let ldcli = FormRow(id: "tool.team.ldcli", title: "ldcli", subtext: "For reading feature flags", state: .todo,
+                                   detail: "",
+                                   action: RowAction(type: .openURL, label: "Download", url: "https://example.com/ldcli"), watch: true)
+        static let ldcliFailed = FormRow(id: "tool.team.ldcli", title: "ldcli", subtext: "For reading feature flags", state: .todo, tone: .failed,
+                                         detail: "Homebrew could not install it",
+                                         action: RowAction(type: .install, label: "Retry", tool: "ldcli", via: "brew"),
+                                         waiting: "Installing…", watch: true)
+    }
+
     /// A choose wider than a segment, which the fast screens open in a sheet.
     static let wideChoice = FormRow(id: "editor", title: "Your editor", subtext: "Where Open in editor goes", state: .done, detail: "Zed",
                                     action: RowAction(type: .choose, label: "Change", verb: ["setup", "editor"], options: [
@@ -372,9 +428,15 @@ enum FastSetupSnapshot {
         func page(_ home: FormHome) -> AnyView {
             window(ReadyScreenBody(home: home, onOpen: {}), .ready)
         }
+        let board = FormHome(label: "Open the board", url: "https://board.mattstack")
+        let notice = FormOrgNotice(title: "Your org's setup file has an error. Ask an admin to fix it", detail: "tools[1] is malformed")
+        let statusStep = FastStep.label(for: .ready, path: nil, entry: .status)
         return [
-            ("ready", page(FormHome(label: "Open the board", url: "https://board.mattstack"))),
+            ("ready", page(board)),
             ("ready-solo", page(FormHome(label: "Open the console", url: "https://console.mattstack"))),
+            ("ready-org-error", AnyView(FastSnapshotWindow {
+                FastWindowChrome(step: statusStep) { ReadyScreenBody(home: board, notice: notice, onOpen: {}) }
+            })),
         ]
     }
 
@@ -423,6 +485,9 @@ enum FastSetupSnapshot {
                 connect: [C.forge, C.slack, C.claudeInstalling, C.dopplerSignIn, C.linear, C.fastBrowser]))).window()),
             ("container-this-mac", Container().landed(.thisMac, Container.whole(.thisMac, sections: FormSections(
                 thisMac: [T.boardFound, T.widgetsClone, T.backupLocal]), startReady: true)).window()),
+            ("container-tools", Container(entry: .status).landed(.tools, Container.whole(
+                .tools, sections: FormSections(tools: [ToolsRows.doppler]),
+                tools: FormTools(heading: "One new tool for your team", allDone: false))).window()),
             ("container-running", Container().landed(.running, Container.whole(.running)).running(Container.cloning, startedAgo: 120).window()),
             ("container-paused", Container().landed(.paused, Container.whole(.paused, paused: RunPaused.clone))
                 .running(Container.cloning + Container.cloneFailed, startedAgo: 140).window()),
@@ -436,7 +501,7 @@ enum FastSetupSnapshot {
     /// One window's models, built from fixtures. Its rt answers only the invite's dry run and never spawns.
     @MainActor
     final class Container {
-        let flow = FastSetupFlow(entry: .firstRun)
+        let flow: FastSetupFlow
         let form: SetupFormModel
         let actions: FormActionRunner
         let install: InstallRunModel
@@ -445,9 +510,10 @@ enum FastSetupSnapshot {
         private let rt: SnapshotRt
         private var lines: [String] = []
 
-        init(failing: Bool = false) {
+        init(failing: Bool = false, entry: SetupEntry = .firstRun) {
             let rt = SnapshotRt(failing: failing)
             self.rt = rt
+            flow = FastSetupFlow(entry: entry)
             let needs = NeedBroker(services: StubServicesProvider(), privileged: StubPrivilegedInstaller())
             form = SetupFormModel(rt: rt)
             actions = FormActionRunner(rt: rt, needs: needs, effects: SnapshotEffects(), reload: {})
@@ -529,9 +595,10 @@ enum FastSetupSnapshot {
         static let home = FormHome(label: "Open the board", url: "https://board.mattstack")
         static let team = FormTeam(slug: "mithrandir", name: "Mithrandir", invitedBy: "Jane Doe")
 
-        static func whole(_ stage: FormStage, sections: FormSections = FormSections(), startReady: Bool = false, paused: FormPaused? = nil) -> SetupForm {
+        static func whole(_ stage: FormStage, sections: FormSections = FormSections(), startReady: Bool = false, paused: FormPaused? = nil,
+                          tools: FormTools? = nil) -> SetupForm {
             SetupForm(path: stage == .path ? nil : "join", team: stage == .path ? nil : team, stage: stage, sections: sections,
-                      continueReady: false, startReady: startReady, paused: paused, home: home)
+                      continueReady: false, startReady: startReady, paused: paused, home: home, tools: tools)
         }
 
         static func section(_ sections: FormSections) -> SetupForm {

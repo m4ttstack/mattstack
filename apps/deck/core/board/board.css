@@ -336,6 +336,16 @@ body {
   margin-top: var(--spacing-md);
 }
 
+/* A disabled input swallows the hover, so its tooltip never opens unless the
+   label beneath it takes the pointer. */
+[data-part='switch-control']:disabled {
+  pointer-events: none;
+}
+
+[data-part='switch']:has([data-part='switch-control']:disabled) {
+  cursor: default;
+}
+
 /* The switch (16px, inline-flex) is shorter than the tooltip wrapper's
    line box, so baseline alignment (the default) leaves it off-center by
    the asymmetric leading above/below the baseline. Table cells only. */
