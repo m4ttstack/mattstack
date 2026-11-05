@@ -78,8 +78,8 @@ transcripts ─────┘    (child process)
   write bursts away from the daemon's 250ms busy timeout on `state.db`, and
   can be rebuilt or dropped alone. It has its own `user_version`.
 - Add `rt/usage.db` to `BACKUP_SOURCES`. Once transcripts expire it is the only
-  copy of its history. `snapshotSource` opens the file unconditionally, so a
-  Mac that has never swept needs a skip, not a failed backup.
+  copy of its history. The backup loop already skips a source whose file is
+  missing, so a Mac that has never swept is fine.
 
 ### Schema
 
