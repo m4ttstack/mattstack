@@ -233,7 +233,7 @@ function Marker({
       wrap="nowrap"
       data-testid={testId}
       style={{
-        padding: '10px 0',
+        padding: '20px 0',
         color: 'var(--tk-text-3)',
         fontSize: 'var(--mantine-font-size-xs)',
       }}
