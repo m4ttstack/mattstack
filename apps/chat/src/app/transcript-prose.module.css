@@ -283,3 +283,32 @@
     transition: none;
   }
 }
+
+/* A day's line stays in the list; its label sticks to the top of the view
+   until the next day pushes it off, as Slack's does. */
+.dayLine {
+  height: 1px;
+  margin: 32px 20px 0;
+  background: var(--tk-border-soft);
+}
+
+.dayPill {
+  position: sticky;
+  top: 8px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  height: 28px;
+  margin: -15px auto 16px;
+  padding: 0 12px;
+  border-radius: 14px;
+  background: var(--tk-card);
+  box-shadow:
+    0 0 0 1px var(--tk-border-soft),
+    0 1px 3px rgb(0 0 0 / 12%);
+  font-size: var(--mantine-font-size-md);
+  font-weight: 500;
+  color: var(--tk-text-1);
+}
