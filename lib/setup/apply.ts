@@ -584,8 +584,10 @@ export async function runUpdateWith(steps: StepDef[], migrations: MigrationDef[]
       event: "done",
       ok,
       ...(failedSteps.length > 0 ? { failedStep: failedSteps[0], failedSteps } : {}),
-      // The app opens Setup status on this; a retry stays quiet, like its notification.
-      ...(!retry && updateNeedsYou(outcomes) ? { needsYou: true as const } : {}),
+      // The app opens Setup status on this. A retry stays quiet, like its notification,
+      // and so does a bug: the rethrow below skips the notification and the stamp, so the
+      // window would open at every launch with nothing to show.
+      ...(!retry && !bug && updateNeedsYou(outcomes) ? { needsYou: true as const } : {}),
     });
   }
 

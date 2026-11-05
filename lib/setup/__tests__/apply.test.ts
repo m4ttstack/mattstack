@@ -2009,7 +2009,8 @@ describe("runUpdateWith", () => {
     await expect(runUpdateWith(steps, [], ctx)).rejects.toThrow("kaboom");
 
     expect(ran).toEqual([]);
-    expect(events.filter((e) => e.event === "done")).toEqual([{ event: "done", ok: false, failedStep: "path.link", failedSteps: ["path.link"], needsYou: true }]);
+    // No needsYou: a bug skips the notification and the stamp, so the window would reopen every launch.
+    expect(events.filter((e) => e.event === "done")).toEqual([{ event: "done", ok: false, failedStep: "path.link", failedSteps: ["path.link"] }]);
     expect(events).toContainEqual({ event: "step", id: "path.link", state: "failed", detail: "bug: kaboom" });
   });
 
