@@ -42,7 +42,7 @@ import { DIRECT_PATH, isMine, waitingCount } from './direct';
 import { DirectView } from './DirectView';
 import type { FleetRoom } from './FleetTree';
 import { HUMAN_HANDLE, type Me } from './human';
-import { PageBar, ViewBar } from './PageBar';
+import { PageBar } from './PageBar';
 import { isMsgTopic, useRelayFrames, useRelayOpen } from './relay-socket';
 import { RoomRail, type RoomRailProps } from './RoomRail';
 import type { RosterBuddy } from './roster-types';
@@ -522,14 +522,12 @@ function ChatPage({
           </PageShell.Sidebar>
         )}
         <PageShell.Main>
-          {directOpen || activeRoomSummary || !roomsLoaded ? (
+          {!directOpen && (activeRoomSummary || !roomsLoaded) ? (
             <PageShell.Header
               withBorder={false}
               style={{ borderBottom: '1px solid var(--tk-border-soft)' }}
             >
-              {directOpen ? (
-                <ViewBar title="Messages to you" />
-              ) : activeRoomSummary ? (
+              {activeRoomSummary ? (
                 <PageBar
                   room={activeRoomSummary}
                   buddies={buddies.filter(b => roomMembers.includes(b.handle))}

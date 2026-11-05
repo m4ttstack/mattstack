@@ -56,24 +56,6 @@ function roomTitle(room: RoomSummary): string {
   return room.room;
 }
 
-/** The title of a view that is no room: no members and nothing to archive. */
-export function ViewBar({ title }: { title: string }) {
-  return (
-    <Group wrap="nowrap" style={PAGE_BAR_ROW} data-testid="page-bar">
-      <Text
-        component="span"
-        fw={500}
-        size="lg"
-        truncate
-        data-testid="page-bar-title"
-        style={{ minWidth: 0, color: 'var(--tk-text-1)' }}
-      >
-        {title}
-      </Text>
-    </Group>
-  );
-}
-
 export function PageBar({
   room,
   buddies,

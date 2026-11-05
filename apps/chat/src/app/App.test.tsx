@@ -464,9 +464,7 @@ test('Messages to you lists the human’s DMs in one timeline, with no thread ro
   );
   expect(await screen.findByText('from kai')).toBeInTheDocument();
   expect(screen.getByText('from remy')).toBeInTheDocument();
-  expect(screen.getByTestId('page-bar-title')).toHaveTextContent(
-    'Messages to you'
-  );
+  expect(screen.queryByTestId('page-bar')).toBeNull();
   expect(screen.queryByTestId('dm-row-dm-a')).toBeNull();
   const box = screen.getByRole('textbox', { name: 'Message' });
   expect(box).toHaveAttribute('placeholder', 'Reply to remy');
