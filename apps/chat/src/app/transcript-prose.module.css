@@ -261,3 +261,12 @@
     transparent
   );
 }
+
+/* The room around the line sits inside the rows, so a tint still meets it. */
+.msg:has(+ .blockLine) {
+  padding-bottom: 16px;
+}
+
+.blockLine + .msg {
+  padding-top: 16px;
+}
