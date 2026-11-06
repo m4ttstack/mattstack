@@ -247,6 +247,8 @@ describe("connectRows", () => {
     const todo = pick(connectRows(inputs({ plan: plan(elsewhere), logins: { claude: session("claude", { prompt: true }) } })), "claude");
     expect([todo.state, todo.detail, todo.action]).toEqual(["todo", "Claude Code needs to be installed where mattstack looks for it", { type: "install", label: "Install", tool: "claude", via: "vendor" }]);
     expect(todo.waiting).toBe("Installing…");
+    // An open connect row lands a finished Mac on connect, which is what opens Setup status after an update.
+    expect(allAnswered([todo])).toBe(false);
 
     const busy = pick(connectRows(inputs({ plan: plan(elsewhere), prepare: prepare({ items: ["claude"] }) })), "claude");
     expect(busy.state).toBe("busy");
