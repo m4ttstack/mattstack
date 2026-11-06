@@ -167,6 +167,7 @@ export const FORM_COPY = {
       locateAgain: PLACE_REPO_LABELS.checkoutAgain,
       fresh: "New checkout",
       choose: PLACE_REPO_LABELS.clone,
+      change: "Change",
       board: "The board starts here",
       root: "Where new clones go",
     },
@@ -800,14 +801,15 @@ function placeRow(r: Row): FormRow {
 
 function repoRootRow(i: ThisMacInputs): FormRow {
   const c = FORM_COPY.thisMac.repos;
-  const chosen = i.repoRoot.staged ?? i.repoRoot.configured;
+  // The suggestion is the answer until the member picks another; settings.seed records it (adoptSuggestedRepoRoot).
+  const chosen = i.repoRoot.staged ?? i.repoRoot.configured ?? i.repoRoot.candidate;
   return {
     id: "repos.root",
     title: c.title,
     subtext: c.root,
     state: chosen ? "done" : "todo",
     detail: chosen ?? "",
-    action: { type: "choose-folder", label: c.choose, startAt: i.repoRoot.candidate },
+    action: { type: "choose-folder", label: chosen ? c.change : c.choose, startAt: chosen ?? null },
     waiting: null,
     watch: false,
     optional: false,

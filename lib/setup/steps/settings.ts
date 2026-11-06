@@ -25,7 +25,8 @@
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
 import { repairGitqBoard } from "../gitq-board-repair.ts";
-import { promoteStagedRepoRoot } from "../repo-root.ts";
+import { configuredRepoRoots } from "../repo-placement.ts";
+import { adoptSuggestedRepoRoot, promoteStagedRepoRoot } from "../repo-root.ts";
 import { isSetupFinished, readSetupState } from "../state.ts";
 import { resolveWritingStyle, WRITING_STYLE_KEY } from "../../skills/writing-style.ts";
 import type { ApplyContext } from "../apply.ts";
@@ -64,6 +65,8 @@ async function settingsSeedRun(ctx: ApplyContext): Promise<StepOutcome> {
   }
 
   if (promoteStagedRepoRoot(ctx.p)) written.push("rt.repoRoots");
+  // A setup run only: an update never picks a folder for a Mac that finished without one.
+  else if (!ctx.update && ctx.intent?.mode === "solo" && adoptSuggestedRepoRoot(ctx.p, configuredRepoRoots(ctx.p))) written.push("rt.repoRoots");
 
   const repair = repairGitqBoard();
   if (repair.state === "failed") throw repair.error;

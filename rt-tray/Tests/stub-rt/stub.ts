@@ -637,9 +637,10 @@ function repoRow(): FormRow {
 
 function repoRootRow(): FormRow {
   const c = FORM_COPY.thisMac.repos;
-  const chosen = textGet("repo-root");
-  return formRow({ id: "repos.root", title: c.title, subtext: c.root, state: chosen ? "done" : "todo", detail: chosen ?? "",
-                   action: { type: "choose-folder", label: c.choose, startAt: `${SHOWN_HOME}/Documents/GitHub` } });
+  // Like rt, the found folder is the answer until one is picked.
+  const chosen = textGet("repo-root") ?? `${SHOWN_HOME}/Documents/GitHub`;
+  return formRow({ id: "repos.root", title: c.title, subtext: c.root, state: "done", detail: chosen,
+                   action: { type: "choose-folder", label: c.change, startAt: chosen } });
 }
 
 type Backup = { mode: "local" } | { mode: "remote"; url?: string; create?: boolean };
