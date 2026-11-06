@@ -119,6 +119,7 @@ import {
   viewStateForMr,
 } from './deep-link.ts';
 import { DraftModal } from './DraftModal.tsx';
+import { useFlockMenuWarmup } from './flock-menu-cache.ts';
 import { draftKey, mrLine, respondChoices } from './format.ts';
 import {
   useBoardData,
@@ -1566,6 +1567,11 @@ export function Board() {
       })
     : null;
   useStaleTabTitle(freshness !== null);
+  useFlockMenuWarmup(
+    data?.mrs,
+    data?.local === true,
+    data ? effectiveSeat(data.defaultMember, data.tokenUser) : null
+  );
 
   if (!data) {
     return (
