@@ -14,6 +14,7 @@
 
 import { homedir } from "os";
 import { join } from "path";
+import { nodePinShell } from "./node-pin.ts";
 import type { AgentInvocation } from "./types.ts";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -85,6 +86,7 @@ export function buildPaneCommand(cwd: string, inv: AgentInvocation): string {
   // prompt equal to a flag like "-p" is still treated as data.
   const quoted = claudeArgs(inv).map(shellSingleQuote);
   const head = inv.account ? `cswap run ${shellSingleQuote(inv.account)} --` : "claude";
-  const env = Object.entries(inv.env ?? {}).map(([k, v]) => `${k}=${shellSingleQuote(v)}`);
-  return `cd ${shellSingleQuote(cwd)} && ${[...env, head, ...quoted].join(" ")}`;
+  const pin = nodePinShell(inv.nodePin);
+  const env = [...Object.entries(inv.env ?? {}).map(([k, v]) => `${k}=${shellSingleQuote(v)}`), ...pin.env];
+  return `cd ${shellSingleQuote(cwd)} && ${pin.lead}${[...env, head, ...quoted].join(" ")}`;
 }
