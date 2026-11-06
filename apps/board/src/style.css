@@ -1134,24 +1134,27 @@ body {
 .tui-row-note {
   position: relative;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 2px;
-  padding: 5px 10px 5px 8px;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 8px;
+  padding: 6px 12px 6px 10px;
   border-radius: var(--radius-px5);
   /* Opaque, mixed into the panel the rows sit on, never an alpha wash: a
      translucent band would take the row's hover tint and the ground's grid
      with it, so the same note would read a different color under the
      pointer than at rest. */
-  background: color-mix(in srgb, var(--fill-cyan) 16%, var(--panel));
+  background: color-mix(in srgb, var(--fill-cyan) 8%, var(--panel));
   color: var(--text-1);
   font-size: 0.72rem;
   line-height: 1.35;
   cursor: text;
   text-align: left;
 }
+/* Set on the first line's middle, not the band's: a note that wraps keeps
+   its glyph beside the words it starts with. */
 .tui-row-note > svg {
   flex: 0 0 auto;
+  margin-top: 2px;
   color: var(--text-cyan-small);
 }
 .tui-row-note-text {
@@ -1210,7 +1213,7 @@ body {
 .tui-row-note-lead {
   display: flex;
   align-items: flex-start;
-  gap: 6px;
+  gap: 9px;
 }
 .tui-row-note-lead > svg {
   flex: 0 0 auto;
