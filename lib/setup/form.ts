@@ -24,7 +24,7 @@ import { composePlan, enrichSnapshotForge } from "./plan.ts";
 import { FAST_BROWSER, readPrepare, type PrepareRecord } from "./prepare-record.ts";
 import type { Probes } from "./probes.ts";
 import { configuredRepoRoots } from "./repo-placement.ts";
-import { detectCandidate, readStagedRepoRoot } from "./repo-root.ts";
+import { checkRepoRoot, detectCandidate, readStagedRepoRoot } from "./repo-root.ts";
 import { readPackRequirements, type ToolRequirement } from "./requirements.ts";
 import { STEP_PHASES } from "./run-phases.ts";
 import { CLI_SESSION_INTEGRATIONS, signInTools } from "./sign-in-tools.ts";
@@ -34,6 +34,7 @@ import { TITLES, tokenCreateLink, tokenField, type ForgeRole } from "./token-cre
 import { readToolNotices, type ToolNotices } from "./tool-notices.ts";
 import { connectHostSteps } from "./validators/access.ts";
 import { accountRows, type SecretPresence } from "./validators/accounts.ts";
+import { CLT_REINSTALL_STEPS } from "./git-floor.ts";
 import { macRows } from "./validators/mac.ts";
 import { PLACE_REPO_LABELS } from "./validators/repos.ts";
 import { CLAUDE_SIGNIN_ACTION, FAST_BROWSER_ADD_ACTION, dedupeTeamTools, teamToolManualSteps } from "./validators/tools.ts";
@@ -128,6 +129,8 @@ export const FORM_COPY = {
     subtext: "Gives setup git and Apple's build tools",
     installing: "Installing Command Line Tools…",
     install: "Install",
+    update: "Update",
+    reinstallSteps: "Show steps…",
     notInstalled: "Not installed yet",
   },
   invite: {
@@ -166,6 +169,7 @@ export const FORM_COPY = {
       locateAgain: PLACE_REPO_LABELS.checkoutAgain,
       fresh: "New checkout",
       choose: PLACE_REPO_LABELS.clone,
+      change: "Change",
       board: "The board starts here",
       root: "Where new clones go",
     },
@@ -280,13 +284,24 @@ type MacosPrepare = (PrepareRecord & { running: boolean }) | null;
 const CLT_TOOL = "apple-clt";
 
 /** Leads every section whose button starts git work, so that button waits for git. */
-export function cltRow(i: { cltInstalled: boolean; prepare: MacosPrepare }): FormRow | null {
+/** tool.clt's detail when git runs but is older than rt needs, else null. */
+function cltOutdated(rows: ReadonlyMap<string, Row>): string | null {
+  const clt = rows.get("tool.clt");
+  return clt?.status === "invalid" ? (clt.detail ?? null) : null;
+}
+
+export function cltRow(i: { cltInstalled: boolean; cltOutdated?: string | null; prepare: MacosPrepare }): FormRow | null {
   if (i.cltInstalled) return null;
   const c = FORM_COPY.clt;
   const base = { id: "tool.clt", title: c.title, subtext: c.subtext, waiting: c.installing, watch: true, optional: false };
   if (i.prepare?.running && i.prepare.items.includes(CLT_TOOL)) return { ...base, state: "busy", detail: c.installing, action: null };
   const failure = i.prepare?.failed.find((f) => f.tool === CLT_TOOL);
-  return { ...base, state: "todo", detail: failure?.detail ?? c.notInstalled, action: { type: "install", label: c.install, tool: CLT_TOOL, via: "apple-clt" } };
+  return {
+    ...base,
+    state: "todo",
+    detail: failure?.detail ?? i.cltOutdated ?? c.notInstalled,
+    action: { type: "install", label: i.cltOutdated ? c.update : c.install, tool: CLT_TOOL, via: "apple-clt" },
+  };
 }
 
 export interface InviteInputs {
@@ -296,6 +311,8 @@ export interface InviteInputs {
   forgeLogin: string | null;
   ghSignedIn: boolean;
   cltInstalled: boolean;
+  /** tool.clt's detail when git is installed but older than rt needs. */
+  cltOutdated?: string | null;
   prepare: MacosPrepare;
   /** The forge host this Mac's user confirmed through `connect --host`. */
   confirmedHost: string | null;
@@ -384,6 +401,8 @@ export interface CreateInputs {
   forge: { provider: Forge; host: string };
   ghSignedIn: boolean;
   cltInstalled: boolean;
+  /** tool.clt's detail when git is installed but older than rt needs. */
+  cltOutdated?: string | null;
   prepare: MacosPrepare;
 }
 
@@ -760,6 +779,8 @@ export interface ThisMacInputs extends DrawnContext {
   /** The last run ended ok and no choice has been made since it. */
   ranOk: boolean;
   cltInstalled: boolean;
+  /** tool.clt's detail when git is installed but older than rt needs. */
+  cltOutdated?: string | null;
   prepare: MacosPrepare;
   backup: HomeBackupChoice | undefined;
   /** The home repo's origin, or the staged url before the repo exists. */
@@ -774,7 +795,8 @@ export interface ThisMacInputs extends DrawnContext {
   /** rt holds a GitHub token, whatever it can do: a sign-in would overwrite it. */
   githubStored: boolean;
   githubClientId: string;
-  repoRoot: { configured: string | null; staged: string | null; candidate: string | null };
+  /** `adopts`: a coming run records the candidate (Just me intent on disk), so the row may show it as chosen. */
+  repoRoot: { configured: string | null; staged: string | null; candidate: string | null; adopts?: boolean };
 }
 
 /** An answer only the run is left to land is done here: Set up this Mac starts that run. */
@@ -785,16 +807,24 @@ function placeRow(r: Row): FormRow {
   return { id: r.id, title: r.title, subtext: place?.board ?? r.why, state: done ? "done" : "todo", detail: r.detail, action: r.action, waiting: null, watch: false, optional: false };
 }
 
+/** `adopts` mirrors adoptSuggestedRepoRoot: a Just me run records the found folder only when it passes the same check as a picked one. */
+function repoRootInputs(p: Probes, intent: SetupIntent | null): ThisMacInputs["repoRoot"] {
+  const candidate = detectCandidate(p);
+  const adopts = intent?.mode === "solo" && candidate !== null && checkRepoRoot(p, candidate).ok;
+  return { configured: configuredRepoRoots(p)[0] ?? null, staged: readStagedRepoRoot(p), candidate, adopts };
+}
+
 function repoRootRow(i: ThisMacInputs): FormRow {
   const c = FORM_COPY.thisMac.repos;
-  const chosen = i.repoRoot.staged ?? i.repoRoot.configured;
+  // The suggestion is the answer until the member picks another; settings.seed records it (adoptSuggestedRepoRoot).
+  const chosen = i.repoRoot.staged ?? i.repoRoot.configured ?? (i.repoRoot.adopts ? i.repoRoot.candidate : null);
   return {
     id: "repos.root",
     title: c.title,
     subtext: c.root,
     state: chosen ? "done" : "todo",
     detail: chosen ?? "",
-    action: { type: "choose-folder", label: c.choose, startAt: i.repoRoot.candidate },
+    action: { type: "choose-folder", label: chosen ? c.change : c.choose, startAt: chosen ?? i.repoRoot.candidate },
     waiting: null,
     watch: false,
     optional: false,
@@ -880,7 +910,7 @@ export function thisMacRows(i: ThisMacInputs): FormRow[] {
   return list.filter((r): r is FormRow => r !== null);
 }
 
-export function restoreRows(i: { cltInstalled: boolean; prepare: MacosPrepare }): FormRow[] {
+export function restoreRows(i: { cltInstalled: boolean; cltOutdated?: string | null; prepare: MacosPrepare }): FormRow[] {
   const clt = cltRow(i);
   return clt ? [clt] : [];
 }
@@ -912,7 +942,7 @@ async function inviteSection(p: Probes, secrets: SecretPresence): Promise<FormRo
     forge: snapshot.integrations.forge ?? null,
     forgeLogin: intent?.mode === "join" ? (intent.join?.pointer.username ?? null) : null,
     ghSignedIn: ghSignedIn(rows),
-    cltInstalled: isReady(rows, "tool.clt"),
+    cltInstalled: isReady(rows, "tool.clt"), cltOutdated: cltOutdated(rows),
     prepare: macosPrepare(p),
     confirmedHost: overrides.forgeHost ?? null,
   });
@@ -931,12 +961,12 @@ async function createSection(p: Probes, secrets: SecretPresence, choice: CreateC
   const snapshot: TeamSnapshot = { ...EMPTY_SNAPSHOT, integrations: { forge } };
   const [mac, accounts] = await Promise.all([macRows(p), accountRows(p, snapshot, [], secrets, null, readUserIntegrationOverrides({ read: probeUserSettingsReader(p) }))]);
   const rows = new Map([...mac, ...accounts].map((r) => [r.id, r]));
-  return createRows({ rows, forge, ghSignedIn: ghSignedIn(rows), cltInstalled: isReady(rows, "tool.clt"), prepare: macosPrepare(p) });
+  return createRows({ rows, forge, ghSignedIn: ghSignedIn(rows), cltInstalled: isReady(rows, "tool.clt"), cltOutdated: cltOutdated(rows), prepare: macosPrepare(p) });
 }
 
 async function restoreSection(p: Probes): Promise<FormRow[]> {
   const rows = new Map((await macRows(p)).map((r) => [r.id, r]));
-  return restoreRows({ cltInstalled: isReady(rows, "tool.clt"), prepare: macosPrepare(p) });
+  return restoreRows({ cltInstalled: isReady(rows, "tool.clt"), cltOutdated: cltOutdated(rows), prepare: macosPrepare(p) });
 }
 
 interface Clone {
@@ -1072,17 +1102,28 @@ function stepLog(events: string | null, step: string): string[] {
   return lines.slice(-PAUSED_LOG_LINES);
 }
 
-export function pausedFor(run: SetupRun | undefined, extras: { events: string | null; loginItems: Row | undefined }): FormPaused | null {
+export function pausedFor(
+  run: SetupRun | undefined,
+  extras: { events: string | null; loginItems: Row | undefined; clt?: Row | undefined },
+): FormPaused | null {
   const failed = run?.failed;
   if (!failed) return null;
+  // rt refuses Retry while the Command Line Tools block it, so their fix has to be on this screen too.
+  const clt = extras.clt && extras.clt.status !== "ready" && extras.clt.action ? extras.clt : null;
+  // Too old: this screen's button shows no progress or error, and softwareupdate may offer nothing, so it opens the manual steps.
+  const cltAction: Action | null = clt
+    ? clt.status === "invalid"
+      ? { type: "steps", label: FORM_COPY.clt.reinstallSteps, steps: [...CLT_REINSTALL_STEPS] }
+      : clt.action
+    : null;
   return {
     step: failed.step,
     // A record an older rt wrote can name a step this one no longer has.
     title: STEP_PHASES[failed.step]?.paused ?? failed.detail,
     detail: failed.detail,
-    remedy: failed.remedy ?? null,
+    remedy: clt?.detail ?? failed.remedy ?? null,
     log: stepLog(extras.events, failed.step),
-    action: extras.loginItems?.status === "needs-you" ? extras.loginItems.action : null,
+    action: cltAction ?? (extras.loginItems?.status === "needs-you" ? extras.loginItems.action : null),
   };
 }
 
@@ -1172,7 +1213,7 @@ async function thisMacSection(
     signIn: signInTools(readPackRequirements(p, plan.team.slug)),
     // A whole run that ends ok clears the intent, so one on disk is a choice made since (a team created from Settings): the coming run sets its rows up.
     ranOk: state.run?.ok === true && intent === null,
-    cltInstalled: isReady(rows, "tool.clt"),
+    cltInstalled: isReady(rows, "tool.clt"), cltOutdated: cltOutdated(rows),
     prepare: macosPrepare(p),
     backup,
     homeRemote: remote,
@@ -1182,7 +1223,7 @@ async function thisMacSection(
     githubReady: github.ready,
     githubStored: github.stored,
     githubClientId: clientId,
-    repoRoot: { configured: configuredRepoRoots(p)[0] ?? null, staged: readStagedRepoRoot(p), candidate: detectCandidate(p) },
+    repoRoot: repoRootInputs(p, intent),
   });
 }
 
@@ -1264,7 +1305,8 @@ export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupFo
 
   const run = state.run;
   const loginItems = permissionRows(permissions, null).find((r) => r.id === "perm.login-items");
-  const paused = pausedFor(run, { events: run?.failed ? p.readFile(applyEventsPath(p.home)) : null, loginItems });
+  const clt = run?.failed ? planRows(await plan()).find((r) => r.id === "tool.clt") : undefined;
+  const paused = pausedFor(run, { events: run?.failed ? p.readFile(applyEventsPath(p.home)) : null, loginItems, clt });
   const tools = finished ? toolsSection(p, await plan()) : null;
   const stage = formStage({
     finished,

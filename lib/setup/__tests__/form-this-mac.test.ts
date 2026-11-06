@@ -212,18 +212,25 @@ describe("thisMacRows", () => {
     });
   });
 
-  test("solo asks where new clones go, starting at the found folder", () => {
+  test("solo shows the found folder as the answer, with Change", () => {
     const solo = (repoRoot: ThisMacInputs["repoRoot"]) => thisMacRows(inputs({ path: "solo", plan: plan([], SOLO), repoRoot }));
-    const empty = solo({ configured: null, staged: null, candidate: "/fake-home/Documents/GitHub" });
-    expect(empty.map((x) => x.id)).toEqual(["repos.root", "settings.backup"]);
-    expect(pick(empty, "repos.root")).toMatchObject({
+    const found = solo({ configured: null, staged: null, candidate: "/fake-home/Documents/GitHub", adopts: true });
+    expect(found.map((x) => x.id)).toEqual(["repos.root", "settings.backup"]);
+    expect(pick(found, "repos.root")).toMatchObject({
       title: "Repos go in",
       subtext: "Where new clones go",
-      state: "todo",
-      action: { type: "choose-folder", label: "Choose…", startAt: "/fake-home/Documents/GitHub" },
+      state: "done",
+      detail: "/fake-home/Documents/GitHub",
+      action: { type: "choose-folder", label: "Change", startAt: "/fake-home/Documents/GitHub" },
     });
-    expect(startReady(empty)).toBe(false);
-    expect(pick(empty, "settings.backup").title).toBe("Back up home");
+    expect(pick(found, "settings.backup").title).toBe("Back up home");
+
+    const notAdopted = solo({ configured: null, staged: null, candidate: "/fake-home/Documents/GitHub", adopts: false });
+    expect(pick(notAdopted, "repos.root")).toMatchObject({ state: "todo", action: { label: "Choose…", startAt: "/fake-home/Documents/GitHub" } });
+
+    const none = solo({ configured: null, staged: null, candidate: null });
+    expect(pick(none, "repos.root")).toMatchObject({ state: "todo", detail: "", action: { type: "choose-folder", label: "Choose…", startAt: null } });
+    expect(startReady(none)).toBe(false);
 
     expect(pick(solo({ configured: null, staged: "/fake-home/code", candidate: null }), "repos.root")).toMatchObject({ state: "done", detail: "/fake-home/code" });
     expect(pick(solo({ configured: "/fake-home/src", staged: null, candidate: null }), "repos.root")).toMatchObject({ state: "done", detail: "/fake-home/src" });
@@ -288,6 +295,7 @@ describe("composeForm", () => {
       ["repos.root", "todo"],
       ["settings.backup", "todo"],
     ]);
+    // No Just me intent on disk, so no coming run records the found folder: it stays a suggestion.
     expect(pick(list, "repos.root").action).toEqual({ type: "choose-folder", label: "Choose…", startAt: "/fake-home/code" });
     expect(form.startReady).toBe(false);
   });

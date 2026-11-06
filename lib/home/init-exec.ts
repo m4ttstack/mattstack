@@ -93,7 +93,14 @@ async function runStep(step: InitStep, exec: ExecSeam, log: StepLog): Promise<vo
     }
     case "initUserRepo": {
       log("Starting a repo with no remote");
-      await run(exec, ["git", "init", "-b", "main", "user"]);
+      // Not `git init -b`: git before 2.28 refuses the flag, and a Mac's old Command Line Tools still ship one.
+      await run(exec, ["git", "init", "user"]);
+      const head = await exec.run(["git", "-C", "user", "symbolic-ref", "HEAD", "refs/heads/main"]);
+      if (head.code !== 0) {
+        // The plan skips this step once user/.git exists, so a half-made repo would never get its branch, seed files or first commit.
+        await exec.run(["rm", "-rf", "user/.git"]);
+        throw new StepFailed(head.stderr);
+      }
       return;
     }
     case "commitInitialUserRepo": {

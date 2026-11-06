@@ -13,6 +13,7 @@ import type { Probes } from "./probes.ts";
 import type { PackRequirements, ToolRequirement } from "./requirements.ts";
 import { signInTools } from "./sign-in-tools.ts";
 import { setUpFastBrowser } from "./steps/tools.ts";
+import { gitBelowFloor } from "./git-floor.ts";
 import { CLT_INSTALL_TIMEOUT_MS, installRoute, installTool, vendorBinPath } from "./tools-install.ts";
 import { pidAlive } from "./update-lock.ts";
 
@@ -61,7 +62,10 @@ function firstByName(tools: ToolRequirement[]): ToolRequirement[] {
 export async function prepareTools(p: Probes, stage: PrepareStage, reqs: PackRequirements[]): Promise<string[]> {
   if (stage === "macos") {
     const clt = await p.exec(["xcode-select", "-p"], { timeoutMs: PROBE_TIMEOUT_MS });
-    return clt.code === 0 ? [] : ["apple-clt"];
+    if (clt.code !== 0) return ["apple-clt"];
+    // Safe to run git only once tools are selected: before that, /usr/bin/git is Apple's stub, which raises a dialog.
+    const git = await p.exec(["git", "--version"], { timeoutMs: PROBE_TIMEOUT_MS });
+    return git.code === 0 && gitBelowFloor(git.stdout) ? ["apple-clt"] : [];
   }
 
   const items: string[] = [];

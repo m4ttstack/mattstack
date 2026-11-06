@@ -58,11 +58,11 @@ function gitAwareFakeProbes(home: string, intercept?: Intercept, fetch?: Probes[
     home,
     ...(fetch ? { fetch } : {}),
     exec: (argv, execOpts) => {
+      const override = intercept?.(argv, execOpts);
+      if (override) return override;
       if (argv.includes("get-url")) return { code: 0, stdout: "https://github.com/acme/repo.git\n", stderr: "" };
       if (argv.includes("symbolic-ref")) return { code: 0, stdout: "main\n", stderr: "" };
       if (argv.includes("ls-remote")) return { code: 0, stdout: "", stderr: "" };
-      const override = intercept?.(argv, execOpts);
-      if (override) return override;
 
       if (argv[0] === "git" && argv[1] === "diff" && argv.includes("--quiet")) return { code: 1, stdout: "", stderr: "" };
       if (argv[0] === "git" && argv[1] === "init" && execOpts?.cwd) {
@@ -188,9 +188,10 @@ describe("createTeam", () => {
       created: true,
     });
 
-    expect(p.calls.exec.slice(0, 6)).toEqual([
+    expect(p.calls.exec.slice(0, 7)).toEqual([
       ["xcode-select", "-p"],
-      ["git", "init", "-b", "mattstack"],
+      ["git", "init"],
+      ["git", "symbolic-ref", "HEAD", "refs/heads/mattstack"],
       ["git", "remote", "add", "origin", "https://github.com/acme/mattstack-team-acme.git"],
       ["git", "add", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore", "README.md"],
       ["git", "diff", "--cached", "--quiet", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore", "README.md"],
@@ -246,8 +247,9 @@ describe("createTeam", () => {
 
     expect(result).toMatchObject({ created: true });
     expect(result.gitDeferred).toBeUndefined();
-    expect(p.calls.exec.filter((c) => c[0] === "git").slice(0, 5)).toEqual([
-      ["git", "init", "-b", "mattstack"],
+    expect(p.calls.exec.filter((c) => c[0] === "git").slice(0, 6)).toEqual([
+      ["git", "init"],
+      ["git", "symbolic-ref", "HEAD", "refs/heads/mattstack"],
       ["git", "remote", "add", "origin", "https://github.com/acme/repo.git"],
       ["git", "add", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore", "README.md"],
       ["git", "diff", "--cached", "--quiet", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore", "README.md"],
@@ -477,9 +479,17 @@ describe("createTeam", () => {
 
       expect(err).toMatchObject({ code: "git-init-failed", message: "rt could not start the team repo" });
       const log = (err as UserActionableError).log ?? "";
-      expect(log).toStartWith("git init -b mattstack failed (exit 128): fatal: could not reach");
+      expect(log).toStartWith("git init failed (exit 128): fatal: could not reach");
       expect(log).not.toContain("SECRET");
       expect(log).not.toContain("https://");
+    });
+
+    test("a failed HEAD update after git init removes the new .git, so a retry starts the repo again", async () => {
+      const p = gitAwareFakeProbes("/home/x", (argv) =>
+        argv[0] === "git" && argv[1] === "symbolic-ref" && argv[2] === "HEAD" && argv.length === 4 ? { code: 1, stdout: "", stderr: "fatal: cannot lock ref" } : undefined,
+      );
+      await expect(createTeam(p, { name: "Acme", remote: "https://github.com/acme/repo.git", others: false }, new FakeAgeKeySeam(), seams)).rejects.toBeInstanceOf(UserActionableError);
+      expect(p.calls.exec).toContainEqual(["rm", "-rf", join("/home/x", ".mattstack", "orgs", "acme", ".git")]);
     });
 
     test("never returns remote:'' — an incomplete zone is always a typed error, not a silent success", async () => {

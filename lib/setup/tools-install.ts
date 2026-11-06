@@ -16,6 +16,7 @@ import { link, type LinkOutcome } from "../deps/links.ts";
 import { appBundlePath, bundledToolExec, resolveTool } from "../deps/resolve.ts";
 import { detectEditors, type DetectedEditor } from "../editors.ts";
 import { UserActionableError } from "../errors.ts";
+import { GIT_FLOOR, gitBelowFloor } from "./git-floor.ts";
 import type { Probes } from "./probes.ts";
 import type { HostArch, PackRequirements, ToolDownloadPin } from "./requirements.ts";
 import { updateSetupState } from "./state.ts";
@@ -132,9 +133,11 @@ export function parseCltLabel(listOutput: string): string | null {
  */
 async function installAppleClt(p: Probes): Promise<InstallResult> {
   const already = await p.exec(["xcode-select", "-p"], { timeoutMs: PROBE_TIMEOUT_MS });
+  let outdated = false;
   if (already.code === 0) {
     const git = await p.exec(["git", "--version"], { timeoutMs: PROBE_TIMEOUT_MS });
-    if (git.code === 0) return { via: "apple-clt", ok: true, detail: "Command Line Tools already installed" };
+    outdated = git.code === 0 && gitBelowFloor(git.stdout);
+    if (git.code === 0 && !outdated) return { via: "apple-clt", ok: true, detail: "Command Line Tools already installed" };
   }
 
   // touch is best-effort: a marker left root-owned by an earlier trigger
@@ -153,12 +156,21 @@ async function installAppleClt(p: Probes): Promise<InstallResult> {
     if (label) {
       const install = await p.exec(["softwareupdate", "-i", label], { timeoutMs: CLT_INSTALL_TIMEOUT_MS });
       const git = await p.exec(["git", "--version"], { timeoutMs: PROBE_TIMEOUT_MS });
-      if (install.code === 0 && git.code === 0) {
+      if (install.code === 0 && git.code === 0 && !gitBelowFloor(git.stdout)) {
         return { via: "apple-clt", ok: true, detail: `Installed ${label}; ${git.stdout.trim()}` };
       }
     }
   } finally {
     await p.exec(["rm", "-f", CLT_ON_DEMAND_MARKER], { timeoutMs: PROBE_TIMEOUT_MS }).catch(() => {});
+  }
+
+  // Apple's dialog refuses while any Command Line Tools are installed, so old ones have to go first, which needs an admin.
+  if (outdated) {
+    return {
+      via: "apple-clt",
+      ok: false,
+      detail: `Your Command Line Tools have git older than ${GIT_FLOOR} and no update is offered. In Terminal, run: sudo rm -rf /Library/Developer/CommandLineTools && xcode-select --install`,
+    };
   }
 
   const res = await p.exec(["xcode-select", "--install"], { timeoutMs: PROBE_TIMEOUT_MS });
