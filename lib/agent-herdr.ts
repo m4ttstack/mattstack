@@ -160,6 +160,17 @@ export async function launchInWorkspace(
   return { workspaceId: wsId, tabId: root.tab_id, paneId: root.pane_id, focusedExisting: false };
 }
 
+/** The pane in `tabId` that herdr reports running this agent session, or null: a pane left at a shell prompt reports none. */
+export async function liveSessionPaneInTab(
+  sessionId: string,
+  tabId: string,
+  runner: HerdrRunner = defaultHerdrRunner(),
+): Promise<string | null> {
+  const list = await herdrJson(runner, ["pane", "list"]);
+  const pane = (list?.result?.panes ?? []).find((p: any) => p?.agent_session?.value === sessionId && p?.tab_id === tabId);
+  return typeof pane?.pane_id === "string" ? pane.pane_id : null;
+}
+
 /**
  * Focuses the pane already running this agent session, if one is, and
  * returns where it is. A second `--resume` of a running session splits it

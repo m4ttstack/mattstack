@@ -298,6 +298,74 @@ test("agent:start herdr returns ok:false and rolls back when herdr dedups the ta
   expect(existsSync(join(rtDir(), "agent-prompts", capturedId!))).toBe(false);
 });
 
+/** herdr with the label's tab open as w1:t9, and `panes` as its pane list (each pane's tab and live agent session). */
+function labelTakenRunner(label: string, panes: { pane_id: string; tab_id: string; session?: string }[] = []): HerdrRunner {
+  return async (args) => {
+    if (args[0] === "workspace" && args[1] === "list") {
+      return { stdout: JSON.stringify({ result: { workspaces: [{ workspace_id: "w1", label: repoLabel(REPO) }] } }), exitCode: 0 };
+    }
+    if (args[0] === "tab" && args[1] === "list") {
+      return { stdout: JSON.stringify({ result: { tabs: [{ tab_id: "w1:t9", label }] } }), exitCode: 0 };
+    }
+    if (args[0] === "pane" && args[1] === "list") {
+      const rows = panes.map((p) => ({ pane_id: p.pane_id, tab_id: p.tab_id, workspace_id: "w1", ...(p.session ? { agent_session: { value: p.session } } : {}) }));
+      return { stdout: JSON.stringify({ result: { panes: rows } }), exitCode: 0 };
+    }
+    return { stdout: "{}", exitCode: 0 };
+  };
+}
+
+const OLD = { id: "ag-old", repo: REPO, cwd: "/tmp/x", provider: "claude", surface: "herdr" as const, sessionId: "s-old", label: "slack-support", paneId: "w1:p3", tabId: "w1:t9", workspaceId: "w1", createdAt: 1 };
+
+test("agent:start hands back the agent live in the label's open tab, starting nothing", async () => {
+  const h = fresh({ runner: labelTakenRunner("slack-support", [{ pane_id: "w1:p3", tab_id: "w1:t9", session: "s-old" }]) });
+  insertAgent(OLD, h.db);
+
+  const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface: "herdr", label: "slack-support" });
+
+  expect(res.ok).toBe(true);
+  if (!res.ok) throw new Error("unreachable");
+  expect(res.data).toMatchObject({ id: "ag-old", paneId: "w1:p3", reused: true });
+  const list = await h["agent:list"]({});
+  if (!list.ok) throw new Error("unreachable");
+  expect(list.data.agents.map((a) => a.id)).toEqual(["ag-old"]);
+});
+
+test("agent:start refuses when the label's tab holds rt's agent but its pane is back at a shell", async () => {
+  const h = fresh({ runner: labelTakenRunner("slack-support", [{ pane_id: "w1:p3", tab_id: "w1:t9" }]) });
+  insertAgent(OLD, h.db);
+
+  const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface: "herdr", label: "slack-support" });
+
+  expect(res.ok).toBe(false);
+  if (res.ok) throw new Error("unreachable");
+  expect(res.error).toMatch(/already open/);
+});
+
+test("agent:start never hands back an agent from another tab, even one with the same label resumed later", async () => {
+  const h = fresh({ runner: labelTakenRunner("slack-support", [{ pane_id: "w1:p8", tab_id: "w1:t20", session: "s-resumed" }]) });
+  insertAgent({ ...OLD, id: "ag-resumed", sessionId: "s-resumed", paneId: "w1:p8", tabId: "w1:t20", lastResumedAt: 99 }, h.db);
+
+  const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface: "herdr", label: "slack-support" });
+
+  expect(res.ok).toBe(false);
+});
+
+test("agent:start keeps the refusal for an explicit --tab, a finished agent, and an agent on the bg server", async () => {
+  const live = [{ pane_id: "w1:p3", tab_id: "w1:t9", session: "s-old" }];
+  const tabbed = fresh({ runner: labelTakenRunner("slack-support", live) });
+  insertAgent(OLD, tabbed.db);
+  expect((await tabbed["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface: "herdr", label: "slack-support", tab: "slack-support" })).ok).toBe(false);
+
+  const finished = fresh({ runner: labelTakenRunner("slack-support", live) });
+  insertAgent({ ...OLD, finishedAt: 2 }, finished.db);
+  expect((await finished["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface: "herdr", label: "slack-support" })).ok).toBe(false);
+
+  const bg = fresh({ runner: labelTakenRunner("slack-support", live) });
+  insertAgent({ ...OLD, paneId: "bg:w1:p3" }, bg.db);
+  expect((await bg["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface: "herdr", label: "slack-support" })).ok).toBe(false);
+});
+
 // Pins the guard: a no-op insert (standing in for runCriticalWrite giving up
 // after sustained SQLITE_BUSY) must block the launch, not just the record.
 test("agent:start refuses to launch when the insert did not persist", async () => {
