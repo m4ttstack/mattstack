@@ -47,16 +47,28 @@ Rows, in order:
 **No worktree yet.** When no local tree is checked out on the MR's branch,
 the menu shows a note above the rows: "No worktree yet. Picking an action
 creates one." Picking any row provisions the tree through rt's worktree
-provisioning, then hands off. The menu shows a pending state while the
-tree provisions; a failure shows in the menu, not a toast elsewhere.
+provisioning, then hands off as soon as the tree exists. It does not wait
+for ready steps (install and the like), which run async and can be held
+for approval; the menu says setup is still running in the background. The
+menu shows a pending state only while the tree is being created; a failure
+shows in the menu, not a toast elsewhere.
 
-**Resume work session.** The board links runs to MRs by URL
-(`RunMrLinks`, `src/gates/run-mr.ts`); a run records its Claude session as
-a field. If that session is live in a pane (rt's run liveness reports a
-working pane for it), the row focuses that pane, through the board's
-existing `focusPane`. Otherwise it opens a tab running
-`claude --resume <session>` in the worktree. Several linked runs: the most
-recent one with a session wins.
+**Resume work session.** Sources are work pipeline runs that recorded
+this MR in their `mr` field, open or closed. Respond and doctor runs do not
+count. Today's `RunMrLinks` (`src/gates/run-mr.ts`) only covers runs with a
+live human gate, so this needs a new rt-client lookup over runs by `mr`,
+filtered to work runs, cached on the board like the existing resolver.
+Several matches: the most recent one with a recorded session wins.
+
+- **Live session.** If any agent pane is running that session, whatever its
+  status (working, idle, blocked), the row focuses that pane through the
+  board's existing `focusPane`. `workingSessionPane` in
+  `lib/runs/liveness.ts` matches only `working`, so this needs a sibling
+  lookup that ignores status.
+- **Not live.** Opens a tab running `claude --resume <session>` in the
+  run's own recorded `worktree`, not the MR's current tree: `--resume` finds
+  sessions by cwd. If that tree no longer exists, the row shows disabled
+  with "Session's worktree is gone".
 
 **Saved commands.** A new board setting, `board.flockCommands`: an array of
 `{ label, command }`, registered through the settings resolver (see the
@@ -82,7 +94,15 @@ flock://open?folder=<abs worktree path>&repo=<abs repo path>&label=<tab label>&r
 - `kind`: lets flock apply the pin's Claude account to `claude` and
   `resume` runs and leave other commands alone.
 
+- `token`: the shared secret (below).
+
 The board launches it with `open <url>` from the server.
+
+**Link guard.** A `flock://open` link runs a command in Matt's shell, so
+any page or app could otherwise run anything. Flock creates a random token
+file under `~/.mattstack` (mode 0600) on first launch if missing; the board
+reads it and adds `token=` to every link. Flock refuses, with a visible
+notice, any link whose token is missing or wrong. No confirmation click.
 
 ## Flock's side
 
@@ -145,10 +165,18 @@ Matt picked A.
 - Rows: empty shell, Claude, saved commands, resume the work session when
   one is known.
 - Approach A.
+- Resume draws on work runs only, open or closed.
+- `flock://open` is guarded by a shared token file.
 
 ## My calls (Matt to check)
 
-- Resume focuses a live pane instead of opening a second copy.
+- Resume focuses a live pane, at any agent status, instead of opening a
+  second copy.
+- Resume runs in the run's recorded worktree; a gone tree disables the row.
+- Provisioning hands off once the tree exists, without waiting for ready
+  steps.
+- Without rt, flock can't read `board.workspaces`, so the MRs workspace sits
+  among ordinary workspaces under the default `mrs` label. Accepted.
 - Saved commands live in `board.flockCommands`, user scope.
 - The Board MRs workspace label defaults to `mrs`.
 - Pin match by git common dir, so a pin on the main checkout or any
