@@ -239,6 +239,21 @@ describe("connectRows", () => {
     expect(todo.waiting).toBe("Installing…");
   });
 
+  test("a Claude outside ~/.local/bin offers the vendor install, not the sign-in", () => {
+    const elsewhere = swap(
+      joinerRows(),
+      r("tool.claude", "needs-you", "Claude Code needs to be installed where mattstack looks for it", { action: { type: "install", label: "Install", tool: "claude", via: "vendor" } }),
+    );
+    const todo = pick(connectRows(inputs({ plan: plan(elsewhere), logins: { claude: session("claude", { prompt: true }) } })), "claude");
+    expect([todo.state, todo.detail, todo.action]).toEqual(["todo", "Claude Code needs to be installed where mattstack looks for it", { type: "install", label: "Install", tool: "claude", via: "vendor" }]);
+    expect(todo.waiting).toBe("Installing…");
+    // An open connect row lands a finished Mac on connect, which is what opens Setup status after an update.
+    expect(allAnswered([todo])).toBe(false);
+
+    const busy = pick(connectRows(inputs({ plan: plan(elsewhere), prepare: prepare({ items: ["claude"] }) })), "claude");
+    expect(busy.state).toBe("busy");
+  });
+
   test("Claude with a live sign-in waits and offers Paste code", () => {
     const signedOut = swap(joinerRows(), r("tool.claude", "needs-you", "Not signed in yet", { required: false, action: CLAUDE_SIGNIN }));
     const claude = pick(connectRows(inputs({ plan: plan(signedOut), logins: { claude: session("claude", { prompt: true }) } })), "claude");
