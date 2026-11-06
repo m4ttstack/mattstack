@@ -35,6 +35,10 @@ export function useMenuHarness(): void {
     globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
   beforeAll(async () => {
+    // RowMenu reads /flock/menu on an own MR; the pins cover the rows shown
+    // before it answers, and no test may reach the network.
+    globalThis.fetch = (async () =>
+      new Response('', { status: 404 })) as unknown as typeof fetch;
     React = await import('react');
     ({ createRoot } = await import('react-dom/client'));
     ({ RowMenu } = await import('../RowMenu.tsx'));
