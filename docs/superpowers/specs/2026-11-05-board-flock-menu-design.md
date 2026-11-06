@@ -1,0 +1,165 @@
+# Board flock menu: open an MR's worktree in flock
+
+Status: draft for approval, 2026-11-05.
+Spans two repos Matt owns: this one (`apps/board`) and `flock`
+(`~/Documents/GitHub/flock`). Either side may change.
+
+## Why
+
+When one of Matt's own MRs needs a hands-on step (an `rt` command, a
+Claude session in its tree), he opens a terminal and finds the MR's
+worktree by hand. The board already knows the MR, its branch and repo.
+One click on the MR should land him in a focused flock tab, in that MR's
+worktree, with the thing he wanted already running.
+
+## Goals
+
+- A flock icon button on each of Matt's own MRs on the board opens a menu
+  of actions.
+- Picking an action opens a new flock tab in the MR's worktree, runs the
+  action, focuses the tab, and brings flock's window forward.
+- The tab lands in the repo's pinned flock workspace when one exists;
+  otherwise in a Board-owned "MRs" workspace.
+
+## Non-goals
+
+- Teammates' MRs. Only MRs `isOwnMr` (`apps/board/src/view.ts`) accepts.
+- Changing review, respond or doctor launches. They keep `launchInWorkspace`.
+- Any non-flock terminal target.
+
+## Anti-goals (failure even if it works)
+
+- Two copies of one Claude session running at once.
+- A worktree created without Matt being told beforehand.
+- Pin state copied into the board or another store. Pins stay flock's.
+
+## Menu
+
+Rows, in order:
+
+| Row | Shown when | Does |
+|---|---|---|
+| Empty shell | always | a login shell in the worktree |
+| Claude | always | `claude` in the worktree |
+| Resume work session | a work run linked to this MR recorded a session | see below |
+| Saved commands, one row each | the setting has entries | runs that command in the worktree |
+
+**No worktree yet.** When no local tree is checked out on the MR's branch,
+the menu shows a note above the rows: "No worktree yet. Picking an action
+creates one." Picking any row provisions the tree through rt's worktree
+provisioning, then hands off. The menu shows a pending state while the
+tree provisions; a failure shows in the menu, not a toast elsewhere.
+
+**Resume work session.** The board links runs to MRs by URL
+(`RunMrLinks`, `src/gates/run-mr.ts`); a run records its Claude session as
+a field. If that session is live in a pane (rt's run liveness reports a
+working pane for it), the row focuses that pane, through the board's
+existing `focusPane`. Otherwise it opens a tab running
+`claude --resume <session>` in the worktree. Several linked runs: the most
+recent one with a session wins.
+
+**Saved commands.** A new board setting, `board.flockCommands`: an array of
+`{ label, command }`, registered through the settings resolver (see the
+`rt:settings` skill), user scope. Empty or unset shows no rows.
+
+## Handoff: board to flock
+
+The board server owns everything that needs the MR: resolving or
+provisioning the worktree, picking the session, expanding the action into
+a command. Flock owns everything about placement.
+
+The board opens one URL:
+
+```
+flock://open?folder=<abs worktree path>&repo=<abs repo path>&label=<tab label>&run=<command>&kind=<shell|claude|resume|command>
+```
+
+- `folder`: the MR's worktree. The tab's cwd.
+- `repo`: any path inside the repo; flock reads its git common dir to match
+  pins.
+- `label`: the tab label, `mrTabLabel(iid)` style (`!123`).
+- `run`: the command line for the pane. Absent for an empty shell.
+- `kind`: lets flock apply the pin's Claude account to `claude` and
+  `resume` runs and leave other commands alone.
+
+The board launches it with `open <url>` from the server.
+
+## Flock's side
+
+On `flock://open`:
+
+1. **Find a pin for the repo.** A pin belongs to the repo when its
+   folder's git common dir equals `repo`'s. Several pins match: the first
+   in rail order.
+2. **Pinned.** Open the tab in the pin's workspace. A closed pin (no live
+   workspace) is reopened the way flock reopens a pin today, then gets the
+   tab. Claude kinds run under the pin's `claudeAccount`.
+3. **Not pinned.** Open the tab in the Board MRs workspace, created on
+   first use. It joins the Board rail section beside reviews, responses
+   and doctors: a new `mrs` role on `BoardWorkspaceNames` and on the
+   board's `board.workspaces` setting, default label `mrs`.
+4. Create the tab with `label` and cwd `folder`, run `run` in its pane,
+   focus the tab, and bring the window forward.
+
+No dedup by label: each pick opens a new tab (Matt wants a fresh place
+to work). Resume dedup happens on the board side, via the live-pane check.
+
+## Constraints
+
+- Flock and Flock Dev share Info.plist keys and never run at the same
+  time. Both would claim `flock://`. The builder must make the URL reach
+  the running flavor (or the production app when neither runs) and say
+  how in the plan.
+- Every rt-dependent flock feature renders only when `rt` resolves on
+  flock's startup PATH. This handler does not need rt; it must still work
+  without it.
+- Board server runs under a minimal launchd env: absolute binaries, as
+  `src/herdr.ts` does.
+- Board UI follows `docs/apps/ui-authoring.md` and the kit contract; the
+  flock icon comes through the kit icon registry. The UI is rendered and
+  checked in a browser, both colour schemes, before it counts as done.
+- Visual board changes regenerate capture baselines only when intended.
+
+## Approaches considered
+
+- **A. Flock decides (picked).** A `flock://open` link; the board hands off
+  the folder and the command, and flock picks pin vs Board MRs workspace.
+  Pins stay private, the pin's Claude account applies naturally, and
+  raising the window is free. Costs work in both repos and a new URL
+  handler.
+- **B. Board decides through herdr.** Flock publishes pins for the board
+  to read; the board reuses `launchInWorkspace` and raises flock.
+  Duplicates pin state and the closed-pin reopen logic.
+- **C. Board only, label match.** Treat a herdr workspace whose label
+  matches the repo as pinned. No flock change, but breaks on a rename and
+  cannot see closed pins.
+
+Matt picked A.
+
+## Decided by Matt
+
+- Own MRs only; menu behind the flock app icon.
+- No worktree: provision, and say so before he picks.
+- Placement: pinned workspace for the repo when one exists, else a Board
+  workspace for MRs like the review and respond ones.
+- Rows: empty shell, Claude, saved commands, resume the work session when
+  one is known.
+- Approach A.
+
+## My calls (Matt to check)
+
+- Resume focuses a live pane instead of opening a second copy.
+- Saved commands live in `board.flockCommands`, user scope.
+- The Board MRs workspace label defaults to `mrs`.
+- Pin match by git common dir, so a pin on the main checkout or any
+  worktree counts.
+- Every pick opens a new tab; no label dedup.
+
+## Left to the builder
+
+- Where the button sits on the MR row and the menu's exact look, against
+  the board's pen.dev mocks.
+- The rt-client or daemon call the board uses to find and provision the
+  MR's worktree.
+- URL escaping, and rejecting a `flock://open` whose folder is not a
+  directory.
