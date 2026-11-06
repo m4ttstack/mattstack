@@ -236,7 +236,7 @@ struct FastLoadingBody: View {
                     .accessibilityIdentifier(AXID.fastPrimary(FastSetupScreen.loading.rawValue))
             } else {
                 FastSpinner(size: 18)
-                FastTheme.sub("Checking where setup left off…")
+                FastTheme.sub("Getting setup ready…")
             }
             Spacer(minLength: 0)
         }
