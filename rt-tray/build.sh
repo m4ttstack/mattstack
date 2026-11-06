@@ -221,7 +221,7 @@ bundle_helpers() {
         echo "  ⚠ $DEPS_DIR missing — Helpers skipped (RT_REQUIRE_DEPS=0 set)"
         return
     fi
-    local row name version bundlePath ent status src dest prune skills_dest bad
+    local row name version bundlePath ent status source src dest prune skills_dest bad
     # Materialized to a file rather than streamed through `done < <(cmd)`: a
     # process-substitution loop never sees cmd's exit status, even under
     # set -o pipefail — an emitter crash (malformed lock, bun missing) would
@@ -234,8 +234,18 @@ bundle_helpers() {
     while IFS= read -r row; do
         [ -n "$row" ] || continue
         split_tsv "$row"
-        name="${FIELDS[0]}"; version="${FIELDS[1]}"; bundlePath="${FIELDS[6]}"; ent="${FIELDS[7]}"; status="${FIELDS[8]}"
+        name="${FIELDS[0]}"; version="${FIELDS[1]}"; bundlePath="${FIELDS[6]}"; ent="${FIELDS[7]}"; status="${FIELDS[8]}"; source="${FIELDS[11]}"
         if [ "$status" != bundled ]; then echo "  · $name: pending, not in this build"; continue; fi
+        # A tree row's Helpers/<name> is a small launcher that runs
+        # Helpers/<name>-app/main.js on Helpers/bun (scripts/build-apps.ts).
+        if [ "$source" = tree ]; then
+            [ -f "$DEPS_DIR/$name-app/main.js" ] || { echo "  ✗ $name-app/main.js missing in $DEPS_DIR — run $FETCH_HINT"; exit 1; }
+            rm -rf "$CONTENTS/Helpers/$name-app"
+            cp -R "$DEPS_DIR/$name-app" "$CONTENTS/Helpers/$name-app"
+            xattr -cr "$CONTENTS/Helpers/$name-app" 2>/dev/null || true
+            HELPER_ENTITLEMENTS+=("$CONTENTS/Helpers/$name-app	none")
+            echo "  ✓ Helpers/$name-app"
+        fi
         src="$DEPS_DIR/$name"
         [ -e "$src" ] || { echo "  ✗ $name not fetched at $src — run $FETCH_HINT"; exit 1; }
         dest="$APP_BUNDLE/$bundlePath"
@@ -312,7 +322,7 @@ if [ "$IS_DEV" = true ]; then
     else
         mv "$CONTENTS/Helpers/deck" "$CONTENTS/Helpers/deck-pinned"
         cp "$DECK_SHIM_BINARY" "$CONTENTS/Helpers/deck"; chmod +x "$CONTENTS/Helpers/deck"
-        HELPER_ENTITLEMENTS+=("$CONTENTS/Helpers/deck-pinned	jit")
+        HELPER_ENTITLEMENTS+=("$CONTENTS/Helpers/deck-pinned	none")
         echo "  ✓ Helpers/deck is the dev shim; the pin is Helpers/deck-pinned"
     fi
 fi
