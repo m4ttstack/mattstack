@@ -35,12 +35,14 @@ function deps(over: Partial<TriageRunDeps> = {}): TriageRunDeps & {
   notifies: string[];
   notifyCalls: NotifyCall[];
   paneNudges: Array<{ paneId: string; text: string }>;
+  closedTabs: string[];
 } {
   const audit: AuditEntry[] = [];
   const launches: any[] = [];
   const notifies: string[] = [];
   const notifyCalls: NotifyCall[] = [];
   const paneNudges: Array<{ paneId: string; text: string }> = [];
+  const closedTabs: string[] = [];
   const base: TriageRunDeps = {
     triage: parseTriageBlock({ enabled: true, doctorSkill: 'team:doctor-api' }),
     doctorCwd: '/repo',
@@ -97,6 +99,9 @@ function deps(over: Partial<TriageRunDeps> = {}): TriageRunDeps & {
     sendPaneText: async (paneId, text) => {
       paneNudges.push({ paneId, text });
     },
+    closeTab: async tabId => {
+      closedTabs.push(tabId);
+    },
     now: () => 1_000_000_000,
     identity: 'matt',
   };
@@ -106,6 +111,7 @@ function deps(over: Partial<TriageRunDeps> = {}): TriageRunDeps & {
     notifies,
     notifyCalls,
     paneNudges,
+    closedTabs,
   });
 }
 
@@ -543,6 +549,80 @@ describe('runTriage attendant lease (BOARD-10)', () => {
     });
     await runTriage(d);
     expect(releases).toEqual([['https://x/mr/1', 1]]);
+  });
+
+  const finishedDoctor = (): DoctorState => ({
+    mrUrl: 'https://x/mr/1',
+    iid: 1,
+    status: 'error',
+    origin: 'auto',
+    message: 'master is red on biome',
+    tabId: 'w9:t1',
+    paneId: 'w9:p1',
+    agentId: 'agent-0',
+    startedAt: 0,
+    updatedAt: 0,
+  });
+
+  test("a relaunch closes the finished doctor's tab before it launches", async () => {
+    const order: string[] = [];
+    const d = deps({
+      readDoctorStates: () => new Map([['https://x/mr/1', finishedDoctor()]]),
+      closeTab: async tabId => {
+        order.push(`close ${tabId}`);
+      },
+    });
+    const launch = d.launchDoctor;
+    d.launchDoctor = async opts => {
+      order.push('launch');
+      return launch(opts);
+    };
+    await runTriage(d);
+    expect(order).toEqual(['close w9:t1', 'launch']);
+  });
+
+  test('a launch that only focused an open pane spends no attempt and puts the row back', async () => {
+    const writes: Array<Partial<DoctorState>> = [];
+    const releases: Array<[string, number]> = [];
+    const d = deps({
+      readDoctorStates: () => new Map([['https://x/mr/1', finishedDoctor()]]),
+      attendants: {
+        read: () => null,
+        readByBranch: () => null,
+        claim: () => true,
+        heartbeat: () => {},
+        release: (mrUrl: string, iid: number) => releases.push([mrUrl, iid]),
+      },
+      launchDoctor: async () => ({
+        agentId: '',
+        sessionId: '',
+        paneId: '',
+        tabId: '',
+        workspaceId: '',
+        focusedExisting: true,
+      }),
+    });
+    const base = d.writeDoctorState;
+    d.writeDoctorState = (path, patch) => {
+      writes.push(patch);
+      return base(path, patch);
+    };
+    const result = await runTriage(d);
+    expect(result.dispatched).toBe(0);
+    expect(d.memory.mrs['https://x/mr/1']!.attemptsToday).toBe(0);
+    expect(d.memory.mrs['https://x/mr/1']!.lastHandledPipelineId).not.toBe(100);
+    expect(writes.at(-1)).toMatchObject({
+      status: 'error',
+      message: 'master is red on biome',
+      tabId: 'w9:t1',
+      paneId: 'w9:p1',
+      agentId: 'agent-0',
+    });
+    expect(releases.at(-1)).toEqual(['https://x/mr/1', 1]);
+    expect(d.audit.at(-1)).toMatchObject({
+      decision: 'skip',
+      reason: 'pane-open',
+    });
   });
 
   test('a launch that throws records its cause on the doctor row', async () => {

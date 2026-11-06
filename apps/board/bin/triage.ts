@@ -26,7 +26,7 @@ import {
   readDoctorStates,
   writeDoctorState,
 } from '../src/doctor-state.ts';
-import { launchDoctor, sendPaneText } from '../src/herdr.ts';
+import { closeTab, launchDoctor, sendPaneText } from '../src/herdr.ts';
 import { latchGateway } from '../src/latch/gateway.ts';
 import { fetchNewDiscussionCount } from '../src/latch/land.ts';
 import {
@@ -254,6 +254,7 @@ try {
       writeMemory,
       readFreshMemory: readMemory,
       sendPaneText,
+      closeTab: tabId => closeTab(tabId),
       now: () => Date.now(),
       attendants: createBoardAttendants(),
       ...daemonOwnerIo(boardConfig.gitlabHost),
