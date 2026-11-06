@@ -7,6 +7,7 @@ import {
   actionCommand,
   buildFlockMenu,
   flockOpenUrl,
+  openArgs,
   parseFlockCommands,
   pickMrTree,
   pickResumeRun,
@@ -157,6 +158,20 @@ test('flockOpenUrl encodes every part and omits run for a shell', () => {
     })
   );
   expect(withRun.searchParams.get('run')).toBe('rt sync && echo "done"');
+});
+
+test('openArgs names the running flavor, Flock Dev first', () => {
+  expect(openArgs('flock://open?x', ['Flock'])).toEqual([
+    '-b',
+    'dev.mattstack.Flock',
+    'flock://open?x',
+  ]);
+  expect(openArgs('flock://open?x', ['Flock', 'Flock-dev'])).toEqual([
+    '-b',
+    'dev.mattstack.Flock.dev',
+    'flock://open?x',
+  ]);
+  expect(openArgs('flock://open?x', [])).toEqual(['flock://open?x']);
 });
 
 describe('readFlockToken', () => {

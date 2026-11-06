@@ -6,6 +6,7 @@ import { extractTicketId, ticketUrl } from '../../ticket.ts';
 import {
   behindToken,
   flattenStack,
+  isOwnMr,
   nestStacks,
   statusFlags,
 } from '../../view.ts';
@@ -13,6 +14,7 @@ import type { BoardMRWithReview, RowContext } from '../types.ts';
 import { bandSource } from './ask-band.ts';
 import { AskBand } from './AskBand.tsx';
 import { ThreadsLink } from './CommentsDrawer.tsx';
+import { FlockButton } from './FlockMenu.tsx';
 import { ago, getSlackMarks, rowTitle } from './format.ts';
 import {
   ArrowDownGlyph,
@@ -317,6 +319,7 @@ function RowView({
                 </span>
               )}
             </span>
+            {ctx.local && isOwnMr(mr, ctx.self) && <FlockButton mr={mr} />}
             <SlackMarks
               mr={mr}
               onChoose={ctx.onOpenSlackPosts}

@@ -212,8 +212,34 @@ export async function provisionMrTree(
   return res.data.path;
 }
 
+/** Both flavors claim flock://, and Launch Services would hand the link to
+    its default even while the other one runs, so a running flavor is named
+    by bundle id. Flock Dev first: the two never run at once. */
+export const FLOCK_FLAVORS = [
+  { executable: 'Flock-dev', bundleId: 'dev.mattstack.Flock.dev' },
+  { executable: 'Flock', bundleId: 'dev.mattstack.Flock' },
+] as const;
+
+export function openArgs(url: string, running: readonly string[]): string[] {
+  const flavor = FLOCK_FLAVORS.find(f => running.includes(f.executable));
+  return flavor ? ['-b', flavor.bundleId, url] : [url];
+}
+
+async function runningFlavors(): Promise<string[]> {
+  const found: string[] = [];
+  for (const { executable } of FLOCK_FLAVORS) {
+    const proc = Bun.spawn(['/usr/bin/pgrep', '-x', executable], {
+      stdout: 'ignore',
+      stderr: 'ignore',
+    });
+    if ((await proc.exited) === 0) found.push(executable);
+  }
+  return found;
+}
+
 export async function openInFlock(url: string): Promise<void> {
-  const proc = Bun.spawn(['/usr/bin/open', url], {
+  const args = openArgs(url, await runningFlavors());
+  const proc = Bun.spawn(['/usr/bin/open', ...args], {
     stdout: 'ignore',
     stderr: 'pipe',
   });

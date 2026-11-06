@@ -1005,6 +1005,20 @@ body {
   padding: 6px 8px;
   margin: -4px -3px;
 }
+.tui-flock-button.tui-copy-inline {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 4px;
+  margin: -4px 0;
+}
+.tui-flock-button img {
+  display: block;
+}
+.tui-flock-button.tui-copy-inline[data-active] {
+  opacity: 1;
+  background: color-mix(in srgb, var(--muted-text) 22%, transparent);
+}
 .tui-row-marks.tui-copy-inline:active,
 .tui-row-marks.tui-copy-inline[data-active] {
   opacity: 1;
