@@ -856,11 +856,17 @@ body {
   font: var(--font-size-px12) / 1.6 var(--font-mono);
   color: var(--text-1);
 }
+/* Title and hint share one cell and wrap as one paragraph: a long branch
+   name in a title would otherwise starve the hint's own column. */
 .tui-synclog-line {
   display: grid;
-  grid-template-columns: 1.4ch auto 1fr;
+  grid-template-columns: 1.4ch minmax(0, 1fr);
   column-gap: 1ch;
   align-items: baseline;
+}
+.tui-synclog-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .tui-synclog-line[data-status='text'] {
   padding-left: 2.4ch;
@@ -870,12 +876,9 @@ body {
 .tui-synclog-line[data-status='text'] .tui-synclog-glyph {
   display: none;
 }
-.tui-synclog-title {
-  overflow-wrap: anywhere;
-}
 .tui-synclog-hint {
+  margin-left: 2ch;
   color: var(--text-3);
-  overflow-wrap: anywhere;
 }
 .tui-synclog-glyph {
   color: var(--text-3);
@@ -996,8 +999,60 @@ body {
 .tui-status-more {
   margin-left: 8px;
   flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
   font-size: 0.7rem;
-  color: color-mix(in srgb, var(--text-4) 70%, transparent);
+  color: var(--text-3);
+  cursor: pointer;
+}
+.tui-status-more:hover,
+.tui-status-more[data-open] {
+  color: var(--text-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.tui-status-more-pop {
+  width: 340px;
+  max-width: calc(100vw - 24px);
+  padding: 0;
+}
+.tui-status-more-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-px6);
+  padding: var(--spacing-px8) var(--spacing-px10);
+  font-size: var(--font-size-px12);
+  line-height: 1.45;
+  color: var(--text-3);
+}
+.tui-status-more-line {
+  display: flex;
+  flex-direction: column;
+}
+.tui-status-more-word {
+  font-weight: 600;
+  color: var(--text-2);
+}
+.tui-status-more-detail {
+  overflow-wrap: anywhere;
+}
+.tui-status-more-line[data-tone='bad'] .tui-status-more-word {
+  color: var(--text-bad);
+}
+.tui-status-more-line[data-tone='warn'] .tui-status-more-word {
+  color: var(--text-warn-vivid);
+}
+.tui-status-more-line[data-tone='work'] .tui-status-more-word {
+  color: var(--text-purple);
+}
+.tui-status-more-line[data-tone='go'] .tui-status-more-word {
+  color: var(--text-ok-vivid);
+}
+.tui-status-more-line[data-tone='quiet'] .tui-status-more-word,
+.tui-status-more-line[data-tone='clear'] .tui-status-more-word {
+  font-weight: 500;
 }
 /* Centered like the tools, not baseline-aligned: the line's baseline would
    otherwise follow whichever verb is first, and a secondary appearing left
@@ -1268,12 +1323,9 @@ body {
 /* Phone width: the branch and behind-target are unreadable at this width
    anyway; the reaction stage yields to the logo; the pill tightens. */
 @media (max-width: 480px) {
-  /* The +N active count reads only through its title, which a phone cannot
-     hover; it yields before the status word does. */
   .tui-branch,
   .tui-behind,
-  .tui-mark[data-slack-stage],
-  .tui-status-more {
+  .tui-mark[data-slack-stage] {
     display: none;
   }
   .tui-row-2 {

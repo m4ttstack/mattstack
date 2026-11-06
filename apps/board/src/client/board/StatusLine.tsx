@@ -5,7 +5,7 @@ import type { BoardMRWithReview, RowContext } from '../types.ts';
 import { AskGlyph } from './ask-glyph.tsx';
 import { clauseOf } from './clause.ts';
 import { AgentGlyph, CloudSpinner, Sun } from './icons.tsx';
-import type { RowStatus, Verb, VerbKind } from './row-status.ts';
+import type { Candidate, RowStatus, Verb, VerbKind } from './row-status.ts';
 import {
   liveSyncLines,
   parseSyncLine,
@@ -150,8 +150,12 @@ function SyncLogBody({
             <span className="tui-synclog-glyph" aria-hidden>
               {line.glyph ?? ''}
             </span>
-            <span className="tui-synclog-title">{line.title}</span>
-            {line.hint && <span className="tui-synclog-hint">{line.hint}</span>}
+            <span className="tui-synclog-text">
+              <span className="tui-synclog-title">{line.title}</span>
+              {line.hint && (
+                <span className="tui-synclog-hint">{line.hint}</span>
+              )}
+            </span>
           </div>
         );
       })}
@@ -212,6 +216,55 @@ function SyncLogWord({
           <span className="tui-synclog-branch">{mr.sourceBranch}</span>
         </div>
         <SyncLogBody lines={lines} running={running} />
+      </div>
+    </Popover>
+  );
+}
+
+/** The row's other status lines, behind a count: the line shows only the
+    hottest, and the rest are often finished runs rather than live ones. */
+function MoreStatuses({
+  mr,
+  more,
+}: {
+  mr: BoardMRWithReview;
+  more: readonly Candidate[];
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      align="start"
+      sideOffset={6}
+      ariaLabel={`other statuses for !${mr.iid}`}
+      classNames={{ popup: 'tui-status-more-pop' }}
+      trigger={
+        <button
+          type="button"
+          className="tui-status-more"
+          data-open={open ? 'true' : undefined}
+          onMouseDown={e => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}
+        >
+          +{more.length} more
+        </button>
+      }
+    >
+      <div className="tui-status-more-list" onClick={e => e.stopPropagation()}>
+        {more.map((l, i) => {
+          const detail = l.detail ? clauseOf(l.detail) : null;
+          return (
+            <div key={i} className="tui-status-more-line" data-tone={l.tone}>
+              <span className="tui-status-more-word">{l.word}</span>
+              {detail && (
+                <span className="tui-status-more-detail">
+                  {detail.full ?? detail.text}
+                </span>
+              )}
+            </div>
+          );
+        })}
       </div>
     </Popover>
   );
@@ -279,14 +332,7 @@ export function StatusLine({
           </Badge>
         </Tooltip>
       )}
-      {more.length > 0 && (
-        <span
-          className="tui-status-more"
-          title={more.map(l => l.word).join(', ')}
-        >
-          +{more.length} active
-        </span>
-      )}
+      {more.length > 0 && <MoreStatuses mr={mr} more={more} />}
       {verbs.length > 0 && (
         <span className="tui-status-verbs">
           {ordered(verbs).map(({ verb, primary }) => {

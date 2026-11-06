@@ -270,21 +270,35 @@ test('the all-clear line puts the word first, then the sun, then the open verb',
   ).toBe('open ↗');
 });
 
-test('suppressed candidates render as +N active with their words in the title', async () => {
+test('suppressed candidates sit behind +N more, which opens them with their details', async () => {
   await render(
     {
       line: { tone: 'warn', word: 'post which findings?', verbs: [] },
       more: [
-        { tone: 'work', word: 'implementing…', verbs: [] },
+        {
+          tone: 'quiet',
+          word: 'responded',
+          detail: '3 threads: 2 fixed and resolved, 1 overview skipped',
+          verbs: [],
+        },
         { tone: 'work', word: 'watching CI…', verbs: [] },
       ],
       bar: 'warn',
     },
     ctx()
   );
-  const more = container.querySelector('.tui-status-more')!;
-  expect(more.textContent).toBe('+2 active');
-  expect(more.getAttribute('title')).toBe('implementing…, watching CI…');
+  const more = container.querySelector<HTMLButtonElement>('.tui-status-more')!;
+  expect(more.textContent).toBe('+2 more');
+  await React.act(async () => more.click());
+  const lines = [...document.querySelectorAll('.tui-status-more-line')];
+  expect(lines.map(l => l.getAttribute('data-tone'))).toEqual([
+    'quiet',
+    'work',
+  ]);
+  expect(lines[0]?.textContent).toBe(
+    'responded3 threads: 2 fixed and resolved, 1 overview skipped'
+  );
+  expect(lines[1]?.textContent).toBe('watching CI…');
 });
 
 test('a long detail renders its first clause and keeps the whole message as the tooltip', async () => {
