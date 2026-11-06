@@ -1163,7 +1163,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     if (pushRetryTimer) { deps.clearTimeout(pushRetryTimer); pushRetryTimer = null; }
     // A pull-only clone cannot publish, so the remedy told to it must not name a verb it will
     // itself refuse (team-pull-only) the moment it is tried.
-    const remedy = spec.pullOnly ? "reset it to origin or ask an org admin" : "rebase and `rt team publish` by hand, or reset the clone to origin";
+    const remedy = spec.pullOnly ? "reset it to origin or ask an org admin" : "reset the clone to origin, or rebase your own team edit and run `rt team publish`";
     deps.log.warn({ id: spec.id, detail }, `${label}: rebase conflict; still fetching, but not applying pulls or pushing until you ${remedy}`);
     deps.broadcast(`${spec.eventPrefix}:conflict`, { id: spec.id, detail });
     return { outcome: "conflict", detail };
