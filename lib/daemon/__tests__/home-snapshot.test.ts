@@ -3541,6 +3541,28 @@ describe("startSnapshot: pull", () => {
     handle.stop();
   });
 
+  test("the pull that clears a conflict runs the post-pull converge once, though HEAD did not move", async () => {
+    const dirty = " M mattstack/settings.team.jsonc\0";
+    const exec = makeSwitchableExec([...pullResponders({ behind: 1, ahead: 1, rebase: "conflict" }), ...defaultResponders({ statusZ: dirty })]);
+    const { deps } = baseDeps({ exec: exec.fn });
+    const { repoDir: _r, ...specDeps } = deps;
+    const pulled: string[] = [];
+    const spec = teamSpecFor();
+    const handle = startSnapshot({ ...spec, pull: { ...spec.pull, onPulled: async (o: "fast-forwarded" | "rebased") => { pulled.push(o); } } }, specDeps);
+    await handle.ready;
+    expect((await handle.pullNow()).outcome).toBe("conflict");
+
+    // A reset to origin by hand: nothing behind or ahead, so the pull itself is up-to-date.
+    exec.setResponders([...pullResponders({ behind: 0, ahead: 0 }), ...defaultResponders({ statusZ: dirty })]);
+    expect((await handle.pullNow()).outcome).toBe("up-to-date");
+    expect(handle.status().conflicted).toBeNull();
+    expect(pulled).toEqual(["fast-forwarded"]);
+
+    await handle.pullNow();
+    expect(pulled).toEqual(["fast-forwarded"]);
+    handle.stop();
+  });
+
   // A pull-only clone should never reach this branch in normal operation
   // (it never commits), but a stray local commit from elsewhere can still
   // land it here, and its remedy must not name a verb it will itself refuse.

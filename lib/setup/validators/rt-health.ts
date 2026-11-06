@@ -713,7 +713,7 @@ export async function teamSyncRow(
   // A held marketplace can be what makes a rebase refuse or a push bounce, so the hold leads.
   const held = slugs.filter((slug) => (entries.find((x) => x.slug === slug)?.heldBack ?? []).length > 0);
   if (held.length > 0) {
-    const action: Action = { type: "steps", label: "Show steps…", steps: held.map((slug) => `Run: rt team publish --team ${slug}`) };
+    const action: Action = { type: "steps", label: "Show steps…", steps: [...held.map((slug) => `Run: rt team publish --team ${slug}`), ...conflictSteps] };
     const holds = held.map((slug) => `${slug}: a new pack is not shared yet, so its marketplace entry stays on this Mac`);
     return row({ ...base, status: "needs-you", detail: [...holds, ...(problemDetail ? [problemDetail] : [])].join("; "), action });
   }

@@ -1282,6 +1282,21 @@ describe("teamSyncRow", () => {
     expect(r?.detail).toContain("rebase");
   });
 
+  test("a held pack on one clone keeps another clone's conflict steps", async () => {
+    const r = await teamSyncRow(
+      ["acme", "beta"],
+      async () => [
+        { slug: "acme", lastPullAt: 900_000, lastPushError: null, conflicted: null, heldBack: ["marketplace.json"] } as never,
+        { slug: "beta", repoDir: "/orgs/beta", lastPullAt: 900_000, lastPushError: null, conflicted: { at: 1, detail: "CONFLICT x" } } as never,
+      ],
+      now,
+      300,
+    );
+    const steps = r?.action?.type === "steps" ? r.action.steps : [];
+    expect(steps).toContain("Run: rt team publish --team acme");
+    expect(steps).toContain("The beta clone is at /orgs/beta");
+  });
+
   test("a pushing clone in conflict leads with reset and pull, and offers publish only for the member's own edit", async () => {
     const r = await teamSyncRow(
       ["acme"],
