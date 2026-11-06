@@ -1,6 +1,6 @@
 # Board flock menu: open an MR's worktree in flock
 
-Status: draft for approval, 2026-11-05.
+Status: built, 2026-11-05.
 Spans two repos Matt owns: this one (`apps/board`) and `flock`
 (`~/Documents/GitHub/flock`). Either side may change.
 
@@ -14,8 +14,8 @@ worktree, with the thing he wanted already running.
 
 ## Goals
 
-- A flock icon button on each of Matt's own MRs on the board opens a menu
-  of actions.
+- A "flock" flyout (Flock's app icon) in the right-click menu of each of
+  Matt's own MRs lists the actions. Never a button on the card.
 - Picking an action opens a new flock tab in the MR's worktree, runs the
   action, focuses the tab, and brings flock's window forward.
 - The tab lands in the repo's pinned flock workspace when one exists;
@@ -44,6 +44,10 @@ Rows, in order:
 | Resume work session | a work run linked to this MR recorded a session | see below |
 | Saved commands, one row each | the setting has entries | runs that command in the worktree |
 
+Each row carries its own icon: a terminal for shell, the agent mark for
+Claude, a history clock for resume, and for a saved command the icon it
+names, else a prompt chevron.
+
 **No worktree yet.** When no local tree is checked out on the MR's branch,
 the menu shows a note above the rows: "No worktree yet. Picking an action
 creates one." Picking any row provisions the tree through rt's worktree
@@ -71,8 +75,11 @@ Several matches: the most recent one with a recorded session wins.
   with "Session's worktree is gone".
 
 **Saved commands.** A new board setting, `board.flockCommands`: an array of
-`{ label, command }`, registered through the settings resolver (see the
-`rt:settings` skill), user scope. Empty or unset shows no rows.
+`{ label, command, icon? }`, registered through the settings resolver (see
+the `rt:settings` skill), user scope. Empty or unset shows no rows. `icon`
+is one of `rt` (rt's plain monospace monogram), `cd`, `folder`, `branch`,
+`play`, `pulse` (flock's rt menu icons), `shell`, `agent`, `refresh`,
+`file`, `note`.
 
 ## Handoff: board to flock
 
@@ -96,7 +103,14 @@ flock://open?folder=<abs worktree path>&repo=<abs repo path>&label=<tab label>&r
 
 - `token`: the shared secret (below).
 
-The board launches it with `open <url>` from the server.
+Values are percent-encoded with `encodeURIComponent`: URLSearchParams'
+`+` for a space reaches Foundation as a literal plus.
+
+The board launches it with `open -a <running Flock.app> <url>`, finding the
+app launchd started (`pgrep -x -P 1`, Flock Dev first). Every build folder
+holds a copy with the same bundle id, so `open -b` or the default handler
+can start a second instance; plain `open <url>` is only for when no Flock
+runs.
 
 **Link guard.** A `flock://open` link runs a command in Matt's shell, so
 any page or app could otherwise run anything. Flock creates a random token
@@ -127,9 +141,8 @@ to work). Resume dedup happens on the board side, via the live-pane check.
 ## Constraints
 
 - Flock and Flock Dev share Info.plist keys and never run at the same
-  time. Both would claim `flock://`. The builder must make the URL reach
-  the running flavor (or the production app when neither runs) and say
-  how in the plan.
+  time; both claim `flock://`. The board picks the running app by path
+  (above).
 - Every rt-dependent flock feature renders only when `rt` resolves on
   flock's startup PATH. This handler does not need rt; it must still work
   without it.
