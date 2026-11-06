@@ -241,7 +241,7 @@ describe("toolRows — tool.herdr", () => {
 describe("toolRows — tool.claude", () => {
   test("127 -> missing, install action", async () => {
     const exec: ExecScript = (argv) => (argv[0] === "claude" && argv[1] === "--version" ? missing("claude") : ok());
-    const r = await pickRow(toolRows(fakeProbes({ exec, files: CLAUDE_AT_VENDOR_PATH }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("missing");
     expect(r.action).toEqual({ type: "install", label: "Install", tool: "claude", via: "vendor" });
     expect(r.recheck).toBe("on-activate");
@@ -272,8 +272,16 @@ describe("toolRows — tool.claude", () => {
     expect(r.status).toBe("ready");
   });
 
+  test("a hung or broken claude elsewhere, with none at ~/.local/bin, still offers the vendor install", async () => {
+    for (const answer of [{ code: 124, stdout: "", stderr: "" }, { code: 1, stdout: "", stderr: "dyld: missing library" }]) {
+      const exec: ExecScript = (argv) => (argv[0] === "claude" ? answer : ok());
+      const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+      expect([r.status, r.action?.type]).toEqual(["needs-you", "install"]);
+    }
+  });
+
   test("--version times out -> error", async () => {
-    const r = await pickRow(toolRows(fakeProbes({ exec: TIMEOUT }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec: TIMEOUT, files: CLAUDE_AT_VENDOR_PATH }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("error");
   });
 

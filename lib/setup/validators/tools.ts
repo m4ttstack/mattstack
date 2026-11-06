@@ -150,11 +150,11 @@ async function claudeRow(p: Probes): Promise<Row> {
 
   const versionRes = await exec(p, ["claude", "--version"]);
   if (versionRes.code === 127) return row({ ...base, status: "missing", detail: "Claude Code is not installed", action: provisionedInstallAction("claude") });
-  if (versionRes.code === 124) return row({ ...base, status: "error", detail: "Claude Code did not answer in time" });
-  if (versionRes.code !== 0) return row({ ...base, status: "error", detail: `Could not run Claude Code (exit ${versionRes.code})` });
   if (!p.exists(vendorBinPath(p.home, "claude"))) {
     return row({ ...base, status: "needs-you", detail: "Claude Code needs to be installed where mattstack looks for it", action: provisionedInstallAction("claude") });
   }
+  if (versionRes.code === 124) return row({ ...base, status: "error", detail: "Claude Code did not answer in time" });
+  if (versionRes.code !== 0) return row({ ...base, status: "error", detail: `Could not run Claude Code (exit ${versionRes.code})` });
   const version = extractVersion(versionRes.stdout);
 
   const authRes = await exec(p, ["claude", "auth", "status"]);
