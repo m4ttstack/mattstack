@@ -21,7 +21,7 @@ struct CreateTeamScreenBody: View {
     let onCreate: () -> Void
 
     /// rt sends none of these lines, so the screen carries P3c's own copy.
-    static let subtitle = "No waiting. You're its admin"
+    static let subtitle = "Sets up your org and its first team"
     static let footerNote = "Next: the same short form"
 
     private var onGitHub: Bool { forge.wrappedValue == "github" }
