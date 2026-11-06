@@ -56,23 +56,34 @@ struct FormCard: View {
             if let titleAbove { Text(titleAbove).font(FastTheme.cardTitle).foregroundColor(FastTheme.textSecondary) }
             FastCard {
                 ForEach(Array(pieces.enumerated()), id: \.element.id) { index, piece in
-                    if index > 0 { FastRowDivider() }
-                    switch piece {
-                    case .row(let row):
+                    // A row and the divider above it come and go together: they fade in from just above and fade out.
+                    VStack(spacing: 0) {
+                        if index > 0 { FastRowDivider() }
+                        pieceView(piece)
+                    }
+                    .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: -6)), removal: .opacity))
+                }
+            }
+            .animation(.spring(response: 0.4, dampingFraction: 0.9), value: pieces.map(\.id))
+        }
+    }
+
+    @ViewBuilder private func pieceView(_ piece: Piece) -> some View {
+        switch piece {
+        case .row(let row):
+            FormRowView(row: row, waiting: waiting[row.id], error: errors[row.id], style: style,
+                        showsTitle: style == .labelled || row.title != title, onAction: onAction)
+        case .repos(let run):
+            FastLabelledRow(label: title) {
+                // P5b's CSS gap is 14, but SF's 11-point note line is 2 taller than Inter's, so the blocks pitch as the mock's at 12.
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(run, id: \.id) { row in
                         FormRowView(row: row, waiting: waiting[row.id], error: errors[row.id], style: style,
-                                    showsTitle: style == .labelled || row.title != title, onAction: onAction)
-                    case .repos(let run):
-                        FastLabelledRow(label: title) {
-                            // P5b's CSS gap is 14, but SF's 11-point note line is 2 taller than Inter's, so the blocks pitch as the mock's at 12.
-                            VStack(alignment: .leading, spacing: 12) {
-                                ForEach(run, id: \.id) { row in
-                                    FormRowView(row: row, waiting: waiting[row.id], error: errors[row.id], style: style,
-                                                bare: true, onAction: onAction)
-                                }
-                            }
-                        }
+                                    bare: true, onAction: onAction)
+                            .transition(.opacity.combined(with: .offset(y: -6)))
                     }
                 }
+                .animation(.spring(response: 0.4, dampingFraction: 0.9), value: run.map(\.id))
             }
         }
     }

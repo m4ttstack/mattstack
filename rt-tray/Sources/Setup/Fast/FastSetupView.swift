@@ -60,6 +60,8 @@ struct FastSetupView: View {
                     .transition(Self.screenChange(forward: forward))
             }
             .animation(.spring(response: 0.42, dampingFraction: 0.9), value: drawn)
+            // Anything rt's next read changes on this screen (a row's state, a card's rows, a failure) eases into place.
+            .animation(.spring(response: 0.38, dampingFraction: 0.9), value: changeKey(drawn))
         }
             .onAppear { shown = drawn }
             .onChange(of: drawn) { _, now in shown = now }
@@ -70,6 +72,14 @@ struct FastSetupView: View {
             .sheet(item: $actions.sheet, onDismiss: { Task { await actions.sheetClosed() } }) { sheet in
                 FastSetupSheet(sheet: sheet, actions: actions)
             }
+    }
+
+    /// What rt's reads and the presses change on a screen; typing changes none of it.
+    private func changeKey(_ screen: FastSetupScreen) -> String {
+        let rows = screen.section.flatMap { form.rows(for: $0) } ?? []
+        let states = rows.map { "\($0.id):\($0.state.rawValue):\($0.action?.label ?? "")" }.joined(separator: ",")
+        let failure = status.failures[screen] ?? ""
+        return [states, actions.waiting.keys.sorted().joined(separator: ","), failure, String(status.busy == screen)].joined(separator: "|")
     }
 
     /// The new screen fades and slides in from the side it comes from; the old one leaves the other way.

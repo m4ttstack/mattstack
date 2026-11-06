@@ -28,11 +28,15 @@ struct InviteScreenBody: View {
             FastScreenHeader(title: "Paste your invite", subtitle: Self.subtitle, spacing: 16)
             InviteCodeField(code: code, onPaste: onPaste)
                 .padding(.top, 8)
-            verdict
-            if let rows, !rows.isEmpty {
-                FormCard(title: nil, rows: rows, waiting: waiting, errors: errors, style: .labelled, onAction: onAction)
-                    .environment(\.fastLinkIcon, true)
+            Group {
+                verdict.transition(.opacity)
+                if let rows, !rows.isEmpty {
+                    FormCard(title: nil, rows: rows, waiting: waiting, errors: errors, style: .labelled, onAction: onAction)
+                        .environment(\.fastLinkIcon, true)
+                        .transition(.opacity.combined(with: .offset(y: -6)))
+                }
             }
+            .animation(.spring(response: 0.38, dampingFraction: 0.9), value: [String(isChecking), failure ?? "", inviteLine ?? "", String(rows?.count ?? 0)])
             HStack(spacing: 6) {
                 // SF's link at 12 fills the CSS's 13 box as Lucide's does.
                 Image(systemName: "link").font(.system(size: 12, weight: .light)).frame(width: 13, height: 13)
