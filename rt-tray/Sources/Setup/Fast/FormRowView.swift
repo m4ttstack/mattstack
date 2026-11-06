@@ -111,8 +111,9 @@ struct FormRowView: View {
     /// The row's own work is running: the command, or rt's read of a wait.
     private var working: Bool { runningRows.contains(row.id) || progressLine != nil }
     private var loading: Bool { working || settling }
-    /// A field row rt holds in `waiting` is waiting on the person's paste, not on work; only a submit being checked loads its button.
-    private var submitting: Bool { runningRows.contains(row.id) || waiting != nil || (settling && row.state != .waiting) }
+    /// A field row rt holds in `waiting` is waiting on the person's paste, and the runner keeps its wait line until the row
+    /// is done, so only the submit's own verb loads the button; a loading button takes no clicks.
+    private var submitting: Bool { runningRows.contains(row.id) || (settling && row.state != .waiting) }
 
     var body: some View {
         content
