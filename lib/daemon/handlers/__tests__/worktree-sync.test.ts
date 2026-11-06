@@ -62,6 +62,17 @@ describe("worktree:sync", () => {
     expect(calls.synced).toEqual([]);
   });
 
+  test("streams its own steps and the sync's lines for the branch", async () => {
+    const lines: string[] = [];
+    const { run } = harness({
+      ...noTree,
+      line: (e) => { expect(e).toMatchObject({ repoName: "r", branch: "feat" }); lines.push(e.line); },
+      sync: async (_path, onLine) => { onLine?.("[ok] Fetched from origin"); return synced("synced", { pushed: true }); },
+    });
+    await data(run({ repoName: "r", branch: "feat" }));
+    expect(lines).toEqual(["[running] Making a worktree for feat", "[ok] Made worktree new-tree", "[ok] Fetched from origin", "[ok] Removed worktree new-tree"]);
+  });
+
   test("a rebase an earlier sync paused comes back as a conflict", async () => {
     const { run } = harness({ sync: async () => synced("error", { refusal: "a rebase is in progress; finish it with git rebase --continue" }) });
     expect(await data(run({ repoName: "r", branch: "feat" }))).toMatchObject({ kind: "conflict", path: "/trees/elrond", refusal: null });
@@ -107,7 +118,7 @@ describe("runBranchSync", () => {
 
   test("runs the CLI, not the daemon entry, in the tree", async () => {
     let seen: { argv: string[]; cwd: string } | undefined;
-    await runBranchSync("/trees/a", async (argv, opts) => {
+    await runBranchSync("/trees/a", undefined, async (argv, opts) => {
       seen = { argv, cwd: opts.cwd };
       return { exitCode: 0, stdout: "{}", stderr: "" };
     });
@@ -117,17 +128,29 @@ describe("runBranchSync", () => {
     expect(seen?.argv.some((a) => a.endsWith("daemon.ts"))).toBe(false);
   });
 
+  test("with a line listener, asks for progress and hands stderr lines over", async () => {
+    let seen: { argv: string[]; onStderrLine?: (l: string) => void } | undefined;
+    const lines: string[] = [];
+    await runBranchSync("/trees/a", (l) => lines.push(l), async (argv, opts) => {
+      seen = { argv, onStderrLine: opts.onStderrLine };
+      opts.onStderrLine?.("[ok] Fetched from origin");
+      return { exitCode: 0, stdout: "{}", stderr: "" };
+    });
+    expect(seen?.argv.at(-1)).toBe("--progress");
+    expect(lines).toEqual(["[ok] Fetched from origin"]);
+  });
+
   test("passes the verb's result through", async () => {
-    const r = await runBranchSync("/t", reply({ stdout: JSON.stringify(synced("conflict")) }));
+    const r = await runBranchSync("/t", undefined, reply({ stdout: JSON.stringify(synced("conflict")) }));
     expect(r.kind).toBe("conflict");
   });
 
   test("no JSON is an error naming the last stderr line", async () => {
-    const r = await runBranchSync("/t", reply({ exitCode: 2, stderr: "first\nlast" }));
+    const r = await runBranchSync("/t", undefined, reply({ exitCode: 2, stderr: "first\nlast" }));
     expect(r).toMatchObject({ kind: "error", refusal: "rt sync gave no result (exit 2): last" });
   });
 
   test("a timeout is an error", async () => {
-    expect((await runBranchSync("/t", reply({ timedOut: true }))).kind).toBe("error");
+    expect((await runBranchSync("/t", undefined, reply({ timedOut: true }))).kind).toBe("error");
   });
 });

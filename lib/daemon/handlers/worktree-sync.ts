@@ -1,4 +1,4 @@
-import { join } from "path";
+import { basename, join } from "path";
 import type { Commands, WorktreeSyncData } from "../../../packages/rt-client/src/index.ts";
 import { explainError } from "../../explain-error.ts";
 import { rtSelfArgv } from "../../rt-self.ts";
@@ -12,17 +12,18 @@ const BRANCH_SYNC_TIMEOUT_MS = 330_000;
 
 export type SyncResult = Pick<WorktreeSyncData, "kind" | "pushed" | "oldHead" | "newHead" | "refusal">;
 
-type Run = (argv: [string, ...string[]], opts: { cwd: string; timeoutMs: number; stderr: "pipe"; env: Record<string, string | undefined> }) => Promise<{ exitCode: number; stdout: string; stderr: string; timedOut?: boolean }>;
+type Run = (argv: [string, ...string[]], opts: { cwd: string; timeoutMs: number; stderr: "pipe"; env: Record<string, string | undefined>; onStderrLine?: (line: string) => void }) => Promise<{ exitCode: number; stdout: string; stderr: string; timedOut?: boolean }>;
 
 const syncError = (refusal: string): SyncResult => ({ kind: "error", pushed: false, oldHead: null, newHead: null, refusal });
 
-export async function runBranchSync(path: string, run: Run = runCapture): Promise<SyncResult> {
+export async function runBranchSync(path: string, onLine?: (line: string) => void, run: Run = runCapture): Promise<SyncResult> {
   const [exe, ...rest] = rtSelfArgv({ main: CLI_ENTRY });
-  const r = await run([exe!, ...rest, "worktree", "branch-sync"], {
+  const r = await run([exe!, ...rest, "worktree", "branch-sync", ...(onLine ? ["--progress"] : [])], {
     cwd: path,
     timeoutMs: BRANCH_SYNC_TIMEOUT_MS,
     stderr: "pipe",
     env: { ...childEnv(), GIT_TERMINAL_PROMPT: "0", RT_BATCH: "1", RT_SKIP_SETUP: "1" },
+    ...(onLine ? { onStderrLine: onLine } : {}),
   });
   if (r.timedOut) return syncError(`rt sync timed out after ${BRANCH_SYNC_TIMEOUT_MS / 1000}s`);
   try {
@@ -40,7 +41,9 @@ export interface WorktreeSyncDeps {
   dispose: (payload: { repoName: string; tree: string }) => Promise<unknown>;
   /** Whether `path` is one of `repoName`'s registered worktrees. */
   knownTree: (repoName: string, path: string) => boolean;
-  sync: (path: string) => Promise<SyncResult>;
+  sync: (path: string, onLine?: (line: string) => void) => Promise<SyncResult>;
+  /** Each output line of the sync as it happens, in rt's plain `[status] title  hint` form. */
+  line?: (event: { repoName: string; branch: string; line: string }) => void;
 }
 
 const before = (kind: WorktreeSyncData["kind"], path: string | null, refusal: string): WorktreeSyncData =>
@@ -62,6 +65,7 @@ export function createWorktreeSyncHandler(deps: WorktreeSyncDeps) {
     const branch = payload?.branch;
     if (typeof repoName !== "string" || !repoName) return { ok: false, error: "repoName is required" };
     if (typeof branch !== "string" || !branch) return { ok: false, error: "branch is required" };
+    const say = deps.line ? (line: string) => deps.line!({ repoName, branch, line }) : undefined;
 
     // A paused rebase detaches HEAD, so the registry may no longer list the
     // tree under its branch; the caller names it instead.
@@ -77,11 +81,14 @@ export function createWorktreeSyncHandler(deps: WorktreeSyncDeps) {
     const existing = named ?? attached[0]?.path;
     if (existing) {
       path = existing;
+      say?.(`[ok] Syncing in worktree ${attached[0]?.tree ?? basename(existing)}`);
     } else {
+      say?.(`[running] Making a worktree for ${branch}`);
       const made = await deps.provision({ repoName, branch, disposal: "merge" });
       if (!made.ok) return { ok: true, data: before("no-tree", null, explainError(made.error)) };
       path = made.data.path;
       created = made.data.tree;
+      say?.(`[ok] Made worktree ${created}`);
       // Provision cuts a branch it finds nowhere from the default branch,
       // which would read as "already up to date".
       if (made.data.branchState === "new") {
@@ -90,8 +97,11 @@ export function createWorktreeSyncHandler(deps: WorktreeSyncDeps) {
       }
     }
 
-    const r = resumable(await deps.sync(path));
-    if (created && !KEEPS_TREE.has(r.kind)) await deps.dispose({ repoName, tree: created });
+    const r = resumable(await deps.sync(path, say));
+    if (created && !KEEPS_TREE.has(r.kind)) {
+      await deps.dispose({ repoName, tree: created });
+      say?.(`[ok] Removed worktree ${created}`);
+    }
     return {
       ok: true,
       data: { kind: r.kind, path, provisioned: created !== null, pushed: r.pushed, oldHead: r.oldHead, newHead: r.newHead, refusal: r.refusal },

@@ -178,7 +178,8 @@ export function buildRoutedHandlers(opts: {
     check: worktreeHandlers["worktree:provision-check"],
     provision: worktreeHandlers["worktree:provision"],
     dispose: worktreeHandlers["worktree:dispose"],
-    sync: runBranchSync,
+    sync: (path, onLine) => runBranchSync(path, onLine),
+    line: (event) => broadcast("worktree:sync-line", event),
     knownTree: (repoName, path) => findTreeByPath(path)?.repoName === repoName,
   });
   const worktreeTriageHandlers = createWorktreeTriageHandlers(
