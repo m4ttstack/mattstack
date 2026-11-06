@@ -17,6 +17,7 @@ import {
   type Merging,
   type OptimisticState,
 } from './optimistic.ts';
+import { pushSyncLine, resetSyncLines } from './sync-lines.ts';
 
 /** Thin useState/useEffect wrapper over the pure optimistic-lifecycle
     functions: tracks the queued/error-rollback state for the review/respond/
@@ -187,6 +188,26 @@ export function useBoardData(
       if (e.data === 'reload') location.reload();
       else if (!document.hidden) load();
     };
+    es.addEventListener('sync-start', (e: MessageEvent<string>) => {
+      try {
+        const { mrUrl } = JSON.parse(e.data) as { mrUrl?: unknown };
+        if (typeof mrUrl === 'string') resetSyncLines(mrUrl);
+      } catch {
+        /* a frame this page cannot read changes nothing */
+      }
+    });
+    es.addEventListener('sync-line', (e: MessageEvent<string>) => {
+      try {
+        const { mrUrl, line } = JSON.parse(e.data) as {
+          mrUrl?: unknown;
+          line?: unknown;
+        };
+        if (typeof mrUrl === 'string' && typeof line === 'string')
+          pushSyncLine(mrUrl, line);
+      } catch {
+        /* a frame this page cannot read changes nothing */
+      }
+    });
     return () => es.close();
   }, [load]);
 

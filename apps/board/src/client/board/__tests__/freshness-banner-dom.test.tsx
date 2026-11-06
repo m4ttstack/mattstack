@@ -21,6 +21,7 @@ const NOW = Date.now();
 class FakeEventSource {
   onmessage: ((ev: MessageEvent) => void) | null = null;
   close(): void {}
+  addEventListener(): void {}
 }
 (globalThis as unknown as { EventSource: unknown }).EventSource =
   FakeEventSource;

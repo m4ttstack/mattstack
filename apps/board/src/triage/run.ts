@@ -1,6 +1,7 @@
 import type { RunSummary } from '@mattstack/rt-client';
 import type { AgentLaunchResult } from '../agent-launch.ts';
 import {
+  NO_SYNC_CARRY,
   STAND_DOWN_PANE_MESSAGE,
   type DoctorState,
   type DoctorStatus,
@@ -191,6 +192,11 @@ export interface TriageRunDeps {
       guard below. */
   readFreshMemory(): DispatchMemory;
   sendPaneText(paneId: string, text: string): Promise<void>;
+  /** Whether the doctors workspace still holds this MR's tab. rt refuses a
+      second tab with the same label and only focuses the open one, so a
+      launch then would start nothing; and an errored doctor's pane is left
+      open on purpose for the operator to take over. */
+  doctorTabOpen(iid: number): Promise<boolean>;
   now(): number;
   attendants?: AttendantsPort;
   /** Team pack the doctor wrapper resolves bindings with; absent means the generic skill. */
@@ -462,6 +468,19 @@ export async function runTriage(
       });
       continue;
     }
+    if (await deps.doctorTabOpen(edge.iid)) {
+      result.skipped++;
+      deps.appendAudit({
+        ts: now,
+        mrUrl: edge.mrUrl,
+        iid: edge.iid,
+        event: edge.kind,
+        decision: 'skip',
+        reason: 'pane-open',
+        pipelineId: edge.pipelineId,
+      });
+      continue;
+    }
     // BOARD-10: someone (a watch-ci session) is already attending this MR's
     // CI. The red is theirs to handle; skip without consuming budget.
     const lease = deps.attendants?.read(edge.mrUrl, edge.iid) ?? null;
@@ -595,6 +614,7 @@ export async function runTriage(
         fixClasses,
         boardTabId: '',
         noPack: !deps.pack,
+        ...NO_SYNC_CARRY,
       });
       const launchResult = await deps.launchDoctor({
         mrUrl: edge.mrUrl,

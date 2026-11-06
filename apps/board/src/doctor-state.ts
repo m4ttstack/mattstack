@@ -25,7 +25,8 @@ export type DoctorStatus =
   | 'watching'
   | 'done'
   | 'error'
-  | 'sync-stopped';
+  | 'sync-stopped'
+  | 'synced';
 
 export type DoctorOrigin = 'auto' | 'manual';
 
@@ -71,6 +72,8 @@ export interface DoctorState {
       SAME clock value the write's updatedAt gets. See ReviewState's own
       reopenedAt for the sweep-exemption contract, which this mirrors. */
   reopenedAt?: number;
+  /** See ReviewState's resumedAt, which this mirrors. */
+  resumedAt?: number;
   /** Stamp of the operator dismissing this lane's line from the row. While
       it is at least as new as `updatedAt` the row skips the lane entirely;
       any later write (a relaunch, the pane's own status CLI) outranks it and
@@ -80,6 +83,15 @@ export interface DoctorState {
       skill. Every launch and resume that resolves a skill rewrites it, so
       choosing a pack clears it; only a promptless reopen leaves it as it was. */
   noPack?: boolean;
+  /** The worktree a local sync left a rebase paused in, for a retry and a
+      resumed pane to go back to. */
+  pausedTree?: string;
+  /** What the last local sync printed, kept until the next sync or a
+      doctor launch that is not a sync's hand-off. */
+  syncLog?: string[];
+  /** The pipeline the MR showed when a sync pushed: its result predates the
+      push, so it says nothing about the rebased branch. */
+  pipelineAtSync?: string;
   startedAt: number;
   updatedAt: number;
 }
@@ -120,6 +132,9 @@ export function writeDoctorState(
     reopenedAt: patch.reopenedAt,
     dismissedAt: patch.dismissedAt,
     noPack: patch.noPack,
+    pausedTree: patch.pausedTree,
+    syncLog: patch.syncLog,
+    pipelineAtSync: patch.pipelineAtSync,
     startedAt: now,
     updatedAt: now,
   };
@@ -159,12 +174,18 @@ export function attachDoctors<T extends { webUrl?: string | null }>(
     recompute fixClasses from), while draftBin is re-derivable and folded
     in here so callers need only this one call. */
 export function doctorResumeDispatchFields(
-  state: Pick<DoctorState, 'tier' | 'fixClasses'> | undefined
-): { tier?: string; fixClasses?: string[]; draftBin: string } {
+  state: Pick<DoctorState, 'tier' | 'fixClasses' | 'pausedTree'> | undefined
+): {
+  tier?: string;
+  fixClasses?: string[];
+  draftBin: string;
+  pausedTree?: string;
+} {
   return {
     tier: state?.tier,
     fixClasses: state?.fixClasses,
     draftBin: draftBinPath(),
+    pausedTree: state?.pausedTree,
   };
 }
 
@@ -207,6 +228,13 @@ export const FRESH_SYNC_ROW = {
   dismissedAt: null,
   gateId: null,
   gateKind: null,
+} as unknown as Partial<DoctorState>;
+
+/** A doctor launch that is not a sync's hand-off starts with no paused
+    tree and no sync output from an earlier run. */
+export const NO_SYNC_CARRY = {
+  pausedTree: null,
+  syncLog: null,
 } as unknown as Partial<DoctorState>;
 
 /** A sync runs inside this server's request, so a `syncing` row with no

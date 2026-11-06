@@ -33,11 +33,14 @@ const SKILLS_OVERRIDES_NOTE = "Old keys in your skill overrides file: open Setup
  * set up yet is left for them, not an install failure; one that is set up
  * but broken (`invalid`, `error`) still is. A `tool.team.*` row is only
  * `missing` when its CLI is not installed, hence "install", not "connect".
+ * Install never installs Claude Code either: its Install button is the
+ * member's, on the connect screen.
  */
 function memberTask(row: Row | undefined): MemberTask | null {
   if (!row || (row.status !== "missing" && row.status !== "needs-you")) return null;
   if (row.kind === "account") return { verb: "connect", label: row.title };
   if (row.id.startsWith("tool.team.")) return { verb: "install", label: row.title };
+  if (row.id === "tool.claude" && row.action?.type === "install") return { verb: "install", label: row.title };
   return null;
 }
 

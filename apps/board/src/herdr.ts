@@ -437,6 +437,30 @@ export function mrTabLabel(
   return prefix ? `${prefix} ${core}` : core;
 }
 
+/** Whether the workspace holds a tab for this MR under any marker or author.
+    Never starts herdr: a herdr that is not running has no tab open. */
+export async function mrTabOpen(
+  workspaceLabel: string,
+  iid: number,
+  runner: HerdrRunner = defaultRunner
+): Promise<boolean> {
+  try {
+    const workspaceId = findWorkspaceIdByLabel(
+      await runner(['workspace', 'list']),
+      workspaceLabel
+    );
+    if (!workspaceId) return false;
+    const core = `!${iid}`;
+    return parseTabList(
+      await runner(['tab', 'list', '--workspace', workspaceId])
+    ).some(
+      t => t.workspaceId === workspaceId && t.label.split(' ').includes(core)
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** Ensure the named workspace exists, open a labelled tab in it, and run
     `prompt` inside claude in that tab. Shared launcher for review and respond;
     the caller supplies the prompt so each feature keeps its own skill wiring. */

@@ -50,12 +50,17 @@ export interface ReviewInfo {
   sessionId?: string;
   tabId?: string;
   startedAt?: number;
+  /** When the current run began (a launch, a re-review or a redo). */
+  runStartedAt?: number;
   outcome?: string;
   /** Clock of the lane's last write, and of an operator dismissing its line
       (see laneDismissed): the row skips the lane while the stamp is the
       newer of the two. */
   updatedAt?: number;
   dismissedAt?: number;
+  /** When the board relaunched the pane for an answered parked gate, on the
+      same clock as that write's updatedAt (see laneResuming). */
+  resumedAt?: number;
   /** The launch resolved no pack and ran the generic skill. */
   noPack?: boolean;
   /** The highest review round the board has recorded for this MR. */
@@ -78,6 +83,9 @@ export interface RespondInfo {
       newer of the two. */
   updatedAt?: number;
   dismissedAt?: number;
+  /** When the board relaunched the pane for an answered parked gate, on the
+      same clock as that write's updatedAt (see laneResuming). */
+  resumedAt?: number;
   /** The launch resolved no pack and ran the generic skill. */
   noPack?: boolean;
   /** Username the run answers, and that person's response round. */
@@ -93,7 +101,8 @@ export type DoctorStatus =
   | 'watching'
   | 'done'
   | 'error'
-  | 'sync-stopped';
+  | 'sync-stopped'
+  | 'synced';
 export interface DoctorInfo {
   status: DoctorStatus;
   /** The rt agent running the doctor, matched against a gone pane. */
@@ -107,8 +116,15 @@ export interface DoctorInfo {
       newer of the two. */
   updatedAt?: number;
   dismissedAt?: number;
+  /** When the board relaunched the pane for an answered parked gate, on the
+      same clock as that write's updatedAt (see laneResuming). */
+  resumedAt?: number;
   /** The launch resolved no pack and ran the generic skill. */
   noPack?: boolean;
+  /** What the last local sync printed, in rt's plain line form. */
+  syncLog?: string[];
+  /** The pipeline the MR showed when the sync pushed. */
+  pipelineAtSync?: string;
 }
 export interface DraftInfo {
   kind: string;

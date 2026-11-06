@@ -93,6 +93,8 @@ const NO_SECRETS: SecretPresence = { has: async () => null };
 const HAS_KEY: SecretPresence = { has: async () => "lin_api_k" };
 
 const TIMEOUT: ExecScript = () => ({ code: 124, stdout: "", stderr: "" });
+/** fakeProbes' default home with Claude Code where the vendor script puts it. */
+const CLAUDE_AT_VENDOR_PATH = { "/fake-home/.local/bin/claude": "bin" };
 
 async function pickRow(rowsP: ReturnType<typeof toolRows>, id: string) {
   const rows = await rowsP;
@@ -245,8 +247,41 @@ describe("toolRows — tool.claude", () => {
     expect(r.recheck).toBe("on-activate");
   });
 
+  test("a claude that runs from outside ~/.local/bin -> needs-you with the vendor install, before any sign-in check", async () => {
+    const exec: ExecScript = (argv) => {
+      if (argv[0] === "claude" && argv[1] === "--version") return ok("2.1.0\n");
+      if (argv[0] === "claude" && argv[1] === "auth") return ok(JSON.stringify({ loggedIn: true }));
+      return ok();
+    };
+    const p = fakeProbes({ exec, files: { "/opt/homebrew/bin/claude": "bin" } });
+    const r = await pickRow(toolRows(p, [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    expect(r.status).toBe("needs-you");
+    expect(r.required).toBe(true);
+    expect(r.detail).toBe("Claude Code needs to be installed where mattstack looks for it");
+    expect(r.action).toEqual({ type: "install", label: "Install", tool: "claude", via: "vendor" });
+    expect(p.calls.exec).not.toContainEqual(["claude", "auth", "status"]);
+  });
+
+  test("a claude at ~/.local/bin goes on to the sign-in check", async () => {
+    const exec: ExecScript = (argv) => {
+      if (argv[0] === "claude" && argv[1] === "--version") return ok("2.1.0\n");
+      if (argv[0] === "claude" && argv[1] === "auth") return ok(JSON.stringify({ loggedIn: true }));
+      return ok();
+    };
+    const r = await pickRow(toolRows(fakeProbes({ exec, files: CLAUDE_AT_VENDOR_PATH }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    expect(r.status).toBe("ready");
+  });
+
+  test("a hung or broken claude elsewhere, with none at ~/.local/bin, still offers the vendor install", async () => {
+    for (const answer of [{ code: 124, stdout: "", stderr: "" }, { code: 1, stdout: "", stderr: "dyld: missing library" }]) {
+      const exec: ExecScript = (argv) => (argv[0] === "claude" ? answer : ok());
+      const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+      expect([r.status, r.action?.type]).toEqual(["needs-you", "install"]);
+    }
+  });
+
   test("--version times out -> error", async () => {
-    const r = await pickRow(toolRows(fakeProbes({ exec: TIMEOUT }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec: TIMEOUT, files: CLAUDE_AT_VENDOR_PATH }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("error");
   });
 
@@ -256,7 +291,7 @@ describe("toolRows — tool.claude", () => {
       if (argv[0] === "claude" && argv[1] === "auth" && argv[2] === "status") return ok(JSON.stringify({ loggedIn: true, authMethod: "claude.ai" }));
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec, files: CLAUDE_AT_VENDOR_PATH }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("ready");
     expect(r.detail).toBe("Claude Code 1.2.3, signed in");
   });
@@ -267,7 +302,7 @@ describe("toolRows — tool.claude", () => {
       if (argv[0] === "claude" && argv[1] === "auth") return ok(JSON.stringify({ loggedIn: false }));
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec, files: CLAUDE_AT_VENDOR_PATH }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("needs-you");
     // The binary gates Install; the sign-in never does.
     expect(r.required).toBe(false);
@@ -279,7 +314,7 @@ describe("toolRows — tool.claude", () => {
       if (argv[0] === "claude" && argv[1] === "auth") return ok(JSON.stringify({ loggedIn: false }));
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec, files: CLAUDE_AT_VENDOR_PATH }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.detail).toBe("Not signed in yet");
     expect(r.action).toEqual({ type: "run", label: "Sign in to Claude", verb: ["setup", "claude", "connect"] });
     expect(r.optionalNote).toBeNull();
@@ -293,7 +328,7 @@ describe("toolRows — tool.claude", () => {
         if (argv[0] === "claude" && argv[1] === "auth") return answer;
         return ok();
       };
-      const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+      const r = await pickRow(toolRows(fakeProbes({ exec, files: CLAUDE_AT_VENDOR_PATH }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
       const steps = r.action?.type === "steps" ? r.action.steps : [];
       for (const text of [r.detail, ...steps]) {
         expect(text).not.toContain("terminal");
@@ -308,7 +343,7 @@ describe("toolRows — tool.claude", () => {
       if (argv[0] === "claude" && argv[1] === "auth") return { code: 1, stdout: "", stderr: "unknown command \"auth\"" };
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec, files: CLAUDE_AT_VENDOR_PATH }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toContain("sign-in could not be checked");
     expect(r.action).not.toBeNull();
@@ -320,7 +355,7 @@ describe("toolRows — tool.claude", () => {
       if (argv[0] === "claude" && argv[1] === "auth") return { code: 1, stdout: "Unknown subcommand: auth", stderr: "" };
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec, files: CLAUDE_AT_VENDOR_PATH }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toContain("sign-in could not be checked");
   });
@@ -331,7 +366,7 @@ describe("toolRows — tool.claude", () => {
       if (argv[0] === "claude" && argv[1] === "auth") return { code: 1, stdout: "", stderr: "not logged in" };
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec, files: CLAUDE_AT_VENDOR_PATH }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("Not signed in yet");
   });
@@ -342,7 +377,7 @@ describe("toolRows — tool.claude", () => {
       if (argv[0] === "claude" && argv[1] === "auth") return { code: 124, stdout: "", stderr: "" };
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec, files: CLAUDE_AT_VENDOR_PATH }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("error");
   });
 
@@ -352,7 +387,7 @@ describe("toolRows — tool.claude", () => {
       if (argv[0] === "claude" && argv[1] === "auth") return ok("garbled non-json output");
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec, files: CLAUDE_AT_VENDOR_PATH }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("error");
   });
 });
@@ -1232,7 +1267,7 @@ describe("toolRows: a tool that prints no version", () => {
       if (argv[0] === "claude" && argv[1] === "auth") return ok(JSON.stringify({ loggedIn: true }));
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec, files: CLAUDE_AT_VENDOR_PATH }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.detail).toBe("Claude Code, signed in");
   });
 
@@ -1242,7 +1277,7 @@ describe("toolRows: a tool that prints no version", () => {
       if (argv[0] === "claude" && argv[1] === "auth") return { code: 1, stdout: "", stderr: "error: unknown command 'auth'" };
       return ok();
     };
-    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    const r = await pickRow(toolRows(fakeProbes({ exec, files: CLAUDE_AT_VENDOR_PATH }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.detail).toBe("Claude Code is installed, but the sign-in could not be checked. Confirm you are signed in");
   });
 

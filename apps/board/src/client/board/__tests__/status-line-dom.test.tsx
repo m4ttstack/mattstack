@@ -270,21 +270,35 @@ test('the all-clear line puts the word first, then the sun, then the open verb',
   ).toBe('open ↗');
 });
 
-test('suppressed candidates render as +N active with their words in the title', async () => {
+test('suppressed candidates sit behind +N more, which opens them with their details', async () => {
   await render(
     {
       line: { tone: 'warn', word: 'post which findings?', verbs: [] },
       more: [
-        { tone: 'work', word: 'implementing…', verbs: [] },
+        {
+          tone: 'quiet',
+          word: 'responded',
+          detail: '3 threads: 2 fixed and resolved, 1 overview skipped',
+          verbs: [],
+        },
         { tone: 'work', word: 'watching CI…', verbs: [] },
       ],
       bar: 'warn',
     },
     ctx()
   );
-  const more = container.querySelector('.tui-status-more')!;
-  expect(more.textContent).toBe('+2 active');
-  expect(more.getAttribute('title')).toBe('implementing…, watching CI…');
+  const more = container.querySelector<HTMLButtonElement>('.tui-status-more')!;
+  expect(more.textContent).toBe('+2 more');
+  await React.act(async () => more.click());
+  const lines = [...document.querySelectorAll('.tui-status-more-line')];
+  expect(lines.map(l => l.getAttribute('data-tone'))).toEqual([
+    'quiet',
+    'work',
+  ]);
+  expect(lines[0]?.textContent).toBe(
+    'responded3 threads: 2 fixed and resolved, 1 overview skipped'
+  );
+  expect(lines[1]?.textContent).toBe('watching CI…');
 });
 
 test('a long detail renders its first clause and keeps the whole message as the tooltip', async () => {
@@ -500,4 +514,61 @@ test('a launch-respond verb for one person hands that person to onRespond', asyn
     container.querySelector<HTMLButtonElement>('button[data-verb]')!.click();
   });
   expect(calls).toEqual(['john']);
+});
+
+test('a sync line opens its output from the word, streaming lines join it while it runs, and clicks inside never reach the row', async () => {
+  const { startSyncLines, pushSyncLine } = await import('../sync-lines.ts');
+  const mr = {
+    ...MR,
+    sourceBranch: 'feat',
+    doctor: { status: 'syncing' },
+  } as unknown as BoardMRWithReview;
+  const rowClicks: string[] = [];
+  const onRow = () => rowClicks.push('row');
+  document.body.addEventListener('click', onRow);
+  startSyncLines(mr.webUrl!);
+  await React.act(async () => {
+    root.render(
+      <div onClick={onRow}>
+        <StatusLine
+          mr={mr}
+          status={{
+            line: {
+              tone: 'work',
+              word: 'syncing…',
+              spin: true,
+              syncLog: [],
+              verbs: [],
+            },
+            more: [],
+            bar: null,
+          }}
+          ctx={ctx()}
+        />
+      </div>
+    );
+  });
+  await React.act(async () => {
+    pushSyncLine(mr.webUrl!, '[ok] Fetched from origin');
+    pushSyncLine(
+      mr.webUrl!,
+      '[running] Rebasing feat onto origin/main  3 commits behind'
+    );
+  });
+  expect(
+    container.querySelector('.tui-status-word-log')?.textContent
+  ).toContain('syncing…');
+  const lines = [...document.querySelectorAll('.tui-synclog-line')];
+  expect(
+    lines.map(l => l.querySelector('.tui-synclog-glyph')?.textContent)
+  ).toEqual(['✓', '●']);
+  expect(lines[1]?.querySelector('.tui-synclog-hint')?.textContent).toBe(
+    '3 commits behind'
+  );
+  rowClicks.length = 0;
+  await React.act(async () => {
+    (lines[0] as HTMLElement).click();
+  });
+  document.body.removeEventListener('click', onRow);
+  expect(rowClicks).toEqual([]);
 });

@@ -795,6 +795,119 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A word that opens the local sync's output keeps the word's own look. */
+.tui-status-word-log {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tui-status-word-log:hover,
+.tui-status-word-log[data-open] {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.tui-status-word-caret {
+  display: inline-flex;
+  opacity: 0.7;
+  transition: transform 160ms ease;
+}
+.tui-status-word-log[data-open] .tui-status-word-caret {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tui-status-word-caret {
+    transition: none;
+  }
+}
+.tui-synclog {
+  width: 460px;
+  max-width: calc(100vw - 24px);
+  padding: 0;
+}
+.tui-synclog-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-px8);
+  padding: var(--spacing-px6) var(--spacing-px10);
+  border-bottom: 1px solid var(--border-soft);
+  font: var(--font-size-px11) / 1.4 var(--font-mono);
+}
+.tui-synclog-cmd {
+  color: var(--text-1);
+  font-weight: 600;
+}
+.tui-synclog-branch {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+}
+.tui-synclog-body {
+  max-height: 280px;
+  overflow-y: auto;
+  padding: var(--spacing-px8) var(--spacing-px10);
+  font: var(--font-size-px12) / 1.6 var(--font-mono);
+  color: var(--text-1);
+}
+/* Title and hint share one cell and wrap as one paragraph: a long branch
+   name in a title would otherwise starve the hint's own column. */
+.tui-synclog-line {
+  display: grid;
+  grid-template-columns: 1.4ch minmax(0, 1fr);
+  column-gap: 1ch;
+  align-items: baseline;
+}
+.tui-synclog-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tui-synclog-line[data-status='text'] {
+  padding-left: 2.4ch;
+  grid-template-columns: 1fr;
+  color: var(--text-2);
+}
+.tui-synclog-line[data-status='text'] .tui-synclog-glyph {
+  display: none;
+}
+.tui-synclog-hint {
+  margin-left: 2ch;
+  color: var(--text-3);
+}
+.tui-synclog-glyph {
+  color: var(--text-3);
+}
+.tui-synclog-line[data-status='done'] .tui-synclog-glyph,
+.tui-synclog-line[data-status='running'] .tui-synclog-glyph {
+  color: var(--text-ok-small);
+}
+.tui-synclog-line[data-status='needs-you'] .tui-synclog-glyph,
+.tui-synclog-line[data-status='warn'] .tui-synclog-glyph,
+.tui-synclog-line[data-status='stale'] .tui-synclog-glyph {
+  color: var(--text-warn-small);
+}
+.tui-synclog-line[data-status='failed'] .tui-synclog-glyph {
+  color: var(--text-bad-small);
+}
+.tui-synclog-line[data-status='running']:not([data-past]) .tui-synclog-glyph {
+  animation: tui-synclog-pulse 1.2s ease-in-out infinite;
+}
+@keyframes tui-synclog-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tui-synclog-line[data-status='running']:not([data-past]) .tui-synclog-glyph {
+    animation: none;
+  }
+}
 .tui-status[data-tone='bad'] .tui-status-word {
   color: var(--text-bad);
 }
@@ -886,8 +999,57 @@ body {
 .tui-status-more {
   margin-left: 8px;
   flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
   font-size: 0.7rem;
-  color: color-mix(in srgb, var(--text-4) 70%, transparent);
+  color: var(--text-3);
+  cursor: pointer;
+}
+.tui-status-more:hover,
+.tui-status-more[data-open] {
+  color: var(--text-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.tui-status-more-pop {
+  width: 340px;
+  max-width: calc(100vw - 24px);
+  padding: 0;
+}
+.tui-status-more-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-px6);
+  padding: var(--spacing-px8) var(--spacing-px10);
+  font-size: var(--font-size-px12);
+  line-height: 1.45;
+  color: var(--text-3);
+}
+.tui-status-more-line {
+  display: flex;
+  flex-direction: column;
+}
+.tui-status-more-word {
+  font-weight: 500;
+  color: var(--text-2);
+}
+.tui-status-more-detail {
+  overflow-wrap: anywhere;
+}
+.tui-status-more-line[data-tone='bad'] .tui-status-more-word {
+  color: var(--text-bad-small);
+}
+.tui-status-more-line[data-tone='warn'] .tui-status-more-word {
+  color: var(--text-warn-small);
+}
+.tui-status-more-line[data-tone='work'] .tui-status-more-word {
+  color: var(--text-purple-small);
+}
+.tui-status-more-line[data-tone='go'] .tui-status-more-word,
+.tui-status-more-line[data-tone='clear'] .tui-status-more-word {
+  color: var(--text-ok-small);
 }
 /* Centered like the tools, not baseline-aligned: the line's baseline would
    otherwise follow whichever verb is first, and a secondary appearing left
@@ -1005,6 +1167,20 @@ body {
   padding: 6px 8px;
   margin: -4px -3px;
 }
+.tui-menu-rt {
+  flex: none;
+  width: 13px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  text-align: center;
+}
+.tui-menu-flock {
+  display: block;
+  flex: none;
+  border-radius: 3px;
+}
 .tui-row-marks.tui-copy-inline:active,
 .tui-row-marks.tui-copy-inline[data-active] {
   opacity: 1;
@@ -1021,24 +1197,27 @@ body {
 .tui-row-note {
   position: relative;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 2px;
-  padding: 5px 10px 5px 8px;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 8px;
+  padding: 6px 12px 6px 10px;
   border-radius: var(--radius-px5);
   /* Opaque, mixed into the panel the rows sit on, never an alpha wash: a
      translucent band would take the row's hover tint and the ground's grid
      with it, so the same note would read a different color under the
      pointer than at rest. */
-  background: color-mix(in srgb, var(--fill-cyan) 16%, var(--panel));
+  background: color-mix(in srgb, var(--fill-cyan) 8%, var(--panel));
   color: var(--text-1);
   font-size: 0.72rem;
   line-height: 1.35;
   cursor: text;
   text-align: left;
 }
+/* Set on the first line's middle, not the band's: a note that wraps keeps
+   its glyph beside the words it starts with. */
 .tui-row-note > svg {
   flex: 0 0 auto;
+  margin-top: 2px;
   color: var(--text-cyan-small);
 }
 .tui-row-note-text {
@@ -1097,7 +1276,7 @@ body {
 .tui-row-note-lead {
   display: flex;
   align-items: flex-start;
-  gap: 6px;
+  gap: 9px;
 }
 .tui-row-note-lead > svg {
   flex: 0 0 auto;
@@ -1158,12 +1337,9 @@ body {
 /* Phone width: the branch and behind-target are unreadable at this width
    anyway; the reaction stage yields to the logo; the pill tightens. */
 @media (max-width: 480px) {
-  /* The +N active count reads only through its title, which a phone cannot
-     hover; it yields before the status word does. */
   .tui-branch,
   .tui-behind,
-  .tui-mark[data-slack-stage],
-  .tui-status-more {
+  .tui-mark[data-slack-stage] {
     display: none;
   }
   .tui-row-2 {

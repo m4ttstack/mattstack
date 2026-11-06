@@ -71,6 +71,7 @@ import {
 } from './codeowner-posts.ts';
 import {
   applyRosterEdit,
+  boardSetting,
   codeownerSlackOn,
   daemonRepoField,
   displayName,
@@ -121,6 +122,7 @@ import {
   doctorResumeDispatchFields,
   failOrphanedSyncs,
   FRESH_SYNC_ROW,
+  NO_SYNC_CARRY,
   parseDoctorRequestBody,
   planStandDown,
   pruneDoctorStates,
@@ -140,6 +142,16 @@ import {
 import faviconSvg from './favicon.svg' with { type: 'text' };
 import { fileDiffRoute } from './file-diff-route.ts';
 import { shiftPeerReviews } from './fixture-peer-reviews.ts';
+import {
+  actionCommand,
+  buildFlockMenu,
+  flockOpenUrl,
+  openInFlock,
+  parseFlockCommands,
+  provisionMrTree,
+  readFlockToken,
+  type FlockMenu,
+} from './flock-open.ts';
 import { focusPane } from './focus-pane.ts';
 import { answerGate } from './gates/answer.ts';
 import {
@@ -208,7 +220,13 @@ import {
   REVIEW_IN_FLIGHT,
 } from './launch-dedup.ts';
 import { launchErrorMessage } from './launch-error.ts';
-import { LOCAL_SYNCS, syncBranchLocally } from './local-sync.ts';
+import {
+  LIVE_SYNC_LOGS,
+  LOCAL_SYNCS,
+  startLiveSync,
+  syncBranchLocally,
+  takeSyncLine,
+} from './local-sync.ts';
 import { hasLocalOrigin, isLocalRequest, requireJsonBody } from './local.ts';
 import {
   doctorSkillTabs,
@@ -435,6 +453,9 @@ import {
 /** Capture-harness mode: boot from a committed fixture dir instead of live
     config, serve canned endpoint responses, hold no tokens, start no relay.
     The seed of the permanent screenshot harness (see tests/capture.ts). */
+/** MR urls with a flock open running in this server process. */
+const FLOCK_OPENS = new Set<string>();
+
 const FIXTURE_DIR = process.env.BOARD_FIXTURE || null;
 const fixtureFile = (name: string) => join(FIXTURE_DIR!, name);
 
@@ -1162,7 +1183,7 @@ async function withRowState(mrs: BoardMR[]) {
       readRespondRounds(),
       readRespondOutcomes()
     ),
-    readDoctorStates()
+    withLiveSyncLogs(readDoctorStates())
   );
   runOwners.poke();
   const memory = readMemory();
@@ -1939,6 +1960,14 @@ const httpServer = Bun.serve({
     if (handoff) return handoff;
     const { pathname } = new URL(req.url);
     if (FIXTURE_DIR) {
+      // A POST only because the live route reads a JSON body; it changes nothing.
+      if (pathname === '/flock/menu')
+        return new Response(
+          readFileSync(fixtureFile('flock-menu.json'), 'utf8'),
+          {
+            headers: { 'content-type': 'application/json' },
+          }
+        );
       if (req.method !== 'GET')
         return new Response('fixture mode is read-only', { status: 501 });
       switch (pathname) {
@@ -3031,7 +3060,10 @@ const httpServer = Bun.serve({
               status: 409,
             });
           LOCAL_SYNCS.add(parsed.mrUrl);
+          const endLive = startLiveSync(parsed.mrUrl, repo, mr.sourceBranch);
+          sseSyncStart(parsed.mrUrl);
           try {
+            const priorPaused = existing?.pausedTree;
             writeDoctorState(statePath, {
               mrUrl: parsed.mrUrl,
               iid: parsed.iid,
@@ -3039,14 +3071,25 @@ const httpServer = Bun.serve({
               origin: 'manual',
               boardTabId: boardTabId ?? '',
               ...FRESH_SYNC_ROW,
+              syncLog: [],
             });
-            const outcome = await syncBranchLocally(repo, mr.sourceBranch);
+            const outcome = await syncBranchLocally(
+              repo,
+              mr.sourceBranch,
+              priorPaused
+            );
+            // The reply's log is whole; streamed lines can land after it.
+            const syncLog = outcome.log.length
+              ? outcome.log
+              : (LIVE_SYNC_LOGS.get(parsed.mrUrl) ?? []);
             if (outcome.kind === 'clean') {
-              // The row is settled, so no doctor line stays on it.
               writeDoctorState(statePath, {
-                status: 'done',
+                status: 'synced',
                 message: outcome.message,
-                dismissedAt: Date.now(),
+                pausedTree: null as unknown as undefined,
+                syncLog,
+                pipelineAtSync:
+                  mr.pipeline?.id ?? (null as unknown as undefined),
               });
               return Response.json({ ok: true, synced: outcome.message });
             }
@@ -3054,12 +3097,19 @@ const httpServer = Bun.serve({
               writeDoctorState(statePath, {
                 status: 'sync-stopped',
                 message: outcome.message,
+                pausedTree: null as unknown as undefined,
+                syncLog,
               });
-              return new Response(outcome.message, { status: 409 });
+              return Response.json({ ok: true, stopped: outcome.message });
             }
             pausedTree = outcome.tree;
-            writeDoctorState(statePath, { status: 'queued' });
+            writeDoctorState(statePath, {
+              status: 'queued',
+              pausedTree,
+              syncLog,
+            });
           } finally {
+            endLive();
             LOCAL_SYNCS.delete(parsed.mrUrl);
           }
         }
@@ -3118,6 +3168,7 @@ const httpServer = Bun.serve({
           fixClasses,
           boardTabId: boardTabId ?? '',
           noPack: !launchPack(boardTabId),
+          ...(parsed.mode === 'rebase' ? {} : NO_SYNC_CARRY),
         });
         void launchDoctor({
           mrUrl: parsed.mrUrl,
@@ -3422,6 +3473,148 @@ const httpServer = Bun.serve({
           return new Response(res.error ?? 'refresh failed', { status: 502 });
         cache.invalidate();
         return Response.json({ ok: true });
+      }
+      case '/flock/menu':
+      case '/flock/open': {
+        if (req.method !== 'POST')
+          return new Response('method not allowed', { status: 405 });
+        if (!isLocalRequest(req, server))
+          return new Response('forbidden', { status: 403 });
+        {
+          const notJson = requireJsonBody(req);
+          if (notJson) return notJson;
+        }
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return new Response('invalid json', { status: 400 });
+        }
+        const { mrUrl, iid, action, index, label, command } = (body ?? {}) as {
+          mrUrl?: unknown;
+          iid?: unknown;
+          action?: unknown;
+          index?: unknown;
+          label?: unknown;
+          command?: unknown;
+        };
+        if (typeof mrUrl !== 'string' || typeof iid !== 'number')
+          return new Response('expected { mrUrl: string, iid: number }', {
+            status: 400,
+          });
+        const mr = (await cache.get()).mrs.find(m => m.webUrl === mrUrl);
+        if (!mr) return new Response(`unknown MR "${mrUrl}"`, { status: 400 });
+        {
+          const mismatch = iidMismatch({ mrUrl, iid }, mr);
+          if (mismatch) return mismatch;
+        }
+        {
+          const refused = requireOwnMr(mr);
+          if (refused) return refused;
+        }
+        const repoName = mr.rtRepo ? repoIdentityField(mr.rtRepo) : null;
+        if (!repoName)
+          return new Response('this MR has no rt repo', { status: 400 });
+        const commands = parseFlockCommands(
+          boardSetting<unknown>('board.flockCommands')
+        );
+        let menu: FlockMenu;
+        try {
+          menu = await buildFlockMenu(
+            { webUrl: mrUrl, sourceBranch: mr.sourceBranch },
+            repoName,
+            commands
+          );
+        } catch (err) {
+          return new Response(
+            err instanceof Error ? err.message : String(err),
+            { status: 502 }
+          );
+        }
+        if (pathname === '/flock/menu') return Response.json(menu);
+
+        if (
+          action !== 'shell' &&
+          action !== 'claude' &&
+          action !== 'resume' &&
+          action !== 'command'
+        )
+          return new Response('expected action: shell|claude|resume|command', {
+            status: 400,
+          });
+        // Picked by position, checked by content: a setting edited between
+        // the menu read and the click must not run a different command.
+        const saved =
+          action === 'command' && typeof index === 'number'
+            ? commands[index]
+            : undefined;
+        if (
+          action === 'command' &&
+          (!saved || saved.label !== label || saved.command !== command)
+        )
+          return new Response(
+            'that saved command changed; open the menu again',
+            { status: 409 }
+          );
+        if (FLOCK_OPENS.has(mrUrl))
+          return new Response('already opening this MR in flock', {
+            status: 409,
+          });
+        // Provisioning a worktree can outlast Bun's 60s idle timeout.
+        server.timeout(req, 0);
+        FLOCK_OPENS.add(mrUrl);
+        try {
+          let folder: string;
+          if (action === 'resume') {
+            if (!menu.resume)
+              return new Response('no work session for this MR', {
+                status: 409,
+              });
+            if (menu.resume.livePane) {
+              // A failed focus is not a gone session: resuming it again
+              // would put two Claudes on one transcript.
+              const { focused } = await focusPane({
+                paneId: menu.resume.livePane,
+              });
+              return focused
+                ? Response.json({ ok: true, focused: true })
+                : new Response("couldn't focus the running session", {
+                    status: 502,
+                  });
+            }
+            if (menu.resume.worktreeGone || !menu.resume.worktree)
+              return new Response("the session's worktree is gone", {
+                status: 409,
+              });
+            folder = menu.resume.worktree;
+          } else {
+            folder =
+              menu.tree ?? (await provisionMrTree(repoName, mr.sourceBranch));
+          }
+          const target = flockOpenUrl({
+            folder,
+            repo: menu.repoRoot ?? folder,
+            label: mrTabLabel(mr.iid),
+            kind: action,
+            run: actionCommand(action, {
+              session: menu.resume?.session,
+              command: saved?.command,
+            }),
+            token: readFlockToken(),
+          });
+          await openInFlock(target);
+          return Response.json({
+            ok: true,
+            provisioned: action !== 'resume' && !menu.tree,
+          });
+        } catch (err) {
+          return new Response(
+            err instanceof Error ? err.message : String(err),
+            { status: 502 }
+          );
+        } finally {
+          FLOCK_OPENS.delete(mrUrl);
+        }
       }
       case '/mr/action': {
         // Fire one GitLab-side MR action (merge / rebase / auto-merge arm or
@@ -4764,6 +4957,36 @@ function sseSend(frame: Uint8Array): void {
   }
 }
 
+/** A running sync's lines so far, over whatever the row last saved. */
+function withLiveSyncLogs(
+  doctors: Map<string, DoctorState>
+): Map<string, DoctorState> {
+  for (const [mrUrl, log] of LIVE_SYNC_LOGS) {
+    const row = doctors.get(mrUrl);
+    if (row?.status === 'syncing')
+      doctors.set(mrUrl, { ...row, syncLog: [...log] });
+  }
+  return doctors;
+}
+
+/** A named event, so the page's plain message handler (a full re-pull)
+    never sees it. */
+function sseSyncLine(mrUrl: string, line: string): void {
+  sseSend(
+    sseEncoder.encode(
+      `event: sync-line\ndata: ${JSON.stringify({ mrUrl, line })}\n\n`
+    )
+  );
+}
+
+function sseSyncStart(mrUrl: string): void {
+  sseSend(
+    sseEncoder.encode(
+      `event: sync-start\ndata: ${JSON.stringify({ mrUrl })}\n\n`
+    )
+  );
+}
+
 function sseNudge(): void {
   sseSend(sseEncoder.encode('data: changed\n\n'));
 }
@@ -4834,10 +5057,11 @@ function respondReopenIo(): ReopenIo {
 function reviewResumeIo(): KindResumeIo {
   return {
     readState: mrUrl => readReviewStates().get(mrUrl),
-    writeState: (path, patch) =>
+    writeState: (path, patch, now) =>
       writeReviewState(
         path,
-        patch as Partial<ReviewState> & { status: ReviewStatus }
+        patch as Partial<ReviewState> & { status: ReviewStatus },
+        now
       ),
     filePath: reviewFilePath,
     resolveSkill: (mrUrl, tabId) =>
@@ -4872,10 +5096,11 @@ function reviewResumeIo(): KindResumeIo {
 function respondResumeIo(): KindResumeIo {
   return {
     readState: mrUrl => readRespondStates().get(mrUrl),
-    writeState: (path, patch) =>
+    writeState: (path, patch, now) =>
       writeRespondState(
         path,
-        patch as Partial<RespondState> & { status: RespondStatus }
+        patch as Partial<RespondState> & { status: RespondStatus },
+        now
       ),
     filePath: respondFilePath,
     resolveSkill: (mrUrl, tabId) =>
@@ -4911,10 +5136,11 @@ function respondResumeIo(): KindResumeIo {
 function doctorResumeIo(): KindResumeIo {
   return {
     readState: mrUrl => readDoctorStates().get(mrUrl),
-    writeState: (path, patch) =>
+    writeState: (path, patch, now) =>
       writeDoctorState(
         path,
-        patch as Partial<DoctorState> & { status: DoctorStatus }
+        patch as Partial<DoctorState> & { status: DoctorStatus },
+        now
       ),
     filePath: doctorFilePath,
     resolveSkill: (mrUrl, tabId) =>
@@ -5387,6 +5613,11 @@ const stopRelay = FIXTURE_DIR
   ? () => {}
   : subscribe((type, data) => {
       tickOnPeerInbox(type, writer, peering.tickNow);
+      if (type === 'worktree:sync-line') {
+        const taken = takeSyncLine(data);
+        if (taken) sseSyncLine(taken.mrUrl, taken.line);
+        return;
+      }
       // The daemon sends mr:status on every socket open, so this is the
       // reconnect signal; it also fires on connection-state changes, which
       // only costs an extra idempotent resync.

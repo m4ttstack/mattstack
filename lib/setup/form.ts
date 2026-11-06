@@ -571,7 +571,7 @@ function claudeRow(i: ConnectInputs, rows: ReadonlyMap<string, Row>): ConnectRow
   const claude = rows.get("tool.claude");
   const base = { id: "claude", title: c.title, subtext: c.subtext, waiting: null, watch: true };
   if (claude?.status === "ready") return { ...base, state: "done", detail: claude.detail, action: null };
-  if (claude?.status === "missing") {
+  if (claude?.action?.type === "install") {
     if (installing(i.prepare, "claude")) return { ...base, state: "busy", detail: FORM_COPY.installing, action: null };
     return { ...base, state: "todo", detail: installFailure(i.prepare, "claude") ?? claude.detail, action: CLAUDE_INSTALL, waiting: FORM_COPY.installing };
   }

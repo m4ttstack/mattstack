@@ -40,6 +40,59 @@ test('an idle own MR: every action, by section, in menu order', () => {
   ]);
 });
 
+test('the flock flyout: resume and saved commands join once /flock/menu answers, each with its own glyph', () => {
+  const rows = rowActions(ownIdle, {
+    ...actionEnvOf(ownEnv, ownIdle),
+    flock: {
+      installed: true,
+      tree: null,
+      resume: { livePane: null, worktreeGone: true },
+      commands: [
+        { label: 'runner', command: 'rt runner', icon: 'rt' },
+        { label: 'tests', command: 'bun run test' },
+      ],
+    },
+  }).filter(a => a.section === 'flock');
+  expect(
+    rows.map(a => [a.label, a.glyph, a.hint ?? a.blocked ?? null])
+  ).toEqual([
+    ['shell', { kind: 'menu', name: 'shell' }, 'creates a worktree'],
+    ['claude', { kind: 'agent' }, 'creates a worktree'],
+    [
+      'resume work session',
+      { kind: 'menu', name: 'resume' },
+      "the session's worktree is gone",
+    ],
+    ['runner', { kind: 'rt' }, 'creates a worktree'],
+    ['tests', { kind: 'menu', name: 'command' }, 'creates a worktree'],
+  ]);
+});
+
+test('no flock rows until /flock/menu answers, and none without Flock installed', () => {
+  const flockKeys = (flock?: Parameters<typeof rowActions>[1]['flock']) =>
+    rowActions(ownIdle, { ...actionEnvOf(ownEnv, ownIdle), flock })
+      .filter(a => a.section === 'flock')
+      .map(a => a.key);
+  expect(flockKeys(undefined)).toEqual([]);
+  expect(
+    flockKeys({
+      installed: false,
+      tree: null,
+      resume: null,
+      commands: [],
+    })
+  ).toEqual([]);
+  expect(
+    flockKeys({ installed: true, tree: '/t', resume: null, commands: [] })
+  ).toEqual(['flock-shell', 'flock-claude']);
+});
+
+test('a teammate MR offers no flock rows', () => {
+  expect(
+    sections(teammateReviewed, ownEnv).filter(k => k.startsWith('flock:'))
+  ).toEqual([]);
+});
+
 test('an idle own MR blocks what its state cannot run, and hides session rows with nothing to act on', () => {
   const blocked = Object.fromEntries(
     rowActions(ownIdle, actionEnvOf(ownEnv, ownIdle))

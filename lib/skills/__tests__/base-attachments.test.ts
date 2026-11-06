@@ -63,6 +63,35 @@ describe("base reference skills on the surface", () => {
     expect(skillMd).not.toContain("allowed-tools");
   });
 
+  test("a door carries allowed-tools rules that do not name the skill's folder", () => {
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), "---\nname: feature-flags\ndescription: Flags\nallowed-tools: Bash(gh api:*), Bash(${CLAUDE_SKILL_DIR}/run.sh:*), Read\n---\nFlags.\n");
+    const skillMd = (planFor("feature-flags").doors[0]!.files[0] as { content: string }).content;
+    expect(skillMd).toContain('allowed-tools:\n  - "Bash(gh api:*)"\n  - "Read"\n---\n');
+    expect(skillMd).not.toContain("run.sh");
+  });
+
+  test("a list of allowed-tools carries over the same way", () => {
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), "---\nname: feature-flags\ndescription: Flags\nallowed-tools:\n  - Bash(git log, git show)\n  - Bash(${CLAUDE_SKILL_DIR}/run.sh)\n---\nFlags.\n");
+    const skillMd = (planFor("feature-flags").doors[0]!.files[0] as { content: string }).content;
+    expect(skillMd).toContain('allowed-tools:\n  - "Bash(git log, git show)"\n---\n');
+  });
+
+  test("a door with only folder rules carries no allowed-tools", () => {
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), "---\nname: feature-flags\ndescription: Flags\nallowed-tools: Bash(${CLAUDE_SKILL_DIR}/run.sh:*)\n---\nFlags.\n");
+    expect((planFor("feature-flags").doors[0]!.files[0] as { content: string }).content).not.toContain("allowed-tools");
+  });
+
+  test("a door names no argument placeholder, so a $1 in the copy's shell is never filled in", () => {
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), "---\nname: feature-flags\ndescription: Flags\n---\nRun `awk '{print $1}'` on $ARGUMENTS.\n");
+    expect((planFor("feature-flags").doors[0]!.files[0] as { content: string }).content).not.toMatch(/\$(ARGUMENTS|\d)/);
+  });
+
+  test("a space-separated allowed-tools string carries over rule by rule", () => {
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), "---\nname: feature-flags\ndescription: Flags\nallowed-tools: Read Bash(git add *) Bash(${CLAUDE_SKILL_DIR}/x.sh) Grep\n---\nFlags.\n");
+    const skillMd = (planFor("feature-flags").doors[0]!.files[0] as { content: string }).content;
+    expect(skillMd).toContain('allowed-tools:\n  - "Read"\n  - "Bash(git add *)"\n  - "Grep"\n---\n');
+  });
+
   test("a door keeps a skill's own disable-model-invocation", () => {
     put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), "---\nname: feature-flags\ndescription: Flags\ndisable-model-invocation: true\n---\nFlags.\n");
     expect((planFor("feature-flags").doors[0]!.files[0] as { content: string }).content).toContain("disable-model-invocation: true\n");

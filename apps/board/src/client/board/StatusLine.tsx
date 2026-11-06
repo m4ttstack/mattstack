@@ -1,10 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
-import { Badge, Tooltip } from '@mattstack/tui-kit';
+import { Badge, Popover, Tooltip } from '@mattstack/tui-kit';
 import type { BoardMRWithReview, RowContext } from '../types.ts';
+import { AskGlyph } from './ask-glyph.tsx';
 import { clauseOf } from './clause.ts';
 import { AgentGlyph, CloudSpinner, Sun } from './icons.tsx';
-import type { RowStatus, Verb, VerbKind } from './row-status.ts';
+import type { Candidate, RowStatus, Verb, VerbKind } from './row-status.ts';
+import {
+  liveSyncLines,
+  parseSyncLine,
+  shownSyncLog,
+  subscribeSyncLines,
+  takeAutoOpen,
+} from './sync-lines.ts';
 
 type Lane = 'review' | 'respond' | 'doctor';
 
@@ -102,6 +110,171 @@ function runVerb(verb: Verb, mr: BoardMRWithReview, ctx: RowContext): void {
   }
 }
 
+/** rt sync's output as the terminal draws it: rt-ui's glyph, the title,
+    and the hint in its quieter column. */
+function SyncLogBody({
+  lines,
+  running,
+}: {
+  lines: readonly string[];
+  running: boolean;
+}) {
+  const end = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: 'end' });
+  }, [lines.length]);
+  return (
+    <div className="tui-synclog-body" role="log" aria-live="polite">
+      {lines.length === 0 && (
+        <div className="tui-synclog-line" data-status="pending">
+          <span className="tui-synclog-glyph" aria-hidden>
+            ◌
+          </span>
+          <span className="tui-synclog-title">
+            {running ? 'Starting rt sync' : 'No output was saved'}
+          </span>
+        </div>
+      )}
+      {lines.map((raw, i) => {
+        const line = parseSyncLine(raw);
+        // A running step that later lines have moved past is done drawing.
+        const stale =
+          line.status === 'running' && (!running || i < lines.length - 1);
+        return (
+          <div
+            key={i}
+            className="tui-synclog-line"
+            data-status={line.status ?? 'text'}
+            data-past={stale ? 'true' : undefined}
+          >
+            <span className="tui-synclog-glyph" aria-hidden>
+              {line.glyph ?? ''}
+            </span>
+            <span className="tui-synclog-text">
+              <span className="tui-synclog-title">{line.title}</span>
+              {line.hint && (
+                <span className="tui-synclog-hint">{line.hint}</span>
+              )}
+            </span>
+          </div>
+        );
+      })}
+      <div ref={end} />
+    </div>
+  );
+}
+
+function SyncLogWord({
+  mr,
+  word,
+  saved,
+  running,
+}: {
+  mr: BoardMRWithReview;
+  word: string;
+  saved: readonly string[];
+  running: boolean;
+}) {
+  const url = mr.webUrl ?? '';
+  const streamed = useSyncExternalStore(subscribeSyncLines, () =>
+    liveSyncLines(url)
+  );
+  const [open, setOpen] = useState(() => takeAutoOpen(url));
+  useEffect(() => {
+    if (takeAutoOpen(url)) setOpen(true);
+  }, [url, streamed]);
+  const lines = shownSyncLog(saved, running ? streamed : undefined);
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      align="start"
+      sideOffset={6}
+      ariaLabel={`rt sync output for !${mr.iid}`}
+      classNames={{ popup: 'tui-synclog' }}
+      trigger={
+        <button
+          type="button"
+          className="tui-status-word tui-status-word-log"
+          title={open ? 'hide the rt sync output' : 'show the rt sync output'}
+          data-open={open ? 'true' : undefined}
+          onMouseDown={e => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}
+        >
+          {word}
+          <span className="tui-status-word-caret" aria-hidden>
+            <AskGlyph name="chevron-down" size={12} />
+          </span>
+        </button>
+      }
+    >
+      {/* The popup renders in a portal, but React still bubbles its clicks
+          to the row, whose own click opens the MR. */}
+      <div className="tui-synclog-inner" onClick={e => e.stopPropagation()}>
+        <div className="tui-synclog-head">
+          <span className="tui-synclog-cmd">rt sync</span>
+          <span className="tui-synclog-branch">{mr.sourceBranch}</span>
+        </div>
+        <SyncLogBody lines={lines} running={running} />
+      </div>
+    </Popover>
+  );
+}
+
+/** The row's other status lines, behind a count: the line shows only the
+    hottest, and the rest are often finished runs rather than live ones. */
+function MoreStatuses({
+  mr,
+  more,
+}: {
+  mr: BoardMRWithReview;
+  more: readonly Candidate[];
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      align="start"
+      sideOffset={6}
+      ariaLabel={`other statuses for !${mr.iid}`}
+      classNames={{ popup: 'tui-status-more-pop' }}
+      trigger={
+        <button
+          type="button"
+          className="tui-status-more"
+          data-open={open ? 'true' : undefined}
+          onMouseDown={e => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}
+          onContextMenu={e => e.stopPropagation()}
+        >
+          +{more.length} more
+        </button>
+      }
+    >
+      <div
+        className="tui-status-more-list"
+        onClick={e => e.stopPropagation()}
+        onContextMenu={e => e.stopPropagation()}
+      >
+        {more.map((l, i) => {
+          const detail = l.detail ? clauseOf(l.detail) : null;
+          return (
+            <div key={i} className="tui-status-more-line" data-tone={l.tone}>
+              <span className="tui-status-more-word">{l.word}</span>
+              {detail && (
+                <span className="tui-status-more-detail">
+                  {detail.full ?? detail.text}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Popover>
+  );
+}
+
 /** The row's one status line. Verbs are buttons so the row's own click
     (open in GitLab) ignores them; the first verb shows at rest, the rest
     only under the pointer (style.css keys on `data-secondary`). */
@@ -134,9 +307,18 @@ export function StatusLine({
   return (
     <div className="tui-status" data-tone={line.tone}>
       {line.spin === 'cloud' && <CloudSpinner />}
-      <span className="tui-status-word" title={line.word}>
-        {line.word}
-      </span>
+      {line.syncLog ? (
+        <SyncLogWord
+          mr={mr}
+          word={line.word}
+          saved={line.syncLog}
+          running={mr.doctor?.status === 'syncing'}
+        />
+      ) : (
+        <span className="tui-status-word" title={line.word}>
+          {line.word}
+        </span>
+      )}
       {line.spin === true && <span className="tui-status-ring" aria-hidden />}
       {line.tone === 'clear' && (
         <span className="tui-status-sun" aria-hidden>
@@ -155,14 +337,7 @@ export function StatusLine({
           </Badge>
         </Tooltip>
       )}
-      {more.length > 0 && (
-        <span
-          className="tui-status-more"
-          title={more.map(l => l.word).join(', ')}
-        >
-          +{more.length} active
-        </span>
-      )}
+      {more.length > 0 && <MoreStatuses mr={mr} more={more} />}
       {verbs.length > 0 && (
         <span className="tui-status-verbs">
           {ordered(verbs).map(({ verb, primary }) => {

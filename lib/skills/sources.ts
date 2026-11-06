@@ -1,3 +1,4 @@
+import { parseAllowedTools } from "./allowed-tools.ts";
 import { execFileSync } from "child_process";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "fs";
 import { homedir } from "os";
@@ -226,17 +227,6 @@ export function resolvePluginRootsFromDir(dir: string): PluginRoots {
     byName[name] = { dir: pluginDir, version };
   }
   return { byName, list: [] };
-}
-
-function parseAllowedTools(raw: unknown): string[] {
-  if (Array.isArray(raw)) return raw.filter((entry): entry is string => typeof entry === "string");
-  if (typeof raw === "string") {
-    return raw
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter(Boolean);
-  }
-  return [];
 }
 
 /**

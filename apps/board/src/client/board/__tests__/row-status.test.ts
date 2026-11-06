@@ -621,14 +621,97 @@ describe('rowStatus: gates', () => {
     expect(word([long, long, long])).toBe('3 questions to answer');
   });
 
-  test('a parked gate says so in the detail', () => {
+  test('a parked gate waits on you and names what it asks', () => {
     const [line] = candidateLines(
       mr({ gates: [gate({ status: 'parked' })] as never }),
       NOW,
       NONE,
       ME
     );
-    expect(line!.detail).toBe('parked');
+    expect(line).toMatchObject({
+      tone: 'warn',
+      word: 'waiting on you',
+      detail: 'parked, post which findings?',
+    });
+    expect(line!.verbs.map(v => v.kind)).toEqual(['answer']);
+  });
+
+  test('a parked gate whose pane closed is not an interruption: answering resumes it', () => {
+    const s = rowStatus(
+      mr({
+        gates: [gate({ status: 'parked' })] as never,
+        review: { status: 'reviewing', sessionId: 'sess-1' },
+        orphan: {
+          agentId: 'ag-1',
+          repo: null,
+          subject: 'agent:ag-1',
+          surface: 'herdr',
+          sessionId: 'sess-1',
+          paneRef: null,
+          state: 'gone',
+          since: NOW,
+          openGateIds: [],
+        },
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(s.line.word).toBe('waiting on you');
+    expect(s.more).toEqual([]);
+  });
+
+  test("a parked gate from before the lane's current run does not hide its interruption", () => {
+    const s = rowStatus(
+      mr({
+        gates: [gate({ status: 'parked', openedAt: NOW - 60_000 })] as never,
+        review: {
+          status: 'reviewing',
+          sessionId: 'sess-1',
+          runStartedAt: NOW - 30_000,
+        },
+        orphan: {
+          agentId: 'ag-1',
+          repo: null,
+          subject: 'agent:ag-1',
+          surface: 'herdr',
+          sessionId: 'sess-1',
+          paneRef: null,
+          state: 'gone',
+          since: NOW,
+          openGateIds: [],
+        },
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(s.more.map(l => l.word)).toEqual(['review interrupted']);
+  });
+
+  test('a review the board just resumed reads resuming until its pane writes', () => {
+    const word = (review: Record<string, unknown>) =>
+      rowStatus(mr({ review } as never), NOW, NONE, ME).line.word;
+    const resumedAt = NOW - 5_000;
+    expect(word({ status: 'reviewing', resumedAt, updatedAt: resumedAt })).toBe(
+      'review resuming…'
+    );
+    expect(
+      word({ status: 'reviewing', resumedAt, updatedAt: resumedAt + 1 })
+    ).toBe('review running…');
+  });
+
+  test('a response the board just resumed reads resuming until its pane writes', () => {
+    const resumedAt = NOW - 5_000;
+    const s = rowStatus(
+      own({
+        respond: { status: 'implementing', resumedAt, updatedAt: resumedAt },
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(s.line.word).toBe('response resuming…');
   });
 
   test('decide beats interrupted: same tone, gates come first', () => {
@@ -1262,6 +1345,44 @@ describe('rowStatus: doctor lane', () => {
       detail: 'auto',
       spin: true,
     });
+  });
+
+  test('a doctor queued a moment ago is a quiet queued line', () => {
+    const [line] = candidateLines(
+      mr({ doctor: { status: 'queued', updatedAt: NOW - 60_000 } }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({ tone: 'quiet', word: 'doctor queued' });
+  });
+
+  test('a doctor queued for over ten minutes with no report did not start', () => {
+    const [line] = candidateLines(
+      own({ doctor: { status: 'queued', updatedAt: NOW - 11 * 60_000 } }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({
+      tone: 'warn',
+      word: "doctor didn't start",
+      detail: 'queued 11m ago',
+    });
+    expect(line!.verbs).toEqual([
+      { kind: 'focus', label: 'open pane', domain: 'doctor' },
+      { kind: 'dismiss', label: 'dismiss', domain: 'doctor' },
+    ]);
+  });
+
+  test('a queued doctor row with no timestamp stays a plain queued line', () => {
+    const [line] = candidateLines(
+      mr({ doctor: { status: 'queued' } }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({ tone: 'quiet', word: 'doctor queued' });
   });
 
   test('stuck is bad with call again', () => {
@@ -2579,4 +2700,28 @@ test('a working doctor whose own pane is gone offers redo, not a focus the serve
   expect(doctor?.verbs).toEqual([
     { kind: 'redo', label: 'redo', domain: 'doctor' },
   ]);
+});
+
+describe('rowStatus: a local sync that pushed', () => {
+  const synced = (pipelineId: string) =>
+    own({
+      ...blockedBy({ pipelineFailing: true }),
+      pipeline: { id: pipelineId },
+      doctor: {
+        status: 'synced',
+        message: 'rebased and pushed',
+        updatedAt: NOW,
+        pipelineAtSync: 'p1',
+      },
+    });
+
+  test('outranks a ci failure from the pipeline it found', () => {
+    expect(rowStatus(synced('p1'), NOW, NONE, ME).line.word).toBe('synced');
+  });
+
+  test("yields to a ci failure on the push's own pipeline", () => {
+    const s = rowStatus(synced('p2'), NOW, NONE, ME);
+    expect(s.line.word).toBe('needs a ci fix');
+    expect(s.more.map(l => l.word)).toContain('synced');
+  });
 });
