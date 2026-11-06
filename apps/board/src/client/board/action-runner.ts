@@ -52,7 +52,14 @@ export type RunnableRequest = Extract<
   ActionRequest,
   {
     kind:
-      'launch' | 'mr' | 'draft' | 'react' | 'ask' | 'refresh' | 'resolve-latch';
+      | 'launch'
+      | 'mr'
+      | 'draft'
+      | 'react'
+      | 'ask'
+      | 'refresh'
+      | 'resolve-latch'
+      | 'flock';
   }
 >;
 type PostRequest = Exclude<RunnableRequest, { kind: 'launch' }>;
@@ -65,6 +72,7 @@ const RUNNABLE = new Set<ActionRequest['kind']>([
   'ask',
   'refresh',
   'resolve-latch',
+  'flock',
 ]);
 
 export function isRunnable(req: ActionRequest): req is RunnableRequest {
@@ -218,6 +226,29 @@ function postSpec(req: PostRequest, people: People): PostSpec {
         manyFail: list => `couldn't ${verb} ${req.glyph} for ${list}`,
       };
     }
+    case 'flock':
+      return {
+        path: '/flock/open',
+        payload: (mr, url) => ({
+          mrUrl: url,
+          iid: mr.iid,
+          action: req.action,
+          index: req.index,
+        }),
+        pending: mr =>
+          `opening ${mrRef(mr)} in flock${req.action === 'resume' ? '' : ' (a missing worktree is created first)'}…`,
+        done: (mr, r) =>
+          r.body?.focused
+            ? `focused ${mrRef(mr)}'s running session`
+            : r.body?.provisioned
+              ? `created ${mrRef(mr)}'s worktree and opened it in flock; setup keeps running`
+              : `opened ${mrRef(mr)} in flock`,
+        fail: (mr, r) =>
+          `couldn't open ${mrRef(mr)} in flock${r.text ? `: ${r.text}` : ` (${r.status})`}`,
+        fresh: false,
+        manyDone: done => `opened ${on(done)} in flock`,
+        manyFail: list => `couldn't open ${list} in flock`,
+      };
     case 'refresh':
       return {
         path: '/mr/refresh',

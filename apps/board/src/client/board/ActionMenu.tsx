@@ -3,6 +3,7 @@ import { Fragment, useEffect, useState } from 'react';
 import { ContextMenu } from '@mattstack/tui-kit';
 import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
 import { AskPicker } from './AskPicker.tsx';
+import { FLOCK_ICON_URL } from './flock-icon.ts';
 import {
   AgentCloudGlyph,
   AgentGlyph,
@@ -27,7 +28,7 @@ const FLAT_SECTIONS: Array<[BulkSection, string]> = [
   ['slack', 'slack'],
 ];
 
-type FlyoutSection = Exclude<Section, 'top' | 'agent'>;
+type FlyoutSection = Exclude<Section, 'top' | 'agent' | 'flock'>;
 
 /** A Record, so a new Section fails to compile until it has a flyout. Key
     order is the menu's order. */
@@ -56,6 +57,16 @@ function glyphNode(g: ActionGlyph, blocked = false): React.ReactNode {
       return <AgentCloudGlyph />;
     case 'slack':
       return <SlackLogo mono={blocked} />;
+    case 'flock':
+      return (
+        <img
+          className="tui-menu-flock"
+          src={FLOCK_ICON_URL}
+          alt=""
+          width={14}
+          height={14}
+        />
+      );
     case 'emoji':
       return <span className="tui-menu-emoji">{g.glyph}</span>;
   }
@@ -368,6 +379,7 @@ function ActionMenu({
 
   const top = entries.filter(e => e.section === 'top');
   const agentItems = entries.filter(e => e.section === 'agent');
+  const flockItems = entries.filter(e => e.section === 'flock');
   const isPeerAsk = (e: MenuEntry) => e.glyph?.kind === 'agent-cloud';
   const ownAgent = agentItems.filter(e => !isPeerAsk(e));
   const peerAsks = agentItems.filter(isPeerAsk);
@@ -435,9 +447,19 @@ function ActionMenu({
           {peerAsks.map(renderItem)}
         </>
       )}
-      {flyouts.length > 0 && (top.length > 0 || agentItems.length > 0) && (
-        <ContextMenu.Separator />
+      {flockItems.length > 0 && (
+        <>
+          {(top.length > 0 || agentItems.length > 0) && (
+            <ContextMenu.Separator />
+          )}
+          <ContextMenu.Label>open in flock</ContextMenu.Label>
+          {flockItems.map(renderItem)}
+        </>
       )}
+      {flyouts.length > 0 &&
+        (top.length > 0 || agentItems.length > 0 || flockItems.length > 0) && (
+          <ContextMenu.Separator />
+        )}
       {flyouts.map(f =>
         f.items.length === 1 && f.section !== 'sessions' ? (
           renderItem(f.items[0]!)
