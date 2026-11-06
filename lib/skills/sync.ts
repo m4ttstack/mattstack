@@ -361,7 +361,7 @@ function sameEntry(a: HashedFile, b: HashedFile): boolean {
 }
 
 const MANIFEST_REL = ".claude-plugin/plugin.json";
-/** How far back sync looks for the commit that set the current version; past it, no bump is inferred. */
+/** How many manifest commits sync reads looking for the one that set the current version; it diffs from the oldest it reads. */
 const BUMP_SEARCH_DEPTH = 50;
 
 const literal = (path: string): string => `:(literal)${path}`;
@@ -458,7 +458,7 @@ function changedSinceShown(pack: string): Outcome {
 
 /** Claude Code installs by version, so pack files committed after the last version change never install until the version moves again. */
 async function committedSinceBump(deps: SyncDeps, dir: string, version: string): Promise<boolean> {
-  const log = await deps.run("git", ["log", `--max-count=${BUMP_SEARCH_DEPTH}`, "--format=%H", "--", MANIFEST_REL], { cwd: dir });
+  const log = await deps.run("git", ["log", "--topo-order", `--max-count=${BUMP_SEARCH_DEPTH}`, "--format=%H", "--", MANIFEST_REL], { cwd: dir });
   if (log.code !== 0) return false;
   // A manifest edit that keeps the version is not a bump: walk back to the
   // oldest of the newest commits that all carry this version.

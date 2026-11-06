@@ -2474,6 +2474,21 @@ describe("commit-pending against real git", () => {
     expect(remoteLog(remote)).toEqual(["skills sync: acme v1.0.1", "by hand", "base"]);
   }, REAL_GIT_TIMEOUT_MS);
 
+  test("a hand commit inside a pack nested in a larger repo bumps", async () => {
+    const { root, remote, pack } = realPackRepo("packs");
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "public": ["keep"] }\n');
+    mustGit(root, "commit", "-q", "-am", "by hand");
+    mustGit(root, "push", "-q");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [false, false] };
+
+    const report = await syncPack(pack, engine, realGitDeps(root, pack, engine, world));
+
+    expect(report.ok).toBe(true);
+    expect(byStep(report.steps).bump).toMatchObject({ status: "ran", detail: "bumped 1.0.0 -> 1.0.1: the pack changed in a commit that kept the version" });
+    expect(remoteLog(remote)).toEqual(["skills sync: acme v1.0.1", "by hand", "base"]);
+  }, REAL_GIT_TIMEOUT_MS);
+
   test("a commit beside the pack in a larger repo leaves a current pack alone", async () => {
     const { root, remote, pack } = realPackRepo("packs");
     writeFileSync(join(root, "package.json"), '{ "private": true }\n');
