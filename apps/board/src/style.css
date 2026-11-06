@@ -999,8 +999,57 @@ body {
 .tui-status-more {
   margin-left: 8px;
   flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
   font-size: 0.7rem;
-  color: color-mix(in srgb, var(--text-4) 70%, transparent);
+  color: var(--text-3);
+  cursor: pointer;
+}
+.tui-status-more:hover,
+.tui-status-more[data-open] {
+  color: var(--text-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.tui-status-more-pop {
+  width: 340px;
+  max-width: calc(100vw - 24px);
+  padding: 0;
+}
+.tui-status-more-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-px6);
+  padding: var(--spacing-px8) var(--spacing-px10);
+  font-size: var(--font-size-px12);
+  line-height: 1.45;
+  color: var(--text-3);
+}
+.tui-status-more-line {
+  display: flex;
+  flex-direction: column;
+}
+.tui-status-more-word {
+  font-weight: 500;
+  color: var(--text-2);
+}
+.tui-status-more-detail {
+  overflow-wrap: anywhere;
+}
+.tui-status-more-line[data-tone='bad'] .tui-status-more-word {
+  color: var(--text-bad-small);
+}
+.tui-status-more-line[data-tone='warn'] .tui-status-more-word {
+  color: var(--text-warn-small);
+}
+.tui-status-more-line[data-tone='work'] .tui-status-more-word {
+  color: var(--text-purple-small);
+}
+.tui-status-more-line[data-tone='go'] .tui-status-more-word,
+.tui-status-more-line[data-tone='clear'] .tui-status-more-word {
+  color: var(--text-ok-small);
 }
 /* Centered like the tools, not baseline-aligned: the line's baseline would
    otherwise follow whichever verb is first, and a secondary appearing left
@@ -1274,12 +1323,9 @@ body {
 /* Phone width: the branch and behind-target are unreadable at this width
    anyway; the reaction stage yields to the logo; the pill tightens. */
 @media (max-width: 480px) {
-  /* The +N active count reads only through its title, which a phone cannot
-     hover; it yields before the status word does. */
   .tui-branch,
   .tui-behind,
-  .tui-mark[data-slack-stage],
-  .tui-status-more {
+  .tui-mark[data-slack-stage] {
     display: none;
   }
   .tui-row-2 {

@@ -5,7 +5,7 @@ import type { BoardMRWithReview, RowContext } from '../types.ts';
 import { AskGlyph } from './ask-glyph.tsx';
 import { clauseOf } from './clause.ts';
 import { AgentGlyph, CloudSpinner, Sun } from './icons.tsx';
-import type { RowStatus, Verb, VerbKind } from './row-status.ts';
+import type { Candidate, RowStatus, Verb, VerbKind } from './row-status.ts';
 import {
   liveSyncLines,
   parseSyncLine,
@@ -221,6 +221,60 @@ function SyncLogWord({
   );
 }
 
+/** The row's other status lines, behind a count: the line shows only the
+    hottest, and the rest are often finished runs rather than live ones. */
+function MoreStatuses({
+  mr,
+  more,
+}: {
+  mr: BoardMRWithReview;
+  more: readonly Candidate[];
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      align="start"
+      sideOffset={6}
+      ariaLabel={`other statuses for !${mr.iid}`}
+      classNames={{ popup: 'tui-status-more-pop' }}
+      trigger={
+        <button
+          type="button"
+          className="tui-status-more"
+          data-open={open ? 'true' : undefined}
+          onMouseDown={e => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}
+          onContextMenu={e => e.stopPropagation()}
+        >
+          +{more.length} more
+        </button>
+      }
+    >
+      <div
+        className="tui-status-more-list"
+        onClick={e => e.stopPropagation()}
+        onContextMenu={e => e.stopPropagation()}
+      >
+        {more.map((l, i) => {
+          const detail = l.detail ? clauseOf(l.detail) : null;
+          return (
+            <div key={i} className="tui-status-more-line" data-tone={l.tone}>
+              <span className="tui-status-more-word">{l.word}</span>
+              {detail && (
+                <span className="tui-status-more-detail">
+                  {detail.full ?? detail.text}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Popover>
+  );
+}
+
 /** The row's one status line. Verbs are buttons so the row's own click
     (open in GitLab) ignores them; the first verb shows at rest, the rest
     only under the pointer (style.css keys on `data-secondary`). */
@@ -283,14 +337,7 @@ export function StatusLine({
           </Badge>
         </Tooltip>
       )}
-      {more.length > 0 && (
-        <span
-          className="tui-status-more"
-          title={more.map(l => l.word).join(', ')}
-        >
-          +{more.length} active
-        </span>
-      )}
+      {more.length > 0 && <MoreStatuses mr={mr} more={more} />}
       {verbs.length > 0 && (
         <span className="tui-status-verbs">
           {ordered(verbs).map(({ verb, primary }) => {

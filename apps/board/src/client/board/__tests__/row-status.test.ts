@@ -1347,6 +1347,44 @@ describe('rowStatus: doctor lane', () => {
     });
   });
 
+  test('a doctor queued a moment ago is a quiet queued line', () => {
+    const [line] = candidateLines(
+      mr({ doctor: { status: 'queued', updatedAt: NOW - 60_000 } }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({ tone: 'quiet', word: 'doctor queued' });
+  });
+
+  test('a doctor queued for over ten minutes with no report did not start', () => {
+    const [line] = candidateLines(
+      own({ doctor: { status: 'queued', updatedAt: NOW - 11 * 60_000 } }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({
+      tone: 'warn',
+      word: "doctor didn't start",
+      detail: 'queued 11m ago',
+    });
+    expect(line!.verbs).toEqual([
+      { kind: 'focus', label: 'open pane', domain: 'doctor' },
+      { kind: 'dismiss', label: 'dismiss', domain: 'doctor' },
+    ]);
+  });
+
+  test('a queued doctor row with no timestamp stays a plain queued line', () => {
+    const [line] = candidateLines(
+      mr({ doctor: { status: 'queued' } }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({ tone: 'quiet', word: 'doctor queued' });
+  });
+
   test('stuck is bad with call again', () => {
     const [line] = candidateLines(
       own({ doctor: { status: 'error' } }),
