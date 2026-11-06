@@ -51,7 +51,16 @@ struct FastSetupView: View {
 
     var body: some View {
         let drawn = drawn
-        FastWindowChrome(step: FastStep.label(for: drawn, path: stepPath, entry: flow.entry)) { screen(drawn) }
+        // `shown` still holds the screen being left during the render that changes it, so the direction reads here.
+        let forward = Self.order(drawn) >= Self.order(shown ?? drawn)
+        FastWindowChrome(step: FastStep.label(for: drawn, path: stepPath, entry: flow.entry)) {
+            ZStack {
+                screen(drawn)
+                    .id(drawn)
+                    .transition(Self.screenChange(forward: forward))
+            }
+            .animation(.spring(response: 0.42, dampingFraction: 0.9), value: drawn)
+        }
             .onAppear { shown = drawn }
             .onChange(of: drawn) { _, now in shown = now }
             .frame(width: SetupWindowController.width)
@@ -61,6 +70,30 @@ struct FastSetupView: View {
             .sheet(item: $actions.sheet, onDismiss: { Task { await actions.sheetClosed() } }) { sheet in
                 FastSetupSheet(sheet: sheet, actions: actions)
             }
+    }
+
+    /// The new screen fades and slides in from the side it comes from; the old one leaves the other way.
+    static func screenChange(forward: Bool) -> AnyTransition {
+        let shift: CGFloat = forward ? 18 : -18
+        return .asymmetric(
+            insertion: .opacity.combined(with: .offset(x: shift)),
+            removal: .opacity.combined(with: .offset(x: -shift)))
+    }
+
+    /// Where a screen sits on the way through setup, so Back slides the other way.
+    static func order(_ screen: FastSetupScreen) -> Int {
+        switch screen {
+        case .loading: return 0
+        case .macos: return 1
+        case .path: return 2
+        case .invite, .createTeam, .restore: return 3
+        case .waiting: return 4
+        case .connect: return 5
+        case .thisMac: return 6
+        case .tools: return 7
+        case .running, .paused: return 8
+        case .ready: return 9
+        }
     }
 
     private var back: (() -> Void)? { flow.canGoBack ? { flow.back() } : nil }
