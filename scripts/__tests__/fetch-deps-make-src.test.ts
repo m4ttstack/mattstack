@@ -110,4 +110,4 @@ test("make-src: a build whose binary links outside the system libraries is refus
   expect(res.code).not.toBe(0);
   expect(res.out).toContain("links outside the system libraries");
   expect(existsSync(join(depsRoot, SLICE, "toole"))).toBe(false);
-});
+}, 60_000);

@@ -191,10 +191,10 @@ then uninstall on the old one, so a queue run never finds no runner:
 3. Check that GitHub lists only the new Mac's runners, all online:
    `gh api repos/m4ttstack/mattstack/actions/runners --jq '.runners[] | "\(.name) \(.status) \(.os)"'`.
 
-Both Macs name their runners `mattstack-mac-<n>`. The new Mac's install takes
-over each name the old Mac holds, which stops the old runner with that number
-at once, and the uninstall removes only the runners still registered from its
-own Mac, so it never touches the new Mac's.
+Each Mac names its runners after itself, `mattstack-<LocalHostName>-<n>`
+(`mattstack-mac-mini-1` on the mini), and the uninstall removes only the
+registrations in its own runner folders, so neither Mac touches the other's
+runners. Runners installed before per-Mac names read `mattstack-mac-<n>`.
 
 A PR stuck on an old route needs a new push, since a rerun reuses the workflow
 the run started with. Queue runs use the merged tree, so they switch at once.

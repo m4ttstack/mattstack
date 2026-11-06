@@ -15,8 +15,9 @@ REPO=m4ttstack/mattstack
 CI_USER=mattstack-ci
 CI_HOME=/Users/$CI_USER
 HOOK_DIR=/usr/local/mattstack-ci
-# Not $TMPDIR: the runner user cannot read yours.
-TARBALL=$(mktemp /tmp/actions-runner.XXXXXX)
+# Each Mac registers its own names: --replace on a name another Mac holds would
+# share that runner's ID, and the other Mac's uninstall would then delete it.
+HOST=$(scutil --get LocalHostName | tr '[:upper:]' '[:lower:]')
 
 [[ "$COUNT" =~ ^[1-9][0-9]*$ ]] || { echo "The runner count must be a whole number above 0, not $COUNT." >&2; exit 1; }
 [ "$(id -u)" != 0 ] || { echo "Run this as yourself, not root." >&2; exit 1; }
@@ -27,6 +28,11 @@ gh auth status >/dev/null
 # The mattstack app ships a universal bun, for a Mac with none on PATH.
 BUN=$(command -v bun || echo /Applications/mattstack.app/Contents/Helpers/bun)
 "$BUN" --version >/dev/null 2>&1 || { echo "No bun that runs here: install bun or the mattstack app." >&2; exit 1; }
+# A version manager's shim runs for you but not as the runner user.
+case "$(file -b "$BUN")" in
+  *Mach-O*) ;;
+  *) echo "$BUN is not a bun binary (a version manager's shim?). Put a real bun first on PATH." >&2; exit 1 ;;
+esac
 
 sudo -v
 
@@ -53,6 +59,9 @@ sudo install -o root -g wheel -m 755 scripts/ci/mac-runner/job-completed.sh "$HO
 # The runner user's commands below cannot start from a directory in your home.
 cd /
 
+# Not $TMPDIR: the runner user cannot read yours.
+TARBALL=$(mktemp /tmp/actions-runner.XXXXXX)
+
 curl -fsSL -o "$TARBALL" "https://github.com/actions/runner/releases/download/v$VERSION/actions-runner-osx-$RUNNER_ARCH-$VERSION.tar.gz"
 echo "$SHA256  $TARBALL" | shasum -a 256 -c -
 chmod 644 "$TARBALL"
@@ -66,7 +75,7 @@ sudo -u "$CI_USER" -H bash -c '
 '
 
 for i in $(seq 1 "$COUNT"); do
-  name=mattstack-mac-$i
+  name=mattstack-$HOST-$i
   dir=$CI_HOME/$name
   label=dev.mattstack.ci-runner-$i
   plist=/Library/LaunchDaemons/$label.plist
@@ -127,9 +136,13 @@ for plist in /Library/LaunchDaemons/dev.mattstack.ci-runner-*.plist; do
   label=$(basename "$plist" .plist)
   i=${label##*-}
   [ "$i" -gt "$COUNT" ] || continue
-  name=mattstack-mac-$i
+  name=mattstack-$HOST-$i
   dir=$CI_HOME/$name
   sudo launchctl bootout "system/$label" 2>/dev/null || true
+  for _ in $(seq 1 30); do
+    launchctl print "system/$label" >/dev/null 2>&1 || break
+    sleep 1
+  done
   sudo rm "$plist"
   if sudo test -f "$dir/.runner"; then
     token=$(gh api -X POST "repos/$REPO/actions/runners/remove-token" --jq .token)

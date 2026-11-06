@@ -14,14 +14,19 @@ sudo -v
 
 for plist in /Library/LaunchDaemons/dev.mattstack.ci-runner-*.plist; do
   [ -e "$plist" ] || continue
-  sudo launchctl bootout "system/$(basename "$plist" .plist)" 2>/dev/null || true
+  label=$(basename "$plist" .plist)
+  sudo launchctl bootout "system/$label" 2>/dev/null || true
+  for _ in $(seq 1 30); do
+    launchctl print "system/$label" >/dev/null 2>&1 || break
+    sleep 1
+  done
   sudo rm "$plist"
 done
 
-# Each runner removes its own registration, so runners another Mac registered
-# under the same names stay. One a newer install already replaced fails here.
+# Each runner removes its own registration by the ID in its .runner file, so
+# another Mac's runners, registered under that Mac's own names, stay.
 cd /
-for dir in $(sudo find "$CI_HOME" -maxdepth 1 -name 'mattstack-mac-*' 2>/dev/null); do
+for dir in $(sudo find "$CI_HOME" -maxdepth 1 -name 'mattstack-*' 2>/dev/null); do
   sudo test -f "$dir/.runner" || continue
   token=$(gh api -X POST "repos/$REPO/actions/runners/remove-token" --jq .token)
   sudo -u "$CI_USER" -H bash -c "cd '$dir' && ./config.sh remove --token '$token'" ||
