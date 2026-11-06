@@ -96,10 +96,9 @@ both an arm64 and an x86_64 slice. The build reaches that in four places:
   the new lock with that parser. A version bump edits both urls, and
   `deps-lock-file.test.ts` fails when an Intel url names a different version.
 - **Fetch and tree rows.** `fetch-deps.sh x86_64` and `build-apps.ts --arch
-  x86_64` fill `rt-tray/deps/x86_64`, each beside its arm64 run. The x86_64
-  app pass sets `MATTSTACK_BUN_TARGET=bun-darwin-x64`, which each app's compile
-  script hands to `bun build --compile --target`, and smoke-tests the result
-  under Rosetta.
+  x86_64` fill `rt-tray/deps/x86_64`, each beside its arm64 run. A tree
+  app's JS bundle is the same on both chips; the x86_64 pass compiles each
+  launcher for Intel and smoke-tests it under Rosetta.
 - **The merge.** `scripts/merge-universal.ts` writes `rt-tray/deps/universal`:
   each Mach-O pair goes through `lipo -create`, and every other file comes from
   the arm64 slice (node's `config.gypi` is the one file that differs, and
@@ -344,11 +343,41 @@ this checkout and are `source: "tree"` rows in `rt-tray/deps.lock`: no url,
 no sha256, nothing to pin. `release.yml`'s `build-apps` job builds them all
 from the tagged commit: `bun install --frozen-lockfile`, then
 `scripts/build-apps.ts`, which itself builds the platform packages under
-`packages/*` via turbo before running each app's own compile recipe.
+`packages/*` via turbo before running each app's own bundle recipe.
 `build-apps` holds no signing key; signing happens later, in the same
 Helpers loop every other bundled binary goes through. A change merged to
 main ships in the very next release by construction: there is no separate
 dispatch, no bot PR, and no pin to bump.
+
+**Tree apps run on the one bundled bun.** A tree row is not a
+`bun build --compile` binary, which would carry its own copy of the Bun
+runtime (about 90 MB a slice). Its recipe (`bundle.build`, the app's
+`build:bundle` script) runs `bun build --target bun --define
+MATTSTACK_HELPER_BUNDLE=true` into a directory holding `main.js` and its
+assets (`bundle.artifact`). `build-apps` copies that directory to
+`<name>-app`, writes a guard `bunfig.toml` into it, and compiles
+`rt-tray/helper-launcher/main.c` for the arch as `<name>`. In the app,
+`Contents/Helpers/<name>` is that launcher (a signed Mach-O with the
+`com.mattstack.helper.<name>` identifier, so launchd's `BundleProgram`, the
+deck shim and every exec of `Helpers/<name>` keep working), and it execs
+`Contents/Helpers/bun --no-install [--no-env-file] --config=<name>-app/bunfig.toml
+<name>-app/main.js` with its own path as argv0:
+
+- The guard bunfig keeps bun from reading a `bunfig.toml` (and its
+  preload) from the caller's cwd. A cwd `.env` is still read, as a default
+  `--compile` binary did, unless the manifest sets `bundle.dotenv: false`
+  (boxscore). The board reads its tokens from `~/.mattstack/board/.env`
+  this way.
+- The app tells it is the helper bundle from the `MATTSTACK_HELPER_BUNDLE`
+  define, never from its path: there it has no source tree, and the command
+  that runs it again (a status writer handed to a pane, deck's launchd
+  program) is `process.argv0`, since `process.execPath` is the shared bun.
+- A plain bundle hands back a `with { type: 'file' }` import relative to its
+  own directory, so every reader resolves it against `import.meta.dir`
+  (`mattstack-embed-assets`' manifest, the board's chunk map).
+- The tree rows' entitlements are `none`: the launcher needs none, and the
+  bun it execs carries `jit`. Every file under `<name>-app` is signed like
+  the rest of `Contents/Helpers`.
 
 gitq also publishes `@mattstack/gitq` to npm on its own schedule
 (`bun run release` from `apps/gitq`; see `apps/gitq/docs/releasing.md`),
@@ -365,19 +394,21 @@ before adding an app or changing how one builds.
 ### Adding a served app
 
 1. **The app must answer `--version` with a bare semver and exit 0.**
-   `build-apps` smoke-tests the built artifact under an isolated HOME
-   right after compiling it, checking only that `--version` exits 0 (a
+   `build-apps` smoke-tests the launcher and bundle under an isolated HOME
+   right after building them, checking only that `--version` exits 0 (a
    server that just starts listening hangs the probe); it never compares
    the printed version against the tag, which `update-machine` does
    separately. Apps on `@mattstack/app-server` get this from
    `serveMattstackApp` (0.1.2 or later): pass `version` from
    `package.json`, never a hardcoded string, or the tag and the binary
    disagree.
-2. **A compiled Bun server needs embedded assets.** The console pattern:
-   `build:binary` runs `vite build && mattstack-embed-assets && bun build
-   --compile`; the server passes `embedded: () => import('./embedded/manifest'
-   as string)`; tsconfig excludes the generated manifest; `.gitignore`
-   carries `dist-bin` and the manifest path.
+2. **A bundled Bun server needs embedded assets.** The console pattern:
+   `build:bundle` runs `vite build && mattstack-embed-assets && bun build
+   --target bun --define MATTSTACK_HELPER_BUNDLE=true --entry-naming
+   'main.[ext]' --outdir dist-bin/app`; the server passes `embedded: () =>
+   import('./embedded/manifest' as string)`; tsconfig excludes the generated
+   manifest; `.gitignore` carries `dist-bin` and the manifest path. The
+   manifest's `bundle.artifact` is that output directory.
 3. **`serve: { port, args }` on the deps.lock row marks it a served app.**
    `parseDepsLock` requires the row's bundlePath and exec to be exactly
    `Contents/Helpers/<name>`, a port from 1024 to 65535 used by no other

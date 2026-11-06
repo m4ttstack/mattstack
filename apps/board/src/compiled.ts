@@ -61,7 +61,9 @@ injectClientAssets({
   appCss,
   chunks: lazyChunks(() =>
     // The helper bundle hands a file import back relative to its own dir.
-    parseChunkManifest(readFileSync(resolve(import.meta.dir, chunksPath), 'utf8'))
+    parseChunkManifest(
+      readFileSync(resolve(import.meta.dir, chunksPath), 'utf8')
+    )
   ),
 });
 await import('./server.ts');

@@ -18,9 +18,8 @@ process.env.LOCAL_AGENTS_DIR = join(dir, 'agents'); // isolate from this machine
 process.env.HOME = dir;
 writeFileSync(process.env.LOCAL_APPS_ROUTES_PATH, '[]');
 
-const { checkPrereqs, detectExecTargetFor, setup, uninstall } = await import(
-  './setup.ts'
-);
+const { checkPrereqs, detectExecTargetFor, setup, uninstall } =
+  await import('./setup.ts');
 
 test('the helper bundle installs its launcher, never the shared bun plus a script', () => {
   const run = {
