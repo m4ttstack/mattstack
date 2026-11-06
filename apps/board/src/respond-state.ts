@@ -72,6 +72,8 @@ export interface RespondState {
       SAME clock value the write's updatedAt gets. See ReviewState's own
       reopenedAt for the sweep-exemption contract, which this mirrors. */
   reopenedAt?: number;
+  /** See ReviewState's resumedAt, which this mirrors. */
+  resumedAt?: number;
   /** Stamp of the operator dismissing this lane's line from the row. While
       it is at least as new as `updatedAt` the row skips the lane entirely;
       any later write (a relaunch, the pane's own status CLI) outranks it and

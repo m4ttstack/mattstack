@@ -70,6 +70,9 @@ export interface Reconciler {
       sweep, against a freshly resolved pane. */
   expect(e: Expectation): void;
   clear(agentId: string): void;
+  /** agent:resume relaunched this agent: its cached gone reading is stale
+      until the next sweep resolves the new pane. */
+  resumed(agentId: string): void;
   /** The human dismissed this agent's attention gate: no new one for the
       same reading until the agent's state changes. */
   dismissed(agentId: string): void;
@@ -567,6 +570,20 @@ export function createReconciler(deps: ReconcilerDeps): Reconciler {
     return { state: pane.agentStatus === "blocked" ? "blocked" : "live", pane };
   }
 
+  // A full sweep here would advance every other agent's blocked/gone
+  // debounce early, so only this agent's cached entry changes.
+  function resumed(agentId: string): void {
+    const cached = lastStatus.executors.find((e) => e.agentId === agentId);
+    if (!cached || (cached.state !== "gone" && cached.state !== "blocked")) return;
+    cached.state = "unknown";
+    cached.paneRef = null;
+    cached.since = Date.now();
+    pendingGone.delete(agentId);
+    pendingBlocked.delete(agentId);
+    const paneId = deps.listAgents().find((a) => a.id === agentId)?.paneId;
+    sinceByAgent.set(agentId, { state: "unknown", paneId, since: cached.since });
+  }
+
   function agentIdFor(gate: GateRow): string | null {
     return gateAgentId(gate, deps.listAgents(), lastPanes);
   }
@@ -578,6 +595,7 @@ export function createReconciler(deps: ReconcilerDeps): Reconciler {
       expectations.push({ ...e, initialDeadlineSweeps: e.deadlineSweeps });
     },
     clear,
+    resumed,
     dismissed(agentId) {
       const current = lastStatus.executors.find((v) => v.agentId === agentId)?.state;
       if (current === "gone" || current === "blocked") dismissedWhile.set(agentId, current);
