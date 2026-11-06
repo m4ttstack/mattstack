@@ -348,9 +348,13 @@ export const EXAMPLES: Record<string, Example> = {
     ],
   },
   "board.workspaces": {
-    good: [{}, { reviews: "reviews", responds: "responses", doctors: "doctors" }],
+    good: [{}, { reviews: "reviews", responds: "responses", doctors: "doctors", mrs: "mrs" }],
     bad: [{ value: { reviews: 1 }, path: ["reviews"] }],
     layer: [{ doctors: "doctors" }],
+  },
+  "board.flockCommands": {
+    good: [[], [{ label: "Sync", command: "rt sync" }]],
+    bad: [{ value: [{ label: "Sync" }], path: [0, "command"] }],
   },
   "board.peerAsksAlwaysAllow": { good: [[], ["rmarlow"]], bad: [{ value: [{ username: "rmarlow" }], path: [0] }] },
   "board.hiddenMembers": { good: [[], ["dev2"]], bad: [{ value: [{ username: "dev2" }], path: [0] }] },

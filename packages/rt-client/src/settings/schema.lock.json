@@ -47,6 +47,32 @@
       "additionalProperties": {}
     }
   },
+  "board.flockCommands": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "What the menu row says."
+          },
+          "command": {
+            "type": "string",
+            "title": "Command",
+            "description": "Shell command run in the MR's worktree."
+          }
+        },
+        "required": [
+          "label",
+          "command"
+        ]
+      }
+    }
+  },
   "board.hiddenMembers": {
     "storeVersion": 1,
     "schema": {
@@ -482,6 +508,9 @@
           "type": "string"
         },
         "doctors": {
+          "type": "string"
+        },
+        "mrs": {
           "type": "string"
         }
       },

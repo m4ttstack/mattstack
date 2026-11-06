@@ -89,7 +89,18 @@ import {
   saveTabs,
   type BoardConfig,
   type SwitchboardTokenRead,
+  boardSetting,
 } from './config.ts';
+import {
+  actionCommand,
+  buildFlockMenu,
+  flockOpenUrl,
+  openInFlock,
+  parseFlockCommands,
+  provisionMrTree,
+  readFlockToken,
+  type FlockMenu,
+} from './flock-open.ts';
 import {
   aggregateSyncScope,
   boardDemand,
@@ -3422,6 +3433,120 @@ const httpServer = Bun.serve({
           return new Response(res.error ?? 'refresh failed', { status: 502 });
         cache.invalidate();
         return Response.json({ ok: true });
+      }
+      case '/flock/menu':
+      case '/flock/open': {
+        if (req.method !== 'POST')
+          return new Response('method not allowed', { status: 405 });
+        if (!isLocalRequest(req, server))
+          return new Response('forbidden', { status: 403 });
+        {
+          const notJson = requireJsonBody(req);
+          if (notJson) return notJson;
+        }
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return new Response('invalid json', { status: 400 });
+        }
+        const { mrUrl, iid, action, index } = (body ?? {}) as {
+          mrUrl?: unknown;
+          iid?: unknown;
+          action?: unknown;
+          index?: unknown;
+        };
+        if (typeof mrUrl !== 'string' || typeof iid !== 'number')
+          return new Response('expected { mrUrl: string, iid: number }', {
+            status: 400,
+          });
+        const mr = (await cache.get()).mrs.find(m => m.webUrl === mrUrl);
+        if (!mr) return new Response(`unknown MR "${mrUrl}"`, { status: 400 });
+        {
+          const mismatch = iidMismatch({ mrUrl, iid }, mr);
+          if (mismatch) return mismatch;
+        }
+        {
+          const refused = requireOwnMr(mr);
+          if (refused) return refused;
+        }
+        const repoName = mr.rtRepo ? repoIdentityField(mr.rtRepo) : null;
+        if (!repoName)
+          return new Response('this MR has no rt repo', { status: 400 });
+        const commands = parseFlockCommands(
+          boardSetting<unknown>('board.flockCommands')
+        );
+        let menu: FlockMenu;
+        try {
+          menu = await buildFlockMenu(
+            { webUrl: mrUrl, sourceBranch: mr.sourceBranch },
+            repoName,
+            commands
+          );
+        } catch (err) {
+          return new Response(
+            err instanceof Error ? err.message : String(err),
+            { status: 502 }
+          );
+        }
+        if (pathname === '/flock/menu') return Response.json(menu);
+
+        if (
+          action !== 'shell' &&
+          action !== 'claude' &&
+          action !== 'resume' &&
+          action !== 'command'
+        )
+          return new Response('expected action: shell|claude|resume|command', {
+            status: 400,
+          });
+        const saved =
+          action === 'command' && typeof index === 'number'
+            ? commands[index]
+            : undefined;
+        if (action === 'command' && !saved)
+          return new Response('unknown saved command', { status: 400 });
+        try {
+          let folder: string;
+          if (action === 'resume') {
+            if (!menu.resume)
+              return new Response('no work session for this MR', {
+                status: 409,
+              });
+            if (menu.resume.livePane) {
+              const { focused } = await focusPane({
+                paneId: menu.resume.livePane,
+              });
+              if (focused) return Response.json({ ok: true, focused: true });
+            }
+            if (menu.resume.worktreeGone || !menu.resume.worktree)
+              return new Response("the session's worktree is gone", {
+                status: 409,
+              });
+            folder = menu.resume.worktree;
+          } else {
+            folder =
+              menu.tree ?? (await provisionMrTree(repoName, mr.sourceBranch));
+          }
+          const target = flockOpenUrl({
+            folder,
+            repo: menu.repoRoot ?? folder,
+            label: mrTabLabel(mr.iid),
+            kind: action,
+            run: actionCommand(action, {
+              session: menu.resume?.session,
+              command: saved?.command,
+            }),
+            token: readFlockToken(),
+          });
+          await openInFlock(target);
+          return Response.json({ ok: true, provisioned: !menu.tree });
+        } catch (err) {
+          return new Response(
+            err instanceof Error ? err.message : String(err),
+            { status: 502 }
+          );
+        }
       }
       case '/mr/action': {
         // Fire one GitLab-side MR action (merge / rebase / auto-merge arm or
