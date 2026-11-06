@@ -114,16 +114,16 @@ struct FormRowView: View {
     private var loading: Bool { working || settling }
     /// A field row rt holds in `waiting` is waiting on the person's paste, so a settle there never loads its button.
     private var submitting: Bool { working || (settling && row.state != .waiting) }
-    /// A button row rt holds in `waiting` carries what the person has to act on (a sign-in code), so that line takes the
-    /// description's place instead of being dropped by the one-hint rule.
+    /// A button row waiting on the person (rt's `waiting`, or the app's own wait such as Chrome) carries what they have to
+    /// act on, a sign-in code or where to look, so that line takes the description's place instead of being dropped.
     private var waitReplacesSubtext: Bool {
-        guard row.state == .waiting, progressLine != nil, let action = row.action else { return false }
+        guard row.state == .waiting || waiting != nil, progressLine != nil, let action = row.action else { return false }
         return !Self.drawsInlineProgress(action)
     }
 
     var body: some View {
         content
-            .onChange(of: working) { was, now in if was && !now { settling = true } }
+            .onChange(of: working) { was, now in if was && !now && error == nil { settling = true } }
             .onChange(of: shapeKey) { _, _ in if !working { settling = false } }
             .onChange(of: error) { _, now in if now != nil { settling = false } }
             .task(id: settling) {
