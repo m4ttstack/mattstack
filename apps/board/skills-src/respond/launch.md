@@ -24,6 +24,10 @@ digraph respond_launch_and_resume {
     "--skill-path given (respond)?" [shape=diamond];
     "Read <--skill-path> (respond)" [shape=plaintext];
     "Load the --skill domain skill by name (respond)" [shape=box];
+    "Domain skill loaded (respond)?" [shape=diamond];
+    "<status-bin> respond-status <state> error Couldn't load <--skill>: <loader message>" [shape=plaintext];
+    "Print why the run ended (respond)" [shape=box];
+    "Domain skill not loaded: continue at Respond error written" [shape=doublecircle];
     "${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh (respond)" [shape=plaintext];
     "resolve-args.sh exit (respond)?" [shape=diamond];
     "Read <resolved.respond.path>" [shape=plaintext];
@@ -85,8 +89,12 @@ digraph respond_launch_and_resume {
     "--skill given (respond)?" -> "${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh (respond)" [label="no"];
     "--skill-path given (respond)?" -> "Read <--skill-path> (respond)" [label="yes"];
     "--skill-path given (respond)?" -> "Load the --skill domain skill by name (respond)" [label="no"];
-    "Read <--skill-path> (respond)" -> "Which entry (respond)?";
-    "Load the --skill domain skill by name (respond)" -> "Which entry (respond)?";
+    "Read <--skill-path> (respond)" -> "Domain skill loaded (respond)?";
+    "Load the --skill domain skill by name (respond)" -> "Domain skill loaded (respond)?";
+    "Domain skill loaded (respond)?" -> "Which entry (respond)?" [label="yes"];
+    "Domain skill loaded (respond)?" -> "<status-bin> respond-status <state> error Couldn't load <--skill>: <loader message>" [label="no: Unknown skill, an unreadable path, any load error"];
+    "<status-bin> respond-status <state> error Couldn't load <--skill>: <loader message>" -> "Print why the run ended (respond)";
+    "Print why the run ended (respond)" -> "Domain skill not loaded: continue at Respond error written";
     "${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh (respond)" -> "resolve-args.sh exit (respond)?";
     "resolve-args.sh exit (respond)?" -> "Read <resolved.respond.path>" [label="0"];
     "resolve-args.sh exit (respond)?" -> "Print the resolver's errors verbatim (respond)" [label="nonzero: generic path"];
@@ -210,6 +218,30 @@ The board passed `--skill <name>` without `--skill-path`: load that skill
 by name and treat it as the domain skill. The resolver does not run. When
 `--skill-path` is also given, `Read <--skill-path> (respond)` reads the
 SKILL.md at that absolute path instead, and it is the same domain skill.
+
+### Domain skill loaded (respond)?
+
+Yes when the Read of `--skill-path` returned the skill's text, or loading
+`--skill` by name returned the skill. Every other result is no: `Unknown
+skill`, a Read error (`File does not exist`, permission denied), an empty
+file. A run launched with `--skill` takes that domain skill or ends here:
+the generic path belongs only to a run launched with no `--skill`, and the
+resolver never runs in its place.
+
+### <status-bin> respond-status <state> error Couldn't load <--skill>: <loader message>
+
+The message is `Couldn't load <--skill>: ` followed by the loader's own
+error text, on one line: the Skill tool's error for a load by name, the
+Read tool's for `--skill-path`. For example:
+
+```
+<status-bin> respond-status <state> error "Couldn't load acme:board-respond: Unknown skill: acme:board-respond"
+```
+
+### Print why the run ended (respond)
+
+Print one line in the pane, the same text as the status message, and end
+the run. Nothing runs after it.
 
 ### Print the resolver's errors verbatim (respond)
 

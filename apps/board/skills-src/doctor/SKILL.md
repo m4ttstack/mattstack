@@ -94,6 +94,7 @@ digraph doctor_flow {
     "Entry outcome (doctor)?" -> "Watch the pipeline (watch.md)" [label="watch budget answered"];
     "Entry outcome (doctor)?" -> "Own lease held (doctor exit)?" [label="entry ends the run"];
     "Entry outcome (doctor)?" -> "Which exit (doctor)?" [label="resumed answer ends the run"];
+    "Entry outcome (doctor)?" -> "Doctor error written: stay in the pane" [label="domain skill not loaded: error already written"];
     "Domain repair (domain.md)" -> "Domain repair outcome (doctor)?";
     "Domain repair outcome (doctor)?" -> "Diagnose and rebase (diagnose.md)" [label="no domain skill"];
     "Domain repair outcome (doctor)?" -> "Watch the pipeline (watch.md)" [label="pushed"];
@@ -365,6 +366,9 @@ The tier picks the slot: `--tier api` uses the `doctor-api` slot
 1. **Explicit `--skill <name>` wins.** The resolver does not run. With
    `--skill-path <path>`, read the SKILL.md at that absolute path; without
    it, load the skill by name.
+   If that skill does not load, the run writes `error` and ends
+   (`Domain skill loaded (doctor)?`); it never falls back to the resolver
+   or the generic path.
 2. **Otherwise resolve the tier's slot** with the vendored resolver,
    `"${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh"`. On exit 0, read the
    SKILL.md at `resolved.doctor.path` (or `resolved.doctor-api.path` under

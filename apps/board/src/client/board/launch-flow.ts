@@ -82,6 +82,11 @@ export async function runLaunchFlow(
     );
     return result;
   }
+  if (intent === 'launch' && result.body?.refused) {
+    toast?.fail(result.body.refused);
+    deps.reload();
+    return result;
+  }
   if (intent === 'focus') {
     if (result.body?.focused)
       deps.addToast(`focused ${deps.noun} tab for ${mrRef(mr)}`);

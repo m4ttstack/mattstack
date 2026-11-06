@@ -311,7 +311,7 @@ test('dispatchPrompt carries the paused tree', async () => {
       statusBin: 'bin',
       pausedTree: '/trees/elrond',
     },
-    async () => null
+    async () => ({ ok: true as const, path: '/unused' })
   );
   expect(prompt).toContain('--paused-tree /trees/elrond');
 });

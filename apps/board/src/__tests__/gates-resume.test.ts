@@ -18,6 +18,7 @@ import type { GateState } from '../gates/store.ts';
 import { GATE_KINDS } from '../gates/sweep.ts';
 import { respondFilePath } from '../respond-state.ts';
 import { reviewFilePath } from '../review-state.ts';
+import { SkillBindError } from '../skill-path.ts';
 
 const MR_URL = 'https://gitlab.com/acme/webapp/-/merge_requests/4821';
 const GATE_ID = 'gate-1';
@@ -167,7 +168,7 @@ describe('resumeParkedGate', () => {
       'review-post': reviewIo,
     });
 
-    await resumeParkedGate(gate, resumeIo, async () => null);
+    await resumeParkedGate(gate, resumeIo, noSkillLookup);
 
     expect(resumeCalls.resumeAgentPane.length).toBe(1);
     const call = resumeCalls.resumeAgentPane[0]!;
@@ -206,7 +207,7 @@ describe('resumeParkedGate', () => {
     await resumeParkedGate(
       baseGate({ agentId: 'agent-1' }),
       resumeIo,
-      async () => null
+      noSkillLookup
     );
 
     expect(reviewCalls.writeState).toHaveLength(1);
@@ -238,7 +239,7 @@ describe('resumeParkedGate', () => {
     await resumeParkedGate(
       baseGate({ agentId: 'agent-1' }),
       resumeIo,
-      async () => null
+      noSkillLookup
     );
 
     expect(reviewCalls.writeState[0]!.patch.resumedAt).toBe(10);
@@ -259,7 +260,7 @@ describe('resumeParkedGate', () => {
       'respond-plan': respondIo,
     });
 
-    await resumeParkedGate(gate, resumeIo, async () => null);
+    await resumeParkedGate(gate, resumeIo, noSkillLookup);
 
     expect(resumeCalls.resumeAgentPane[0]!.workspaceLabel).toBe('responds');
     expect(resumeCalls.resumeAgentPane[0]!.prompt).toContain('/board:respond');
@@ -286,7 +287,7 @@ describe('resumeParkedGate', () => {
       'doctor-escalation': doctorIo,
     });
 
-    await resumeParkedGate(gate, resumeIo, async () => null);
+    await resumeParkedGate(gate, resumeIo, noSkillLookup);
 
     expect(resumeCalls.resumeAgentPane[0]!.workspaceLabel).toBe('doctors');
     expect(resumeCalls.resumeAgentPane[0]!.prompt).toContain('/board:doctor');
@@ -311,7 +312,7 @@ describe('resumeParkedGate', () => {
     const gate = baseGate({ agentId: 'agent-1', boardTabId: 'tab-9' });
     const { io: resumeIo } = fakeResumeIo({ 'review-post': reviewIo });
 
-    await resumeParkedGate(gate, resumeIo, async () => null);
+    await resumeParkedGate(gate, resumeIo, noSkillLookup);
 
     expect(reviewCalls.resolveSkill).toEqual([
       { mrUrl: MR_URL, tabId: 'tab-9' },
@@ -335,7 +336,7 @@ describe('resumeParkedGate', () => {
       const gate = baseGate({ agentId: 'agent-1', boardTabId: 'tab-9' });
       const { io: resumeIo } = fakeResumeIo({ 'review-post': reviewIo });
 
-      await resumeParkedGate(gate, resumeIo, async () => null);
+      await resumeParkedGate(gate, resumeIo, noSkillLookup);
 
       expect(reviewCalls.resolvePack).toEqual(['tab-9']);
       expect(reviewCalls.writeState[0]!.patch).toMatchObject({
@@ -364,7 +365,7 @@ describe('resumeParkedGate', () => {
         'review-post': reviewIo,
       });
 
-      await resumeParkedGate(gate, resumeIo, async () => null);
+      await resumeParkedGate(gate, resumeIo, noSkillLookup);
 
       expect(resumeCalls.resumeAgentPane[0]!.env).toEqual(env);
     }
@@ -392,7 +393,7 @@ describe('resumeParkedGate', () => {
       }
     );
 
-    await resumeParkedGate(gate, resumeIo, async () => null);
+    await resumeParkedGate(gate, resumeIo, noSkillLookup);
 
     expect(resumeCalls.resumeAgentPane.length).toBe(1);
     expect(reviewCalls.writeState.length).toBe(0);
@@ -412,7 +413,7 @@ describe('resumeParkedGate', () => {
       'review-post': reviewIo,
     });
 
-    await resumeParkedGate(gate, resumeIo, async () => null);
+    await resumeParkedGate(gate, resumeIo, noSkillLookup);
 
     expect(resumeCalls.resumeAgentPane.length).toBe(0);
     expect(resumeCalls.notify).toEqual([
@@ -425,7 +426,7 @@ describe('resumeParkedGate', () => {
     const { io: resumeIo } = fakeResumeIo({});
 
     await expect(
-      resumeParkedGate(gate, resumeIo, async () => null)
+      resumeParkedGate(gate, resumeIo, noSkillLookup)
     ).rejects.toThrow('doctor-escalation resume not wired');
   });
 
@@ -433,9 +434,9 @@ describe('resumeParkedGate', () => {
     const gate = baseGate({ agentId: 'agent-1', kind: 'mystery-kind' });
     const { io: resumeIo, calls: resumeCalls } = fakeResumeIo({});
 
-    await expect(
-      resumeParkedGate(gate, resumeIo, async () => null)
-    ).resolves.toBe(false);
+    await expect(resumeParkedGate(gate, resumeIo, noSkillLookup)).resolves.toBe(
+      false
+    );
     expect(resumeCalls.resumeAgentPane.length).toBe(0);
   });
 });
@@ -617,7 +618,10 @@ function fakeEventIo(
   };
 }
 
-const noSkillLookup = async () => null;
+const noSkillLookup = async () => ({
+  ok: true as const,
+  path: '/fixture/acme/skills/board-review/SKILL.md',
+});
 
 describe('handleAnsweredEvent', () => {
   test('a console-answered (non-board-endpoint) parked review-post gate resumes through the event path', async () => {
@@ -1132,5 +1136,46 @@ describe('buildResumers', () => {
     const resumers = buildResumers({ review, respond, doctor });
 
     expect(resumers['never-registered']).toBeUndefined();
+  });
+});
+
+describe('resumeParkedGate: a skill that does not resolve', () => {
+  test('errors the row with the reason, resumes no pane, and stays retryable', async () => {
+    const states = new Map([[MR_URL, baseReview()]]);
+    const { io: reviewIo, calls: reviewCalls } = makeKindIo({
+      wrapper: 'review',
+      workspaceLabel: 'reviews',
+      resumedStatus: 'reviewing',
+      filePath: reviewFilePath,
+      states,
+    });
+    const bind = new SkillBindError('acme:review', {
+      reason: 'skill-missing',
+      plugin: 'acme',
+      skill: 'review',
+    });
+    reviewIo.prompt = async () => {
+      throw bind;
+    };
+    const { io: resumeIo, calls: resumeCalls } = fakeResumeIo({
+      'review-post': reviewIo,
+    });
+
+    const resumed = await resumeParkedGate(
+      baseGate({ agentId: 'agent-1' }),
+      resumeIo,
+      noSkillLookup
+    );
+
+    expect(resumed).toBe(false);
+    expect(resumeCalls.resumeAgentPane).toHaveLength(0);
+    expect(reviewCalls.writeState).toEqual([
+      {
+        path: reviewFilePath(MR_URL),
+        patch: { status: 'error', message: bind.message },
+        now: undefined,
+      },
+    ]);
+    expect(states.get(MR_URL)?.resumedGateId).toBeUndefined();
   });
 });

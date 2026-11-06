@@ -255,3 +255,41 @@ test('launch flow returns the server result', async () => {
   );
   expect(result).toBe(reply);
 });
+test('launch flow: a refused launch fails the toast with the reason and reloads, no rollback', async () => {
+  const events: string[] = [];
+  await runLaunchFlow(
+    {
+      post: async () => ({
+        ok: true,
+        status: 200,
+        body: {
+          refused:
+            "Couldn't load acme:board-review: the acme plugin is turned off.",
+        },
+        text: '',
+      }),
+      setQueued: () => events.push('queued'),
+      rollback: () => events.push('rollback'),
+      addToast: t => events.push(`toast:${t}`),
+      startToast: t => {
+        events.push(`toast:${t}`);
+        return {
+          done: d => events.push(`done:${d}`),
+          fail: f => events.push(`fail:${f}`),
+        };
+      },
+      reload: () => events.push('reload'),
+      verbing: 'launching review',
+      noun: 'review',
+      started: 'review started',
+    },
+    { webUrl: 'u', iid: 7 } as never,
+    {}
+  );
+  expect(events).toEqual([
+    'queued',
+    'toast:launching review for !7…',
+    "fail:Couldn't load acme:board-review: the acme plugin is turned off.",
+    'reload',
+  ]);
+});

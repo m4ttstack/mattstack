@@ -52,10 +52,13 @@ const ASK_CTX: RespondAskCtx = {
   author: 'Grace Hopper',
 };
 
-/** No-op skill-path resolver: none of these tests exercise --skill-path
+/** Fixed skill-path resolver: none of these tests exercise --skill-path
     resolution, and the default resolver would spawn a real `claude plugin
     list` process. Always inject this. */
-const noSkillPath = async () => null;
+const fixtureSkillPath = async () => ({
+  ok: true as const,
+  path: '/fixture/acme/skills/board-review/SKILL.md',
+});
 
 let dir: string;
 let db: Database;
@@ -129,7 +132,13 @@ describe('launchReReview: agentId on file (arm i -- resumeAgentPane)', () => {
   });
 
   test('resumes through resumeAgentPane, never launchLegacyResume, with the dispatchPrompt re-review prompt', async () => {
-    const res = await launchReReview(URL_A, IID, CTX, makeIo(), noSkillPath);
+    const res = await launchReReview(
+      URL_A,
+      IID,
+      CTX,
+      makeIo(),
+      fixtureSkillPath
+    );
 
     expect(res).toEqual({ kind: 'resumed' });
     expect(reviewCalls).toHaveLength(0);
@@ -149,7 +158,7 @@ describe('launchReReview: agentId on file (arm i -- resumeAgentPane)', () => {
   });
 
   test('writes reviewing state, then stamps the tab/agent it landed in', async () => {
-    await launchReReview(URL_A, IID, CTX, makeIo(), noSkillPath);
+    await launchReReview(URL_A, IID, CTX, makeIo(), fixtureSkillPath);
 
     const state = readReviewStates(db).get(URL_A);
     expect(state?.status).toBe('reviewing');
@@ -166,7 +175,7 @@ describe('launchReReview: agentId on file (arm i -- resumeAgentPane)', () => {
       IID,
       { ...CTX, note: 'the schema change worries me' },
       makeIo(),
-      noSkillPath
+      fixtureSkillPath
     );
     expect(resumeCalls[0]!.prompt).toContain(
       '\n\nOperator note (from the human who launched this pane): the schema change worries me'
@@ -187,7 +196,7 @@ describe('launchReReview: agentId on file (arm i -- resumeAgentPane)', () => {
         };
       },
     });
-    const res = await launchReReview(URL_A, IID, CTX, io, noSkillPath);
+    const res = await launchReReview(URL_A, IID, CTX, io, fixtureSkillPath);
 
     expect(res).toEqual({ kind: 'resumed' });
     const state = readReviewStates(db).get(URL_A);
@@ -203,7 +212,7 @@ describe('launchReReview: agentId on file (arm i -- resumeAgentPane)', () => {
       },
     });
 
-    const res = await launchReReview(URL_A, IID, CTX, io, noSkillPath);
+    const res = await launchReReview(URL_A, IID, CTX, io, fixtureSkillPath);
 
     expect(res.kind).toBe('error');
     expect(res).toMatchObject({ message: 'rt agent: unreachable' });
@@ -229,7 +238,13 @@ describe('launchReReview: sessionId only on file, no agentId (arm ii -- launchLe
   });
 
   test('resumes through launchLegacyResume, never resumeAgentPane, with the SAME dispatchPrompt re-review prompt', async () => {
-    const res = await launchReReview(URL_A, IID, CTX, makeIo(), noSkillPath);
+    const res = await launchReReview(
+      URL_A,
+      IID,
+      CTX,
+      makeIo(),
+      fixtureSkillPath
+    );
 
     expect(res).toEqual({ kind: 'resumed' });
     expect(reviewCalls).toHaveLength(0);
@@ -256,7 +271,7 @@ describe('launchReReview: sessionId only on file, no agentId (arm ii -- launchLe
   });
 
   test('writes reviewing state, then stamps the tab it landed in', async () => {
-    await launchReReview(URL_A, IID, CTX, makeIo(), noSkillPath);
+    await launchReReview(URL_A, IID, CTX, makeIo(), fixtureSkillPath);
 
     const state = readReviewStates(db).get(URL_A);
     expect(state?.status).toBe('reviewing');
@@ -271,7 +286,7 @@ describe('launchReReview: sessionId only on file, no agentId (arm ii -- launchLe
       IID,
       { ...CTX, note: 'the schema change worries me' },
       makeIo(),
-      noSkillPath
+      fixtureSkillPath
     );
     expect(legacyResumeCalls[0]!.prompt).toContain(
       '\n\nOperator note (from the human who launched this pane): the schema change worries me'
@@ -284,7 +299,7 @@ describe('launchReReview: sessionId only on file, no agentId (arm ii -- launchLe
       IID,
       { ...CTX, account: 'matt@example.com', model: 'opus', effort: 'high' },
       makeIo(),
-      noSkillPath
+      fixtureSkillPath
     );
     expect(legacyResumeCalls[0]).not.toHaveProperty('account');
     expect(legacyResumeCalls[0]).not.toHaveProperty('model');
@@ -297,7 +312,7 @@ describe('launchReReview: sessionId only on file, no agentId (arm ii -- launchLe
       IID,
       { ...CTX, claudeCommand: 'cswap run 2 --' },
       makeIo(),
-      noSkillPath
+      fixtureSkillPath
     );
     expect(legacyResumeCalls[0]).toMatchObject({
       claudeCommand: 'cswap run 2 --',
@@ -311,7 +326,7 @@ describe('launchReReview: sessionId only on file, no agentId (arm ii -- launchLe
       },
     });
 
-    const res = await launchReReview(URL_A, IID, CTX, io, noSkillPath);
+    const res = await launchReReview(URL_A, IID, CTX, io, fixtureSkillPath);
 
     expect(res.kind).toBe('error');
     expect(res).toMatchObject({ message: 'herdr: no workspace' });
@@ -323,7 +338,13 @@ describe('launchReReview: sessionId only on file, no agentId (arm ii -- launchLe
 
 describe('launchReReview: nothing on file (arm iii -- fresh launchReview)', () => {
   test('launches a fresh review with the re-review framing', async () => {
-    const res = await launchReReview(URL_A, IID, CTX, makeIo(), noSkillPath);
+    const res = await launchReReview(
+      URL_A,
+      IID,
+      CTX,
+      makeIo(),
+      fixtureSkillPath
+    );
 
     expect(res).toEqual({ kind: 'launched' });
     expect(resumeCalls).toHaveLength(0);
@@ -348,7 +369,7 @@ describe('launchReReview: nothing on file (arm iii -- fresh launchReview)', () =
       IID,
       { ...CTX, reReview: false },
       makeIo(),
-      noSkillPath
+      fixtureSkillPath
     );
     expect(res).toEqual({ kind: 'launched' });
     expect(reviewCalls[0]).toMatchObject({ reReview: false });
@@ -360,7 +381,7 @@ describe('launchReReview: nothing on file (arm iii -- fresh launchReview)', () =
       IID,
       { ...CTX, note: 'compare against !4700' },
       makeIo(),
-      noSkillPath
+      fixtureSkillPath
     );
     expect(reviewCalls[0]).toMatchObject({ note: 'compare against !4700' });
   });
@@ -371,7 +392,7 @@ describe('launchReReview: nothing on file (arm iii -- fresh launchReview)', () =
       IID,
       { ...CTX, account: 'matt@example.com', model: 'opus', effort: 'high' },
       makeIo(),
-      noSkillPath
+      fixtureSkillPath
     );
     expect(reviewCalls[0]).toMatchObject({
       account: 'matt@example.com',
@@ -386,13 +407,13 @@ describe('launchReReview: nothing on file (arm iii -- fresh launchReview)', () =
       IID,
       withPack('widgets'),
       makeIo(),
-      noSkillPath
+      fixtureSkillPath
     );
     expect(reviewCalls[0]).toMatchObject({ pack: 'widgets' });
   });
 
   test('a launch with no pack marks the row noPack', async () => {
-    await launchReReview(URL_A, IID, CTX, makeIo(), noSkillPath);
+    await launchReReview(URL_A, IID, CTX, makeIo(), fixtureSkillPath);
     expect(readReviewStates(db).get(URL_A)?.noPack).toBe(true);
   });
 
@@ -408,13 +429,13 @@ describe('launchReReview: nothing on file (arm iii -- fresh launchReview)', () =
       IID,
       withPack('widgets'),
       makeIo(),
-      noSkillPath
+      fixtureSkillPath
     );
     expect(readReviewStates(db).get(URL_A)?.noPack).toBe(false);
   });
 
   test('writes a queued state carrying the MR identity, then stamps the tab and agent', async () => {
-    await launchReReview(URL_A, IID, CTX, makeIo(), noSkillPath);
+    await launchReReview(URL_A, IID, CTX, makeIo(), fixtureSkillPath);
 
     const state = readReviewStates(db).get(URL_A);
     expect(state?.status).toBe('queued');
@@ -438,7 +459,13 @@ describe('launchReReview: nothing on file (arm iii -- fresh launchReview)', () =
       db
     );
 
-    const res = await launchReReview(URL_A, IID, CTX, makeIo(), noSkillPath);
+    const res = await launchReReview(
+      URL_A,
+      IID,
+      CTX,
+      makeIo(),
+      fixtureSkillPath
+    );
 
     expect(res).toEqual({ kind: 'launched' });
     expect(reviewCalls).toHaveLength(1);
@@ -458,7 +485,7 @@ describe('launchReReview: nothing on file (arm iii -- fresh launchReview)', () =
         };
       },
     });
-    const res = await launchReReview(URL_A, IID, CTX, io, noSkillPath);
+    const res = await launchReReview(URL_A, IID, CTX, io, fixtureSkillPath);
 
     expect(res).toEqual({ kind: 'launched' });
     const state = readReviewStates(db).get(URL_A);
@@ -473,7 +500,7 @@ describe('launchReReview: nothing on file (arm iii -- fresh launchReview)', () =
       },
     });
 
-    const res = await launchReReview(URL_A, IID, CTX, io, noSkillPath);
+    const res = await launchReReview(URL_A, IID, CTX, io, fixtureSkillPath);
 
     expect(res).toEqual({
       kind: 'error',
@@ -515,7 +542,7 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
       IID,
       ASK_CTX,
       makeRespondIo(),
-      noSkillPath
+      fixtureSkillPath
     );
     expect(res).toEqual({ kind: 'launched' });
     expect(respondCalls).toHaveLength(1);
@@ -527,6 +554,43 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
     });
   });
 
+  test('a skill that does not resolve opens no pane and keeps the last run', async () => {
+    writeRespondState(
+      respondFilePath(URL_A),
+      {
+        mrUrl: URL_A,
+        iid: IID,
+        status: 'done',
+        agentId: 'agent-old',
+        pendingReReview: ['d1'],
+      },
+      1000,
+      db
+    );
+    const res = await launchRespondAsk(
+      URL_A,
+      IID,
+      ASK_CTX,
+      makeRespondIo(),
+      async () => ({
+        ok: false as const,
+        failure: {
+          reason: 'skill-missing' as const,
+          plugin: 'acme',
+          skill: 'x',
+        },
+      })
+    );
+    expect(res.kind).toBe('error');
+    expect(respondCalls).toHaveLength(0);
+    expect(readRespondStates(db).get(URL_A)).toMatchObject({
+      status: 'error',
+      message: expect.stringContaining('the acme plugin has no x skill'),
+      agentId: 'agent-old',
+      pendingReReview: ['d1'],
+    });
+  });
+
   test('a peer ask has no board tab, so it clears the one an earlier launch left', async () => {
     writeRespondState(
       respondFilePath(URL_A),
@@ -534,7 +598,13 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
       1000,
       db
     );
-    await launchRespondAsk(URL_A, IID, ASK_CTX, makeRespondIo(), noSkillPath);
+    await launchRespondAsk(
+      URL_A,
+      IID,
+      ASK_CTX,
+      makeRespondIo(),
+      fixtureSkillPath
+    );
     expect(readRespondStates(db).get(URL_A)?.boardTabId).toBe('');
   });
 
@@ -550,7 +620,13 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
       1000,
       db
     );
-    await launchRespondAsk(URL_A, IID, ASK_CTX, makeRespondIo(), noSkillPath);
+    await launchRespondAsk(
+      URL_A,
+      IID,
+      ASK_CTX,
+      makeRespondIo(),
+      fixtureSkillPath
+    );
     expect(readRespondStates(db).get(URL_A)?.pendingReReview).toEqual([]);
   });
 
@@ -567,7 +643,13 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
       1000,
       db
     );
-    await launchRespondAsk(URL_A, IID, ASK_CTX, makeRespondIo(), noSkillPath);
+    await launchRespondAsk(
+      URL_A,
+      IID,
+      ASK_CTX,
+      makeRespondIo(),
+      fixtureSkillPath
+    );
     const row = readRespondStates(db).get(URL_A);
     expect(row?.person).toBeUndefined();
     expect(row?.responseRound).toBeUndefined();
@@ -597,7 +679,7 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
         return base.launchRespond(opts, launchIo);
       },
     });
-    await launchRespondAsk(URL_A, IID, ASK_CTX, io, noSkillPath);
+    await launchRespondAsk(URL_A, IID, ASK_CTX, io, fixtureSkillPath);
     expect(duringLaunch).toMatchObject({ status: 'queued' });
     for (const key of [
       'sessionId',
@@ -633,7 +715,7 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
         focusedExisting: true,
       }),
     });
-    await launchRespondAsk(URL_A, IID, ASK_CTX, io, noSkillPath);
+    await launchRespondAsk(URL_A, IID, ASK_CTX, io, fixtureSkillPath);
     expect(readRespondStates(db).get(URL_A)).toMatchObject(lastPane);
   });
 
@@ -643,14 +725,20 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
       IID,
       { ...ASK_CTX, pack: 'widgets' },
       makeRespondIo(),
-      noSkillPath
+      fixtureSkillPath
     );
     expect(respondCalls[0]).toMatchObject({ pack: 'widgets' });
     expect(readRespondStates(db).get(URL_A)?.noPack).toBe(false);
   });
 
   test('a respond launch with no pack marks the row noPack', async () => {
-    await launchRespondAsk(URL_A, IID, ASK_CTX, makeRespondIo(), noSkillPath);
+    await launchRespondAsk(
+      URL_A,
+      IID,
+      ASK_CTX,
+      makeRespondIo(),
+      fixtureSkillPath
+    );
     expect(readRespondStates(db).get(URL_A)?.noPack).toBe(true);
   });
 
@@ -664,7 +752,7 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
           throw new Error('no herdr');
         },
       }),
-      noSkillPath
+      fixtureSkillPath
     );
     expect(res).toEqual({ kind: 'error', message: 'no herdr' });
     const state = readRespondStates(db).get(URL_A);
@@ -690,7 +778,7 @@ describe('launchReReview: a resume re-resolves the pack', () => {
         IID,
         withPack('widgets'),
         makeIo(),
-        noSkillPath
+        fixtureSkillPath
       );
       expect(readReviewStates(db).get(URL_A)?.noPack).toBe(false);
     });
@@ -702,7 +790,7 @@ describe('launchReReview: a resume re-resolves the pack', () => {
         1,
         db
       );
-      await launchReReview(URL_A, IID, CTX, makeIo(), noSkillPath);
+      await launchReReview(URL_A, IID, CTX, makeIo(), fixtureSkillPath);
       expect(readReviewStates(db).get(URL_A)?.noPack).toBe(true);
     });
   }
@@ -719,7 +807,13 @@ describe('launchReReview: a resume re-resolves the pack', () => {
         1,
         db
       );
-      await launchReReview(URL_A, IID, withPack(pack), makeIo(), noSkillPath);
+      await launchReReview(
+        URL_A,
+        IID,
+        withPack(pack),
+        makeIo(),
+        fixtureSkillPath
+      );
       expect(resumeCalls[0]?.env).toEqual(env);
     }
   });
@@ -736,7 +830,7 @@ describe('launchReReview: a resume re-resolves the pack', () => {
       IID,
       withPack('widgets'),
       makeIo(),
-      noSkillPath
+      fixtureSkillPath
     );
     expect(legacyResumeCalls[0]).toMatchObject({ pack: 'widgets' });
   });
@@ -802,7 +896,7 @@ describe('launchReReview: the lane keeps the pack of the board tab it launched f
           IID,
           fromConfig(pack),
           makeIo(),
-          noSkillPath
+          fixtureSkillPath
         );
         expect(sent()).toBe(expected);
         const state = readReviewStates(db).get(URL_A);
@@ -818,7 +912,7 @@ describe('launchReReview: the lane keeps the pack of the board tab it launched f
       IID,
       { ...fromConfig('gadgets'), boardTabId: 'gadgets-tab' },
       makeIo(),
-      noSkillPath
+      fixtureSkillPath
     );
     expect(reviewCalls[0]).toMatchObject({ pack: 'gadgets' });
     expect(readReviewStates(db).get(URL_A)?.boardTabId).toBe('gadgets-tab');
@@ -836,7 +930,7 @@ describe('launchReReview: the lane keeps the pack of the board tab it launched f
       IID,
       fromConfig('gadgets'),
       makeIo(),
-      noSkillPath
+      fixtureSkillPath
     );
     expect(reviewCalls[0]?.pack).toBeUndefined();
     expect(readReviewStates(db).get(URL_A)?.boardTabId).toBe('');
@@ -864,4 +958,40 @@ describe('launchReReview: the lane keeps the pack of the board tab it launched f
       pack: 'gadgets',
     });
   });
+});
+
+describe('launchReReview: a skill that does not resolve opens no pane', () => {
+  const unresolved = async () => ({
+    ok: false as const,
+    failure: { reason: 'plugin-not-installed' as const, plugin: 'acme' },
+  });
+
+  test.each([
+    ['agentId on file', { agentId: 'agent-a' }],
+    ['sessionId only', { sessionId: 'sess-old' }],
+    ['nothing on file', null],
+  ] as const)(
+    '%s: errors the row with the reason and fix',
+    async (_arm, prior) => {
+      if (prior)
+        writeReviewState(
+          reviewFilePath(URL_A),
+          { mrUrl: URL_A, iid: IID, status: 'done', ...prior },
+          Date.now(),
+          db
+        );
+
+      const res = await launchReReview(URL_A, IID, CTX, makeIo(), unresolved);
+
+      const expected = `Couldn't load ${SKILL}: the acme plugin isn't installed. Install it, then launch again (rt skills sync installs your team's).`;
+      expect(res).toEqual({ kind: 'error', message: expected });
+      expect(resumeCalls).toHaveLength(0);
+      expect(legacyResumeCalls).toHaveLength(0);
+      expect(reviewCalls).toHaveLength(0);
+      expect(readReviewStates(db).get(URL_A)).toMatchObject({
+        status: 'error',
+        message: expected,
+      });
+    }
+  );
 });
