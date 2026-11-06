@@ -61,8 +61,10 @@ int main(int argc, char **argv) {
         return 127;
     }
     // An explicit, empty bunfig: bun would otherwise read bunfig.toml (and
-    // its preload) from whatever cwd the caller left it in.
+    // its preload) from whatever cwd the caller left it in. BUN_OPTIONS is
+    // the same door through the caller's environment.
     snprintf(configFlag, sizeof configFlag, "--config=%s", config);
+    unsetenv("BUN_OPTIONS");
 
     char **args = calloc((size_t)argc + 6, sizeof *args);
     if (args == NULL) return 127;

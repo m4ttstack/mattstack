@@ -98,7 +98,9 @@ both an arm64 and an x86_64 slice. The build reaches that in four places:
 - **Fetch and tree rows.** `fetch-deps.sh x86_64` and `build-apps.ts --arch
   x86_64` fill `rt-tray/deps/x86_64`, each beside its arm64 run. A tree
   app's JS bundle is the same on both chips; the x86_64 pass compiles each
-  launcher for Intel and smoke-tests it under Rosetta.
+  launcher for Intel and runs it under Rosetta on the build host's bun.
+  `check-bundle.sh --universal` is what runs each app on `Helpers/bun`'s
+  Intel slice.
 - **The merge.** `scripts/merge-universal.ts` writes `rt-tray/deps/universal`:
   each Mach-O pair goes through `lipo -create`, and every other file comes from
   the arm64 slice (node's `config.gypi` is the one file that differs, and
@@ -364,7 +366,8 @@ deck shim and every exec of `Helpers/<name>` keep working), and it execs
 <name>-app/main.js` with its own path as argv0:
 
 - The guard bunfig keeps bun from reading a `bunfig.toml` (and its
-  preload) from the caller's cwd. A cwd `.env` is still read, as a default
+  preload) from the caller's cwd, and the launcher clears `BUN_OPTIONS`,
+  the same door through the environment. A cwd `.env` is still read, as a default
   `--compile` binary did, unless the manifest sets `bundle.dotenv: false`
   (boxscore). The board reads its tokens from `~/.mattstack/board/.env`
   this way.

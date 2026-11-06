@@ -34,8 +34,8 @@ function hostileCwd() {
   return cwd;
 }
 
-function run(launcher: string, args: string[], cwd: string) {
-  const r = spawnSync(launcher, args, { cwd, encoding: "utf8", env: { HOME: cwd, PATH: "/usr/bin:/bin" } });
+function run(launcher: string, args: string[], cwd: string, env: Record<string, string> = {}) {
+  const r = spawnSync(launcher, args, { cwd, encoding: "utf8", env: { HOME: cwd, PATH: "/usr/bin:/bin", ...env } });
   return { status: r.status, stderr: r.stderr, seen: r.status === 0 ? JSON.parse(r.stdout) : null };
 }
 
@@ -62,6 +62,13 @@ describe.skipIf(!canCompile)("the Contents/Helpers launcher", () => {
     expect(withEnv.seen).toMatchObject({ foo: "from-cwd-dotenv", preload: false });
     const withoutEnv = run(helpers(false).launcher, [], hostileCwd());
     expect(withoutEnv.seen).toMatchObject({ foo: null, preload: false });
+  });
+
+  test("drops a BUN_OPTIONS preload from the caller's environment", () => {
+    const cwd = hostileCwd();
+    const r = run(helpers(true).launcher, [], cwd, { BUN_OPTIONS: "--preload ./pre.js" });
+    expect(r.status).toBe(0);
+    expect(r.seen.preload).toBe(false);
   });
 
   test("names the missing bundle instead of handing bun a bad path", () => {

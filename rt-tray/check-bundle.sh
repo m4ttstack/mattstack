@@ -323,7 +323,7 @@ check_helpers() { # app
     else
         pass "$exe bundle carries no .sha256 stamp files"
     fi
-    local row name bundlePath ent status source p roots appdir
+    local row name bundlePath ent status source p roots appdir kinds
     while IFS= read -r row; do
         [ -n "$row" ] || continue
         split_tsv "$row"
@@ -345,8 +345,13 @@ check_helpers() { # app
                 fail "$exe Helpers/$name-app is missing main.js or bunfig.toml"
             fi
             [ -d "$appdir" ] && roots+=("$appdir")
-            if find "$appdir" -type f -print0 2>/dev/null | xargs -0 file -b 2>/dev/null | grep -q "Mach-O"; then
+            # Captured before matching: under pipefail, grep -q's early exit
+            # SIGPIPEs `file` and the match would read as a miss.
+            kinds="$(find "$appdir" -type f -exec file -b {} + 2>/dev/null || true)"
+            if grep -q "Mach-O" <<< "$kinds"; then
                 fail "$exe Helpers/$name-app carries native code; a JS bundle should not"
+            else
+                pass "$exe Helpers/$name-app carries no native code"
             fi
         fi
         while IFS= read -r -d '' f; do
@@ -626,6 +631,21 @@ check_universal() { # app
     else
         fail "$exe: rt's Intel slice failed: $(printf '%s' "$out" | head -1)"
     fi
+    # A tree app's launcher, run under Rosetta, execs Helpers/bun's Intel
+    # slice on the app's bundle: the one place an app meets Intel bun before
+    # an Intel Mac does.
+    local row name
+    while IFS= read -r row; do
+        [ -n "$row" ] || continue
+        split_tsv "$row"
+        name="${FIELDS[0]}"
+        [ "${FIELDS[11]}" = tree ] && [ "${FIELDS[8]}" = bundled ] || continue
+        if out="$(cd "$home" && env -i HOME="$home" PATH=/usr/bin:/bin arch -x86_64 "$app/Contents/Helpers/$name" --version 2>&1)"; then
+            pass "$exe: Helpers/$name runs on Intel bun ($(printf '%s' "$out" | head -1))"
+        else
+            fail "$exe: Helpers/$name failed on Intel bun: $(printf '%s' "$out" | head -1)"
+        fi
+    done <<< "$LOCK_TSV"
 }
 UNIVERSAL=false
 for arg in "$@"; do [ "$arg" = "--universal" ] && UNIVERSAL=true; done

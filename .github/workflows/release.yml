@@ -29,7 +29,8 @@ jobs:
         with:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
-      # The x86_64 pass smoke-tests each Intel artifact under Rosetta.
+      # The x86_64 pass runs each Intel launcher under Rosetta; check-bundle
+      # --universal runs each app on Helpers/bun's Intel slice.
       - name: Install Rosetta
         run: sudo softwareupdate --install-rosetta --agree-to-license
       - name: Build the tree rows (arm64)
