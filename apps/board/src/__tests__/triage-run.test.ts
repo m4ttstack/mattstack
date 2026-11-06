@@ -636,6 +636,24 @@ describe('runTriage attendant lease (BOARD-10)', () => {
     ]);
   });
 
+  test('a Claude Code failure errors the row but leaves the edge armed', async () => {
+    let attempts = 0;
+    const d = deps({
+      launchDoctor: async () => {
+        attempts++;
+        throw new SkillBindError('team:doctor-api', {
+          reason: 'claude-failed',
+          claudeBin: '/x/claude',
+          detail: 'did not answer in 15s',
+        });
+      },
+    });
+    await runTriage(d);
+    await runTriage(d);
+    expect(attempts).toBe(2);
+    expect(d.notifyCalls).toEqual([]);
+  });
+
   test('a throw between the claim and the launch (doctorFilePath) still releases the claim', async () => {
     const releases: Array<[string, number]> = [];
     const d = deps({

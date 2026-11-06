@@ -13,6 +13,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterAll, describe, expect, test } from 'bun:test';
 
+import { readDoctorStates } from '../doctor-state.ts';
 import { readDrafts, writeDraft } from '../draft-state.ts';
 import { openStateDb } from '../state/db.ts';
 import { readMemory, writeMemory } from '../triage/memory-store.ts';
@@ -146,7 +147,8 @@ function boot(
   name: string,
   port: number,
   seat: string | null,
-  tokenUser: string = seat ?? 'alice'
+  tokenUser: string = seat ?? 'alice',
+  doctorSkill?: string
 ): Board {
   const home = mkdtempSync(join(tmpdir(), `board-own-mr-${name}-`));
   const gitlabSeen: string[] = [];
@@ -181,6 +183,7 @@ function boot(
     JSON.stringify({
       'board.gitlabHost': host,
       'board.projects': ['g/p'],
+      ...(doctorSkill ? { 'board.doctorSkill': doctorSkill } : {}),
       'mattstack.roster': [{ username: 'alice' }, { username: 'bob' }],
       'mattstack.directory': {
         teams: {
@@ -292,6 +295,7 @@ function boot(
       env: {
         ...process.env,
         HOME: home,
+        CLAUDE_BIN: join(home, 'no-claude-here'),
         BOARD_APP_ROOT: home,
         BOARD_STATE_DB: dbPath,
         PORT: String(port),
@@ -323,11 +327,14 @@ const seated = boot('seat', 47966, 'alice');
 const everyone = boot('all', 47967, null);
 // The seat says alice, but the board's GitLab token belongs to carol.
 const borrowed = boot('borrowed', 47968, 'alice', 'carol');
+// Its doctor skill can't bind: CLAUDE_BIN points at nothing.
+const unbound = boot('unbound', 47969, 'alice', 'alice', 'acme:board-doctor');
 
 afterAll(() => {
   seated.stop();
   everyone.stop();
   borrowed.stop();
+  unbound.stop();
 });
 
 async function ready(b: Board): Promise<void> {
@@ -796,4 +803,31 @@ describe("a seat that is not the token's user owns nothing", () => {
     expect(wroteTo(borrowed, 7)).toBe(false);
     expect(launchedOn(borrowed, 7)).toBe(false);
   });
+});
+
+describe('a doctor skill that cannot bind', () => {
+  test.each([{}, { mode: 'rebase' }])(
+    '/doctor %o refuses before any sync or pane, naming the reason',
+    async extra => {
+      const before = unbound.daemonSeen.length;
+      const res = await post(unbound, '/doctor', {
+        mrUrl: unbound.url(7),
+        iid: 7,
+        ...extra,
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { refused?: string };
+      expect(body.refused).toContain(
+        "Couldn't load acme:board-doctor: Claude Code isn't at"
+      );
+      expect(readDoctorStates(unbound.db).get(unbound.url(7))).toMatchObject({
+        status: 'error',
+        message: body.refused,
+      });
+      const seen = unbound.daemonSeen.slice(before).map(s => s.cmd);
+      expect(seen.some(c => c.startsWith('agent:'))).toBe(false);
+      expect(seen.some(c => c.includes('sync'))).toBe(false);
+    },
+    15_000
+  );
 });

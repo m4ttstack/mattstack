@@ -130,16 +130,18 @@ Resolution order in each wrapper:
 
 Before any pane opens, the board resolves the lane's skill to its SKILL.md
 through `claude plugin list --json` (`src/skill-path.ts`). It looks for
-Claude Code at `CLAUDE_BIN` when that is set, else `~/.local/bin/claude`,
-`claude` on PATH, `~/.claude/local/claude`, `/opt/homebrew/bin/claude` and
-`/usr/local/bin/claude`. When the skill does not resolve, the launch is
-refused: no pane opens, and the lane's row reads an error naming the reason
-and the fix, for example `Couldn't load acme:board-review: Claude Code isn't
-at ~/.local/bin/claude. Open Setup status to install it.` The reasons are
+Claude Code at `CLAUDE_BIN` when that is set, else `claude` on PATH,
+`~/.local/bin/claude`, `~/.claude/local/claude`, `/opt/homebrew/bin/claude`
+and `/usr/local/bin/claude`. When the skill does not resolve, the launch is
+refused: no pane opens, the lane's last run stays on its row under an error
+naming the reason and the fix, and the launch toast shows the same text, for
+example `Couldn't load acme:board-review: Claude Code isn't at
+~/.local/bin/claude. Open Setup status to install it.` The reasons are
 Claude Code missing or failing, the plugin not installed, unreadable or
 turned off, the skill missing from the plugin, and a name that is not
-`<plugin>:<skill>`. A refused auto-doctor spends that pipeline's edge and
-sends one notification. A lane with no skill is never refused.
+`<plugin>:<skill>`. An auto-doctor refused for a binding fault spends that
+pipeline's edge and sends one notification; one refused because Claude Code
+failed tries again on the next pass. A lane with no skill is never refused.
 
 The plugin list is read from the board's own folder, so a plugin enabled
 only in a repo's project settings reads as not installed: a bound plugin

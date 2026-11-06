@@ -691,9 +691,13 @@ export async function runTriage(
             message: launchErrorMessage('doctor', err),
           });
         }
-        // A skill that does not bind refuses every pass until someone fixes
-        // it, so the edge is spent here and the person hears about it once.
-        if (err instanceof SkillBindError) {
+        // A binding fault refuses every pass until someone fixes it, so the
+        // edge is spent and the person hears once. A Claude Code failure may
+        // pass (a slow list, a self-update), so it leaves the edge armed.
+        if (
+          err instanceof SkillBindError &&
+          !err.failure.reason.startsWith('claude-')
+        ) {
           markHandled(deps.memory, edge);
           await deps
             .notify(

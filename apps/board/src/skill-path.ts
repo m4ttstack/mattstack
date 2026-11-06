@@ -26,18 +26,18 @@ export type PluginListRunner = (opts?: {
 
 const PRIMARY_CLAUDE_BIN = join(homedir(), '.local', 'bin', 'claude');
 
-/** Where Claude Code may live, in the order rt's own launcher and
-    lib/claude-bin.ts check. The server runs under a minimal launchd env,
-    so PATH alone is not enough. An explicit CLAUDE_BIN is the only place
-    looked. */
+/** Where Claude Code may live: PATH, then ~/.local/bin, then the install
+    paths lib/claude-bin.ts falls back to, the order rt's pane launcher
+    uses. The server runs under a minimal launchd env, so PATH alone is not
+    enough. An explicit CLAUDE_BIN is the only place looked. */
 export function claudeBinCandidates(
   env: NodeJS.ProcessEnv = process.env
 ): string[] {
   if (env.CLAUDE_BIN) return [env.CLAUDE_BIN];
   const onPath = Bun.which('claude', { PATH: env.PATH ?? '' });
   return [
-    PRIMARY_CLAUDE_BIN,
     ...(onPath ? [onPath] : []),
+    PRIMARY_CLAUDE_BIN,
     join(homedir(), '.claude', 'local', 'claude'),
     '/opt/homebrew/bin/claude',
     '/usr/local/bin/claude',
@@ -73,7 +73,11 @@ export async function runPluginList(
     // A child of claude can hold stdout open after claude itself is killed,
     // so the deadline races the read instead of waiting for it to close.
     const answered = await Promise.race([
-      Promise.all([new Response(proc.stdout).text(), proc.exited]),
+      Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]),
       new Promise<null>(resolve => {
         timer = setTimeout(() => resolve(null), timeoutMs);
       }),
@@ -82,8 +86,13 @@ export async function runPluginList(
       proc.kill();
       return failed(`did not answer in ${timeoutMs / 1000}s`);
     }
-    const [out, code] = answered;
-    if (code !== 0) return failed(`exited ${code}`);
+    const [out, err, code] = answered;
+    if (code !== 0) {
+      const firstLine = err.trim().split('\n')[0]?.trim();
+      return failed(
+        firstLine ? `exited ${code}: ${firstLine}` : `exited ${code}`
+      );
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(out);
@@ -250,22 +259,23 @@ function tildePath(path: string, home: string): string {
     : path;
 }
 
-const DETAIL_MAX = 80;
+/** launch-error.ts caps a row's message at this length; the fix sentence
+    has to fit inside it. */
+const ROW_MAX = 240;
+const DETAIL_MIN = 20;
 
-/** Keeps a loader's detail short enough that the fix after it survives the
-    row's length cap. */
-function clip(detail: string): string {
+function clipTo(detail: string, max: number): string {
   const flat = detail.replace(/\s+/g, ' ').trim();
-  return flat.length > DETAIL_MAX
-    ? `${flat.slice(0, DETAIL_MAX - 1).trimEnd()}…`
-    : flat;
+  return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat;
 }
 
 function reasonAndFix(
   skill: string,
   failure: SkillPathFailure,
-  home: string
+  home: string,
+  detailMax: number
 ): [string, string] {
+  const clip = (detail: string) => clipTo(detail, detailMax);
   switch (failure.reason) {
     case 'bad-name':
       return [
@@ -312,8 +322,14 @@ export function skillBindMessage(
   failure: SkillPathFailure,
   home: string = process.env.HOME ?? homedir()
 ): string {
-  const [why, fix] = reasonAndFix(skill, failure, home);
-  return `Couldn't load ${skill}: ${why}. ${fix}`;
+  const render = (detailMax: number) => {
+    const [why, fix] = reasonAndFix(skill, failure, home, detailMax);
+    return `Couldn't load ${skill}: ${why}. ${fix}`;
+  };
+  const full = render(Infinity);
+  if (full.length <= ROW_MAX || !('detail' in failure)) return full;
+  const detailLen = failure.detail.replace(/\s+/g, ' ').trim().length;
+  return render(Math.max(DETAIL_MIN, detailLen - (full.length - ROW_MAX)));
 }
 
 /** Thrown by a launch whose domain skill did not resolve, before any pane

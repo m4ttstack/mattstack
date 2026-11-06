@@ -324,6 +324,23 @@ describe('runPluginList', () => {
     });
   });
 
+  test("carries the first line of claude's stderr on a non-zero exit", async () => {
+    const path = join(root, 'loud-claude.sh');
+    writeFileSync(
+      path,
+      '#!/bin/sh\necho "not logged in" >&2\necho more >&2\nexit 3\n'
+    );
+    chmodSync(path, 0o755);
+    expect(await runPluginList(path)).toEqual({
+      ok: false,
+      failure: {
+        kind: 'failed',
+        claudeBin: path,
+        detail: 'exited 3: not logged in',
+      },
+    });
+  });
+
   test('failed with the exit code on a non-zero exit', async () => {
     const bin = fakeClaudeBin(root, 'boom', 1);
     expect(await runPluginList(bin)).toEqual({
@@ -395,13 +412,13 @@ describe('claudeBinCandidates', () => {
     );
   });
 
-  test('includes claude found on PATH', () => {
+  test('puts claude found on PATH first, as rt does', () => {
     const dir = join(root, 'pathdir');
     mkdirSync(dir);
     const onPath = join(dir, 'claude');
     writeFileSync(onPath, '#!/bin/sh\n');
     chmodSync(onPath, 0o755);
-    expect(claudeBinCandidates({ PATH: dir })).toContain(onPath);
+    expect(claudeBinCandidates({ PATH: dir })[0]).toBe(onPath);
   });
 });
 
@@ -477,5 +494,21 @@ describe('makeCachedPluginListRunner', () => {
       fromCache: true,
     });
     expect(calls).toBe(2);
+  });
+});
+
+describe('skillBindMessage length', () => {
+  test('a long detail is clipped so the fix still fits the row', () => {
+    const message = skillBindMessage(
+      'acme:board-review',
+      {
+        reason: 'claude-failed',
+        claudeBin: '/opt/claude',
+        detail: 'x'.repeat(400),
+      },
+      '/Users/someone'
+    );
+    expect(message.length).toBeLessThanOrEqual(240);
+    expect(message).toEndWith('Open Setup status to check it.');
   });
 });

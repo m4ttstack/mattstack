@@ -2738,13 +2738,14 @@ const httpServer = Bun.serve({
         );
         const reviewRefusal = await skillBindRefusal(reviewSkill);
         if (reviewRefusal) {
+          const message = launchErrorMessage('review', reviewRefusal);
           writeReviewState(statePath, {
             mrUrl: parsed.mrUrl,
             iid: parsed.iid,
             status: 'error',
-            message: launchErrorMessage('review', reviewRefusal),
+            message,
           });
-          return new Response(JSON.stringify({ ok: true }), {
+          return new Response(JSON.stringify({ ok: true, refused: message }), {
             headers: { 'content-type': 'application/json' },
           });
         }
@@ -2919,13 +2920,14 @@ const httpServer = Bun.serve({
         );
         const respondRefusal = await skillBindRefusal(respondSkill);
         if (respondRefusal) {
+          const message = launchErrorMessage('respond', respondRefusal);
           writeRespondState(respondFilePath(parsed.mrUrl), {
             mrUrl: parsed.mrUrl,
             iid: parsed.iid,
             status: 'error',
-            message: launchErrorMessage('respond', respondRefusal),
+            message,
           });
-          return new Response(JSON.stringify({ ok: true }), {
+          return new Response(JSON.stringify({ ok: true, refused: message }), {
             headers: { 'content-type': 'application/json' },
           });
         }
@@ -3072,18 +3074,33 @@ const httpServer = Bun.serve({
           if (dedup.kind === 'refused')
             return new Response(dedup.reason, { status: 409 });
         }
+        const doctorSkill = resolveLaunchSkillFor(
+          'doctor',
+          parsed.mrUrl,
+          boardTabId
+        );
         // A rebase-only doctor with no domain skill has nothing that can
         // rebase in a checkout, and its empty allowlist rules out GitLab's
         // own rebase too, so it could only end in an error.
-        if (
-          parsed.mode === 'rebase' &&
-          !resolveLaunchSkillFor('doctor', parsed.mrUrl, boardTabId)
-        )
+        if (parsed.mode === 'rebase' && !doctorSkill)
           return new Response(
             'no doctor skill is set up for this board tab, so nothing can rebase in a checkout',
             { status: 409 }
           );
         const statePath = doctorFilePath(parsed.mrUrl);
+        const doctorRefusal = await skillBindRefusal(doctorSkill);
+        if (doctorRefusal) {
+          const message = launchErrorMessage('doctor', doctorRefusal);
+          writeDoctorState(statePath, {
+            mrUrl: parsed.mrUrl,
+            iid: parsed.iid,
+            status: 'error',
+            message,
+          });
+          return new Response(JSON.stringify({ ok: true, refused: message }), {
+            headers: { 'content-type': 'application/json' },
+          });
+        }
         let pausedTree: string | undefined;
         if (parsed.mode === 'rebase') {
           if (LOCAL_SYNCS.has(parsed.mrUrl))
@@ -3190,23 +3207,6 @@ const httpServer = Bun.serve({
                 .filter(Boolean)
                 .join('. ')
             : note;
-        const doctorSkill = resolveLaunchSkillFor(
-          'doctor',
-          parsed.mrUrl,
-          boardTabId
-        );
-        const doctorRefusal = await skillBindRefusal(doctorSkill);
-        if (doctorRefusal) {
-          writeDoctorState(statePath, {
-            mrUrl: parsed.mrUrl,
-            iid: parsed.iid,
-            status: 'error',
-            message: launchErrorMessage('doctor', doctorRefusal),
-          });
-          return new Response(JSON.stringify({ ok: true }), {
-            headers: { 'content-type': 'application/json' },
-          });
-        }
         writeDoctorState(statePath, {
           mrUrl: parsed.mrUrl,
           iid: parsed.iid,
