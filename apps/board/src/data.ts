@@ -487,6 +487,7 @@ interface ClearableLane {
   runStartedAt?: number;
   startedAt?: number;
   reopenedAt?: number;
+  resumedAt?: number;
 }
 
 /**
@@ -531,13 +532,14 @@ function inFlightLanes(mr: OrphanJoinRow): ClearableLane[] {
   return lanes;
 }
 
-/** When the lane's current run began: a fresh launch, a re-review or a
-    reopen each stamp one of these. */
+/** When the lane's current run began: a fresh launch, a re-review, a
+    reopen or a gate resume each stamp one of these. */
 function laneRunStart(lane: ClearableLane): number {
   return Math.max(
     lane.runStartedAt ?? 0,
     lane.startedAt ?? 0,
-    lane.reopenedAt ?? 0
+    lane.reopenedAt ?? 0,
+    lane.resumedAt ?? 0
   );
 }
 
@@ -559,12 +561,15 @@ function ownsLane(executor: ExecutorView, lane: ClearableLane): boolean {
     never recorded one, as lanesClearedByExecutor matches) and any pane on
     the subject of a row whose lanes have all finished, since a relaunch
     overwrites the lane's agentId and orphans the earlier run's pane. A pane
-    that still owns an in-flight lane stays an interruption. */
+    that closed before a gate resume relaunched its lane is superseded the
+    same way. A pane that still owns an in-flight lane stays an
+    interruption. */
 function finishedLaneTeardown(
   mrs: OrphanJoinRow[]
 ): (executor: ExecutorView) => boolean {
   const finished = new Set<string>();
   const active = new Set<string>();
+  const resumedAt = new Map<string, number>();
   const settledSubjects = new Set<string>();
   for (const mr of mrs) {
     const lanes = [mr.review, mr.respond, mr.doctor].filter(
@@ -584,12 +589,14 @@ function finishedLaneTeardown(
           : null;
       if (!owner) continue;
       (LANE_FINISHED.has(lane.status) ? finished : active).add(owner);
+      if (lane.resumedAt) resumedAt.set(owner, lane.resumedAt);
     }
   }
   return executor => {
     if (executor.state !== 'gone') return false;
     const keys = [`agent:${executor.agentId}`];
     if (executor.sessionId) keys.push(`session:${executor.sessionId}`);
+    if (keys.some(k => executor.since < (resumedAt.get(k) ?? 0))) return true;
     if (keys.some(k => active.has(k))) return false;
     return (
       keys.some(k => finished.has(k)) ||

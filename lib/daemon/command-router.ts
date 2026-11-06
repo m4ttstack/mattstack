@@ -73,6 +73,26 @@ import type { HomeSnapshotHandle } from "./home-snapshot.ts";
 import type { TeamSnapshotsHandle } from "./team-snapshots.ts";
 import type { BgService } from "./bg-service.ts";
 import type { BgClaimsStore } from "./bg-claims-store.ts";
+import type { CommandResult } from "./handlers/types.ts";
+
+/** Every agent:resume caller (the board, the reconciler, a gate answer)
+    reads executor state soon after; without this the relaunched agent reads
+    gone until the next sweep, up to a minute away. Exported for the tests. */
+export function withResumeNotice<H extends { "agent:resume": (payload: unknown) => Promise<CommandResult<"agent:resume">> }>(
+  handlers: H,
+  reconciler: Pick<Reconciler, "resumed"> | undefined,
+): H {
+  if (!reconciler) return handlers;
+  const resume = handlers["agent:resume"];
+  return {
+    ...handlers,
+    "agent:resume": async (payload: unknown) => {
+      const res = await resume(payload);
+      if (res.ok) reconciler.resumed(res.data.id);
+      return res;
+    },
+  };
+}
 
 // The exported return type is the plain `Record<string, Handler>` a router
 // lookup needs; the exhaustiveness proof against the rt-client catalog
@@ -98,7 +118,7 @@ export function buildRoutedHandlers(opts: {
       push-only, as before Task 7. Also backs reconciler:status/reconciler:clear
       (Task 8) via the same "status"/"clear" picks; omitted there, those two
       verbs fall back to createReconcilerHandlers's own noop default. */
-  reconciler?: Pick<Reconciler, "executorFor" | "expect" | "clear" | "dismissed" | "agentIdFor" | "status">;
+  reconciler?: Pick<Reconciler, "executorFor" | "expect" | "clear" | "resumed" | "dismissed" | "agentIdFor" | "status">;
   /** The daemon's agent:resume verb, the same closure the reconciler itself
       is given (lib/daemon.ts wires both from one function). */
   resumeAgent?: (agentId: string) => Promise<{ ok: boolean; error?: string }>;
@@ -170,11 +190,11 @@ export function buildRoutedHandlers(opts: {
     db: opts.stateDb, repoIndex: ctx.repoIndex, bg: opts.bgService, log: ctx.log,
     herdrRunnerFor: (socket) => defaultHerdrRunner(socket ? { ...process.env, HERDR_SOCKET_PATH: socket } : process.env),
   });
-  const agentHandlers = createAgentHandlers({
+  const agentHandlers = withResumeNotice(createAgentHandlers({
     db: opts.stateDb, emitEvent, log: ctx.log,
     bg: opts.bgService, bgClaims: opts.bgClaims, lifecycle: opts.herdLifecycle,
     startHerdr,
-  });
+  }), opts.reconciler);
   const worktreeHandlers = createWorktreeHandlers({ repoIndex: ctx.repoIndex, cache: ctx.cache, log: ctx.log }, opts.worktree);
   const worktreeSync = createWorktreeSyncHandler({
     check: worktreeHandlers["worktree:provision-check"],

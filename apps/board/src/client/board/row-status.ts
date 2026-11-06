@@ -251,11 +251,19 @@ function gateLines(mr: BoardMRWithReview): Candidate[] {
       gateId: gate.gateId,
       ...(domain ? { domain } : {}),
     });
-    if (gate.status === 'open' || gate.status === 'parked') {
+    if (gate.status === 'open') {
       out.push({
         tone: 'warn',
         word: openGateWord(gate),
-        detail: gate.status === 'parked' ? 'parked' : undefined,
+        verbs: [answer('answer')],
+      });
+      continue;
+    }
+    if (gate.status === 'parked') {
+      out.push({
+        tone: 'warn',
+        word: 'waiting on you',
+        detail: `parked, ${openGateWord(gate)}`,
         verbs: [answer('answer')],
       });
       continue;
@@ -334,6 +342,37 @@ function hiddenLane(mr: BoardMRWithReview): Verb['domain'] | null {
   return null;
 }
 
+/** A parked gate's pane may close; answering relaunches it, so that pane is
+    not an interruption to offer resume or redo on. Only a gate the lane's
+    current run opened counts: a redo leaves the earlier run's parked gate
+    on the row until a newer gate of its kind replaces it. */
+function laneParked(mr: BoardMRWithReview, lane: Lane): boolean {
+  const run = lane === 'review' ? mr.review : mr.respond;
+  const runStart = Math.max(
+    (run && 'runStartedAt' in run ? run.runStartedAt : 0) ?? 0,
+    run?.startedAt ?? 0
+  );
+  return mr.gates.some(
+    g =>
+      g.status === 'parked' &&
+      domainForKind(g.kind) === lane &&
+      g.openedAt >= runStart
+  );
+}
+
+/** The board relaunched this lane's pane for an answered gate and the pane
+    has not written its own status yet. */
+function laneResuming(lane: {
+  resumedAt?: number;
+  updatedAt?: number;
+}): boolean {
+  return (
+    lane.resumedAt !== undefined &&
+    lane.updatedAt !== undefined &&
+    lane.resumedAt >= lane.updatedAt
+  );
+}
+
 function laneOn(
   mr: BoardMRWithReview,
   lane: Lane
@@ -367,6 +406,7 @@ function orphanLine(
   if (!interrupted) {
     return { tone: 'quiet', word: 'pane gone', detail: closed, verbs: [clear] };
   }
+  if (laneParked(mr, interrupted)) return null;
   return {
     tone: 'warn',
     word: `${interrupted === 'respond' ? 'response' : 'review'} interrupted`,
@@ -393,6 +433,13 @@ function reviewLine(
     case 'queued':
       return { tone: 'quiet', word: 'review queued', verbs: [] };
     case 'reviewing':
+      if (laneResuming(r))
+        return {
+          tone: 'work',
+          word: 'review resuming…',
+          spin: true,
+          verbs: [{ kind: 'focus', label: 'focus', domain: 'review' }],
+        };
       return {
         tone: 'work',
         word: 'review running…',
@@ -589,6 +636,11 @@ function respondLine(
       : r.message || undefined,
     verbs: [{ kind: 'focus', label: 'focus', domain: 'respond' }],
   });
+  if (RESPOND_ACTIVE.has(r.status) && r.status !== 'queued' && laneResuming(r))
+    return {
+      ...working('response resuming…', 'resuming'),
+      detail: who ? 'resuming' : undefined,
+    };
   switch (r.status) {
     case 'queued':
       return {

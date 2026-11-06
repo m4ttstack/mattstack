@@ -21,6 +21,7 @@ export interface ResumableState {
   workspaceId?: string;
   gateId?: string;
   resumedGateId?: string;
+  resumedAt?: number;
   noPack?: boolean;
 }
 
@@ -33,7 +34,8 @@ export interface KindResumeIo {
   readState(mrUrl: string): ResumableState | undefined;
   writeState(
     path: string,
-    patch: Partial<ResumableState> & { status: string }
+    patch: Partial<ResumableState> & { status: string },
+    now?: number
   ): void;
   filePath(mrUrl: string): string;
   /** Resolve the domain skill the resumed wrapper should delegate to.
@@ -76,6 +78,7 @@ export interface ResumeParkedGateIo {
     env?: Record<string, string>;
   }): Promise<AgentLaunchResult>;
   notify(message: string): void;
+  now?: () => number;
 }
 
 /** Builds the `resumers` map server.ts's gateResumeIo hands to
@@ -153,6 +156,11 @@ export async function resumeParkedGate(
     resolvePath
   );
 
+  // Read before the relaunch: a pane that dies during it gets a gone onset
+  // after this, so it still interrupts the lane (see laneRunStart in
+  // data.ts). The write's updatedAt shares the value, and the row reads
+  // "resuming" until the pane's own first status write moves updatedAt past.
+  const now = (io.now ?? Date.now)();
   let result;
   try {
     result = await io.resumeAgentPane({
@@ -170,14 +178,20 @@ export async function resumeParkedGate(
   }
   if (result.focusedExisting) return true;
   try {
-    kindIo.writeState(statePath, {
-      status: kindIo.resumedStatus,
-      noPack,
-      agentId: result.agentId,
-      paneId: result.paneId,
-      tabId: result.tabId,
-      workspaceId: result.workspaceId,
-    });
+    kindIo.writeState(
+      statePath,
+      {
+        status: kindIo.resumedStatus,
+        noPack,
+        agentId: result.agentId,
+        paneId: result.paneId,
+        tabId: result.tabId,
+        workspaceId: result.workspaceId,
+        resumedGateId: gate.gateId,
+        resumedAt: now,
+      },
+      now
+    );
   } catch (err) {
     console.error(
       `parked gate resume: pane ids not persisted: ${err instanceof Error ? err.message : err}`
@@ -275,6 +289,7 @@ async function resumeIfMissed(
   if (!resumed) return;
 
   const fresh = kindIo.readState(mrUrl) ?? state;
+  if (fresh.resumedGateId === row.id) return;
   kindIo.writeState(kindIo.filePath(mrUrl), {
     status: fresh.status,
     resumedGateId: row.id,

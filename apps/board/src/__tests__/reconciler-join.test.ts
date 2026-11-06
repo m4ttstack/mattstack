@@ -608,6 +608,33 @@ describe('joinExecutorOrphans', () => {
     expect(joinExecutorOrphans(mrs, [later]).mrs[0]?.orphan).toEqual(later);
   });
 
+  test('a lane resumed for an answered gate drops the pane that closed before the resume, from the row and the strip', () => {
+    const closed = executorView({
+      agentId: 'ag-1',
+      state: 'gone',
+      subject: 'mr:https://gitlab.com/acme/webapp/-/merge_requests/16',
+      sessionId: 'sess-1',
+      since: 2000,
+    });
+    const mrs = [
+      {
+        webUrl: 'https://gitlab.com/acme/webapp/-/merge_requests/16',
+        review: {
+          status: 'reviewing',
+          agentId: 'ag-1',
+          sessionId: 'sess-1',
+          runStartedAt: 1000,
+          resumedAt: 3000,
+        },
+      },
+    ];
+    const { mrs: joined, orphans } = joinExecutorOrphans(mrs, [closed]);
+    expect(joined[0]?.orphan).toBeUndefined();
+    expect(orphans).toEqual([]);
+    const after = { ...closed, since: 3500 };
+    expect(joinExecutorOrphans(mrs, [after]).mrs[0]?.orphan).toEqual(after);
+  });
+
   test('subject match wins over a sessionId match on a different row', () => {
     const executor = executorView({
       state: 'gone',

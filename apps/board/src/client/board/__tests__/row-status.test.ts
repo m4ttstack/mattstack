@@ -621,14 +621,97 @@ describe('rowStatus: gates', () => {
     expect(word([long, long, long])).toBe('3 questions to answer');
   });
 
-  test('a parked gate says so in the detail', () => {
+  test('a parked gate waits on you and names what it asks', () => {
     const [line] = candidateLines(
       mr({ gates: [gate({ status: 'parked' })] as never }),
       NOW,
       NONE,
       ME
     );
-    expect(line!.detail).toBe('parked');
+    expect(line).toMatchObject({
+      tone: 'warn',
+      word: 'waiting on you',
+      detail: 'parked, post which findings?',
+    });
+    expect(line!.verbs.map(v => v.kind)).toEqual(['answer']);
+  });
+
+  test('a parked gate whose pane closed is not an interruption: answering resumes it', () => {
+    const s = rowStatus(
+      mr({
+        gates: [gate({ status: 'parked' })] as never,
+        review: { status: 'reviewing', sessionId: 'sess-1' },
+        orphan: {
+          agentId: 'ag-1',
+          repo: null,
+          subject: 'agent:ag-1',
+          surface: 'herdr',
+          sessionId: 'sess-1',
+          paneRef: null,
+          state: 'gone',
+          since: NOW,
+          openGateIds: [],
+        },
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(s.line.word).toBe('waiting on you');
+    expect(s.more).toEqual([]);
+  });
+
+  test("a parked gate from before the lane's current run does not hide its interruption", () => {
+    const s = rowStatus(
+      mr({
+        gates: [gate({ status: 'parked', openedAt: NOW - 60_000 })] as never,
+        review: {
+          status: 'reviewing',
+          sessionId: 'sess-1',
+          runStartedAt: NOW - 30_000,
+        },
+        orphan: {
+          agentId: 'ag-1',
+          repo: null,
+          subject: 'agent:ag-1',
+          surface: 'herdr',
+          sessionId: 'sess-1',
+          paneRef: null,
+          state: 'gone',
+          since: NOW,
+          openGateIds: [],
+        },
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(s.more.map(l => l.word)).toEqual(['review interrupted']);
+  });
+
+  test('a review the board just resumed reads resuming until its pane writes', () => {
+    const word = (review: Record<string, unknown>) =>
+      rowStatus(mr({ review } as never), NOW, NONE, ME).line.word;
+    const resumedAt = NOW - 5_000;
+    expect(word({ status: 'reviewing', resumedAt, updatedAt: resumedAt })).toBe(
+      'review resuming…'
+    );
+    expect(
+      word({ status: 'reviewing', resumedAt, updatedAt: resumedAt + 1 })
+    ).toBe('review running…');
+  });
+
+  test('a response the board just resumed reads resuming until its pane writes', () => {
+    const resumedAt = NOW - 5_000;
+    const s = rowStatus(
+      own({
+        respond: { status: 'implementing', resumedAt, updatedAt: resumedAt },
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(s.line.word).toBe('response resuming…');
   });
 
   test('decide beats interrupted: same tone, gates come first', () => {

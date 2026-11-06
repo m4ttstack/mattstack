@@ -343,6 +343,31 @@ describe("reconciler sweep: transition emits", () => {
   });
 });
 
+describe("reconciler.resumed", () => {
+  test("a gone executor stops reading gone the moment it resumes, before any sweep", async () => {
+    panesValue = [];
+    await reconciler.sweep();
+    const gone = reconciler.status().executors.find((e) => e.agentId === agentId)!;
+    expect(gone.state).toBe("gone");
+
+    reconciler.resumed(agentId);
+    const entry = reconciler.status().executors.find((e) => e.agentId === agentId)!;
+    expect(entry.state).toBe("unknown");
+    expect(entry.since).toBeGreaterThanOrEqual(gone.since);
+
+    panesValue = [buildPane()];
+    await reconciler.sweep();
+    expect(reconciler.status().executors.find((e) => e.agentId === agentId)!.state).toBe("live");
+  });
+
+  test("leaves a live or cleared executor as it was", async () => {
+    panesValue = [buildPane()];
+    await reconciler.sweep();
+    reconciler.resumed(agentId);
+    expect(reconciler.status().executors.find((e) => e.agentId === agentId)!.state).toBe("live");
+  });
+});
+
 describe("reconciler.clear", () => {
   test("writes the kv tombstone, closes the agent's open gates as abandoned, and the next sweep reports cleared", async () => {
     const { row: openGate } = store.open({ subject: "run:c", kind: "clarify", questions: qs(), nudge: { session: "s-1" } });
