@@ -40,7 +40,16 @@ export type ActionGlyph =
   | {
       kind: 'menu';
       name:
-        'file' | 'people' | 'copy' | 'branch' | 'dismiss' | 'note' | 'refresh';
+        | 'file'
+        | 'people'
+        | 'copy'
+        | 'branch'
+        | 'dismiss'
+        | 'note'
+        | 'refresh'
+        | 'shell'
+        | 'resume'
+        | 'command';
     }
   | { kind: 'flag'; name: 'conflicts' | 'auto-merge' | 'draft' }
   | { kind: 'out' }
@@ -185,7 +194,10 @@ const REFRESH: ActionGlyph = { kind: 'menu', name: 'refresh' };
 const DRAFT: ActionGlyph = { kind: 'flag', name: 'draft' };
 const AGENT_CLOUD: ActionGlyph = { kind: 'agent-cloud' };
 const SLACK: ActionGlyph = { kind: 'slack' };
-const FLOCK: ActionGlyph = { kind: 'flock' };
+const SHELL: ActionGlyph = { kind: 'menu', name: 'shell' };
+const CLAUDE: ActionGlyph = { kind: 'agent' };
+const RESUME: ActionGlyph = { kind: 'menu', name: 'resume' };
+const COMMAND: ActionGlyph = { kind: 'menu', name: 'command' };
 const GITLAB_GLYPH: Record<MrAction, ActionGlyph> = {
   merge: { kind: 'flag', name: 'conflicts' },
   rebase: { kind: 'menu', name: 'branch' },
@@ -1063,7 +1075,7 @@ function flockActions(data: FlockMenuData | undefined): RowAction[] {
       'flock',
       'flock-shell',
       'shell',
-      FLOCK,
+      SHELL,
       { kind: 'flock', action: 'shell' },
       { hint: creates }
     ),
@@ -1071,7 +1083,7 @@ function flockActions(data: FlockMenuData | undefined): RowAction[] {
       'flock',
       'flock-claude',
       'claude',
-      FLOCK,
+      CLAUDE,
       { kind: 'flock', action: 'claude' },
       { hint: creates }
     ),
@@ -1083,7 +1095,7 @@ function flockActions(data: FlockMenuData | undefined): RowAction[] {
         'flock',
         'flock-resume',
         'resume work session',
-        FLOCK,
+        RESUME,
         { kind: 'flock', action: 'resume' },
         livePane
           ? { hint: 'running' }
@@ -1097,7 +1109,7 @@ function flockActions(data: FlockMenuData | undefined): RowAction[] {
         'flock',
         `flock-command-${index}`,
         c.label,
-        FLOCK,
+        COMMAND,
         { kind: 'flock', action: 'command', index },
         { hint: creates ?? c.command }
       )
