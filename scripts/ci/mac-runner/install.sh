@@ -6,7 +6,11 @@ set -euo pipefail
 
 COUNT=${1:-5}
 VERSION=2.338.2
-SHA256=25a065af409ffa317ab4d5a3b614dd15fc9c40f2172bc1b35a1b1258e919a388
+case "$(uname -m)" in
+  arm64) RUNNER_ARCH=arm64; SHA256=25a065af409ffa317ab4d5a3b614dd15fc9c40f2172bc1b35a1b1258e919a388 ;;
+  x86_64) RUNNER_ARCH=x64; SHA256=109fff505a34014a7e8d1acb850c33d404811102f572b8fb9788e2fff013cc49 ;;
+  *) echo "No runner build for $(uname -m)." >&2; exit 1 ;;
+esac
 REPO=m4ttstack/mattstack
 CI_USER=mattstack-ci
 CI_HOME=/Users/$CI_USER
@@ -14,9 +18,15 @@ HOOK_DIR=/usr/local/mattstack-ci
 # Not $TMPDIR: the runner user cannot read yours.
 TARBALL=$(mktemp /tmp/actions-runner.XXXXXX)
 
+[[ "$COUNT" =~ ^[1-9][0-9]*$ ]] || { echo "The runner count must be a whole number above 0, not $COUNT." >&2; exit 1; }
 [ "$(id -u)" != 0 ] || { echo "Run this as yourself, not root." >&2; exit 1; }
 [ -f scripts/ci/macos-runner.ts ] || { echo "Run this from the repo root." >&2; exit 1; }
+command -v gh >/dev/null || { echo "Install gh and run gh auth login first." >&2; exit 1; }
 gh auth status >/dev/null
+
+# The mattstack app ships a universal bun, for a Mac with none on PATH.
+BUN=$(command -v bun || echo /Applications/mattstack.app/Contents/Helpers/bun)
+"$BUN" --version >/dev/null 2>&1 || { echo "No bun that runs here: install bun or the mattstack app." >&2; exit 1; }
 
 sudo -v
 
@@ -35,7 +45,7 @@ fi
 
 # Root owns these, so a job cannot rewrite the rule that admits it.
 sudo mkdir -p "$HOOK_DIR"
-sudo install -o root -g wheel -m 755 "$(command -v bun)" "$HOOK_DIR/bun"
+sudo install -o root -g wheel -m 755 "$BUN" "$HOOK_DIR/bun"
 sudo install -o root -g wheel -m 644 scripts/ci/macos-runner.ts "$HOOK_DIR/macos-runner.ts"
 sudo install -o root -g wheel -m 755 scripts/ci/mac-runner/job-started.sh "$HOOK_DIR/job-started.sh"
 sudo install -o root -g wheel -m 755 scripts/ci/mac-runner/job-completed.sh "$HOOK_DIR/job-completed.sh"
@@ -43,14 +53,14 @@ sudo install -o root -g wheel -m 755 scripts/ci/mac-runner/job-completed.sh "$HO
 # The runner user's commands below cannot start from a directory in your home.
 cd /
 
-curl -fsSL -o "$TARBALL" "https://github.com/actions/runner/releases/download/v$VERSION/actions-runner-osx-arm64-$VERSION.tar.gz"
+curl -fsSL -o "$TARBALL" "https://github.com/actions/runner/releases/download/v$VERSION/actions-runner-osx-$RUNNER_ARCH-$VERSION.tar.gz"
 echo "$SHA256  $TARBALL" | shasum -a 256 -c -
 chmod 644 "$TARBALL"
 
 # Hosted macOS images ship these; installing termwright here stops parallel jobs racing to.
 sudo -u "$CI_USER" -H bash -c '
   set -euo pipefail
-  export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/bin:/bin"
+  export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
   command -v rustup >/dev/null || curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
   command -v termwright >/dev/null || cargo install termwright
 '
@@ -109,6 +119,20 @@ PLIST
     [ "$attempt" -lt 18 ] || exit 1
     sleep 5
   done
+done
+
+# A rerun with a smaller count retires the runners above it.
+for plist in /Library/LaunchDaemons/dev.mattstack.ci-runner-*.plist; do
+  [ -e "$plist" ] || continue
+  label=$(basename "$plist" .plist)
+  i=${label##*-}
+  [ "$i" -gt "$COUNT" ] || continue
+  name=mattstack-mac-$i
+  sudo launchctl bootout "system/$label" 2>/dev/null || true
+  sudo rm "$plist"
+  id=$(gh api "repos/$REPO/actions/runners" --paginate --jq ".runners[] | select(.name == \"$name\") | .id")
+  [ -z "$id" ] || gh api -X DELETE "repos/$REPO/actions/runners/$id"
+  sudo rm -rf "${CI_HOME:?}/$name"
 done
 
 rm -f "$TARBALL"
