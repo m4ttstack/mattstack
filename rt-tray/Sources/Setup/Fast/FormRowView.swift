@@ -104,8 +104,36 @@ struct FormRowView: View {
     var bare = false
     let onAction: FormRowPerform
     @Environment(\.formRowsRunning) private var runningRows
+    /// A press's command can end a moment before rt's next read moves the row on; the row keeps loading through that gap.
+    @State private var settling = false
+    private static let settleCap: Duration = .seconds(6)
+
+    /// The row's own command is running. A wait on the person (a browser tab, Chrome) is drawn as a progress line,
+    /// never as loading: a loading button takes no clicks, and Open again has to.
+    private var working: Bool { runningRows.contains(row.id) }
+    private var loading: Bool { working || settling }
+    /// A field row rt holds in `waiting` is waiting on the person's paste, so a settle there never loads its button.
+    private var submitting: Bool { working || (settling && row.state != .waiting) }
+    /// A button row waiting on the person (rt's `waiting`, or the app's own wait such as Chrome) carries what they have to
+    /// act on, a sign-in code or where to look, so that line takes the description's place instead of being dropped.
+    private var waitReplacesSubtext: Bool {
+        guard row.state == .waiting || waiting != nil, progressLine != nil, let action = row.action else { return false }
+        return !Self.drawsInlineProgress(action)
+    }
 
     var body: some View {
+        content
+            .onChange(of: working) { was, now in if was && !now && error == nil { settling = true } }
+            .onChange(of: shapeKey) { _, _ in if !working { settling = false } }
+            .onChange(of: error) { _, now in if now != nil { settling = false } }
+            .task(id: settling) {
+                guard settling else { return }
+                try? await Task.sleep(for: Self.settleCap)
+                settling = false
+            }
+    }
+
+    @ViewBuilder private var content: some View {
         if let action = row.action, action.type == .placeRepo {
             repoBlock(action)
         } else {
@@ -118,6 +146,7 @@ struct FormRowView: View {
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier(AXID.fastRow(row.id))
+            .animation(.spring(response: 0.35, dampingFraction: 0.9), value: shapeKey)
         }
     }
 
@@ -210,14 +239,14 @@ struct FormRowView: View {
         if let action = row.action, let options = FormRowChoice.segments(action) {
             HStack(spacing: 10) {
                 choice(action, options)
-                if let line = progressLine { inlineProgress(line) }
+                if let line = progressLine, row.subtext.isEmpty { inlineProgress(line) }
             }
             // Tiles carry their own lines, so rt's longer subtext would only repeat them.
             if !FormRowChoice.tiles(options) { subtextHint }
         } else if let action = row.action, FormRowFields.collects(action) {
             if row.state == .done && progressLine == nil { doneMark(size: 13, iconSize: 14, spacing: 8) }
-            FormRowFields(row: row, action: action, large: style == .stacked, onAction: onAction)
-            if let line = progressLine { inlineProgress(line) }
+            FormRowFields(row: row, action: action, large: style == .stacked, loading: submitting, onAction: onAction)
+            if let line = progressLine, row.subtext.isEmpty { inlineProgress(line) }
             subtextHint
         } else if let action = row.action, action.type == .chooseFolder {
             HStack(spacing: 8) {
@@ -228,7 +257,7 @@ struct FormRowView: View {
                     .modifier(FastAXID(id: row.state == .done ? AXID.fastRowDone(row.id) : nil))
                 button(action)
             }
-            if let line = progressLine { inlineProgress(line) }
+            if let line = progressLine, row.subtext.isEmpty { inlineProgress(line) }
             subtextHint
         } else if row.state == .done && progressLine == nil {
             trailingDone
@@ -237,20 +266,19 @@ struct FormRowView: View {
         } else if row.subtext.isEmpty {
             controlsLine
         } else {
-            // P5's words sit beside the controls when the line has room; else they drop below as a hint, so they
-            // share the leading edge and style of the hint lines under them.
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 10) {
-                    controlsLine
-                    Text(row.subtext).font(.system(size: 11)).foregroundColor(FastTheme.textTertiary).lineLimit(1).fixedSize()
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    controlsLine
-                    subtextHint
-                }
+            // Always below the controls: a line that moved beside them whenever it fit flipped the row's height
+            // each time a button's label changed width.
+            VStack(alignment: .leading, spacing: 6) {
+                controlsLine
+                if !waitReplacesSubtext { subtextHint }
             }
         }
         notes
+    }
+
+    /// What changes the row's shape, so a change eases its height instead of jumping.
+    var shapeKey: String {
+        [row.state.rawValue, row.action?.label ?? "", row.detail, row.subtext, progressLine ?? ""].joined(separator: "|")
     }
 
     private var failedLine: some View {
@@ -273,8 +301,7 @@ struct FormRowView: View {
         HStack(spacing: 10) {
             if let action = row.action { button(action) }
             if let press = row.secondaryPress, let secondary = press.action, FormActionRunner.control(for: secondary) != .none {
-                Button(secondary.label) { onAction(press, nil, nil) }
-                    .buttonStyle(FastSecondaryButtonStyle(muted: true))
+                FastButton(title: secondary.label, kind: .secondary(muted: true), size: .small) { onAction(press, nil, nil) }
                     .fixedSize()
                     .accessibilityIdentifier(AXID.fastRowAction(row.id, "secondary"))
             }
@@ -286,14 +313,16 @@ struct FormRowView: View {
             .accessibilityIdentifier(AXID.fastRowReason(row.id))
     }
 
+    /// A row with a button shows its progress on the button itself; a row with nothing to press keeps the busy chip.
     private var controlsLine: some View {
         HStack(spacing: 10) {
-            if let line = progressLine {
+            if let action = row.action {
+                button(action)
+            } else if let line = progressLine {
                 FastBusyChip(text: line)
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier(AXID.fastRowWaiting(row.id))
             }
-            if let action = row.action, !(waiting != nil && action.type == .install) { button(action) }
         }
     }
 
@@ -323,6 +352,13 @@ struct FormRowView: View {
 
     /// rt's reason on a todo row, then the app's refusal, each a hint line under the control.
     @ViewBuilder private var notes: some View {
+        // One line under a control: a button row with no description of its own shows rt's progress here, while
+        // its button says the short working word. Field, folder and segment rows draw theirs inline instead.
+        if let action = row.action, row.subtext.isEmpty || waitReplacesSubtext, !Self.drawsInlineProgress(action), let line = progressLine {
+            FastHint(line, textWidth: FormRowStyle.hintWidth).hintSpill(style == .labelled)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier(AXID.fastRowWaiting(row.id))
+        }
         if let reason {
             FastHint(reason, textWidth: FormRowStyle.hintWidth).hintSpill(style == .labelled)
                 .accessibilityElement(children: .combine)
@@ -397,34 +433,48 @@ struct FormRowView: View {
             Text(Self.needsNewerApp).font(.system(size: 12)).foregroundColor(FastTheme.textSecondary).fixedSize()
                 .accessibilityIdentifier(AXID.fastRowAction(row.id))
         case .chooseFolder:
-            Button(label) { chooseFolder(action) }
-                .buttonStyle(FastSecondaryButtonStyle())
+            FastButton(title: label, kind: .secondary(), size: .small) { chooseFolder(action) }
                 .fixedSize().accessibilityIdentifier(AXID.fastRowAction(row.id))
         default:
-            // A second press of a running `setup apply` would raise a second admin prompt.
-            let applying = runningRows.contains(row.id) || (waiting != nil && RowVerbRun.streamsApplyEvents(action.verb ?? []))
-            let quiet = retry || row.state == .done
+            // Loading also holds off a second press: a second `setup apply` would raise a second admin prompt.
+            let quiet = (retry || row.state == .done) && !loading
             Group {
                 switch (style, quiet) {
                 case (.tile, false):
-                    Button(label) { onAction(row, nil, nil) }.buttonStyle(FastPrimaryButtonStyle(size: .small))
+                    FastButton(title: label, size: .small, isLoading: loading, loadingTitle: Self.workingLabel(label)) { onAction(row, nil, nil) }
                 case (.labelled, false), (.stacked, false):
-                    Button { onAction(row, nil, nil) } label: {
-                        if let symbol = row.tone == .failed ? "arrow.counterclockwise" : Self.buttonSymbol(row.id),
-                           let glyph = FastLucideGlyph(symbol: symbol, box: 13) {
-                            Label { Text(label) } icon: { glyph }
-                        } else {
-                            Text(label)
-                        }
-                    }
-                    .buttonStyle(FastOutlineButtonStyle())
+                    FastButton(title: label, glyph: rowGlyph, kind: .outline, size: .small, isLoading: loading,
+                               loadingTitle: Self.workingLabel(label)) { onAction(row, nil, nil) }
                 case (_, true):
-                    Button(label) { onAction(row, nil, nil) }.buttonStyle(FastSecondaryButtonStyle())
+                    FastButton(title: label, kind: .secondary(), size: .small) { onAction(row, nil, nil) }
                 }
             }
-            .fixedSize().disabled(applying)
+            .fixedSize()
             .accessibilityIdentifier(AXID.fastRowAction(row.id))
         }
+    }
+
+    static func drawsInlineProgress(_ action: RowAction) -> Bool {
+        FormRowChoice.segments(action) != nil || FormRowFields.collects(action) || action.type == .chooseFolder
+    }
+
+    /// A button's short word while it works, from its own first word: "Install" reads "Installing…".
+    /// A label it does not know keeps its own words.
+    static func workingLabel(_ label: String) -> String {
+        let first = label.split(separator: " ").first.map(String.init)?.lowercased() ?? ""
+        let words: [String: String] = [
+            "install": "Installing…", "connect": "Connecting…", "sign": "Signing in…", "allow": "Waiting…",
+            "retry": "Retrying…", "trust": "Trusting…", "update": "Updating…", "add": "Adding…",
+            "open": "Opening…", "re-check": "Checking…", "check": "Checking…", "set": "Setting up…",
+            "fix": "Fixing…", "turn": "Turning on…", "create": "Creating…", "reconnect": "Connecting…",
+        ]
+        return words[first] ?? label
+    }
+
+    private var rowGlyph: AnyView? {
+        guard let symbol = row.tone == .failed ? "arrow.counterclockwise" : Self.buttonSymbol(row.id),
+              let glyph = FastLucideGlyph(symbol: symbol, box: 13) else { return nil }
+        return AnyView(glyph)
     }
 
     private func chooseFolder(_ action: RowAction) {
@@ -450,6 +500,7 @@ struct FormRowFields: View {
     let action: RowAction
     /// P3c's large field, with its buttons at the field's height.
     var large = false
+    var loading = false
     let onAction: FormRowPerform
     @State private var values: [String: String]
     @Environment(\.openSetupLink) private var openLink
@@ -460,8 +511,8 @@ struct FormRowFields: View {
         [.connect, .form, .ownerOnce].contains(action.type) && !(action.fields ?? []).isEmpty
     }
 
-    init(row: FormRow, action: RowAction, large: Bool = false, onAction: @escaping FormRowPerform) {
-        self.row = row; self.action = action; self.large = large; self.onAction = onAction
+    init(row: FormRow, action: RowAction, large: Bool = false, loading: Bool = false, onAction: @escaping FormRowPerform) {
+        self.row = row; self.action = action; self.large = large; self.loading = loading; self.onAction = onAction
         var prefilled: [String: String] = [:]
         for f in action.fields ?? [] { if let v = f.value, !v.isEmpty { prefilled[f.name] = v } }
         _values = State(initialValue: prefilled)
@@ -483,12 +534,12 @@ struct FormRowFields: View {
                     input(field)
                     if index == fields.count - 1 { trailing }
                 }
+                .animation(.spring(response: 0.3, dampingFraction: 0.85), value: complete)
             }
             if let alternatives = action.alternatives, !alternatives.isEmpty {
                 HStack(spacing: 8) {
                     ForEach(alternatives, id: \.id) { alt in
-                        Button(alt.label) { onAction(row, nil, alt.id) }
-                            .buttonStyle(FastSecondaryButtonStyle())
+                        FastButton(title: alt.label, kind: .secondary(), size: .small) { onAction(row, nil, alt.id) }
                             .fixedSize()
                             .accessibilityIdentifier(AXID.fastRowAction(row.id, alt.id))
                     }
@@ -499,10 +550,12 @@ struct FormRowFields: View {
 
     @ViewBuilder private var trailing: some View {
         let link = create.flatMap { link in URL(string: link.url).map { (link.label, $0) } }
-        if link == nil || complete {
-            Button(action.label, action: submit)
-                .buttonStyle(FastPrimaryButtonStyle(size: .small, shape: large ? .besideLargeField : nil))
-                .disabled(!complete || runningRows.contains(row.id)).fixedSize()
+        // The submit arrives once every field holds a value; until then Return is the way, and a greyed button would only be noise.
+        if complete || loading {
+            FastButton(title: action.label, size: .small, shape: large ? .besideLargeField : nil,
+                       isLoading: loading, loadingTitle: "Checking…", action: submit)
+                .fixedSize()
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 .accessibilityIdentifier(AXID.fastRowAction(row.id))
         }
         if let link {
@@ -521,7 +574,7 @@ struct FormRowFields: View {
     private func input(_ field: ActionField) -> some View {
         FastField(field.label, text: binding(field.name), size: large ? .large : .compact, monospaced: field.secret, secure: field.secret,
                   maskPrefix: SecretPrefix.fromHint(field.hint),
-                  id: fields.count == 1 ? AXID.fastRowField(row.id) : AXID.fastRowField(row.id, field.name))
+                  id: fields.count == 1 ? AXID.fastRowField(row.id) : AXID.fastRowField(row.id, field.name), pasteable: true)
             .onSubmit(submit)
             // rt's hint is a format note (a forge token's scopes, a key's prefix), not screen copy: the mocks show none.
             .help(field.hint ?? "")

@@ -153,9 +153,11 @@ struct FastPrimaryButtonStyle: ButtonStyle {
     var size: FastButtonSize = .large
     var glow = true
     var shape: FastButtonShape? = nil
+    /// A loading FastButton: the fill drains to a faint accent wash and the glow goes out, so it no longer reads as pressable.
+    var loading = false
 
     func makeBody(configuration: Configuration) -> some View {
-        Styled(configuration: configuration, size: size, glow: glow, metrics: shape ?? .standard(size, primary: true))
+        Styled(configuration: configuration, size: size, glow: glow, metrics: shape ?? .standard(size, primary: true), loading: loading)
     }
 
     private struct Styled: View {
@@ -163,8 +165,10 @@ struct FastPrimaryButtonStyle: ButtonStyle {
         let size: FastButtonSize
         let glow: Bool
         let metrics: FastButtonShape
+        let loading: Bool
         @Environment(\.isEnabled) private var isEnabled
         @Environment(\.fastFlipsShadows) private var flipsShadows
+        @State private var hovered = false
 
         var body: some View {
             let large = size == .large
@@ -174,10 +178,24 @@ struct FastPrimaryButtonStyle: ButtonStyle {
                 .foregroundColor(.white)
                 .lineLimit(1)
                 .padding(.vertical, metrics.vertical).padding(.horizontal, metrics.horizontal)
-                .background(shape.fill(FastTheme.accent).overlay(shape.fill(Color.black.opacity(configuration.isPressed ? 0.15 : 0))))
-                .shadow(color: large && glow && isEnabled ? FastTheme.primaryGlow : .clear, radius: 12, y: flipsShadows ? -8 : 8)
+                .background(
+                    ZStack {
+                        shape.fill(FastTheme.accent.opacity(0.12))
+                        shape.fill(LinearGradient(colors: [FastTheme.accent.opacity(1), FastTheme.accent.opacity(0.86)],
+                                                  startPoint: .top, endPoint: .bottom))
+                            .opacity(loading ? 0 : 1)
+                        shape.fill(Color.white.opacity(hovered && isEnabled && !loading && !configuration.isPressed ? 0.08 : 0))
+                        shape.fill(Color.black.opacity(configuration.isPressed ? 0.12 : 0))
+                        shape.strokeBorder(loading ? FastTheme.accent.opacity(0.25) : Color.white.opacity(0.18), lineWidth: loading ? 1 : 0.5)
+                    })
+                .shadow(color: large && glow && isEnabled && !loading ? FastTheme.primaryGlow : .clear, radius: 12, y: flipsShadows ? -8 : 8)
+                .scaleEffect(configuration.isPressed ? 0.97 : 1)
                 .opacity(isEnabled ? 1 : 0.4)
                 .contentShape(shape)
+                .animation(.easeOut(duration: 0.3), value: loading)
+            .onHover { hovered = $0 }
+            .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
+            .animation(.easeOut(duration: 0.15), value: hovered)
         }
     }
 }
@@ -243,26 +261,45 @@ struct FastQuietButtonStyle: ButtonStyle {
 /// Transparent with an accent edge, accent text and an optional leading icon
 /// (P5's Connect Slack, Sign in to Claude, Add to Chrome).
 struct FastOutlineButtonStyle: ButtonStyle {
+    var size: FastButtonSize = .small
+    var shape: FastButtonShape? = nil
+    /// A loading FastButton: the same busy wash as a loading primary, with the edge dimmed so the light trail reads over it.
+    var loading = false
+
     func makeBody(configuration: Configuration) -> some View {
-        Styled(configuration: configuration)
+        Styled(configuration: configuration, size: size, metrics: shape ?? .standard(size, primary: false), loading: loading)
     }
 
+    /// A tonal accent button: a faint wash and a soft edge that firm up under the pointer.
     private struct Styled: View {
         let configuration: Configuration
+        let size: FastButtonSize
+        let metrics: FastButtonShape
+        let loading: Bool
         @Environment(\.isEnabled) private var isEnabled
+        @State private var hovered = false
 
         var body: some View {
-            let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+            let large = size == .large
+            let shape = RoundedRectangle(cornerRadius: metrics.radius, style: .continuous)
+            let active = hovered && isEnabled && !loading
+            let wash = configuration.isPressed ? 0.18 : loading ? 0.12 : active ? 0.14 : 0.07
+            let edge = loading ? 0.22 : active ? 0.75 : 0.45
             configuration.label
-                .labelStyle(FastIconLabelStyle(iconSize: 12, spacing: 6))
-                .font(.system(size: 12, weight: FastTheme.weight(css: .semibold)))
+                .labelStyle(FastIconLabelStyle(iconSize: large ? 14 : 12, spacing: 6))
+                .font(.system(size: large ? 14 : 13, weight: FastTheme.weight(css: .semibold)))
                 .foregroundColor(FastTheme.accent)
                 .lineLimit(1)
-                .padding(.vertical, 7).padding(.horizontal, 12)
-                .background(shape.fill(FastTheme.accent.opacity(configuration.isPressed ? 0.14 : 0)))
-                .overlay(shape.strokeBorder(FastTheme.accent, lineWidth: 1))
+                .padding(.vertical, metrics.vertical).padding(.horizontal, metrics.horizontal)
+                .background(shape.fill(FastTheme.accent.opacity(wash)))
+                .overlay(shape.strokeBorder(FastTheme.accent.opacity(edge), lineWidth: 1))
+                .animation(.easeOut(duration: 0.3), value: loading)
+                .scaleEffect(configuration.isPressed ? 0.97 : 1)
                 .opacity(isEnabled ? 1 : 0.4)
                 .contentShape(shape)
+                .onHover { hovered = $0 }
+                .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
+                .animation(.easeOut(duration: 0.15), value: hovered)
         }
     }
 }
@@ -285,6 +322,7 @@ struct FastSecondaryButtonStyle: ButtonStyle {
         let metrics: FastButtonShape
         let muted: Bool
         @Environment(\.isEnabled) private var isEnabled
+        @State private var hovered = false
 
         var body: some View {
             let large = size == .large
@@ -295,10 +333,14 @@ struct FastSecondaryButtonStyle: ButtonStyle {
                 .foregroundColor(muted ? FastTheme.textSecondary : FastTheme.textPrimary)
                 .lineLimit(1)
                 .padding(.vertical, metrics.vertical).padding(.horizontal, metrics.horizontal)
-                .background(shape.fill(Color.white.opacity(configuration.isPressed ? 0.06 : 0)))
-                .overlay(shape.strokeBorder(FastTheme.outline, lineWidth: 1))
+                .background(shape.fill(Color.white.opacity(configuration.isPressed ? 0.06 : hovered && isEnabled ? 0.04 : 0)))
+                .overlay(shape.strokeBorder(hovered && isEnabled ? FastTheme.textSecondary.opacity(0.6) : FastTheme.outline, lineWidth: 1))
+                .scaleEffect(configuration.isPressed ? 0.97 : 1)
                 .opacity(isEnabled ? 1 : 0.4)
                 .contentShape(shape)
+                .onHover { hovered = $0 }
+                .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
+                .animation(.easeOut(duration: 0.15), value: hovered)
         }
     }
 }
@@ -326,6 +368,7 @@ struct FastBusyChip: View {
 /// spinner draws its own faint grey and ignores the mock's colour.
 struct FastSpinner: View {
     var size: CGFloat = 13
+    var color: Color = FastTheme.textSecondary
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.125)) { context in
@@ -334,7 +377,7 @@ struct FastSpinner: View {
                 ForEach(0..<8, id: \.self) { ray in
                     let age = (head - ray + 8) % 8
                     Capsule()
-                        .fill(FastTheme.textSecondary)
+                        .fill(color)
                         .frame(width: size * 0.14, height: size * 0.3)
                         .padding(.top, size * 0.03)
                         .frame(width: size, height: size, alignment: .top)
@@ -398,10 +441,12 @@ struct FastField: View {
     var id: String? = nil
     /// What VoiceOver names the field, where the placeholder is an example value rather than its name.
     var label: String? = nil
+    /// The invite field's quiet Paste, inside the trailing edge while the field is empty.
+    var pasteable = false
     @FocusState private var focused: Bool
 
     init(_ placeholder: String, text: Binding<String>, size: Size = .compact, monospaced: Bool = false,
-         secure: Bool = false, maskPrefix: String? = nil, id: String? = nil, label: String? = nil) {
+         secure: Bool = false, maskPrefix: String? = nil, id: String? = nil, label: String? = nil, pasteable: Bool = false) {
         self.placeholder = placeholder
         self._text = text
         self.size = size
@@ -410,27 +455,48 @@ struct FastField: View {
         self.maskPrefix = maskPrefix
         self.id = id
         self.label = label
+        self.pasteable = pasteable
     }
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: size.radius, style: .continuous)
-        ZStack(alignment: .leading) {
-            if text.isEmpty {
-                Text(placeholder).font(.system(size: size.points)).foregroundColor(FastTheme.textTertiary)
-                    .lineLimit(1).allowsHitTesting(false)
+        let showsPaste = pasteable && text.isEmpty
+        HStack(spacing: 8) {
+            ZStack(alignment: .leading) {
+                if text.isEmpty {
+                    Text(placeholder).font(.system(size: size.points)).foregroundColor(FastTheme.textTertiary)
+                        .lineLimit(1).allowsHitTesting(false)
+                }
+                // The real field stays opaque, hit-testable and in the AX tree; at rest only its echo goes clear under the dots.
+                input.font(font).foregroundColor(masked ? .clear : FastTheme.textPrimary).textFieldStyle(.plain).focused($focused)
+                if masked { bullets }
             }
-            // The real field stays opaque, hit-testable and in the AX tree; at rest only its echo goes clear under the dots.
-            input.font(font).foregroundColor(masked ? .clear : FastTheme.textPrimary).textFieldStyle(.plain).focused($focused)
-            if masked { bullets }
+            if showsPaste {
+                // Laid out at the text's line height, so the field keeps its height while Paste draws its full size.
+                Button("Paste") { paste() }
+                    .buttonStyle(FastSecondaryButtonStyle(shape: FastButtonShape(vertical: 4, horizontal: 9, radius: 6)))
+                    .fixedSize()
+                    .frame(height: (size.points * 1.25).rounded())
+                    .transition(.opacity)
+                    .modifier(FastAXID(id: id.map { $0 + ".paste" }))
+            }
         }
         .frame(minHeight: monospaced && !text.isEmpty ? size.monoLine : nil)
-        .padding(.vertical, size.vertical).padding(.horizontal, size.horizontal)
+        .padding(.vertical, size.vertical).padding(.leading, size.horizontal)
+        .padding(.trailing, showsPaste ? 6 : size.horizontal)
+        .animation(.easeOut(duration: 0.15), value: showsPaste)
         .background(shape.fill(FastTheme.fieldFill))
         .overlay(shape.strokeBorder(focused ? FastTheme.accent : FastTheme.outline, lineWidth: 1))
     }
 
     /// AppKit's secure echo is a large circle; at rest the field shows the mock's small dots instead.
     private var masked: Bool { secure && !focused && !text.isEmpty }
+
+    private func paste() {
+        guard let value = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return }
+        text = value
+    }
 
     /// The known prefix in the value's own mono, then the mocks' dots, one per
     /// remaining character at the mono advance.
@@ -447,7 +513,8 @@ struct FastField: View {
                 Circle().fill(FastTheme.textPrimary).frame(width: dot, height: dot).frame(width: advance)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        // minWidth 0: a long value's dots are wider than the field, and their width would otherwise push the whole screen past the window.
+        .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .clipped()
         .allowsHitTesting(false)
         .accessibilityHidden(true)

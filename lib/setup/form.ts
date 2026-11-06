@@ -149,7 +149,7 @@ export const FORM_COPY = {
     slackApp: { title: "Slack app", subtext: "Lets your team connect Slack. One owner makes it once" },
     slack: { title: "Slack", label: "Connect Slack", subtext: (forge: Forge) => `Lets mattstack track and post ${reviews(forge)} in Slack`, waiting: "Waiting for Slack…" },
     connected: "Connected",
-    claude: { title: "Claude", label: "Sign in to Claude", subtext: "You know, to do agentic stuff.", pasteCode: "Paste code", codeField: "Code from your browser" },
+    claude: { title: "Claude", label: "Sign in to Claude", subtext: "You know, to do agentic stuff.", pasteCode: "Sign in", codeField: "Paste the code from your browser" },
     teamTool: { label: "Sign in", subtext: "For running your dev servers", code: (code: string) => `Your code is ${code}. Confirm it in your browser`, openAgain: "Open again" },
     linear: { title: "Linear", label: "Create token", subtext: "So mattstack can read and write Linear tickets" },
     fastBrowser: { title: "Fast Browser", label: "Add to Chrome", subtext: "Lets agents drive your real Chrome", waiting: "Waiting for Chrome…", done: "Added", getChrome: "Get Chrome" },

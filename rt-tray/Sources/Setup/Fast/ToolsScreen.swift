@@ -33,7 +33,7 @@ struct ToolsScreenBody: View {
             }
         } footer: {
             FastFooter(screen: FastSetupScreen.tools.rawValue, note: allDone ? nil : Self.footerNote,
-                       secondary: allDone ? nil : ("Later", onLater), primary: ("Done", allDone && !isAcking, onDone),
+                       secondary: allDone ? nil : ("Later", onLater), primary: ("Done", allDone, onDone), primaryLoading: isAcking,
                        insets: Self.footerInsets)
         }
         .accessibilityElement(children: .contain)

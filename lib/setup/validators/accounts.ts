@@ -470,7 +470,7 @@ const SOLO_FORGE_NOTE = "Works without this. Connect a GitHub or GitLab account 
 export const SLACK_APP_MISSING = "The team has no Slack app yet";
 export const SLACK_APP_ACTION: Action = {
   type: "owner-once",
-  label: "Create the team's Slack app…",
+  label: "Create app",
   integration: "slack",
   fields: [{ name: "configToken", label: "App configuration token", secret: true }],
 };
