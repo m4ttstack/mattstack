@@ -21,10 +21,38 @@ struct CreateTeamScreenBody: View {
     let onCreate: () -> Void
 
     /// rt sends none of these lines, so the screen carries P3c's own copy.
-    static let subtitle = "No waiting. You're its admin"
+    static let subtitle = "Sets up your org and its first team"
     static let footerNote = "Next: the same short form"
 
     private var onGitHub: Bool { forge.wrappedValue == "github" }
+
+    /// The repo creating the team makes, spelled out as it is typed, so "group" never has to be explained.
+    private var repoLine: String {
+        let owner = group.wrappedValue.trimmingCharacters(in: CharacterSet(charactersIn: " /"))
+        let host = onGitHub ? "github.com" : "gitlab.com"
+        guard !owner.isEmpty else {
+            return onGitHub ? "The organization or account your team's settings repo goes in"
+                            : "The GitLab group your team's settings repo goes in"
+        }
+        let slug = Self.teamSlug(name.wrappedValue)
+        return "Creates \(host)/\(owner)/mattstack-team-\(slug.isEmpty ? "<team>" : slug)"
+    }
+
+    /// Mirrors `slugify` in lib/team/slug.ts, which names the repo rt actually creates.
+    static func teamSlug(_ name: String) -> String {
+        let lowered = name.lowercased()
+        var out = ""
+        var lastDash = false
+        for scalar in lowered.unicodeScalars {
+            if ("a"..."z").contains(scalar) || ("0"..."9").contains(scalar) {
+                out.unicodeScalars.append(scalar); lastDash = false
+            } else if !lastDash {
+                out.append("-"); lastDash = true
+            }
+        }
+        let trimmed = out.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return String(trimmed.prefix(40)).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
 
     var body: some View {
         FastScreen(insets: EdgeInsets(top: 36, leading: 48, bottom: 20, trailing: 48), spacing: 16) {
@@ -33,10 +61,13 @@ struct CreateTeamScreenBody: View {
                 FastField("Widgets", text: name, size: .large, id: AXID.fastCreateName, label: "Team name")
             }
             FastStackedRow(label: "Settings live on") { forgePicker }
-            FastStackedRow(label: onGitHub ? "Owner" : "Group") {
-                FastField("acme", text: group, size: .large, monospaced: true, id: AXID.fastCreateGroup,
-                          label: onGitHub ? "Owner" : "Group")
-                    .help(onGitHub ? "An organization or your own account" : "The team's repo goes in this group")
+            FastStackedRow(label: "Where the repo goes") {
+                VStack(alignment: .leading, spacing: 6) {
+                    FastField(onGitHub ? "acme" : "acme/platform", text: group, size: .large, monospaced: true, id: AXID.fastCreateGroup,
+                              label: onGitHub ? "GitHub organization or account" : "GitLab group")
+                    FastHint(repoLine)
+                        .animation(.easeOut(duration: 0.15), value: repoLine)
+                }
             }
             ForEach(rows ?? [], id: \.id) { row in
                 FormRowView(row: labelled(row), waiting: waiting[row.id], error: errors[row.id], style: .stacked, onAction: onAction)
@@ -44,7 +75,7 @@ struct CreateTeamScreenBody: View {
             outcome
         } footer: {
             FastFooter(screen: FastSetupScreen.createTeam.rawValue, note: Self.footerNote,
-                       secondary: isCreating ? nil : onBack.map { ("Back", $0) }, primary: ("Create team", createEnabled && !isCreating, onCreate),
+                       secondary: isCreating ? nil : onBack.map { ("Back", $0) }, primary: ("Create team", createEnabled, onCreate), primaryLoading: isCreating, primaryLoadingTitle: "Creating…",
                        quietSecondary: true)
         }
         .accessibilityElement(children: .contain)

@@ -51,16 +51,60 @@ struct FastSetupView: View {
 
     var body: some View {
         let drawn = drawn
-        FastWindowChrome(step: FastStep.label(for: drawn, path: stepPath, entry: flow.entry)) { screen(drawn) }
+        // `shown` still holds the screen being left during the render that changes it, so the direction reads here.
+        let forward = Self.order(drawn) >= Self.order(shown ?? drawn)
+        FastWindowChrome(step: FastStep.label(for: drawn, path: stepPath, entry: flow.entry)) {
+            ZStack {
+                screen(drawn)
+                    .id(drawn)
+                    .transition(Self.screenChange(forward: forward))
+            }
+            .animation(.spring(response: 0.42, dampingFraction: 0.9), value: drawn)
+            // Anything rt's next read changes on this screen (a row's state, a card's rows, a failure) eases into place.
+            .animation(.spring(response: 0.38, dampingFraction: 0.9), value: changeKey(drawn))
+        }
             .onAppear { shown = drawn }
             .onChange(of: drawn) { _, now in shown = now }
             .frame(width: SetupWindowController.width)
             .frame(minHeight: SetupWindowController.minHeight)
             .controlSize(.large)
             .environment(\.formRowsRunning, actions.running)
+            .environment(\.fastScreenFailure, status.failures[drawn])
             .sheet(item: $actions.sheet, onDismiss: { Task { await actions.sheetClosed() } }) { sheet in
                 FastSetupSheet(sheet: sheet, actions: actions)
             }
+    }
+
+    /// What rt's reads and the presses change on a screen; typing changes none of it.
+    private func changeKey(_ screen: FastSetupScreen) -> String {
+        let rows = screen.section.flatMap { form.rows(for: $0) } ?? []
+        let states = rows.map { "\($0.id):\($0.state.rawValue):\($0.action?.label ?? "")" }.joined(separator: ",")
+        let failure = status.failures[screen] ?? ""
+        return [states, actions.waiting.keys.sorted().joined(separator: ","), failure, String(status.busy == screen)].joined(separator: "|")
+    }
+
+    /// The new screen fades and slides in from the side it comes from; the old one leaves the other way.
+    static func screenChange(forward: Bool) -> AnyTransition {
+        let shift: CGFloat = forward ? 18 : -18
+        return .asymmetric(
+            insertion: .opacity.combined(with: .offset(x: shift)),
+            removal: .opacity.combined(with: .offset(x: -shift)))
+    }
+
+    /// Where a screen sits on the way through setup, so Back slides the other way.
+    static func order(_ screen: FastSetupScreen) -> Int {
+        switch screen {
+        case .loading: return 0
+        case .macos: return 1
+        case .path: return 2
+        case .invite, .createTeam, .restore: return 3
+        case .waiting: return 4
+        case .connect: return 5
+        case .thisMac: return 6
+        case .tools: return 7
+        case .running, .paused: return 8
+        case .ready: return 9
+        }
     }
 
     private var back: (() -> Void)? { flow.canGoBack ? { flow.back() } : nil }
@@ -153,7 +197,7 @@ struct FastSetupView: View {
                          // Join stays grey until rt's invite rows land, so the read shows as still going.
                          isChecking: team.isChecking || (team.hasGoodVerdict && rows == nil),
                          rows: rows, waiting: actions.waiting, errors: actions.errors,
-                         joinEnabled: !joining && FastSetupFlow.joinEnabled(verdictOK: team.hasGoodVerdict, rows: rows),
+                         joinEnabled: FastSetupFlow.joinEnabled(verdictOK: team.hasGoodVerdict, rows: rows), isJoining: joining,
                          onPaste: { team.pasteInvite() }, onAction: perform, onBack: joining ? nil : back, onJoin: handlers.join)
     }
 

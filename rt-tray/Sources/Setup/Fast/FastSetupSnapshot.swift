@@ -45,7 +45,7 @@ enum FastSetupSnapshot {
 
     #if DEBUG
     /// Each screen adds its own pages here.
-    private static let registered: [@MainActor () -> [(String, AnyView)]] = [themePages, rowPages, macosPages, pathPages, invitePages, createPages, restorePages, waitingPages, connectPages, thisMacPages, toolsPages, runPages, readyPages, containerPages, testDrivePages]
+    private static let registered: [@MainActor () -> [(String, AnyView)]] = [buttonPages, themePages,rowPages, macosPages, pathPages, invitePages, createPages, restorePages, waitingPages, connectPages, thisMacPages, toolsPages, runPages, readyPages, containerPages, testDrivePages]
 
     /// A screen body in the window the mocks draw: outline, rounded corners, title bar dots, glow.
     static func window(_ view: some View, _ screen: FastSetupScreen, path: String? = nil) -> AnyView {
@@ -61,6 +61,30 @@ enum FastSetupSnapshot {
 
     /// FastTheme's shared views on their own, for the screens that build on them.
     @MainActor
+    /// The kit button in each kind: idle, loading and disabled, side by side.
+    private static func buttonPages() -> [(String, AnyView)] {
+        func row(_ name: String, _ make: @escaping (Bool) -> FastButton) -> some View {
+            HStack(spacing: 14) {
+                Text(name).font(FastTheme.note).foregroundColor(FastTheme.textSecondary).frame(width: 110, alignment: .leading)
+                make(false)
+                make(true)
+                make(false).disabled(true)
+            }
+        }
+        let gallery = VStack(alignment: .leading, spacing: 18) {
+            FastScreenHeader(title: "Buttons", subtitle: "Idle, loading, disabled")
+            row("Primary") { FastButton(title: "Continue", isLoading: $0, loadingTitle: "Checking…") {} }
+            row("Primary small") { FastButton(title: "Allow", size: .small, isLoading: $0) {} }
+            row("Retry") { FastButton(title: "Retry", kind: .primary(glow: false), shape: .retry, isLoading: $0, loadingTitle: "Retrying…") {} }
+            row("Secondary") { FastButton(title: "Hide", kind: .secondary(), isLoading: $0) {} }
+            row("Secondary small") { FastButton(title: "Re-check", kind: .secondary(), size: .small, isLoading: $0, loadingTitle: "Checking…") {} }
+            row("Outline") { FastButton(title: "Install", icon: "arrow.down.circle", kind: .outline, isLoading: $0, loadingTitle: "Installing…") {} }
+            row("Quiet") { FastButton(title: "Back", kind: .quiet, isLoading: $0) {} }
+        }
+        .padding(48)
+        return [("buttons", AnyView(gallery))]
+    }
+
     private static func themePages() -> [(String, AnyView)] {
         let kit = VStack(alignment: .leading, spacing: 18) {
             FastScreenHeader(title: "Three things from macOS", subtitle: "mattstack can't do these itself. It notices the moment you do")
@@ -826,8 +850,8 @@ enum FastSetupSnapshot {
                                           action: RowAction(type: .run, label: "Sign in to Claude", verb: ["setup", "claude", "connect"]), watch: true)
         static let claudePasteCode = FormRow(id: "claude", title: "Claude", subtext: "You know, to do agentic stuff.", state: .waiting,
                                              detail: "Finish signing in in your browser",
-                                             action: RowAction(type: .form, label: "Paste code", fields: [
-                                                 ActionField(name: "code", label: "Code from your browser", secret: true),
+                                             action: RowAction(type: .form, label: "Sign in", fields: [
+                                                 ActionField(name: "code", label: "Paste the code from your browser", secret: true),
                                              ], verb: ["setup", "claude", "code"]), watch: true)
         static let claudeDone = FormRow(id: "claude", title: "Claude", subtext: "You know, to do agentic stuff.", state: .done,
                                         detail: "Claude Code 2.1.0, signed in", watch: true)
@@ -979,8 +1003,8 @@ enum FastSetupSnapshot {
                                               detail: "Installing…", watch: true)
         static let claudeCode = FormRow(id: "claude", title: "Claude", subtext: "You know, to do agentic stuff.", state: .waiting,
                                         detail: "Finish signing in in your browser",
-                                        action: RowAction(type: .form, label: "Paste code", fields: [
-                                            ActionField(name: "code", label: "Code from your browser", secret: true),
+                                        action: RowAction(type: .form, label: "Sign in", fields: [
+                                            ActionField(name: "code", label: "Paste the code from your browser", secret: true),
                                         ], verb: ["setup", "claude", "code"]), watch: true)
         static let doppler = FormRow(id: "signin.doppler", title: "Doppler", subtext: "For running your dev servers", state: .waiting,
                                      detail: "Your code is WXYZ-1234. Confirm it in your browser",

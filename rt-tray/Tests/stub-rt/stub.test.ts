@@ -643,7 +643,7 @@ test("the waiting Claude row carries rt's paste-code action, and claude code sig
   const claude = () => form(dir, "connect").then((f) => f.sections.connect!.find((r) => r.id === "claude")!);
   const waiting = await claude();
   expect(waiting).toMatchObject({ state: "waiting", detail: "Finish signing in in your browser", watch: true });
-  expect(waiting.action).toEqual({ type: "form", label: "Paste code", verb: ["setup", "claude", "code"], fields: [{ name: "code", label: "Code from your browser", secret: true }] });
+  expect(waiting.action).toEqual({ type: "form", label: "Sign in", verb: ["setup", "claude", "code"], fields: [{ name: "code", label: "Paste the code from your browser", secret: true }] });
   expect((await claude()).state).toBe("waiting");
   const empty = await run("join-happy", ["setup", "claude", "code", "--json"], JSON.stringify({ code: " " }), dir);
   expect(empty.lines[0].error.code).toBe("bad-stdin");

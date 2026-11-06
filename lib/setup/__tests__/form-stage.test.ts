@@ -337,7 +337,7 @@ function stageOf(s: Record<Section, FormRow[]>, p: Plan, o: { finished: boolean;
 /** Rows an earlier ownership claimed though this path's screens never draw them. */
 function undrawnRows(): { name: string; rows: Row[]; drawn: Partial<Drawn> }[] {
   const slackApp = r("account.slack-app", "missing", "The team has no Slack app yet", {
-    action: { type: "owner-once", label: "Create the team's Slack app…", integration: "slack", fields: [{ name: "configToken", label: "App configuration token", secret: true }] },
+    action: { type: "owner-once", label: "Create app", integration: "slack", fields: [{ name: "configToken", label: "App configuration token", secret: true }] },
   });
   const ldcli = r("account.ldcli", "missing", "Not signed in to LaunchDarkly", { action: { type: "run", label: "Sign in", verb: ["setup", "ldcli", "connect"] } });
   const github = r("account.github", "missing", "No GitHub account connected yet", { action: { type: "connect", label: "Connect", integration: "github", fields: [] } });

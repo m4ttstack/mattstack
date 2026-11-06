@@ -11,6 +11,10 @@ struct FastFooter: View {
     let secondary: (String, () -> Void)?
     /// The label, whether it is enabled, and what it does.
     let primary: (String, Bool, () -> Void)?
+    /// The screen's own word that its primary's work is running (creating a team, restoring).
+    var primaryLoading = false
+    var primaryLoadingTitle: String? = nil
+    @Environment(\.fastScreenFailure) private var screenFailure
     var insets: EdgeInsets = FastTheme.footerInsets
     var spacing: CGFloat = FastTheme.footerGap
     /// P4 and P6 draw their Hide outlined: still the primary's id and Return key, in the secondary style.
@@ -22,6 +26,12 @@ struct FastFooter: View {
     var primaryShape: FastButtonShape? = nil
     /// P6b's Retry draws without the primary's glow.
     var primaryGlow = true
+
+    /// A press holds the primary in loading until the next screen replaces this footer, the screen
+    /// takes over with `primaryLoading`, or the button's state moves, so it never just sits greyed out.
+    @State private var pressed = false
+    @State private var pressedAt = Date.distantPast
+    private static let pressHold: TimeInterval = 8
 
     var body: some View {
         HStack(spacing: spacing) {
@@ -38,27 +48,50 @@ struct FastFooter: View {
             if let primary {
                 primaryButton(primary)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!primary.1)
+                    .disabled(!primary.1 && !loading)
                     .fixedSize()
                     .accessibilityIdentifier(AXID.fastPrimary(screen))
+                    .onChange(of: primary.1) { _, _ in pressed = false }
             }
         }
         .padding(insets)
+        .onChange(of: primaryLoading) { _, now in if !now { pressed = false } }
+        .onChange(of: screenFailure) { _, now in if now != nil { pressed = false } }
+        .task(id: pressedAt) {
+            guard pressed else { return }
+            try? await Task.sleep(for: .seconds(Self.pressHold))
+            pressed = false
+        }
     }
+
+    private var loading: Bool { primaryLoading || pressed }
 
     @ViewBuilder private func secondaryButton(_ secondary: (String, () -> Void)) -> some View {
         if quietSecondary {
-            Button(secondary.0, action: secondary.1).buttonStyle(FastQuietButtonStyle()).padding(.trailing, 8)
+            FastButton(title: secondary.0, kind: .quiet, action: secondary.1).padding(.trailing, 8)
         } else {
-            Button(secondary.0, action: secondary.1).buttonStyle(FastSecondaryButtonStyle(size: .large, shape: secondaryShape))
+            FastButton(title: secondary.0, kind: .secondary(), size: .large, shape: secondaryShape, action: secondary.1)
         }
     }
 
-    @ViewBuilder private func primaryButton(_ primary: (String, Bool, () -> Void)) -> some View {
-        if quietPrimary {
-            Button(primary.0, action: primary.2).buttonStyle(FastSecondaryButtonStyle(size: .large, shape: primaryShape))
-        } else {
-            Button(primary.0, action: primary.2).buttonStyle(FastPrimaryButtonStyle(size: .large, glow: primaryGlow, shape: primaryShape))
+    private func primaryButton(_ primary: (String, Bool, () -> Void)) -> some View {
+        FastButton(title: primary.0, kind: quietPrimary ? .secondary() : .primary(glow: primaryGlow), size: .large,
+                   shape: primaryShape, isLoading: loading, loadingTitle: primaryLoadingTitle) {
+            pressed = true
+            pressedAt = Date()
+            primary.2()
         }
+    }
+}
+
+private struct FastScreenFailureKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+extension EnvironmentValues {
+    /// The shown screen's failure: a footer press that fails on the same screen stops loading when it lands.
+    var fastScreenFailure: String? {
+        get { self[FastScreenFailureKey.self] }
+        set { self[FastScreenFailureKey.self] = newValue }
     }
 }
