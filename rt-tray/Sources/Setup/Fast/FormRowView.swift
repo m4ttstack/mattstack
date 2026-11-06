@@ -111,6 +111,8 @@ struct FormRowView: View {
     /// The row's own work is running: the command, or rt's read of a wait.
     private var working: Bool { runningRows.contains(row.id) || progressLine != nil }
     private var loading: Bool { working || settling }
+    /// A field row rt holds in `waiting` is waiting on the person's paste, not on work; only a submit being checked loads its button.
+    private var submitting: Bool { runningRows.contains(row.id) || waiting != nil || (settling && row.state != .waiting) }
 
     var body: some View {
         content
@@ -235,7 +237,7 @@ struct FormRowView: View {
             if !FormRowChoice.tiles(options) { subtextHint }
         } else if let action = row.action, FormRowFields.collects(action) {
             if row.state == .done && progressLine == nil { doneMark(size: 13, iconSize: 14, spacing: 8) }
-            FormRowFields(row: row, action: action, large: style == .stacked, loading: loading, onAction: onAction)
+            FormRowFields(row: row, action: action, large: style == .stacked, loading: submitting, onAction: onAction)
             if let line = progressLine, row.subtext.isEmpty { inlineProgress(line) }
             subtextHint
         } else if let action = row.action, action.type == .chooseFolder {
