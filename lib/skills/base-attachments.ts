@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { dirname, join } from "path";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
+import { parseAllowedTools } from "./allowed-tools.ts";
 import { boardOnlyBaseFills, mergedBindings } from "./board-fills.ts";
 import { isEmittedAttachmentDir, isEmittedAttachmentText } from "./emitted.ts";
 import { hasCompiledHeader, HEADER_COMMENT, unresolvedRelativePaths } from "./compile.ts";
@@ -123,13 +124,31 @@ function doorRefusal(packDir: string, label: string, name: string, skillMd: stri
   return null;
 }
 
-/** Only what names the skill: anything else in the frontmatter, such as allowed-tools, reads paths from the attachments copy. */
+const SKILL_DIR_TOKEN = "${CLAUDE_SKILL_DIR}";
+
+/** A rule naming the skill's own folder would mean the door's folder, not the copy's, so only rules without it carry over. */
+function doorToolRules(value: unknown): string[] {
+  return parseAllowedTools(value).filter((rule) => !rule.includes(SKILL_DIR_TOKEN));
+}
+
+/** Only what names the skill and what holds wherever it is read from; anything that reads paths from the copy stays there. */
 function doorHead(name: string, skillMd: string): string {
   const { frontmatter } = stripFrontmatter(skillMd);
   const lines = [`name: ${name}`];
   lines.push(`description: ${JSON.stringify(frontmatter.description)}`);
   if (frontmatter["disable-model-invocation"] === true) lines.push("disable-model-invocation: true");
+  const rules = doorToolRules(frontmatter["allowed-tools"]);
+  if (rules.length > 0) lines.push("allowed-tools:", ...rules.map((rule) => `  - ${JSON.stringify(rule)}`));
   return `---\n${lines.join("\n")}\n---\n`;
+}
+
+/**
+ * Claude Code loads the door, so its own `${CLAUDE_SKILL_DIR}` is real, the
+ * same exemption hand-written skills have from the pointer rule. The door
+ * names no argument placeholder, so Claude Code appends the arguments to it.
+ */
+function doorBody(rel: string): string {
+  return `Read \`${hostDir(rel, "attachments")}/SKILL.md\` and follow it.\n`;
 }
 
 function doorFor(base: BaseRef, rel: string, skillMd: string): BaseDoor {
@@ -137,7 +156,7 @@ function doorFor(base: BaseRef, rel: string, skillMd: string): BaseDoor {
   return {
     name,
     files: [
-      { path: "SKILL.md", content: `${doorHead(name, skillMd)}${HEADER_COMMENT}\n\nRead \`${hostDir(rel, "attachments")}/SKILL.md\` and follow it.\n` },
+      { path: "SKILL.md", content: `${doorHead(name, skillMd)}${HEADER_COMMENT}\n\n${doorBody(rel)}` },
       { path: PROVENANCE_FILE, content: JSON.stringify({ base: base.name, version: base.version, files: ["SKILL.md"] }, null, 2) + "\n" },
     ],
   };
