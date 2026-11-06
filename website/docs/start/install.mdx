@@ -89,7 +89,8 @@ A request nobody has approved yet keeps waiting.
 | **Fast Browser** | Lets agents drive your real Chrome |
 
 - **Connect Slack** opens Slack's Allow page in your own browser, where you're already signed in. The row ticks itself off when Slack hands back.
-- **Sign in to Claude** reads **Installing…** until Claude Code is on the Mac, then opens Claude's sign-in in your browser. When the browser shows a code, paste it into the row.
+- **Sign in to Claude** reads **Installing…** until Claude Code is on the Mac, then opens Claude's sign-in in your browser. When the browser shows a code, paste it into the row and press **Sign in**.
+- Board agents run Claude Code from `~/.local/bin/claude`. When Claude Code is installed somewhere else, such as by Homebrew, or the install failed, the row offers **Install**, which installs it there with Claude's own installer.
 - A team tool's **Sign in** also waits for its install. When the tool shows a code, the row reads **Your code is ...** so you can confirm it in your browser.
 - **Linear** takes a token. **Create token** opens Linear's page for one.
 - **Add to Chrome** opens the Fast Browser extension's Chrome Web Store page. The row reads **Waiting for Chrome…** and turns to **Added** by itself. Without Chrome, the button reads **Get Chrome** first.

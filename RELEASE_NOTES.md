@@ -1,69 +1,36 @@
-A release for teams and agents. An org can now require tools for every team, and a Mac that already finished setup hears about a new one on a short tools screen. Chat is rebuilt to Slack's layout with one home for messages to you, Console shows what each MR cost, and `mr_merge` merges GitHub PRs through the merge queue.
+mattstack now runs on Intel Macs, and setup no longer needs Homebrew. The board refuses to start a review it can't load the team's skill for, instead of quietly running a generic one, and your own MRs gain a **flock** flyout.
 
-Also in this release: `.mattstack` addresses work again on portless 0.16.0, deck apps are private by default, and the board's **rebase locally** tries `rt sync` before it starts an agent.
+### Install and setup
 
-### Setup and teams
-
-- an org can require tools for every team in `org/requirements.jsonc`; a team's own entry wins, and a pack can leave an org tool out with `excludeOrg` (#992)
-- on a finished Mac, a newly required tool sends one notification once it reads missing on two pulls in a row, and setup opens a short tools screen to install it (#992)
-- a broken org requirements file never blocks setup; it shows as a row under **Setup status** (#992)
-- `rt team announce` lets org owners and admins send a notification to every teammate's Mac (#1000)
-- `board.agent.model`, `board.agent.effort` and `board.triage` take org and team values, which each developer can still override (#954)
-- herdr and claude install with their own install scripts, never Homebrew, and herdr's own copy wins over an older Homebrew one (#952)
-
-### Local proxy and deck
-
-- `.mattstack` addresses work on portless 0.16.0: the proxy service now names both the `.localhost` and `.mattstack` TLDs (#1004)
-- `deck override <app> off` puts every one of the app's addresses back on its port, not only `.localhost` (#1004)
-- apps you never switched on are private, publishing needs a connected domain, and mattstack's own apps are never public (#1005)
-
-### Chat
-
-- chat is rebuilt to Slack's layout, with a resizable sidebar, and shows real Slack pictures in chat, board and boxscore (#1008)
-- **Messages to you** collects every DM you are part of in one list, with an unread count in the sidebar (#1015)
-- an agent's post into its DM with you notifies you without a mention; your own posts and rooms with a Slack participant never do (#1017)
-- rt:chat and the viewer read your handle from `chat.humanHandle`, so agents no longer DM a handle you no longer use (#1018)
-- `rt chat avatar` gives an app a handle's chat face as a file (#1019)
-- `/slack-support <person> <problem>` lets Claude help a teammate over your real Slack DM until it's sorted, then close and report (#995)
-
-### Console
-
-- the **Usage** page adds up each MR's tokens across its work run, reviews, responses and doctor sessions, with a sortable MR list, weekly trends and estimated costs (#1014, #1021)
-- a run's estimated cost shows in its header and links to its MR's cost (#1021)
-- click a Usage step to read what its session was doing (#1025)
-- the **Surface** tab can switch on a reference skill from the org's base pack, and lists only what a switch can change (#1024)
+- one universal mattstack.app for Apple silicon and Intel Macs; the processor row reads ready on Intel (#1032)
+- setup no longer installs Homebrew, and a team tool installs from the download its pack pins for your processor (#1032)
+- Claude Code installed somewhere other than `~/.local/bin/claude`, such as by Homebrew, now offers **Install** on the Claude row, since that is where the board runs it from (#1046)
+- buttons in the setup window show their own loading state, and screens, rows and cards ease in and out instead of popping (#1044)
+- the Claude row asks you to paste the code from your browser and press **Sign in**; a sign-in code or a wait on Chrome or Slack shows in place of the row's description (#1044)
+- **Create team** says it sets up your org and its first team, and spells out the repo it makes (#1044)
+- a long pasted secret no longer widens the setup window (#1044)
+- the Team sync row leads with reset and pull when your org clone has a commit ahead of origin, unless that commit is your own edit (#1039)
 
 ### Board
 
-- **rebase locally** tries `rt sync` first, so a clean rebase needs no agent; on a conflict, the doctor finishes the paused rebase (#1027)
-- thread cards show the agent's verdict, and **Post reply** sits beside **Resolve thread** (#1023)
-- a teammate's lost review shows its retry and dismiss only on your own MR (#1010)
-- a reload during live mode no longer drops the board to read-only
+- when a lane's skill can't load, the board opens no pane and the row names the reason and the fix; a skill that fails to load inside the pane ends the run the same way (#1047)
+- a **flock** flyout on your own MR, when Flock is installed, opens a shell, Claude, the newest work session or a saved `board.flockCommands` command in the MR's worktree (#1042)
+- **rebase locally** streams rt sync's output into a popover on the row, retries a paused tree and a push with rt's token, and a synced row stays until you dismiss it (#1031)
+- auto-doctor skips an MR whose doctor tab is still open, and **+N more** opens the row's other statuses (#1043)
+- a parked decision reads waiting on you, and answering it reads resuming at once (#1040)
+- the sync popover wraps its title and hint as one line; the row note band sits lighter
 
-### Agents and merging
+### Chat
 
-- `mr_merge` merges GitHub PRs, through the merge queue when the repo has one, and `wait: true` holds until the PR lands or is dropped (#1012, #1013)
-- `rt pr enqueue` adds a PR to the merge queue (#1011)
-- `rt check` runs a repo's own pre-push check, and `git_push` refuses a red push and posts the result on the commit (#991, #994, #997)
-- `rt skills` picks one plugin install per name, preferring your user install over a stale project one (#941)
-- the herd watchdog stops sending notifications about unread DMs on a herd whose jobs are all closed (#1006)
-- a failed cron command logs the tail of its stderr (#956)
-- a bare `Bearer` token is masked anywhere in logs, not only after `Authorization:` (#993)
-- the mattstack plugin is 0.32.45 and asks for this release's engine, so a Mac on an older app keeps its current plugin until it updates
+- `rt chat rooms` and `rt chat who` answer a caller with no chat name, so Flock's chat peek works again; posting and reading still need a name (#1045)
 
-### Menu bar app and dev
+### Skills
 
-- `rt dev update --release` swaps a dev app built on this Mac for the release's dev app (#989)
-- the telemetry page shows local times and leads with the Macs not on the latest release (#1002, #1003)
-- fast-browser's plugin pin is refreshed (#998)
-
-### Existing installs
-
-- after updating, **Setup status** shows **Update proxy** until you press it; it takes one admin password, and `.mattstack` keeps working on the old proxy meanwhile
-- if you connected Slack before this release, **Setup status** asks you to reconnect it once to grant `users:read`
+- `rt skills sync` updates a pack whose edits were committed by hand without a version bump (#1041)
+- a skill's `allowed-tools` list splits at spaces as well as commas, and base doors carry the copy's safe rules (#1029)
 
 ### Held pins
 
 - glab stays at 1.127.0 (1.128.0 is out) and Sparkle at 2.10.0 (2.10.1 is out); Sparkle gets its own release
 
-**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.28.0...v2.29.0
+**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.29.1...v2.30.0
