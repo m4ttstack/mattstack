@@ -461,7 +461,11 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
     const initResult = await p.exec(["git", "init"], { cwd: dir });
     if (initResult.code !== 0) throw gitStepError("git-init-failed", "git init", initResult);
     const headResult = await p.exec(["git", "symbolic-ref", "HEAD", `refs/heads/${DEFAULT_DATA_BRANCH}`], { cwd: dir });
-    if (headResult.code !== 0) throw gitStepError("git-init-failed", `git symbolic-ref HEAD refs/heads/${DEFAULT_DATA_BRANCH}`, headResult);
+    if (headResult.code !== 0) {
+      // A retry skips the init once .git exists, so a repo left on git's own first branch would never reach the data branch.
+      await p.exec(["rm", "-rf", join(dir, ".git")]);
+      throw gitStepError("git-init-failed", `git symbolic-ref HEAD refs/heads/${DEFAULT_DATA_BRANCH}`, headResult);
+    }
   }
 
   if (originConfigured === null) {

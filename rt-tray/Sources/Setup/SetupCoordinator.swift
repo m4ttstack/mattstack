@@ -473,7 +473,7 @@ final class SetupCoordinator {
 
     private func runEnded() async {
         // A run can turn deck apps on or off (Just me turns off the team apps), and the window's tabs settle on one catalog.
-        NotificationCenter.default.post(name: .rtAppsChanged, object: nil)
+        if !host.isTestDrive { NotificationCenter.default.post(name: .rtAppsChanged, object: nil) }
         var landed: SetupForm?
         for attempt in 0..<3 {
             if attempt > 0 { try? await Task.sleep(nanoseconds: 2_000_000_000) }

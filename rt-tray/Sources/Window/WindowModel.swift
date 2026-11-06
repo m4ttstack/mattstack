@@ -312,10 +312,12 @@ final class WindowModel: ObservableObject {
     /// until the deck wait gives up and the splash says why. It plays once
     /// per process; re-showing a window whose wait gave up starts the wait
     /// again instead of replaying it.
-    func presentSplashIfNeeded() {
+    /// True when this call started the first splash, whose deck wait loads a fresh catalog itself.
+    @discardableResult
+    func presentSplashIfNeeded() -> Bool {
         guard !Self.hasShownSplash else {
             if case .unreachable = deckWait { retryDeckWait() }
-            return
+            return false
         }
         Self.hasShownSplash = true
         splashVisible = true
@@ -327,6 +329,7 @@ final class WindowModel: ObservableObject {
             self?.dismissSplashIfReady()
         }
         startDeckWait()
+        return true
     }
 
     func retryDeckWait() {

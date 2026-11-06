@@ -105,6 +105,18 @@ describe("executeInitPlan", () => {
     ]);
   });
 
+  test("initUserRepo: a failed HEAD update removes the half-made repo, so a retry runs init again", async () => {
+    const seam = new FakeExecSeam({ failRun: (cmd) => (cmd.includes("symbolic-ref") ? "fatal: cannot lock ref" : undefined) });
+    const result = await executeInitPlan([{ kind: "initUserRepo" }], seam, noopLog);
+
+    expect(result.ok).toBe(false);
+    expect(seam.calls.filter((c) => c.kind === "run").map((c) => (c as { cmd: string[] }).cmd)).toEqual([
+      ["git", "init", "user"],
+      ["git", "-C", "user", "symbolic-ref", "HEAD", "refs/heads/main"],
+      ["rm", "-rf", "user/.git"],
+    ]);
+  });
+
   test("cloneUserRepo: a failing clone aborts and reports it", async () => {
     const seam = new FakeExecSeam({ failRun: () => "fatal: could not read from remote repository" });
     const steps: InitStep[] = [{ kind: "cloneUserRepo", url: REPO_URL }];

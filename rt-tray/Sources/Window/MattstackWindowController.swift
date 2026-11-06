@@ -46,11 +46,12 @@ final class MattstackWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func show() {
-        model.presentSplashIfNeeded()
+        let splashing = model.presentSplashIfNeeded()
         // Apps turned on or off outside Settings (rt apps, deck, a setup run) reach the tabs only through a fresh catalog.
+        // The first splash's deck wait already fetches one, and unsettling it there would hold the splash for a second fetch.
         Task {
             await model.ensureCatalogLoaded()
-            await model.invalidateCatalog()
+            if !splashing { await model.invalidateCatalog() }
         }
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
