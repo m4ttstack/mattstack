@@ -107,6 +107,7 @@ export type FlockAction = 'shell' | 'claude' | 'resume' | 'command';
 /** What `/flock/menu` says about an own MR: its worktree, the work session
     a resume would reach, and the saved commands. */
 export interface FlockMenuData {
+  installed: boolean;
   tree: string | null;
   resume: { livePane: string | null; worktreeGone: boolean } | null;
   commands: { label: string; command: string; icon?: string }[];
@@ -1100,10 +1101,11 @@ function commandGlyph(icon: string | undefined): ActionGlyph {
 }
 
 /** The flock section on the seat's own MR: each row opens a focused Flock
-    tab in the MR's worktree. Shell and claude show at once; resume and the
-    saved commands join when `/flock/menu` answers. */
+    tab in the MR's worktree. Nothing shows until `/flock/menu` answers, and
+    nothing on a Mac without Flock. */
 function flockActions(data: FlockMenuData | undefined): RowAction[] {
-  const creates = data && !data.tree ? 'creates a worktree' : undefined;
+  if (!data?.installed) return [];
+  const creates = data.tree ? undefined : 'creates a worktree';
   const rows: RowAction[] = [
     item(
       'flock',
@@ -1122,7 +1124,7 @@ function flockActions(data: FlockMenuData | undefined): RowAction[] {
       { hint: creates }
     ),
   ];
-  if (data?.resume) {
+  if (data.resume) {
     const { livePane, worktreeGone } = data.resume;
     rows.push(
       item(
@@ -1137,7 +1139,7 @@ function flockActions(data: FlockMenuData | undefined): RowAction[] {
       )
     );
   }
-  data?.commands.forEach((c, index) =>
+  data.commands.forEach((c, index) =>
     rows.push(
       item(
         'flock',

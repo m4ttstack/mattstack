@@ -59,6 +59,8 @@ export interface FlockResume {
 }
 
 export interface FlockMenu {
+  /** Either Flock flavor is on this Mac; without one the menu shows no rows. */
+  installed: boolean;
   tree: string | null;
   repoRoot: string | null;
   resume: (FlockResume & { worktreeGone: boolean }) | null;
@@ -200,6 +202,14 @@ export interface FlockIo {
   listRuns(): Promise<RunSummary[]>;
   runWorktree(run: RunSummary): Promise<string | null>;
   exists(path: string): boolean;
+  flockInstalled(): Promise<boolean>;
+}
+
+const FLOCK_BUNDLE_QUERY =
+  "kMDItemCFBundleIdentifier == 'dev.mattstack.Flock' || kMDItemCFBundleIdentifier == 'dev.mattstack.Flock.dev'";
+
+export function flockInstalledFrom(mdfindOut: string): boolean {
+  return mdfindOut.trim().length > 0;
 }
 
 export const defaultFlockIo: FlockIo = {
@@ -228,6 +238,15 @@ export const defaultFlockIo: FlockIo = {
     return rows.sort((a, b) => b.at - a.at)[0]?.value ?? null;
   },
   exists: existsSync,
+  async flockInstalled() {
+    const proc = Bun.spawn(['/usr/bin/mdfind', FLOCK_BUNDLE_QUERY], {
+      stdout: 'pipe',
+      stderr: 'ignore',
+    });
+    const out = await new Response(proc.stdout).text();
+    await proc.exited;
+    return flockInstalledFrom(out);
+  },
 };
 
 export async function buildFlockMenu(
@@ -236,6 +255,14 @@ export async function buildFlockMenu(
   commands: FlockCommand[],
   io: FlockIo = defaultFlockIo
 ): Promise<FlockMenu> {
+  if (!(await io.flockInstalled()))
+    return {
+      installed: false,
+      tree: null,
+      repoRoot: null,
+      resume: null,
+      commands: [],
+    };
   const [trees, runs] = await Promise.all([io.listTrees(), io.listRuns()]);
   const { tree, repoRoot } = pickMrTree(trees, repoName, mr.sourceBranch);
   const run = pickResumeRun(runs, mr.webUrl);
@@ -249,7 +276,7 @@ export async function buildFlockMenu(
       worktreeGone: !worktree || !io.exists(worktree),
     };
   }
-  return { tree, repoRoot, resume, commands };
+  return { installed: true, tree, repoRoot, resume, commands };
 }
 
 export async function provisionMrTree(

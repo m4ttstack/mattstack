@@ -1,4 +1,5 @@
 {
+  "installed": true,
   "tree": "/trees/acme-shop/compress-cache",
   "repoRoot": "/code/acme-shop",
   "resume": {

@@ -84,6 +84,7 @@ function flockMenuData(body: unknown): FlockMenuData | undefined {
   const b = body as Partial<FlockMenuData> | null;
   if (!b || !Array.isArray(b.commands)) return undefined;
   return {
+    installed: b.installed === true,
     tree: typeof b.tree === 'string' ? b.tree : null,
     resume: b.resume ?? null,
     commands: b.commands,
