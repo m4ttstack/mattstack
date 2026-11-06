@@ -462,7 +462,7 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
     say(quiet, out.line("running", "Running a follow-up step", step));
     const result = spawnSync(userShell, ["-lc", step], {
       cwd,
-      stdio: quiet ? "pipe" : "inherit",
+      stdio: quiet ? "pipe" : ["ignore", out.stdoutIsPayload() ? 2 : "inherit", "inherit"],
     });
     if (result.status !== 0) {
       failedStep = { step, status: result.status, signal: result.signal };

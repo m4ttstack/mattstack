@@ -11,6 +11,7 @@ GlobalRegistrator.register({ url: 'http://localhost/' });
 class FakeEventSource {
   onmessage: ((ev: MessageEvent) => void) | null = null;
   close(): void {}
+  addEventListener(): void {}
 }
 (globalThis as unknown as { EventSource: unknown }).EventSource =
   FakeEventSource;

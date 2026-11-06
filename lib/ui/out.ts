@@ -122,6 +122,11 @@ export function payloadOnStdout(): void {
   humanStream = "stderr";
 }
 
+/** Whether stdout carries a payload, so nothing else may write there. */
+export function stdoutIsPayload(): boolean {
+  return humanStream === "stderr";
+}
+
 /** Stdout is held for a path payload; picker chrome must reach stderr. */
 export function holdStdout(): () => void {
   payloadOnStdout();

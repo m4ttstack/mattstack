@@ -28,10 +28,12 @@ export function syncChildEnv(base: Record<string, string | undefined>, cwd: stri
 
 export type GitRunner = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 
-export const realGitRunner: GitRunner = async (args, cwd) => {
-  const r = await runCapture(["git", ...args], { cwd, stderr: "pipe", timeoutMs: 120_000, env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(cwd) }) });
+export const gitRunnerWith = (extra: Record<string, string>): GitRunner => async (args, cwd) => {
+  const r = await runCapture(["git", ...args], { cwd, stderr: "pipe", timeoutMs: 120_000, env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(cwd), ...extra }) });
   return { code: r.exitCode, stdout: r.stdout, stderr: r.stderr };
 };
+
+export const realGitRunner: GitRunner = gitRunnerWith({});
 
 const PROTECTED = new Set(["main", "master"]);
 const DETACHED = "refusing to push a detached HEAD";
@@ -51,8 +53,13 @@ export async function currentBranch(cwd: string, git: GitRunner): Promise<string
 
 // git follows a push rejection with several `hint:` lines, which would push
 // the `! [rejected]` line out of a plain last-3-lines tail.
+// Under `rt sync --progress` the step lines sit above the failure, which
+// then opens with its tag, so the tail starts there.
+const FAILURE_TAG = /^\[(failed|refused)\]/;
 function detail(r: { stderr: string; stdout: string }): string {
-  return (r.stderr.trim() || r.stdout.trim()).split("\n").filter((l) => !l.startsWith("hint:")).slice(-3).join(" ");
+  const lines = (r.stderr.trim() || r.stdout.trim()).split("\n").filter((l) => !l.startsWith("hint:"));
+  const opens = lines.findLastIndex((l) => FAILURE_TAG.test(l));
+  return (opens >= 0 ? lines.slice(opens) : lines).slice(-3).join(" ").replace(FAILURE_TAG, "").trim();
 }
 
 /** The branch a tool may push from: never detached, never main/master or the
@@ -372,11 +379,15 @@ async function localIsNewerRewrite(cwd: string, git: GitRunner, remoteRef: strin
 
 const SYNC_TIMEOUT_MS = 300_000;
 
-export const realSyncRunner = async (cwd: string): Promise<{ code: number; stdout: string; stderr: string }> => {
+/** With `onLine`, rt sync also prints each step on stderr and every stderr line reaches it as it arrives. */
+export const syncRunnerWith = (extra: Record<string, string>, onLine?: (line: string) => void) => async (cwd: string): Promise<{ code: number; stdout: string; stderr: string }> => {
   const [exe, ...rest] = rtSelfArgv();
-  const r = await runCapture([exe!, ...rest, "sync", "--json", "--no-agent"], { cwd, stderr: "pipe", timeoutMs: SYNC_TIMEOUT_MS, env: syncChildEnv(childEnv(), cwd) });
+  const argv = [exe!, ...rest, "sync", "--json", "--no-agent", ...(onLine ? ["--progress"] : [])] as [string, ...string[]];
+  const r = await runCapture(argv, { cwd, stderr: "pipe", timeoutMs: SYNC_TIMEOUT_MS, env: { ...syncChildEnv(childEnv(), cwd), ...extra }, onStderrLine: onLine });
   return { code: r.timedOut ? 124 : r.exitCode, stdout: r.stdout, stderr: r.stderr };
 };
+
+export const realSyncRunner = syncRunnerWith({});
 
 export type BranchSyncKind = "synced" | "up-to-date" | "dirty-tree" | "conflict" | "stacked-refused" | "stack-unverified" | "push-refused" | "error";
 

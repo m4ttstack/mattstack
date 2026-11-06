@@ -795,6 +795,116 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A word that opens the local sync's output keeps the word's own look. */
+.tui-status-word-log {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tui-status-word-log:hover,
+.tui-status-word-log[data-open] {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.tui-status-word-caret {
+  display: inline-flex;
+  opacity: 0.7;
+  transition: transform 160ms ease;
+}
+.tui-status-word-log[data-open] .tui-status-word-caret {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tui-status-word-caret {
+    transition: none;
+  }
+}
+.tui-synclog {
+  width: 460px;
+  max-width: calc(100vw - 24px);
+  padding: 0;
+}
+.tui-synclog-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-px8);
+  padding: var(--spacing-px6) var(--spacing-px10);
+  border-bottom: 1px solid var(--border-soft);
+  font: var(--font-size-px11) / 1.4 var(--font-mono);
+}
+.tui-synclog-cmd {
+  color: var(--text-1);
+  font-weight: 600;
+}
+.tui-synclog-branch {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+}
+.tui-synclog-body {
+  max-height: 280px;
+  overflow-y: auto;
+  padding: var(--spacing-px8) var(--spacing-px10);
+  font: var(--font-size-px12) / 1.6 var(--font-mono);
+  color: var(--text-1);
+}
+.tui-synclog-line {
+  display: grid;
+  grid-template-columns: 1.4ch auto 1fr;
+  column-gap: 1ch;
+  align-items: baseline;
+}
+.tui-synclog-line[data-status='text'] {
+  padding-left: 2.4ch;
+  grid-template-columns: 1fr;
+  color: var(--text-2);
+}
+.tui-synclog-line[data-status='text'] .tui-synclog-glyph {
+  display: none;
+}
+.tui-synclog-title {
+  overflow-wrap: anywhere;
+}
+.tui-synclog-hint {
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+.tui-synclog-glyph {
+  color: var(--text-3);
+}
+.tui-synclog-line[data-status='done'] .tui-synclog-glyph,
+.tui-synclog-line[data-status='running'] .tui-synclog-glyph {
+  color: var(--text-ok-small);
+}
+.tui-synclog-line[data-status='needs-you'] .tui-synclog-glyph,
+.tui-synclog-line[data-status='warn'] .tui-synclog-glyph,
+.tui-synclog-line[data-status='stale'] .tui-synclog-glyph {
+  color: var(--text-warn-small);
+}
+.tui-synclog-line[data-status='failed'] .tui-synclog-glyph {
+  color: var(--text-bad-small);
+}
+.tui-synclog-line[data-status='running']:not([data-past]) .tui-synclog-glyph {
+  animation: tui-synclog-pulse 1.2s ease-in-out infinite;
+}
+@keyframes tui-synclog-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tui-synclog-line[data-status='running']:not([data-past]) .tui-synclog-glyph {
+    animation: none;
+  }
+}
 .tui-status[data-tone='bad'] .tui-status-word {
   color: var(--text-bad);
 }

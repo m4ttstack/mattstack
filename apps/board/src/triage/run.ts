@@ -1,6 +1,7 @@
 import type { RunSummary } from '@mattstack/rt-client';
 import type { AgentLaunchResult } from '../agent-launch.ts';
 import {
+  NO_SYNC_CARRY,
   STAND_DOWN_PANE_MESSAGE,
   type DoctorState,
   type DoctorStatus,
@@ -595,6 +596,7 @@ export async function runTriage(
         fixClasses,
         boardTabId: '',
         noPack: !deps.pack,
+        ...NO_SYNC_CARRY,
       });
       const launchResult = await deps.launchDoctor({
         mrUrl: edge.mrUrl,
