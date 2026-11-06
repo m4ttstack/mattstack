@@ -25,7 +25,7 @@
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
 import { repairGitqBoard } from "../gitq-board-repair.ts";
-import { promoteStagedRepoRoot } from "../repo-root.ts";
+import { adoptSuggestedRepoRoot, promoteStagedRepoRoot } from "../repo-root.ts";
 import { isSetupFinished, readSetupState } from "../state.ts";
 import { resolveWritingStyle, WRITING_STYLE_KEY } from "../../skills/writing-style.ts";
 import type { ApplyContext } from "../apply.ts";
@@ -38,6 +38,15 @@ export function isTransientAppRoot(root: string): boolean {
 }
 
 const NEW_MAC_WRITING_STYLE = "mattstack:writing-style-sparse";
+
+/** `rt.repoRoots` as stored, or null when it will not resolve, unlike configuredRepoRoots, which reads that as empty. */
+function readableRepoRoots(): string[] | null {
+  try {
+    return getSetting<string[]>("rt.repoRoots").value ?? [];
+  } catch {
+    return null;
+  }
+}
 
 function seedsWritingStyle(ctx: ApplyContext): boolean {
   return !ctx.update && !isSetupFinished(readSetupState(ctx.p)) && resolveWritingStyle().source === "fallback";
@@ -64,6 +73,12 @@ async function settingsSeedRun(ctx: ApplyContext): Promise<StepOutcome> {
   }
 
   if (promoteStagedRepoRoot(ctx.p)) written.push("rt.repoRoots");
+  // A setup run only: an update never picks a folder for a Mac that finished without one.
+  else if (!ctx.update && ctx.intent?.mode === "solo") {
+    // A value that will not resolve (an authored ${repoRoot}) is still the user's, so only a readable empty list adopts.
+    const configured = readableRepoRoots();
+    if (configured !== null && adoptSuggestedRepoRoot(ctx.p, configured)) written.push("rt.repoRoots");
+  }
 
   const repair = repairGitqBoard();
   if (repair.state === "failed") throw repair.error;

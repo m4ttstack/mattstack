@@ -6,6 +6,7 @@ import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
 import { fakeProbes } from "./fakes.ts";
 import {
+  adoptSuggestedRepoRoot,
   checkRepoRoot,
   clearStagedRepoRoot,
   detectCandidate,
@@ -163,5 +164,46 @@ describe("promoteStagedRepoRoot", () => {
   test("nothing staged returns false", () => {
     const fp = fakeProbes({ home, dirs: { [gitDir()]: [] } });
     expect(promoteStagedRepoRoot(fp)).toBe(false);
+  });
+});
+
+describe("adoptSuggestedRepoRoot", () => {
+  const origHome = process.env.HOME;
+  let home: string;
+  const gitDir = () => join(home, ".mattstack", "user", ".git");
+  const found = () => join(home, "Documents", "GitHub");
+
+  beforeEach(() => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), "rt-repo-root-adopt-")));
+    process.env.HOME = home;
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  test("records the found folder when nothing is set or staged", () => {
+    const fp = fakeProbes({ home, dirs: { [gitDir()]: [], [found()]: [] } });
+    expect(adoptSuggestedRepoRoot(fp, [])).toBe(true);
+    expect(getSetting<string[]>("rt.repoRoots").value).toEqual([found()]);
+  });
+
+  test("leaves a configured root alone", () => {
+    const fp = fakeProbes({ home, dirs: { [gitDir()]: [], [found()]: [] } });
+    expect(adoptSuggestedRepoRoot(fp, [join(home, "code")])).toBe(false);
+    expect(getSetting<string[]>("rt.repoRoots").value).toEqual([]);
+  });
+
+  test("a staged pick wins over the suggestion", () => {
+    const fp = fakeProbes({ home, dirs: { [gitDir()]: [], [found()]: [] } });
+    stageRepoRoot(fp, join(home, "dev"));
+    expect(adoptSuggestedRepoRoot(fp, [])).toBe(false);
+  });
+
+  test("no found folder, or no home repo yet, writes nothing", () => {
+    expect(adoptSuggestedRepoRoot(fakeProbes({ home, dirs: { [gitDir()]: [] } }), [])).toBe(false);
+    expect(adoptSuggestedRepoRoot(fakeProbes({ home, dirs: { [found()]: [] } }), [])).toBe(false);
+    expect(getSetting<string[]>("rt.repoRoots").value).toEqual([]);
   });
 });

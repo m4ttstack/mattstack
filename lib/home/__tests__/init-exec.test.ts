@@ -92,6 +92,31 @@ describe("executeInitPlan", () => {
     expect(seam.calls).toEqual([{ kind: "run", cmd: ["git", "clone", "--", REPO_URL, "user"], cwd: undefined }]);
   });
 
+  test("initUserRepo: plain git init, then HEAD onto main, so git older than 2.28 works", async () => {
+    const seam = new FakeExecSeam();
+    const steps: InitStep[] = [{ kind: "initUserRepo" }];
+
+    const result = await executeInitPlan(steps, seam, noopLog);
+
+    expect(result).toEqual({ ok: true });
+    expect(seam.calls).toEqual([
+      { kind: "run", cmd: ["git", "init", "user"], cwd: undefined },
+      { kind: "run", cmd: ["git", "-C", "user", "symbolic-ref", "HEAD", "refs/heads/main"], cwd: undefined },
+    ]);
+  });
+
+  test("initUserRepo: a failed HEAD update removes the half-made repo, so a retry runs init again", async () => {
+    const seam = new FakeExecSeam({ failRun: (cmd) => (cmd.includes("symbolic-ref") ? "fatal: cannot lock ref" : undefined) });
+    const result = await executeInitPlan([{ kind: "initUserRepo" }], seam, noopLog);
+
+    expect(result.ok).toBe(false);
+    expect(seam.calls.filter((c) => c.kind === "run").map((c) => (c as { cmd: string[] }).cmd)).toEqual([
+      ["git", "init", "user"],
+      ["git", "-C", "user", "symbolic-ref", "HEAD", "refs/heads/main"],
+      ["rm", "-rf", "user/.git"],
+    ]);
+  });
+
   test("cloneUserRepo: a failing clone aborts and reports it", async () => {
     const seam = new FakeExecSeam({ failRun: () => "fatal: could not read from remote repository" });
     const steps: InitStep[] = [{ kind: "cloneUserRepo", url: REPO_URL }];

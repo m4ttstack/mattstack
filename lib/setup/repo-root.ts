@@ -1,6 +1,7 @@
 /**
- * Where the user's repos go. rt validates a path the user picked; it never
- * picks one.
+ * Where the user's repos go. rt validates a path the user picked. On Just me,
+ * the folder rt suggests shows as the answer until the user picks another, and
+ * the run records it only if they leave it.
  *
  * The chosen path is staged under the runtime dir rather than written to the
  * machine store, because that store lives inside the home repo and creating it
@@ -84,6 +85,17 @@ export function clearStagedRepoRoot(p: Probes): void {
  * writing it before the clone exists makes that clone fail on a non-empty
  * target. Every writer of rt.repoRoots goes through this guard or the verb's.
  */
+/** Records the suggested folder on a Just me run that never picked or set one, behind the same home-repo guard. */
+export function adoptSuggestedRepoRoot(p: Probes, configured: readonly string[]): boolean {
+  if (configured.length > 0 || readStagedRepoRoot(p) !== null) return false;
+  const candidate = detectCandidate(p);
+  if (candidate === null || !p.exists(homeGitDir(p.home))) return false;
+  const check = checkRepoRoot(p, candidate);
+  if (!check.ok) return false;
+  setSetting("rt.repoRoots", [check.path], "machine");
+  return true;
+}
+
 export function promoteStagedRepoRoot(p: Probes): boolean {
   const staged = readStagedRepoRoot(p);
   if (staged === null) return false;

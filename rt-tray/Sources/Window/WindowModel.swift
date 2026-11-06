@@ -217,6 +217,12 @@ final class WindowModel: ObservableObject {
     /// A settled catalog is never refetched by the poller, so a change deck
     /// made on request (an app turned on or off) has to unsettle it.
     func invalidateCatalog() async {
+        // A fetch already in flight may have started before the change, so it can't stand in for a fresh one.
+        if let inFlight = catalogRefreshTask {
+            await inFlight.value
+            // Its owner clears it on its own resume, which may come after this one.
+            if catalogRefreshTask == inFlight { catalogRefreshTask = nil }
+        }
         catalogSettledPid = nil
         await refreshCatalogFromDeck()
     }
@@ -306,10 +312,12 @@ final class WindowModel: ObservableObject {
     /// until the deck wait gives up and the splash says why. It plays once
     /// per process; re-showing a window whose wait gave up starts the wait
     /// again instead of replaying it.
-    func presentSplashIfNeeded() {
+    /// True when this call started the first splash, whose deck wait loads a fresh catalog itself.
+    @discardableResult
+    func presentSplashIfNeeded() -> Bool {
         guard !Self.hasShownSplash else {
             if case .unreachable = deckWait { retryDeckWait() }
-            return
+            return false
         }
         Self.hasShownSplash = true
         splashVisible = true
@@ -321,6 +329,7 @@ final class WindowModel: ObservableObject {
             self?.dismissSplashIfReady()
         }
         startDeckWait()
+        return true
     }
 
     func retryDeckWait() {

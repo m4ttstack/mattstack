@@ -111,7 +111,8 @@ beforeAll(async () => {
   setSystemTime(NOW);
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input.toString();
-    if (init?.method === 'POST') posts.push(url);
+    // The flock menu warm-up posts in the background for every own MR; these tests count posts a person's click sends.
+    if (init?.method === 'POST' && url !== '/flock/menu') posts.push(url);
     if (url.startsWith('/data.json')) {
       dataLoads += 1;
       return new Response(JSON.stringify(servedData), { status: 200 });

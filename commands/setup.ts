@@ -72,7 +72,7 @@ import { usageFailure } from "../lib/ui/usage.ts";
 import { readStagedSecret, stageSecret } from "../lib/setup/staging.ts";
 import { markSetupFinished } from "../lib/setup/state.ts";
 import { discoverOrgs, readTeamSnapshot, readUserIntegrationOverrides, type TeamIntegrations, type TeamSnapshot, type UserIntegrationOverrides } from "../lib/setup/team-settings.ts";
-import type { Plan } from "../lib/setup/contract.ts";
+import type { Plan, Row } from "../lib/setup/contract.ts";
 import { createRelayClient, type RelayClient } from "../lib/team/relay-client.ts";
 import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
 import type { SecretPresence } from "../lib/setup/validators/accounts.ts";
@@ -167,7 +167,7 @@ export interface ApplyDeps {
   /** Overrides the real 22-step registry — the seam every apply test drives instead. */
   steps?: StepDef[];
   /** Overrides the plan `setupApply` composes for its hard-precondition gate — tests stub `{requiredMissing: []}` instead of driving all validators through fake probes. */
-  planForGate?: () => Promise<{ requiredMissing: string[] }>;
+  planForGate?: () => Promise<{ requiredMissing: string[]; groups?: { rows: Row[] }[] }>;
   /** Overrides the plan a finished full run reads its finish blockers from. */
   planForFinish?: () => Promise<{ finishBlockedBy: string[] }>;
   needOpts?: CreateApplyContextDeps["needOpts"];
@@ -354,12 +354,18 @@ const HARD_PRECONDITION_COPY: Record<string, { why: string; next?: string }> = {
 
 async function gateHardPreconditions(args: string[], deps: ApplyDeps): Promise<void> {
   if (args.includes("--force")) return;
-  const plan = await (deps.planForGate?.() ??
+  const plan: { requiredMissing: string[]; groups?: { rows: Row[] }[] } = await (deps.planForGate?.() ??
     composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", orgs: listOrgs() }));
   const hard = plan.requiredMissing.filter((id) => HARD_PRECONDITION_IDS.has(id));
   if (hard.length === 0) return;
   // A hard id with no copy entry still names itself, so the person is never told nothing.
-  const copy = hard.map((id): { why: string; next?: string } => HARD_PRECONDITION_COPY[id] ?? { why: `${id} is not ready` });
+  const rows = new Map((plan.groups ?? []).flatMap((g) => g.rows).map((r) => [r.id, r]));
+  const copy = hard.map((id): { why: string; next?: string } => {
+    const fixed = HARD_PRECONDITION_COPY[id] ?? { why: `${id} is not ready` };
+    // Installed but too old reads invalid, and only the row's detail says which.
+    const row = rows.get(id);
+    return row?.status === "invalid" && row.detail ? { ...fixed, why: row.detail } : fixed;
+  });
   const why = copy.map((c) => c.why).join(". ");
   const next = copy.length === 1 ? copy[0]!.next : undefined;
   throw new UserActionableError("not-ready", `${NOT_READY_TITLE}: ${why}`, {}, { why, ...(next ? { next } : {}) });

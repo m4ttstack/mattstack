@@ -70,6 +70,14 @@ describe("runPrepare", () => {
     expect(again).toEqual([]);
   });
 
+  test("macos also updates Command Line Tools whose git is older than the floor", async () => {
+    const base = machine();
+    const oldGit = fakeProbes({ home: HOME, exec: (argv, o) => (argv[0] === "git" && argv[1] === "--version" ? { code: 0, stdout: "git version 2.24.3 (Apple Git-128)\n", stderr: "" } : base(argv, o)) });
+    const seen: string[] = [];
+    expect(await runPrepare(oldGit, "macos", { reqs, install: fakeInstall(seen), alive, pid: OWN_PID })).toEqual({ stage: "macos", installed: ["apple-clt"], failed: [] });
+    expect(seen).toEqual(["apple-clt"]);
+  });
+
   test("accounts installs Claude Code, herdr, then the team tools rt can install", async () => {
     const seen: string[] = [];
     const p = fakeProbes({ home: HOME, exec: machine() });

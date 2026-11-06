@@ -601,14 +601,14 @@ test("the create scenario makes the team, connects the owner's accounts, and run
   expect(done.sections.connect!.find((r) => r.id === "forge")!.detail).toBe("Connected");
 }, 20000);
 
-test("the solo scenario connects nothing it need not and picks where clones go", async () => {
+test("the solo scenario connects nothing it need not and keeps the found folder for clones", async () => {
   const { dir, stages } = await walk("solo", async (dir) => {
     expect((await run("solo", ["setup", "intent", "solo", "--json"], "", dir)).code).toBe(0);
   });
   expect(stages).toEqual(["macos", "path", "connect", "this-mac", "ready"]);
   const done = await form(dir, undefined, "solo");
   expect(done.home).toEqual({ label: "Open the console", url: "https://console.mattstack" });
-  expect(done.sections.thisMac!.find((r) => r.id === "repos.root")).toMatchObject({ state: "done", detail: "/Users/janedoe/code" });
+  expect(done.sections.thisMac!.find((r) => r.id === "repos.root")).toMatchObject({ state: "done", detail: "/Users/janedoe/Documents/GitHub" });
 }, 20000);
 
 test("the restore scenario runs straight after the restore", async () => {

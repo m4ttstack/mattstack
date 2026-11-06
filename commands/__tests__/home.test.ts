@@ -440,7 +440,8 @@ describe("homeInit", () => {
     );
 
     const runCalls = seam.calls.filter((c) => c.kind === "run").map((c) => c.arg as string[]);
-    expect(runCalls).toContainEqual(["git", "init", "-b", "main", "user"]);
+    expect(runCalls).toContainEqual(["git", "init", "user"]);
+    expect(runCalls).toContainEqual(["git", "-C", "user", "symbolic-ref", "HEAD", "refs/heads/main"]);
     expect(runCalls).toContainEqual(["git", "-C", "user", "add", "-A"]);
     expect(runCalls).toContainEqual(["git", "-c", "commit.gpgsign=false", "-C", "user", "commit", "-m", "initial home repo"]);
     expect(runCalls.some((arg) => arg[1] === "clone")).toBe(false);
