@@ -168,6 +168,7 @@ import {
 import { slackPosts } from './slack-posts.ts';
 import { SlackPostsModal } from './SlackPostsModal.tsx';
 import { useStaleTabTitle } from './stale-tab-title.ts';
+import { startSyncLines } from './sync-lines.ts';
 import { TabBar } from './TabBar.tsx';
 import { turnSummary } from './turn-summary.ts';
 import { TurnSummary } from './TurnSummary.tsx';
@@ -623,8 +624,12 @@ export function Board() {
     startToast,
     reload: load,
   });
-  // The server answers once rt sync has finished, so both toasts say how it
-  // went; a conflict answers like any doctor launch.
+  // The sync's own output, on the row's word, says how it went; only a
+  // request the server refuses outright still toasts.
+  const failuresOnlyToast = useCallback(
+    () => ({ done: () => {}, fail: addToast }),
+    [addToast]
+  );
   const rebaseLocalAction = useLaunchAction({
     axis: 'doctor',
     path: '/doctor',
@@ -634,10 +639,8 @@ export function Board() {
     claims: 'syncing',
     optimistic: optimisticLifecycle,
     addToast,
-    startToast,
+    startToast: failuresOnlyToast,
     reload: load,
-    doneMessage: (result, mr) =>
-      result.body?.synced ? `${result.body.synced}: ${mrRef(mr)}` : undefined,
     failureMessage: (result, mr) =>
       `couldn't sync ${mrRef(mr)}${result.text ? `: ${result.text}` : ` (${result.status})`}`,
   });
@@ -717,6 +720,7 @@ export function Board() {
         case 'rebase-local':
           // rt sync first; on a conflict the doctor chassis, scoped to the
           // paused rebase.
+          if (mr.webUrl && !quiet) startSyncLines(mr.webUrl);
           return rebaseLocalAction(
             mr,
             { mode: 'rebase', tabId: state.tab },

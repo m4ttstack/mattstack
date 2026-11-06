@@ -21,6 +21,7 @@ class FakeEventSource {
     FakeEventSource.last = this;
   }
   close(): void {}
+  addEventListener(): void {}
 }
 (globalThis as unknown as { EventSource: unknown }).EventSource =
   FakeEventSource;

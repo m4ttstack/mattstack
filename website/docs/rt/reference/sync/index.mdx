@@ -23,6 +23,7 @@ rt sync [flags]
 | [`--json`](/rt/guides/common-flags) | boolean | `false` | On conflict, emit a JSON conflict bundle and exit 3 instead of prompting; on a stack member, or when the stack check cannot run, emit a JSON refusal and exit 4 before touching anything |
 | [`--agent`](/rt/guides/common-flags) | boolean | `false` | On conflict, skip the prompt and hand off straight to a Claude agent in herdr (requires a TTY) |
 | [`--no-agent`](/rt/guides/common-flags) | boolean | `false` | On conflict, never offer agent escalation; abort instead |
+| `--progress` | boolean | `false` | With --json, still print each step on stderr as it happens |
 
 ## Subcommands
 

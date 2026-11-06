@@ -1020,6 +1020,7 @@ export const TREE: Record<string, CommandNode> = {
       { name: "JSON output", flag: "--json", type: "boolean", default: false, hint: "On conflict, emit a JSON conflict bundle and exit 3 instead of prompting; on a stack member, or when the stack check cannot run, emit a JSON refusal and exit 4 before touching anything" },
       { name: "Agent", flag: "--agent", type: "boolean", default: false, hint: "On conflict, skip the prompt and hand off straight to a Claude agent in herdr (requires a TTY)" },
       { name: "No agent", flag: "--no-agent", type: "boolean", default: false, hint: "On conflict, never offer agent escalation; abort instead" },
+      { name: "Progress", flag: "--progress", type: "boolean", default: false, hint: "With --json, still print each step on stderr as it happens" },
     ],
     subcommands: {
       all: {
@@ -1287,6 +1288,9 @@ export const TREE: Record<string, CommandNode> = {
         module: "./commands/worktree-branch-sync.ts",
         fn: "branchSyncCommand",
         hidden: true,
+        args: [
+          { name: "Progress", flag: "--progress", type: "boolean", default: false, hint: "Also print rt sync's steps on stderr as they happen" },
+        ],
       },
       "is-registered": {
         description: "Claude Code EnterWorktree permission check endpoint (exit 0 when the path is an rt worktree); never call directly",

@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { WorktreeSyncData } from '@mattstack/rt-client';
-import { localSyncOutcome, syncBranchLocally } from '../local-sync.ts';
+import {
+  LIVE_SYNC_LOGS,
+  localSyncOutcome,
+  startLiveSync,
+  syncBranchLocally,
+  takeSyncLine,
+} from '../local-sync.ts';
 
 const data = (over: Partial<WorktreeSyncData>): WorktreeSyncData => ({
   kind: 'synced',
@@ -11,6 +17,7 @@ const data = (over: Partial<WorktreeSyncData>): WorktreeSyncData => ({
   oldHead: 'a',
   newHead: 'b',
   refusal: null,
+  log: ['[ok] Fetched from origin'],
   ...over,
 });
 
@@ -19,6 +26,7 @@ describe('localSyncOutcome', () => {
     expect(localSyncOutcome(data({}))).toEqual({
       kind: 'clean',
       message: 'rebased and pushed',
+      log: ['[ok] Fetched from origin'],
     });
   });
 
@@ -26,6 +34,7 @@ describe('localSyncOutcome', () => {
     expect(localSyncOutcome(data({ pushed: false }))).toEqual({
       kind: 'stopped',
       message: 'rebased, not pushed',
+      log: ['[ok] Fetched from origin'],
     });
   });
 
@@ -37,6 +46,7 @@ describe('localSyncOutcome', () => {
     expect(localSyncOutcome(data({ kind: 'conflict' }))).toEqual({
       kind: 'conflict',
       tree: '/trees/elrond',
+      log: ['[ok] Fetched from origin'],
     });
   });
 
@@ -46,7 +56,6 @@ describe('localSyncOutcome', () => {
     'stack-unverified',
     'push-refused',
     'error',
-    'tree-busy',
     'no-tree',
   ] as const)('%s stops with the refusal', kind => {
     const out = localSyncOutcome(data({ kind, refusal: 'because' }));
@@ -57,13 +66,57 @@ describe('localSyncOutcome', () => {
 
 describe('syncBranchLocally', () => {
   test('a daemon failure stops with the error', async () => {
-    const out = await syncBranchLocally('r', 'feat', (async () => ({
+    const out = await syncBranchLocally('r', 'feat', undefined, (async () => ({
       ok: false,
       error: 'daemon down',
     })) as never);
     expect(out).toEqual({
       kind: 'stopped',
       message: 'rt sync failed: daemon down',
+      log: [],
     });
+  });
+});
+
+test('a paused tree rides along as the tree to sync in', async () => {
+  let payload: unknown;
+  await syncBranchLocally('r', 'feat', '/trees/paused', (async (
+    _verb: string,
+    p: unknown
+  ) => {
+    payload = p;
+    return { ok: false, error: 'x' };
+  }) as never);
+  expect(payload).toEqual({
+    repoName: 'r',
+    branch: 'feat',
+    tree: '/trees/paused',
+  });
+});
+
+describe('live sync lines', () => {
+  test('files a line under the MR whose sync is running, and nothing after it ends', () => {
+    const end = startLiveSync('mr-1', 'r', 'feat');
+    expect(
+      takeSyncLine({
+        repoName: 'r',
+        branch: 'feat',
+        line: '[ok] Fetched from origin',
+      })
+    ).toEqual({ mrUrl: 'mr-1', line: '[ok] Fetched from origin' });
+    expect(
+      takeSyncLine({ repoName: 'r', branch: 'other', line: 'x' })
+    ).toBeNull();
+    expect(LIVE_SYNC_LOGS.get('mr-1')).toEqual(['[ok] Fetched from origin']);
+    end();
+    expect(
+      takeSyncLine({ repoName: 'r', branch: 'feat', line: 'late' })
+    ).toBeNull();
+    expect(LIVE_SYNC_LOGS.has('mr-1')).toBe(false);
+  });
+
+  test('ignores a frame that is not a sync line', () => {
+    expect(takeSyncLine(null)).toBeNull();
+    expect(takeSyncLine({ repoName: 1 })).toBeNull();
   });
 });

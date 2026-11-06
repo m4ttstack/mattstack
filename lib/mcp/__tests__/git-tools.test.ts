@@ -1224,6 +1224,11 @@ describe("branch_sync tool", () => {
     const r = await runSync(1, "", "Could not fetch from origin  fatal: unable to access\n");
     expect(r.body).toMatchObject({ kind: "error", pushed: false, refusal: "rt sync refused (exit 1): Could not fetch from origin  fatal: unable to access" });
   });
+  test("under --progress the error starts at the failure, not the step lines above it", async () => {
+    const steps = "[ok] Fetched from origin\n[running] Rebasing feat/x onto origin/main  3 commits behind\n";
+    const r = await runSync(1, "", steps + "[failed] The rebase stopped for a reason rt does not understand\n");
+    expect(r.body).toMatchObject({ kind: "error", refusal: "rt sync refused (exit 1): The rebase stopped for a reason rt does not understand" });
+  });
   test("rt sync that could not be started says so, and a timeout stays a timeout", async () => {
     expect((await runSync(-1, "")).body).toMatchObject({ kind: "error", refusal: "could not start rt sync" });
     expect((await runSync(124, "")).body).toMatchObject({ kind: "error", refusal: "rt sync timed out after 300s" });

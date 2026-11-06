@@ -168,3 +168,13 @@ describe("outputTail", () => {
     expect(MAX_LOGGED_OUTPUT).toBe(2000);
   });
 });
+
+describe("runCapture onStderrLine", () => {
+  test("hands each stderr line over and still captures the whole stream", async () => {
+    const lines: string[] = [];
+    const r = await runCapture(["/bin/sh", "-c", "printf 'one\\ntwo\\n' >&2; printf out; printf three >&2"], { onStderrLine: (l) => lines.push(l) });
+    expect(lines).toEqual(["one", "two", "three"]);
+    expect(r.stderr).toBe("one\ntwo\nthree");
+    expect(r.stdout).toBe("out");
+  });
+});

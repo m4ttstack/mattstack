@@ -100,6 +100,7 @@ const DOCTOR_LABEL: Record<DoctorStatus, string> = {
   done: 'diagnosed',
   error: 'doctor stuck',
   'sync-stopped': 'sync stopped',
+  synced: 'synced',
 };
 
 const DOCTOR_ACTIVE = new Set<DoctorStatus>([
@@ -465,7 +466,12 @@ function doctorItemLabel(
   interrupted?: boolean,
   tier?: 'api' | 'checkout'
 ): string {
-  if (!status || status === 'error')
+  if (
+    !status ||
+    status === 'error' ||
+    status === 'synced' ||
+    status === 'sync-stopped'
+  )
     return tier === 'api' ? 'call doctor (CI only)' : 'call doctor';
   if (status === 'done' || interrupted) return 'redo doctor';
   return 'focus doctor';

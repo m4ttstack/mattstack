@@ -545,7 +545,7 @@ export async function syncCommand(
   try {
     summary = await syncBranch(cwd, {
       dryRun,
-      quiet: mode === "json",
+      quiet: mode === "json" && !args.includes("--progress"),
       onConflict: mode === "off" ? "abort" : "pause",
       strictStackCheck: mode === "json",
     });
