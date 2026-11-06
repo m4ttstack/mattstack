@@ -1235,25 +1235,50 @@ describe("chat handle derivation — worktree fixtures", () => {
 describe("a caller rt has no name for", () => {
   const atRoot = () => spyOn(process, "cwd").mockReturnValue("/");
 
-  test("rooms is refused at / and never reaches the daemon", async () => {
+  test("rooms at / reads as no rooms, without asking the daemon for anyone's", async () => {
     const cwd = atRoot();
     try {
-      const { code, stdout, stderr } = await runChatRaw(["rooms", "--json"]);
-      expect(code).toBe(1);
-      expect(stdout).toBe("");
-      expect(stderr).toContain("rt chat has no name for you here");
-      expect(stderr).toContain("rt chat sign-in");
+      const json = await runChatRaw(["rooms", "--json"]);
+      expect(json).toMatchObject({ code: 0, stderr: "" });
+      expect(JSON.parse(json.stdout)).toEqual({ ok: true, rooms: [] });
+
+      const plain = await runChatRaw(["rooms"]);
+      expect(plain).toMatchObject({ code: 0, stdout: "(not a member of any room)", stderr: "" });
       expect(seen).toEqual([]);
     } finally {
       cwd.mockRestore();
     }
   });
 
-  test("a write is refused too, so no identity called x can appear", async () => {
+  test("who <room> at / lists the room's members", async () => {
+    await runChat(["join", "lobby", "--as", "scout"]);
     const cwd = atRoot();
     try {
-      const { code } = await runChatRaw(["join", "lobby"]);
-      expect(code).toBe(1);
+      seen = [];
+      const json = await runChatRaw(["who", "lobby", "--json"]);
+      expect(json.code).toBe(0);
+      expect(JSON.parse(json.stdout).rooms[0].members.map((m: { handle: string }) => m.handle)).toEqual(["scout"]);
+
+      const plain = await runChatRaw(["who", "lobby"]);
+      expect(plain.code).toBe(0);
+      expect(plain.stdout).toContain("#lobby");
+      expect(plain.stdout).toContain("scout");
+      expect(seen.map((s) => s.cmd)).toEqual(["chat:who", "chat:who"]);
+    } finally {
+      cwd.mockRestore();
+    }
+  });
+
+  test("a write is refused, so no identity called x can appear", async () => {
+    const cwd = atRoot();
+    try {
+      for (const argv of [["join", "lobby"], ["post", "lobby", "hello"], ["read", "lobby"]]) {
+        const { code, stdout, stderr } = await runChatRaw(argv);
+        expect(code).toBe(1);
+        expect(stdout).toBe("");
+        expect(stderr).toContain("rt chat has no name for you here");
+        expect(stderr).toContain("rt chat sign-in");
+      }
       expect(seen).toEqual([]);
     } finally {
       cwd.mockRestore();

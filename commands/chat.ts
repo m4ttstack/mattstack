@@ -238,10 +238,12 @@ export function unwrap<T>(res: RtResponse<T>, label: string): T {
 // herdr pane title (HERDR_PANE_ID) → <rt-repo-name>-<cwd-basename> → cwd
 // relative to $HOME → <user>-<host>. Position 0 wins over --as for every
 // verb but sign-in, which resolves its base handle through the --as-first
-// chain below BEFORE any session file exists — see resolveBaseHandle. A
+// chain below BEFORE any session file exists — see baseHandleOrNull. A
 // directory with no usable name (the filesystem root) ends the chain with a
 // refusal rather than falling on to <user>-<host>: chat has no anonymous
-// identity, and a shared stand-in name would read as one real agent.
+// identity, and a shared stand-in name would read as one real agent. The
+// read verbs (`rooms`, `who`) take no refusal there: they answer as for a
+// caller in no room (see readerHandle).
 //
 // Sign-in itself stops after --as and draws a first name from
 // lib/chat-names.ts instead (see resolveSignInRequest): the pane title
@@ -379,8 +381,8 @@ function refuseNoName(): never {
   );
 }
 
-/** The --as-first chain: what resolveHandle falls back to for an unsigned-in session. Sign-in never reads it; its request comes from resolveSignInRequest. */
-function resolveBaseHandle(args: string[]): string {
+/** The --as-first chain: what resolveHandle falls back to for an unsigned-in session, null where the folder gives no name. Sign-in never reads it; its request comes from resolveSignInRequest. */
+function baseHandleOrNull(args: string[]): string | null {
   const explicit = flagValue(args, "--as");
   if (explicit) {
     requireValidName("handle", explicit);
@@ -400,10 +402,10 @@ function resolveBaseHandle(args: string[]): string {
   if (cwd) {
     const fromRepo = repoDirHandle(cwd);
     if (fromRepo) return fromRepo;
-    return cwdRelativeHandle(cwd, process.env.HOME ?? homedir()) ?? refuseNoName();
+    return cwdRelativeHandle(cwd, process.env.HOME ?? homedir());
   }
 
-  return userHostHandle() ?? refuseNoName();
+  return userHostHandle();
 }
 
 export interface ChatIdentity {
@@ -447,19 +449,32 @@ export async function signedInIdentity(args: string[]): Promise<ChatIdentity | n
  * silently overridden: a second identity is exactly the desync the base
  * resolution order exists to prevent.
  */
-async function resolveIdentity(args: string[]): Promise<ChatIdentity> {
+async function identityOrNull(args: string[]): Promise<ChatIdentity | null> {
   const sessionId = currentSessionId(args);
   const signedIn = await signedInIdentity(args);
   if (signedIn) {
     if (flagValue(args, "--as") !== undefined) refuseSecondIdentity(signedIn.name);
     return signedIn;
   }
-  const handle = resolveBaseHandle(args);
-  return { handle, name: handle, sessionId };
+  const handle = baseHandleOrNull(args);
+  return handle ? { handle, name: handle, sessionId } : null;
+}
+
+async function resolveIdentity(args: string[]): Promise<ChatIdentity> {
+  return (await identityOrNull(args)) ?? refuseNoName();
 }
 
 async function resolveHandle(args: string[]): Promise<string> {
   return (await resolveIdentity(args)).handle;
+}
+
+/**
+ * resolveHandle for a verb that only reads. A caller with no name is a member
+ * of no room, so it gets an empty answer instead of a refusal: herdr-chat's
+ * peek runs this way under Flock, at / with no pane.
+ */
+async function readerHandle(args: string[]): Promise<string | null> {
+  return (await identityOrNull(args))?.handle ?? null;
 }
 
 function safeCwd(): string | undefined {
@@ -527,10 +542,10 @@ function roomHeading(r: RoomSummary): string {
  * Falls back to `#room` for any room `chat:rooms` doesn't return — the
  * daemon is unreachable, or `handle` isn't actually a member.
  */
-async function dmHeadingsFor(handle: string): Promise<(room: string) => string> {
-  const res = await chatRooms({ handle });
+async function dmHeadingsFor(handle: string | null): Promise<(room: string) => string> {
   const byRoom = new Map<string, string>();
-  if (res.ok && res.data) {
+  const res = handle ? await chatRooms({ handle }) : null;
+  if (res?.ok && res.data) {
     for (const r of res.data.rooms) byRoom.set(r.room, roomHeading(r));
   }
   return (room: string) => byRoom.get(room) ?? `#${room}`;
@@ -1056,11 +1071,10 @@ async function runRead(args: string[]): Promise<void> {
 }
 
 async function runRooms(args: string[]): Promise<void> {
-  const handle = await resolveHandle(args);
-  requireValidName("handle", handle);
+  const handle = await readerHandle(args);
+  if (handle) requireValidName("handle", handle);
 
-  const res = await chatRooms({ handle });
-  const data = unwrap(res, "rooms");
+  const data = handle ? unwrap(await chatRooms({ handle }), "rooms") : { rooms: [] };
 
   if (args.includes("--json")) {
     out.json({ ok: true, rooms: data.rooms });
@@ -1085,7 +1099,7 @@ async function runWho(args: string[]): Promise<void> {
     out.json({ ok: true, rooms: [{ room, members }] });
     return;
   }
-  const handle = await resolveHandle(args);
+  const handle = await readerHandle(args);
   const headingFor = await dmHeadingsFor(handle);
   const heading = headingFor(room);
   show(() => whoBlocks(heading, members), () => renderWhoSection(heading, members));
