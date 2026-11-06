@@ -23,7 +23,7 @@ HOST=$(scutil --get LocalHostName | tr '[:upper:]' '[:lower:]')
 [ "$(id -u)" != 0 ] || { echo "Run this as yourself, not root." >&2; exit 1; }
 [ -f scripts/ci/macos-runner.ts ] || { echo "Run this from the repo root." >&2; exit 1; }
 command -v gh >/dev/null || { echo "Install gh and run gh auth login first." >&2; exit 1; }
-gh auth status >/dev/null
+gh auth status --hostname github.com >/dev/null
 
 # The mattstack app ships a universal bun, for a Mac with none on PATH.
 BUN=$(command -v bun || echo /Applications/mattstack.app/Contents/Helpers/bun)
@@ -139,7 +139,10 @@ deregister() { # runner dir
   token=$(gh api -X POST "repos/$REPO/actions/runners/remove-token" --jq .token) || return 1
   sudo -u "$CI_USER" -H bash -c "cd '$dir' && ./config.sh remove --token '$token'" && return 0
   ids=$(gh api "repos/$REPO/actions/runners" --paginate --jq ".runners[] | select(.name == \"$name\") | .id") || return 1
-  [ -z "$ids" ] || { echo "Could not remove $name from GitHub; kept its files so a rerun can retry." >&2; return 1; }
+  [ -z "$ids" ] || {
+    echo "Could not remove $name from GitHub, so its files stay. If a rerun fails the same way, run: gh api -X DELETE repos/$REPO/actions/runners/$ids" >&2
+    return 1
+  }
 }
 
 # A rerun with a smaller count retires the runners above it.
@@ -148,8 +151,7 @@ for plist in /Library/LaunchDaemons/dev.mattstack.ci-runner-*.plist; do
   label=$(basename "$plist" .plist)
   i=${label##*-}
   [ "$i" -gt "$COUNT" ] || continue
-  name=mattstack-$HOST-$i
-  dir=$CI_HOME/$name
+  dir=$(plutil -extract WorkingDirectory raw "$plist")
   sudo launchctl bootout "system/$label" 2>/dev/null || true
   for _ in $(seq 1 30); do
     launchctl print "system/$label" >/dev/null 2>&1 || break

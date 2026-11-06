@@ -11,7 +11,7 @@ HOOK_DIR=/usr/local/mattstack-ci
 
 [ "$(id -u)" != 0 ] || { echo "Run this as yourself, not root." >&2; exit 1; }
 command -v gh >/dev/null || { echo "Install gh and run gh auth login first." >&2; exit 1; }
-gh auth status >/dev/null
+gh auth status --hostname github.com >/dev/null
 sudo -v
 
 # config.sh remove fails both when GitHub already dropped the runner and when
@@ -23,7 +23,10 @@ deregister() { # runner dir
   token=$(gh api -X POST "repos/$REPO/actions/runners/remove-token" --jq .token) || return 1
   sudo -u "$CI_USER" -H bash -c "cd '$dir' && ./config.sh remove --token '$token'" && return 0
   ids=$(gh api "repos/$REPO/actions/runners" --paginate --jq ".runners[] | select(.name == \"$name\") | .id") || return 1
-  [ -z "$ids" ] || { echo "Could not remove $name from GitHub; kept its files so a rerun can retry." >&2; return 1; }
+  [ -z "$ids" ] || {
+    echo "Could not remove $name from GitHub, so its files stay. If a rerun fails the same way, run: gh api -X DELETE repos/$REPO/actions/runners/$ids" >&2
+    return 1
+  }
 }
 
 for plist in /Library/LaunchDaemons/dev.mattstack.ci-runner-*.plist; do
