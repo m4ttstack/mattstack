@@ -616,6 +616,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
    * settles, which is the next moment the hook can run without delaying it.
    */
   let pendingConverge: "fast-forwarded" | "rebased" | null = null;
+  /** Set when a pull clears a conflict: a reset to origin moves the clone outside any pull, so that pull reads up-to-date and would skip the converge. */
+  let convergeOwed = false;
 
   let lastPullAt = 0;
   let lastPullError: string | null = null;
@@ -957,8 +959,10 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       await withGitLock(() => runMoveHook(dataBranch));
     }
     const moved = result.outcome === "fast-forwarded" || result.outcome === "rebased";
-    if (moved && spec.pull.onPulled) {
-      const outcome = result.outcome as "fast-forwarded" | "rebased";
+    const owed = convergeOwed && result.outcome !== "skipped";
+    if (owed) convergeOwed = false;
+    if ((moved || owed) && spec.pull.onPulled) {
+      const outcome = moved ? (result.outcome as "fast-forwarded" | "rebased") : "fast-forwarded";
       if (opts.converge === false) {
         pendingConverge = outcome;
       } else {
@@ -1093,7 +1097,10 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     // its own does NOT get there: it leaves the replayed commits ahead, and
     // the daemon's push stays suspended meanwhile, so the recovery is
     // `rt team publish` after the rebase, or resetting the clone to origin.
-    if (conflicted && ahead === 0) clearConflict();
+    if (conflicted && ahead === 0) {
+      clearConflict();
+      convergeOwed = true;
+    }
     if (conflicted) return { outcome: "skipped", detail: conflicted.detail };
     // Asked even with nothing to pull: a clone already sitting on main's pointer (a hand pull, an older rt) is moved only from here.
     if (spec.pull?.gate) {
@@ -1163,7 +1170,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     if (pushRetryTimer) { deps.clearTimeout(pushRetryTimer); pushRetryTimer = null; }
     // A pull-only clone cannot publish, so the remedy told to it must not name a verb it will
     // itself refuse (team-pull-only) the moment it is tried.
-    const remedy = spec.pullOnly ? "reset it to origin or ask an org admin" : "rebase and `rt team publish` by hand, or reset the clone to origin";
+    const remedy = spec.pullOnly ? "reset it to origin or ask an org admin" : "reset the clone to origin, or rebase your own team edit and run `rt team publish`";
     deps.log.warn({ id: spec.id, detail }, `${label}: rebase conflict; still fetching, but not applying pulls or pushing until you ${remedy}`);
     deps.broadcast(`${spec.eventPrefix}:conflict`, { id: spec.id, detail });
     return { outcome: "conflict", detail };

@@ -1282,6 +1282,41 @@ describe("teamSyncRow", () => {
     expect(r?.detail).toContain("rebase");
   });
 
+  test("a held pack on one clone keeps another clone's conflict steps", async () => {
+    const r = await teamSyncRow(
+      ["acme", "beta"],
+      async () => [
+        { slug: "acme", lastPullAt: 900_000, lastPushError: null, conflicted: null, heldBack: ["marketplace.json"] } as never,
+        { slug: "beta", repoDir: "/orgs/beta", lastPullAt: 900_000, lastPushError: null, conflicted: { at: 1, detail: "CONFLICT x" } } as never,
+      ],
+      now,
+      300,
+    );
+    const steps = r?.action?.type === "steps" ? r.action.steps : [];
+    expect(steps).toContain("Run: rt team publish --team acme");
+    expect(steps).toContain("The beta clone is at /orgs/beta");
+  });
+
+  test("a pushing clone in conflict leads with reset and pull, and offers publish only for the member's own edit", async () => {
+    const r = await teamSyncRow(
+      ["acme"],
+      async () => [{ slug: "acme", repoDir: "/orgs/acme", lastPullAt: 900_000, lastPushError: null, conflicted: { at: 1, detail: "CONFLICT settings.team.jsonc" } } as never],
+      now,
+      300,
+    );
+    expect(r?.detail).not.toContain("rebase it and run rt team publish");
+    expect(r?.detail).toContain("reset it to origin unless the commit ahead of origin is a team edit you meant to share");
+    expect(r?.action).toEqual({
+      type: "steps",
+      label: "Show steps…",
+      steps: [
+        "The acme clone is at /orgs/acme",
+        "If the commit ahead of origin is not a team edit you meant to share, reset the clone to origin, then run: rt team pull --team acme",
+        "If it is your edit, rebase it onto origin, then run: rt team publish --team acme",
+      ],
+    });
+  });
+
   test("a pull-only clone in conflict is told to reset or ask the owner, never to run rt team publish (it would refuse)", async () => {
     const r = await teamSyncRow(
       ["acme"],

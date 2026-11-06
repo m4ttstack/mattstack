@@ -638,6 +638,7 @@ export async function teamSyncRow(
   const staleMs = clampPullIntervalSec(pullIntervalSec) * 2 * 1000;
   const problems: string[] = [];
   const neverPulled: string[] = [];
+  const conflictSteps: string[] = [];
   for (const slug of slugs) {
     const e = entries.find((x) => x.slug === slug);
     if (!e) {
@@ -653,11 +654,20 @@ export async function teamSyncRow(
       continue;
     }
     if (e.conflicted) {
-      // A pull-only clone cannot publish, so telling one to "rt team publish by hand" is an
-      // instruction it will refuse (team-pull-only) the moment it tries. `=== true` rather than
-      // truthy: a fixture or a pre-Task-6 entry missing the field must read as a pushing clone.
-      const remedy = e.pullOnly === true ? "reset it to origin or ask an org admin" : "rebase it and run rt team publish";
-      problems.push(`${slug}: a rebase conflict (${e.conflicted.detail}); ${remedy}`);
+      // A pull-only clone cannot publish (team-pull-only). A pushing clone's commit ahead of
+      // origin may be stale rather than the member's own edit, and publishing a stale one pushes
+      // it back to the whole org, so publish is offered only for an edit they meant to make.
+      // `=== true`: an entry missing the field reads as a pushing clone.
+      if (e.pullOnly === true) {
+        problems.push(`${slug}: a rebase conflict (${e.conflicted.detail}); reset it to origin or ask an org admin`);
+        continue;
+      }
+      problems.push(`${slug}: a rebase conflict (${e.conflicted.detail}); reset it to origin unless the commit ahead of origin is a team edit you meant to share`);
+      conflictSteps.push(
+        `The ${slug} clone is at ${e.repoDir}`,
+        `If the commit ahead of origin is not a team edit you meant to share, reset the clone to origin, then run: rt team pull --team ${slug}`,
+        `If it is your edit, rebase it onto origin, then run: rt team publish --team ${slug}`,
+      );
       continue;
     }
     // A pull-only clone's own failure mode: a fast-forward it refused. rt never resets that for
@@ -703,11 +713,14 @@ export async function teamSyncRow(
   // A held marketplace can be what makes a rebase refuse or a push bounce, so the hold leads.
   const held = slugs.filter((slug) => (entries.find((x) => x.slug === slug)?.heldBack ?? []).length > 0);
   if (held.length > 0) {
-    const action: Action = { type: "steps", label: "Show steps…", steps: held.map((slug) => `Run: rt team publish --team ${slug}`) };
+    const action: Action = { type: "steps", label: "Show steps…", steps: [...held.map((slug) => `Run: rt team publish --team ${slug}`), ...conflictSteps] };
     const holds = held.map((slug) => `${slug}: a new pack is not shared yet, so its marketplace entry stays on this Mac`);
     return row({ ...base, status: "needs-you", detail: [...holds, ...(problemDetail ? [problemDetail] : [])].join("; "), action });
   }
-  if (problemDetail !== null) return row({ ...base, status: "needs-you", detail: problemDetail, action: RECHECK_ACTION });
+  if (problemDetail !== null) {
+    const action: Action = conflictSteps.length > 0 ? { type: "steps", label: "Show steps…", steps: conflictSteps } : RECHECK_ACTION;
+    return row({ ...base, status: "needs-you", detail: problemDetail, action });
+  }
 
   // A pull skipped every tick (a dirty src/ refusing the rebase) is not a
   // failure, but it is why a member's store edits are not moving; say so
