@@ -273,8 +273,7 @@ struct FormRowView: View {
         HStack(spacing: 10) {
             if let action = row.action { button(action) }
             if let press = row.secondaryPress, let secondary = press.action, FormActionRunner.control(for: secondary) != .none {
-                Button(secondary.label) { onAction(press, nil, nil) }
-                    .buttonStyle(FastSecondaryButtonStyle(muted: true))
+                FastButton(title: secondary.label, kind: .secondary(muted: true), size: .small) { onAction(press, nil, nil) }
                     .fixedSize()
                     .accessibilityIdentifier(AXID.fastRowAction(row.id, "secondary"))
             }
@@ -286,14 +285,16 @@ struct FormRowView: View {
             .accessibilityIdentifier(AXID.fastRowReason(row.id))
     }
 
+    /// A row with a button shows its progress on the button itself; a row with nothing to press keeps the busy chip.
     private var controlsLine: some View {
         HStack(spacing: 10) {
-            if let line = progressLine {
+            if let action = row.action {
+                button(action)
+            } else if let line = progressLine {
                 FastBusyChip(text: line)
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier(AXID.fastRowWaiting(row.id))
             }
-            if let action = row.action, !(waiting != nil && action.type == .install) { button(action) }
         }
     }
 
@@ -397,34 +398,32 @@ struct FormRowView: View {
             Text(Self.needsNewerApp).font(.system(size: 12)).foregroundColor(FastTheme.textSecondary).fixedSize()
                 .accessibilityIdentifier(AXID.fastRowAction(row.id))
         case .chooseFolder:
-            Button(label) { chooseFolder(action) }
-                .buttonStyle(FastSecondaryButtonStyle())
+            FastButton(title: label, kind: .secondary(), size: .small) { chooseFolder(action) }
                 .fixedSize().accessibilityIdentifier(AXID.fastRowAction(row.id))
         default:
-            // A second press of a running `setup apply` would raise a second admin prompt.
-            let applying = runningRows.contains(row.id) || (waiting != nil && RowVerbRun.streamsApplyEvents(action.verb ?? []))
-            let quiet = retry || row.state == .done
+            // Loading also holds off a second press: a second `setup apply` would raise a second admin prompt.
+            let loading = runningRows.contains(row.id) || progressLine != nil
+            let quiet = (retry || row.state == .done) && !loading
             Group {
                 switch (style, quiet) {
                 case (.tile, false):
-                    Button(label) { onAction(row, nil, nil) }.buttonStyle(FastPrimaryButtonStyle(size: .small))
+                    FastButton(title: label, size: .small, isLoading: loading, loadingTitle: progressLine) { onAction(row, nil, nil) }
                 case (.labelled, false), (.stacked, false):
-                    Button { onAction(row, nil, nil) } label: {
-                        if let symbol = row.tone == .failed ? "arrow.counterclockwise" : Self.buttonSymbol(row.id),
-                           let glyph = FastLucideGlyph(symbol: symbol, box: 13) {
-                            Label { Text(label) } icon: { glyph }
-                        } else {
-                            Text(label)
-                        }
-                    }
-                    .buttonStyle(FastOutlineButtonStyle())
+                    FastButton(title: label, glyph: rowGlyph, kind: .outline, size: .small, isLoading: loading,
+                               loadingTitle: progressLine) { onAction(row, nil, nil) }
                 case (_, true):
-                    Button(label) { onAction(row, nil, nil) }.buttonStyle(FastSecondaryButtonStyle())
+                    FastButton(title: label, kind: .secondary(), size: .small) { onAction(row, nil, nil) }
                 }
             }
-            .fixedSize().disabled(applying)
+            .fixedSize()
             .accessibilityIdentifier(AXID.fastRowAction(row.id))
         }
+    }
+
+    private var rowGlyph: AnyView? {
+        guard let symbol = row.tone == .failed ? "arrow.counterclockwise" : Self.buttonSymbol(row.id),
+              let glyph = FastLucideGlyph(symbol: symbol, box: 13) else { return nil }
+        return AnyView(glyph)
     }
 
     private func chooseFolder(_ action: RowAction) {
@@ -487,8 +486,7 @@ struct FormRowFields: View {
             if let alternatives = action.alternatives, !alternatives.isEmpty {
                 HStack(spacing: 8) {
                     ForEach(alternatives, id: \.id) { alt in
-                        Button(alt.label) { onAction(row, nil, alt.id) }
-                            .buttonStyle(FastSecondaryButtonStyle())
+                        FastButton(title: alt.label, kind: .secondary(), size: .small) { onAction(row, nil, alt.id) }
                             .fixedSize()
                             .accessibilityIdentifier(AXID.fastRowAction(row.id, alt.id))
                     }
@@ -500,9 +498,9 @@ struct FormRowFields: View {
     @ViewBuilder private var trailing: some View {
         let link = create.flatMap { link in URL(string: link.url).map { (link.label, $0) } }
         if link == nil || complete {
-            Button(action.label, action: submit)
-                .buttonStyle(FastPrimaryButtonStyle(size: .small, shape: large ? .besideLargeField : nil))
-                .disabled(!complete || runningRows.contains(row.id)).fixedSize()
+            FastButton(title: action.label, size: .small, shape: large ? .besideLargeField : nil,
+                       isLoading: runningRows.contains(row.id), loadingTitle: "Checking…", action: submit)
+                .disabled(!complete).fixedSize()
                 .accessibilityIdentifier(AXID.fastRowAction(row.id))
         }
         if let link {

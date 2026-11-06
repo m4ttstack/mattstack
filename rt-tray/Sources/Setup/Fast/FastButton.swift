@@ -15,6 +15,8 @@ struct FastButton: View {
 
     let title: String
     var icon: String? = nil
+    /// A drawn icon (a row's Lucide glyph) in place of an SF Symbol.
+    var glyph: AnyView? = nil
     var kind: Kind = .primary()
     var size: FastButtonSize = .large
     var shape: FastButtonShape? = nil
@@ -56,7 +58,9 @@ struct FastButton: View {
     }
 
     @ViewBuilder private var idleLabel: some View {
-        if let icon {
+        if let glyph {
+            Label { Text(title) } icon: { glyph }
+        } else if let icon {
             Label(title, systemImage: icon)
         } else {
             Text(title)
