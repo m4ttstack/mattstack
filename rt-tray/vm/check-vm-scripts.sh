@@ -362,7 +362,7 @@ t "screen_create_team picks the forge segment and the group from the remote" env
   'source run/guest/ax.sh; source run/guest/screens.sh; calls=""
    ax_wait_screen() { :; }; ax_shot() { :; }; screen_answer_rows() { :; }; ax_find() { [ "$1" = setup.fast.connect ]; }
    ax_click() { calls="$calls click:$1"; }; ax_set_field() { calls="$calls set:$1=$2"; }; ax_pick_segment() { calls="$calls pick:$1=$2"; }
-   ax_title() { [ "$1" = setup.fast.create-team.group ] && echo Group; }
+   ax_title() { [ "$1" = setup.fast.create-team.group ] && echo "GitLab group"; }
    screen_create_team; [ "$calls" = " set:setup.fast.create-team.name=widgets pick:setup.fast.create-team.forge=GitLab set:setup.fast.create-team.group=acme/platform click:setup.fast.create-team.primary" ] || { echo "$calls"; exit 1; }'
 t "screen_create_team refuses a remote with no owner" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x SCENARIO=create TEAM_REMOTE=https://github.com/widgets SLUG=widgets FORGE=github bash -c \
   'source run/guest/ax.sh; source run/guest/screens.sh; ax_dump_ids() { :; }; ax_shot() { :; }; ax_click() { exit 9; }

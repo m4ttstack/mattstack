@@ -204,7 +204,7 @@ ax_button() {
     return 0
   fi
   if [ "$1" = read ] && [ "$2" = setup.fast.create-team.group ]; then
-    if [ "$(mget forge)" = GitHub ]; then echo Owner; else echo Group; fi
+    if [ "$(mget forge)" = GitHub ]; then echo "GitHub organization or account"; else echo "GitLab group"; fi
     return 0
   fi
   [ "$1" = press ] || return 1
@@ -299,7 +299,7 @@ check "create on GitLab: the GitLab segment and a nested group" \
 FORGE=github; TEAM_REMOTE=https://github.com/acme/widgets.git
 PICK_SLIPS=1; model create; drive whole_run; PICK_SLIPS=0
 check "create: a forge pick the owner field does not show fails before Create team" \
-  '[ "$rc" -ne 0 ] && grep -q "reads .Group., not Owner" "$AX_LOG" && [ "$(count "^click:setup.fast.create-team.primary$")" -eq 0 ]'
+  '[ "$rc" -ne 0 ] && grep -q "reads .GitLab group., not GitHub organization or account" "$AX_LOG" && [ "$(count "^click:setup.fast.create-team.primary$")" -eq 0 ]'
 
 model solo; drive whole_run
 check "solo: straight from the card to Connect" \

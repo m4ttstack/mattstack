@@ -337,7 +337,7 @@ screen_create_team() {
   local group label owner read_as deadline
   [ -n "$TEAM_REMOTE" ] || ax_fail "create needs --team-remote (its owner or group is where Create team makes the team's repo)"
   group=$(screen_remote_group "$TEAM_REMOTE") || ax_fail "no owner or group in --team-remote $TEAM_REMOTE"
-  case "$FORGE" in github) label=GitHub; owner=Owner ;; gitlab) label=GitLab; owner=Group ;; *) ax_fail "unknown forge: $FORGE" ;; esac
+  case "$FORGE" in github) label=GitHub; owner="GitHub organization or account" ;; gitlab) label=GitLab; owner="GitLab group" ;; *) ax_fail "unknown forge: $FORGE" ;; esac
   screen_wait create-team 30
   ax_set_field setup.fast.create-team.name "$SLUG"
   ax_pick_segment setup.fast.create-team.forge "$label" || ax_fail "could not pick $label in setup.fast.create-team.forge"
