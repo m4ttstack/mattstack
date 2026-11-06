@@ -3,6 +3,10 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterAll, expect, test } from 'bun:test';
 
+// Spawns server.ts itself rather than through bootBoardServer: this test
+// owns the signal and the exit code.
+import { freePort } from './board-server.ts';
+
 // Sparkle replaces the whole bundle on update (this process's inode vanishes
 // mid-run) and launchd sends SIGTERM before its grace period expires either
 // way -- proves the board exits promptly and cleanly on both, rather than
@@ -27,20 +31,6 @@ writeFileSync(
     'mattstack.roster': [{ username: 'alice' }],
   })
 );
-
-/** A port the OS just told us was free, rather than a hardcoded one. A fixed
-    port makes this test read a *previous* run's leaked server as "ready", then
-    SIGTERM a child that never bound and see 143 instead of a clean exit. */
-function freePort(): number {
-  const probe = Bun.listen({
-    hostname: '127.0.0.1',
-    port: 0,
-    socket: { data() {} },
-  });
-  const port = probe.port;
-  probe.stop();
-  return port;
-}
 
 let proc: Bun.Subprocess<'ignore', 'pipe', 'pipe'> | undefined;
 

@@ -3,6 +3,8 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterAll, expect, test } from 'bun:test';
 
+import { bootBoardServer } from './board-server.ts';
+
 // Proves server.ts's settingsHandler mount refreshes the module-level `config`
 // singleton after a successful write. Before that fix, `config` was only
 // resolved once at boot and reloaded on config.json changes -- a write
@@ -40,33 +42,23 @@ writeFileSync(
   JSON.stringify({ forgeUsername: 'dev1' })
 );
 
-const PORT = 47944;
-const proc = Bun.spawn(
-  ['bun', 'run', join(import.meta.dir, '..', 'server.ts')],
-  {
-    env: {
-      ...process.env,
-      HOME: fakeHome,
-      BOARD_APP_ROOT: fakeHome,
-      PORT: String(PORT),
-      GITLAB_TOKEN: 'fake',
-      SLACK_TOKEN: '',
-      SWITCHBOARD_TOKEN: '',
-      SWITCHBOARD_ADMIN_TOKEN: '',
-    },
-    stdout: 'pipe',
-    stderr: 'pipe',
-  }
-);
-
-afterAll(() => {
-  proc.kill();
+const board = bootBoardServer({
+  env: {
+    HOME: fakeHome,
+    BOARD_APP_ROOT: fakeHome,
+    GITLAB_TOKEN: 'fake',
+    SLACK_TOKEN: '',
+    SWITCHBOARD_TOKEN: '',
+    SWITCHBOARD_ADMIN_TOKEN: '',
+  },
 });
+
+afterAll(() => {});
 
 async function waitForBoot(): Promise<void> {
   for (let i = 0; i < 100; i++) {
     try {
-      const res = await fetch(`http://127.0.0.1:${PORT}/healthz`);
+      const res = await fetch(`${board.origin}/healthz`);
       if (res.ok) return;
     } catch {
       // server not listening yet
@@ -82,9 +74,9 @@ async function waitForBoot(): Promise<void> {
 // touch), so it is the right place to observe whether `config` itself, the
 // object this fix refreshes, actually changed.
 async function dataJsonTitle(): Promise<string> {
-  const body = (await (
-    await fetch(`http://127.0.0.1:${PORT}/data.json`)
-  ).json()) as { title: string };
+  const body = (await (await fetch(`${board.origin}/data.json`)).json()) as {
+    title: string;
+  };
   return body.title;
 }
 
@@ -92,7 +84,7 @@ test('a board.* setting written through /api/settings/set applies live, no resta
   await waitForBoot();
   expect(await dataJsonTitle()).toBe('MRs ready for review'); // BoardConfig's default, unset in the fixture team store
 
-  const setRes = await fetch(`http://127.0.0.1:${PORT}/api/settings/set`, {
+  const setRes = await fetch(`${board.origin}/api/settings/set`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({

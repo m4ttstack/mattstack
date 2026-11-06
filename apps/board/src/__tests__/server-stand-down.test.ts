@@ -21,6 +21,7 @@ import { readDrafts, writeDraft } from '../draft-state.ts';
 import { mintHandle } from '../state/agent-states.ts';
 import { openStateDb } from '../state/db.ts';
 import { readMemory } from '../triage/memory-store.ts';
+import { bootBoardServer } from './board-server.ts';
 
 const fakeHome = mkdtempSync(join(tmpdir(), 'board-stand-down-'));
 
@@ -196,45 +197,22 @@ const rtDaemon = Bun.serve({
   },
 });
 
-const PORT = 47962;
-const proc = Bun.spawn(
-  ['bun', 'run', join(import.meta.dir, '..', 'server.ts')],
-  {
-    env: {
-      ...process.env,
-      HOME: fakeHome,
-      BOARD_APP_ROOT: fakeHome,
-      BOARD_STATE_DB: dbPath,
-      PORT: String(PORT),
-      GITLAB_TOKEN: '',
-      SLACK_TOKEN: '',
-      SWITCHBOARD_TOKEN: '',
-      SWITCHBOARD_ADMIN_TOKEN: '',
-    },
-    stdout: 'pipe',
-    stderr: 'pipe',
-  }
-);
-
-afterAll(() => {
-  proc.kill();
-  rtDaemon.stop(true);
+const board = bootBoardServer({
+  env: {
+    HOME: fakeHome,
+    BOARD_APP_ROOT: fakeHome,
+    BOARD_STATE_DB: dbPath,
+    GITLAB_TOKEN: '',
+    SLACK_TOKEN: '',
+    SWITCHBOARD_TOKEN: '',
+    SWITCHBOARD_ADMIN_TOKEN: '',
+  },
 });
 
-async function ready(): Promise<void> {
-  for (let i = 0; i < 100; i++) {
-    try {
-      if ((await fetch(`http://127.0.0.1:${PORT}/healthz`)).ok) return;
-    } catch {
-      // server not listening yet
-    }
-    await new Promise(r => setTimeout(r, 100));
-  }
-  throw new Error('server never came up');
-}
+afterAll(() => rtDaemon.stop(true));
 
 function standDown(body: unknown): Promise<Response> {
-  return fetch(`http://127.0.0.1:${PORT}/triage/stand-down`, {
+  return fetch(`${board.origin}/triage/stand-down`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -242,7 +220,6 @@ function standDown(body: unknown): Promise<Response> {
 }
 
 test('turning it on flips the memory flag, clears the doctor row, and dismisses a held draft', async () => {
-  await ready();
   writeDoctorState(
     mintHandle('doctor', PARENT, fakeHome),
     { mrUrl: PARENT, iid: 7, status: 'error', message: 'registry push flake' },
@@ -273,7 +250,6 @@ test('turning it on flips the memory flag, clears the doctor row, and dismisses 
 }, 15_000);
 
 test('the whole stack: standing down the parent also cleans up the child row', async () => {
-  await ready();
   writeDoctorState(
     mintHandle('doctor', CHILD, fakeHome),
     { mrUrl: CHILD, iid: 8, status: 'error', message: 'inherited failure' },
@@ -293,7 +269,6 @@ test('the whole stack: standing down the parent also cleans up the child row', a
 }, 15_000);
 
 test('turning it off clears only the flag, leaving other state alone', async () => {
-  await ready();
   const res = await standDown({ mrUrl: PARENT, on: false });
   expect(res.status).toBe(200);
   expect(readMemory(db).mrs[PARENT]?.standDown).toBe(false);
@@ -303,7 +278,6 @@ test('turning it off clears only the flag, leaving other state alone', async () 
 }, 15_000);
 
 test('a fresh MR with no memory row yet still gets one', async () => {
-  await ready();
   expect(readMemory(db).mrs[SOLO]).toBeUndefined();
   const res = await standDown({ mrUrl: SOLO, on: true });
   expect(res.status).toBe(200);
@@ -312,7 +286,6 @@ test('a fresh MR with no memory row yet still gets one', async () => {
 }, 15_000);
 
 test('an unknown MR (not on the board) 400s rather than creating a memory row', async () => {
-  await ready();
   const res = await standDown({ mrUrl: UNKNOWN, on: true });
   expect(res.status).toBe(400);
   expect(await res.text()).toContain('unknown MR');
@@ -320,7 +293,6 @@ test('an unknown MR (not on the board) 400s rather than creating a memory row', 
 }, 15_000);
 
 test("someone else's MR 403s, even though it resolves on the board", async () => {
-  await ready();
   const res = await standDown({ mrUrl: OTHERS, on: true });
   expect(res.status).toBe(403);
   expect(await res.text()).toBe('not your MR');
@@ -328,23 +300,18 @@ test("someone else's MR 403s, even though it resolves on the board", async () =>
 }, 15_000);
 
 test('is POST-only and validates the body', async () => {
-  await ready();
-  expect(
-    (await fetch(`http://127.0.0.1:${PORT}/triage/stand-down`)).status
-  ).toBe(405);
+  expect((await fetch(`${board.origin}/triage/stand-down`)).status).toBe(405);
   expect((await standDown({ on: true })).status).toBe(400);
   expect((await standDown({ mrUrl: PARENT })).status).toBe(400);
 }, 15_000);
 
 test('on: true against an MR with no doctor row and no drafts is a no-op past the flag flip', async () => {
-  await ready();
   const res = await standDown({ mrUrl: QUIET, on: true });
   expect(res.status).toBe(200);
   expect(readDoctorStates(db).get(QUIET)).toBeUndefined();
 }, 15_000);
 
 test('nudging an in-flight doctor with an unreachable pane never fails the request', async () => {
-  await ready();
   writeDoctorState(
     mintHandle('doctor', LIVE, fakeHome),
     { mrUrl: LIVE, iid: 13, status: 'fixing', paneId: 'not-a-real-pane' },

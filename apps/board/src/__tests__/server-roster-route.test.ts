@@ -1,7 +1,9 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { beforeAll, expect, test } from 'bun:test';
+
+import { bootBoardServer } from './board-server.ts';
 
 // Boots the real server against a fake $HOME whose team store owns
 // mattstack.roster, then drives POST /roster. Proves the route's three
@@ -52,28 +54,18 @@ writeFileSync(
   JSON.stringify({ forgeUsername: 'dev1' })
 );
 
-const PORT = 47951;
-const proc = Bun.spawn(
-  ['bun', 'run', join(import.meta.dir, '..', 'server.ts')],
-  {
-    env: {
-      ...process.env,
-      HOME: fakeHome,
-      BOARD_APP_ROOT: fakeHome,
-      PORT: String(PORT),
-      // A token inherited from the developer's shell would make the
-      // post-edit void refreshMemberNames() reach real gitlab.example.com.
-      GITLAB_TOKEN: '',
-      SLACK_TOKEN: '',
-      SWITCHBOARD_TOKEN: '',
-      SWITCHBOARD_ADMIN_TOKEN: '',
-    },
-    stdout: 'pipe',
-    stderr: 'pipe',
-  }
-);
-
-afterAll(() => proc.kill());
+const board = bootBoardServer({
+  env: {
+    HOME: fakeHome,
+    BOARD_APP_ROOT: fakeHome,
+    // A token inherited from the developer's shell would make the
+    // post-edit void refreshMemberNames() reach real gitlab.example.com.
+    GITLAB_TOKEN: '',
+    SLACK_TOKEN: '',
+    SWITCHBOARD_TOKEN: '',
+    SWITCHBOARD_ADMIN_TOKEN: '',
+  },
+});
 
 // A cold server boot can outlast a test's default 5s.
 beforeAll(() => waitForBoot(), 30_000);
@@ -81,7 +73,7 @@ beforeAll(() => waitForBoot(), 30_000);
 async function waitForBoot(): Promise<void> {
   for (let i = 0; i < 300; i++) {
     try {
-      const res = await fetch(`http://127.0.0.1:${PORT}/healthz`);
+      const res = await fetch(`${board.origin}/healthz`);
       if (res.ok) return;
     } catch {
       // not listening yet
@@ -92,7 +84,7 @@ async function waitForBoot(): Promise<void> {
 }
 
 async function roster(body: unknown): Promise<Response> {
-  return fetch(`http://127.0.0.1:${PORT}/roster`, {
+  return fetch(`${board.origin}/roster`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -153,7 +145,7 @@ test('dropping yourself is refused', async () => {
 // a 400, and a known one must persist to the user store rather than a dead
 // file.
 async function settings(body: unknown): Promise<Response> {
-  return fetch(`http://127.0.0.1:${PORT}/settings`, {
+  return fetch(`${board.origin}/settings`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),

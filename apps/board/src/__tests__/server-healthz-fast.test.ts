@@ -3,6 +3,8 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterAll, expect, test } from 'bun:test';
 
+import { bootBoardServer } from './board-server.ts';
+
 // Proves src/server.ts:452ish's hoist: /healthz, /events, and the static
 // shell/assets must answer even when the rt daemon is wedged (accepts the
 // connection, never responds) -- the exact condition /healthz exists to let
@@ -42,40 +44,29 @@ const wedgedDaemon = Bun.serve({
   fetch: () => new Promise<Response>(() => {}),
 });
 
-const PORT = 47943;
-const proc = Bun.spawn(
-  ['bun', 'run', join(import.meta.dir, '..', 'server.ts')],
-  {
-    env: {
-      ...process.env,
-      HOME: fakeHome,
-      // Keeps the booted server's state writes out of the repo.
-      BOARD_APP_ROOT: fakeHome,
-      PORT: String(PORT),
-      // Force every token through the (wedged) daemon path -- a token
-      // inherited from the developer's own shell env would skip it and let
-      // this test pass for the wrong reason.
-      GITLAB_TOKEN: '',
-      SLACK_TOKEN: '',
-      SWITCHBOARD_TOKEN: '',
-      SWITCHBOARD_ADMIN_TOKEN: '',
-    },
-    stdout: 'pipe',
-    stderr: 'pipe',
-  }
-);
-
-afterAll(() => {
-  proc.kill();
-  wedgedDaemon.stop(true);
+const board = bootBoardServer({
+  env: {
+    HOME: fakeHome,
+    // Keeps the booted server's state writes out of the repo.
+    BOARD_APP_ROOT: fakeHome,
+    // Force every token through the (wedged) daemon path -- a token
+    // inherited from the developer's own shell env would skip it and let
+    // this test pass for the wrong reason.
+    GITLAB_TOKEN: '',
+    SLACK_TOKEN: '',
+    SWITCHBOARD_TOKEN: '',
+    SWITCHBOARD_ADMIN_TOKEN: '',
+  },
 });
+
+afterAll(() => wedgedDaemon.stop(true));
 
 test('/healthz responds fast even with a wedged rt daemon blocking every board-secret round trip', async () => {
   const start = Date.now();
   let res: Response | undefined;
   for (let i = 0; i < 100; i++) {
     try {
-      res = await fetch(`http://127.0.0.1:${PORT}/healthz`);
+      res = await fetch(`${board.origin}/healthz`);
       if (res.ok) break;
     } catch {
       // server not listening yet

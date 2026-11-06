@@ -3,6 +3,8 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterAll, expect, test } from 'bun:test';
 
+import { bootBoardServer } from './board-server.ts';
+
 // Proves /slack/post's channel derivation (server.ts's targetChannel logic,
 // right after `picked` resolves) under the author-only rule: with no explicit
 // body channel, your own MR posts into the board's default channel even when a
@@ -204,53 +206,24 @@ const rtDaemon = Bun.serve({
   },
 });
 
-const PORT = 47946;
-const proc = Bun.spawn(
-  [
-    'bun',
-    'run',
-    '--preload',
-    join(import.meta.dir, 'slack-api-mock-preload.ts'),
-    join(import.meta.dir, '..', 'server.ts'),
-  ],
-  {
-    env: {
-      ...process.env,
-      HOME: fakeHome,
-      BOARD_APP_ROOT: fakeHome,
-      PORT: String(PORT),
-      GITLAB_TOKEN: '',
-      SLACK_TOKEN: 'fake-slack-token',
-      SWITCHBOARD_TOKEN: '',
-      SWITCHBOARD_ADMIN_TOKEN: '',
-      // Consumed by slack-api-mock-preload.ts's conversations.history stub.
-      SLACK_MOCK_MR_URL: acmeMrUrl,
-    },
-    stdout: 'pipe',
-    stderr: 'pipe',
-  }
-);
-
-afterAll(() => {
-  proc.kill();
-  rtDaemon.stop(true);
+const board = bootBoardServer({
+  preload: join(import.meta.dir, 'slack-api-mock-preload.ts'),
+  env: {
+    HOME: fakeHome,
+    BOARD_APP_ROOT: fakeHome,
+    GITLAB_TOKEN: '',
+    SLACK_TOKEN: 'fake-slack-token',
+    SWITCHBOARD_TOKEN: '',
+    SWITCHBOARD_ADMIN_TOKEN: '',
+    // Consumed by slack-api-mock-preload.ts's conversations.history stub.
+    SLACK_MOCK_MR_URL: acmeMrUrl,
+  },
 });
 
-async function ready(): Promise<void> {
-  for (let i = 0; i < 100; i++) {
-    try {
-      if ((await fetch(`http://127.0.0.1:${PORT}/healthz`)).ok) return;
-    } catch {
-      // server not listening yet
-    }
-    await new Promise(r => setTimeout(r, 100));
-  }
-  throw new Error('server never came up');
-}
+afterAll(() => rtDaemon.stop(true));
 
 test('/slack/post with no explicit channel posts your own tagged MR to the board channel', async () => {
-  await ready();
-  const res = await fetch(`http://127.0.0.1:${PORT}/slack/post`, {
+  const res = await fetch(`${board.origin}/slack/post`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ mrUrls: [acmeMrUrl] }),
@@ -268,8 +241,7 @@ test('/slack/post with no explicit channel posts your own tagged MR to the board
 }, 15_000);
 
 test("/slack/post refuses a list that includes a tagged stranger's MR", async () => {
-  await ready();
-  const res = await fetch(`http://127.0.0.1:${PORT}/slack/post`, {
+  const res = await fetch(`${board.origin}/slack/post`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ mrUrls: [acmeMrUrl, otherSectionMrUrl] }),
