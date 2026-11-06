@@ -784,7 +784,11 @@ function doctorStatusLine(
         tone: 'go',
         word: DOCTOR_LABEL[d.status],
         detail: d.message || undefined,
-        settled: true,
+        // Until the push's own pipeline replaces the one it found, a ci
+        // failure on the row is the old branch's, so it must not outrank this.
+        ...(d.pipelineAtSync && mr.pipeline?.id === d.pipelineAtSync
+          ? {}
+          : { settled: true as const }),
         syncLog: d.syncLog ?? [],
         verbs: [{ kind: 'dismiss', label: 'dismiss', domain: 'doctor' }],
       };

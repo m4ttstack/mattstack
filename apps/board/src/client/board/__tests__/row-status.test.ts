@@ -2663,3 +2663,27 @@ test('a working doctor whose own pane is gone offers redo, not a focus the serve
     { kind: 'redo', label: 'redo', domain: 'doctor' },
   ]);
 });
+
+describe('rowStatus: a local sync that pushed', () => {
+  const synced = (pipelineId: string) =>
+    own({
+      ...blockedBy({ pipelineFailing: true }),
+      pipeline: { id: pipelineId },
+      doctor: {
+        status: 'synced',
+        message: 'rebased and pushed',
+        updatedAt: NOW,
+        pipelineAtSync: 'p1',
+      },
+    });
+
+  test('outranks a ci failure from the pipeline it found', () => {
+    expect(rowStatus(synced('p1'), NOW, NONE, ME).line.word).toBe('synced');
+  });
+
+  test("yields to a ci failure on the push's own pipeline", () => {
+    const s = rowStatus(synced('p2'), NOW, NONE, ME);
+    expect(s.line.word).toBe('needs a ci fix');
+    expect(s.more.map(l => l.word)).toContain('synced');
+  });
+});

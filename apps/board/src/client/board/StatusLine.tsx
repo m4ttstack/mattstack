@@ -150,8 +150,12 @@ function SyncLogBody({
             <span className="tui-synclog-glyph" aria-hidden>
               {line.glyph ?? ''}
             </span>
-            <span className="tui-synclog-title">{line.title}</span>
-            {line.hint && <span className="tui-synclog-hint">{line.hint}</span>}
+            <span className="tui-synclog-text">
+              <span className="tui-synclog-title">{line.title}</span>
+              {line.hint && (
+                <span className="tui-synclog-hint">{line.hint}</span>
+              )}
+            </span>
           </div>
         );
       })}

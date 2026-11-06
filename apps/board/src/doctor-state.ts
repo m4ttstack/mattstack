@@ -89,6 +89,9 @@ export interface DoctorState {
   /** What the last local sync printed, kept until the next sync or a
       doctor launch that is not a sync's hand-off. */
   syncLog?: string[];
+  /** The pipeline the MR showed when a sync pushed: its result predates the
+      push, so it says nothing about the rebased branch. */
+  pipelineAtSync?: string;
   startedAt: number;
   updatedAt: number;
 }
@@ -131,6 +134,7 @@ export function writeDoctorState(
     noPack: patch.noPack,
     pausedTree: patch.pausedTree,
     syncLog: patch.syncLog,
+    pipelineAtSync: patch.pipelineAtSync,
     startedAt: now,
     updatedAt: now,
   };

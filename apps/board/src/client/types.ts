@@ -123,6 +123,8 @@ export interface DoctorInfo {
   noPack?: boolean;
   /** What the last local sync printed, in rt's plain line form. */
   syncLog?: string[];
+  /** The pipeline the MR showed when the sync pushed. */
+  pipelineAtSync?: string;
 }
 export interface DraftInfo {
   kind: string;

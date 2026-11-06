@@ -856,11 +856,17 @@ body {
   font: var(--font-size-px12) / 1.6 var(--font-mono);
   color: var(--text-1);
 }
+/* Title and hint share one cell and wrap as one paragraph: a long branch
+   name in a title would otherwise starve the hint's own column. */
 .tui-synclog-line {
   display: grid;
-  grid-template-columns: 1.4ch auto 1fr;
+  grid-template-columns: 1.4ch minmax(0, 1fr);
   column-gap: 1ch;
   align-items: baseline;
+}
+.tui-synclog-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .tui-synclog-line[data-status='text'] {
   padding-left: 2.4ch;
@@ -870,12 +876,9 @@ body {
 .tui-synclog-line[data-status='text'] .tui-synclog-glyph {
   display: none;
 }
-.tui-synclog-title {
-  overflow-wrap: anywhere;
-}
 .tui-synclog-hint {
+  margin-left: 2ch;
   color: var(--text-3);
-  overflow-wrap: anywhere;
 }
 .tui-synclog-glyph {
   color: var(--text-3);

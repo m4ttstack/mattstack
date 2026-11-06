@@ -3066,6 +3066,8 @@ const httpServer = Bun.serve({
                 message: outcome.message,
                 pausedTree: null as unknown as undefined,
                 syncLog,
+                pipelineAtSync:
+                  mr.pipeline?.id ?? (null as unknown as undefined),
               });
               return Response.json({ ok: true, synced: outcome.message });
             }
