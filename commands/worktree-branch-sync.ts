@@ -19,8 +19,8 @@ const realDeps: BranchSyncAuthDeps = {
  * after an authentication failure, the rule runGitOrigin follows for the
  * pool's own fetches.
  */
-export async function branchSyncWithAuth(cwd: string, deps: BranchSyncAuthDeps = realDeps): Promise<BranchSyncResult> {
-  const r = await deps.sync(cwd, { git: realGitRunner, sync: realSyncRunner });
+export async function branchSyncWithAuth(cwd: string, deps: BranchSyncAuthDeps = realDeps, onLine?: (line: string) => void): Promise<BranchSyncResult> {
+  const r = await deps.sync(cwd, { git: realGitRunner, sync: onLine ? syncRunnerWith({}, onLine) : realSyncRunner });
   if (!isAuthFailure(r.refusal ?? "")) return r;
   // The rebase landed and only the push failed, so only the push is retried.
   if (r.kind === "push-refused" && r.branch) {
@@ -32,11 +32,12 @@ export async function branchSyncWithAuth(cwd: string, deps: BranchSyncAuthDeps =
   const auth = await deps.auth(cwd, false);
   if (!auth) return r;
   const env = fetchAuthEnv(auth);
-  return deps.sync(cwd, { git: gitRunnerWith(env), sync: syncRunnerWith(env) });
+  return deps.sync(cwd, { git: gitRunnerWith(env), sync: syncRunnerWith(env, onLine) });
 }
 
 /** The daemon cannot import the MCP tools, so `worktree:sync` runs `branch_sync` through this verb. */
-export async function branchSyncCommand(): Promise<void> {
+export async function branchSyncCommand(args: string[] = []): Promise<void> {
   out.payloadOnStdout();
-  await out.jsonFlushed(await branchSyncWithAuth(process.cwd()));
+  const onLine = args.includes("--progress") ? (line: string) => out.diagnostic(`${line}\n`) : undefined;
+  await out.jsonFlushed(await branchSyncWithAuth(process.cwd(), realDeps, onLine));
 }

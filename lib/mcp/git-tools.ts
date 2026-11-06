@@ -374,9 +374,11 @@ async function localIsNewerRewrite(cwd: string, git: GitRunner, remoteRef: strin
 
 const SYNC_TIMEOUT_MS = 300_000;
 
-export const syncRunnerWith = (extra: Record<string, string>) => async (cwd: string): Promise<{ code: number; stdout: string; stderr: string }> => {
+/** With `onLine`, rt sync also prints each step on stderr and every stderr line reaches it as it arrives. */
+export const syncRunnerWith = (extra: Record<string, string>, onLine?: (line: string) => void) => async (cwd: string): Promise<{ code: number; stdout: string; stderr: string }> => {
   const [exe, ...rest] = rtSelfArgv();
-  const r = await runCapture([exe!, ...rest, "sync", "--json", "--no-agent"], { cwd, stderr: "pipe", timeoutMs: SYNC_TIMEOUT_MS, env: { ...syncChildEnv(childEnv(), cwd), ...extra } });
+  const argv = [exe!, ...rest, "sync", "--json", "--no-agent", ...(onLine ? ["--progress"] : [])] as [string, ...string[]];
+  const r = await runCapture(argv, { cwd, stderr: "pipe", timeoutMs: SYNC_TIMEOUT_MS, env: { ...syncChildEnv(childEnv(), cwd), ...extra }, onStderrLine: onLine });
   return { code: r.timedOut ? 124 : r.exitCode, stdout: r.stdout, stderr: r.stderr };
 };
 
