@@ -413,8 +413,13 @@ function restoreRow(
     });
     return;
   }
-  const { mrUrl: _url, iid: _iid, startedAt: _s, updatedAt: _u, ...rest } =
-    prior;
+  const {
+    mrUrl: _url,
+    iid: _iid,
+    startedAt: _s,
+    updatedAt: _u,
+    ...rest
+  } = prior;
   deps.writeDoctorState(statePath, rest);
 }
 
@@ -610,8 +615,7 @@ export async function runTriage(
         edge.author,
         deps.identity
       );
-      if (existing?.tabId)
-        await deps.closeTab(existing.tabId).catch(() => {});
+      if (existing?.tabId) await deps.closeTab(existing.tabId).catch(() => {});
       deps.writeDoctorState(statePath, {
         mrUrl: edge.mrUrl,
         iid: edge.iid,

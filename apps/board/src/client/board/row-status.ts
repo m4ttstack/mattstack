@@ -763,6 +763,10 @@ function doctorLine(mr: BoardMRWithReview, now: number): Candidate | null {
   return line && d.syncLog ? { ...line, syncLog: d.syncLog } : line;
 }
 
+/** A launched doctor reports diagnosing within seconds; a row still queued
+    after this long has a pane that never picked the job up. */
+const DOCTOR_START_MS = 10 * 60_000;
+
 function doctorStatusLine(
   d: NonNullable<BoardMRWithReview['doctor']>,
   mr: BoardMRWithReview,
@@ -770,6 +774,16 @@ function doctorStatusLine(
 ): Candidate | null {
   switch (d.status) {
     case 'queued':
+      if (d.updatedAt && now - d.updatedAt > DOCTOR_START_MS)
+        return {
+          tone: 'warn',
+          word: "doctor didn't start",
+          detail: `queued ${agoMs(d.updatedAt, now)}`,
+          verbs: [
+            { kind: 'call-doctor', label: 'call again' },
+            { kind: 'dismiss', label: 'dismiss', domain: 'doctor' },
+          ],
+        };
       return { tone: 'quiet', word: DOCTOR_LABEL[d.status], verbs: [] };
     case 'syncing':
       return {
