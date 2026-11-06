@@ -104,8 +104,26 @@ struct FormRowView: View {
     var bare = false
     let onAction: FormRowPerform
     @Environment(\.formRowsRunning) private var runningRows
+    /// A press's command can end a moment before rt's next read moves the row on; the row keeps loading through that gap.
+    @State private var settling = false
+    private static let settleCap: Duration = .seconds(6)
+
+    /// The row's own work is running: the command, or rt's read of a wait.
+    private var working: Bool { runningRows.contains(row.id) || progressLine != nil }
+    private var loading: Bool { working || settling }
 
     var body: some View {
+        content
+            .onChange(of: working) { was, now in if was && !now { settling = true } }
+            .onChange(of: shapeKey) { _, _ in if !working { settling = false } }
+            .task(id: settling) {
+                guard settling else { return }
+                try? await Task.sleep(for: Self.settleCap)
+                settling = false
+            }
+    }
+
+    @ViewBuilder private var content: some View {
         if let action = row.action, action.type == .placeRepo {
             repoBlock(action)
         } else {
@@ -217,7 +235,7 @@ struct FormRowView: View {
             if !FormRowChoice.tiles(options) { subtextHint }
         } else if let action = row.action, FormRowFields.collects(action) {
             if row.state == .done && progressLine == nil { doneMark(size: 13, iconSize: 14, spacing: 8) }
-            FormRowFields(row: row, action: action, large: style == .stacked, onAction: onAction)
+            FormRowFields(row: row, action: action, large: style == .stacked, loading: loading, onAction: onAction)
             if let line = progressLine, row.subtext.isEmpty { inlineProgress(line) }
             subtextHint
         } else if let action = row.action, action.type == .chooseFolder {
@@ -409,7 +427,6 @@ struct FormRowView: View {
                 .fixedSize().accessibilityIdentifier(AXID.fastRowAction(row.id))
         default:
             // Loading also holds off a second press: a second `setup apply` would raise a second admin prompt.
-            let loading = runningRows.contains(row.id) || progressLine != nil
             let quiet = (retry || row.state == .done) && !loading
             Group {
                 switch (style, quiet) {
@@ -473,6 +490,7 @@ struct FormRowFields: View {
     let action: RowAction
     /// P3c's large field, with its buttons at the field's height.
     var large = false
+    var loading = false
     let onAction: FormRowPerform
     @State private var values: [String: String]
     @Environment(\.openSetupLink) private var openLink
@@ -483,8 +501,8 @@ struct FormRowFields: View {
         [.connect, .form, .ownerOnce].contains(action.type) && !(action.fields ?? []).isEmpty
     }
 
-    init(row: FormRow, action: RowAction, large: Bool = false, onAction: @escaping FormRowPerform) {
-        self.row = row; self.action = action; self.large = large; self.onAction = onAction
+    init(row: FormRow, action: RowAction, large: Bool = false, loading: Bool = false, onAction: @escaping FormRowPerform) {
+        self.row = row; self.action = action; self.large = large; self.loading = loading; self.onAction = onAction
         var prefilled: [String: String] = [:]
         for f in action.fields ?? [] { if let v = f.value, !v.isEmpty { prefilled[f.name] = v } }
         _values = State(initialValue: prefilled)
@@ -523,9 +541,9 @@ struct FormRowFields: View {
     @ViewBuilder private var trailing: some View {
         let link = create.flatMap { link in URL(string: link.url).map { (link.label, $0) } }
         // The submit arrives once every field holds a value; until then Return is the way, and a greyed button would only be noise.
-        if complete || runningRows.contains(row.id) {
+        if complete || loading {
             FastButton(title: action.label, size: .small, shape: large ? .besideLargeField : nil,
-                       isLoading: runningRows.contains(row.id), loadingTitle: "Checking…", action: submit)
+                       isLoading: loading, loadingTitle: "Checking…", action: submit)
                 .fixedSize()
                 .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 .accessibilityIdentifier(AXID.fastRowAction(row.id))
