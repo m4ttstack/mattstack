@@ -1,0 +1,19 @@
+{
+  "tree": "/trees/acme-shop/compress-cache",
+  "repoRoot": "/code/acme-shop",
+  "resume": {
+    "session": "sess-fixture",
+    "worktree": "/trees/acme-shop/compress-cache",
+    "livePane": null,
+    "worktreeGone": false
+  },
+  "commands": [
+    { "label": "runner", "command": "rt runner", "icon": "rt" },
+    { "label": "cd", "command": "rt cd", "icon": "cd" },
+    { "label": "nav", "command": "rt nav", "icon": "folder" },
+    { "label": "glitter", "command": "rt glitter", "icon": "branch" },
+    { "label": "run", "command": "rt run", "icon": "play" },
+    { "label": "watch ci", "command": "rt ci watch", "icon": "pulse" },
+    { "label": "tests", "command": "bun run test" }
+  ]
+}

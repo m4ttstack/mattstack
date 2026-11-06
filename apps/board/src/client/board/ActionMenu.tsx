@@ -3,12 +3,14 @@ import { Fragment, useEffect, useState } from 'react';
 import { ContextMenu } from '@mattstack/tui-kit';
 import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
 import { AskPicker } from './AskPicker.tsx';
+import { FLOCK_ICON_URL } from './flock-icon.ts';
 import {
   AgentCloudGlyph,
   AgentGlyph,
   ArrowOutGlyph,
   FlagGlyph,
   MenuGlyph,
+  RtMark,
   SlackLogo,
 } from './icons.tsx';
 import {
@@ -32,6 +34,7 @@ type FlyoutSection = Exclude<Section, 'top' | 'agent'>;
 /** A Record, so a new Section fails to compile until it has a flyout. Key
     order is the menu's order. */
 const FLYOUT: Record<FlyoutSection, [string, ActionGlyph]> = {
+  flock: ['flock', { kind: 'flock' }],
   sessions: ['all agent actions', { kind: 'agent' }],
   gitlab: ['gitlab', { kind: 'menu', name: 'branch' }],
   slack: ['slack', { kind: 'slack' }],
@@ -56,6 +59,18 @@ function glyphNode(g: ActionGlyph, blocked = false): React.ReactNode {
       return <AgentCloudGlyph />;
     case 'slack':
       return <SlackLogo mono={blocked} />;
+    case 'rt':
+      return <RtMark />;
+    case 'flock':
+      return (
+        <img
+          className="tui-menu-flock"
+          src={FLOCK_ICON_URL}
+          alt=""
+          width={14}
+          height={14}
+        />
+      );
     case 'emoji':
       return <span className="tui-menu-emoji">{g.glyph}</span>;
   }

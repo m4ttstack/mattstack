@@ -34,19 +34,34 @@ import { slackPosts } from './slack-posts.ts';
 
 export type Lane = 'review' | 'respond' | 'doctor';
 export type Section =
-  'top' | 'agent' | 'sessions' | 'gitlab' | 'slack' | 'more';
+  'top' | 'agent' | 'flock' | 'sessions' | 'gitlab' | 'slack' | 'more';
 
 export type ActionGlyph =
   | {
       kind: 'menu';
       name:
-        'file' | 'people' | 'copy' | 'branch' | 'dismiss' | 'note' | 'refresh';
+        | 'file'
+        | 'people'
+        | 'copy'
+        | 'branch'
+        | 'dismiss'
+        | 'note'
+        | 'refresh'
+        | 'shell'
+        | 'resume'
+        | 'command'
+        | 'cd'
+        | 'folder'
+        | 'play'
+        | 'pulse';
     }
   | { kind: 'flag'; name: 'conflicts' | 'auto-merge' | 'draft' }
   | { kind: 'out' }
   | { kind: 'agent-cloud' }
   | { kind: 'agent' }
   | { kind: 'slack' }
+  | { kind: 'flock' }
+  | { kind: 'rt' }
   | { kind: 'emoji'; glyph: string };
 
 export type LaunchFlow =
@@ -78,7 +93,24 @@ export type ActionRequest =
   | { kind: 'slack-posts' }
   | { kind: 'view-report'; lane: 'review' | 'respond' }
   | { kind: 'dismiss'; lane: Lane }
-  | { kind: 'stand-down'; on: boolean };
+  | { kind: 'stand-down'; on: boolean }
+  | {
+      kind: 'flock';
+      action: FlockAction;
+      /** A saved command: its position, label and command, which the
+          server checks still match before running it. */
+      saved?: { index: number; label: string; command: string };
+    };
+
+export type FlockAction = 'shell' | 'claude' | 'resume' | 'command';
+
+/** What `/flock/menu` says about an own MR: its worktree, the work session
+    a resume would reach, and the saved commands. */
+export interface FlockMenuData {
+  tree: string | null;
+  resume: { livePane: string | null; worktreeGone: boolean } | null;
+  commands: { label: string; command: string; icon?: string }[];
+}
 
 export interface MenuEntry {
   key: string;
@@ -153,6 +185,8 @@ export interface ActionEnv {
   ownTeam?: string | null;
   /** Every MR on the board, for the stack checks. */
   allMrs: BoardMR[];
+  /** The open row's flock menu once loaded; absent while it loads. */
+  flock?: FlockMenuData;
 }
 
 export interface RunOpts {
@@ -171,6 +205,10 @@ const REFRESH: ActionGlyph = { kind: 'menu', name: 'refresh' };
 const DRAFT: ActionGlyph = { kind: 'flag', name: 'draft' };
 const AGENT_CLOUD: ActionGlyph = { kind: 'agent-cloud' };
 const SLACK: ActionGlyph = { kind: 'slack' };
+const SHELL: ActionGlyph = { kind: 'menu', name: 'shell' };
+const CLAUDE: ActionGlyph = { kind: 'agent' };
+const RESUME: ActionGlyph = { kind: 'menu', name: 'resume' };
+const COMMAND: ActionGlyph = { kind: 'menu', name: 'command' };
 const GITLAB_GLYPH: Record<MrAction, ActionGlyph> = {
   merge: { kind: 'flag', name: 'conflicts' },
   rebase: { kind: 'menu', name: 'branch' },
@@ -227,6 +265,7 @@ export function rowActions(
   const gitlab: RowAction[] = [];
   const slack: RowAction[] = [];
   const more: RowAction[] = [];
+  const flock = env.local && own ? flockActions(env.flock) : [];
 
   if (env.local) {
     const reviewItems = reviewMenuItems(
@@ -785,6 +824,7 @@ export function rowActions(
   return [
     ...top,
     ...agent,
+    ...flock,
     ...sessions.filter(a => !a.blocked || !ABSENT.has(a.blocked.trim())),
     ...gitlab,
     ...slack,
@@ -860,6 +900,7 @@ export type BulkSection = 'agent' | 'gitlab' | 'slack';
 export const BULK_SECTION: Record<Section, BulkSection> = {
   top: 'slack',
   agent: 'agent',
+  flock: 'agent',
   sessions: 'agent',
   gitlab: 'gitlab',
   slack: 'slack',
@@ -1033,4 +1074,84 @@ export function bulkActions(
       SECTION_RANK[x.section] - SECTION_RANK[y.section] ||
       bulkRank(x.key) - bulkRank(y.key)
   );
+}
+
+/** A saved command's chosen icon (board.flockCommands' `icon`), the
+    prompt chevron when it names none or one this board doesn't know. */
+function commandGlyph(icon: string | undefined): ActionGlyph {
+  switch (icon) {
+    case 'rt':
+      return { kind: 'rt' };
+    case 'agent':
+      return { kind: 'agent' };
+    case 'cd':
+    case 'folder':
+    case 'branch':
+    case 'play':
+    case 'pulse':
+    case 'shell':
+    case 'refresh':
+    case 'file':
+    case 'note':
+      return { kind: 'menu', name: icon };
+    default:
+      return COMMAND;
+  }
+}
+
+/** The flock section on the seat's own MR: each row opens a focused Flock
+    tab in the MR's worktree. Shell and claude show at once; resume and the
+    saved commands join when `/flock/menu` answers. */
+function flockActions(data: FlockMenuData | undefined): RowAction[] {
+  const creates = data && !data.tree ? 'creates a worktree' : undefined;
+  const rows: RowAction[] = [
+    item(
+      'flock',
+      'flock-shell',
+      'shell',
+      SHELL,
+      { kind: 'flock', action: 'shell' },
+      { hint: creates }
+    ),
+    item(
+      'flock',
+      'flock-claude',
+      'claude',
+      CLAUDE,
+      { kind: 'flock', action: 'claude' },
+      { hint: creates }
+    ),
+  ];
+  if (data?.resume) {
+    const { livePane, worktreeGone } = data.resume;
+    rows.push(
+      item(
+        'flock',
+        'flock-resume',
+        'resume work session',
+        RESUME,
+        { kind: 'flock', action: 'resume' },
+        livePane
+          ? { hint: 'running' }
+          : block(worktreeGone && "the session's worktree is gone")
+      )
+    );
+  }
+  data?.commands.forEach((c, index) =>
+    rows.push(
+      item(
+        'flock',
+        `flock-command-${index}`,
+        c.label,
+        commandGlyph(c.icon),
+        {
+          kind: 'flock',
+          action: 'command',
+          saved: { index, label: c.label, command: c.command },
+        },
+        { hint: creates ?? c.command }
+      )
+    )
+  );
+  return rows;
 }

@@ -188,6 +188,16 @@ const MENU_PATHS = {
   note: 'M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9l7-7V5a2 2 0 0 0-2-2ZM14 21v-5a2 2 0 0 1 2-2h5M7 8h8M7 12h5',
   checks: 'M3 17l2 2 4-4M3 7l2 2 4-4M13 6h8M13 12h8M13 18h8',
   chevron: 'M6 9l6 6 6-6',
+  shell:
+    'm7 11 2-2-2-2M11 13h4M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z',
+  resume:
+    'M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5M12 7v5l4 2',
+  command: 'M4 17l6-6-6-6M12 19h8',
+  cd: 'M15 10l5 5-5 5M4 4v7a4 4 0 0 0 4 4h12',
+  folder:
+    'M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z',
+  play: 'M6 3l14 9-14 9V3Z',
+  pulse: 'M22 12h-4l-3 9L9 3l-3 9H2',
   refresh:
     'M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5',
 } as const;
@@ -199,6 +209,16 @@ export function MenuGlyph({ kind }: { kind: keyof typeof MENU_PATHS }) {
     <svg {...GLYPH} width={13} height={13}>
       <path d={MENU_PATHS[kind]} />
     </svg>
+  );
+}
+
+/** rt's monogram as flock's pane bar draws it: "rt" in a semibold
+    monospace face, in the row's own text colour. */
+export function RtMark() {
+  return (
+    <span className="tui-menu-rt" aria-hidden="true">
+      rt
+    </span>
   );
 }
 

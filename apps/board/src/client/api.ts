@@ -20,6 +20,7 @@ export interface ActionResult {
     reactions?: string[];
     reason?: string;
     synced?: string;
+    provisioned?: boolean;
   } | null;
   text: string;
 }

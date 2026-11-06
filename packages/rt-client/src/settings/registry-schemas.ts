@@ -290,7 +290,15 @@ export const SCHEMAS = {
     }).optional().meta({ title: "Other teams' emoji", description: "Emoji other channels use for the same marks, e.g. mr-approved for approved." }),
   }),
   "board.tabs": z.array(tab).min(1).meta({ uniqueBy: "id" }),
-  "board.workspaces": z.looseObject({ reviews: z.string().optional(), responds: z.string().optional(), doctors: z.string().optional() }),
+  "board.workspaces": z.looseObject({ reviews: z.string().optional(), responds: z.string().optional(), doctors: z.string().optional(), mrs: z.string().optional() }),
+  "board.flockCommands": z.array(z.object({
+    label: z.string().meta({ title: "Label", description: "What the menu row says." }),
+    command: z.string().meta({ title: "Command", description: "Shell command run in the MR's worktree." }),
+    icon: z
+      .enum(["rt", "cd", "folder", "branch", "play", "pulse", "shell", "agent", "refresh", "file", "note"])
+      .optional()
+      .meta({ title: "Icon", description: "The row's icon; a prompt chevron when left out." }),
+  })),
   "board.hiddenMembers": z.array(z.string()),
   "board.turn": z.looseObject({
     author: z.array(z.enum(AUTHOR_SIGNALS)).optional().meta({

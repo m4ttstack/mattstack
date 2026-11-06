@@ -26,6 +26,8 @@ test('an idle own MR: every action, by section, in menu order', () => {
     'agent:respond',
     'agent:rebase-local',
     'agent:request-review',
+    'flock:flock-shell',
+    'flock:flock-claude',
     'sessions:review',
     'gitlab:merge',
     'gitlab:rebase',
@@ -38,6 +40,39 @@ test('an idle own MR: every action, by section, in menu order', () => {
     'more:note',
     'more:stand-down',
   ]);
+});
+
+test('the flock flyout: resume and saved commands join once /flock/menu answers, each with its own glyph', () => {
+  const rows = rowActions(ownIdle, {
+    ...actionEnvOf(ownEnv, ownIdle),
+    flock: {
+      tree: null,
+      resume: { livePane: null, worktreeGone: true },
+      commands: [
+        { label: 'runner', command: 'rt runner', icon: 'rt' },
+        { label: 'tests', command: 'bun run test' },
+      ],
+    },
+  }).filter(a => a.section === 'flock');
+  expect(
+    rows.map(a => [a.label, a.glyph, a.hint ?? a.blocked ?? null])
+  ).toEqual([
+    ['shell', { kind: 'menu', name: 'shell' }, 'creates a worktree'],
+    ['claude', { kind: 'agent' }, 'creates a worktree'],
+    [
+      'resume work session',
+      { kind: 'menu', name: 'resume' },
+      "the session's worktree is gone",
+    ],
+    ['runner', { kind: 'rt' }, 'creates a worktree'],
+    ['tests', { kind: 'menu', name: 'command' }, 'creates a worktree'],
+  ]);
+});
+
+test('a teammate MR offers no flock rows', () => {
+  expect(
+    sections(teammateReviewed, ownEnv).filter(k => k.startsWith('flock:'))
+  ).toEqual([]);
 });
 
 test('an idle own MR blocks what its state cannot run, and hides session rows with nothing to act on', () => {

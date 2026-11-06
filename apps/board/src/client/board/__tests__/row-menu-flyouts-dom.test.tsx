@@ -30,6 +30,7 @@ test('an own MR shows the short top level, flyouts last', async () => {
     '---',
     'request review from…',
     '---',
+    '> flock',
     '> all agent actions',
     '> gitlab',
     '> slack',
