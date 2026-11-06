@@ -246,12 +246,17 @@ function MoreStatuses({
           data-open={open ? 'true' : undefined}
           onMouseDown={e => e.stopPropagation()}
           onClick={e => e.stopPropagation()}
+          onContextMenu={e => e.stopPropagation()}
         >
           +{more.length} more
         </button>
       }
     >
-      <div className="tui-status-more-list" onClick={e => e.stopPropagation()}>
+      <div
+        className="tui-status-more-list"
+        onClick={e => e.stopPropagation()}
+        onContextMenu={e => e.stopPropagation()}
+      >
         {more.map((l, i) => {
           const detail = l.detail ? clauseOf(l.detail) : null;
           return (

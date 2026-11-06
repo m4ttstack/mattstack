@@ -780,7 +780,7 @@ function doctorStatusLine(
           word: "doctor didn't start",
           detail: `queued ${agoMs(d.updatedAt, now)}`,
           verbs: [
-            { kind: 'call-doctor', label: 'call again' },
+            { kind: 'focus', label: 'open pane', domain: 'doctor' },
             { kind: 'dismiss', label: 'dismiss', domain: 'doctor' },
           ],
         };

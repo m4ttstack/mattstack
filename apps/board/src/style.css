@@ -1032,27 +1032,24 @@ body {
   flex-direction: column;
 }
 .tui-status-more-word {
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-2);
 }
 .tui-status-more-detail {
   overflow-wrap: anywhere;
 }
 .tui-status-more-line[data-tone='bad'] .tui-status-more-word {
-  color: var(--text-bad);
+  color: var(--text-bad-small);
 }
 .tui-status-more-line[data-tone='warn'] .tui-status-more-word {
-  color: var(--text-warn-vivid);
+  color: var(--text-warn-small);
 }
 .tui-status-more-line[data-tone='work'] .tui-status-more-word {
-  color: var(--text-purple);
+  color: var(--text-purple-small);
 }
-.tui-status-more-line[data-tone='go'] .tui-status-more-word {
-  color: var(--text-ok-vivid);
-}
-.tui-status-more-line[data-tone='quiet'] .tui-status-more-word,
+.tui-status-more-line[data-tone='go'] .tui-status-more-word,
 .tui-status-more-line[data-tone='clear'] .tui-status-more-word {
-  font-weight: 500;
+  color: var(--text-ok-small);
 }
 /* Centered like the tools, not baseline-aligned: the line's baseline would
    otherwise follow whichever verb is first, and a secondary appearing left

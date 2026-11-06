@@ -1370,9 +1370,19 @@ describe('rowStatus: doctor lane', () => {
       detail: 'queued 11m ago',
     });
     expect(line!.verbs).toEqual([
-      { kind: 'call-doctor', label: 'call again' },
+      { kind: 'focus', label: 'open pane', domain: 'doctor' },
       { kind: 'dismiss', label: 'dismiss', domain: 'doctor' },
     ]);
+  });
+
+  test('a queued doctor row with no timestamp stays a plain queued line', () => {
+    const [line] = candidateLines(
+      mr({ doctor: { status: 'queued' } }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({ tone: 'quiet', word: 'doctor queued' });
   });
 
   test('stuck is bad with call again', () => {
