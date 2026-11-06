@@ -456,12 +456,20 @@ describe("pausedFor", () => {
     expect(pausedFor(ENDED_OK, { events, loginItems: undefined })).toBeNull();
   });
 
-  test("old git puts the tools' Update on the paused screen, since Retry is refused until it is fixed", () => {
+  test("old git puts the reinstall steps on the paused screen, since Retry is refused until it is fixed", () => {
     const update = { type: "install" as const, label: "Update…", tool: "apple-clt", via: "apple-clt" as const };
     const clt = r("tool.clt", "invalid", "Git 2.24.3 is too old; rt needs 2.35 or newer", { action: update });
     const held = r("perm.login-items", "needs-you", "Approve in Login Items", { action: LOGIN_ITEMS_SETTINGS_ACTION });
     const paused = pausedFor({ ...FAILED, failed: { step: "home.init", detail: "error: unknown switch `b'" } }, { events: null, loginItems: held, clt });
-    expect(paused).toMatchObject({ action: update, remedy: "Git 2.24.3 is too old; rt needs 2.35 or newer" });
+    expect(paused?.remedy).toBe("Git 2.24.3 is too old; rt needs 2.35 or newer");
+    expect(paused?.action).toMatchObject({ type: "steps", label: "Show steps…" });
+    expect((paused?.action as { steps: string[] }).steps).toContain("Run: sudo rm -rf /Library/Developer/CommandLineTools");
+  });
+
+  test("missing tools put their Install on the paused screen; ready tools put nothing", () => {
+    const install = { type: "install" as const, label: "Install…", tool: "apple-clt", via: "apple-clt" as const };
+    const missingClt = r("tool.clt", "missing", "Apple's Command Line Tools are not installed", { action: install });
+    expect(pausedFor(FAILED, { events: null, loginItems: undefined, clt: missingClt })?.action).toEqual(install);
     expect(pausedFor(FAILED, { events: null, loginItems: undefined, clt: r("tool.clt", "ready", "git version 2.39.5") })?.action).toBeNull();
   });
 

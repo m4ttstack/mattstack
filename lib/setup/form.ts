@@ -24,7 +24,7 @@ import { composePlan, enrichSnapshotForge } from "./plan.ts";
 import { FAST_BROWSER, readPrepare, type PrepareRecord } from "./prepare-record.ts";
 import type { Probes } from "./probes.ts";
 import { configuredRepoRoots } from "./repo-placement.ts";
-import { detectCandidate, readStagedRepoRoot } from "./repo-root.ts";
+import { checkRepoRoot, detectCandidate, readStagedRepoRoot } from "./repo-root.ts";
 import { readPackRequirements, type ToolRequirement } from "./requirements.ts";
 import { STEP_PHASES } from "./run-phases.ts";
 import { CLI_SESSION_INTEGRATIONS, signInTools } from "./sign-in-tools.ts";
@@ -296,18 +296,12 @@ export function cltRow(i: { cltInstalled: boolean; cltOutdated?: string | null; 
   const base = { id: "tool.clt", title: c.title, subtext: c.subtext, waiting: c.installing, watch: true, optional: false };
   if (i.prepare?.running && i.prepare.items.includes(CLT_TOOL)) return { ...base, state: "busy", detail: c.installing, action: null };
   const failure = i.prepare?.failed.find((f) => f.tool === CLT_TOOL);
-  if (i.cltOutdated) {
-    // softwareupdate may offer nothing for old tools, and the manual reinstall needs sudo, so it rides beside Update as steps.
-    return {
-      ...base,
-      state: "todo",
-      tone: "failed",
-      detail: i.cltOutdated,
-      action: { type: "install", label: c.update, tool: CLT_TOOL, via: "apple-clt" },
-      secondary: { type: "steps", label: c.reinstallSteps, steps: [...CLT_REINSTALL_STEPS] },
-    };
-  }
-  return { ...base, state: "todo", detail: failure?.detail ?? c.notInstalled, action: { type: "install", label: c.install, tool: CLT_TOOL, via: "apple-clt" } };
+  return {
+    ...base,
+    state: "todo",
+    detail: failure?.detail ?? i.cltOutdated ?? c.notInstalled,
+    action: { type: "install", label: i.cltOutdated ? c.update : c.install, tool: CLT_TOOL, via: "apple-clt" },
+  };
 }
 
 export interface InviteInputs {
@@ -813,6 +807,13 @@ function placeRow(r: Row): FormRow {
   return { id: r.id, title: r.title, subtext: place?.board ?? r.why, state: done ? "done" : "todo", detail: r.detail, action: r.action, waiting: null, watch: false, optional: false };
 }
 
+/** `adopts` mirrors adoptSuggestedRepoRoot: a Just me run records the found folder only when it passes the same check as a picked one. */
+function repoRootInputs(p: Probes, intent: SetupIntent | null): ThisMacInputs["repoRoot"] {
+  const candidate = detectCandidate(p);
+  const adopts = intent?.mode === "solo" && candidate !== null && checkRepoRoot(p, candidate).ok;
+  return { configured: configuredRepoRoots(p)[0] ?? null, staged: readStagedRepoRoot(p), candidate, adopts };
+}
+
 function repoRootRow(i: ThisMacInputs): FormRow {
   const c = FORM_COPY.thisMac.repos;
   // The suggestion is the answer until the member picks another; settings.seed records it (adoptSuggestedRepoRoot).
@@ -1109,6 +1110,12 @@ export function pausedFor(
   if (!failed) return null;
   // rt refuses Retry while the Command Line Tools block it, so their fix has to be on this screen too.
   const clt = extras.clt && extras.clt.status !== "ready" && extras.clt.action ? extras.clt : null;
+  // Too old: this screen's button shows no progress or error, and softwareupdate may offer nothing, so it opens the manual steps.
+  const cltAction: Action | null = clt
+    ? clt.status === "invalid"
+      ? { type: "steps", label: FORM_COPY.clt.reinstallSteps, steps: [...CLT_REINSTALL_STEPS] }
+      : clt.action
+    : null;
   return {
     step: failed.step,
     // A record an older rt wrote can name a step this one no longer has.
@@ -1116,7 +1123,7 @@ export function pausedFor(
     detail: failed.detail,
     remedy: clt?.detail ?? failed.remedy ?? null,
     log: stepLog(extras.events, failed.step),
-    action: clt?.action ?? (extras.loginItems?.status === "needs-you" ? extras.loginItems.action : null),
+    action: cltAction ?? (extras.loginItems?.status === "needs-you" ? extras.loginItems.action : null),
   };
 }
 
@@ -1216,7 +1223,7 @@ async function thisMacSection(
     githubReady: github.ready,
     githubStored: github.stored,
     githubClientId: clientId,
-    repoRoot: { configured: configuredRepoRoots(p)[0] ?? null, staged: readStagedRepoRoot(p), candidate: detectCandidate(p), adopts: intent?.mode === "solo" },
+    repoRoot: repoRootInputs(p, intent),
   });
 }
 
