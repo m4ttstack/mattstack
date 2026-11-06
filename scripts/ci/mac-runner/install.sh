@@ -128,11 +128,15 @@ for plist in /Library/LaunchDaemons/dev.mattstack.ci-runner-*.plist; do
   i=${label##*-}
   [ "$i" -gt "$COUNT" ] || continue
   name=mattstack-mac-$i
+  dir=$CI_HOME/$name
   sudo launchctl bootout "system/$label" 2>/dev/null || true
   sudo rm "$plist"
-  id=$(gh api "repos/$REPO/actions/runners" --paginate --jq ".runners[] | select(.name == \"$name\") | .id")
-  [ -z "$id" ] || gh api -X DELETE "repos/$REPO/actions/runners/$id"
-  sudo rm -rf "${CI_HOME:?}/$name"
+  if sudo test -f "$dir/.runner"; then
+    token=$(gh api -X POST "repos/$REPO/actions/runners/remove-token" --jq .token)
+    sudo -u "$CI_USER" -H bash -c "cd '$dir' && ./config.sh remove --token '$token'" ||
+      echo "$name was not registered from this Mac any more; skipped." >&2
+  fi
+  sudo rm -rf "${dir:?}"
 done
 
 rm -f "$TARBALL"
