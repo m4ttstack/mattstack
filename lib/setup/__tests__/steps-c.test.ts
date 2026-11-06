@@ -38,7 +38,7 @@ import {
 import { outcomeFromChecks, settleChecks, verifyStep } from "../steps/verify.ts";
 import { accountRows } from "../validators/accounts.ts";
 import { teamSyncRow } from "../validators/rt-health.ts";
-import { finalizePlan, type Row } from "../contract.ts";
+import { finalizePlan, type Action, type Row } from "../contract.ts";
 import { rowsToChecks } from "../../../commands/verify.ts";
 import { updateNotification } from "../update.ts";
 import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
@@ -2554,6 +2554,15 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           state: "needs-you",
           detail: "To connect: Slack. To install: doppler",
         });
+      });
+
+      test("Claude Code waiting on its Install button reads as needs-you, not a failed check", () => {
+        const install: Action = { type: "install", label: "Install", tool: "claude", via: "vendor" };
+        const rows = [{ ...rowOf("tool.claude", "tool", "Claude Code", "needs-you"), action: install }];
+        expect(outcomeFromChecks([fail("tool.claude")], rows)).toEqual({ state: "needs-you", detail: "To install: Claude Code" });
+
+        const broken = [rowOf("tool.claude", "tool", "Claude Code", "needs-you")];
+        expect(outcomeFromChecks([fail("tool.claude")], broken).state).toBe("failed");
       });
 
       test("settleChecks keeps waiting on tool.daemon while an unconnected account also fails", async () => {

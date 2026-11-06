@@ -13,7 +13,7 @@ import type { Probes } from "./probes.ts";
 import type { PackRequirements, ToolRequirement } from "./requirements.ts";
 import { signInTools } from "./sign-in-tools.ts";
 import { setUpFastBrowser } from "./steps/tools.ts";
-import { CLT_INSTALL_TIMEOUT_MS, installRoute, installTool } from "./tools-install.ts";
+import { CLT_INSTALL_TIMEOUT_MS, installRoute, installTool, vendorBinPath } from "./tools-install.ts";
 import { pidAlive } from "./update-lock.ts";
 
 export { FAST_BROWSER, PREPARE_BUDGET_MS, PREPARE_STAGES, preparePath, readPrepare, type PrepareRecord, type PrepareStage } from "./prepare-record.ts";
@@ -65,7 +65,9 @@ export async function prepareTools(p: Probes, stage: PrepareStage, reqs: PackReq
   }
 
   const items: string[] = [];
-  for (const tool of ["claude", "herdr"]) if (await missingBinary(p, tool)) items.push(tool);
+  // The board runs claude from the vendor path only, so a copy elsewhere on PATH still needs the vendor install.
+  if (!p.exists(vendorBinPath(p.home, "claude"))) items.push("claude");
+  if (await missingBinary(p, "herdr")) items.push("herdr");
 
   const required = (tools: ToolRequirement[]) => tools.filter((t) => !t.optional);
   const team = firstByName([...required(signInTools(reqs)), ...required(reqs.flatMap((r) => r.tools))]);

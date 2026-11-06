@@ -42,6 +42,11 @@ export const VENDOR_INSTALLERS: Record<string, { url: string; shell: "sh" | "bas
 /** The only hosts a hardcoded VENDOR_INSTALLERS entry may point at — closes the door on a future entry (or a typo) silently widening what rt will fetch-and-run. */
 const VENDOR_ALLOWED_HOSTS = new Set(["herdr.dev", "claude.ai", "bun.sh"]);
 
+/** Where a vendor script installs `tool`. The board runs Claude Code from this exact path, since launchd's PATH has no claude on it. */
+export function vendorBinPath(home: string, tool: string): string {
+  return join(home, ".local", "bin", tool);
+}
+
 /** A team-declared `--version`/probe must never hang `rt tools install` forever. */
 const PROBE_TIMEOUT_MS = 5000;
 /** Downloads and vendor installs are slow and network-bound; bounded, never run in tests. */
@@ -199,7 +204,7 @@ export async function installTool(p: Probes, tool: string, reqs: PackRequirement
   const teamTool = reqs.flatMap((r) => r.tools).find((t) => t.name === tool);
 
   const vendor = VENDOR_INSTALLERS[tool];
-  if (vendor) return runVendorInstaller(p, tool, vendor.url, { shell: vendor.shell, verify: [join(p.home, ".local", "bin", tool), "--version"] });
+  if (vendor) return runVendorInstaller(p, tool, vendor.url, { shell: vendor.shell, verify: [vendorBinPath(p.home, tool), "--version"] });
 
   const arch = (seams.hostArch ?? hostArch)();
   const pin = teamPin(reqs, tool, arch);

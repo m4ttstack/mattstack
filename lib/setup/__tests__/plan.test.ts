@@ -177,7 +177,7 @@ describe("composePlan", () => {
     try {
       // canInstall also needs tool.arch and tool.app ready; readyExec/grantedTray alone leave both unmocked, and neither is solo-specific.
       const soloExec: ExecScript = (argv) => (argv[0] === "uname" ? ok("arm64") : readyExec(argv));
-      const p = fakeProbes({ exec: soloExec, tray: grantedTray, dirs: { "/Applications/mattstack.app": [] } });
+      const p = fakeProbes({ exec: soloExec, tray: grantedTray, dirs: { "/Applications/mattstack.app": [] }, files: { "/fake-home/.local/bin/claude": "bin" } });
       writeIntent(p, { v: 1, at: "2026-09-26T00:00:00.000Z", mode: "solo" });
       const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: [] });
       expect(plan.team).toEqual({ slug: "", name: "", mode: "none" });
