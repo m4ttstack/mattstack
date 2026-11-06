@@ -46,8 +46,8 @@ export interface WorktreeSyncDeps {
   line?: (event: { repoName: string; branch: string; line: string }) => void;
 }
 
-const before = (kind: WorktreeSyncData["kind"], path: string | null, refusal: string): WorktreeSyncData =>
-  ({ kind, path, provisioned: false, pushed: false, oldHead: null, newHead: null, refusal });
+const before = (kind: WorktreeSyncData["kind"], path: string | null, refusal: string, log: string[] = []): WorktreeSyncData =>
+  ({ kind, path, provisioned: false, pushed: false, oldHead: null, newHead: null, refusal, log });
 
 // A paused rebase is what the doctor picks up, and after a failed push the
 // rebased commits exist only in this tree.
@@ -65,7 +65,11 @@ export function createWorktreeSyncHandler(deps: WorktreeSyncDeps) {
     const branch = payload?.branch;
     if (typeof repoName !== "string" || !repoName) return { ok: false, error: "repoName is required" };
     if (typeof branch !== "string" || !branch) return { ok: false, error: "branch is required" };
-    const say = deps.line ? (line: string) => deps.line!({ repoName, branch, line }) : undefined;
+    const log: string[] = [];
+    const say = (line: string) => {
+      log.push(line);
+      deps.line?.({ repoName, branch, line });
+    };
 
     // A paused rebase detaches HEAD, so the registry may no longer list the
     // tree under its branch; the caller names it instead.
@@ -81,30 +85,30 @@ export function createWorktreeSyncHandler(deps: WorktreeSyncDeps) {
     const existing = named ?? attached[0]?.path;
     if (existing) {
       path = existing;
-      say?.(`[ok] Syncing in worktree ${attached[0]?.tree ?? basename(existing)}`);
+      say(`[ok] Syncing in worktree ${attached[0]?.tree ?? basename(existing)}`);
     } else {
-      say?.(`[running] Making a worktree for ${branch}`);
+      say(`[running] Making a worktree for ${branch}`);
       const made = await deps.provision({ repoName, branch, disposal: "merge" });
-      if (!made.ok) return { ok: true, data: before("no-tree", null, explainError(made.error)) };
+      if (!made.ok) return { ok: true, data: before("no-tree", null, explainError(made.error), log) };
       path = made.data.path;
       created = made.data.tree;
-      say?.(`[ok] Made worktree ${created}`);
+      say(`[ok] Made worktree ${created}`);
       // Provision cuts a branch it finds nowhere from the default branch,
       // which would read as "already up to date".
       if (made.data.branchState === "new") {
         await deps.dispose({ repoName, tree: created });
-        return { ok: true, data: before("no-tree", null, `${branch} is not on origin or this Mac`) };
+        return { ok: true, data: before("no-tree", null, `${branch} is not on origin or this Mac`, log) };
       }
     }
 
     const r = resumable(await deps.sync(path, say));
     if (created && !KEEPS_TREE.has(r.kind)) {
       await deps.dispose({ repoName, tree: created });
-      say?.(`[ok] Removed worktree ${created}`);
+      say(`[ok] Removed worktree ${created}`);
     }
     return {
       ok: true,
-      data: { kind: r.kind, path, provisioned: created !== null, pushed: r.pushed, oldHead: r.oldHead, newHead: r.newHead, refusal: r.refusal },
+      data: { kind: r.kind, path, provisioned: created !== null, pushed: r.pushed, oldHead: r.oldHead, newHead: r.newHead, refusal: r.refusal, log },
     };
   };
 }

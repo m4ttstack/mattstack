@@ -69,8 +69,10 @@ describe("worktree:sync", () => {
       line: (e) => { expect(e).toMatchObject({ repoName: "r", branch: "feat" }); lines.push(e.line); },
       sync: async (_path, onLine) => { onLine?.("[ok] Fetched from origin"); return synced("synced", { pushed: true }); },
     });
-    await data(run({ repoName: "r", branch: "feat" }));
-    expect(lines).toEqual(["[running] Making a worktree for feat", "[ok] Made worktree new-tree", "[ok] Fetched from origin", "[ok] Removed worktree new-tree"]);
+    const d = await data(run({ repoName: "r", branch: "feat" }));
+    const all = ["[running] Making a worktree for feat", "[ok] Made worktree new-tree", "[ok] Fetched from origin", "[ok] Removed worktree new-tree"];
+    expect(lines).toEqual(all);
+    expect(d.log).toEqual(all);
   });
 
   test("a rebase an earlier sync paused comes back as a conflict", async () => {

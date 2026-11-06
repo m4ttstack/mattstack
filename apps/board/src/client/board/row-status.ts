@@ -78,6 +78,9 @@ export interface Candidate {
   settled?: true;
   /** The author's repair (a rebase, a ci fix), which outranks settled notes. */
   repair?: true;
+  /** A local sync's saved output: the word opens it, and streamed lines
+      join it while the sync runs. */
+  syncLog?: readonly string[];
   verbs: Verb[];
 }
 
@@ -703,6 +706,16 @@ function doctorLine(mr: BoardMRWithReview, now: number): Candidate | null {
   const handoff = inFlight ? null : handoffLine(mr);
   if (handoff) return handoff;
   if (!d || laneDismissed(d)) return null;
+  const line = doctorStatusLine(d, mr, now);
+  // A doctor a sync's conflict launched keeps the sync's output on its word.
+  return line && d.syncLog ? { ...line, syncLog: d.syncLog } : line;
+}
+
+function doctorStatusLine(
+  d: NonNullable<BoardMRWithReview['doctor']>,
+  mr: BoardMRWithReview,
+  now: number
+): Candidate | null {
   switch (d.status) {
     case 'queued':
       return { tone: 'quiet', word: DOCTOR_LABEL[d.status], verbs: [] };
@@ -711,7 +724,17 @@ function doctorLine(mr: BoardMRWithReview, now: number): Candidate | null {
         tone: 'work',
         word: DOCTOR_LABEL[d.status],
         spin: true,
+        syncLog: d.syncLog ?? [],
         verbs: [],
+      };
+    case 'synced':
+      return {
+        tone: 'go',
+        word: DOCTOR_LABEL[d.status],
+        detail: d.message || undefined,
+        settled: true,
+        syncLog: d.syncLog ?? [],
+        verbs: [{ kind: 'dismiss', label: 'dismiss', domain: 'doctor' }],
       };
     case 'diagnosing':
     case 'rebasing':
@@ -755,6 +778,7 @@ function doctorLine(mr: BoardMRWithReview, now: number): Candidate | null {
         tone: 'bad',
         word: DOCTOR_LABEL[d.status],
         detail: d.message || undefined,
+        syncLog: d.syncLog ?? [],
         verbs: [{ kind: 'dismiss', label: 'dismiss', domain: 'doctor' }],
       };
   }

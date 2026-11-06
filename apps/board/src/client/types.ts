@@ -93,7 +93,8 @@ export type DoctorStatus =
   | 'watching'
   | 'done'
   | 'error'
-  | 'sync-stopped';
+  | 'sync-stopped'
+  | 'synced';
 export interface DoctorInfo {
   status: DoctorStatus;
   /** The rt agent running the doctor, matched against a gone pane. */
@@ -109,6 +110,8 @@ export interface DoctorInfo {
   dismissedAt?: number;
   /** The launch resolved no pack and ran the generic skill. */
   noPack?: boolean;
+  /** What the last local sync printed, in rt's plain line form. */
+  syncLog?: string[];
 }
 export interface DraftInfo {
   kind: string;

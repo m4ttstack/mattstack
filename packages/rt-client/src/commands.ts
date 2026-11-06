@@ -789,6 +789,8 @@ export interface WorktreeSyncData {
   oldHead: string | null;
   newHead: string | null;
   refusal: string | null;
+  /** Every line the sync printed, in rt's plain `[status] title  hint` form. */
+  log: string[];
 }
 export interface WorktreeProvisionCheckData {
   /** The branch a provision would check out (`base`, or the first free `base-N`). */

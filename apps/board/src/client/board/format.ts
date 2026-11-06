@@ -100,6 +100,7 @@ const DOCTOR_LABEL: Record<DoctorStatus, string> = {
   done: 'diagnosed',
   error: 'doctor stuck',
   'sync-stopped': 'sync stopped',
+  synced: 'synced',
 };
 
 const DOCTOR_ACTIVE = new Set<DoctorStatus>([

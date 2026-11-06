@@ -208,7 +208,13 @@ import {
   REVIEW_IN_FLIGHT,
 } from './launch-dedup.ts';
 import { launchErrorMessage } from './launch-error.ts';
-import { LOCAL_SYNCS, syncBranchLocally } from './local-sync.ts';
+import {
+  LIVE_SYNC_LOGS,
+  LOCAL_SYNCS,
+  startLiveSync,
+  syncBranchLocally,
+  takeSyncLine,
+} from './local-sync.ts';
 import { hasLocalOrigin, isLocalRequest, requireJsonBody } from './local.ts';
 import {
   doctorSkillTabs,
@@ -1162,7 +1168,7 @@ async function withRowState(mrs: BoardMR[]) {
       readRespondRounds(),
       readRespondOutcomes()
     ),
-    readDoctorStates()
+    withLiveSyncLogs(readDoctorStates())
   );
   runOwners.poke();
   const memory = readMemory();
@@ -3031,6 +3037,7 @@ const httpServer = Bun.serve({
               status: 409,
             });
           LOCAL_SYNCS.add(parsed.mrUrl);
+          const endLive = startLiveSync(parsed.mrUrl, repo, mr.sourceBranch);
           try {
             const priorPaused = existing?.pausedTree;
             writeDoctorState(statePath, {
@@ -3040,19 +3047,23 @@ const httpServer = Bun.serve({
               origin: 'manual',
               boardTabId: boardTabId ?? '',
               ...FRESH_SYNC_ROW,
+              syncLog: [],
             });
             const outcome = await syncBranchLocally(
               repo,
               mr.sourceBranch,
               priorPaused
             );
+            // The reply's log is whole; streamed lines can land after it.
+            const syncLog = outcome.log.length
+              ? outcome.log
+              : (LIVE_SYNC_LOGS.get(parsed.mrUrl) ?? []);
             if (outcome.kind === 'clean') {
-              // The row is settled, so no doctor line stays on it.
               writeDoctorState(statePath, {
-                status: 'done',
+                status: 'synced',
                 message: outcome.message,
-                dismissedAt: Date.now(),
                 pausedTree: null as unknown as undefined,
+                syncLog,
               });
               return Response.json({ ok: true, synced: outcome.message });
             }
@@ -3061,12 +3072,18 @@ const httpServer = Bun.serve({
                 status: 'sync-stopped',
                 message: outcome.message,
                 pausedTree: null as unknown as undefined,
+                syncLog,
               });
-              return new Response(outcome.message, { status: 409 });
+              return Response.json({ ok: true, stopped: outcome.message });
             }
             pausedTree = outcome.tree;
-            writeDoctorState(statePath, { status: 'queued', pausedTree });
+            writeDoctorState(statePath, {
+              status: 'queued',
+              pausedTree,
+              syncLog,
+            });
           } finally {
+            endLive();
             LOCAL_SYNCS.delete(parsed.mrUrl);
           }
         }
@@ -3125,6 +3142,9 @@ const httpServer = Bun.serve({
           fixClasses,
           boardTabId: boardTabId ?? '',
           noPack: !launchPack(boardTabId),
+          ...(parsed.mode === 'rebase'
+            ? {}
+            : { syncLog: null as unknown as undefined }),
         });
         void launchDoctor({
           mrUrl: parsed.mrUrl,
@@ -4771,6 +4791,28 @@ function sseSend(frame: Uint8Array): void {
   }
 }
 
+/** A running sync's lines so far, over whatever the row last saved. */
+function withLiveSyncLogs(
+  doctors: Map<string, DoctorState>
+): Map<string, DoctorState> {
+  for (const [mrUrl, log] of LIVE_SYNC_LOGS) {
+    const row = doctors.get(mrUrl);
+    if (row?.status === 'syncing')
+      doctors.set(mrUrl, { ...row, syncLog: [...log] });
+  }
+  return doctors;
+}
+
+/** A named event, so the page's plain message handler (a full re-pull)
+    never sees it. */
+function sseSyncLine(mrUrl: string, line: string): void {
+  sseSend(
+    sseEncoder.encode(
+      `event: sync-line\ndata: ${JSON.stringify({ mrUrl, line })}\n\n`
+    )
+  );
+}
+
 function sseNudge(): void {
   sseSend(sseEncoder.encode('data: changed\n\n'));
 }
@@ -5394,6 +5436,11 @@ const stopRelay = FIXTURE_DIR
   ? () => {}
   : subscribe((type, data) => {
       tickOnPeerInbox(type, writer, peering.tickNow);
+      if (type === 'worktree:sync-line') {
+        const taken = takeSyncLine(data);
+        if (taken) sseSyncLine(taken.mrUrl, taken.line);
+        return;
+      }
       // The daemon sends mr:status on every socket open, so this is the
       // reconnect signal; it also fires on connection-state changes, which
       // only costs an extra idempotent resync.

@@ -501,3 +501,60 @@ test('a launch-respond verb for one person hands that person to onRespond', asyn
   });
   expect(calls).toEqual(['john']);
 });
+
+test('a sync line opens its output from the word, streaming lines join it while it runs, and clicks inside never reach the row', async () => {
+  const { startSyncLines, pushSyncLine } = await import('../sync-lines.ts');
+  const mr = {
+    ...MR,
+    sourceBranch: 'feat',
+    doctor: { status: 'syncing' },
+  } as unknown as BoardMRWithReview;
+  const rowClicks: string[] = [];
+  const onRow = () => rowClicks.push('row');
+  document.body.addEventListener('click', onRow);
+  startSyncLines(mr.webUrl!);
+  await React.act(async () => {
+    root.render(
+      <div onClick={onRow}>
+        <StatusLine
+          mr={mr}
+          status={{
+            line: {
+              tone: 'work',
+              word: 'syncing…',
+              spin: true,
+              syncLog: [],
+              verbs: [],
+            },
+            more: [],
+            bar: null,
+          }}
+          ctx={ctx()}
+        />
+      </div>
+    );
+  });
+  await React.act(async () => {
+    pushSyncLine(mr.webUrl!, '[ok] Fetched from origin');
+    pushSyncLine(
+      mr.webUrl!,
+      '[running] Rebasing feat onto origin/main  3 commits behind'
+    );
+  });
+  expect(
+    container.querySelector('.tui-status-word-log')?.textContent
+  ).toContain('syncing…');
+  const lines = [...document.querySelectorAll('.tui-synclog-line')];
+  expect(
+    lines.map(l => l.querySelector('.tui-synclog-glyph')?.textContent)
+  ).toEqual(['✓', '●']);
+  expect(lines[1]?.querySelector('.tui-synclog-hint')?.textContent).toBe(
+    '3 commits behind'
+  );
+  rowClicks.length = 0;
+  await React.act(async () => {
+    (lines[0] as HTMLElement).click();
+  });
+  document.body.removeEventListener('click', onRow);
+  expect(rowClicks).toEqual([]);
+});
