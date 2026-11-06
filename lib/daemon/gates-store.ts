@@ -383,11 +383,14 @@ export function createGatesStore(opts: {
   // supersededBy is the new gate's own id, already minted before this runs
   // (open() generates it up front) -- no follow-up query needed to answer
   // "closed by what" for the rejection gate:answer returns on this row.
+  // A parked gate is superseded too: a session resumed off its park (a
+  // question about a review finding) re-raises the gate, and the parked row
+  // must not stay behind as a second live gate.
   const supersedeStmt = db.prepare(
-    "UPDATE gates SET status = 'closed', closedReason = 'superseded', closedAt = ?, supersededBy = ? WHERE subject = ? AND kind = ? AND status = 'open'",
+    "UPDATE gates SET status = 'closed', closedReason = 'superseded', closedAt = ?, supersededBy = ? WHERE subject = ? AND kind = ? AND status IN ('open', 'parked')",
   );
   const findOpenSameKindStmt = db.prepare(
-    "SELECT id FROM gates WHERE subject = ? AND kind = ? AND status = 'open'",
+    "SELECT id FROM gates WHERE subject = ? AND kind = ? AND status IN ('open', 'parked')",
   );
   // CAS guards: each is a single UPDATE gated on current status; a `changes`
   // count of 0 means the row didn't qualify, and the caller re-reads to classify why.
