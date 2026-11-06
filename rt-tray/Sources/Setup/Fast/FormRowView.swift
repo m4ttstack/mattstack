@@ -108,17 +108,24 @@ struct FormRowView: View {
     @State private var settling = false
     private static let settleCap: Duration = .seconds(6)
 
-    /// The row's own work is running: the command, or rt's read of a wait.
-    private var working: Bool { runningRows.contains(row.id) || progressLine != nil }
+    /// The row's own command is running. A wait on the person (a browser tab, Chrome) is drawn as a progress line,
+    /// never as loading: a loading button takes no clicks, and Open again has to.
+    private var working: Bool { runningRows.contains(row.id) }
     private var loading: Bool { working || settling }
-    /// A field row rt holds in `waiting` is waiting on the person's paste, and the runner keeps its wait line until the row
-    /// is done, so only the submit's own verb loads the button; a loading button takes no clicks.
-    private var submitting: Bool { runningRows.contains(row.id) || (settling && row.state != .waiting) }
+    /// A field row rt holds in `waiting` is waiting on the person's paste, so a settle there never loads its button.
+    private var submitting: Bool { working || (settling && row.state != .waiting) }
+    /// A button row rt holds in `waiting` carries what the person has to act on (a sign-in code), so that line takes the
+    /// description's place instead of being dropped by the one-hint rule.
+    private var waitReplacesSubtext: Bool {
+        guard row.state == .waiting, progressLine != nil, let action = row.action else { return false }
+        return !Self.drawsInlineProgress(action)
+    }
 
     var body: some View {
         content
             .onChange(of: working) { was, now in if was && !now { settling = true } }
             .onChange(of: shapeKey) { _, _ in if !working { settling = false } }
+            .onChange(of: error) { _, now in if now != nil { settling = false } }
             .task(id: settling) {
                 guard settling else { return }
                 try? await Task.sleep(for: Self.settleCap)
@@ -263,7 +270,7 @@ struct FormRowView: View {
             // each time a button's label changed width.
             VStack(alignment: .leading, spacing: 6) {
                 controlsLine
-                subtextHint
+                if !waitReplacesSubtext { subtextHint }
             }
         }
         notes
@@ -347,7 +354,7 @@ struct FormRowView: View {
     @ViewBuilder private var notes: some View {
         // One line under a control: a button row with no description of its own shows rt's progress here, while
         // its button says the short working word. Field, folder and segment rows draw theirs inline instead.
-        if let action = row.action, row.subtext.isEmpty, !Self.drawsInlineProgress(action), let line = progressLine {
+        if let action = row.action, row.subtext.isEmpty || waitReplacesSubtext, !Self.drawsInlineProgress(action), let line = progressLine {
             FastHint(line, textWidth: FormRowStyle.hintWidth).hintSpill(style == .labelled)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier(AXID.fastRowWaiting(row.id))

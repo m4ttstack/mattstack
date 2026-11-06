@@ -14,6 +14,7 @@ struct InviteScreenBody: View {
     let waiting: [String: String]
     let errors: [String: String]
     let joinEnabled: Bool
+    var isJoining = false
     let onPaste: () -> Void
     let onAction: FormRowPerform
     let onBack: (() -> Void)?
@@ -45,7 +46,7 @@ struct InviteScreenBody: View {
             .foregroundColor(FastTheme.textTertiary)
         } footer: {
             FastFooter(screen: FastSetupScreen.invite.rawValue, note: nil,
-                       secondary: onBack.map { ("Back", $0) }, primary: ("Join", joinEnabled, onJoin),
+                       secondary: onBack.map { ("Back", $0) }, primary: ("Join", joinEnabled, onJoin), primaryLoading: isJoining, primaryLoadingTitle: "Joining…",
                        insets: ConnectScreenBody.footerInsets, quietSecondary: true)
         }
         .accessibilityElement(children: .contain)

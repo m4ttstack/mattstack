@@ -69,6 +69,7 @@ struct FastSetupView: View {
             .frame(minHeight: SetupWindowController.minHeight)
             .controlSize(.large)
             .environment(\.formRowsRunning, actions.running)
+            .environment(\.fastScreenFailure, status.failures[drawn])
             .sheet(item: $actions.sheet, onDismiss: { Task { await actions.sheetClosed() } }) { sheet in
                 FastSetupSheet(sheet: sheet, actions: actions)
             }
@@ -196,7 +197,7 @@ struct FastSetupView: View {
                          // Join stays grey until rt's invite rows land, so the read shows as still going.
                          isChecking: team.isChecking || (team.hasGoodVerdict && rows == nil),
                          rows: rows, waiting: actions.waiting, errors: actions.errors,
-                         joinEnabled: !joining && FastSetupFlow.joinEnabled(verdictOK: team.hasGoodVerdict, rows: rows),
+                         joinEnabled: FastSetupFlow.joinEnabled(verdictOK: team.hasGoodVerdict, rows: rows), isJoining: joining,
                          onPaste: { team.pasteInvite() }, onAction: perform, onBack: joining ? nil : back, onJoin: handlers.join)
     }
 

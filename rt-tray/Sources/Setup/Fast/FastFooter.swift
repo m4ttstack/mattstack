@@ -14,6 +14,7 @@ struct FastFooter: View {
     /// The screen's own word that its primary's work is running (creating a team, restoring).
     var primaryLoading = false
     var primaryLoadingTitle: String? = nil
+    @Environment(\.fastScreenFailure) private var screenFailure
     var insets: EdgeInsets = FastTheme.footerInsets
     var spacing: CGFloat = FastTheme.footerGap
     /// P4 and P6 draw their Hide outlined: still the primary's id and Return key, in the secondary style.
@@ -55,6 +56,7 @@ struct FastFooter: View {
         }
         .padding(insets)
         .onChange(of: primaryLoading) { _, now in if !now { pressed = false } }
+        .onChange(of: screenFailure) { _, now in if now != nil { pressed = false } }
         .task(id: pressedAt) {
             guard pressed else { return }
             try? await Task.sleep(for: .seconds(Self.pressHold))
@@ -79,5 +81,17 @@ struct FastFooter: View {
             pressedAt = Date()
             primary.2()
         }
+    }
+}
+
+private struct FastScreenFailureKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+extension EnvironmentValues {
+    /// The shown screen's failure: a footer press that fails on the same screen stops loading when it lands.
+    var fastScreenFailure: String? {
+        get { self[FastScreenFailureKey.self] }
+        set { self[FastScreenFailureKey.self] = newValue }
     }
 }
