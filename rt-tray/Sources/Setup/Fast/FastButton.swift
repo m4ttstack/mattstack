@@ -3,7 +3,7 @@ import SwiftUI
 /// The setup kit's button. Every button that starts work takes `isLoading`, so a
 /// press always answers: the label blurs into a shimmering working label, a light
 /// trail runs around the edge, and a primary's glow breathes. While loading it
-/// ignores taps and Return and never shrinks. Disabled still greys out: disabled
+/// ignores taps and Return and hugs its working label. Disabled still greys out: disabled
 /// means "not yet", loading means "on it".
 struct FastButton: View {
     enum Kind {
@@ -25,8 +25,6 @@ struct FastButton: View {
     var loadingTitle: String? = nil
     let action: () -> Void
 
-    @State private var idleWidth: CGFloat = 0
-
     var body: some View {
         Button {
             if !isLoading { action() }
@@ -44,14 +42,9 @@ struct FastButton: View {
         ZStack {
             if isLoading {
                 FastShimmerText(text: loadingTitle ?? title, base: textColor, highlight: shimmerColor)
-                    .frame(minWidth: idleWidth)
                     .transition(.blurReplace)
             } else {
                 idleLabel
-                    .background(GeometryReader { proxy in
-                        Color.clear.onAppear { idleWidth = proxy.size.width }
-                            .onChange(of: proxy.size.width) { _, width in idleWidth = width }
-                    })
                     .transition(.blurReplace)
             }
         }
