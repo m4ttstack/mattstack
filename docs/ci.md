@@ -108,7 +108,7 @@ red night opens one issue, and a later red comments on it.
 
 Matt's PRs and queue runs can use self-hosted runners on his Intel Mac mini
 (2018, 6 cores, 12 threads) instead of GitHub's macOS pool, so a GitHub macOS
-outage does not stop them landing. They never run on his work Mac. Everything else stays on `macos-latest`:
+outage does not stop them landing. Everything else stays on `macos-latest`:
 another author's PR, a queue batch holding one, and the nightly. Only the macOS
 legs run there: `unit-macos`, `deck-macos`, `plugin-herdr-chat`, `e2e-tests`
 and `glitter-pty`. A typecheck takes about three times as long as on Apple
