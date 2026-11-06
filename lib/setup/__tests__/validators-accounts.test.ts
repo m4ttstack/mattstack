@@ -299,7 +299,7 @@ describe("accountRows — account.slack + account.slack-app", () => {
     expect(app.required).toBe(true);
     expect(app.optionalNote).toBeNull();
     expect(app.status).toBe("missing");
-    expect(app.action).toEqual({ type: "owner-once", label: "Create the team's Slack app…", integration: "slack", fields: [{ name: "configToken", label: "App configuration token", secret: true }] });
+    expect(app.action).toEqual({ type: "owner-once", label: "Create app", integration: "slack", fields: [{ name: "configToken", label: "App configuration token", secret: true }] });
   });
 
   test("no intent -> owner-once row present but required:false with an optionalNote naming the owner path (R-T9-a)", async () => {

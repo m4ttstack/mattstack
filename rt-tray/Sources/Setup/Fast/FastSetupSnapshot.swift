@@ -850,8 +850,8 @@ enum FastSetupSnapshot {
                                           action: RowAction(type: .run, label: "Sign in to Claude", verb: ["setup", "claude", "connect"]), watch: true)
         static let claudePasteCode = FormRow(id: "claude", title: "Claude", subtext: "You know, to do agentic stuff.", state: .waiting,
                                              detail: "Finish signing in in your browser",
-                                             action: RowAction(type: .form, label: "Paste code", fields: [
-                                                 ActionField(name: "code", label: "Code from your browser", secret: true),
+                                             action: RowAction(type: .form, label: "Sign in", fields: [
+                                                 ActionField(name: "code", label: "Paste the code from your browser", secret: true),
                                              ], verb: ["setup", "claude", "code"]), watch: true)
         static let claudeDone = FormRow(id: "claude", title: "Claude", subtext: "You know, to do agentic stuff.", state: .done,
                                         detail: "Claude Code 2.1.0, signed in", watch: true)
@@ -1003,8 +1003,8 @@ enum FastSetupSnapshot {
                                               detail: "Installing…", watch: true)
         static let claudeCode = FormRow(id: "claude", title: "Claude", subtext: "You know, to do agentic stuff.", state: .waiting,
                                         detail: "Finish signing in in your browser",
-                                        action: RowAction(type: .form, label: "Paste code", fields: [
-                                            ActionField(name: "code", label: "Code from your browser", secret: true),
+                                        action: RowAction(type: .form, label: "Sign in", fields: [
+                                            ActionField(name: "code", label: "Paste the code from your browser", secret: true),
                                         ], verb: ["setup", "claude", "code"]), watch: true)
         static let doppler = FormRow(id: "signin.doppler", title: "Doppler", subtext: "For running your dev servers", state: .waiting,
                                      detail: "Your code is WXYZ-1234. Confirm it in your browser",

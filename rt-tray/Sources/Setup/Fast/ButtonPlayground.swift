@@ -56,7 +56,7 @@ enum ButtonPlayground {
         var body: some View {
             VStack(alignment: .leading, spacing: 20) {
                 FastScreenHeader(title: "Buttons", subtitle: "Click any button. It loads for three seconds.")
-                Toggle("Hold every button loading", isOn: $holdAll).toggleStyle(.switch).foregroundColor(FastTheme.textSecondary)
+                Toggle("Hold every button loading", isOn: $holdAll).toggleStyle(.switch).controlSize(.mini).foregroundColor(FastTheme.textSecondary)
                 row("Primary") {
                     button("continue", "Continue", loadingTitle: "Checking…")
                     button("finish", "Finish setup", loadingTitle: "Finishing…")

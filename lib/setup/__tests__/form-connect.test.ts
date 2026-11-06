@@ -239,12 +239,12 @@ describe("connectRows", () => {
     expect(todo.waiting).toBe("Installing…");
   });
 
-  test("Claude with a live sign-in waits and offers Paste code", () => {
+  test("Claude with a live sign-in waits and offers Sign in", () => {
     const signedOut = swap(joinerRows(), r("tool.claude", "needs-you", "Not signed in yet", { required: false, action: CLAUDE_SIGNIN }));
     const claude = pick(connectRows(inputs({ plan: plan(signedOut), logins: { claude: session("claude", { prompt: true }) } })), "claude");
     expect(claude.state).toBe("waiting");
     expect(claude.detail).toBe("Finish signing in in your browser");
-    expect(claude.action).toEqual({ type: "form", label: "Paste code", verb: ["setup", "claude", "code"], fields: [{ name: "code", label: "Code from your browser", secret: true }] });
+    expect(claude.action).toEqual({ type: "form", label: "Sign in", verb: ["setup", "claude", "code"], fields: [{ name: "code", label: "Paste the code from your browser", secret: true }] });
     expect(claude.watch).toBe(true);
   });
 
@@ -393,7 +393,7 @@ describe("connectRows", () => {
 
   test("a creator sees the Slack app row before Slack", () => {
     const appRow = r("account.slack-app", "missing", "The team has no Slack app yet", {
-      action: { type: "owner-once", label: "Create the team's Slack app…", integration: "slack", fields: [{ name: "configToken", label: "App configuration token", secret: true }] },
+      action: { type: "owner-once", label: "Create app", integration: "slack", fields: [{ name: "configToken", label: "App configuration token", secret: true }] },
     });
     const waitingSlack = r("account.slack", "missing", "Waiting for the team's Slack app to be set up");
     const rows = swap(swap(joinerRows(), waitingSlack), appRow);
