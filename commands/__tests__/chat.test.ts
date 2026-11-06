@@ -621,7 +621,7 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
 
       // The pane's OWN later commands (its CLAUDE_CODE_SESSION_ID is the
       // uuid the daemon resolved) must resolve position 0 to that handle,
-      // not fall through resolveBaseHandle's cwd/pane fallbacks.
+      // not fall through baseHandleOrNull's cwd/pane fallbacks.
       process.env.CLAUDE_CODE_SESSION_ID = uuid;
       await runChat(["join", "r"]);
       expect(await runChat(["who", "r"])).toContain(handle);
@@ -1244,6 +1244,10 @@ describe("a caller rt has no name for", () => {
 
       const plain = await runChatRaw(["rooms"]);
       expect(plain).toMatchObject({ code: 0, stdout: "(not a member of any room)", stderr: "" });
+
+      const unsignedSession = await runChatRaw(["rooms", "--session", "never-signed-in", "--json"]);
+      expect(unsignedSession).toMatchObject({ code: 0, stderr: "" });
+      expect(JSON.parse(unsignedSession.stdout)).toEqual({ ok: true, rooms: [] });
       expect(seen).toEqual([]);
     } finally {
       cwd.mockRestore();
@@ -1255,21 +1259,17 @@ describe("a caller rt has no name for", () => {
     const cwd = atRoot();
     try {
       seen = [];
-      const json = await runChatRaw(["who", "lobby", "--json"]);
-      expect(json.code).toBe(0);
-      expect(JSON.parse(json.stdout).rooms[0].members.map((m: { handle: string }) => m.handle)).toEqual(["scout"]);
-
       const plain = await runChatRaw(["who", "lobby"]);
       expect(plain.code).toBe(0);
       expect(plain.stdout).toContain("#lobby");
       expect(plain.stdout).toContain("scout");
-      expect(seen.map((s) => s.cmd)).toEqual(["chat:who", "chat:who"]);
+      expect(seen.map((s) => s.cmd)).toEqual(["chat:who"]);
     } finally {
       cwd.mockRestore();
     }
   });
 
-  test("a write is refused, so no identity called x can appear", async () => {
+  test("a write, or a read that moves the cursor, is refused, so no identity called x can appear", async () => {
     const cwd = atRoot();
     try {
       for (const argv of [["join", "lobby"], ["post", "lobby", "hello"], ["read", "lobby"]]) {

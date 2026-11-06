@@ -241,9 +241,9 @@ export function unwrap<T>(res: RtResponse<T>, label: string): T {
 // chain below BEFORE any session file exists — see baseHandleOrNull. A
 // directory with no usable name (the filesystem root) ends the chain with a
 // refusal rather than falling on to <user>-<host>: chat has no anonymous
-// identity, and a shared stand-in name would read as one real agent. The
-// read verbs (`rooms`, `who`) take no refusal there: they answer as for a
-// caller in no room (see readerHandle).
+// identity, and a shared stand-in name would read as one real agent.
+// `rooms` and `who` take no refusal there and answer as for a caller in no
+// room (see readerHandle); `read` still refuses, since it moves the cursor.
 //
 // Sign-in itself stops after --as and draws a first name from
 // lib/chat-names.ts instead (see resolveSignInRequest): the pane title
@@ -540,7 +540,8 @@ function roomHeading(r: RoomSummary): string {
  * A room→heading lookup for `handle`'s own rooms, for verbs (`read`, `who`)
  * whose own response carries a bare room key with no participant pair.
  * Falls back to `#room` for any room `chat:rooms` doesn't return — the
- * daemon is unreachable, or `handle` isn't actually a member.
+ * daemon is unreachable, `handle` isn't actually a member, or there is no
+ * handle at all.
  */
 async function dmHeadingsFor(handle: string | null): Promise<(room: string) => string> {
   const byRoom = new Map<string, string>();
