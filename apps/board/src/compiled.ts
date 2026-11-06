@@ -2,7 +2,7 @@
 // build:bundle`) and the standalone binary (`bun run build`). The dev form
 // stays `bun run src/server.ts`; this wrapper exists because neither
 // distributed form has a source tree, so the client bundle must be embedded
-// at build time (the text imports below — scripts/build-client.ts writes them
+// at build time (the text imports below; scripts/build-client.ts writes them
 // first) and handed to the server before it boots.
 import { readFileSync } from 'fs';
 import { resolve } from 'path';

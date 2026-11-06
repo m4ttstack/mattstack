@@ -239,7 +239,7 @@ bundle_helpers() {
         # A tree row's Helpers/<name> is a small launcher that runs
         # Helpers/<name>-app/main.js on Helpers/bun (scripts/build-apps.ts).
         if [ "$source" = tree ]; then
-            [ -f "$DEPS_DIR/$name-app/main.js" ] || { echo "  ✗ $name-app/main.js missing in $DEPS_DIR — run $FETCH_HINT"; exit 1; }
+            [ -f "$DEPS_DIR/$name-app/main.js" ] || { echo "  ✗ $name-app/main.js missing in $DEPS_DIR; run $FETCH_HINT"; exit 1; }
             rm -rf "$CONTENTS/Helpers/$name-app"
             cp -R "$DEPS_DIR/$name-app" "$CONTENTS/Helpers/$name-app"
             xattr -cr "$CONTENTS/Helpers/$name-app" 2>/dev/null || true
