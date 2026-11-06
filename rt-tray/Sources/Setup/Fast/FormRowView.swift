@@ -324,6 +324,12 @@ struct FormRowView: View {
 
     /// rt's reason on a todo row, then the app's refusal, each a hint line under the control.
     @ViewBuilder private var notes: some View {
+        // The button carries a short working word; rt's whole progress line goes here.
+        if row.action != nil, let line = progressLine {
+            FastHint(line, textWidth: FormRowStyle.hintWidth).hintSpill(style == .labelled)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier(AXID.fastRowWaiting(row.id))
+        }
         if let reason {
             FastHint(reason, textWidth: FormRowStyle.hintWidth).hintSpill(style == .labelled)
                 .accessibilityElement(children: .combine)
@@ -407,10 +413,10 @@ struct FormRowView: View {
             Group {
                 switch (style, quiet) {
                 case (.tile, false):
-                    FastButton(title: label, size: .small, isLoading: loading, loadingTitle: progressLine) { onAction(row, nil, nil) }
+                    FastButton(title: label, size: .small, isLoading: loading, loadingTitle: Self.workingLabel(label)) { onAction(row, nil, nil) }
                 case (.labelled, false), (.stacked, false):
                     FastButton(title: label, glyph: rowGlyph, kind: .outline, size: .small, isLoading: loading,
-                               loadingTitle: progressLine) { onAction(row, nil, nil) }
+                               loadingTitle: Self.workingLabel(label)) { onAction(row, nil, nil) }
                 case (_, true):
                     FastButton(title: label, kind: .secondary(), size: .small) { onAction(row, nil, nil) }
                 }
@@ -418,6 +424,19 @@ struct FormRowView: View {
             .fixedSize()
             .accessibilityIdentifier(AXID.fastRowAction(row.id))
         }
+    }
+
+    /// A button's short word while it works, from its own first word: "Install" reads "Installing…".
+    /// A label it does not know keeps its own words.
+    static func workingLabel(_ label: String) -> String {
+        let first = label.split(separator: " ").first.map(String.init)?.lowercased() ?? ""
+        let words: [String: String] = [
+            "install": "Installing…", "connect": "Connecting…", "sign": "Signing in…", "allow": "Waiting…",
+            "retry": "Retrying…", "trust": "Trusting…", "update": "Updating…", "add": "Adding…",
+            "open": "Opening…", "re-check": "Checking…", "check": "Checking…", "set": "Setting up…",
+            "fix": "Fixing…", "turn": "Turning on…", "create": "Creating…", "reconnect": "Connecting…",
+        ]
+        return words[first] ?? label
     }
 
     private var rowGlyph: AnyView? {
