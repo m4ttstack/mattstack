@@ -17,6 +17,7 @@ import {
   launchRespond,
   launchReview,
   mrTabLabel,
+  mrTabOpen,
   operatorNoteParagraph,
   parseLaunchNote,
   parseTabCreate,
@@ -67,6 +68,36 @@ const WS_CREATE = JSON.stringify({
     tab: { tab_id: 'w41:t1' },
     root_pane: { pane_id: 'w41:p1' },
   },
+});
+
+describe('mrTabOpen', () => {
+  const runnerWith =
+    (tabs: string): HerdrRunner =>
+    async args =>
+      args[0] === 'workspace' ? WS_LIST : tabs;
+
+  test('finds the MR tab in the workspace, markers and author included', async () => {
+    expect(
+      await mrTabOpen('reviews', 4821, runnerWith(TAB_LIST_WITH_DUP))
+    ).toBe(true);
+  });
+
+  test("another MR's tab whose iid only starts the same is not a match", async () => {
+    expect(await mrTabOpen('reviews', 482, runnerWith(TAB_LIST_WITH_DUP))).toBe(
+      false
+    );
+  });
+
+  test('a missing workspace or an unreachable herdr reads as no tab', async () => {
+    expect(
+      await mrTabOpen('doctors', 4821, runnerWith(TAB_LIST_WITH_DUP))
+    ).toBe(false);
+    expect(
+      await mrTabOpen('reviews', 4821, async () => {
+        throw new Error('herdr is not running');
+      })
+    ).toBe(false);
+  });
 });
 
 describe('parsers', () => {
