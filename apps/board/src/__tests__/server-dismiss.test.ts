@@ -5,11 +5,12 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { afterAll, expect, test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
 import { readDoctorStates, writeDoctorState } from '../doctor-state.ts';
 import { mintHandle } from '../state/agent-states.ts';
 import { openStateDb } from '../state/db.ts';
+import { bootBoardServer } from './board-server.ts';
 
 const fakeHome = mkdtempSync(join(tmpdir(), 'board-dismiss-'));
 
@@ -44,42 +45,20 @@ writeDoctorState(
   db
 );
 
-const PORT = 47961;
-const proc = Bun.spawn(
-  ['bun', 'run', join(import.meta.dir, '..', 'server.ts')],
-  {
-    env: {
-      ...process.env,
-      HOME: fakeHome,
-      BOARD_APP_ROOT: fakeHome,
-      BOARD_STATE_DB: dbPath,
-      PORT: String(PORT),
-      GITLAB_TOKEN: '',
-      SLACK_TOKEN: '',
-      SWITCHBOARD_TOKEN: '',
-      SWITCHBOARD_ADMIN_TOKEN: '',
-    },
-    stdout: 'pipe',
-    stderr: 'pipe',
-  }
-);
-
-afterAll(() => proc.kill());
-
-async function ready(): Promise<void> {
-  for (let i = 0; i < 100; i++) {
-    try {
-      if ((await fetch(`http://127.0.0.1:${PORT}/healthz`)).ok) return;
-    } catch {
-      // server not listening yet
-    }
-    await new Promise(r => setTimeout(r, 100));
-  }
-  throw new Error('server never came up');
-}
+const board = bootBoardServer({
+  env: {
+    HOME: fakeHome,
+    BOARD_APP_ROOT: fakeHome,
+    BOARD_STATE_DB: dbPath,
+    GITLAB_TOKEN: '',
+    SLACK_TOKEN: '',
+    SWITCHBOARD_TOKEN: '',
+    SWITCHBOARD_ADMIN_TOKEN: '',
+  },
+});
 
 function dismiss(body: unknown): Promise<Response> {
-  return fetch(`http://127.0.0.1:${PORT}/dismiss`, {
+  return fetch(`${board.origin}/dismiss`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -87,7 +66,6 @@ function dismiss(body: unknown): Promise<Response> {
 }
 
 test('stamps the lane dismissed, keeping its status and message', async () => {
-  await ready();
   const res = await dismiss({ mrUrl: MR, lane: 'doctor' });
   expect(res.status).toBe(200);
   const body = (await res.json()) as { ok: boolean; dismissedAt: number };
@@ -103,8 +81,7 @@ test('stamps the lane dismissed, keeping its status and message', async () => {
 }, 15_000);
 
 test('is POST-only and validates the lane and the MR', async () => {
-  await ready();
-  expect((await fetch(`http://127.0.0.1:${PORT}/dismiss`)).status).toBe(405);
+  expect((await fetch(`${board.origin}/dismiss`)).status).toBe(405);
   expect((await dismiss({ mrUrl: MR, lane: 'gitlab' })).status).toBe(400);
   expect((await dismiss({ lane: 'doctor' })).status).toBe(400);
   expect((await dismiss({ mrUrl: `${MR}00`, lane: 'doctor' })).status).toBe(

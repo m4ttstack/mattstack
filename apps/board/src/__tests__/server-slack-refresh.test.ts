@@ -4,6 +4,7 @@ import { join } from 'path';
 import { afterAll, expect, test } from 'bun:test';
 
 import { dbPathForRoot, openStateDb } from '../state/index.ts';
+import { bootBoardServer } from './board-server.ts';
 
 // Proves POST /slack/refresh runs a FORCED sweep: a `notfound` ref checked a
 // moment ago (which the periodic sweep would leave alone until its retry
@@ -159,65 +160,34 @@ const rtDaemon = Bun.serve({
   },
 });
 
-const PORT = 47947;
-const proc = Bun.spawn(
-  [
-    'bun',
-    'run',
-    '--preload',
-    join(import.meta.dir, 'slack-api-mock-preload.ts'),
-    join(import.meta.dir, '..', 'server.ts'),
-  ],
-  {
-    env: {
-      ...process.env,
-      HOME: fakeHome,
-      BOARD_APP_ROOT: fakeHome,
-      PORT: String(PORT),
-      GITLAB_TOKEN: '',
-      SLACK_TOKEN: 'fake-slack-token',
-      SWITCHBOARD_TOKEN: '',
-      SWITCHBOARD_ADMIN_TOKEN: '',
-      SLACK_MOCK_MR_URL: mrUrl,
-    },
-    stdout: 'pipe',
-    stderr: 'pipe',
-  }
-);
-
-afterAll(() => {
-  proc.kill();
-  rtDaemon.stop(true);
+const board = bootBoardServer({
+  preload: join(import.meta.dir, 'slack-api-mock-preload.ts'),
+  env: {
+    HOME: fakeHome,
+    BOARD_APP_ROOT: fakeHome,
+    GITLAB_TOKEN: '',
+    SLACK_TOKEN: 'fake-slack-token',
+    SWITCHBOARD_TOKEN: '',
+    SWITCHBOARD_ADMIN_TOKEN: '',
+    SLACK_MOCK_MR_URL: mrUrl,
+  },
 });
 
-async function ready(): Promise<void> {
-  for (let i = 0; i < 100; i++) {
-    try {
-      if ((await fetch(`http://127.0.0.1:${PORT}/healthz`)).ok) return;
-    } catch {
-      // server not listening yet
-    }
-    await new Promise(r => setTimeout(r, 100));
-  }
-  throw new Error('server never came up');
-}
+afterAll(() => rtDaemon.stop(true));
 
 async function slackStatus(): Promise<
   { status?: string; posted?: boolean } | undefined
 > {
-  const data = (await (
-    await fetch(`http://127.0.0.1:${PORT}/data.json`)
-  ).json()) as {
+  const data = (await (await fetch(`${board.origin}/data.json`)).json()) as {
     mrs: Array<{ webUrl: string; slack?: { status: string; posted: boolean } }>;
   };
   return data.mrs.find(m => m.webUrl === mrUrl)?.slack;
 }
 
 test('/slack/refresh re-resolves a fresh notfound ref the periodic sweep would skip', async () => {
-  await ready();
   expect((await slackStatus())?.status).toBe('notfound');
 
-  const res = await fetch(`http://127.0.0.1:${PORT}/slack/refresh`, {
+  const res = await fetch(`${board.origin}/slack/refresh`, {
     method: 'POST',
   });
   expect(res.status).toBe(200);
@@ -229,8 +199,5 @@ test('/slack/refresh re-resolves a fresh notfound ref the periodic sweep would s
 }, 15_000);
 
 test('/slack/refresh is POST-only', async () => {
-  await ready();
-  expect((await fetch(`http://127.0.0.1:${PORT}/slack/refresh`)).status).toBe(
-    405
-  );
+  expect((await fetch(`${board.origin}/slack/refresh`)).status).toBe(405);
 }, 15_000);

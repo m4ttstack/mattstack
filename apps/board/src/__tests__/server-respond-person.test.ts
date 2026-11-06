@@ -14,6 +14,7 @@ import {
 } from '../respond-state.ts';
 import { openStateDb } from '../state/db.ts';
 import { readMemory, writeMemory } from '../triage/memory-store.ts';
+import { bootBoardServer } from './board-server.ts';
 
 const ALICE = { id: 'gitlab:1', username: 'alice', name: 'Alice' };
 
@@ -122,7 +123,6 @@ const DISCUSSIONS: Record<number, unknown[]> = {
   ],
 };
 
-const PORT = 47969;
 const home = mkdtempSync(join(tmpdir(), 'board-respond-person-'));
 const gitlab = Bun.serve({
   port: 0,
@@ -259,56 +259,26 @@ const daemon = Bun.serve({
   },
 });
 
-const { HERDR_SOCKET_PATH: _socket, ...childEnv } = process.env;
-const proc = Bun.spawn(
-  [
-    'bun',
-    'run',
-    '--preload',
-    join(import.meta.dir, 'slack-api-mock-preload.ts'),
-    join(import.meta.dir, '..', 'server.ts'),
-  ],
-  {
-    env: {
-      ...childEnv,
-      // A focus must never reach a live herdr: the binary is missing and the
-      // socket is not inherited.
-      HERDR_BIN: join(home, 'no-such-herdr'),
-      HOME: home,
-      BOARD_APP_ROOT: home,
-      BOARD_STATE_DB: dbPath,
-      PORT: String(PORT),
-      GITLAB_TOKEN: 'fake-gitlab-token',
-      SLACK_TOKEN: 'fake-slack-token',
-      SWITCHBOARD_TOKEN: '',
-      SWITCHBOARD_ADMIN_TOKEN: '',
-    },
-    stdout: 'pipe',
-    stderr: 'pipe',
-  }
-);
+const board = bootBoardServer({
+  preload: join(import.meta.dir, 'slack-api-mock-preload.ts'),
+  env: {
+    HOME: home,
+    BOARD_APP_ROOT: home,
+    BOARD_STATE_DB: dbPath,
+    GITLAB_TOKEN: 'fake-gitlab-token',
+    SLACK_TOKEN: 'fake-slack-token',
+    SWITCHBOARD_TOKEN: '',
+    SWITCHBOARD_ADMIN_TOKEN: '',
+  },
+});
 
 afterAll(() => {
-  proc.kill();
   daemon.stop(true);
   gitlab.stop(true);
 });
 
-async function ready(): Promise<void> {
-  for (let i = 0; i < 100; i++) {
-    try {
-      if ((await fetch(`http://127.0.0.1:${PORT}/healthz`)).ok) return;
-    } catch {
-      // server not listening yet
-    }
-    await new Promise(r => setTimeout(r, 100));
-  }
-  throw new Error('server never came up');
-}
-
 async function post(body: unknown): Promise<Response> {
-  await ready();
-  return fetch(`http://127.0.0.1:${PORT}/respond`, {
+  return fetch(`${board.origin}/respond`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),

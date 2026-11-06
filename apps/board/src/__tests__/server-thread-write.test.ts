@@ -8,6 +8,8 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterAll, expect, test } from 'bun:test';
 
+import { bootBoardServer } from './board-server.ts';
+
 const fakeHome = mkdtempSync(join(tmpdir(), 'board-thread-write-'));
 
 const teamDir = join(
@@ -108,44 +110,21 @@ const rtDaemon = Bun.serve({
   },
 });
 
-const PORT = 47964;
-const proc = Bun.spawn(
-  ['bun', 'run', join(import.meta.dir, '..', 'server.ts')],
-  {
-    env: {
-      ...process.env,
-      HOME: fakeHome,
-      BOARD_APP_ROOT: fakeHome,
-      PORT: String(PORT),
-      GITLAB_TOKEN: '',
-      SLACK_TOKEN: '',
-      SWITCHBOARD_TOKEN: '',
-      SWITCHBOARD_ADMIN_TOKEN: '',
-    },
-    stdout: 'pipe',
-    stderr: 'pipe',
-  }
-);
-
-afterAll(() => {
-  proc.kill();
-  rtDaemon.stop(true);
+const board = bootBoardServer({
+  env: {
+    HOME: fakeHome,
+    BOARD_APP_ROOT: fakeHome,
+    GITLAB_TOKEN: '',
+    SLACK_TOKEN: '',
+    SWITCHBOARD_TOKEN: '',
+    SWITCHBOARD_ADMIN_TOKEN: '',
+  },
 });
 
-async function ready(): Promise<void> {
-  for (let i = 0; i < 100; i++) {
-    try {
-      if ((await fetch(`http://127.0.0.1:${PORT}/healthz`)).ok) return;
-    } catch {
-      // server not listening yet
-    }
-    await new Promise(r => setTimeout(r, 100));
-  }
-  throw new Error('server never came up');
-}
+afterAll(() => rtDaemon.stop(true));
 
 function post(path: string, body: unknown): Promise<Response> {
-  return fetch(`http://127.0.0.1:${PORT}${path}`, {
+  return fetch(`${board.origin}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -155,7 +134,6 @@ function post(path: string, body: unknown): Promise<Response> {
 const target = { repo: REPO, iid: 7, discussionId: 'abc123', author: 'alice' };
 
 test('a reply reaches the daemon under the repo identity and answers with the refreshed threads', async () => {
-  await ready();
   const res = await post('/discussions/reply', { ...target, body: 'done' });
   expect(res.status).toBe(200);
   expect(seen.find(s => s.cmd === 'discussions:reply')?.body).toEqual({
@@ -176,7 +154,6 @@ test('a reply reaches the daemon under the repo identity and answers with the re
 }, 15_000);
 
 test('an unresolve reaches the daemon as resolved: false', async () => {
-  await ready();
   const res = await post('/discussions/resolve', {
     ...target,
     resolved: false,
@@ -191,7 +168,6 @@ test('an unresolve reaches the daemon as resolved: false', async () => {
 }, 15_000);
 
 test("a daemon refusal is a 502 carrying the daemon's error", async () => {
-  await ready();
   outcome = 'fail';
   try {
     const res = await post('/discussions/resolve', {
@@ -206,9 +182,8 @@ test("a daemon refusal is a 502 carrying the daemon's error", async () => {
 }, 15_000);
 
 test('both routes are POST-only and refuse a malformed body or an unknown repo', async () => {
-  await ready();
   for (const path of ['/discussions/reply', '/discussions/resolve']) {
-    expect((await fetch(`http://127.0.0.1:${PORT}${path}`)).status).toBe(405);
+    expect((await fetch(`${board.origin}${path}`)).status).toBe(405);
     expect((await post(path, { iid: 7 })).status).toBe(400);
   }
   expect(
@@ -226,7 +201,6 @@ test('both routes are POST-only and refuse a malformed body or an unknown repo',
 }, 15_000);
 
 test('resolving a thread someone else started is refused before the daemon hears of it', async () => {
-  await ready();
   seen.length = 0;
   const res = await post('/discussions/resolve', {
     ...target,
@@ -239,7 +213,6 @@ test('resolving a thread someone else started is refused before the daemon hears
 }, 15_000);
 
 test('a reply to a thread someone else started still goes through', async () => {
-  await ready();
   const res = await post('/discussions/reply', {
     ...target,
     discussionId: 'def456',
@@ -249,7 +222,6 @@ test('a reply to a thread someone else started still goes through', async () => 
 }, 15_000);
 
 test('resolving a thread the MR does not have is a 404', async () => {
-  await ready();
   const res = await post('/discussions/resolve', {
     ...target,
     discussionId: 'nope',

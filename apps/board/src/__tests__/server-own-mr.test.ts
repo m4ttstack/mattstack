@@ -17,6 +17,7 @@ import { readDoctorStates } from '../doctor-state.ts';
 import { readDrafts, writeDraft } from '../draft-state.ts';
 import { openStateDb } from '../state/db.ts';
 import { readMemory, writeMemory } from '../triage/memory-store.ts';
+import { bootBoardServer } from './board-server.ts';
 
 type Seen = Array<{ cmd: string; body: unknown }>;
 
@@ -145,7 +146,6 @@ function gateRow(host: string, id: string, kind: string, iid: number) {
 
 function boot(
   name: string,
-  port: number,
   seat: string | null,
   tokenUser: string = seat ?? 'alice',
   doctorSkill?: string
@@ -283,52 +283,39 @@ function boot(
     },
   });
 
-  const proc = Bun.spawn(
-    [
-      'bun',
-      'run',
-      '--preload',
-      join(import.meta.dir, 'slack-api-mock-preload.ts'),
-      join(import.meta.dir, '..', 'server.ts'),
-    ],
-    {
-      env: {
-        ...process.env,
-        HOME: home,
-        CLAUDE_BIN: join(home, 'no-claude-here'),
-        BOARD_APP_ROOT: home,
-        BOARD_STATE_DB: dbPath,
-        PORT: String(port),
-        GITLAB_TOKEN: 'fake-gitlab-token',
-        SLACK_TOKEN: 'fake-slack-token',
-        SWITCHBOARD_TOKEN: '',
-        SWITCHBOARD_ADMIN_TOKEN: '',
-      },
-      stdout: 'pipe',
-      stderr: 'pipe',
-    }
-  );
+  const server = bootBoardServer({
+    preload: join(import.meta.dir, 'slack-api-mock-preload.ts'),
+    env: {
+      HOME: home,
+      CLAUDE_BIN: join(home, 'no-claude-here'),
+      BOARD_APP_ROOT: home,
+      BOARD_STATE_DB: dbPath,
+      GITLAB_TOKEN: 'fake-gitlab-token',
+      SLACK_TOKEN: 'fake-slack-token',
+      SWITCHBOARD_TOKEN: '',
+      SWITCHBOARD_ADMIN_TOKEN: '',
+    },
+  });
   return {
-    port,
+    port: server.port,
     url: iid => `${host}/g/p/-/merge_requests/${iid}`,
     repo: `127.0.0.1:${gitlab.port}/g/p`,
     db,
     gitlabSeen,
     daemonSeen,
     stop: () => {
-      proc.kill();
       daemon.stop(true);
       gitlab.stop(true);
     },
   };
 }
 
-const seated = boot('seat', 47966, 'alice');
-const everyone = boot('all', 47967, null);
+const seated = boot('seat', 'alice');
+const everyone = boot('all', null);
 // The seat says alice, but the board's GitLab token belongs to carol.
-const borrowed = boot('borrowed', 47968, 'alice', 'carol');
+const borrowed = boot('borrowed', 'alice', 'carol');
 // Its doctor skill can't bind: CLAUDE_BIN points at nothing.
-const unbound = boot('unbound', 47969, 'alice', 'alice', 'acme:board-doctor');
+const unbound = boot('unbound', 'alice', 'alice', 'acme:board-doctor');
 
 afterAll(() => {
   seated.stop();
@@ -337,20 +324,7 @@ afterAll(() => {
   unbound.stop();
 });
 
-async function ready(b: Board): Promise<void> {
-  for (let i = 0; i < 100; i++) {
-    try {
-      if ((await fetch(`http://127.0.0.1:${b.port}/healthz`)).ok) return;
-    } catch {
-      // server not listening yet
-    }
-    await new Promise(r => setTimeout(r, 100));
-  }
-  throw new Error('server never came up');
-}
-
 async function post(b: Board, path: string, body: unknown): Promise<Response> {
-  await ready(b);
   return fetch(`http://127.0.0.1:${b.port}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -792,7 +766,6 @@ describe("a seat that is not the token's user owns nothing", () => {
   }, 15_000);
 
   test('the board data names the token user so the client applies the same rule', async () => {
-    await ready(borrowed);
     const data = (await (
       await fetch(`http://127.0.0.1:${borrowed.port}/data.json`)
     ).json()) as { tokenUser?: string | null };

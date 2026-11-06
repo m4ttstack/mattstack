@@ -20,6 +20,7 @@ import {
   writeMemory,
 } from '../triage/memory-store.ts';
 import type { Handoff } from '../triage/memory.ts';
+import { bootBoardServer } from './board-server.ts';
 
 const fakeHome = mkdtempSync(join(tmpdir(), 'board-doctor-ring-'));
 
@@ -351,45 +352,22 @@ const rtDaemon = Bun.serve({
   },
 });
 
-const PORT = 47974;
-const proc = Bun.spawn(
-  ['bun', 'run', join(import.meta.dir, '..', 'server.ts')],
-  {
-    env: {
-      ...process.env,
-      HOME: fakeHome,
-      BOARD_APP_ROOT: fakeHome,
-      BOARD_STATE_DB: dbPath,
-      PORT: String(PORT),
-      GITLAB_TOKEN: '',
-      SLACK_TOKEN: '',
-      SWITCHBOARD_TOKEN: '',
-      SWITCHBOARD_ADMIN_TOKEN: '',
-    },
-    stdout: 'pipe',
-    stderr: 'pipe',
-  }
-);
-
-afterAll(() => {
-  proc.kill();
-  rtDaemon.stop(true);
+const board = bootBoardServer({
+  env: {
+    HOME: fakeHome,
+    BOARD_APP_ROOT: fakeHome,
+    BOARD_STATE_DB: dbPath,
+    GITLAB_TOKEN: '',
+    SLACK_TOKEN: '',
+    SWITCHBOARD_TOKEN: '',
+    SWITCHBOARD_ADMIN_TOKEN: '',
+  },
 });
 
-async function ready(): Promise<void> {
-  for (let i = 0; i < 100; i++) {
-    try {
-      if ((await fetch(`http://127.0.0.1:${PORT}/healthz`)).ok) return;
-    } catch {
-      // server not listening yet
-    }
-    await new Promise(r => setTimeout(r, 100));
-  }
-  throw new Error('server never came up');
-}
+afterAll(() => rtDaemon.stop(true));
 
 function doctor(body: unknown): Promise<Response> {
-  return fetch(`http://127.0.0.1:${PORT}/doctor`, {
+  return fetch(`${board.origin}/doctor`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -410,12 +388,11 @@ type Row = {
 };
 
 async function rows(): Promise<Row[]> {
-  const res = await fetch(`http://127.0.0.1:${PORT}/data.json`);
+  const res = await fetch(`${board.origin}/data.json`);
   return ((await res.json()) as { mrs: Row[] }).mrs;
 }
 
 test('ring with a live owner rings, records the handoff and marks the edge handled', async () => {
-  await ready();
   const res = await doctor({ mrUrl: RED, iid: iidOf(RED), ring: true });
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ ok: true, rung: true, runId: 'run-red' });
@@ -436,7 +413,6 @@ test('ring with a live owner rings, records the handoff and marks the edge handl
 }, 15_000);
 
 test('ring on a conflicted MR with green CI sends only the rebase frame', async () => {
-  await ready();
   const res = await doctor({
     mrUrl: CONFLICTED,
     iid: iidOf(CONFLICTED),
@@ -452,7 +428,6 @@ test('ring on a conflicted MR with green CI sends only the rebase frame', async 
 }, 15_000);
 
 test('ring on a red and conflicted MR sends both frames and records both handoffs', async () => {
-  await ready();
   const res = await doctor({ mrUrl: BOTH, iid: iidOf(BOTH), ring: true });
   expect(res.status).toBe(200);
   const sent = ringsTo('sess-both').map(r => r.text);
@@ -469,7 +444,6 @@ test('ring on a red and conflicted MR sends both frames and records both handoff
 }, 15_000);
 
 test('rebase mode rings only the rebase frame on a red and conflicted MR', async () => {
-  await ready();
   const before = ringsTo('sess-both').length;
   const res = await doctor({
     mrUrl: BOTH,
@@ -484,7 +458,6 @@ test('rebase mode rings only the rebase frame on a red and conflicted MR', async
 }, 15_000);
 
 test('a half-delivered ring records only the delivered kind', async () => {
-  await ready();
   const res = await doctor({ mrUrl: HALF, iid: iidOf(HALF), ring: true });
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ ok: true, rung: true, runId: 'run-half' });
@@ -495,7 +468,6 @@ test('a half-delivered ring records only the delivered kind', async () => {
 }, 15_000);
 
 test("ring on a stacked child rings the parent's run with a downstream frame", async () => {
-  await ready();
   const res = await doctor({ mrUrl: CHILD, iid: iidOf(CHILD), ring: true });
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({
@@ -516,7 +488,6 @@ test("ring on a stacked child rings the parent's run with a downstream frame", a
 }, 15_000);
 
 test('ring with no live owner is a 409', async () => {
-  await ready();
   const res = await doctor({ mrUrl: NOBODY, iid: iidOf(NOBODY), ring: true });
   expect(res.status).toBe(409);
   expect(await res.text()).toBe('no work run is active on this MR');
@@ -525,7 +496,6 @@ test('ring with no live owner is a 409', async () => {
 }, 15_000);
 
 test('ring whose delivery fails is a 409 and writes nothing', async () => {
-  await ready();
   const res = await doctor({ mrUrl: DEAF, iid: iidOf(DEAF), ring: true });
   expect(res.status).toBe(409);
   expect(await res.text()).toBe("the worker's session did not answer");
@@ -536,7 +506,6 @@ test('ring whose delivery fails is a 409 and writes nothing', async () => {
 }, 15_000);
 
 test('a launch without ring clears handoffs and launches as today', async () => {
-  await ready();
   expect(readMemory(db).mrs[LAUNCH]?.handoffs).toBeDefined();
   const res = await doctor({ mrUrl: LAUNCH, iid: iidOf(LAUNCH) });
   expect(res.status).toBe(200);
@@ -553,7 +522,6 @@ test('a launch without ring clears handoffs and launches as today', async () => 
 }, 15_000);
 
 test('a launch that fails leaves the handoffs in place', async () => {
-  await ready();
   const res = await doctor({ mrUrl: FAILED_LAUNCH, iid: iidOf(FAILED_LAUNCH) });
   expect(res.status).toBe(200);
   for (
@@ -569,7 +537,6 @@ test('a launch that fails leaves the handoffs in place', async () => {
 }, 15_000);
 
 test('ring while a doctor is running on the MR is a 409 and rings nobody', async () => {
-  await ready();
   writeDoctorState(
     mintHandle('doctor', IN_FLIGHT, fakeHome),
     { mrUrl: IN_FLIGHT, iid: iidOf(IN_FLIGHT), status: 'diagnosing' },
@@ -588,7 +555,6 @@ test('ring while a doctor is running on the MR is a 409 and rings nobody', async
 }, 15_000);
 
 test('a conflicts-only handoff shows on the snapshot', async () => {
-  await ready();
   writeHandoff(
     SNAP_CONFLICTED,
     'needs-rebase',
@@ -602,7 +568,6 @@ test('a conflicts-only handoff shows on the snapshot', async () => {
 }, 15_000);
 
 test('ring when runs:list fails is a 503 and writes nothing', async () => {
-  await ready();
   runsListFails = true;
   try {
     const res = await doctor({ mrUrl: OUTAGE, iid: iidOf(OUTAGE), ring: true });
@@ -617,7 +582,6 @@ test('ring when runs:list fails is a 503 and writes nothing', async () => {
 }, 15_000);
 
 test('ring on an MR with nothing wrong is a 409 and rings nobody', async () => {
-  await ready();
   const res = await doctor({ mrUrl: CLEAN, iid: iidOf(CLEAN), ring: true });
   expect(res.status).toBe(409);
   expect(await res.text()).toBe('nothing on this MR needs the worker');
@@ -625,7 +589,6 @@ test('ring on an MR with nothing wrong is a 409 and rings nobody', async () => {
 }, 15_000);
 
 test('ring in rebase mode on a red-only MR is a 409 and rings nobody', async () => {
-  await ready();
   const res = await doctor({
     mrUrl: RED_ONLY,
     iid: iidOf(RED_ONLY),
@@ -639,7 +602,6 @@ test('ring in rebase mode on a red-only MR is a 409 and rings nobody', async () 
 }, 15_000);
 
 test('the snapshot carries activeRun and only live handoffs', async () => {
-  await ready();
   let red: Row | undefined;
   for (let i = 0; i < 50; i++) {
     red = (await rows()).find(r => r.webUrl === RED);
@@ -666,7 +628,6 @@ test('the snapshot carries activeRun and only live handoffs', async () => {
 }, 15_000);
 
 test('a handoff clear whose memory read throws after a launch keeps the server up', async () => {
-  await ready();
   const res = await doctor({ mrUrl: UNREADABLE, iid: iidOf(UNREADABLE) });
   expect(res.status).toBe(200);
   await heldLaunch.reachedP;
@@ -683,6 +644,6 @@ test('a handoff clear whose memory read throws after a launch keeps the server u
   } finally {
     db.run('ALTER TABLE kv_hidden RENAME TO kv');
   }
-  expect(proc.exitCode).toBeNull();
-  expect((await fetch(`http://127.0.0.1:${PORT}/healthz`)).ok).toBe(true);
+  expect(board.exited()).toBe(false);
+  expect((await fetch(`${board.origin}/healthz`)).ok).toBe(true);
 }, 15_000);

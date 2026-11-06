@@ -10,6 +10,7 @@ import { join } from 'path';
 import { afterAll, expect, test } from 'bun:test';
 
 import { dbPathForRoot, openStateDb } from '../state/index.ts';
+import { bootBoardServer } from './board-server.ts';
 
 // /slack/owners/preview and /slack/owners/post on a real server: a fake rt
 // daemon answers the MR list and forge:get's approval state, and
@@ -155,11 +156,9 @@ const forgeSeen: Array<{ repoName: string; path: string }> = [];
 /** A board on its own temp HOME, its own fake rt daemon and the Slack mock,
     whose org directory is `directory`. */
 function bootBoard({
-  port,
   directory,
   recheckMs,
 }: {
-  port: number;
   directory: unknown;
   recheckMs?: number;
 }) {
@@ -223,50 +222,30 @@ function bootBoard({
     unix: join(rtDir, 'rt.sock'),
     fetch: fakeRtDaemon,
   });
-  const proc = Bun.spawn(
-    [
-      'bun',
-      'run',
-      '--preload',
-      join(import.meta.dir, 'slack-api-mock-preload.ts'),
-      join(import.meta.dir, '..', 'server.ts'),
-    ],
-    {
-      env: {
-        ...process.env,
-        HOME: home,
-        BOARD_APP_ROOT: home,
-        PORT: String(port),
-        GITLAB_TOKEN: '',
-        SLACK_TOKEN: 'fake-slack-token',
-        SWITCHBOARD_TOKEN: '',
-        SWITCHBOARD_ADMIN_TOKEN: '',
-        ...(recheckMs === undefined
-          ? {}
-          : { BOARD_REVIEW_RECHECK_MS: String(recheckMs) }),
-        SLACK_MOCK_POST_LOG: join(home, 'slack-posts.ndjson'),
-        SLACK_MOCK_HISTORY: JSON.stringify({
-          C_ACME: [url('g/p', 708)],
-          C_DEFAULT: [url('g/p', 709)],
-        }),
-      },
-      stdout: 'pipe',
-      stderr: 'pipe',
-    }
-  );
-  let output = '';
-  for (const stream of [proc.stdout, proc.stderr])
-    void (async () => {
-      for await (const chunk of stream) output += Buffer.from(chunk).toString();
-    })();
-  return {
-    port,
-    home,
-    output: () => output,
-    stop: () => {
-      proc.kill();
-      rtDaemon.stop(true);
+  const server = bootBoardServer({
+    preload: join(import.meta.dir, 'slack-api-mock-preload.ts'),
+    env: {
+      HOME: home,
+      BOARD_APP_ROOT: home,
+      GITLAB_TOKEN: '',
+      SLACK_TOKEN: 'fake-slack-token',
+      SWITCHBOARD_TOKEN: '',
+      SWITCHBOARD_ADMIN_TOKEN: '',
+      ...(recheckMs === undefined
+        ? {}
+        : { BOARD_REVIEW_RECHECK_MS: String(recheckMs) }),
+      SLACK_MOCK_POST_LOG: join(home, 'slack-posts.ndjson'),
+      SLACK_MOCK_HISTORY: JSON.stringify({
+        C_ACME: [url('g/p', 708)],
+        C_DEFAULT: [url('g/p', 709)],
+      }),
     },
+  });
+  return {
+    port: server.port,
+    home,
+    output: server.output,
+    stop: () => rtDaemon.stop(true),
   };
 }
 
@@ -327,7 +306,6 @@ async function fakeRtDaemon(req: Request): Promise<Response> {
 }
 
 const board = bootBoard({
-  port: 47969,
   directory: {
     teams: {
       web: {
@@ -340,13 +318,11 @@ const board = bootBoard({
   },
 });
 const noChannelBoard = bootBoard({
-  port: 47971,
   directory: {
     teams: { web: { slack: { codeOwnersChannel: 'ours-channel' } } },
   },
 });
 const lateDirectoryBoard = bootBoard({
-  port: 47973,
   directory: undefined,
   recheckMs: 0,
 });
@@ -360,18 +336,6 @@ afterAll(() => {
   noChannelBoard.stop();
   lateDirectoryBoard.stop();
 });
-
-async function ready(port = PORT): Promise<void> {
-  for (let i = 0; i < 100; i++) {
-    try {
-      if ((await fetch(`http://127.0.0.1:${port}/healthz`)).ok) return;
-    } catch {
-      // server not listening yet
-    }
-    await new Promise(r => setTimeout(r, 100));
-  }
-  throw new Error('server never came up');
-}
 
 function postTo(port: number, path: string, body: unknown): Promise<Response> {
   return fetch(`http://127.0.0.1:${port}${path}`, {
@@ -408,7 +372,6 @@ interface Preview {
 }
 
 test('the board data names the repos that opted in', async () => {
-  await ready();
   const data = (await (
     await fetch(`http://127.0.0.1:${PORT}/data.json`)
   ).json()) as {
@@ -421,7 +384,6 @@ test('the board data names the repos that opted in', async () => {
 }, 15_000);
 
 test('preview groups unapproved sections by channel and says why the rest are skipped, sending nothing', async () => {
-  await ready();
   const res = await post('/slack/owners/preview', { mrUrl: url('g/p', 701) });
   expect(res.status).toBe(200);
   const body = (await res.json()) as Preview;
@@ -457,7 +419,6 @@ test('preview groups unapproved sections by channel and says why the rest are sk
 }, 15_000);
 
 test("someone else's MR is refused before GitLab is asked", async () => {
-  await ready();
   const before = forgeSeen.length;
   for (const path of ['/slack/owners/preview', '/slack/owners/post']) {
     const res = await post(path, {
@@ -471,7 +432,6 @@ test("someone else's MR is refused before GitLab is asked", async () => {
 }, 15_000);
 
 test('a repo that has not opted in is refused', async () => {
-  await ready();
   for (const path of ['/slack/owners/preview', '/slack/owners/post']) {
     const res = await post(path, {
       mrUrl: url('g/q', 801),
@@ -486,7 +446,6 @@ test('a repo that has not opted in is refused', async () => {
 }, 15_000);
 
 test('post refuses a channel the preview did not offer, and sends nothing', async () => {
-  await ready();
   for (const channels of [
     ['code-review'],
     ['other-channel'],
@@ -504,7 +463,6 @@ test('post refuses a channel the preview did not offer, and sends nothing', asyn
 }, 15_000);
 
 test('post sends once per confirmed channel, remembers it, and leaves the review-request ref alone', async () => {
-  await ready();
   const res = await post('/slack/owners/post', {
     mrUrl: url('g/p', 701),
     channels: ['acme-channel'],
@@ -561,14 +519,12 @@ const sentFor = (iid: number) =>
   sent().filter(m => m.text.includes(url('g/p', iid)));
 
 test('a truncated approval answer is an error, never read as no sections', async () => {
-  await ready();
   const res = await post('/slack/owners/preview', { mrUrl: url('g/p', 703) });
   expect(res.status).toBe(502);
   expect(await res.text()).toContain('too large');
 }, 15_000);
 
 test('a partly failed post reports each channel, and the one that went is not offered again', async () => {
-  await ready();
   const res = await post('/slack/owners/post', {
     mrUrl: url('g/p', 704),
     channels: ['acme-channel', 'flaky-channel'],
@@ -589,7 +545,6 @@ test('a partly failed post reports each channel, and the one that went is not of
 }, 15_000);
 
 test('a second confirm while the first is still running is refused, so nothing posts twice', async () => {
-  await ready();
   const confirm = () =>
     post('/slack/owners/post', {
       mrUrl: url('g/p', 705),
@@ -616,7 +571,6 @@ async function boardMr(iid: number) {
 }
 
 test('our own section is the team row, never our code owner channel', async () => {
-  await ready();
   const body = (await (
     await post('/slack/owners/preview', { mrUrl: url('g/p', 706) })
   ).json()) as Preview;
@@ -630,7 +584,6 @@ test('our own section is the team row, never our code owner channel', async () =
 }, 15_000);
 
 test('posting only the team row leaves the other channels to post later', async () => {
-  await ready();
   expect((await boardMr(706)).ownerPostsLeft).toBeUndefined();
   const res = await post('/slack/owners/post', {
     mrUrl: url('g/p', 706),
@@ -660,7 +613,6 @@ test('posting only the team row leaves the other channels to post later', async 
 }, 20_000);
 
 test('an MR needing only our own approval posts straight to the team channel', async () => {
-  await ready();
   const body = (await (
     await post('/slack/owners/preview', { mrUrl: url('g/p', 707) })
   ).json()) as Preview;
@@ -676,7 +628,6 @@ test('an MR needing only our own approval posts straight to the team channel', a
 }, 15_000);
 
 test('a post someone made by hand in a code owner channel counts as posted', async () => {
-  await ready();
   const body = (await (
     await post('/slack/owners/preview', { mrUrl: url('g/p', 708) })
   ).json()) as Preview;
@@ -699,7 +650,6 @@ test('a post someone made by hand in a code owner channel counts as posted', asy
 }, 15_000);
 
 test('a team thread that already exists is shown as posted and never posted again', async () => {
-  await ready();
   const body = (await (
     await post('/slack/owners/preview', { mrUrl: url('g/p', 709) })
   ).json()) as Preview;
@@ -715,7 +665,6 @@ test('a team thread that already exists is shown as posted and never posted agai
 }, 15_000);
 
 test('a post naming nothing is refused', async () => {
-  await ready();
   const res = await post('/slack/owners/post', {
     mrUrl: url('g/p', 706),
     team: false,
@@ -725,7 +674,6 @@ test('a post naming nothing is refused', async () => {
 }, 15_000);
 
 test('a team with no review channel is refused whole, naming the fix', async () => {
-  await ready(NO_CHANNEL_PORT);
   for (const path of [
     '/slack/owners/preview',
     '/slack/owners/post',
@@ -746,7 +694,6 @@ test('a team with no review channel is refused whole, naming the fix', async () 
 }, 15_000);
 
 test('refusals inside the recheck window reload the config only once', async () => {
-  await ready(NO_CHANNEL_PORT);
   for (let i = 0; i < 2; i++)
     expect(
       (
@@ -765,7 +712,6 @@ test('refusals inside the recheck window reload the config only once', async () 
 
 test('a directory written after the board started is read before a post is refused', async () => {
   const { port, home } = lateDirectoryBoard;
-  await ready(port);
   const post = () => postTo(port, '/slack/post', { mrUrls: [url('g/p', 701)] });
   const refused = await post();
   expect(refused.status).toBe(400);

@@ -4,10 +4,11 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { afterAll, expect, test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
 import { readSentNudges, writeSentNudge } from '../peer/nudges.ts';
 import { openStateDb } from '../state/db.ts';
+import { bootBoardServer } from './board-server.ts';
 
 const fakeHome = mkdtempSync(join(tmpdir(), 'board-nudge-dismiss-'));
 
@@ -46,42 +47,20 @@ for (const [i, mrUrl] of [MR_A, MR_B].entries())
     db
   );
 
-const PORT = 47962;
-const proc = Bun.spawn(
-  ['bun', 'run', join(import.meta.dir, '..', 'server.ts')],
-  {
-    env: {
-      ...process.env,
-      HOME: fakeHome,
-      BOARD_APP_ROOT: fakeHome,
-      BOARD_STATE_DB: dbPath,
-      PORT: String(PORT),
-      GITLAB_TOKEN: '',
-      SLACK_TOKEN: '',
-      SWITCHBOARD_TOKEN: '',
-      SWITCHBOARD_ADMIN_TOKEN: '',
-    },
-    stdout: 'pipe',
-    stderr: 'pipe',
-  }
-);
-
-afterAll(() => proc.kill());
-
-async function ready(): Promise<void> {
-  for (let i = 0; i < 100; i++) {
-    try {
-      if ((await fetch(`http://127.0.0.1:${PORT}/healthz`)).ok) return;
-    } catch {
-      // server not listening yet
-    }
-    await new Promise(r => setTimeout(r, 100));
-  }
-  throw new Error('server never came up');
-}
+const board = bootBoardServer({
+  env: {
+    HOME: fakeHome,
+    BOARD_APP_ROOT: fakeHome,
+    BOARD_STATE_DB: dbPath,
+    GITLAB_TOKEN: '',
+    SLACK_TOKEN: '',
+    SWITCHBOARD_TOKEN: '',
+    SWITCHBOARD_ADMIN_TOKEN: '',
+  },
+});
 
 function dismiss(body: unknown): Promise<Response> {
-  return fetch(`http://127.0.0.1:${PORT}/nudge/dismiss`, {
+  return fetch(`${board.origin}/nudge/dismiss`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -89,7 +68,6 @@ function dismiss(body: unknown): Promise<Response> {
 }
 
 test('dismisses one MR sent ask and leaves the rest', async () => {
-  await ready();
   const res = await dismiss({ mrUrl: MR_A });
   expect(res.status).toBe(200);
   const rows = readSentNudges(db);
@@ -98,18 +76,15 @@ test('dismisses one MR sent ask and leaves the rest', async () => {
 });
 
 test('is fine on an MR with no sent ask', async () => {
-  await ready();
   expect((await dismiss({ mrUrl: MR_A })).status).toBe(200);
 });
 
 test('refuses a body without an mrUrl', async () => {
-  await ready();
   expect((await dismiss({})).status).toBe(400);
 });
 
 test('refuses a body that is not json, and deletes nothing', async () => {
-  await ready();
-  const res = await fetch(`http://127.0.0.1:${PORT}/nudge/dismiss`, {
+  const res = await fetch(`${board.origin}/nudge/dismiss`, {
     method: 'POST',
     headers: { 'content-type': 'text/plain' },
     body: JSON.stringify({ mrUrl: MR_B }),
@@ -119,7 +94,6 @@ test('refuses a body that is not json, and deletes nothing', async () => {
 });
 
 test('refuses a non-POST', async () => {
-  await ready();
-  const res = await fetch(`http://127.0.0.1:${PORT}/nudge/dismiss`);
+  const res = await fetch(`${board.origin}/nudge/dismiss`);
   expect(res.status).toBe(405);
 });

@@ -8,6 +8,7 @@ import { readRespondStates, writeRespondState } from '../respond-state.ts';
 import { readReviewStates, writeReviewState } from '../review-state.ts';
 import { mintHandle } from '../state/agent-states.ts';
 import { openStateDb } from '../state/db.ts';
+import { bootBoardServer } from './board-server.ts';
 
 // Proves POST /reconciler/clear (SDD executor-reconciler task 14): a thin
 // proxy onto the daemon's `reconciler:clear` command, same shape as
@@ -92,49 +93,28 @@ const MR = 'https://gitlab.example.com/g/p/-/merge_requests/77';
 const reviewHandle = mintHandle('review', MR, fakeHome);
 const respondHandle = mintHandle('respond', MR, fakeHome);
 
-const PORT = 47953;
-const proc = Bun.spawn(
-  ['bun', 'run', join(import.meta.dir, '..', 'server.ts')],
-  {
-    env: {
-      ...process.env,
-      HOME: fakeHome,
-      BOARD_APP_ROOT: fakeHome,
-      BOARD_STATE_DB: dbPath,
-      PORT: String(PORT),
-      GITLAB_TOKEN: '',
-      SLACK_TOKEN: '',
-      SWITCHBOARD_TOKEN: '',
-      SWITCHBOARD_ADMIN_TOKEN: '',
-    },
-    stdout: 'pipe',
-    stderr: 'pipe',
-  }
-);
+const board = bootBoardServer({
+  env: {
+    HOME: fakeHome,
+    BOARD_APP_ROOT: fakeHome,
+    BOARD_STATE_DB: dbPath,
+    GITLAB_TOKEN: '',
+    SLACK_TOKEN: '',
+    SWITCHBOARD_TOKEN: '',
+    SWITCHBOARD_ADMIN_TOKEN: '',
+  },
+});
 
 afterAll(() => {
-  proc.kill();
   rtDaemon.stop(true);
   db.close();
 });
-
-async function ready(): Promise<void> {
-  for (let i = 0; i < 100; i++) {
-    try {
-      if ((await fetch(`http://127.0.0.1:${PORT}/healthz`)).ok) return;
-    } catch {
-      // server not listening yet
-    }
-    await new Promise(r => setTimeout(r, 100));
-  }
-  throw new Error('server never came up');
-}
 
 function clear(
   body: unknown,
   headers: Record<string, string> = {}
 ): Promise<Response> {
-  return fetch(`http://127.0.0.1:${PORT}/reconciler/clear`, {
+  return fetch(`${board.origin}/reconciler/clear`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(body),
@@ -142,7 +122,6 @@ function clear(
 }
 
 test('forwards { agentId } to the daemon as reconciler:clear and returns ok', async () => {
-  await ready();
   const res = await clear({ agentId: 'agent-9' });
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ ok: true });
@@ -151,19 +130,16 @@ test('forwards { agentId } to the daemon as reconciler:clear and returns ok', as
 }, 15_000);
 
 test('is POST-only', async () => {
-  await ready();
-  const res = await fetch(`http://127.0.0.1:${PORT}/reconciler/clear`);
+  const res = await fetch(`${board.origin}/reconciler/clear`);
   expect(res.status).toBe(405);
 }, 15_000);
 
 test('rejects a body missing agentId with 400', async () => {
-  await ready();
   const res = await clear({});
   expect(res.status).toBe(400);
 }, 15_000);
 
 test('an {ok:false} envelope from the daemon degrades to a 502 and never reports success', async () => {
-  await ready();
   clearOutcome = 'fail';
   try {
     const res = await clear({ agentId: 'agent-9' });
@@ -177,8 +153,7 @@ test('an {ok:false} envelope from the daemon degrades to a 502 and never reports
 }, 15_000);
 
 test('GET /data.json sweeps the reconciler view via the reconciler:status command', async () => {
-  await ready();
-  await fetch(`http://127.0.0.1:${PORT}/data.json`);
+  await fetch(`${board.origin}/data.json`);
   expect(seen.some(s => s.cmd === 'reconciler:status')).toBe(true);
   expect(
     seen.some(s => s.cmd === 'reconciler' || s.cmd === 'api/reconciler')
@@ -186,7 +161,6 @@ test('GET /data.json sweeps the reconciler view via the reconciler:status comman
 }, 15_000);
 
 test('successful endpoint clear settles review and respond lanes without peering; refusal preserves them', async () => {
-  await ready();
   writeReviewState(
     reviewHandle,
     { mrUrl: MR, iid: 77, status: 'queued', agentId: 'agent-77' },
