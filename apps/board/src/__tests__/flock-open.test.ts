@@ -1,11 +1,14 @@
-import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { describe, expect, test } from 'bun:test';
+
 import type { RunSummary, WorktreeTreeRow } from '@mattstack/rt-client';
+import { getDef } from '@mattstack/rt-client';
 import {
   actionCommand,
   buildFlockMenu,
+  FLOCK_COMMAND_ICONS,
   flockOpenUrl,
   openArgs,
   parseFlockCommands,
@@ -105,6 +108,25 @@ describe('pickResumeRun', () => {
       null
     );
   });
+});
+
+test('parseFlockCommands keeps a known icon and drops an unknown one', () => {
+  expect(
+    parseFlockCommands([
+      { label: 'Runner', command: 'rt runner', icon: 'rt' },
+      { label: 'Ship', command: 'x', icon: 'rocket' },
+    ])
+  ).toEqual([
+    { label: 'Runner', command: 'rt runner', icon: 'rt' },
+    { label: 'Ship', command: 'x' },
+  ]);
+});
+
+test('the icon list matches the board.flockCommands schema', () => {
+  const schema = getDef('board.flockCommands')?.schema as {
+    items: { properties: { icon: { enum: string[] } } };
+  };
+  expect(schema.items.properties.icon.enum).toEqual([...FLOCK_COMMAND_ICONS]);
 });
 
 test('parseFlockCommands keeps well-formed rows only', () => {

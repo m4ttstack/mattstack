@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+
 import {
   listRuns,
   rtCommand,
@@ -14,9 +15,32 @@ import { shellSingleQuote } from './shell-quote.ts';
 
 export type FlockAction = 'shell' | 'claude' | 'resume' | 'command';
 
+/** Mirrors the `icon` enum in rt-client's `board.flockCommands` schema;
+    flock-open.test.ts holds the two together. */
+export const FLOCK_COMMAND_ICONS = [
+  'rt',
+  'cd',
+  'folder',
+  'branch',
+  'play',
+  'pulse',
+  'shell',
+  'agent',
+  'refresh',
+  'file',
+  'note',
+] as const;
+
+export type FlockCommandIcon = (typeof FLOCK_COMMAND_ICONS)[number];
+
 export interface FlockCommand {
   label: string;
   command: string;
+  icon?: FlockCommandIcon;
+}
+
+function isIcon(v: unknown): v is FlockCommandIcon {
+  return (FLOCK_COMMAND_ICONS as readonly unknown[]).includes(v);
 }
 
 export interface FlockResume {
@@ -92,14 +116,16 @@ export function pickResumeRun(
 export function parseFlockCommands(value: unknown): FlockCommand[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap(v => {
-    const label = (v as FlockCommand | null)?.label;
-    const command = (v as FlockCommand | null)?.command;
-    return typeof label === 'string' &&
-      typeof command === 'string' &&
-      label.trim() &&
-      command.trim()
-      ? [{ label: label.trim(), command: command.trim() }]
-      : [];
+    const { label, command, icon } = (v ?? {}) as Record<string, unknown>;
+    if (typeof label !== 'string' || typeof command !== 'string') return [];
+    if (!label.trim() || !command.trim()) return [];
+    return [
+      {
+        label: label.trim(),
+        command: command.trim(),
+        ...(isIcon(icon) ? { icon } : {}),
+      },
+    ];
   });
 }
 

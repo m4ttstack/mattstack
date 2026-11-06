@@ -294,6 +294,10 @@ export const SCHEMAS = {
   "board.flockCommands": z.array(z.object({
     label: z.string().meta({ title: "Label", description: "What the menu row says." }),
     command: z.string().meta({ title: "Command", description: "Shell command run in the MR's worktree." }),
+    icon: z
+      .enum(["rt", "cd", "folder", "branch", "play", "pulse", "shell", "agent", "refresh", "file", "note"])
+      .optional()
+      .meta({ title: "Icon", description: "The row's icon; a prompt chevron when left out." }),
   })),
   "board.hiddenMembers": z.array(z.string()),
   "board.turn": z.looseObject({

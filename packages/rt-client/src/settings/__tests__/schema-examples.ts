@@ -353,8 +353,11 @@ export const EXAMPLES: Record<string, Example> = {
     layer: [{ doctors: "doctors" }],
   },
   "board.flockCommands": {
-    good: [[], [{ label: "Sync", command: "rt sync" }]],
-    bad: [{ value: [{ label: "Sync" }], path: [0, "command"] }],
+    good: [[], [{ label: "Sync", command: "rt sync" }, { label: "Runner", command: "rt runner", icon: "rt" }]],
+    bad: [
+      { value: [{ label: "Sync" }], path: [0, "command"] },
+      { value: [{ label: "Sync", command: "rt sync", icon: "rocket" }], path: [0, "icon"] },
+    ],
   },
   "board.peerAsksAlwaysAllow": { good: [[], ["rmarlow"]], bad: [{ value: [{ username: "rmarlow" }], path: [0] }] },
   "board.hiddenMembers": { good: [[], ["dev2"]], bad: [{ value: [{ username: "dev2" }], path: [0] }] },

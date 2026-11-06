@@ -193,6 +193,11 @@ const MENU_PATHS = {
   resume:
     'M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5M12 7v5l4 2',
   command: 'M4 17l6-6-6-6M12 19h8',
+  cd: 'M15 10l5 5-5 5M4 4v7a4 4 0 0 0 4 4h12',
+  folder:
+    'M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z',
+  play: 'M6 3l14 9-14 9V3Z',
+  pulse: 'M22 12h-4l-3 9L9 3l-3 9H2',
   refresh:
     'M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5',
 } as const;
@@ -203,6 +208,33 @@ export function MenuGlyph({ kind }: { kind: keyof typeof MENU_PATHS }) {
   return (
     <svg {...GLYPH} width={13} height={13}>
       <path d={MENU_PATHS[kind]} />
+    </svg>
+  );
+}
+
+/** rt's mark as flock draws it: pink "rt" on plum, the same in every theme
+    (flock's RtBrand). */
+export function RtMark() {
+  return (
+    <svg
+      width={16}
+      height={13}
+      viewBox="0 0 16 13"
+      aria-hidden="true"
+      style={{ flexShrink: 0 }}
+    >
+      <rect width="16" height="13" rx="3" fill="#161224" />
+      <text
+        x="8"
+        y="9.6"
+        textAnchor="middle"
+        fontSize="9"
+        fontWeight="700"
+        fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+        fill="#ff6b9d"
+      >
+        rt
+      </text>
     </svg>
   );
 }

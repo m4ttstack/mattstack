@@ -7,6 +7,9 @@ no rt relay. Port 7941 (never the live board's 7930).
 - `config.json`: committed fixture config (this dir).
 - `data.json`, `discussions.json`, `review-report.md`, `respond-report.md`,
   `meta.json`: the canned payloads the fixture endpoints serve.
+- `flock-menu.json`: what `/flock/menu` answers for any own MR: a worktree,
+  a resumable session and one saved command per `icon` (plus one with none),
+  so the "open in flock" flyout shows every row.
 
 Every name, username, avatar seed, project path, branch, ticket id, URL and
 comment body here is invented. Nothing in this directory is a snapshot of a

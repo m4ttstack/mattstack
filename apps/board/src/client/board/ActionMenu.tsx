@@ -10,6 +10,7 @@ import {
   ArrowOutGlyph,
   FlagGlyph,
   MenuGlyph,
+  RtMark,
   SlackLogo,
 } from './icons.tsx';
 import {
@@ -58,6 +59,8 @@ function glyphNode(g: ActionGlyph, blocked = false): React.ReactNode {
       return <AgentCloudGlyph />;
     case 'slack':
       return <SlackLogo mono={blocked} />;
+    case 'rt':
+      return <RtMark />;
     case 'flock':
       return (
         <img

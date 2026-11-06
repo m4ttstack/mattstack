@@ -49,7 +49,11 @@ export type ActionGlyph =
         | 'refresh'
         | 'shell'
         | 'resume'
-        | 'command';
+        | 'command'
+        | 'cd'
+        | 'folder'
+        | 'play'
+        | 'pulse';
     }
   | { kind: 'flag'; name: 'conflicts' | 'auto-merge' | 'draft' }
   | { kind: 'out' }
@@ -57,6 +61,7 @@ export type ActionGlyph =
   | { kind: 'agent' }
   | { kind: 'slack' }
   | { kind: 'flock' }
+  | { kind: 'rt' }
   | { kind: 'emoji'; glyph: string };
 
 export type LaunchFlow =
@@ -98,7 +103,7 @@ export type FlockAction = 'shell' | 'claude' | 'resume' | 'command';
 export interface FlockMenuData {
   tree: string | null;
   resume: { livePane: string | null; worktreeGone: boolean } | null;
-  commands: { label: string; command: string }[];
+  commands: { label: string; command: string; icon?: string }[];
 }
 
 export interface MenuEntry {
@@ -1065,6 +1070,29 @@ export function bulkActions(
   );
 }
 
+/** A saved command's chosen icon (board.flockCommands' `icon`), the
+    prompt chevron when it names none or one this board doesn't know. */
+function commandGlyph(icon: string | undefined): ActionGlyph {
+  switch (icon) {
+    case 'rt':
+      return { kind: 'rt' };
+    case 'agent':
+      return { kind: 'agent' };
+    case 'cd':
+    case 'folder':
+    case 'branch':
+    case 'play':
+    case 'pulse':
+    case 'shell':
+    case 'refresh':
+    case 'file':
+    case 'note':
+      return { kind: 'menu', name: icon };
+    default:
+      return COMMAND;
+  }
+}
+
 /** The flock section on the seat's own MR: each row opens a focused Flock
     tab in the MR's worktree. Shell and claude show at once; resume and the
     saved commands join when `/flock/menu` answers. */
@@ -1109,7 +1137,7 @@ function flockActions(data: FlockMenuData | undefined): RowAction[] {
         'flock',
         `flock-command-${index}`,
         c.label,
-        COMMAND,
+        commandGlyph(c.icon),
         { kind: 'flock', action: 'command', index },
         { hint: creates ?? c.command }
       )

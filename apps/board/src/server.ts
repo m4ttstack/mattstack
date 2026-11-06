@@ -71,6 +71,7 @@ import {
 } from './codeowner-posts.ts';
 import {
   applyRosterEdit,
+  boardSetting,
   codeownerSlackOn,
   daemonRepoField,
   displayName,
@@ -89,18 +90,7 @@ import {
   saveTabs,
   type BoardConfig,
   type SwitchboardTokenRead,
-  boardSetting,
 } from './config.ts';
-import {
-  actionCommand,
-  buildFlockMenu,
-  flockOpenUrl,
-  openInFlock,
-  parseFlockCommands,
-  provisionMrTree,
-  readFlockToken,
-  type FlockMenu,
-} from './flock-open.ts';
 import {
   aggregateSyncScope,
   boardDemand,
@@ -151,6 +141,16 @@ import {
 import faviconSvg from './favicon.svg' with { type: 'text' };
 import { fileDiffRoute } from './file-diff-route.ts';
 import { shiftPeerReviews } from './fixture-peer-reviews.ts';
+import {
+  actionCommand,
+  buildFlockMenu,
+  flockOpenUrl,
+  openInFlock,
+  parseFlockCommands,
+  provisionMrTree,
+  readFlockToken,
+  type FlockMenu,
+} from './flock-open.ts';
 import { focusPane } from './focus-pane.ts';
 import { answerGate } from './gates/answer.ts';
 import {
@@ -1950,6 +1950,14 @@ const httpServer = Bun.serve({
     if (handoff) return handoff;
     const { pathname } = new URL(req.url);
     if (FIXTURE_DIR) {
+      // A POST only because the live route reads a JSON body; it changes nothing.
+      if (pathname === '/flock/menu')
+        return new Response(
+          readFileSync(fixtureFile('flock-menu.json'), 'utf8'),
+          {
+            headers: { 'content-type': 'application/json' },
+          }
+        );
       if (req.method !== 'GET')
         return new Response('fixture mode is read-only', { status: 501 });
       switch (pathname) {
