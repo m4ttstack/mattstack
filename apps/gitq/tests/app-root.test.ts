@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { APP_ROOT, IS_COMPILED, LEGACY_CONFIG_DIR } from '../src/core/app-root.ts';
+import { APP_ROOT, IS_PACKAGED, LEGACY_CONFIG_DIR } from '../src/core/app-root.ts';
 
 const APP_ROOT_MODULE = join(import.meta.dir, '..', 'src', 'core', 'app-root.ts');
 const FAKE_HOME = process.env.HOME ?? homedir();
@@ -10,13 +10,13 @@ const FAKE_HOME = process.env.HOME ?? homedir();
  * Read the env-derived root in a fresh process. GITQ_APP_ROOT is read once at
  * module load, so nothing here may assert on this process's own view of it.
  */
-function readAppRootWith(override: string | undefined): { appRoot: string; isCompiled: boolean } {
+function readAppRootWith(override: string | undefined): { appRoot: string; isPackaged: boolean } {
   const env: Record<string, string | undefined> = { ...process.env };
   if (override === undefined) delete env.GITQ_APP_ROOT;
   else env.GITQ_APP_ROOT = override;
   const script =
     `import * as m from ${JSON.stringify(APP_ROOT_MODULE)};\n` +
-    'console.log(JSON.stringify({ appRoot: m.APP_ROOT, isCompiled: m.IS_COMPILED }));';
+    'console.log(JSON.stringify({ appRoot: m.APP_ROOT, isPackaged: m.IS_PACKAGED }));';
   const proc = Bun.spawnSync(['bun', '-e', script], { env });
   expect(proc.exitCode, proc.stderr.toString()).toBe(0);
   return JSON.parse(proc.stdout.toString());
@@ -26,9 +26,9 @@ describe('app root', () => {
   // One root whichever form is running: a checkout must not get a different
   // one from the compiled binary, or the two would see different stacks.
   test('is ~/.mattstack/gitq, from a checkout as much as compiled', () => {
-    expect(IS_COMPILED).toBe(false);
+    expect(IS_PACKAGED).toBe(false);
     expect(APP_ROOT).toBe(join(FAKE_HOME, '.mattstack', 'gitq'));
-    expect(readAppRootWith(undefined)).toEqual({ appRoot: join(FAKE_HOME, '.mattstack', 'gitq'), isCompiled: false });
+    expect(readAppRootWith(undefined)).toEqual({ appRoot: join(FAKE_HOME, '.mattstack', 'gitq'), isPackaged: false });
   });
 
   test('GITQ_APP_ROOT wins, normalized', () => {

@@ -323,11 +323,11 @@ check_helpers() { # app
     else
         pass "$exe bundle carries no .sha256 stamp files"
     fi
-    local row name bundlePath ent status p
+    local row name bundlePath ent status source p roots appdir kinds
     while IFS= read -r row; do
         [ -n "$row" ] || continue
         split_tsv "$row"
-        name="${FIELDS[0]}"; bundlePath="${FIELDS[6]}"; ent="${FIELDS[7]}"; status="${FIELDS[8]}"
+        name="${FIELDS[0]}"; bundlePath="${FIELDS[6]}"; ent="${FIELDS[7]}"; status="${FIELDS[8]}"; source="${FIELDS[11]}"
         p="$app/$bundlePath"
         if [ "$status" = pending ]; then
             [ -e "$p" ] && fail "$exe ships $name although deps.lock says pending" || pass "$exe: $name absent (pending per deps.lock)"
@@ -335,6 +335,25 @@ check_helpers() { # app
         fi
         [ -e "$p" ] || { fail "$exe missing Helpers/$name at $bundlePath"; continue; }
         pass "$exe ships Helpers/$name"
+        roots=("$p")
+        # A tree row is a launcher plus the JS bundle it runs on Helpers/bun.
+        if [ "$source" = tree ]; then
+            appdir="$app/Contents/Helpers/$name-app"
+            if [ -f "$appdir/main.js" ] && [ -f "$appdir/bunfig.toml" ]; then
+                pass "$exe ships Helpers/$name-app (main.js and its bunfig guard)"
+            else
+                fail "$exe Helpers/$name-app is missing main.js or bunfig.toml"
+            fi
+            [ -d "$appdir" ] && roots+=("$appdir")
+            # Captured before matching: under pipefail, grep -q's early exit
+            # SIGPIPEs `file` and the match would read as a miss.
+            kinds="$(find "$appdir" -type f -exec file -b {} + 2>/dev/null || true)"
+            if grep -q "Mach-O" <<< "$kinds"; then
+                fail "$exe Helpers/$name-app carries native code; a JS bundle should not"
+            else
+                pass "$exe Helpers/$name-app carries no native code"
+            fi
+        fi
         while IFS= read -r -d '' f; do
             file -b "$f" | grep -q "Mach-O" || continue
             check_signed "$f" "$exe Helpers/$name/$(basename "$f")" "$ent"
@@ -352,7 +371,7 @@ check_helpers() { # app
             # the file, so stripping "$p/" leaves the absolute path in the
             # message.
             unsigned=$((unsigned + 1)); [ -n "$first_unsigned" ] || first_unsigned="${f#"$app"/}"
-        done < <(find "$p" -type f -print0)
+        done < <(find "${roots[@]}" -type f -print0)
         [ "$unsigned" -eq 0 ] \
             && pass "$exe Helpers/$name: every file carries a signature" \
             || fail "$exe Helpers/$name: $unsigned unsigned file(s), first: $first_unsigned — the outer bundle seal will refuse this"
@@ -406,6 +425,7 @@ check_helpers() { # app
         split_tsv "$row"
         seg="${FIELDS[6]#Contents/Helpers/}"; seg="${seg%%/*}"
         allowed="$allowed$seg "
+        [ "${FIELDS[11]}" = tree ] && allowed="$allowed$seg-app "
     done <<< "$LOCK_TSV"
     while IFS= read -r -d '' entry; do
         seg="$(basename "$entry")"
@@ -611,6 +631,21 @@ check_universal() { # app
     else
         fail "$exe: rt's Intel slice failed: $(printf '%s' "$out" | head -1)"
     fi
+    # A tree app's launcher, run under Rosetta, execs Helpers/bun's Intel
+    # slice on the app's bundle: the one place an app meets Intel bun before
+    # an Intel Mac does.
+    local row name
+    while IFS= read -r row; do
+        [ -n "$row" ] || continue
+        split_tsv "$row"
+        name="${FIELDS[0]}"
+        [ "${FIELDS[11]}" = tree ] && [ "${FIELDS[8]}" = bundled ] || continue
+        if out="$(cd "$home" && env -i HOME="$home" PATH=/usr/bin:/bin arch -x86_64 "$app/Contents/Helpers/$name" --version 2>&1)"; then
+            pass "$exe: Helpers/$name runs on Intel bun ($(printf '%s' "$out" | head -1))"
+        else
+            fail "$exe: Helpers/$name failed on Intel bun: $(printf '%s' "$out" | head -1)"
+        fi
+    done <<< "$LOCK_TSV"
 }
 UNIVERSAL=false
 for arg in "$@"; do [ "$arg" = "--universal" ] && UNIVERSAL=true; done

@@ -1,6 +1,6 @@
-// Entry point for the standalone binary (`bun run build:binary`). The dev
-// forms stay `bin/gitq` and `bun run serve`; this wrapper exists because a
-// compiled binary has no source tree, so the client bundle must be embedded at
+// Entry point for the helper bundle (`bun run build:bundle`). The dev
+// forms stay `bin/gitq` and `bun run serve`; this wrapper exists because the
+// bundle has no source tree, so the client bundle must be embedded at
 // build time (the text import below -- scripts/build-client.ts writes it
 // first) and handed to the server before `gitq board` boots it.
 import appJs from '../dist/client/app.js.txt' with { type: 'text' };

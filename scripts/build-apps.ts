@@ -2,17 +2,22 @@
 /**
  * Builds every deps.lock row with source "tree" from this checkout into
  * rt-tray/deps/<arch>/, in the layout scripts/fetch-deps.sh produces for a
- * downloaded row: the artifact at <name>, the launcher identity at
- * <name>-identity, the agent skills at <name>-skills. build.sh then bundles
- * both kinds of row the same way. The workspace packages under packages/*
- * are built first: a recipe's dist import (settings-kit, tui-kit, ...) is
- * only fresh once its own package has been rebuilt from source in this run.
+ * downloaded row: the launcher at <name>, the JS bundle it runs at
+ * <name>-app, the launcher identity at <name>-identity, the agent skills at
+ * <name>-skills. build.sh then bundles both kinds of row the same way. The
+ * workspace packages under packages/* are built first: a recipe's dist
+ * import (settings-kit, tui-kit, ...) is only fresh once its own package has
+ * been rebuilt from source in this run.
+ *
+ * Every tree app runs on the one bundled Helpers/bun: the launcher
+ * (rt-tray/helper-launcher/main.c) is a few KB per arch, where a
+ * `bun build --compile` binary carried its own copy of the runtime.
  *
  *   bun scripts/build-apps.ts [--arch arm64|x86_64]
  * Env: RT_DEPS_ROOT (default rt-tray/deps), RT_DEPS_LOCK (default
  * rt-tray/deps.lock), RT_APPS_ROOT (default apps/).
  */
-import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { spawnSync } from "child_process";
@@ -21,6 +26,19 @@ import { stageIdentity } from "./lib/app-identity.ts";
 import { readBundleRecipe } from "./lib/validate-manifest.ts";
 
 const ROOT = resolve(import.meta.dir, "..");
+export const LAUNCHER_SRC = join(ROOT, "rt-tray", "helper-launcher", "main.c");
+// rt-tray/Package.swift's platform floor.
+const MACOS_MIN = "14.0";
+
+export type BuildArch = "arm64" | "x86_64";
+
+export interface LauncherSpec {
+  name: string;
+  /** Whether bun reads a .env from the cwd (bundle.dotenv). */
+  dotenv: boolean;
+  arch: BuildArch;
+  out: string;
+}
 
 export interface BuildAppsSeams {
   appsRoot: string;
@@ -30,23 +48,39 @@ export interface BuildAppsSeams {
   log(line: string): void;
   /** Builds the packages/* workspace before any recipe runs. */
   buildPackages?: () => void;
-  /** Runs `<artifact> --version` under home; returns the exit status. */
-  smoke?: (artifact: string, home: string) => number | null;
+  /** Writes the Contents/Helpers/<name> launcher for one arch. */
+  compileLauncher?: (spec: LauncherSpec) => void;
+  /** The bun the smoke probe runs each bundle on; default this process's. */
+  bunPath?: string;
+  /** Runs `<launcher> --version` under home; returns the exit status. */
+  smoke?: (launcher: string, home: string) => number | null;
 }
-
-export type BuildArch = "arm64" | "x86_64";
 
 const SAFE_NAME = /^[a-z0-9][a-z0-9-]*$/;
 
-// Each app's compile script passes this to `bun build --compile --target`.
-const BUN_TARGET: Record<BuildArch, string> = { arm64: "bun-darwin-arm64", x86_64: "bun-darwin-x64" };
+export function launcherArgs(spec: LauncherSpec, src: string = LAUNCHER_SRC): string[] {
+  return [
+    "-arch", spec.arch, `-mmacosx-version-min=${MACOS_MIN}`, "-O2", "-Wall", "-Wextra", "-Werror",
+    `-DHELPER_NAME="${spec.name}"`, `-DHELPER_DOTENV=${spec.dotenv ? 1 : 0}`,
+    src, "-o", spec.out,
+  ];
+}
 
-function smokeFor(arch: BuildArch): (artifact: string, home: string) => number | null {
-  // An x86_64 artifact runs on the arm64 build host under Rosetta.
+function compileLauncher(spec: LauncherSpec): void {
+  const run = spawnSync("clang", launcherArgs(spec), { stdio: "inherit" });
+  if (run.status !== 0) throw new Error(`${spec.name}: launcher compile exited ${run.status}`);
+}
+
+export const BUNFIG_GUARD =
+  "# Intentionally empty. Contents/Helpers/<name> hands bun this file so a\n" +
+  "# bunfig.toml (and its preload) in the caller's cwd is never read.\n";
+
+function smokeFor(arch: BuildArch): (launcher: string, home: string) => number | null {
+  // An x86_64 launcher runs on the arm64 build host under Rosetta.
   const prefix = arch === "x86_64" ? ["arch", "-x86_64"] : [];
-  return (artifact, home) => {
-    const [cmd, ...rest] = [...prefix, artifact, "--version"];
-    return spawnSync(cmd!, rest, { stdio: "ignore", env: { HOME: home, PATH: "/usr/bin:/bin" } }).status;
+  return (launcher, home) => {
+    const [cmd, ...rest] = [...prefix, launcher, "--version"];
+    return spawnSync(cmd!, rest, { stdio: "ignore", cwd: home, env: { HOME: home, PATH: "/usr/bin:/bin" } }).status;
   };
 }
 
@@ -72,20 +106,33 @@ export async function buildTreeRows(s: BuildAppsSeams): Promise<string[]> {
       const app = join(s.appsRoot, row.name);
       const recipe = readBundleRecipe(join(app, "mattstack.deck.json"));
       s.log(`  -> ${row.name}: ${recipe.build}`);
-      const env = { ...process.env, MATTSTACK_BUN_TARGET: BUN_TARGET[s.arch] };
-      const run = spawnSync("bash", ["-c", recipe.build], { cwd: app, stdio: "inherit", env });
+      const run = spawnSync("bash", ["-c", recipe.build], { cwd: app, stdio: "inherit", env: process.env });
       if (run.status !== 0) throw new Error(`${row.name}: bundle.build exited ${run.status}`);
       const artifact = join(app, recipe.artifact);
-      if (!existsSync(artifact) || !(statSync(artifact).mode & 0o111)) {
-        throw new Error(`${row.name}: ${recipe.artifact} missing or not executable`);
+      if (!existsSync(join(artifact, "main.js")) || !statSync(artifact).isDirectory()) {
+        throw new Error(`${row.name}: ${recipe.artifact}/main.js missing; bundle.artifact names the bundle directory`);
       }
-      const status = smoke(artifact, smokeHome);
-      if (status !== 0) throw new Error(`${row.name}: ${recipe.artifact} --version exited ${status}`);
-      for (const suffix of ["", "-identity", "-skills", ".sha256", "-identity.sha256", "-skills.sha256"]) {
+      for (const suffix of ["", "-app", "-identity", "-skills", ".sha256", "-identity.sha256", "-skills.sha256"]) {
         rmSync(join(deps, `${row.name}${suffix}`), { recursive: true, force: true });
       }
-      copyFileSync(artifact, join(deps, row.name));
-      chmodSync(join(deps, row.name), 0o755);
+      const bundle = join(deps, `${row.name}-app`);
+      cpSync(artifact, bundle, { recursive: true });
+      writeFileSync(join(bundle, "bunfig.toml"), BUNFIG_GUARD);
+      const launcher = join(deps, row.name);
+      (s.compileLauncher ?? compileLauncher)({ name: row.name, dotenv: recipe.dotenv, arch: s.arch, out: launcher });
+      chmodSync(launcher, 0o755);
+      // The launcher finds bun and its bundle beside its own path, as in
+      // Contents/Helpers; deps/<arch> has no bun when this runs.
+      const helpers = mkdtempSync(join(tmpdir(), "build-apps-helpers-"));
+      try {
+        cpSync(launcher, join(helpers, row.name));
+        symlinkSync(bundle, join(helpers, `${row.name}-app`));
+        symlinkSync(s.bunPath ?? process.execPath, join(helpers, "bun"));
+        const status = smoke(join(helpers, row.name), smokeHome);
+        if (status !== 0) throw new Error(`${row.name}: launcher --version exited ${status}`);
+      } finally {
+        rmSync(helpers, { recursive: true, force: true });
+      }
       stageIdentity(app, join(deps, `${row.name}-identity`), row.name);
       if (row.skills) {
         const skills = join(app, "skills");

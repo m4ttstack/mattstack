@@ -63,16 +63,17 @@ $ bun run serve   # bun run src/server/index.ts
 One process, one port. It serves `dist/` (assets, fonts, `index.html`) and answers `/api` and `/ws`
 itself, with no Vite involved.
 
-### Single binary
+### Helper bundle
 
 ```bash
-$ bun run build:binary   # vite build, embed dist/ into a manifest, bun --compile -> dist-bin/console
+$ bun run build:bundle   # vite build, embed dist/ into a manifest, bun build -> dist-bin/app
 ```
 
 `vite build` produces `dist/`, `mattstack-embed-assets` (from `@mattstack/app-server`) embeds it
-into a generated manifest, and `bun build --compile` bundles the server plus that manifest into
-`dist-bin/console`: a single self-contained executable that serves itself with no `dist/` or
-`node_modules` next to it.
+into a generated manifest, and `bun build --target bun` bundles the server plus that manifest into
+`dist-bin/app`: `main.js` and its assets, which serve themselves with no `dist/` or
+`node_modules` next to them. The mattstack app runs it on its bundled bun as
+`Contents/Helpers/console`.
 
 ## Configuration
 
@@ -91,7 +92,7 @@ reads. Browse and edit those values from the in-app settings pages rather than h
 | `bun run dev`          | Start the Vite dev server.                                                        |
 | `bun run dev:server`   | Start the Bun/Hono API server with hot reload.                                    |
 | `bun run build`        | Typecheck (`tsc -p tsconfig.json`) then production build (`vite build`).          |
-| `bun run build:binary` | Build a self-contained binary embedding its own assets -> `dist-bin/`.            |
+| `bun run build:bundle` | Build the helper bundle, embedding its own assets -> `dist-bin/app`.              |
 | `bun run serve`        | Run the production server (`src/server/index.ts`) against `dist/`.                |
 | `bun run test`         | Run the test suite once and exit (Vitest). `bun run test:watch` reruns on change. |
 | `bun run lint`         | ESLint over `src`.                                                                |
@@ -120,7 +121,7 @@ bun run lint
 bun run typecheck
 bun run test
 bun run build
-bun run build:binary
+bun run build:bundle
 ```
 
 ## License

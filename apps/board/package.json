@@ -16,7 +16,8 @@
     "capture:baseline": "bun tests/capture.ts --out tests/baselines",
     "capture:compare": "bun tests/compare.ts",
     "build:client": "bun run scripts/build-client.ts",
-    "build": "bun run build:client && bun build --compile ${MATTSTACK_BUN_TARGET:+--target=$MATTSTACK_BUN_TARGET} src/compiled.ts --outfile dist/board"
+    "build": "bun run build:client && bun build --compile ${MATTSTACK_BUN_TARGET:+--target=$MATTSTACK_BUN_TARGET} src/compiled.ts --outfile dist/board",
+    "build:bundle": "bun run build:client && rm -rf dist/app && bun build --target bun --define MATTSTACK_HELPER_BUNDLE=true --entry-naming 'main.[ext]' --outdir dist/app src/compiled.ts"
   },
   "dependencies": {
     "@mattstack/app-server": "workspace:*",

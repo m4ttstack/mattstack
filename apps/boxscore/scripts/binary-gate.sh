@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# Serves the compiled boxscore the way deck runs it in prod: from
+# Serves the boxscore helper bundle the way deck runs it in prod: from
 # $HOME/.mattstack/boxscore under a fresh HOME, with no source tree to fall
 # back on, and with a hostile .env and bunfig.toml in that working directory.
 # build-apps and check-bundle only run --version, which exits before any
-# boxscore code loads, so this is the one proof the binary serves and opens
+# boxscore code loads, so this is the one proof the bundle serves and opens
 # its SQLite store.
 set -euo pipefail
 
 app_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-bin=${BINARY:-$app_dir/dist-bin/boxscore}
+bundle=${BUNDLE:-$app_dir/dist-bin/app}
 port=${GATE_PORT:-$(bun -e 'const s = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } }); console.log(s.port); s.stop();')}
 base="http://127.0.0.1:$port"
 hidden="$app_dir/dist-bin/dist-hidden"
 
 say() { echo "binary-gate: $*" >&2; }
 
-[ -x "$bin" ] || { say "$bin is missing; run bun run build:binary first"; exit 1; }
+[ -f "$bundle/main.js" ] || { say "$bundle/main.js is missing; run bun run build:bundle first"; exit 1; }
 [ ! -e "$hidden" ] || { say "$hidden is left from an interrupted run; move it back to $app_dir/dist"; exit 1; }
 if curl -s -m 1 -o /dev/null "$base/"; then
   say "GATE_PORT=$port already answers; choose a free port"
@@ -45,7 +45,13 @@ fail() {
 home="$work/home"
 run_dir="$home/.mattstack/boxscore"
 mkdir -p "$run_dir"
-cp "$bin" "$run_dir/boxscore"
+# Contents/Helpers/boxscore-app, with the bunfig guard build-apps writes.
+helper="$work/Helpers/boxscore-app"
+mkdir -p "$work/Helpers"
+cp -R "$bundle" "$helper"
+printf '# Intentionally empty.\n' > "$helper/bunfig.toml"
+# The flags rt-tray/helper-launcher/main.c passes for a dotenv:false app.
+run_bundle=("$(command -v bun)" --no-install --no-env-file --config="$helper/bunfig.toml" "$helper/main.js")
 printf 'BOXSCORE_DB=%s\n' "$work/dotenv.sqlite" > "$run_dir/.env"
 printf 'preload = ["./poison.ts"]\n' > "$run_dir/bunfig.toml"
 printf 'require("node:fs").writeFileSync("%s", "ran");\n' "$work/preloaded" > "$run_dir/poison.ts"
@@ -56,14 +62,14 @@ if [ -d "$app_dir/dist" ]; then
   moved=1
 fi
 
-version=$(cd "$run_dir" && env -i HOME="$home" ./boxscore --version) || fail "--version exited non-zero"
+version=$(cd "$run_dir" && env -i HOME="$home" "${run_bundle[@]}" --version) || fail "--version exited non-zero"
 [ "$version" = "$expected" ] || fail "--version printed '$version', expected bare '$expected'"
 
-(cd "$run_dir" && exec env -i HOME="$home" PORT="$port" ./boxscore) > "$work/server.log" 2>&1 &
+(cd "$run_dir" && exec env -i HOME="$home" PORT="$port" "${run_bundle[@]}") > "$work/server.log" 2>&1 &
 server=$!
 for _ in $(seq 1 30); do
   curl -fsS -m 1 -o /dev/null "$base/api/health" 2>/dev/null && break
-  kill -0 "$server" 2>/dev/null || fail "binary exited before answering /api/health"
+  kill -0 "$server" 2>/dev/null || fail "bundle exited before answering /api/health"
   sleep 1
 done
 health=$(curl -fsS -m 5 "$base/api/health") || fail "never answered /api/health"

@@ -13,7 +13,7 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**"]
     },
-    "build:binary": {
+    "build:bundle": {
       "dependsOn": ["build"],
       "outputs": [
         "dist/**",
@@ -38,11 +38,11 @@
       "passThroughEnv": ["GATE_PORT"]
     },
     "mattstack-console#serve-check": {
-      "dependsOn": ["build:binary"],
+      "dependsOn": ["build:bundle"],
       "passThroughEnv": ["GATE_PORT"]
     },
     "boxscore#serve-check": {
-      "dependsOn": ["build:binary"],
+      "dependsOn": ["build:bundle"],
       "passThroughEnv": ["GATE_PORT"]
     },
     "@mattstack/tui-kit#browsers": {

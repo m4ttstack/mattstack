@@ -41,7 +41,7 @@ The dev app (`/Applications/mattstack-dev.app`) takes code from three places.
   needs a dev app rebuild.** Only the served board (port 11006) runs from
   source. `rt cron`'s `board-triage` and `board-peer` triggers, and the
   status writers the board hands launched panes (`review-status`,
-  `respond-status`, `doctor-status`, `gate`), run the compiled
+  `respond-status`, `doctor-status`, `gate`), run the bundled
   `Contents/Helpers/board` (the daemon resolves `tool: "board"` through
   `deps.lock`). After a deploy that bumps `SCHEMA_VERSION` in
   `apps/board/src/state/db.ts`, that older binary refuses the migrated

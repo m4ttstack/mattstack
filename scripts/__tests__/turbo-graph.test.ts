@@ -36,9 +36,9 @@ describe('turbo task graph', () => {
     );
   });
 
-  test('build:binary runs after the package build', () => {
-    const tasks = byId(dryRun(['build:binary', '--filter=mattstack-console']));
-    expect(tasks.get('mattstack-console#build:binary')?.dependencies).toContain(
+  test('build:bundle runs after the package build', () => {
+    const tasks = byId(dryRun(['build:bundle', '--filter=mattstack-console']));
+    expect(tasks.get('mattstack-console#build:bundle')?.dependencies).toContain(
       'mattstack-console#build'
     );
   });
@@ -51,20 +51,20 @@ describe('turbo task graph', () => {
       '@mattstack/rt-client#build',
       '@mattstack/settings-kit#build',
       'boxscore#build',
-      'boxscore#build:binary',
+      'boxscore#build:bundle',
       'boxscore#serve-check',
       'chat#build',
       'chat#serve-check',
       'mattstack-console#build',
-      'mattstack-console#build:binary',
+      'mattstack-console#build:bundle',
       'mattstack-console#serve-check',
     ]);
     expect(tasks.get('chat#serve-check')?.dependencies).toContain('chat#build');
     expect(tasks.get('mattstack-console#serve-check')?.dependencies).toContain(
-      'mattstack-console#build:binary'
+      'mattstack-console#build:bundle'
     );
     expect(tasks.get('boxscore#serve-check')?.dependencies).toContain(
-      'boxscore#build:binary'
+      'boxscore#build:bundle'
     );
     for (const id of [
       'chat#serve-check',

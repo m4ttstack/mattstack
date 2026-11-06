@@ -177,23 +177,24 @@ gates and evidence routes from the invented `acme/web` runs (`runsFixture.ts`), 
 clock as `asOf`, which the pages read through `nowOf` (`src/app/runs/derive/clock.ts`). Under a
 fixture scenario the server never calls the daemon and refuses every write.
 
-## Embedded server / `build:binary`
+## Embedded server / `build:bundle`
 
 ```bash
 bun run build         # tsc -p tsconfig.json && vite build -> dist/
-bun run build:binary   # vite build && mattstack-embed-assets && bun build --compile
+bun run build:bundle  # vite build && mattstack-embed-assets && bun build --target bun -> dist-bin/app
 ```
 
 `mattstack-embed-assets` (the bin shipped by `@mattstack/app-server`) reads the built `dist/` and
 generates `src/server/embedded/manifest.ts` (gitignored, build-time only, never hand-edited, and
 never committed). `src/server/index.ts` imports it dynamically as `import('./embedded/manifest' as
 string)`. The `as string` cast keeps `tsc` from trying to resolve the gitignored path at
-typecheck time, while `bun build --compile` still sees the literal specifier and embeds the module
-into the compiled binary. `serveMattstackApp`'s embedded-mode detection (`decideServingMode` /
-`loadEmbeddedManifest`, both in the app-server package) is what lets the resulting
-`dist-bin/console` binary serve its own assets with no `dist/` on disk next to it. See
+typecheck time, while `bun build` still sees the literal specifier and bundles the module. Its
+file imports land beside `main.js` in `dist-bin/app`, the helper bundle the app's
+`Contents/Helpers/console` launcher runs on the bundled bun. `serveMattstackApp`'s embedded-mode
+detection (`decideServingMode` / `loadEmbeddedManifest`, both in the app-server package) is what
+lets that bundle serve its own assets with no `dist/` on disk next to it. See
 `apps/console/scripts/serve-check.sh` (run by the `serve-check` task) for the end-to-end proof
-(build the binary, hide `dist/`, curl it).
+(build the bundle, hide `dist/`, curl it).
 
 ## Formatting, linting, testing
 

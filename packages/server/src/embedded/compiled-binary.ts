@@ -13,8 +13,20 @@ export function isCompiledBinaryMain(main: string): boolean {
   return main.startsWith('/$bunfs/');
 }
 
-/** Bun-touching wrapper -- exercised by actually running the compiled
-    binary, not vitest (no `Bun` global there). */
+/** `bun build --define MATTSTACK_HELPER_BUNDLE=true` sets it for the bundle
+    the app's Helpers launcher runs; it is undeclared everywhere else. */
+declare const MATTSTACK_HELPER_BUNDLE: boolean | undefined;
+
+export function isHelperBundle(): boolean {
+  return (
+    typeof MATTSTACK_HELPER_BUNDLE !== 'undefined' &&
+    MATTSTACK_HELPER_BUNDLE === true
+  );
+}
+
+/** True for both distributed forms: there is no `dist/` beside either one to
+    fall back to. Bun-touching -- exercised by actually running the build,
+    not vitest (no `Bun` global there). */
 export function isCompiledBinary(): boolean {
-  return isCompiledBinaryMain(Bun.main);
+  return isHelperBundle() || isCompiledBinaryMain(Bun.main);
 }

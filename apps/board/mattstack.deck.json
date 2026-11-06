@@ -13,8 +13,8 @@
     "deploy": "bun run build && deck restart board"
   },
   "bundle": {
-    "build": "bun run build",
-    "artifact": "dist/board"
+    "build": "bun run build:bundle",
+    "artifact": "dist/app"
   },
   "live": [
     { "kind": "server", "start": "caffeinate -s bun --watch src/server.ts" }

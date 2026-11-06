@@ -7,7 +7,11 @@ import { isAbsolute } from "path";
 export interface BundleRecipe {
   name: string;
   build: string;
+  /** A directory holding main.js: the bundle Contents/Helpers/<name> runs. */
   artifact: string;
+  /** Whether the bundle reads a .env from its cwd, as a default `bun build
+      --compile` did. Absent means true. */
+  dotenv: boolean;
 }
 
 export function readBundleRecipe(manifestPath: string): BundleRecipe {
@@ -50,7 +54,10 @@ export function readBundleRecipe(manifestPath: string): BundleRecipe {
       throw new Error(`${manifestPath}: bundle.${field} must not contain control characters`);
     }
   }
-  return { name: m.name, build: bundle.build, artifact: bundle.artifact };
+  if (bundle.dotenv !== undefined && typeof bundle.dotenv !== "boolean") {
+    throw new Error(`${manifestPath}: bundle.dotenv must be true or false`);
+  }
+  return { name: m.name, build: bundle.build, artifact: bundle.artifact, dotenv: bundle.dotenv !== false };
 }
 
 if (import.meta.main) {

@@ -32,7 +32,12 @@ client's `res.ok` check plus JSON parse both need this shape, not a
 text/plain 500 or an HTML 404).
 
 `bin/mattstack-embed-assets` walks `dist/`, writes a manifest with `with {
-type: 'file' }` imports and the path map, for a compiled-binary build:
-`vite build && mattstack-embed-assets && bun build --compile --outfile
-dist-bin/<name> src/server/index.ts`. `AppType` stays `typeof routes` in
-the app, so an RPC client's typing is untouched by the frame.
+type: 'file' }` imports and the path map, for the helper bundle build
+(`build:bundle`): `vite build && mattstack-embed-assets && bun build
+--target bun --define MATTSTACK_HELPER_BUNDLE=true --entry-naming
+'main.[ext]' --outdir dist-bin/app src/server/index.ts`. Each manifest path
+goes through `resolve(import.meta.dir, ...)`, because a plain bundle hands a
+file import back relative to its own directory. `isCompiledBinary()` is true
+for the bundle (the define) and for a `--compile` binary, so either refuses
+to serve without a manifest. `AppType` stays `typeof routes` in the app, so
+an RPC client's typing is untouched by the frame.

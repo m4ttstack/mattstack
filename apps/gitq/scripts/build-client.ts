@@ -1,6 +1,6 @@
-// Writes the client bundle to dist/client/ so `bun build --compile` (see the
-// `build:binary` script) can embed it into the standalone binary via the text
-// import in src/compiled.ts. Run automatically by `bun run build:binary`.
+// Writes the client bundle to dist/client/ so `bun build` (see the
+// `build:bundle` script) can embed it into the helper bundle via the text
+// import in src/compiled.ts. Run automatically by `bun run build:bundle`.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildClientBundle } from '../src/server/client-bundle.ts';

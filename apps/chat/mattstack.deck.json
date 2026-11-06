@@ -6,8 +6,8 @@
   "port": 11002,
   "includeInBundle": true,
   "bundle": {
-    "build": "bun run build:binary",
-    "artifact": "dist-bin/chat"
+    "build": "bun run build:bundle",
+    "artifact": "dist-bin/app"
   },
   "dev": {
     "start": "bun src/server/index.ts",

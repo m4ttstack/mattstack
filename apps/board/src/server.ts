@@ -48,7 +48,7 @@ import {
   AgentStatusFeed,
   isAgentStatusTopic,
 } from './agent-status/feed.ts';
-import { IS_COMPILED } from './app-root.ts';
+import { IS_PACKAGED } from './app-root.ts';
 import { SnapshotCache } from './cache.ts';
 import {
   clientChunkResponse,
@@ -1901,7 +1901,7 @@ void refreshMemberNames();
 // bundle is rebuilt on every client edit and open browsers are told to
 // reload (see sseReload below); the binary carries one bundle for life.
 let clientAssets = await getClientAssets();
-if (!IS_COMPILED) {
+if (!IS_PACKAGED) {
   watchClientAssets({
     onBundle: assets => {
       clientAssets = withEarlierChunks(clientAssets, assets);
@@ -2063,7 +2063,7 @@ const httpServer = Bun.serve({
           headers: { 'content-type': 'text/css; charset=utf-8' },
         });
       case '/style.css': {
-        const css = IS_COMPILED ? styleCss : readFileSync(cssPath, 'utf-8');
+        const css = IS_PACKAGED ? styleCss : readFileSync(cssPath, 'utf-8');
         return new Response(css, {
           headers: { 'content-type': 'text/css; charset=utf-8' },
         });

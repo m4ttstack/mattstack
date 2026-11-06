@@ -10,7 +10,7 @@
     "build": "bun run build:client"
   },
   "bundle": {
-    "build": "bun run build:binary",
-    "artifact": "dist/gitq"
+    "build": "bun run build:bundle",
+    "artifact": "dist/app"
   }
 }

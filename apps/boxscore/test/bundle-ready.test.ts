@@ -9,7 +9,7 @@ interface DeckManifest {
   icon?: string;
   port?: number;
   includeInBundle?: boolean;
-  bundle?: { build?: string; artifact?: string };
+  bundle?: { build?: string; artifact?: string; dotenv?: boolean };
 }
 
 interface PackageJson {
@@ -29,8 +29,8 @@ const readJson = <T>(path: string): T =>
 const manifest = readJson<DeckManifest>('mattstack.deck.json');
 const pkg = readJson<PackageJson>('package.json');
 
-function compileOutfile(script: string): string | undefined {
-  return /bun build --compile\b[^&]*--outfile\s+(\S+)/.exec(script)?.[1];
+function bundleOutdir(script: string): string | undefined {
+  return /bun build --target bun\b[^&]*--outdir\s+(\S+)/.exec(script)?.[1];
 }
 
 describe('bundle recipe', () => {
@@ -38,16 +38,17 @@ describe('bundle recipe', () => {
     expect(manifest.name).toBe('boxscore');
     expect(pkg.name).toBe('boxscore');
     expect(manifest.includeInBundle).toBe(true);
-    expect(manifest.bundle?.build).toBe('bun run build:binary');
-    expect(manifest.bundle?.artifact).toBe('dist-bin/boxscore');
+    expect(manifest.bundle?.build).toBe('bun run build:bundle');
+    expect(manifest.bundle?.artifact).toBe('dist-bin/app');
   });
 
-  it('compiles to exactly the artifact the manifest names', () => {
-    const script = pkg.scripts['build:binary'] ?? '';
+  it('bundles to exactly the artifact the manifest names', () => {
+    const script = pkg.scripts['build:bundle'] ?? '';
     expect(script).toMatch(
-      /^vite build && mattstack-embed-assets && bun build --compile /
+      /^vite build && mattstack-embed-assets && rm -rf dist-bin\/app && bun build --target bun /
     );
-    expect(compileOutfile(script)).toBe(manifest.bundle?.artifact);
+    expect(script).toContain('--define MATTSTACK_HELPER_BUNDLE=true');
+    expect(bundleOutdir(script)).toBe(manifest.bundle?.artifact);
     expect(script).toMatch(/ src\/server\/index\.ts$/);
   });
 });
@@ -92,7 +93,7 @@ describe('embedded assets wiring', () => {
 
   it('never tracks build output', () => {
     for (const path of [
-      'dist-bin/boxscore',
+      'dist-bin/app/main.js',
       'src/server/embedded/manifest.ts',
     ]) {
       expect(
@@ -103,22 +104,21 @@ describe('embedded assets wiring', () => {
   });
 });
 
-describe('compiled binary hardening', () => {
-  it('ignores a .env or bunfig.toml in the directory deck launches it from', () => {
-    const script = pkg.scripts['build:binary'] ?? '';
-    expect(script).toContain('--no-compile-autoload-dotenv');
-    expect(script).toContain('--no-compile-autoload-bunfig');
+describe('helper bundle hardening', () => {
+  it('ignores a .env in the directory deck launches it from', () => {
+    // The launcher always ignores a cwd bunfig.toml; .env is per app.
+    expect(manifest.bundle?.dotenv).toBe(false);
   });
 });
 
-describe('CI binary gate', () => {
-  it('the gate runs after the binary build through turbo', () => {
+describe('CI bundle gate', () => {
+  it('the gate runs after the bundle build through turbo', () => {
     expect(pkg.scripts['serve-check']).toBe('bash scripts/binary-gate.sh');
     const turbo = readJson<TurboJson>(
       join(import.meta.dirname, '..', '..', '..', 'turbo.json')
     );
     expect(turbo.tasks['boxscore#serve-check']?.dependsOn).toContain(
-      'build:binary'
+      'build:bundle'
     );
   });
 });

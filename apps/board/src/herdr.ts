@@ -9,6 +9,7 @@ import {
   type AgentIo,
   type AgentLaunchResult,
 } from './agent-launch.ts';
+import { IS_HELPER_BUNDLE } from './app-root.ts';
 import { respondReportPath } from './respond-state.ts';
 import { reviewReportPath } from './review-state.ts';
 import { shellSingleQuote } from './shell-quote.ts';
@@ -147,15 +148,30 @@ export function parseWorkspaceCreate(
     rather than the skill guessing where the board lives; the skill appends the
     verb it wants (`<status-bin> review-status <state> <status>`).
 
-    A compiled board has no source tree — `import.meta.dir` is `/$bunfs/root`
-    there — so a path into `bin/` names a file that exists on no distributed
-    install. That failure surfaces in the launched agent, later and silently:
-    a review that hangs forever having already done the work, failing only
-    when it reports. */
+    A distributed board has no source tree, so a path into `bin/` names a file
+    that exists on no install. That failure surfaces in the launched agent,
+    later and silently: a review that hangs forever having already done the
+    work, failing only when it reports. The helper bundle is run by
+    Contents/Helpers/board, which hands its own path in as argv0 (execPath is
+    the shared bun there); a compiled binary is its own execPath. */
+export function statusBinPathFor(run: {
+  helperBundle: boolean;
+  moduleDir: string;
+  execPath: string;
+  argv0: string;
+}): string {
+  if (run.helperBundle) return run.argv0;
+  if (run.moduleDir.startsWith('/$bunfs')) return run.execPath;
+  return join(run.moduleDir, '..', 'bin', 'board');
+}
+
 export function statusBinPath(): string {
-  return import.meta.dir.startsWith('/$bunfs')
-    ? process.execPath
-    : join(import.meta.dir, '..', 'bin', 'board');
+  return statusBinPathFor({
+    helperBundle: IS_HELPER_BUNDLE,
+    moduleDir: import.meta.dir,
+    execPath: process.execPath,
+    argv0: process.argv0,
+  });
 }
 
 /** The same executable; the draft writer is one of its verbs (`doctor-draft`). */

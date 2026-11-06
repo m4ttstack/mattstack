@@ -121,4 +121,10 @@ describe("rt-tray/deps.lock", () => {
     expect(by["node"]?.entitlements).toBe("jit");
     for (const n of ["jq", "gh", "glab"]) expect(by[n]?.entitlements).toBe("none");
   });
+
+  test("tree rows declare none: their Mach-O is the C launcher, and the bun it runs carries jit", () => {
+    const tree = lock.tools.filter((t) => t.source === "tree");
+    expect(tree.map((t) => t.name).sort()).toEqual(["board", "boxscore", "chat", "console", "deck", "gitq"]);
+    for (const t of tree) expect(t.entitlements).toBe("none");
+  });
 });

@@ -3,6 +3,7 @@ import { INVADR_SPRITES, resolveInvadr } from 'invadrs';
 
 import { LAYOUT } from '../../assets/latch/index.ts';
 import {
+  absoluteStrips,
   GIF_H,
   GIF_W,
   latchBannerGif,
@@ -176,6 +177,23 @@ const CELL = 3 * S;
 function cellCentre(col: number, row: number): [number, number] {
   return [14 * S + (2 + col) * CELL + 4, 16 * S + row * CELL + 4];
 }
+
+describe('absoluteStrips', () => {
+  test('anchors a bundle-relative strip at the module dir, never the cwd', () => {
+    expect(
+      absoluteStrips({ armed: './armed-abc.png' }, '/x/Helpers/board-app')
+    ).toEqual({ armed: '/x/Helpers/board-app/armed-abc.png' });
+  });
+
+  test('keeps an absolute strip (dev source, or /$bunfs when compiled)', () => {
+    expect(
+      absoluteStrips(
+        { a: '/repo/assets/latch/a.png', b: '/$bunfs/root/b.png' },
+        '/x'
+      )
+    ).toEqual({ a: '/repo/assets/latch/a.png', b: '/$bunfs/root/b.png' });
+  });
+});
 
 describe('latchBannerGif', () => {
   test('encodes a 1560x192 GIF for every variant key', () => {
