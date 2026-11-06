@@ -7,6 +7,7 @@ import {
   launchRespond,
   launchReview,
   mrTabLabel,
+  skillBindRefusal,
   statusBinPath,
   type SkillPathResolver,
 } from './herdr.ts';
@@ -328,6 +329,12 @@ export async function launchRespondAsk(
 ): Promise<ReReviewLaunch> {
   const existing = io.readRespondStates().get(mrUrl);
   const statePath = io.respondFilePath(mrUrl);
+  const refusal = await skillBindRefusal(ctx.skill, resolvePath);
+  if (refusal) {
+    const message = launchErrorMessage('respond', refusal);
+    io.writeRespondState(statePath, { mrUrl, iid, status: 'error', message });
+    return { kind: 'error', message };
+  }
   io.writeRespondState(statePath, {
     mrUrl,
     iid,

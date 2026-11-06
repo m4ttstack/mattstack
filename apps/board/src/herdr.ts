@@ -348,6 +348,18 @@ export async function dispatchPrompt(
   return withNote(`/${wrapper} ${dispatchArgs(o, skillPath)}`, o.note);
 }
 
+/** The refusal `dispatchPrompt` would throw for `skill`, or null when it
+    binds or is unset. A launch handler checks this before it overwrites the
+    lane's previous state, so a refused launch leaves that state intact. */
+export async function skillBindRefusal(
+  skill: string | undefined,
+  resolvePath: SkillPathResolver = resolveSkillPath
+): Promise<SkillBindError | null> {
+  if (!skill) return null;
+  const resolved = await resolvePath(skill);
+  return resolved.ok ? null : new SkillBindError(skill, resolved.failure);
+}
+
 /** The command a pane starts claude with. config.claudeCommand replaces plain
     "claude" verbatim (trusted operator config, e.g. a cswap wrapper that pins
     the account); empty/absent keeps the historical behavior. */

@@ -200,6 +200,7 @@ import {
   parseLaunchNote,
   reopenPrompt,
   sendPaneText,
+  skillBindRefusal,
   statusBinPath,
 } from './herdr.ts';
 import { reviewerLatches } from './latch/discussions.ts';
@@ -2729,6 +2730,24 @@ const httpServer = Bun.serve({
             return new Response(dedup.reason, { status: 409 });
         }
         const statePath = reviewFilePath(parsed.mrUrl);
+        const reviewSkill = reviewSkillForTab(
+          config,
+          tabId,
+          parsed.mrUrl,
+          resolveLaunchSkillFor
+        );
+        const reviewRefusal = await skillBindRefusal(reviewSkill);
+        if (reviewRefusal) {
+          writeReviewState(statePath, {
+            mrUrl: parsed.mrUrl,
+            iid: parsed.iid,
+            status: 'error',
+            message: launchErrorMessage('review', reviewRefusal),
+          });
+          return new Response(JSON.stringify({ ok: true }), {
+            headers: { 'content-type': 'application/json' },
+          });
+        }
         writeReviewState(statePath, {
           mrUrl: parsed.mrUrl,
           iid: parsed.iid,
@@ -2746,12 +2765,7 @@ const httpServer = Bun.serve({
           repo,
           workspaceLabel: config.reviewsWorkspace,
           statePath,
-          skill: reviewSkillForTab(
-            config,
-            tabId,
-            parsed.mrUrl,
-            resolveLaunchSkillFor
-          ),
+          skill: reviewSkill,
           pack: launchPack(tabId),
           author,
           ...loadAgentSettings(),
@@ -2898,6 +2912,23 @@ const httpServer = Bun.serve({
           if (dedup.kind === 'refused')
             return new Response(dedup.reason, { status: 409 });
         }
+        const respondSkill = resolveLaunchSkillFor(
+          'respond',
+          parsed.mrUrl,
+          boardTabId
+        );
+        const respondRefusal = await skillBindRefusal(respondSkill);
+        if (respondRefusal) {
+          writeRespondState(respondFilePath(parsed.mrUrl), {
+            mrUrl: parsed.mrUrl,
+            iid: parsed.iid,
+            status: 'error',
+            message: launchErrorMessage('respond', respondRefusal),
+          });
+          return new Response(JSON.stringify({ ok: true }), {
+            headers: { 'content-type': 'application/json' },
+          });
+        }
         const responseRound = person
           ? recordRespondRound(
               parsed.mrUrl,
@@ -2928,7 +2959,7 @@ const httpServer = Bun.serve({
           repo,
           workspaceLabel: config.respondsWorkspace,
           statePath,
-          skill: resolveLaunchSkillFor('respond', parsed.mrUrl, boardTabId),
+          skill: respondSkill,
           pack: launchPack(boardTabId),
           author,
           ...loadAgentSettings(),
@@ -3159,6 +3190,23 @@ const httpServer = Bun.serve({
                 .filter(Boolean)
                 .join('. ')
             : note;
+        const doctorSkill = resolveLaunchSkillFor(
+          'doctor',
+          parsed.mrUrl,
+          boardTabId
+        );
+        const doctorRefusal = await skillBindRefusal(doctorSkill);
+        if (doctorRefusal) {
+          writeDoctorState(statePath, {
+            mrUrl: parsed.mrUrl,
+            iid: parsed.iid,
+            status: 'error',
+            message: launchErrorMessage('doctor', doctorRefusal),
+          });
+          return new Response(JSON.stringify({ ok: true }), {
+            headers: { 'content-type': 'application/json' },
+          });
+        }
         writeDoctorState(statePath, {
           mrUrl: parsed.mrUrl,
           iid: parsed.iid,
@@ -3177,7 +3225,7 @@ const httpServer = Bun.serve({
           repo,
           workspaceLabel: config.doctorsWorkspace,
           statePath,
-          skill: resolveLaunchSkillFor('doctor', parsed.mrUrl, boardTabId),
+          skill: doctorSkill,
           pack: launchPack(boardTabId),
           author,
           ...loadAgentSettings(),

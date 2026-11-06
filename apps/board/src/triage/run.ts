@@ -18,6 +18,7 @@ import {
   ringText,
   type SessionProbe,
 } from '../run-owner.ts';
+import { SkillBindError } from '../skill-path.ts';
 import type { AuditEntry } from './audit.ts';
 import type { FixClasses, TriageConfig } from './config.ts';
 import {
@@ -689,6 +690,18 @@ export async function runTriage(
             status: 'error',
             message: launchErrorMessage('doctor', err),
           });
+        }
+        // A skill that does not bind refuses every pass until someone fixes
+        // it, so the edge is spent here and the person hears about it once.
+        if (err instanceof SkillBindError) {
+          markHandled(deps.memory, edge);
+          await deps
+            .notify(
+              `Auto-fix can't start on !${edge.iid}`,
+              err.message,
+              edge.mrUrl
+            )
+            .catch(() => {});
         }
       }
       deps.appendAudit({

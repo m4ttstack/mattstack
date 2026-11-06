@@ -9,6 +9,7 @@ import {
   type RunSummary,
 } from '@mattstack/rt-client';
 import type { DoctorState } from '../doctor-state.ts';
+import { SkillBindError } from '../skill-path.ts';
 import { createBoardAttendants } from '../triage/attendant.ts';
 import type { AuditEntry } from '../triage/audit.ts';
 import { parseTriageBlock } from '../triage/config.ts';
@@ -602,6 +603,37 @@ describe('runTriage attendant lease (BOARD-10)', () => {
       status: 'error',
       message: 'herdr not found at /nowhere/herdr',
     });
+  });
+
+  test('a skill that does not bind errors the row, notifies once, and spends the edge', async () => {
+    const writes: Array<{ status?: string; message?: string }> = [];
+    let attempts = 0;
+    const bind = new SkillBindError('team:doctor-api', {
+      reason: 'plugin-not-installed',
+      plugin: 'team',
+    });
+    const d = deps({
+      launchDoctor: async () => {
+        attempts++;
+        throw bind;
+      },
+    });
+    const base = d.writeDoctorState;
+    d.writeDoctorState = (path, patch) => {
+      writes.push(patch);
+      return base(path, patch);
+    };
+    await runTriage(d);
+    await runTriage(d);
+    expect(attempts).toBe(1);
+    expect(writes.at(-1)).toEqual({ status: 'error', message: bind.message });
+    expect(d.notifyCalls).toEqual([
+      {
+        title: "Auto-fix can't start on !1",
+        message: bind.message,
+        mrUrl: 'https://x/mr/1',
+      },
+    ]);
   });
 
   test('a throw between the claim and the launch (doctorFilePath) still releases the claim', async () => {

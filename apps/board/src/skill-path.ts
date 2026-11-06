@@ -14,26 +14,52 @@ export type ClaudeFailure =
   | { kind: 'missing'; claudeBin: string }
   | { kind: 'failed'; claudeBin: string; detail: string };
 
+/** `fromCache` marks a list served from the cache rather than fetched. */
 export type PluginListResult =
-  { ok: true; plugins: PluginEntry[] } | { ok: false; failure: ClaudeFailure };
+  | { ok: true; plugins: PluginEntry[]; fromCache?: boolean }
+  | { ok: false; failure: ClaudeFailure };
 
 /** `fresh` skips any cached list, for a lookup that missed against it. */
 export type PluginListRunner = (opts?: {
   fresh?: boolean;
 }) => Promise<PluginListResult>;
 
-// Absolute binary, since the server runs under a minimal launchd env (same
-// precedent as HERDR_BIN in herdr.ts -- a bare "claude" isn't on that PATH).
-const CLAUDE_BIN =
-  process.env.CLAUDE_BIN || join(homedir(), '.local', 'bin', 'claude');
+const PRIMARY_CLAUDE_BIN = join(homedir(), '.local', 'bin', 'claude');
 
-/** Runs `<claudeBin> plugin list --json` once, uncached. Exported so its
-    failure branches are directly testable against a fake binary. */
+/** Where Claude Code may live, in the order rt's own launcher and
+    lib/claude-bin.ts check. The server runs under a minimal launchd env,
+    so PATH alone is not enough. An explicit CLAUDE_BIN is the only place
+    looked. */
+export function claudeBinCandidates(
+  env: NodeJS.ProcessEnv = process.env
+): string[] {
+  if (env.CLAUDE_BIN) return [env.CLAUDE_BIN];
+  const onPath = Bun.which('claude', { PATH: env.PATH ?? '' });
+  return [
+    PRIMARY_CLAUDE_BIN,
+    ...(onPath ? [onPath] : []),
+    join(homedir(), '.claude', 'local', 'claude'),
+    '/opt/homebrew/bin/claude',
+    '/usr/local/bin/claude',
+  ];
+}
+
+const PLUGIN_LIST_TIMEOUT_MS = 15_000;
+
+/** Runs `<claudeBin> plugin list --json` once, uncached, against the first
+    candidate that exists. Exported so its failure branches are directly
+    testable against a fake binary. */
 export async function runPluginList(
-  claudeBin: string
+  candidates: string | string[],
+  timeoutMs: number = PLUGIN_LIST_TIMEOUT_MS
 ): Promise<PluginListResult> {
-  if (!existsSync(claudeBin))
-    return { ok: false, failure: { kind: 'missing', claudeBin } };
+  const list = typeof candidates === 'string' ? [candidates] : candidates;
+  const claudeBin = list.find(path => existsSync(path));
+  if (!claudeBin)
+    return {
+      ok: false,
+      failure: { kind: 'missing', claudeBin: list[0] ?? PRIMARY_CLAUDE_BIN },
+    };
   const failed = (detail: string): PluginListResult => ({
     ok: false,
     failure: { kind: 'failed', claudeBin, detail },
@@ -43,10 +69,20 @@ export async function runPluginList(
       stdout: 'pipe',
       stderr: 'pipe',
     });
-    const [out, code] = await Promise.all([
-      new Response(proc.stdout).text(),
-      proc.exited,
-    ]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // A child of claude can hold stdout open after claude itself is killed,
+    // so the deadline races the read instead of waiting for it to close.
+    const answered = await Promise.race([
+      Promise.all([new Response(proc.stdout).text(), proc.exited]),
+      new Promise<null>(resolve => {
+        timer = setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]).finally(() => clearTimeout(timer));
+    if (!answered) {
+      proc.kill();
+      return failed(`did not answer in ${timeoutMs / 1000}s`);
+    }
+    const [out, code] = answered;
     if (code !== 0) return failed(`exited ${code}`);
     let parsed: unknown;
     try {
@@ -72,7 +108,8 @@ export function makeCachedPluginListRunner(
 ): PluginListRunner {
   let cached: PluginEntry[] | null = null;
   return async opts => {
-    if (cached && !opts?.fresh) return { ok: true, plugins: cached };
+    if (cached && !opts?.fresh)
+      return { ok: true, plugins: cached, fromCache: true };
     const result = await run();
     if (result.ok) cached = result.plugins;
     return result;
@@ -80,7 +117,7 @@ export function makeCachedPluginListRunner(
 }
 
 export const defaultPluginListRunner: PluginListRunner =
-  makeCachedPluginListRunner(() => runPluginList(CLAUDE_BIN));
+  makeCachedPluginListRunner(() => runPluginList(claudeBinCandidates()));
 
 /** Why a `<plugin>:<skill>` name did not resolve to a SKILL.md. */
 export type SkillPathFailure =
@@ -88,6 +125,7 @@ export type SkillPathFailure =
   | { reason: 'claude-missing'; claudeBin: string }
   | { reason: 'claude-failed'; claudeBin: string; detail: string }
   | { reason: 'plugin-not-installed'; plugin: string }
+  | { reason: 'plugin-unreadable'; plugin: string; detail: string }
   | { reason: 'plugin-disabled'; plugin: string; pluginId: string }
   | { reason: 'skill-missing'; plugin: string; skill: string };
 
@@ -151,7 +189,8 @@ function fromClaudeFailure(f: ClaudeFailure): SkillPathFailure {
  * `claude plugin list --json` whose id starts with "<plugin>@".
  *
  * Never throws: every failure comes back as a reason the launch can show.
- * A miss against a cached plugin list is retried once against a fresh one.
+ * A miss against a cached plugin list is retried once against a fresh one;
+ * a Claude failure on that retry keeps the first miss as the reason.
  */
 export async function resolveSkillPath(
   name: string,
@@ -162,7 +201,9 @@ export async function resolveSkillPath(
     return { ok: false, failure: { reason: 'bad-name' } };
   const [plugin, skill] = parts as [string, string];
 
-  const attempt = async (fresh: boolean): Promise<SkillPathResolution> => {
+  const attempt = async (
+    fresh: boolean
+  ): Promise<SkillPathResolution & { fromCache?: boolean }> => {
     let listed: PluginListResult;
     try {
       listed = await listPlugins(fresh ? { fresh: true } : undefined);
@@ -170,27 +211,54 @@ export async function resolveSkillPath(
       const detail = err instanceof Error ? err.message : String(err);
       listed = {
         ok: false,
-        failure: { kind: 'failed', claudeBin: CLAUDE_BIN, detail },
+        failure: { kind: 'failed', claudeBin: PRIMARY_CLAUDE_BIN, detail },
       };
     }
     if (!listed.ok)
       return { ok: false, failure: fromClaudeFailure(listed.failure) };
     try {
-      return lookup(listed.plugins, plugin, skill);
-    } catch {
-      return { ok: false, failure: { reason: 'plugin-not-installed', plugin } };
+      return {
+        ...lookup(listed.plugins, plugin, skill),
+        fromCache: listed.fromCache,
+      };
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      return {
+        ok: false,
+        failure: { reason: 'plugin-unreadable', plugin, detail },
+      };
     }
   };
 
   const first = await attempt(false);
-  if (first.ok || first.failure.reason.startsWith('claude-')) return first;
-  return attempt(true);
+  if (first.ok || !first.fromCache) return strip(first);
+  const retried = await attempt(true);
+  if (!retried.ok && retried.failure.reason.startsWith('claude-'))
+    return strip(first);
+  return strip(retried);
+}
+
+function strip(
+  r: SkillPathResolution & { fromCache?: boolean }
+): SkillPathResolution {
+  return r.ok ? { ok: true, path: r.path } : { ok: false, failure: r.failure };
 }
 
 function tildePath(path: string, home: string): string {
   return home && (path === home || path.startsWith(`${home}/`))
     ? `~${path.slice(home.length)}`
     : path;
+}
+
+const DETAIL_MAX = 80;
+
+/** Keeps a loader's detail short enough that the fix after it survives the
+    row's length cap. */
+function clip(detail: string): string {
+  const flat = detail.replace(/\s+/g, ' ').trim();
+  return flat.length > DETAIL_MAX
+    ? `${flat.slice(0, DETAIL_MAX - 1).trimEnd()}…`
+    : flat;
 }
 
 function reasonAndFix(
@@ -211,13 +279,18 @@ function reasonAndFix(
       ];
     case 'claude-failed':
       return [
-        `Claude Code at ${tildePath(failure.claudeBin, home)} couldn't list its plugins (${failure.detail})`,
+        `Claude Code at ${tildePath(failure.claudeBin, home)} couldn't list its plugins (${clip(failure.detail)})`,
         'Open Setup status to check it.',
       ];
     case 'plugin-not-installed':
       return [
         `the ${failure.plugin} plugin isn't installed`,
-        'Run rt skills sync, then launch again.',
+        "Install it, then launch again (rt skills sync installs your team's).",
+      ];
+    case 'plugin-unreadable':
+      return [
+        `the ${failure.plugin} plugin's folder couldn't be read (${clip(failure.detail)})`,
+        'Reinstall it, then launch again.',
       ];
     case 'plugin-disabled':
       return [

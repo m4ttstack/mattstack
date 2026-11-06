@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import {
+  claudeBinCandidates,
   makeCachedPluginListRunner,
   resolveSkillPath,
   runPluginList,
@@ -225,14 +226,40 @@ describe('resolveSkillPath: cached list', () => {
     const asked: Array<boolean | undefined> = [];
     const listPlugins: PluginListRunner = async opts => {
       asked.push(opts?.fresh);
-      return {
-        ok: true,
-        plugins: opts?.fresh ? [fixturePlugin(root)] : [],
-      };
+      return opts?.fresh
+        ? { ok: true, plugins: [fixturePlugin(root)] }
+        : { ok: true, plugins: [], fromCache: true };
     };
     const result = await resolveSkillPath('acme:board-review', listPlugins);
-    expect(result.ok).toBe(true);
+    expect(result).toEqual({
+      ok: true,
+      path: realpathSync(join(root, 'skills', 'board-review', 'SKILL.md')),
+    });
     expect(asked).toEqual([undefined, true]);
+  });
+
+  test('a miss against a freshly fetched list is not retried', async () => {
+    let calls = 0;
+    const listPlugins: PluginListRunner = async () => {
+      calls++;
+      return { ok: true, plugins: [] };
+    };
+    await resolveSkillPath('acme:board-review', listPlugins);
+    expect(calls).toBe(1);
+  });
+
+  test('a Claude failure on the retry keeps the first miss as the reason', async () => {
+    const listPlugins: PluginListRunner = async opts =>
+      opts?.fresh
+        ? {
+            ok: false,
+            failure: { kind: 'failed', claudeBin: '/x', detail: 'exited 1' },
+          }
+        : { ok: true, plugins: [], fromCache: true };
+    expect(await resolveSkillPath('acme:board-review', listPlugins)).toEqual({
+      ok: false,
+      failure: { reason: 'plugin-not-installed', plugin: 'acme' },
+    });
   });
 
   test('a Claude failure is not retried', async () => {
@@ -266,7 +293,7 @@ describe('skillBindMessage', () => {
     ],
     [
       { reason: 'plugin-not-installed', plugin: 'acme' },
-      "Couldn't load acme:board-review: the acme plugin isn't installed. Run rt skills sync, then launch again.",
+      "Couldn't load acme:board-review: the acme plugin isn't installed. Install it, then launch again (rt skills sync installs your team's).",
     ],
     [
       { reason: 'plugin-disabled', plugin: 'acme', pluginId: 'acme@acme' },
@@ -320,12 +347,61 @@ describe('runPluginList', () => {
     }
   );
 
-  test("missing when the binary doesn't exist", async () => {
-    const bin = '/definitely/not/a/real/binary/xyz';
-    expect(await runPluginList(bin)).toEqual({
+  test('missing, naming the first candidate, when none exists', async () => {
+    const first = '/definitely/not/here/claude';
+    expect(await runPluginList([first, '/nor/here/claude'])).toEqual({
       ok: false,
-      failure: { kind: 'missing', claudeBin: bin },
+      failure: { kind: 'missing', claudeBin: first },
     });
+  });
+
+  test('runs the first candidate that exists', async () => {
+    const bin = fakeClaudeBin(root, '[]');
+    expect(await runPluginList(['/definitely/not/here/claude', bin])).toEqual({
+      ok: true,
+      plugins: [],
+    });
+  });
+
+  test('failed when Claude does not answer in time', async () => {
+    const path = join(root, 'slow-claude.sh');
+    writeFileSync(path, '#!/bin/sh\nsleep 5\n');
+    chmodSync(path, 0o755);
+    expect(await runPluginList(path, 200)).toEqual({
+      ok: false,
+      failure: {
+        kind: 'failed',
+        claudeBin: path,
+        detail: 'did not answer in 0.2s',
+      },
+    });
+  });
+});
+
+describe('claudeBinCandidates', () => {
+  test('an explicit CLAUDE_BIN is the only place looked', () => {
+    expect(claudeBinCandidates({ CLAUDE_BIN: '/custom/claude' })).toEqual([
+      '/custom/claude',
+    ]);
+  });
+
+  test('without CLAUDE_BIN, looks where rt does, ~/.local/bin first', () => {
+    const candidates = claudeBinCandidates({ PATH: '' });
+    expect(candidates[0]).toEndWith('/.local/bin/claude');
+    expect(candidates).toContain('/opt/homebrew/bin/claude');
+    expect(candidates).toContain('/usr/local/bin/claude');
+    expect(candidates.some(c => c.endsWith('/.claude/local/claude'))).toBe(
+      true
+    );
+  });
+
+  test('includes claude found on PATH', () => {
+    const dir = join(root, 'pathdir');
+    mkdirSync(dir);
+    const onPath = join(dir, 'claude');
+    writeFileSync(onPath, '#!/bin/sh\n');
+    chmodSync(onPath, 0o755);
+    expect(claudeBinCandidates({ PATH: dir })).toContain(onPath);
   });
 });
 
@@ -343,7 +419,9 @@ describe('makeCachedPluginListRunner', () => {
       return { ok: true, plugins };
     });
     for (let i = 0; i < 3; i++)
-      expect(await runner()).toEqual({ ok: true, plugins });
+      expect(await runner()).toEqual(
+        i === 0 ? { ok: true, plugins } : { ok: true, plugins, fromCache: true }
+      );
     expect(calls).toBe(1);
   });
 
@@ -367,7 +445,7 @@ describe('makeCachedPluginListRunner', () => {
     });
     expect(await runner()).toEqual(failure);
     expect(await runner()).toEqual({ ok: true, plugins });
-    expect(await runner()).toEqual({ ok: true, plugins });
+    expect(await runner()).toEqual({ ok: true, plugins, fromCache: true });
     expect(calls).toBe(2);
   });
 
@@ -396,6 +474,7 @@ describe('makeCachedPluginListRunner', () => {
     expect(await runner()).toEqual({
       ok: true,
       plugins: [fixturePlugin('/v2')],
+      fromCache: true,
     });
     expect(calls).toBe(2);
   });

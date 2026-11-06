@@ -554,6 +554,43 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
     });
   });
 
+  test('a skill that does not resolve opens no pane and keeps the last run', async () => {
+    writeRespondState(
+      respondFilePath(URL_A),
+      {
+        mrUrl: URL_A,
+        iid: IID,
+        status: 'done',
+        agentId: 'agent-old',
+        pendingReReview: ['d1'],
+      },
+      1000,
+      db
+    );
+    const res = await launchRespondAsk(
+      URL_A,
+      IID,
+      ASK_CTX,
+      makeRespondIo(),
+      async () => ({
+        ok: false as const,
+        failure: {
+          reason: 'skill-missing' as const,
+          plugin: 'acme',
+          skill: 'x',
+        },
+      })
+    );
+    expect(res.kind).toBe('error');
+    expect(respondCalls).toHaveLength(0);
+    expect(readRespondStates(db).get(URL_A)).toMatchObject({
+      status: 'error',
+      message: expect.stringContaining('the acme plugin has no x skill'),
+      agentId: 'agent-old',
+      pendingReReview: ['d1'],
+    });
+  });
+
   test('a peer ask has no board tab, so it clears the one an earlier launch left', async () => {
     writeRespondState(
       respondFilePath(URL_A),
@@ -946,7 +983,7 @@ describe('launchReReview: a skill that does not resolve opens no pane', () => {
 
       const res = await launchReReview(URL_A, IID, CTX, makeIo(), unresolved);
 
-      const expected = `Couldn't load ${SKILL}: the acme plugin isn't installed. Run rt skills sync, then launch again.`;
+      const expected = `Couldn't load ${SKILL}: the acme plugin isn't installed. Install it, then launch again (rt skills sync installs your team's).`;
       expect(res).toEqual({ kind: 'error', message: expected });
       expect(resumeCalls).toHaveLength(0);
       expect(legacyResumeCalls).toHaveLength(0);
