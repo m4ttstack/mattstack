@@ -27,7 +27,7 @@ const DEFAULT_DEBOUNCE_MS = 5000;
 const STDERR_TAIL_LINES = 20;
 const STDERR_TAIL_BYTES = 64 * 1024;
 const STDERR_LOG_CHARS = 4 * 1024;
-const STDERR_GRACE_MS = 250;
+const STDERR_GRACE_MS = 500;
 
 /** Drains a stream holding only its last `maxBytes`, so a chatty command cannot grow the daemon's memory. `text` reads what has arrived so far. */
 export function tailStream(stream: ReadableStream<Uint8Array>, maxBytes = STDERR_TAIL_BYTES) {
@@ -118,6 +118,9 @@ function defaultRunCommand(argv: string[], trigger: CronTrigger, log: CronLog): 
       // A background child can hold stderr open long after the command exits,
       // so the exit line waits for the pipe only briefly.
       await Promise.race([stderr.done, Bun.sleep(STDERR_GRACE_MS)]);
+      // A stalled loop wakes the timer and the last reads together; one more
+      // turn lets those reads land before the tail is taken.
+      await new Promise((resolve) => setImmediate(resolve));
       const tail = stderr.text().trimEnd().split("\n").slice(-STDERR_TAIL_LINES).join("\n").slice(-STDERR_LOG_CHARS);
       log.warn(`cron ${trigger.name}: exited ${code}${tail ? `: ${tail}` : ""}`);
     });
