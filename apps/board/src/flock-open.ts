@@ -138,16 +138,22 @@ export interface FlockUrlParts {
   token: string;
 }
 
+/** Percent-encoded by hand: URLSearchParams writes a space as `+`, which
+    Foundation's URLComponents keeps as a literal plus, so a command such as
+    `rt sync` reached the pane as `rt+sync`. */
 export function flockOpenUrl(p: FlockUrlParts): string {
-  const q = new URLSearchParams({
-    folder: p.folder,
-    repo: p.repo,
-    label: p.label,
-    kind: p.kind,
-    token: p.token,
-  });
-  if (p.run) q.set('run', p.run);
-  return `flock://open?${q.toString()}`;
+  const parts: Array<[string, string | undefined]> = [
+    ['folder', p.folder],
+    ['repo', p.repo],
+    ['label', p.label],
+    ['kind', p.kind],
+    ['run', p.run],
+    ['token', p.token],
+  ];
+  return `flock://open?${parts
+    .filter((e): e is [string, string] => !!e[1])
+    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+    .join('&')}`;
 }
 
 /** The pane command for an action; undefined is an empty shell. */
@@ -238,33 +244,50 @@ export async function provisionMrTree(
   return res.data.path;
 }
 
-/** Both flavors claim flock://, and Launch Services would hand the link to
-    its default even while the other one runs, so a running flavor is named
-    by bundle id. Flock Dev first: the two never run at once. */
-export const FLOCK_FLAVORS = [
-  { executable: 'Flock-dev', bundleId: 'dev.mattstack.Flock.dev' },
-  { executable: 'Flock', bundleId: 'dev.mattstack.Flock' },
-] as const;
+/** Both flavors claim flock://, and every build folder holds another copy
+    with the same bundle id, so neither the default handler nor a bundle id
+    names the Flock that is running: `open -b` started a second instance from
+    a build folder. The link goes to the running app by its path. */
+export const FLOCK_EXECUTABLES = ['Flock-dev', 'Flock'] as const;
 
-export function openArgs(url: string, running: readonly string[]): string[] {
-  const flavor = FLOCK_FLAVORS.find(f => running.includes(f.executable));
-  return flavor ? ['-b', flavor.bundleId, url] : [url];
+/** The `.app` folder holding a running executable's path, or null. */
+export function appBundleOf(executablePath: string): string | null {
+  const m = /^(.*?\.app)\/Contents\/MacOS\//.exec(
+    executablePath.replace(/^-/, '')
+  );
+  return m ? m[1]! : null;
 }
 
-async function runningFlavors(): Promise<string[]> {
-  const found: string[] = [];
-  for (const { executable } of FLOCK_FLAVORS) {
-    const proc = Bun.spawn(['/usr/bin/pgrep', '-x', executable], {
-      stdout: 'ignore',
-      stderr: 'ignore',
-    });
-    if ((await proc.exited) === 0) found.push(executable);
+export function openArgs(url: string, runningApp: string | null): string[] {
+  return runningApp ? ['-a', runningApp, url] : [url];
+}
+
+async function stdoutOf(argv: string[]): Promise<string> {
+  const proc = Bun.spawn(argv, { stdout: 'pipe', stderr: 'ignore' });
+  const out = await new Response(proc.stdout).text();
+  await proc.exited;
+  return out.trim();
+}
+
+/** The app launchd started (parent 1), never a pane bridge, which runs the
+    same executable under a login shell. Flock Dev first: the two never run
+    at once. */
+async function runningFlockApp(): Promise<string | null> {
+  for (const executable of FLOCK_EXECUTABLES) {
+    const pid = (
+      await stdoutOf(['/usr/bin/pgrep', '-x', '-P', '1', executable])
+    ).split('\n')[0];
+    if (!pid) continue;
+    const app = appBundleOf(
+      await stdoutOf(['/bin/ps', '-o', 'comm=', '-p', pid])
+    );
+    if (app) return app;
   }
-  return found;
+  return null;
 }
 
 export async function openInFlock(url: string): Promise<void> {
-  const args = openArgs(url, await runningFlavors());
+  const args = openArgs(url, await runningFlockApp());
   const proc = Bun.spawn(['/usr/bin/open', ...args], {
     stdout: 'ignore',
     stderr: 'pipe',

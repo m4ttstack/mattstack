@@ -7,6 +7,7 @@ import type { RunSummary, WorktreeTreeRow } from '@mattstack/rt-client';
 import { getDef } from '@mattstack/rt-client';
 import {
   actionCommand,
+  appBundleOf,
   buildFlockMenu,
   FLOCK_COMMAND_ICONS,
   flockOpenUrl,
@@ -182,18 +183,36 @@ test('flockOpenUrl encodes every part and omits run for a shell', () => {
   expect(withRun.searchParams.get('run')).toBe('rt sync && echo "done"');
 });
 
-test('openArgs names the running flavor, Flock Dev first', () => {
-  expect(openArgs('flock://open?x', ['Flock'])).toEqual([
-    '-b',
-    'dev.mattstack.Flock',
+test('openArgs sends the link to the running app by path', () => {
+  expect(openArgs('flock://open?x', '/Apps/Flock Dev.app')).toEqual([
+    '-a',
+    '/Apps/Flock Dev.app',
     'flock://open?x',
   ]);
-  expect(openArgs('flock://open?x', ['Flock', 'Flock-dev'])).toEqual([
-    '-b',
-    'dev.mattstack.Flock.dev',
-    'flock://open?x',
-  ]);
-  expect(openArgs('flock://open?x', [])).toEqual(['flock://open?x']);
+  expect(openArgs('flock://open?x', null)).toEqual(['flock://open?x']);
+});
+
+test('appBundleOf finds the .app folder of a running executable', () => {
+  expect(
+    appBundleOf('/code/flock/build/dev/Flock-dev.app/Contents/MacOS/Flock-dev')
+  ).toBe('/code/flock/build/dev/Flock-dev.app');
+  expect(appBundleOf('-/Applications/Flock.app/Contents/MacOS/Flock')).toBe(
+    '/Applications/Flock.app'
+  );
+  expect(appBundleOf('/usr/bin/login')).toBe(null);
+});
+
+test('flockOpenUrl writes a space as %20, never +', () => {
+  const url = flockOpenUrl({
+    folder: '/a b',
+    repo: '/r',
+    label: 'flock e2e',
+    kind: 'command',
+    run: 'rt sync && echo "a+b"',
+    token: 't',
+  });
+  expect(url).not.toContain('+');
+  expect(url).toContain('run=rt%20sync%20%26%26%20echo%20%22a%2Bb%22');
 });
 
 describe('readFlockToken', () => {
