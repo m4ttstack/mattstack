@@ -1,5 +1,13 @@
-/** rt runs `git init -b` and other flags git added in 2.28. */
-export const GIT_FLOOR = "2.28";
+/** Team join and the org clone's cone run `git sparse-checkout set --cone`, which git added in 2.35. */
+export const GIT_FLOOR = "2.35";
+
+/** Apple's installer refuses while any Command Line Tools are present, so old ones have to go first; only a person can sudo. */
+export const CLT_REINSTALL_STEPS: readonly string[] = [
+  "Open Terminal",
+  "Run: sudo rm -rf /Library/Developer/CommandLineTools",
+  "Run: xcode-select --install, then click Install",
+  "When it finishes, come back here",
+];
 
 /** The `X.Y.Z` in `git version 2.24.3 (Apple Git-128)`, or null when the output carries none. */
 export function parseGitVersion(output: string): string | null {

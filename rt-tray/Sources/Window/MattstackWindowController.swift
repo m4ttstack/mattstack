@@ -48,7 +48,10 @@ final class MattstackWindowController: NSWindowController, NSWindowDelegate {
     func show() {
         model.presentSplashIfNeeded()
         // Apps turned on or off outside Settings (rt apps, deck, a setup run) reach the tabs only through a fresh catalog.
-        Task { await model.invalidateCatalog() }
+        Task {
+            await model.ensureCatalogLoaded()
+            await model.invalidateCatalog()
+        }
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)

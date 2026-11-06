@@ -90,7 +90,9 @@ export function adoptSuggestedRepoRoot(p: Probes, configured: readonly string[])
   if (configured.length > 0 || readStagedRepoRoot(p) !== null) return false;
   const candidate = detectCandidate(p);
   if (candidate === null || !p.exists(homeGitDir(p.home))) return false;
-  setSetting("rt.repoRoots", [candidate], "machine");
+  const check = checkRepoRoot(p, candidate);
+  if (!check.ok) return false;
+  setSetting("rt.repoRoots", [check.path], "machine");
   return true;
 }
 

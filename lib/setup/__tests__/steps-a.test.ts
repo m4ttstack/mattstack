@@ -1271,7 +1271,26 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     expect(p.exists(join(home, "Documents", "GitHub"))).toBe(false);
   });
 
-  test("settings.seed never writes rt.repoRoots, even when a candidate directory exists", async () => {
+  test("settings.seed records the found folder on a Just me setup run with nothing picked", async () => {
+    const found = join(home, "Documents", "GitHub");
+    const p = fakeProbes({ home, dirs: { [found]: [], [join(home, ".mattstack", "user", ".git")]: [] } });
+    const { ctx } = makeCtx(p, { appPath: null, intent: { mode: "solo" } as ApplyContext["intent"] });
+
+    await settingsSeedStep.run(ctx);
+    expect(getSetting<string[]>("rt.repoRoots").value).toEqual([found]);
+  });
+
+  test("settings.seed leaves the found folder alone on an update run, and on any path but Just me", async () => {
+    const found = join(home, "Documents", "GitHub");
+    const dirs = { [found]: [], [join(home, ".mattstack", "user", ".git")]: [] };
+    await settingsSeedStep.run(makeCtx(fakeProbes({ home, dirs }), { appPath: null, intent: { mode: "solo" } as ApplyContext["intent"], update: true }).ctx);
+    for (const mode of ["create", "join", "restore"] as const) {
+      await settingsSeedStep.run(makeCtx(fakeProbes({ home, dirs }), { appPath: null, intent: { mode } as ApplyContext["intent"] }).ctx);
+    }
+    expect(getSetting<string[]>("rt.repoRoots").value).toEqual([]);
+  });
+
+  test("settings.seed never writes rt.repoRoots with no Just me intent, even when a candidate directory exists", async () => {
     const p = fakeProbes({ home, dirs: { [join(home, "Documents", "GitHub")]: [] } });
     const { ctx } = makeCtx(p, { appPath: null, snapshot: { slug: "acme", integrations: {}, trackingIdentities: ["gitlab.com/acme/one"], marketplaces: [], plugins: [], remote: null } });
 

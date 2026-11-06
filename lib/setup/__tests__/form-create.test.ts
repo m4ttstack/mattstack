@@ -76,9 +76,9 @@ describe("createRows", () => {
   });
 
   test("git too old: the tools row says why and offers Update", () => {
-    const list = createRows(inputs({ cltInstalled: false, cltOutdated: "Git 2.24.3 is too old; rt needs 2.28 or newer", prepare: null }));
+    const list = createRows(inputs({ cltInstalled: false, cltOutdated: "Git 2.24.3 is too old; rt needs 2.35 or newer", prepare: null }));
     const clt = list.find((r) => r.id === "tool.clt");
-    expect(clt?.detail).toBe("Git 2.24.3 is too old; rt needs 2.28 or newer");
+    expect(clt?.detail).toBe("Git 2.24.3 is too old; rt needs 2.35 or newer");
     expect(clt?.action).toEqual({ type: "install", label: "Update", tool: "apple-clt", via: "apple-clt" });
   });
 

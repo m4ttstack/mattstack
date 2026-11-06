@@ -1083,6 +1083,16 @@ describe("setupApply: hard-precondition gate", () => {
     expect(payload.error.message).toBe("This Mac is not ready to install yet: Apple's Command Line Tools are not installed");
   });
 
+  test("tools installed but too old say so, not that they are missing", async () => {
+    const clt = { id: "tool.clt", kind: "tool" as const, title: "Git tools", why: "", required: true, status: "invalid" as const, detail: "Git 2.24.3 is too old; rt needs 2.35 or newer", action: null };
+    const deps = baseApplyDeps({ steps: [neverRunsStep("home.init")], planForGate: async () => ({ requiredMissing: ["tool.clt"], groups: [{ rows: [clt as never] }] }) });
+
+    await runExpectingExit(() => setupApply(["--json"], {}, deps));
+
+    const payload = JSON.parse(deps.lines[0]!) as { error: { message: string } };
+    expect(payload.error.message).toBe("This Mac is not ready to install yet: Git 2.24.3 is too old; rt needs 2.35 or newer");
+  });
+
   test("for a person the hard gate is a failure block with plain words and the install verb to run", async () => {
     const cap = capturePlain();
     try {

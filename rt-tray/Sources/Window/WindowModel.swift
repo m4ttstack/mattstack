@@ -217,6 +217,8 @@ final class WindowModel: ObservableObject {
     /// A settled catalog is never refetched by the poller, so a change deck
     /// made on request (an app turned on or off) has to unsettle it.
     func invalidateCatalog() async {
+        // A fetch already in flight may have started before the change, so it can't stand in for a fresh one.
+        if let inFlight = catalogRefreshTask { await inFlight.value }
         catalogSettledPid = nil
         await refreshCatalogFromDeck()
     }

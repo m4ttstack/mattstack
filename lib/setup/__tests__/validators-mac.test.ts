@@ -79,7 +79,7 @@ describe("macRows — tool.clt", () => {
     expect(probed).not.toContain("git");
   });
 
-  test("git older than 2.28 -> invalid, naming the version, with Update", async () => {
+  test("git older than 2.35 -> invalid, naming the version, with Update", async () => {
     const execScript: ExecScript = (argv) => {
       if (argv[0] === "sw_vers") return ok("15.8.2\n");
       if (argv[0] === "xcode-select") return ok("/Library/Developer/CommandLineTools\n");
@@ -88,14 +88,14 @@ describe("macRows — tool.clt", () => {
     };
     const r = await pickRow(macRows(fakeProbes({ exec: execScript })), "tool.clt");
     expect(r.status).toBe("invalid");
-    expect(r.detail).toBe("Git 2.24.3 is too old; rt needs 2.28 or newer");
+    expect(r.detail).toBe("Git 2.24.3 is too old; rt needs 2.35 or newer");
     expect(r.action).toEqual({ type: "install", label: "Update…", tool: "apple-clt", via: "apple-clt" });
   });
 
-  test("git 2.28 exactly -> ready", async () => {
+  test("git 2.35 exactly -> ready", async () => {
     const execScript: ExecScript = (argv) => {
       if (argv[0] === "xcode-select") return ok("/Library/Developer/CommandLineTools\n");
-      if (argv[0] === "git") return ok("git version 2.28.0\n");
+      if (argv[0] === "git") return ok("git version 2.35.0\n");
       return ok();
     };
     const r = await pickRow(macRows(fakeProbes({ exec: execScript })), "tool.clt");

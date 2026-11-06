@@ -333,7 +333,7 @@ describe("installTool — apple-clt", () => {
     expect(result.detail).toContain("Opened Apple's Command Line Tools installer");
   });
 
-  test("apple-clt with git older than 2.28: updates through softwareupdate, never answers already installed", async () => {
+  test("apple-clt with git older than 2.35: updates through softwareupdate, never answers already installed", async () => {
     let installed = false;
     const exec: ExecScript = (argv) => {
       if (argv[0] === "xcode-select" && argv[1] === "-p") return ok("/Library/Developer/CommandLineTools\n");
@@ -352,7 +352,7 @@ describe("installTool — apple-clt", () => {
     expect(result.detail).toContain("2.39.5");
   });
 
-  test("apple-clt with git older than 2.28 and no update offered: the manual reinstall, never the dialog", async () => {
+  test("apple-clt with git older than 2.35 and no update offered: the manual reinstall, never the dialog", async () => {
     const exec: ExecScript = (argv) => {
       if (argv[0] === "xcode-select" && argv[1] === "-p") return ok("/Library/Developer/CommandLineTools\n");
       if (argv[0] === "softwareupdate") return ok("No new software available.");

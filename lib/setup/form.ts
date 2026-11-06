@@ -34,6 +34,7 @@ import { TITLES, tokenCreateLink, tokenField, type ForgeRole } from "./token-cre
 import { readToolNotices, type ToolNotices } from "./tool-notices.ts";
 import { connectHostSteps } from "./validators/access.ts";
 import { accountRows, type SecretPresence } from "./validators/accounts.ts";
+import { CLT_REINSTALL_STEPS } from "./git-floor.ts";
 import { macRows } from "./validators/mac.ts";
 import { PLACE_REPO_LABELS } from "./validators/repos.ts";
 import { CLAUDE_SIGNIN_ACTION, FAST_BROWSER_ADD_ACTION, dedupeTeamTools, teamToolManualSteps } from "./validators/tools.ts";
@@ -129,6 +130,7 @@ export const FORM_COPY = {
     installing: "Installing Command Line Tools…",
     install: "Install",
     update: "Update",
+    reinstallSteps: "Show steps…",
     notInstalled: "Not installed yet",
   },
   invite: {
@@ -294,7 +296,18 @@ export function cltRow(i: { cltInstalled: boolean; cltOutdated?: string | null; 
   const base = { id: "tool.clt", title: c.title, subtext: c.subtext, waiting: c.installing, watch: true, optional: false };
   if (i.prepare?.running && i.prepare.items.includes(CLT_TOOL)) return { ...base, state: "busy", detail: c.installing, action: null };
   const failure = i.prepare?.failed.find((f) => f.tool === CLT_TOOL);
-  return { ...base, state: "todo", detail: failure?.detail ?? i.cltOutdated ?? c.notInstalled, action: { type: "install", label: i.cltOutdated ? c.update : c.install, tool: CLT_TOOL, via: "apple-clt" } };
+  if (i.cltOutdated) {
+    // softwareupdate may offer nothing for old tools, and the manual reinstall needs sudo, so it rides beside Update as steps.
+    return {
+      ...base,
+      state: "todo",
+      tone: "failed",
+      detail: i.cltOutdated,
+      action: { type: "install", label: c.update, tool: CLT_TOOL, via: "apple-clt" },
+      secondary: { type: "steps", label: c.reinstallSteps, steps: [...CLT_REINSTALL_STEPS] },
+    };
+  }
+  return { ...base, state: "todo", detail: failure?.detail ?? c.notInstalled, action: { type: "install", label: c.install, tool: CLT_TOOL, via: "apple-clt" } };
 }
 
 export interface InviteInputs {
@@ -788,7 +801,8 @@ export interface ThisMacInputs extends DrawnContext {
   /** rt holds a GitHub token, whatever it can do: a sign-in would overwrite it. */
   githubStored: boolean;
   githubClientId: string;
-  repoRoot: { configured: string | null; staged: string | null; candidate: string | null };
+  /** `adopts`: a coming run records the candidate (Just me intent on disk), so the row may show it as chosen. */
+  repoRoot: { configured: string | null; staged: string | null; candidate: string | null; adopts?: boolean };
 }
 
 /** An answer only the run is left to land is done here: Set up this Mac starts that run. */
@@ -802,14 +816,14 @@ function placeRow(r: Row): FormRow {
 function repoRootRow(i: ThisMacInputs): FormRow {
   const c = FORM_COPY.thisMac.repos;
   // The suggestion is the answer until the member picks another; settings.seed records it (adoptSuggestedRepoRoot).
-  const chosen = i.repoRoot.staged ?? i.repoRoot.configured ?? i.repoRoot.candidate;
+  const chosen = i.repoRoot.staged ?? i.repoRoot.configured ?? (i.repoRoot.adopts ? i.repoRoot.candidate : null);
   return {
     id: "repos.root",
     title: c.title,
     subtext: c.root,
     state: chosen ? "done" : "todo",
     detail: chosen ?? "",
-    action: { type: "choose-folder", label: chosen ? c.change : c.choose, startAt: chosen ?? null },
+    action: { type: "choose-folder", label: chosen ? c.change : c.choose, startAt: chosen ?? i.repoRoot.candidate },
     waiting: null,
     watch: false,
     optional: false,
@@ -1087,17 +1101,22 @@ function stepLog(events: string | null, step: string): string[] {
   return lines.slice(-PAUSED_LOG_LINES);
 }
 
-export function pausedFor(run: SetupRun | undefined, extras: { events: string | null; loginItems: Row | undefined }): FormPaused | null {
+export function pausedFor(
+  run: SetupRun | undefined,
+  extras: { events: string | null; loginItems: Row | undefined; clt?: Row | undefined },
+): FormPaused | null {
   const failed = run?.failed;
   if (!failed) return null;
+  // rt refuses Retry while the Command Line Tools block it, so their fix has to be on this screen too.
+  const clt = extras.clt && extras.clt.status !== "ready" && extras.clt.action ? extras.clt : null;
   return {
     step: failed.step,
     // A record an older rt wrote can name a step this one no longer has.
     title: STEP_PHASES[failed.step]?.paused ?? failed.detail,
     detail: failed.detail,
-    remedy: failed.remedy ?? null,
+    remedy: clt?.detail ?? failed.remedy ?? null,
     log: stepLog(extras.events, failed.step),
-    action: extras.loginItems?.status === "needs-you" ? extras.loginItems.action : null,
+    action: clt?.action ?? (extras.loginItems?.status === "needs-you" ? extras.loginItems.action : null),
   };
 }
 
@@ -1197,7 +1216,7 @@ async function thisMacSection(
     githubReady: github.ready,
     githubStored: github.stored,
     githubClientId: clientId,
-    repoRoot: { configured: configuredRepoRoots(p)[0] ?? null, staged: readStagedRepoRoot(p), candidate: detectCandidate(p) },
+    repoRoot: { configured: configuredRepoRoots(p)[0] ?? null, staged: readStagedRepoRoot(p), candidate: detectCandidate(p), adopts: intent?.mode === "solo" },
   });
 }
 
@@ -1279,7 +1298,8 @@ export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupFo
 
   const run = state.run;
   const loginItems = permissionRows(permissions, null).find((r) => r.id === "perm.login-items");
-  const paused = pausedFor(run, { events: run?.failed ? p.readFile(applyEventsPath(p.home)) : null, loginItems });
+  const clt = run?.failed ? planRows(await plan()).find((r) => r.id === "tool.clt") : undefined;
+  const paused = pausedFor(run, { events: run?.failed ? p.readFile(applyEventsPath(p.home)) : null, loginItems, clt });
   const tools = finished ? toolsSection(p, await plan()) : null;
   const stage = formStage({
     finished,

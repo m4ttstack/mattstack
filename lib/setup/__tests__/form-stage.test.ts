@@ -456,6 +456,15 @@ describe("pausedFor", () => {
     expect(pausedFor(ENDED_OK, { events, loginItems: undefined })).toBeNull();
   });
 
+  test("old git puts the tools' Update on the paused screen, since Retry is refused until it is fixed", () => {
+    const update = { type: "install" as const, label: "Update…", tool: "apple-clt", via: "apple-clt" as const };
+    const clt = r("tool.clt", "invalid", "Git 2.24.3 is too old; rt needs 2.35 or newer", { action: update });
+    const held = r("perm.login-items", "needs-you", "Approve in Login Items", { action: LOGIN_ITEMS_SETTINGS_ACTION });
+    const paused = pausedFor({ ...FAILED, failed: { step: "home.init", detail: "error: unknown switch `b'" } }, { events: null, loginItems: held, clt });
+    expect(paused).toMatchObject({ action: update, remedy: "Git 2.24.3 is too old; rt needs 2.35 or newer" });
+    expect(pausedFor(FAILED, { events: null, loginItems: undefined, clt: r("tool.clt", "ready", "git version 2.39.5") })?.action).toBeNull();
+  });
+
   test("a held background item puts Open Login Items on the paused screen", () => {
     const held = r("perm.login-items", "needs-you", "Approve in Login Items", { action: LOGIN_ITEMS_SETTINGS_ACTION });
     expect(pausedFor(FAILED, { events: null, loginItems: held })?.action).toEqual(LOGIN_ITEMS_SETTINGS_ACTION);

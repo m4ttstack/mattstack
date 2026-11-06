@@ -214,7 +214,7 @@ describe("thisMacRows", () => {
 
   test("solo shows the found folder as the answer, with Change", () => {
     const solo = (repoRoot: ThisMacInputs["repoRoot"]) => thisMacRows(inputs({ path: "solo", plan: plan([], SOLO), repoRoot }));
-    const found = solo({ configured: null, staged: null, candidate: "/fake-home/Documents/GitHub" });
+    const found = solo({ configured: null, staged: null, candidate: "/fake-home/Documents/GitHub", adopts: true });
     expect(found.map((x) => x.id)).toEqual(["repos.root", "settings.backup"]);
     expect(pick(found, "repos.root")).toMatchObject({
       title: "Repos go in",
@@ -224,6 +224,9 @@ describe("thisMacRows", () => {
       action: { type: "choose-folder", label: "Change", startAt: "/fake-home/Documents/GitHub" },
     });
     expect(pick(found, "settings.backup").title).toBe("Back up home");
+
+    const notAdopted = solo({ configured: null, staged: null, candidate: "/fake-home/Documents/GitHub", adopts: false });
+    expect(pick(notAdopted, "repos.root")).toMatchObject({ state: "todo", action: { label: "Choose…", startAt: "/fake-home/Documents/GitHub" } });
 
     const none = solo({ configured: null, staged: null, candidate: null });
     expect(pick(none, "repos.root")).toMatchObject({ state: "todo", detail: "", action: { type: "choose-folder", label: "Choose…", startAt: null } });
@@ -289,10 +292,11 @@ describe("composeForm", () => {
     const list = form.sections.thisMac ?? [];
     expect(list.map((x) => [x.id, x.state])).toEqual([
       ["tool.clt", "todo"],
-      ["repos.root", "done"],
+      ["repos.root", "todo"],
       ["settings.backup", "todo"],
     ]);
-    expect(pick(list, "repos.root").action).toEqual({ type: "choose-folder", label: "Change", startAt: "/fake-home/code" });
+    // No Just me intent on disk, so no coming run records the found folder: it stays a suggestion.
+    expect(pick(list, "repos.root").action).toEqual({ type: "choose-folder", label: "Choose…", startAt: "/fake-home/code" });
     expect(form.startReady).toBe(false);
   });
 
