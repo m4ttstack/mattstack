@@ -45,7 +45,7 @@ enum FastSetupSnapshot {
 
     #if DEBUG
     /// Each screen adds its own pages here.
-    private static let registered: [@MainActor () -> [(String, AnyView)]] = [themePages, rowPages, macosPages, pathPages, invitePages, createPages, restorePages, waitingPages, connectPages, thisMacPages, toolsPages, runPages, readyPages, containerPages, testDrivePages]
+    private static let registered: [@MainActor () -> [(String, AnyView)]] = [buttonPages, themePages,rowPages, macosPages, pathPages, invitePages, createPages, restorePages, waitingPages, connectPages, thisMacPages, toolsPages, runPages, readyPages, containerPages, testDrivePages]
 
     /// A screen body in the window the mocks draw: outline, rounded corners, title bar dots, glow.
     static func window(_ view: some View, _ screen: FastSetupScreen, path: String? = nil) -> AnyView {
@@ -61,6 +61,30 @@ enum FastSetupSnapshot {
 
     /// FastTheme's shared views on their own, for the screens that build on them.
     @MainActor
+    /// The kit button in each kind: idle, loading and disabled, side by side.
+    private static func buttonPages() -> [(String, AnyView)] {
+        func row(_ name: String, _ make: @escaping (Bool) -> FastButton) -> some View {
+            HStack(spacing: 14) {
+                Text(name).font(FastTheme.note).foregroundColor(FastTheme.textSecondary).frame(width: 110, alignment: .leading)
+                make(false)
+                make(true)
+                make(false).disabled(true)
+            }
+        }
+        let gallery = VStack(alignment: .leading, spacing: 18) {
+            FastScreenHeader(title: "Buttons", subtitle: "Idle, loading, disabled")
+            row("Primary") { FastButton(title: "Continue", isLoading: $0, loadingTitle: "Checking…") {} }
+            row("Primary small") { FastButton(title: "Allow", size: .small, isLoading: $0) {} }
+            row("Retry") { FastButton(title: "Retry", kind: .primary(glow: false), shape: .retry, isLoading: $0, loadingTitle: "Retrying…") {} }
+            row("Secondary") { FastButton(title: "Hide", kind: .secondary(), isLoading: $0) {} }
+            row("Secondary small") { FastButton(title: "Re-check", kind: .secondary(), size: .small, isLoading: $0, loadingTitle: "Checking…") {} }
+            row("Outline") { FastButton(title: "Install", icon: "arrow.down.circle", kind: .outline, isLoading: $0, loadingTitle: "Installing…") {} }
+            row("Quiet") { FastButton(title: "Back", kind: .quiet, isLoading: $0) {} }
+        }
+        .padding(48)
+        return [("buttons", AnyView(gallery))]
+    }
+
     private static func themePages() -> [(String, AnyView)] {
         let kit = VStack(alignment: .leading, spacing: 18) {
             FastScreenHeader(title: "Three things from macOS", subtitle: "mattstack can't do these itself. It notices the moment you do")

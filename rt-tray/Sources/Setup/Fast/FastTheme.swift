@@ -326,6 +326,7 @@ struct FastBusyChip: View {
 /// spinner draws its own faint grey and ignores the mock's colour.
 struct FastSpinner: View {
     var size: CGFloat = 13
+    var color: Color = FastTheme.textSecondary
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.125)) { context in
@@ -334,7 +335,7 @@ struct FastSpinner: View {
                 ForEach(0..<8, id: \.self) { ray in
                     let age = (head - ray + 8) % 8
                     Capsule()
-                        .fill(FastTheme.textSecondary)
+                        .fill(color)
                         .frame(width: size * 0.14, height: size * 0.3)
                         .padding(.top, size * 0.03)
                         .frame(width: size, height: size, alignment: .top)
