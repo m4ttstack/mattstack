@@ -157,8 +157,8 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: .git/turbo-cache
-          key: turbo-${{ runner.os }}-${{ github.sha }}
-          restore-keys: turbo-${{ runner.os }}-
+          key: turbo-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-${{ runner.arch }}-
       - run: find .git/turbo-cache -type f -mtime +7 -delete 2>/dev/null || true
       - if: github.event_name == 'pull_request'
         env:
@@ -294,8 +294,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             plugins/herdr-chat/target
-          key: cargo-${{ runner.os }}-${{ hashFiles('plugins/herdr-chat/Cargo.lock') }}-${{ github.sha }}
-          restore-keys: cargo-${{ runner.os }}-
+          key: cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('plugins/herdr-chat/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: cargo-${{ runner.os }}-${{ runner.arch }}-
       - name: Build and test herdr-chat
         working-directory: plugins/herdr-chat
         run: cargo build --release --locked && cargo test --locked
