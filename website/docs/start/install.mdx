@@ -11,7 +11,7 @@ rt ships inside **mattstack.app**, the mattstack menu bar app. Installing the ap
 
 - A Mac with Apple silicon or an Intel processor. The app is a universal build.
 - macOS 14 or newer.
-- Xcode Command Line Tools. Setup starts installing them on its first screen.
+- Xcode Command Line Tools with git 2.35 or newer. Setup starts installing them on its first screen, and updates older ones.
 
 ## Install the app
 
@@ -33,7 +33,9 @@ The first screen is **Three things from macOS**. It moves on by itself once all 
 
 **Allow** on **Fancy URLs** installs the local proxy behind addresses like `board.mattstack`. The macOS admin dialog installs it. macOS then asks once more, in its own Certificate Trust Settings dialog, to trust the proxy's certificate. Both happen here, so the run never stops for a password. mattstack never stores the password. See [The local proxy](/rt/guides/proxy).
 
-While you're on this screen, the Command Line Tools start downloading in the background. A later screen shows a **Command Line Tools** row while they install.
+While you're on this screen, the Command Line Tools start downloading in the background. A later screen shows a **Git tools** row while they install.
+
+Older Command Line Tools can carry a git too old for setup. The **Git tools** row then names the version and offers **Update**. When macOS offers no update, remove the old tools and install them again: in Terminal, run `sudo rm -rf /Library/Developer/CommandLineTools`, then `xcode-select --install`. If a run already stopped on old git, **Show steps…** on its paused screen gives the same steps.
 
 ## How are you setting up?
 
