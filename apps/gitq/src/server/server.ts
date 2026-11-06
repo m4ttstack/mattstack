@@ -5,7 +5,7 @@ import { isAllowedOrigin, isLocalRequest } from './local.ts';
 import { SnapshotCache } from './cache.ts';
 import { collectAllRepos, isTrackedStack, parseActionBody } from './data.ts';
 import type { BoardRepo } from './data.ts';
-import { IS_COMPILED } from '../core/app-root.ts';
+import { IS_PACKAGED } from '../core/app-root.ts';
 import { getClientAssets } from './client-assets.ts';
 import { getWorktreeMap } from '../core/worktrees.ts';
 import { actionPrompt, buildPaneCommand, focusTab, launchInWorkspace, tabLabel } from './herdr.ts';
@@ -24,7 +24,7 @@ const cache = new SnapshotCache<BoardRepo[]>(() => collectAllRepos(config.repos)
 // edits are live without a restart; compiled, there is no source tree on disk,
 // so the embedded copy answers.
 const { appJs } = await getClientAssets();
-const styleCss = (): string => (IS_COMPILED ? embeddedCss : readFileSync(cssPath, 'utf8'));
+const styleCss = (): string => (IS_PACKAGED ? embeddedCss : readFileSync(cssPath, 'utf8'));
 
 const shell = `<!doctype html>
 <html lang="en">

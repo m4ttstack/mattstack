@@ -99,15 +99,39 @@ export async function checkPrereqs(
   return { ok: problems.length === 0, problems };
 }
 
+/** `bun build --define MATTSTACK_HELPER_BUNDLE=true` sets it for the bundle
+    Contents/Helpers/deck runs; it is undeclared everywhere else. */
+declare const MATTSTACK_HELPER_BUNDLE: boolean | undefined;
+
 /**
+ * Helper bundle: the launcher hands its own path in as argv0, and it takes
+ * no entry (execPath is the bundle's shared bun).
  * Compiled binary: process.execPath is the binary itself, not bun.
  * Checkout: process.execPath IS bun, so the entry (this repo's src/main.ts,
  * i.e. Bun.main) must be threaded through explicitly.
  */
+export function detectExecTargetFor(run: {
+  helperBundle: boolean;
+  execPath: string;
+  argv0: string;
+  main: string;
+}): { execPath: string; entry: string | null } {
+  if (run.helperBundle) return { execPath: run.argv0, entry: null };
+  const isCompiled = !basename(run.execPath).startsWith('bun');
+  return isCompiled
+    ? { execPath: run.execPath, entry: null }
+    : { execPath: run.execPath, entry: run.main };
+}
+
 export function detectExecTarget(): { execPath: string; entry: string | null } {
-  const execPath = process.execPath;
-  const isCompiled = !basename(execPath).startsWith('bun');
-  return isCompiled ? { execPath, entry: null } : { execPath, entry: Bun.main };
+  return detectExecTargetFor({
+    helperBundle:
+      typeof MATTSTACK_HELPER_BUNDLE !== 'undefined' &&
+      MATTSTACK_HELPER_BUNDLE === true,
+    execPath: process.execPath,
+    argv0: process.argv0,
+    main: Bun.main,
+  });
 }
 
 function healthBudgetMs(): number {

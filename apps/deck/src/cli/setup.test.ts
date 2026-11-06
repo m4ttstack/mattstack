@@ -18,7 +18,37 @@ process.env.LOCAL_AGENTS_DIR = join(dir, 'agents'); // isolate from this machine
 process.env.HOME = dir;
 writeFileSync(process.env.LOCAL_APPS_ROUTES_PATH, '[]');
 
-const { checkPrereqs, setup, uninstall } = await import('./setup.ts');
+const { checkPrereqs, detectExecTargetFor, setup, uninstall } = await import(
+  './setup.ts'
+);
+
+test('the helper bundle installs its launcher, never the shared bun plus a script', () => {
+  const run = {
+    helperBundle: true,
+    execPath: '/A.app/Contents/Helpers/bun',
+    argv0: '/A.app/Contents/Helpers/deck',
+    main: '/A.app/Contents/Helpers/deck-app/main.js',
+  };
+  expect(detectExecTargetFor(run)).toEqual({
+    execPath: '/A.app/Contents/Helpers/deck',
+    entry: null,
+  });
+  expect(
+    detectExecTargetFor({
+      ...run,
+      helperBundle: false,
+      execPath: '/u/.local/bin/deck',
+    })
+  ).toEqual({ execPath: '/u/.local/bin/deck', entry: null });
+  expect(
+    detectExecTargetFor({
+      ...run,
+      helperBundle: false,
+      execPath: '/u/.bun/bin/bun',
+      main: '/r/apps/deck/src/main.ts',
+    })
+  ).toEqual({ execPath: '/u/.bun/bin/bun', entry: '/r/apps/deck/src/main.ts' });
+});
 const { bootstrapSelf } = await import('../registry/bootstrap.ts');
 const { registerApp } = await import('../api/register.ts');
 const { FakeServiceManager } = await import('../services/fake.ts');

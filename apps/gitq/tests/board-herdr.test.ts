@@ -11,6 +11,7 @@ import {
   parseTabList,
   parseWorkspaceCreate,
   statusBinPath,
+  statusBinPathFor,
   tabLabel,
 } from '../src/server/herdr.ts';
 
@@ -71,6 +72,19 @@ describe('command builders', () => {
   // shape that also fits the compiled binary handing out its own path.
   test('statusBinPath points at the executable gitq entry', () => {
     expect(statusBinPath().endsWith('/bin/gitq')).toBe(true);
+  });
+
+  test('the helper bundle hands out its launcher, never the shared bun', () => {
+    const run = {
+      helperBundle: true,
+      compiled: true,
+      moduleDir: '/x/Contents/Helpers/gitq-app',
+      execPath: '/x/Contents/Helpers/bun',
+      argv0: '/x/Contents/Helpers/gitq',
+    };
+    expect(statusBinPathFor(run)).toBe('/x/Contents/Helpers/gitq');
+    expect(statusBinPathFor({ ...run, helperBundle: false, execPath: '/x/Helpers/gitq' })).toBe('/x/Helpers/gitq');
+    expect(statusBinPathFor({ ...run, helperBundle: false, compiled: false, moduleDir: '/r/src/server' })).toBe('/r/bin/gitq');
   });
 
   test('buildPaneCommand cds and single-quotes, escaping embedded quotes', () => {
