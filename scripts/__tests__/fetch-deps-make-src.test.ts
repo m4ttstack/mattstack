@@ -3,9 +3,12 @@ import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { fakeArm64Path } from "./fake-arm64-host.ts";
 
 const REPO = join(import.meta.dir, "..", "..");
 const SCRIPT = join(REPO, "scripts", "fetch-deps.sh");
+// The host's own slice, so the built binary runs here and a plain cc links it.
+const SLICE = process.arch === "arm64" ? "arm64" : "x86_64";
 
 let work: string;
 let depsRoot: string;
@@ -16,10 +19,10 @@ afterAll(() => {
 
 function runScript(lockPath: string): { code: number; out: string } {
   try {
-    const out = execFileSync("bash", [SCRIPT, "arm64"], {
+    const out = execFileSync("bash", [SCRIPT, SLICE], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, RT_DEPS_LOCK: lockPath, RT_DEPS_ROOT: depsRoot, RT_DEPS_CACHE: join(work, "cache") },
+      env: { ...process.env, PATH: fakeArm64Path(work), RT_DEPS_LOCK: lockPath, RT_DEPS_ROOT: depsRoot, RT_DEPS_CACHE: join(work, "cache") },
     });
     return { code: 0, out };
   } catch (err) {
@@ -69,10 +72,10 @@ beforeAll(() => {
 test("make-src: builds the tool from its source dir and lands a runnable binary", () => {
   const res = runScript(toolcLock);
   expect(res.code, res.out).toBe(0);
-  const bin = join(depsRoot, "arm64", "toolc");
+  const bin = join(depsRoot, SLICE, "toolc");
   expect(existsSync(bin)).toBe(true);
   expect(execFileSync(bin, { encoding: "utf8" }).trim()).toBe("toolc 1.0.0");
-  expect(existsSync(join(depsRoot, "arm64", "toolc.sha256"))).toBe(true);
+  expect(existsSync(join(depsRoot, SLICE, "toolc.sha256"))).toBe(true);
 }, 60_000);
 
 test("make-src: an unchanged run is a skip", () => {
@@ -106,5 +109,5 @@ test("make-src: a build whose binary links outside the system libraries is refus
   const res = runScript(lockFor("toole", tgz, sha, "toole-1.0.0"));
   expect(res.code).not.toBe(0);
   expect(res.out).toContain("links outside the system libraries");
-  expect(existsSync(join(depsRoot, "arm64", "toole"))).toBe(false);
+  expect(existsSync(join(depsRoot, SLICE, "toole"))).toBe(false);
 });
