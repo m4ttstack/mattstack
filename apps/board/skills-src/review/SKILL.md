@@ -60,6 +60,9 @@ digraph review_flow {
     "--skill-path given (review)?" [shape=diamond];
     "Read <--skill-path> (review)" [shape=plaintext];
     "Load the --skill domain skill by name (review)" [shape=box];
+    "Domain skill loaded (review)?" [shape=diamond];
+    "<status-bin> review-status <state> error Couldn't load <--skill>: <loader message>" [shape=plaintext];
+    "Print why the run ended (review)" [shape=box];
     "${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh (review)" [shape=plaintext];
     "resolve-args.sh exit (review)?" [shape=diamond];
     "Read <resolved.review.path>" [shape=plaintext];
@@ -190,8 +193,12 @@ digraph review_flow {
     "--skill given (review)?" -> "${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh (review)" [label="no"];
     "--skill-path given (review)?" -> "Read <--skill-path> (review)" [label="yes"];
     "--skill-path given (review)?" -> "Load the --skill domain skill by name (review)" [label="no"];
-    "Read <--skill-path> (review)" -> "Which entry (review)?";
-    "Load the --skill domain skill by name (review)" -> "Which entry (review)?";
+    "Read <--skill-path> (review)" -> "Domain skill loaded (review)?";
+    "Load the --skill domain skill by name (review)" -> "Domain skill loaded (review)?";
+    "Domain skill loaded (review)?" -> "Which entry (review)?" [label="yes"];
+    "Domain skill loaded (review)?" -> "<status-bin> review-status <state> error Couldn't load <--skill>: <loader message>" [label="no: Unknown skill, an unreadable path, any load error"];
+    "<status-bin> review-status <state> error Couldn't load <--skill>: <loader message>" -> "Print why the run ended (review)";
+    "Print why the run ended (review)" -> "Review error written: stay in the pane and report";
     "${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh (review)" -> "resolve-args.sh exit (review)?";
     "resolve-args.sh exit (review)?" -> "Read <resolved.review.path>" [label="0"];
     "resolve-args.sh exit (review)?" -> "Print the resolver's errors verbatim (review)" [label="nonzero: generic path"];
@@ -550,6 +557,30 @@ The board passed `--skill <name>` without `--skill-path`: load that skill
 by name and treat it as the domain skill. The resolver does not run. When
 `--skill-path` is also given, `Read <--skill-path> (review)` reads the
 SKILL.md at that absolute path instead, and it is the same domain skill.
+
+### Domain skill loaded (review)?
+
+Yes when the Read of `--skill-path` returned the skill's text, or loading
+`--skill` by name returned the skill. Every other result is no: `Unknown
+skill`, a Read error (`File does not exist`, permission denied), an empty
+file. A run launched with `--skill` takes that domain skill or ends here:
+the generic path belongs only to a run launched with no `--skill`, and the
+resolver never runs in its place.
+
+### <status-bin> review-status <state> error Couldn't load <--skill>: <loader message>
+
+The message is `Couldn't load <--skill>: ` followed by the loader's own
+error text, on one line: the Skill tool's error for a load by name, the
+Read tool's for `--skill-path`. For example:
+
+```
+<status-bin> review-status <state> error "Couldn't load acme:board-review: Unknown skill: acme:board-review"
+```
+
+### Print why the run ended (review)
+
+Print one line in the pane, the same text as the status message, and end
+the run. Nothing runs after it.
 
 ### Print the resolver's errors verbatim (review)
 
@@ -1770,6 +1801,9 @@ answers; the order is fixed and the flow's first diamonds draw it:
    not run the resolver. When the board also passed `--skill-path <path>`,
    read the SKILL.md at that absolute path directly and treat it exactly as
    the domain skill named by `--skill`.
+   If that skill does not load, the run writes `error` and ends
+   (`Domain skill loaded (review)?`); it never falls back to the resolver
+   or the generic path.
 2. **Otherwise resolve the `review` slot** with the vendored resolver,
    `"${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh"`. On exit 0, read the
    SKILL.md at `resolved.review.path` and treat that skill exactly as if it

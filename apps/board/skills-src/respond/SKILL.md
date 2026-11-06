@@ -88,6 +88,7 @@ digraph respond_map {
     "Launch and resume exit?" -> "Triage and Gate 1 (triage.md)" [label="resumed triage escalation"];
     "Launch and resume exit?" -> "Respond gate gone: ended cleanly, no status write" [label="gate gone"];
     "Launch and resume exit?" -> "<status-bin> respond-status <state> error <what went wrong>" [label="error"];
+    "Launch and resume exit?" -> "Respond error written: stay in the pane and report" [label="domain skill not loaded: error already written"];
     "Launch and resume exit?" -> "Held at a respond off-script gate: the pane stays" [label="hold"];
     "Triage and Gate 1 (triage.md)" -> "Triage and Gate 1 exit?";
     "Triage and Gate 1 exit?" -> "Implement the plan (implement.md)" [label="Gate 1 answered"];
@@ -324,6 +325,9 @@ answers; the order is fixed and the flow's first diamonds draw it:
    not run the resolver. When the board also passed `--skill-path <path>`,
    read the SKILL.md at that absolute path directly and treat it exactly as
    the domain skill named by `--skill`.
+   If that skill does not load, the run writes `error` and ends
+   (`Domain skill loaded (respond)?`); it never falls back to the resolver
+   or the generic path.
 2. **Otherwise resolve the `respond` slot** with the vendored resolver,
    `"${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh"`. On exit 0, read the
    SKILL.md at `resolved.respond.path` and treat that skill exactly as if it
