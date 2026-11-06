@@ -7,8 +7,9 @@
   "includeInBundle": true,
   "requiresTeam": true,
   "bundle": {
-    "build": "bun run build:binary",
-    "artifact": "dist-bin/boxscore"
+    "build": "bun run build:bundle",
+    "artifact": "dist-bin/app",
+    "dotenv": false
   },
   "dev": {
     "start": "bun src/server/index.ts",

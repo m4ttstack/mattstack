@@ -3,7 +3,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { describe, expect, test } from 'bun:test';
 
-import { draftBinPath, statusBinPath } from '../herdr.ts';
+import { draftBinPath, statusBinPath, statusBinPathFor } from '../herdr.ts';
 import {
   dbPathForRoot,
   insertAgentState,
@@ -37,6 +37,40 @@ function seedRow(
   insertAgentState(lane, mrUrl, iid, state, handle, db);
   return handle;
 }
+
+describe('which status writer each form of the board hands out', () => {
+  const run = {
+    helperBundle: false,
+    moduleDir: '/repo/apps/board/src',
+    execPath: '/opt/bun/bin/bun',
+    argv0: 'bun',
+  };
+
+  test('a checkout hands out bin/board', () => {
+    expect(statusBinPathFor(run)).toBe('/repo/apps/board/bin/board');
+  });
+
+  test('a compiled binary hands out itself', () => {
+    expect(
+      statusBinPathFor({
+        ...run,
+        moduleDir: '/$bunfs/root',
+        execPath: '/x/Helpers/board',
+      })
+    ).toBe('/x/Helpers/board');
+  });
+
+  test('the helper bundle hands out its launcher, never the shared bun', () => {
+    expect(
+      statusBinPathFor({
+        helperBundle: true,
+        moduleDir: '/x/Contents/Helpers/board-app',
+        execPath: '/x/Contents/Helpers/bun',
+        argv0: '/x/Contents/Helpers/board',
+      })
+    ).toBe('/x/Contents/Helpers/board');
+  });
+});
 
 describe('the status writer the board hands out', () => {
   test('is a file that exists and is executable', () => {

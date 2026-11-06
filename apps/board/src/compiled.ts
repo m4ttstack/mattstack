@@ -1,9 +1,11 @@
-// Entry point for the standalone binary (`bun run build`). The dev form stays
-// `bun run src/server.ts`; this wrapper exists because a compiled binary has
-// no source tree, so the client bundle must be embedded at build time (the
-// text imports below — scripts/build-client.ts writes them first) and handed
-// to the server before it boots.
+// Entry point for the distributed board: the helper bundle (`bun run
+// build:bundle`) and the standalone binary (`bun run build`). The dev form
+// stays `bun run src/server.ts`; this wrapper exists because neither
+// distributed form has a source tree, so the client bundle must be embedded
+// at build time (the text imports below — scripts/build-client.ts writes them
+// first) and handed to the server before it boots.
 import { readFileSync } from 'fs';
+import { resolve } from 'path';
 
 import appCss from '../dist/client/app.css' with { type: 'text' };
 import appJs from '../dist/client/app.js.txt' with { type: 'text' };
@@ -58,7 +60,8 @@ injectClientAssets({
   appJs,
   appCss,
   chunks: lazyChunks(() =>
-    parseChunkManifest(readFileSync(chunksPath, 'utf8'))
+    // The helper bundle hands a file import back relative to its own dir.
+    parseChunkManifest(readFileSync(resolve(import.meta.dir, chunksPath), 'utf8'))
   ),
 });
 await import('./server.ts');
