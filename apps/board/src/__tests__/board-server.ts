@@ -1,11 +1,10 @@
 /** Boots the real board server (src/server.ts) as a child of one test file.
 
-    A hardcoded port let a server leaked by an earlier run (its parent
-    killed before afterAll, or a `-t` filter that skipped it) answer the next
-    run's /healthz while the new child failed to bind, so every request hit a
-    stale server whose fixture HOME was gone. Each boot here takes a port the
-    OS just reported free, spawns from beforeAll (bun skips it when a filter
-    leaves the file nothing to run) and gives up the moment the child exits. */
+    Never a fixed port: a server leaked by an earlier run keeps it, answers
+    the next run's /healthz while the new child fails to bind, and every
+    request lands on a server whose fixture HOME is gone. Never a spawn at
+    module load: `bun test -t` imports every file, and a server spawned by a
+    file whose tests are all filtered out is never stopped. */
 import { join } from 'path';
 import { afterAll, beforeAll } from 'bun:test';
 
@@ -13,16 +12,27 @@ import { afterAll, beforeAll } from 'bun:test';
 const BOOT_MS = 60_000;
 const SERVER = join(import.meta.dir, '..', 'server.ts');
 
+// Board knobs a developer's shell may export. The test preload already
+// strips RT_DAEMON_SOCK; an inherited HERDR_SOCKET_PATH would route a pane
+// nudge or launch to the live herdr.
+const AMBIENT = [
+  'BOARD_STATE_DB',
+  'BOARD_FIXTURE',
+  'BOARD_REVIEW_RECHECK_MS',
+  'CLAUDE_BIN',
+];
+
 export interface BoardServer {
   readonly port: number;
-  /** `http://127.0.0.1:<port>` */
   readonly origin: string;
   /** Spawns on first call; resolves once /healthz answers. */
   ready(): Promise<void>;
   /** Everything the child wrote to stdout and stderr so far. */
   output(): string;
-  /** null while the child runs, and before it is spawned. */
-  exitCode(): number | null;
+  /** True once the child has exited or died on a signal. */
+  exited(): boolean;
+  /** Sends `signal` and resolves with the exit code. */
+  terminate(signal: NodeJS.Signals): Promise<number>;
   stop(): Promise<void>;
 }
 
@@ -44,19 +54,20 @@ export function freePort(): number {
   return port;
 }
 
-/** The test preload already strips RT_DAEMON_SOCK, but an inherited
-    HERDR_SOCKET_PATH, or an installed herdr found by path, would still route
-    a pane nudge or launch to the developer's live herdr. */
-function childEnv(env: Record<string, string>, port: number) {
+function boardEnv(env: Record<string, string>, port: number) {
   const base: Record<string, string | undefined> = { ...process.env };
   for (const key of Object.keys(base))
-    if (key.startsWith('HERDR_')) delete base[key];
+    if (key.startsWith('HERDR_') || AMBIENT.includes(key)) delete base[key];
   return {
     ...base,
     HERDR_BIN: join(env.HOME ?? '/nonexistent', 'no-such-herdr'),
     ...env,
     PORT: String(port),
   };
+}
+
+function hasExited(child: Bun.Subprocess): boolean {
+  return child.exitCode !== null || child.signalCode !== null;
 }
 
 /** No hooks: for a boot that a test starts and stops itself. */
@@ -82,21 +93,23 @@ export function startBoardServer(opts: BoardServerOptions): BoardServer {
         SERVER,
       ],
       {
-        env: childEnv(opts.env, port),
+        env: boardEnv(opts.env, port),
         stdin: 'ignore',
         stdout: 'pipe',
         stderr: 'pipe',
       }
     );
     proc = child;
-    void drain(child.stdout);
-    void drain(child.stderr);
+    const drains = [drain(child.stdout), drain(child.stderr)];
     const deadline = Date.now() + BOOT_MS;
     while (Date.now() < deadline) {
-      if (child.exitCode !== null)
+      if (hasExited(child)) {
+        await child.exited;
+        await Promise.allSettled(drains);
         throw new Error(
-          `board server exited ${child.exitCode} before /healthz answered:\n${output}`
+          `board server died (${child.signalCode ?? `exit ${child.exitCode}`}) before /healthz answered:\n${output}`
         );
+      }
       try {
         const res = await fetch(`${origin}/healthz`, {
           signal: AbortSignal.timeout(2_000),
@@ -117,7 +130,12 @@ export function startBoardServer(opts: BoardServerOptions): BoardServer {
     origin,
     ready: () => (booting ??= boot()),
     output: () => output,
-    exitCode: () => proc?.exitCode ?? null,
+    exited: () => (proc ? hasExited(proc) : false),
+    async terminate(signal) {
+      if (!proc) throw new Error('board server was never started');
+      proc.kill(signal);
+      return proc.exited;
+    },
     async stop() {
       if (!proc) return;
       proc.kill('SIGKILL');

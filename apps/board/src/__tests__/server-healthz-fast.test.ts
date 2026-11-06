@@ -3,7 +3,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterAll, expect, test } from 'bun:test';
 
-import { bootBoardServer } from './board-server.ts';
+import { startBoardServer } from './board-server.ts';
 
 // Proves src/server.ts:452ish's hoist: /healthz, /events, and the static
 // shell/assets must answer even when the rt daemon is wedged (accepts the
@@ -44,7 +44,9 @@ const wedgedDaemon = Bun.serve({
   fetch: () => new Promise<Response>(() => {}),
 });
 
-const board = bootBoardServer({
+// Started inside the test, not in beforeAll: the timed span is spawn to the
+// first healthy /healthz.
+const board = startBoardServer({
   env: {
     HOME: fakeHome,
     // Keeps the booted server's state writes out of the repo.
@@ -59,23 +61,17 @@ const board = bootBoardServer({
   },
 });
 
-afterAll(() => wedgedDaemon.stop(true));
+afterAll(async () => {
+  await board.stop();
+  wedgedDaemon.stop(true);
+});
 
 test('/healthz responds fast even with a wedged rt daemon blocking every board-secret round trip', async () => {
   const start = Date.now();
-  let res: Response | undefined;
-  for (let i = 0; i < 100; i++) {
-    try {
-      res = await fetch(`${board.origin}/healthz`);
-      if (res.ok) break;
-    } catch {
-      // server not listening yet
-    }
-    await new Promise(r => setTimeout(r, 100));
-  }
+  await board.ready();
   const elapsed = Date.now() - start;
-  expect(res?.ok).toBe(true);
-  expect(await res!.text()).toBe('ok');
+  const res = await fetch(`${board.origin}/healthz`);
+  expect(await res.text()).toBe('ok');
   // The wedged daemon never answers; the pre-fix code awaited it (15s
   // timeout, per token getter) before even reaching the /healthz case.
   // 8s leaves generous CI/subprocess-startup margin while still failing

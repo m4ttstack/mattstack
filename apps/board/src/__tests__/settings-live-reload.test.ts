@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { afterAll, expect, test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
 import { bootBoardServer } from './board-server.ts';
 
@@ -53,21 +53,6 @@ const board = bootBoardServer({
   },
 });
 
-afterAll(() => {});
-
-async function waitForBoot(): Promise<void> {
-  for (let i = 0; i < 100; i++) {
-    try {
-      const res = await fetch(`${board.origin}/healthz`);
-      if (res.ok) return;
-    } catch {
-      // server not listening yet
-    }
-    await new Promise(r => setTimeout(r, 100));
-  }
-  throw new Error('board never came up');
-}
-
 // /data.json's `title` field reads `config.title` fresh on every request
 // (unlike the served HTML shell's <title>, which is baked once at boot into
 // a module-level string -- a separate, pre-existing quirk this test doesn't
@@ -81,7 +66,6 @@ async function dataJsonTitle(): Promise<string> {
 }
 
 test('a board.* setting written through /api/settings/set applies live, no restart', async () => {
-  await waitForBoot();
   expect(await dataJsonTitle()).toBe('MRs ready for review'); // BoardConfig's default, unset in the fixture team store
 
   const setRes = await fetch(`${board.origin}/api/settings/set`, {

@@ -644,6 +644,6 @@ test('a handoff clear whose memory read throws after a launch keeps the server u
   } finally {
     db.run('ALTER TABLE kv_hidden RENAME TO kv');
   }
-  expect(board.exitCode()).toBeNull();
+  expect(board.exited()).toBe(false);
   expect((await fetch(`${board.origin}/healthz`)).ok).toBe(true);
 }, 15_000);

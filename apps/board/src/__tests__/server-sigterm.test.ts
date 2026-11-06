@@ -3,9 +3,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterAll, expect, test } from 'bun:test';
 
-// Spawns server.ts itself rather than through bootBoardServer: this test
-// owns the signal and the exit code.
-import { freePort } from './board-server.ts';
+import { startBoardServer } from './board-server.ts';
 
 // Sparkle replaces the whole bundle on update (this process's inode vanishes
 // mid-run) and launchd sends SIGTERM before its grace period expires either
@@ -32,65 +30,31 @@ writeFileSync(
   })
 );
 
-let proc: Bun.Subprocess<'ignore', 'pipe', 'pipe'> | undefined;
-
-// Spawned inside the test, not at module load: `bun test -t <filter>` still
-// imports every test file, so a module-level spawn starts a server whose
-// afterAll never runs, and it survives to squat the port on the next run.
-afterAll(async () => {
-  if (!proc) return;
-  proc.kill('SIGKILL');
-  await proc.exited;
+// Started inside the test, not in beforeAll: this test owns the signal and
+// the exit code.
+const board = startBoardServer({
+  env: {
+    HOME: fakeHome,
+    // Keeps the booted server's state writes out of the repo.
+    BOARD_APP_ROOT: fakeHome,
+    GITLAB_TOKEN: '',
+    SLACK_TOKEN: '',
+    SWITCHBOARD_TOKEN: '',
+    SWITCHBOARD_ADMIN_TOKEN: '',
+  },
 });
 
+afterAll(() => board.stop());
+
 test('SIGTERM exits promptly with code 0, not leaked past the grace period', async () => {
-  const port = freePort();
-  proc = Bun.spawn(['bun', 'run', join(import.meta.dir, '..', 'server.ts')], {
-    env: {
-      ...process.env,
-      HOME: fakeHome,
-      // Keeps the booted server's state writes out of the repo.
-      BOARD_APP_ROOT: fakeHome,
-      PORT: String(port),
-      GITLAB_TOKEN: '',
-      SLACK_TOKEN: '',
-      SWITCHBOARD_TOKEN: '',
-      SWITCHBOARD_ADMIN_TOKEN: '',
-    },
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-
-  let healthy = false;
-  for (let i = 0; i < 100; i++) {
-    if (proc.exitCode !== null) break;
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/healthz`);
-      if (res.ok) {
-        healthy = true;
-        break;
-      }
-    } catch {
-      /* not up yet */
-    }
-    await new Promise(r => setTimeout(r, 100));
-  }
-  // Surfaces the child's own output, so a boot failure reads as the boot
-  // failure it is rather than as a bare exit code from the kill below.
-  expect({
-    healthy,
-    stderr: healthy ? '' : await new Response(proc.stderr).text(),
-  }).toEqual({ healthy: true, stderr: '' });
-
-  proc.kill('SIGTERM');
-  const exitCode = await proc.exited;
-  expect(exitCode).toBe(0);
+  await board.ready();
+  expect(await board.terminate('SIGTERM')).toBe(0);
 
   // The port is actually released, not just the process reaping -- a lingering
   // listener would mean shutdown() returned before httpServer.stop() took effect.
   await expect(
-    fetch(`http://127.0.0.1:${port}/healthz`, {
+    fetch(`${board.origin}/healthz`, {
       signal: AbortSignal.timeout(500),
     })
   ).rejects.toThrow();
-});
+}, 70_000);

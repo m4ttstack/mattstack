@@ -259,8 +259,6 @@ const daemon = Bun.serve({
   },
 });
 
-// bootBoardServer keeps a focus away from a live herdr: no inherited socket,
-// and a herdr binary that does not exist.
 const board = bootBoardServer({
   preload: join(import.meta.dir, 'slack-api-mock-preload.ts'),
   env: {

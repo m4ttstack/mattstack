@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { beforeAll, expect, test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
 import { bootBoardServer } from './board-server.ts';
 
@@ -66,22 +66,6 @@ const board = bootBoardServer({
     SWITCHBOARD_ADMIN_TOKEN: '',
   },
 });
-
-// A cold server boot can outlast a test's default 5s.
-beforeAll(() => waitForBoot(), 30_000);
-
-async function waitForBoot(): Promise<void> {
-  for (let i = 0; i < 300; i++) {
-    try {
-      const res = await fetch(`${board.origin}/healthz`);
-      if (res.ok) return;
-    } catch {
-      // not listening yet
-    }
-    await Bun.sleep(100);
-  }
-  throw new Error('server never became healthy');
-}
 
 async function roster(body: unknown): Promise<Response> {
   return fetch(`${board.origin}/roster`, {
