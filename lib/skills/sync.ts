@@ -361,6 +361,8 @@ function sameEntry(a: HashedFile, b: HashedFile): boolean {
 }
 
 const MANIFEST_REL = ".claude-plugin/plugin.json";
+/** How many manifest commits sync reads looking for the one that set the current version; it diffs from the oldest it reads. */
+const BUMP_SEARCH_DEPTH = 50;
 
 const literal = (path: string): string => `:(literal)${path}`;
 
@@ -452,6 +454,32 @@ async function readPackDirPending(deps: SyncDeps, dir: string): Promise<PendingF
 
 function changedSinceShown(pack: string): Outcome {
   return refused(`The ${pack} pack changed since its pending changes were shown, so rt synced nothing. Look over the changes again, then sync`);
+}
+
+/** Claude Code installs by version, so pack files committed after the last version change never install until the version moves again. */
+async function committedSinceBump(deps: SyncDeps, dir: string, version: string): Promise<boolean> {
+  const log = await deps.run("git", ["log", "--topo-order", `--max-count=${BUMP_SEARCH_DEPTH}`, "--format=%H", "--", MANIFEST_REL], { cwd: dir });
+  if (log.code !== 0) return false;
+  // A manifest edit that keeps the version is not a bump: walk back to the
+  // oldest of the newest commits that all carry this version.
+  let bumpedAt: string | null = null;
+  for (const sha of log.stdout.split("\n").filter(Boolean)) {
+    const shown = await deps.run("git", ["show", `${sha}:./${MANIFEST_REL}`], { cwd: dir });
+    if (shown.code !== 0 || manifestVersionOf(shown.stdout) !== version) break;
+    bumpedAt = sha;
+  }
+  if (bumpedAt === null) return false;
+  const diff = await deps.run("git", ["diff", "--quiet", bumpedAt, "HEAD", "--", "."], { cwd: dir });
+  return diff.code === 1;
+}
+
+function manifestVersionOf(text: string): string | null {
+  try {
+    const version = (JSON.parse(text) as { version?: unknown }).version;
+    return typeof version === "string" ? version : null;
+  } catch {
+    return null;
+  }
 }
 
 async function listInstalled(deps: SyncDeps): Promise<PluginListEntry[]> {
@@ -877,7 +905,10 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
 
   // A published commit can leave check with no drift to report, yet the
   // installed cache is keyed by version, so it must still bump, push and update.
-  const rebuild = drift || published;
+  // So must a pack commit made by hand, which never bumped.
+  const unbumped =
+    !drift && !published && mayWritePack && packGit && orgOffRef === null && installedPackBefore === packSourceVersion && (await committedSinceBump(deps, pack.dir, packSourceVersion));
+  const rebuild = drift || published || unbumped;
   const noOp = !rebuild && installedPackBefore === packSourceVersion;
   if (noOp) {
     await reapplyDisableModelInvocation();
@@ -897,7 +928,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     bumpBefore = before;
     bumpAfter = after;
     packSourceVersion = after;
-    return ran(`bumped ${before} -> ${after}`);
+    return ran(unbumped ? `bumped ${before} -> ${after}: the pack changed in a commit that kept the version` : `bumped ${before} -> ${after}`);
   });
   steps.push({ name: "bump", ...bump });
   if (stops(bump)) return finish();
