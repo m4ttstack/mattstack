@@ -43,7 +43,7 @@ import { getSetting } from "../../settings/resolve.ts";
 import { rtDir } from "../../rt-paths.ts";
 import { DAEMON_SOCK_PATH } from "../../daemon-config.ts";
 import { lazyChildLogger } from "../../daemon-logger.ts";
-import { formatPaneRef, parsePaneRef } from "../../../packages/rt-client/src/index.ts";
+import { BG_PREFIX, formatPaneRef, parsePaneRef } from "../../../packages/rt-client/src/index.ts";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 import { bgSocketPath } from "../bg-service.ts";
 import type { BgService } from "../bg-service.ts";
@@ -360,6 +360,18 @@ function withName(rec: AgentRecord, db: Database): AgentRecord & { name?: string
   return rec.handle === undefined ? rec : { ...rec, name: identityName(rec.handle, db) };
 }
 
+function tabOpenError(tabLabel: string): string {
+  return `tab "${tabLabel}" already open; focused it`;
+}
+
+/** The newest unfinished agent rt launched under this label for the repo, on the same server, when one is still recorded with a pane. */
+function openAgentForLabel(db: Database, want: { repo: string; label: string; surface: AgentSurface; bg: boolean }): AgentRecord | undefined {
+  return listAgents({ repo: want.repo }, db)
+    .filter((a) => a.label === want.label && a.surface === want.surface && a.finishedAt === undefined && a.paneId !== undefined)
+    .filter((a) => a.paneId!.startsWith(BG_PREFIX) === want.bg)
+    .sort((a, b) => (b.lastResumedAt ?? b.createdAt) - (a.lastResumedAt ?? a.createdAt))[0];
+}
+
 export function createAgentHandlers(opts: {
   db: Database;
   emitEvent: (topic: string, payload?: unknown) => unknown;
@@ -464,7 +476,7 @@ export function createAgentHandlers(opts: {
         // record with a freshly minted sessionId nothing is listening on —
         // rt agent resume against it would run `claude --resume` for a
         // session that was never started.
-        return { ok: false, error: `tab "${tabLabel}" already open; focused it` };
+        return { ok: false, error: tabOpenError(tabLabel) };
       }
       rec.paneId = out.paneId;
       rec.tabId = out.tabId;
@@ -683,6 +695,12 @@ export function createAgentHandlers(opts: {
         if (!res.ok) {
           deleteAgent(rec.id, db);
           removeAgentPromptDir(rec.id, log);
+          // The label's tab is already open: hand back the agent rt launched
+          // there, so a caller can type into it rather than read a bare failure.
+          const existing = res.error === tabOpenError(tabLabel) && payload.tab === undefined
+            ? openAgentForLabel(db, { repo, label: tabLabel, surface, bg: Boolean(payload.bg) })
+            : undefined;
+          if (existing) return { ok: true, data: { ...withName(existing, db), reused: true } };
           return res;
         }
         // A herd-spawned hidden worker rides the bg socket via herdrSocket,

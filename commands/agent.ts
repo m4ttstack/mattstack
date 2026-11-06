@@ -240,6 +240,7 @@ async function runStart(args: string[]): Promise<void> {
     return;
   }
   say(renderRecord(data));
+  if ("reused" in data && data.reused) say(`tab "${data.label ?? data.id}" was already open, so rt focused it and started nothing new`);
   if (data.provider === "codex") {
     say(`note: codex mints its own session id; the one above is provisional. Capturing the real one needs the rt daemon running (start it with \`rt daemon start\` if it isn't) -- once it is, \`rt agent show ${data.id}\` confirms the real id before resuming.`);
   }
