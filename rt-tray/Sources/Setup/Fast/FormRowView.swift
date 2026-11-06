@@ -118,6 +118,7 @@ struct FormRowView: View {
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier(AXID.fastRow(row.id))
+            .animation(.spring(response: 0.35, dampingFraction: 0.9), value: shapeKey)
         }
     }
 
@@ -237,20 +238,19 @@ struct FormRowView: View {
         } else if row.subtext.isEmpty {
             controlsLine
         } else {
-            // P5's words sit beside the controls when the line has room; else they drop below as a hint, so they
-            // share the leading edge and style of the hint lines under them.
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 10) {
-                    controlsLine
-                    Text(row.subtext).font(.system(size: 11)).foregroundColor(FastTheme.textTertiary).lineLimit(1).fixedSize()
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    controlsLine
-                    subtextHint
-                }
+            // Always below the controls: a line that moved beside them whenever it fit flipped the row's height
+            // each time a button's label changed width.
+            VStack(alignment: .leading, spacing: 6) {
+                controlsLine
+                subtextHint
             }
         }
         notes
+    }
+
+    /// What changes the row's shape, so a change eases its height instead of jumping.
+    var shapeKey: String {
+        [row.state.rawValue, row.action?.label ?? "", row.detail, row.subtext, progressLine ?? ""].joined(separator: "|")
     }
 
     private var failedLine: some View {
