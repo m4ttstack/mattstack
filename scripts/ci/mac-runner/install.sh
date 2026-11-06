@@ -1,10 +1,10 @@
 #!/bin/bash
 # Installs the repo's self-hosted macOS runners. Run from a real terminal at the
 # repo root, as yourself: it needs sudo's password prompt and your gh login.
-# Usage: scripts/ci/mac-runner/install.sh [runner count, default 5]
+# Usage: scripts/ci/mac-runner/install.sh [runner count, default 3]
 set -euo pipefail
 
-COUNT=${1:-5}
+COUNT=${1:-3}
 VERSION=2.338.2
 case "$(uname -m)" in
   arm64) RUNNER_ARCH=arm64; SHA256=25a065af409ffa317ab4d5a3b614dd15fc9c40f2172bc1b35a1b1258e919a388 ;;

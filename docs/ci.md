@@ -107,7 +107,7 @@ red night opens one issue, and a later red comments on it.
 ## The Mac runner
 
 Matt's PRs and queue runs can use self-hosted runners on his Intel Mac mini
-(2018, 6 cores, 12 threads) instead of GitHub's macOS pool, so a GitHub macOS
+(2018, 6 cores, 12 threads), a machine kept for CI and never his work Mac, instead of GitHub's macOS pool, so a GitHub macOS
 outage does not stop them landing. Everything else stays on `macos-latest`:
 another author's PR, a queue batch holding one, and the nightly. Only the macOS
 legs run there: `unit-macos`, `deck-macos`, `plugin-herdr-chat`, `e2e-tests`
@@ -132,11 +132,11 @@ still running a binary from that runner's own `_work` folder, such as
 or `node` running a script from there, and it does not run if the runner itself
 dies, so a test must still take a free port, never a fixed one.
 
-- **Set up:** `scripts/ci/mac-runner/install.sh 3`, then
+- **Set up:** `scripts/ci/mac-runner/install.sh`, then
   `gh variable set MAC_RUNNER --body on`. The runners are launchd daemons under
-  a separate `mattstack-ci` user that cannot read your home. The argument is
-  the runner count (five when left out); the mini runs three, since more
-  parallel jobs than its threads can carry fail full checks. The installer
+  a separate `mattstack-ci` user that cannot read your home. An optional
+  argument sets the runner count, three by default: on the mini's 12 threads,
+  more parallel jobs push the load past what full checks survive. The installer
   picks the runner build for the Mac's CPU, Intel or Apple silicon. It needs
   `gh` signed in, a home folder at `chmod 700`, and a bun: the one on PATH, or
   the mattstack app's. A rerun with a smaller count removes the runners above it.
@@ -163,7 +163,7 @@ it can refuse jobs the new rule sends to the Mac until the installer runs.
   dir=$(mktemp -d /tmp/mattstack-install.XXXXXX)
   gh repo clone m4ttstack/mattstack "$dir" -- --depth 1
   cd "$dir"
-  scripts/ci/mac-runner/install.sh 3
+  scripts/ci/mac-runner/install.sh
   ```
 
 - **When:** with every runner idle and the merge queue empty. It restarts all
