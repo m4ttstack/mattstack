@@ -446,6 +446,9 @@ import {
 /** Capture-harness mode: boot from a committed fixture dir instead of live
     config, serve canned endpoint responses, hold no tokens, start no relay.
     The seed of the permanent screenshot harness (see tests/capture.ts). */
+/** MR urls with a flock open running in this server process. */
+const FLOCK_OPENS = new Set<string>();
+
 const FIXTURE_DIR = process.env.BOARD_FIXTURE || null;
 const fixtureFile = (name: string) => join(FIXTURE_DIR!, name);
 
@@ -3458,11 +3461,13 @@ const httpServer = Bun.serve({
         } catch {
           return new Response('invalid json', { status: 400 });
         }
-        const { mrUrl, iid, action, index } = (body ?? {}) as {
+        const { mrUrl, iid, action, index, label, command } = (body ?? {}) as {
           mrUrl?: unknown;
           iid?: unknown;
           action?: unknown;
           index?: unknown;
+          label?: unknown;
+          command?: unknown;
         };
         if (typeof mrUrl !== 'string' || typeof iid !== 'number')
           return new Response('expected { mrUrl: string, iid: number }', {
@@ -3508,12 +3513,27 @@ const httpServer = Bun.serve({
           return new Response('expected action: shell|claude|resume|command', {
             status: 400,
           });
+        // Picked by position, checked by content: a setting edited between
+        // the menu read and the click must not run a different command.
         const saved =
           action === 'command' && typeof index === 'number'
             ? commands[index]
             : undefined;
-        if (action === 'command' && !saved)
-          return new Response('unknown saved command', { status: 400 });
+        if (
+          action === 'command' &&
+          (!saved || saved.label !== label || saved.command !== command)
+        )
+          return new Response(
+            'that saved command changed; open the menu again',
+            { status: 409 }
+          );
+        if (FLOCK_OPENS.has(mrUrl))
+          return new Response('already opening this MR in flock', {
+            status: 409,
+          });
+        // Provisioning a worktree can outlast Bun's 60s idle timeout.
+        server.timeout(req, 0);
+        FLOCK_OPENS.add(mrUrl);
         try {
           let folder: string;
           if (action === 'resume') {
@@ -3522,10 +3542,16 @@ const httpServer = Bun.serve({
                 status: 409,
               });
             if (menu.resume.livePane) {
+              // A failed focus is not a gone session: resuming it again
+              // would put two Claudes on one transcript.
               const { focused } = await focusPane({
                 paneId: menu.resume.livePane,
               });
-              if (focused) return Response.json({ ok: true, focused: true });
+              return focused
+                ? Response.json({ ok: true, focused: true })
+                : new Response("couldn't focus the running session", {
+                    status: 502,
+                  });
             }
             if (menu.resume.worktreeGone || !menu.resume.worktree)
               return new Response("the session's worktree is gone", {
@@ -3548,12 +3574,17 @@ const httpServer = Bun.serve({
             token: readFlockToken(),
           });
           await openInFlock(target);
-          return Response.json({ ok: true, provisioned: !menu.tree });
+          return Response.json({
+            ok: true,
+            provisioned: action !== 'resume' && !menu.tree,
+          });
         } catch (err) {
           return new Response(
             err instanceof Error ? err.message : String(err),
             { status: 502 }
           );
+        } finally {
+          FLOCK_OPENS.delete(mrUrl);
         }
       }
       case '/mr/action': {

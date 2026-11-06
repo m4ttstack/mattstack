@@ -1,4 +1,10 @@
-import { mkdtempSync, readFileSync, statSync } from 'node:fs';
+import {
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'bun:test';
@@ -16,6 +22,7 @@ import {
   pickMrTree,
   pickResumeRun,
   readFlockToken,
+  redactToken,
   type FlockIo,
 } from '../flock-open.ts';
 
@@ -215,6 +222,19 @@ test('flockOpenUrl writes a space as %20, never +', () => {
   expect(url).toContain('run=rt%20sync%20%26%26%20echo%20%22a%2Bb%22');
 });
 
+test('a session id with anything but letters, digits and dashes is never resumed', () => {
+  expect(pickResumeRun([run({ session: 'abc\u0003; rm -rf ~' })], MR)).toBe(
+    null
+  );
+  expect(pickResumeRun([run({ session: '0d1f-9a2b' })], MR)?.id).toBe('r1');
+});
+
+test('redactToken hides the token in open errors', () => {
+  expect(
+    redactToken('LSOpen failed for flock://open?a=1&token=abc123&b=2')
+  ).toBe('LSOpen failed for flock://open?a=1&token=…&b=2');
+});
+
 describe('readFlockToken', () => {
   test('creates a private token once and reuses it', () => {
     const dir = mkdtempSync(join(tmpdir(), 'flock-token-'));
@@ -224,6 +244,15 @@ describe('readFlockToken', () => {
     expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(readFlockToken(path)).toBe(first);
     expect(readFileSync(path, 'utf8').trim()).toBe(first);
+  });
+
+  test('never replaces a token that is already there, and leaves no temp file', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'flock-token-'));
+    const path = join(dir, 'open-token');
+    writeFileSync(path, 'flock-made\n', { mode: 0o644 });
+    expect(readFlockToken(path)).toBe('flock-made');
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    expect(readdirSync(dir)).toEqual(['open-token']);
   });
 });
 

@@ -94,7 +94,13 @@ export type ActionRequest =
   | { kind: 'view-report'; lane: 'review' | 'respond' }
   | { kind: 'dismiss'; lane: Lane }
   | { kind: 'stand-down'; on: boolean }
-  | { kind: 'flock'; action: FlockAction; index?: number };
+  | {
+      kind: 'flock';
+      action: FlockAction;
+      /** A saved command: its position, label and command, which the
+          server checks still match before running it. */
+      saved?: { index: number; label: string; command: string };
+    };
 
 export type FlockAction = 'shell' | 'claude' | 'resume' | 'command';
 
@@ -1138,7 +1144,11 @@ function flockActions(data: FlockMenuData | undefined): RowAction[] {
         `flock-command-${index}`,
         c.label,
         commandGlyph(c.icon),
-        { kind: 'flock', action: 'command', index },
+        {
+          kind: 'flock',
+          action: 'command',
+          saved: { index, label: c.label, command: c.command },
+        },
         { hint: creates ?? c.command }
       )
     )

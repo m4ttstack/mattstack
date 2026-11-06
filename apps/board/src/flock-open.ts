@@ -1,6 +1,14 @@
 // src/flock-open.ts
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  linkSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -62,21 +70,34 @@ export function flockTokenPath(home: string = homedir()): string {
   return join(home, '.mattstack', 'flock', 'open-token');
 }
 
+/** Created whole or not at all: written to a private temp file, then hard
+    linked into place, which never replaces a token Flock made first. */
 export function readFlockToken(path: string = flockTokenPath()): string {
-  if (existsSync(path)) {
-    const token = readFileSync(path, 'utf8').trim();
-    if (token) return token;
-  }
+  const existing = readToken(path);
+  if (existing) return existing;
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const token = randomBytes(32).toString('hex');
+  const temp = `${path}.${process.pid}.${randomBytes(4).toString('hex')}`;
+  writeFileSync(temp, `${token}\n`, { mode: 0o600 });
   try {
-    writeFileSync(path, `${token}\n`, { mode: 0o600, flag: 'wx' });
+    linkSync(temp, path);
     return token;
   } catch {
-    // flock wrote it between our check and our write.
-    return readFileSync(path, 'utf8').trim();
+    return readToken(path) ?? token;
+  } finally {
+    unlinkSync(temp);
   }
 }
+
+function readToken(path: string): string | null {
+  if (!existsSync(path)) return null;
+  chmodSync(path, 0o600);
+  return readFileSync(path, 'utf8').trim() || null;
+}
+
+/** A Claude session id as the run store records it. The resume line is
+    typed into a terminal, where quoting cannot stop a control character. */
+const SESSION_ID = /^[A-Za-z0-9-]+$/;
 
 /** The MR's checkout: any tree of the repo on its source branch, golden
     donors aside. A claimed tree beats the main checkout. */
@@ -106,6 +127,7 @@ export function pickResumeRun(
         r =>
           r.work_type === 'work' &&
           !!r.session &&
+          SESSION_ID.test(r.session) &&
           typeof r.mr === 'string' &&
           norm(r.mr) === target
       )
@@ -269,13 +291,13 @@ async function stdoutOf(argv: string[]): Promise<string> {
   return out.trim();
 }
 
-/** The app launchd started (parent 1), never a pane bridge, which runs the
-    same executable under a login shell. Flock Dev first: the two never run
-    at once. */
+/** The oldest process of the executable is the app: its pane bridges run
+    the same executable, started after it. Flock Dev first: the two never
+    run at once. */
 async function runningFlockApp(): Promise<string | null> {
   for (const executable of FLOCK_EXECUTABLES) {
     const pid = (
-      await stdoutOf(['/usr/bin/pgrep', '-x', '-P', '1', executable])
+      await stdoutOf(['/usr/bin/pgrep', '-o', '-x', executable])
     ).split('\n')[0];
     if (!pid) continue;
     const app = appBundleOf(
@@ -294,6 +316,11 @@ export async function openInFlock(url: string): Promise<void> {
   });
   if ((await proc.exited) !== 0)
     throw new Error(
-      `could not open flock: ${(await new Response(proc.stderr).text()).trim()}`
+      `could not open flock: ${redactToken((await new Response(proc.stderr).text()).trim())}`
     );
+}
+
+/** `open` echoes the URL it failed on, token included, into its stderr. */
+export function redactToken(text: string): string {
+  return text.replace(/token=[^&\s'"]*/g, 'token=…');
 }

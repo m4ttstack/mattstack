@@ -233,7 +233,7 @@ function postSpec(req: PostRequest, people: People): PostSpec {
           mrUrl: url,
           iid: mr.iid,
           action: req.action,
-          index: req.index,
+          ...(req.saved ?? {}),
         }),
         pending: mr =>
           `opening ${mrRef(mr)} in flock${req.action === 'resume' ? '' : ' (a missing worktree is created first)'}…`,
