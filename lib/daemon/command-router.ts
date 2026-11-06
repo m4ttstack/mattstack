@@ -14,7 +14,7 @@ import { createStatusHandlers }    from "./handlers/status.ts";
 import { createMRHandlers }        from "./handlers/mr.ts";
 import { createWorktreeHandlers, type WorktreeHandlerOpts } from "./handlers/worktree.ts";
 import { createWorktreeTriageHandlers } from "./handlers/worktree-triage.ts";
-import { createWorktreeSyncHandler, runBranchSync } from "./handlers/worktree-sync.ts";
+import { createWorktreeSyncHandler, runBranchSync, treeBranch } from "./handlers/worktree-sync.ts";
 import { createDiscussionHandlers } from "./handlers/discussions.ts";
 import { createMrUploadHandlers } from "./handlers/mr-upload.ts";
 import { createSystemProcessHandlers } from "./handlers/system-processes.ts";
@@ -179,6 +179,7 @@ export function buildRoutedHandlers(opts: {
     provision: worktreeHandlers["worktree:provision"],
     dispose: worktreeHandlers["worktree:dispose"],
     sync: (path, onLine) => runBranchSync(path, onLine),
+    treeBranch: (path) => treeBranch(path),
     line: (event) => broadcast("worktree:sync-line", event),
     knownTree: (repoName, path) => findTreeByPath(path)?.repoName === repoName,
   });

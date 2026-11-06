@@ -224,6 +224,13 @@ export const FRESH_SYNC_ROW = {
   gateKind: null,
 } as unknown as Partial<DoctorState>;
 
+/** A doctor launch that is not a sync's hand-off starts with no paused
+    tree and no sync output from an earlier run. */
+export const NO_SYNC_CARRY = {
+  pausedTree: null,
+  syncLog: null,
+} as unknown as Partial<DoctorState>;
+
 /** A sync runs inside this server's request, so a `syncing` row with no
     running sync is one a restart cut off, and nothing else would end it. */
 export function failOrphanedSyncs(

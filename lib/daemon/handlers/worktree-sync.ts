@@ -1,4 +1,4 @@
-import { basename, join } from "path";
+import { basename, isAbsolute, join } from "path";
 import type { Commands, WorktreeSyncData } from "../../../packages/rt-client/src/index.ts";
 import { explainError } from "../../explain-error.ts";
 import { rtSelfArgv } from "../../rt-self.ts";
@@ -15,6 +15,24 @@ export type SyncResult = Pick<WorktreeSyncData, "kind" | "pushed" | "oldHead" | 
 type Run = (argv: [string, ...string[]], opts: { cwd: string; timeoutMs: number; stderr: "pipe"; env: Record<string, string | undefined>; onStderrLine?: (line: string) => void }) => Promise<{ exitCode: number; stdout: string; stderr: string; timedOut?: boolean }>;
 
 const syncError = (refusal: string): SyncResult => ({ kind: "error", pushed: false, oldHead: null, newHead: null, refusal });
+
+/** The branch at `path`; under a paused rebase HEAD is detached, so the
+    branch is the one rebase-merge (or rebase-apply) recorded. */
+export async function treeBranch(path: string, run: Run = runCapture): Promise<string | null> {
+  const opts = { cwd: path, timeoutMs: 10_000, stderr: "pipe" as const, env: childEnv() };
+  const head = await run(["git", "symbolic-ref", "--quiet", "--short", "HEAD"], opts);
+  if (head.exitCode === 0 && head.stdout.trim()) return head.stdout.trim();
+  for (const dir of ["rebase-merge", "rebase-apply"]) {
+    const p = await run(["git", "rev-parse", "--git-path", `${dir}/head-name`], opts);
+    const file = p.stdout.trim();
+    if (p.exitCode !== 0 || !file) continue;
+    try {
+      const name = (await Bun.file(isAbsolute(file) ? file : join(path, file)).text()).trim();
+      if (name) return name.replace(/^refs\/heads\//, "");
+    } catch { /* no rebase of this kind here */ }
+  }
+  return null;
+}
 
 export async function runBranchSync(path: string, onLine?: (line: string) => void, run: Run = runCapture): Promise<SyncResult> {
   const [exe, ...rest] = rtSelfArgv({ main: CLI_ENTRY });
@@ -41,6 +59,8 @@ export interface WorktreeSyncDeps {
   dispose: (payload: { repoName: string; tree: string }) => Promise<unknown>;
   /** Whether `path` is one of `repoName`'s registered worktrees. */
   knownTree: (repoName: string, path: string) => boolean;
+  /** The branch checked out at `path`, or the one a paused rebase there is rebasing. */
+  treeBranch: (path: string) => Promise<string | null>;
   sync: (path: string, onLine?: (line: string) => void) => Promise<SyncResult>;
   /** Each output line of the sync as it happens, in rt's plain `[status] title  hint` form. */
   line?: (event: { repoName: string; branch: string; line: string }) => void;
@@ -70,11 +90,27 @@ export function createWorktreeSyncHandler(deps: WorktreeSyncDeps) {
       log.push(line);
       deps.line?.({ repoName, branch, line });
     };
+    // A cleanup that fails is reported, never thrown: the sync's own result
+    // still has to reach the caller, and the tree may be left behind.
+    const disposeOrSay = async (tree: string): Promise<string | null> => {
+      try {
+        await deps.dispose({ repoName, tree });
+        return null;
+      } catch (err) {
+        const left = `could not remove worktree ${tree}: ${err instanceof Error ? err.message : String(err)}`;
+        say(`[warning] Could not remove worktree ${tree}  ${err instanceof Error ? err.message : String(err)}`);
+        return left;
+      }
+    };
 
     // A paused rebase detaches HEAD, so the registry may no longer list the
     // tree under its branch; the caller names it instead.
     const named = typeof payload?.tree === "string" && payload.tree ? payload.tree : null;
     if (named && !deps.knownTree(repoName, named)) return { ok: true, data: before("no-tree", null, `${named} is not one of this repo's worktrees`) };
+    if (named) {
+      const on = await deps.treeBranch(named);
+      if (on !== branch) return { ok: true, data: before("no-tree", null, `${named} has ${on ?? "no branch"} checked out, not ${branch}`) };
+    }
     const check = named ? null : await deps.check({ repoName, branch });
     if (check && !check.ok) return { ok: true, data: before("no-tree", null, explainError(check.error)) };
     const attached = check?.data.attached ?? [];
@@ -96,15 +132,16 @@ export function createWorktreeSyncHandler(deps: WorktreeSyncDeps) {
       // Provision cuts a branch it finds nowhere from the default branch,
       // which would read as "already up to date".
       if (made.data.branchState === "new") {
-        await deps.dispose({ repoName, tree: created });
-        return { ok: true, data: before("no-tree", null, `${branch} is not on origin or this Mac`, log) };
+        const gone = `${branch} is not on origin or this Mac`;
+        const left = await disposeOrSay(created);
+        return { ok: true, data: before("no-tree", null, left ? `${gone}; ${left}` : gone, log) };
       }
     }
 
     const r = resumable(await deps.sync(path, say));
     if (created && !KEEPS_TREE.has(r.kind)) {
-      await deps.dispose({ repoName, tree: created });
-      say(`[ok] Removed worktree ${created}`);
+      const left = await disposeOrSay(created);
+      if (!left) say(`[ok] Removed worktree ${created}`);
     }
     return {
       ok: true,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createWorktreeSyncHandler, runBranchSync, type SyncResult, type WorktreeSyncDeps } from "../worktree-sync.ts";
+import { createWorktreeSyncHandler, runBranchSync, treeBranch, type SyncResult, type WorktreeSyncDeps } from "../worktree-sync.ts";
 
 const ref = { tree: "elrond", path: "/trees/elrond", branch: "feat", treeKind: "ephemeral" as const };
 const synced = (kind: SyncResult["kind"], extra: Partial<SyncResult> = {}): SyncResult =>
@@ -15,6 +15,7 @@ function harness(over: Partial<WorktreeSyncDeps> = {}) {
     },
     dispose: async (p) => { calls.disposed.push(p.tree); },
     knownTree: (_repo, path) => path === "/trees/paused",
+    treeBranch: async () => "feat",
     sync: async (path) => { calls.synced.push(path); return synced("synced", { pushed: true }); },
     ...over,
   };
@@ -73,6 +74,33 @@ describe("worktree:sync", () => {
     const all = ["[running] Making a worktree for feat", "[ok] Made worktree new-tree", "[ok] Fetched from origin", "[ok] Removed worktree new-tree"];
     expect(lines).toEqual(all);
     expect(d.log).toEqual(all);
+  });
+
+  test("a named tree on another branch is refused, not synced", async () => {
+    const { run, calls } = harness({ treeBranch: async () => "other" });
+    const d = await data(run({ repoName: "r", branch: "feat", tree: "/trees/paused" }));
+    expect(d.kind).toBe("no-tree");
+    expect(d.refusal).toContain("other");
+    expect(calls.synced).toEqual([]);
+  });
+
+  test("a cleanup that fails is reported beside the result, never thrown", async () => {
+    const { run } = harness({ ...noTree, dispose: async () => { throw new Error("locked"); } });
+    const d = await data(run({ repoName: "r", branch: "feat" }));
+    expect(d.kind).toBe("synced");
+    expect(d.log.at(-1)).toContain("Could not remove worktree new-tree");
+  });
+
+  test("a gone branch whose cleanup fails still says the branch is gone", async () => {
+    const { run } = harness({
+      ...noTree,
+      provision: async () => ({ ok: true, data: { tree: "new-tree", path: "/trees/new", branch: "feat", wasOnDeck: true, readyAt: null, branchState: "new" } as any }),
+      dispose: async () => { throw new Error("locked"); },
+    });
+    const d = await data(run({ repoName: "r", branch: "feat" }));
+    expect(d.kind).toBe("no-tree");
+    expect(d.refusal).toContain("not on origin or this Mac");
+    expect(d.refusal).toContain("locked");
   });
 
   test("a rebase an earlier sync paused comes back as a conflict", async () => {
@@ -154,5 +182,22 @@ describe("runBranchSync", () => {
 
   test("a timeout is an error", async () => {
     expect((await runBranchSync("/t", undefined, reply({ timedOut: true }))).kind).toBe("error");
+  });
+});
+
+describe("treeBranch", () => {
+  test("reads the checked-out branch, then a paused rebase's head-name", async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import("fs");
+    const { tmpdir } = await import("os");
+    const { join } = await import("path");
+    const dir = mkdtempSync(join(tmpdir(), "tree-branch-"));
+    mkdirSync(join(dir, "rebase-merge"));
+    writeFileSync(join(dir, "rebase-merge", "head-name"), "refs/heads/feat\n");
+    const on = await treeBranch(dir, async (argv) =>
+      argv[1] === "symbolic-ref"
+        ? { exitCode: 1, stdout: "", stderr: "" }
+        : { exitCode: 0, stdout: argv[3]!.startsWith("rebase-merge") ? join(dir, "rebase-merge", "head-name") : join(dir, "nope"), stderr: "" });
+    expect(on).toBe("feat");
+    expect(await treeBranch(dir, async () => ({ exitCode: 0, stdout: "main\n", stderr: "" }))).toBe("main");
   });
 });

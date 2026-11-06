@@ -121,6 +121,7 @@ import {
   doctorResumeDispatchFields,
   failOrphanedSyncs,
   FRESH_SYNC_ROW,
+  NO_SYNC_CARRY,
   parseDoctorRequestBody,
   planStandDown,
   pruneDoctorStates,
@@ -3142,9 +3143,7 @@ const httpServer = Bun.serve({
           fixClasses,
           boardTabId: boardTabId ?? '',
           noPack: !launchPack(boardTabId),
-          ...(parsed.mode === 'rebase'
-            ? {}
-            : { syncLog: null as unknown as undefined }),
+          ...(parsed.mode === 'rebase' ? {} : NO_SYNC_CARRY),
         });
         void launchDoctor({
           mrUrl: parsed.mrUrl,
