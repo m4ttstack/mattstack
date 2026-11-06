@@ -150,19 +150,32 @@ export async function launchReReview(
   const boardTabId = laneBoardTab(existing?.boardTabId, ctx.boardTabId);
   const { skill, pack } = ctx.forTab(boardTabId);
   const lane = { boardTabId: boardTabId ?? '', noPack: !pack };
-  const prompt = await dispatchPrompt(
-    'board:review',
-    {
+  let prompt: string;
+  try {
+    prompt = await dispatchPrompt(
+      'board:review',
+      {
+        mrUrl,
+        statePath,
+        statusBin: statusBinPath(),
+        reportPath: reviewReportPath(statePath),
+        skill,
+        reReview: ctx.reReview ?? true,
+        note: ctx.note,
+      },
+      resolvePath
+    );
+  } catch (err) {
+    const message = launchErrorMessage('re-review', err);
+    io.writeReviewState(statePath, {
       mrUrl,
-      statePath,
-      statusBin: statusBinPath(),
-      reportPath: reviewReportPath(statePath),
-      skill,
-      reReview: ctx.reReview ?? true,
-      note: ctx.note,
-    },
-    resolvePath
-  );
+      iid,
+      status: 'error',
+      message,
+      ...lane,
+    });
+    return { kind: 'error', message };
+  }
 
   if (existing?.agentId) {
     io.writeReviewState(statePath, {

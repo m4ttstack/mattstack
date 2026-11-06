@@ -1,7 +1,7 @@
 import type { GateRow as FacilityGateRow } from '@mattstack/rt-client';
 import { resumePackEnv, type AgentLaunchResult } from '../agent-launch.ts';
 import { mrTabLabel, type SkillPathResolver } from '../herdr.ts';
-import { resolveSkillPath } from '../skill-path.ts';
+import { resolveSkillPath, SkillBindError } from '../skill-path.ts';
 import { GATE_LIST_PAGE_LIMIT, type GateEventFrame } from './ingest.ts';
 import type { GateQuestion, GateState } from './store.ts';
 import { domainForKind, GATE_KINDS, type GateDomain } from './sweep.ts';
@@ -23,6 +23,7 @@ export interface ResumableState {
   resumedGateId?: string;
   resumedAt?: number;
   noPack?: boolean;
+  message?: string;
 }
 
 /** Everything one resumable gate kind needs to rebuild its wrapper's
@@ -147,14 +148,22 @@ export async function resumeParkedGate(
   const skill = kindIo.resolveSkill(gate.mrUrl, gate.boardTabId);
   const pack = kindIo.resolvePack(gate.boardTabId);
   const noPack = !pack;
-  const prompt = await kindIo.prompt(
-    gate.mrUrl,
-    statePath,
-    skill,
-    gate.gateId,
-    gate.kind,
-    resolvePath
-  );
+  let prompt: string;
+  try {
+    prompt = await kindIo.prompt(
+      gate.mrUrl,
+      statePath,
+      skill,
+      gate.gateId,
+      gate.kind,
+      resolvePath
+    );
+  } catch (err) {
+    if (!(err instanceof SkillBindError)) throw err;
+    io.notify(`parked gate not resumed: ${err.message}`);
+    kindIo.writeState(statePath, { status: 'error', message: err.message });
+    return false;
+  }
 
   // Read before the relaunch: a pane that dies during it gets a gone onset
   // after this, so it still interrupts the lane (see laneRunStart in

@@ -30,6 +30,13 @@ import {
   type HerdrRunner,
 } from '../herdr.ts';
 import { respondResumeDispatchFields } from '../respond-state.ts';
+import { SkillBindError, type SkillPathResolution } from '../skill-path.ts';
+
+const resolved = (path: string): SkillPathResolution => ({ ok: true, path });
+const notInstalled: SkillPathResolution = {
+  ok: false,
+  failure: { reason: 'plugin-not-installed', plugin: 'acme' },
+};
 
 const runningStart = async () => ({
   ok: true,
@@ -572,7 +579,8 @@ describe('launchReview / launchRespond / launchDoctor (rt agent)', () => {
 
   test('adds --skill-path but keeps launching the /board:review wrapper when resolution succeeds', async () => {
     const { io, startCalls } = fakeAgentIo();
-    const resolvePath = async () => '/cache/acme/skills/board-review/SKILL.md';
+    const resolvePath = async () =>
+      resolved('/cache/acme/skills/board-review/SKILL.md');
     await launchReview(
       {
         mrUrl: 'https://x/mr/1',
@@ -592,28 +600,39 @@ describe('launchReview / launchRespond / launchDoctor (rt agent)', () => {
     );
   });
 
-  test('falls back to the slash form (no --skill-path) when resolution fails', async () => {
-    const { io, startCalls } = fakeAgentIo();
-    const resolvePath = async () => null;
-    await launchReview(
-      {
-        mrUrl: 'https://x/mr/1',
-        iid: 4821,
-        cwd: '/repo',
-        repo: 'acme/webapp',
-        workspaceLabel: 'reviews',
-        statePath: '/s/1.json',
-        skill: 'acme:board-review',
-      },
-      io,
-      resolvePath
-    );
-    expect(startCalls[0]!.prompt).not.toContain('--skill-path');
-  });
+  test.each([
+    ['launchReview', launchReview],
+    ['launchRespond', launchRespond],
+    ['launchDoctor', launchDoctor],
+  ] as const)(
+    '%s refuses with SkillBindError and opens no pane when the skill does not resolve',
+    async (_name, launch) => {
+      const { io, startCalls } = fakeAgentIo();
+      const attempt = launch(
+        {
+          mrUrl: 'https://x/mr/1',
+          iid: 4821,
+          cwd: '/repo',
+          repo: 'acme/webapp',
+          workspaceLabel: 'lane',
+          statePath: '/s/1.json',
+          skill: 'acme:board-review',
+        },
+        io,
+        async () => notInstalled
+      );
+      await expect(attempt).rejects.toBeInstanceOf(SkillBindError);
+      await expect(attempt).rejects.toThrow(
+        "Couldn't load acme:board-review: the acme plugin isn't installed."
+      );
+      expect(startCalls).toHaveLength(0);
+    }
+  );
 
   test('launchRespond adds --skill-path but keeps launching the /board:respond wrapper', async () => {
     const { io, startCalls } = fakeAgentIo();
-    const resolvePath = async () => '/cache/acme/skills/board-respond/SKILL.md';
+    const resolvePath = async () =>
+      resolved('/cache/acme/skills/board-respond/SKILL.md');
     await launchRespond(
       {
         mrUrl: 'https://x/mr/1',
@@ -645,7 +664,7 @@ describe('launchReview / launchRespond / launchDoctor (rt agent)', () => {
   test('launchDoctor adds --skill-path but keeps launching the /board:doctor wrapper, tier intact', async () => {
     const { io, startCalls } = fakeAgentIo();
     const resolvePath = async () =>
-      '/cache/acme/attachments/board-doctor-api/SKILL.md';
+      resolved('/cache/acme/attachments/board-doctor-api/SKILL.md');
     await launchDoctor(
       {
         mrUrl: 'https://x/mr/1',
@@ -1309,8 +1328,8 @@ describe('dispatchPrompt (wrapper hop stays; --skill-path rides alongside --skil
   test('adds --skill-path after --skill when resolution succeeds, keeping the wrapper hop', async () => {
     const resolvePath = async (name: string) =>
       name === 'acme:board-review'
-        ? '/cache/acme/skills/board-review/SKILL.md'
-        : null;
+        ? resolved('/cache/acme/skills/board-review/SKILL.md')
+        : notInstalled;
     const prompt = await dispatchPrompt('board:review', baseOpts, resolvePath);
     expect(prompt).toBe(
       `/board:review https://x/mr/1
@@ -1322,18 +1341,26 @@ describe('dispatchPrompt (wrapper hop stays; --skill-path rides alongside --skil
     );
   });
 
-  test('byte-identical to the historical slash form when path resolution returns null', async () => {
-    const resolvePath = async () => null;
-    const prompt = await dispatchPrompt('board:review', baseOpts, resolvePath);
-    expect(prompt).toBe(reviewPrompt(baseOpts));
-    expect(prompt).not.toContain('--skill-path');
+  test('throws SkillBindError naming the reason and the fix when a set skill does not resolve', async () => {
+    const resolvePath = async (): Promise<SkillPathResolution> => ({
+      ok: false,
+      failure: {
+        reason: 'claude-missing',
+        claudeBin: `${process.env.HOME ?? homedir()}/.local/bin/claude`,
+      },
+    });
+    const attempt = dispatchPrompt('board:review', baseOpts, resolvePath);
+    await expect(attempt).rejects.toBeInstanceOf(SkillBindError);
+    await expect(attempt).rejects.toThrow(
+      "Couldn't load acme:board-review: Claude Code isn't at ~/.local/bin/claude. Open Setup status to install it."
+    );
   });
 
   test('byte-identical to the historical slash form without calling the resolver when no skill is configured', async () => {
     let called = false;
     const resolvePath = async () => {
       called = true;
-      return '/should/not/be/used/SKILL.md';
+      return resolved('/should/not/be/used/SKILL.md');
     };
     const opts = {
       mrUrl: 'https://x/mr/1',
@@ -1346,7 +1373,8 @@ describe('dispatchPrompt (wrapper hop stays; --skill-path rides alongside --skil
   });
 
   test('keeps the operator note as a trailing paragraph after --skill-path', async () => {
-    const resolvePath = async () => '/cache/acme/skills/board-review/SKILL.md';
+    const resolvePath = async () =>
+      resolved('/cache/acme/skills/board-review/SKILL.md');
     const prompt = await dispatchPrompt(
       'board:review',
       { ...baseOpts, note: 'focus on the migration files' },
@@ -1362,7 +1390,7 @@ describe('dispatchPrompt (wrapper hop stays; --skill-path rides alongside --skil
 
   test("carries --re-review, doctor's tier, fix-classes, and draft-bin flags verbatim alongside --skill-path", async () => {
     const resolvePath = async () =>
-      '/cache/acme/attachments/board-doctor-api/SKILL.md';
+      resolved('/cache/acme/attachments/board-doctor-api/SKILL.md');
     const opts = {
       mrUrl: 'https://x/mr/1',
       statePath: '/s',
@@ -1386,7 +1414,8 @@ describe('dispatchPrompt (wrapper hop stays; --skill-path rides alongside --skil
   });
 
   test('re-review keeps --skill-path and --re-review both present', async () => {
-    const resolvePath = async () => '/cache/acme/skills/board-review/SKILL.md';
+    const resolvePath = async () =>
+      resolved('/cache/acme/skills/board-review/SKILL.md');
     const prompt = await dispatchPrompt(
       'board:review',
       { ...baseOpts, reReview: true },
