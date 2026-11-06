@@ -513,7 +513,8 @@ struct FastField: View {
                 Circle().fill(FastTheme.textPrimary).frame(width: dot, height: dot).frame(width: advance)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        // minWidth 0: a long value's dots are wider than the field, and their width would otherwise push the whole screen past the window.
+        .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .clipped()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
