@@ -210,14 +210,14 @@ struct FormRowView: View {
         if let action = row.action, let options = FormRowChoice.segments(action) {
             HStack(spacing: 10) {
                 choice(action, options)
-                if let line = progressLine { inlineProgress(line) }
+                if let line = progressLine, row.subtext.isEmpty { inlineProgress(line) }
             }
             // Tiles carry their own lines, so rt's longer subtext would only repeat them.
             if !FormRowChoice.tiles(options) { subtextHint }
         } else if let action = row.action, FormRowFields.collects(action) {
             if row.state == .done && progressLine == nil { doneMark(size: 13, iconSize: 14, spacing: 8) }
             FormRowFields(row: row, action: action, large: style == .stacked, onAction: onAction)
-            if let line = progressLine { inlineProgress(line) }
+            if let line = progressLine, row.subtext.isEmpty { inlineProgress(line) }
             subtextHint
         } else if let action = row.action, action.type == .chooseFolder {
             HStack(spacing: 8) {
@@ -228,7 +228,7 @@ struct FormRowView: View {
                     .modifier(FastAXID(id: row.state == .done ? AXID.fastRowDone(row.id) : nil))
                 button(action)
             }
-            if let line = progressLine { inlineProgress(line) }
+            if let line = progressLine, row.subtext.isEmpty { inlineProgress(line) }
             subtextHint
         } else if row.state == .done && progressLine == nil {
             trailingDone
@@ -324,8 +324,9 @@ struct FormRowView: View {
 
     /// rt's reason on a todo row, then the app's refusal, each a hint line under the control.
     @ViewBuilder private var notes: some View {
-        // The button carries a short working word; rt's whole progress line goes here.
-        if row.action != nil, let line = progressLine {
+        // One line under a control: a button row with no description of its own shows rt's progress here, while
+        // its button says the short working word. Field, folder and segment rows draw theirs inline instead.
+        if let action = row.action, row.subtext.isEmpty, !Self.drawsInlineProgress(action), let line = progressLine {
             FastHint(line, textWidth: FormRowStyle.hintWidth).hintSpill(style == .labelled)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier(AXID.fastRowWaiting(row.id))
@@ -426,6 +427,10 @@ struct FormRowView: View {
         }
     }
 
+    static func drawsInlineProgress(_ action: RowAction) -> Bool {
+        FormRowChoice.segments(action) != nil || FormRowFields.collects(action) || action.type == .chooseFolder
+    }
+
     /// A button's short word while it works, from its own first word: "Install" reads "Installing…".
     /// A label it does not know keeps its own words.
     static func workingLabel(_ label: String) -> String {
@@ -501,6 +506,7 @@ struct FormRowFields: View {
                     input(field)
                     if index == fields.count - 1 { trailing }
                 }
+                .animation(.spring(response: 0.3, dampingFraction: 0.85), value: complete)
             }
             if let alternatives = action.alternatives, !alternatives.isEmpty {
                 HStack(spacing: 8) {
@@ -516,10 +522,12 @@ struct FormRowFields: View {
 
     @ViewBuilder private var trailing: some View {
         let link = create.flatMap { link in URL(string: link.url).map { (link.label, $0) } }
-        if link == nil || complete {
+        // The submit arrives once every field holds a value; until then Return is the way, and a greyed button would only be noise.
+        if complete || runningRows.contains(row.id) {
             FastButton(title: action.label, size: .small, shape: large ? .besideLargeField : nil,
                        isLoading: runningRows.contains(row.id), loadingTitle: "Checking…", action: submit)
-                .disabled(!complete).fixedSize()
+                .fixedSize()
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 .accessibilityIdentifier(AXID.fastRowAction(row.id))
         }
         if let link {
