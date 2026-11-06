@@ -97,6 +97,7 @@ function deps(over: Partial<TriageRunDeps> = {}): TriageRunDeps & {
     sendPaneText: async (paneId, text) => {
       paneNudges.push({ paneId, text });
     },
+    doctorTabOpen: async () => false,
     now: () => 1_000_000_000,
     identity: 'matt',
   };
@@ -110,6 +111,45 @@ function deps(over: Partial<TriageRunDeps> = {}): TriageRunDeps & {
 }
 
 describe('runTriage', () => {
+  test("a red MR whose doctor tab is still open skips without touching the row or the day's attempts", async () => {
+    const writes: Array<Partial<DoctorState>> = [];
+    const claims: string[] = [];
+    const asked: number[] = [];
+    const d = deps({
+      doctorTabOpen: async iid => {
+        asked.push(iid);
+        return true;
+      },
+      attendants: {
+        read: () => null,
+        readByBranch: () => null,
+        claim: mrUrl => {
+          claims.push(mrUrl);
+          return true;
+        },
+        heartbeat: () => {},
+        release: () => {},
+      },
+    });
+    const write = d.writeDoctorState;
+    d.writeDoctorState = (path, patch) => {
+      writes.push(patch);
+      return write(path, patch);
+    };
+    const result = await runTriage(d);
+    expect(asked).toEqual([1]);
+    expect(result.dispatched).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(d.launches).toHaveLength(0);
+    expect(writes).toEqual([]);
+    expect(claims).toEqual([]);
+    expect(d.memory.mrs['https://x/mr/1']!.attemptsToday).toBe(0);
+    expect(d.memory.mrs['https://x/mr/1']!.lastHandledPipelineId).not.toBe(100);
+    expect(d.audit).toEqual([
+      expect.objectContaining({ decision: 'skip', reason: 'pane-open' }),
+    ]);
+  });
+
   test('red own MR dispatches an api-tier doctor and records everything', async () => {
     const d = deps();
     const result = await runTriage(d);

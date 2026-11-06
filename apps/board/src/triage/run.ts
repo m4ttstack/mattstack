@@ -192,6 +192,11 @@ export interface TriageRunDeps {
       guard below. */
   readFreshMemory(): DispatchMemory;
   sendPaneText(paneId: string, text: string): Promise<void>;
+  /** Whether the doctors workspace still holds this MR's tab. rt refuses a
+      second tab with the same label and only focuses the open one, so a
+      launch then would start nothing; and an errored doctor's pane is left
+      open on purpose for the operator to take over. */
+  doctorTabOpen(iid: number): Promise<boolean>;
   now(): number;
   attendants?: AttendantsPort;
   /** Team pack the doctor wrapper resolves bindings with; absent means the generic skill. */
@@ -459,6 +464,19 @@ export async function runTriage(
         event: edge.kind,
         decision: 'skip',
         reason: 'doctor-in-flight',
+        pipelineId: edge.pipelineId,
+      });
+      continue;
+    }
+    if (await deps.doctorTabOpen(edge.iid)) {
+      result.skipped++;
+      deps.appendAudit({
+        ts: now,
+        mrUrl: edge.mrUrl,
+        iid: edge.iid,
+        event: edge.kind,
+        decision: 'skip',
+        reason: 'pane-open',
         pipelineId: edge.pipelineId,
       });
       continue;
