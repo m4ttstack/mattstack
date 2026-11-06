@@ -1,7 +1,9 @@
 import { cpSync, existsSync, mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { afterAll, expect, test } from 'bun:test';
+import { expect, test } from 'bun:test';
+
+import { bootBoardServer } from './board-server.ts';
 
 // Boots the real server with BOARD_FIXTURE pointing at a temp fixture dir and
 // asserts the canned endpoints answer. Spawned as a subprocess because
@@ -66,66 +68,44 @@ writeFileSync(join(dir, 'respond-report.md'), '# canned respond report\n');
 // override server.ts sets for fixture mode.
 const fakeHome = mkdtempSync(join(tmpdir(), 'board-fixture-home-'));
 
-const PORT = 47942; // test's own port, not even the fixture default (7942 collides with an unrelated local service on this machine)
-const proc = Bun.spawn(
-  ['bun', 'run', join(import.meta.dir, '..', 'server.ts')],
-  {
-    // BOARD_APP_ROOT keeps the booted server's state writes out of the repo.
-    env: {
-      ...process.env,
-      HOME: fakeHome,
-      BOARD_FIXTURE: dir,
-      BOARD_APP_ROOT: dir,
-      PORT: String(PORT),
-    },
-    stdout: 'pipe',
-    stderr: 'pipe',
-  }
-);
-afterAll(() => proc.kill());
-
-async function ready(): Promise<void> {
-  for (let i = 0; i < 50; i++) {
-    try {
-      if ((await fetch(`http://127.0.0.1:${PORT}/healthz`)).ok) return;
-    } catch {}
-    await new Promise(r => setTimeout(r, 200));
-  }
-  throw new Error('fixture server never came up');
-}
+// BOARD_APP_ROOT keeps the booted server's state writes out of the repo.
+const board = bootBoardServer({
+  env: {
+    HOME: fakeHome,
+    BOARD_FIXTURE: dir,
+    BOARD_APP_ROOT: dir,
+  },
+});
 
 test('fixture mode serves canned endpoints and refuses POSTs', async () => {
-  await ready();
-  const data = (await (
-    await fetch(`http://127.0.0.1:${PORT}/data.json`)
-  ).json()) as { mrs: unknown[]; fetchedAt: number };
+  const data = (await (await fetch(`${board.origin}/data.json`)).json()) as {
+    mrs: unknown[];
+    fetchedAt: number;
+  };
   expect(data.fetchedAt).toBe(1755600000000);
   expect(data.mrs.length).toBe(1);
   const disc = await fetch(
-    `http://127.0.0.1:${PORT}/discussions?repo=x&iid=1&author=matt`
+    `${board.origin}/discussions?repo=x&iid=1&author=matt`
   );
   expect(((await disc.json()) as { threads: unknown[] }).threads).toEqual([]);
-  const report = await fetch(`http://127.0.0.1:${PORT}/review/report?mr=x`);
+  const report = await fetch(`${board.origin}/review/report?mr=x`);
   expect(await report.text()).toContain('canned review');
-  const respondReport = await fetch(
-    `http://127.0.0.1:${PORT}/respond/report?mr=x`
-  );
+  const respondReport = await fetch(`${board.origin}/respond/report?mr=x`);
   expect(await respondReport.text()).toContain('canned respond report');
-  const boards = await fetch(`http://127.0.0.1:${PORT}/peer/boards`);
+  const boards = await fetch(`${board.origin}/peer/boards`);
   expect(await boards.json()).toEqual({ boards: [] });
-  const member = await fetch(`http://127.0.0.1:${PORT}/member?u=matt`);
+  const member = await fetch(`${board.origin}/member?u=matt`);
   expect(((await member.json()) as { mrs: unknown[] }).mrs.length).toBe(1);
-  const post = await fetch(`http://127.0.0.1:${PORT}/review`, {
+  const post = await fetch(`${board.origin}/review`, {
     method: 'POST',
     body: '{}',
   });
   expect(post.status).toBe(501);
-  const shell = await (await fetch(`http://127.0.0.1:${PORT}/`)).text();
+  const shell = await (await fetch(`${board.origin}/`)).text();
   expect(shell).toContain('<div id="root">');
 }, 30_000);
 
 test('fixture mode never opens state.db under HOME', async () => {
-  await ready();
   // The boot-time getStateDb('server') call (server.ts) runs unconditionally
   // and is the very first thing that could open a db in this process, so its
   // location alone proves containment holds regardless of which route (if

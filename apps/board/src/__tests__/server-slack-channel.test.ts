@@ -1,7 +1,9 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { afterAll, expect, test } from 'bun:test';
+import { expect, test } from 'bun:test';
+
+import { bootBoardServer } from './board-server.ts';
 
 // Proves /slack/resolve and /slack/post reject a `channel` body value outside
 // the configured set (the team's review channel + every tab's slackChannel, see
@@ -49,46 +51,23 @@ writeFileSync(
   JSON.stringify({ 'mattstack.activeTeam': 'web' })
 );
 
-const PORT = 47945;
-const proc = Bun.spawn(
-  ['bun', 'run', join(import.meta.dir, '..', 'server.ts')],
-  {
-    env: {
-      ...process.env,
-      HOME: fakeHome,
-      // Keeps the booted server's state writes out of the repo.
-      BOARD_APP_ROOT: fakeHome,
-      PORT: String(PORT),
-      GITLAB_TOKEN: '',
-      // Truthy but fake: only needs to clear the `!slackToken` gate. Both
-      // endpoints reject an unconfigured `channel` before making any real
-      // Slack API call, so this token is never actually used over the wire.
-      SLACK_TOKEN: 'fake-slack-token',
-      SWITCHBOARD_TOKEN: '',
-      SWITCHBOARD_ADMIN_TOKEN: '',
-    },
-    stdout: 'pipe',
-    stderr: 'pipe',
-  }
-);
-
-afterAll(() => proc.kill());
-
-async function ready(): Promise<void> {
-  for (let i = 0; i < 100; i++) {
-    try {
-      if ((await fetch(`http://127.0.0.1:${PORT}/healthz`)).ok) return;
-    } catch {
-      // server not listening yet
-    }
-    await new Promise(r => setTimeout(r, 100));
-  }
-  throw new Error('server never came up');
-}
+const board = bootBoardServer({
+  env: {
+    HOME: fakeHome,
+    // Keeps the booted server's state writes out of the repo.
+    BOARD_APP_ROOT: fakeHome,
+    GITLAB_TOKEN: '',
+    // Truthy but fake: only needs to clear the `!slackToken` gate. Both
+    // endpoints reject an unconfigured `channel` before making any real
+    // Slack API call, so this token is never actually used over the wire.
+    SLACK_TOKEN: 'fake-slack-token',
+    SWITCHBOARD_TOKEN: '',
+    SWITCHBOARD_ADMIN_TOKEN: '',
+  },
+});
 
 test('/slack/resolve rejects a channel outside the configured set', async () => {
-  await ready();
-  const res = await fetch(`http://127.0.0.1:${PORT}/slack/resolve`, {
+  const res = await fetch(`${board.origin}/slack/resolve`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -104,8 +83,7 @@ test('/slack/resolve rejects a channel outside the configured set', async () => 
 }, 15_000);
 
 test('/slack/post rejects a channel outside the configured set', async () => {
-  await ready();
-  const res = await fetch(`http://127.0.0.1:${PORT}/slack/post`, {
+  const res = await fetch(`${board.origin}/slack/post`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
