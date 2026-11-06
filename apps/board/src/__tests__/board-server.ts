@@ -12,9 +12,12 @@ import { afterAll, beforeAll } from 'bun:test';
 const BOOT_MS = 60_000;
 const SERVER = join(import.meta.dir, '..', 'server.ts');
 
-// Board knobs a developer's shell may export. The test preload already
-// strips RT_DAEMON_SOCK; an inherited HERDR_SOCKET_PATH would route a pane
-// nudge or launch to the live herdr.
+// Board knobs a developer's shell may export: an inherited BOARD_STATE_DB
+// points the child at the live state.db, and BOARD_FIXTURE makes it refuse
+// every POST. HERDR_* goes too (any inherited HERDR_SOCKET_PATH routes a pane
+// nudge to the live herdr), and HERDR_BIN names a missing binary so an
+// installed herdr is never found by path. The test preload already strips
+// RT_DAEMON_SOCK.
 const AMBIENT = [
   'BOARD_STATE_DB',
   'BOARD_FIXTURE',
@@ -31,7 +34,8 @@ export interface BoardServer {
   output(): string;
   /** True once the child has exited or died on a signal. */
   exited(): boolean;
-  /** Sends `signal` and resolves with the exit code. */
+  /** Sends `signal` and resolves with the exit code: 0 for a clean
+      shutdown, 128 plus the signal number for a death on it. */
   terminate(signal: NodeJS.Signals): Promise<number>;
   stop(): Promise<void>;
 }
@@ -105,7 +109,8 @@ export function startBoardServer(opts: BoardServerOptions): BoardServer {
     while (Date.now() < deadline) {
       if (hasExited(child)) {
         await child.exited;
-        await Promise.allSettled(drains);
+        // A grandchild that inherited the pipes can hold a drain open.
+        await Promise.race([Promise.allSettled(drains), Bun.sleep(1_000)]);
         throw new Error(
           `board server died (${child.signalCode ?? `exit ${child.exitCode}`}) before /healthz answered:\n${output}`
         );

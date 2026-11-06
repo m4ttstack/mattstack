@@ -48,7 +48,10 @@ afterAll(() => board.stop());
 
 test('SIGTERM exits promptly with code 0, not leaked past the grace period', async () => {
   await board.ready();
+  const signalled = Date.now();
   expect(await board.terminate('SIGTERM')).toBe(0);
+  // launchd's grace period is short; a shutdown that blocks past it is the bug.
+  expect(Date.now() - signalled).toBeLessThan(5_000);
 
   // The port is actually released, not just the process reaping -- a lingering
   // listener would mean shutdown() returned before httpServer.stop() took effect.
