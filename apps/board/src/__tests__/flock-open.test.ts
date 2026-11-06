@@ -16,6 +16,7 @@ import {
   appBundleOf,
   buildFlockMenu,
   FLOCK_COMMAND_ICONS,
+  flockInstalledFrom,
   flockOpenUrl,
   openArgs,
   parseFlockCommands,
@@ -235,6 +236,12 @@ test('redactToken hides the token in open errors', () => {
   ).toBe('LSOpen failed for flock://open?a=1&token=…&b=2');
 });
 
+test('flockInstalledFrom: any Spotlight hit for either bundle id counts', () => {
+  expect(flockInstalledFrom('/Applications/Flock.app\n')).toBe(true);
+  expect(flockInstalledFrom('')).toBe(false);
+  expect(flockInstalledFrom('\n')).toBe(false);
+});
+
 describe('readFlockToken', () => {
   test('creates a private token once and reuses it', () => {
     const dir = mkdtempSync(join(tmpdir(), 'flock-token-'));
@@ -263,6 +270,7 @@ describe('buildFlockMenu', () => {
       listRuns: async () => [run({ agent: { status: 'idle', pane: 'p-1' } })],
       runWorktree: async () => '/trees/run',
       exists: () => true,
+      flockInstalled: async () => true,
       ...over,
     };
   }
@@ -271,6 +279,7 @@ describe('buildFlockMenu', () => {
   test('reports the tree, the resume session and its live pane at any status', async () => {
     const menu = await buildFlockMenu(mr, REPO, [], io());
     expect(menu).toEqual({
+      installed: true,
       tree: '/trees/a',
       repoRoot: null,
       resume: {
@@ -281,6 +290,30 @@ describe('buildFlockMenu', () => {
       },
       commands: [],
     });
+  });
+
+  test('without Flock on the machine it reports only that, reading nothing else', async () => {
+    let read = false;
+    const menu = await buildFlockMenu(
+      mr,
+      REPO,
+      [{ label: 'sync', command: 'rt sync' }],
+      io({
+        flockInstalled: async () => false,
+        listTrees: async () => {
+          read = true;
+          return [];
+        },
+      })
+    );
+    expect(menu).toEqual({
+      installed: false,
+      tree: null,
+      repoRoot: null,
+      resume: null,
+      commands: [],
+    });
+    expect(read).toBe(false);
   });
 
   test("marks the session's worktree gone when it no longer exists", async () => {

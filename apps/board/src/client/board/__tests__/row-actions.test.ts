@@ -26,8 +26,6 @@ test('an idle own MR: every action, by section, in menu order', () => {
     'agent:respond',
     'agent:rebase-local',
     'agent:request-review',
-    'flock:flock-shell',
-    'flock:flock-claude',
     'sessions:review',
     'gitlab:merge',
     'gitlab:rebase',
@@ -46,6 +44,7 @@ test('the flock flyout: resume and saved commands join once /flock/menu answers,
   const rows = rowActions(ownIdle, {
     ...actionEnvOf(ownEnv, ownIdle),
     flock: {
+      installed: true,
       tree: null,
       resume: { livePane: null, worktreeGone: true },
       commands: [
@@ -67,6 +66,25 @@ test('the flock flyout: resume and saved commands join once /flock/menu answers,
     ['runner', { kind: 'rt' }, 'creates a worktree'],
     ['tests', { kind: 'menu', name: 'command' }, 'creates a worktree'],
   ]);
+});
+
+test('no flock rows until /flock/menu answers, and none without Flock installed', () => {
+  const flockKeys = (flock?: Parameters<typeof rowActions>[1]['flock']) =>
+    rowActions(ownIdle, { ...actionEnvOf(ownEnv, ownIdle), flock })
+      .filter(a => a.section === 'flock')
+      .map(a => a.key);
+  expect(flockKeys(undefined)).toEqual([]);
+  expect(
+    flockKeys({
+      installed: false,
+      tree: null,
+      resume: null,
+      commands: [],
+    })
+  ).toEqual([]);
+  expect(
+    flockKeys({ installed: true, tree: '/t', resume: null, commands: [] })
+  ).toEqual(['flock-shell', 'flock-claude']);
 });
 
 test('a teammate MR offers no flock rows', () => {
