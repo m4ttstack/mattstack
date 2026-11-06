@@ -78,6 +78,18 @@ describe("runPrepare", () => {
     expect(result.installed).toEqual(["claude", "herdr", "doppler", "jq"]);
   });
 
+  test("accounts installs Claude Code whenever ~/.local/bin/claude is missing, even with a claude elsewhere on PATH", async () => {
+    const elsewhere: ExecScript = (argv) => (argv[0] === "claude" && argv[1] === "--version" ? ok("2.1.0") : machine()(argv));
+    const seen: string[] = [];
+    await runPrepare(fakeProbes({ home: HOME, exec: elsewhere }), "accounts", { reqs, install: fakeInstall(seen), alive, pid: OWN_PID });
+    expect(seen[0]).toBe("claude");
+
+    const placed: string[] = [];
+    const atVendorPath = fakeProbes({ home: HOME, exec: elsewhere, files: { [`${HOME}/.local/bin/claude`]: "bin" } });
+    await runPrepare(atVendorPath, "accounts", { reqs, install: fakeInstall(placed), alive, pid: OWN_PID });
+    expect(placed).not.toContain("claude");
+  });
+
   test("a team tool rt cannot install is left for its row", async () => {
     const seen: string[] = [];
     const p = fakeProbes({ home: HOME, exec: machine() });

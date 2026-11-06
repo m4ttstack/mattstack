@@ -31,7 +31,7 @@ import { atLeast } from "../semver.ts";
 import { fits, heldCopy, runnableEngine, type Floor } from "../../engine-floor.ts";
 import { mattstackFloor } from "../mattstack-floor.ts";
 import { deployedProxyVersion, pinnedPortlessVersion, PORTLESS_LAUNCHD_PLIST, PROXY_INSTALLER_MISSING, PROXY_VERSION_PATH, proxyCaIsTrusted, proxyInstallerMissing, proxyPredatesMattstack } from "../steps/services.ts";
-import { VENDOR_INSTALLERS } from "../tools-install.ts";
+import { VENDOR_INSTALLERS, vendorBinPath } from "../tools-install.ts";
 import type { SecretPresence } from "./accounts.ts";
 import { writingStyleRowFor } from "./writing-style.ts";
 import { skillsOverridesRowFor } from "./skills-overrides.ts";
@@ -152,6 +152,9 @@ async function claudeRow(p: Probes): Promise<Row> {
   if (versionRes.code === 127) return row({ ...base, status: "missing", detail: "Claude Code is not installed", action: provisionedInstallAction("claude") });
   if (versionRes.code === 124) return row({ ...base, status: "error", detail: "Claude Code did not answer in time" });
   if (versionRes.code !== 0) return row({ ...base, status: "error", detail: `Could not run Claude Code (exit ${versionRes.code})` });
+  if (!p.exists(vendorBinPath(p.home, "claude"))) {
+    return row({ ...base, status: "needs-you", detail: "Claude Code needs to be installed where mattstack looks for it", action: provisionedInstallAction("claude") });
+  }
   const version = extractVersion(versionRes.stdout);
 
   const authRes = await exec(p, ["claude", "auth", "status"]);
