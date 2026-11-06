@@ -21,6 +21,7 @@ export interface ResumableState {
   workspaceId?: string;
   gateId?: string;
   resumedGateId?: string;
+  resumedAt?: number;
   noPack?: boolean;
 }
 
@@ -33,7 +34,8 @@ export interface KindResumeIo {
   readState(mrUrl: string): ResumableState | undefined;
   writeState(
     path: string,
-    patch: Partial<ResumableState> & { status: string }
+    patch: Partial<ResumableState> & { status: string },
+    now?: number
   ): void;
   filePath(mrUrl: string): string;
   /** Resolve the domain skill the resumed wrapper should delegate to.
@@ -76,6 +78,7 @@ export interface ResumeParkedGateIo {
     env?: Record<string, string>;
   }): Promise<AgentLaunchResult>;
   notify(message: string): void;
+  now?: () => number;
 }
 
 /** Builds the `resumers` map server.ts's gateResumeIo hands to
@@ -169,15 +172,24 @@ export async function resumeParkedGate(
     return false;
   }
   if (result.focusedExisting) return true;
+  // resumedAt shares the write's updatedAt clock: the row reads "resuming"
+  // until the pane's own first status write moves updatedAt past it.
+  const now = (io.now ?? Date.now)();
   try {
-    kindIo.writeState(statePath, {
-      status: kindIo.resumedStatus,
-      noPack,
-      agentId: result.agentId,
-      paneId: result.paneId,
-      tabId: result.tabId,
-      workspaceId: result.workspaceId,
-    });
+    kindIo.writeState(
+      statePath,
+      {
+        status: kindIo.resumedStatus,
+        noPack,
+        agentId: result.agentId,
+        paneId: result.paneId,
+        tabId: result.tabId,
+        workspaceId: result.workspaceId,
+        resumedGateId: gate.gateId,
+        resumedAt: now,
+      },
+      now
+    );
   } catch (err) {
     console.error(
       `parked gate resume: pane ids not persisted: ${err instanceof Error ? err.message : err}`
@@ -275,6 +287,7 @@ async function resumeIfMissed(
   if (!resumed) return;
 
   const fresh = kindIo.readState(mrUrl) ?? state;
+  if (fresh.resumedGateId === row.id) return;
   kindIo.writeState(kindIo.filePath(mrUrl), {
     status: fresh.status,
     resumedGateId: row.id,

@@ -68,6 +68,12 @@ export interface ReviewState {
       later write bumps updatedAt past it and the exemption lapses on its
       own -- nothing ever clears this field. */
   reopenedAt?: number;
+  /** When the board relaunched the pane for an answered parked gate, written
+      with the SAME clock value the write's updatedAt gets. While
+      resumedAt >= updatedAt the row reads "resuming": the pane's own first
+      status write moves updatedAt past it. A gone pane from before this
+      stamp no longer owns the lane (see laneRunStart in data.ts). */
+  resumedAt?: number;
   /** Stamp of the operator dismissing this lane's line from the row. While
       it is at least as new as `updatedAt` the row skips the lane entirely;
       any later write (a relaunch, the pane's own status CLI) outranks it and

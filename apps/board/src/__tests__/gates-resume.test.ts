@@ -52,6 +52,7 @@ interface DomainCalls {
   writeState: Array<{
     path: string;
     patch: Partial<ResumableState> & { status: string };
+    now?: number;
   }>;
   resolveSkill: Array<{ mrUrl: string; tabId?: string }>;
   resolvePack: Array<string | undefined>;
@@ -76,8 +77,8 @@ function makeKindIo(opts: {
   );
   const io: KindResumeIo = {
     readState: mrUrl => opts.states.get(mrUrl),
-    writeState: (path, patch) => {
-      calls.writeState.push({ path, patch });
+    writeState: (path, patch, now) => {
+      calls.writeState.push({ path, patch, now });
       const mrUrl = pathToMrUrl.get(path);
       if (!mrUrl) return;
       const prev = opts.states.get(mrUrl);
@@ -188,6 +189,32 @@ describe('resumeParkedGate', () => {
       workspaceId: 'ws-2',
     });
     expect(resumeCalls.notify.length).toBe(0);
+  });
+
+  test('the resumed write stamps resumedAt with the clock it writes on, and carries the dedup marker', async () => {
+    const states = new Map([[MR_URL, baseReview()]]);
+    const { io: reviewIo, calls: reviewCalls } = makeKindIo({
+      wrapper: 'review',
+      workspaceLabel: 'reviews',
+      resumedStatus: 'reviewing',
+      filePath: reviewFilePath,
+      states,
+    });
+    const { io: resumeIo } = fakeResumeIo({ 'review-post': reviewIo });
+    resumeIo.now = () => 4242;
+
+    await resumeParkedGate(
+      baseGate({ agentId: 'agent-1' }),
+      resumeIo,
+      async () => null
+    );
+
+    expect(reviewCalls.writeState).toHaveLength(1);
+    expect(reviewCalls.writeState[0]!.now).toBe(4242);
+    expect(reviewCalls.writeState[0]!.patch).toMatchObject({
+      resumedAt: 4242,
+      resumedGateId: GATE_ID,
+    });
   });
 
   test("respond-plan: rebuilds the /board:respond prompt against respond's own state file and workspace, settling into 'implementing'", async () => {
@@ -583,6 +610,20 @@ describe('handleAnsweredEvent', () => {
 
     expect(calls.resumeAgentPane.length).toBe(1);
     expect(calls.resumeAgentPane[0]!.agentId).toBe('agent-1');
+    expect(review.get(MR_URL)?.resumedGateId).toBe(GATE_ID);
+  });
+
+  test('a resumed pane gets one state write, so nothing bumps updatedAt past resumedAt before the pane reports', async () => {
+    const { io, kindCalls, review } = fakeEventIo({ rows: [facilityRow()] });
+    await handleAnsweredEvent(
+      {
+        topic: `gate/answered/${GATE_ID}`,
+        payload: { id: GATE_ID, subject: SUBJECT },
+      },
+      io,
+      noSkillLookup
+    );
+    expect(kindCalls.review.writeState).toHaveLength(1);
     expect(review.get(MR_URL)?.resumedGateId).toBe(GATE_ID);
   });
 

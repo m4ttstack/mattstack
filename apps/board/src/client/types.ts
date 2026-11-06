@@ -56,6 +56,9 @@ export interface ReviewInfo {
       newer of the two. */
   updatedAt?: number;
   dismissedAt?: number;
+  /** When the board relaunched the pane for an answered parked gate, on the
+      same clock as that write's updatedAt (see laneResuming). */
+  resumedAt?: number;
   /** The launch resolved no pack and ran the generic skill. */
   noPack?: boolean;
   /** The highest review round the board has recorded for this MR. */
@@ -78,6 +81,9 @@ export interface RespondInfo {
       newer of the two. */
   updatedAt?: number;
   dismissedAt?: number;
+  /** When the board relaunched the pane for an answered parked gate, on the
+      same clock as that write's updatedAt (see laneResuming). */
+  resumedAt?: number;
   /** The launch resolved no pack and ran the generic skill. */
   noPack?: boolean;
   /** Username the run answers, and that person's response round. */
@@ -107,6 +113,9 @@ export interface DoctorInfo {
       newer of the two. */
   updatedAt?: number;
   dismissedAt?: number;
+  /** When the board relaunched the pane for an answered parked gate, on the
+      same clock as that write's updatedAt (see laneResuming). */
+  resumedAt?: number;
   /** The launch resolved no pack and ran the generic skill. */
   noPack?: boolean;
 }

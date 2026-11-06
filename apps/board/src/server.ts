@@ -4834,10 +4834,11 @@ function respondReopenIo(): ReopenIo {
 function reviewResumeIo(): KindResumeIo {
   return {
     readState: mrUrl => readReviewStates().get(mrUrl),
-    writeState: (path, patch) =>
+    writeState: (path, patch, now) =>
       writeReviewState(
         path,
-        patch as Partial<ReviewState> & { status: ReviewStatus }
+        patch as Partial<ReviewState> & { status: ReviewStatus },
+        now
       ),
     filePath: reviewFilePath,
     resolveSkill: (mrUrl, tabId) =>
@@ -4872,10 +4873,11 @@ function reviewResumeIo(): KindResumeIo {
 function respondResumeIo(): KindResumeIo {
   return {
     readState: mrUrl => readRespondStates().get(mrUrl),
-    writeState: (path, patch) =>
+    writeState: (path, patch, now) =>
       writeRespondState(
         path,
-        patch as Partial<RespondState> & { status: RespondStatus }
+        patch as Partial<RespondState> & { status: RespondStatus },
+        now
       ),
     filePath: respondFilePath,
     resolveSkill: (mrUrl, tabId) =>
@@ -4911,10 +4913,11 @@ function respondResumeIo(): KindResumeIo {
 function doctorResumeIo(): KindResumeIo {
   return {
     readState: mrUrl => readDoctorStates().get(mrUrl),
-    writeState: (path, patch) =>
+    writeState: (path, patch, now) =>
       writeDoctorState(
         path,
-        patch as Partial<DoctorState> & { status: DoctorStatus }
+        patch as Partial<DoctorState> & { status: DoctorStatus },
+        now
       ),
     filePath: doctorFilePath,
     resolveSkill: (mrUrl, tabId) =>
