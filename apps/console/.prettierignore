@@ -7,7 +7,7 @@ logs
 bun.lock
 
 # Codegen output (scripts/generate-embedded-assets.ts) -- gitignored,
-# regenerated on every build:binary run.
+# regenerated on every build:bundle run.
 src/server/embedded/generated/**
 
 # Vendored from mantine-kit: the sync process byte-compares these against

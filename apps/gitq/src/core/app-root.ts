@@ -7,12 +7,19 @@ import { fileURLToPath } from 'node:url';
 // undefined and reading `.includes` off it throws before main() ever runs.
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 
+/** `bun build --define MATTSTACK_HELPER_BUNDLE=true` sets it for the bundle
+    Contents/Helpers/gitq runs; it is undeclared everywhere else. */
+declare const MATTSTACK_HELPER_BUNDLE: boolean | undefined;
+
+export const IS_HELPER_BUNDLE =
+  typeof MATTSTACK_HELPER_BUNDLE !== 'undefined' && MATTSTACK_HELPER_BUNDLE === true;
+
 /**
- * True when running as a bun-compiled standalone binary: this module then
- * lives inside the embedded read-only /$bunfs filesystem, so nothing derived
- * from its path is readable from disk or writable at all.
+ * True for the distributed gitq, which has no source tree: the helper
+ * bundle, or a bun-compiled binary (this module then lives inside the
+ * embedded read-only /$bunfs filesystem).
  */
-export const IS_COMPILED = MODULE_DIR.includes('$bunfs');
+export const IS_PACKAGED = IS_HELPER_BUNDLE || MODULE_DIR.includes('$bunfs');
 
 /**
  * The one root every mutable thing gitq owns hangs off: the stack stores,

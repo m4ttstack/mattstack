@@ -289,7 +289,7 @@ Endpoints are `/` (the board), `/data.json` (snapshot; `?fresh=1` forces a refet
 
 Repo data is cached in memory for 60 seconds with stale-while-revalidate. Job state files under `<app root>/state/jobs/` are read fresh on every request and pruned once terminal and older than 24 hours. MR enrichment needs the same token as `publish`, resolved per repo from that repo's own remote host, so a board showing a GitLab repo alongside a GitHub one enriches each from its own credential; a repo whose token is missing still renders from the store's last known MR fields.
 
-`bun run build:binary` compiles a standalone `dist/gitq` carrying its own client bundle, so `gitq board` serves the page on a machine with no checkout on it. See [docs/releasing.md](docs/releasing.md).
+`bun run build:bundle` writes `dist/app/main.js` carrying its own client bundle, the copy the mattstack app runs as `Contents/Helpers/gitq`, so `gitq board` serves the page on a machine with no checkout on it. See [docs/releasing.md](docs/releasing.md).
 
 ## Agent skills
 

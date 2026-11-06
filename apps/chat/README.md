@@ -125,7 +125,7 @@ viewer.
 | `bun run lint`         | ESLint over `src`.                                                       |
 | `bun run format`       | Prettier, writes changes; `format:check` is what CI runs.                |
 | `bun run test`         | Vitest, single run, then exits. `bun run test:watch` reruns on change.   |
-| `bun run build:binary` | Builds a standalone server binary (used by `deck`'s bundle step).        |
+| `bun run build:bundle` | Builds the helper bundle the mattstack app runs (`dist-bin/app`).        |
 
 UI changes are checked against a design contract: `design/CONFORMANCE.md`
 and `design/ANATOMY.md` describe it, and `design/audit.mjs` diffs the

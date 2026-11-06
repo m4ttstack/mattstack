@@ -2,7 +2,7 @@ import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { herdrStart } from '@mattstack/rt-client';
-import { IS_COMPILED } from '../core/app-root.ts';
+import { IS_HELPER_BUNDLE, IS_PACKAGED } from '../core/app-root.ts';
 import type { JobAction } from './job-state.ts';
 
 /** HERDR_BIN, then the first herdr that exists: the installer's ~/.local/bin,
@@ -112,13 +112,33 @@ function shellSingleQuote(s: string): string {
  * `<status-bin> job-status <state> <status>`. The pane runs in the target
  * repo's cwd, so the board injects this path via --status-bin.
  *
- * Compiled, that is this very binary. Path-based rather than inode-based on
+ * Distributed, that is Contents/Helpers/gitq: the helper bundle's launcher
+ * hands its own path in as argv0 (execPath is the shared bun there), and a
+ * compiled binary is its own execPath. Path-based rather than inode-based on
  * purpose: a Sparkle update replaces the whole .app while the board runs, and
  * a pane that spawns afterwards must reach the NEW binary at the same path.
  * From a checkout it is bin/gitq, whose bun shebang makes it executable.
  */
+export function statusBinPathFor(run: {
+  helperBundle: boolean;
+  compiled: boolean;
+  moduleDir: string;
+  execPath: string;
+  argv0: string;
+}): string {
+  if (run.helperBundle) return run.argv0;
+  if (run.compiled) return run.execPath;
+  return join(run.moduleDir, '..', '..', 'bin', 'gitq');
+}
+
 export function statusBinPath(): string {
-  return IS_COMPILED ? process.execPath : join(import.meta.dir, '..', '..', 'bin', 'gitq');
+  return statusBinPathFor({
+    helperBundle: IS_HELPER_BUNDLE,
+    compiled: IS_PACKAGED,
+    moduleDir: import.meta.dir,
+    execPath: process.execPath,
+    argv0: process.argv0,
+  });
 }
 
 /** The slash command a spawned pane opens with. Flag shape must match the

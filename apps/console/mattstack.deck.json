@@ -7,8 +7,8 @@
   "includeInBundle": true,
   "badge": "/api/badge",
   "bundle": {
-    "build": "bun run build:binary",
-    "artifact": "dist-bin/console"
+    "build": "bun run build:bundle",
+    "artifact": "dist-bin/app"
   },
   "dev": {
     "start": "bun run src/server/index.ts",

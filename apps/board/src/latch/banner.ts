@@ -8,6 +8,7 @@
  * the creature's shape.
  */
 import { readFileSync } from 'fs';
+import { resolve } from 'path';
 import { applyPalette, GIFEncoder, quantize } from 'gifenc';
 import { resolveInvadr } from 'invadrs';
 import { PNG } from 'pngjs';
@@ -242,9 +243,21 @@ export interface StripSet {
   layout: Record<string, StripLayout | undefined>;
 }
 
+/** Each strip as an absolute path. The helper bundle hands a file import
+    back relative to its own dir, which a bare readFileSync would read
+    against the cwd. */
+export function absoluteStrips(
+  strips: Record<string, string>,
+  moduleDir: string
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(strips).map(([key, path]) => [key, resolve(moduleDir, path)])
+  );
+}
+
 export const BANNER_STRIPS: StripSet = {
   scale: BANNER_SCALE,
-  strips: STRIPS,
+  strips: absoluteStrips(STRIPS, import.meta.dir),
   layout: LAYOUT,
 };
 

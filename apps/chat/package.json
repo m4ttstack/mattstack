@@ -16,7 +16,7 @@
     "test:watch": "vitest",
     "format": "prettier --write . --cache",
     "format:check": "prettier --check . --cache",
-    "build:binary": "vite build && mattstack-embed-assets && bun build --compile ${MATTSTACK_BUN_TARGET:+--target=$MATTSTACK_BUN_TARGET} --outfile dist-bin/chat src/server/index.ts",
+    "build:bundle": "vite build && mattstack-embed-assets && rm -rf dist-bin/app && bun build --target bun --define MATTSTACK_HELPER_BUNDLE=true --entry-naming 'main.[ext]' --outdir dist-bin/app src/server/index.ts",
     "serve-check": "bash scripts/serve-check.sh"
   },
   "dependencies": {

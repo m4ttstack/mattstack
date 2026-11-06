@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# console ships a self-contained binary; the only honest test is to run it
-# where dist/ is not: a binary built without the codegen step falls back to
-# disk mode and 404s every page, which passes silently anywhere the source
-# tree happens to sit next to it.
+# console ships a self-contained helper bundle; the only honest test is to
+# run it where dist/ is not: a bundle built without the codegen step has no
+# assets of its own, which passes silently anywhere the source tree happens
+# to sit next to it.
 set -euo pipefail
 
 app_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-bin="$app_dir/dist-bin/console"
+bundle="$app_dir/dist-bin/app"
 port=${GATE_PORT:-$(bun -e 'const s = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } }); console.log(s.port); s.stop();')}
 base="http://127.0.0.1:$port"
 hidden="$app_dir/dist-bin/dist-hidden"
 
 say() { echo "serve-check: $*" >&2; }
 
-[ -x "$bin" ] || { say "$bin is missing; run bun run build:binary first"; exit 1; }
+[ -f "$bundle/main.js" ] || { say "$bundle/main.js is missing; run bun run build:bundle first"; exit 1; }
 [ ! -e "$hidden" ] || { say "$hidden is left from an interrupted run; move it back to $app_dir/dist"; exit 1; }
 if curl -s -m 1 -o /dev/null "$base/"; then
   say "GATE_PORT=$port already answers; choose a free port"
@@ -40,19 +40,25 @@ fail() {
   exit 1
 }
 
-cp "$bin" "$work/console"
+# Contents/Helpers/console-app, with the bunfig guard build-apps writes.
+helper="$work/Helpers/console-app"
+mkdir -p "$work/Helpers"
+cp -R "$bundle" "$helper"
+printf '# Intentionally empty.\n' > "$helper/bunfig.toml"
 if [ -d "$app_dir/dist" ]; then
   mv "$app_dir/dist" "$hidden"
   moved=1
 fi
 
-# env -i: on boot the binary writes rt.notify.eventBridges to the user
-# settings store under HOME.
-(cd "$work" && exec env -i HOME="$work/home" PATH="$PATH" PORT="$port" ./console) > "$work/server.log" 2>&1 &
+# env -i: on boot the bundle writes rt.notify.eventBridges to the user
+# settings store under HOME. The flags are the ones
+# rt-tray/helper-launcher/main.c passes.
+(cd "$work" && exec env -i HOME="$work/home" PATH="$PATH" PORT="$port" \
+  "$(command -v bun)" --no-install --config="$helper/bunfig.toml" "$helper/main.js") > "$work/server.log" 2>&1 &
 server=$!
 for _ in $(seq 1 30); do
   curl -fsS -m 1 -o /dev/null "$base/api/health" 2>/dev/null && break
-  kill -0 "$server" 2>/dev/null || fail "binary exited before answering /api/health"
+  kill -0 "$server" 2>/dev/null || fail "bundle exited before answering /api/health"
   sleep 1
 done
 curl -fsS -m 5 -o /dev/null "$base/api/health" || fail "never answered /api/health"
@@ -78,4 +84,4 @@ font=${BASH_REMATCH[1]}
 [ "$(code "$font")" = 200 ] || fail "$font answered $(code "$font")"
 [ "$(ctype "$font")" = "font/woff2" ] || fail "$font is $(ctype "$font"), not font/woff2"
 
-say "console's binary serves its own assets with no source tree"
+say "console's bundle serves its own assets with no source tree"

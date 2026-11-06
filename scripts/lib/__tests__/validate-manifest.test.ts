@@ -12,8 +12,17 @@ function manifest(content: unknown): string {
 }
 
 test("valid manifest returns the recipe", () => {
-  const p = manifest({ name: "deck", bundle: { build: "bun run compile", artifact: "dist/deck" } });
-  expect(readBundleRecipe(p)).toEqual({ name: "deck", build: "bun run compile", artifact: "dist/deck" });
+  const p = manifest({ name: "deck", bundle: { build: "bun run build:bundle", artifact: "dist/app" } });
+  expect(readBundleRecipe(p)).toEqual({ name: "deck", build: "bun run build:bundle", artifact: "dist/app", dotenv: true });
+});
+
+test("bundle.dotenv false turns off the cwd .env", () => {
+  const p = manifest({ name: "boxscore", bundle: { build: "x", artifact: "dist-bin/app", dotenv: false } });
+  expect(readBundleRecipe(p).dotenv).toBe(false);
+});
+
+test("a non-boolean bundle.dotenv throws", () => {
+  expect(() => readBundleRecipe(manifest({ name: "deck", bundle: { build: "x", artifact: "dist/app", dotenv: "no" } }))).toThrow(/dotenv/);
 });
 
 test("missing file throws with the path", () => {

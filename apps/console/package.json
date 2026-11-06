@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "serve": "bun run src/server/index.ts",
     "dev:server": "bun run --hot src/server/index.ts",
-    "build:binary": "vite build && mattstack-embed-assets && bun build --compile ${MATTSTACK_BUN_TARGET:+--target=$MATTSTACK_BUN_TARGET} --outfile dist-bin/console src/server/index.ts",
+    "build:bundle": "vite build && mattstack-embed-assets && rm -rf dist-bin/app && bun build --target bun --define MATTSTACK_HELPER_BUNDLE=true --entry-naming 'main.[ext]' --outdir dist-bin/app src/server/index.ts",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint src",
     "test": "vitest run",
