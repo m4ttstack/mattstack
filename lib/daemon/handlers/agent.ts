@@ -32,7 +32,7 @@ import { buildAgentArgv, buildAgentPaneCommand, CROSS_SESSION_INBOUND_SETTINGS, 
 import { locateTranscript as defaultLocateTranscript, type TranscriptHit } from "../../agent-adopt.ts";
 import { cswapAccountNumbers } from "../../cswap.ts";
 import { mergeGateForkHookSettings, resolveGateForkHookPath } from "../../agent-hooks.ts";
-import { defaultHerdrRunner, focusLiveSession, herdrAgentSessionId, launchInWorkspace, type HerdrRunner } from "../../agent-herdr.ts";
+import { defaultHerdrRunner, focusLiveSession, herdrAgentSessionId, launchInWorkspace, liveSessionPaneInTab, type HerdrRunner } from "../../agent-herdr.ts";
 import { herdrRequest } from "../../herdr/client.ts";
 import { injectIntoPane } from "../inject.ts";
 import { opensSlackChat, slackOpenRefused } from "../../slack/format.ts";
@@ -364,12 +364,32 @@ function tabOpenError(tabLabel: string): string {
   return `tab "${tabLabel}" already open; focused it`;
 }
 
-/** The newest unfinished agent rt launched under this label for the repo, on the same server, when one is still recorded with a pane. */
-function openAgentForLabel(db: Database, want: { repo: string; label: string; surface: AgentSurface; bg: boolean }): AgentRecord | undefined {
-  return listAgents({ repo: want.repo }, db)
-    .filter((a) => a.label === want.label && a.surface === want.surface && a.finishedAt === undefined && a.paneId !== undefined)
-    .filter((a) => a.paneId!.startsWith(BG_PREFIX) === want.bg)
-    .sort((a, b) => (b.lastResumedAt ?? b.createdAt) - (a.lastResumedAt ?? a.createdAt))[0];
+/**
+ * The claude agent rt recorded in the exact tab herdr just focused, on the
+ * server the launch used, and only while herdr reports its session live
+ * there: a pane left at a shell prompt would run whatever a caller types as
+ * shell commands. Codex is left out, since its recorded session id is a
+ * placeholder until capture. A custom socket is neither server, so it never
+ * reuses.
+ */
+async function liveAgentInTab(
+  db: Database,
+  repo: string,
+  found: { tabId: string; workspaceId: string },
+  herdrSocket: string | undefined,
+  runner: HerdrRunner,
+): Promise<AgentRecord | undefined> {
+  const server = herdrSocket === undefined ? "visible" : herdrSocket === bgSocketPath() ? "bg" : null;
+  if (server === null) return undefined;
+  const candidates = listAgents({ repo }, db)
+    .filter((a) => a.surface === "herdr" && a.provider === "claude" && a.finishedAt === undefined)
+    .filter((a) => a.tabId === found.tabId && a.workspaceId === found.workspaceId && a.paneId !== undefined)
+    .filter((a) => a.paneId!.startsWith(BG_PREFIX) === (server === "bg"))
+    .sort((a, b) => (b.lastResumedAt ?? b.createdAt) - (a.lastResumedAt ?? a.createdAt));
+  for (const agent of candidates) {
+    if (await liveSessionPaneInTab(agent.sessionId, found.tabId, runner)) return agent;
+  }
+  return undefined;
 }
 
 export function createAgentHandlers(opts: {
@@ -429,7 +449,13 @@ export function createAgentHandlers(opts: {
     prompt: string | undefined,
     tabLabel: string,
     workspaceLabel: string,
-    extra: { env?: Record<string, string>; herdrSocket?: string; trustWaitMs?: number } = {},
+    extra: {
+      env?: Record<string, string>;
+      herdrSocket?: string;
+      trustWaitMs?: number;
+      /** Present when a refused launch may hand back the live agent in the label's tab; `found` is filled when there is one. */
+      reuse?: { found?: AgentRecord };
+    } = {},
   ): Promise<CommandResult<"agent:start">> {
     const gateEnv: Record<string, string> = {
       RT_AGENT_ID: rec.id,
@@ -476,6 +502,7 @@ export function createAgentHandlers(opts: {
         // record with a freshly minted sessionId nothing is listening on —
         // rt agent resume against it would run `claude --resume` for a
         // session that was never started.
+        if (extra.reuse) extra.reuse.found = await liveAgentInTab(db, rec.repo, out, extra.herdrSocket, runner);
         return { ok: false, error: tabOpenError(tabLabel) };
       }
       rec.paneId = out.paneId;
@@ -687,20 +714,20 @@ export function createAgentHandlers(opts: {
           opts.lifecycle!.watch(ensured.socket);
         }
         const effectiveSocket = bgSocket ?? payload.herdrSocket;
+        // An explicit --tab names a tab the caller owns (herd jobs, the board), so only a label launch reuses.
+        const reuse: { found?: AgentRecord } | undefined = payload.tab === undefined ? {} : undefined;
         const res = await launch(rec, { kind: "start", sessionId: rec.sessionId }, prompt, tabLabel, workspaceLabel, {
           ...(payload.env !== undefined && { env: withoutPackClear(payload.env) }),
           ...(effectiveSocket !== undefined && { herdrSocket: effectiveSocket }),
           ...(payload.trustWaitMs !== undefined && { trustWaitMs: payload.trustWaitMs }),
+          ...(reuse !== undefined && { reuse }),
         });
         if (!res.ok) {
           deleteAgent(rec.id, db);
           removeAgentPromptDir(rec.id, log);
-          // The label's tab is already open: hand back the agent rt launched
-          // there, so a caller can type into it rather than read a bare failure.
-          const existing = res.error === tabOpenError(tabLabel) && payload.tab === undefined
-            ? openAgentForLabel(db, { repo, label: tabLabel, surface, bg: Boolean(payload.bg) })
-            : undefined;
-          if (existing) return { ok: true, data: { ...withName(existing, db), reused: true } };
+          // The label's tab is already open with rt's agent live in it: hand
+          // that agent back, so a caller can type into it rather than read a bare failure.
+          if (reuse?.found) return { ok: true, data: { ...withName(reuse.found, db), reused: true } };
           return res;
         }
         // A herd-spawned hidden worker rides the bg socket via herdrSocket,
