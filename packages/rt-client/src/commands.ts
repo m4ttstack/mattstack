@@ -776,10 +776,10 @@ export interface WorktreeTreeRef {
   state?: "creating" | "on-deck" | "claimed" | "disposable";
   owner?: string; disposal?: "merge" | "job"; claimedAt?: string;
 }
-/** `tree-busy` and `no-tree` stopped before any sync ran; the rest are branch_sync's kinds. */
+/** `no-tree` stopped before any sync ran; the rest are branch_sync's kinds. */
 export type WorktreeSyncKind =
   | "synced" | "up-to-date" | "dirty-tree" | "conflict" | "stacked-refused" | "stack-unverified" | "push-refused" | "error"
-  | "tree-busy" | "no-tree";
+  | "no-tree";
 export interface WorktreeSyncData {
   kind: WorktreeSyncKind;
   path: string | null;

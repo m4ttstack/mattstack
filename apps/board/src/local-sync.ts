@@ -16,7 +16,6 @@ export type LocalSyncOutcome =
   | { kind: 'stopped'; message: string };
 
 const STOP_WORDS: Partial<Record<WorktreeSyncData['kind'], string>> = {
-  'tree-busy': 'a session is working in that worktree',
   'no-tree': 'no worktree to sync in',
   'dirty-tree': 'the worktree has uncommitted changes',
   'stacked-refused': 'this branch is in a stack',

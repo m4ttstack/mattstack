@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { TreeHolder } from "../../reconciler/tree-holders.ts";
 import { createWorktreeSyncHandler, runBranchSync, type SyncResult, type WorktreeSyncDeps } from "../worktree-sync.ts";
 
 const ref = { tree: "elrond", path: "/trees/elrond", branch: "feat", treeKind: "ephemeral" as const };
-const holder: TreeHolder = { pid: 42, ppid: 7, command: "claude", fullCommand: "claude", elapsedMs: 1000 };
 const synced = (kind: SyncResult["kind"], extra: Partial<SyncResult> = {}): SyncResult =>
   ({ kind, oldHead: "a", newHead: "b", pushed: false, refusal: null, ...extra });
 
@@ -16,7 +14,6 @@ function harness(over: Partial<WorktreeSyncDeps> = {}) {
       return { ok: true, data: { tree: "new-tree", path: "/trees/new", branch: "feat", wasOnDeck: true, readyAt: null, branchState: "tracking-remote" } as any };
     },
     dispose: async (p) => { calls.disposed.push(p.tree); },
-    holders: async () => [],
     knownTree: (_repo, path) => path === "/trees/paused",
     sync: async (path) => { calls.synced.push(path); return synced("synced", { pushed: true }); },
     ...over,
@@ -33,14 +30,6 @@ describe("worktree:sync", () => {
     expect(calls.synced).toEqual(["/trees/elrond"]);
     expect(d).toMatchObject({ kind: "synced", path: "/trees/elrond", provisioned: false, pushed: true });
     expect(calls.disposed).toEqual([]);
-  });
-
-  test("a live process in the tree stops the sync", async () => {
-    const { run, calls } = harness({ holders: async () => [holder] });
-    const d = await data(run({ repoName: "r", branch: "feat" }));
-    expect(d.kind).toBe("tree-busy");
-    expect(d.refusal).toContain("pid 42 (claude)");
-    expect(calls.synced).toEqual([]);
   });
 
   test("no tree: provisions, syncs, and disposes after a clean result", async () => {
@@ -70,14 +59,6 @@ describe("worktree:sync", () => {
   test("two trees on the branch refuses", async () => {
     const { run, calls } = harness({ check: async () => ({ ok: true, data: { branch: "feat", base: "feat", localBranch: true, attached: [ref, { ...ref, tree: "b", path: "/trees/b" }], sameTicket: [], sameSlug: [] } }) });
     expect((await data(run({ repoName: "r", branch: "feat" }))).kind).toBe("no-tree");
-    expect(calls.synced).toEqual([]);
-  });
-
-  test("a failed holder check stops the sync", async () => {
-    const { run, calls } = harness({ holders: async () => { throw new Error("lsof died"); } });
-    const d = await data(run({ repoName: "r", branch: "feat" }));
-    expect(d.kind).toBe("tree-busy");
-    expect(d.refusal).toContain("lsof died");
     expect(calls.synced).toEqual([]);
   });
 

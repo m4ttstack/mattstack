@@ -3,7 +3,6 @@ import type { Commands, WorktreeSyncData } from "../../../packages/rt-client/src
 import { explainError } from "../../explain-error.ts";
 import { rtSelfArgv } from "../../rt-self.ts";
 import { childEnv, runCapture } from "../../subprocess.ts";
-import { describeHolders, type TreeHolder } from "../reconciler/tree-holders.ts";
 
 /** The daemon's own entry is lib/daemon.ts from source, so Bun.main there is not the CLI. */
 const CLI_ENTRY = join(import.meta.dir, "..", "..", "..", "cli.ts");
@@ -39,7 +38,6 @@ export interface WorktreeSyncDeps {
   check: (payload: Commands["worktree:provision-check"]["payload"]) => Promise<Reply<"worktree:provision-check">>;
   provision: (payload: Commands["worktree:provision"]["payload"]) => Promise<Reply<"worktree:provision">>;
   dispose: (payload: { repoName: string; tree: string }) => Promise<unknown>;
-  holders: (path: string) => Promise<TreeHolder[]>;
   /** Whether `path` is one of `repoName`'s registered worktrees. */
   knownTree: (repoName: string, path: string) => boolean;
   sync: (path: string) => Promise<SyncResult>;
@@ -79,13 +77,6 @@ export function createWorktreeSyncHandler(deps: WorktreeSyncDeps) {
     const existing = named ?? attached[0]?.path;
     if (existing) {
       path = existing;
-      let holders: TreeHolder[];
-      try {
-        holders = await deps.holders(path);
-      } catch (err) {
-        return { ok: true, data: before("tree-busy", path, `could not check who is working in ${path}: ${String(err)}`) };
-      }
-      if (holders.length > 0) return { ok: true, data: before("tree-busy", path, `${describeHolders(holders)} is working in ${path}`) };
     } else {
       const made = await deps.provision({ repoName, branch, disposal: "merge" });
       if (!made.ok) return { ok: true, data: before("no-tree", null, explainError(made.error)) };

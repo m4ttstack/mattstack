@@ -46,7 +46,6 @@ describe('localSyncOutcome', () => {
     'stack-unverified',
     'push-refused',
     'error',
-    'tree-busy',
     'no-tree',
   ] as const)('%s stops with the refusal', kind => {
     const out = localSyncOutcome(data({ kind, refusal: 'because' }));
