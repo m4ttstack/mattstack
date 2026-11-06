@@ -17,6 +17,9 @@ afterAll(() => {
   rmSync(work, { recursive: true, force: true });
 });
 
+// A cold cc on a busy Intel runner can outlast bun's 5s default.
+const COMPILE_TIMEOUT = 30_000;
+
 let n = 0;
 function slices(): { arm: string; intel: string; out: string } {
   const root = join(work, `case-${n++}`);
@@ -47,7 +50,7 @@ describe.skipIf(process.platform !== "darwin")("mergeUniversal", () => {
     expect(archs(join(s.out, "jq"))).toEqual(["arm64", "x86_64"]);
     expect(archs(join(s.out, "node", "bin", "node"))).toEqual(["arm64", "x86_64"]);
     expect(statSync(join(s.out, "jq")).mode & 0o111).not.toBe(0);
-  });
+  }, COMPILE_TIMEOUT);
 
   test("copies identical scripts once, and ships the arm64 copy of a file that differs, naming it", () => {
     const s = slices();
@@ -86,21 +89,21 @@ describe.skipIf(process.platform !== "darwin")("mergeUniversal", () => {
     binary(join(s.arm, "gh"), "arm64");
     mkdirSync(s.intel, { recursive: true });
     expect(() => mergeUniversal(s.arm, s.intel, s.out)).toThrow(/gh is a binary with no x86_64 counterpart/);
-  });
+  }, COMPILE_TIMEOUT);
 
   test("refuses an x86_64 slice holding an arm64 binary", () => {
     const s = slices();
     binary(join(s.arm, "sops"), "arm64");
     binary(join(s.intel, "sops"), "arm64");
     expect(() => mergeUniversal(s.arm, s.intel, s.out)).toThrow(/sops in the x86_64 slice is arm64/);
-  });
+  }, COMPILE_TIMEOUT);
 
   test("refuses a binary only the x86_64 slice carries", () => {
     const s = slices();
     mkdirSync(s.arm, { recursive: true });
     binary(join(s.intel, "extra"), "x86_64");
     expect(() => mergeUniversal(s.arm, s.intel, s.out)).toThrow(/extra is a binary only the x86_64 slice carries/);
-  });
+  }, COMPILE_TIMEOUT);
 
   test("refuses to run when a slice was never fetched", () => {
     const s = slices();

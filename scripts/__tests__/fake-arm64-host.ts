@@ -3,8 +3,9 @@ import { join } from "path";
 
 /**
  * A PATH that reports an arm64 host. fetch-deps.sh refuses any other host
- * because a compile there lands the wrong CPU type; a test that only unpacks
- * archives compiles nothing, so it can run on any host.
+ * because a release compile there could land the wrong CPU type; a test that
+ * only unpacks archives, or builds a slice with an explicit -arch, can run on
+ * any host, Intel CI runners included.
  */
 export function fakeArm64Path(dir: string): string {
   const bin = join(dir, "fake-arm64-host");

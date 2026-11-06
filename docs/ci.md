@@ -106,10 +106,13 @@ red night opens one issue, and a later red comments on it.
 
 ## The Mac runner
 
-Matt's PRs and queue runs can use self-hosted runners on his Mac instead of
-GitHub's macOS pool, so a GitHub macOS outage does not stop them landing.
-Everything else stays on `macos-latest`: another author's PR, a queue batch
-holding one, and the nightly.
+Matt's PRs and queue runs can use self-hosted runners on his Intel Mac mini
+(2018, 6 cores, 12 threads) instead of GitHub's macOS pool, so a GitHub macOS
+outage does not stop them landing. Everything else stays on `macos-latest`:
+another author's PR, a queue batch holding one, and the nightly. Only the macOS
+legs run there: `unit-macos`, `deck-macos`, `plugin-herdr-chat`, `e2e-tests`
+and `glitter-pty`. A typecheck takes about three times as long as on Apple
+silicon, while light tests run about the same.
 
 The `scope` and `changes` jobs run `scripts/ci/macos-runner.ts`, and the macOS
 jobs read `runs-on` from its output. It picks the Mac only when the
@@ -122,7 +125,7 @@ The hook stops jobs it refuses, not a job it admits. An admitted job, including
 a compromised dependency in one of Matt's PRs, runs as the same user as the
 runner and can disable the hook for later jobs. It still cannot read Matt's home.
 
-All five runners share the Mac's localhost, so a process a job leaves behind can
+Every runner shares the Mac's localhost, so a process a job leaves behind can
 hold a port against every later job. A job-completed hook stops any process
 still running a binary from that runner's own `_work` folder, such as
 `dist/rt --daemon`, including after a cancelled job. It does not catch `bun`
@@ -131,7 +134,12 @@ dies, so a test must still take a free port, never a fixed one.
 
 - **Set up:** `scripts/ci/mac-runner/install.sh`, then
   `gh variable set MAC_RUNNER --body on`. The runners are launchd daemons under
-  a separate `mattstack-ci` user that cannot read your home.
+  a separate `mattstack-ci` user that cannot read your home. An optional
+  argument sets the runner count, three by default: on the mini's 12 threads,
+  more parallel jobs push the load past what full checks survive. The installer
+  picks the runner build for the Mac's CPU, Intel or Apple silicon. It needs
+  `gh` signed in, a home folder at `chmod 700`, and a bun: the one on PATH, or
+  the mattstack app's. A rerun with a smaller count removes the runners above it.
 - **Back to GitHub's runners:** `gh variable delete MAC_RUNNER`. A run picks the
   variable up when it starts.
 - **Remove:** clear the variable, then `scripts/ci/mac-runner/uninstall.sh`.
@@ -168,6 +176,27 @@ it can refuse jobs the new rule sends to the Mac until the installer runs.
   `gh api repos/m4ttstack/mattstack/actions/runners --jq '.runners[] | "\(.name) \(.status) busy=\(.busy)"'`
   shows whether GitHub sees it. A restarted runner reads offline for up to a
   minute.
+
+### Moving the runners to another Mac
+
+With the merge queue empty and every runner idle, install on the new Mac first,
+then uninstall on the old one, so a queue run never finds no runner:
+
+1. On the new Mac, in a real terminal: install `gh` and run `gh auth login`,
+   run `chmod 700 ~`, then run the installer from a new clone of `main` as above,
+   with the count that Mac can carry.
+2. On the old Mac, in a real terminal: `scripts/ci/mac-runner/uninstall.sh`
+   from a clone of `main`. Leave `MAC_RUNNER` on, since the new Mac's runners
+   carry the same label.
+3. Check that GitHub lists only the new Mac's runners, all online:
+   `gh api repos/m4ttstack/mattstack/actions/runners --jq '.runners[] | "\(.name) \(.status) \(.os)"'`.
+
+Each Mac names its runners after itself, `mattstack-<LocalHostName>-<n>`
+(`mattstack-mac-mini-1` on the mini), and the uninstall removes only the
+registrations in its own runner folders, so neither Mac touches the other's
+runners. Runners installed before per-Mac names read `mattstack-mac-<n>`; a
+rerun of the installer leaves those registered, and `uninstall.sh` on that same
+Mac removes them.
 
 A PR stuck on an old route needs a new push, since a rerun reuses the workflow
 the run started with. Queue runs use the merged tree, so they switch at once.
