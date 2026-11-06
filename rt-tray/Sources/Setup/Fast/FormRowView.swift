@@ -546,7 +546,7 @@ struct FormRowFields: View {
     private func input(_ field: ActionField) -> some View {
         FastField(field.label, text: binding(field.name), size: large ? .large : .compact, monospaced: field.secret, secure: field.secret,
                   maskPrefix: SecretPrefix.fromHint(field.hint),
-                  id: fields.count == 1 ? AXID.fastRowField(row.id) : AXID.fastRowField(row.id, field.name))
+                  id: fields.count == 1 ? AXID.fastRowField(row.id) : AXID.fastRowField(row.id, field.name), pasteable: true)
             .onSubmit(submit)
             // rt's hint is a format note (a forge token's scopes, a key's prefix), not screen copy: the mocks show none.
             .help(field.hint ?? "")

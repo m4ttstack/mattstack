@@ -441,10 +441,12 @@ struct FastField: View {
     var id: String? = nil
     /// What VoiceOver names the field, where the placeholder is an example value rather than its name.
     var label: String? = nil
+    /// The invite field's quiet Paste, inside the trailing edge while the field is empty.
+    var pasteable = false
     @FocusState private var focused: Bool
 
     init(_ placeholder: String, text: Binding<String>, size: Size = .compact, monospaced: Bool = false,
-         secure: Bool = false, maskPrefix: String? = nil, id: String? = nil, label: String? = nil) {
+         secure: Bool = false, maskPrefix: String? = nil, id: String? = nil, label: String? = nil, pasteable: Bool = false) {
         self.placeholder = placeholder
         self._text = text
         self.size = size
@@ -453,27 +455,48 @@ struct FastField: View {
         self.maskPrefix = maskPrefix
         self.id = id
         self.label = label
+        self.pasteable = pasteable
     }
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: size.radius, style: .continuous)
-        ZStack(alignment: .leading) {
-            if text.isEmpty {
-                Text(placeholder).font(.system(size: size.points)).foregroundColor(FastTheme.textTertiary)
-                    .lineLimit(1).allowsHitTesting(false)
+        let showsPaste = pasteable && text.isEmpty
+        HStack(spacing: 8) {
+            ZStack(alignment: .leading) {
+                if text.isEmpty {
+                    Text(placeholder).font(.system(size: size.points)).foregroundColor(FastTheme.textTertiary)
+                        .lineLimit(1).allowsHitTesting(false)
+                }
+                // The real field stays opaque, hit-testable and in the AX tree; at rest only its echo goes clear under the dots.
+                input.font(font).foregroundColor(masked ? .clear : FastTheme.textPrimary).textFieldStyle(.plain).focused($focused)
+                if masked { bullets }
             }
-            // The real field stays opaque, hit-testable and in the AX tree; at rest only its echo goes clear under the dots.
-            input.font(font).foregroundColor(masked ? .clear : FastTheme.textPrimary).textFieldStyle(.plain).focused($focused)
-            if masked { bullets }
+            if showsPaste {
+                // Laid out at the text's line height, so the field keeps its height while Paste draws its full size.
+                Button("Paste") { paste() }
+                    .buttonStyle(FastSecondaryButtonStyle(shape: FastButtonShape(vertical: 4, horizontal: 9, radius: 6)))
+                    .fixedSize()
+                    .frame(height: (size.points * 1.25).rounded())
+                    .transition(.opacity)
+                    .modifier(FastAXID(id: id.map { $0 + ".paste" }))
+            }
         }
         .frame(minHeight: monospaced && !text.isEmpty ? size.monoLine : nil)
-        .padding(.vertical, size.vertical).padding(.horizontal, size.horizontal)
+        .padding(.vertical, size.vertical).padding(.leading, size.horizontal)
+        .padding(.trailing, showsPaste ? 6 : size.horizontal)
+        .animation(.easeOut(duration: 0.15), value: showsPaste)
         .background(shape.fill(FastTheme.fieldFill))
         .overlay(shape.strokeBorder(focused ? FastTheme.accent : FastTheme.outline, lineWidth: 1))
     }
 
     /// AppKit's secure echo is a large circle; at rest the field shows the mock's small dots instead.
     private var masked: Bool { secure && !focused && !text.isEmpty }
+
+    private func paste() {
+        guard let value = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return }
+        text = value
+    }
 
     /// The known prefix in the value's own mono, then the mocks' dots, one per
     /// remaining character at the mono advance.
