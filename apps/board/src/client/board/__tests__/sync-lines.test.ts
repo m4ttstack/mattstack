@@ -48,9 +48,16 @@ describe('live lines', () => {
     expect(takeAutoOpen('mr-a')).toBe(false);
   });
 
-  test('shows whichever log is further along', () => {
+  test('joins the saved log and the stream where they meet', () => {
     expect(shownSyncLog(['a'], ['a', 'b'])).toEqual(['a', 'b']);
-    expect(shownSyncLog(['a', 'b', 'c'], ['a'])).toEqual(['a', 'b', 'c']);
+    expect(shownSyncLog(['a', 'b', 'c'], ['a', 'b'])).toEqual(['a', 'b', 'c']);
+    expect(shownSyncLog(['a', 'b', 'c'], ['c', 'd'])).toEqual([
+      'a',
+      'b',
+      'c',
+      'd',
+    ]);
+    expect(shownSyncLog(['a', 'b'], ['x'])).toEqual(['a', 'b', 'x']);
     expect(shownSyncLog(undefined, undefined)).toEqual([]);
   });
 });

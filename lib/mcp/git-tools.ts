@@ -53,8 +53,13 @@ export async function currentBranch(cwd: string, git: GitRunner): Promise<string
 
 // git follows a push rejection with several `hint:` lines, which would push
 // the `! [rejected]` line out of a plain last-3-lines tail.
+// Under `rt sync --progress` the step lines sit above the failure, which
+// then opens with its tag, so the tail starts there.
+const FAILURE_TAG = /^\[(failed|refused)\]/;
 function detail(r: { stderr: string; stdout: string }): string {
-  return (r.stderr.trim() || r.stdout.trim()).split("\n").filter((l) => !l.startsWith("hint:")).slice(-3).join(" ");
+  const lines = (r.stderr.trim() || r.stdout.trim()).split("\n").filter((l) => !l.startsWith("hint:"));
+  const opens = lines.findLastIndex((l) => FAILURE_TAG.test(l));
+  return (opens >= 0 ? lines.slice(opens) : lines).slice(-3).join(" ").replace(FAILURE_TAG, "").trim();
 }
 
 /** The branch a tool may push from: never detached, never main/master or the

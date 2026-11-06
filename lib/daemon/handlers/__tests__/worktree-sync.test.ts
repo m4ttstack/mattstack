@@ -13,7 +13,7 @@ function harness(over: Partial<WorktreeSyncDeps> = {}) {
       calls.provisioned++;
       return { ok: true, data: { tree: "new-tree", path: "/trees/new", branch: "feat", wasOnDeck: true, readyAt: null, branchState: "tracking-remote" } as any };
     },
-    dispose: async (p) => { calls.disposed.push(p.tree); },
+    dispose: async (p) => { calls.disposed.push(p.tree); return { ok: true, data: { disposed: [p.tree], refused: [], recoverable: [] } as any }; },
     knownTree: (_repo, path) => path === "/trees/paused",
     treeBranch: async () => "feat",
     sync: async (path) => { calls.synced.push(path); return synced("synced", { pushed: true }); },
@@ -89,6 +89,20 @@ describe("worktree:sync", () => {
     const d = await data(run({ repoName: "r", branch: "feat" }));
     expect(d.kind).toBe("synced");
     expect(d.log.at(-1)).toContain("Could not remove worktree new-tree");
+  });
+
+  test("a cleanup dispose refuses is reported, not logged as removed", async () => {
+    const { run } = harness({ ...noTree, dispose: async () => ({ ok: true, data: { disposed: [], refused: [{ tree: "new-tree", reason: "attended" }], recoverable: [] } as any }) });
+    const d = await data(run({ repoName: "r", branch: "feat" }));
+    expect(d.log.at(-1)).toBe("[warning] Could not remove worktree new-tree  attended");
+    expect(d.log.some((l: string) => l.includes("Removed worktree"))).toBe(false);
+  });
+
+  test("the log stops at its cap with one line saying so", async () => {
+    const { run } = harness({ sync: async (_p, onLine) => { for (let i = 0; i < 450; i++) onLine?.(`line ${i}`); return synced("synced", { pushed: true }); } });
+    const d = await data(run({ repoName: "r", branch: "feat" }));
+    expect(d.log.length).toBe(401);
+    expect(d.log.at(-1)).toContain("cut off");
   });
 
   test("a gone branch whose cleanup fails still says the branch is gone", async () => {

@@ -7,6 +7,8 @@ import { childEnv, runCapture } from "../../subprocess.ts";
 /** The daemon's own entry is lib/daemon.ts from source, so Bun.main there is not the CLI. */
 const CLI_ENTRY = join(import.meta.dir, "..", "..", "..", "cli.ts");
 
+const MAX_LOG_LINES = 400;
+
 /** rt sync's own five-minute ceiling plus the checks around it. */
 const BRANCH_SYNC_TIMEOUT_MS = 330_000;
 
@@ -56,7 +58,7 @@ type Reply<C extends keyof Commands> = { ok: true; data: Commands[C]["data"] } |
 export interface WorktreeSyncDeps {
   check: (payload: Commands["worktree:provision-check"]["payload"]) => Promise<Reply<"worktree:provision-check">>;
   provision: (payload: Commands["worktree:provision"]["payload"]) => Promise<Reply<"worktree:provision">>;
-  dispose: (payload: { repoName: string; tree: string }) => Promise<unknown>;
+  dispose: (payload: { repoName: string; tree: string }) => Promise<Reply<"worktree:dispose">>;
   /** Whether `path` is one of `repoName`'s registered worktrees. */
   knownTree: (repoName: string, path: string) => boolean;
   /** The branch checked out at `path`, or the one a paused rebase there is rebasing. */
@@ -86,21 +88,26 @@ export function createWorktreeSyncHandler(deps: WorktreeSyncDeps) {
     if (typeof repoName !== "string" || !repoName) return { ok: false, error: "repoName is required" };
     if (typeof branch !== "string" || !branch) return { ok: false, error: "branch is required" };
     const log: string[] = [];
+    // A follow-up step's own output reaches the log too, so it is capped.
     const say = (line: string) => {
-      log.push(line);
-      deps.line?.({ repoName, branch, line });
+      if (log.length > MAX_LOG_LINES) return;
+      const kept = log.length === MAX_LOG_LINES ? `[warning] Output cut off after ${MAX_LOG_LINES} lines` : line;
+      log.push(kept);
+      deps.line?.({ repoName, branch, line: kept });
     };
-    // A cleanup that fails is reported, never thrown: the sync's own result
-    // still has to reach the caller, and the tree may be left behind.
+    // A cleanup that fails or is refused is reported, never thrown: the
+    // sync's own result still has to reach the caller, and the tree stays.
     const disposeOrSay = async (tree: string): Promise<string | null> => {
+      let why: string | null;
       try {
-        await deps.dispose({ repoName, tree });
-        return null;
+        const res = await deps.dispose({ repoName, tree });
+        why = !res.ok ? res.error : res.data.refused.length > 0 ? res.data.refused.map((r) => r.detail ?? r.reason).join(", ") : null;
       } catch (err) {
-        const left = `could not remove worktree ${tree}: ${err instanceof Error ? err.message : String(err)}`;
-        say(`[warning] Could not remove worktree ${tree}  ${err instanceof Error ? err.message : String(err)}`);
-        return left;
+        why = err instanceof Error ? err.message : String(err);
       }
+      if (why === null) return null;
+      say(`[warning] Could not remove worktree ${tree}  ${why}`);
+      return `could not remove worktree ${tree}: ${why}`;
     };
 
     // A paused rebase detaches HEAD, so the registry may no longer list the

@@ -3039,6 +3039,7 @@ const httpServer = Bun.serve({
             });
           LOCAL_SYNCS.add(parsed.mrUrl);
           const endLive = startLiveSync(parsed.mrUrl, repo, mr.sourceBranch);
+          sseSyncStart(parsed.mrUrl);
           try {
             const priorPaused = existing?.pausedTree;
             writeDoctorState(statePath, {
@@ -4808,6 +4809,14 @@ function sseSyncLine(mrUrl: string, line: string): void {
   sseSend(
     sseEncoder.encode(
       `event: sync-line\ndata: ${JSON.stringify({ mrUrl, line })}\n\n`
+    )
+  );
+}
+
+function sseSyncStart(mrUrl: string): void {
+  sseSend(
+    sseEncoder.encode(
+      `event: sync-start\ndata: ${JSON.stringify({ mrUrl })}\n\n`
     )
   );
 }

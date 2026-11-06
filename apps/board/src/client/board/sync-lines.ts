@@ -77,6 +77,12 @@ export function startSyncLines(mrUrl: string): void {
   emit();
 }
 
+/** A sync started from any page: this page's lines start over too. */
+export function resetSyncLines(mrUrl: string): void {
+  live.set(mrUrl, []);
+  emit();
+}
+
 export function pushSyncLine(mrUrl: string, line: string): void {
   live.set(mrUrl, [...(live.get(mrUrl) ?? []), line]);
   emit();
@@ -86,13 +92,20 @@ export function takeAutoOpen(mrUrl: string): boolean {
   return autoOpen.delete(mrUrl);
 }
 
-/** What the popover shows: the saved log once the server has the whole of
-    it, the streamed lines while they are ahead of it. */
+/** What the popover shows: the saved log with the streamed lines it does
+    not have yet. A page opened mid-sync streams only the tail, so the two
+    join where the end of the saved log meets the start of the stream. */
 export function shownSyncLog(
   saved: readonly string[] | undefined,
   streamed: readonly string[] | undefined
 ): readonly string[] {
   const a = saved ?? [];
   const b = streamed ?? [];
-  return b.length > a.length ? b : a;
+  if (b.length <= a.length && b.every((line, i) => line === a[i])) return a;
+  for (let k = Math.min(a.length, b.length); k > 0; k--) {
+    let joins = true;
+    for (let i = 0; i < k && joins; i++) joins = a[a.length - k + i] === b[i];
+    if (joins) return [...a, ...b.slice(k)];
+  }
+  return [...a, ...b];
 }

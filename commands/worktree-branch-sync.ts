@@ -24,13 +24,20 @@ export async function branchSyncWithAuth(cwd: string, deps: BranchSyncAuthDeps =
   if (!isAuthFailure(r.refusal ?? "")) return r;
   // The rebase landed and only the push failed, so only the push is retried.
   if (r.kind === "push-refused" && r.branch) {
+    onLine?.("[running] Pushing again with rt's token");
     const pushed = await deps.push(cwd, r.branch);
-    if (pushed.exitCode !== 0) return { ...r, refusal: `${r.refusal}; with rt's token: ${(pushed.stderr || pushed.stdout).trim().split("\n").at(-1) ?? ""}` };
+    if (pushed.exitCode !== 0) {
+      const said = (pushed.stderr || pushed.stdout).trim().split("\n").at(-1) ?? "";
+      onLine?.(`[failed] Could not push with rt's token  ${said}`);
+      return { ...r, refusal: `${r.refusal}; with rt's token: ${said}` };
+    }
+    onLine?.("[ok] Pushed with rt's token");
     return { ...r, kind: "synced", pushed: true, refusal: null };
   }
   if (r.kind !== "error" || r.newHead !== r.oldHead) return r;
   const auth = await deps.auth(cwd, false);
   if (!auth) return r;
+  onLine?.("[running] Syncing again with rt's token");
   const env = fetchAuthEnv(auth);
   return deps.sync(cwd, { git: gitRunnerWith(env), sync: syncRunnerWith(env, onLine) });
 }

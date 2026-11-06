@@ -130,7 +130,9 @@ function SyncLogBody({
           <span className="tui-synclog-glyph" aria-hidden>
             ◌
           </span>
-          <span className="tui-synclog-title">Starting rt sync</span>
+          <span className="tui-synclog-title">
+            {running ? 'Starting rt sync' : 'No output was saved'}
+          </span>
         </div>
       )}
       {lines.map((raw, i) => {
