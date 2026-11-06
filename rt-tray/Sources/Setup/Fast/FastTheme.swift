@@ -153,9 +153,11 @@ struct FastPrimaryButtonStyle: ButtonStyle {
     var size: FastButtonSize = .large
     var glow = true
     var shape: FastButtonShape? = nil
+    /// A loading FastButton: the fill drains to a faint accent wash and the glow goes out, so it no longer reads as pressable.
+    var loading = false
 
     func makeBody(configuration: Configuration) -> some View {
-        Styled(configuration: configuration, size: size, glow: glow, metrics: shape ?? .standard(size, primary: true))
+        Styled(configuration: configuration, size: size, glow: glow, metrics: shape ?? .standard(size, primary: true), loading: loading)
     }
 
     private struct Styled: View {
@@ -163,8 +165,10 @@ struct FastPrimaryButtonStyle: ButtonStyle {
         let size: FastButtonSize
         let glow: Bool
         let metrics: FastButtonShape
+        let loading: Bool
         @Environment(\.isEnabled) private var isEnabled
         @Environment(\.fastFlipsShadows) private var flipsShadows
+        @State private var hovered = false
 
         var body: some View {
             let large = size == .large
@@ -174,10 +178,24 @@ struct FastPrimaryButtonStyle: ButtonStyle {
                 .foregroundColor(.white)
                 .lineLimit(1)
                 .padding(.vertical, metrics.vertical).padding(.horizontal, metrics.horizontal)
-                .background(shape.fill(FastTheme.accent).overlay(shape.fill(Color.black.opacity(configuration.isPressed ? 0.15 : 0))))
-                .shadow(color: large && glow && isEnabled ? FastTheme.primaryGlow : .clear, radius: 12, y: flipsShadows ? -8 : 8)
+                .background(
+                    ZStack {
+                        shape.fill(FastTheme.accent.opacity(0.12))
+                        shape.fill(LinearGradient(colors: [FastTheme.accent.opacity(1), FastTheme.accent.opacity(0.86)],
+                                                  startPoint: .top, endPoint: .bottom))
+                            .opacity(loading ? 0 : 1)
+                        shape.fill(Color.white.opacity(hovered && isEnabled && !loading && !configuration.isPressed ? 0.08 : 0))
+                        shape.fill(Color.black.opacity(configuration.isPressed ? 0.12 : 0))
+                        shape.strokeBorder(loading ? FastTheme.accent.opacity(0.25) : Color.white.opacity(0.18), lineWidth: loading ? 1 : 0.5)
+                    })
+                .shadow(color: large && glow && isEnabled && !loading ? FastTheme.primaryGlow : .clear, radius: 12, y: flipsShadows ? -8 : 8)
+                .scaleEffect(configuration.isPressed ? 0.97 : 1)
                 .opacity(isEnabled ? 1 : 0.4)
                 .contentShape(shape)
+                .animation(.easeOut(duration: 0.3), value: loading)
+            .onHover { hovered = $0 }
+            .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
+            .animation(.easeOut(duration: 0.15), value: hovered)
         }
     }
 }
@@ -243,26 +261,45 @@ struct FastQuietButtonStyle: ButtonStyle {
 /// Transparent with an accent edge, accent text and an optional leading icon
 /// (P5's Connect Slack, Sign in to Claude, Add to Chrome).
 struct FastOutlineButtonStyle: ButtonStyle {
+    var size: FastButtonSize = .small
+    var shape: FastButtonShape? = nil
+    /// A loading FastButton: the same busy wash as a loading primary, with the edge dimmed so the light trail reads over it.
+    var loading = false
+
     func makeBody(configuration: Configuration) -> some View {
-        Styled(configuration: configuration)
+        Styled(configuration: configuration, size: size, metrics: shape ?? .standard(size, primary: false), loading: loading)
     }
 
+    /// A tonal accent button: a faint wash and a soft edge that firm up under the pointer.
     private struct Styled: View {
         let configuration: Configuration
+        let size: FastButtonSize
+        let metrics: FastButtonShape
+        let loading: Bool
         @Environment(\.isEnabled) private var isEnabled
+        @State private var hovered = false
 
         var body: some View {
-            let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+            let large = size == .large
+            let shape = RoundedRectangle(cornerRadius: metrics.radius, style: .continuous)
+            let active = hovered && isEnabled && !loading
+            let wash = configuration.isPressed ? 0.18 : loading ? 0.12 : active ? 0.14 : 0.07
+            let edge = loading ? 0.22 : active ? 0.75 : 0.45
             configuration.label
-                .labelStyle(FastIconLabelStyle(iconSize: 12, spacing: 6))
-                .font(.system(size: 12, weight: FastTheme.weight(css: .semibold)))
+                .labelStyle(FastIconLabelStyle(iconSize: large ? 14 : 12, spacing: 6))
+                .font(.system(size: large ? 14 : 13, weight: FastTheme.weight(css: .semibold)))
                 .foregroundColor(FastTheme.accent)
                 .lineLimit(1)
-                .padding(.vertical, 7).padding(.horizontal, 12)
-                .background(shape.fill(FastTheme.accent.opacity(configuration.isPressed ? 0.14 : 0)))
-                .overlay(shape.strokeBorder(FastTheme.accent, lineWidth: 1))
+                .padding(.vertical, metrics.vertical).padding(.horizontal, metrics.horizontal)
+                .background(shape.fill(FastTheme.accent.opacity(wash)))
+                .overlay(shape.strokeBorder(FastTheme.accent.opacity(edge), lineWidth: 1))
+                .animation(.easeOut(duration: 0.3), value: loading)
+                .scaleEffect(configuration.isPressed ? 0.97 : 1)
                 .opacity(isEnabled ? 1 : 0.4)
                 .contentShape(shape)
+                .onHover { hovered = $0 }
+                .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
+                .animation(.easeOut(duration: 0.15), value: hovered)
         }
     }
 }
@@ -285,6 +322,7 @@ struct FastSecondaryButtonStyle: ButtonStyle {
         let metrics: FastButtonShape
         let muted: Bool
         @Environment(\.isEnabled) private var isEnabled
+        @State private var hovered = false
 
         var body: some View {
             let large = size == .large
@@ -295,10 +333,14 @@ struct FastSecondaryButtonStyle: ButtonStyle {
                 .foregroundColor(muted ? FastTheme.textSecondary : FastTheme.textPrimary)
                 .lineLimit(1)
                 .padding(.vertical, metrics.vertical).padding(.horizontal, metrics.horizontal)
-                .background(shape.fill(Color.white.opacity(configuration.isPressed ? 0.06 : 0)))
-                .overlay(shape.strokeBorder(FastTheme.outline, lineWidth: 1))
+                .background(shape.fill(Color.white.opacity(configuration.isPressed ? 0.06 : hovered && isEnabled ? 0.04 : 0)))
+                .overlay(shape.strokeBorder(hovered && isEnabled ? FastTheme.textSecondary.opacity(0.6) : FastTheme.outline, lineWidth: 1))
+                .scaleEffect(configuration.isPressed ? 0.97 : 1)
                 .opacity(isEnabled ? 1 : 0.4)
                 .contentShape(shape)
+                .onHover { hovered = $0 }
+                .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
+                .animation(.easeOut(duration: 0.15), value: hovered)
         }
     }
 }
