@@ -128,6 +128,7 @@ export const FORM_COPY = {
     subtext: "Gives setup git and Apple's build tools",
     installing: "Installing Command Line Tools…",
     install: "Install",
+    update: "Update",
     notInstalled: "Not installed yet",
   },
   invite: {
@@ -280,13 +281,19 @@ type MacosPrepare = (PrepareRecord & { running: boolean }) | null;
 const CLT_TOOL = "apple-clt";
 
 /** Leads every section whose button starts git work, so that button waits for git. */
-export function cltRow(i: { cltInstalled: boolean; prepare: MacosPrepare }): FormRow | null {
+/** tool.clt's detail when git runs but is older than rt needs, else null. */
+function cltOutdated(rows: ReadonlyMap<string, Row>): string | null {
+  const clt = rows.get("tool.clt");
+  return clt?.status === "invalid" ? (clt.detail ?? null) : null;
+}
+
+export function cltRow(i: { cltInstalled: boolean; cltOutdated?: string | null; prepare: MacosPrepare }): FormRow | null {
   if (i.cltInstalled) return null;
   const c = FORM_COPY.clt;
   const base = { id: "tool.clt", title: c.title, subtext: c.subtext, waiting: c.installing, watch: true, optional: false };
   if (i.prepare?.running && i.prepare.items.includes(CLT_TOOL)) return { ...base, state: "busy", detail: c.installing, action: null };
   const failure = i.prepare?.failed.find((f) => f.tool === CLT_TOOL);
-  return { ...base, state: "todo", detail: failure?.detail ?? c.notInstalled, action: { type: "install", label: c.install, tool: CLT_TOOL, via: "apple-clt" } };
+  return { ...base, state: "todo", detail: failure?.detail ?? i.cltOutdated ?? c.notInstalled, action: { type: "install", label: i.cltOutdated ? c.update : c.install, tool: CLT_TOOL, via: "apple-clt" } };
 }
 
 export interface InviteInputs {
@@ -296,6 +303,8 @@ export interface InviteInputs {
   forgeLogin: string | null;
   ghSignedIn: boolean;
   cltInstalled: boolean;
+  /** tool.clt's detail when git is installed but older than rt needs. */
+  cltOutdated?: string | null;
   prepare: MacosPrepare;
   /** The forge host this Mac's user confirmed through `connect --host`. */
   confirmedHost: string | null;
@@ -384,6 +393,8 @@ export interface CreateInputs {
   forge: { provider: Forge; host: string };
   ghSignedIn: boolean;
   cltInstalled: boolean;
+  /** tool.clt's detail when git is installed but older than rt needs. */
+  cltOutdated?: string | null;
   prepare: MacosPrepare;
 }
 
@@ -760,6 +771,8 @@ export interface ThisMacInputs extends DrawnContext {
   /** The last run ended ok and no choice has been made since it. */
   ranOk: boolean;
   cltInstalled: boolean;
+  /** tool.clt's detail when git is installed but older than rt needs. */
+  cltOutdated?: string | null;
   prepare: MacosPrepare;
   backup: HomeBackupChoice | undefined;
   /** The home repo's origin, or the staged url before the repo exists. */
@@ -880,7 +893,7 @@ export function thisMacRows(i: ThisMacInputs): FormRow[] {
   return list.filter((r): r is FormRow => r !== null);
 }
 
-export function restoreRows(i: { cltInstalled: boolean; prepare: MacosPrepare }): FormRow[] {
+export function restoreRows(i: { cltInstalled: boolean; cltOutdated?: string | null; prepare: MacosPrepare }): FormRow[] {
   const clt = cltRow(i);
   return clt ? [clt] : [];
 }
@@ -912,7 +925,7 @@ async function inviteSection(p: Probes, secrets: SecretPresence): Promise<FormRo
     forge: snapshot.integrations.forge ?? null,
     forgeLogin: intent?.mode === "join" ? (intent.join?.pointer.username ?? null) : null,
     ghSignedIn: ghSignedIn(rows),
-    cltInstalled: isReady(rows, "tool.clt"),
+    cltInstalled: isReady(rows, "tool.clt"), cltOutdated: cltOutdated(rows),
     prepare: macosPrepare(p),
     confirmedHost: overrides.forgeHost ?? null,
   });
@@ -931,12 +944,12 @@ async function createSection(p: Probes, secrets: SecretPresence, choice: CreateC
   const snapshot: TeamSnapshot = { ...EMPTY_SNAPSHOT, integrations: { forge } };
   const [mac, accounts] = await Promise.all([macRows(p), accountRows(p, snapshot, [], secrets, null, readUserIntegrationOverrides({ read: probeUserSettingsReader(p) }))]);
   const rows = new Map([...mac, ...accounts].map((r) => [r.id, r]));
-  return createRows({ rows, forge, ghSignedIn: ghSignedIn(rows), cltInstalled: isReady(rows, "tool.clt"), prepare: macosPrepare(p) });
+  return createRows({ rows, forge, ghSignedIn: ghSignedIn(rows), cltInstalled: isReady(rows, "tool.clt"), cltOutdated: cltOutdated(rows), prepare: macosPrepare(p) });
 }
 
 async function restoreSection(p: Probes): Promise<FormRow[]> {
   const rows = new Map((await macRows(p)).map((r) => [r.id, r]));
-  return restoreRows({ cltInstalled: isReady(rows, "tool.clt"), prepare: macosPrepare(p) });
+  return restoreRows({ cltInstalled: isReady(rows, "tool.clt"), cltOutdated: cltOutdated(rows), prepare: macosPrepare(p) });
 }
 
 interface Clone {
@@ -1172,7 +1185,7 @@ async function thisMacSection(
     signIn: signInTools(readPackRequirements(p, plan.team.slug)),
     // A whole run that ends ok clears the intent, so one on disk is a choice made since (a team created from Settings): the coming run sets its rows up.
     ranOk: state.run?.ok === true && intent === null,
-    cltInstalled: isReady(rows, "tool.clt"),
+    cltInstalled: isReady(rows, "tool.clt"), cltOutdated: cltOutdated(rows),
     prepare: macosPrepare(p),
     backup,
     homeRemote: remote,

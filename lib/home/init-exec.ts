@@ -93,7 +93,9 @@ async function runStep(step: InitStep, exec: ExecSeam, log: StepLog): Promise<vo
     }
     case "initUserRepo": {
       log("Starting a repo with no remote");
-      await run(exec, ["git", "init", "-b", "main", "user"]);
+      // Not `git init -b`: git before 2.28 refuses the flag, and a Mac's old Command Line Tools still ship one.
+      await run(exec, ["git", "init", "user"]);
+      await run(exec, ["git", "-C", "user", "symbolic-ref", "HEAD", "refs/heads/main"]);
       return;
     }
     case "commitInitialUserRepo": {

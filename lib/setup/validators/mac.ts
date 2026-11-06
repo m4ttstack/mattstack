@@ -7,10 +7,12 @@
 
 import type { Action, Row } from "../contract.ts";
 import { row } from "../contract.ts";
+import { GIT_FLOOR, gitBelowFloor, parseGitVersion } from "../git-floor.ts";
 import { memberPath } from "../member-path.ts";
 import type { Probes } from "../probes.ts";
 
 const CLT_INSTALL_ACTION: Action = { type: "install", label: "Install…", tool: "apple-clt", via: "apple-clt" };
+const CLT_UPDATE_ACTION: Action = { ...CLT_INSTALL_ACTION, label: "Update…" };
 /** Byte-for-byte the marker T24's installZshenvPrecedence step writes into ~/.zshenv. */
 const PATH_PRECEDENCE_MARKER = "# mattstack — PATH precedence";
 /** `--only` runs the one step and leaves the rest of setup intent untouched (lib/setup/apply.ts). Per-branch label: the row means "set this up" when nothing is set up and "hand it to rt" when precedence already holds. */
@@ -47,6 +49,14 @@ async function cltRow(p: Probes): Promise<Row> {
     return row({ ...base, status: "missing", detail: "Apple's Command Line Tools are not installed", action: CLT_INSTALL_ACTION });
   }
   const gitVersion = await p.exec(["git", "--version"]);
+  if (gitVersion.code === 0 && gitBelowFloor(gitVersion.stdout)) {
+    return row({
+      ...base,
+      status: "invalid",
+      detail: `Git ${parseGitVersion(gitVersion.stdout)} is too old; rt needs ${GIT_FLOOR} or newer`,
+      action: CLT_UPDATE_ACTION,
+    });
+  }
   if (gitVersion.code === 0) {
     return row({ ...base, status: "ready", detail: gitVersion.stdout.trim() || "Git is installed" });
   }

@@ -188,9 +188,10 @@ describe("createTeam", () => {
       created: true,
     });
 
-    expect(p.calls.exec.slice(0, 6)).toEqual([
+    expect(p.calls.exec.slice(0, 7)).toEqual([
       ["xcode-select", "-p"],
-      ["git", "init", "-b", "mattstack"],
+      ["git", "init"],
+      ["git", "symbolic-ref", "HEAD", "refs/heads/mattstack"],
       ["git", "remote", "add", "origin", "https://github.com/acme/mattstack-team-acme.git"],
       ["git", "add", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore", "README.md"],
       ["git", "diff", "--cached", "--quiet", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore", "README.md"],
@@ -246,8 +247,9 @@ describe("createTeam", () => {
 
     expect(result).toMatchObject({ created: true });
     expect(result.gitDeferred).toBeUndefined();
-    expect(p.calls.exec.filter((c) => c[0] === "git").slice(0, 5)).toEqual([
-      ["git", "init", "-b", "mattstack"],
+    expect(p.calls.exec.filter((c) => c[0] === "git").slice(0, 6)).toEqual([
+      ["git", "init"],
+      ["git", "symbolic-ref", "HEAD", "refs/heads/mattstack"],
       ["git", "remote", "add", "origin", "https://github.com/acme/repo.git"],
       ["git", "add", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore", "README.md"],
       ["git", "diff", "--cached", "--quiet", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore", "README.md"],
@@ -477,7 +479,7 @@ describe("createTeam", () => {
 
       expect(err).toMatchObject({ code: "git-init-failed", message: "rt could not start the team repo" });
       const log = (err as UserActionableError).log ?? "";
-      expect(log).toStartWith("git init -b mattstack failed (exit 128): fatal: could not reach");
+      expect(log).toStartWith("git init failed (exit 128): fatal: could not reach");
       expect(log).not.toContain("SECRET");
       expect(log).not.toContain("https://");
     });

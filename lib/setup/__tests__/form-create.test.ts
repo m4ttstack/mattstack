@@ -75,6 +75,13 @@ describe("createRows", () => {
     expect(list.map((r) => [r.id, r.state])).toEqual([["tool.clt", "busy"], ["forge.token", "todo"]]);
   });
 
+  test("git too old: the tools row says why and offers Update", () => {
+    const list = createRows(inputs({ cltInstalled: false, cltOutdated: "Git 2.24.3 is too old; rt needs 2.28 or newer", prepare: null }));
+    const clt = list.find((r) => r.id === "tool.clt");
+    expect(clt?.detail).toBe("Git 2.24.3 is too old; rt needs 2.28 or newer");
+    expect(clt?.action).toEqual({ type: "install", label: "Update", tool: "apple-clt", via: "apple-clt" });
+  });
+
   test("a stored token reads as connected", () => {
     const rows = new Map([["account.gitlab", accountRow("account.gitlab", "ready", "GitLab token works")]]);
     expect(createRows(inputs({ rows })).map((r) => [r.id, r.state, r.detail])).toEqual([["forge.token", "done", "Connected"]]);

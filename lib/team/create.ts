@@ -457,8 +457,11 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
   }
 
   if (!p.exists(join(dir, ".git"))) {
-    const initResult = await p.exec(["git", "init", "-b", DEFAULT_DATA_BRANCH], { cwd: dir });
-    if (initResult.code !== 0) throw gitStepError("git-init-failed", `git init -b ${DEFAULT_DATA_BRANCH}`, initResult);
+    // Not `git init -b`: git before 2.28 refuses the flag, and a Mac's old Command Line Tools still ship one.
+    const initResult = await p.exec(["git", "init"], { cwd: dir });
+    if (initResult.code !== 0) throw gitStepError("git-init-failed", "git init", initResult);
+    const headResult = await p.exec(["git", "symbolic-ref", "HEAD", `refs/heads/${DEFAULT_DATA_BRANCH}`], { cwd: dir });
+    if (headResult.code !== 0) throw gitStepError("git-init-failed", `git symbolic-ref HEAD refs/heads/${DEFAULT_DATA_BRANCH}`, headResult);
   }
 
   if (originConfigured === null) {

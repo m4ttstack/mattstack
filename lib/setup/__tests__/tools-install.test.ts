@@ -333,6 +333,39 @@ describe("installTool — apple-clt", () => {
     expect(result.detail).toContain("Opened Apple's Command Line Tools installer");
   });
 
+  test("apple-clt with git older than 2.28: updates through softwareupdate, never answers already installed", async () => {
+    let installed = false;
+    const exec: ExecScript = (argv) => {
+      if (argv[0] === "xcode-select" && argv[1] === "-p") return ok("/Library/Developer/CommandLineTools\n");
+      if (argv[0] === "softwareupdate" && argv[1] === "-l") return ok("* Label: Command Line Tools for Xcode 16.4-16.4\n");
+      if (argv[0] === "softwareupdate" && argv[1] === "-i") {
+        installed = true;
+        return ok();
+      }
+      if (argv[0] === "git") return ok(installed ? "git version 2.39.5 (Apple Git-154)" : "git version 2.24.3 (Apple Git-128)");
+      return ok();
+    };
+    const p = fakeProbes({ exec });
+    const result = await installTool(p, "apple-clt", [], NOOP_SEAMS);
+    expect(p.calls.exec).toContainEqual(["softwareupdate", "-i", "Command Line Tools for Xcode 16.4-16.4"]);
+    expect(result.ok).toBe(true);
+    expect(result.detail).toContain("2.39.5");
+  });
+
+  test("apple-clt with git older than 2.28 and no update offered: the manual reinstall, never the dialog", async () => {
+    const exec: ExecScript = (argv) => {
+      if (argv[0] === "xcode-select" && argv[1] === "-p") return ok("/Library/Developer/CommandLineTools\n");
+      if (argv[0] === "softwareupdate") return ok("No new software available.");
+      if (argv[0] === "git") return ok("git version 2.24.3 (Apple Git-128)");
+      return ok();
+    };
+    const p = fakeProbes({ exec });
+    const result = await installTool(p, "apple-clt", [], NOOP_SEAMS);
+    expect(p.calls.exec).not.toContainEqual(["xcode-select", "--install"]);
+    expect(result.ok).toBe(false);
+    expect(result.detail).toContain("sudo rm -rf /Library/Developer/CommandLineTools && xcode-select --install");
+  });
+
   test("apple-clt code 1 'already installed' -> ok (honest, not re-triggered)", async () => {
     const exec: ExecScript = () => ({ code: 1, stdout: "", stderr: "xcode-select: error: command line tools are already installed" });
     const p = fakeProbes({ exec });
