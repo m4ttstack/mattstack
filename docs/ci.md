@@ -194,7 +194,9 @@ then uninstall on the old one, so a queue run never finds no runner:
 Each Mac names its runners after itself, `mattstack-<LocalHostName>-<n>`
 (`mattstack-mac-mini-1` on the mini), and the uninstall removes only the
 registrations in its own runner folders, so neither Mac touches the other's
-runners. Runners installed before per-Mac names read `mattstack-mac-<n>`.
+runners. Runners installed before per-Mac names read `mattstack-mac-<n>`; a
+rerun of the installer leaves those registered, and `uninstall.sh` on that same
+Mac removes them.
 
 A PR stuck on an old route needs a new push, since a rerun reuses the workflow
 the run started with. Queue runs use the merged tree, so they switch at once.

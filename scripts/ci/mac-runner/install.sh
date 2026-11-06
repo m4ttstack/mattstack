@@ -130,6 +130,18 @@ PLIST
   done
 done
 
+# config.sh remove fails both when GitHub already dropped the runner and when
+# it could not reach GitHub; only the first is safe to clean up after.
+# Called after ||, where set -e is off, so every failure returns by hand.
+deregister() { # runner dir
+  local dir=$1 name token ids
+  name=$(basename "$dir")
+  token=$(gh api -X POST "repos/$REPO/actions/runners/remove-token" --jq .token) || return 1
+  sudo -u "$CI_USER" -H bash -c "cd '$dir' && ./config.sh remove --token '$token'" && return 0
+  ids=$(gh api "repos/$REPO/actions/runners" --paginate --jq ".runners[] | select(.name == \"$name\") | .id") || return 1
+  [ -z "$ids" ] || { echo "Could not remove $name from GitHub; kept its files so a rerun can retry." >&2; return 1; }
+}
+
 # A rerun with a smaller count retires the runners above it.
 for plist in /Library/LaunchDaemons/dev.mattstack.ci-runner-*.plist; do
   [ -e "$plist" ] || continue
@@ -143,12 +155,10 @@ for plist in /Library/LaunchDaemons/dev.mattstack.ci-runner-*.plist; do
     launchctl print "system/$label" >/dev/null 2>&1 || break
     sleep 1
   done
-  sudo rm "$plist"
   if sudo test -f "$dir/.runner"; then
-    token=$(gh api -X POST "repos/$REPO/actions/runners/remove-token" --jq .token)
-    sudo -u "$CI_USER" -H bash -c "cd '$dir' && ./config.sh remove --token '$token'" ||
-      echo "$name was not registered from this Mac any more; skipped." >&2
+    deregister "$dir" || exit 1
   fi
+  sudo rm "$plist"
   sudo rm -rf "${dir:?}"
 done
 
