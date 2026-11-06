@@ -1462,7 +1462,7 @@ describe("in-tree engine", () => {
       "show main:mattstack/.claude-plugin/plugin.json",
       "show main:mattstack/pack/requires.json",
     ]);
-    expect(world.calls.filter((c) => c.cmd === "git" && c.cwd === pack.dir).map((c) => c.args[0])).toEqual(["status", "branch", "pull"]);
+    expect(world.calls.filter((c) => c.cmd === "git" && c.cwd === pack.dir).map((c) => c.args[0])).toEqual(["status", "branch", "pull", "log"]);
     expect(report.steps.find((s) => s.name === "pull-engine")).toMatchObject({ status: "skipped" });
     expect(report.steps.find((s) => s.name === "update-engine")).toMatchObject({ status: "ran" });
   });
@@ -2440,6 +2440,37 @@ describe("commit-pending against real git", () => {
     expect(mustGit(root, "status", "--porcelain")).toBe("");
     expectBuildPutBack(pack);
     expect(remoteLog(remote)).toEqual(["base"]);
+  }, REAL_GIT_TIMEOUT_MS);
+
+  test("a pack edit committed by hand without a bump is bumped, pushed and installed", async () => {
+    const { root, remote, pack } = realPackRepo("");
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "public": ["keep"] }\n');
+    mustGit(root, "commit", "-q", "-am", "by hand");
+    mustGit(root, "push", "-q");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [false, false] };
+
+    const report = await syncPack(pack, engine, realGitDeps(root, pack, engine, world));
+
+    expect(report.ok).toBe(true);
+    expect(byStep(report.steps).bump).toMatchObject({ status: "ran", detail: "bumped 1.0.0 -> 1.0.1: the pack changed in a commit that kept the version" });
+    expect(remoteLog(remote)).toEqual(["skills sync: acme v1.0.1", "by hand", "base"]);
+    expect(byStep(report.steps)["verify-installed"]).toMatchObject({ status: "ran" });
+  }, REAL_GIT_TIMEOUT_MS);
+
+  test("a commit beside the pack in a larger repo leaves a current pack alone", async () => {
+    const { root, remote, pack } = realPackRepo("packs");
+    writeFileSync(join(root, "package.json"), '{ "private": true }\n');
+    mustGit(root, "commit", "-q", "-am", "beside");
+    mustGit(root, "push", "-q");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [false] };
+
+    const report = await syncPack(pack, engine, realGitDeps(root, pack, engine, world));
+
+    expect(report.ok).toBe(true);
+    expect(byStep(report.steps).bump).toBeUndefined();
+    expect(remoteLog(remote)).toEqual(["beside", "base"]);
   }, REAL_GIT_TIMEOUT_MS);
 
   test("a clean pack's version commit that HEAD has moved past when its push fails is kept and named as holding the build", async () => {

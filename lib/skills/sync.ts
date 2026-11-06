@@ -454,6 +454,15 @@ function changedSinceShown(pack: string): Outcome {
   return refused(`The ${pack} pack changed since its pending changes were shown, so rt synced nothing. Look over the changes again, then sync`);
 }
 
+/** Claude Code installs by version, so pack files committed after the last version change never install until the version moves again. */
+async function committedSinceBump(deps: SyncDeps, dir: string): Promise<boolean> {
+  const last = await deps.run("git", ["log", "-1", "--format=%H", "--", MANIFEST_REL], { cwd: dir });
+  const sha = last.stdout.trim();
+  if (last.code !== 0 || sha === "") return false;
+  const diff = await deps.run("git", ["diff", "--quiet", sha, "HEAD", "--", "."], { cwd: dir });
+  return diff.code === 1;
+}
+
 async function listInstalled(deps: SyncDeps): Promise<PluginListEntry[]> {
   const res = await deps.run(deps.claudeBin!, ["plugin", "list", "--json"]);
   if (res.code !== 0) throw new Error(`Listing Claude Code's plugins failed: ${res.stderr.trim()}`);
@@ -877,7 +886,10 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
 
   // A published commit can leave check with no drift to report, yet the
   // installed cache is keyed by version, so it must still bump, push and update.
-  const rebuild = drift || published;
+  // So must a pack commit made by hand, which never bumped.
+  const unbumped =
+    !drift && !published && mayWritePack && packGit && orgOffRef === null && installedPackBefore === packSourceVersion && (await committedSinceBump(deps, pack.dir));
+  const rebuild = drift || published || unbumped;
   const noOp = !rebuild && installedPackBefore === packSourceVersion;
   if (noOp) {
     await reapplyDisableModelInvocation();
@@ -897,7 +909,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     bumpBefore = before;
     bumpAfter = after;
     packSourceVersion = after;
-    return ran(`bumped ${before} -> ${after}`);
+    return ran(unbumped ? `bumped ${before} -> ${after}: the pack changed in a commit that kept the version` : `bumped ${before} -> ${after}`);
   });
   steps.push({ name: "bump", ...bump });
   if (stops(bump)) return finish();
