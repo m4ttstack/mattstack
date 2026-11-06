@@ -21,6 +21,8 @@ export interface ActionResult {
     reason?: string;
     synced?: string;
     provisioned?: boolean;
+    /** The launch was refused before any pane opened; the row's reason. */
+    refused?: string;
   } | null;
   text: string;
 }

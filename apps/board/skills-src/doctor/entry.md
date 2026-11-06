@@ -21,6 +21,10 @@ digraph doctor_entry {
     "--skill-path given (doctor)?" [shape=diamond];
     "Read <--skill-path> (doctor)" [shape=plaintext];
     "Load the --skill domain skill by name (doctor)" [shape=box];
+    "Domain skill loaded (doctor)?" [shape=diamond];
+    "<status-bin> doctor-status <state> error Couldn't load <--skill>: <loader message>" [shape=plaintext];
+    "Print why the run ended (doctor)" [shape=box];
+    "Domain skill not loaded: continue at Doctor error written" [shape=doublecircle];
     "${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh (doctor)" [shape=plaintext];
     "resolve-args.sh exit (doctor)?" [shape=diamond];
     "Read <the tier's resolved path> (doctor)" [shape=plaintext];
@@ -69,8 +73,12 @@ digraph doctor_entry {
     "--skill given (doctor)?" -> "${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh (doctor)" [label="no"];
     "--skill-path given (doctor)?" -> "Read <--skill-path> (doctor)" [label="yes"];
     "--skill-path given (doctor)?" -> "Load the --skill domain skill by name (doctor)" [label="no"];
-    "Read <--skill-path> (doctor)" -> "Branch-writing class under --tier api?";
-    "Load the --skill domain skill by name (doctor)" -> "Branch-writing class under --tier api?";
+    "Read <--skill-path> (doctor)" -> "Domain skill loaded (doctor)?";
+    "Load the --skill domain skill by name (doctor)" -> "Domain skill loaded (doctor)?";
+    "Domain skill loaded (doctor)?" -> "Branch-writing class under --tier api?" [label="yes"];
+    "Domain skill loaded (doctor)?" -> "<status-bin> doctor-status <state> error Couldn't load <--skill>: <loader message>" [label="no: Unknown skill, an unreadable path, any load error"];
+    "<status-bin> doctor-status <state> error Couldn't load <--skill>: <loader message>" -> "Print why the run ended (doctor)";
+    "Print why the run ended (doctor)" -> "Domain skill not loaded: continue at Doctor error written";
     "${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh (doctor)" -> "resolve-args.sh exit (doctor)?";
     "resolve-args.sh exit (doctor)?" -> "Read <the tier's resolved path> (doctor)" [label="0"];
     "resolve-args.sh exit (doctor)?" -> "Print the resolver's errors verbatim (doctor)" [label="nonzero: generic path"];
@@ -212,6 +220,30 @@ The board passed `--skill <name>` without `--skill-path`: load that skill
 by name and treat it as the domain skill. The resolver does not run. When
 `--skill-path` is also given, `Read <--skill-path> (doctor)` reads the
 SKILL.md at that absolute path instead, and it is the same domain skill.
+
+### Domain skill loaded (doctor)?
+
+Yes when the Read of `--skill-path` returned the skill's text, or loading
+`--skill` by name returned the skill. Every other result is no: `Unknown
+skill`, a Read error (`File does not exist`, permission denied), an empty
+file. A run launched with `--skill` takes that domain skill or ends here:
+the generic path belongs only to a run launched with no `--skill`, and the
+resolver never runs in its place.
+
+### <status-bin> doctor-status <state> error Couldn't load <--skill>: <loader message>
+
+The message is `Couldn't load <--skill>: ` followed by the loader's own
+error text, on one line: the Skill tool's error for a load by name, the
+Read tool's for `--skill-path`. For example:
+
+```
+<status-bin> doctor-status <state> error "Couldn't load acme:board-doctor: Unknown skill: acme:board-doctor"
+```
+
+### Print why the run ended (doctor)
+
+Print one line in the pane, the same text as the status message, and end
+the run. Nothing runs after it.
 
 ### Print the resolver's errors verbatim (doctor)
 

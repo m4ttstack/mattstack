@@ -18,6 +18,7 @@ import {
   ringText,
   type SessionProbe,
 } from '../run-owner.ts';
+import { SkillBindError } from '../skill-path.ts';
 import type { AuditEntry } from './audit.ts';
 import type { FixClasses, TriageConfig } from './config.ts';
 import {
@@ -689,6 +690,22 @@ export async function runTriage(
             status: 'error',
             message: launchErrorMessage('doctor', err),
           });
+        }
+        // A binding fault refuses every pass until someone fixes it, so the
+        // edge is spent and the person hears once. A Claude Code failure may
+        // pass (a slow list, a self-update), so it leaves the edge armed.
+        if (
+          err instanceof SkillBindError &&
+          !err.failure.reason.startsWith('claude-')
+        ) {
+          markHandled(deps.memory, edge);
+          await deps
+            .notify(
+              `Auto-fix can't start on !${edge.iid}`,
+              err.message,
+              edge.mrUrl
+            )
+            .catch(() => {});
         }
       }
       deps.appendAudit({

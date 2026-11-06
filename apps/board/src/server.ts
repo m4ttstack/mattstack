@@ -200,6 +200,7 @@ import {
   parseLaunchNote,
   reopenPrompt,
   sendPaneText,
+  skillBindRefusal,
   statusBinPath,
 } from './herdr.ts';
 import { reviewerLatches } from './latch/discussions.ts';
@@ -2729,6 +2730,25 @@ const httpServer = Bun.serve({
             return new Response(dedup.reason, { status: 409 });
         }
         const statePath = reviewFilePath(parsed.mrUrl);
+        const reviewSkill = reviewSkillForTab(
+          config,
+          tabId,
+          parsed.mrUrl,
+          resolveLaunchSkillFor
+        );
+        const reviewRefusal = await skillBindRefusal(reviewSkill);
+        if (reviewRefusal) {
+          const message = launchErrorMessage('review', reviewRefusal);
+          writeReviewState(statePath, {
+            mrUrl: parsed.mrUrl,
+            iid: parsed.iid,
+            status: 'error',
+            message,
+          });
+          return new Response(JSON.stringify({ ok: true, refused: message }), {
+            headers: { 'content-type': 'application/json' },
+          });
+        }
         writeReviewState(statePath, {
           mrUrl: parsed.mrUrl,
           iid: parsed.iid,
@@ -2746,12 +2766,7 @@ const httpServer = Bun.serve({
           repo,
           workspaceLabel: config.reviewsWorkspace,
           statePath,
-          skill: reviewSkillForTab(
-            config,
-            tabId,
-            parsed.mrUrl,
-            resolveLaunchSkillFor
-          ),
+          skill: reviewSkill,
           pack: launchPack(tabId),
           author,
           ...loadAgentSettings(),
@@ -2898,6 +2913,24 @@ const httpServer = Bun.serve({
           if (dedup.kind === 'refused')
             return new Response(dedup.reason, { status: 409 });
         }
+        const respondSkill = resolveLaunchSkillFor(
+          'respond',
+          parsed.mrUrl,
+          boardTabId
+        );
+        const respondRefusal = await skillBindRefusal(respondSkill);
+        if (respondRefusal) {
+          const message = launchErrorMessage('respond', respondRefusal);
+          writeRespondState(respondFilePath(parsed.mrUrl), {
+            mrUrl: parsed.mrUrl,
+            iid: parsed.iid,
+            status: 'error',
+            message,
+          });
+          return new Response(JSON.stringify({ ok: true, refused: message }), {
+            headers: { 'content-type': 'application/json' },
+          });
+        }
         const responseRound = person
           ? recordRespondRound(
               parsed.mrUrl,
@@ -2928,7 +2961,7 @@ const httpServer = Bun.serve({
           repo,
           workspaceLabel: config.respondsWorkspace,
           statePath,
-          skill: resolveLaunchSkillFor('respond', parsed.mrUrl, boardTabId),
+          skill: respondSkill,
           pack: launchPack(boardTabId),
           author,
           ...loadAgentSettings(),
@@ -3041,18 +3074,33 @@ const httpServer = Bun.serve({
           if (dedup.kind === 'refused')
             return new Response(dedup.reason, { status: 409 });
         }
+        const doctorSkill = resolveLaunchSkillFor(
+          'doctor',
+          parsed.mrUrl,
+          boardTabId
+        );
         // A rebase-only doctor with no domain skill has nothing that can
         // rebase in a checkout, and its empty allowlist rules out GitLab's
         // own rebase too, so it could only end in an error.
-        if (
-          parsed.mode === 'rebase' &&
-          !resolveLaunchSkillFor('doctor', parsed.mrUrl, boardTabId)
-        )
+        if (parsed.mode === 'rebase' && !doctorSkill)
           return new Response(
             'no doctor skill is set up for this board tab, so nothing can rebase in a checkout',
             { status: 409 }
           );
         const statePath = doctorFilePath(parsed.mrUrl);
+        const doctorRefusal = await skillBindRefusal(doctorSkill);
+        if (doctorRefusal) {
+          const message = launchErrorMessage('doctor', doctorRefusal);
+          writeDoctorState(statePath, {
+            mrUrl: parsed.mrUrl,
+            iid: parsed.iid,
+            status: 'error',
+            message,
+          });
+          return new Response(JSON.stringify({ ok: true, refused: message }), {
+            headers: { 'content-type': 'application/json' },
+          });
+        }
         let pausedTree: string | undefined;
         if (parsed.mode === 'rebase') {
           if (LOCAL_SYNCS.has(parsed.mrUrl))
@@ -3177,7 +3225,7 @@ const httpServer = Bun.serve({
           repo,
           workspaceLabel: config.doctorsWorkspace,
           statePath,
-          skill: resolveLaunchSkillFor('doctor', parsed.mrUrl, boardTabId),
+          skill: doctorSkill,
           pack: launchPack(boardTabId),
           author,
           ...loadAgentSettings(),

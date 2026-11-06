@@ -115,14 +115,43 @@ Resolution order in each wrapper:
 
 1. An explicit `--skill` flag, which is what the board injects (a tab's
    `reviewSkill` for review, then the pack binding, then `doctorSkill` for
-   doctor or nothing for review and respond). This always wins.
+   doctor or nothing for review and respond). This always wins, and it must
+   load: see "When the skill does not bind" below.
 2. With no `--skill`, the wrapper resolves its slot bindings from the nearest
    `.mattstack/skills.jsonc`, walking up from the working directory, then the
    per-pack file for the checkout's `origin` remote and `MATTSTACK_PACK`, then
    `~/.mattstack/skills.jsonc`.
 3. A failed resolution degrades loudly: the resolver prints machine-readable
    JSON errors and the wrapper never guesses a binding, before falling back to
-   the generic domain-free behavior.
+   the generic domain-free behavior. Only a run launched with no `--skill`
+   reaches this generic path.
+
+### When the skill does not bind
+
+Before any pane opens, the board resolves the lane's skill to its SKILL.md
+through `claude plugin list --json` (`src/skill-path.ts`). It looks for
+Claude Code at `CLAUDE_BIN` when that is set, else `claude` on PATH,
+`~/.local/bin/claude`, `~/.claude/local/claude`, `/opt/homebrew/bin/claude`
+and `/usr/local/bin/claude`. When the skill does not resolve, the launch is
+refused: no pane opens, the lane's last run stays on its row under an error
+naming the reason and the fix, and the launch toast shows the same text, for
+example `Couldn't load acme:board-review: Claude Code isn't at
+~/.local/bin/claude. Open Setup status to install it.` The reasons are
+Claude Code missing or failing, the plugin not installed, unreadable or
+turned off, the skill missing from the plugin, and a name that is not
+`<plugin>:<skill>`. An auto-doctor refused for a binding fault spends that
+pipeline's edge and sends one notification; one refused because Claude Code
+failed tries again on the next pass. A lane with no skill is never refused.
+
+The plugin list is read from the board's own folder, so a plugin enabled
+only in a repo's project settings reads as not installed: a bound plugin
+has to be installed at user scope.
+
+Inside the pane, each wrapper checks that the skill loaded (by name, or by
+reading `--skill-path`). When it did not (`Unknown skill`, an unreadable
+path), the wrapper writes the run's state as `error` with
+`Couldn't load <skill>: <loader message>`, prints that line in the pane, and
+ends the run. It never falls back to the resolver or the generic path.
 
 Slots and contracts:
 

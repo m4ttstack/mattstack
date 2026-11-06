@@ -12,7 +12,11 @@ import {
 import { respondReportPath } from './respond-state.ts';
 import { reviewReportPath } from './review-state.ts';
 import { shellSingleQuote } from './shell-quote.ts';
-import { resolveSkillPath } from './skill-path.ts';
+import {
+  resolveSkillPath,
+  SkillBindError,
+  type SkillPathResolution,
+} from './skill-path.ts';
 
 export type HerdrRunner = (args: string[]) => Promise<string>;
 
@@ -247,8 +251,8 @@ export function parseLaunchNote(
     lifecycle status, --re-review framing, and (for doctor) the fix-classes
     allowlist and branch-writing safeguards; a resolved path only tells it
     where to read the domain skill directly instead of resolving `--skill`
-    by name. Omitting `skillPath` reproduces the historical flag string
-    byte-for-byte, so the slash form never drifts when resolution fails. */
+    by name. Omitting `skillPath` (a launch with no `--skill`) reproduces the
+    historical flag string byte-for-byte. */
 function dispatchArgs(o: SkillPromptOpts, skillPath?: string | null): string {
   const parts = [o.mrUrl];
   const flag = (name: string, value?: string | null) => {
@@ -305,9 +309,9 @@ export function doctorPrompt(o: SkillPromptOpts): string {
   return buildSkillPrompt('board:doctor', o);
 }
 
-/** Resolves a skill name (e.g. "acme:board-review") to the absolute
-    path of its SKILL.md, or null when it can't be found (see skill-path.ts). */
-export type SkillPathResolver = (name: string) => Promise<string | null>;
+/** Resolves a skill name (e.g. "acme:board-review") to the absolute path of
+    its SKILL.md, or the reason it can't (see skill-path.ts). */
+export type SkillPathResolver = (name: string) => Promise<SkillPathResolution>;
 
 /**
  * Build the prompt a launched pane runs. The pane ALWAYS starts the generic
@@ -315,16 +319,13 @@ export type SkillPathResolver = (name: string) => Promise<string | null>;
  * writer of board lifecycle status and the sole carrier of --re-review
  * framing, the doctor fix-classes allowlist, and doctor's branch-writing
  * safeguards, none of which the domain skill it delegates to owns. When
- * `o.skill` resolves to a file (registered under skills/, or -- once
- * retired from a pack's public surface -- attachments/), this ADDS a
- * `--skill-path <path>` flag alongside the existing `--skill <name>` flag,
- * so the wrapper can read that skill directly instead of resolving `--skill`
- * by name (which only works for a registered skill).
+ * `o.skill` is set, it must resolve to a file (registered under skills/, or
+ * retired to attachments/): the prompt then carries `--skill-path <path>`
+ * alongside `--skill <name>`, so the wrapper reads that skill directly.
  *
- * Fail-open: an unset `o.skill`, or any resolution failure, omits
- * --skill-path and reproduces the historical flag string byte-for-byte
- * (buildSkillPrompt) -- the wrapper then falls back to its own binding
- * resolution, unchanged.
+ * Fail-closed: a set `o.skill` that does not resolve throws SkillBindError,
+ * so every launch refuses before any pane opens. An unset `o.skill` (a lane
+ * with no pack binding) keeps the plain flag string and the generic path.
  */
 export async function dispatchPrompt(
   wrapper: string,
@@ -333,18 +334,30 @@ export async function dispatchPrompt(
 ): Promise<string> {
   let skillPath: string | null = null;
   if (o.skill) {
-    skillPath = await resolvePath(o.skill);
-    if (skillPath) {
-      console.log(
-        `${wrapper} dispatch: --skill-path resolved -- "${o.skill}" -> ${skillPath}`
-      );
-    } else {
-      console.log(
-        `${wrapper} dispatch: no path resolved for "${o.skill}" -- --skill only`
-      );
+    const resolved = await resolvePath(o.skill);
+    if (!resolved.ok) {
+      const err = new SkillBindError(o.skill, resolved.failure);
+      console.error(`${wrapper} dispatch refused: ${err.message}`);
+      throw err;
     }
+    skillPath = resolved.path;
+    console.log(
+      `${wrapper} dispatch: --skill-path resolved -- "${o.skill}" -> ${skillPath}`
+    );
   }
   return withNote(`/${wrapper} ${dispatchArgs(o, skillPath)}`, o.note);
+}
+
+/** The refusal `dispatchPrompt` would throw for `skill`, or null when it
+    binds or is unset. A launch handler checks this before it overwrites the
+    lane's previous state, so a refused launch leaves that state intact. */
+export async function skillBindRefusal(
+  skill: string | undefined,
+  resolvePath: SkillPathResolver = resolveSkillPath
+): Promise<SkillBindError | null> {
+  if (!skill) return null;
+  const resolved = await resolvePath(skill);
+  return resolved.ok ? null : new SkillBindError(skill, resolved.failure);
 }
 
 /** The command a pane starts claude with. config.claudeCommand replaces plain
