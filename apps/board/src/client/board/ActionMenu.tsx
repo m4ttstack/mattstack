@@ -34,7 +34,7 @@ type FlyoutSection = Exclude<Section, 'top' | 'agent'>;
 /** A Record, so a new Section fails to compile until it has a flyout. Key
     order is the menu's order. */
 const FLYOUT: Record<FlyoutSection, [string, ActionGlyph]> = {
-  flock: ['open in flock', { kind: 'flock' }],
+  flock: ['flock', { kind: 'flock' }],
   sessions: ['all agent actions', { kind: 'agent' }],
   gitlab: ['gitlab', { kind: 'menu', name: 'branch' }],
   slack: ['slack', { kind: 'slack' }],

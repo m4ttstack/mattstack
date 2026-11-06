@@ -212,30 +212,13 @@ export function MenuGlyph({ kind }: { kind: keyof typeof MENU_PATHS }) {
   );
 }
 
-/** rt's mark as flock draws it: pink "rt" on plum, the same in every theme
-    (flock's RtBrand). */
+/** rt's monogram as flock's pane bar draws it: "rt" in a semibold
+    monospace face, in the row's own text colour. */
 export function RtMark() {
   return (
-    <svg
-      width={16}
-      height={13}
-      viewBox="0 0 16 13"
-      aria-hidden="true"
-      style={{ flexShrink: 0 }}
-    >
-      <rect width="16" height="13" rx="3" fill="#161224" />
-      <text
-        x="8"
-        y="9.6"
-        textAnchor="middle"
-        fontSize="9"
-        fontWeight="700"
-        fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-        fill="#ff6b9d"
-      >
-        rt
-      </text>
-    </svg>
+    <span className="tui-menu-rt" aria-hidden="true">
+      rt
+    </span>
   );
 }
 
