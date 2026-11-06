@@ -343,10 +343,20 @@ function hiddenLane(mr: BoardMRWithReview): Verb['domain'] | null {
 }
 
 /** A parked gate's pane may close; answering relaunches it, so that pane is
-    not an interruption to offer resume or redo on. */
+    not an interruption to offer resume or redo on. Only a gate the lane's
+    current run opened counts: a redo leaves the earlier run's parked gate
+    on the row until a newer gate of its kind replaces it. */
 function laneParked(mr: BoardMRWithReview, lane: Lane): boolean {
+  const run = lane === 'review' ? mr.review : mr.respond;
+  const runStart = Math.max(
+    (run && 'runStartedAt' in run ? run.runStartedAt : 0) ?? 0,
+    run?.startedAt ?? 0
+  );
   return mr.gates.some(
-    g => g.status === 'parked' && domainForKind(g.kind) === lane
+    g =>
+      g.status === 'parked' &&
+      domainForKind(g.kind) === lane &&
+      g.openedAt >= runStart
   );
 }
 

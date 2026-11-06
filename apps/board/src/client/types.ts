@@ -50,6 +50,8 @@ export interface ReviewInfo {
   sessionId?: string;
   tabId?: string;
   startedAt?: number;
+  /** When the current run began (a launch, a re-review or a redo). */
+  runStartedAt?: number;
   outcome?: string;
   /** Clock of the lane's last write, and of an operator dismissing its line
       (see laneDismissed): the row skips the lane while the stamp is the

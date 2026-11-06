@@ -156,6 +156,11 @@ export async function resumeParkedGate(
     resolvePath
   );
 
+  // Read before the relaunch: a pane that dies during it gets a gone onset
+  // after this, so it still interrupts the lane (see laneRunStart in
+  // data.ts). The write's updatedAt shares the value, and the row reads
+  // "resuming" until the pane's own first status write moves updatedAt past.
+  const now = (io.now ?? Date.now)();
   let result;
   try {
     result = await io.resumeAgentPane({
@@ -172,9 +177,6 @@ export async function resumeParkedGate(
     return false;
   }
   if (result.focusedExisting) return true;
-  // resumedAt shares the write's updatedAt clock: the row reads "resuming"
-  // until the pane's own first status write moves updatedAt past it.
-  const now = (io.now ?? Date.now)();
   try {
     kindIo.writeState(
       statePath,

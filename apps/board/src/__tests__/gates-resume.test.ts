@@ -217,6 +217,34 @@ describe('resumeParkedGate', () => {
     });
   });
 
+  test('resumedAt is read before the relaunch, so a pane that dies during it still interrupts the lane', async () => {
+    const states = new Map([[MR_URL, baseReview()]]);
+    const { io: reviewIo, calls: reviewCalls } = makeKindIo({
+      wrapper: 'review',
+      workspaceLabel: 'reviews',
+      resumedStatus: 'reviewing',
+      filePath: reviewFilePath,
+      states,
+    });
+    const { io: resumeIo } = fakeResumeIo({ 'review-post': reviewIo });
+    let clock = 10;
+    resumeIo.now = () => clock;
+    const relaunch = resumeIo.resumeAgentPane;
+    resumeIo.resumeAgentPane = async opts => {
+      clock = 500;
+      return relaunch(opts);
+    };
+
+    await resumeParkedGate(
+      baseGate({ agentId: 'agent-1' }),
+      resumeIo,
+      async () => null
+    );
+
+    expect(reviewCalls.writeState[0]!.patch.resumedAt).toBe(10);
+    expect(reviewCalls.writeState[0]!.now).toBe(10);
+  });
+
   test("respond-plan: rebuilds the /board:respond prompt against respond's own state file and workspace, settling into 'implementing'", async () => {
     const states = new Map([[MR_URL, baseReview({ agentId: 'agent-1' })]]);
     const { io: respondIo, calls: respondCalls } = makeKindIo({

@@ -661,6 +661,34 @@ describe('rowStatus: gates', () => {
     expect(s.more).toEqual([]);
   });
 
+  test("a parked gate from before the lane's current run does not hide its interruption", () => {
+    const s = rowStatus(
+      mr({
+        gates: [gate({ status: 'parked', openedAt: NOW - 60_000 })] as never,
+        review: {
+          status: 'reviewing',
+          sessionId: 'sess-1',
+          runStartedAt: NOW - 30_000,
+        },
+        orphan: {
+          agentId: 'ag-1',
+          repo: null,
+          subject: 'agent:ag-1',
+          surface: 'herdr',
+          sessionId: 'sess-1',
+          paneRef: null,
+          state: 'gone',
+          since: NOW,
+          openGateIds: [],
+        },
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(s.more.map(l => l.word)).toEqual(['review interrupted']);
+  });
+
   test('a review the board just resumed reads resuming until its pane writes', () => {
     const word = (review: Record<string, unknown>) =>
       rowStatus(mr({ review } as never), NOW, NONE, ME).line.word;
