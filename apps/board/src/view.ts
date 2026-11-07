@@ -1028,27 +1028,43 @@ export function serializeViewState(v: ViewState): string {
 }
 
 /** What each tab remembers for when you come back to it, keyed by tab id. */
-export type TabPicks = Record<string, Pick<ViewState, 'member'>>;
+export type TabPick = Pick<ViewState, 'member' | 'off' | 'ownOff'>;
+export type TabPicks = Record<string, TabPick>;
+
+function showItemsOf(raw: unknown): ShowItem[] | null {
+  return Array.isArray(raw) ? SHOW_ITEMS.filter(i => raw.includes(i)) : null;
+}
 
 /** Stored tab picks, dropping any entry that is not the expected shape. */
 export function parseTabPicks(raw: unknown): TabPicks {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
   const picks: TabPicks = {};
   for (const [tab, entry] of Object.entries(raw)) {
-    const member = (entry as { member?: unknown } | null)?.member;
-    if (typeof member === 'string') picks[tab] = { member };
+    const e = entry as Partial<Record<keyof TabPick, unknown>> | null;
+    const off = showItemsOf(e?.off);
+    const ownOff = showItemsOf(e?.ownOff);
+    if (typeof e?.member === 'string' && off && ownOff)
+      picks[tab] = { member: e.member, off, ownOff };
   }
   return picks;
 }
 
 /** The picks a tab switch lands on: the target tab's remembered ones, with
     the tab being left remembered in turn. A tab never visited opens on
-    everyone. */
+    everyone, starting from the badge filters in force. */
 export function picksOnTabSwitch(
-  state: Pick<ViewState, 'tab' | 'member'>,
+  state: Pick<ViewState, 'tab'> & TabPick,
   tab: string,
   memory: TabPicks
-): { picks: Pick<ViewState, 'member'>; memory: TabPicks } {
-  const next = { ...memory, [state.tab]: { member: state.member } };
-  return { picks: { member: next[tab]?.member ?? 'all' }, memory: next };
+): { picks: TabPick; memory: TabPicks } {
+  const leaving = {
+    member: state.member,
+    off: state.off,
+    ownOff: state.ownOff,
+  };
+  const next = { ...memory, [state.tab]: leaving };
+  return {
+    picks: next[tab] ?? { ...leaving, member: 'all' },
+    memory: next,
+  };
 }
