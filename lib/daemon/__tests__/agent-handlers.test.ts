@@ -110,6 +110,7 @@ function fresh(over: {
   lifecycle?: FakeLifecycle;
   locate?: (sessionId: string, preferredAccount: string | undefined) => Promise<import("../../agent-adopt.ts").TranscriptHit | null>;
   startHerdr?: () => Promise<HerdrStartResult>;
+  resolveNodePin?: (cwd: string) => import("../../agent-argv/index.ts").NodePin | undefined;
 } = {}) {
   const db = openStateDb(join(tmpdir(), `agent-h-${process.pid}-${n++}.db`));
   // Handlers no longer expose `db` (R028); tests that need to reach the
@@ -128,6 +129,7 @@ function fresh(over: {
     lifecycle: over.lifecycle,
     locateTranscript: over.locate,
     startHerdr: over.startHerdr,
+    resolveNodePin: over.resolveNodePin ?? (() => undefined),
   }), { db });
 }
 
@@ -584,6 +586,19 @@ test("agent:resume honors workspace and tab overrides", async () => {
   const tabArg = calls.find((c) => c[0] === "tab" && c[1] === "rename")?.[3]
     ?? calls.find((c) => c[0] === "tab" && c[1] === "create")?.[5];
   expect(tabArg).toBe("⟲ !5");
+});
+
+test("agent:start and resume put the repo's .nvmrc node on the pane's PATH", async () => {
+  const calls: string[][] = [];
+  const seen: string[] = [];
+  const h = fresh({ runner: okRunner(calls), resolveNodePin: (cwd) => (seen.push(cwd), { kind: "bin", dir: "/nvm/v22.23.4/bin" }) });
+  const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" });
+  if (!started.ok) throw new Error("unreachable");
+  expect(calls.find((c) => c[0] === "pane" && c[1] === "run")?.[3]).toContain(`PATH='/nvm/v22.23.4/bin':"$PATH" claude`);
+  calls.length = 0;
+  expect((await h["agent:resume"]({ id: started.data.id })).ok).toBe(true);
+  expect(calls.find((c) => c[0] === "pane" && c[1] === "run")?.[3]).toContain(`PATH='/nvm/v22.23.4/bin':"$PATH" claude`);
+  expect(seen).toEqual(["/tmp/x", "/tmp/x"]);
 });
 
 test("agent:resume passes env into the pane command; a resume without env carries none of the start's other env", async () => {

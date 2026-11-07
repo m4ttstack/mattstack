@@ -7,6 +7,7 @@ export * from "./types.ts";
 export * from "./claude.ts";
 export * from "./codex.ts";
 export * from "./prompt-file.ts";
+export * from "./node-pin.ts";
 
 import type { AgentInvocation, AgentProvider } from "./types.ts";
 import { buildClaudeArgv, buildPaneCommand as buildClaudePaneCommand } from "./claude.ts";

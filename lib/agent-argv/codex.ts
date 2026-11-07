@@ -16,6 +16,7 @@
 import { homedir } from "os";
 import { join } from "path";
 import { shellSingleQuote } from "./claude.ts";
+import { nodePinShell } from "./node-pin.ts";
 import type { AgentInvocation } from "./types.ts";
 
 export function resolveCodexBin(): string {
@@ -62,6 +63,7 @@ export function buildCodexPaneCommand(cwd: string, inv: AgentInvocation): string
     ? ["codex", ...flags]
     : ["codex", "resume", ...flags, shellSingleQuote(inv.session.sessionId)];
   const tail = inv.prompt ? [shellSingleQuote(inv.prompt)] : [];
-  const env = Object.entries(inv.env ?? {}).map(([k, v]) => `${k}=${shellSingleQuote(v)}`);
-  return `cd ${shellSingleQuote(cwd)} && ${[...env, ...head, ...tail].join(" ")}`;
+  const pin = nodePinShell(inv.nodePin);
+  const env = [...Object.entries(inv.env ?? {}).map(([k, v]) => `${k}=${shellSingleQuote(v)}`), ...pin.env];
+  return `cd ${shellSingleQuote(cwd)} && ${pin.lead}${[...env, ...head, ...tail].join(" ")}`;
 }

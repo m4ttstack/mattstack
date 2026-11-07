@@ -14,7 +14,7 @@ import { join } from "path";
 
 import { errText, plural } from "../commands/git/shared.ts";
 import type { RebaseResult } from "../commands/git/rebase.ts";
-import { buildPaneCommand, writePromptFile } from "./agent-argv/index.ts";
+import { buildPaneCommand, resolveNodePin, writePromptFile } from "./agent-argv/index.ts";
 import { defaultHerdrRunner, herdrAgentWait, launchInWorkspace, type HerdrRunner } from "./agent-herdr.ts";
 import { getCurrentBranch, hasUncommittedChanges } from "./git-ops.ts";
 import { syncLog } from "./sync-log.ts";
@@ -262,9 +262,11 @@ export async function runEscalationFlow(opts: {
   try {
     const taskPath = writeTaskFile(opts.dataDir, renderAgentTask(bundle, cwd));
     const sessionId = crypto.randomUUID();
+    const nodePin = resolveNodePin(cwd);
     const paneCommand = buildPaneCommand(cwd, {
       session: { kind: "start", sessionId },
       headless: false,
+      ...(nodePin !== undefined && { nodePin }),
       prompt: `Read ${taskPath} and complete the task it describes.`,
     });
     const launched = await launchInWorkspace(

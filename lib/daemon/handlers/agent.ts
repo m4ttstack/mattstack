@@ -28,7 +28,7 @@ import {
   deleteAgent, finishAgent, getAgent, identityName, insertAgent, isValidChatName, listAgents, markAgentResumed,
   newAgentId, reserveAgentHandle, updateAgentPack, updateAgentPane, updateAgentSessionId, type AgentRecord, type AgentSurface,
 } from "../../state/index.ts";
-import { buildAgentArgv, buildAgentPaneCommand, CROSS_SESSION_INBOUND_SETTINGS, pointerPrompt, writePromptFile, type AgentInvocation, type AgentProvider } from "../../agent-argv/index.ts";
+import { buildAgentArgv, buildAgentPaneCommand, CROSS_SESSION_INBOUND_SETTINGS, pointerPrompt, resolveNodePin, writePromptFile, type AgentInvocation, type AgentProvider, type NodePin } from "../../agent-argv/index.ts";
 import { locateTranscript as defaultLocateTranscript, type TranscriptHit } from "../../agent-adopt.ts";
 import { cswapAccountNumbers } from "../../cswap.ts";
 import { mergeGateForkHookSettings, resolveGateForkHookPath } from "../../agent-hooks.ts";
@@ -425,6 +425,8 @@ export function createAgentHandlers(opts: {
   /** Absent, a launch onto the visible server starts nothing: only the
       daemon and the in-process fallback pass the real starter. */
   startHerdr?: () => Promise<HerdrStartResult>;
+  /** Picks the repo's .nvmrc Node for a pane; tests pass a fake. */
+  resolveNodePin?: (cwd: string) => NodePin | undefined;
 }):
   // Direct `unknown`-payload members, not `Pick<TypedHandlers, ...>`: a wider
   // `unknown` param still satisfies TypedHandlers' narrower one at the
@@ -464,6 +466,8 @@ export function createAgentHandlers(opts: {
     };
     const settingsPath = resolveHookSettingsPath(rec, log);
     const { prompt: resolvedPrompt, addDirs } = resolveHerdrPrompt(rec, prompt);
+    const nodePin = rec.surface === "herdr" ? (opts.resolveNodePin ?? resolveNodePin)(rec.cwd) : undefined;
+    if (nodePin?.kind === "missing") log.warn({ cwd: rec.cwd, version: nodePin.version }, "nvm has not installed the node in .nvmrc");
 
     const inv: AgentInvocation = {
       session,
@@ -479,6 +483,7 @@ export function createAgentHandlers(opts: {
       // env into (see the payload.env rejection above); its gate env instead
       // rides the spawnHeadless call itself, below.
       ...(rec.surface === "herdr" && { env: { ...extra.env, ...gateEnv } }),
+      ...(nodePin !== undefined && { nodePin }),
       ...(settingsPath !== undefined && { settingsPath }),
       ...(addDirs !== undefined && { addDirs }),
     };
