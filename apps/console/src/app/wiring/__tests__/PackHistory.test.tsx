@@ -137,7 +137,7 @@ describe('the Changes sidebar: unsynced changes', () => {
     expect(commitsInUrl()).toBe(WORKING);
   });
 
-  it('opens on the unsynced changes, a card above the committed log', async () => {
+  it('opens on the unsynced changes, a row above the committed log', async () => {
     summary.current = { count: 2, trial: null };
     renderWithProviders(<HistorySidebar pack="acme" />);
 
@@ -149,13 +149,8 @@ describe('the Changes sidebar: unsynced changes', () => {
     expect(working).toHaveAttribute('data-selected', 'true');
     expect(working).toHaveAttribute('aria-pressed', 'true');
 
-    const list = screen.getByTestId('commit-list');
-    const label = within(list).getByText('Committed');
     expect(
-      working.compareDocumentPosition(label) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-    expect(
-      label.compareDocumentPosition(row(NEWEST)) &
+      working.compareDocumentPosition(row(NEWEST)) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
   });
@@ -169,12 +164,11 @@ describe('the Changes sidebar: unsynced changes', () => {
     expect(working).toHaveTextContent('to sync to block-packs');
   });
 
-  it('draws no card and no Committed label when the pack is clean, and opens on the newest commit', async () => {
+  it('hides the unsynced row when the pack is clean, and opens on the newest commit', async () => {
     renderWithProviders(<HistorySidebar pack="acme" />);
 
     await waitFor(() => expect(commitsInUrl()).toBe(NEWEST.sha));
-    expect(screen.queryByTestId('commit-working')).not.toBeInTheDocument();
-    expect(screen.queryByText('Committed')).not.toBeInTheDocument();
+    expect(screen.getByTestId('commit-working')).not.toBeVisible();
   });
 
   it('selects the card from a commit, and leaves it for a commit alone, never a compare', async () => {

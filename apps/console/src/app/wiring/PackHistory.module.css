@@ -152,102 +152,12 @@
   text-align: center;
 }
 
-/* The working tree's row is no commit: a card inset from the log holding a
-   warm mark and a heavier title; a label then starts the log. It keeps its
-   own colour when picked: neutral at rest, its status warmth when picked,
-   rather than the blue the commits take. */
-.row.working {
-  flex-direction: row;
-  align-items: center;
-  gap: 10px;
-  width: auto;
-  margin: 10px 10px 2px;
-  padding: 10px 12px;
-  border: 1px solid var(--tk-border);
-  border-radius: 8px;
-  background-color: var(--tk-card);
-}
-
-@media (hover: hover) {
-  .row.working:hover {
-    background-color: color-mix(
-      in srgb,
-      var(--tk-fill-warn) 5%,
-      var(--tk-card)
-    );
-  }
-}
-
-.row.working[data-selected] {
-  border-color: color-mix(in srgb, var(--tk-fill-warn) 55%, transparent);
-  box-shadow: none;
-  background-color: color-mix(in srgb, var(--tk-fill-warn) 10%, var(--tk-card));
-}
-
-/* Picked, it carries the commits' blue mark on the list's own left edge, out
-   past the card's margin and border, level with the card's straight edge:
-   it starts and ends where the card's 8px corners do. */
-.row.working {
-  position: relative;
-}
-
-.row.working[data-selected]::before {
-  content: '';
-  position: absolute;
-  inset-block: 7px;
-  left: -11px;
-  width: 2px;
-  background: var(--tk-fill-accent);
-}
-
-.workingMark {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  color: var(--tk-text-warn);
-  background: color-mix(
-    in srgb,
-    var(--tk-fill-warn) var(--ui-tint),
-    transparent
-  );
-}
-
-.workingText {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.workingTitle {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--tk-text-1);
-}
-
-.workingCount {
-  color: var(--tk-text-warn);
-  font-weight: 500;
-}
-
-.section {
-  padding: 10px 14px 4px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--tk-text-3);
-}
-
 .clear {
   margin-left: auto;
 }
 
-/* What the next compile would rewrite: a row in the log, set apart by a
-   warm wash and its own mark, picked like the working tree's row. */
+/* Rows that are no commit (the unsynced changes, what the next compile
+   would rewrite): set apart by a warm wash and their own mark. */
 .row.compile {
   background-color: color-mix(
     in srgb,
@@ -260,6 +170,11 @@
   .row.compile:hover {
     background-color: color-mix(in srgb, var(--tk-fill-warn) 14%, transparent);
   }
+}
+
+/* Picked, it keeps its warmth, deeper, with the commits' blue edge. */
+.row.compile[data-selected] {
+  background-color: color-mix(in srgb, var(--tk-fill-warn) 18%, transparent);
 }
 
 .compileHead {

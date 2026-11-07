@@ -190,12 +190,12 @@ describe('UnsyncedActions', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  it('offers Discard and Publish, with no trial badge off a trial branch', async () => {
+  it('offers Publish, and no Discard, with no trial badge off a trial branch', async () => {
     render(<UnsyncedActions pack="acme" />);
     const root = await actions();
 
-    expect(button(root, 'Discard')).toBeEnabled();
     expect(button(root, 'Publish')).toBeEnabled();
+    expect(within(root).queryByRole('button', { name: 'Discard' })).toBeNull();
     expect(within(root).queryByTestId('unsynced-trial')).toBeNull();
   });
 
@@ -231,7 +231,6 @@ describe('UnsyncedActions', () => {
     const root = await actions();
 
     expect(button(root, 'Publish')).toBeDisabled();
-    expect(button(root, 'Discard')).toBeEnabled();
     await userEvent.hover(button(root, 'Publish').parentElement!);
     expect(
       await screen.findByText('Compile the pack first')
@@ -250,7 +249,6 @@ describe('UnsyncedActions', () => {
     const root = await actions();
 
     expect(button(root, 'Publish')).toBeDisabled();
-    expect(button(root, 'Discard')).toBeEnabled();
     await userEvent.hover(button(root, 'Publish').parentElement!);
     expect(
       await screen.findByText(
@@ -398,15 +396,14 @@ describe('Publish', () => {
     expect(await screen.findByText('rt is not installed')).toBeInTheDocument();
   });
 
-  it('holds both buttons while it runs', async () => {
+  it('holds Publish while it runs', async () => {
     const sync = held();
     syncPost.mockReturnValue(sync.promise);
     render(<UnsyncedActions pack="acme" />);
     await userEvent.click(button(await openPublish(), 'Publish'));
     const root = await actions();
 
-    await waitFor(() => expect(button(root, 'Discard')).toBeDisabled());
-    expect(button(root, 'Publish')).toBeDisabled();
+    await waitFor(() => expect(button(root, 'Publish')).toBeDisabled());
     expect(button(root, 'Publish')).toHaveAttribute('data-loading');
 
     serveChanges(designFixture('changes.clean'));
@@ -486,89 +483,9 @@ describe('Publish', () => {
     });
 
     await waitFor(() => expect(button(root, 'Publish')).toBeDisabled());
-    expect(button(root, 'Discard')).toBeDisabled();
 
     await act(async () => end());
     await waitFor(() => expect(button(root, 'Publish')).toBeEnabled());
-  });
-});
-
-describe('Discard', () => {
-  it('confirms destructively before it throws anything away', async () => {
-    render(<UnsyncedActions pack="acme" />);
-    await userEvent.click(button(await actions(), 'Discard'));
-
-    const confirm = await dialog('Discard 1 change?');
-    expect(confirm).toHaveTextContent(
-      'This throws away this change in acme. It cannot be undone.'
-    );
-    expect(within(confirm).getByText(REBIND)).toBeInTheDocument();
-    expect(button(confirm, 'Discard').getAttribute('style')).toMatch(/red/);
-    expect(discardPost).not.toHaveBeenCalled();
-
-    await userEvent.click(button(confirm, 'Discard'));
-
-    await waitFor(() =>
-      expect(discardPost).toHaveBeenCalledWith({
-        json: {
-          pack: 'acme',
-          expect: designFixture('changes.unsynced').signature,
-        },
-      })
-    );
-    expect(
-      await screen.findByText('Discarded the unsynced changes in acme')
-    ).toBeInTheDocument();
-  });
-
-  it('lists every change in its confirm', async () => {
-    serveChanges(FOUR_FILES);
-    render(<UnsyncedActions pack="acme" />);
-    await userEvent.click(button(await actions(), 'Discard'));
-
-    const confirm = await dialog('Discard 4 changes?');
-    expect(confirm).toHaveTextContent(
-      'This throws away these 4 changes in acme. It cannot be undone.'
-    );
-    for (const path of FOUR_PATHS)
-      expect(within(confirm).getByText(path)).toBeInTheDocument();
-  });
-
-  it('throws nothing away when the pack changed while its confirm was open', async () => {
-    render(<UnsyncedActions pack="acme" />);
-    await userEvent.click(button(await actions(), 'Discard'));
-    const confirm = await dialog('Discard 1 change?');
-    serveChanges(withNotes(designFixture('changes.unsynced')));
-
-    await userEvent.click(button(confirm, 'Discard'));
-
-    expect(await screen.findByText(CHANGED)).toBeInTheDocument();
-    expect(discardPost).not.toHaveBeenCalled();
-  });
-
-  it("throws nothing away when a listed file's content changed while its confirm was open", async () => {
-    render(<UnsyncedActions pack="acme" />);
-    await userEvent.click(button(await actions(), 'Discard'));
-    const confirm = await dialog('Discard 1 change?');
-    serveChanges(edited(designFixture('changes.unsynced')));
-
-    await userEvent.click(button(confirm, 'Discard'));
-
-    expect(await screen.findByText(CHANGED)).toBeInTheDocument();
-    expect(discardPost).not.toHaveBeenCalled();
-  });
-
-  it('shows the error when rt refuses to discard', async () => {
-    discardPost.mockResolvedValue(
-      ok({ error: 'pack acme is in the shared checkout' }, 400)
-    );
-    render(<UnsyncedActions pack="acme" />);
-    await userEvent.click(button(await actions(), 'Discard'));
-    await userEvent.click(button(await dialog('Discard 1 change?'), 'Discard'));
-
-    expect(
-      await screen.findByText('pack acme is in the shared checkout')
-    ).toBeInTheDocument();
   });
 });
 
