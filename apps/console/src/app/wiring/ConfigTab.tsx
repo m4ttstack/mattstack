@@ -167,9 +167,12 @@ function PackStatusBar({
               Claude has an older version
             </span>
             <Button
-              color="accent"
-              size="compact-sm"
-              leftSection={<Icon name="fileCog" size={13} />}
+              color="warn"
+              size="sm"
+              h={32}
+              px={14}
+              fz={13}
+              leftSection={<Icon name="fileCog" size={14} />}
               loading={compile.isPending}
               disabled={writing}
               onClick={runCompile}
