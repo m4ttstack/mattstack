@@ -27,7 +27,8 @@ function fake(opts: { signedIn?: boolean; closeData?: unknown; fail?: string; re
     slackRequest: answer("slackRequest", { gateId: "gate-1", question: FORM }),
     slackResume: answer("slackResume", { gateId: "gate-2", question: FORM }),
     serverCwd: () => "/work/app",
-    repoOf: (cwd) => (cwd === "/work/app" ? (opts.repo === undefined ? "github.com/acme/app" : opts.repo) : null),
+    repoOf: (cwd) => (cwd === "/work/app" ? (opts.repo === undefined ? "github.com/acme/app" : opts.repo) : cwd === "/work/other" ? "github.com/acme/other" : null),
+    isDir: (p) => p.startsWith("/work/"),
   };
   const tools = chatToolDefs(deps);
   return { calls, setAnswer: (fn: string, data: unknown) => void ((deps as any)[fn] = answer(fn, data)), tool: (name: string) => tools.find((t) => t.name === name)! };
@@ -81,12 +82,28 @@ describe("Slack pane tools", () => {
   test("chat_slack_request sends the brief and the caller's session and handle", async () => {
     const f = fake();
     const tool = f.tool("chat_slack_request");
-    expect(Object.keys((tool.inputSchema as any).properties).sort()).toEqual(["brief", "person"]);
+    expect(Object.keys((tool.inputSchema as any).properties).sort()).toEqual(["brief", "cwd", "person"]);
     const r = await tool.handler({ person: "alex", brief: "Export hangs", requesterSession: "evil", requesterHandle: "mallory", repo: "x" }, ENV);
     expect(r).toEqual({ ok: true, body: { gateId: "gate-1", question: FORM } });
     expect(f.calls).toEqual([
       { fn: "slackRequest", a: { person: "alex", brief: "Export hangs", requesterSession: "s1", requesterHandle: "support", repo: "github.com/acme/app" } },
     ]);
+  });
+
+  test("chat_slack_request takes the repo from cwd when the session works in another checkout", async () => {
+    const f = fake();
+    await f.tool("chat_slack_request").handler({ person: "alex", brief: "b", cwd: "/work/other" }, ENV);
+    expect(f.calls).toEqual([
+      { fn: "slackRequest", a: { person: "alex", brief: "b", requesterSession: "s1", requesterHandle: "support", repo: "github.com/acme/other" } },
+    ]);
+  });
+
+  test("chat_slack_request refuses a cwd that is not an absolute directory", async () => {
+    const f = fake();
+    for (const cwd of ["relative/path", "/nowhere", 3]) {
+      expect((await f.tool("chat_slack_request").handler({ person: "alex", brief: "b", cwd }, ENV)).ok).toBe(false);
+    }
+    expect(f.calls).toEqual([]);
   });
 
   test("chat_slack_request passes candidates on so the requester can ask which one", async () => {

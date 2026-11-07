@@ -3537,7 +3537,7 @@ List the Slack support chats that are open on this machine, with their room, pan
 ### chat_slack_request
 
 <!-- mcp-lint: allow -->
-Ask the operator to approve a Slack support chat with a teammate, and return the gate's id and its question; the chat starts only if the operator approves, and milestones arrive here afterward. Show question with AskUserQuestion, its label as the question and each option's label as an option, single choice and word for word, and never answer the gate yourself. person is the teammate's Slack name or id; brief says who the teammate is, what the problem is, what sorted means and what is already known. The result is candidates instead when the name matches several people: ask the operator which one, then call again with that person's id. Runs from inside a repo, which the chat's agent starts in. Requires a signed-in chat session; call chat_sign_in first.
+Ask the operator to approve a Slack support chat with a teammate, and return the gate's id and its question; the chat starts only if the operator approves, and milestones arrive here afterward. Show question with AskUserQuestion, its label as the question and each option's label as an option, single choice and word for word, and never answer the gate yourself. person is the teammate's Slack name or id; brief says who the teammate is, what the problem is, what sorted means and what is already known. The result is candidates instead when the name matches several people: ask the operator which one, then call again with that person's id. Runs from inside a repo, which the chat's agent starts in; cwd is the checkout this session works in (the server's own directory is fixed at session start). Requires a signed-in chat session; call chat_sign_in first.
 
 ```json
 {
@@ -3547,6 +3547,9 @@ Ask the operator to approve a Slack support chat with a teammate, and return the
       "type": "string"
     },
     "brief": {
+      "type": "string"
+    },
+    "cwd": {
       "type": "string"
     }
   },

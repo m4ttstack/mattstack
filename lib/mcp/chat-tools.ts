@@ -427,15 +427,15 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
     },
     {
       name: "chat_slack_request",
-      description: "Ask the operator to approve a Slack support chat with a teammate, and return the gate's id and its question; the chat starts only if the operator approves, and milestones arrive here afterward. Show question with AskUserQuestion, its label as the question and each option's label as an option, single choice and word for word, and never answer the gate yourself. person is the teammate's Slack name or id; brief says who the teammate is, what the problem is, what sorted means and what is already known. The result is candidates instead when the name matches several people: ask the operator which one, then call again with that person's id. Runs from inside a repo, which the chat's agent starts in. Requires a signed-in chat session; call chat_sign_in first.",
-      inputSchema: { type: "object", properties: { person: { type: "string" }, brief: { type: "string" } }, required: ["person", "brief"], additionalProperties: false },
+      description: "Ask the operator to approve a Slack support chat with a teammate, and return the gate's id and its question; the chat starts only if the operator approves, and milestones arrive here afterward. Show question with AskUserQuestion, its label as the question and each option's label as an option, single choice and word for word, and never answer the gate yourself. person is the teammate's Slack name or id; brief says who the teammate is, what the problem is, what sorted means and what is already known. The result is candidates instead when the name matches several people: ask the operator which one, then call again with that person's id. Runs from inside a repo, which the chat's agent starts in; cwd is the checkout this session works in (the server's own directory is fixed at session start). Requires a signed-in chat session; call chat_sign_in first.",
+      inputSchema: { type: "object", properties: { person: { type: "string" }, brief: { type: "string" }, cwd: { type: "string" } }, required: ["person", "brief"], additionalProperties: false },
       shellForms: ["rt chat slack-request"],
       async handler(input, env) {
         const id = await handleOf(env);
         if ("error" in id) return err(id.error);
-        const bad = checkRequired(input, [{ name: "person", type: "string" }, { name: "brief", type: "string" }]);
+        const bad = checkRequired(input, [{ name: "person", type: "string" }, { name: "brief", type: "string" }]) ?? checkCwd(input, deps.isDir);
         if (bad) return err(bad);
-        const cwd = deps.serverCwd();
+        const cwd = (input.cwd as string | undefined) ?? deps.serverCwd();
         const repo = cwd ? deps.repoOf(cwd) : null;
         if (!repo) return err("A Slack chat starts from inside a repo, and this session's folder is not in one");
         return fromResponse(await deps.slackRequest({
