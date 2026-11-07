@@ -201,21 +201,28 @@ export function DraftEditor({
 
   return (
     <Stack ref={root} gap={10} onKeyDown={onKeyDown}>
-      {showsDefault && (
-        <Alert
-          variant="tint-outline"
-          color="accent"
-          icon={<Icons.info size={16} />}
-          title="Default value"
-          data-testid="draft-default-note"
-        >
-          <Text fz={13}>
-            {`Not set anywhere, so this is the default. A change saves to ${saveTarget(targetLabel)}`}
-          </Text>
-        </Alert>
-      )}
       <PanelToolbar>
-        <Group justify="flex-end" wrap="nowrap" gap={8}>
+        <Group
+          justify={showsDefault ? 'space-between' : 'flex-end'}
+          wrap="nowrap"
+          gap={8}
+        >
+          {showsDefault && (
+            <Alert
+              variant="tint"
+              color="accent"
+              icon={<Icons.info size={14} />}
+              w="fit-content"
+              py={4}
+              px={10}
+              styles={{ icon: { marginInlineEnd: 6 } }}
+              data-testid="draft-default-note"
+            >
+              <Text fz={12}>
+                {`Default value, not set anywhere. A change saves to ${saveTarget(targetLabel)}`}
+              </Text>
+            </Alert>
+          )}
           {(form || onForm || replaceWith) && (
             <Group gap={8} wrap="nowrap">
               {form && mode === 'json' && !fits && (
