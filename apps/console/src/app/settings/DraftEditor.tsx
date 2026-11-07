@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Group, Stack, Text } from '@mattstack/app-kit/core';
+import { Alert, Button, Group, Stack, Text } from '@mattstack/app-kit/core';
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
+import { Icons } from '@mattstack/app-kit/icons';
 import { modals } from '@mattstack/app-kit/modals';
 import type { SettingDefWire } from '@mattstack/settings-kit/react';
 import { checkValue, type SchemaIssue } from '@mattstack/settings-kit/shapes';
@@ -201,9 +202,17 @@ export function DraftEditor({
   return (
     <Stack ref={root} gap={10} onKeyDown={onKeyDown}>
       {showsDefault && (
-        <Text fz={12} c={colors.muted} data-testid="draft-default-note">
-          {`Not set anywhere, so this is the default. A change saves to ${saveTarget(targetLabel)}`}
-        </Text>
+        <Alert
+          variant="tint-outline"
+          color="accent"
+          icon={<Icons.info size={16} />}
+          title="Default value"
+          data-testid="draft-default-note"
+        >
+          <Text fz={13}>
+            {`Not set anywhere, so this is the default. A change saves to ${saveTarget(targetLabel)}`}
+          </Text>
+        </Alert>
       )}
       <PanelToolbar>
         <Group justify="flex-end" wrap="nowrap" gap={8}>
