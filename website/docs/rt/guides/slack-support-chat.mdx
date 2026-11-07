@@ -36,6 +36,12 @@ Do this once for your Slack app and once on each Mac that opens chats.
    herdr plugin install m4ttstack/mattstack/plugins/herdr-chat
    ```
 
+5. To file tickets in Linear, store a Linear API key scoped to your SUPPORT team:
+
+   ```bash
+   rt secrets set rt linearSupportApiKey
+   ```
+
 You don't need to sign the pane in to rt chat first: `/slack-support` signs it in. See the [chat guide](/rt/guides/chat).
 
 ## Open a chat
@@ -52,7 +58,9 @@ Put a full name in quotes:
 /slack-support "Alex Example" the printer won't print
 ```
 
-The pane writes a short brief, then sends the teammate a first message. Only you can open a chat: no model tool does it, and a teammate cannot ask for one.
+The pane writes a short brief, then sends the teammate a first message.
+
+You approve every chat. Any Claude pane can ask for one with the `chat_slack_request` tool. The pane shows you the question as a form, and the request also waits on the console's **Slack gates** page. The chat opens only when you approve it, and a background agent then holds the DM and tells the asking pane how it goes. A teammate who sends you a message starting with the bot's trigger is offered as a new chat for you to approve.
 
 You can also use the **On** control in the pane's Slack support action, which types the command for you. **Off** closes the chat. That action isn't in the herdr chat launcher, so [bind it to a key](/skills/herdr-chat#bind-keys).
 
@@ -71,8 +79,12 @@ You can also use the **On** control in the pane's Slack support action, which ty
 - You can close it with **Off**.
 - Ending the pane's Claude session closes it at once: exiting, closing the pane, `/clear`, `/resume`, or signing the pane out of chat. There is no farewell. rt tells the teammate you will follow up, and sends you a desk notification.
 
-On close the pane sends a short farewell, and rt adds a fixed line saying anything further goes to you. The pane then sends you a message with the outcome and any ticket paths. After that, what the teammate sends is an ordinary DM to you.
+On close the pane sends a short farewell, and rt adds a fixed line saying anything further goes to you. The pane then sends you a message with the outcome and any tickets it filed. After that, what the teammate sends is an ordinary DM to you.
+
+## Pick a chat back up
+
+A closed chat keeps its agent for 60 minutes. In that time, a teammate message that starts with the bot's trigger asks you whether to resume. You can resume any closed chat yourself at any time, from **Resume** in the chat viewer's closed thread, and a pane can ask with the `chat_slack_resume` tool, which waits for your approval like a new request. A resumed chat reuses the agent if it is still running, or starts a fresh one that sees the earlier tickets.
 
 ## Tickets
 
-When a teammate reports a bug or asks for a feature, the pane writes a ticket as a markdown file in `~/.mattstack/chat/support-tickets/`. Each file has the problem, the idea or fix, acceptance points and where it came from. Review and promote them by hand. The pane creates nothing in Linear or any other tracker.
+When a teammate reports a bug or asks for a feature, the pane files it in your Linear SUPPORT team with the `chat_slack_ticket` tool. Each ticket has the problem, the idea or fix, acceptance points and where it came from. The pane tells the teammate it was written up, but never sends the ticket's id or link to Slack. The asking pane hears about each ticket.
