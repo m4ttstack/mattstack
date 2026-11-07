@@ -68,10 +68,13 @@ export function DraftEditor({
   onSave,
   onCancel,
   onForm,
+  showsDefault = false,
 }: {
   def: SettingDefWire;
   form: FormShape | null;
   initial: unknown;
+  /** `initial` is the registered default because no layer sets the key. */
+  showsDefault?: boolean;
   startIn?: EditMode;
   onMode?: (mode: EditMode) => void;
   targetLabel: string;
@@ -197,6 +200,11 @@ export function DraftEditor({
 
   return (
     <Stack ref={root} gap={10} onKeyDown={onKeyDown}>
+      {showsDefault && (
+        <Text fz={12} c={colors.muted} data-testid="draft-default-note">
+          {`Not set anywhere, so this is the default. A change saves to ${saveTarget(targetLabel)}`}
+        </Text>
+      )}
       <PanelToolbar>
         <Group justify="flex-end" wrap="nowrap" gap={8}>
           {(form || onForm || replaceWith) && (

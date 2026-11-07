@@ -982,8 +982,9 @@ export function rowSummary(def: SettingDefWire): string {
 
 /** A form or JSON draft over the target layer's own value. A deep or add
     key's draft starts from that layer's authored value, never the merged
-    view, so defaults and other layers are never copied into it; a replace
-    key starts from the value in effect, as the list editors do. */
+    view, so other layers are never copied into it; a replace key starts
+    from the value in effect, as the list editors do. A key no layer sets
+    starts from its default, so an untouched panel never reads as empty. */
 function DraftBody({
   def,
   row,
@@ -1021,9 +1022,12 @@ function DraftBody({
         )}
       </Body>
     );
-  const initial = layered
+  const own = layered
     ? explained.rows.find(r => r.scope === at && r.present)?.value
     : def.effective.value;
+  const showsDefault =
+    def.effective.scope === 'default' && def.effective.value !== undefined;
+  const initial = showsDefault ? def.effective.value : own;
   return (
     <Body>
       <DraftEditor
@@ -1031,6 +1035,7 @@ function DraftBody({
         def={def}
         form={form}
         initial={initial}
+        showsDefault={showsDefault}
         startIn={mode}
         onMode={setMode}
         targetLabel={targetLabel(row.target, team, org)}
