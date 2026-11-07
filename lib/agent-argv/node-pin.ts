@@ -73,13 +73,18 @@ export function resolveNodePin(cwd: string, env: NodeJS.ProcessEnv = process.env
       if (hit) return { kind: "bin", dir: join(versionsDir, hit, "bin") };
       return { kind: "missing", version: spec.replace(/^v/, "") };
     }
+    // A custom `stable` alias wins over the implicit one, as in nvm; `node` is never an alias.
+    const aliasable = spec !== "node" && (spec === "lts/*" || (/^[\w./-]+$/.test(spec) && !spec.includes("..")));
+    const next = aliasable ? readFirstLine(join(nvmDir, "alias", spec)) : undefined;
+    if (next) {
+      spec = next;
+      continue;
+    }
     if (spec === "node" || spec === "stable") {
       const hit = highestMatching(installed, []);
       return hit ? { kind: "bin", dir: join(versionsDir, hit, "bin") } : undefined;
     }
-    const next = /^[\w./-]+$/.test(spec) && !spec.includes("..") ? readFirstLine(join(nvmDir, "alias", spec)) : undefined;
-    if (!next) return undefined;
-    spec = next;
+    return undefined;
   }
   return undefined;
 }

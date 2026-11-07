@@ -59,6 +59,29 @@ describe("resolveNodePin", () => {
     expect(resolveNodePin(repo, env())).toEqual({ kind: "bin", dir: join(nvmDir, "versions", "node", "v22.23.4", "bin") });
   });
 
+  test("lts/* resolves through nvm's lts/* alias file", () => {
+    install("v20.18.0", "v22.23.4");
+    mkdirSync(join(nvmDir, "alias", "lts"), { recursive: true });
+    writeFileSync(join(nvmDir, "alias", "lts", "*"), "lts/jod\n");
+    writeFileSync(join(nvmDir, "alias", "lts", "jod"), "v22.23.4\n");
+    writeFileSync(join(repo, ".nvmrc"), "lts/*");
+    expect(resolveNodePin(repo, env())).toEqual({ kind: "bin", dir: join(nvmDir, "versions", "node", "v22.23.4", "bin") });
+  });
+
+  test("a custom stable alias wins over the highest installed version", () => {
+    install("v18.20.0", "v22.23.4");
+    mkdirSync(join(nvmDir, "alias"), { recursive: true });
+    writeFileSync(join(nvmDir, "alias", "stable"), "18\n");
+    writeFileSync(join(repo, ".nvmrc"), "stable");
+    expect(resolveNodePin(repo, env())).toEqual({ kind: "bin", dir: join(nvmDir, "versions", "node", "v18.20.0", "bin") });
+  });
+
+  test("stable with no alias file takes the highest installed version", () => {
+    install("v18.20.0", "v22.23.4");
+    writeFileSync(join(repo, ".nvmrc"), "stable");
+    expect(resolveNodePin(repo, env())).toEqual({ kind: "bin", dir: join(nvmDir, "versions", "node", "v22.23.4", "bin") });
+  });
+
   test("an alias it cannot resolve leaves the pane alone", () => {
     install("v22.23.4");
     writeFileSync(join(repo, ".nvmrc"), "lts/*");
