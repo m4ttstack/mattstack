@@ -744,8 +744,25 @@ test("slack-status returns the brief only for the caller's own conversation", as
   };
   expect(await briefOf()).toBeUndefined();
   expect(await briefOf({ agentHandle: "someone-else", sessionId: "other" })).toBeUndefined();
-  expect(await briefOf({ agentHandle })).toBe("Export hangs");
+  expect(await briefOf({ agentHandle, sessionId: SESSION })).toBe("Export hangs");
+  const requester = await h.signIn("req-session", "req");
+  h.db.query("UPDATE slack_conversations SET requester_handle = ? WHERE id = ?;").run(requester, res.data.conversationId);
   expect(await briefOf({ sessionId: "req-session" })).toBe("Export hangs");
+});
+
+test("slack-status keeps the brief from a caller that only names the handle or session", async () => {
+  const h = harness();
+  const { agentHandle, res } = await open(h);
+  if (!res.ok) throw new Error(res.error);
+  describeRequester(h, res.data.conversationId);
+  const briefOf = async (caller: { agentHandle?: string; sessionId?: string }) => {
+    const r = await h.handlers["chat:slack-status"](caller);
+    if (!r.ok) throw new Error(r.error);
+    return r.data.conversations[0]!.brief;
+  };
+  expect(await briefOf({ agentHandle })).toBeUndefined();
+  expect(await briefOf({ agentHandle, sessionId: "not-seated" })).toBeUndefined();
+  expect(await briefOf({ sessionId: "req-session" })).toBeUndefined();
 });
 
 test("slack-status returns assignedSession, assignedPane and the chain's tickets", async () => {
@@ -802,6 +819,15 @@ test("slack-ticket files in SUPPORT and returns id and url", async () => {
     acceptance: ["Export ends in 30s"],
     source: { person: "Alex Example", date: "2027-01-15", room: conversationForAgent(agentHandle, h.db)!.room },
   });
+});
+
+test("slack-ticket still returns the filed issue when its local record fails", async () => {
+  const h = harness();
+  const { agentHandle } = await open(h);
+  h.db.query("DROP TABLE slack_support_tickets;").run();
+  const res = await ticketCall(h, agentHandle);
+  expect(res).toEqual({ ok: true, data: { id: "SUP-7", title: "Export hangs", url: "https://linear.app/x/issue/SUP-7" } });
+  expect(h.filed).toHaveLength(1);
 });
 
 test("slack-ticket refuses text with a work org id and names it; nothing is sent to Linear", async () => {

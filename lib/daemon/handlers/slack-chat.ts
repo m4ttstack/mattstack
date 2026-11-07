@@ -391,7 +391,10 @@ export function createSlackChatHandlers(opts: {
       const caller = (rawPayload ?? {}) as Commands["chat:slack-status"]["payload"];
       const conversations = listOpenConversations(db).map((c) => {
         const pane = presenceForHandle(c.agentHandle, db)?.pane;
-        const own = c.agentHandle === caller.agentHandle || (c.requesterSession !== null && c.requesterSession === caller.sessionId);
+        const holds = c.agentHandle === caller.agentHandle && sessionSeatedOn(c.agentHandle, caller.sessionId, db);
+        const requested = c.requesterSession !== null && c.requesterSession === caller.sessionId
+          && c.requesterHandle !== null && sessionSeatedOn(c.requesterHandle, caller.sessionId, db);
+        const own = holds || requested;
         return {
           id: c.id,
           room: c.room,
@@ -503,7 +506,11 @@ export function createSlackChatHandlers(opts: {
         log.warn({ err }, "chat: Linear did not take a ticket");
         return slackRefusal(err instanceof Error ? err.message : String(err));
       }
-      recordSupportTicket(conversation.id, issue, now(), db);
+      try {
+        recordSupportTicket(conversation.id, issue, now(), db);
+      } catch (err) {
+        log.warn({ err, issueId: issue.id }, "chat: the filed ticket could not be recorded");
+      }
       try {
         await sendMilestone(milestones, { handle: conversation.requesterHandle, session: conversation.requesterSession }, { kind: "ticket", ...issue });
       } catch (err) {
