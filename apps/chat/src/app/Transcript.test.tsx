@@ -6,7 +6,6 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import './icons';
 
 import { BuddiesProvider } from './buddies-context';
-import { SlackChatsProvider } from './slack-chats-context';
 import {
   FakeWebSocket,
   fetchMock,
@@ -768,26 +767,6 @@ test('two identities that share a name read the same, and a mention keeps the id
     .querySelector('[data-mention]')!;
   expect(mention).toHaveTextContent('@remy');
   expect(mention).toHaveAttribute('data-mention', 'remy.m2p4');
-});
-
-test('a Slack chat that ended says so at the foot of the transcript', () => {
-  renderWithProviders(
-    <SlackChatsProvider chats={[{ room: 'build', closedAt: NOON }]}>
-      <Transcript room="build" messages={[post(1, 'fred', NOON)]} />
-    </SlackChatsProvider>
-  );
-  expect(screen.getByTestId('slack-closed-note')).toHaveTextContent(
-    'Chat closed'
-  );
-});
-
-test('an open Slack chat and a plain room show no closed note', () => {
-  renderWithProviders(
-    <SlackChatsProvider chats={[{ room: 'build' }]}>
-      <Transcript room="build" messages={[post(1, 'fred', NOON)]} />
-    </SlackChatsProvider>
-  );
-  expect(screen.queryByTestId('slack-closed-note')).toBeNull();
 });
 
 test('stand-in rows hold the place of a first page, and only until messages land', () => {

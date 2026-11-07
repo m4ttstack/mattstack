@@ -1,5 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import {
+  fromOperatorPage,
+  hasLocalOrigin,
+  isLocalRequest,
+  type LocalServer,
+} from '@mattstack/app-server/local-request';
+import {
   chatArchive,
   chatBuddies,
   chatDmOpen,
@@ -10,11 +16,16 @@ import {
   chatRooms,
   chatSlackAvatarFile,
   chatSlackAvatars,
+  chatSlackPeople,
+  chatSlackResume,
+  chatSlackStart,
   chatSlackStatus,
   chatWho,
   getSetting,
   matchSlackFaces,
   paneList,
+  parseIdentity,
+  serializeIdentity,
   type AgentStatus,
   type ChatMessage,
   type RoomSummary,
@@ -30,6 +41,7 @@ import {
   fixtureMessages,
   fixtureRooms,
   fixturesEnabled,
+  fixtureSlackPeople,
   fixtureSlackStatus,
 } from './fixtures';
 
@@ -230,6 +242,122 @@ async function knownSlackPeople(): Promise<SlackPeople> {
   return slackPeople;
 }
 
+/** What a daemon verb that declined or failed says. A decline by policy
+    (the daemon's `failure` block, as Slack's refusals send) is the
+    operator's to act on, so it is a 409 with the plain sentence; anything
+    else is a transport or handler failure, a 502. */
+interface DaemonFailure {
+  error: string;
+  refused: boolean;
+}
+
+function daemonFailure(
+  res: { error?: string; failure?: { code: string; message: string } },
+  fallback: string
+): DaemonFailure {
+  return res.failure?.code === 'slack-chat'
+    ? { error: res.failure.message, refused: true }
+    : { error: res.error ?? fallback, refused: false };
+}
+
+/** A route that reads the Slack directory or starts or reopens a real
+    chat answers only the operator's own page: the daemon verbs behind it
+    ask no gate, so a forged cross-site post must never reach them. */
+function notOperator(c: Context): boolean {
+  return !(
+    isLocalRequest(c.req.raw, c.env as LocalServer | undefined) &&
+    hasLocalOrigin(c.req.raw)
+  );
+}
+
+/** Starting or reopening a chat is approval itself, so the request must also
+    come from the page: a pane's shell sends no Origin. */
+function notOperatorPage(c: Context): boolean {
+  return notOperator(c) || !fromOperatorPage(c.req.raw);
+}
+
+/** A write must say it is JSON: a form post can send text/plain without a
+    CORS preflight, JSON it cannot. */
+function notJson(c: Context): boolean {
+  return !(c.req.header('content-type') ?? '')
+    .toLowerCase()
+    .startsWith('application/json');
+}
+
+/** The name the support agent goes by, for the new-chat form's placeholder. */
+function supportPersonaName(): string | undefined {
+  const name = getSetting<{ name?: string } | undefined>(
+    'chat.slackSupport.persona'
+  ).value?.name?.trim();
+  return name || undefined;
+}
+
+type SlackDirectory = NonNullable<
+  Awaited<ReturnType<typeof chatSlackPeople>>['data']
+>['people'];
+
+let slackDirectory: SlackDirectory = [];
+let slackDirectoryAt = 0;
+
+/** The picker filters this list in the browser, so one Slack read serves
+    every keystroke: the daemon reads the whole directory per call, and a
+    page only asks again after an hour. A failed read is never kept. */
+async function slackDirectoryFor(): Promise<
+  { people: SlackDirectory } | DaemonFailure
+> {
+  if (
+    slackDirectoryAt &&
+    Date.now() - slackDirectoryAt < SLACK_PEOPLE_FRESH_MS
+  ) {
+    return { people: slackDirectory };
+  }
+  const res = await chatSlackPeople(rtOpts());
+  if (!res.ok || !res.data) return daemonFailure(res, 'slack-people: no data');
+  slackDirectory = res.data.people;
+  slackDirectoryAt = Date.now();
+  return { people: slackDirectory };
+}
+
+/** For a test: the next call reads the daemon again. */
+export function forgetSlackDirectory(): void {
+  slackDirectoryAt = 0;
+}
+
+/** The repo a chat started here runs in: `chat.slackSupport.defaultRepo`,
+    which holds `host/path`, as the daemon's trigger offer reads it. The
+    daemon's repo index keys on the wire form, so a bare `host/path` is
+    converted and a wire form is left alone. */
+function supportRepo(): string | null {
+  const value = getSetting<string | undefined>(
+    'chat.slackSupport.defaultRepo'
+  ).value?.trim();
+  if (!value) return null;
+  return parseIdentity(value)
+    ? value
+    : serializeIdentity({ kind: 'remote', id: value });
+}
+
+async function slackRoomOf(conversation: number): Promise<string | null> {
+  const res = await chatSlackStatus(rtOpts()).catch(() => null);
+  if (!res?.ok || !res.data) return null;
+  return (
+    [...res.data.conversations, ...res.data.closed].find(
+      c => c.id === conversation
+    )?.room ?? null
+  );
+}
+
+async function jsonBody(c: Context): Promise<Record<string, unknown> | null> {
+  try {
+    const raw: unknown = await c.req.json();
+    return raw && typeof raw === 'object'
+      ? (raw as Record<string, unknown>)
+      : {};
+  } catch {
+    return null;
+  }
+}
+
 /** The DMs the human is an end of. Agent-to-agent DMs, which he only
     watches, are not his. */
 function ownDms(rooms: RoomSummary[], handle: string): RoomSummary[] {
@@ -342,6 +470,96 @@ export const chat = new Hono()
       'cache-control': 'private, max-age=31536000, immutable',
       'x-content-type-options': 'nosniff',
     });
+  })
+  // Everyone a support chat can open with, for the new-chat picker. Each
+  // person with a picture carries the id and version that
+  // `/api/chat/slack-avatar/:person` takes.
+  .get('/api/chat/slack-people', async c => {
+    if (notOperator(c)) return c.json({ error: 'forbidden' }, 403);
+    const persona = supportPersonaName();
+    if (fixturesEnabled()) {
+      return c.json({ people: fixtureSlackPeople(), persona }, 200);
+    }
+    const directory = await slackDirectoryFor();
+    if ('error' in directory) {
+      return directory.refused
+        ? c.json({ error: directory.error }, 409)
+        : c.json({ error: directory.error }, 502);
+    }
+    return c.json({ ...directory, persona }, 200);
+  })
+  // The operator's tap is the approval, so no gate and no requester pane:
+  // the daemon's notices go to the operator's desk.
+  .post('/api/chat/slack-start', async c => {
+    if (notOperatorPage(c)) return c.json({ error: 'forbidden' }, 403);
+    if (notJson(c)) {
+      return c.json({ error: 'Send application/json' }, 415);
+    }
+    if (fixturesEnabled()) {
+      return c.json(
+        { error: 'Fixtures have no Slack to start a chat in' },
+        409
+      );
+    }
+    const raw = await jsonBody(c);
+    if (!raw) return c.json({ error: 'Malformed JSON in request body' }, 400);
+    const person = typeof raw.person === 'string' ? raw.person.trim() : '';
+    const brief = typeof raw.brief === 'string' ? raw.brief.trim() : '';
+    if (!person) return c.json({ error: 'person is required' }, 400);
+    if (!brief) return c.json({ error: 'brief is required' }, 400);
+    const repo = supportRepo();
+    if (!repo) {
+      return c.json(
+        {
+          error:
+            'No repo is set for Slack chats. Set chat.slackSupport.defaultRepo first',
+        },
+        409
+      );
+    }
+    const res = await chatSlackStart({ person, brief, repo }, rtOpts());
+    if (!res.ok || !res.data) {
+      const failed = daemonFailure(res, 'slack-start: no data');
+      return failed.refused
+        ? c.json({ error: failed.error }, 409)
+        : c.json({ error: failed.error }, 502);
+    }
+    const { conversation } = res.data;
+    return c.json({ conversation, room: await slackRoomOf(conversation) }, 200);
+  })
+  // Any closed chat, however long ago: the tap is the approval.
+  .post('/api/chat/slack-resume', async c => {
+    if (notOperatorPage(c)) return c.json({ error: 'forbidden' }, 403);
+    if (notJson(c)) {
+      return c.json({ error: 'Send application/json' }, 415);
+    }
+    if (fixturesEnabled()) {
+      return c.json({ error: 'Fixtures have no Slack chat to resume' }, 409);
+    }
+    const raw = await jsonBody(c);
+    if (!raw) return c.json({ error: 'Malformed JSON in request body' }, 400);
+    const conversation = raw.conversation;
+    if (
+      typeof conversation !== 'number' ||
+      !Number.isSafeInteger(conversation)
+    ) {
+      return c.json({ error: 'conversation is required' }, 400);
+    }
+    const res = await chatSlackResume(
+      { conversation, approved: true },
+      rtOpts()
+    );
+    if (!res.ok || !res.data || !('conversation' in res.data)) {
+      const failed = daemonFailure(res, 'slack-resume: no data');
+      return failed.refused
+        ? c.json({ error: failed.error }, 409)
+        : c.json({ error: failed.error }, 502);
+    }
+    const resumed = res.data.conversation;
+    return c.json(
+      { conversation: resumed, room: await slackRoomOf(resumed) },
+      200
+    );
   })
   // A person's picture by name, for the viewer's own face: the human has no
   // Slack chat to carry one. Null unless exactly one Slack person has the name.

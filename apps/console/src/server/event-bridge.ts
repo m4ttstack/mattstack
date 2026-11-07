@@ -23,6 +23,20 @@ export function consoleBridgeRule(consoleUrl: string): EventBridgeRule {
   };
 }
 
+/** The second rule: a Slack chat request raises the same notification and
+    opens the same `/gates/{id}` stub, which sends it to the Slack page. Its
+    own `slack:` subjectPrefix keeps it from colliding with the run rule.
+    The text is fixed: the gate's question ends in its `[slack-open <id>]`
+    marker, and a rule template cannot strip it. */
+export function slackBridgeRule(consoleUrl: string): EventBridgeRule {
+  return {
+    ...consoleBridgeRule(consoleUrl),
+    subjectPrefix: 'slack:',
+    title: 'Slack chat request',
+    message: 'Approve or decline in console',
+  };
+}
+
 function readEventBridges(): EventBridgeRule[] {
   return getSetting<EventBridgeRule[]>('rt.notify.eventBridges').value ?? [];
 }
@@ -46,11 +60,14 @@ export async function installConsoleBridgeRule(
   } = {}
 ): Promise<void> {
   const resolveUrl = opts.resolveUrl ?? (() => deckAppUrl('console'));
-  reconcileEventBridgeRule({
-    app: 'console',
-    deckUrl: await resolveUrl(),
-    rule: consoleBridgeRule,
-    read: opts.read ?? readEventBridges,
-    write: opts.write ?? writeEventBridges,
-  });
+  const deckUrl = await resolveUrl();
+  for (const rule of [consoleBridgeRule, slackBridgeRule]) {
+    reconcileEventBridgeRule({
+      app: 'console',
+      deckUrl,
+      rule,
+      read: opts.read ?? readEventBridges,
+      write: opts.write ?? writeEventBridges,
+    });
+  }
 }

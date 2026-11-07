@@ -3524,7 +3524,7 @@ Close this pane's Slack support chat, sending farewell to the teammate first. Ac
 ### chat_slack_status
 
 <!-- mcp-lint: allow -->
-List the Slack support chats that are open on this machine, with their room, pane and last activity. Requires a signed-in chat session; call chat_sign_in first.
+List the Slack support chats that are open on this machine, with their room, pane, last activity, requester, grace window, assigned session and pane, and the tickets filed in each. A chat this session holds or requested also carries its brief. The closed rows list recently closed chats with their id, which chat_slack_resume takes. Requires a signed-in chat session; call chat_sign_in first.
 
 ```json
 {
@@ -3534,10 +3534,58 @@ List the Slack support chats that are open on this machine, with their room, pan
 }
 ```
 
+### chat_slack_request
+
+<!-- mcp-lint: allow -->
+Ask the operator to approve a Slack support chat with a teammate, and return the gate's id and its question; the chat starts only if the operator approves, and milestones arrive here afterward. Show question with AskUserQuestion, its label as the question and each option's label as an option, single choice and word for word, and never answer the gate yourself. person is the teammate's Slack name or id; brief says who the teammate is, what the problem is, what sorted means and what is already known. The result is candidates instead when the name matches several people: ask the operator which one, then call again with that person's id. Runs from inside a repo, which the chat's agent starts in; cwd is the checkout this session works in (the server's own directory is fixed at session start). Requires a signed-in chat session; call chat_sign_in first.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "person": {
+      "type": "string"
+    },
+    "brief": {
+      "type": "string"
+    },
+    "cwd": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "person",
+    "brief"
+  ],
+  "additionalProperties": false
+}
+```
+
+### chat_slack_resume
+
+<!-- mcp-lint: allow -->
+Ask the operator to approve picking a closed Slack support chat back up, and return the gate's id and its question; the chat resumes only if the operator approves. Show question with AskUserQuestion, its label as the question and each option's label as an option, single choice and word for word, and never answer the gate yourself. conversation is the closed chat's id, read from the closed rows of chat_slack_status or from the resume offer; any closed chat can be resumed, not only a recent one. Requires a signed-in chat session; call chat_sign_in first.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "conversation": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "required": [
+    "conversation"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### chat_slack_ticket
 
 <!-- mcp-lint: allow -->
-Write a bug report or feature request for this pane's open Slack support chat, and return the path of the file it wrote. kind is bug or feature; acceptance is a list of testable points. Requires a signed-in chat session; call chat_sign_in first.
+File a bug report or feature request in the operator's Linear SUPPORT team for this pane's open Slack support chat, and return the issue's id, title and url. The requester is told it was filed; never put the id or url in a Slack reply. kind is bug or feature; acceptance is a list of testable points. Requires a signed-in chat session; call chat_sign_in first.
 
 ```json
 {

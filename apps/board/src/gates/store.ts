@@ -5,6 +5,8 @@ import type {
   GateQuestion,
 } from '@mattstack/gate-kit';
 
+export const SLACK_OPEN_KIND = 'slack-open';
+
 export type {
   GateAnswers,
   GateAnswerValue,

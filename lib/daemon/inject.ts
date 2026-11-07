@@ -4,6 +4,8 @@ import { formatPaneRef } from "../../packages/rt-client/src/index.ts";
 import { bgSocketPath } from "./bg-service.ts";
 
 const DEFAULT_WAIT_MS = 5_000;
+// Claude Code collapses a paste over this length into a pasted-text block, which is never parsed as a slash command.
+export const PASTE_COMMAND_LIMIT = 800;
 
 /** Relocated from handlers/pane.ts (logic unchanged), re-exported there; keeps inject.ts and pane.ts from importing each other. */
 export function herdrError(res: { ok: false; code: string; message: string }): { ok: false; error: string } {
@@ -105,6 +107,11 @@ async function restoreDraft(herdr: typeof herdrRequest, paneId: string, sockPath
   if (composer?.draft === "" && composer.stashHeld) await herdr("pane.send_keys", { pane_id: paneId, keys: ["ctrl+s"] }, { sockPath });
 }
 
+/** True for a slash command too long to paste: its first line starts with `/` and the whole text is over PASTE_COMMAND_LIMIT. */
+export function pastesAsText(text: string): boolean {
+  return text.length > PASTE_COMMAND_LIMIT && text.split("\n", 1)[0]!.startsWith("/");
+}
+
 /**
  * herdr's injection delivery, shared by chat:invite and pane:send. Returns the
  * CommandResult shape both handlers already return: a refused/accepted/queued
@@ -133,6 +140,7 @@ export async function injectIntoPane(opts: InjectOptions): Promise<{ ok: true; d
   // never match even when they are the exact same pane.
   const targetRef = formatPaneRef(paneId, sockPath === bgSocketPath() ? "bg" : "visible");
   if (callerPane && callerPane === targetRef) return ok("refused", "that is this pane");
+  if (pastesAsText(text)) return ok("refused", `a slash command over ${PASTE_COMMAND_LIMIT} characters arrives as a paste and never runs; shorten it`);
 
   const probe = await herdr<{ agent: { agent: string; agent_status: string } }>("agent.get", { target: paneId }, { sockPath });
   if (!probe.ok) {

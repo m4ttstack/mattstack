@@ -200,6 +200,8 @@ export interface GateOrigin {
     the gate-level `context` on the open/ask payload is the whole ask's. */
 /** `writeIn: true` lets this question be answered `{ writeIn }`, the
     human's own words, instead of one of its options. */
+/** A `slack-open` gate's one question as stored, for the asking pane to show with AskUserQuestion word for word. */
+export type SlackOpenForm = { label: string; options: { value: string; label: string }[] };
 export interface GateQuestion { id: string; label: string; multi: boolean; options: GateOption[]; context?: string; writeIn?: true }
 export type GateWriteIn = { writeIn: string };
 /** Implementations live in gate-options.ts (the browser-safe ./gate
@@ -298,7 +300,7 @@ export interface HerdStatusData {
  */
 export type WakeMode = "mention" | "all" | "none";
 
-export type SlackItemKind = "message" | "operator-slack" | "check-in" | "close-request" | "closed";
+export type SlackItemKind = "message" | "operator-slack" | "check-in" | "close-request" | "closed" | "resumed";
 
 export interface SlackItem {
   id: number;
@@ -1098,14 +1100,20 @@ export interface Commands {
   "chat:invite": { payload: { paneId: string; room: string; note?: string; from: string; callerPane?: string }; data: InviteResult };
   "chat:slack-open": { payload: { agentHandle: string; sessionId?: string; person: string }; data: { conversationId: number; handle: string; name: string; frameMarker: string; room: string } };
   "chat:slack-close": { payload: { agentHandle?: string; sessionId?: string; pane?: string; farewell?: string }; data: { conversationId: number; closed: boolean; /** Set only when something shaped like a credential was removed from the farewell before it went to Slack. */ redacted?: true } };
-  "chat:slack-status": { payload: Record<string, never>; data: { conversations: { id: number; room: string; handle: string; /** Takes to `chat:slack-avatar-file`, once the daemon knows the teammate's picture. */ avatarId?: string; avatarVersion?: string; pane?: string; name: string; agentName: string; displayName: string; openedAt: number; lastActiveAt: number }[]; closed: { room: string; handle: string; avatarId?: string; avatarVersion?: string; agentName: string; closedAt: number }[] } };
-  "chat:slack-people": { payload: Record<string, never>; data: { people: { name: string; /** The Slack user id, which `/slack-support` takes as the person. */ person: string; title?: string }[] } };
+  "chat:slack-status": { payload: { /** Who is asking: the brief comes back only for a chat this handle holds or this session requested. */ agentHandle?: string; sessionId?: string }; data: { conversations: { id: number; room: string; handle: string; /** Takes to `chat:slack-avatar-file`, once the daemon knows the teammate's picture. */ avatarId?: string; avatarVersion?: string; pane?: string; name: string; agentName: string; displayName: string; openedAt: number; lastActiveAt: number; /** The requesting session's chat name. */ requester?: string; requesterPane?: string; resumedFrom?: number; graceUntil?: number; assignedSession?: string; assignedPane?: string; /** Every ticket filed in this chat and the chats it resumed. */ tickets: { id: string; title: string; url: string; createdAt: number }[]; brief?: string }[]; closed: { /** What `chat:slack-resume` takes. */ id: number; room: string; handle: string; avatarId?: string; avatarVersion?: string; agentName: string; displayName: string; closedAt: number; graceUntil?: number; tickets: { id: string; title: string; url: string; createdAt: number }[] }[] } };
+  "chat:slack-people": { payload: Record<string, never>; data: { people: { name: string; /** The Slack user id, which `/slack-support` takes as the person. */ person: string; title?: string; /** Take to `chat:slack-avatar-file`, set when Slack gives the person a picture. */ avatarId?: string; avatarVersion?: string }[] } };
   "chat:slack-avatars": { payload: Record<string, never>; data: { people: { id: string; displayName: string; realName: string; /** Changes with the picture. */ version: string }[] } };
   /** The daemon's on-disk copy of a Slack picture, fetched on first ask; no `file` when there is none. */
   "chat:slack-avatar-file": { payload: { person: string }; data: { file?: { path: string; contentType: string } } };
-  "chat:slack-pending": { payload: { agentHandle: string }; data: { items: SlackItem[]; open: boolean; conversation?: { id: number; handle: string; name: string; operator: string; marker: string } } };
+  "chat:slack-pending": { payload: { agentHandle: string }; data: { items: SlackItem[]; open: boolean; /** Set when no chat is open but this session's agent has a closed one still inside its grace window, so a watcher should keep waiting. */ graced?: true; conversation?: { id: number; handle: string; name: string; operator: string; marker: string } } };
   "chat:slack-delivered": { payload: { id: number }; data: { delivered: boolean } };
-  "chat:slack-ticket": { payload: { agentHandle: string; sessionId?: string; kind: "bug" | "feature"; title: string; problem: string; idea: string; acceptance: string[] }; data: { path: string } };
+  "chat:slack-ticket": { payload: { agentHandle: string; sessionId?: string; kind: "bug" | "feature"; title: string; problem: string; idea: string; acceptance: string[] }; data: { id: string; title: string; url: string } };
+  "chat:slack-request": { payload: { person: string; brief: string; requesterSession: string; requesterHandle: string; repo: string }; data: { gateId: string; question: SlackOpenForm } | { candidates: { name: string; person: string; title?: string }[] } };
+  "chat:slack-start": { payload: { person: string; brief: string; requesterPane?: string; requesterSession?: string; requesterHandle?: string; repo: string }; data: { conversation: number } };
+  "chat:slack-assignment": { payload: { sessionId: string }; data: { conversation: number | null } };
+  /** From a pane it raises a resume gate; `approved: true` is the operator's own tap (Flock, the console) and resumes at once. */
+  "chat:slack-resume": { payload: { conversation: number; requesterSession?: string; requesterHandle?: string; approved?: boolean }; data: { gateId: string; question: SlackOpenForm } | { conversation: number; agent: "same" | "fresh" } };
+  "chat:slack-expire": { payload: Record<string, never>; data: { expired: number } };
   "pane:list": { payload: Record<string, never>; data: { panes: ChatPane[] } };
   "pane:peek": { payload: { paneId: string; lines?: number }; data: { paneId: string; lines: string[] } };
   "pane:accounts": { payload: Record<string, never>; data: { accounts: PaneAccount[] } };
@@ -1262,7 +1270,7 @@ export interface Commands {
   "reconciler:clear": { payload: { agentId: string }; data: { cleared: true } };
 
   // ─── Gate facility (BOARD-20/21) ─────────────────────────────────────────
-  "gate:open": { payload: { subject: string; kind: string; questions: GateQuestion[]; meta?: Record<string, unknown>; agent?: string; pane?: string; nudge?: { session: string }; context?: string; origin?: GateOrigin }; data: { id: string; supersededId: string | null } };
+  "gate:open": { payload: { /** UUID the caller minted so the question can name its own gate; omit it to let the daemon mint one. */ id?: string; subject: string; kind: string; questions: GateQuestion[]; meta?: Record<string, unknown>; agent?: string; pane?: string; nudge?: { session: string }; context?: string; origin?: GateOrigin }; data: { id: string; supersededId: string | null } };
   /** Ceremony layer over gate:open: resolves subject from the caller's
       session (an explicit subject always wins as the subject, but still
       picks up run linkage from the session's own running run; else its
@@ -1487,6 +1495,11 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "chat:slack-pending",
   "chat:slack-delivered",
   "chat:slack-ticket",
+  "chat:slack-request",
+  "chat:slack-start",
+  "chat:slack-assignment",
+  "chat:slack-resume",
+  "chat:slack-expire",
   "pane:list",
   "pane:peek",
   "pane:accounts",

@@ -63,7 +63,11 @@ import {
 } from "../../state/index.ts";
 import { SlackError, postHonouringRetryAfter, type SlackClient } from "../../slack/client.ts";
 import { slackClientFromSecrets } from "../../slack/daemon-client.ts";
-import { redactSecrets, SLACK_PREFIX, withPrefix } from "../../slack/format.ts";
+import { TICKET_ON_SLACK, namesTicket, redactSecrets, slackPrefix, withPrefix } from "../../slack/format.ts";
+import { ticketsForChain } from "../../state/slack-conversation-store.ts";
+import { slackPersona, type SlackPersona } from "../../slack/persona.ts";
+import type { MilestoneDeps } from "../../slack/milestones.ts";
+import { realHerdrRunnerFor } from "../../slack/support-pane.ts";
 import { CHAT_NOTIFICATION_CATEGORY, notifyEnabled } from "../../notifier.ts";
 import { chatViewerUrl, readChatViewerUrlSetting } from "../../chat-viewer-url.ts";
 import { getSetting } from "../../settings/resolve.ts";
@@ -71,6 +75,7 @@ import { herdrRequest } from "../../herdr/client.ts";
 import { injectIntoPane, herdrError } from "../inject.ts";
 import { resolvePaneRef } from "../pane-ref-socket.ts";
 import { finishClose, slackDeskNotify } from "../slack-lifecycle.ts";
+import { realMilestoneDeps } from "./slack-milestones.ts";
 import type { HerdrSnapshot } from "./pane.ts";
 import { resolveInbox, inboxAlive } from "../../claude-registry.ts";
 import { withProcessSession } from "../pane-process-session.ts";
@@ -937,7 +942,9 @@ export function sessionSeatedOn(handle: string, sessionId: string | undefined, d
  */
 function slackRoute(fromId: string, toId: string, sessionId: string | undefined, db: Database): { refused: SlackRefusal } | { refused?: undefined; conversation?: SlackConversation } {
   if (isSlackIdentity(fromId)) return { refused: slackRefusal(`${identityName(fromId, db)} speaks only through Slack`) };
-  const latest = latestConversationForRoom(dmRoomName(fromId, toId), db);
+  // A fresh agent that resumed a chat holds a row whose room is the old pair's, so the pair hash would miss it.
+  const assigned = conversationForAgent(fromId, db);
+  const latest = assigned?.slackHandle === toId ? assigned : latestConversationForRoom(dmRoomName(fromId, toId), db);
   if (latest && latest.closedAt !== null) return { refused: slackRefusal("This Slack chat is closed, so the message was not sent") };
   if (latest?.agentHandle === fromId) {
     if (!sessionSeatedOn(fromId, sessionId, db)) {
@@ -959,10 +966,13 @@ async function deliverSlackReply(
   body: string,
   sleep: (ms: number) => Promise<void>,
   log: Logger,
-): Promise<{ ok: true; stored: string; redacted: boolean } | { ok: false; error: string }> {
+  persona: SlackPersona,
+  db: Database,
+): Promise<{ ok: true; stored: string; redacted: boolean } | { ok: false; error: string; failure?: SlackRefusal["failure"] }> {
+  if (namesTicket(body, ticketsForChain(conversation.id, db))) return slackRefusal(TICKET_ON_SLACK);
   const { text, redacted } = redactSecrets(body);
-  const outgoing = withPrefix(text);
-  const stored = outgoing.slice(SLACK_PREFIX.length);
+  const outgoing = withPrefix(text, persona);
+  const stored = outgoing.slice(slackPrefix(persona).length);
   if (!stored) return { ok: false, error: "chat: that message is empty without the prefix, so it was not sent" };
   try {
     const slack = await client();
@@ -1005,10 +1015,14 @@ export function createChatHandlers(opts: {
   deliveryChains?: Map<string, Promise<void>>;
   /** Resolves null when no Slack token is set; real by default, fakeable the same way inboxDeps is. */
   slackClient?: () => Promise<SlackClient | null>;
+  /** Real by default: the persona setting, read for each reply. */
+  slackPersona?: () => SlackPersona;
   /** The wait for Slack's Retry-After; overridable so a test doesn't pay it. */
   slackSleep?: (ms: number) => Promise<void>;
   /** The operator's desk notice for a Slack chat a sign-out closed; real by default. */
   slackNotify?: (title: string, message: string) => void;
+  /** How a closed milestone reaches its requester; real by default. */
+  slackMilestones?: MilestoneDeps;
 }): {
   // A mapped type over CHAT_COMMANDS with a direct `unknown` payload, not
   // `Pick<TypedHandlers, ...>`: a wider `unknown` param still satisfies
@@ -1034,7 +1048,16 @@ export function createChatHandlers(opts: {
   const deliveryChains = opts.deliveryChains ?? new Map<string, Promise<void>>();
   const slackClient = opts.slackClient ?? slackClientFromSecrets;
   const slackSleep = opts.slackSleep ?? ((ms: number) => Bun.sleep(ms));
-  const slackCloseDeps = { db, client: slackClient, notify: opts.slackNotify ?? slackDeskNotify, post: slackRoomPoster(db, emitEvent, log), now: Date.now };
+  const slackNotify = opts.slackNotify ?? slackDeskNotify;
+  const slackCloseDeps = {
+    db,
+    client: slackClient,
+    notify: slackNotify,
+    post: slackRoomPoster(db, emitEvent, log),
+    now: Date.now,
+    milestones: opts.slackMilestones ?? realMilestoneDeps({ db, emitEvent, log, notify: slackNotify }),
+    herdrRunnerFor: realHerdrRunnerFor,
+  };
   const resolveMention = (m: string): string => (m === "here" ? m : resolveHandle(m, db));
   const namesOf = (ids: string[]): string[] => {
     const names = identityNames(ids, db);
@@ -1464,14 +1487,14 @@ export function createChatHandlers(opts: {
       if (!isValidChatName(humanHandle)) {
         return { ok: false, error: `chat: chat.humanHandle setting is empty or invalid ("${humanHandle}")` };
       }
+      const { conversation } = route;
       let room: string;
       try {
-        ({ room } = dmRoomFor(fromId, toId, humanHandle, db));
+        room = conversation?.room ?? dmRoomFor(fromId, toId, humanHandle, db).room;
       } catch (dmErr) {
         return { ok: false, error: dmErr instanceof Error ? dmErr.message : String(dmErr) };
       }
-      const { conversation } = route;
-      const sent = conversation ? await deliverSlackReply(slackClient, conversation, body, slackSleep, log) : undefined;
+      const sent = conversation ? await deliverSlackReply(slackClient, conversation, body, slackSleep, log, (opts.slackPersona ?? slackPersona)(), db) : undefined;
       if (sent && !sent.ok) return sent;
       // Recipient travels in `mentions`, not the body, so the transcript
       // shows the text as typed and the desk still notifies when `to` is
@@ -1533,8 +1556,11 @@ export function createChatHandlers(opts: {
       if (!isValidChatName(to)) return { ok: false, error: `invalid handle "${to}"` };
       const fromId = resolveHandle(from, db);
       const toId = resolveHandle(to, db);
-      const refused = assertionError(() => assertSessionOwnsHandle(fromId, sessionId, db)) ?? slackRoute(fromId, toId, sessionId, db).refused;
-      if (refused) return refused;
+      const assertion = assertionError(() => assertSessionOwnsHandle(fromId, sessionId, db));
+      if (assertion) return assertion;
+      const route = slackRoute(fromId, toId, sessionId, db);
+      if (route.refused) return route.refused;
+      if (route.conversation) return { ok: true, data: { room: route.conversation.room, created: false } };
       const humanHandle = getSetting<string>("chat.humanHandle").value;
       if (!isValidChatName(humanHandle)) {
         return { ok: false, error: `chat: chat.humanHandle setting is empty or invalid ("${humanHandle}")` };

@@ -648,6 +648,46 @@
       "pattern": "^[a-z0-9._-]*$"
     }
   },
+  "chat.slackSupport.defaultRepo": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "chat.slackSupport.persona": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "\\S",
+          "title": "Name",
+          "description": "What the bot calls itself in every Slack message."
+        },
+        "emoji": {
+          "type": "string",
+          "pattern": "\\S",
+          "title": "Emoji",
+          "description": "Shown beside the name in the prefix of every Slack message."
+        },
+        "trigger": {
+          "title": "Trigger",
+          "description": "What a teammate starts a message with to ask the bot back after a chat closes. Without it, the name after an @.",
+          "type": "string",
+          "pattern": "\\S"
+        }
+      },
+      "required": [
+        "name",
+        "emoji"
+      ],
+      "additionalProperties": {}
+    }
+  },
   "ci.triage.infraPatterns": {
     "storeVersion": 1,
     "schema": {

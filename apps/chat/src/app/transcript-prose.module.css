@@ -98,12 +98,6 @@
   line-height: 1.45;
 }
 
-.closed {
-  padding: 8px 0 12px;
-  font-size: var(--mantine-font-size-xs);
-  color: var(--tk-text-3);
-}
-
 .prose > * {
   margin: 0;
 }

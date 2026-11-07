@@ -24,8 +24,8 @@ import { rtDir } from "../rt-paths.ts";
 
 export type DbFlavor = "cli" | "daemon";
 
-/** PRAGMA user_version target for the combined schema below (v1 + v2 + v3 + v4 + v6 + v7 + v8 + v9 + v12 + v13 + v14, plus v15's agents.pack v16's agents.adopted columns and v17's slack_conversations and slack_items tables; v10 and v11 are DML-only migrations, not DDL blocks in SCHEMAS). */
-export const SCHEMA_VERSION = 17;
+/** PRAGMA user_version target for the combined schema below (v1 + v2 + v3 + v4 + v6 + v7 + v8 + v9 + v12 + v13 + v14, plus v15's agents.pack, v16's agents.adopted columns, v17's slack_conversations and slack_items tables, and v18's slack requester columns and slack_support_tickets table; v10 and v11 are DML-only migrations, not DDL blocks in SCHEMAS). */
+export const SCHEMA_VERSION = 18;
 
 // busy_timeout is per-process, not per-store (spec "The database"): a CLI
 // command may block briefly; the daemon's event loop must never block long,
@@ -387,7 +387,7 @@ CREATE INDEX IF NOT EXISTS slack_conversations_room ON slack_conversations(room)
 CREATE TABLE IF NOT EXISTS slack_items (
   id              INTEGER PRIMARY KEY,
   conversation_id INTEGER NOT NULL,
-  kind            TEXT NOT NULL,    -- message, operator-slack, check-in, close-request, closed
+  kind            TEXT NOT NULL,    -- message, operator-slack, check-in, close-request, closed, resumed
   from_handle     TEXT,
   text            TEXT NOT NULL,
   created_at      INTEGER NOT NULL,
@@ -481,6 +481,36 @@ function addAdoptedColumnIfMissing(db: Database): void {
   const columns = db.query("PRAGMA table_info(agents);").all() as { name: string }[];
   if (columns.some((c) => c.name === "adopted")) return;
   db.exec("ALTER TABLE agents ADD COLUMN adopted INTEGER NOT NULL DEFAULT 0;");
+}
+
+const SLACK_REQUESTER_COLUMNS: [string, string][] = [
+  ["requester_session", "TEXT"],
+  ["requester_handle", "TEXT"],
+  ["requester_pane", "TEXT"],
+  ["brief", "TEXT"],
+  ["resumed_from", "INTEGER"],
+  ["grace_until", "INTEGER"],
+  ["assigned_agent", "TEXT"],
+  ["assigned_session", "TEXT"],
+  ["assigned_pane", "TEXT"],
+  ["repo", "TEXT"],
+];
+
+/** v18: slack_conversations requester and assignment columns, and the support tickets table. Same conditional-exec rule as the agents columns above. */
+function addSlackRequesterColumnsIfMissing(db: Database): void {
+  const have = new Set((db.query("PRAGMA table_info(slack_conversations);").all() as { name: string }[]).map((c) => c.name));
+  for (const [name, type] of SLACK_REQUESTER_COLUMNS) {
+    if (!have.has(name)) db.exec(`ALTER TABLE slack_conversations ADD COLUMN ${name} ${type};`);
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS slack_support_tickets (
+  id              INTEGER PRIMARY KEY,
+  conversation_id INTEGER NOT NULL,
+  issue_id        TEXT NOT NULL,
+  title           TEXT NOT NULL,
+  url             TEXT NOT NULL,
+  created_at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS slack_support_tickets_conversation ON slack_support_tickets(conversation_id);`);
 }
 
 /**
@@ -681,6 +711,7 @@ function runMigrations(db: Database, dir: string): void {
     addYoloColumnIfMissing(db);
     addPackColumnIfMissing(db);
     addAdoptedColumnIfMissing(db);
+    addSlackRequesterColumnsIfMissing(db);
     // Legacy-JSON import is single-shot and only correct from a true
     // v0 (never-migrated) database: branch-cache's UPSERT would silently
     // overwrite current rows with stale ones, and project-mrs-store's

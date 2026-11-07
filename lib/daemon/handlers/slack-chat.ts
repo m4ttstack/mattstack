@@ -9,7 +9,7 @@ import type { Logger } from "pino";
 import { lazyChildLogger } from "../../daemon-logger.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { SLACK_SUPPORT_CHAT_SCOPES } from "../../setup/slack-app.ts";
-import { createSlackAvatars } from "../../slack/avatars.ts";
+import { createSlackAvatars, pictureVersion } from "../../slack/avatars.ts";
 import { SlackError, type SlackClient, type SlackUser } from "../../slack/client.ts";
 import { slackClientFromSecrets } from "../../slack/daemon-client.ts";
 import {
@@ -31,11 +31,18 @@ import {
   resolveHandle,
   type SlackConversation,
 } from "../../state/index.ts";
-import { chatViewerUrl, readChatViewerUrlSetting } from "../../chat-viewer-url.ts";
+import { conversationById, conversationForAssignedSession, gracedConversationForSession, recordSupportTicket, ticketsForChain } from "../../state/slack-conversation-store.ts";
 import { tsFromMs } from "../slack-bridge.ts";
 import { finishClose, requestClose, slackDeskNotify } from "../slack-lifecycle.ts";
 import { MAX_BODY_BYTES, isValidBody, sessionSeatedOn, slackRefusal, slackRoomPoster, type SlackRefusal } from "./chat.ts";
-import { writeTicket } from "../../slack/support-ticket.ts";
+import { findOrgIds, orgIdContext } from "../../linear/org-ids.ts";
+import { SUPPORT_KEY_NAME, readSupportApiKey } from "../../linear/support-key.ts";
+import { createSupportIssue } from "../../linear/support.ts";
+import { sendMilestone, type MilestoneDeps } from "../../slack/milestones.ts";
+import { realHerdrRunnerFor } from "../../slack/support-pane.ts";
+import { approveSlackOpen, approveSlackResume, expireSlackOpenGates, requestSlackOpen, type SlackOpenDeps } from "../../slack/request.ts";
+import { requestResume } from "../../slack/resume.ts";
+import { realMilestoneDeps } from "./slack-milestones.ts";
 import type { CommandResult } from "./types.ts";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 
@@ -51,7 +58,7 @@ const SLACKBOT_ID = "USLACKBOT";
 // Slack's ids hold a digit, which keeps a capitalised name such as WILL out of this.
 const SLACK_ID_SHAPE = /^[UW][A-Z0-9]*[0-9][A-Z0-9]*$/;
 
-const SLACK_CHAT_COMMANDS = ["chat:slack-open", "chat:slack-close", "chat:slack-status", "chat:slack-people", "chat:slack-avatars", "chat:slack-avatar-file", "chat:slack-pending", "chat:slack-delivered", "chat:slack-ticket"] as const;
+const SLACK_CHAT_COMMANDS = ["chat:slack-open", "chat:slack-close", "chat:slack-status", "chat:slack-people", "chat:slack-avatars", "chat:slack-avatar-file", "chat:slack-pending", "chat:slack-delivered", "chat:slack-ticket", "chat:slack-request", "chat:slack-start", "chat:slack-assignment", "chat:slack-resume", "chat:slack-expire"] as const;
 
 const defaultLog = lazyChildLogger("slack-chat");
 
@@ -79,17 +86,22 @@ function comparableNames(user: SlackUser): string[] {
   return [user.displayName, user.realName].map((n) => n.trim().toLowerCase()).filter(Boolean);
 }
 
+function matchPeople(users: SlackUser[], person: string): SlackUser[] {
+  const wanted = person.trim().toLowerCase();
+  const exact = users.filter((u) => comparableNames(u).includes(wanted));
+  return exact.length > 0 ? exact : users.filter((u) => comparableNames(u).some((n) => n.split(/\s+/).includes(wanted)));
+}
+
 /** An id first, as two people can share a name. Then an exact name wins over a whole word, so a teammate called just "Alex" stays reachable beside "Alex Example". */
 function findPerson(users: SlackUser[], person: string): SlackUser | SlackRefusal {
   const byId = users.find((u) => u.id === person.trim());
   if (byId) return byId;
   // A display name is its owner's to set, so one that copies an ineligible id must not win that id's chat.
   if (SLACK_ID_SHAPE.test(person.trim()) || person.trim() === SLACKBOT_ID) return slackRefusal(`No one in this Slack workspace matches ${cleanDisplayName(person)}`);
-  const wanted = person.trim().toLowerCase();
-  const exact = users.filter((u) => comparableNames(u).includes(wanted));
-  const matches = exact.length > 0 ? exact : users.filter((u) => comparableNames(u).some((n) => n.split(/\s+/).includes(wanted)));
+  const matches = matchPeople(users, person);
   if (matches.length === 1) return matches[0]!;
   const listed = (found: SlackUser[]) => found.slice(0, CANDIDATES_SHOWN).map(shownName).join(", ");
+  const wanted = person.trim().toLowerCase();
   const asked = cleanDisplayName(person);
   if (matches.length > 1) return slackRefusal(`More than one person matches ${asked}: ${listed(matches)}. Use their full name`);
   const near = users.filter((u) => comparableNames(u).some((n) => n.includes(wanted)));
@@ -121,6 +133,109 @@ function validTicket(p: Partial<Commands["chat:slack-ticket"]["payload"]>): bool
   );
 }
 
+/** The people a chat can open with. The open and the list both read this, so they can't disagree. */
+async function readSlackPeople(slackClient: () => Promise<SlackClient | null>) {
+  const client = await slackClient();
+  if (!client) return slackRefusal(`Slack isn't connected on this machine. To connect it, run ${CONNECT_STEP}`);
+  const { userId: operatorUserId, scopes } = await client.authTest();
+  if (!SLACK_SUPPORT_CHAT_SCOPES.every((s) => scopes.includes(s))) {
+    return slackRefusal(`This Slack connection can't reach direct messages yet. To add that, run ${CONNECT_STEP}`);
+  }
+  const everyone = await client.listUsers();
+  return {
+    client,
+    operatorUserId,
+    operator: everyone.find((u) => u.id === operatorUserId),
+    people: everyone.filter((u) => !u.deleted && !u.isBot && u.id !== operatorUserId && u.id !== SLACKBOT_ID),
+  };
+}
+
+export type SlackOpenSeams = Pick<SlackOpenDeps, "repoPath" | "startAgent" | "stopAgent" | "agentAlive" | "repoOf" | "closePane" | "presencePane" | "gates">;
+
+const unwiredSeams: SlackOpenSeams = {
+  repoPath: () => null,
+  startAgent: async () => ({ ok: false, error: "the daemon has no agent launcher here" }),
+  stopAgent: async () => {},
+  agentAlive: async () => false,
+  repoOf: () => null,
+  closePane: async () => {},
+  presencePane: () => null,
+  gates: {
+    open: async () => ({ ok: false, error: "the daemon has no gate store here" }),
+    close: async () => {},
+    listOpen: () => [],
+    appendContext: () => {},
+  },
+};
+
+/** The Slack side of a support request: who a name means, what Slack says before an open, and the shared milestone delivery. */
+export function createSlackOpenDeps(
+  opts: {
+    db: Database;
+    log: Logger;
+    slackClient?: () => Promise<SlackClient | null>;
+    now?: () => number;
+    milestones: MilestoneDeps;
+    humanHandle?: () => string;
+  },
+  seams: SlackOpenSeams = unwiredSeams,
+): SlackOpenDeps {
+  const slackClient = opts.slackClient ?? slackClientFromSecrets;
+  const unreachable = (err: unknown) => `Slack did not answer (${slackFailureCode(err)})`;
+  return {
+    db: opts.db,
+    log: opts.log,
+    now: opts.now ?? Date.now,
+    milestones: opts.milestones,
+    humanHandle: opts.humanHandle ?? (() => getSetting<string>("chat.humanHandle").value),
+    ...seams,
+    async findPerson(person) {
+      try {
+        const directory = await readSlackPeople(slackClient);
+        if ("ok" in directory) return { ok: false, reason: directory.failure?.message ?? directory.error };
+        const found = findPerson(directory.people, person);
+        if (!isRefusal(found)) return { ok: true, person: { id: found.id, displayName: shownName(found) } };
+        const matches = SLACK_ID_SHAPE.test(person.trim()) ? [] : matchPeople(directory.people, person);
+        const candidates = matches.length > 1 ? matches.slice(0, CANDIDATES_SHOWN).map((u) => ({ name: fullName(u), person: u.id })) : undefined;
+        return { ok: false, reason: found.failure?.message ?? found.error, refused: true, ...(candidates ? { candidates } : {}) };
+      } catch (err) {
+        return { ok: false, reason: unreachable(err), error: err };
+      }
+    },
+    async connect(userId) {
+      try {
+        const directory = await readSlackPeople(slackClient);
+        if ("ok" in directory) return { ok: false, reason: directory.failure?.message ?? directory.error };
+        const user = directory.people.find((u) => u.id === userId);
+        if (!user) return { ok: false, reason: `No one in this Slack workspace matches ${cleanDisplayName(userId)}` };
+        const channel = await directory.client.openDm(user.id);
+        return {
+          ok: true,
+          target: {
+            userId: user.id,
+            displayName: shownName(user),
+            firstName: firstName(user),
+            channel,
+            operatorUserId: directory.operatorUserId,
+            operatorName: (directory.operator && firstName(directory.operator)) || OPERATOR_FALLBACK,
+            newestTs: await directory.client.newestTs(channel),
+          },
+        };
+      } catch (err) {
+        return { ok: false, reason: unreachable(err) };
+      }
+    },
+  };
+}
+
+export type SlackLinearSeam = {
+  apiKey(): Promise<string | null>;
+  create: typeof createSupportIssue;
+  context: typeof orgIdContext;
+};
+
+const realLinear: SlackLinearSeam = { apiKey: readSupportApiKey, create: createSupportIssue, context: orgIdContext };
+
 export function createSlackChatHandlers(opts: {
   db: Database;
   emitEvent: (topic: string, payload?: unknown) => unknown;
@@ -131,12 +246,22 @@ export function createSlackChatHandlers(opts: {
   avatarDir?: () => string;
   notify?: (title: string, message: string) => void;
   now?: () => number;
+  /** Where a ticket is filed; real by default, fakeable the same way slackClient is. */
+  linear?: SlackLinearSeam;
+  /** How a milestone reaches its requester; real by default, shared by every task that sends one. */
+  milestones?: MilestoneDeps;
+  /** The request and open logic's deps, built once by the router so the gate handlers share them; unwired by default. */
+  open?: SlackOpenDeps;
 }): { [K in (typeof SLACK_CHAT_COMMANDS)[number]]: (payload: unknown) => Promise<CommandResult<K>> } {
   const { db } = opts;
   const log = opts.log ?? defaultLog;
   const slackClient = opts.slackClient ?? slackClientFromSecrets;
   const now = opts.now ?? Date.now;
-  const closeDeps = { db, client: slackClient, notify: opts.notify ?? slackDeskNotify, post: slackRoomPoster(db, opts.emitEvent, log), now };
+  const notify = opts.notify ?? slackDeskNotify;
+  const linear = opts.linear ?? realLinear;
+  const milestones = opts.milestones ?? realMilestoneDeps({ db, emitEvent: opts.emitEvent, log, notify });
+  const closeDeps = { db, client: slackClient, notify, post: slackRoomPoster(db, opts.emitEvent, log), now, milestones, herdrRunnerFor: realHerdrRunnerFor };
+  const openDeps = opts.open ?? createSlackOpenDeps({ db, log, slackClient, now, milestones });
 
   const avatars = createSlackAvatars({
     client: slackClient,
@@ -165,22 +290,7 @@ export function createSlackChatHandlers(opts: {
     return slackRefusal(`${teammate} already has a Slack chat open in ${presenceForHandle(holder, db)?.pane ?? identityName(holder, db)}`);
   }
 
-  /** The people a chat can open with. The open and the list both read this, so they can't disagree. */
-  async function readPeople() {
-    const client = await slackClient();
-    if (!client) return slackRefusal(`Slack isn't connected on this machine. To connect it, run ${CONNECT_STEP}`);
-    const { userId: operatorUserId, scopes } = await client.authTest();
-    if (!SLACK_SUPPORT_CHAT_SCOPES.every((s) => scopes.includes(s))) {
-      return slackRefusal(`This Slack connection can't reach direct messages yet. To add that, run ${CONNECT_STEP}`);
-    }
-    const everyone = await client.listUsers();
-    return {
-      client,
-      operatorUserId,
-      operator: everyone.find((u) => u.id === operatorUserId),
-      people: everyone.filter((u) => !u.deleted && !u.isBot && u.id !== operatorUserId && u.id !== SLACKBOT_ID),
-    };
-  }
+  const readPeople = () => readSlackPeople(slackClient);
 
   /** Everything Slack has to say before the open, so a refusal leaves nothing behind. */
   async function readSlack(agentId: string, person: string) {
@@ -277,9 +387,14 @@ export function createSlackChatHandlers(opts: {
       return { ok: true, data: { conversationId, closed: true, ...(redacted ? { redacted: true as const } : {}) } };
     },
 
-    "chat:slack-status": async (): Promise<CommandResult<"chat:slack-status">> => {
+    "chat:slack-status": async (rawPayload: unknown): Promise<CommandResult<"chat:slack-status">> => {
+      const caller = (rawPayload ?? {}) as Commands["chat:slack-status"]["payload"];
       const conversations = listOpenConversations(db).map((c) => {
         const pane = presenceForHandle(c.agentHandle, db)?.pane;
+        const holds = c.agentHandle === caller.agentHandle && sessionSeatedOn(c.agentHandle, caller.sessionId, db);
+        const requested = c.requesterSession !== null && c.requesterSession === caller.sessionId
+          && c.requesterHandle !== null && sessionSeatedOn(c.requesterHandle, caller.sessionId, db);
+        const own = holds || requested;
         return {
           id: c.id,
           room: c.room,
@@ -290,13 +405,25 @@ export function createSlackChatHandlers(opts: {
           displayName: c.slackDisplayName,
           openedAt: c.openedAt,
           lastActiveAt: c.lastActiveAt,
+          ...(c.requesterHandle ? { requester: identityName(c.requesterHandle, db) } : {}),
+          ...(c.requesterPane ? { requesterPane: c.requesterPane } : {}),
+          ...(c.resumedFrom !== null ? { resumedFrom: c.resumedFrom } : {}),
+          ...(c.graceUntil !== null ? { graceUntil: c.graceUntil } : {}),
+          ...(c.assignedSession ? { assignedSession: c.assignedSession } : {}),
+          ...(c.assignedPane ? { assignedPane: c.assignedPane } : {}),
+          tickets: ticketsForChain(c.id, db),
+          ...(own && c.brief ? { brief: c.brief } : {}),
         };
       });
       const closed = listLatestClosedConversations(db).map((c) => ({
+        id: c.id,
         room: c.room,
         ...slackPerson(c),
         agentName: identityName(c.agentHandle, db),
+        displayName: c.slackDisplayName,
         closedAt: c.closedAt ?? c.lastActiveAt,
+        ...(c.graceUntil !== null ? { graceUntil: c.graceUntil } : {}),
+        tickets: ticketsForChain(c.id, db),
       }));
       return { ok: true, data: { conversations, closed } };
     },
@@ -307,7 +434,7 @@ export function createSlackChatHandlers(opts: {
         if ("ok" in directory) return directory;
         const people = directory.people.map((u) => {
           const title = cleanDisplayName(u.title);
-          return { name: fullName(u), person: u.id, ...(title ? { title } : {}) };
+          return { name: fullName(u), person: u.id, ...(title ? { title } : {}), ...(u.avatar ? { avatarId: u.id, avatarVersion: pictureVersion(u.avatar) } : {}) };
         });
         return { ok: true, data: { people: people.sort(byShownName) } };
       } catch (err) {
@@ -334,7 +461,11 @@ export function createSlackChatHandlers(opts: {
       if (conversation) markWatcherSeen(conversation.id, now(), db);
       const notice = closedNoticeForAgent(agentId, db);
       if (notice) return { ok: true, data: { items: [notice.item], open: true, conversation: forWatcher(notice.conversation) } };
-      if (!conversation) return { ok: true, data: { items: [], open: false } };
+      if (!conversation) {
+        const session = presenceForHandle(agentId, db)?.sessionId;
+        const graced = session !== undefined && gracedConversationForSession(agentId, session, now(), db) !== undefined;
+        return { ok: true, data: { items: [], open: false, ...(graced ? { graced: true as const } : {}) } };
+      }
       return { ok: true, data: { items: pendingItems(conversation.id, db), open: true, conversation: forWatcher(conversation) } };
     },
 
@@ -352,12 +483,98 @@ export function createSlackChatHandlers(opts: {
         return slackRefusal("Only the session signed in as this pane can write a ticket, so sign in and try again");
       }
       const conversation = conversationForAgent(agentId, db);
-      if (!conversation) return slackRefusal("This pane has no Slack chat open, so a ticket can't be written");
+      if (!conversation) return slackRefusal("This pane has no Slack chat open, so a ticket can't be filed");
       if (!validTicket(payload)) return { ok: false, error: "chat: a ticket needs a kind of bug or feature, a title, a problem, an idea and acceptance points" };
       const { kind, title, problem, idea, acceptance } = payload;
-      const link = chatViewerUrl(readChatViewerUrlSetting(), conversation.room);
-      const source = { person: identityName(conversation.slackHandle, db), date: new Date(now()).toISOString().slice(0, 10), room: conversation.room, link };
-      return { ok: true, data: { path: writeTicket({ kind, title, problem, idea, acceptance }, source) } };
+      const orgIds = findOrgIds([title, problem, idea, ...acceptance], linear.context());
+      if (!orgIds.ok) {
+        return slackRefusal(orgIds.hit ? `The ticket ${orgIds.reason}: ${orgIds.hit}. Take it out and try again` : `The ticket was not filed: ${orgIds.reason}`);
+      }
+      let apiKey: string | null;
+      try {
+        apiKey = await linear.apiKey();
+      } catch (err) {
+        log.warn({ err }, "chat: the Linear support key could not be read");
+        return slackRefusal(`The ticket was not filed: ${SUPPORT_KEY_NAME} could not be read from the secrets store`);
+      }
+      if (!apiKey) return slackRefusal(`The ticket was not filed: ${SUPPORT_KEY_NAME} is not set in the secrets store`);
+      const source = { person: conversation.slackDisplayName, date: new Date(now()).toISOString().slice(0, 10), room: conversation.room };
+      let issue: { id: string; title: string; url: string };
+      try {
+        issue = await linear.create({ kind, title, problem, idea, acceptance, source }, { apiKey });
+      } catch (err) {
+        log.warn({ err }, "chat: Linear did not take a ticket");
+        return slackRefusal(err instanceof Error ? err.message : String(err));
+      }
+      try {
+        recordSupportTicket(conversation.id, issue, now(), db);
+      } catch (err) {
+        log.warn({ err, issueId: issue.id }, "chat: the filed ticket could not be recorded");
+      }
+      try {
+        await sendMilestone(milestones, { handle: conversation.requesterHandle, session: conversation.requesterSession }, { kind: "ticket", ...issue });
+      } catch (err) {
+        log.warn({ err, conversationId: conversation.id }, "chat: the ticket milestone could not be sent");
+      }
+      return { ok: true, data: issue };
     },
+
+    "chat:slack-request": async (rawPayload: unknown): Promise<CommandResult<"chat:slack-request">> => {
+      const payload = rawPayload as Commands["chat:slack-request"]["payload"];
+      const text = (v: unknown) => typeof v === "string" && v.trim().length > 0;
+      if (!text(payload.person)) return { ok: false, error: "chat: a Slack request needs a person" };
+      if (!text(payload.brief)) return { ok: false, error: "chat: a Slack request needs a brief" };
+      if (!text(payload.requesterSession) || !text(payload.repo)) return { ok: false, error: "chat: a Slack request needs the requesting session and its repo" };
+      if (!isValidChatName(payload.requesterHandle)) return { ok: false, error: `invalid handle "${payload.requesterHandle}"` };
+      const res = await requestSlackOpen(openDeps, payload);
+      if (!res.ok) return slackRefusal(res.reason);
+      return { ok: true, data: "gateId" in res ? { gateId: res.gateId, question: res.question } : { candidates: res.candidates } };
+    },
+
+    "chat:slack-start": async (rawPayload: unknown): Promise<CommandResult<"chat:slack-start">> => {
+      const payload = rawPayload as Commands["chat:slack-start"]["payload"];
+      const text = (v: unknown) => typeof v === "string" && v.trim().length > 0;
+      if (!text(payload.person)) return { ok: false, error: "chat: a Slack chat needs a person" };
+      if (!text(payload.brief) || !text(payload.repo)) return { ok: false, error: "chat: a Slack chat needs a brief and a repo" };
+      if (payload.requesterHandle !== undefined && !isValidChatName(payload.requesterHandle)) return { ok: false, error: `invalid handle "${payload.requesterHandle}"` };
+      const found = await openDeps.findPerson(payload.person);
+      if (!found.ok) return slackRefusal(found.reason);
+      const res = await approveSlackOpen(openDeps, {
+        person: found.person.id,
+        personName: found.person.displayName,
+        brief: payload.brief,
+        requesterSession: payload.requesterSession ?? null,
+        requesterHandle: payload.requesterHandle ?? null,
+        requesterPane: payload.requesterPane ?? null,
+        repo: payload.repo,
+      });
+      return res.ok ? { ok: true, data: { conversation: res.conversation } } : slackRefusal(res.reason);
+    },
+
+    "chat:slack-assignment": async (rawPayload: unknown): Promise<CommandResult<"chat:slack-assignment">> => {
+      const { sessionId } = rawPayload as Commands["chat:slack-assignment"]["payload"];
+      if (typeof sessionId !== "string" || !sessionId) return { ok: false, error: "chat: an assignment needs a session" };
+      return { ok: true, data: { conversation: conversationForAssignedSession(sessionId, db)?.id ?? null } };
+    },
+
+    "chat:slack-resume": async (rawPayload: unknown): Promise<CommandResult<"chat:slack-resume">> => {
+      const payload = rawPayload as Commands["chat:slack-resume"]["payload"];
+      if (!Number.isSafeInteger(payload.conversation)) return { ok: false, error: "chat: a resume needs a conversation id" };
+      const old = conversationById(payload.conversation, db);
+      if (!old) return slackRefusal(`No Slack chat ${payload.conversation} is known`);
+      if (payload.requesterHandle !== undefined && !isValidChatName(payload.requesterHandle)) return { ok: false, error: `invalid handle "${payload.requesterHandle}"` };
+      if (payload.approved === true) {
+        const res = await approveSlackResume(openDeps, { conversation: old.id, requesterSession: payload.requesterSession ?? null, requesterHandle: payload.requesterHandle ?? null });
+        return res.ok ? { ok: true, data: { conversation: res.conversation, agent: res.agent } } : slackRefusal(res.reason);
+      }
+      if (typeof payload.requesterSession !== "string" || !payload.requesterSession || payload.requesterHandle === undefined) {
+        return { ok: false, error: "chat: a resume request needs the requesting session and its handle" };
+      }
+      if (old.closedAt === null) return slackRefusal("That chat is still open");
+      const res = await requestResume(openDeps, old, { session: payload.requesterSession, handle: payload.requesterHandle });
+      return res.ok ? { ok: true, data: { gateId: res.gateId, question: res.question } } : slackRefusal(res.reason);
+    },
+
+    "chat:slack-expire": async (): Promise<CommandResult<"chat:slack-expire">> => ({ ok: true, data: { expired: await expireSlackOpenGates(openDeps) } }),
   };
 }

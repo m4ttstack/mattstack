@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
 import {
+  fromOperatorPage,
   isLocalRequest,
   type LocalServer,
 } from '@mattstack/app-server/local-request';
@@ -7,6 +8,7 @@ import { panesForOrigin, resolveOriginFocus } from '@mattstack/gate-kit/server';
 import {
   gateAnswer,
   gateList,
+  getSetting,
   listRuns,
   paneFocus,
   paneList,
@@ -20,6 +22,7 @@ import { validator } from 'hono/validator';
 
 import { runIdOfGate } from '../shared/gate-run';
 import { countsForConsoleBadge } from '../shared/gate-waiting';
+import { personaTrigger } from '../shared/slack-gate';
 import {
   FIXTURE_OUTAGE,
   FIXTURE_READ_ONLY,
@@ -47,23 +50,13 @@ interface GateScope {
   linked?: boolean;
 }
 
-/** `run` and `linked` reach gates on `mr:` subjects, so neither is paired
-    with a `run:` prefix. A daemon older than those filters ignores the key
-    and returns every gate, so the rows are narrowed here too. */
-export async function listAllRunGates(
-  scope: GateScope = {}
+type GateFilter = Parameters<typeof gateList>[0];
+
+async function pageGates(
+  filter: GateFilter
 ): Promise<{ ok: true; gates: GateRow[] } | { ok: false; error: string }> {
   const gates: GateRow[] = [];
   let cursor: number | undefined;
-  // A daemon older than the subject filter ignores the unknown key, so the
-  // prefix rides along to keep it from returning every gate in the estate.
-  const filter = scope.run
-    ? { run: scope.run }
-    : scope.linked
-      ? { linked: true }
-      : scope.subject
-        ? { subject: scope.subject, subjectPrefix: 'run:' }
-        : { subjectPrefix: 'run:' };
   for (;;) {
     const res = await gateList(
       {
@@ -87,6 +80,33 @@ export async function listAllRunGates(
       break;
     cursor = res.data.cursor;
   }
+  return { ok: true, gates };
+}
+
+/** The open Slack chat requests: gates of kind `slack-open`, whatever the
+    subject. */
+export function listSlackGates(): ReturnType<typeof pageGates> {
+  return pageGates({ kind: 'slack-open', open: true });
+}
+
+/** `run` and `linked` reach gates on `mr:` subjects, so neither is paired
+    with a `run:` prefix. A daemon older than those filters ignores the key
+    and returns every gate, so the rows are narrowed here too. */
+export async function listAllRunGates(
+  scope: GateScope = {}
+): Promise<{ ok: true; gates: GateRow[] } | { ok: false; error: string }> {
+  // A daemon older than the subject filter ignores the unknown key, so the
+  // prefix rides along to keep it from returning every gate in the estate.
+  const filter = scope.run
+    ? { run: scope.run }
+    : scope.linked
+      ? { linked: true }
+      : scope.subject
+        ? { subject: scope.subject, subjectPrefix: 'run:' }
+        : { subjectPrefix: 'run:' };
+  const paged = await pageGates(filter);
+  if (!paged.ok) return paged;
+  const gates = paged.gates;
   if (scope.run) {
     return { ok: true, gates: gates.filter(g => runIdOfGate(g) === scope.run) };
   }
@@ -179,6 +199,22 @@ export function gatesRoutes(fixture: RunsFixture | null = null) {
           return c.json({ gates: res.gates }, 200);
         }
       )
+      .get('/api/gates/slack', async c => {
+        if (!isLocalRequest(c.req.raw, c.env as LocalServer | undefined)) {
+          return c.json({ error: 'forbidden' }, 403);
+        }
+        const res = fixture
+          ? ({ ok: true, gates: [] } as const)
+          : await listSlackGates();
+        if (!res.ok) return c.json({ error: res.error }, 502);
+        const persona = getSetting<{ name: string; trigger?: string }>(
+          'chat.slackSupport.persona'
+        ).value;
+        return c.json(
+          { gates: res.gates, trigger: personaTrigger(persona) },
+          200
+        );
+      })
       .get('/api/badge', async c => {
         const [gatesRes, runsRes] = await Promise.all([allGates(), allRuns()]);
         if (!gatesRes.ok) return c.json({ error: gatesRes.error }, 502);
@@ -222,6 +258,15 @@ export function gatesRoutes(fixture: RunsFixture | null = null) {
           const { answers } = c.req.valid('json');
           if (!answers || typeof answers !== 'object') {
             return c.json({ error: 'answers is required' }, 400);
+          }
+          // A slack-open answer starts a real chat with no other check, so it
+          // must come from this page, not a plain call from a pane's shell.
+          if (!fromOperatorPage(c.req.raw)) {
+            const slack = await listSlackGates();
+            if (!slack.ok) return c.json({ error: slack.error }, 502);
+            if (slack.gates.some(g => g.id === id)) {
+              return c.json({ error: 'forbidden' }, 403);
+            }
           }
 
           let res: Awaited<ReturnType<typeof gateAnswer>>;
@@ -329,7 +374,14 @@ export function gatesRoutes(fixture: RunsFixture | null = null) {
         const found = await findGate(id);
         if (!found.ok) return c.json({ error: found.error }, 502);
         const row = found.gate;
-        if (!row) return c.json({ error: 'not-found' }, 404);
+        if (!row) {
+          // A Slack request has no run: the notification's link ends on its page.
+          const slack = fixture ? null : await listSlackGates();
+          if (slack && !slack.ok) return c.json({ error: slack.error }, 502);
+          if (slack?.gates.some(g => g.id === id))
+            return c.json({ slack: true as const }, 200);
+          return c.json({ error: 'not-found' }, 404);
+        }
         const runId = runIdOfGate(row);
         if (!runId) return c.json({ error: 'gate is not a run gate' }, 404);
 

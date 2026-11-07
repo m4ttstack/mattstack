@@ -11,7 +11,7 @@ import type { InboxBinding } from "../../claude-registry.ts";
 import { herdrRequest } from "../../herdr/client.ts";
 import { drainNotifications, peekNotifications } from "../../notifier.ts";
 import { SlackError, createSlackClient, type SlackClient } from "../../slack/client.ts";
-import { SLACK_PREFIX, closingLine } from "../../slack/format.ts";
+import { slackPrefix, closingLine } from "../../slack/format.ts";
 import {
   closeConversation,
   closedNoticeForAgent,
@@ -28,8 +28,12 @@ import {
   stalePendingPairs,
   type RegistryDeps,
 } from "../../state/index.ts";
+import { agentHasPosted, recordSupportTicket } from "../../state/slack-conversation-store.ts";
 import { createChatDeliverySweep, createChatHandlers, planSweepTargets, postAndNotify, type InboxDeps } from "../handlers/chat.ts";
 import { SLACK_CHECK_IN_MS, SLACK_FAREWELL_MS, SLACK_IDLE_MS, tickSlackLifecycle } from "../slack-lifecycle.ts";
+
+const MAUDE = { name: "Maude", emoji: "🤖" };
+const SLACK_PREFIX = slackPrefix(MAUDE);
 
 const log = { warn: () => {}, info: () => {}, debug: () => {}, error: () => {} } as unknown as Logger;
 const SLACK_ID = "slack.u0test";
@@ -44,7 +48,7 @@ function socketFile(): string {
 
 type Post = { channel: string; text: string };
 
-function harness(post: (p: Post) => Promise<{ ts: string }> = async () => ({ ts: "1.0" }), connected = true) {
+function harness(post: (p: Post) => Promise<{ ts: string }> = async () => ({ ts: "1.0" }), connected = true, persona?: () => { name: string; emoji: string }) {
   const db = openStateDb(join(tmpdir(), `chat-slack-${process.pid}-${n++}-${Date.now()}.db`));
   const posts: Post[] = [];
   const pushed: string[] = [];
@@ -73,6 +77,7 @@ function harness(post: (p: Post) => Promise<{ ts: string }> = async () => ({ ts:
     deliveryChains,
     retryDelayMs: 0,
     slackClient: async () => (connected ? client : null),
+    slackPersona: persona,
     slackSleep: async (ms) => {
       slept.push(ms);
     },
@@ -143,20 +148,33 @@ test("the sweep never targets a Slack identity", async () => {
   expect(stalePendingPairs(h.db).filter((p) => p.handle === SLACK_ID)).toEqual([]);
 });
 
+test("a chat_dm speaks as the configured persona and swaps an old prefix for it", async () => {
+  const h = harness(undefined, true, () => ({ name: "Ada", emoji: "🦊" }));
+  const { agent, room } = await openChat(h);
+
+  const res = await h.handlers["chat:dm"]({ from: agent, to: "alex-slack", body: "[Claude 🤖]: try restarting", sessionId: PANE_SESSION });
+
+  expect(res.ok).toBe(true);
+  expect(h.posts).toEqual([{ channel: "D0TEST", text: "[Ada 🦊]: try restarting" }]);
+  expect(messages(h, room)).toEqual([{ handle: agent, body: "try restarting" }]);
+});
+
 test("a chat_dm into an open conversation posts to Slack once with the prefix, then records it", async () => {
   const h = harness();
   const { agent, room, conversation } = await openChat(h);
+  expect(agentHasPosted(conversation, h.db)).toBe(false);
 
-  const res = await h.handlers["chat:dm"]({ from: agent, to: "alex-slack", body: "[Claude 🤖]: try restarting", sessionId: PANE_SESSION });
+  const res = await h.handlers["chat:dm"]({ from: agent, to: "alex-slack", body: "[Maude 🤖]: try restarting", sessionId: PANE_SESSION });
 
   expect(res.ok).toBe(true);
   if (!res.ok) throw new Error(res.error);
   expect(res.data.room).toBe(room);
   expect(res.data.redacted).toBeUndefined();
-  expect(h.posts).toEqual([{ channel: "D0TEST", text: "[Claude 🤖]: try restarting" }]);
+  expect(h.posts).toEqual([{ channel: "D0TEST", text: "[Maude 🤖]: try restarting" }]);
   expect(messages(h, room)).toEqual([{ handle: agent, body: "try restarting" }]);
   expect(cursor(h, room, SLACK_ID)).toBe(res.data.id);
   expect(conversationForRoom(room, h.db)!.lastActiveAt).toBeGreaterThan(conversation.lastActiveAt);
+  expect(agentHasPosted(conversation, h.db)).toBe(true);
 });
 
 test("a reply with Slack's control characters is escaped on the wire and stays plain in the room", async () => {
@@ -172,7 +190,7 @@ test("a reply with Slack's control characters is escaped on the wire and stays p
   const res = await handlers["chat:dm"]({ from: agent, to: SLACK_ID, body: "It returns Promise<void>, so run it with 2>&1", sessionId: PANE_SESSION });
 
   expect(res.ok).toBe(true);
-  expect(wire).toEqual(["[Claude 🤖]: It returns Promise&lt;void&gt;, so run it with 2&gt;&amp;1"]);
+  expect(wire).toEqual(["[Maude 🤖]: It returns Promise&lt;void&gt;, so run it with 2&gt;&amp;1"]);
   expect(messages(h, room)).toEqual([{ handle: agent, body: "It returns Promise<void>, so run it with 2>&1" }]);
 });
 
@@ -192,7 +210,11 @@ test("a teammate who walks away after a check-in reply still reaches the idle cl
   const h = harness();
   const { agent, conversation } = await openChat(h);
   let clock = conversation.openedAt;
-  const deps = { db: h.db, client: async () => h.client, notify: () => {}, post: () => ({ id: 1 }), now: () => clock };
+  const deps = { db: h.db, client: async () => h.client, notify: () => {}, post: () => ({ id: 1 }),
+    now: () => clock,
+    milestones: { isOnline: () => false, postDm: async () => {}, desk: async () => {} },
+    herdrRunnerFor: () => async () => ({ exitCode: 0, stdout: "" }),
+  };
   const run = async (ms: number) => {
     for (const end = clock + ms; clock < end; ) {
       clock += 15_000;
@@ -222,8 +244,8 @@ test("sign-out closes the session's chat as pane-gone, with the fixed line and t
 
   expect(res.ok).toBe(true);
   expect(conversationById(conversation.id, h.db)!.closeReason).toBe("pane-gone");
-  expect(h.posts.map((p) => p.text)).toEqual([closingLine("Sam", true)]);
-  expect(messages(h, room)).toEqual([{ handle: agent, body: closingLine("Sam", true).slice(SLACK_PREFIX.length) }]);
+  expect(h.posts.map((p) => p.text)).toEqual([closingLine("Sam", true, MAUDE)]);
+  expect(messages(h, room)).toEqual([{ handle: agent, body: closingLine("Sam", true, MAUDE).slice(SLACK_PREFIX.length) }]);
   expect(h.notices).toEqual(["Claude stopped responding to alex-slack, who is waiting to hear from you"]);
   expect(closedNoticeForAgent(agent, h.db)?.item.text).toContain("pane-gone");
 });
@@ -283,6 +305,22 @@ test("a sign-out by another identity leaves the chat open", async () => {
 
   expect(conversationById(conversation.id, h.db)!.closedAt).toBeNull();
   expect(h.notices).toEqual([]);
+});
+
+test("a reply naming the chat's ticket or a Linear url is refused before Slack, with no chat row", async () => {
+  const h = harness();
+  const { agent, room, conversation } = await openChat(h);
+  recordSupportTicket(conversation.id, { id: "SUP-7", title: "Export hangs", url: "https://tracker.example/SUP-7" }, Date.now(), h.db);
+
+  for (const body of ["I filed SUP-7 for you", "see https://linear.app/acme/issue/OTHER-2"]) {
+    const res = await h.handlers["chat:dm"]({ from: agent, to: SLACK_ID, body, sessionId: PANE_SESSION });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.error).toContain("ticket ids stay off Slack");
+    expect(res.error).toContain("tell them you wrote it up");
+  }
+  expect(h.posts).toEqual([]);
+  expect(messages(h, room)).toEqual([]);
 });
 
 test("a Slack failure leaves no chat row and fails the tool with the reason", async () => {
@@ -613,7 +651,7 @@ test("a credential in a reply is redacted and the tool result says so", async ()
   expect(res.ok).toBe(true);
   if (!res.ok) throw new Error(res.error);
   expect(res.data.redacted).toBe(true);
-  expect(h.posts[0]!.text).toBe("[Claude 🤖]: use [redacted] here");
+  expect(h.posts[0]!.text).toBe("[Maude 🤖]: use [redacted] here");
   expect(messages(h, room)).toEqual([{ handle: agent, body: "use [redacted] here" }]);
 });
 
@@ -629,4 +667,63 @@ test("a chat_dm between two agents is untouched", async () => {
   expect(res.data.redacted).toBeUndefined();
   expect(h.posts).toEqual([]);
   expect(messages(h, res.data.room)).toEqual([{ handle: agent, body: "ghp_abc123" }]);
+});
+
+/** A closed chat resumed by a fresh agent: the new row keeps the old room, so no dm room exists for the fresh pair. */
+async function resumeWithFreshAgent(h: Harness) {
+  const { room, conversation } = await openChat(h);
+  closeConversation(conversation.id, "idle", 2000, h.db);
+  const fresh = await signIn(h, "fresh-session", "kit");
+  const resumed = openConversation(
+    {
+      room,
+      agentHandle: fresh,
+      slackHandle: SLACK_ID,
+      slackUserId: "U0TEST",
+      slackChannel: "D0TEST",
+      slackDisplayName: "Alex Example",
+      operatorUserId: "U0OPERATOR",
+      operatorName: "Sam",
+      frameMarker: "marker2",
+      lastReadTs: "0.0",
+      openedAt: 3000,
+      resumedFrom: conversation.id,
+    },
+    h.db,
+  );
+  return { fresh, room, resumed };
+}
+
+test("a fresh agent's chat_dm to the teammate posts to the old room", async () => {
+  const h = harness();
+  const { fresh, room } = await resumeWithFreshAgent(h);
+
+  const res = await h.handlers["chat:dm"]({ from: fresh, to: SLACK_ID, body: "I have the history", sessionId: "fresh-session" });
+
+  if (!res.ok) throw new Error(res.error);
+  expect(res.data.room).toBe(room);
+  expect(h.posts).toEqual([{ channel: "D0TEST", text: "[Maude 🤖]: I have the history" }]);
+  expect(messages(h, room)).toEqual([{ handle: fresh, body: "I have the history" }]);
+  expect(h.db.query("SELECT COUNT(*) AS n FROM chat_dms").get()).toEqual({ n: 1 });
+});
+
+test("a fresh agent's chat:dm-open names the old room and creates no second one", async () => {
+  const h = harness();
+  const { fresh, room } = await resumeWithFreshAgent(h);
+
+  const res = await h.handlers["chat:dm-open"]({ from: fresh, to: SLACK_ID, sessionId: "fresh-session" });
+
+  if (!res.ok) throw new Error(res.error);
+  expect(res.data.room).toBe(room);
+  expect(h.db.query("SELECT COUNT(*) AS n FROM chat_dms").get()).toEqual({ n: 1 });
+});
+
+test("a fresh agent's chat_dm from a session that does not hold its seat is refused", async () => {
+  const h = harness();
+  const { fresh } = await resumeWithFreshAgent(h);
+
+  const res = await h.handlers["chat:dm"]({ from: fresh, to: SLACK_ID, body: "hi", sessionId: PANE_SESSION });
+
+  expect(res.ok).toBe(false);
+  expect(h.posts).toEqual([]);
 });

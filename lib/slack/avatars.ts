@@ -43,7 +43,8 @@ export interface SlackAvatars {
   picture(userId: string): Promise<SlackPicture | null>;
 }
 
-function pictureVersion(url: string): string {
+/** Changes with the picture, so a URL built from it can be cached for good. */
+export function pictureVersion(url: string): string {
   return createHash("sha256").update(url).digest("hex").slice(0, 16);
 }
 

@@ -38,3 +38,8 @@ export function dayLabel(ts: number, now = Date.now()): string {
     ? base
     : `${base} ${d.getFullYear()}`;
 }
+
+/** The clock today, the day otherwise, as Slack's list reads. */
+export function whenLabel(ts: number, now = Date.now()): string {
+  return dayKey(ts) === dayKey(now) ? localTime(ts) : dayLabel(ts, now);
+}

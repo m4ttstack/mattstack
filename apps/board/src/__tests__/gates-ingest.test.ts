@@ -560,6 +560,38 @@ describe('installBoardBridgeRule', () => {
   });
 });
 
+describe('slack-open gates stay off the board', () => {
+  test('buildQueueExtras skips slack-open rows', () => {
+    const extras = buildQueueExtras([
+      row({
+        id: 'g-slack',
+        subject: 'slack:U123',
+        kind: 'slack-open',
+        owner: 'human',
+      }),
+    ]);
+    expect(extras).toEqual([]);
+  });
+
+  test('a slack-open frame is ignored', () => {
+    const { target, applied } = fakeCache();
+    let notified = 0;
+    ingestRelayFrame(
+      target,
+      {
+        topic: 'gate/opened/g-slack',
+        payload: {
+          subject: 'mr:https://gitlab.com/acme/webapp/-/merge_requests/9',
+          kind: 'slack-open',
+        },
+      },
+      () => notified++
+    );
+    expect(applied).toHaveLength(0);
+    expect(notified).toBe(0);
+  });
+});
+
 describe('buildQueueExtras owner', () => {
   test('a relay-opened human pane-attention gate lands in queueExtras with its owner', () => {
     const cache = new GateCache();

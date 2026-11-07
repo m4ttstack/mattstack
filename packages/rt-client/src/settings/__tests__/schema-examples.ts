@@ -11,6 +11,25 @@ export const EXAMPLES: Record<string, Example> = {
     good: ["matt", "Pat Smith"],
     bad: [{ value: "", path: [] }],
   },
+  "chat.slackSupport.defaultRepo": {
+    good: ["gitlab.com/acme/support", "github.com/acme/app"],
+    bad: [
+      { value: "", path: [] },
+    ],
+  },
+  "chat.slackSupport.persona": {
+    good: [
+      { name: "Maude", emoji: "🤖" },
+      { name: "Ada", emoji: "🦊", trigger: "!!ada" },
+    ],
+    bad: [
+      { value: { name: "", emoji: "🤖" }, path: ["name"] },
+      { value: { name: "  ", emoji: "🤖" }, path: ["name"] },
+      { value: { name: "Maude", emoji: "🤖", trigger: " " }, path: ["trigger"] },
+      { value: { name: "Maude" }, path: ["emoji"] },
+    ],
+    layer: [{ emoji: "🦊" }, { trigger: "!!ada" }],
+  },
   "rt.roles": {
     good: [
       {},

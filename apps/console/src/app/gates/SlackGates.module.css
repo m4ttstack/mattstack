@@ -1,0 +1,81 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  contain: inline-size;
+}
+
+.card {
+  width: 100%;
+  overflow: hidden;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+}
+
+.row + .row {
+  border-top: 1px solid var(--tk-line-1);
+}
+
+.row[data-focused] {
+  background-color: var(--mantine-color-accent-light);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brief {
+  max-width: 720px;
+  white-space: pre-line;
+}
+
+.age {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 64px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.error {
+  grid-column: 2 / -1;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 18px;
+}
+
+@media (max-width: 720px) {
+  .row {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .age,
+  .actions {
+    grid-column: 2;
+    align-items: flex-start;
+  }
+}

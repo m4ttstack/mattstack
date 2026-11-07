@@ -6,6 +6,7 @@ import { expect, test, vi } from 'vitest';
 import './icons';
 
 import { RoomRail } from './RoomRail';
+import { SlackChatsProvider } from './slack-chats-context';
 
 test('DM rooms sit in a direct section and are named by their pair, never the hash', () => {
   renderWithProviders(
@@ -261,4 +262,38 @@ test('Messages to you sits above the rooms, takes the human’s DMs out of Direc
   expect(screen.getByTestId('dm-row-dm-theirs')).toBeInTheDocument();
   await userEvent.click(row);
   expect(onOpen).toHaveBeenCalled();
+});
+
+test('a Slack chat still opening leads Direct, above rooms that already have posts', () => {
+  const pairOf = (a: string, b: string) => ({ a, b, aName: a, bName: b });
+  renderWithProviders(
+    <SlackChatsProvider chats={[{ room: 'dm-new' }]}>
+      <RoomRail
+        rooms={[
+          {
+            room: 'dm-old',
+            memberCount: 3,
+            unread: 0,
+            mentions: 0,
+            kind: 'dm',
+            participants: pairOf('kerry', 'tess'),
+            lastPostedAt: 100,
+          },
+          {
+            room: 'dm-new',
+            memberCount: 3,
+            unread: 0,
+            mentions: 0,
+            kind: 'dm',
+            participants: pairOf('alexa', 'tucker'),
+          },
+        ]}
+      />
+    </SlackChatsProvider>
+  );
+  const rows = screen.getAllByTestId(/^dm-row-/);
+  expect(rows.map(r => r.getAttribute('data-testid'))).toEqual([
+    'dm-row-dm-new',
+    'dm-row-dm-old',
+  ]);
 });

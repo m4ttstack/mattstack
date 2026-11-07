@@ -188,7 +188,7 @@ const EXPECTED_TOOL_NAMES = [
   "herd_start", "herd_spawn", "herd_brief", "herd_close", "herd_follow_up", "herd_status", "herd_list", "herd_attend", "herd_wrap_up", "herd_resume", "herd_milestone",
   "herd_respawn", "herd_gate_answer", "herd_gate_park", "herd_diagnose", "herd_nudge", "herd_lanes",
   "chat_read", "chat_mark", "chat_rooms", "chat_who", "chat_buddies", "chat_join", "chat_leave", "chat_away", "chat_back",
-  "chat_sign_in", "chat_sign_out", "chat_archive", "chat_invite", "chat_slack_close", "chat_slack_status", "chat_slack_ticket",
+  "chat_sign_in", "chat_sign_out", "chat_archive", "chat_invite", "chat_slack_close", "chat_slack_request", "chat_slack_resume", "chat_slack_status", "chat_slack_ticket",
   "whoami",
   "skills_resolve",
   "ci_lease_claim", "ci_lease_heartbeat", "ci_lease_release", "ci_lease_read", "ci_watch", "ci_triage",

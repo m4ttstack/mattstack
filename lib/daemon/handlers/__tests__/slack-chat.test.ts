@@ -7,7 +7,7 @@ import { join } from "path";
 import type { Logger } from "pino";
 import { SLACK_SUPPORT_CHAT_SCOPES } from "../../../setup/slack-app.ts";
 import { SlackError, type SlackClient, type SlackUser } from "../../../slack/client.ts";
-import { SLACK_PREFIX, closingLine } from "../../../slack/format.ts";
+import { slackPrefix, closingLine } from "../../../slack/format.ts";
 import {
   closeConversation,
   conversationForAgent,
@@ -21,8 +21,15 @@ import {
   openStateDb,
   pendingItems,
 } from "../../../state/index.ts";
+import { existsSync } from "fs";
+import { LinearSupportError, type SupportIssueInput } from "../../../linear/support.ts";
+import { conversationById, endGrace, recordSupportTicket, startGrace, ticketsForChain } from "../../../state/slack-conversation-store.ts";
 import { createChatHandlers } from "../chat.ts";
-import { createSlackChatHandlers } from "../slack-chat.ts";
+import { createSlackChatHandlers, createSlackOpenDeps } from "../slack-chat.ts";
+import type { StartedAgent } from "../../../slack/request.ts";
+
+const MAUDE = { name: "Maude", emoji: "🤖" };
+const SLACK_PREFIX = slackPrefix(MAUDE);
 
 const log = { warn: () => {}, info: () => {}, debug: () => {}, error: () => {} } as unknown as Logger;
 const SESSION = "pane-session";
@@ -42,6 +49,13 @@ interface Options {
   newest?: string | undefined;
   connected?: boolean;
   openDm?: () => Promise<string>;
+  apiKey?: string | null;
+  createIssue?: (input: SupportIssueInput) => Promise<{ id: string; title: string; url: string }>;
+  orgIds?: { forgeHost: string | null; teamKeys: string[] | null };
+  online?: boolean;
+  startError?: string;
+  gateOpenError?: string;
+  alive?: boolean;
 }
 
 function harness(opts: Options = {}) {
@@ -50,6 +64,12 @@ function harness(opts: Options = {}) {
   const sent: string[] = [];
   const events: string[] = [];
   const notices: string[] = [];
+  const filed: SupportIssueInput[] = [];
+  const milestones: Array<{ via: string; to?: string; body: string }> = [];
+  const agentsStarted: string[] = [];
+  const agentsStopped: StartedAgent[] = [];
+  const gatesOpened: Array<{ id: string; subject: string; kind: string; context: string; meta: Record<string, unknown> }> = [];
+  const gatesClosed: string[] = [];
   const client = {
     post: async (_channel: string, text: string) => {
       sent.push(text);
@@ -72,7 +92,43 @@ function harness(opts: Options = {}) {
       return "newest" in opts ? opts.newest : "1700000000.000100";
     },
   } as unknown as SlackClient;
+  const milestoneDeps = {
+    isOnline: () => opts.online ?? true,
+    postDm: async (_from: string, to: string, body: string) => {
+      milestones.push({ via: "dm", to, body });
+    },
+    desk: async (body: string) => {
+      milestones.push({ via: "desk", body });
+    },
+  };
+  const openDeps = createSlackOpenDeps(
+    { db, log, slackClient: async () => (opts.connected === false ? null : client), now: () => NOW, milestones: milestoneDeps, humanHandle: () => "matt" },
+    {
+      repoPath: () => "/work/app",
+      startAgent: async (repo) => {
+        agentsStarted.push(repo);
+        if (opts.startError) return { ok: false, error: opts.startError };
+        return { ok: true, agent: { id: "ag-1", handle: "support-agent-1", sessionId: "agent-session", paneId: "bg:w1:p9" }, reused: false };
+      },
+      stopAgent: async (agent) => void agentsStopped.push(agent),
+      agentAlive: async () => opts.alive ?? false,
+      repoOf: () => "github.com/acme/app",
+      closePane: async () => {},
+      presencePane: () => null,
+      gates: {
+        open: async (input) => {
+          if (opts.gateOpenError) return { ok: false, error: opts.gateOpenError };
+          gatesOpened.push(input as never);
+          return { ok: true, id: input.id };
+        },
+        close: async (id) => void gatesClosed.push(id),
+        listOpen: () => [],
+        appendContext: () => {},
+      },
+    },
+  );
   const handlers = createSlackChatHandlers({
+    open: openDeps,
     db,
     emitEvent: (topic) => {
       events.push(topic);
@@ -82,6 +138,23 @@ function harness(opts: Options = {}) {
     slackClient: async () => (opts.connected === false ? null : client),
     notify: (title) => notices.push(title),
     now: () => NOW,
+    linear: {
+      apiKey: async () => ("apiKey" in opts ? opts.apiKey! : "lin_key"),
+      create: async (input) => {
+        filed.push(input);
+        return opts.createIssue ? opts.createIssue(input) : { id: "SUP-7", title: input.title, url: "https://linear.app/x/issue/SUP-7" };
+      },
+      context: () => opts.orgIds ?? { forgeHost: "gitlab.example.com", teamKeys: ["ACME"] },
+    },
+    milestones: {
+      isOnline: () => opts.online ?? true,
+      postDm: async (_from, to, body) => {
+        milestones.push({ via: "dm", to, body });
+      },
+      desk: async (body) => {
+        milestones.push({ via: "desk", body });
+      },
+    },
   });
   const chat = createChatHandlers({ db, emitEvent: () => 0, log });
   async function signIn(sessionId = SESSION, baseHandle = "support") {
@@ -89,7 +162,7 @@ function harness(opts: Options = {}) {
     if (!res.ok) throw new Error(res.error);
     return res.data.handle;
   }
-  return { db, handlers, chat, signIn, calls, sent, events, notices };
+  return { db, handlers, chat, signIn, calls, sent, events, notices, filed, milestones, agentsStarted, agentsStopped, gatesOpened, gatesClosed };
 }
 
 type Harness = ReturnType<typeof harness>;
@@ -357,6 +430,17 @@ test("slack-people lists everyone an open can reach, sorted by shown name, and o
   expect(getIdentity("slack.u0alex", h.db)).toBeUndefined();
 });
 
+test("slack-people names each picture a person has, as the avatar route takes it", async () => {
+  const users = [OPERATOR, user("U0A", "Alex Example", { avatar: "https://avatars.slack-edge.com/a-192.png" }), user("U0B", "Sam Example")];
+  const res = await harness({ users }).handlers["chat:slack-people"]({});
+  if (!res.ok) throw new Error(res.error);
+  const [alex, sam] = res.data.people;
+  expect(alex).toMatchObject({ person: "U0A", avatarId: "U0A" });
+  expect(alex!.avatarVersion).toMatch(/^[0-9a-f]{16}$/);
+  expect(sam).toEqual({ name: "Sam Example", person: "U0B" });
+  expect(JSON.stringify(res.data)).not.toContain("slack-edge.com");
+});
+
 test("slack-people cleans the name and the title, and leaves out a title that cleans to nothing", async () => {
   const users = [OPERATOR, user("U0A", "Alex\n(he/him)", { displayName: "Ali", title: "Lead\u202e [ops]" }), user("U0B", "Sam Example", { title: "🎉" })];
   const res = await harness({ users }).handlers["chat:slack-people"]({});
@@ -509,8 +593,8 @@ test("the pane's close with a farewell closes at once and shows in the room", as
   if (!res.ok) throw new Error(res.error);
   const closed = await h.handlers["chat:slack-close"]({ agentHandle, sessionId: SESSION, farewell: "All sorted." });
   expect(closed).toEqual({ ok: true, data: { conversationId: res.data.conversationId, closed: true } });
-  expect(h.sent).toEqual([`${SLACK_PREFIX}All sorted.`, closingLine("Robin", false)]);
-  expect(listMessages({ room: res.data.room, limit: 10 }, h.db).map((m) => m.body)).toEqual(["All sorted.", closingLine("Robin", false).slice(SLACK_PREFIX.length)]);
+  expect(h.sent).toEqual([`${SLACK_PREFIX}All sorted.`, closingLine("Robin", false, MAUDE)]);
+  expect(listMessages({ room: res.data.room, limit: 10 }, h.db).map((m) => m.body)).toEqual(["All sorted.", closingLine("Robin", false, MAUDE).slice(SLACK_PREFIX.length)]);
   expect(h.events).toEqual([`chat/${res.data.room}/msg`, `chat/${res.data.room}/msg`]);
   expect(conversationForAgent(agentHandle, h.db)).toBeUndefined();
 });
@@ -634,10 +718,71 @@ test("slack-status lists each open conversation with its room and pane", async (
           displayName: "Alex Example",
           openedAt: NOW,
           lastActiveAt: NOW,
+          tickets: [],
         },
       ],
       closed: [],
     },
+  });
+});
+
+function describeRequester(h: Harness, id: number) {
+  h.db
+    .query("UPDATE slack_conversations SET requester_session = 'req-session', requester_handle = ?, requester_pane = 'w2:p2', brief = 'Export hangs', assigned_session = 'agent-session', assigned_pane = 'bg:w1:p9' WHERE id = ?;")
+    .run("req", id);
+}
+
+test("slack-status returns the brief only for the caller's own conversation", async () => {
+  const h = harness();
+  const { agentHandle, res } = await open(h);
+  if (!res.ok) throw new Error(res.error);
+  describeRequester(h, res.data.conversationId);
+  const briefOf = async (caller?: { agentHandle?: string; sessionId?: string }) => {
+    const r = await h.handlers["chat:slack-status"](caller ?? {});
+    if (!r.ok) throw new Error(r.error);
+    return r.data.conversations[0]!.brief;
+  };
+  expect(await briefOf()).toBeUndefined();
+  expect(await briefOf({ agentHandle: "someone-else", sessionId: "other" })).toBeUndefined();
+  expect(await briefOf({ agentHandle, sessionId: SESSION })).toBe("Export hangs");
+  const requester = await h.signIn("req-session", "req");
+  h.db.query("UPDATE slack_conversations SET requester_handle = ? WHERE id = ?;").run(requester, res.data.conversationId);
+  expect(await briefOf({ sessionId: "req-session" })).toBe("Export hangs");
+});
+
+test("slack-status keeps the brief from a caller that only names the handle or session", async () => {
+  const h = harness();
+  const { agentHandle, res } = await open(h);
+  if (!res.ok) throw new Error(res.error);
+  describeRequester(h, res.data.conversationId);
+  const briefOf = async (caller: { agentHandle?: string; sessionId?: string }) => {
+    const r = await h.handlers["chat:slack-status"](caller);
+    if (!r.ok) throw new Error(r.error);
+    return r.data.conversations[0]!.brief;
+  };
+  expect(await briefOf({ agentHandle })).toBeUndefined();
+  expect(await briefOf({ agentHandle, sessionId: "not-seated" })).toBeUndefined();
+  expect(await briefOf({ sessionId: "req-session" })).toBeUndefined();
+});
+
+test("slack-status returns assignedSession, assignedPane and the chain's tickets", async () => {
+  const h = harness();
+  const { res } = await open(h);
+  if (!res.ok) throw new Error(res.error);
+  const id = res.data.conversationId;
+  describeRequester(h, id);
+  h.db.query("UPDATE slack_conversations SET resumed_from = 3, grace_until = 99 WHERE id = ?;").run(id);
+  recordSupportTicket(id, { id: "SUP-7", title: "Export hangs", url: "https://linear.app/x/issue/SUP-7" }, NOW, h.db);
+  const r = await h.handlers["chat:slack-status"]({});
+  if (!r.ok) throw new Error(r.error);
+  expect(r.data.conversations[0]).toMatchObject({
+    requester: "req",
+    requesterPane: "w2:p2",
+    resumedFrom: 3,
+    graceUntil: 99,
+    assignedSession: "agent-session",
+    assignedPane: "bg:w1:p9",
+    tickets: [{ id: "SUP-7", title: "Export hangs", url: "https://linear.app/x/issue/SUP-7", createdAt: NOW }],
   });
 });
 
@@ -650,4 +795,301 @@ test("slack-status answers at once and names the teammate's picture on the next 
   await Bun.sleep(0);
   const after = await h.handlers["chat:slack-status"]({});
   expect(after.ok && after.data.conversations[0]?.avatarId).toBe(ALEX.id);
+});
+
+const TICKET = { kind: "bug" as const, title: "Export hangs", problem: "The export spins forever.", idea: "Time the export out.", acceptance: ["Export ends in 30s"] };
+
+async function ticketCall(h: Harness, agentHandle: string, over: Record<string, unknown> = {}) {
+  return h.handlers["chat:slack-ticket"]({ agentHandle, sessionId: SESSION, ...TICKET, ...over });
+}
+
+function setRequester(h: Harness, conversationId: number, handle: string | null) {
+  h.db.query("UPDATE slack_conversations SET requester_handle = ? WHERE id = ?;").run(handle, conversationId);
+}
+
+test("slack-ticket files in SUPPORT and returns id and url", async () => {
+  const h = harness();
+  const { agentHandle } = await open(h);
+  const res = await ticketCall(h, agentHandle);
+  expect(res).toEqual({ ok: true, data: { id: "SUP-7", title: "Export hangs", url: "https://linear.app/x/issue/SUP-7" } });
+  expect(h.filed).toHaveLength(1);
+  expect(h.filed[0]).toMatchObject({
+    kind: "bug",
+    title: "Export hangs",
+    acceptance: ["Export ends in 30s"],
+    source: { person: "Alex Example", date: "2027-01-15", room: conversationForAgent(agentHandle, h.db)!.room },
+  });
+});
+
+test("slack-ticket still returns the filed issue when its local record fails", async () => {
+  const h = harness();
+  const { agentHandle } = await open(h);
+  h.db.query("DROP TABLE slack_support_tickets;").run();
+  const res = await ticketCall(h, agentHandle);
+  expect(res).toEqual({ ok: true, data: { id: "SUP-7", title: "Export hangs", url: "https://linear.app/x/issue/SUP-7" } });
+  expect(h.filed).toHaveLength(1);
+});
+
+test("slack-ticket refuses text with a work org id and names it; nothing is sent to Linear", async () => {
+  const h = harness();
+  const { agentHandle } = await open(h);
+  const res = await ticketCall(h, agentHandle, { acceptance: ["Fix ACME-1234 too"] });
+  expect(refusal(res)).toContain("ACME-1234");
+  expect(h.filed).toEqual([]);
+  expect(h.milestones).toEqual([]);
+});
+
+test("slack-ticket refuses when the org id check cannot run", async () => {
+  const h = harness({ orgIds: { forgeHost: null, teamKeys: null } });
+  const { agentHandle } = await open(h);
+  expect(refusal(await ticketCall(h, agentHandle))).toContain("forge host");
+  expect(h.filed).toEqual([]);
+});
+
+test("slack-ticket with no key stored fails with a reason naming rt.linearSupportApiKey", async () => {
+  const h = harness({ apiKey: null });
+  const { agentHandle } = await open(h);
+  expect(refusal(await ticketCall(h, agentHandle))).toContain("rt.linearSupportApiKey");
+  expect(h.filed).toEqual([]);
+});
+
+test("slack-ticket carries Linear's own message when Linear fails, and records nothing", async () => {
+  const h = harness({
+    createIssue: async () => {
+      throw new LinearSupportError("Linear did not answer in 15 seconds");
+    },
+  });
+  const { agentHandle, res } = await open(h);
+  if (!res.ok) throw new Error(res.error);
+  expect(refusal(await ticketCall(h, agentHandle))).toBe("Linear did not answer in 15 seconds");
+  expect(ticketsForChain(res.data.conversationId, h.db)).toEqual([]);
+  expect(h.milestones).toEqual([]);
+});
+
+test("slack-ticket sends the requester a ticket milestone", async () => {
+  const h = harness();
+  const requester = await h.signIn("req-session", "requester");
+  const { agentHandle, res } = await open(h);
+  if (!res.ok) throw new Error(res.error);
+  setRequester(h, res.data.conversationId, requester);
+  const out = await ticketCall(h, agentHandle);
+  expect(out.ok).toBe(true);
+  expect(h.milestones).toEqual([{ via: "dm", to: requester, body: "SUP-7 filed: Export hangs https://linear.app/x/issue/SUP-7" }]);
+});
+
+test("slack-ticket still sends a milestone, by the desk, when no requester is recorded", async () => {
+  const h = harness();
+  const { agentHandle } = await open(h);
+  expect((await ticketCall(h, agentHandle)).ok).toBe(true);
+  expect(h.milestones).toHaveLength(1);
+});
+
+test("slack-ticket writes no file under support-tickets", async () => {
+  const h = harness();
+  const { agentHandle } = await open(h);
+  await ticketCall(h, agentHandle);
+  expect(existsSync(join(process.env.HOME ?? "", ".mattstack", "chat", "support-tickets"))).toBe(false);
+  expect(h.sent).toEqual([]);
+});
+
+test("slack-ticket records the issue against the caller's conversation", async () => {
+  const h = harness();
+  const { agentHandle, res } = await open(h);
+  if (!res.ok) throw new Error(res.error);
+  await ticketCall(h, agentHandle);
+  expect(ticketsForChain(res.data.conversationId, h.db)).toEqual([
+    { id: "SUP-7", title: "Export hangs", url: "https://linear.app/x/issue/SUP-7", createdAt: NOW },
+  ]);
+});
+
+test("slack-ticket refuses a pane with no chat open, and a malformed ticket", async () => {
+  const h = harness();
+  const agentHandle = await h.signIn();
+  expect(refusal(await ticketCall(h, agentHandle))).toContain("no Slack chat");
+  const opened = await open(h, "alex", "s2");
+  const bad = await h.handlers["chat:slack-ticket"]({ agentHandle: opened.agentHandle, sessionId: "s2", ...TICKET, kind: "idea" });
+  expect(bad.ok).toBe(false);
+  expect(h.filed).toEqual([]);
+});
+
+const REQUEST = { person: "alex", brief: "Export hangs", requesterSession: "req-session", requesterHandle: "requester", repo: "github.com/acme/app" };
+
+test("slack-request opens a slack-open gate with a slack: subject and returns its id", async () => {
+  const h = harness();
+  const res = await h.handlers["chat:slack-request"](REQUEST);
+  if (!res.ok || !("gateId" in res.data)) throw new Error("expected a gate id");
+  expect(h.gatesOpened).toHaveLength(1);
+  expect(h.gatesOpened[0]).toMatchObject({ id: res.data.gateId, subject: "slack:U0TEST", kind: "slack-open" });
+  expect(h.gatesOpened[0]!.meta).toMatchObject({ action: "open", person: "U0TEST", brief: "Export hangs", requesterSession: "req-session", requesterHandle: "requester", repo: "github.com/acme/app" });
+  expect(listOpenConversations(h.db)).toEqual([]);
+  expect(h.agentsStarted).toEqual([]);
+});
+
+test("slack-request with an ambiguous person returns candidates and opens no gate", async () => {
+  const h = harness({ users: [OPERATOR, user("U0A", "Alex One"), user("U0B", "Alex Two", { name: "alex2" })] });
+  const res = await h.handlers["chat:slack-request"]({ ...REQUEST, person: "alex" });
+  expect(res).toEqual({ ok: true, data: { candidates: [{ name: "Alex One", person: "U0A" }, { name: "Alex Two", person: "U0B" }] } });
+  expect(h.gatesOpened).toEqual([]);
+});
+
+test("slack-request with someone who is not in Slack is refused and opens no gate", async () => {
+  const h = harness();
+  expect(refusal(await h.handlers["chat:slack-request"]({ ...REQUEST, person: "zed" }))).toContain("zed");
+  expect(h.gatesOpened).toEqual([]);
+});
+
+test("slack-request needs a brief and a valid requester handle", async () => {
+  const h = harness();
+  expect((await h.handlers["chat:slack-request"]({ ...REQUEST, brief: " " })).ok).toBe(false);
+  expect((await h.handlers["chat:slack-request"]({ ...REQUEST, requesterHandle: "Bad Handle" })).ok).toBe(false);
+  expect(h.gatesOpened).toEqual([]);
+});
+
+test("slack-start opens with no gate", async () => {
+  const h = harness();
+  const res = await h.handlers["chat:slack-start"]({ person: "alex", brief: "Export hangs", requesterPane: "w2:p4", repo: "github.com/acme/app" });
+  if (!res.ok) throw new Error(res.error);
+  expect(h.gatesOpened).toEqual([]);
+  const row = listOpenConversations(h.db)[0]!;
+  expect(row.id).toBe(res.data.conversation);
+  expect(row).toMatchObject({ agentHandle: "support-agent-1", requesterPane: "w2:p4", assignedSession: "agent-session", brief: "Export hangs" });
+});
+
+test("slack-start with an agent error is refused, tells the requester, and leaves no row", async () => {
+  const h = harness({ startError: "no free herdr server" });
+  expect(refusal(await h.handlers["chat:slack-start"]({ person: "alex", brief: "b", repo: "r" }))).toBe("no free herdr server");
+  expect(listOpenConversations(h.db)).toEqual([]);
+  expect(h.milestones).toEqual([{ via: "desk", body: "Alex Example could not be connected: no free herdr server" }]);
+});
+
+test("slack-assignment returns the open conversation for the session, else null", async () => {
+  const h = harness();
+  expect(await h.handlers["chat:slack-assignment"]({ sessionId: "agent-session" })).toEqual({ ok: true, data: { conversation: null } });
+  const started = await h.handlers["chat:slack-start"]({ person: "alex", brief: "b", repo: "r" });
+  if (!started.ok) throw new Error(started.error);
+  expect(await h.handlers["chat:slack-assignment"]({ sessionId: "agent-session" })).toEqual({ ok: true, data: { conversation: started.data.conversation } });
+  expect(await h.handlers["chat:slack-assignment"]({ sessionId: "other-session" })).toEqual({ ok: true, data: { conversation: null } });
+});
+
+test("slack-expire with nothing waiting expires nothing", async () => {
+  const h = harness();
+  expect(await h.handlers["chat:slack-expire"]({})).toEqual({ ok: true, data: { expired: 0 } });
+});
+
+/** A chat that closed a minute ago and is still in its grace window. */
+async function closedChat(h: Harness, graceUntil: number | null = NOW + 3_000_000) {
+  const started = await h.handlers["chat:slack-start"]({ person: "alex", brief: "Export hangs", requesterSession: "req-session", requesterHandle: "requester", repo: "github.com/acme/app" });
+  if (!started.ok) throw new Error(started.error);
+  closeConversation(started.data.conversation, "idle", NOW - 60_000, h.db);
+  if (graceUntil !== null) startGrace(started.data.conversation, graceUntil, h.db);
+  h.milestones.length = 0;
+  return started.data.conversation;
+}
+
+const RESUME_ASKER = { requesterSession: "req-session", requesterHandle: "requester" };
+
+test("resume from a pane opens a gate and resumes nothing", async () => {
+  const h = harness();
+  const old = await closedChat(h);
+  const res = await h.handlers["chat:slack-resume"]({ conversation: old, ...RESUME_ASKER });
+  if (!res.ok || !("gateId" in res.data)) throw new Error("expected a gate id");
+  expect(h.gatesOpened).toHaveLength(1);
+  const gate = h.gatesOpened[0]!;
+  expect(gate).toMatchObject({ id: res.data.gateId, subject: "slack:U0TEST", kind: "slack-open" });
+  expect(gate.meta).toMatchObject({ action: "resume", conversation: old, person: "U0TEST", requesterSession: "req-session", requesterHandle: "requester", triggerTs: null });
+  expect(JSON.stringify(gate)).toContain(`[slack-open ${res.data.gateId}]`);
+  expect(listOpenConversations(h.db)).toEqual([]);
+  expect(conversationById(old, h.db)!.graceUntil).toBe(NOW + 3_000_000);
+});
+
+test("resume with approved true resumes at once, with no gate", async () => {
+  const h = harness({ alive: false });
+  const old = await closedChat(h);
+  const res = await h.handlers["chat:slack-resume"]({ conversation: old, approved: true });
+  if (!res.ok || !("agent" in res.data)) throw new Error("expected a resume");
+  expect(res.data.agent).toBe("fresh");
+  expect(h.gatesOpened).toEqual([]);
+  expect(listOpenConversations(h.db)[0]).toMatchObject({ id: res.data.conversation, resumedFrom: old, assignedSession: "agent-session" });
+  expect(conversationById(old, h.db)!.graceUntil).toBeNull();
+  expect(h.milestones).toEqual([{ via: "dm", to: "requester", body: "Alex Example's chat is back with a fresh agent" }]);
+});
+
+test("resume from a pane needs the requesting session and its handle", async () => {
+  const h = harness();
+  const old = await closedChat(h);
+  expect((await h.handlers["chat:slack-resume"]({ conversation: old })).ok).toBe(false);
+  expect((await h.handlers["chat:slack-resume"]({ conversation: old, requesterSession: "s", requesterHandle: "Bad Handle" })).ok).toBe(false);
+  expect(h.gatesOpened).toEqual([]);
+});
+
+test("resume from a pane of a chat past its grace window still opens a gate", async () => {
+  const h = harness();
+  const old = await closedChat(h, NOW - 1);
+  const res = await h.handlers["chat:slack-resume"]({ conversation: old, ...RESUME_ASKER });
+  if (!res.ok || !("gateId" in res.data)) throw new Error("expected a gate id");
+  expect(h.gatesOpened).toHaveLength(1);
+});
+
+test("resume with approved true of a chat past its grace window opens a new row", async () => {
+  const h = harness({ alive: false });
+  const old = await closedChat(h, null);
+  const res = await h.handlers["chat:slack-resume"]({ conversation: old, approved: true });
+  if (!res.ok || !("agent" in res.data)) throw new Error("expected a resume");
+  expect(listOpenConversations(h.db)[0]).toMatchObject({ resumedFrom: old });
+});
+
+test("resume of a chat that is still open is refused and opens no gate", async () => {
+  const h = harness();
+  const { res } = await open(h);
+  if (!res.ok) throw new Error(res.error);
+  expect(refusal(await h.handlers["chat:slack-resume"]({ conversation: res.data.conversationId, ...RESUME_ASKER }))).toContain("still open");
+  expect(h.gatesOpened).toEqual([]);
+});
+
+test("slack-status closed rows carry the chat id, name, grace and tickets, so a resume can name it", async () => {
+  const h = harness();
+  const old = await closedChat(h);
+  recordSupportTicket(old, { id: "SUP-7", title: "Export hangs", url: "https://linear.app/x/issue/SUP-7" }, NOW, h.db);
+  const r = await h.handlers["chat:slack-status"]({});
+  if (!r.ok) throw new Error(r.error);
+  expect(r.data.closed[0]).toMatchObject({
+    id: old,
+    displayName: "Alex Example",
+    graceUntil: NOW + 3_000_000,
+    closedAt: NOW - 60_000,
+    tickets: [{ id: "SUP-7", title: "Export hangs", url: "https://linear.app/x/issue/SUP-7", createdAt: NOW }],
+  });
+});
+
+test("resume of an unknown chat is refused", async () => {
+  const h = harness();
+  expect(refusal(await h.handlers["chat:slack-resume"]({ conversation: 999, ...RESUME_ASKER }))).toContain("999");
+});
+
+test("slack-pending reports graced while this session's agent has a closed chat in its grace window", async () => {
+  const h = harness();
+  const old = await closedChat(h);
+  const agentHandle = (await h.chat["chat:sign-in"]({ sessionId: "agent-session", baseHandle: "support" })) as { ok: true; data: { handle: string } };
+  h.db.query("UPDATE slack_conversations SET agent_handle = ? WHERE id = ?").run(agentHandle.data.handle, old);
+  expect(await h.handlers["chat:slack-pending"]({ agentHandle: agentHandle.data.handle })).toEqual({ ok: true, data: { items: [], open: false, graced: true } });
+  endGrace(old, h.db);
+  expect(await h.handlers["chat:slack-pending"]({ agentHandle: agentHandle.data.handle })).toEqual({ ok: true, data: { items: [], open: false } });
+});
+
+test("slack-pending does not report graced for another session's agent, or past the window", async () => {
+  const h = harness();
+  const old = await closedChat(h);
+  const other = (await h.chat["chat:sign-in"]({ sessionId: "other-session", baseHandle: "kit" })) as { ok: true; data: { handle: string } };
+  h.db.query("UPDATE slack_conversations SET agent_handle = ? WHERE id = ?").run(other.data.handle, old);
+  expect(await h.handlers["chat:slack-pending"]({ agentHandle: other.data.handle })).toEqual({ ok: true, data: { items: [], open: false } });
+  startGrace(old, NOW - 1, h.db);
+  h.db.query("UPDATE slack_conversations SET assigned_session = 'other-session' WHERE id = ?").run(old);
+  expect(await h.handlers["chat:slack-pending"]({ agentHandle: other.data.handle })).toEqual({ ok: true, data: { items: [], open: false } });
+});
+
+test("slack-start records the repo on the row", async () => {
+  const h = harness();
+  const res = await h.handlers["chat:slack-start"]({ person: "alex", brief: "b", repo: "github.com/acme/app" });
+  if (!res.ok) throw new Error(res.error);
+  expect(conversationById(res.data.conversation, h.db)!.repo).toBe("github.com/acme/app");
 });

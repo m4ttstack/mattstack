@@ -1,4 +1,4 @@
-import type { GateRow } from './store.ts';
+import { SLACK_OPEN_KIND, type GateRow } from './store.ts';
 
 /** Most pane-attention gates clear on their own within 1 to 4 minutes;
     counting them sooner makes the shell badge blink. */
@@ -6,6 +6,7 @@ export const ATTENTION_MIN_AGE_MS = 120_000;
 
 export function countsForBadge(gate: GateRow, now: number): boolean {
   if (gate.status !== 'open' && gate.status !== 'parked') return false;
+  if (gate.kind === SLACK_OPEN_KIND) return false;
   if (gate.owner !== undefined && gate.owner !== 'human') return false;
   if (
     gate.kind === 'pane-attention' &&

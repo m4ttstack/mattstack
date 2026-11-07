@@ -1,8 +1,8 @@
 {
-  "id": "mattstack@0.32.45:shepherdr",
+  "id": "mattstack@0.32.46:shepherdr",
   "dir": "skills/shepherdr",
   "covers": [
-    "mattstack@0.32.45:shepherdr"
+    "mattstack@0.32.46:shepherdr"
   ],
   "keys": {
     "shepherdr/SKILL.md": "skills/shepherdr/SKILL.md",

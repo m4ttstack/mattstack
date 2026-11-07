@@ -42,13 +42,21 @@ import { DIRECT_PATH, isMine, waitingCount } from './direct';
 import { DirectView } from './DirectView';
 import type { FleetRoom } from './FleetTree';
 import type { Me } from './human';
+import { NewSlackChatDialog } from './NewSlackChatDialog';
 import { PageBar } from './PageBar';
 import { isMsgTopic, useRelayFrames, useRelayOpen } from './relay-socket';
 import { RoomRail, type RoomRailProps } from './RoomRail';
 import type { RosterBuddy } from './roster-types';
 import { useAppRoute, useHash } from './routes';
 import { SettingsButton } from './SettingsEntry';
-import { SlackChatsProvider, useSlackChats } from './slack-chats-context';
+import {
+  isOpening,
+  SlackChatsProvider,
+  useRefreshSlackChats,
+  useSlackChat,
+  useSlackChats,
+} from './slack-chats-context';
+import { SlackOpeningNote } from './SlackOpeningNote';
 import { ThemeColorButton } from './ThemeColor';
 import { PAGE_SIZE, Transcript } from './Transcript';
 import { latestActiveRoom, visibleRooms } from './visible-rooms';
@@ -403,6 +411,7 @@ function ChatSidebar({
   selectRoom,
   reachable,
   onCloseRoom,
+  onNewSlackChat,
   direct,
 }: {
   rooms: FleetRoom[];
@@ -411,6 +420,7 @@ function ChatSidebar({
   selectRoom: (room: string) => void;
   reachable: boolean;
   onCloseRoom: (room: string) => void;
+  onNewSlackChat: () => void;
   direct: RoomRailProps['direct'];
 }) {
   const { collapsedSidebar, sidebarOpen, toggleSidebar } =
@@ -430,6 +440,10 @@ function ChatSidebar({
       }}
       daemonReachable={reachable}
       onCloseRoom={onCloseRoom}
+      onNewSlackChat={() => {
+        onNewSlackChat();
+        closeDrawer();
+      }}
       direct={
         direct && {
           ...direct,
@@ -462,6 +476,7 @@ interface ChatPageProps {
   composerRef: RefObject<ComposerHandle | null>;
   onOpenDm: (handle: string, draft?: string) => void;
   onCloseRoom: (room: string) => void;
+  onNewSlackChat: () => void;
   /** Messages to you is the open view. */
   directOpen: boolean;
   directPick: string | undefined;
@@ -490,6 +505,7 @@ function ChatPage({
   composerRef,
   onOpenDm,
   onCloseRoom,
+  onNewSlackChat,
   directOpen,
   directPick,
   directDraft,
@@ -497,6 +513,7 @@ function ChatPage({
   railDirect,
 }: ChatPageProps) {
   const isMobile = useIsMobile();
+  const opening = isOpening(useSlackChat(activeRoom ?? ''), activeRoomSummary);
   const [sidebarWidth, setSidebarWidth] = usePaneWidth(
     'chat-sidebar-width',
     SIDEBAR_BOUNDS
@@ -551,6 +568,7 @@ function ChatPage({
                 selectRoom={selectRoom}
                 reachable={daemon.reachable}
                 onCloseRoom={onCloseRoom}
+                onNewSlackChat={onNewSlackChat}
                 direct={railDirect}
               />
             ) : (
@@ -642,6 +660,7 @@ function ChatPage({
                     loading={!messagesLoaded}
                     humanHandle={me.handle}
                     anchor={anchor}
+                    empty={opening ? <SlackOpeningNote /> : undefined}
                     footer={
                       <Composer
                         ref={composerRef}
@@ -653,6 +672,7 @@ function ChatPage({
                         isDm={activeRoomSummary?.kind === 'dm'}
                         daemonReachable={daemon.reachable}
                         onOpenDm={onOpenDm}
+                        opening={opening}
                       />
                     }
                   />
@@ -679,7 +699,7 @@ function ChatPage({
  * never passes it: the daemon poll and the buddies fetch run for real.
  */
 export function App({ initialState }: { initialState?: AppInitialState } = {}) {
-  const slackChats = useSlackChats();
+  const { chats: slackChats, refresh: refreshSlackChats } = useSlackChats();
   const me = useMe();
   // Your org, team and role for the top bar, as console shows them.
   const viewer = useViewer();
@@ -687,6 +707,7 @@ export function App({ initialState }: { initialState?: AppInitialState } = {}) {
   return (
     <SlackChatsProvider
       chats={slackChats}
+      refresh={refreshSlackChats}
       own={ownFace ? { handle: me.handle, url: ownFace } : undefined}
     >
       <AppContent initialState={initialState} me={me} viewer={viewer} />
@@ -705,6 +726,8 @@ function AppContent({
 }) {
   const [path] = useLocation();
   const route = useAppRoute();
+  const refreshSlackChats = useRefreshSlackChats();
+  const [newChatOpen, setNewChatOpen] = useState(false);
   const daemon = useDaemonHealth(initialState?.daemonReachable);
   const { buddies, refetchBuddies } = useBuddies(initialState?.buddies);
   const {
@@ -843,6 +866,17 @@ function AppContent({
       void refetchRooms();
     },
     [rooms, activeRoom, setRooms, refetchRooms]
+  );
+
+  // The new chat's room is in the daemon's list the moment the start
+  // answers; both lists read again so its row and its Opening state show.
+  const slackChatStarted = useCallback(
+    async (room: string | null) => {
+      refreshSlackChats();
+      await refetchRooms();
+      if (room) selectRoom(room);
+    },
+    [refreshSlackChats, refetchRooms]
   );
 
   const focusPane = useCallback(async (paneId: string) => {
@@ -1064,6 +1098,7 @@ function AppContent({
               composerRef={composerRef}
               onOpenDm={openDm}
               onCloseRoom={closeRoom}
+              onNewSlackChat={() => setNewChatOpen(true)}
               directOpen={directOpen}
               directPick={directPick}
               directDraft={directDraft}
@@ -1073,6 +1108,11 @@ function AppContent({
           ) : (
             <NotFoundPage />
           )}
+          <NewSlackChatDialog
+            opened={newChatOpen}
+            onClose={() => setNewChatOpen(false)}
+            onStarted={room => void slackChatStarted(room)}
+          />
         </MattstackShell>
       </FaceGroup>
     </BuddiesProvider>

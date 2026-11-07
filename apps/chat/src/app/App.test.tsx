@@ -940,7 +940,14 @@ test('the Slack label follows the daemon: shown while the chat is open, gone aft
   });
   window.history.replaceState(null, '', '/r/build');
   await act(async () => {
-    renderWithProviders(<App initialState={twoRooms} />);
+    renderWithProviders(
+      <App
+        initialState={{
+          ...twoRooms,
+          rooms: twoRooms.rooms.map(r => ({ ...r, lastPostedAt: 5 })),
+        }}
+      />
+    );
   });
   const frame = async () => {
     await act(async () => {

@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { slackClose, slackDelivered, slackOpen, slackPeople, slackStatus, slackWatch, type SlackWatchDeps } from "../chat-slack.ts";
+import { slackAssignment, slackClose, slackDelivered, slackOpen, slackPeople, slackRequest, slackResume, slackStart, slackStatus, slackTicket, slackWatch, type SlackWatchDeps } from "../chat-slack.ts";
 import { chat } from "../chat.ts";
 import { createChatHandlers } from "../../lib/daemon/handlers/chat.ts";
 import { createSlackChatHandlers } from "../../lib/daemon/handlers/slack-chat.ts";
@@ -17,7 +17,8 @@ import { mcpTools } from "../../lib/mcp/tools.ts";
 import { MODULE_REGISTRY } from "../../lib/module-registry.ts";
 import { SLACK_SUPPORT_CHAT_SCOPES } from "../../lib/setup/slack-app.ts";
 import type { SlackClient } from "../../lib/slack/client.ts";
-import { closeConversation, closeStateDb, enqueueItem, getStateDb, markItemDelivered, markOpenItemDelivered } from "../../lib/state/index.ts";
+import { closeConversation, closeStateDb, conversationById, enqueueItem, getStateDb, markItemDelivered, markOpenItemDelivered, openConversation } from "../../lib/state/index.ts";
+import { endGrace, startGrace } from "../../lib/state/slack-conversation-store.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import * as ui from "../../lib/ui/out.ts";
 
@@ -238,6 +239,51 @@ test("slack-watch prints a queued closed item, then exits once it is delivered",
   expect(res.sleeps).toEqual([2000]);
 });
 
+/** A closed chat that this session's agent ran, with an hour of grace, and its closed item already queued. */
+async function gracedChat() {
+  const { conversationId } = await openChat();
+  getStateDb().query("UPDATE slack_conversations SET assigned_session = ? WHERE id = ?").run(SESSION, conversationId);
+  closeConversation(conversationId, "idle", 2);
+  startGrace(conversationId, Date.now() + 3_600_000);
+  const closed = enqueueItem({ conversationId, kind: "closed", fromHandle: null, text: "closed", createdAt: 2 });
+  return { conversationId, closed };
+}
+
+test("slack-watch stays through grace, delivers the resumed item, and exits once the new chat closes", async () => {
+  const { conversationId, closed } = await gracedChat();
+  let resumed = 0;
+  let again = 0;
+  const res = await watch((n) => {
+    if (n === 0) markOpenItemDelivered(closed.id, 3);
+    if (n === 1) {
+      const old = conversationById(conversationId)!;
+      const row = openConversation({ ...old, frameMarker: "marker2", lastReadTs: "1", openedAt: 10, resumedFrom: conversationId });
+      resumed = row.id;
+      enqueueItem({ conversationId: row.id, kind: "resumed", fromHandle: null, text: "back", createdAt: 10 });
+      endGrace(conversationId);
+    }
+    if (n === 2) {
+      closeConversation(resumed, "idle", 20);
+      again = enqueueItem({ conversationId: resumed, kind: "closed", fromHandle: null, text: "closed again", createdAt: 20 }).id;
+    }
+    if (n === 3) markOpenItemDelivered(again, 21);
+  });
+  expect(res.code).toBe(0);
+  expect(lines(res.stdout).map((l) => [l.kind, l.conversation])).toEqual([["closed", conversationId], ["resumed", resumed], ["closed", resumed]]);
+  expect(res.sleeps).toEqual([2000, 10_000, 2000, 2000]);
+});
+
+test("slack-watch exits once grace ends with nothing resumed", async () => {
+  const { conversationId, closed } = await gracedChat();
+  const res = await watch((n) => {
+    if (n === 0) markOpenItemDelivered(closed.id, 3);
+    if (n === 1) endGrace(conversationId);
+  });
+  expect(res.code).toBe(0);
+  expect(lines(res.stdout).map((l) => l.kind)).toEqual(["closed"]);
+  expect(res.sleeps).toEqual([2000, 10_000]);
+});
+
 test("slack-watch exits when its parent pid changes", async () => {
   await openChat();
   let pid = 4242;
@@ -422,7 +468,7 @@ test.each([
 
 test("slack-open is hidden and absent from the agent-safe list and the MCP roster", () => {
   const verbs = TREE.chat!.subcommands!;
-  for (const name of ["slack-open", "slack-people", "slack-watch", "slack-delivered"]) {
+  for (const name of ["slack-open", "slack-people", "slack-watch", "slack-delivered", "slack-start", "slack-assignment", "slack-request", "slack-resume"]) {
     expect(verbs[name]!.hidden, name).toBe(true);
     expect(verbs[name]!.agentSafe, name).toBeUndefined();
   }
@@ -443,4 +489,197 @@ test("every Slack verb names a registered export the dispatcher can call with it
     expect(typeof mod[node.fn!], name).toBe("function");
     expect(mod[node.fn!].length, name).toBe(1);
   }
+});
+
+const TICKET_INPUT = { kind: "bug", title: "Export hangs", problem: "p", idea: "i", acceptance: ["a"] };
+
+test("slack-ticket prints the id and url Linear gave", async () => {
+  await signIn();
+  canned["chat:slack-ticket"] = { ok: true, data: { id: "SUP-7", title: "Export hangs", url: "https://linear.app/x/issue/SUP-7" } };
+  const res = await run(() => slackTicket([], async () => TICKET_INPUT));
+  expect(res.code).toBe(0);
+  expect(res.stdout).toContain("Ticket SUP-7 filed: https://linear.app/x/issue/SUP-7");
+  expect(seen.find((s) => s.cmd === "chat:slack-ticket")!.payload).toMatchObject({ kind: "bug", title: "Export hangs" });
+});
+
+test("slack-ticket prints the JSON shape", async () => {
+  await signIn();
+  canned["chat:slack-ticket"] = { ok: true, data: { id: "SUP-7", title: "Export hangs", url: "https://linear.app/x/issue/SUP-7" } };
+  const res = await run(() => slackTicket(["--json"], async () => TICKET_INPUT));
+  expect(JSON.parse(res.stdout)).toEqual({ ok: true, id: "SUP-7", title: "Export hangs", url: "https://linear.app/x/issue/SUP-7" });
+});
+
+const START_SEAMS = { readBrief: async () => "Export hangs on large files", repo: () => "github.com/acme/app" };
+
+test("slack-assignment prints the conversation the session was started for", async () => {
+  canned["chat:slack-assignment"] = { ok: true, data: { conversation: 7 } };
+  const res = await run(() => slackAssignment(["--session", SESSION, "--json"]));
+  expect(res.code).toBe(0);
+  expect(JSON.parse(res.stdout)).toEqual({ ok: true, conversation: 7 });
+  expect(seen.find((s) => s.cmd === "chat:slack-assignment")!.payload).toEqual({ sessionId: SESSION });
+});
+
+test("slack-assignment prints null for a session nothing was assigned to", async () => {
+  const res = await run(() => slackAssignment(["--session", SESSION, "--json"]));
+  expect(res.code).toBe(0);
+  expect(JSON.parse(res.stdout)).toEqual({ ok: true, conversation: null });
+});
+
+test("slack-assignment without a session is refused, and the daemon is never asked", async () => {
+  const res = await run(() => slackAssignment(["--json"]));
+  expect(res.code).toBe(1);
+  expect(JSON.parse(res.stdout).ok).toBe(false);
+  expect(seen).toEqual([]);
+});
+
+test("slack-start sends the brief read from stdin, the pane and the repo", async () => {
+  canned["chat:slack-start"] = { ok: true, data: { conversation: 9 } };
+  const res = await run(() => slackStart(["alex", "--brief", "-", "--requester-pane", "w1-2", "--json"], START_SEAMS));
+  expect(res.code).toBe(0);
+  expect(JSON.parse(res.stdout)).toEqual({ ok: true, conversation: 9 });
+  expect(seen.find((s) => s.cmd === "chat:slack-start")!.payload).toEqual({
+    person: "alex",
+    brief: "Export hangs on large files",
+    requesterPane: "w1-2",
+    repo: "github.com/acme/app",
+  });
+});
+
+test("slack-start from a signed-in session names the requester", async () => {
+  await signIn();
+  canned["chat:slack-start"] = { ok: true, data: { conversation: 9 } };
+  await run(() => slackStart(["alex", "--brief", "-", "--json"], START_SEAMS));
+  expect(seen.find((s) => s.cmd === "chat:slack-start")!.payload).toMatchObject({ requesterSession: SESSION, requesterHandle: expect.stringMatching(/^support\./) });
+});
+
+test("slack-start keeps a refusal in the envelope under --json", async () => {
+  canned["chat:slack-start"] = { ok: false, error: "alex already has a Slack chat open in room" };
+  const res = await run(() => slackStart(["alex", "--brief", "-", "--json"], START_SEAMS));
+  expect(res.code).toBe(1);
+  expect(res.stderr).toBe("");
+  expect(JSON.parse(res.stdout)).toEqual({ ok: false, error: "alex already has a Slack chat open in room" });
+});
+
+test.each([
+  ["no person", ["--brief", "-", "--json"], START_SEAMS],
+  ["no --brief -", ["alex", "--json"], START_SEAMS],
+  ["an empty brief", ["alex", "--brief", "-", "--json"], { ...START_SEAMS, readBrief: async () => "  " }],
+  ["no repo underfoot", ["alex", "--brief", "-", "--json"], { ...START_SEAMS, repo: () => null }],
+] as [string, string[], typeof START_SEAMS][])("slack-start with %s is refused, and nothing is sent", async (_name, args, seams) => {
+  const res = await run(() => slackStart(args, seams as never));
+  expect(res.code).not.toBe(0);
+  expect(seen.filter((s) => s.cmd === "chat:slack-start")).toEqual([]);
+});
+
+test("slack-request --json prints gateId", async () => {
+  await signIn();
+  canned["chat:slack-request"] = { ok: true, data: { gateId: "gate-1" } };
+  const res = await run(() => slackRequest(["alex", "--brief", "-", "--json"], START_SEAMS));
+  expect(res.code).toBe(0);
+  expect(JSON.parse(res.stdout)).toEqual({ ok: true, gateId: "gate-1" });
+  expect(seen.find((s) => s.cmd === "chat:slack-request")!.payload).toEqual({
+    person: "alex",
+    brief: "Export hangs on large files",
+    requesterSession: SESSION,
+    requesterHandle: expect.stringMatching(/^support\./),
+    repo: "github.com/acme/app",
+  });
+});
+
+test("slack-request prints the candidates when the name is ambiguous", async () => {
+  await signIn();
+  canned["chat:slack-request"] = { ok: true, data: { candidates: [{ name: "Alex A", person: "U1" }, { name: "Alex B", person: "U2", title: "Lead" }] } };
+  const json = await run(() => slackRequest(["alex", "--brief", "-", "--json"], START_SEAMS));
+  expect(JSON.parse(json.stdout)).toEqual({ ok: true, candidates: [{ name: "Alex A", person: "U1" }, { name: "Alex B", person: "U2", title: "Lead" }] });
+  const text = await run(() => slackRequest(["alex", "--brief", "-"], START_SEAMS));
+  expect(text.stdout).toContain("Alex A");
+  expect(text.stdout).toContain("U2");
+});
+
+test("slack-request keeps a refusal in the envelope under --json", async () => {
+  await signIn();
+  canned["chat:slack-request"] = { ok: false, error: "No one in Slack matches nobody" };
+  const res = await run(() => slackRequest(["nobody", "--brief", "-", "--json"], START_SEAMS));
+  expect(res.code).toBe(1);
+  expect(JSON.parse(res.stdout)).toEqual({ ok: false, error: "No one in Slack matches nobody" });
+});
+
+test.each([
+  ["no person", ["--brief", "-", "--json"], START_SEAMS, true],
+  ["no --brief -", ["alex", "--json"], START_SEAMS, true],
+  ["an empty brief", ["alex", "--brief", "-", "--json"], { ...START_SEAMS, readBrief: async () => "  " }, true],
+  ["no repo underfoot", ["alex", "--brief", "-", "--json"], { ...START_SEAMS, repo: () => null }, true],
+  ["a session that is not signed in", ["alex", "--brief", "-", "--json"], START_SEAMS, false],
+] as [string, string[], typeof START_SEAMS, boolean][])("slack-request with %s is refused, and nothing is sent", async (_name, args, seams, signedIn) => {
+  if (signedIn) await signIn();
+  else process.env.CLAUDE_CODE_SESSION_ID = SESSION;
+  const res = await run(() => slackRequest(args, seams as never));
+  expect(res.code).not.toBe(0);
+  expect(seen.filter((s) => s.cmd === "chat:slack-request")).toEqual([]);
+});
+
+test("slack-resume sends the conversation id and the caller, never an approval", async () => {
+  await signIn();
+  canned["chat:slack-resume"] = { ok: true, data: { gateId: "gate-2" } };
+  const res = await run(() => slackResume(["7", "--approved", "--json"]));
+  expect(res.code).toBe(0);
+  expect(JSON.parse(res.stdout)).toEqual({ ok: true, gateId: "gate-2" });
+  expect(seen.find((s) => s.cmd === "chat:slack-resume")!.payload).toEqual({
+    conversation: 7,
+    requesterSession: SESSION,
+    requesterHandle: expect.stringMatching(/^support\./),
+  });
+});
+
+test.each([["no id", []], ["a word", ["abc"]], ["zero", ["0"]]] as [string, string[]][])("slack-resume with %s is refused, and nothing is sent", async (_name, args) => {
+  await signIn();
+  const res = await run(() => slackResume([...args, "--json"]));
+  expect(res.code).toBe(1);
+  expect(seen.filter((s) => s.cmd === "chat:slack-resume")).toEqual([]);
+});
+
+test("slack-resume from a session that is not signed in is refused", async () => {
+  process.env.CLAUDE_CODE_SESSION_ID = SESSION;
+  const res = await run(() => slackResume(["7", "--json"]));
+  expect(res.code).toBe(1);
+  expect(seen.filter((s) => s.cmd === "chat:slack-resume")).toEqual([]);
+});
+
+test("slack-status prints the session, pane and ticket ids", async () => {
+  canned["chat:slack-status"] = {
+    ok: true,
+    data: {
+      closed: [],
+      conversations: [
+        {
+          id: 4,
+          room: "dm-x",
+          handle: "slack.u0test",
+          name: "alex-slack",
+          agentName: "support",
+          displayName: "Alex",
+          openedAt: Date.now(),
+          lastActiveAt: Date.now(),
+          assignedSession: "agent-session-9",
+          assignedPane: "bg:w1:p9",
+          tickets: [
+            { id: "SUP-7", title: "T", url: "https://linear.app/x/SUP-7", createdAt: 1 },
+            { id: "SUP-9", title: "U", url: "https://linear.app/x/SUP-9", createdAt: 2 },
+          ],
+        },
+      ],
+    },
+  };
+  const text = await run(() => slackStatus([]));
+  expect(text.stdout.indexOf("Last active")).toBeLessThan(text.stdout.indexOf("Session"));
+  expect(text.stdout).toContain("agent-session-9");
+  expect(text.stdout).toContain("bg:w1:p9");
+  expect(text.stdout).toContain("SUP-7");
+  expect(text.stdout).toContain("SUP-9");
+});
+
+test("slack-status says who is asking, so the daemon can return that caller's brief", async () => {
+  await signIn();
+  await run(() => slackStatus(["--json"]));
+  expect(seen.find((s) => s.cmd === "chat:slack-status")!.payload).toEqual({ agentHandle: expect.stringMatching(/^support\./), sessionId: SESSION });
 });

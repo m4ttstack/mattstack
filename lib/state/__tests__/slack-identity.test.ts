@@ -6,7 +6,11 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { openStateDb } from "../db.ts";
 import {
+  SUPPORT_ID,
   cleanSlackName,
+  fixedIdentityRefusal,
+  isFixedChatName,
+  isSupportIdentity,
   ensureSlackIdentity,
   getIdentity,
   isSlackIdentity,
@@ -97,4 +101,15 @@ test("no minted identity lands in the slack. id space", () => {
   expect(agent.name).toBe("slack");
   expect(isSlackIdentity(agent.handle)).toBe(false);
   expect(isSlackIdentity(mintIdentity({ base: "slack", name: "slack", sessionId: null }, db).id)).toBe(false);
+});
+
+test("rt.support cannot be signed in to or chosen as a name", () => {
+  const db = fresh();
+  expect(isSupportIdentity(SUPPORT_ID)).toBe(true);
+  expect(isSupportIdentity("rt.other")).toBe(false);
+  expect(isFixedChatName(SUPPORT_ID)).toBe(true);
+  expect(fixedIdentityRefusal(SUPPORT_ID)).toMatch(/support/);
+  expect(() => signIn({ sessionId: "s1", continueId: SUPPORT_ID }, db, noSessions)).toThrow(/may not continue/);
+  expect(() => signIn({ sessionId: "s1", baseHandle: SUPPORT_ID }, db, noSessions)).toThrow(/rt\.support/);
+  expect(resolveHandle(SUPPORT_ID, db)).toBe(SUPPORT_ID);
 });

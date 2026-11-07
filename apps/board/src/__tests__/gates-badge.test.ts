@@ -77,6 +77,15 @@ describe('countsForBadge', () => {
     ).toBe(true);
   });
 
+  test('slack-open gates never count, even human-owned', () => {
+    expect(
+      countsForBadge(
+        gate({ kind: 'slack-open', subject: 'slack:U123', owner: 'human' }),
+        NOW
+      )
+    ).toBe(false);
+  });
+
   test('an open, human-owned run: gate counts; the tray dedupes it against console by id', () => {
     expect(
       countsForBadge(gate({ subject: 'run:r1', owner: 'human' }), NOW)

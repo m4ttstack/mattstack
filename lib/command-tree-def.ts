@@ -1791,6 +1791,49 @@ export const TREE: Record<string, CommandNode> = {
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
         ],
       },
+      "slack-start": {
+        description: "Start a Slack support chat with a teammate from a brief on stdin",
+        hidden: true,
+        module: "./commands/chat-slack.ts",
+        fn: "slackStart",
+        args: [
+          { name: "Person", type: "text", placeholder: "alex", hint: "The teammate's Slack name" },
+          { name: "Brief", flag: "--brief", type: "text", placeholder: "-", hint: "A dash reads the brief from stdin" },
+          { name: "Requester pane", flag: "--requester-pane", type: "text", optional: true, placeholder: "w1:p1", hint: "The pane that asked, told when the chat opens" },
+          { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
+        ],
+      },
+      "slack-request": {
+        description: "Ask the operator to approve a Slack support chat with a teammate, from a brief on stdin",
+        hidden: true,
+        module: "./commands/chat-slack.ts",
+        fn: "slackRequest",
+        args: [
+          { name: "Person", type: "text", placeholder: "alex", hint: "The teammate's Slack name" },
+          { name: "Brief", flag: "--brief", type: "text", placeholder: "-", hint: "A dash reads the brief from stdin" },
+          { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
+        ],
+      },
+      "slack-resume": {
+        description: "Ask the operator to approve picking a closed Slack support chat back up",
+        hidden: true,
+        module: "./commands/chat-slack.ts",
+        fn: "slackResume",
+        args: [
+          { name: "Conversation", type: "text", placeholder: "7", hint: "The closed chat's id" },
+          { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
+        ],
+      },
+      "slack-assignment": {
+        description: "Read which Slack support chat this session was started for",
+        hidden: true,
+        module: "./commands/chat-slack.ts",
+        fn: "slackAssignment",
+        args: [
+          { name: "Session", flag: "--session", type: "text", placeholder: "session id", hint: "The session to look up" },
+          { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
+        ],
+      },
       "slack-people": {
         description: "List the people a Slack support chat can open with",
         hidden: true,
@@ -1816,7 +1859,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       "slack-ticket": {
-        description: "Write a bug report or feature request from a Slack support chat",
+        description: "File a bug report or feature request in Linear SUPPORT from a Slack support chat",
         hidden: true,
         module: "./commands/chat-slack.ts",
         fn: "slackTicket",

@@ -353,6 +353,16 @@ export function fixtureSlackStatus() {
   };
 }
 
+/** Teammates the new-chat picker can list, with no pictures: the daemon
+    owns those. */
+export function fixtureSlackPeople() {
+  return [
+    { name: 'Alex Example', person: 'U0ALEX' },
+    { name: 'Lucia Tucci', person: 'U0LUCIA' },
+    { name: 'Tucker Hale', person: 'U0TUCKER' },
+  ];
+}
+
 export function fixtureMembers(room: string, now = Date.now()) {
   const buddies = fixtureBuddies(now);
   // A DM's membership is its participant pair, which is not discoverable

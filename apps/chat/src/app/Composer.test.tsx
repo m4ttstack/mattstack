@@ -438,14 +438,81 @@ test("a Slack chat's note names its agent when the chat says who", () => {
   );
 });
 
-test('an ended Slack chat replaces the composer with a note', () => {
+test('a closed Slack chat shows when it closed beside a Resume button, and no box', () => {
+  const closedAt = new Date(2026, 10, 6, 15, 22).getTime();
   renderWithProviders(
-    <SlackChatsProvider chats={[{ room: 'dm-slack', closedAt: 5 }]}>
+    <SlackChatsProvider chats={[{ id: 7, room: 'dm-slack', closedAt }]}>
       <Composer room="dm-slack" roomMembers={[]} buddies={[]} isDm />
     </SlackChatsProvider>
   );
   expect(screen.getByTestId('composer-ended')).toHaveTextContent(
-    'This chat has ended'
+    /^Chat closed .+Resume$/
+  );
+  expect(screen.getByRole('button', { name: 'Resume' })).toBeInTheDocument();
+  expect(screen.queryByRole('textbox')).toBeNull();
+});
+
+test('an open Slack chat has no Resume button', () => {
+  renderWithProviders(
+    <SlackChatsProvider chats={[{ id: 7, room: 'dm-slack' }]}>
+      <Composer room="dm-slack" roomMembers={[]} buddies={[]} isDm />
+    </SlackChatsProvider>
+  );
+  expect(screen.queryByRole('button', { name: 'Resume' })).toBeNull();
+  expect(screen.getByRole('textbox')).toBeInTheDocument();
+});
+
+test('Resume asks the server to reopen that chat, then reads the chats again', async () => {
+  const refresh = vi.fn();
+  fetchMock.mockResolvedValue(
+    new Response(JSON.stringify({ conversation: 8, room: 'dm-slack' }))
+  );
+  renderWithProviders(
+    <SlackChatsProvider
+      chats={[{ id: 7, room: 'dm-slack', closedAt: 5 }]}
+      refresh={refresh}
+    >
+      <Composer room="dm-slack" roomMembers={[]} buddies={[]} isDm />
+    </SlackChatsProvider>
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Resume' }));
+  await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+  const [url, init] = fetchMock.mock.calls.at(-1)!;
+  expect(url).toBe('/api/chat/slack-resume');
+  expect(JSON.parse(init.body)).toEqual({ conversation: 7 });
+});
+
+test('a refused Resume leaves the chat closed and says why', async () => {
+  const refresh = vi.fn();
+  fetchMock.mockResolvedValue(
+    new Response(JSON.stringify({ error: 'no folder for this repo' }), {
+      status: 502,
+    })
+  );
+  renderWithProviders(
+    <SlackChatsProvider
+      chats={[{ id: 7, room: 'dm-slack', closedAt: 5 }]}
+      refresh={refresh}
+    >
+      <Composer room="dm-slack" roomMembers={[]} buddies={[]} isDm />
+    </SlackChatsProvider>
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Resume' }));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Resume' })).toBeEnabled()
+  );
+  expect(refresh).not.toHaveBeenCalled();
+  expect(screen.getByTestId('composer-ended')).toBeInTheDocument();
+});
+
+test('a Slack chat that is still opening waits instead of taking a message', () => {
+  renderWithProviders(
+    <SlackChatsProvider chats={[{ id: 7, room: 'dm-slack' }]}>
+      <Composer room="dm-slack" roomMembers={[]} buddies={[]} isDm opening />
+    </SlackChatsProvider>
+  );
+  expect(screen.getByTestId('composer-opening')).toHaveTextContent(
+    'Chat is opening'
   );
   expect(screen.queryByRole('textbox')).toBeNull();
 });

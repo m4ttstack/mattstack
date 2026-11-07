@@ -498,3 +498,29 @@ test('a live Slack chat has no archive button', () => {
   );
   expect(screen.queryByRole('button', { name: 'Archive room' })).toBeNull();
 });
+
+test('a Slack chat with no message yet carries an Opening badge, gone once the room has one', () => {
+  const room = { room: 'dm-slack', memberCount: 2, unread: 0, mentions: 0 };
+  const { rerender } = renderWithProviders(
+    <SlackChatsProvider chats={[{ room: 'dm-slack' }]}>
+      <PageBar room={room} buddies={[]} />
+    </SlackChatsProvider>
+  );
+  expect(screen.getByTestId('page-bar-opening')).toHaveTextContent('Opening');
+  rerender(
+    <SlackChatsProvider chats={[{ room: 'dm-slack' }]}>
+      <PageBar room={{ ...room, lastPostedAt: 5 }} buddies={[]} />
+    </SlackChatsProvider>
+  );
+  expect(screen.queryByTestId('page-bar-opening')).toBeNull();
+});
+
+test('a plain room with no message is not opening', () => {
+  renderWithProviders(
+    <PageBar
+      room={{ room: 'build', memberCount: 1, unread: 0, mentions: 0 }}
+      buddies={[]}
+    />
+  );
+  expect(screen.queryByTestId('page-bar-opening')).toBeNull();
+});

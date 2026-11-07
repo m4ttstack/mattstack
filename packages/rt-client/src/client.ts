@@ -426,8 +426,8 @@ export function chatSlackClose(a: Commands["chat:slack-close"]["payload"], o: Rt
   return rtCommand<Commands["chat:slack-close"]["data"]>("chat:slack-close", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 60_000 });
 }
 
-export function chatSlackStatus(o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-status"]["data"]>> {
-  return rtCommand<Commands["chat:slack-status"]["data"]>("chat:slack-status", {}, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+export function chatSlackStatus(o: RtClientOptions = {}, caller: Commands["chat:slack-status"]["payload"] = {}): Promise<RtResponse<Commands["chat:slack-status"]["data"]>> {
+  return rtCommand<Commands["chat:slack-status"]["data"]>("chat:slack-status", { ...caller }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
 export function chatSlackPeople(o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-people"]["data"]>> {
@@ -452,6 +452,22 @@ export function chatSlackDelivered(a: Commands["chat:slack-delivered"]["payload"
 
 export function chatSlackTicket(a: Commands["chat:slack-ticket"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-ticket"]["data"]>> {
   return rtCommand<Commands["chat:slack-ticket"]["data"]>("chat:slack-ticket", { ...a }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+}
+
+export function chatSlackRequest(a: Commands["chat:slack-request"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-request"]["data"]>> {
+  return rtCommand<Commands["chat:slack-request"]["data"]>("chat:slack-request", { ...a }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 30_000 });
+}
+
+export function chatSlackStart(a: Commands["chat:slack-start"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-start"]["data"]>> {
+  return rtCommand<Commands["chat:slack-start"]["data"]>("chat:slack-start", { ...a }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 120_000 });
+}
+
+export function chatSlackAssignment(a: Commands["chat:slack-assignment"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-assignment"]["data"]>> {
+  return rtCommand<Commands["chat:slack-assignment"]["data"]>("chat:slack-assignment", { sessionId: a.sessionId }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+}
+
+export function chatSlackResume(a: Commands["chat:slack-resume"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-resume"]["data"]>> {
+  return rtCommand<Commands["chat:slack-resume"]["data"]>("chat:slack-resume", { ...a }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 120_000 });
 }
 
 export function chatArchive(

@@ -66,6 +66,13 @@ function humanHandle(): string {
   return getSetting<string>("chat.humanHandle").value;
 }
 
+/** The support agent's fixed chat identity: never minted, never continued. */
+export const SUPPORT_ID = "rt.support";
+
+export function isSupportIdentity(id: string): boolean {
+  return id === SUPPORT_ID;
+}
+
 const SLACK_ID_PREFIX = "slack.";
 const SLACK_NAME_SUFFIX = "-slack";
 const SLACK_NAME_MAX = 24;
@@ -85,17 +92,18 @@ export function fixedIdentityRefusal(x: string): string | undefined {
   if (x === humanHandle()) return "that handle speaks for the human";
   if (x === HERD_SYSTEM_ID) return "that handle is the herd's system poster";
   if (isSlackIdentity(x)) return "that handle belongs to a Slack teammate";
+  if (isSupportIdentity(x)) return "that handle is the support agent's";
   return undefined;
 }
 
 /**
  * The names no session may resolve to, mint as, or shadow: the human's
- * handle, the herd's system poster, the "here" mention sigil, and any id in
- * the Slack namespace. A live identity minted under one of these as its
+ * handle, the herd's system poster, the "here" mention sigil, the support
+ * agent's id, and any id in the Slack namespace. A live identity minted under one of these as its
  * display name (a shadow) must never be what a lookup for that name reaches.
  */
 export function isFixedChatName(x: string): boolean {
-  return x === humanHandle() || x === HERD_SYSTEM_ID || x === "here" || isSlackIdentity(x);
+  return x === humanHandle() || x === HERD_SYSTEM_ID || x === "here" || isSlackIdentity(x) || isSupportIdentity(x);
 }
 
 const SELECT_LIVE_BY_NAME_SQL = `

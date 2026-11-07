@@ -364,3 +364,52 @@ test('with only a live Slack chat there is nothing to archive', () => {
     screen.queryByRole('button', { name: 'Archive all direct messages' })
   ).toBeNull();
 });
+
+test('New Slack chat is the first row of Direct, even with no DMs, and opens the form', async () => {
+  const onNewSlackChat = vi.fn();
+  renderWithProviders(
+    <FleetTree rooms={[]} dms={[]} onNewSlackChat={onNewSlackChat} />
+  );
+  const row = screen.getByTestId('new-slack-chat');
+  expect(row).toHaveTextContent('New Slack chat');
+  await userEvent.click(row);
+  expect(onNewSlackChat).toHaveBeenCalledTimes(1);
+});
+
+test('without a handler there is no New Slack chat row', () => {
+  renderWithProviders(<FleetTree rooms={[]} dms={[dm('a', 'b')]} />);
+  expect(screen.queryByTestId('new-slack-chat')).toBeNull();
+});
+
+test('a Slack chat with no message yet reads Opening in its row, then shows its newest message', () => {
+  const opening = dm('alexa', 'tucker-slack', { room: 'dm-open' });
+  const { rerender } = renderWithProviders(
+    <SlackChatsProvider
+      chats={[{ room: 'dm-open', agentName: 'alexa', name: 'tucker-slack' }]}
+    >
+      <FleetTree rooms={[]} dms={[opening]} />
+    </SlackChatsProvider>
+  );
+  const row = screen.getByTestId('dm-row-dm-open');
+  expect(row).toHaveTextContent('alexa: Opening the chat for tucker-slack');
+  expect(row).toHaveTextContent('Now');
+  expect(within(row).getByTestId('dm-opening')).toBeInTheDocument();
+  rerender(
+    <SlackChatsProvider
+      chats={[{ room: 'dm-open', agentName: 'alexa', name: 'tucker-slack' }]}
+    >
+      <FleetTree
+        rooms={[]}
+        dms={[
+          {
+            ...opening,
+            lastPostedAt: NOW,
+            lastMessage: { handle: 'alexa', body: 'Hi Tucker' },
+          },
+        ]}
+      />
+    </SlackChatsProvider>
+  );
+  expect(screen.queryByTestId('dm-opening')).toBeNull();
+  expect(screen.getByTestId('dm-row-dm-open')).toHaveTextContent('Hi Tucker');
+});

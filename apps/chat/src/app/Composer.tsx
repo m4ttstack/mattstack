@@ -10,6 +10,7 @@ import type { ChangeEvent, KeyboardEvent } from 'react';
 import {
   ActionIcon,
   Box,
+  Button,
   Center,
   Group,
   Paper,
@@ -26,8 +27,13 @@ import { agentState, type AgentState } from './agent-state';
 import { AgentName, HandleAvatar } from './AgentName';
 import { useBuddies } from './buddies-context';
 import classes from './composer.module.css';
+import { whenLabel } from './day-label';
 import { doing, type DoingLine } from './doing';
-import { useSlackChat } from './slack-chats-context';
+import {
+  useRefreshSlackChats,
+  useSlackChat,
+  type SlackChat,
+} from './slack-chats-context';
 import { StateDot, StateWord } from './StateDot';
 import { useAutoGrowTextarea } from './use-auto-grow-textarea';
 
@@ -101,6 +107,8 @@ export interface ComposerProps {
   onDraftChange?: (hasDraft: boolean) => void;
   /** Called after a post has landed and the draft has cleared. */
   onPosted?: () => void;
+  /** A Slack chat whose agent has not spoken yet: the box waits. */
+  opening?: boolean;
 }
 
 /** The imperative surface the roster and the app drive: insert a mention at
@@ -262,6 +270,63 @@ function HereOption({
   );
 }
 
+async function resumeError(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: string };
+    if (body.error) return body.error;
+  } catch {
+    // The status line says enough.
+  }
+  return `The server answered ${res.status}`;
+}
+
+/** The bar a closed Slack chat shows in place of the box. Resume works on
+    any closed chat, however long ago: the tap is the approval. */
+function ClosedBar({ chat }: { chat: SlackChat }) {
+  const refresh = useRefreshSlackChats();
+  const [resuming, setResuming] = useState(false);
+  const resume = async () => {
+    setResuming(true);
+    try {
+      const res = await fetch('/api/chat/slack-resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversation: chat.id }),
+      });
+      if (!res.ok) throw new Error(await resumeError(res));
+      refresh();
+    } catch (err) {
+      notifications.error(
+        `Couldn't resume the chat: ${err instanceof Error ? err.message : 'no answer from the server'}`
+      );
+    } finally {
+      setResuming(false);
+    }
+  };
+  return (
+    <Group
+      data-testid="composer-ended"
+      className={`${classes.ended} ${classes.closedBar}`}
+      justify="space-between"
+      wrap="nowrap"
+    >
+      <Text component="span" size="lg" inherit>
+        Chat closed {chat.closedAt !== undefined && whenLabel(chat.closedAt)}
+      </Text>
+      {chat.id !== undefined && (
+        <Button
+          size="xs"
+          leftSection={<Icon name="rotateCcw" size={14} />}
+          loading={resuming}
+          onClick={resume}
+        >
+          Resume
+        </Button>
+      )}
+    </Group>
+  );
+}
+
 /**
  * The composer: an `@`-popover input and its one write route. Picking a
  * buddy outside the room hands off to `onOpenDm` instead of posting here --
@@ -283,6 +348,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
       replyTo,
       onDraftChange,
       onPosted,
+      opening = false,
     },
     ref
   ) {
@@ -492,9 +558,13 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
     const canSend = value.trim().length > 0 && daemonReachable && !sending;
 
     if (slackChat?.closedAt !== undefined) {
+      return <ClosedBar chat={slackChat} />;
+    }
+
+    if (opening) {
       return (
-        <Center data-testid="composer-ended" className={classes.ended}>
-          This chat has ended
+        <Center data-testid="composer-opening" className={classes.ended}>
+          Chat is opening
         </Center>
       );
     }

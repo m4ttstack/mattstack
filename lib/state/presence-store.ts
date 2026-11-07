@@ -21,6 +21,7 @@ import {
   isKnownId,
   isSlackIdentity,
   isSlackName,
+  isSupportIdentity,
   mintIdentity,
   renameIdentity,
   resolveHandle,
@@ -329,7 +330,7 @@ export function signIn(
     const requestedBase = typeof target === "string" ? target : args.baseHandle;
     const baseHandle = continued ? target.baseName : (requestedBase ?? identity?.baseName ?? drawPoolName(db));
     // Every suffixed name under this base stays in the Slack namespace, so pickDisplayName would never find a free one.
-    if (isSlackIdentity(baseHandle)) throw refusal("identity-fixed", `chat: may not sign in as ${JSON.stringify(baseHandle)}: ${fixedIdentityRefusal(baseHandle)}`);
+    if (isSlackIdentity(baseHandle) || isSupportIdentity(baseHandle)) throw refusal("identity-fixed", `chat: may not sign in as ${JSON.stringify(baseHandle)}: ${fixedIdentityRefusal(baseHandle)}`);
 
     const seats = seatsByName(db, sessionStaleCutoff, scoped);
     const name = pickDisplayName(baseHandle, identity?.name, { cwd, pane }, seats);

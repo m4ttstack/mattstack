@@ -32,7 +32,11 @@ import { createReconcilerHandlers } from "./handlers/reconciler.ts";
 import { createHerdHandlers, type HerdDeps } from "./handlers/herd.ts";
 import { createBgHandlers } from "./handlers/bg.ts";
 import { createChatHandlers } from "./handlers/chat.ts";
-import { createSlackChatHandlers } from "./handlers/slack-chat.ts";
+import { createSlackChatHandlers, createSlackOpenDeps } from "./handlers/slack-chat.ts";
+import { realMilestoneDeps } from "./handlers/slack-milestones.ts";
+import { slackOpenSeams } from "./handlers/slack-open-seams.ts";
+import { slackDeskNotify } from "./slack-lifecycle.ts";
+import { answerSlackOpen, type SlackOpenDeps } from "../slack/request.ts";
 import { createAgentHandlers } from "./handlers/agent.ts";
 import { createHerdrHandlers } from "./handlers/herdr.ts";
 import { createInboxHandlers } from "./handlers/inbox.ts";
@@ -109,6 +113,8 @@ export function buildRoutedHandlers(opts: {
   eventsBus: EventsBus;
   /** Gates store backing gate:* (BOARD-20/21). */
   gatesStore: GatesStore;
+  /** Hands the daemon the Slack support deps the router built, so its own sweeps can open a `slack-open` gate, which no public verb may. */
+  onSlackOpenDeps?: (deps: SlackOpenDeps) => void;
   /** Pane push + subscription fan-out for gate:open/gate:answer (BOARD-20/21). */
   gatePush: GatePush;
   /** Answer-time executor guarantee seams (spec "Answer-time executor
@@ -214,7 +220,27 @@ export function buildRoutedHandlers(opts: {
   );
   const runWorktree = (runId: string): string | null =>
     findRun(runId)?.fields.find((f) => f.key === "worktree")?.value ?? null;
-  const gateHandlers = createGateHandlers(opts.gatesStore, opts.eventsBus, broadcast, {
+  const slackOpen = createSlackOpenDeps(
+    {
+      db: opts.stateDb,
+      log: ctx.log,
+      milestones: realMilestoneDeps({ db: opts.stateDb, emitEvent, log: ctx.log, notify: slackDeskNotify }),
+    },
+    slackOpenSeams({
+      db: opts.stateDb,
+      log: ctx.log,
+      agentStart: (payload) => agentHandlers["agent:start"](payload),
+      gateOpen: (payload) => openSlackGate(payload),
+      gateClose: (payload) => gateHandlers["gate:close"](payload),
+      gatesList: (kind) => opts.gatesStore.list({ kind, status: ["open", "parked"] }).gates,
+      gateAppendContext: (id, text, meta) => opts.gatesStore.appendContext(id, text, meta),
+      herdrRunnerFor: (socket) => defaultHerdrRunner(socket ? { ...process.env, HERDR_SOCKET_PATH: socket } : process.env),
+      repoIndex: ctx.repoIndex,
+    }),
+  );
+  opts.onSlackOpenDeps?.(slackOpen);
+  const { openSlackGate, ...gateHandlers } = createGateHandlers(opts.gatesStore, opts.eventsBus, broadcast, {
+    slackOpenAnswered: (row) => answerSlackOpen(slackOpen, row),
     push: opts.gatePush,
     log: ctx.log,
     runSpawnedBy: (runId) => findRun(runId)?.run.spawned_by ?? null,
@@ -308,7 +334,7 @@ export function buildRoutedHandlers(opts: {
     ...herdHandlers,
     ...bgHandlers,
     ...chatHandlers,
-    ...createSlackChatHandlers({ db: opts.stateDb, emitEvent, log: ctx.log }),
+    ...createSlackChatHandlers({ db: opts.stateDb, emitEvent, log: ctx.log, open: slackOpen, milestones: slackOpen.milestones }),
     ...agentHandlers,
     ...paneHandlers,
     ...createEndpointHandlers({ log: ctx.log, repoIndex: ctx.repoIndex }),

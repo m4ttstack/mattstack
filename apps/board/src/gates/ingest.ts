@@ -6,7 +6,12 @@ import { domainForKind } from '@mattstack/gate-kit';
 import type { GateRow as FacilityGateRow } from '@mattstack/rt-client';
 import { cachedDelivery, cachedExecution } from './cache.ts';
 import { isHumanOwned, runIdOf } from './run-mr.ts';
-import type { GateAnswers, GateQuestion, GateRow } from './store.ts';
+import {
+  SLACK_OPEN_KIND,
+  type GateAnswers,
+  type GateQuestion,
+  type GateRow,
+} from './store.ts';
 
 /** Shape shared by a relay `("event", frame)` push and an `events:list` row --
     both carry a bus topic and its payload, which is all the cache feed and
@@ -43,6 +48,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 function isBoardGateFrame(frame: GateEventFrame): boolean {
   if (!GATE_BUS_TOPIC_RE.test(frame.topic)) return false;
   if (!isRecord(frame.payload)) return false;
+  if (frame.payload.kind === SLACK_OPEN_KIND) return false;
   const subject = frame.payload.subject;
   if (typeof subject !== 'string' || !subject) return false;
   if (subject.startsWith('mr:') || runIdOf(subject) !== null) return true;
@@ -271,6 +277,7 @@ export function buildQueueExtras(rows: FacilityGateRow[]): GateRow[] {
     if (row.subject.startsWith('mr:') || runIdOf(row.subject) !== null)
       continue;
     if (row.status === 'closed') continue;
+    if (row.kind === SLACK_OPEN_KIND) continue;
     const label =
       typeof row.meta?.label === 'string' ? row.meta.label : row.kind;
     out.push({

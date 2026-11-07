@@ -8,7 +8,7 @@ import { CHAT_RETENTION_MS } from "./chat-store.ts";
 import { getStateDb } from "./db.ts";
 
 export type SlackCloseReason = "closed-by-pane" | "idle" | "operator" | "pane-gone";
-export type SlackItemKind = "message" | "operator-slack" | "check-in" | "close-request" | "closed";
+export type SlackItemKind = "message" | "operator-slack" | "check-in" | "close-request" | "closed" | "resumed";
 
 export interface SlackConversation {
   id: number;
@@ -32,6 +32,24 @@ export interface SlackConversation {
   openedAt: number;
   closedAt: number | null;
   closeReason: SlackCloseReason | null;
+  requesterSession: string | null;
+  requesterHandle: string | null;
+  requesterPane: string | null;
+  brief: string | null;
+  resumedFrom: number | null;
+  graceUntil: number | null;
+  assignedAgent: string | null;
+  assignedSession: string | null;
+  assignedPane: string | null;
+  /** The repo the support agent was started for, so a resume with a fresh agent starts it in the same place. */
+  repo: string | null;
+}
+
+export interface SupportTicket {
+  id: string;
+  title: string;
+  url: string;
+  createdAt: number;
 }
 
 export interface SlackItem {
@@ -73,6 +91,23 @@ interface ConversationRow {
   opened_at: number;
   closed_at: number | null;
   close_reason: SlackCloseReason | null;
+  requester_session: string | null;
+  requester_handle: string | null;
+  requester_pane: string | null;
+  brief: string | null;
+  resumed_from: number | null;
+  grace_until: number | null;
+  assigned_agent: string | null;
+  assigned_session: string | null;
+  assigned_pane: string | null;
+  repo: string | null;
+}
+
+interface TicketRow {
+  issue_id: string;
+  title: string;
+  url: string;
+  created_at: number;
 }
 
 interface ItemRow {
@@ -86,8 +121,9 @@ interface ItemRow {
 }
 
 const INSERT_CONVERSATION_SQL = `INSERT INTO slack_conversations
-  (room, agent_handle, slack_handle, slack_user_id, slack_channel, slack_display_name, operator_user_id, operator_name, frame_marker, last_read_ts, last_active_at, opened_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *;`;
+  (room, agent_handle, slack_handle, slack_user_id, slack_channel, slack_display_name, operator_user_id, operator_name, frame_marker, last_read_ts, last_active_at, opened_at,
+   requester_session, requester_handle, requester_pane, brief, resumed_from, assigned_agent, assigned_session, assigned_pane, repo)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *;`;
 const SELECT_OPEN_BY_USER_SQL = `SELECT * FROM slack_conversations WHERE slack_user_id = ? AND closed_at IS NULL;`;
 const SELECT_OPEN_BY_AGENT_SQL = `SELECT * FROM slack_conversations WHERE agent_handle = ? AND closed_at IS NULL;`;
 const SELECT_OPEN_BY_ROOM_SQL = `SELECT * FROM slack_conversations WHERE room = ? AND closed_at IS NULL;`;
@@ -119,6 +155,16 @@ function toConversation(r: ConversationRow): SlackConversation {
     openedAt: r.opened_at,
     closedAt: r.closed_at,
     closeReason: r.close_reason,
+    requesterSession: r.requester_session,
+    requesterHandle: r.requester_handle,
+    requesterPane: r.requester_pane,
+    brief: r.brief,
+    resumedFrom: r.resumed_from,
+    graceUntil: r.grace_until,
+    assignedAgent: r.assigned_agent,
+    assignedSession: r.assigned_session,
+    assignedPane: r.assigned_pane,
+    repo: r.repo,
   };
 }
 
@@ -134,7 +180,19 @@ function toItem(r: ItemRow): SlackItem {
   };
 }
 
-export type OpenConversationArgs = Pick<
+type RequesterField =
+  | "requesterSession"
+  | "requesterHandle"
+  | "requesterPane"
+  | "brief"
+  | "resumedFrom"
+  | "assignedAgent"
+  | "assignedSession"
+  | "assignedPane"
+  | "repo";
+
+export type OpenConversationArgs = Partial<Pick<SlackConversation, RequesterField>> &
+  Pick<
   SlackConversation,
   | "room"
   | "agentHandle"
@@ -147,7 +205,7 @@ export type OpenConversationArgs = Pick<
   | "frameMarker"
   | "lastReadTs"
   | "openedAt"
->;
+  >;
 
 export function openConversation(args: OpenConversationArgs, db: Database = getStateDb()): SlackConversation {
   try {
@@ -166,7 +224,17 @@ export function openConversation(args: OpenConversationArgs, db: Database = getS
         args.lastReadTs,
         args.openedAt,
         args.openedAt,
+        args.requesterSession ?? null,
+        args.requesterHandle ?? null,
+        args.requesterPane ?? null,
+        args.brief ?? null,
+        args.resumedFrom ?? null,
+        args.assignedAgent ?? null,
+        args.assignedSession ?? null,
+        args.assignedPane ?? null,
+        args.repo ?? null,
       ) as ConversationRow;
+    expireOtherGrace(args.slackUserId, row.id, args.openedAt, db);
     return toConversation(row);
   } catch (e) {
     if (!/UNIQUE constraint failed/.test((e as Error).message)) throw e;
@@ -179,6 +247,108 @@ export function openConversation(args: OpenConversationArgs, db: Database = getS
 export function conversationForAgent(agentHandle: string, db: Database = getStateDb()): SlackConversation | undefined {
   const row = db.query(SELECT_OPEN_BY_AGENT_SQL).get(agentHandle) as ConversationRow | null;
   return row ? toConversation(row) : undefined;
+}
+
+/** The open conversation whose support agent runs in this session. */
+export function conversationForAssignedSession(sessionId: string, db: Database = getStateDb()): SlackConversation | null {
+  const row = db
+    .query(`SELECT * FROM slack_conversations WHERE assigned_session = ? AND closed_at IS NULL;`)
+    .get(sessionId) as ConversationRow | null;
+  return row ? toConversation(row) : null;
+}
+
+/** A closed chat this session's agent ran that is still in its grace window, so its watcher has more to wait for. */
+export function gracedConversationForSession(agentHandle: string, sessionId: string, now: number, db: Database = getStateDb()): SlackConversation | undefined {
+  const row = db
+    .query(`SELECT * FROM slack_conversations WHERE agent_handle = ? AND assigned_session = ? AND closed_at IS NOT NULL AND grace_until > ? ORDER BY id DESC LIMIT 1;`)
+    .get(agentHandle, sessionId, now) as ConversationRow | null;
+  return row ? toConversation(row) : undefined;
+}
+
+export function startGrace(id: number, until: number, db: Database = getStateDb()): void {
+  db.query(`UPDATE slack_conversations SET grace_until = ? WHERE id = ?;`).run(until, id);
+}
+
+export function endGrace(id: number, db: Database = getStateDb()): void {
+  db.query(`UPDATE slack_conversations SET grace_until = NULL WHERE id = ?;`).run(id);
+}
+
+export function listGracedConversations(now: number, db: Database = getStateDb()): SlackConversation[] {
+  return (
+    db
+      .query(`SELECT * FROM slack_conversations WHERE closed_at IS NOT NULL AND grace_until > ? ORDER BY id;`)
+      .all(now) as ConversationRow[]
+  ).map(toConversation);
+}
+
+/**
+ * One person has one live grace window: the newest conversation's. Older windows run out now rather than
+ * ending here, so the grace sweep that finds them closes their pane the way it does for any other run-out.
+ */
+export function expireOtherGrace(slackUserId: string, exceptId: number, now: number, db: Database = getStateDb()): void {
+  db.query(
+    `UPDATE slack_conversations SET grace_until = ? WHERE slack_user_id = ? AND id != ? AND closed_at IS NOT NULL AND grace_until > ?;`,
+  ).run(now, slackUserId, exceptId, now);
+}
+
+/** A newer conversation, or a live one, is still using this pane. */
+export function paneInUse(pane: string, exceptId: number, db: Database = getStateDb()): boolean {
+  return (
+    db
+      .query(`SELECT 1 FROM slack_conversations WHERE assigned_pane = ? AND id != ? AND (closed_at IS NULL OR id > ?) LIMIT 1;`)
+      .get(pane, exceptId, exceptId) !== null
+  );
+}
+
+/** Closed rows whose grace window has run out and not yet been ended; `endGrace` takes a row out of this list. */
+export function listExpiredGraceConversations(now: number, db: Database = getStateDb()): SlackConversation[] {
+  return (
+    db
+      .query(`SELECT * FROM slack_conversations WHERE closed_at IS NOT NULL AND grace_until IS NOT NULL AND grace_until <= ? ORDER BY id;`)
+      .all(now) as ConversationRow[]
+  ).map(toConversation);
+}
+
+export function recordSupportTicket(
+  conversationId: number,
+  t: { id: string; title: string; url: string },
+  now: number,
+  db: Database = getStateDb(),
+): void {
+  db.query(`INSERT INTO slack_support_tickets (conversation_id, issue_id, title, url, created_at) VALUES (?, ?, ?, ?, ?);`).run(
+    conversationId,
+    t.id,
+    t.title,
+    t.url,
+    now,
+  );
+}
+
+function toTicket(r: TicketRow): SupportTicket {
+  return { id: r.issue_id, title: r.title, url: r.url, createdAt: r.created_at };
+}
+
+export function listSupportTickets(conversationId: number, db: Database = getStateDb()): SupportTicket[] {
+  return (
+    db
+      .query(`SELECT * FROM slack_support_tickets WHERE conversation_id = ? ORDER BY created_at, id;`)
+      .all(conversationId) as TicketRow[]
+  ).map(toTicket);
+}
+
+/** This conversation's tickets plus those of every conversation it resumed, transitively, oldest first. */
+export function ticketsForChain(conversationId: number, db: Database = getStateDb()): SupportTicket[] {
+  const rows = db
+    .query(
+      `WITH RECURSIVE chain(id) AS (
+         SELECT ?1
+         UNION
+         SELECT c.resumed_from FROM slack_conversations c JOIN chain ON c.id = chain.id WHERE c.resumed_from IS NOT NULL
+       )
+       SELECT * FROM slack_support_tickets WHERE conversation_id IN (SELECT id FROM chain) ORDER BY created_at, id;`,
+    )
+    .all(conversationId) as TicketRow[];
+  return rows.map(toTicket);
 }
 
 export function conversationForRoom(room: string, db: Database = getStateDb()): SlackConversation | undefined {
@@ -250,6 +420,19 @@ export function markStalledNoted(id: number, now: number, db: Database = getStat
     .query(`UPDATE slack_conversations SET stalled_noted_at = ? WHERE id = ? AND stalled_noted_at IS NULL AND closed_at IS NULL;`)
     .run(now, id);
   return changes > 0;
+}
+
+/**
+ * True once the support agent has posted into the conversation's room. Neither a watcher poll nor a
+ * teammate's message sets it, so it separates an agent that reached the chat from one that only started.
+ */
+export function agentHasPosted(conv: Pick<SlackConversation, "room" | "agentHandle" | "openedAt">, db: Database = getStateDb()): boolean {
+  // A resumed conversation reuses the room and may reuse the handle, so posts from before this row opened don't count.
+  return (
+    db
+      .query(`SELECT 1 FROM chat_messages WHERE room = ? AND handle = ? AND posted_at >= ? LIMIT 1;`)
+      .get(conv.room, conv.agentHandle, conv.openedAt) !== null
+  );
 }
 
 export function markWatcherSeen(id: number, now: number, db: Database = getStateDb()): void {

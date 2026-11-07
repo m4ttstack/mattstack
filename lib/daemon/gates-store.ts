@@ -44,6 +44,8 @@ export type AnswerResult =
 
 export interface GatesStore {
   open(input: {
+    /** Minted by the caller only when the question text has to name it; the store mints one otherwise. */
+    id?: string;
     subject: string;
     kind: string;
     questions: GateQuestion[];
@@ -87,6 +89,8 @@ export interface GatesStore {
   markSubscriptionDead(id: string): void;
   /** Stamps escalatedAt once (CAS on IS NULL); a second call on an already-escalated row is a no-op. */
   markEscalated(id: string): void;
+  /** Adds a paragraph to the context of a gate that is still open or parked, and merges `meta` into its meta when given. */
+  appendContext(id: string, text: string, meta?: Record<string, unknown>): void;
   /** Nudge-bearing, unreleased rows whose last push was dead-pane, in either
       terminal state: an answered gate's answer and a closed gate's ending are
       the same unwoken pane. */
@@ -412,6 +416,12 @@ export function createGatesStore(opts: {
   const markConsumedStmt = db.prepare("UPDATE gates SET consumedAt = ? WHERE id = ? AND consumedAt IS NULL");
   const markExecutionStmt = db.prepare("UPDATE gates SET execution = ? WHERE id = ?");
   const markExecutorStmt = db.prepare("UPDATE gates SET executor = ? WHERE id = ?");
+  const appendContextStmt = db.prepare(
+    "UPDATE gates SET context = CASE WHEN context IS NULL OR context = '' THEN ? ELSE context || char(10) || char(10) || ? END WHERE id = ? AND status IN ('open', 'parked')",
+  );
+  const appendContextMetaStmt = db.prepare(
+    "UPDATE gates SET context = CASE WHEN context IS NULL OR context = '' THEN ? ELSE context || char(10) || char(10) || ? END, meta = json_patch(COALESCE(meta, '{}'), ?) WHERE id = ? AND status IN ('open', 'parked')",
+  );
   const markEscalatedStmt = db.prepare("UPDATE gates SET escalatedAt = ? WHERE id = ? AND escalatedAt IS NULL");
   const maxRowidStmt = db.prepare("SELECT COALESCE(MAX(rowid), 0) AS maxId FROM gates");
   // Row floor scoped to terminal rows only: open/parked rows are never swept
@@ -574,7 +584,7 @@ export function createGatesStore(opts: {
   return {
     open(input) {
       assertValidSubject(input.subject);
-      const id = crypto.randomUUID();
+      const id = input.id ?? crypto.randomUUID();
       const openedAt = Date.now();
       // Both openers (the gate:open handler and the reconciler's direct
       // attention-gate opens) call this store method directly, and the
@@ -786,6 +796,11 @@ export function createGatesStore(opts: {
 
     markSubscriptionDead(id) {
       subDeadStmt.run(id);
+    },
+
+    appendContext(id, text, meta) {
+      if (meta) appendContextMetaStmt.run(text, text, JSON.stringify(meta), id);
+      else appendContextStmt.run(text, text, id);
     },
 
     markEscalated(id) {

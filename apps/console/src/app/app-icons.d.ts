@@ -58,6 +58,8 @@ declare module '@mattstack/app-kit/icons' {
     plug: true;
     play: true;
     code: true;
+    messageSquareMore: true;
+    messageSquarePlus: true;
   }
 }
 export {};
