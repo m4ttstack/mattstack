@@ -1,4 +1,4 @@
-import { Fragment, useState, type ReactNode } from 'react';
+import { Fragment, useContext, useState, type ReactNode } from 'react';
 import {
   ActionIcon,
   Box,
@@ -24,8 +24,11 @@ import { MUTED_XS } from './presence-bits';
 import type { RosterBuddy } from './roster-types';
 import {
   isOpening,
+  supportChatLabel,
+  SupportChatOpenContext,
   useLiveSlackRoom,
   useSlackChat,
+  useSupportPersona,
 } from './slack-chats-context';
 
 /** Room and DM rows, one step up, so the tree has a visible hierarchy. */
@@ -144,7 +147,7 @@ function ArchiveAllDms({
   const confirm = () =>
     modals.confirm({
       title: 'Archive all direct messages?',
-      message: `${archivable.length} ${archivable.length === 1 ? 'conversation leaves' : 'conversations leave'} the sidebar. A new message brings one back.`,
+      message: `${archivable.length} ${archivable.length === 1 ? 'conversation' : 'conversations'} will be hidden until someone sends a new message.`,
       labels: { confirm: 'Archive all', cancel: 'Cancel' },
       onConfirm: () => archivable.forEach(room => onClose(room.room)),
     });
@@ -444,6 +447,8 @@ export function FleetTree({
 }: FleetTreeProps) {
   // A DM is named by its pair, so one with no participants has no row.
   const namedDms = dms.filter(d => d.participants);
+  const persona = useSupportPersona();
+  const supportChatOpen = useContext(SupportChatOpenContext);
 
   return (
     <Fragment>
@@ -474,10 +479,12 @@ export function FleetTree({
             <UnstyledButton
               className={`${classes.listRow} ${classes.newChatRow}`}
               data-testid="new-slack-chat"
+              data-active={supportChatOpen || undefined}
+              aria-pressed={supportChatOpen}
               onClick={onNewSlackChat}
             >
               <Icon name="plus" size={16} />
-              <span>New Slack chat</span>
+              <span>{supportChatLabel(persona)}</span>
             </UnstyledButton>
           )}
           {namedDms.map(room => (

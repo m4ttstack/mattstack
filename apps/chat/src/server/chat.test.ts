@@ -1399,6 +1399,92 @@ test('slack-start needs a person and a brief', async () => {
   expect(rt.chatSlackStart).not.toHaveBeenCalled();
 });
 
+test('slack-start with notify resolves the signed-in buddy session and pane', async () => {
+  setRepo('github.com/acme/support');
+  vi.mocked(rt.chatBuddies).mockResolvedValueOnce({
+    ok: true,
+    data: {
+      buddies: [
+        {
+          sessionId: 's-alexa',
+          handle: 'alexa',
+          baseHandle: 'alexa',
+          name: 'alexa',
+          signedInAt: 1,
+          lastSeenAt: 1,
+          status: 'live',
+          pane: 'p-9',
+        },
+      ],
+    },
+  } as never);
+  vi.mocked(rt.chatSlackStart).mockResolvedValueOnce({
+    ok: true,
+    data: { conversation: 7 },
+  });
+  vi.mocked(rt.chatSlackStatus).mockResolvedValueOnce({
+    ok: true,
+    data: { conversations: [{ id: 7, room: 'dm-slack-7' }], closed: [] },
+  } as never);
+  const res = await routes.request('/api/chat/slack-start', {
+    method: 'POST',
+    headers: JSON_PAGE,
+    body: JSON.stringify({ person: 'U0A', brief: 'x', notify: 'alexa' }),
+  });
+  expect(res.status).toBe(200);
+  expect(vi.mocked(rt.chatSlackStart).mock.calls[0]![0]).toEqual({
+    person: 'U0A',
+    brief: 'x',
+    repo: 'remote:github.com%2Facme%2Fsupport',
+    requesterHandle: 'alexa',
+    requesterSession: 's-alexa',
+    requesterPane: 'p-9',
+  });
+});
+
+test('slack-start with notify refuses 409 when that agent is not signed in', async () => {
+  setRepo('github.com/acme/support');
+  vi.mocked(rt.chatBuddies).mockResolvedValueOnce({
+    ok: true,
+    data: {
+      buddies: [
+        {
+          sessionId: 's-alexa',
+          handle: 'alexa',
+          baseHandle: 'alexa',
+          name: 'alexa',
+          signedInAt: 1,
+          lastSeenAt: 1,
+          signedOutAt: 2,
+          status: 'offline',
+        },
+      ],
+    },
+  } as never);
+  const res = await routes.request('/api/chat/slack-start', {
+    method: 'POST',
+    headers: JSON_PAGE,
+    body: JSON.stringify({ person: 'U0A', brief: 'x', notify: 'alexa' }),
+  });
+  expect(res.status).toBe(409);
+  expect((await res.json()).error).toContain('alexa');
+  expect(rt.chatSlackStart).not.toHaveBeenCalled();
+});
+
+test('slack-persona answers the configured name, or null with none', async () => {
+  vi.mocked(rt.getSetting).mockImplementation(((key: string) => ({
+    value: key === 'chat.slackSupport.persona' ? { name: 'Maude' } : 'matt',
+  })) as never);
+  let res = await routes.request('/api/chat/slack-persona', { headers: LOCAL });
+  expect(await res.json()).toEqual({ persona: 'Maude' });
+
+  vi.mocked(rt.getSetting).mockImplementation((() => ({
+    value: undefined,
+  })) as never);
+  res = await routes.request('/api/chat/slack-persona', { headers: LOCAL });
+  expect(await res.json()).toEqual({ persona: null });
+});
+
 test('slack-start carries the daemon refusal', async () => {
   setRepo('github.com/acme/support');
   vi.mocked(rt.chatSlackStart).mockResolvedValueOnce({

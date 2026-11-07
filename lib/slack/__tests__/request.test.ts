@@ -72,7 +72,7 @@ function harness(opts: { startError?: string; busyAfterStart?: boolean; reused?:
         ? { ok: false, reason: "Slack did not answer" }
         : { ok: true, target: { userId: ALEX.id, displayName: ALEX.displayName, firstName: "Alex", channel: "D0TEST", operatorUserId: "U0OPER", operatorName: "Robin", newestTs: "1700000000.000100" } },
     repoPath: () => ("repoPath" in opts ? opts.repoPath! : "/work/app"),
-    startAgent: async (repo) => {
+    startAgent: async (repo, _tab) => {
       started.push(repo);
       if (opts.startError) return { ok: false, error: opts.startError };
       return { ok: true, agent: AGENT, reused: opts.reused ?? false };
@@ -221,8 +221,8 @@ describe("approveSlackOpen", () => {
   test("a chat that opens while the agent starts stops that agent and writes no second row", async () => {
     const h = harness();
     const realStart = h.deps.startAgent;
-    h.deps.startAgent = async (repo) => {
-      const started = await realStart(repo);
+    h.deps.startAgent = async (repo, tab) => {
+      const started = await realStart(repo, tab);
       openConversation(
         { room: "other-room", agentHandle: "other-agent", slackHandle: "slack.u0test", slackUserId: ALEX.id, slackChannel: "D0TEST", slackDisplayName: "Alex Example", operatorUserId: "U0OPER", operatorName: "Robin", frameMarker: "m", lastReadTs: "1", openedAt: NOW },
         h.db,
@@ -392,8 +392,8 @@ describe("approveSlackResume", () => {
     const h = harness({ alive: false });
     const old = closedChat(h);
     const realStart = h.deps.startAgent;
-    h.deps.startAgent = async (repo) => {
-      const started = await realStart(repo);
+    h.deps.startAgent = async (repo, tab) => {
+      const started = await realStart(repo, tab);
       openOtherChat(h);
       return started;
     };
@@ -407,8 +407,8 @@ describe("approveSlackResume", () => {
     const h = harness({ alive: false });
     const old = closedChat(h);
     const realStart = h.deps.startAgent;
-    h.deps.startAgent = async (repo) => {
-      const started = await realStart(repo);
+    h.deps.startAgent = async (repo, tab) => {
+      const started = await realStart(repo, tab);
       endGrace(old.id, h.db);
       return started;
     };

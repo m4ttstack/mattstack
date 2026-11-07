@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 
-import { dayKey, dayLabel } from './day-label';
+import { dayKey, dayLabel, gutterTime } from './day-label';
 
 const now = new Date(2026, 7, 26, 20, 0).getTime();
 const days = (n: number) => now - n * 86_400_000;
@@ -19,4 +19,11 @@ test('dayKey follows the local calendar, not a 24h window', () => {
   const earlyTomorrow = new Date(2026, 7, 27, 0, 1).getTime();
   expect(dayKey(lateTonight)).not.toBe(dayKey(earlyTomorrow));
   expect(dayKey(lateTonight)).toBe(dayKey(now));
+});
+
+test('gutterTime is the clock time with no AM/PM, on a 12-hour dial', () => {
+  expect(gutterTime(new Date(2026, 7, 26, 0, 5).getTime())).toBe('12:05');
+  expect(gutterTime(new Date(2026, 7, 26, 9, 30).getTime())).toBe('9:30');
+  expect(gutterTime(new Date(2026, 7, 26, 12, 0).getTime())).toBe('12:00');
+  expect(gutterTime(new Date(2026, 7, 26, 20, 7).getTime())).toBe('8:07');
 });

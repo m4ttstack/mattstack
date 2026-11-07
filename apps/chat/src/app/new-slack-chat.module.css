@@ -1,7 +1,29 @@
+.form :global(.mantine-InputWrapper-label) {
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.lede {
+  margin-top: calc(var(--mantine-spacing-xs) * -1);
+  color: var(--ui-text-2);
+  line-height: 1.5;
+}
+
+.search {
+  position: relative;
+}
+
 .results {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  z-index: 10;
   display: flex;
   flex-direction: column;
   padding: 4px;
+  background-color: var(--mantine-color-body);
+  box-shadow: var(--mantine-shadow-md);
   border: 1px solid var(--tk-border);
   border-radius: var(--mantine-radius-md);
 }
@@ -45,6 +67,85 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.chip {
+  --pill-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  padding-left: 5px;
+  font-size: var(--mantine-font-size-md);
+  color: var(--chat-ink);
+  background-color: color-mix(in srgb, var(--chat-hue) 18%, transparent);
+}
+
+.chip :global(.mantine-Pill-label) {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+}
+
+.chipBody {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chipFace {
+  display: inline-flex;
+  flex: none;
+  overflow: hidden;
+  border-radius: 50%;
+}
+
+.agentDropdown {
+  padding: 6px;
+}
+
+.agentOption {
+  padding: 10px;
+}
+
+.agent {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.agentText {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.agentText > * {
+  line-height: inherit;
+}
+
+.agentHead {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.agentHead > * {
+  display: block;
+  line-height: 1.2;
+}
+
+.agentName {
+  flex: none;
+  white-space: nowrap;
+}
+
+.agentState {
+  display: inline-flex;
+  flex: none;
 }
 
 .footer {

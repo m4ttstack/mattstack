@@ -22,6 +22,13 @@ export function localTime(ts: number): string {
   return `${hour}:${minutes} ${d.getHours() < 12 ? 'AM' : 'PM'}`;
 }
 
+/** The clock time with no AM/PM, for the narrow gutter beside a grouped message. */
+export function gutterTime(ts: number): string {
+  const d = new Date(ts);
+  const hour = d.getHours() % 12 || 12;
+  return `${hour}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 /** The local calendar day a timestamp falls on, as a comparable key. */
 export function dayKey(ts: number): string {
   const d = new Date(ts);

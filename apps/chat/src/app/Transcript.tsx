@@ -16,7 +16,7 @@ import ScrollToBottom, {
 
 import { AgentName, FaceGroup, HandleAvatar } from './AgentName';
 import { MessageSkeleton } from './ChatSkeleton';
-import { dayKey, dayLabel, localTime } from './day-label';
+import { dayKey, dayLabel, gutterTime, localTime } from './day-label';
 import { blocksByLatest } from './direct';
 import { MessageMarkdown } from './MessageMarkdown';
 import { NewPill } from './NewPill';
@@ -314,7 +314,15 @@ function MessageRow({
         <>
           <div className={prose.gutter}>
             {grouped ? (
-              <span className={prose.hoverTime}>{time}</span>
+              <span className={prose.hoverTime}>
+                <Text
+                  component="span"
+                  className={prose.meta}
+                  title={new Date(message.postedAt).toLocaleString()}
+                >
+                  {gutterTime(message.postedAt)}
+                </Text>
+              </span>
             ) : (
               <HandleAvatar
                 handle={message.handle}
