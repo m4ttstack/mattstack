@@ -38,7 +38,7 @@ import {
 } from "../lib/stack-guard.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import type { Block } from "../lib/ui/protocol.ts";
-import { asError, asRefusal, drawFailure, errText, NOT_ON_A_BRANCH, plural, refusalNote, uncommittedChanges } from "./git/shared.ts";
+import { asError, asRefusal, drawFailure, errText, fetchFailureOf, fetchOrigin, NOT_ON_A_BRANCH, plural, refusalNote, uncommittedChanges } from "./git/shared.ts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -207,13 +207,13 @@ export async function syncBranch(
   // 1. Fetch once (rebase/reset will skip their own fetch)
   if (opts.quiet) {
     try {
-      await gitAsync(["fetch", "origin"], cwd);
+      await fetchOrigin(cwd);
     } catch (err) {
-      return { branch, worktree: cwd, resetResult: null, rebaseResult: null, pushed: false, ...asError({ title: "Could not fetch from origin", details: errText(err) }) };
+      return { branch, worktree: cwd, resetResult: null, rebaseResult: null, pushed: false, ...asError(fetchFailureOf(err)) };
     }
   } else {
     try {
-      await steps.run("Fetching from origin…", () => gitAsync(["fetch", "origin"], cwd), {
+      await steps.run("Fetching from origin…", () => fetchOrigin(cwd), {
         done: "Fetched from origin",
         failSilently: true,
       });
@@ -224,7 +224,7 @@ export async function syncBranch(
         resetResult: null,
         rebaseResult: null,
         pushed: false,
-        ...asError({ title: "Could not fetch from origin", details: errText(err) }),
+        ...asError(fetchFailureOf(err)),
       };
     }
   }

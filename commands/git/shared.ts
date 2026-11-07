@@ -1,4 +1,6 @@
+import { execFile } from "child_process";
 import { flagValue } from "../../lib/cli-args.ts";
+import { findAgentWithKey, looksLikeSshAuthFailure } from "../../lib/ssh-agent.ts";
 import * as out from "../../lib/ui/out.ts";
 import type { Block } from "../../lib/ui/protocol.ts";
 import { usageFailure } from "../../lib/ui/usage.ts";
@@ -107,4 +109,54 @@ export function printable(remote: string): string {
     if (holdsCredentials(shown) || shown.includes("@")) return "REMOTE";
   }
   return holdsCredentialToken(shown) || redactCredentials(shown) !== shown ? "REMOTE" : shown;
+}
+
+export interface FetchDeps {
+  run(cwd: string, env: NodeJS.ProcessEnv): Promise<{ ok: true } | { ok: false; output: string }>;
+  findAgent(preferred: string | undefined): Promise<{ socket: string; preferred: boolean } | undefined>;
+  env: NodeJS.ProcessEnv;
+}
+
+const defaultFetchDeps = (): FetchDeps => ({
+  run: (cwd, env) =>
+    new Promise((resolve) => {
+      execFile("git", ["fetch", "origin"], { cwd, env, encoding: "utf8" }, (err) => {
+        resolve(err ? { ok: false, output: errText(err) } : { ok: true });
+      });
+    }),
+  findAgent: (preferred) => findAgentWithKey(preferred),
+  env: process.env,
+});
+
+/** What a failed `fetchOrigin` throws, its failure ready for `asError`. */
+export class FetchFailed extends Error {
+  constructor(readonly failure: out.FailureInput) {
+    super(failure.details ?? failure.title);
+  }
+}
+
+export function fetchFailureOf(err: unknown): out.FailureInput {
+  return err instanceof FetchFailed ? err.failure : { title: "Could not fetch from origin", details: errText(err) };
+}
+
+/**
+ * `git fetch origin`, retried once through an ssh-agent that holds a key when
+ * this shell's holds none: a herdr pane's agent socket goes stale when the key
+ * is loaded after herdr started.
+ */
+export async function fetchOrigin(cwd: string, deps: FetchDeps = defaultFetchDeps()): Promise<void> {
+  const first = await deps.run(cwd, deps.env);
+  if (first.ok) return;
+  if (!looksLikeSshAuthFailure(first.output)) throw new FetchFailed({ title: "Could not fetch from origin", details: first.output });
+  const found = await deps.findAgent(deps.env.SSH_AUTH_SOCK);
+  if (found && !found.preferred) {
+    const retry = await deps.run(cwd, { ...deps.env, SSH_AUTH_SOCK: found.socket });
+    if (retry.ok) return;
+  }
+  throw new FetchFailed({
+    title: "Could not fetch from origin: no SSH key is loaded",
+    why: "git reached origin over SSH, but no ssh-agent on this Mac holds a key. Load yours, then run this again.",
+    next: ["Load your key in any terminal with ", out.cmd("ssh-add")],
+    details: first.output,
+  });
 }
