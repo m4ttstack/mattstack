@@ -1026,3 +1026,29 @@ export function serializeViewState(v: ViewState): string {
   const s = params.toString();
   return s ? `?${s}` : '';
 }
+
+/** What each tab remembers for when you come back to it, keyed by tab id. */
+export type TabPicks = Record<string, Pick<ViewState, 'member'>>;
+
+/** Stored tab picks, dropping any entry that is not the expected shape. */
+export function parseTabPicks(raw: unknown): TabPicks {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const picks: TabPicks = {};
+  for (const [tab, entry] of Object.entries(raw)) {
+    const member = (entry as { member?: unknown } | null)?.member;
+    if (typeof member === 'string') picks[tab] = { member };
+  }
+  return picks;
+}
+
+/** The picks a tab switch lands on: the target tab's remembered ones, with
+    the tab being left remembered in turn. A tab never visited opens on
+    everyone. */
+export function picksOnTabSwitch(
+  state: Pick<ViewState, 'tab' | 'member'>,
+  tab: string,
+  memory: TabPicks
+): { picks: Pick<ViewState, 'member'>; memory: TabPicks } {
+  const next = { ...memory, [state.tab]: { member: state.member } };
+  return { picks: { member: next[tab]?.member ?? 'all' }, memory: next };
+}

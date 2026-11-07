@@ -47,13 +47,21 @@ import {
   nestStacks,
   offeredShowItems,
   oldestFirst,
+  parseTabPicks,
   parseViewState,
+  picksOnTabSwitch,
   rosterUsernamesFor,
   serializeViewState,
   tabDimsEmpty,
   visibleByAuthor,
 } from '../../view.ts';
-import type { GroupKey, ShowItem, StackNode, ViewState } from '../../view.ts';
+import type {
+  GroupKey,
+  ShowItem,
+  StackNode,
+  TabPicks,
+  ViewState,
+} from '../../view.ts';
 import {
   acceptAsk,
   declineAsk,
@@ -185,6 +193,7 @@ declare global {
 const THEME_KEY = 'mrs-theme';
 const STATE_KEY = 'mrs-view-state';
 const GROUP_BEFORE_SEAT_KEY = 'mrs-group-before-seat';
+const TAB_PICKS_KEY = 'mrs-tab-picks';
 const PANEL_COLLAPSED_KEY = 'mrs-panel-collapsed';
 
 /** Drops `title` from the folded-panel set tui-kit's Panel persists under
@@ -216,6 +225,23 @@ function rememberGroupBeforeSeat(group: GroupKey): void {
   if (group === 'needs') return;
   try {
     localStorage.setItem(GROUP_BEFORE_SEAT_KEY, group);
+  } catch {}
+}
+
+function storedTabPicks(): TabPicks {
+  try {
+    return parseTabPicks(
+      JSON.parse(localStorage.getItem(TAB_PICKS_KEY) ?? 'null')
+    );
+  } catch {
+    return {};
+  }
+}
+
+/** Blocked storage costs only the memory, never the tab switch. */
+function storeTabPicks(picks: TabPicks): void {
+  try {
+    localStorage.setItem(TAB_PICKS_KEY, JSON.stringify(picks));
   } catch {}
 }
 
@@ -290,13 +316,28 @@ export function Board() {
     window.__applyTheme();
     setTheme(m);
   };
+  const memberOnTab = (member: string, tabId: string): string => {
+    if (member === 'all' || !data) return 'all';
+    const tabs = boardTabs(data);
+    const tab = tabs.find(t => t.id === tabId);
+    if (!tab) return 'all';
+    const usernames = data.members.map(m => m.username);
+    return rosterUsernamesFor(data.mrs, tab, usernames, tabs).has(member)
+      ? member
+      : 'all';
+  };
   const update = (patch: Partial<ViewState>) => {
     const clearsSelection = tabChangeClearsSelection(patch, state.tab);
     // Each tab has its own roster (a codeowners tab's is inferred from the rows
-    // in view), so a member picked on one tab usually does not exist on the
-    // next: carrying it over would land on an empty board. The seat tab's
+    // in view), so each tab remembers its own person pick: carrying one over
+    // would usually land on an empty board. A remembered pick who has left
+    // that tab's roster falls back to everyone. The seat tab's
     // whole point is its grouping by need, so it opens grouped that way and
     // hands back the grouping you had before on the way out.
+    const tabPicks = clearsSelection
+      ? picksOnTabSwitch(state, patch.tab!, storedTabPicks())
+      : null;
+    if (tabPicks) storeTabPicks(tabPicks.memory);
     const entersSeat = patch.tab === NEEDS_ME_TAB.id && state.tab !== patch.tab;
     const leavesSeat =
       patch.tab !== undefined &&
@@ -306,7 +347,9 @@ export function Board() {
     const next = {
       ...state,
       ...patch,
-      ...(clearsSelection ? { member: 'all' } : {}),
+      ...(tabPicks
+        ? { member: memberOnTab(tabPicks.picks.member, patch.tab!) }
+        : {}),
       ...(entersSeat && !patch.group ? { group: 'needs' as const } : {}),
       ...(leavesSeat && state.group === 'needs'
         ? {
