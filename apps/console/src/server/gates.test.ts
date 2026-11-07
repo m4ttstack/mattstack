@@ -101,11 +101,22 @@ function answer(id: string, body: unknown, extra: Record<string, string> = {}) {
   );
 }
 
-function slackGet() {
-  return gates.fetch(new Request('http://localhost/api/gates/slack'));
+function slackGet(headers: Record<string, string> = {}) {
+  return gates.fetch(
+    new Request('http://localhost/api/gates/slack', {
+      headers: { host: 'localhost', ...headers },
+    })
+  );
 }
 
 describe('GET /api/gates/slack', () => {
+  it('403s a public-edge request, without listing gates', async () => {
+    const res = await slackGet({ 'x-mattstack-edge': 'public' });
+
+    expect(res.status).toBe(403);
+    expect(rt.gateList).not.toHaveBeenCalled();
+  });
+
   it('pages slack-open gates', async () => {
     const page1 = Array.from({ length: 200 }, (_, i) =>
       row({ id: `s${i}`, subject: 'slack:U1', kind: 'slack-open' })

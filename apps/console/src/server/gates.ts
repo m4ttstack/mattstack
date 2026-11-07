@@ -200,6 +200,9 @@ export function gatesRoutes(fixture: RunsFixture | null = null) {
         }
       )
       .get('/api/gates/slack', async c => {
+        if (!isLocalRequest(c.req.raw, c.env as LocalServer | undefined)) {
+          return c.json({ error: 'forbidden' }, 403);
+        }
         const res = fixture
           ? ({ ok: true, gates: [] } as const)
           : await listSlackGates();
@@ -257,7 +260,7 @@ export function gatesRoutes(fixture: RunsFixture | null = null) {
             return c.json({ error: 'answers is required' }, 400);
           }
           // A slack-open answer starts a real chat with no other check, so it
-          // must come from this page, never from a pane's shell.
+          // must come from this page, not a plain call from a pane's shell.
           if (!fromOperatorPage(c.req.raw)) {
             const slack = await listSlackGates();
             if (!slack.ok) return c.json({ error: slack.error }, 502);

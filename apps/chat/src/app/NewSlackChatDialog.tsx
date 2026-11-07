@@ -182,7 +182,9 @@ export function NewSlackChatDialog({
   return (
     <Modal
       opened={opened}
-      onClose={onClose}
+      onClose={() => {
+        if (!starting) onClose();
+      }}
       title="New Slack chat"
       size={480}
       centered
@@ -284,7 +286,7 @@ export function NewSlackChatDialog({
           >
             {hint}
           </Text>
-          <Button variant="default" onClick={onClose}>
+          <Button variant="default" disabled={starting} onClick={onClose}>
             Cancel
           </Button>
           <Button disabled={!canStart} loading={starting} onClick={start}>
