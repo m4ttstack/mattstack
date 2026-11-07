@@ -1,5 +1,11 @@
-import { realpath as fsRealpath, readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import {
+  realpath as fsRealpath,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
@@ -22,6 +28,7 @@ import {
   WRITE_TIMEOUT_MS,
   type RunRt,
 } from './rt-bin';
+import { compileDiff, waitingForCompile } from './waiting';
 
 interface SkillsPackRow {
   name: string;
@@ -1587,6 +1594,78 @@ export function mountSkills(
           }
         }
         return c.json(response, 200);
+      } catch (err) {
+        if (err instanceof RtNotFoundError) {
+          return c.json({ error: err.message }, 503);
+        }
+        return c.json({ error: (err as Error).message }, 502);
+      }
+    })
+    .get('/api/skills/waiting', packQuery, async c => {
+      const { pack } = c.req.valid('query');
+      if (!pack) return c.json({ error: 'pack is required' }, 400);
+      try {
+        const packs = await cachedRun(['skills', 'packs', '--json']);
+        const found = findPackDir(parseJsonPayload(packs.stdout), pack);
+        if (found === null) {
+          return c.json({ error: `no pack named "${pack}"` }, 404);
+        }
+        const packDir = await realpath(found);
+        const root = await runGit([
+          '-C',
+          packDir,
+          'rev-parse',
+          '--show-toplevel',
+        ]);
+        if (root.code !== 0 || !root.stdout.trim()) {
+          return c.json(
+            { error: root.stderr.trim() || `${packDir} is not in a git repo` },
+            502
+          );
+        }
+        const waiting = await waitingForCompile(
+          pack,
+          packDir,
+          root.stdout.trim(),
+          {
+            runRt: cachedRun,
+            parse: parseJsonPayload,
+            runGit,
+            readPackFile,
+          }
+        );
+        return c.json(waiting, 200);
+      } catch (err) {
+        if (err instanceof RtNotFoundError) {
+          return c.json({ error: err.message }, 503);
+        }
+        return c.json({ error: (err as Error).message }, 502);
+      }
+    })
+    .get('/api/skills/waiting-diff', packQuery, async c => {
+      const { pack } = c.req.valid('query');
+      if (!pack) return c.json({ error: 'pack is required' }, 400);
+      try {
+        const packs = await cachedRun(['skills', 'packs', '--json']);
+        const found = findPackDir(parseJsonPayload(packs.stdout), pack);
+        if (found === null) {
+          return c.json({ error: `no pack named "${pack}"` }, 404);
+        }
+        const result = await compileDiff(pack, await realpath(found), {
+          runRt: cachedRun,
+          parse: parseJsonPayload,
+          runGit,
+          scratch: async content => {
+            const dir = await mkdtemp(join(tmpdir(), 'console-compile-'));
+            const path = join(dir, 'SKILL.md');
+            await writeFile(path, content);
+            return {
+              path,
+              drop: () => void rm(dir, { recursive: true, force: true }),
+            };
+          },
+        });
+        return c.json({ ...result, truncated: false }, 200);
       } catch (err) {
         if (err instanceof RtNotFoundError) {
           return c.json({ error: err.message }, 503);

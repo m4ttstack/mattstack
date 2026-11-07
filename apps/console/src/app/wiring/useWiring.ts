@@ -30,6 +30,14 @@ export type SkillsHistory = InferResponseType<
   typeof client.api.skills.history.$get,
   200
 >;
+export type CompileWaiting = InferResponseType<
+  typeof client.api.skills.waiting.$get,
+  200
+>;
+export type CompileDiff = InferResponseType<
+  (typeof client.api.skills)['waiting-diff']['$get'],
+  200
+>;
 export type SkillsDiff = InferResponseType<
   typeof client.api.skills.diff.$get,
   200
@@ -202,6 +210,22 @@ export function useSkillsHistory(
   });
 }
 
+/** What the pack's next compile would pick up: the commits since the last
+    compile that edited a source, and the outside sources that changed. */
+export function useCompileWaiting(pack: string | undefined) {
+  return useQuery({
+    queryKey: ['skills', 'waiting', pack ?? null],
+    queryFn: async () => {
+      const res = await client.api.skills.waiting.$get({
+        query: { pack: pack ?? '' },
+      });
+      return readOrThrow<CompileWaiting>(res, 'compile waiting');
+    },
+    enabled: Boolean(pack),
+    staleTime: 0,
+  });
+}
+
 /** The diff between two commits, over the WHOLE pack -- a verb's prop fills
     live outside its own `skills/<verb>/`, so a verb-scoped diff would drop
     exactly the hunks a seam can attribute. */
@@ -219,6 +243,21 @@ export function useSkillsDiff(
       return readOrThrow<SkillsDiff>(res, 'skills diff');
     },
     enabled: Boolean(pack && from && to),
+  });
+}
+
+/** What the next compile would rewrite, as a diff of each stale skill's
+    SKILL.md against its compile preview. */
+export function useCompileDiff(pack: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ['skills', 'waiting', pack ?? null, 'diff'],
+    queryFn: async () => {
+      const res = await client.api.skills['waiting-diff'].$get({
+        query: { pack: pack ?? '' },
+      });
+      return readOrThrow<CompileDiff>(res, 'compile diff');
+    },
+    enabled: Boolean(pack) && enabled,
   });
 }
 
@@ -370,8 +409,8 @@ async function postSkillsWrite<TResponse>(
 
 /** Every cached read a write to this pack can go stale -- the client mirror
     of the server's own per-pack cache sweep (`e8f4163`): composition,
-    surface, check, compile, history, anatomy, source and the pending-changes
-    poll all read the pack, and a surface-apply recompiles it. */
+    surface, check, compile, history, anatomy, source, compile-waiting and the
+    pending-changes poll all read the pack, and a surface-apply recompiles it. */
 function invalidateSkillsQueries(queryClient: QueryClient, pack: string) {
   for (const scope of [
     'composition',
@@ -383,6 +422,7 @@ function invalidateSkillsQueries(queryClient: QueryClient, pack: string) {
     'blocks',
     'source',
     'changes',
+    'waiting',
   ]) {
     void queryClient.invalidateQueries({ queryKey: ['skills', scope, pack] });
   }

@@ -29,12 +29,18 @@
   color: var(--tk-text-3);
 }
 
+/* The kit's thin scrollbar, the same as the commit list's. */
+.scroll {
+  flex: 1;
+  min-height: 0;
+}
+
 .body {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 12px;
-  overflow: auto;
+  /* The scroll area reserves the scrollbar's width on the right already. */
+  padding: 12px 8px 12px 12px;
 }
 
 .patch {

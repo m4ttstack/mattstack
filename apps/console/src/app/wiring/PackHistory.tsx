@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo } from 'react';
 import {
   Alert,
   Button,
+  Collapse,
   PaneResizer,
   Text,
   UnstyledButton,
@@ -16,6 +17,8 @@ import { CommitDiff, filesOf } from './CommitDiff';
 import { UnsyncedActions, useUnsyncedSummary } from './graph/UnsyncedBanner';
 import classes from './PackHistory.module.css';
 import {
+  useCompileDiff,
+  useCompileWaiting,
   usePendingChanges,
   useSkillsDiff,
   useSkillsHistory,
@@ -73,6 +76,15 @@ function joinDiffs(diff: string, baseDiff: string | undefined): string {
     against its last commit. */
 export const WORKING = 'working';
 
+/** A few skill names, then a count, so a large compile keeps one line. */
+function namesOf(skills: string[], shown = 3): string {
+  if (skills.length <= shown) return skills.join(', ');
+  return `${skills.slice(0, shown).join(', ')} +${skills.length - shown} more`;
+}
+
+/** The pick that stands for what the next compile would rewrite. */
+export const COMPILE = 'compile';
+
 /** Writes the picked commits or the open file into the live query string. */
 export function writeHistoryUrl(change: {
   commits?: string[];
@@ -115,6 +127,7 @@ function rangeOf(
   commits: { sha: string; shortSha: string }[]
 ): { from: string; to: string } | null {
   if (picks[0] === WORKING) return { from: 'HEAD', to: WORKING };
+  if (picks[0] === COMPILE) return { from: 'HEAD', to: COMPILE };
   const at = picks
     .map(sha => commits.findIndex(c => c.sha === sha))
     .filter(i => i >= 0);
@@ -142,7 +155,12 @@ export function HistorySidebar({ pack }: { pack: string }) {
   const summary = useUnsyncedSummary(pack);
   const changesPending = usePendingChanges(pack).isPending;
   const unsynced = summary?.count ?? 0;
+  const waiting = useCompileWaiting(pack).data;
+  const uncompiled = useMemo(() => new Set(waiting?.commits ?? []), [waiting]);
+  const outside = waiting?.outside ?? [];
+  const staleSkills = waiting?.skills ?? [];
   const onWorking = picks[0] === WORKING;
+  const onCompile = picks[0] === COMPILE;
   const comparing = picks.length === 2;
   // A compare runs from the older pick to the newer one; the log lists the
   // newest first, so the newer pick sits higher in it.
@@ -156,15 +174,29 @@ export function HistorySidebar({ pack }: { pack: string }) {
   useEffect(() => {
     // A summary still reading counts as no changes; wait for it.
     if (changesPending) return;
-    if (picks.length === 0 || (onWorking && unsynced === 0)) {
+    if (
+      picks.length === 0 ||
+      (onWorking && unsynced === 0) ||
+      (onCompile && waiting !== undefined && staleSkills.length === 0)
+    ) {
       if (unsynced > 0) write({ commits: [WORKING] });
       else if (commits[0]) write({ commits: [commits[0].sha] });
     }
-  }, [changesPending, picks.length, onWorking, unsynced, commits, write]);
+  }, [
+    changesPending,
+    picks.length,
+    onWorking,
+    onCompile,
+    waiting,
+    staleSkills.length,
+    unsynced,
+    commits,
+    write,
+  ]);
 
   const pick = (sha: string, add: boolean) => {
     // The unsynced changes stand alone: no compare runs to or from them.
-    if (onWorking) {
+    if (onWorking || onCompile) {
       write({ commits: [sha] });
     } else if (picks.includes(sha)) {
       write({ commits: picks.filter(s => s !== sha) });
@@ -249,6 +281,45 @@ export function HistorySidebar({ pack }: { pack: string }) {
               <div className={classes.section}>Committed</div>
             </>
           )}
+          <Collapse
+            expanded={staleSkills.length > 0}
+            transitionDuration={200}
+            animateOpacity
+          >
+            <UnstyledButton
+              className={`${classes.row} ${classes.compile}`}
+              data-selected={onCompile || undefined}
+              aria-pressed={onCompile}
+              onClick={() => write({ commits: [COMPILE] })}
+              data-testid="compile-waiting"
+            >
+              <span className={classes.compileHead}>
+                <Icon name="fileCog" size={14} />
+                <span className={classes.subject}>Waiting for compile</span>
+              </span>
+              <span className={classes.meta}>
+                <span className={classes.compileSkills}>
+                  {namesOf(staleSkills)}
+                </span>
+                {outside.length === 1 ? (
+                  <span>
+                    {`${outside[0].ref} ${outside[0].builtVersion} → ${outside[0].version}`}
+                  </span>
+                ) : (
+                  outside.length > 1 && (
+                    <span>{`${outside.length} plugin sources changed`}</span>
+                  )
+                )}
+                {uncompiled.size > 0 && (
+                  <span>
+                    {uncompiled.size === 1
+                      ? '1 commit below'
+                      : `${uncompiled.size} commits below`}
+                  </span>
+                )}
+              </span>
+            </UnstyledButton>
+          </Collapse>
           {commits.map((commit, i) => {
             const at = picks.indexOf(commit.sha);
             return (
@@ -266,6 +337,14 @@ export function HistorySidebar({ pack }: { pack: string }) {
                   <span className={classes.sha}>{commit.shortSha}</span>
                   <span>{relativeTime(commit.authoredAt)}</span>
                   {i === 0 && <span>newest</span>}
+                  {uncompiled.has(commit.sha) && (
+                    <span
+                      className={classes.uncompiled}
+                      data-testid={`uncompiled-${commit.shortSha}`}
+                    >
+                      not compiled
+                    </span>
+                  )}
                   {comparing && at >= 0 && (
                     <span className={classes.end}>
                       {i === newerIndex ? 'To' : 'From'}
@@ -305,10 +384,24 @@ export function HistoryMain({
   const { picks, file: openPath, write } = useHistoryUrl();
   const range = rangeOf(picks, commits);
 
-  const diff = useSkillsDiff(pack, range?.from ?? null, range?.to ?? null);
+  const compiling = range?.to === COMPILE;
+  const commitDiff = useSkillsDiff(
+    pack,
+    compiling ? null : (range?.from ?? null),
+    compiling ? null : (range?.to ?? null)
+  );
+  const compileDiff = useCompileDiff(pack, compiling);
+  const diff = compiling ? compileDiff : commitDiff;
   const files = useMemo(
     () =>
-      diff.data ? filesOf(joinDiffs(diff.data.diff, diff.data.baseDiff)) : [],
+      diff.data
+        ? filesOf(
+            joinDiffs(
+              diff.data.diff,
+              'baseDiff' in diff.data ? diff.data.baseDiff : undefined
+            )
+          )
+        : [],
     [diff.data]
   );
   const openFile =
@@ -363,7 +456,13 @@ export function HistoryMain({
           <CommitDiff
             from={range.from}
             to={range.to}
-            title={range.to === WORKING ? 'Unsynced changes' : undefined}
+            title={
+              range.to === WORKING
+                ? 'Unsynced changes'
+                : compiling
+                  ? 'Waiting for compile'
+                  : undefined
+            }
             actions={
               range.to === WORKING ? <UnsyncedActions pack={pack} /> : null
             }

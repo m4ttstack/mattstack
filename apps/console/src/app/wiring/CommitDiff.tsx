@@ -1,5 +1,5 @@
 import { lazy, Suspense, type ReactNode } from 'react';
-import { Alert, Text } from '@mattstack/app-kit/core';
+import { Alert, ScrollArea, Text } from '@mattstack/app-kit/core';
 import { Icons } from '@mattstack/app-kit/icons';
 
 import { StepLoader, useStepLoading } from '../StepLoader';
@@ -97,41 +97,47 @@ export function CommitDiff({
         )}
         {actions && <span className={classes.actions}>{actions}</span>}
       </div>
-      <div className={classes.body}>
-        {held ? (
-          <StepLoader
-            {...heldBind}
-            testId="compare-loading"
-            steps={[title ? `git diff ${from}` : `git diff ${from}..${to}`]}
-          />
-        ) : error ? (
-          <Alert
-            variant="light"
-            color="bad"
-            icon={<Icons.error size={14} />}
-            data-testid="compare-error"
-          >
-            <Text size="xs">{error}</Text>
-          </Alert>
-        ) : files.length === 0 ? (
-          <Text size="sm" c="dimmed" data-testid="compare-empty">
-            Nothing changed between these two commits.
-          </Text>
-        ) : (
-          file && (
-            <div className={classes.patch} key={file.path}>
-              <Suspense fallback={null}>
-                <PatchView patch={file.patch} path={file.path} />
-              </Suspense>
-            </div>
-          )
-        )}
-        {truncated && !held && (
-          <Text size="xs" c="dimmed" data-testid="compare-truncated">
-            The diff was longer than this reads and was cut.
-          </Text>
-        )}
-      </div>
+      <ScrollArea
+        className={classes.scroll}
+        scrollbars="y"
+        offsetScrollbars="y"
+      >
+        <div className={classes.body}>
+          {held ? (
+            <StepLoader
+              {...heldBind}
+              testId="compare-loading"
+              steps={[title ? `git diff ${from}` : `git diff ${from}..${to}`]}
+            />
+          ) : error ? (
+            <Alert
+              variant="light"
+              color="bad"
+              icon={<Icons.error size={14} />}
+              data-testid="compare-error"
+            >
+              <Text size="xs">{error}</Text>
+            </Alert>
+          ) : files.length === 0 ? (
+            <Text size="sm" c="dimmed" data-testid="compare-empty">
+              Nothing changed between these two commits.
+            </Text>
+          ) : (
+            file && (
+              <div className={classes.patch} key={file.path}>
+                <Suspense fallback={null}>
+                  <PatchView patch={file.patch} path={file.path} />
+                </Suspense>
+              </div>
+            )
+          )}
+          {truncated && !held && (
+            <Text size="xs" c="dimmed" data-testid="compare-truncated">
+              The diff was longer than this reads and was cut.
+            </Text>
+          )}
+        </div>
+      </ScrollArea>
     </div>
   );
 }
