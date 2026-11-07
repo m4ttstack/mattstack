@@ -8,8 +8,9 @@
  *                                          hidden: only the mod runs it
  *   rt chat slack-request <person> --brief - --json
  *                                          hidden: raises the gate an agent's request waits on
- *   rt chat slack-resume <conversation> --json
- *                                          hidden: raises the gate a resume waits on
+ *   rt chat slack-resume <conversation> [--approved] --json
+ *                                          hidden: raises the gate a resume waits on;
+ *                                          --approved resumes at once, for the operator's own tap
  *   rt chat slack-people --json            hidden: who a chat can open with
  *   rt chat slack-watch --json             hidden: one JSON line per waiting item
  *   rt chat slack-delivered <id>           hidden: confirms an item reached the session
@@ -55,7 +56,7 @@ const GRACED_POLL_MS = 10_000;
 const UNANSWERED_POLLS = 3;
 const START_USAGE = "rt chat slack-start <person> --brief - [--requester-pane <pane>] --json";
 const REQUEST_USAGE = "rt chat slack-request <person> --brief - --json";
-const RESUME_USAGE = "rt chat slack-resume <conversation> --json";
+const RESUME_USAGE = "rt chat slack-resume <conversation> [--approved] --json";
 const CLOSE_USAGE = "rt chat slack-close [--pane <pane> | --farewell-file <path>]";
 
 /** The mod reads a refusal from the envelope, so under --json it stays on stdout. */
@@ -156,8 +157,12 @@ export async function slackResume(args: string[]): Promise<void> {
   if (!raw) failUsage("Which Slack chat?", RESUME_USAGE);
   const conversation = Number(raw);
   if (!Number.isSafeInteger(conversation) || conversation <= 0) failUsage(`"${raw}" is not a Slack chat id`, RESUME_USAGE);
-  const { handle, sessionId } = await requireSignedIn(args);
-  const res = await chatSlackResume({ conversation, requesterSession: sessionId, requesterHandle: handle }, sockOpts(args));
+  let payload: Parameters<typeof chatSlackResume>[0] = { conversation, approved: true };
+  if (!args.includes("--approved")) {
+    const { handle, sessionId } = await requireSignedIn(args);
+    payload = { conversation, requesterSession: sessionId, requesterHandle: handle };
+  }
+  const res = await chatSlackResume(payload, sockOpts(args));
   if (!res.ok || !res.data) refuseOpen(args, res.failure?.message ?? res.error ?? "The Slack chat did not resume");
   if (args.includes("--json")) {
     out.json({ ok: true, ...res.data });
