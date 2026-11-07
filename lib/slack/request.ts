@@ -85,7 +85,7 @@ export type SlackOpenDeps = {
   /** Everything Slack has to say before an open: the DM channel, the cursor, the operator. */
   connect(userId: string): Promise<{ ok: true; target: SlackTarget } | { ok: false; reason: string }>;
   repoPath(repo: string): string | null;
-  startAgent(repo: string): Promise<{ ok: true; agent: StartedAgent; reused: boolean } | { ok: false; error: string }>;
+  startAgent(repo: string, tab: string): Promise<{ ok: true; agent: StartedAgent; reused: boolean } | { ok: false; error: string }>;
   stopAgent(agent: StartedAgent): Promise<void>;
   /** Whether the conversation's agent still has its pane and is signed in to chat as the conversation's handle. */
   agentAlive(conversation: SlackConversation): Promise<boolean>;
@@ -173,7 +173,7 @@ export async function approveSlackOpen(
   if (!connected.ok) return fail(connected.reason);
   if (deps.repoPath(meta.repo) === null) return fail("the folder for this repo is not known to rt");
 
-  const started = await deps.startAgent(meta.repo);
+  const started = await deps.startAgent(meta.repo, meta.personName);
   if (!started.ok) return fail(started.error);
   if (started.reused) return fail("an earlier support agent is still running in this repo");
   const { agent } = started;
@@ -274,7 +274,7 @@ export async function approveSlackResume(
     repo = repo ?? deps.repoOf(old);
     if (repo === null) return fail("rt does not know which repo this chat ran in");
     if (deps.repoPath(repo) === null) return fail("the folder for this repo is not known to rt");
-    const launched = await deps.startAgent(repo);
+    const launched = await deps.startAgent(repo, old.slackDisplayName);
     if (!launched.ok) return fail(launched.error);
     if (launched.reused) return fail("an earlier support agent is still running in this repo");
     agent = started = launched.agent;

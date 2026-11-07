@@ -52,6 +52,7 @@ import { SettingsButton } from './SettingsEntry';
 import {
   isOpening,
   SlackChatsProvider,
+  SupportChatOpenContext,
   useRefreshSlackChats,
   useSlackChat,
   useSlackChats,
@@ -1052,69 +1053,71 @@ function AppContent({
   }
 
   return (
-    <BuddiesProvider
-      buddies={buddies}
-      roomMembers={roomMembers}
-      memberNames={roomMemberNames}
-      me={me}
-      now={Date.now()}
-      reachable={daemon.reachable}
-      actions={buddyActions}
-    >
-      <FaceGroup handles={drawnTogether}>
-        <MattstackShell
-          name="chat"
-          rail={false}
-          headerBorder={false}
-          mark={<AppMark size={26} />}
-        >
-          <MattstackShell.Header
-            actions={
-              <>
-                <ThemeColorButton />
-                <SettingsButton />
-              </>
-            }
-          />
-          <ScopeBar info={viewer} />
-          <ViewerChip info={viewer} />
-          {chatRoute ? (
-            <ChatPage
-              rooms={rooms}
-              roomsLoaded={roomsLoaded}
-              messagesLoaded={messagesLoaded}
-              openRooms={openRooms}
-              railRooms={railRooms}
-              activeRoom={activeRoom}
-              activeRoomSummary={activeRoomSummary}
-              selectRoom={selectRoom}
-              daemon={daemon}
-              buddies={buddies}
-              roomMembers={roomMembers}
-              membersLoaded={membersLoaded}
-              messages={messages}
-              anchor={anchor}
-              me={me}
-              composerRef={composerRef}
-              onOpenDm={openDm}
-              onCloseRoom={closeRoom}
-              onNewSlackChat={() => setNewChatOpen(true)}
-              directOpen={directOpen}
-              directPick={directPick}
-              directDraft={directDraft}
-              onDirectPick={setDirectPick}
-              railDirect={railDirect}
+    <SupportChatOpenContext.Provider value={newChatOpen}>
+      <BuddiesProvider
+        buddies={buddies}
+        roomMembers={roomMembers}
+        memberNames={roomMemberNames}
+        me={me}
+        now={Date.now()}
+        reachable={daemon.reachable}
+        actions={buddyActions}
+      >
+        <FaceGroup handles={drawnTogether}>
+          <MattstackShell
+            name="chat"
+            rail={false}
+            headerBorder={false}
+            mark={<AppMark size={26} />}
+          >
+            <MattstackShell.Header
+              actions={
+                <>
+                  <ThemeColorButton />
+                  <SettingsButton />
+                </>
+              }
             />
-          ) : (
-            <NotFoundPage />
-          )}
-          <NewSlackChatDialog
-            opened={newChatOpen}
-            onClose={() => setNewChatOpen(false)}
-            onStarted={room => void slackChatStarted(room)}
-          />
-        </MattstackShell>
-      </FaceGroup>
-    </BuddiesProvider>
+            <ScopeBar info={viewer} />
+            <ViewerChip info={viewer} />
+            {chatRoute ? (
+              <ChatPage
+                rooms={rooms}
+                roomsLoaded={roomsLoaded}
+                messagesLoaded={messagesLoaded}
+                openRooms={openRooms}
+                railRooms={railRooms}
+                activeRoom={activeRoom}
+                activeRoomSummary={activeRoomSummary}
+                selectRoom={selectRoom}
+                daemon={daemon}
+                buddies={buddies}
+                roomMembers={roomMembers}
+                membersLoaded={membersLoaded}
+                messages={messages}
+                anchor={anchor}
+                me={me}
+                composerRef={composerRef}
+                onOpenDm={openDm}
+                onCloseRoom={closeRoom}
+                onNewSlackChat={() => setNewChatOpen(true)}
+                directOpen={directOpen}
+                directPick={directPick}
+                directDraft={directDraft}
+                onDirectPick={setDirectPick}
+                railDirect={railDirect}
+              />
+            ) : (
+              <NotFoundPage />
+            )}
+            <NewSlackChatDialog
+              opened={newChatOpen}
+              onClose={() => setNewChatOpen(false)}
+              onStarted={room => void slackChatStarted(room)}
+            />
+          </MattstackShell>
+        </FaceGroup>
+      </BuddiesProvider>
+    </SupportChatOpenContext.Provider>
   );
 }

@@ -58,6 +58,7 @@ const listed = (rooms: FleetRoom[], buddies: RosterBuddy[]) =>
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 test('an agent whose repo has no room, or no repo at all, is not listed', () => {
@@ -346,6 +347,11 @@ test('archive all closes every DM but a live Slack chat, after a confirm', async
     screen.getByRole('button', { name: 'Archive all direct messages' })
   );
   expect(onClose).not.toHaveBeenCalled();
+  expect(
+    await screen.findByText(
+      '1 conversation will be hidden until someone sends a new message.'
+    )
+  ).toBeInTheDocument();
   await userEvent.click(
     await screen.findByRole('button', { name: 'Archive all' })
   );
@@ -365,13 +371,22 @@ test('with only a live Slack chat there is nothing to archive', () => {
   ).toBeNull();
 });
 
-test('New Slack chat is the first row of Direct, even with no DMs, and opens the form', async () => {
+test('the Slack row is named after the support persona, and the form opens from it', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) =>
+      String(url) === '/api/chat/slack-persona'
+        ? new Response(JSON.stringify({ persona: 'Mabel' }))
+        : new Response(JSON.stringify({}))
+    )
+  );
   const onNewSlackChat = vi.fn();
   renderWithProviders(
     <FleetTree rooms={[]} dms={[]} onNewSlackChat={onNewSlackChat} />
   );
   const row = screen.getByTestId('new-slack-chat');
-  expect(row).toHaveTextContent('New Slack chat');
+  expect(row).toHaveTextContent('Support Chat');
+  await waitFor(() => expect(row).toHaveTextContent('Mabel Support Chat'));
   await userEvent.click(row);
   expect(onNewSlackChat).toHaveBeenCalledTimes(1);
 });

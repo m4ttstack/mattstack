@@ -116,6 +116,32 @@ export function isOpening(
   );
 }
 
+/** Whether the support chat dialog is open, so its sidebar row can show as active. */
+export const SupportChatOpenContext = createContext(false);
+
+/** The support bot's name from the persona setting, read once. */
+export function useSupportPersona(): string | undefined {
+  const [persona, setPersona] = useState<string>();
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/chat/slack-persona')
+      .then(res => (res.ok ? res.json() : { persona: null }))
+      .then((data: { persona: string | null }) => {
+        if (!cancelled) setPersona(data.persona ?? undefined);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return persona;
+}
+
+/** The label for starting a support chat, named after the bot. */
+export function supportChatLabel(persona: string | undefined): string {
+  return persona ? `${persona} Support Chat` : 'Support Chat';
+}
+
 export function useSlackAvatar(handle: string): string | undefined {
   return useContext(SlackChatsContext).avatars.get(handle);
 }

@@ -5,7 +5,9 @@ import { beforeEach, expect, test, vi } from 'vitest';
 
 import './icons';
 
+import { BuddiesProvider } from './buddies-context';
 import { NewSlackChatDialog } from './NewSlackChatDialog';
+import type { RosterBuddy } from './roster-types';
 import { fetchMock, installFetchMock } from './test-utils';
 
 const PEOPLE = [
@@ -33,34 +35,85 @@ beforeEach(() => {
   answer('/api/chat/slack-people', { people: PEOPLE });
 });
 
-function open(onStarted = vi.fn(), onClose = vi.fn()) {
+function agent(handle: string, over: Partial<RosterBuddy> = {}): RosterBuddy {
+  return {
+    sessionId: `s-${handle}`,
+    handle,
+    baseHandle: handle,
+    name: handle,
+    signedInAt: 1,
+    lastSeenAt: 1,
+    status: 'live',
+    rooms: [],
+    ...over,
+  };
+}
+
+function open(
+  onStarted = vi.fn(),
+  onClose = vi.fn(),
+  agents: RosterBuddy[] = []
+) {
   renderWithProviders(
-    <NewSlackChatDialog opened onClose={onClose} onStarted={onStarted} />
+    <BuddiesProvider buddies={agents} roomMembers={[]} now={10} reachable>
+      <NewSlackChatDialog opened onClose={onClose} onStarted={onStarted} />
+    </BuddiesProvider>
   );
   return { onStarted, onClose };
 }
 
 const startButton = () => screen.getByRole('button', { name: 'Start' });
 
-test('Start stays disabled until a person and a brief are set, and the hint says which is missing', async () => {
+test('Start stays disabled until a recipient and a brief are set, with no hint copy', async () => {
   open();
   expect(startButton()).toBeDisabled();
-  expect(screen.getByText('Pick a person to start')).toBeInTheDocument();
+  expect(screen.queryByText('Pick a person to start')).toBeNull();
 
-  await userEvent.type(screen.getByLabelText('Person'), 'tuc');
+  await userEvent.type(screen.getByLabelText('Recipient'), 'tuc');
   await userEvent.click(
     await screen.findByRole('option', { name: /Tucker Hale/ })
   );
   expect(startButton()).toBeDisabled();
-  expect(screen.getByText('Add a brief to start')).toBeInTheDocument();
+  expect(screen.queryByText('Add a brief to start')).toBeNull();
 
   await userEvent.type(screen.getByLabelText('Brief'), 'Help with the deck');
   expect(startButton()).toBeEnabled();
 });
 
+test('the title and lede are named after the support persona', async () => {
+  answer('/api/chat/slack-people', { people: PEOPLE, persona: 'Mabel' });
+  open();
+  expect(await screen.findByText('Mabel Support Chat')).toBeInTheDocument();
+  expect(
+    screen.getByText(/Let Mabel chat with a teammate/)
+  ).toBeInTheDocument();
+});
+
+test('with no persona the title is plain Support Chat', async () => {
+  open();
+  expect(await screen.findByText('Support Chat')).toBeInTheDocument();
+});
+
+test('a picked recipient becomes a chip, and its remove button brings the search back', async () => {
+  open();
+  await userEvent.type(screen.getByLabelText('Recipient'), 'tuc');
+  await userEvent.click(
+    await screen.findByRole('option', { name: /Tucker Hale/ })
+  );
+  expect(screen.getByText('Tucker Hale')).toBeInTheDocument();
+  expect(screen.queryByPlaceholderText('Search teammates')).toBeNull();
+
+  const dialog = screen.getByRole('dialog');
+  const remove = dialog.querySelector('.mantine-Pill-remove') as HTMLElement;
+  await userEvent.click(remove);
+  const search = await screen.findByPlaceholderText('Search teammates');
+  expect(search).toHaveValue('');
+  expect(startButton()).toBeDisabled();
+});
+
 test('a person with a Slack picture shows it, and one without shows the app face', async () => {
   open();
-  await userEvent.type(screen.getByLabelText('Person'), 'tuc');
+  await userEvent.type(screen.getByLabelText('Recipient'), 'tuc');
   const options = await screen.findAllByRole('option');
   const [tucker, lucia] = options as [HTMLElement, HTMLElement];
 
@@ -75,8 +128,8 @@ test('a person with a Slack picture shows it, and one without shows the app face
 
 test('a picture that will not load gives way to the app face', async () => {
   open();
-  await userEvent.type(screen.getByLabelText('Person'), 'hale');
-  const option = await screen.findByRole('option', { name: /Tucker Hale/ });
+  await userEvent.type(screen.getByLabelText('Recipient'), 'hale');
+  const option = await screen.findByRole('option', { name: /Tucker\s*Hale/ });
   const photo = within(option).getByTestId('person-photo');
   photo.dispatchEvent(new Event('error'));
   await waitFor(() =>
@@ -84,18 +137,21 @@ test('a picture that will not load gives way to the app face', async () => {
   );
 });
 
-test('the search reads names and titles, and says when no one matches', async () => {
+test('the search reads names only, so a title matches no one', async () => {
   open();
-  await userEvent.type(screen.getByLabelText('Person'), 'support');
-  expect(await screen.findAllByRole('option')).toHaveLength(1);
-  await userEvent.clear(screen.getByLabelText('Person'));
-  await userEvent.type(screen.getByLabelText('Person'), 'zzz');
+  await userEvent.type(screen.getByLabelText('Recipient'), 'support');
   expect(await screen.findByText('No one matches')).toBeInTheDocument();
+  expect(screen.queryAllByRole('option')).toHaveLength(0);
+  await userEvent.clear(screen.getByLabelText('Recipient'));
+  await userEvent.type(screen.getByLabelText('Recipient'), 'tucker');
+  const [only] = await screen.findAllByRole('option');
+  expect(only).toHaveTextContent('Tucker Hale');
+  expect(only!.querySelector('mark')).toHaveTextContent('Tucker');
 });
 
 test('typing never asks the server again: the list is read once on open', async () => {
   open();
-  await userEvent.type(screen.getByLabelText('Person'), 'tucker');
+  await userEvent.type(screen.getByLabelText('Recipient'), 'tucker');
   await screen.findAllByRole('option');
   const peopleCalls = fetchMock.mock.calls.filter(
     ([u]) => u === '/api/chat/slack-people'
@@ -106,7 +162,7 @@ test('typing never asks the server again: the list is read once on open', async 
 test('Start sends the person id and the brief, then hands over the new room', async () => {
   const { onStarted, onClose } = open();
   answer('/api/chat/slack-start', { conversation: 3, room: 'dm-new' });
-  await userEvent.type(screen.getByLabelText('Person'), 'tuc');
+  await userEvent.type(screen.getByLabelText('Recipient'), 'tuc');
   await userEvent.click(
     await screen.findByRole('option', { name: /Tucker Hale/ })
   );
@@ -125,6 +181,62 @@ test('Start sends the person id and the brief, then hands over the new room', as
   });
 });
 
+test('Keep an agent posted becomes a removable chip, and Start sends notify', async () => {
+  const { onStarted } = open(vi.fn(), vi.fn(), [agent('alexa'), agent('bo')]);
+  answer('/api/chat/slack-start', { conversation: 3, room: 'dm-new' });
+  await userEvent.type(screen.getByLabelText('Recipient'), 'tuc');
+  await userEvent.click(
+    await screen.findByRole('option', { name: /Tucker Hale/ })
+  );
+  await userEvent.type(screen.getByLabelText('Brief'), 'Help');
+
+  await userEvent.click(screen.getByPlaceholderText('Updates go to your desk'));
+  await userEvent.click(await screen.findByRole('option', { name: /alexa/ }));
+  const dialog = screen.getByRole('dialog');
+  expect(dialog.querySelectorAll('.mantine-Pill-remove')).toHaveLength(2);
+
+  await userEvent.click(startButton());
+  await waitFor(() => expect(onStarted).toHaveBeenCalledWith('dm-new'));
+  const [, init] = fetchMock.mock.calls.find(
+    ([u]) => u === '/api/chat/slack-start'
+  )!;
+  expect(JSON.parse(init.body)).toEqual({
+    person: 'U0TUCKER',
+    brief: 'Help',
+    notify: 'alexa',
+  });
+});
+
+test('removing the agent chip returns the picker and drops notify', async () => {
+  open(vi.fn(), vi.fn(), [agent('alexa')]);
+  answer('/api/chat/slack-start', { conversation: 3, room: 'dm-new' });
+  await userEvent.click(screen.getByPlaceholderText('Updates go to your desk'));
+  await userEvent.click(await screen.findByRole('option', { name: /alexa/ }));
+  const dialog = screen.getByRole('dialog');
+  await userEvent.click(
+    dialog.querySelector('.mantine-Pill-remove') as HTMLElement
+  );
+  expect(
+    await screen.findByPlaceholderText('Updates go to your desk')
+  ).toBeInTheDocument();
+
+  await userEvent.type(screen.getByLabelText('Recipient'), 'tuc');
+  await userEvent.click(
+    await screen.findByRole('option', { name: /Tucker Hale/ })
+  );
+  await userEvent.type(screen.getByLabelText('Brief'), 'Help');
+  await userEvent.click(startButton());
+  await waitFor(() =>
+    expect(
+      fetchMock.mock.calls.find(([u]) => u === '/api/chat/slack-start')
+    ).toBeDefined()
+  );
+  const [, init] = fetchMock.mock.calls.find(
+    ([u]) => u === '/api/chat/slack-start'
+  )!;
+  expect(JSON.parse(init.body)).not.toHaveProperty('notify');
+});
+
 test('a refused start keeps the form open and says why', async () => {
   const { onStarted, onClose } = open();
   answer(
@@ -132,7 +244,7 @@ test('a refused start keeps the form open and says why', async () => {
     { error: 'No repo is set for Slack chats' },
     409
   );
-  await userEvent.type(screen.getByLabelText('Person'), 'tuc');
+  await userEvent.type(screen.getByLabelText('Recipient'), 'tuc');
   await userEvent.click(
     await screen.findByRole('option', { name: /Tucker Hale/ })
   );

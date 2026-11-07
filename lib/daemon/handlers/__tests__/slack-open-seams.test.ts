@@ -35,35 +35,42 @@ function build(over: { start?: () => Promise<unknown>; exitCode?: number; db?: D
 }
 
 describe("slackOpenSeams", () => {
-  test("startAgent launches a claude agent on the bg server in the repo's folder, in a tab of its own", async () => {
+  test("startAgent launches a claude agent on the bg server in the support workspace, in a tab named for the teammate", async () => {
     const { seams, startArgs } = build();
-    const res = await seams.startAgent("github.com/acme/app");
+    const res = await seams.startAgent("github.com/acme/app", "Leath Cooper");
     expect(res).toEqual({ ok: true, agent: { id: "ag-1", handle: "support-1", sessionId: "s1", paneId: "bg:w1:p9" }, reused: false });
-    expect(startArgs[0]).toMatchObject({ provider: "claude", repo: "github.com/acme/app", cwd: "/work/app", bg: true, label: "slack-support" });
-    expect(startArgs[0]!.tab).toMatch(/^slack-support-[0-9a-f]{6}$/);
+    expect(startArgs[0]).toMatchObject({ provider: "claude", repo: "github.com/acme/app", cwd: "/work/app", bg: true, label: "slack-support", workspace: "support", tab: "Leath Cooper" });
   });
 
   test("a repo rt has no folder for starts nothing", async () => {
     const { seams, startArgs } = build();
-    expect((await seams.startAgent("github.com/other/repo")).ok).toBe(false);
+    expect((await seams.startAgent("github.com/other/repo", "Leath Cooper")).ok).toBe(false);
     expect(startArgs).toEqual([]);
   });
 
   test("an agent:start error comes back as the reason", async () => {
     const { seams } = build({ start: async () => ({ ok: false, error: "bg launches require the rt daemon" }) });
-    expect(await seams.startAgent("github.com/acme/app")).toEqual({ ok: false, error: "bg launches require the rt daemon" });
+    expect(await seams.startAgent("github.com/acme/app", "Leath Cooper")).toEqual({ ok: false, error: "bg launches require the rt daemon" });
   });
 
-  test("an agent that comes back already running is reported as reused", async () => {
+  test("a teammate's tab still open from an earlier chat gets a second tab with a suffix", async () => {
+    let calls = 0;
+    const { seams, startArgs } = build({ start: async () => ({ ok: true, data: { ...RECORD, reused: ++calls === 1 } }) });
+    const res = await seams.startAgent("github.com/acme/app", "Leath Cooper");
+    expect(res).toMatchObject({ ok: true, reused: false });
+    expect(startArgs.map((a) => a.tab)).toEqual(["Leath Cooper", expect.stringMatching(/^Leath Cooper [0-9a-f]{4}$/)]);
+  });
+
+  test("an agent that comes back already running twice is reported as reused", async () => {
     const { seams, runs } = build({ start: async () => ({ ok: true, data: { ...RECORD, reused: true } }) });
-    const res = await seams.startAgent("github.com/acme/app");
+    const res = await seams.startAgent("github.com/acme/app", "Leath Cooper");
     expect(res).toMatchObject({ ok: true, reused: true });
     expect(runs).toEqual([]);
   });
 
   test("an agent with no chat handle is closed and reported as a failure", async () => {
     const { seams, runs } = build({ start: async () => ({ ok: true, data: { ...RECORD, handle: undefined } }) });
-    expect((await seams.startAgent("github.com/acme/app")).ok).toBe(false);
+    expect((await seams.startAgent("github.com/acme/app", "Leath Cooper")).ok).toBe(false);
     expect(runs).toHaveLength(1);
     expect(runs[0]!.args).toEqual(["pane", "close", "w1:p9"]);
   });

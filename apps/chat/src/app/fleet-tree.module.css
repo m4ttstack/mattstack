@@ -102,6 +102,10 @@
 }
 
 /* The first row of Direct: start a Slack chat. */
+.newChatRow:active {
+  background-color: var(--chat-chrome-selected);
+}
+
 .newChatRow {
   display: flex;
   align-items: center;

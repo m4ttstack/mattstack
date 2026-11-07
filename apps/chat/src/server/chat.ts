@@ -448,6 +448,9 @@ export const chat = new Hono()
   // The app makes no Slack call of its own: the daemon says which rooms hold
   // an open support chat. A daemon without the verb answers !ok, a 502 here,
   // which the client reads as no chats.
+  .get('/api/chat/slack-persona', c =>
+    c.json({ persona: supportPersonaName() ?? null }, 200)
+  )
   .get('/api/chat/slack-status', async c => {
     if (fixturesEnabled()) return c.json(fixtureSlackStatus(), 200);
     const res = await chatSlackStatus(rtOpts());
@@ -517,7 +520,35 @@ export const chat = new Hono()
         409
       );
     }
-    const res = await chatSlackStart({ person, brief, repo }, rtOpts());
+    const notify = typeof raw.notify === 'string' ? raw.notify.trim() : '';
+    let requester: {
+      requesterHandle?: string;
+      requesterSession?: string;
+      requesterPane?: string;
+    } = {};
+    if (notify) {
+      const buddies = await chatBuddies(rtOpts());
+      const row = buddies.ok
+        ? buddies.data?.buddies.find(
+            b => b.handle === notify && b.signedOutAt === undefined
+          )
+        : undefined;
+      if (!row) {
+        return c.json(
+          { error: `${notify} is not signed in to chat any more` },
+          409
+        );
+      }
+      requester = {
+        requesterHandle: row.handle,
+        requesterSession: row.sessionId,
+        ...(row.pane ? { requesterPane: row.pane } : {}),
+      };
+    }
+    const res = await chatSlackStart(
+      { person, brief, repo, ...requester },
+      rtOpts()
+    );
     if (!res.ok || !res.data) {
       const failed = daemonFailure(res, 'slack-start: no data');
       return failed.refused

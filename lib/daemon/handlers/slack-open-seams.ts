@@ -18,6 +18,7 @@ import type { CommandResult } from "./types.ts";
 import type { SlackOpenSeams } from "./slack-chat.ts";
 
 const AGENT_LABEL = "slack-support";
+const SUPPORT_WORKSPACE = "support";
 
 export function slackOpenSeams(deps: {
   db: Database;
@@ -45,20 +46,24 @@ export function slackOpenSeams(deps: {
 
   return {
     repoPath: (repo) => deps.repoIndex()[repo] ?? null,
-    async startAgent(repo) {
+    async startAgent(repo, tab) {
       const cwd = deps.repoIndex()[repo];
       if (!cwd) return { ok: false, error: "the folder for this repo is not known to rt" };
-      const started = await deps.agentStart({
-        provider: "claude",
-        repo,
-        cwd,
-        surface: "herdr",
-        bg: true,
-        label: AGENT_LABEL,
-        // A tab per chat: the label alone would hand a second chat the first one's agent.
-        tab: `${AGENT_LABEL}-${randomBytes(3).toString("hex")}`,
-        caller: AGENT_LABEL,
-      });
+      const launch = (tabLabel: string) =>
+        deps.agentStart({
+          provider: "claude",
+          repo,
+          cwd,
+          surface: "herdr",
+          bg: true,
+          label: AGENT_LABEL,
+          workspace: SUPPORT_WORKSPACE,
+          tab: tabLabel,
+          caller: AGENT_LABEL,
+        });
+      let started = await launch(tab);
+      // A tab of that name still open belongs to an earlier chat; agent:start would hand its agent back.
+      if (started.ok && started.data.reused) started = await launch(`${tab} ${randomBytes(2).toString("hex")}`);
       if (!started.ok) return { ok: false, error: started.error };
       const { id, handle, sessionId, paneId, reused } = started.data;
       if (reused) return { ok: true, agent: { id, handle: handle ?? "", sessionId, paneId: paneId ?? "" }, reused: true };
