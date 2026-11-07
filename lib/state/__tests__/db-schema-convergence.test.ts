@@ -94,3 +94,21 @@ describe("idempotency: repeated opens never throw", () => {
     expect(existsSync(dbPath)).toBe(true);
   });
 });
+
+describe("v17 db upgrade", () => {
+  test("a v17 db gains the ten columns and the slack_support_tickets table on open", () => {
+    const cols = ["requester_session", "requester_handle", "requester_pane", "brief", "resumed_from", "grace_until", "assigned_agent", "assigned_session", "assigned_pane", "repo"];
+    const dbPath = join(dir, "state.db");
+    const db = openStateDb(dbPath, "cli");
+    for (const c of cols) db.exec(`ALTER TABLE slack_conversations DROP COLUMN ${c};`);
+    db.exec("DROP TABLE slack_support_tickets;");
+    db.exec("PRAGMA user_version = 17;");
+    db.close();
+
+    const upgraded = openStateDb(dbPath, "cli");
+    expect((upgraded.query("PRAGMA user_version;").get() as { user_version: number }).user_version).toBe(18);
+    expect(columnNames(upgraded, "slack_conversations")).toEqual(expect.arrayContaining(cols));
+    expect(columnNames(upgraded, "slack_support_tickets")).toEqual(["id", "conversation_id", "issue_id", "title", "url", "created_at"]);
+    upgraded.close();
+  });
+});

@@ -14,6 +14,11 @@
   color: var(--tk-text-3);
 }
 
+/* The closed bar's text sits left and its Resume button right. */
+.closedBar {
+  padding: 0 8px 0 16px;
+}
+
 /* Centres the face on the box's first line as the box grows upward. */
 .replyFace {
   display: inline-flex;

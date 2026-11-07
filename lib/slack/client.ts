@@ -11,6 +11,15 @@ export interface SlackMessage {
   attachments?: { text: string }[];
 }
 
+export interface SlackSearchHit {
+  ts: string;
+  user?: string;
+  text: string;
+  subtype?: string;
+  channel: string;
+  isIm: boolean;
+}
+
 export interface SlackUser {
   id: string;
   name: string;
@@ -37,6 +46,8 @@ export interface SlackClient {
   /** The DM's newest message ts, undefined for an empty DM. */
   newestTs(channel: string): Promise<string | undefined>;
   post(channel: string, text: string): Promise<{ ts: string }>;
+  /** One page, newest first. Needs a user token with search:read. */
+  searchDms(query: string): Promise<SlackSearchHit[]>;
 }
 
 export class SlackError extends Error {
@@ -158,6 +169,18 @@ export function createSlackClient(token: string, fetchImpl: typeof fetch = fetch
       const { body } = await call("conversations.history", { channel, limit: "1" });
       const newest = (body.messages as Json[] | undefined)?.[0];
       return newest ? String(newest.ts) : undefined;
+    },
+    async searchDms(query) {
+      const { body } = await call("search.messages", { query, count: "100", sort: "timestamp", sort_dir: "desc" });
+      const matches = (body.messages?.matches as Json[] | undefined) ?? [];
+      return matches.map((m) => ({
+        ts: String(m.ts),
+        user: m.user,
+        text: typeof m.text === "string" ? m.text : "",
+        subtype: m.subtype,
+        channel: String(m.channel?.id ?? ""),
+        isIm: m.channel?.is_im === true,
+      }));
     },
     async post(channel, text) {
       const { body } = await call("chat.postMessage", { channel, text: escapeSlackText(text) });

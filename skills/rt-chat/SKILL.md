@@ -16,13 +16,15 @@ Every chat verb here is a tool on the mattstack MCP server: `chat_sign_in`,
 `chat_sign_out`, `chat_rooms`, `chat_read`, `chat_mark`, `chat_who`,
 `chat_buddies`, `chat_join`, `chat_leave`, `chat_away`, `chat_back`,
 `chat_archive`, `chat_invite`, `chat_post`, `chat_dm`, `chat_ack`,
-`chat_claim`, `chat_release`, `chat_slack_close`, `chat_slack_status` and
-`chat_slack_ticket`. Each acts as this session's own signed-in
-identity; none takes a handle or a pane to act as.
+`chat_claim`, `chat_release`, `chat_slack_request`, `chat_slack_resume`,
+`chat_slack_status`, `chat_slack_close` and `chat_slack_ticket`. Each acts
+as this session's own signed-in identity; none takes a handle or a pane to
+act as.
 
-A pane an operator has opened a Slack support chat in is run by `rt:slack-support`,
-not by this skill: follow that skill for the chat, and use the three `chat_slack_*`
-tools below only inside it.
+A pane holding a Slack support chat is run by `rt:slack-support`, not by
+this skill: follow that skill for the chat, and use `chat_slack_close` and
+`chat_slack_ticket` only inside it. To ask for a support chat yourself, see
+Asking for a support chat.
 
 Four graphs: signing in, a message arriving, posting, and recruiting
 another agent. An **attended** session has a human at this pane's prompt:
@@ -550,9 +552,11 @@ answers its prompt and asks again.
 | `chat_claim` | `id` | test-and-set on who answers a room message; expires after five minutes |
 | `chat_release` | `id` | hand a claim back silently; the holder or the author may |
 | `chat_invite` | `pane`, `room`, `note?` | type `/chat:join <room>` into one herdr pane; reports `accepted`, `queued` or `refused` |
-| `chat_slack_close` | `farewell` | close this pane's Slack support chat after sending the farewell; only inside a chat opened by `/slack-support` (see `rt:slack-support`) |
-| `chat_slack_status` | none | the Slack support chats open on this machine, with room, pane and last activity |
-| `chat_slack_ticket` | `kind`, `title`, `problem`, `idea`, `acceptance` | write a bug or feature ticket for this pane's open Slack support chat; returns the file path |
+| `chat_slack_request` | `person`, `brief` | ask the operator to approve a Slack support chat with a teammate; returns the gate id and the question to ask with `AskUserQuestion`, or candidates when the name matches several people (see Asking for a support chat) |
+| `chat_slack_resume` | `conversation` | ask the operator to approve picking a closed support chat back up; returns the gate id and the question to ask with `AskUserQuestion` |
+| `chat_slack_status` | none | the open Slack support chats with room, panes, requester and tickets, the brief for a chat this session holds or requested, and closed rows with the id `chat_slack_resume` takes |
+| `chat_slack_close` | `farewell` | close this pane's Slack support chat after sending the farewell; only inside a support chat (see `rt:slack-support`) |
+| `chat_slack_ticket` | `kind`, `title`, `problem`, `idea`, `acceptance` | file a bug or feature in Linear for this pane's open support chat; returns the issue's id, title and url, which never go into a Slack reply |
 | `chat_rooms` | none | rooms you are in, member counts, unread, last activity |
 | `chat_mark` | `room?`, `upto?` | advance the cursor without bodies |
 | `chat_read` | `room?`, `limit?`, `since?` or `last?` | history and catch-up; never how new messages arrive |
@@ -583,6 +587,35 @@ viewer. **There are no private agent-to-agent DMs**: Matt can read and post
 into every one. A DM to Matt's own handle reaches him at his desk; when
 Matt asked the question, in a room or anywhere, the answer is that DM, one
 per agent, and the room is not woken for each.
+
+## Asking for a support chat
+
+When the operator asks you to start a Slack support chat with a teammate:
+
+1. Write the brief: who the teammate is, the problem, what sorted means,
+   and what is already known or ruled out.
+2. Call `chat_slack_request {person, brief}`. Candidates instead of a gate
+   id mean the name matched several people: ask the operator which one,
+   then call again with that person's id.
+3. The result carries `gateId` and `question`. Ask it with one
+   `AskUserQuestion` call: the question text is `question.label` copied
+   whole (its `[slack-open <id>]` end included), the options are each
+   `question.options[].label` copied whole, single choice. The mod records
+   the operator's pick from that form; a reworded question or option is
+   not recorded. The operator can answer in the console instead. Never
+   call `gate_answer` for it, which is refused for these gates. On
+   approval the chat runs in a background agent.
+4. Milestones arrive as DMs from `rt.support`: opened, open-failed,
+   declined, expired, resume-expired, ticket, closed (with the outcome and
+   ticket ids), resume-offered (with a chat id), resumed. Tell the operator each one in
+   one line. Act on a close's leftovers only when the operator asks.
+5. To check in mid-chat, check `chat_slack_status`. You are not a member of
+   the chat's room: milestones are all you get.
+
+To resume a closed chat, take its id from a resume-offered milestone or the
+closed rows of `chat_slack_status`, and call `chat_slack_resume
+{conversation}`; its result carries `gateId` and `question` too, asked
+with `AskUserQuestion` the same way as step 3.
 
 ## What to say in your pane
 

@@ -3,7 +3,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { herdrRequest } from "../../herdr/client.ts";
 import { fakeHerdr, HerdrFakeError, type FakeHerdrHandler } from "../../herdr/__tests__/fake-herdr.ts";
-import { composerDraft, injectAfterTurn, injectIntoPane } from "../inject.ts";
+import { composerDraft, injectAfterTurn, injectIntoPane, pastesAsText } from "../inject.ts";
 import { bgSocketPath } from "../bg-service.ts";
 import { createPaneHandlers } from "../handlers/pane.ts";
 import { openStateDb } from "../../state/index.ts";
@@ -173,6 +173,31 @@ test("multi-line text is delivered verbatim as the prompt", async () => {
     : new HerdrFakeError("invalid_request", method));
   await injectIntoPane({ paneId: "w1:p1", text: "line one\nline two", herdr });
   expect(seen.find((s) => s.method === "agent.prompt")!.params.text).toBe("line one\nline two");
+});
+
+test("a slash command over 800 characters is refused before herdr is asked", async () => {
+  const calls: string[] = [];
+  const herdr = async (method: string) => { calls.push(method); return { ok: true, result: {} } as never; };
+  const res = await injectIntoPane({ paneId: "w1:p1", text: "/rename " + "x".repeat(800), herdr });
+  expect(res).toEqual({ ok: true, data: { paneId: "w1:p1", delivered: "refused", reason: expect.stringContaining("800") } });
+  expect(calls).toEqual([]);
+});
+
+test("plain text over 800 characters still goes through", async () => {
+  const { herdr, seen } = on((method, params) => {
+    if (method === "agent.get") return agent("idle");
+    if (method === "agent.prompt") return { type: "agent_prompted", agent: { ...agent("working").agent, text: params.text } };
+    return new HerdrFakeError("invalid_request", method);
+  });
+  const res = await injectIntoPane({ paneId: "w1:p1", text: "x".repeat(900), herdr });
+  expect(res).toEqual({ ok: true, data: { paneId: "w1:p1", delivered: "accepted" } });
+  expect(seen.find((s) => s.method === "agent.prompt")!.params.text).toBe("x".repeat(900));
+});
+
+test("pastesAsText: 800 is fine, 801 starting with / is not, multiline checks the first line's slash", () => {
+  expect(pastesAsText("/" + "x".repeat(799))).toBe(false);
+  expect(pastesAsText("/" + "x".repeat(800))).toBe(true);
+  expect(pastesAsText("hello\n/" + "x".repeat(900))).toBe(false);
 });
 
 test("a missing socket is herdr unavailable (ok:false)", async () => {

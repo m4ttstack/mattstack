@@ -12,7 +12,14 @@ import {
   conversationForAgent,
   conversationForRoom,
   conversationForSlackUser,
+  conversationForAssignedSession,
+  endGrace,
   enqueueItem,
+  listGracedConversations,
+  listSupportTickets,
+  recordSupportTicket,
+  startGrace,
+  ticketsForChain,
   latestConversationForRoom,
   listOpenConversations,
   markCheckedIn,
@@ -225,4 +232,78 @@ test("the sleep shift moves an open conversation's clocks but never past now", (
   markCloseAsked(c.id, "idle", 9000, db);
   shiftOpenConversationClocks(5000, 10_000, db);
   expect(conversationForAgent("pane.one", db)).toMatchObject({ lastActiveAt: 6000, watcherSeenAt: 6000, closeAskedAt: 10_000 });
+});
+
+const requester = {
+  requesterSession: "sess-req",
+  requesterHandle: "req.abcd",
+  requesterPane: "p_1",
+  brief: "help with X",
+  resumedFrom: null,
+  assignedAgent: "support.one",
+  assignedSession: "sess-agent",
+  assignedPane: "p_2",
+};
+
+test("open stores the requester, brief and assigned agent and reads them back", () => {
+  const db = fresh();
+  const c = openConversation({ ...base, ...requester }, db);
+  expect(c).toMatchObject({ ...requester, graceUntil: null });
+  const plain = openConversation({ ...base, room: "dm-b", agentHandle: "pane.two", slackUserId: "U0B" }, db);
+  expect(plain.requesterSession).toBeNull();
+  expect(plain.resumedFrom).toBeNull();
+  expect(plain.assignedPane).toBeNull();
+});
+
+test("listGracedConversations returns a closed row until grace_until, then not", () => {
+  const db = fresh();
+  const c = openConversation(base, db);
+  expect(listGracedConversations(1500, db)).toEqual([]);
+  closeConversation(c.id, "idle", 2000, db);
+  startGrace(c.id, 5000, db);
+  expect(listGracedConversations(4999, db).map((x) => x.id)).toEqual([c.id]);
+  expect(listGracedConversations(5000, db)).toEqual([]);
+});
+
+test("endGrace drops a row from the graced list", () => {
+  const db = fresh();
+  const c = openConversation(base, db);
+  closeConversation(c.id, "idle", 2000, db);
+  startGrace(c.id, 5000, db);
+  endGrace(c.id, db);
+  expect(listGracedConversations(3000, db)).toEqual([]);
+});
+
+test("conversationForAssignedSession ignores closed rows", () => {
+  const db = fresh();
+  const c = openConversation({ ...base, ...requester }, db);
+  expect(conversationForAssignedSession("sess-agent", db)?.id).toBe(c.id);
+  expect(conversationForAssignedSession("nope", db)).toBeNull();
+  closeConversation(c.id, "idle", 2000, db);
+  expect(conversationForAssignedSession("sess-agent", db)).toBeNull();
+});
+
+test("recordSupportTicket then listSupportTickets returns them oldest first", () => {
+  const db = fresh();
+  const c = openConversation(base, db);
+  recordSupportTicket(c.id, { id: "SUP-2", title: "second", url: "u2" }, 20, db);
+  recordSupportTicket(c.id, { id: "SUP-1", title: "first", url: "u1" }, 10, db);
+  expect(listSupportTickets(c.id, db)).toEqual([
+    { id: "SUP-1", title: "first", url: "u1", createdAt: 10 },
+    { id: "SUP-2", title: "second", url: "u2", createdAt: 20 },
+  ]);
+});
+
+test("ticketsForChain follows resumed_from back through two conversations", () => {
+  const db = fresh();
+  const a = openConversation(base, db);
+  closeConversation(a.id, "idle", 1500, db);
+  const b = openConversation({ ...base, resumedFrom: a.id, openedAt: 2000 }, db);
+  closeConversation(b.id, "idle", 2500, db);
+  const c = openConversation({ ...base, resumedFrom: b.id, openedAt: 3000 }, db);
+  recordSupportTicket(a.id, { id: "SUP-1", title: "a", url: "ua" }, 1, db);
+  recordSupportTicket(b.id, { id: "SUP-2", title: "b", url: "ub" }, 2, db);
+  recordSupportTicket(c.id, { id: "SUP-3", title: "c", url: "uc" }, 3, db);
+  expect(ticketsForChain(c.id, db).map((t) => t.id)).toEqual(["SUP-1", "SUP-2", "SUP-3"]);
+  expect(ticketsForChain(a.id, db).map((t) => t.id)).toEqual(["SUP-1"]);
 });

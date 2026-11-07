@@ -10,7 +10,7 @@ vi.mock('@mattstack/rt-client', () => ({
   setSetting: vi.fn(),
 }));
 
-const { consoleBridgeRule, installConsoleBridgeRule } =
+const { consoleBridgeRule, installConsoleBridgeRule, slackBridgeRule } =
   await import('./event-bridge');
 const rt = await import('@mattstack/rt-client');
 
@@ -49,24 +49,48 @@ describe('consoleBridgeRule', () => {
   });
 });
 
+describe('slackBridgeRule', () => {
+  it('notifies a slack-open gate and opens it at /gates/{id}', () => {
+    expect(slackBridgeRule('https://console.mattstack')).toEqual({
+      pattern: 'gate/opened/*',
+      subjectPrefix: 'slack:',
+      category: 'gate',
+      title: 'Slack chat request',
+      message: 'Approve or decline in console',
+      url: 'https://console.mattstack/gates/{id}',
+      owner: 'human',
+    });
+  });
+
+  it('never templates the question, whose label ends in the slack-open marker', () => {
+    const rule = slackBridgeRule('https://console.mattstack');
+    expect(`${rule.title} ${rule.message}`).not.toMatch(
+      /\{question\}|\{label\}/
+    );
+  });
+});
+
 describe('installConsoleBridgeRule', () => {
   const rule = consoleBridgeRule('https://console.mattstack');
 
-  it('upserts the url deck resolved into an empty list', async () => {
+  it('upserts both rules with the url deck resolved into an empty list', async () => {
     const io = fakeIo([]);
     await installConsoleBridgeRule({
       read: io.read,
       write: io.write,
       resolveUrl: async () => 'https://console.local.test',
     });
-    expect(io.writes).toEqual([
-      [consoleBridgeRule('https://console.local.test')],
+    expect(io.writes.at(-1)).toEqual([
+      consoleBridgeRule('https://console.local.test'),
+      slackBridgeRule('https://console.local.test'),
     ]);
   });
 
   it('keeps an existing rule exactly as it is when deck does not answer', async () => {
-    const existing = consoleBridgeRule('http://localhost:11011');
-    const io = fakeIo([existing]);
+    const io = fakeIo([
+      consoleBridgeRule('http://localhost:11011'),
+      slackBridgeRule('http://localhost:11011'),
+    ]);
     await installConsoleBridgeRule({
       read: io.read,
       write: io.write,
@@ -82,11 +106,14 @@ describe('installConsoleBridgeRule', () => {
       write: io.write,
       resolveUrl: async () => null,
     });
-    expect(io.writes).toEqual([[rule]]);
+    expect(io.writes.at(-1)).toEqual([
+      rule,
+      slackBridgeRule('https://console.mattstack'),
+    ]);
   });
 
-  it('leaves an identical rule already present untouched, no duplicate written', async () => {
-    const io = fakeIo([rule]);
+  it('leaves identical rules already present untouched, no duplicate written', async () => {
+    const io = fakeIo([rule, slackBridgeRule('https://console.mattstack')]);
     await installConsoleBridgeRule({
       read: io.read,
       write: io.write,
@@ -117,19 +144,31 @@ describe('installConsoleBridgeRule', () => {
       write: io.write,
       resolveUrl: async () => 'https://console.mattstack',
     });
-    expect(io.writes).toHaveLength(1);
-    expect(io.writes[0]).toEqual([board, rule]);
+    expect(io.writes.at(-1)).toEqual([
+      board,
+      rule,
+      slackBridgeRule('https://console.mattstack'),
+    ]);
   });
 
   it('wires the default read/write through getSetting/setSetting when no overrides are given', async () => {
-    vi.mocked(rt.getSetting).mockReturnValue({ value: [], provenance: [] });
+    let stored: EventBridgeRule[] = [];
+    vi.mocked(rt.getSetting).mockImplementation(
+      () => ({ value: stored, provenance: [] }) as never
+    );
+    vi.mocked(rt.setSetting).mockImplementation(((
+      _key: string,
+      next: EventBridgeRule[]
+    ) => {
+      stored = next;
+    }) as never);
     await installConsoleBridgeRule({
       resolveUrl: async () => 'https://console.mattstack',
     });
     expect(rt.getSetting).toHaveBeenCalledWith('rt.notify.eventBridges');
-    expect(rt.setSetting).toHaveBeenCalledWith(
+    expect(rt.setSetting).toHaveBeenLastCalledWith(
       'rt.notify.eventBridges',
-      [rule],
+      [rule, slackBridgeRule('https://console.mattstack')],
       'user'
     );
   });

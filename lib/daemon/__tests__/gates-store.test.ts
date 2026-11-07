@@ -518,6 +518,26 @@ describe("gates store (ownership)", () => {
     expect(typeof stamped).toBe("number");
   });
 
+  test("appendContext adds a paragraph to a waiting gate and leaves an answered one alone", () => {
+    const s = store();
+    const { row } = s.open({ subject: "run:r1", kind: "clarify", questions: qs(), context: "first" });
+    s.appendContext(row.id, "second");
+    expect(s.get(row.id)!.context).toBe("first\n\nsecond");
+    s.answer(row.id, { q1: "a" } as never, "console");
+    s.appendContext(row.id, "third");
+    expect(s.get(row.id)!.context).toBe("first\n\nsecond");
+  });
+
+  test("appendContext can merge fields into a waiting gate's meta and leaves an answered one alone", () => {
+    const s = store();
+    const { row } = s.open({ subject: "slack:U1", kind: "slack-open", questions: qs(), context: "first", meta: { action: "open", brief: "b" } });
+    s.appendContext(row.id, "second", { triggerTs: "1.2" });
+    expect(s.get(row.id)!.meta).toEqual({ action: "open", brief: "b", triggerTs: "1.2" });
+    s.answer(row.id, { q1: "a" } as never, "console");
+    s.appendContext(row.id, "third", { triggerTs: "9.9" });
+    expect(s.get(row.id)!.meta).toEqual({ action: "open", brief: "b", triggerTs: "1.2" });
+  });
+
   test("subscriptions carry scope and ownerRef; prune removes stale dead rows", () => {
     const s = store();
     s.subscribe({ subjectPrefix: "", session: "s1", scope: "owner", ownerRef: "herd:h-1" });

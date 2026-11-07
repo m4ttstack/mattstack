@@ -117,3 +117,9 @@ describe('useAppRoute: /gates/:id', () => {
     expect(routeAt('/gates/')).toEqual({ name: 'not-found' });
   });
 });
+
+describe('useAppRoute: /slack-gates', () => {
+  it('matches the Slack chats page', () => {
+    expect(routeAt('/slack-gates')).toEqual({ name: 'slack-gates' });
+  });
+});

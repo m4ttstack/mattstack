@@ -8,7 +8,8 @@ import { client } from '../api';
     known coordinate is the gate id, so this looks up the run it belongs to
     and hands off to `/runs/<repo>/<runId>?gate=<id>` with history replaced
     (back/forward should never land back on this stub). The `gate` param
-    rides along for `RunDetail`'s own scroll-to-card effect. */
+    rides along for `RunDetail`'s own scroll-to-card effect. A Slack chat
+    request has no run, so it hands off to `/slack-gates?gate=<id>`. */
 export function GateRedirect({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null);
 
@@ -29,8 +30,15 @@ export function GateRedirect({ id }: { id: string }) {
           setError(body?.error ?? `locate failed (${res.status})`);
           return;
         }
-        const { repo, runId } = await res.json();
+        const found = await res.json();
         if (cancelled) return;
+        if ('slack' in found) {
+          navigate(`/slack-gates?gate=${encodeURIComponent(id)}`, {
+            replace: true,
+          });
+          return;
+        }
+        const { repo, runId } = found;
         // `repo` comes back from the locate endpoint already serialized/
         // percent-encoded; re-encoding it here would double-encode its `%2F`.
         navigate(

@@ -13,7 +13,11 @@ import type { RoomSummary } from '@mattstack/rt-client';
 import { dmPairLabel } from './display-name';
 import { DmPairTitle } from './DmPairTitle';
 import { RoomMembers, type MemberBuddy } from './RoomMembers';
-import { useLiveSlackRoom, useSlackChat } from './slack-chats-context';
+import {
+  isOpening,
+  useLiveSlackRoom,
+  useSlackChat,
+} from './slack-chats-context';
 
 /** Rendered inside `PageShell.Header`, which owns the surface, its padding and
     its border; this is the row's content. */
@@ -136,6 +140,16 @@ export function PageBar({
           data-testid="page-bar-slack"
         >
           Slack
+        </Badge>
+      )}
+      {isOpening(slack, room) && (
+        <Badge
+          variant="light"
+          color="gray"
+          radius="sm"
+          data-testid="page-bar-opening"
+        >
+          Opening
         </Badge>
       )}
       {onArchive && !isLive(room.room) && (

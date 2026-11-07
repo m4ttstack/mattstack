@@ -27,6 +27,10 @@ describe("settings/registry", () => {
     });
   });
 
+  test("the Slack support persona can be set once for the whole org", () => {
+    expect([...(getDef("chat.slackSupport.persona")?.scopes ?? [])].sort()).toEqual(["org", "team", "user"]);
+  });
+
   test("rt.check never reads a shared store, since its command runs on the Mac that reads it", () => {
     expect(getDef("rt.check")?.scopes).toEqual(["user", "machine"]);
   });
@@ -311,7 +315,7 @@ describe("settings/registry", () => {
       expect(def?.merge).toBe("replace");
     });
 
-    test("has exactly the 25 migrated:true keys and the 104 suite keys", () => {
+    test("has exactly the 25 migrated:true keys and the 106 suite keys", () => {
       const migratedFalseKeys: string[] = [];
       const migratedTrueKeys = [
         "rt.roles", "rt.intercepts", "rt.ignoredMrs", "rt.worktrees", "rt.worktreeReadyApproval", "rt.repoIdentityOverrides", "rt.repoRoots",
@@ -380,6 +384,8 @@ describe("settings/registry", () => {
         "rt.worktreeMergeCleanupNotice",
         "chat.push.provider",
         "chat.push.target",
+        "chat.slackSupport.defaultRepo",
+        "chat.slackSupport.persona",
         "agent.provider",
         "agent.claude.model",
         "agent.claude.effort",
@@ -426,7 +432,7 @@ describe("settings/registry", () => {
         "rt.notify.sounds",
         "review.ruleSelector",
       ];
-      expect(suiteKeys).toHaveLength(104);
+      expect(suiteKeys).toHaveLength(106);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),

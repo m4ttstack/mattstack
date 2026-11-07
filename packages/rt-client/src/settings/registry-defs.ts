@@ -900,6 +900,25 @@ const ROWS: readonly SettingDef[] = [
     merge: "replace",
     description: "Destination (topic/URL/token) the configured chat.push.provider sends to.",
   },
+  {
+    key: "chat.slackSupport.persona",
+    type: "object",
+    scopes: ["user", "team", "org"],
+    default: { name: "Maude", emoji: "🤖" },
+    merge: "deep",
+    description:
+      "How the Slack support bot introduces itself to a teammate: its name, its emoji, and the words a teammate starts a message with to ask it back after a chat closes (trigger, which is the name after an @ when not set).",
+  },
+
+  {
+    key: "chat.slackSupport.defaultRepo",
+    type: "string",
+    scopes: ["user"],
+    defaultNote: "Not set, so a chat a teammate asks for is refused.",
+    merge: "replace",
+    description:
+      "The repo (host/path, like gitlab.com/acme/support) whose folder the agent runs in when a teammate starts a Slack support chat by writing the trigger to you. Chats a pane requests use that pane's own repo.",
+  },
 
   // --- agent (rt agent handoff) --------------------------------------------
   // agent.provider needs a concrete fallback to preserve claude-only behavior

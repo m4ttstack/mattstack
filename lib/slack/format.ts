@@ -1,22 +1,36 @@
-export const SLACK_PREFIX = "[Claude 🤖]: ";
+import { resumeTrigger, type SlackPersona } from "./persona.ts";
 
-/** conversations.history can return the emoji as its shortcode. */
-const SHORTCODE_PREFIX = "[Claude :robot_face:]: ";
+const LEGACY_PREFIXES = ["[Claude 🤖]: ", "[Claude :robot_face:]: "];
 
-function prefixLength(text: string): number {
-  if (text.startsWith(SLACK_PREFIX)) return SLACK_PREFIX.length;
-  if (text.startsWith(SHORTCODE_PREFIX)) return SHORTCODE_PREFIX.length;
-  return 0;
+export function slackPrefix(persona: SlackPersona): string {
+  return `[${persona.name} ${persona.emoji}]: `;
 }
 
-export function hasPrefix(text: string): boolean {
-  return prefixLength(text) > 0;
+function knownPrefixes(persona: SlackPersona): string[] {
+  const own = slackPrefix(persona);
+  const shortcode = persona.emoji === "🤖" ? [`[${persona.name} :robot_face:]: `] : [];
+  return [own, ...shortcode, ...LEGACY_PREFIXES];
 }
 
-export function withPrefix(body: string): string {
+const PICTOGRAPH = String.raw`\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?`;
+const EMOJI = String.raw`(?:${PICTOGRAPH}(?:\u200D${PICTOGRAPH})*|\p{Regional_Indicator}{2})`;
+
+/** conversations.history returns an emoji as its shortcode, and an earlier name is still ours. */
+const GENERIC_PREFIX = new RegExp(String.raw`^\[[^\]]{1,40} (?:${EMOJI}|:[a-z0-9_+-]+:)\]: `, "u");
+
+function prefixLength(text: string, persona: SlackPersona): number {
+  const known = knownPrefixes(persona).find((prefix) => text.startsWith(prefix));
+  return known?.length ?? GENERIC_PREFIX.exec(text)?.[0].length ?? 0;
+}
+
+export function hasPrefix(text: string, persona: SlackPersona): boolean {
+  return prefixLength(text, persona) > 0;
+}
+
+export function withPrefix(body: string, persona: SlackPersona): string {
   let rest = body.trimStart();
-  for (let n = prefixLength(rest); n > 0; n = prefixLength(rest)) rest = rest.slice(n).trimStart();
-  return SLACK_PREFIX + rest;
+  for (let n = prefixLength(rest, persona); n > 0; n = prefixLength(rest, persona)) rest = rest.slice(n).trimStart();
+  return slackPrefix(persona) + rest;
 }
 
 const SLACK_ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">" };
@@ -43,13 +57,14 @@ export function slackOpenRefused(): { ok: false; error: string; failure: { code:
   return { ok: false, error: `chat: ${SLACK_OPEN_REFUSAL}`, failure: { code: "slack-chat", message: SLACK_OPEN_REFUSAL } };
 }
 
-export function holdingLine(operatorName: string): string {
-  return `${SLACK_PREFIX}Claude is tied up for a moment. Your message is safe, and ${operatorName} has been told.`;
+export function holdingLine(operatorName: string, persona: SlackPersona): string {
+  return `${slackPrefix(persona)}${persona.name} is tied up for a moment. Your message is safe, and ${operatorName} has been told.`;
 }
 
-export function closingLine(operatorName: string, paneGone: boolean): string {
-  const base = `${SLACK_PREFIX}This chat with Claude is closed. Anything you send now goes to ${operatorName}.`;
-  return paneGone ? `${base} ${operatorName} will follow up.` : base;
+export function closingLine(operatorName: string, paneGone: boolean, persona: SlackPersona): string {
+  const base = `${slackPrefix(persona)}This chat with ${persona.name} is closed. Anything you send now goes to ${operatorName}.`;
+  const resume = `To add something for ${persona.name} in the next hour, start your message with ${resumeTrigger(persona)}`;
+  return paneGone ? `${base} ${operatorName} will follow up. ${resume}` : `${base} ${resume}`;
 }
 
 const REDACTION = "[redacted]";
@@ -72,4 +87,16 @@ export function redactSecrets(text: string): { text: string; redacted: boolean }
     });
   }
   return { text: out, redacted };
+}
+
+export const TICKET_ON_SLACK = "ticket ids stay off Slack, so the message was not sent; tell them you wrote it up";
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Whether Slack-bound text names one of the chat's tickets, by id or url, or any Linear url. */
+export function namesTicket(text: string, tickets: readonly { id: string; url: string }[]): boolean {
+  if (/linear\.app\//i.test(text)) return true;
+  return tickets.some((t) => (t.url !== "" && text.includes(t.url)) || new RegExp(`(^|[^A-Za-z0-9])${escapeRegExp(t.id)}([^A-Za-z0-9]|$)`, "i").test(text));
 }

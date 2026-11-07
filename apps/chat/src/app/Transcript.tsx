@@ -7,7 +7,7 @@ import {
   useState,
 } from 'react';
 import type { MouseEvent, ReactNode, RefObject } from 'react';
-import { Box, Button, Group, Stack, Text } from '@mattstack/app-kit/core';
+import { Box, Button, Stack, Text } from '@mattstack/app-kit/core';
 import type { ChatMessage } from '@mattstack/rt-client';
 import ScrollToBottom, {
   useAnimating,
@@ -21,7 +21,6 @@ import { blocksByLatest } from './direct';
 import { MessageMarkdown } from './MessageMarkdown';
 import { NewPill } from './NewPill';
 import { useRelayFrames, useRelayOpen } from './relay-socket';
-import { useSlackChat } from './slack-chats-context';
 import prose from './transcript-prose.module.css';
 import scrollClasses from './transcript-scroll.module.css';
 
@@ -242,21 +241,6 @@ function byDay(messages: ChatMessage[]) {
   return days;
 }
 
-function ClosedNote({ at }: { at: number }) {
-  return (
-    <Group
-      gap={8}
-      justify="center"
-      wrap="nowrap"
-      data-testid="slack-closed-note"
-      className={prose.closed}
-    >
-      <span>Chat closed</span>
-      <span className={prose.meta}>{localTime(at)}</span>
-    </Group>
-  );
-}
-
 function MessageRow({
   message,
   humanHandle,
@@ -422,7 +406,6 @@ export function Transcript({
   loading = false,
   compact = false,
 }: TranscriptProps) {
-  const slack = useSlackChat(room);
   const inset = compact ? COMPACT_INSET : INSET;
   const url = feed?.url ?? `/api/chat/messages/${room}`;
   const isFeed = feed !== undefined;
@@ -798,9 +781,6 @@ export function Transcript({
                     ))}
               </Stack>
               {!loading && messages.length === 0 && empty}
-              {slack?.closedAt !== undefined && (
-                <ClosedNote at={slack.closedAt} />
-              )}
             </div>
           </Box>
         </ScrollToBottom>
