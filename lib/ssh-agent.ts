@@ -7,7 +7,7 @@
  * so a pane spawn and a failed fetch look for one that does hold a key.
  */
 
-import { readdirSync, statSync } from "fs";
+import { lstatSync, readdirSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
 
@@ -36,7 +36,16 @@ async function runQuiet(argv: string[], env: Record<string, string | undefined>)
   }
 }
 
-function listSockets(dir: string, dirPrefix: string, filePrefix: string): { path: string; mtime: number }[] {
+/** /tmp is world-writable: a socket another user planted there would receive this user's ssh sign requests. */
+function ownedByMe(path: string, uid: number): boolean {
+  try {
+    return lstatSync(path).uid === uid;
+  } catch {
+    return false;
+  }
+}
+
+export function listSockets(dir: string, dirPrefix: string, filePrefix: string, uid: number = process.getuid!()): { path: string; mtime: number }[] {
   const found: { path: string; mtime: number }[] = [];
   let dirs: string[];
   try {
@@ -45,17 +54,19 @@ function listSockets(dir: string, dirPrefix: string, filePrefix: string): { path
     return found;
   }
   for (const d of dirs) {
+    const sub = join(dir, d);
+    if (!lstatSync(sub, { throwIfNoEntry: false })?.isDirectory() || !ownedByMe(sub, uid)) continue;
     let files: string[];
     try {
-      files = readdirSync(join(dir, d)).filter((f) => f.startsWith(filePrefix));
+      files = readdirSync(sub).filter((f) => f.startsWith(filePrefix));
     } catch {
       continue;
     }
     for (const f of files) {
-      const path = join(dir, d, f);
+      const path = join(sub, f);
       try {
-        const st = statSync(path);
-        if (st.isSocket()) found.push({ path, mtime: st.mtimeMs });
+        const st = lstatSync(path);
+        if (st.isSocket() && st.uid === uid) found.push({ path, mtime: st.mtimeMs });
       } catch {
         /* gone between readdir and stat */
       }
@@ -91,15 +102,21 @@ export function defaultAgentProbeDeps(env: NodeJS.ProcessEnv = process.env): Age
   };
 }
 
-/** The first socket holding a key, `preferred` first; undefined when none does. */
+/** A pane launch waits on this search, so every probe after the first shares one budget. */
+const SEARCH_BUDGET_MS = 5_000;
+
+/** The first socket holding a key, `preferred` first; undefined when none does or the budget runs out. */
 export async function findAgentWithKey(
   preferred: string | undefined,
   deps: AgentProbeDeps = defaultAgentProbeDeps(),
+  now: () => number = Date.now,
 ): Promise<{ socket: string; preferred: boolean } | undefined> {
   if (preferred && (await deps.check(preferred)) === 0) return { socket: preferred, preferred: true };
+  const deadline = now() + SEARCH_BUDGET_MS;
   const tried = new Set(preferred ? [preferred] : []);
   const ordered = [await deps.launchdSocket(), deps.envSocket];
   for (const socket of [...ordered, ...deps.scanSockets()]) {
+    if (now() >= deadline) return undefined;
     if (!socket || tried.has(socket)) continue;
     tried.add(socket);
     if ((await deps.check(socket)) === 0) return { socket, preferred: false };

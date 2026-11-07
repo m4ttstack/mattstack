@@ -144,14 +144,19 @@ export function fetchFailureOf(err: unknown): out.FailureInput {
  * this shell's holds none: a herdr pane's agent socket goes stale when the key
  * is loaded after herdr started.
  */
-export async function fetchOrigin(cwd: string, deps: FetchDeps = defaultFetchDeps()): Promise<void> {
+/** Resolves to the env the fetch succeeded under, so the caller's later remote calls (a push) reach the same agent. */
+export async function fetchOrigin(cwd: string, deps: FetchDeps = defaultFetchDeps()): Promise<NodeJS.ProcessEnv> {
   const first = await deps.run(cwd, deps.env);
-  if (first.ok) return;
-  if (!looksLikeSshAuthFailure(first.output)) throw new FetchFailed({ title: "Could not fetch from origin", details: first.output });
+  if (first.ok) return deps.env;
+  const plain = new FetchFailed({ title: "Could not fetch from origin", details: first.output });
+  if (!looksLikeSshAuthFailure(first.output)) throw plain;
   const found = await deps.findAgent(deps.env.SSH_AUTH_SOCK);
-  if (found && !found.preferred) {
-    const retry = await deps.run(cwd, { ...deps.env, SSH_AUTH_SOCK: found.socket });
-    if (retry.ok) return;
+  // An agent holds a key and origin still refused: ssh-add would change nothing.
+  if (found?.preferred) throw plain;
+  if (found) {
+    const env = { ...deps.env, SSH_AUTH_SOCK: found.socket };
+    if ((await deps.run(cwd, env)).ok) return env;
+    throw plain;
   }
   throw new FetchFailed({
     title: "Could not fetch from origin: no SSH key is loaded",

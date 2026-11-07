@@ -13,7 +13,7 @@ function deps(results: ({ ok: true } | { ok: false; output: string })[], found?:
   return { d, runs };
 }
 
-async function failureOf(p: Promise<void>) {
+async function failureOf(p: Promise<unknown>) {
   try {
     await p;
   } catch (err) {
@@ -43,10 +43,23 @@ describe("fetchOrigin", () => {
     expect(f.details).toBe(DENIED);
   });
 
-  test("an SSH refusal while this shell's agent already holds a key does not retry", async () => {
+  test("an SSH refusal while this shell's agent already holds a key does not retry or blame a missing key", async () => {
     const { d, runs } = deps([{ ok: false, output: DENIED }], { socket: "/herdr.sock.agent", preferred: true });
-    await failureOf(fetchOrigin("/r", d));
+    const f = await failureOf(fetchOrigin("/r", d));
+    expect(f).toEqual({ title: "Could not fetch from origin", details: DENIED });
     expect(runs).toEqual(["/herdr.sock.agent"]);
+  });
+
+  test("a retry origin also refuses keeps the plain failure", async () => {
+    const { d } = deps([{ ok: false, output: DENIED }, { ok: false, output: DENIED }], { socket: "/keys/agent.1", preferred: false });
+    expect(await failureOf(fetchOrigin("/r", d))).toEqual({ title: "Could not fetch from origin", details: DENIED });
+  });
+
+  test("resolves to the env that reached origin", async () => {
+    const { d } = deps([{ ok: false, output: DENIED }, { ok: true }], { socket: "/keys/agent.1", preferred: false });
+    expect((await fetchOrigin("/r", d)).SSH_AUTH_SOCK).toBe("/keys/agent.1");
+    const clean = deps([{ ok: true }]);
+    expect(await fetchOrigin("/r", clean.d)).toBe(clean.d.env);
   });
 
   test("any other failure keeps the plain title and git's words", async () => {

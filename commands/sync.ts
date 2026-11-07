@@ -77,9 +77,9 @@ function ensureOriginRemote(cwd: string): boolean {
 }
 
 /** Non-blocking git command, so a spinner can animate. */
-function gitAsync(args: string[], cwd: string): Promise<string> {
+function gitAsync(args: string[], cwd: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile("git", args, { cwd, encoding: "utf8" }, (err, stdout) => {
+    execFile("git", args, { cwd, env, encoding: "utf8" }, (err, stdout) => {
       if (err) reject(err);
       else resolve((stdout ?? "").trim());
     });
@@ -205,15 +205,16 @@ export async function syncBranch(
   }
 
   // 1. Fetch once (rebase/reset will skip their own fetch)
+  let remoteEnv: NodeJS.ProcessEnv = process.env;
   if (opts.quiet) {
     try {
-      await fetchOrigin(cwd);
+      remoteEnv = await fetchOrigin(cwd);
     } catch (err) {
       return { branch, worktree: cwd, resetResult: null, rebaseResult: null, pushed: false, ...asError(fetchFailureOf(err)) };
     }
   } else {
     try {
-      await steps.run("Fetching from origin…", () => fetchOrigin(cwd), {
+      await steps.run("Fetching from origin…", async () => { remoteEnv = await fetchOrigin(cwd); }, {
         done: "Fetched from origin",
         failSilently: true,
       });
@@ -306,10 +307,10 @@ export async function syncBranch(
     const pushArgs = ["push", "--force-with-lease", "origin", branch];
     try {
       if (opts.quiet) {
-        await gitAsync(pushArgs, cwd);
+        await gitAsync(pushArgs, cwd, remoteEnv);
       } else {
         await steps.run("Pushing…", () =>
-          gitAsync(pushArgs, cwd),
+          gitAsync(pushArgs, cwd, remoteEnv),
           { done: "Pushed", failSilently: true },
         );
       }

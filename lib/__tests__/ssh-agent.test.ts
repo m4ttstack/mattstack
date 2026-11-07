@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { findAgentWithKey, looksLikeSshAuthFailure, type AgentProbeDeps } from "../ssh-agent.ts";
+import { findAgentWithKey, listSockets, looksLikeSshAuthFailure, type AgentProbeDeps } from "../ssh-agent.ts";
 
 function deps(over: Partial<AgentProbeDeps> & { keys?: Record<string, 0 | 1 | 2> } = {}): AgentProbeDeps & { checked: string[] } {
   const checked: string[] = [];
@@ -46,6 +46,34 @@ describe("findAgentWithKey", () => {
   test("a missing preferred socket starts at the candidates", async () => {
     const d = deps({ keys: { "/env": 0 }, envSocket: "/env" });
     expect(await findAgentWithKey(undefined, d)).toEqual({ socket: "/env", preferred: false });
+  });
+});
+
+describe("findAgentWithKey budget", () => {
+  test("stops probing once the search budget is spent", async () => {
+    let t = 0;
+    const d = deps({ scanSockets: () => ["/a", "/b", "/c"], check: async () => ((t += 3_000), 2) });
+    expect(await findAgentWithKey("/herdr.agent", d, () => t)).toBeUndefined();
+    expect(t).toBeLessThan(12_000);
+  });
+});
+
+describe("listSockets", () => {
+  test("lists only sockets this user owns, in directories this user owns", async () => {
+    const { mkdtempSync, mkdirSync, rmSync } = await import("fs");
+    const { tmpdir } = await import("os");
+    const { join } = await import("path");
+    const root = mkdtempSync(join(tmpdir(), "ssh-scan-"));
+    mkdirSync(join(root, "ssh-abc"));
+    const sock = join(root, "ssh-abc", "agent.1");
+    const server = Bun.listen({ unix: sock, socket: { data() {} } });
+    try {
+      expect(listSockets(root, "ssh-", "agent.").map((s) => s.path)).toEqual([sock]);
+      expect(listSockets(root, "ssh-", "agent.", process.getuid!() + 1)).toEqual([]);
+    } finally {
+      server.stop(true);
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

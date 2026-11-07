@@ -28,7 +28,7 @@ test("herdr start records and journals herdr argv", async () => {
   const db = openStateDb(tmp());
   const calls: string[][] = [];
   const res = await runAgentFallback("agent:start",
-    { repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" }, { db, herdrRunner: okRunner(calls), herdr: noPane, startHerdr: running });
+    { repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" }, { db, herdrRunner: okRunner(calls), herdr: noPane, startHerdr: running, findSshAgent: async () => undefined });
   expect(res.ok).toBe(true);
   expect(calls.some((c) => c[0] === "pane" && c[1] === "run")).toBe(true);
   if (!res.ok) throw new Error("unreachable");
@@ -88,7 +88,7 @@ test("a codex herdr start schedules no session-id poll: the CLI would exit befor
   const calls: string[][] = [];
   const res = await runAgentFallback("agent:start",
     { repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", provider: "codex" },
-    { db, herdrRunner: okRunner(calls), herdr: noPane, startHerdr: running });
+    { db, herdrRunner: okRunner(calls), herdr: noPane, startHerdr: running, findSshAgent: async () => undefined });
   expect(res.ok).toBe(true);
   // Give a mis-scheduled poll a chance to make its first call before asserting.
   await new Promise((r) => setTimeout(r, 50));
@@ -98,7 +98,7 @@ test("a codex herdr start schedules no session-id poll: the CLI would exit befor
 test("list returns records", async () => {
   const db = openStateDb(tmp());
   const calls: string[][] = [];
-  await runAgentFallback("agent:start", { repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" }, { db, herdrRunner: okRunner(calls), herdr: noPane, startHerdr: running });
+  await runAgentFallback("agent:start", { repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" }, { db, herdrRunner: okRunner(calls), herdr: noPane, startHerdr: running, findSshAgent: async () => undefined });
   const res = await runAgentFallback("agent:list", { repo: REPO }, { db });
   expect(res.ok).toBe(true);
   if (!res.ok) throw new Error("unreachable");
