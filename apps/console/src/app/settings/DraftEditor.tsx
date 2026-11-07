@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Button, Group, Stack, Text } from '@mattstack/app-kit/core';
+import {
+  Alert,
+  Button,
+  Collapse,
+  Group,
+  Stack,
+  Text,
+} from '@mattstack/app-kit/core';
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
 import { Icons } from '@mattstack/app-kit/icons';
 import { modals } from '@mattstack/app-kit/modals';
@@ -106,6 +113,9 @@ export function DraftEditor({
   };
   const [draft, setDraft] = useState<unknown>(() => structuredClone(start));
   const [text, setText] = useState(() => pretty(start));
+  // The text as it stood when focus last left the editor; an issue shows
+  // only while the text still matches it, so typing never flashes errors.
+  const [blurredText, setBlurredText] = useState<string | null>(null);
   // Bumped whenever the draft is replaced wholesale (Use the older value),
   // keyed onto ItemCards/NamedSections so they remount from the new value
   // instead of keeping card ids, key order and per-field local state seeded
@@ -179,11 +189,45 @@ export function DraftEditor({
 
   // Where Save writes, beside Save. The project picker in the toolbar
   // already names the project, so the layer's own name is enough here.
+  const target = saveTarget(targetLabel);
+  // Just switched from the form, an untouched card's issues stay quiet.
+  const fromForm =
+    parsed.ok && jsonTouched && jsonTouched.text === text
+      ? footerSummary(issues, jsonTouched.touched)
+      : null;
+  const jsonError = !parsed.ok
+    ? parsed.message.replace(/^JSON Parse error: /, 'Invalid JSON: ')
+    : fromForm
+      ? (fromForm.touchedText ?? fromForm.fallbackText ?? fromForm.noteText)
+      : issues[0]
+        ? issueText(issues[0])
+        : null;
+  // Kept through the collapse, so the alert does not empty as it closes.
+  const shownError = useRef(jsonError);
+  if (jsonError !== null) shownError.current = jsonError;
   const footerEnd = (
     <>
-      <Text fz={12} c={colors.muted}>
-        {`Saves to ${saveTarget(targetLabel)}`}
-      </Text>
+      {showsDefault && changed ? (
+        <Alert
+          variant="tint"
+          color="accent"
+          py={2}
+          px={8}
+          data-testid="draft-save-target"
+        >
+          <Text fz={12}>
+            {target === 'user'
+              ? 'Saves to your user settings'
+              : `Saves to ${target} settings`}
+          </Text>
+        </Alert>
+      ) : (
+        !showsDefault && (
+          <Text fz={12} c={colors.muted}>
+            {`Saves to ${target}`}
+          </Text>
+        )
+      )}
       <Button size="compact-sm" variant="default" onClick={onCancel}>
         Cancel
       </Button>
@@ -202,27 +246,7 @@ export function DraftEditor({
   return (
     <Stack ref={root} gap={10} onKeyDown={onKeyDown}>
       <PanelToolbar>
-        <Group
-          justify={showsDefault ? 'space-between' : 'flex-end'}
-          wrap="nowrap"
-          gap={8}
-        >
-          {showsDefault && (
-            <Alert
-              variant="tint"
-              color="accent"
-              icon={<Icons.info size={14} />}
-              w="fit-content"
-              py={4}
-              px={10}
-              styles={{ icon: { marginInlineEnd: 6 } }}
-              data-testid="draft-default-note"
-            >
-              <Text fz={12}>
-                {`Default value, not set anywhere. A change saves to ${saveTarget(targetLabel)}`}
-              </Text>
-            </Alert>
-          )}
+        <Group justify="flex-end" wrap="nowrap" gap={8}>
           {(form || onForm || replaceWith) && (
             <Group gap={8} wrap="nowrap">
               {form && mode === 'json' && !fits && (
@@ -266,13 +290,56 @@ export function DraftEditor({
           )}
         </Group>
       </PanelToolbar>
+      {showsDefault && (
+        <Alert
+          variant="tint"
+          color="accent"
+          icon={<Icons.info size={14} />}
+          w="fit-content"
+          py={4}
+          px={10}
+          styles={{ icon: { marginInlineEnd: 6 } }}
+          data-testid="draft-default-note"
+        >
+          <Text fz={12}>Currently set to the default value</Text>
+        </Alert>
+      )}
       {mode === 'json' && (
-        <JsonDraft
-          key={`${def.key}:${targetLabel}:${JSON.stringify(schema) ?? ''}`}
-          text={text}
-          onText={setText}
-          schema={schema}
-        />
+        <div>
+          <div
+            onFocus={() => setBlurredText(null)}
+            onBlur={event => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node))
+                setBlurredText(text);
+            }}
+          >
+            <JsonDraft
+              key={`${def.key}:${targetLabel}:${JSON.stringify(schema) ?? ''}`}
+              text={text}
+              onText={setText}
+              schema={schema}
+            />
+          </div>
+          <Collapse
+            expanded={jsonError !== null && blurredText === text}
+            transitionDuration={150}
+            animateOpacity
+          >
+            <Alert
+              variant="tint"
+              color="bad"
+              icon={<Icons.error size={14} />}
+              w="fit-content"
+              mt={10}
+              py={4}
+              px={10}
+              styles={{ icon: { marginInlineEnd: 6 } }}
+              data-testid="draft-issue"
+            >
+              <Text fz={12}>{shownError.current}</Text>
+            </Alert>
+          </Collapse>
+        </div>
       )}
       {mode === 'form' && form?.kind === 'objectList' && (
         <ItemCards
@@ -304,20 +371,7 @@ export function DraftEditor({
       {mode === 'json' && (
         <CardsFooter
           leading={null}
-          summary={
-            parsed.ok && jsonTouched && jsonTouched.text === text
-              ? footerSummary(issues, jsonTouched.touched)
-              : {
-                  touchedText: null,
-                  noteText: null,
-                  fallbackText: parsed.ok
-                    ? issues[0]
-                      ? issueText(issues[0])
-                      : null
-                    : `JSON: ${parsed.message}`,
-                }
-          }
-          issueTestId="draft-issue"
+          summary={{ touchedText: null, noteText: null, fallbackText: null }}
           footerEnd={footerEnd}
         />
       )}

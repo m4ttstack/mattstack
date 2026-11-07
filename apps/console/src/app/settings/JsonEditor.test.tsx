@@ -131,10 +131,12 @@ describe('JSON editor', () => {
     expect(screen.queryByRole('radio', { name: 'Form' })).toBeNull();
 
     setText('[{"command": "bun"');
+    fireEvent.focusOut(editor());
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
-    expect(screen.getByTestId('draft-issue')).toHaveTextContent(/^JSON: /);
+    expect(screen.getByTestId('draft-issue')).toHaveTextContent(/JSON/);
 
     setText('[{"command": "bun"}]');
+    fireEvent.focusOut(editor());
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
     expect(screen.getByTestId('draft-issue')).toHaveTextContent(
       '[0].matches: required property "matches" is missing'
