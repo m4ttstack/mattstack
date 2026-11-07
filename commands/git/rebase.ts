@@ -35,7 +35,7 @@ import type { CommandContext } from "../../lib/command-tree.ts";
 import * as out from "../../lib/ui/out.ts";
 import type { Block } from "../../lib/ui/protocol.ts";
 import { usageFailure } from "../../lib/ui/usage.ts";
-import { asError, asRefusal, drawFailure, errText, NOT_ON_A_BRANCH, plural, uncommittedChanges } from "./shared.ts";
+import { asError, asRefusal, drawFailure, errText, fetchFailureOf, fetchOrigin, NOT_ON_A_BRANCH, plural, uncommittedChanges } from "./shared.ts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -189,13 +189,8 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
   // 1. Fetch (unless caller already did)
   if (!opts.skipFetch) {
     const { withSpinner } = await import("../../lib/rt-render.ts");
-    const { execFile } = await import("child_process");
-    const gitAsync = (args: string[]) =>
-      new Promise<void>((resolve, reject) => {
-        execFile("git", args, { cwd }, (err) => (err ? reject(err) : resolve()));
-      });
     try {
-      await withSpinner("Fetching from origin…", () => gitAsync(["fetch", "origin"]), {
+      await withSpinner("Fetching from origin…", () => fetchOrigin(cwd), {
         doneLabel: "Fetched from origin",
         failSilently: true,
       });
@@ -209,7 +204,7 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
         unresolvedFiles: [],
         postResolveSteps: [],
         backupBranch: null,
-        ...asError({ title: "Could not fetch from origin", details: errText(err) }),
+        ...asError(fetchFailureOf(err)),
       };
     }
   }

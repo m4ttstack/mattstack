@@ -11,6 +11,7 @@ import { openStateDbGuarded, getAgent, stateDbPath } from "../lib/state/index.ts
 import type { HerdrRunner } from "../lib/agent-herdr.ts";
 import type { herdrRequest } from "../lib/herdr/client.ts";
 import { startHerdr, type HerdrStartResult } from "../lib/herdr/start.ts";
+import type { findAgentWithKey } from "../lib/ssh-agent.ts";
 import type { AgentSurface, RtResponse } from "../packages/rt-client/src/index.ts";
 
 export const HEADLESS_NEEDS_DAEMON =
@@ -27,6 +28,7 @@ export async function runAgentFallback<T>(
   deps: {
     db?: Database; herdrRunner?: HerdrRunner; herdr?: typeof herdrRequest; spawnHeadless?: (argv: string[], cwd: string) => HeadlessChild;
     startHerdr?: () => Promise<HerdrStartResult>;
+    findSshAgent?: typeof findAgentWithKey;
   } = {},
 ): Promise<RtResponse<T>> {
   const db = deps.db ?? openStateDbGuarded(stateDbPath());
@@ -55,6 +57,7 @@ export async function runAgentFallback<T>(
     // timeout or it dies mid-flight; neither is a capture.
     skipSessionCapture: true,
     startHerdr: deps.startHerdr ?? startHerdr,
+    ...(deps.findSshAgent !== undefined && { findSshAgent: deps.findSshAgent }),
     ...(deps.herdrRunner !== undefined && { herdrRunner: deps.herdrRunner }),
     // The folder-trust check runs here too: the daemon being down is no reason
     // to leave a pane sitting on the dialog. The JSON caller is injectable for

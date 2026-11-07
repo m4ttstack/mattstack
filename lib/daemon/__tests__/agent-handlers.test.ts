@@ -111,6 +111,7 @@ function fresh(over: {
   locate?: (sessionId: string, preferredAccount: string | undefined) => Promise<import("../../agent-adopt.ts").TranscriptHit | null>;
   startHerdr?: () => Promise<HerdrStartResult>;
   resolveNodePin?: (cwd: string) => import("../../agent-argv/index.ts").NodePin | undefined;
+  findSshAgent?: (preferred: string | undefined) => Promise<{ socket: string; preferred: boolean } | undefined>;
 } = {}) {
   const db = openStateDb(join(tmpdir(), `agent-h-${process.pid}-${n++}.db`));
   // Handlers no longer expose `db` (R028); tests that need to reach the
@@ -130,6 +131,7 @@ function fresh(over: {
     locateTranscript: over.locate,
     startHerdr: over.startHerdr,
     resolveNodePin: over.resolveNodePin ?? (() => undefined),
+    findSshAgent: over.findSshAgent ?? (async () => undefined),
   }), { db });
 }
 
@@ -599,6 +601,22 @@ test("agent:start and resume put the repo's .nvmrc node on the pane's PATH", asy
   expect((await h["agent:resume"]({ id: started.data.id })).ok).toBe(true);
   expect(calls.find((c) => c[0] === "pane" && c[1] === "run")?.[3]).toContain(`PATH='/nvm/v22.23.4/bin':"$PATH" claude`);
   expect(seen).toEqual(["/tmp/x", "/tmp/x"]);
+});
+
+test("a pane whose herdr ssh-agent holds no key gets one that does", async () => {
+  const calls: string[][] = [];
+  const asked: (string | undefined)[] = [];
+  const h = fresh({ runner: okRunner(calls), findSshAgent: async (p) => (asked.push(p), { socket: "/keys/agent.1", preferred: false }) });
+  expect((await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" })).ok).toBe(true);
+  expect(calls.find((c) => c[0] === "pane" && c[1] === "run")?.[3]).toContain("SSH_AUTH_SOCK='/keys/agent.1'");
+  expect(asked[0]).toEndWith("herdr.sock.agent");
+});
+
+test("a pane whose herdr ssh-agent already holds a key is left alone", async () => {
+  const calls: string[][] = [];
+  const h = fresh({ runner: okRunner(calls), findSshAgent: async (p) => ({ socket: p!, preferred: true }) });
+  expect((await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" })).ok).toBe(true);
+  expect(calls.find((c) => c[0] === "pane" && c[1] === "run")?.[3]).not.toContain("SSH_AUTH_SOCK");
 });
 
 test("agent:resume passes env into the pane command; a resume without env carries none of the start's other env", async () => {
