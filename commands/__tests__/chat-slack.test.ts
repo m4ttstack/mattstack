@@ -621,14 +621,24 @@ test.each([
 test("slack-resume sends the conversation id and the caller, never an approval", async () => {
   await signIn();
   canned["chat:slack-resume"] = { ok: true, data: { gateId: "gate-2" } };
-  const res = await run(() => slackResume(["7", "--approved", "--json"]));
+  const res = await run(() => slackResume(["7", "--json"]));
   expect(res.code).toBe(0);
   expect(JSON.parse(res.stdout)).toEqual({ ok: true, gateId: "gate-2" });
-  expect(seen.find((s) => s.cmd === "chat:slack-resume")!.payload).toEqual({
+  const payload = seen.find((s) => s.cmd === "chat:slack-resume")!.payload as Record<string, unknown>;
+  expect(payload).toEqual({
     conversation: 7,
     requesterSession: SESSION,
     requesterHandle: expect.stringMatching(/^support\./),
   });
+  expect("approved" in payload).toBe(false);
+});
+
+test("slack-resume --approved sends approved:true and prints the daemon result", async () => {
+  canned["chat:slack-resume"] = { ok: true, data: { conversation: 7, agent: "same" } };
+  const res = await run(() => slackResume(["7", "--approved", "--json"]));
+  expect(res.code).toBe(0);
+  expect(JSON.parse(res.stdout)).toEqual({ ok: true, conversation: 7, agent: "same" });
+  expect(seen.find((s) => s.cmd === "chat:slack-resume")!.payload).toEqual({ conversation: 7, approved: true });
 });
 
 test.each([["no id", []], ["a word", ["abc"]], ["zero", ["0"]]] as [string, string[]][])("slack-resume with %s is refused, and nothing is sent", async (_name, args) => {

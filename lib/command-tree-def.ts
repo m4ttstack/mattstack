@@ -1821,6 +1821,7 @@ export const TREE: Record<string, CommandNode> = {
         fn: "slackResume",
         args: [
           { name: "Conversation", type: "text", placeholder: "7", hint: "The closed chat's id" },
+          { name: "Approved", flag: "--approved", type: "boolean", default: false, hint: "Resume at once: the operator's own tap is the approval" },
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
         ],
       },
