@@ -329,8 +329,8 @@ export function Board() {
   const update = (patch: Partial<ViewState>) => {
     const clearsSelection = tabChangeClearsSelection(patch, state.tab);
     // Each tab has its own roster (a codeowners tab's is inferred from the rows
-    // in view), so each tab remembers its own person pick: carrying one over
-    // would usually land on an empty board. A remembered pick who has left
+    // in view), so each tab remembers its own person pick and badge filters:
+    // carrying a person over would usually land on an empty board. A remembered pick who has left
     // that tab's roster falls back to everyone. The seat tab's
     // whole point is its grouping by need, so it opens grouped that way and
     // hands back the grouping you had before on the way out.
@@ -348,7 +348,11 @@ export function Board() {
       ...state,
       ...patch,
       ...(tabPicks
-        ? { member: memberOnTab(tabPicks.picks.member, patch.tab!) }
+        ? {
+            member: memberOnTab(tabPicks.picks.member, patch.tab!),
+            off: tabPicks.picks.off,
+            ownOff: tabPicks.picks.ownOff,
+          }
         : {}),
       ...(entersSeat && !patch.group ? { group: 'needs' as const } : {}),
       ...(leavesSeat && state.group === 'needs'
