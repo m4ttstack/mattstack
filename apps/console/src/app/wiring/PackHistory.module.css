@@ -245,3 +245,40 @@
 .clear {
   margin-left: auto;
 }
+
+/* What the next compile would rewrite: a row in the log, set apart by a
+   warm wash and its own mark, picked like the working tree's row. */
+.row.compile {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-warn) var(--ui-tint),
+    transparent
+  );
+}
+
+@media (hover: hover) {
+  .row.compile:hover {
+    background-color: color-mix(in srgb, var(--tk-fill-warn) 14%, transparent);
+  }
+}
+
+.compileHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tk-text-warn);
+}
+
+.compileHead .subject {
+  font-weight: 600;
+}
+
+.compileSkills {
+  font-weight: 500;
+  color: var(--tk-text-2);
+}
+
+.uncompiled {
+  font-weight: 500;
+  color: var(--tk-text-warn);
+}

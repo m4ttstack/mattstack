@@ -45,8 +45,24 @@ const summary = vi.hoisted(() => ({
 }));
 const diffCalls = vi.hoisted(() => [] as (string | null)[][]);
 const changesRead = vi.hoisted(() => ({ pending: false }));
+const waiting = vi.hoisted(() => ({
+  current: undefined as
+    | {
+        skills: string[];
+        commits: string[];
+        outside: {
+          ref: string;
+          builtVersion: string;
+          version: string;
+          skills: string[];
+        }[];
+      }
+    | undefined,
+}));
 
 vi.mock('../useWiring', () => ({
+  useCompileWaiting: () => ({ data: waiting.current }),
+  useCompileDiff: () => ({ data: undefined, isPending: false, isError: false }),
   usePendingChanges: () => ({ isPending: changesRead.pending }),
   useSkillsHistory: () => ({
     data: { commits: COMMITS, truncated: false },
@@ -88,7 +104,8 @@ vi.mock('../PatchView', () => ({
   ),
 }));
 
-const { HistoryMain, HistorySidebar, WORKING } = await import('../PackHistory');
+const { COMPILE, HistoryMain, HistorySidebar, WORKING } =
+  await import('../PackHistory');
 
 const at = (search: string) =>
   window.history.replaceState(null, '', `/packs${search}`);
@@ -100,6 +117,7 @@ const row = (commit: (typeof COMMITS)[number]) =>
 beforeEach(() => {
   summary.current = null;
   changesRead.pending = false;
+  waiting.current = undefined;
   diffCalls.length = 0;
   at('?tab=history&pack=acme');
 });
@@ -185,6 +203,48 @@ describe('the Changes sidebar: unsynced changes', () => {
     summary.current = null;
     view.rerender(<HistorySidebar pack="acme" />);
     await waitFor(() => expect(commitsInUrl()).toBe(NEWEST.sha));
+  });
+});
+
+describe('the Changes sidebar: waiting for compile', () => {
+  it('names what a compile would pick up and marks the uncompiled commits', async () => {
+    waiting.current = {
+      skills: ['work', 'shepherdr'],
+      commits: [NEWEST.sha],
+      outside: [
+        {
+          ref: 'mattstack:model-tiering',
+          builtVersion: '0.32.45',
+          version: '0.32.47',
+          skills: ['work'],
+        },
+      ],
+    };
+    at(`?tab=history&pack=acme&commits=${MIDDLE.sha}`);
+    renderWithProviders(<HistorySidebar pack="acme" />);
+
+    const row = await screen.findByTestId('compile-waiting');
+    expect(row).toHaveTextContent('Waiting for compile');
+    expect(row).toHaveTextContent('work, shepherdr');
+    expect(row).toHaveTextContent('mattstack:model-tiering 0.32.45 → 0.32.47');
+    expect(row).toHaveTextContent('1 commit below');
+    expect(screen.getByTestId('uncompiled-c333333')).toBeInTheDocument();
+    expect(screen.queryByTestId('uncompiled-c222222')).toBeNull();
+
+    await userEvent.click(row);
+    expect(commitsInUrl()).toBe(COMPILE);
+  });
+
+  it('shortens a long list of skills', async () => {
+    waiting.current = {
+      skills: ['a', 'b', 'c', 'd', 'e'],
+      commits: [],
+      outside: [],
+    };
+    renderWithProviders(<HistorySidebar pack="acme" />);
+    expect(await screen.findByTestId('compile-waiting')).toHaveTextContent(
+      'a, b, c +2 more'
+    );
   });
 });
 
