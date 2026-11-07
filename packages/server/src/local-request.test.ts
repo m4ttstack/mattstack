@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  fromOperatorPage,
   hasLocalOrigin,
   isLocalRequest,
   type LocalServer,
@@ -195,5 +196,41 @@ describe('hasLocalOrigin', () => {
     expect(hasLocalOrigin(req({ origin: 'https://deck.mattstack' }))).toBe(
       false
     );
+  });
+});
+
+describe('fromOperatorPage', () => {
+  test('no Origin and no Sec-Fetch-Site fails: a shell curl is not the page', () => {
+    expect(fromOperatorPage(req({ host: 'localhost:11002' }))).toBe(false);
+  });
+
+  test('a same-origin page passes by Origin or by Sec-Fetch-Site', () => {
+    expect(
+      fromOperatorPage(
+        req({ host: 'localhost:11002', origin: 'http://localhost:11002' })
+      )
+    ).toBe(true);
+    expect(
+      fromOperatorPage(
+        req({ host: 'localhost:11002', 'sec-fetch-site': 'same-origin' })
+      )
+    ).toBe(true);
+  });
+
+  test('a cross-site Origin fails even with Sec-Fetch-Site', () => {
+    expect(
+      fromOperatorPage(
+        req({
+          host: 'localhost:11002',
+          origin: 'https://evil.example.dev',
+          'sec-fetch-site': 'same-origin',
+        })
+      )
+    ).toBe(false);
+    expect(
+      fromOperatorPage(
+        req({ host: 'localhost:11002', 'sec-fetch-site': 'cross-site' })
+      )
+    ).toBe(false);
   });
 });

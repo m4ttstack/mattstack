@@ -16,6 +16,10 @@ vi.mock('@mattstack/rt-client', () => ({
   agentResume: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
   gateList: vi.fn(),
   gateAnswer: vi.fn(),
+  getSetting: vi.fn(() => ({
+    value: { name: 'Maude', emoji: 'x' },
+    provenance: [],
+  })),
   paneList: vi.fn(),
   paneFocus: vi.fn(),
   listRuns: vi.fn(),
@@ -83,15 +87,81 @@ function locate(id: string) {
   return gates.fetch(new Request(`http://localhost/api/gates/${id}/locate`));
 }
 
-function answer(id: string, body: unknown) {
+function answer(id: string, body: unknown, extra: Record<string, string> = {}) {
   return gates.fetch(
     new Request(`http://localhost/api/gates/${id}/answer`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', host: 'localhost' },
+      headers: {
+        'content-type': 'application/json',
+        host: 'localhost',
+        ...extra,
+      },
       body: JSON.stringify(body),
     })
   );
 }
+
+function slackGet() {
+  return gates.fetch(new Request('http://localhost/api/gates/slack'));
+}
+
+describe('GET /api/gates/slack', () => {
+  it('pages slack-open gates', async () => {
+    const page1 = Array.from({ length: 200 }, (_, i) =>
+      row({ id: `s${i}`, subject: 'slack:U1', kind: 'slack-open' })
+    );
+    const page2 = [
+      row({ id: 's200', subject: 'slack:U2', kind: 'slack-open' }),
+    ];
+    vi.mocked(rt.gateList)
+      .mockResolvedValueOnce({ ok: true, data: { gates: page1, cursor: 200 } })
+      .mockResolvedValueOnce({ ok: true, data: { gates: page2, cursor: 201 } });
+
+    const res = await slackGet();
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { gates: GateRow[] };
+    expect(body.gates).toHaveLength(201);
+    expect(rt.gateList).toHaveBeenCalledWith(
+      { kind: 'slack-open', open: true, limit: 200, cursor: undefined },
+      expect.anything()
+    );
+    expect(rt.gateList).toHaveBeenCalledWith(
+      { kind: 'slack-open', open: true, limit: 200, cursor: 200 },
+      expect.anything()
+    );
+  });
+
+  it('carries the persona trigger, the name after an @ when none is set', async () => {
+    const empty = { ok: true as const, data: { gates: [], cursor: 0 } };
+    vi.mocked(rt.gateList)
+      .mockResolvedValueOnce(empty)
+      .mockResolvedValueOnce(empty);
+    vi.mocked(rt.getSetting).mockReturnValueOnce({
+      value: { name: 'Maude', emoji: 'x' },
+      provenance: [],
+    });
+    await expect((await slackGet()).json()).resolves.toMatchObject({
+      trigger: '@Maude',
+    });
+
+    vi.mocked(rt.getSetting).mockReturnValueOnce({
+      value: { name: 'Maude', emoji: 'x', trigger: 'hey bot' },
+      provenance: [],
+    });
+    await expect((await slackGet()).json()).resolves.toMatchObject({
+      trigger: 'hey bot',
+    });
+  });
+
+  it('answers 502 when gate:list fails', async () => {
+    vi.mocked(rt.gateList).mockResolvedValueOnce({
+      ok: false,
+      error: 'rt daemon unreachable',
+    });
+    expect((await slackGet()).status).toBe(502);
+  });
+});
 
 describe('GET /api/gates', () => {
   it('passes an exact subject through and pages', async () => {
@@ -276,6 +346,83 @@ describe('GET /api/gates', () => {
 });
 
 describe('POST /api/gates/:id/answer', () => {
+  beforeEach(() => {
+    vi.mocked(rt.gateList).mockResolvedValue({
+      ok: true,
+      data: { gates: [], cursor: 0 },
+    });
+  });
+  afterEach(() => {
+    vi.mocked(rt.gateList).mockReset();
+  });
+
+  describe('a slack-open gate', () => {
+    const slack = row({ id: 's1', kind: 'slack-open', subject: 'slack:U1' });
+    const answered = row({ id: 's1', kind: 'slack-open', status: 'answered' });
+
+    beforeEach(() => {
+      vi.mocked(rt.gateList).mockResolvedValue({
+        ok: true,
+        data: { gates: [slack], cursor: 0 },
+      });
+    });
+
+    it('403s with no Origin and no Sec-Fetch-Site, as a pane shell sends', async () => {
+      const res = await answer('s1', { answers: { decision: 'approve' } });
+      expect(res.status).toBe(403);
+      expect(rt.gateAnswer).not.toHaveBeenCalled();
+    });
+
+    it('answers for the page itself, by Origin or by Sec-Fetch-Site', async () => {
+      const pages: Record<string, string>[] = [
+        { origin: 'http://localhost' },
+        { 'sec-fetch-site': 'same-origin' },
+      ];
+      for (const extra of pages) {
+        vi.mocked(rt.gateAnswer).mockResolvedValueOnce({
+          ok: true,
+          data: { row: answered },
+        });
+        const res = await answer(
+          's1',
+          { answers: { decision: 'approve' } },
+          extra
+        );
+        expect(res.status).toBe(200);
+      }
+    });
+
+    it('403s a foreign Origin', async () => {
+      const res = await answer(
+        's1',
+        { answers: { decision: 'approve' } },
+        { origin: 'https://evil.example.dev' }
+      );
+      expect(res.status).toBe(403);
+      expect(rt.gateAnswer).not.toHaveBeenCalled();
+    });
+
+    it('502s when the gate kind cannot be checked', async () => {
+      vi.mocked(rt.gateList).mockResolvedValue({ ok: false, error: 'down' });
+      const res = await answer('s1', { answers: { decision: 'approve' } });
+      expect(res.status).toBe(502);
+      expect(rt.gateAnswer).not.toHaveBeenCalled();
+    });
+  });
+
+  it('answers any other gate with no Origin, as before', async () => {
+    vi.mocked(rt.gateList).mockResolvedValue({
+      ok: true,
+      data: { gates: [row({ id: 's1', kind: 'slack-open' })], cursor: 0 },
+    });
+    vi.mocked(rt.gateAnswer).mockResolvedValueOnce({
+      ok: true,
+      data: { row: row({ status: 'answered' }) },
+    });
+    const res = await answer('g1', { answers: { q1: 'yes' } });
+    expect(res.status).toBe(200);
+  });
+
   it('200s on a clean answer', async () => {
     const answered = row({ status: 'answered' });
     vi.mocked(rt.gateAnswer).mockResolvedValueOnce({
@@ -637,11 +784,32 @@ describe('GET /api/gates/:id/locate', () => {
     const empty = { ok: true as const, data: { gates: [], cursor: 0 } };
     vi.mocked(rt.gateList)
       .mockResolvedValueOnce(empty)
+      .mockResolvedValueOnce(empty)
       .mockResolvedValueOnce(empty);
 
     const res = await locate('missing');
 
     expect(res.status).toBe(404);
+    expect(rt.listRuns).not.toHaveBeenCalled();
+  });
+
+  it('sends a slack-open gate to the Slack page', async () => {
+    const empty = { ok: true as const, data: { gates: [], cursor: 0 } };
+    vi.mocked(rt.gateList)
+      .mockResolvedValueOnce(empty)
+      .mockResolvedValueOnce(empty)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          gates: [row({ id: 'sg', subject: 'slack:U1', kind: 'slack-open' })],
+          cursor: 1,
+        },
+      });
+
+    const res = await locate('sg');
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ slack: true });
     expect(rt.listRuns).not.toHaveBeenCalled();
   });
 

@@ -32,6 +32,7 @@ function harness(opts: {
   runSpawnedBy?: (runId: string) => string | null;
   herdShepherd?: (herdId: string) => string | null;
   runCurrentStage?: (runId: string) => string | null;
+  slackOpenAnswered?: (row: import("../gates-store.ts").GateRow) => Promise<void>;
 } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "rt-gates-handlers-"));
   dirs.push(dir);
@@ -50,6 +51,7 @@ function harness(opts: {
     runSpawnedBy: opts.runSpawnedBy,
     herdShepherd: opts.herdShepherd,
     runCurrentStage: opts.runCurrentStage,
+    slackOpenAnswered: opts.slackOpenAnswered,
   });
   return { handlers, store, emitted, broadcasts };
 }
@@ -1051,5 +1053,80 @@ describe("gate:open meta.stage", () => {
     const { handlers } = harness({ runCurrentStage: (id) => { asked.push(id); return "plan"; } });
     await handlers["gate:open"](openPayload({ subject: "mr:9", kind: "k" }));
     expect(asked).toEqual([]);
+  });
+});
+
+describe("gate:answer on a slack-open gate", () => {
+  const GATE_ID = "5b6f0b32-4c7e-4c7e-9a52-0f6e0c1d2e3f";
+  const slackGate = () => ({
+    id: GATE_ID,
+    subject: "slack:U0TEST",
+    kind: "slack-open",
+    questions: [{ id: "decision", label: `Open a Slack support chat with Alex? [slack-open ${GATE_ID}]`, multi: false, options: ["approve", "decline"] }],
+    meta: { action: "open" },
+  });
+
+  test("the daemon's own open keeps a caller-minted id and goes through the normal gate events", async () => {
+    const { handlers, store, emitted } = harness();
+    const opened = await handlers.openSlackGate(slackGate());
+    expect(opened).toMatchObject({ ok: true, data: { id: GATE_ID } });
+    expect(store.get(GATE_ID)?.kind).toBe("slack-open");
+    expect(emitted.map((e) => e.topic)).toContain(`gate/opened/${GATE_ID}`);
+  });
+
+  test("the daemon's own open refuses an id that is not a uuid", async () => {
+    const { handlers } = harness();
+    expect(await handlers.openSlackGate({ ...slackGate(), id: "not-a-uuid" })).toEqual({ ok: false, error: "id must be a uuid" });
+  });
+
+  test("gate:open with kind slack-open is refused", async () => {
+    const { handlers, store } = harness();
+    const { id: _id, ...noId } = slackGate();
+    const res = await handlers["gate:open"](noId);
+    expect(res).toEqual({ ok: false, error: "only the daemon opens a slack-open gate, so ask for a chat with chat_slack_request" });
+    expect(store.list({}).gates).toEqual([]);
+  });
+
+  test("gate:open with an id is refused", async () => {
+    const { handlers } = harness();
+    const res = await handlers["gate:open"]({ ...openPayload(), id: GATE_ID } as never);
+    expect(res).toEqual({ ok: false, error: "a gate's id is minted by the daemon" });
+  });
+
+  test("gate:ask cannot open a slack-open gate either", async () => {
+    const { handlers } = harness();
+    const res = await handlers["gate:ask"]({ subject: "slack:U0TEST", kind: "slack-open", questions: slackGate().questions, context: "x" } as never);
+    expect(res.ok).toBe(false);
+  });
+
+  test("gate:answer by pane on a slack-open gate is refused; by console is accepted", async () => {
+    const seen: string[] = [];
+    const { handlers, store } = harness({ slackOpenAnswered: async (row) => void seen.push(row.id) });
+    await handlers.openSlackGate(slackGate());
+    for (const by of ["pane", "shepherd", "agent", "cli"]) {
+      const res = await handlers["gate:answer"]({ id: GATE_ID, answers: { decision: "approve" }, by });
+      expect(res).toEqual({ ok: false, error: "a Slack chat is approved only by the operator, in the console or the pane's form" });
+    }
+    expect(store.get(GATE_ID)?.status).toBe("open");
+    expect(seen).toEqual([]);
+    const accepted = await handlers["gate:answer"]({ id: GATE_ID, answers: { decision: "approve" }, by: "console" });
+    expect(accepted.ok).toBe(true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(seen).toEqual([GATE_ID]);
+  });
+
+  test("the mod's recorded answer is accepted", async () => {
+    const { handlers } = harness();
+    await handlers.openSlackGate(slackGate());
+    const res = await handlers["gate:answer"]({ id: GATE_ID, answers: { decision: "decline" }, by: "slack-mod" });
+    expect(res.ok).toBe(true);
+  });
+
+  test("another gate kind is not held to the slack-open rule", async () => {
+    const { handlers } = harness();
+    const opened = await handlers["gate:open"](openPayload());
+    if (!opened.ok) throw new Error("open failed");
+    const res = await handlers["gate:answer"]({ id: opened.data.id, answers: validAnswers(), by: "shepherd" });
+    expect(res.ok).toBe(true);
   });
 });

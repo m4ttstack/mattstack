@@ -7,7 +7,7 @@ title: Slack support chat
 
 A support chat lets one of your Claude panes help a teammate over a Slack direct message. The teammate writes in Slack. The pane answers there, and you can watch and steer from the chat viewer. The pane only reads and explains: it never edits files, commits or pushes for a teammate.
 
-Every pane reply starts with `[Claude 🤖]: `, so the teammate can tell it is Claude and not you.
+Every pane reply starts with `[Maude 🤖]: `, so the teammate can tell it is the bot and not you. Maude is the default name. Change the name, the emoji or the words a teammate uses to ask for the bot again in the `chat.slackSupport.persona` setting, for example `{ "name": "Ada", "emoji": "🦊", "trigger": "!!ada" }`. Without a `trigger`, it is the name after an `@`. A change applies to the next message.
 
 ## Set up
 

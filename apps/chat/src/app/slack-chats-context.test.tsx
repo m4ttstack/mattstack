@@ -3,6 +3,7 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 
 import {
+  isOpening,
   SlackChatsProvider,
   useSlackAvatar,
   useSlackChat,
@@ -51,17 +52,18 @@ test('an older status request that finishes last cannot overwrite a newer one', 
     )
   );
   const { result } = renderHook(() => useSlackChats());
+  const chatsNow = () => result.current.chats;
   act(() => openFrame?.());
   expect(replies).toHaveLength(2);
 
   await act(async () => replies[1]?.(statusReply(['dm-new'])));
-  await vi.waitFor(() => expect(rooms(result.current)).toEqual(['dm-new']));
+  await vi.waitFor(() => expect(rooms(chatsNow())).toEqual(['dm-new']));
 
   await act(async () => {
     replies[0]?.(statusReply(['dm-old']));
     await new Promise(resolve => setTimeout(resolve));
   });
-  expect(rooms(result.current)).toEqual(['dm-new']);
+  expect(rooms(chatsNow())).toEqual(['dm-new']);
 });
 
 test('the latest status request still applies', async () => {
@@ -70,7 +72,8 @@ test('the latest status request still applies', async () => {
     vi.fn(async () => statusReply(['dm-one']))
   );
   const { result } = renderHook(() => useSlackChats());
-  await vi.waitFor(() => expect(rooms(result.current)).toEqual(['dm-one']));
+  const chatsNow = () => result.current.chats;
+  await vi.waitFor(() => expect(rooms(chatsNow())).toEqual(['dm-one']));
 });
 
 test('ended chats list alongside open ones, carrying when they closed', async () => {
@@ -87,8 +90,9 @@ test('ended chats list alongside open ones, carrying when they closed', async ()
     )
   );
   const { result } = renderHook(() => useSlackChats());
+  const chatsNow = () => result.current.chats;
   await vi.waitFor(() =>
-    expect(result.current).toEqual([
+    expect(chatsNow()).toEqual([
       { room: 'dm-done', closedAt: 5 },
       { room: 'dm-open' },
     ])
@@ -101,10 +105,11 @@ test('a refused status read leaves no rooms rather than an error', async () => {
     vi.fn(async () => new Response('{}', { status: 502 }))
   );
   const { result } = renderHook(() => useSlackChats());
+  const chatsNow = () => result.current.chats;
   await act(async () => {
     await new Promise(resolve => setTimeout(resolve));
   });
-  expect(result.current).toEqual([]);
+  expect(chatsNow()).toEqual([]);
 });
 
 test('useSlackAvatar returns a URL carrying the picture version', () => {
@@ -149,4 +154,21 @@ test('useSlackChat finds a chat by its room', () => {
     renderHook(() => useSlackChat(room), { wrapper }).result.current;
   expect(chat('dm-1')?.agentName).toBe('kai');
   expect(chat('build')).toBeUndefined();
+});
+
+test('refresh reads the status again on demand', async () => {
+  const fetchSpy = vi.fn(async () => statusReply(['dm-one']));
+  vi.stubGlobal('fetch', fetchSpy);
+  const { result } = renderHook(() => useSlackChats());
+  await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+  act(() => result.current.refresh());
+  await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+});
+
+test('isOpening is an open chat whose room has no message yet', () => {
+  expect(isOpening({ room: 'r' }, {})).toBe(true);
+  expect(isOpening({ room: 'r' }, { lastPostedAt: 3 })).toBe(false);
+  expect(isOpening({ room: 'r', closedAt: 4 }, {})).toBe(false);
+  expect(isOpening(undefined, {})).toBe(false);
+  expect(isOpening({ room: 'r' }, undefined)).toBe(false);
 });

@@ -42,6 +42,31 @@ describe("slack client", () => {
     expect(e2.code).toBe("timeout");
   });
 
+  test("searchDms reads one search page and keeps each hit's channel kind", async () => {
+    const f = fakeFetch([
+      {
+        body: {
+          ok: true,
+          messages: {
+            matches: [
+              { ts: "1700000002.000100", user: "U0TEST", text: "@Maude hi", channel: { id: "D0TEST", is_im: true } },
+              { ts: "1700000001.000100", user: "U0TEST", text: "@Maude in a channel", channel: { id: "C0TEST", is_im: false }, subtype: "bot_message" },
+            ],
+          },
+        },
+      },
+    ]);
+    const hits = await createSlackClient("xoxp-TEST", f.impl).searchDms("is:dm to:me");
+    expect(f.calls).toHaveLength(1);
+    expect(f.calls[0]!.url).toBe("https://slack.com/api/search.messages");
+    expect(f.calls[0]!.params.get("query")).toBe("is:dm to:me");
+    expect(f.calls[0]!.params.get("sort")).toBe("timestamp");
+    expect(hits).toEqual([
+      { ts: "1700000002.000100", user: "U0TEST", text: "@Maude hi", channel: "D0TEST", isIm: true, subtype: undefined },
+      { ts: "1700000001.000100", user: "U0TEST", text: "@Maude in a channel", channel: "C0TEST", isIm: false, subtype: "bot_message" },
+    ]);
+  });
+
   test("throws SlackError carrying Slack's error code", async () => {
     const f = fakeFetch([{ body: { ok: false, error: "missing_scope" } }]);
     const err = await createSlackClient("t", f.impl).openDm("U0TEST").catch((e) => e);

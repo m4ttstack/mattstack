@@ -7,7 +7,26 @@ const SESSION = '11111111-1111-4111-8111-111111111111'
 const PRESENTATION = { isFullscreen: false, columns: 100 }
 const COMPOSER: PromptOrigin = { kind: 'composer' }
 const MARKER = 'abc123marker'
-const OPENED = JSON.stringify({ ok: true, conversationId: 7, handle: 'slack-alex', name: 'Alex', frameMarker: MARKER, room: 'dm-slack-alex' })
+const STARTED = JSON.stringify({ ok: true, conversation: 5 })
+const GATE = '5b1c0f6e-2f0e-4c25-9d1c-0d6a3d6f7a11'
+const QUESTION = `Open a Slack support chat with Alex? [slack-open ${GATE}]`
+// The gate store capitalizes labels and keeps the lowercase value the daemon matches on.
+const GATE_ROW = {
+  id: GATE,
+  kind: 'slack-open',
+  questions: [
+    {
+      id: 'decision',
+      label: QUESTION,
+      multi: false,
+      options: [
+        { value: 'approve', label: 'Approve' },
+        { value: 'decline', label: 'Decline' },
+      ],
+    },
+  ],
+}
+const GATES = JSON.stringify({ ok: true, gates: [GATE_ROW], cursor: 1 })
 
 const LINE: SlackWatchLine = {
   kind: 'message',
@@ -33,6 +52,8 @@ interface Run {
   bin?: string
   args: readonly string[]
   env?: Record<string, string>
+  stdin?: string
+  timeoutMs?: number
 }
 
 type Reply = { exitCode?: number; stdout?: string }
@@ -40,6 +61,8 @@ type Reply = { exitCode?: number; stdout?: string }
 interface WorldOptions {
   children?: Child[]
   replies?: (args: readonly string[]) => Reply | undefined
+  // The conversation the daemon says this session was started for.
+  assignment?: number | null
   // Stands for the child itself: the kit takes one hook per event.
   spawn?: (request: ProcessSpawnRequest) => AsyncGenerator<ProcessSpawnChunk, ProcessSpawnResult>
   submit?: (text: string) => PromptSubmitResult | Promise<PromptSubmitResult>
@@ -53,6 +76,7 @@ interface WorldOptions {
 function world(on: On, opts: WorldOptions = {}) {
   const children = [...(opts.children ?? [])]
   const runs: Run[] = []
+  const lookups: Run[] = []
   const spawns: Run[] = []
   const submits: { text: string; asUser?: true }[] = []
   const skills: string[] = []
@@ -74,8 +98,19 @@ function world(on: On, opts: WorldOptions = {}) {
   on('process.run', (_, e) => {
     const args = e.argv.slice(1)
     if (opts.missing?.includes(e.argv[0] ?? '')) throw new Error(`cannot start ${e.argv[0]}`)
-    runs.push({ bin: e.argv[0], args, env: e.init?.env })
-    const reply = opts.replies?.(args) ?? (args[1] === 'slack-open' ? { stdout: OPENED } : {})
+    const run = { bin: e.argv[0], args, env: e.init?.env, stdin: e.init?.stdin, timeoutMs: e.init?.timeoutMs }
+    // Every interactive session asks, so the lookup stays out of the runs a test counts.
+    const isLookup = args[1] === 'slack-assignment' || (args[0] === 'gate' && args[1] === 'list')
+    ;(isLookup ? lookups : runs).push(run)
+    const fallback =
+      args[1] === 'slack-start'
+        ? { stdout: STARTED }
+        : args[1] === 'slack-assignment'
+          ? { stdout: JSON.stringify({ ok: true, conversation: opts.assignment ?? null }) }
+          : args[1] === 'list'
+            ? { stdout: GATES }
+            : {}
+    const reply = opts.replies?.(args) ?? fallback
     return { value: { exitCode: reply.exitCode ?? 0, stdout: reply.stdout ?? '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('process.spawn', async function* (_, e) {
@@ -96,7 +131,7 @@ function world(on: On, opts: WorldOptions = {}) {
     return {}
   })
 
-  return { clock, runs, spawns, submits, skills, logs, registered }
+  return { clock, runs, lookups, spawns, submits, skills, logs, registered }
 }
 
 const verbs = (runs: readonly Run[]) => runs.map(run => run.args[1])
@@ -137,14 +172,15 @@ test('a missing person or problem is refused with usage', async ($, on) => {
   expect(spawns).toEqual([])
 })
 
-test('a quoted person keeps their spaces, and the rest is the problem', async ($, on) => {
+test('a quoted person keeps their spaces, and the rest is the problem, on stdin', async ($, on) => {
   const { clock, runs, skills } = world(on)
 
   await $.command.run({ command: 'slack-support', args: '"alex smith" rt is broken', origin: COMPOSER, presentation: PRESENTATION })
   await clock.advance(1000)
 
-  expect(runs[0]?.args).toEqual(['chat', 'slack-open', 'alex smith', '--json'])
-  expect(skills).toEqual(['slack-alex rt is broken'])
+  expect(runs[0]?.args).toEqual(['chat', 'slack-start', 'alex smith', '--brief', '-', '--requester-pane', 'w1-2', '--json'])
+  expect(runs[0]?.stdin).toBe('rt is broken')
+  expect(skills).toEqual([])
 })
 
 for (const command of [
@@ -277,41 +313,133 @@ test('an ordinary Monitor command passes, and so does a socket', async ($, on) =
   expect(ran).toBe(2)
 })
 
-test('the skill starts from a timer after the command.run hook returns, with the handle and problem in its arguments', async ($, on) => {
-  const { clock, skills } = world(on)
+test('/slack-support from composer calls slack-start with the problem on stdin, never on argv', async ($, on) => {
+  const { clock, runs, skills, spawns } = world(on)
+  const problem = 'rt is broken today and the export hangs '.repeat(40)
 
-  const result = await $.command.run({ command: 'slack-support', args: 'alex rt is broken today', origin: COMPOSER, presentation: PRESENTATION })
+  const result = await $.command.run({ command: 'slack-support', args: `alex ${problem}`, origin: COMPOSER, presentation: PRESENTATION })
+  await clock.advance(1000)
 
-  expect(result.text).toContain('Alex')
+  expect(verbs(runs)).toEqual(['slack-start'])
+  expect(runs[0]?.stdin).toBe(problem.trim())
+  expect(runs[0]?.args.join(' ')).not.toContain('broken')
+  expect(result.text).toBe("Slack chat starting with alex; I'll hear when it opens.")
+  expect(skills).toEqual([])
+  expect(spawns).toEqual([])
+})
+
+test('session.start with an assignment schedules rt:slack-support with the conversation id only', async ($, on) => {
+  const { clock, lookups, skills } = world(on, { assignment: 7 })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  expect(lookups).toEqual([])
   expect(skills).toEqual([])
 
   await clock.advance(1000)
 
-  expect(skills).toEqual(['slack-alex rt is broken today'])
+  expect(lookups.map(run => run.args)).toEqual([['chat', 'slack-assignment', '--session', SESSION, '--json']])
+  expect(skills).toEqual(['7'])
+})
+
+test('an assignment the daemon records after session.start is found by a later lookup', async ($, on) => {
+  let asked = 0
+  const { clock, lookups, skills } = world(on, {
+    replies: args => {
+      if (args[1] !== 'slack-assignment') return undefined
+      asked += 1
+      return { stdout: JSON.stringify({ ok: true, conversation: asked <= 2 ? null : 7 }) }
+    },
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await clock.advance(1000)
+  expect(skills).toEqual([])
+
+  await clock.advance(5000)
+
+  expect(skills).toEqual(['7'])
+  expect(lookups.length).toBe(3)
+  await clock.advance(60_000)
+  expect(lookups.length).toBe(3)
+})
+
+test('with no assignment the lookups stop after about 20 seconds', async ($, on) => {
+  const { clock, lookups, skills } = world(on, { assignment: null })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await clock.advance(25_000)
+  const asked = lookups.filter(run => run.args[1] === 'slack-assignment').length
+  await clock.advance(120_000)
+
+  expect(lookups.filter(run => run.args[1] === 'slack-assignment').length).toBe(asked)
+  expect(asked).toBeGreaterThan(1)
+  expect(skills).toEqual([])
+})
+
+test('session.start never waits for the daemon, and the lookup has a short timeout', async ($, on) => {
+  const { clock, lookups } = world(on)
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(lookups).toEqual([])
+
+  await clock.advance(1000)
+
+  expect(lookups[0]?.timeoutMs).toBeLessThanOrEqual(5_000)
+})
+
+test('session.start without an assignment starts nothing', async ($, on) => {
+  const { clock, skills } = world(on, { assignment: null })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await clock.advance(60_000)
+
+  expect(skills).toEqual([])
+})
+
+test('a lookup that fails starts nothing and leaves the session usable', async ($, on) => {
+  const { clock, skills, registered } = world(on, { replies: args => (args[1] === 'slack-assignment' ? { exitCode: 1, stdout: 'not json' } : undefined) })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await clock.advance(1000)
+
+  expect(skills).toEqual([])
+  expect(registered).toEqual(['slack-support'])
+})
+
+test('a session nobody is at asks for no assignment', async ($, on) => {
+  const { clock, lookups, skills } = world(on, { assignment: 7 })
+
+  await $.session.start({ cwd: '/', surface: null, isInteractive: false })
+  await clock.advance(1000)
+
+  expect(lookups).toEqual([])
+  expect(skills).toEqual([])
 })
 
 test('a skill that fails to start closes the chat and shows the reason', async ($, on) => {
   const { clock, runs, logs } = world(on, {
+    assignment: 7,
     skill: () => {
       throw new Error('no such command')
     },
   })
 
-  await $.command.run({ command: 'slack-support', args: 'alex rt is broken', origin: COMPOSER, presentation: PRESENTATION })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await clock.advance(1000)
 
-  expect(verbs(runs)).toEqual(['slack-open', 'slack-close'])
+  expect(verbs(runs)).toEqual(['slack-close'])
   expect(logs.join('\n')).toContain('its skill did not start')
 })
 
 test('every child gets the session id and the pane id', async ($, on) => {
-  const { clock, runs, spawns } = world(on, { children: [{ stdout: jsonl(LINE) }] })
+  const { clock, runs, lookups, spawns } = world(on, { assignment: 7, children: [{ stdout: jsonl(LINE) }] })
 
-  await $.command.run({ command: 'slack-support', args: 'alex rt is broken', origin: COMPOSER, presentation: PRESENTATION })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await clock.advance(1000)
 
-  expect(verbs(runs)).toEqual(['slack-open', 'slack-delivered'])
-  for (const child of [...runs, ...spawns]) {
+  expect(verbs(runs)).toEqual(['slack-delivered'])
+  for (const child of [...lookups, ...runs, ...spawns]) {
     expect(child.env).toEqual({ CLAUDE_CODE_SESSION_ID: SESSION, HERDR_PANE_ID: 'w1-2' })
   }
 })
@@ -319,26 +447,35 @@ test('every child gets the session id and the pane id', async ($, on) => {
 test('rt is spawned directly, so the session is the watcher\'s parent', async ($, on) => {
   const { clock, spawns } = world(on)
 
-  await $.command.run({ command: 'slack-support', args: 'alex rt is broken', origin: COMPOSER, presentation: PRESENTATION })
-  await clock.settle()
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await clock.advance(1000)
 
   expect(spawns[0]?.args).toEqual(['rt', 'chat', 'slack-watch', '--json'])
 })
 
 test('an rt off the PATH is found at ~/.local/bin/rt, for every verb and the watcher', async ($, on) => {
   const installed = '/home/alex/.local/bin/rt'
-  const { clock, runs, spawns } = world(on, { missing: ['rt'], children: [{ stdout: jsonl(LINE) }] })
+  const { clock, runs, lookups, spawns } = world(on, { missing: ['rt'], assignment: 7, children: [{ stdout: jsonl(LINE) }] })
 
-  await $.command.run({ command: 'slack-support', args: 'alex rt is broken', origin: COMPOSER, presentation: PRESENTATION })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await clock.advance(1000)
 
-  expect(verbs(runs)).toEqual(['slack-open', 'slack-delivered'])
-  expect(runs.map(run => run.bin)).toEqual([installed, installed])
+  expect(verbs(runs)).toEqual(['slack-delivered'])
+  expect([...lookups, ...runs].map(run => run.bin)).toEqual([installed, installed])
   expect(spawns.slice(0, 2).map(spawn => spawn.args[0])).toEqual(['rt', installed])
 })
 
+test('a start from an rt off the PATH runs at ~/.local/bin/rt with the problem on stdin', async ($, on) => {
+  const { runs } = world(on, { missing: ['rt'] })
+
+  await $.command.run({ command: 'slack-support', args: 'alex rt is broken', origin: COMPOSER, presentation: PRESENTATION })
+
+  expect(runs.map(run => run.bin)).toEqual(['/home/alex/.local/bin/rt'])
+  expect(runs[0]?.stdin).toBe('rt is broken')
+})
+
 test('an rt that starts and fails is not tried again at ~/.local/bin/rt', async ($, on) => {
-  const { clock, runs } = world(on, { replies: args => (args[1] === 'slack-open' ? { exitCode: 1, stdout: JSON.stringify({ ok: false, error: 'No one matches alex' }) } : undefined) })
+  const { clock, runs } = world(on, { replies: args => (args[1] === 'slack-start' ? { exitCode: 1, stdout: JSON.stringify({ ok: false, error: 'No one matches alex' }) } : undefined) })
 
   const result = await $.command.run({ command: 'slack-support', args: 'alex rt is broken', origin: COMPOSER, presentation: PRESENTATION })
   await clock.settle()
@@ -357,7 +494,7 @@ test('with no rt anywhere the watcher stops trying when no chat is known', async
 })
 
 test('every submit omits asUser', async ($, on) => {
-  const kinds = ['message', 'operator-slack', 'check-in', 'close-request', 'closed'] as const
+  const kinds = ['message', 'operator-slack', 'check-in', 'close-request', 'closed', 'resumed'] as const
   const { clock, submits } = world(on, {
     children: [{ stdout: jsonl(...kinds.map((kind, i) => ({ ...LINE, kind, id: 50 + i }))) }],
   })
@@ -510,6 +647,15 @@ test('a check-in reads as a cue to check in', () => {
   expect(text).toContain('slack-alex')
 })
 
+test('a resume reads as a cue to answer the teammate who is back', () => {
+  const text = renderDelivery({ ...LINE, kind: 'resumed', text: 'This chat has been picked up again. Reply with chat_dm within a minute.' })
+
+  expect(text).toContain('Resume cue for your Slack chat with Alex')
+  expect(text).toContain('within a minute')
+  expect(text).toContain('slack-alex')
+  expect(deliveryRow(text)).toBe('Resume cue for your Slack chat with Alex')
+})
+
 test('a close request reads as a cue to close', () => {
   const text = renderDelivery({ ...LINE, kind: 'close-request', text: 'This chat is closing (reason: idle). Write your farewell and call chat_slack_close within 2 minutes.' })
 
@@ -585,9 +731,10 @@ test('an rt that cannot watch stops trying when no chat is known', async ($, on)
 
 test('a chat that closed is not watched again', async ($, on) => {
   const closed = { ...LINE, kind: 'closed' as const, id: 61, text: 'This Slack chat is closed (reason: idle).' }
-  const { clock, spawns } = world(on, { children: [{ stdout: jsonl(closed) }] })
+  const { clock, spawns } = world(on, {
+    assignment: 7, children: [{ stdout: jsonl(closed) }] })
 
-  await $.command.run({ command: 'slack-support', args: 'alex rt is broken', origin: COMPOSER, presentation: PRESENTATION })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await clock.advance(120_000)
 
   expect(spawns).toHaveLength(1)
@@ -595,9 +742,10 @@ test('a chat that closed is not watched again', async ($, on) => {
 
 test('a held chat stops being watched once the session is signed out, since sign-out closes it', async ($, on) => {
   const signedOut = { stdout: jsonl({ ok: false, error: "This session isn't signed in to rt chat" }), code: 1 }
-  const { clock, spawns } = world(on, { children: [{ code: 1 }, ...Array.from({ length: 20 }, () => signedOut)] })
+  const { clock, spawns } = world(on, {
+    assignment: 7, children: [{ code: 1 }, ...Array.from({ length: 20 }, () => signedOut)] })
 
-  await $.command.run({ command: 'slack-support', args: 'alex rt is broken', origin: COMPOSER, presentation: PRESENTATION })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await clock.advance(600_000)
 
   expect(spawns).toHaveLength(2)
@@ -605,19 +753,23 @@ test('a held chat stops being watched once the session is signed out, since sign
 
 test('a held chat outlasts a daemon that is not answering', async ($, on) => {
   const noDaemon = { stdout: jsonl({ ok: false, error: "The daemon isn't answering, so there is no Slack chat to watch" }), code: 1 }
-  const { clock, spawns } = world(on, { children: [noDaemon, noDaemon, noDaemon] })
+  const { clock, spawns } = world(on, {
+    assignment: 7, children: [noDaemon, noDaemon, noDaemon] })
 
-  await $.command.run({ command: 'slack-support', args: 'alex rt is broken', origin: COMPOSER, presentation: PRESENTATION })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await clock.advance(600_000)
 
   expect(spawns).toHaveLength(4)
 })
 
 test('an unexpected exit restarts the watcher, with a backoff', async ($, on) => {
-  const { clock, spawns } = world(on, { children: [{ code: 1 }, { code: null }, { code: 1 }] })
+  const { clock, spawns } = world(on, {
+    assignment: 7,
+    children: [{ code: 1 }, { code: null }, { code: 1 }],
+  })
 
-  await $.command.run({ command: 'slack-support', args: 'alex rt is broken', origin: COMPOSER, presentation: PRESENTATION })
-  await clock.settle()
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await clock.advance(200)
 
   expect(spawns).toHaveLength(1)
 
@@ -630,71 +782,10 @@ test('an unexpected exit restarts the watcher, with a backoff', async ($, on) =>
   expect(spawns).toHaveLength(4)
 })
 
-test('a chat opened as the watcher exits gets a watcher of its own', async ($, on) => {
-  let exit = () => {}
-  const exited = new Promise<void>(resolve => {
-    exit = resolve
-  })
-  let spawned = 0
-  const { clock, skills } = world(on, {
-    spawn: async function* () {
-      spawned += 1
-      if (spawned === 1) await exited
-      return { code: 0, signal: null }
-    },
-  })
-
-  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  await clock.settle()
-  await $.command.run({ command: 'slack-support', args: 'alex rt is broken', origin: COMPOSER, presentation: PRESENTATION })
-  exit()
-  await clock.advance(1000)
-
-  expect(skills).toHaveLength(1)
-  expect(spawned).toBe(2)
-})
-
-test('an unsigned pane is signed in before the open', async ($, on) => {
-  let signedIn = false
-  const { clock, runs, skills } = world(on, {
-    replies: args => {
-      if (args[1] === 'sign-in') {
-        signedIn = true
-        return {}
-      }
-      if (args[1] === 'slack-open' && !signedIn) return { exitCode: 1, stdout: JSON.stringify({ ok: false, error: "This session isn't signed in to rt chat" }) }
-      return undefined
-    },
-  })
-
-  await $.command.run({ command: 'slack-support', args: 'alex rt is broken', origin: COMPOSER, presentation: PRESENTATION })
-  await clock.advance(1000)
-
-  expect(verbs(runs)).toEqual(['slack-open', 'sign-in', 'slack-open'])
-  expect(skills).toHaveLength(1)
-})
-
-test('a sign-in that fails shows the operator why, and nothing opens', async ($, on) => {
-  const { clock, runs, spawns } = world(on, {
-    replies: args => {
-      if (args[1] === 'sign-in') return { exitCode: 2 }
-      if (args[1] === 'slack-open') return { exitCode: 1, stdout: JSON.stringify({ ok: false, error: "This session isn't signed in to rt chat" }) }
-      return undefined
-    },
-  })
-
-  const result = await $.command.run({ command: 'slack-support', args: 'alex rt is broken', origin: COMPOSER, presentation: PRESENTATION })
-  await clock.advance(1000)
-
-  expect(result.text).toContain('signed in')
-  expect(verbs(runs)).toEqual(['slack-open', 'sign-in'])
-  expect(spawns).toEqual([])
-})
-
-test('a failed open leaves no watcher running', async ($, on) => {
+test('a failed start leaves no watcher running', async ($, on) => {
   const error = 'alex already has a Slack chat open in w1-3'
   const { clock, spawns, skills } = world(on, {
-    replies: args => (args[1] === 'slack-open' ? { exitCode: 1, stdout: JSON.stringify({ ok: false, error }) } : undefined),
+    replies: args => (args[1] === 'slack-start' ? { exitCode: 1, stdout: JSON.stringify({ ok: false, error }) } : undefined),
   })
 
   const result = await $.command.run({ command: 'slack-support', args: 'alex rt is broken', origin: COMPOSER, presentation: PRESENTATION })
@@ -705,9 +796,9 @@ test('a failed open leaves no watcher running', async ($, on) => {
   expect(skills).toEqual([])
 })
 
-test('an open that prints no JSON still leaves nothing running', async ($, on) => {
+test('a start that prints no JSON still leaves nothing running', async ($, on) => {
   const { clock, spawns, skills } = world(on, {
-    replies: args => (args[1] === 'slack-open' ? { exitCode: 2, stdout: 'rt hit an unexpected error' } : undefined),
+    replies: args => (args[1] === 'slack-start' ? { exitCode: 2, stdout: 'rt hit an unexpected error' } : undefined),
   })
 
   const result = await $.command.run({ command: 'slack-support', args: 'alex rt is broken', origin: COMPOSER, presentation: PRESENTATION })
@@ -744,7 +835,7 @@ test('a Slack user id reaches the open unchanged', () => {
   expect(parseSupportArgs('U0TEST printer jams')).toEqual({ person: 'U0TEST', problem: 'printer jams' })
 })
 
-for (const kind of ['message', 'operator-slack', 'check-in', 'close-request', 'closed'] as const) {
+for (const kind of ['message', 'operator-slack', 'check-in', 'close-request', 'closed', 'resumed'] as const) {
   test(`a ${kind} delivery carries its item id`, () => {
     expect(renderDelivery({ ...LINE, kind })).toContain('Slack item 41.')
   })
@@ -822,5 +913,182 @@ const ASSIGNMENTS = [
 for (const command of ASSIGNMENTS) {
   test(`assignment forms still reach the verb: ${command}`, () => {
     expect(touchesSlackSupport(command)).toBe(true)
+  })
+}
+
+const FORM_OPTIONS = [
+  { label: 'Approve', description: 'Open it' },
+  { label: 'Decline', description: 'Leave it' },
+]
+
+function ask(question: string, options = FORM_OPTIONS) {
+  return { tool: 'AskUserQuestion' as const, questions: [{ question, header: 'Slack chat', options, multiSelect: false }] }
+}
+
+test('an AskUserQuestion answer to a slack-open form is recorded by the mod as slack-mod', async ($, on) => {
+  const { runs } = world(on)
+  on('tool.call', (_, e) => ({ result: { questions: (e as ReturnType<typeof ask>).questions, answers: { [QUESTION]: 'Approve' } } }))
+
+  const result = await $.tool.call(ask(QUESTION))
+
+  expect(runs.map(run => run.args)).toEqual([['gate', 'answer', GATE, '--answers', JSON.stringify({ decision: 'approve' }), '--by', 'slack-mod']])
+  expect(result.deny).toBeUndefined()
+  expect(result.result).toMatchObject({ answers: { [QUESTION]: 'Approve' } })
+})
+
+test('the recorded answer is the gate option value, whatever label the pane showed', async ($, on) => {
+  const { runs } = world(on)
+  on('tool.call', (_, e) => ({ result: { questions: (e as ReturnType<typeof ask>).questions, answers: { [QUESTION]: 'Decline' } } }))
+
+  await $.tool.call(ask(QUESTION))
+
+  expect(runs.map(run => run.args[4])).toEqual([JSON.stringify({ decision: 'decline' })])
+})
+
+test('a real marker on a different question records nothing, and says so', async ($, on) => {
+  const { runs, logs } = world(on)
+  const question = `Run the lint fix? [slack-open ${GATE}]`
+  on('tool.call', (_, e) => ({ result: { questions: (e as ReturnType<typeof ask>).questions, answers: { [question]: 'Approve' } } }))
+
+  await $.tool.call(ask(question))
+
+  expect(runs).toEqual([])
+  expect(logs.join('\n')).toContain('was not recorded')
+})
+
+test('an option the gate does not have records nothing', async ($, on) => {
+  const { runs, logs } = world(on)
+  const options = [...FORM_OPTIONS, { label: 'Maybe', description: 'Later' }]
+  on('tool.call', (_, e) => ({ result: { questions: (e as ReturnType<typeof ask>).questions, answers: { [QUESTION]: 'Maybe' } } }))
+
+  await $.tool.call(ask(QUESTION, options))
+
+  expect(runs).toEqual([])
+  expect(logs.join('\n')).toContain('was not recorded')
+})
+
+test('a gate the daemon does not list, or cannot be asked about, records nothing', async ($, on) => {
+  const gone = world(on, { replies: args => (args[1] === 'list' ? { stdout: JSON.stringify({ ok: true, gates: [], cursor: 0 }) } : undefined) })
+  on('tool.call', (_, e) => ({ result: { questions: (e as ReturnType<typeof ask>).questions, answers: { [QUESTION]: 'Approve' } } }))
+
+  await $.tool.call(ask(QUESTION))
+
+  expect(gone.runs).toEqual([])
+  expect(gone.logs.join('\n')).toContain('was not recorded')
+})
+
+test('a daemon that cannot be reached records nothing, and the answer still returns', async ($, on) => {
+  const { runs, logs } = world(on, { replies: args => (args[1] === 'list' ? { exitCode: 1, stdout: '' } : undefined) })
+  on('tool.call', (_, e) => ({ result: { questions: (e as ReturnType<typeof ask>).questions, answers: { [QUESTION]: 'Approve' } } }))
+
+  const result = await $.tool.call(ask(QUESTION))
+
+  expect(runs).toEqual([])
+  expect(logs.join('\n')).toContain('was not recorded')
+  expect(result.result).toBeDefined()
+})
+
+test('the recorded answer is the option the user picked, whatever its case', async ($, on) => {
+  const { runs } = world(on)
+  on('tool.call', (_, e) => ({ result: { questions: (e as ReturnType<typeof ask>).questions, answers: { [QUESTION]: 'DECLINE' } } }))
+
+  await $.tool.call(ask(QUESTION))
+
+  expect(runs[0]?.args[4]).toBe(JSON.stringify({ decision: 'decline' }))
+})
+
+test('an ordinary AskUserQuestion records nothing', async ($, on) => {
+  const { runs } = world(on)
+  on('tool.call', (_, e) => ({ result: { questions: (e as ReturnType<typeof ask>).questions, answers: { 'Which one?': 'approve' } } }))
+
+  const result = await $.tool.call(ask('Which one?'))
+
+  expect(runs).toEqual([])
+  expect(result.result).toBeDefined()
+})
+
+test('a slack-open form the user dismissed or answered in their own words records nothing', async ($, on) => {
+  const { runs } = world(on)
+  let answers: Record<string, string> = {}
+  on('tool.call', (_, e) => ({ result: { questions: (e as ReturnType<typeof ask>).questions, answers } }))
+
+  await $.tool.call(ask(QUESTION))
+  answers = { [QUESTION]: 'go ahead, but only on Tuesday' }
+  await $.tool.call(ask(QUESTION))
+
+  expect(runs).toEqual([])
+})
+
+test('answers the model pre-filled for a slack-open form never reach the dialog', async ($, on) => {
+  world(on)
+  let seen: unknown
+  on('tool.call', (_, e) => {
+    seen = (e as { answers?: unknown }).answers
+    return { result: { questions: [], answers: {} } }
+  })
+
+  await $.tool.call({ ...ask(QUESTION), answers: { [QUESTION]: 'approve' } })
+
+  expect(seen).toBeUndefined()
+})
+
+test('a form the mod fails to record is still answered, and says so', async ($, on) => {
+  const { logs } = world(on, { replies: args => (args[1] === 'answer' ? { exitCode: 1, stdout: '' } : undefined) })
+  on('tool.call', (_, e) => ({ result: { questions: (e as ReturnType<typeof ask>).questions, answers: { [QUESTION]: 'Approve' } } }))
+
+  const result = await $.tool.call(ask(QUESTION))
+
+  expect(result.result).toMatchObject({ answers: { [QUESTION]: 'Approve' } })
+  expect(logs.join('\n')).toContain('was not recorded')
+})
+
+for (const command of [
+  'rt gate answer 5b1c --answers \'{"decision":"approve"}\' --by console',
+  'rt gate answer 5b1c --answers \'{"decision":"approve"}\' --by slack-mod',
+  'rt gate answer 5b1c --by=slack-mod --answers \'{}\'',
+  'bun cli.ts gate answer 5b1c --answers \'{}\' --by "console"',
+  'env -u HERDR_PANE_ID rt gate answer 5b1c --answers \'{}\' --by console',
+  'rt chat slack-start alex --brief - --json',
+  'rt chat slack-request alex --json',
+  'rt chat slack-resume alex',
+  'rt chat slack-assignment --session abc --json',
+  'rt --sock /x gate answer 5b1c --answers \'{}\' --by console',
+  'rt --sock=/x gate answer 5b1c --answers \'{}\' --by console',
+  'rt --sock /x chat slack-start alex --brief -',
+  'rt --sock /x --json chat slack-assignment',
+  'echo hi | rt chat slack-start alex --brief -',
+  '/opt/tools/rt chat slack-assignment --json',
+]) {
+  test(`Bash running a verb that opens or approves a Slack chat is denied: ${command}`, async ($, on) => {
+    let ran = false
+    on('tool.call', () => {
+      ran = true
+      return { result: {} }
+    })
+
+    const result = await $.tool.call({ tool: 'Bash', command })
+
+    expect(ran).toBe(false)
+    expect(result.deny).toContain('Only a person')
+  })
+}
+
+for (const command of [
+  'rt gate answer 5b1c --answers \'{"pick":"a"}\' --by shepherd',
+  'rt gate answer 5b1c --answers \'{}\' --by pane',
+  'rt gate list --json',
+  'rg "rt gate answer" docs',
+  'rt chat post rt "rt chat slack-start is hidden"',
+]) {
+  test(`an ordinary gate or chat command passes: ${command}`, async ($, on) => {
+    let ran = false
+    on('tool.call', () => {
+      ran = true
+      return { result: {} }
+    })
+
+    await $.tool.call({ tool: 'Bash', command })
+
+    expect(ran).toBe(true)
   })
 }

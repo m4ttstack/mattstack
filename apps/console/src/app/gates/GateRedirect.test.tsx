@@ -46,6 +46,19 @@ describe('GateRedirect', () => {
     expect(locateGet).toHaveBeenCalledWith({ param: { id: 'g1' } });
   });
 
+  it('sends a slack: gate to /slack-gates?gate=id', async () => {
+    window.history.pushState(null, '', '/gates/g%2F1');
+    locateGet.mockResolvedValue(ok({ slack: true }));
+
+    renderWithProviders(<GateRedirect id="g/1" />);
+
+    await vi.waitFor(() =>
+      expect(window.location.pathname + window.location.search).toBe(
+        '/slack-gates?gate=g%2F1'
+      )
+    );
+  });
+
   it('encodes runId and id but leaves the already-encoded repo alone', async () => {
     window.history.pushState(null, '', '/gates/g%2F1');
     locateGet.mockResolvedValue(

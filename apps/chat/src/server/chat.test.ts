@@ -14,15 +14,24 @@ vi.mock('@mattstack/rt-client', () => ({
   chatSlackAvatars: vi.fn(),
   matchSlackFaces: vi.fn(() => ({ person: 'U1' })),
   chatSlackStatus: vi.fn(),
+  chatSlackPeople: vi.fn(),
+  chatSlackStart: vi.fn(),
+  chatSlackResume: vi.fn(),
+  serializeIdentity: (id: { kind: string; id: string }) =>
+    `${id.kind}:${encodeURIComponent(id.id)}`,
+  parseIdentity: (wire: string) =>
+    wire.startsWith('remote:') || wire.startsWith('path:') ? {} : null,
   paneList: vi.fn(),
   daemonHealth: vi.fn(),
   getSetting: vi.fn(() => ({ value: 'matt' })),
 }));
 const rt = await import('@mattstack/rt-client');
 const { routes } = await import('./routes');
+const { forgetSlackDirectory } = await import('./chat');
 
 beforeEach(() => {
   vi.resetAllMocks();
+  forgetSlackDirectory();
   // The rooms handler now reads each DM room's newest message for the fleet
   // tree's second line. Most tests do not care what it is, only that the call
   // resolves like the daemon's would.
@@ -34,6 +43,12 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.CHAT_FIXTURES;
 });
+
+function setRepo(value: string | undefined) {
+  vi.mocked(rt.getSetting).mockImplementation(((key: string) => ({
+    value: key === 'chat.slackSupport.defaultRepo' ? value : 'matt',
+  })) as never);
+}
 
 test("rooms returns the daemon's payload, DM rows included", async () => {
   vi.mocked(rt.chatRooms).mockResolvedValueOnce({
@@ -1075,7 +1090,7 @@ test('slack-status passes the open chats through', async () => {
   vi.mocked(rt.chatSlackStatus).mockResolvedValueOnce({
     ok: true,
     data: { conversations, closed: [] },
-  });
+  } as never);
   const res = await routes.request('/api/chat/slack-status');
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ conversations, closed: [] });
@@ -1264,4 +1279,376 @@ test('a first page where every DM fails is an error, not an empty list', async (
   vi.mocked(rt.chatMessages).mockResolvedValue({ ok: false, error: 'nope' });
   const res = await routes.request('/api/chat/direct');
   expect(res.status).toBe(502);
+});
+
+const LOCAL = { host: 'localhost' };
+const JSON_LOCAL = { ...LOCAL, 'content-type': 'application/json' };
+const JSON_PAGE = { ...JSON_LOCAL, origin: 'http://localhost' };
+
+const PEOPLE = [
+  {
+    name: 'Alex Example',
+    person: 'U0A',
+    avatarId: 'U0A',
+    avatarVersion: 'v1',
+  },
+  { name: 'Sam Example', person: 'U0B' },
+];
+
+test('slack-people passes the directory through, pictures named', async () => {
+  vi.mocked(rt.chatSlackPeople).mockResolvedValueOnce({
+    ok: true,
+    data: { people: PEOPLE },
+  });
+  const res = await routes.request('/api/chat/slack-people', {
+    headers: LOCAL,
+  });
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ people: PEOPLE });
+});
+
+test('slack-people carries the daemon refusal, so the picker can say why', async () => {
+  vi.mocked(rt.chatSlackPeople).mockResolvedValueOnce({
+    ok: false,
+    error: "chat: Slack isn't connected on this machine",
+    failure: {
+      code: 'slack-chat',
+      message: "Slack isn't connected on this machine",
+    },
+  });
+  const res = await routes.request('/api/chat/slack-people', {
+    headers: LOCAL,
+  });
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({
+    error: "Slack isn't connected on this machine",
+  });
+});
+
+test('slack-start sends the person, the brief and the repo, with no requester', async () => {
+  setRepo('github.com/acme/support');
+  vi.mocked(rt.chatSlackStart).mockResolvedValueOnce({
+    ok: true,
+    data: { conversation: 7 },
+  });
+  vi.mocked(rt.chatSlackStatus).mockResolvedValueOnce({
+    ok: true,
+    data: {
+      conversations: [{ id: 7, room: 'dm-slack-7' }],
+      closed: [],
+    },
+  } as never);
+  const res = await routes.request('/api/chat/slack-start', {
+    method: 'POST',
+    headers: JSON_PAGE,
+    body: JSON.stringify({ person: 'U0A', brief: 'Help with the deck' }),
+  });
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ conversation: 7, room: 'dm-slack-7' });
+  expect(vi.mocked(rt.chatSlackStart).mock.calls[0]![0]).toEqual({
+    person: 'U0A',
+    brief: 'Help with the deck',
+    repo: 'remote:github.com%2Facme%2Fsupport',
+  });
+});
+
+test('slack-start leaves a repo already in wire form alone', async () => {
+  setRepo('remote:github.com%2Facme%2Fsupport');
+  vi.mocked(rt.chatSlackStart).mockResolvedValueOnce({
+    ok: true,
+    data: { conversation: 7 },
+  });
+  vi.mocked(rt.chatSlackStatus).mockResolvedValueOnce({ ok: false });
+  const res = await routes.request('/api/chat/slack-start', {
+    method: 'POST',
+    headers: JSON_PAGE,
+    body: JSON.stringify({ person: 'U0A', brief: 'x' }),
+  });
+  expect(await res.json()).toEqual({ conversation: 7, room: null });
+  expect(vi.mocked(rt.chatSlackStart).mock.calls[0]![0].repo).toBe(
+    'remote:github.com%2Facme%2Fsupport'
+  );
+});
+
+test('slack-start refuses, naming the setting, when no repo is set', async () => {
+  setRepo(undefined);
+  const res = await routes.request('/api/chat/slack-start', {
+    method: 'POST',
+    headers: JSON_PAGE,
+    body: JSON.stringify({ person: 'U0A', brief: 'x' }),
+  });
+  expect(res.status).toBe(409);
+  expect((await res.json()).error).toContain('chat.slackSupport.defaultRepo');
+  expect(rt.chatSlackStart).not.toHaveBeenCalled();
+});
+
+test('slack-start needs a person and a brief', async () => {
+  setRepo('github.com/acme/support');
+  for (const body of [
+    { brief: 'x' },
+    { person: 'U0A' },
+    { person: 'U0A', brief: '  ' },
+  ]) {
+    const res = await routes.request('/api/chat/slack-start', {
+      method: 'POST',
+      headers: JSON_PAGE,
+      body: JSON.stringify(body),
+    });
+    expect(res.status).toBe(400);
+  }
+  expect(rt.chatSlackStart).not.toHaveBeenCalled();
+});
+
+test('slack-start carries the daemon refusal', async () => {
+  setRepo('github.com/acme/support');
+  vi.mocked(rt.chatSlackStart).mockResolvedValueOnce({
+    ok: false,
+    error: 'chat: Alex Example already has a Slack chat open',
+    failure: {
+      code: 'slack-chat',
+      message: 'Alex Example already has a Slack chat open',
+    },
+  });
+  const res = await routes.request('/api/chat/slack-start', {
+    method: 'POST',
+    headers: JSON_PAGE,
+    body: JSON.stringify({ person: 'U0A', brief: 'x' }),
+  });
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({
+    error: 'Alex Example already has a Slack chat open',
+  });
+});
+
+test('slack-resume approves at once, with no requester', async () => {
+  vi.mocked(rt.chatSlackResume).mockResolvedValueOnce({
+    ok: true,
+    data: { conversation: 9, agent: 'fresh' },
+  });
+  vi.mocked(rt.chatSlackStatus).mockResolvedValueOnce({
+    ok: true,
+    data: { conversations: [{ id: 9, room: 'dm-slack-7' }], closed: [] },
+  } as never);
+  const res = await routes.request('/api/chat/slack-resume', {
+    method: 'POST',
+    headers: JSON_PAGE,
+    body: JSON.stringify({ conversation: 7 }),
+  });
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ conversation: 9, room: 'dm-slack-7' });
+  expect(vi.mocked(rt.chatSlackResume).mock.calls[0]![0]).toEqual({
+    conversation: 7,
+    approved: true,
+  });
+});
+
+test('slack-resume needs a whole-number conversation', async () => {
+  for (const body of [{}, { conversation: 'x' }, { conversation: 1.5 }]) {
+    const res = await routes.request('/api/chat/slack-resume', {
+      method: 'POST',
+      headers: JSON_PAGE,
+      body: JSON.stringify(body),
+    });
+    expect(res.status).toBe(400);
+  }
+  expect(rt.chatSlackResume).not.toHaveBeenCalled();
+});
+
+test('slack-resume carries the daemon refusal', async () => {
+  vi.mocked(rt.chatSlackResume).mockResolvedValueOnce({
+    ok: false,
+    error: 'chat: the folder for this repo is not known to rt',
+    failure: {
+      code: 'slack-chat',
+      message: 'the folder for this repo is not known to rt',
+    },
+  });
+  const res = await routes.request('/api/chat/slack-resume', {
+    method: 'POST',
+    headers: JSON_PAGE,
+    body: JSON.stringify({ conversation: 7 }),
+  });
+  expect(res.status).toBe(409);
+  expect((await res.json()).error).toBe(
+    'the folder for this repo is not known to rt'
+  );
+});
+
+test('start and resume under fixtures never reach the daemon', async () => {
+  process.env.CHAT_FIXTURES = '1';
+  for (const [path, body] of [
+    ['/api/chat/slack-start', { person: 'U0A', brief: 'x' }],
+    ['/api/chat/slack-resume', { conversation: 7 }],
+  ] as const) {
+    const res = await routes.request(path, {
+      method: 'POST',
+      headers: JSON_PAGE,
+      body: JSON.stringify(body),
+    });
+    expect(res.status).toBe(409);
+  }
+  expect(rt.chatSlackStart).not.toHaveBeenCalled();
+  expect(rt.chatSlackResume).not.toHaveBeenCalled();
+});
+
+test('slack-people asks the daemon once, however many keystrokes follow', async () => {
+  vi.mocked(rt.chatSlackPeople).mockResolvedValue({
+    ok: true,
+    data: { people: PEOPLE },
+  });
+  await routes.request('/api/chat/slack-people', { headers: LOCAL });
+  await routes.request('/api/chat/slack-people', { headers: LOCAL });
+  expect(rt.chatSlackPeople).toHaveBeenCalledTimes(1);
+});
+
+test('a daemon that cannot be reached is a 502, never a refusal', async () => {
+  setRepo('github.com/acme/support');
+  vi.mocked(rt.chatSlackStart).mockResolvedValueOnce({
+    ok: false,
+    error: 'rt daemon unreachable at /tmp/rt.sock: connect failed',
+  });
+  const start = await routes.request('/api/chat/slack-start', {
+    method: 'POST',
+    headers: JSON_PAGE,
+    body: JSON.stringify({ person: 'U0A', brief: 'x' }),
+  });
+  expect(start.status).toBe(502);
+  vi.mocked(rt.chatSlackResume).mockResolvedValueOnce({
+    ok: false,
+    error: 'rt daemon unreachable at /tmp/rt.sock: connect failed',
+  });
+  const resume = await routes.request('/api/chat/slack-resume', {
+    method: 'POST',
+    headers: JSON_PAGE,
+    body: JSON.stringify({ conversation: 7 }),
+  });
+  expect(resume.status).toBe(502);
+});
+
+const FORGED: [string, Record<string, string>][] = [
+  ['a foreign Origin', { ...JSON_LOCAL, origin: 'https://evil.example' }],
+  [
+    'a public Host',
+    { host: 'chat.example.dev', 'content-type': 'application/json' },
+  ],
+  ['an edge header', { ...JSON_PAGE, 'cf-connecting-ip': '203.0.113.9' }],
+  ['no Host at all', { 'content-type': 'application/json' }],
+];
+
+test.each(FORGED)(
+  'start and resume refuse %s with a 403, before any daemon call',
+  async (_name, headers) => {
+    setRepo('github.com/acme/support');
+    for (const [path, body] of [
+      ['/api/chat/slack-start', { person: 'U0A', brief: 'x' }],
+      ['/api/chat/slack-resume', { conversation: 7 }],
+    ] as const) {
+      const res = await routes.request(path, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+      });
+      expect(res.status).toBe(403);
+    }
+    expect(rt.chatSlackStart).not.toHaveBeenCalled();
+    expect(rt.chatSlackResume).not.toHaveBeenCalled();
+  }
+);
+
+test.each(FORGED)(
+  'slack-people refuses %s with a 403',
+  async (_name, headers) => {
+    const res = await routes.request('/api/chat/slack-people', { headers });
+    expect(res.status).toBe(403);
+    expect(rt.chatSlackPeople).not.toHaveBeenCalled();
+  }
+);
+
+test('start and resume refuse a local request with no Origin and no Sec-Fetch-Site, as a pane shell sends', async () => {
+  setRepo('github.com/acme/support');
+  for (const [path, body] of [
+    ['/api/chat/slack-start', { person: 'U0A', brief: 'x' }],
+    ['/api/chat/slack-resume', { conversation: 7 }],
+  ] as const) {
+    const res = await routes.request(path, {
+      method: 'POST',
+      headers: JSON_LOCAL,
+      body: JSON.stringify(body),
+    });
+    expect(res.status).toBe(403);
+  }
+  expect(rt.chatSlackStart).not.toHaveBeenCalled();
+  expect(rt.chatSlackResume).not.toHaveBeenCalled();
+});
+
+test('a same-origin fetch that names itself only by Sec-Fetch-Site passes', async () => {
+  setRepo('github.com/acme/support');
+  vi.mocked(rt.chatSlackResume).mockResolvedValueOnce({
+    ok: true,
+    data: { conversation: 8, agent: 'fresh' },
+  });
+  vi.mocked(rt.chatSlackStatus).mockResolvedValueOnce({ ok: false });
+  const res = await routes.request('/api/chat/slack-resume', {
+    method: 'POST',
+    headers: { ...JSON_LOCAL, 'sec-fetch-site': 'same-origin' },
+    body: JSON.stringify({ conversation: 7 }),
+  });
+  expect(res.status).toBe(200);
+});
+
+test('a same-origin page passes the guard', async () => {
+  setRepo('github.com/acme/support');
+  vi.mocked(rt.chatSlackStart).mockResolvedValueOnce({
+    ok: true,
+    data: { conversation: 7 },
+  });
+  vi.mocked(rt.chatSlackStatus).mockResolvedValueOnce({ ok: false });
+  const res = await routes.request('/api/chat/slack-start', {
+    method: 'POST',
+    headers: { ...JSON_LOCAL, origin: 'http://localhost' },
+    body: JSON.stringify({ person: 'U0A', brief: 'x' }),
+  });
+  expect(res.status).toBe(200);
+});
+
+test('start and resume need application/json, so a form post cannot forge one', async () => {
+  setRepo('github.com/acme/support');
+  for (const [path, body] of [
+    ['/api/chat/slack-start', { person: 'U0A', brief: 'x' }],
+    ['/api/chat/slack-resume', { conversation: 7 }],
+  ] as const) {
+    for (const contentType of ['text/plain', undefined]) {
+      const res = await routes.request(path, {
+        method: 'POST',
+        headers: contentType
+          ? {
+              ...LOCAL,
+              origin: 'http://localhost',
+              'content-type': contentType,
+            }
+          : { ...LOCAL, origin: 'http://localhost' },
+        body: JSON.stringify(body),
+      });
+      expect(res.status).toBe(415);
+    }
+  }
+  expect(rt.chatSlackStart).not.toHaveBeenCalled();
+  expect(rt.chatSlackResume).not.toHaveBeenCalled();
+});
+
+test('slack-people names the support agent for the form, from settings', async () => {
+  vi.mocked(rt.getSetting).mockImplementation(((key: string) => ({
+    value:
+      key === 'chat.slackSupport.persona'
+        ? { name: 'Maude', emoji: 'x' }
+        : 'matt',
+  })) as never);
+  vi.mocked(rt.chatSlackPeople).mockResolvedValueOnce({
+    ok: true,
+    data: { people: PEOPLE },
+  });
+  const res = await routes.request('/api/chat/slack-people', {
+    headers: LOCAL,
+  });
+  expect((await res.json()).persona).toBe('Maude');
 });

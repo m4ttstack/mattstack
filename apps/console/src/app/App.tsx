@@ -7,6 +7,8 @@ import { Redirect, useLocation } from 'wouter';
 
 import { SHELL_HEADER_HEIGHT } from './chrome';
 import { GateRedirect } from './gates/GateRedirect';
+import { SlackGates } from './gates/SlackGates';
+import { SlackRailEntry } from './gates/SlackRailEntry';
 import { NotFoundPage } from './NotFoundPage';
 import { createQueryClient } from './queryClient';
 import { useAppRoute, type AppRoute } from './routes';
@@ -25,10 +27,12 @@ import { WiringRailEntry } from './wiring/WiringRailEntry';
 
 const queryClient = createQueryClient();
 
-type ConsoleSection = 'runs' | 'search' | 'usage' | 'packs' | 'settings';
+type ConsoleSection =
+  'runs' | 'slack' | 'search' | 'usage' | 'packs' | 'settings';
 
 const SECTION_LABEL: Record<ConsoleSection, string> = {
   runs: 'Runs',
+  slack: 'Slack chats',
   search: 'Search',
   usage: 'Usage',
   packs: 'Packs',
@@ -36,6 +40,7 @@ const SECTION_LABEL: Record<ConsoleSection, string> = {
 };
 
 function chromeSection(route: AppRoute): ConsoleSection | null {
+  if (route.name === 'slack-gates') return 'slack';
   if (route.name === 'search') return 'search';
   if (route.name === 'usage' || route.name === 'usage-mr') return 'usage';
   if (route.name === 'packs' || route.name === 'old-wiring') return 'packs';
@@ -81,6 +86,8 @@ function RouteContent({ route }: { route: AppRoute }) {
       return <RunDetail repo={route.repo} runId={route.runId} />;
     case 'gate':
       return <GateRedirect id={route.id} />;
+    case 'slack-gates':
+      return <SlackGates />;
     case 'search':
       return <RunSearch />;
     case 'usage':
@@ -141,6 +148,7 @@ export function App() {
         <ViewerChip info={viewer} />
         <MattstackShell.Rail>
           <RunsRailEntry active={section === 'runs'} />
+          <SlackRailEntry active={section === 'slack'} />
           <RailLink
             icon="search"
             label="Search"

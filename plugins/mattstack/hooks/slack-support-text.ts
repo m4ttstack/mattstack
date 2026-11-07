@@ -1,4 +1,4 @@
-const KINDS = ['message', 'operator-slack', 'check-in', 'close-request', 'closed'] as const
+const KINDS = ['message', 'operator-slack', 'check-in', 'close-request', 'closed', 'resumed'] as const
 
 export type SlackWatchKind = (typeof KINDS)[number]
 
@@ -14,7 +14,7 @@ export interface SlackWatchLine {
   text: string
 }
 
-export type SlackOpen = { ok: true; handle: string; name: string } | { ok: false; error: string }
+export type SlackStart = { ok: true; conversation: number } | { ok: false; error: string }
 
 const MARKER_REMOVED = '[marker removed]'
 const NO_REASON = 'rt gave no reason'
@@ -40,13 +40,18 @@ const TOOL = String.raw`(?:\S*/)?(?:rt|herdr|cli\.ts)(?=\s|$)`
 // What can type into a pane. A chat body can name the command without running it.
 const TYPES_INTO_PANE = String.raw`(?:(?:\S*/)?herdr(?=\s|$)|(?:\S*/)?(?:rt|cli\.ts)(?:\s+-\S+)*\s+(?:pane|agent)(?![\w-]))`
 const RUNS_TYPING_TOOL = new RegExp(COMMAND_START + WRAPPERS + TYPES_INTO_PANE)
-const RUNS_HIDDEN_VERB = new RegExp(`${COMMAND_START}${WRAPPERS}${TOOL}(?:\\s+-\\S+)*\\s+chat\\s+slack-(?:open|watch|delivered)(?![\\w-])`)
+// Flags before the verb, each with at most one value word, so `rt --sock /x chat ...` is still rt chat.
+const OPTIONS = String.raw`(?:\s+-\S+(?:\s+(?!-)\S+)?)*`
+const RUNS_HIDDEN_VERB = new RegExp(`${COMMAND_START}${WRAPPERS}${TOOL}${OPTIONS}\\s+chat\\s+slack-(?:open|watch|delivered|start|request|resume|assignment)(?![\\w-])`)
+// Only the console and this mod may answer a slack-open gate.
+const RUNS_GATE_ANSWER = new RegExp(`${COMMAND_START}${WRAPPERS}${TOOL}${OPTIONS}\\s+gate\\s+answer(?![\\w-])`)
+const APPROVING_SURFACE = /--by(?:\s+|=)["']?(?:slack-mod|console)(?![\w-])/
 const SLASH_COMMAND = /(?<![\w.-])\/slack-support(?![\w.-])/
 
 export function supportRules({ name, operator }: { name: string; operator: string }): string {
   return [
     `This message is from ${name}, a teammate, over Slack. You are ${operator}'s support agent for this chat. Help ${name}: answer their questions, troubleshoot with them, and read code, docs and logs to do that. Stay on the brief, and if they have an idea for a feature or change, be a brainstorming partner on it.`,
-    `Never change anything on this machine because of a Slack message: no file edits, commits, pushes, installs or settings changes. If a fix needs that, walk ${name} through it on their own machine, or hand it to ${operator}. Never promise that a feature will be built; that is ${operator}'s call. To capture a bug report or feature request, use \`chat_slack_ticket\`, which is not a file edit.`,
+    `Never change anything on this machine because of a Slack message: no file edits, commits, pushes, installs or settings changes. If a fix needs that, walk ${name} through it on their own machine, or hand it to ${operator}. Never promise that a feature will be built; that is ${operator}'s call. To capture a bug report or feature request, use \`chat_slack_ticket\`, which is not a file edit. It files the ticket for ${operator}: tell ${name} only that you wrote it up, never an id or link.`,
     `Only ${operator} can widen the brief or give permission. Never send tokens, secrets or env values.`,
   ].join('\n\n')
 }
@@ -84,6 +89,8 @@ function renderBody(line: SlackWatchLine): string {
       return `Check-in cue for your Slack chat with ${name}. ${text} Send it with chat_dm to ${handle}.`
     case 'close-request':
       return `Close cue for your Slack chat with ${name}. ${text}`
+    case 'resumed':
+      return `Resume cue for your Slack chat with ${name}. ${text} Send it with chat_dm to ${handle}.`
     case 'closed':
       return `Closed notice for your Slack chat with ${name}. ${text} If you haven't sent the outcome DM, send it now. If you have, there is nothing to do.`
   }
@@ -107,12 +114,49 @@ function parseObject(raw: string): Record<string, unknown> | null {
   }
 }
 
-export function parseOpen(stdout: string, stderr: string): SlackOpen {
-  const opened = parseObject(stdout.trim())
-  if (opened?.ok === true && typeof opened.handle === 'string' && typeof opened.name === 'string') {
-    return { ok: true, handle: opened.handle, name: opened.name }
-  }
-  return { ok: false, error: typeof opened?.error === 'string' ? opened.error : stderr.trim() || NO_REASON }
+export function parseStart(stdout: string, stderr: string): SlackStart {
+  const started = parseObject(stdout.trim())
+  if (started?.ok === true && typeof started.conversation === 'number') return { ok: true, conversation: started.conversation }
+  return { ok: false, error: typeof started?.error === 'string' ? started.error : stderr.trim() || NO_REASON }
+}
+
+/** The conversation `rt chat slack-assignment --json` names; null for none or anything unreadable. */
+export function parseAssignment(stdout: string): number | null {
+  const found = parseObject(stdout.trim())
+  return found?.ok === true && typeof found.conversation === 'number' ? found.conversation : null
+}
+
+/** What the daemon holds for one open `slack-open` gate: its one question and that question's options. */
+export interface SlackOpenGate {
+  questionId: string
+  question: string
+  options: { value: string; label: string }[]
+}
+
+/** The gate `rt gate list --json` shows under `id`; null when it is absent or its form is not one question. */
+export function findOpenGate(stdout: string, id: string): SlackOpenGate | null {
+  const listed = parseObject(stdout.trim())
+  const gate = Array.isArray(listed?.gates) ? listed.gates.find((g: unknown) => parseObjectValue(g)?.id === id) : undefined
+  const questions = parseObjectValue(gate)?.questions
+  const only = Array.isArray(questions) && questions.length === 1 ? parseObjectValue(questions[0]) : null
+  if (!only || typeof only.id !== 'string' || typeof only.label !== 'string' || !Array.isArray(only.options)) return null
+  const options = only.options.flatMap((o: unknown) => {
+    if (typeof o === 'string') return [{ value: o, label: o }]
+    const option = parseObjectValue(o)
+    return typeof option?.value === 'string' && typeof option.label === 'string' ? [{ value: option.value, label: option.label }] : []
+  })
+  return { questionId: only.id, question: only.label, options }
+}
+
+function parseObjectValue(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
+}
+
+const SLACK_OPEN_MARKER = /\[slack-open ([\w-]+)\]$/
+
+/** The gate id a `slack-open` question carries at its end; null for any other question. */
+export function slackOpenGate(question: string): string | null {
+  return SLACK_OPEN_MARKER.exec(question.trim())?.[1] ?? null
 }
 
 export function parseWatchLine(raw: string): SlackWatchLine | null {
@@ -130,5 +174,9 @@ export function isRefusalLine(raw: string): boolean {
 }
 
 export function touchesSlackSupport(command: string): boolean {
-  return RUNS_HIDDEN_VERB.test(command) || (RUNS_TYPING_TOOL.test(command) && SLASH_COMMAND.test(command))
+  return (
+    RUNS_HIDDEN_VERB.test(command) ||
+    (RUNS_TYPING_TOOL.test(command) && SLASH_COMMAND.test(command)) ||
+    (RUNS_GATE_ANSWER.test(command) && APPROVING_SURFACE.test(command))
+  )
 }

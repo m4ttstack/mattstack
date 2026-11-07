@@ -309,6 +309,12 @@ export function joinRoom(
   return run.immediate();
 }
 
+/** Adds a handle to a room that `joinRoom` refuses (a DM), reading from its first message; a no-op for a handle already in it. */
+export function addRoomMember(room: string, handle: string, wakeOn: WakeMode, db: Database = getStateDb()): void {
+  if (db.query(SELECT_ROOM_MEMBER_SQL).get(room, handle)) return;
+  db.query(INSERT_MEMBER_SQL).run(room, handle, Date.now(), 0, wakeOn, null, null);
+}
+
 export function leaveRoom(room: string, handle: string, db: Database = getStateDb()): void {
   // Cache-class (R057): re-issuing chat:leave is harmless, so a busy write
   // here warns and defers rather than throwing.

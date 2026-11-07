@@ -98,3 +98,17 @@ export function hasLocalOrigin(req: Request): boolean {
     (url.port || defaultPort) === hostPort
   );
 }
+
+/**
+ * For a write only the operator's own page may make (one whose daemon verb
+ * asks no gate): unlike hasLocalOrigin, a request with no Origin fails, so a
+ * shell `curl` from an agent's pane cannot reach it. A same-origin fetch
+ * sends Origin or `Sec-Fetch-Site: same-origin`; either must still pass
+ * hasLocalOrigin.
+ */
+export function fromOperatorPage(req: Request): boolean {
+  const sameOrigin = req.headers.get('sec-fetch-site') === 'same-origin';
+  return (
+    (sameOrigin || req.headers.get('origin') !== null) && hasLocalOrigin(req)
+  );
+}

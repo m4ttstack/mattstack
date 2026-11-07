@@ -89,6 +89,12 @@ import { createOutcomeRefresher, lookupFromMrGet, postedFromGateRows } from "./d
 import { createChatDeliverySweep, slackRoomPoster } from "./daemon/handlers/chat.ts";
 import { createSlackBridge } from "./daemon/slack-bridge.ts";
 import { slackDeskNotify, tickSlackLifecycle } from "./daemon/slack-lifecycle.ts";
+import { realMilestoneDeps } from "./daemon/handlers/slack-milestones.ts";
+import { closeSupportPane, realHerdrRunnerFor } from "./slack/support-pane.ts";
+import { closeResumeGates, type SlackOpenDeps } from "./slack/request.ts";
+import { offerResume } from "./slack/resume.ts";
+import { slackPersona } from "./slack/persona.ts";
+import { offerTriggerChat, supportRepoFromSetting } from "./slack/trigger-offer.ts";
 import { slackClientFromSecrets } from "./slack/daemon-client.ts";
 import { startSocketServer } from "./daemon/socket-server.ts";
 import { startApiServer, withApiPortParkRetry, broadcast, apiWsClientCount, clearWsClients } from "./daemon/api-server.ts";
@@ -383,6 +389,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
   let handlerCtx: HandlerContext;
   let freshnessEnv: FreshnessEnv;
   let routedHandlers: ReturnType<typeof buildRoutedHandlers> | undefined;
+  let slackOpenDeps: SlackOpenDeps | undefined;
   let bootIdentityMigration: Promise<unknown> = Promise.resolve();
   let stopRenameDetector: (() => void) | undefined;
   let pollersHandle: ReturnType<typeof startPollers> | null = null;
@@ -1055,26 +1062,49 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         // the table first and touches neither the token nor Slack.
         const slackBridgeDb = getStateDb("daemon");
         const slackBridgeLog = loggerHandle.childLogger("slack-bridge");
-        const slackRoomPost = slackRoomPoster(
-          slackBridgeDb,
-          (topic, payload) => {
-            const emittedAt = Date.now();
-            const id = eventsBus.emitAt(topic, payload, emittedAt);
-            emit("event", { id, topic, payload, emittedAt });
-          },
-          slackBridgeLog,
-        );
+        const slackEmitEvent = (topic: string, payload?: unknown) => {
+          const emittedAt = Date.now();
+          const id = eventsBus.emitAt(topic, payload, emittedAt);
+          emit("event", { id, topic, payload, emittedAt });
+          return id;
+        };
+        const slackRoomPost = slackRoomPoster(slackBridgeDb, slackEmitEvent, slackBridgeLog);
         const slackBridge = createSlackBridge({
           db: slackBridgeDb,
           client: slackClientFromSecrets,
           post: slackRoomPost,
           operatorHandle: () => getSetting<string>("chat.humanHandle").value || undefined,
           log: slackBridgeLog,
+          grace: {
+            offer: async (conv, text, triggerTs) => (slackOpenDeps ? offerResume(slackOpenDeps, conv, text, triggerTs) : "failed"),
+            closeResume: async (conv) => {
+              if (slackOpenDeps) await closeResumeGates(slackOpenDeps, conv.id);
+            },
+            closePane: (pane) => closeSupportPane({ herdrRunnerFor: realHerdrRunnerFor, log: slackBridgeLog }, pane),
+          },
+          triggers: {
+            offer: async (hit) =>
+              slackOpenDeps
+                ? offerTriggerChat({ ...slackOpenDeps, defaultRepo: () => supportRepoFromSetting(getSetting<string | undefined>("chat.slackSupport.defaultRepo").value) }, hit, slackPersona())
+                : "failed",
+          },
         });
+        sweepHandles.push(scheduleSweep(
+          "slack-triggers",
+          () => slackBridge.sweepTriggers(),
+          { bootDelayMs: 14_000, intervalMs: 45_000 },
+          log,
+        ));
         sweepHandles.push(scheduleSweep(
           "slack-bridge",
           () => slackBridge.sweep(),
           { bootDelayMs: 10_000, intervalMs: 5_000 },
+          log,
+        ));
+        sweepHandles.push(scheduleSweep(
+          "slack-grace",
+          () => slackBridge.sweepGraced(),
+          { bootDelayMs: 12_000, intervalMs: 30_000 },
           log,
         ));
         sweepHandles.push(scheduleSweep(
@@ -1085,8 +1115,16 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
             notify: slackDeskNotify,
             post: slackRoomPost,
             now: Date.now,
+            milestones: realMilestoneDeps({ db: slackBridgeDb, emitEvent: slackEmitEvent, log: slackBridgeLog, notify: slackDeskNotify }),
+            herdrRunnerFor: realHerdrRunnerFor,
           }),
           { bootDelayMs: 15_000, intervalMs: 15_000 },
+          log,
+        ));
+        sweepHandles.push(scheduleSweep(
+          "slack-open-expiry",
+          async () => { await handleCommand("chat:slack-expire", {}); },
+          { bootDelayMs: 20_000, intervalMs: 60_000 },
           log,
         ));
         // Keeps cd-cache.json warm for `rt cd`; uses the async repo-index
@@ -1365,6 +1403,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         freshnessEnv = { ctx: handlerCtx, broadcast: emit };
         const bgService: BgService = createBgService({ log });
         routedHandlers = buildRoutedHandlers({
+          onSlackOpenDeps: (deps) => { slackOpenDeps = deps; },
           ctx: handlerCtx,
           broadcast: emit,
           systemProcessScanner,

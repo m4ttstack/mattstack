@@ -2,12 +2,16 @@ import type { EngineInterface, ProcessRunResult, Register } from 'claude-code'
 
 import {
   isRefusalLine,
-  parseOpen,
+  parseAssignment,
+  parseStart,
   parseSupportArgs,
   parseWatchLine,
   renderDelivery,
+  findOpenGate,
+  slackOpenGate,
   touchesSlackSupport,
-  type SlackOpen,
+  type SlackOpenGate,
+  type SlackStart,
   type SlackWatchLine,
 } from './slack-support-text.ts'
 
@@ -17,25 +21,32 @@ const USAGE = 'Usage: /slack-support <person> <problem>. Put a full name in quot
 const ORIGIN_REFUSAL = 'Only a person at the prompt can open a Slack chat.'
 const SHELL_REFUSAL = 'Only a person can open a Slack chat, by typing /slack-support at the prompt. The mod runs the rest.'
 const HOOK_FAILURE = 'The Slack chat did not open: the /slack-support hook failed.'
+const FORM_REFUSAL = 'The Slack chat form could not be checked, so the question was not asked.'
+const NOT_RECORDED = 'The Slack chat answer was not recorded, so it stays open until it expires. Answer it in the console.'
 const WATCH_ARGS = ['chat', 'slack-watch', '--json']
 
 // Matches the refusals of both the CLI and the daemon; a change of their words
-// costs the sign-in, and the operator then reads the refusal.
+// makes a sign-out read as a failure to retry.
 const SIGNED_OUT = /isn't signed in/
 
 const SKILL_DELAY_MS = 200
-const OPEN_TIMEOUT_MS = 60_000
+const START_TIMEOUT_MS = 120_000
+const LOOKUP_TIMEOUT_MS = 5_000
+// The daemon records a support agent's assignment only once the agent has
+// started, so its session can ask before the row exists.
+const ASSIGNMENT_WAIT_MS = 20_000
+const ASSIGNMENT_RETRY_MS = 500
+const ASSIGNMENT_RETRY_MAX_MS = 4_000
 const BACKOFF_MS = 1_000
 const MAX_BACKOFF_MS = 30_000
 
 // A chat this session never saw may not exist, and this rt may not know the
-// verb, so a resume gives up where an open chat keeps trying.
+// verb, so a watcher gives up where an open chat keeps trying.
 const RESUME_TRIES = 3
 
 interface Watch {
   running: boolean
   held: boolean
-  opens: number
 }
 
 interface WatchEnd {
@@ -44,7 +55,7 @@ interface WatchEnd {
 }
 
 export const register: Register = on => {
-  const watch: Watch = { running: false, held: false, opens: 0 }
+  const watch: Watch = { running: false, held: false }
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -55,7 +66,9 @@ export const register: Register = on => {
     const started = await next(e)
     // A `claude -p` run inside the pane resolves to the pane's identity, and
     // would take the teammate's messages away from the session holding the chat.
-    if (e.isInteractive) startWatcher($, watch)
+    // The lookup waits on the daemon, and Claude Code refuses a command from
+    // inside this hook, so both run from a timer.
+    if (e.isInteractive) $.clock.after(SKILL_DELAY_MS, () => void startAssigned($, watch))
     return started
   })
 
@@ -63,20 +76,22 @@ export const register: Register = on => {
     if (e.origin.kind !== 'composer') return { text: ORIGIN_REFUSAL }
     const request = parseSupportArgs(e.args)
     if (!request) return { text: USAGE }
-    const opened = await openChat($, request.person)
-    if (!opened.ok) return { text: `The Slack chat did not open: ${opened.error}` }
-
-    watch.held = true
-    watch.opens += 1
-    startWatcher($, watch)
-    // Claude Code refuses a command from inside this hook.
-    $.clock.after(SKILL_DELAY_MS, () => void startSkill($, `${opened.handle} ${request.problem}`))
-    return { text: `Slack chat open with ${opened.name}.` }
+    const started = await startChat($, request)
+    if (!started.ok) return { text: `The Slack chat did not open: ${started.error}` }
+    return { text: `Slack chat starting with ${request.person}; I'll hear when it opens.` }
   }).catch(() => ({ text: HOOK_FAILURE }))
 
   on('tool.call', { tool: 'Bash' }, ($, e, next) => (touchesSlackSupport(e.command) ? { deny: SHELL_REFUSAL } : next(e))).catch(
     ($, e, next) => (next.called ? next(e) : { deny: SHELL_REFUSAL }),
   )
+
+  on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
+    const gates = e.questions.map(q => slackOpenGate(q.question))
+    if (gates.every(gate => gate === null)) return next(e)
+    const result = await next(withoutAnswers(e))
+    if (result.deny === undefined && !result.isError) await recordAnswers($, e.questions, gates, result.result.answers)
+    return result
+  }).catch(($, e, next) => (next.called ? next(withoutAnswers(e)) : { deny: FORM_REFUSAL }))
 
   on('tool.call', { tool: 'Monitor' }, ($, e, next) => (touchesSlackSupport(e.command ?? '') ? { deny: SHELL_REFUSAL } : next(e))).catch(
     ($, e, next) => (next.called ? next(e) : { deny: SHELL_REFUSAL }),
@@ -93,24 +108,82 @@ async function rtNames($: EngineInterface): Promise<[string, string]> {
 }
 
 // A run rejects only when it can't start or passes its timeout, never on a nonzero exit.
-async function rt($: EngineInterface, args: readonly string[], timeoutMs?: number): Promise<ProcessRunResult> {
+async function rt($: EngineInterface, args: readonly string[], timeoutMs?: number, stdin?: string): Promise<ProcessRunResult> {
   const [onPath, installed] = await rtNames($)
-  const init = { env: await childEnv($), ...(timeoutMs ? { timeoutMs } : {}) }
+  const init = { env: await childEnv($), ...(timeoutMs ? { timeoutMs } : {}), ...(stdin === undefined ? {} : { stdin }) }
   return $.process.run([onPath, ...args], init).catch(() => $.process.run([installed, ...args], init))
 }
 
-async function runOpen($: EngineInterface, person: string): Promise<SlackOpen> {
-  const { stdout, stderr } = await rt($, ['chat', 'slack-open', person, '--json'], OPEN_TIMEOUT_MS)
-  return parseOpen(stdout, stderr)
+async function startChat($: EngineInterface, { person, problem }: { person: string; problem: string }): Promise<SlackStart> {
+  const pane = await $.env.get('HERDR_PANE_ID')
+  const args = ['chat', 'slack-start', person, '--brief', '-', ...(pane ? ['--requester-pane', pane] : []), '--json']
+  const { stdout, stderr } = await rt($, args, START_TIMEOUT_MS, problem)
+  return parseStart(stdout, stderr)
 }
 
-// slack-open is the one verb that knows every way a session counts as signed
-// in, so it is asked first: `rt chat sign-in` in a forked session makes a second identity.
-async function openChat($: EngineInterface, person: string): Promise<SlackOpen> {
-  const first = await runOpen($, person)
-  if (first.ok || !SIGNED_OUT.test(first.error)) return first
-  const signIn = await rt($, ['chat', 'sign-in', '--json'])
-  return signIn.exitCode === 0 ? runOpen($, person) : first
+async function startAssigned($: EngineInterface, watch: Watch): Promise<void> {
+  let waited = 0
+  let delay = ASSIGNMENT_RETRY_MS
+  for (;;) {
+    const conversation = await assignedConversation($)
+    if (conversation !== null) {
+      watch.held = true
+      void startSkill($, String(conversation))
+      startWatcher($, watch)
+      return
+    }
+    if (waited === 0) startWatcher($, watch)
+    if (waited >= ASSIGNMENT_WAIT_MS) return
+    await wait($, delay)
+    waited += delay
+    delay = Math.min(delay * 2, ASSIGNMENT_RETRY_MAX_MS)
+  }
+}
+
+async function assignedConversation($: EngineInterface): Promise<number | null> {
+  const found = await rt($, ['chat', 'slack-assignment', '--session', await $.session.id(), '--json'], LOOKUP_TIMEOUT_MS).catch(() => null)
+  return found ? parseAssignment(found.stdout) : null
+}
+
+// A model could pre-fill the answers it wants recorded as the person's.
+function withoutAnswers<E extends { answers?: unknown }>(e: E): E {
+  const { answers: _prefilled, ...rest } = e
+  return rest as E
+}
+
+async function openGate($: EngineInterface, id: string): Promise<SlackOpenGate | null> {
+  const listed = await rt($, ['gate', 'list', '--open', '--kind', 'slack-open', '--json'], LOOKUP_TIMEOUT_MS).catch(() => null)
+  return listed?.exitCode === 0 ? findOpenGate(listed.stdout, id) : null
+}
+
+async function recordAnswers(
+  $: EngineInterface,
+  questions: readonly { question: string }[],
+  gates: readonly (string | null)[],
+  answers: unknown,
+): Promise<void> {
+  try {
+    const given = (answers ?? {}) as Record<string, unknown>
+    for (const [i, { question }] of questions.entries()) {
+      const id = gates[i]
+      const said = given[question]
+      // A dismissed form is no answer, and the gate stays open for the console.
+      if (!id || typeof said !== 'string') continue
+      // The marker is text any model can write, so only the gate's own form and options count.
+      const gate = await openGate($, id)
+      const picked = gate?.question === question ? gate.options.find(o => o.label.toLowerCase() === said.toLowerCase() || o.value.toLowerCase() === said.toLowerCase()) : undefined
+      if (!gate || !picked) {
+        $.ui.log(NOT_RECORDED)
+        continue
+      }
+      const args = ['gate', 'answer', id, '--answers', JSON.stringify({ [gate.questionId]: picked.value }), '--by', 'slack-mod']
+      const recorded = await rt($, args).catch(() => null)
+      if (recorded?.exitCode !== 0) $.ui.log(NOT_RECORDED)
+    }
+  } catch (err) {
+    $.ui.log(NOT_RECORDED)
+    $.ui.log(`slack-open answer failed: ${String(err)}`, { to: 'debug' })
+  }
 }
 
 async function startSkill($: EngineInterface, args: string): Promise<void> {
@@ -148,12 +221,7 @@ async function runWatcher($: EngineInterface, watch: Watch): Promise<void> {
   let failures = 0
   try {
     for (;;) {
-      const opens = watch.opens
       const { end, delivered } = await watchOnce($, watch)
-      if (watch.opens !== opens) {
-        failures = 0
-        continue
-      }
       // A sign-out closes the session's chat, so nothing is left to come back to.
       if (end === 'finished' || end === 'signed-out') {
         watch.held = false

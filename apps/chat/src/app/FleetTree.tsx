@@ -3,9 +3,11 @@ import {
   ActionIcon,
   Box,
   Group,
+  Loader,
   Menu,
   Text,
   Tooltip,
+  UnstyledButton,
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import { modals } from '@mattstack/app-kit/modals';
@@ -15,12 +17,16 @@ import type { RoomSummary } from '@mattstack/rt-client';
 import { isRoomForRepo } from './agent-state';
 import { FaceGroup } from './AgentName';
 import { useBuddies } from './buddies-context';
-import { dayKey, dayLabel, localTime } from './day-label';
+import { whenLabel } from './day-label';
 import { DmNames, DmStack } from './DmPairTitle';
 import classes from './fleet-tree.module.css';
 import { MUTED_XS } from './presence-bits';
 import type { RosterBuddy } from './roster-types';
-import { useLiveSlackRoom } from './slack-chats-context';
+import {
+  isOpening,
+  useLiveSlackRoom,
+  useSlackChat,
+} from './slack-chats-context';
 
 /** Room and DM rows, one step up, so the tree has a visible hierarchy. */
 const CHROME_SIZE = 'var(--mantine-font-size-lg)';
@@ -44,6 +50,8 @@ export interface FleetTreeProps {
   activeRoom?: string;
   onOpenRoom?: (room: string) => void;
   onOpenDm?: (room: string) => void;
+  /** Adds the `New Slack chat` row at the top of `Direct`. */
+  onNewSlackChat?: () => void;
   /** The row's right-click menu. It does not render without this. */
   onClose?: (room: string) => void;
 }
@@ -154,13 +162,6 @@ function ArchiveAllDms({
       </ActionIcon>
     </Tooltip>
   );
-}
-
-/** The clock today, the day otherwise, as Slack's list reads. */
-function whenLabel(postedAt: number): string {
-  return dayKey(postedAt) === dayKey(Date.now())
-    ? localTime(postedAt)
-    : dayLabel(postedAt);
 }
 
 /** A DM's newest message on one plain line, markdown marks removed. */
@@ -355,7 +356,12 @@ function DmRow({
   const [menuOpened, setMenuOpened] = useState(false);
   const closable = onClose !== undefined;
   const pair = room.participants!;
-  const preview = previewLine(room, useBuddies()?.selfName);
+  const slack = useSlackChat(room.room);
+  const opening = isOpening(slack, room);
+  const selfName = useBuddies()?.selfName;
+  const preview = opening
+    ? `${slack?.agentName ?? pair.aName}: Opening the chat for ${slack?.name ?? pair.bName}`
+    : previewLine(room, selfName);
 
   const row = (
     <Box
@@ -379,15 +385,31 @@ function DmRow({
       </FaceGroup>
       <div className={classes.dmText}>
         <Group gap="sm" justify="space-between" wrap="nowrap">
-          <Text
-            component="div"
-            fw={500}
-            style={{ fontSize: CHROME_SIZE, minWidth: 0 }}
-          >
-            <DmNames pair={pair} />
-          </Text>
-          {room.lastPostedAt !== undefined && (
-            <span className={classes.when}>{whenLabel(room.lastPostedAt)}</span>
+          <Group gap={8} wrap="nowrap" style={{ minWidth: 0 }}>
+            <Text
+              component="div"
+              fw={500}
+              style={{ fontSize: CHROME_SIZE, minWidth: 0 }}
+            >
+              <DmNames pair={pair} />
+            </Text>
+            {opening && (
+              <Loader
+                size={14}
+                aria-label="Opening"
+                data-testid="dm-opening"
+                style={{ flex: 'none' }}
+              />
+            )}
+          </Group>
+          {opening ? (
+            <span className={classes.when}>Now</span>
+          ) : (
+            room.lastPostedAt !== undefined && (
+              <span className={classes.when}>
+                {whenLabel(room.lastPostedAt)}
+              </span>
+            )
           )}
         </Group>
         {preview && <div className={classes.preview}>{preview}</div>}
@@ -417,6 +439,7 @@ export function FleetTree({
   activeRoom,
   onOpenRoom,
   onOpenDm,
+  onNewSlackChat,
   onClose,
 }: FleetTreeProps) {
   // A DM is named by its pair, so one with no participants has no row.
@@ -434,16 +457,29 @@ export function FleetTree({
         />
       ))}
 
-      {namedDms.length > 0 && (
+      {(namedDms.length > 0 || onNewSlackChat) && (
         <>
           <Box style={{ height: 10 }} />
           <SectionLabel
             label="Direct"
             detail={String(namedDms.length)}
             action={
-              onClose && <ArchiveAllDms rooms={namedDms} onClose={onClose} />
+              onClose &&
+              namedDms.length > 0 && (
+                <ArchiveAllDms rooms={namedDms} onClose={onClose} />
+              )
             }
           />
+          {onNewSlackChat && (
+            <UnstyledButton
+              className={`${classes.listRow} ${classes.newChatRow}`}
+              data-testid="new-slack-chat"
+              onClick={onNewSlackChat}
+            >
+              <Icon name="plus" size={16} />
+              <span>New Slack chat</span>
+            </UnstyledButton>
+          )}
           {namedDms.map(room => (
             <DmRow
               key={room.room}

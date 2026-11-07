@@ -13,6 +13,8 @@ import { useInterval } from 'react-interval-hook';
 import { isMsgTopic, useRelayFrames, useRelayOpen } from './relay-socket';
 
 export interface SlackChat {
+  /** What the daemon's resume takes. */
+  id?: number;
   room: string;
   /** The teammate's chat handle. */
   handle?: string;
@@ -21,6 +23,9 @@ export interface SlackChat {
   avatarVersion?: string;
   /** The pane's agent: the one person who reads what Matt types here. */
   agentName?: string;
+  /** The teammate's chat name, as the room's pair reads it. */
+  name?: string;
+  openedAt?: number;
   /** Set once the chat has ended. */
   closedAt?: number;
 }
@@ -28,20 +33,25 @@ export interface SlackChat {
 interface SlackChatsValue {
   byRoom: ReadonlyMap<string, SlackChat>;
   avatars: ReadonlyMap<string, string>;
+  /** Reads the daemon's chats again, after an action that changes them. */
+  refresh: () => void;
 }
 
 const SlackChatsContext = createContext<SlackChatsValue>({
   byRoom: new Map(),
   avatars: new Map(),
+  refresh: () => {},
 });
 
 /** Rooms that hold a Slack support chat, open or closed. */
 export function SlackChatsProvider({
   chats,
   own,
+  refresh,
   children,
 }: {
   chats: readonly SlackChat[];
+  refresh?: () => void;
   /** The viewer's own picture: they have no Slack chat to carry one. */
   own?: { handle: string; url: string };
   children: ReactNode;
@@ -64,8 +74,9 @@ export function SlackChatsProvider({
         ),
         ...(ownHandle && ownUrl ? [[ownHandle, ownUrl] as const] : []),
       ]),
+      refresh: refresh ?? (() => {}),
     }),
-    [chats, ownHandle, ownUrl]
+    [chats, ownHandle, ownUrl, refresh]
   );
   return (
     <SlackChatsContext.Provider value={value}>
@@ -78,6 +89,10 @@ export function useSlackChat(room: string): SlackChat | undefined {
   return useContext(SlackChatsContext).byRoom.get(room);
 }
 
+export function useRefreshSlackChats(): () => void {
+  return useContext(SlackChatsContext).refresh;
+}
+
 /** Whether a room holds a Slack chat that hasn't ended. */
 export function useLiveSlackRoom(): (room: string) => boolean {
   const { byRoom } = useContext(SlackChatsContext);
@@ -85,6 +100,20 @@ export function useLiveSlackRoom(): (room: string) => boolean {
     const chat = byRoom.get(room);
     return chat !== undefined && chat.closedAt === undefined;
   };
+}
+
+/** An open Slack chat whose room has no message yet: the agent is still
+    starting and has not said hello. */
+export function isOpening(
+  chat: SlackChat | undefined,
+  room: { lastPostedAt?: number } | undefined
+): boolean {
+  return (
+    chat !== undefined &&
+    chat.closedAt === undefined &&
+    room !== undefined &&
+    room.lastPostedAt === undefined
+  );
 }
 
 export function useSlackAvatar(handle: string): string | undefined {
@@ -103,7 +132,10 @@ interface SlackStatus {
  * relay reconnect. A failed read, as an older daemon without the verb gives,
  * leaves no rooms rather than an error.
  */
-export function useSlackChats(): SlackChat[] {
+export function useSlackChats(): {
+  chats: SlackChat[];
+  refresh: () => void;
+} {
   const [chats, setChats] = useState<SlackChat[]>([]);
   const latestRequest = useRef(0);
 
@@ -131,5 +163,5 @@ export function useSlackChats(): SlackChat[] {
   });
   useRelayOpen(() => refetch());
 
-  return chats;
+  return { chats, refresh: refetch };
 }

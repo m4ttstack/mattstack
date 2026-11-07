@@ -7,8 +7,12 @@ import { join } from "path";
 import type { Logger } from "pino";
 import { SlackError, type SlackClient, type SlackMessage } from "../../slack/client.ts";
 import { openStateDb } from "../../state/db.ts";
-import { closeConversation, conversationForRoom, openConversation, pendingItems } from "../../state/slack-conversation-store.ts";
-import { createSlackBridge } from "../slack-bridge.ts";
+import type { GateRow } from "../../../packages/rt-client/src/commands.ts";
+import { answerSlackOpen, closeResumeGates, slackOpenMarker, type SlackOpenDeps } from "../../slack/request.ts";
+import { offerResume, type ResumeOfferDeps } from "../../slack/resume.ts";
+import { closeConversation, conversationById, conversationForRoom, expireOtherGrace, openConversation, pendingItems, startGrace } from "../../state/slack-conversation-store.ts";
+import type { SlackPersona } from "../../slack/persona.ts";
+import { createSlackBridge, tsBefore } from "../slack-bridge.ts";
 
 const log = { warn: () => {}, debug: () => {} } as unknown as Logger;
 const OPENED_AT_MS = 1_000_000_000_000;
@@ -36,7 +40,7 @@ function msg(ts: string, user: string, text: string, extra: Partial<SlackMessage
 
 const ts = (s: number, micro = 0) => `${1_000_000_000 + s}.${String(micro).padStart(6, "0")}`;
 
-function harness(opts: { history?: SlackMessage[]; replies?: Record<string, SlackMessage[]>; operatorHandle?: string; withClient?: boolean } = {}) {
+function harness(opts: { history?: SlackMessage[]; replies?: Record<string, SlackMessage[]>; operatorHandle?: string; withClient?: boolean; persona?: SlackPersona } = {}) {
   const db = openStateDb(join(tmpdir(), `slack-bridge-${process.pid}-${n++}-${Date.now()}.db`));
   const opened = openConversation(conv, db);
   const state = { history: opts.history ?? [], replies: opts.replies ?? {}, clock: OPENED_AT_MS + 60_000 };
@@ -72,6 +76,7 @@ function harness(opts: { history?: SlackMessage[]; replies?: Record<string, Slac
     operatorHandle: () => opts.operatorHandle ?? "operator",
     log: spyLog,
     now: () => state.clock,
+    persona: opts.persona ? () => opts.persona! : undefined,
   });
   const reread = () => conversationForRoom(conv.room, db)!;
   return { db, opened, bridge, state, calls, historyOldest, posts, failures, warns, reread, items: () => pendingItems(opened.id, db) };
@@ -436,4 +441,273 @@ test("an operator message with no chat handle is queued without a room post", as
   await bridge.sweep();
   expect(h.posts).toEqual([]);
   expect(h.items()[0]).toMatchObject({ kind: "operator-slack", fromHandle: null });
+});
+
+const CLOSED_AT_MS = OPENED_AT_MS + 30_000;
+const GRACE_MS = 3_600_000;
+
+function graceHarness(opts: { history?: SlackMessage[]; assignedPane?: string | null; persona?: SlackPersona } = {}) {
+  const db = openStateDb(join(tmpdir(), `slack-grace-${process.pid}-${n++}-${Date.now()}.db`));
+  const opened = openConversation({ ...conv, assignedPane: opts.assignedPane === undefined ? "bg:w1:p9" : opts.assignedPane }, db);
+  closeConversation(opened.id, "idle", CLOSED_AT_MS, db);
+  startGrace(opened.id, CLOSED_AT_MS + GRACE_MS, db);
+  const state = { history: opts.history ?? [], clock: CLOSED_AT_MS + 60_000 };
+  const reads: string[] = [];
+  const posts: unknown[] = [];
+  const panes: Array<string | null> = [];
+  const milestones: string[] = [];
+  const contexts: string[] = [];
+  const gates: GateRow[] = [];
+  const closedGates: string[] = [];
+  const failures = { open: false };
+  const warns: unknown[] = [];
+  const spyLog = { warn: (...a: unknown[]) => warns.push(a), debug: () => {} } as unknown as Logger;
+  const openedGates: Array<{ id: string; subject: string; kind: string; questions: Array<{ label: string }>; context: string; meta: unknown }> = [];
+  const deps = {
+    log,
+    milestones: {
+      isOnline: () => false,
+      postDm: async () => {},
+      desk: async (body: string) => void milestones.push(body),
+    },
+    gates: {
+      open: async (input: (typeof openedGates)[number]) => {
+        if (failures.open) return { ok: false as const, error: "gate store unavailable" };
+        openedGates.push(input);
+        gates.push({ id: input.id, subject: input.subject, kind: input.kind, meta: input.meta } as unknown as GateRow);
+        return { ok: true as const, id: input.id };
+      },
+      close: async (id: string) => {
+        closedGates.push(id);
+        gates.splice(0, gates.length, ...gates.filter((g) => g.id !== id));
+      },
+      listOpen: () => gates,
+      appendContext: (_id: string, text: string) => void contexts.push(text),
+    },
+  };
+  const client = {
+    history: async (_c: string, oldest: string) => {
+      reads.push(oldest);
+      return state.history.filter((m) => Number(m.ts) > Number(oldest));
+    },
+  } as unknown as SlackClient;
+  const bridge = createSlackBridge({
+    db,
+    client: async () => client,
+    post: (args) => {
+      posts.push(args);
+      return { id: 1 };
+    },
+    log: spyLog,
+    now: () => state.clock,
+    persona: opts.persona ? () => opts.persona! : undefined,
+    grace: {
+      offer: (c, text, triggerTs) => offerResume(deps as unknown as ResumeOfferDeps, c, text, triggerTs),
+      closeResume: (c) => closeResumeGates({ gates: deps.gates, log } as unknown as SlackOpenDeps, c.id),
+      closePane: async (pane) => void panes.push(pane),
+    },
+  });
+  const row = () => conversationById(opened.id, db)!;
+  const openDeps = {
+    db,
+    log,
+    gates: deps.gates,
+    closePane: async (pane: string | null) => void panes.push(pane),
+  } as unknown as SlackOpenDeps;
+  return { db, opened, bridge, state, reads, posts, panes, milestones, contexts, openedGates, closedGates, failures, warns, gates, row, openDeps };
+}
+
+const resumeAnswer = (h: ReturnType<typeof graceHarness>, decision: string) =>
+  ({
+    id: "g1",
+    subject: "slack:U0TEST",
+    kind: "slack-open",
+    meta: { action: "resume", conversation: h.opened.id, person: "U0TEST", personName: "Alex Example", requesterSession: null, requesterHandle: null, triggerTs: ts(40) },
+    answer: { answers: { decision }, by: "console", answeredAt: 1 },
+  }) as unknown as GateRow;
+
+test("a graced conversation's @Maude message opens one resume gate and sends resume-offered", async () => {
+  const h = graceHarness({ history: [msg(ts(40), "U0TEST", "  @Maude can you also check the export?")] });
+  await h.bridge.sweepGraced();
+  expect(h.openedGates).toHaveLength(1);
+  const gate = h.openedGates[0]!;
+  expect(gate.subject).toBe("slack:U0TEST");
+  expect(gate.kind).toBe("slack-open");
+  expect(gate.questions[0]!.label.endsWith(slackOpenMarker(gate.id))).toBe(true);
+  expect(gate.context).toContain("can you also check the export?");
+  expect(gate.meta).toEqual({
+    action: "resume",
+    conversation: h.opened.id,
+    person: "U0TEST",
+    personName: "Alex Example",
+    requesterSession: null,
+    requesterHandle: null,
+    triggerTs: ts(40),
+  });
+  expect(h.milestones).toEqual([`Alex Example wrote again after the chat closed: @Maude can you also check the export? (chat ${h.opened.id})`]);
+});
+
+test("a custom persona's own trigger opens the resume gate, and the default one no longer does", async () => {
+  const ada = { name: "Ada", emoji: "🦊", trigger: "!!ada" };
+  const h = graceHarness({ persona: ada, history: [msg(ts(40), "U0TEST", "@Maude not me"), msg(ts(41), "U0TEST", "!!ada over here")] });
+  await h.bridge.sweepGraced();
+  expect(h.openedGates).toHaveLength(1);
+  expect(h.openedGates[0]!.context).toContain("over here");
+});
+
+test("the operator's own copy of a persona line is not posted back to the room", async () => {
+  const ada = { name: "Ada", emoji: "🦊" };
+  const h = harness({ persona: ada, history: [msg(ts(10), "U0OPER", "[Ada 🦊]: on it"), msg(ts(11), "U0OPER", "[Claude 🤖]: from before the rename"), msg(ts(12), "U0OPER", "[Old Name :fox_face:]: shortcode of an earlier persona")] });
+  await h.bridge.sweep();
+  expect(h.posts).toEqual([]);
+});
+
+test("a second @Maude while the gate is open opens no second gate", async () => {
+  const h = graceHarness({ history: [msg(ts(40), "U0TEST", "@Maude first")] });
+  await h.bridge.sweepGraced();
+  h.state.history.push(msg(ts(45), "U0TEST", "@Maude and one more thing"));
+  await h.bridge.sweepGraced();
+  expect(h.openedGates).toHaveLength(1);
+  expect(h.contexts).toEqual(["Then:\n@Maude and one more thing"]);
+  expect(h.milestones).toHaveLength(1);
+});
+
+test("a message already offered is not offered again", async () => {
+  const h = graceHarness({ history: [msg(ts(40), "U0TEST", "@Maude first")] });
+  await h.bridge.sweepGraced();
+  await h.bridge.sweepGraced();
+  expect(h.openedGates).toHaveLength(1);
+  expect(h.contexts).toEqual([]);
+});
+
+test("an ordinary reply in grace opens nothing and posts nothing to the room", async () => {
+  const h = graceHarness({
+    history: [msg(ts(40), "U0TEST", "thanks!"), msg(ts(41), "U0TEST", "ok @Maude"), msg(ts(42), "U0OTHER", "@Maude hi"), msg(ts(43), "U0OPER", "@Maude")],
+  });
+  await h.bridge.sweepGraced();
+  expect(h.openedGates).toEqual([]);
+  expect(h.posts).toEqual([]);
+  expect(h.milestones).toEqual([]);
+});
+
+test("a @Maude from before the close does not count", async () => {
+  const h = graceHarness({ history: [msg(ts(20), "U0TEST", "@Maude too early")] });
+  await h.bridge.sweepGraced();
+  expect(h.openedGates).toEqual([]);
+});
+
+test("a conversation past grace_until is not read", async () => {
+  const h = graceHarness({ history: [msg(ts(40), "U0TEST", "@Maude late")] });
+  h.state.clock = CLOSED_AT_MS + GRACE_MS + 1;
+  await h.bridge.sweepGraced();
+  expect(h.reads).toEqual([]);
+  expect(h.openedGates).toEqual([]);
+});
+
+test("declining the resume gate ends grace and closes the agent's pane", async () => {
+  const h = graceHarness();
+  await answerSlackOpen(h.openDeps, resumeAnswer(h, "decline"));
+  expect(h.row().graceUntil).toBeNull();
+  expect(h.panes).toEqual(["bg:w1:p9"]);
+});
+
+test("a conversation whose grace_until passes with no resume gets endGrace and its pane closed, once", async () => {
+  const h = graceHarness();
+  h.state.clock = CLOSED_AT_MS + GRACE_MS;
+  await h.bridge.sweepGraced();
+  await h.bridge.sweepGraced();
+  expect(h.row().graceUntil).toBeNull();
+  expect(h.panes).toEqual(["bg:w1:p9"]);
+});
+
+function openNewChat(h: ReturnType<typeof graceHarness>, assignedPane: string) {
+  return openConversation(
+    { ...conv, room: "dm-bbb", agentHandle: "pane.two", frameMarker: "marker2", openedAt: h.state.clock, assignedPane },
+    h.db,
+  );
+}
+
+test("a new conversation for the same person ends the older grace window, and the sweep closes the older pane", async () => {
+  const h = graceHarness();
+  openNewChat(h, "bg:w1:p10");
+  expect(h.row().graceUntil).toBe(h.state.clock);
+  await h.bridge.sweepGraced();
+  expect(h.row().graceUntil).toBeNull();
+  expect(h.panes).toEqual(["bg:w1:p9"]);
+});
+
+test("a new conversation that reuses the older pane leaves it open", async () => {
+  const h = graceHarness();
+  openNewChat(h, "bg:w1:p9");
+  await h.bridge.sweepGraced();
+  expect(h.row().graceUntil).toBeNull();
+  expect(h.panes).toEqual([]);
+});
+
+test("a @Maude in a person's live chat opens no resume gate for their older closed chat", async () => {
+  const h = graceHarness({ history: [msg(ts(40), "U0TEST", "@Maude over here")] });
+  openNewChat(h, "bg:w1:p10");
+  startGrace(h.opened.id, CLOSED_AT_MS + GRACE_MS, h.db);
+  await h.bridge.sweepGraced();
+  expect(h.reads).toEqual([]);
+  expect(h.openedGates).toEqual([]);
+});
+
+test("the older of two graced chats is never offered a message the newer one has", async () => {
+  const h = graceHarness({ history: [msg(ts(50), "U0TEST", "@Maude hello")] });
+  const newer = openNewChat(h, "bg:w1:p10");
+  closeConversation(newer.id, "idle", CLOSED_AT_MS + 10_000, h.db);
+  startGrace(newer.id, CLOSED_AT_MS + 10_000 + GRACE_MS, h.db);
+  startGrace(h.opened.id, CLOSED_AT_MS + GRACE_MS, h.db);
+  expireOtherGrace("U0TEST", newer.id, h.state.clock, h.db);
+  await h.bridge.sweepGraced();
+  expect(h.openedGates).toHaveLength(1);
+  expect((h.openedGates[0]!.meta as { conversation: number }).conversation).toBe(newer.id);
+  expect(h.panes).toEqual(["bg:w1:p9"]);
+});
+
+test("grace running out closes the chat's waiting resume request", async () => {
+  const h = graceHarness({ history: [msg(ts(40), "U0TEST", "@Maude hi")] });
+  await h.bridge.sweepGraced();
+  const gateId = h.openedGates[0]!.id;
+  h.state.clock = CLOSED_AT_MS + GRACE_MS;
+  await h.bridge.sweepGraced();
+  expect(h.closedGates).toEqual([gateId]);
+  expect(h.gates).toEqual([]);
+});
+
+test("declining closes any other resume request still waiting for the chat", async () => {
+  const h = graceHarness({ history: [msg(ts(40), "U0TEST", "@Maude hi")] });
+  await h.bridge.sweepGraced();
+  const waiting = h.openedGates[0]!.id;
+  await answerSlackOpen(h.openDeps, resumeAnswer(h, "decline"));
+  expect(h.closedGates).toEqual([waiting]);
+});
+
+test("declining leaves the pane open when a newer conversation uses it", async () => {
+  const h = graceHarness();
+  openNewChat(h, "bg:w1:p9");
+  await answerSlackOpen(h.openDeps, resumeAnswer(h, "decline"));
+  expect(h.row().graceUntil).toBeNull();
+  expect(h.panes).toEqual([]);
+});
+
+test("a resume request that will not open is logged once, retried, and is not a Slack failure", async () => {
+  const h = graceHarness({ history: [msg(ts(40), "U0TEST", "@Maude hi")] });
+  h.failures.open = true;
+  await h.bridge.sweepGraced();
+  await h.bridge.sweepGraced();
+  expect(h.warns).toHaveLength(1);
+  expect(h.warns[0]).toEqual([{ conversationId: h.opened.id }, "slack-bridge: a resume request would not open, retrying next tick"]);
+  expect(h.milestones).toEqual([]);
+  h.failures.open = false;
+  await h.bridge.sweepGraced();
+  expect(h.openedGates).toHaveLength(1);
+});
+
+test("tsBefore is one microsecond earlier, across a whole second and at the epoch", () => {
+  expect(tsBefore("1700000000.000500")).toBe("1700000000.000499");
+  expect(tsBefore("1700000001.000000")).toBe("1700000000.999999");
+  expect(tsBefore("1700000001")).toBe("1700000000.999999");
+  expect(tsBefore("0.000000")).toBe("0.000000");
 });

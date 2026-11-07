@@ -41,6 +41,8 @@ import {
   Maximize,
   MessageSquare,
   MessageSquareDiff,
+  MessageSquareMore,
+  MessageSquarePlus,
   MessagesSquare,
   Minus,
   PanelRight,
@@ -122,4 +124,6 @@ registerIcons({
   plug: lucideWrapperFn(Plug),
   play: lucideWrapperFn(Play),
   code: lucideWrapperFn(Code),
+  messageSquareMore: lucideWrapperFn(MessageSquareMore),
+  messageSquarePlus: lucideWrapperFn(MessageSquarePlus),
 });
