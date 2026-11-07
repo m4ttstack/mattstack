@@ -33,7 +33,8 @@ import { locateTranscript as defaultLocateTranscript, type TranscriptHit } from 
 import { cswapAccountNumbers } from "../../cswap.ts";
 import { mergeGateForkHookSettings, resolveGateForkHookPath } from "../../agent-hooks.ts";
 import { defaultHerdrRunner, focusLiveSession, herdrAgentSessionId, launchInWorkspace, liveSessionPaneInTab, type HerdrRunner } from "../../agent-herdr.ts";
-import { herdrRequest } from "../../herdr/client.ts";
+import { herdrRequest, herdrSocketPath } from "../../herdr/client.ts";
+import { findAgentWithKey } from "../../ssh-agent.ts";
 import { injectIntoPane } from "../inject.ts";
 import { opensSlackChat, slackOpenRefused } from "../../slack/format.ts";
 import { HERDR_NOT_INSTALLED, type HerdrStartResult } from "../../herdr/start.ts";
@@ -427,6 +428,8 @@ export function createAgentHandlers(opts: {
   startHerdr?: () => Promise<HerdrStartResult>;
   /** Picks the repo's .nvmrc Node for a pane; tests pass a fake. */
   resolveNodePin?: (cwd: string) => NodePin | undefined;
+  /** Finds an ssh-agent holding a key for a pane; tests pass a fake. */
+  findSshAgent?: typeof findAgentWithKey;
 }):
   // Direct `unknown`-payload members, not `Pick<TypedHandlers, ...>`: a wider
   // `unknown` param still satisfies TypedHandlers' narrower one at the
@@ -444,6 +447,14 @@ export function createAgentHandlers(opts: {
   // os.homedir() is frozen at process start; HOME is what tests repoint.
   const locate = opts.locateTranscript ?? ((sessionId: string, preferred: string | undefined) =>
     defaultLocateTranscript(sessionId, preferred, { home: process.env.HOME ?? homedir(), cswapAccounts: () => cswapAccountNumbers() }));
+
+  /** herdr points each pane's SSH_AUTH_SOCK at `<socket>.agent`, which goes stale when a key is loaded after herdr started. */
+  async function paneSshEnv(herdrSocket: string | undefined): Promise<Record<string, string>> {
+    const found = await (opts.findSshAgent ?? findAgentWithKey)(`${herdrSocket ?? herdrSocketPath()}.agent`);
+    if (!found || found.preferred) return {};
+    log.info({ socket: found.socket }, "herdr's pane ssh-agent holds no key; the pane gets one that does");
+    return { SSH_AUTH_SOCK: found.socket };
+  }
 
   async function launch(
     rec: AgentRecord,
@@ -468,6 +479,7 @@ export function createAgentHandlers(opts: {
     const { prompt: resolvedPrompt, addDirs } = resolveHerdrPrompt(rec, prompt);
     const nodePin = rec.surface === "herdr" ? (opts.resolveNodePin ?? resolveNodePin)(rec.cwd) : undefined;
     if (nodePin?.kind === "missing") log.warn({ cwd: rec.cwd, version: nodePin.version }, "nvm has not installed the node in .nvmrc");
+    const sshEnv = rec.surface === "herdr" ? await paneSshEnv(extra.herdrSocket) : {};
 
     const inv: AgentInvocation = {
       session,
@@ -482,7 +494,7 @@ export function createAgentHandlers(opts: {
       // Headless has no pane shell line for buildPaneCommand to interpolate
       // env into (see the payload.env rejection above); its gate env instead
       // rides the spawnHeadless call itself, below.
-      ...(rec.surface === "herdr" && { env: { ...extra.env, ...gateEnv } }),
+      ...(rec.surface === "herdr" && { env: { ...sshEnv, ...extra.env, ...gateEnv } }),
       ...(nodePin !== undefined && { nodePin }),
       ...(settingsPath !== undefined && { settingsPath }),
       ...(addDirs !== undefined && { addDirs }),

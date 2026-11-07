@@ -58,6 +58,7 @@ test("agent:start --bg claims via the real store, and a bg-socket pane.closed th
       // letting it spend its real budget against a socket nobody is serving.
       herdr: (async () => ({ ok: false, code: "unreachable", message: "no server" })) as never,
       trustBudgets: { registerBudgetMs: 10, waitBudgetMs: 10, settleMs: 1, stepMs: 1 },
+      findSshAgent: async () => undefined,
       bg: { ensure: async () => ({ socket: BG_SOCKET, started: true }), reprobe: async () => ({ ok: true, drift: [] }) },
       bgClaims,
       lifecycle,
