@@ -34,7 +34,7 @@ import {
 } from "../packages/rt-client/src/index.ts";
 import { getRepoRoot } from "../lib/git.ts";
 import { getRepoIdentityForRoot } from "../lib/repo.ts";
-import { currentSessionId } from "../lib/chat-session.ts";
+import { currentSessionId, readChatSession } from "../lib/chat-session.ts";
 import * as out from "../lib/ui/out.ts";
 import {
   fail,
@@ -98,7 +98,11 @@ const START_SEAMS: SlackStartSeams = {
   },
 };
 
-/** The brief is read from stdin so its length and quoting never pass through a command line. */
+/**
+ * The brief is read from stdin so its length and quoting never pass through a command line.
+ * Only a caller with its own signed-in session is recorded as requester: a native app
+ * running from the repo folder must not inherit whichever agent is signed in there.
+ */
 export async function slackStart(args: string[], seams: SlackStartSeams = START_SEAMS): Promise<void> {
   const person = positional(args);
   if (!person) failUsage("Who is the Slack chat with?", START_USAGE);
@@ -107,15 +111,15 @@ export async function slackStart(args: string[], seams: SlackStartSeams = START_
   if (!brief) refuseOpen(args, "A Slack chat needs a brief on stdin");
   const repo = seams.repo();
   if (!repo) refuseOpen(args, "A Slack chat starts from inside a repo, and this folder is not in one");
-  const identity = await signedInIdentity(args);
+  const session = readChatSession(currentSessionId(args));
   const res = await chatSlackStart(
     {
       person,
       brief,
       repo,
       requesterPane: flagValue(args, "--requester-pane") || undefined,
-      requesterSession: identity?.sessionId ?? currentSessionId(args),
-      requesterHandle: identity?.handle,
+      requesterSession: session?.sessionId,
+      requesterHandle: session?.handle,
     },
     sockOpts(args),
   );

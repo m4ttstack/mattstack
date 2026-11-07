@@ -552,6 +552,16 @@ test("slack-start from a signed-in session names the requester", async () => {
   expect(seen.find((s) => s.cmd === "chat:slack-start")!.payload).toMatchObject({ requesterSession: SESSION, requesterHandle: expect.stringMatching(/^support\./) });
 });
 
+test("slack-start without a session env names no requester even when a folder identity exists", async () => {
+  await signIn();
+  delete process.env.CLAUDE_CODE_SESSION_ID;
+  canned["chat:slack-start"] = { ok: true, data: { conversation: 9 } };
+  await run(() => slackStart(["alex", "--brief", "-", "--json"], START_SEAMS));
+  const payload = seen.find((s) => s.cmd === "chat:slack-start")!.payload;
+  expect(payload).not.toHaveProperty("requesterHandle");
+  expect(payload).not.toHaveProperty("requesterSession");
+});
+
 test("slack-start keeps a refusal in the envelope under --json", async () => {
   canned["chat:slack-start"] = { ok: false, error: "alex already has a Slack chat open in room" };
   const res = await run(() => slackStart(["alex", "--brief", "-", "--json"], START_SEAMS));
