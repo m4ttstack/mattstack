@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
-  Anchor,
   Badge,
+  Button,
   Group,
   PageShell,
   Paper,
@@ -135,6 +135,54 @@ function SideCard({
   );
 }
 
+const MR_TONE = {
+  merged: { color: 'ok', label: 'merged' },
+  opened: { color: 'accent', label: 'open' },
+  closed: { color: 'gray', label: 'closed' },
+} as const;
+
+/** The MR's state, toned as the run page's outcome badge is, then a button
+    that opens the MR when its url is known. */
+function MrState({
+  state,
+  number,
+  url,
+}: {
+  state: string | undefined;
+  number: string;
+  url: string | null | undefined;
+}) {
+  const tone = MR_TONE[state as keyof typeof MR_TONE];
+  return (
+    <Group gap={8} wrap="nowrap" style={{ flex: 'none' }}>
+      {tone ? (
+        <Badge
+          size="lg"
+          variant="light"
+          color={tone.color}
+          tt="none"
+          leftSection={<Icon name="gitMerge" size={13} />}
+        >
+          {tone.label}
+        </Badge>
+      ) : null}
+      {url ? (
+        <Button
+          component="a"
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          variant="default"
+          size="compact-sm"
+          rightSection={<Icon name="externalLink" size={12} />}
+        >
+          {number}
+        </Button>
+      ) : null}
+    </Group>
+  );
+}
+
 export function UsageMrPage({ mrKey }: { mrKey: string }) {
   const query = useUsageMr(mrKey);
   const status = useUsageStatus();
@@ -206,30 +254,14 @@ export function UsageMrPage({ mrKey }: { mrKey: string }) {
 
             {mr && counts ? (
               <>
-                <Group justify="space-between" gap={16} wrap="nowrap">
-                  <Group gap={10} wrap="nowrap" miw={0}>
-                    <Text fz="xl" fw={700} lh="normal" className={classes.name}>
-                      {name}
-                    </Text>
-                    <Text fz="xl" lh="normal" truncate>
-                      {title}
-                    </Text>
-                    {state ? (
-                      <Badge variant="outline" color="gray">
-                        {state}
-                      </Badge>
-                    ) : null}
-                  </Group>
-                  {mr.url ? (
-                    <Anchor
-                      href={mr.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      fz="md"
-                    >
-                      {number}
-                    </Anchor>
-                  ) : null}
+                <Group gap={10} wrap="nowrap" miw={0}>
+                  <Text fz="xl" fw={700} lh="normal" className={classes.name}>
+                    {name}
+                  </Text>
+                  <Text fz="xl" lh="normal" truncate>
+                    {title}
+                  </Text>
+                  <MrState state={state} number={number} url={mr.url} />
                 </Group>
 
                 <UsageStats

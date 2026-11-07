@@ -66,8 +66,12 @@
   border-top: 1px solid var(--tk-line-3);
 }
 
-.row:hover {
-  background-color: var(--mantine-color-default-hover);
+/* The same faint accent step as the Changes tree's hover: Mantine's
+   default hover is the card's own grey. */
+@media (hover: hover) {
+  .row:hover {
+    background-color: color-mix(in srgb, var(--tk-fill-accent) 6%, transparent);
+  }
 }
 
 .name {
