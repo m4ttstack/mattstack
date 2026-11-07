@@ -13,6 +13,7 @@ import { notifications } from '@mattstack/app-kit/notifications';
 import { loadSteps, StepLoader, useStepLoading } from '../StepLoader';
 import classes from './ConfigTab.module.css';
 import { useReportReady } from './contentReady';
+import { useConfirmCompile } from './graph/confirmCompile';
 import { UnsyncedActions, useUnsyncedSummary } from './graph/UnsyncedBanner';
 import { useWiringUrl } from './graph/useWiringUrl';
 import {
@@ -29,9 +30,9 @@ import {
 } from './SurfaceTab';
 import {
   syncRefusal,
+  useCompiling,
   useCompositionSnapshot,
   useSkillsCheck,
-  useSkillsCompile,
   useSkillsSync,
   useSkillsWriting,
   useSurface,
@@ -104,23 +105,13 @@ function PackStatusBar({
   onReview: () => void;
 }) {
   const summary = useUnsyncedSummary(pack);
-  const compile = useSkillsCompile(pack);
   const install = useSkillsSync(pack);
   const writing = useSkillsWriting(pack);
   const compiling = needCompile + neverCompiled > 0;
 
-  const runCompile = () =>
-    compile
-      .mutateAsync()
-      .then(report => {
-        const failed = report.verbs.find(verb => verb.status === 'errored');
-        if (failed)
-          notifications.error(
-            failed.errors?.[0] ?? `${failed.name} did not compile`
-          );
-        else notifications.success(`Compiled ${pack}. Publish to share it.`);
-      })
-      .catch((error: Error) => notifications.error(error.message));
+  const confirmCompile = useConfirmCompile(pack);
+  const runCompile = () => confirmCompile(needCompile + neverCompiled);
+  const compileRunning = useCompiling(pack);
 
   const runInstall = () =>
     install
@@ -173,7 +164,7 @@ function PackStatusBar({
               px={14}
               fz={13}
               leftSection={<Icon name="fileCog" size={14} />}
-              loading={compile.isPending}
+              loading={compileRunning}
               disabled={writing}
               onClick={runCompile}
               data-testid="compile-pack"

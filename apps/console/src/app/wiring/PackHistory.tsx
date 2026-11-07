@@ -14,11 +14,13 @@ import { navigate } from 'wouter/use-browser-location';
 
 import { StepLoader, useStepLoading } from '../StepLoader';
 import { CommitDiff, filesOf } from './CommitDiff';
+import { useConfirmCompile } from './graph/confirmCompile';
 import { UnsyncedActions, useUnsyncedSummary } from './graph/UnsyncedBanner';
 import classes from './PackHistory.module.css';
 import {
   useCompileDiff,
   useCompileWaiting,
+  useCompiling,
   usePendingChanges,
   useSkillsDiff,
   useSkillsHistory,
@@ -252,35 +254,34 @@ export function HistorySidebar({ pack }: { pack: string }) {
         </div>
       ) : (
         <div className={classes.rows} data-testid="commit-list">
-          {unsynced > 0 && (
-            <>
-              <UnstyledButton
-                className={`${classes.row} ${classes.working}`}
-                data-selected={onWorking || undefined}
-                aria-pressed={onWorking}
-                onClick={() => write({ commits: [WORKING] })}
-                data-testid="commit-working"
-              >
-                <span className={classes.workingMark} aria-hidden>
-                  <Icon name="circleDot" size={14} />
+          <Collapse
+            expanded={unsynced > 0}
+            transitionDuration={200}
+            animateOpacity
+          >
+            <UnstyledButton
+              className={`${classes.row} ${classes.compile}`}
+              data-selected={onWorking || undefined}
+              aria-pressed={onWorking}
+              onClick={() => write({ commits: [WORKING] })}
+              data-testid="commit-working"
+            >
+              <span className={classes.compileHead}>
+                <Icon name="circleDot" size={14} />
+                <span className={classes.subject}>Unsynced changes</span>
+              </span>
+              <span className={classes.meta}>
+                <span className={classes.compileSkills}>
+                  {unsynced} {unsynced === 1 ? 'change' : 'changes'}
                 </span>
-                <span className={classes.workingText}>
-                  <span className={classes.workingTitle}>Unsynced changes</span>
-                  <span className={classes.meta}>
-                    <span className={classes.workingCount}>
-                      {unsynced} {unsynced === 1 ? 'change' : 'changes'}
-                    </span>
-                    <span>
-                      {summary?.trial
-                        ? `to sync to ${summary.trial}`
-                        : 'not synced yet'}
-                    </span>
-                  </span>
+                <span>
+                  {summary?.trial
+                    ? `to sync to ${summary.trial}`
+                    : 'not synced yet'}
                 </span>
-              </UnstyledButton>
-              <div className={classes.section}>Committed</div>
-            </>
-          )}
+              </span>
+            </UnstyledButton>
+          </Collapse>
           <Collapse
             expanded={staleSkills.length > 0}
             transitionDuration={200}
@@ -365,6 +366,33 @@ export function HistorySidebar({ pack }: { pack: string }) {
   );
 }
 
+/** Compiles the pack once confirmed, then hands over to the Config tab,
+    which shows the compile running and what it left to publish. */
+function CompileAction({
+  pack,
+  skills,
+  onStart,
+}: {
+  pack: string;
+  skills: string[];
+  onStart?: () => void;
+}) {
+  const confirm = useConfirmCompile(pack, onStart);
+  const running = useCompiling(pack);
+  return (
+    <Button
+      color="warn"
+      size="compact-sm"
+      leftSection={<Icon name="fileCog" size={13} />}
+      loading={running}
+      onClick={() => confirm(skills.length)}
+      data-testid="compile-from-changes"
+    >
+      Compile Skill Pack
+    </Button>
+  );
+}
+
 /** The file list beside the diff. */
 const TREE_PANE = { initial: 360, min: 240, max: 520 };
 
@@ -375,9 +403,12 @@ export const COMMITS_PANE = { initial: 296, min: 240, max: 480 };
 export function HistoryMain({
   pack,
   height,
+  onCompile,
 }: {
   pack: string;
   height: string;
+  /** Called once a compile started here is confirmed. */
+  onCompile?: () => void;
 }) {
   const history = useSkillsHistory(pack, null);
   const commits = useMemo(() => history.data?.commits ?? [], [history.data]);
@@ -464,7 +495,15 @@ export function HistoryMain({
                   : undefined
             }
             actions={
-              range.to === WORKING ? <UnsyncedActions pack={pack} /> : null
+              range.to === WORKING ? (
+                <UnsyncedActions pack={pack} />
+              ) : compiling && compileDiff.data ? (
+                <CompileAction
+                  pack={pack}
+                  skills={compileDiff.data.skills}
+                  onStart={onCompile}
+                />
+              ) : null
             }
             files={files}
             file={openFile}

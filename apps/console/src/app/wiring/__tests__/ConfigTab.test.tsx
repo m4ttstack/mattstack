@@ -214,6 +214,11 @@ describe('ConfigTab: the status bar', () => {
     await userEvent.click(
       within(bar).getByRole('button', { name: 'Compile Skill Pack' })
     );
+    expect(compilePost).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText(/Rebuilds 2 skills from their sources/)
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Compile' }));
 
     await waitFor(() => expect(compilePost).toHaveBeenCalledTimes(1));
     expect(compilePost.mock.calls[0][0]).toMatchObject({
@@ -239,6 +244,9 @@ describe('ConfigTab: the status bar', () => {
 
     await userEvent.click(
       within(bar).getByRole('button', { name: 'Compile Skill Pack' })
+    );
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Compile' })
     );
 
     expect(await screen.findByText('work: bad prop')).toBeInTheDocument();

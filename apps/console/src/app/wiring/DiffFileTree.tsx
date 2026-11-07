@@ -24,6 +24,8 @@ const TREE_STYLE = {
   '--trees-accent-override': 'var(--tk-fill-accent)',
   '--trees-border-color-override': 'var(--tk-border-soft)',
   '--trees-focus-ring-color-override': 'var(--tk-fill-accent)',
+  // The picked row's fill is enough; no ring around it once it has focus.
+  '--trees-selected-focused-border-color-override': 'transparent',
   // The library's own status hues are too light on a light card; the
   // console's text steps clear 4.5 in both schemes.
   '--trees-status-added-override': 'var(--tk-text-ok)',

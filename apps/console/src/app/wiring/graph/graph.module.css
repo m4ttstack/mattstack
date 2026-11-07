@@ -400,3 +400,22 @@
   margin-right: 8px;
   color: var(--tk-text-3);
 }
+
+/* Discard lives in rt, not here; the hint says how. */
+.discardHint {
+  display: inline-flex;
+  color: var(--tk-text-3);
+  cursor: help;
+}
+
+/* The command reads on the tooltip's dark fill, on a line of its own. */
+.discardCommand {
+  display: block;
+  margin-top: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 0.12);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12px;
+  white-space: nowrap;
+}

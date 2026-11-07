@@ -287,7 +287,13 @@ export function WiringMap() {
               </PageShell.Content>
             ) : historyPack && !packFailed ? (
               <PageShell.Content bg="var(--tk-card)" contentContainer={false}>
-                {height => <HistoryMain pack={historyPack} height={height} />}
+                {height => (
+                  <HistoryMain
+                    pack={historyPack}
+                    height={height}
+                    onCompile={() => showTab('config')}
+                  />
+                )}
               </PageShell.Content>
             ) : (
               <PageShell.Content topNotch={notch}>

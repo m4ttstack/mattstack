@@ -438,6 +438,16 @@ export function useSkillsWriting(pack: string): boolean {
   return useIsMutating({ mutationKey: skillsWriteKey(pack) }) > 0;
 }
 
+/** A compile of the pack is running, whichever tab started it. */
+export function useCompiling(pack: string): boolean {
+  return (
+    useIsMutating({
+      mutationKey: skillsWriteKey(pack),
+      predicate: m => m.options.meta?.kind === 'compile',
+    }) > 0
+  );
+}
+
 function isSkillsWriting(queryClient: QueryClient, pack: string) {
   return queryClient.isMutating({ mutationKey: skillsWriteKey(pack) }) > 0;
 }
@@ -573,12 +583,33 @@ export function useSkillsCompile(pack: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: skillsWriteKey(pack),
+    meta: { kind: 'compile' },
     mutationFn: async () => {
       const res = await client.api.skills.compile.$post({ json: { pack } });
       return readOrThrow<SkillsCompileReport>(res, 'skills compile');
     },
     onSettled: () => invalidateSkillsQueries(queryClient, pack),
   });
+}
+
+/** Reports a compile from its promise, which settles whether or not the
+    button that started it is still on screen. */
+export function reportCompile(
+  pack: string,
+  run: Promise<SkillsCompileReport>
+): Promise<void> {
+  return run
+    .then(report => {
+      const failed = report.verbs.find(verb => verb.status === 'errored');
+      if (failed)
+        notifications.error(
+          failed.errors?.[0] ?? `${failed.name} did not compile`
+        );
+      else notifications.success(`Compiled ${pack}. Publish to share it.`);
+    })
+    .catch((error: Error) => {
+      notifications.error(error.message);
+    });
 }
 
 export type SkillsCompileReport = InferResponseType<

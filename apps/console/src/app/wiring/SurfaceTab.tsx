@@ -580,9 +580,18 @@ export function SurfaceTab({
 
   const [filterText, setFilterText] = useState('');
   const [ownFilter, setOwnFilter] = useState<SurfaceFilterKind>('all');
-  const filterKind = hostFilter ?? ownFilter;
   const setFilterKind = onFilterKind ?? setOwnFilter;
   const attentionCount = health?.size ?? 0;
+  // Needs attention has no chip once nothing needs it (a compile just
+  // cleared it), so the list falls back to every skill.
+  const asked = hostFilter ?? ownFilter;
+  const filterKind =
+    asked === 'attention' && health !== undefined && attentionCount === 0
+      ? 'all'
+      : asked;
+  useEffect(() => {
+    if (asked !== filterKind) setFilterKind(filterKind);
+  }, [asked, filterKind, setFilterKind]);
   const filtering = filterText.trim() !== '' || filterKind !== 'all';
 
   // Counts (and the kind/status filters) read the on-disk `rows`, never the
@@ -714,7 +723,13 @@ export function SurfaceTab({
         <div data-testid="surface-grid">
           <SwitchKey />
           {filteredRows.length === 0 ? (
-            <Text size="sm" c={text.dimmed} style={{ gridColumn: '1 / -1' }}>
+            <Text
+              size="sm"
+              c={text.dimmed}
+              px={16}
+              py={8}
+              style={{ gridColumn: '1 / -1' }}
+            >
               No skills match this filter.
             </Text>
           ) : (

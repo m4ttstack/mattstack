@@ -18,7 +18,6 @@ import {
   guardedWrite,
   syncRefusal,
   useCompositionSnapshot,
-  useDiscardChanges,
   usePendingChanges,
   useSkillsSync,
   useSkillsWriting,
@@ -31,13 +30,14 @@ import {
   sameChanges,
   type PendingChange,
 } from './model/pendingChanges';
+import {
+  BODY,
+  BUTTON,
+  ConfirmTitle,
+  MUTED,
+  packConfirmFrame,
+} from './packConfirm';
 
-const MUTED = 'var(--tk-text-3)';
-const BODY = 'var(--tk-text-1)';
-const BUTTON = {
-  root: classes.boardButton,
-  section: classes.boardButtonSection,
-};
 const CHANGED =
   'The pack changed since this list was shown. Review the new list and try again.';
 
@@ -102,9 +102,9 @@ export function useUnsyncedSummary(pack: string | null) {
 }
 
 /**
- * The two ways out of the pack's unsynced changes, for the head of their
- * History view: Discard and Sync, each behind a confirm that lists every
- * change it acts on, beside the trial branch a sync would push to.
+ * The way out of the pack's unsynced changes, for the head of their History
+ * view: Publish, behind a confirm that lists every change it acts on, beside
+ * the trial branch it would push to.
  */
 export function UnsyncedActions({
   pack,
@@ -120,7 +120,6 @@ export function UnsyncedActions({
   const current = useUnsynced(pack);
   const queryClient = useQueryClient();
   const sync = useSkillsSync(pack);
-  const discard = useDiscardChanges(pack);
   const writing = useSkillsWriting(pack);
   const composition = useCompositionSnapshot(pack).data;
   // The host slides the banner out once the pack is clean; it keeps the
@@ -186,28 +185,12 @@ export function UnsyncedActions({
       })
       .catch((error: Error) => notifications.error(error.message));
 
-  const runDiscard = (expect: string) =>
-    discard
-      .mutateAsync(expect)
-      .then(() =>
-        notifications.success(`Discarded the unsynced changes in ${pack}`)
-      )
-      .catch((error: Error) => notifications.error(error.message));
-
   const confirmSync = () =>
     modals.confirm({
       title: (
-        <Text
-          span
-          display="block"
-          fz={15}
-          fw={700}
-          lh="normal"
-          c={BODY}
-          data-parity="t"
-        >
+        <ConfirmTitle>
           Publish {count} {plural(count, 'change', 'changes')}?
-        </Text>
+        </ConfirmTitle>
       ),
       message: (
         <Stack gap={14}>
@@ -226,36 +209,11 @@ export function UnsyncedActions({
           </Text>
         </Stack>
       ),
-      labels: {
-        confirm: <ButtonLabel>Publish</ButtonLabel>,
-        cancel: <ButtonLabel>Cancel</ButtonLabel>,
-      },
-      confirmProps: {
+      ...packConfirmFrame({
+        confirm: 'Publish',
         color: 'accent',
-        size: 'xs',
-        radius: 6,
-        classNames: BUTTON,
-        leftSection: <Icon name="upload" size={13} data-parity="i" />,
-        'data-parity': 'button · Publish',
-      },
-      cancelProps: {
-        variant: 'card-outline',
-        size: 'xs',
-        radius: 6,
-        classNames: BUTTON,
-        'data-parity': 'button · Cancel',
-      },
-      groupProps: { gap: 8, mt: 14 },
-      size: 480,
-      radius: 10,
-      padding: 20,
-      classNames: {
-        header: classes.confirmHeader,
-        close: classes.confirmClose,
-      },
-      closeButtonProps: {
-        icon: <Icon name="close" size={16} data-parity="close" />,
-      },
+        icon: <Icon name="upload" size={13} data-parity="i" />,
+      }),
       attributes: { content: { 'data-parity': 'Modal · sync changes' } },
       onConfirm: confirmed(
         changes,
@@ -267,29 +225,12 @@ export function UnsyncedActions({
       ),
     });
 
-  const confirmDiscard = () =>
-    modals.confirm({
-      destructive: true,
-      title: `Discard ${count} ${plural(count, 'change', 'changes')}?`,
-      message: (
-        <Stack gap="sm">
-          <Text size="sm">
-            This throws away{' '}
-            {plural(count, 'this change', `these ${count} changes`)} in {pack}.
-            It cannot be undone.
-          </Text>
-          <ChangeList pending={pending} />
-        </Stack>
-      ),
-      labels: { confirm: 'Discard' },
-      onConfirm: confirmed(changes, () => runDiscard(changes.signature)),
-    });
-
   const trial = changes.trialBranch ?? null;
   const sync_ = (
     <Button
       color="accent"
-      size="xs"
+      // The diff's 41px head wants the compact size; the Config bar has room.
+      size={publishOnly ? 'xs' : 'compact-sm'}
       radius={6}
       classNames={BUTTON}
       leftSection={<Icon name="upload" size={13} data-parity="i" />}
@@ -323,18 +264,27 @@ export function UnsyncedActions({
           trial · {trial}
         </Badge>
       )}
-      <Button
-        variant="card-outline"
-        size="xs"
-        radius={6}
-        classNames={BUTTON}
-        disabled={writing}
-        loading={discard.isPending}
-        onClick={confirmDiscard}
-        data-parity="button · Discard"
+      <Tooltip
+        label={
+          <>
+            To throw these away, run
+            <span className={classes.discardCommand}>
+              rt skills discard --pack {pack}
+            </span>
+          </>
+        }
+        multiline
+        maw={320}
+        withArrow
       >
-        <ButtonLabel>Discard</ButtonLabel>
-      </Button>
+        <span
+          className={classes.discardHint}
+          aria-label={`To throw these away, run rt skills discard --pack ${pack}`}
+          data-testid="discard-hint"
+        >
+          <Icon name="questionCircle" size={15} />
+        </span>
+      </Tooltip>
       {publish}
     </div>
   );
