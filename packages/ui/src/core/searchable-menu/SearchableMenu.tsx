@@ -191,11 +191,11 @@ export function SearchableMenu<T extends Record<string, unknown>>({
         component={component}
         {...getItemProps?.(item)}
         onClick={() => onItemClick?.(item)}
-        // Selected reads stronger than the menu's 14% hover wash, at the
-        // same step as an active sidebar row.
+        // The same tint as an active sidebar row, which also reads stronger
+        // than the menu's hover wash.
         bg={
           isSelectedItem?.(item)
-            ? 'color-mix(in srgb, var(--tk-app-hue, var(--mantine-primary-color-filled)) 22%, transparent)'
+            ? 'var(--tk-app-chrome-selected, var(--mantine-primary-color-light))'
             : undefined
         }
         rightSection={
