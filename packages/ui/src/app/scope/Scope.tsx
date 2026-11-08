@@ -101,6 +101,7 @@ export function OrgPill({ org }: { org: string }) {
     <Button
       component="span"
       size="compact-sm"
+      px={12}
       radius="xl"
       variant="hue-outline"
       color="gold"
@@ -120,6 +121,7 @@ export function TeamPill({ team }: { team: string }) {
     <Button
       component="span"
       size="compact-sm"
+      px={12}
       radius="xl"
       variant="hue-outline"
       color="purple"
@@ -157,6 +159,7 @@ export const ScopeTrigger = forwardRef<
     <Button
       ref={ref}
       size="compact-sm"
+      px={12}
       radius="xl"
       variant="hue-outline"
       color={color}
