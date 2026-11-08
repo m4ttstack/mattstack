@@ -34,6 +34,8 @@ export type FocusItem = {
   handWritten?: true;
   /** A hand-written skill a binding plugs into another skill. */
   fill?: true;
+  /** The other pack this skill's file comes from. */
+  from?: string;
 };
 
 /** A skill folder as the Surface tab lists it. */
@@ -100,6 +102,17 @@ export function copyLinkLabelOf(
   return target?.engine && target.pipeline
     ? `${target.engine} · ${target.pipeline}`
     : null;
+}
+
+/** The fills whose file another pack owns: the org base's or a plugin's.
+    Compile also copies a base's fills under this pack's name, so a binding
+    that names this pack is never one of them. */
+export function outsideFillsOf(
+  composition: Pick<SkillsComposition, 'fills' | 'pack'>
+) {
+  return (composition.fills ?? []).filter(
+    fill => !fill.binding.startsWith(`${composition.pack}:`)
+  );
 }
 
 export function buildFocusGroups(
@@ -237,7 +250,26 @@ export function buildFocusGroups(
         : {}),
     }));
   const skills = handWritten.filter(item => !item.fill);
-  const fills = handWritten.filter(item => item.fill);
+  const taken = new Set([...listed, ...handWritten.map(item => item.skill)]);
+  const outsideFills = outsideFillsOf(composition)
+    .filter(fill => !taken.has(suffixOf(fill.binding)))
+    .map((fill): FocusItem => {
+      const name = suffixOf(fill.binding);
+      return {
+        key: name,
+        label: name,
+        skill: name,
+        icon: 'lock',
+        step: null,
+        attention: false,
+        children: [],
+        file: fill.sourcePath,
+        handWritten: true,
+        fill: true,
+        from: fill.binding.slice(0, fill.binding.indexOf(':')),
+      };
+    });
+  const fills = [...handWritten.filter(item => item.fill), ...outsideFills];
 
   return {
     pipelines,

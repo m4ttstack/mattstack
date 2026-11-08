@@ -10,9 +10,9 @@ import {
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
-import type { FocusItem } from '../graph/model/focusModel';
+import { outsideFillsOf, type FocusItem } from '../graph/model/focusModel';
 import { StatusDot } from '../graph/StatusDot';
-import type { SkillsCheck, SkillsComposition } from '../outline';
+import { suffixOf, type SkillsCheck, type SkillsComposition } from '../outline';
 import type { SkillsAnatomy } from '../useWiring';
 import { BuiltFromTable } from './BuiltFromTable';
 import classes from './history.module.css';
@@ -146,13 +146,18 @@ type HistoryProps = {
   onOpen: (focus: string) => void;
 };
 
+/** The fills from other packs by name; each has a page in the focus list. */
+const outsideFillNames = (composition: HistoryProps['composition']) =>
+  new Set(outsideFillsOf(composition).map(fill => suffixOf(fill.binding)));
+
 /** One block's copy in the open skill: its text and the files its props
     paste in, with the versions built and installed. */
 function BlockHistory({
   anatomy,
+  composition,
   check,
   block,
-}: Pick<HistoryProps, 'anatomy' | 'check'> & {
+}: Pick<HistoryProps, 'anatomy' | 'composition' | 'check'> & {
   block: HistoryBlock;
 }) {
   const row = check?.verbs.find(verb => verb.name === anatomy.skill);
@@ -162,7 +167,10 @@ function BlockHistory({
       <TabHeading parity="h1" testId="history-heading">
         In {anatomy.skill}
       </TabHeading>
-      <BuiltFromTable rows={rows} />
+      <BuiltFromTable
+        rows={rows}
+        outsideFills={outsideFillNames(composition)}
+      />
       <HistoryNote>{blockNote(rows, anatomy.skill)}</HistoryNote>
     </>
   );
@@ -172,6 +180,7 @@ function BlockHistory({
     and the other steps of its pipeline that need a rebuild. */
 function SkillHistory({
   pack,
+  composition,
   anatomy,
   check,
   pipeline,
@@ -187,7 +196,10 @@ function SkillHistory({
     row?.status === 'never-compiled';
   return (
     <>
-      <BuiltFromTable rows={rows} />
+      <BuiltFromTable
+        rows={rows}
+        outsideFills={outsideFillNames(composition)}
+      />
       {note && <HistoryNote>{note}</HistoryNote>}
       {stale.length > 0 && (
         <>
@@ -233,6 +245,7 @@ export function BuiltFrom({
         {block ? (
           <BlockHistory
             anatomy={props.anatomy}
+            composition={props.composition}
             check={props.check}
             block={block}
           />

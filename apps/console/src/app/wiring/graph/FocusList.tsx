@@ -172,7 +172,7 @@ function ItemRow({
           <AttentionDot />
         ) : item.icon === 'lock' ? (
           <Text span fz="xs" lh="normal" c={MUTED}>
-            off
+            {item.from ?? 'off'}
           </Text>
         ) : undefined
       }

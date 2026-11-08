@@ -451,7 +451,7 @@ export function BlockView({
         {zoom.level === 'skill' && !rendered && (
           <PackFills
             pack={pack}
-            fills={packFillsOf(payload)}
+            fills={packFillsOf(payload, pack)}
             onOpen={skill => patch({ focus: skill, block: null, select: null })}
           />
         )}

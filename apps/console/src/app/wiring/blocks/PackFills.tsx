@@ -10,11 +10,13 @@ export type PackFill = {
   blockLabel: string;
   skill: string;
   lines: number;
+  /** The other pack whose file this pack chose; null for its own. */
+  fileFrom: string | null;
 };
 
 /** Every value the pack itself passes into this skill, one per block and
     binding, in block order. */
-export function packFillsOf(payload: BlocksPayload): PackFill[] {
+export function packFillsOf(payload: BlocksPayload, pack: string): PackFill[] {
   const seen = new Set<string>();
   const out: PackFill[] = [];
   for (const block of payload.blocks) {
@@ -29,6 +31,10 @@ export function packFillsOf(payload: BlocksPayload): PackFill[] {
           blockLabel: labelOf(block),
           skill: value.binding.slice(value.binding.indexOf(':') + 1),
           lines: value.lines,
+          fileFrom:
+            value.binding.includes(':') && !value.binding.startsWith(`${pack}:`)
+              ? value.binding.slice(0, value.binding.indexOf(':'))
+              : null,
         });
       }
     }
@@ -74,8 +80,16 @@ export function PackFills({
             <Text span display="block" truncate>
               {fill.skill}
             </Text>
-            <Text span display="block" fz="sm" c="dimmed" truncate>
-              fills {fill.blockLabel} · {plural(fill.lines, 'line', 'lines')}
+            <Text
+              span
+              fz="sm"
+              c="dimmed"
+              truncate
+              className={classes.packFillMeta}
+            >
+              <span>fills {fill.blockLabel}</span>
+              <span>{plural(fill.lines, 'line', 'lines')}</span>
+              {fill.fileFrom && <span>file from {fill.fileFrom}</span>}
             </Text>
           </span>
           <Anchor component="span" size="sm" className={classes.packFillOpen}>

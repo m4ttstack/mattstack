@@ -1230,6 +1230,11 @@ a.propBandSource {
   min-width: 0;
 }
 
+.packFillMeta {
+  display: flex;
+  gap: 12px;
+}
+
 .packFillOpen {
   display: inline-flex;
   flex: none;

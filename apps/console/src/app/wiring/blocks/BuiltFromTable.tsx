@@ -48,16 +48,24 @@ function Status({ status }: { status: FileStatus }) {
   );
 }
 
-/** The skill a row's file is the whole of, when that skill is in this pack
-    and so has a page here. */
-const packSkillOf = (row: BuiltFromRow) =>
-  row.kind === 'pack text'
-    ? (/^([^/]+)\/SKILL\.md$/.exec(row.file)?.[1] ?? null)
-    : null;
+/** The skill a row's file is the whole of, when that skill has a page here:
+    the pack's own, or a fill from another pack. */
+const pageOf = (row: BuiltFromRow, outsideFills: ReadonlySet<string>) => {
+  const skill = /^([^/]+)\/SKILL\.md$/.exec(row.file)?.[1] ?? null;
+  if (row.kind === 'pack text') return skill;
+  return skill && outsideFills.has(skill) ? skill : null;
+};
 
 /** The files a compiled skill was built from: the version each was built
     with, the one installed now, and whether its content changed since. */
-export function BuiltFromTable({ rows }: { rows: BuiltFromRow[] }) {
+export function BuiltFromTable({
+  rows,
+  outsideFills = new Set(),
+}: {
+  rows: BuiltFromRow[];
+  /** Fills from other packs by name, which have pages in this list. */
+  outsideFills?: ReadonlySet<string>;
+}) {
   const [, patch] = useWiringUrl();
   return (
     <Paper
@@ -107,7 +115,7 @@ export function BuiltFromTable({ rows }: { rows: BuiltFromRow[] }) {
               <Table.Td>
                 <Stack gap={4}>
                   <Group gap={8} wrap="nowrap">
-                    {packSkillOf(row) ? (
+                    {pageOf(row, outsideFills) ? (
                       <Anchor
                         component="button"
                         type="button"
@@ -121,7 +129,7 @@ export function BuiltFromTable({ rows }: { rows: BuiltFromRow[] }) {
                         data-testid="built-from-open"
                         onClick={() =>
                           patch({
-                            focus: packSkillOf(row),
+                            focus: pageOf(row, outsideFills),
                             block: null,
                             select: null,
                           })
