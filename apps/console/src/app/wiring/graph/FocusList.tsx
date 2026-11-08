@@ -332,7 +332,11 @@ function FillsBySource({
     sources.set(source, [...(sources.get(source) ?? []), item]);
   }
   return [...sources].map(([source, rows]) => (
-    <div key={source} data-testid={`fills-from-${source}`}>
+    <div
+      key={source}
+      className={classes.fillGroup}
+      data-testid={`fills-from-${source}`}
+    >
       <div className={classes.fillSource}>
         <Badge
           size="sm"

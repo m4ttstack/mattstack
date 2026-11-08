@@ -21,8 +21,15 @@
   padding: 12px 8px 4px;
 }
 
+.fillGroup {
+  margin: 6px 0 8px 14px;
+  padding: 4px;
+  border-radius: var(--mantine-radius-md);
+  background-color: color-mix(in srgb, var(--tk-app-hue) 6%, transparent);
+}
+
 .fillSource {
-  padding: 10px 8px 4px;
+  padding: 4px 8px 6px;
 }
 
 .baseHead {
