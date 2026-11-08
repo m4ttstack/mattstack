@@ -120,7 +120,7 @@ function GateRowItem({
           fz="sm"
           lh="normal"
           c={left.urgent ? 'warn' : 'dimmed'}
-          fw={left.urgent ? 700 : undefined}
+          fw={left.urgent ? 500 : undefined}
         >
           {left.text}
         </Text>

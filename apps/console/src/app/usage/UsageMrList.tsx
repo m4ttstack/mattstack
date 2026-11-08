@@ -93,7 +93,7 @@ function MrRow({
                 {row.ticket}
               </Text>
             ) : null}
-            <Text span fz="md" fw={row.ticket ? 400 : 700} lh="normal" truncate>
+            <Text span fz="md" fw={row.ticket ? 400 : 500} lh="normal" truncate>
               {title ?? row.branch ?? number}
             </Text>
           </span>

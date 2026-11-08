@@ -516,3 +516,8 @@
 :global(#page-shell-sidebar) .skeletonRoot.skeletonRoot::after {
   background: color-mix(in srgb, var(--tk-app-hue) 18%, var(--tk-app-chrome));
 }
+
+/* The browser's default header weight is bold, heavier than the ladder. */
+.tableTh.tableTh {
+  font-weight: 500;
+}

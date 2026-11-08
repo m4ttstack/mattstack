@@ -33,7 +33,7 @@ export function StatLine({
         <Fragment key={card.key}>
           {i > 0 ? <Divider orientation="vertical" /> : null}
           <Stat
-            size="h2"
+            size="h3"
             className={classes.stat}
             data-parity={
               state === 'ready' ? undefined : card.role.toUpperCase()

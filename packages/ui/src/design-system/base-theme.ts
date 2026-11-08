@@ -106,7 +106,7 @@ export const baseTheme = /* @__PURE__ */ createTheme({
       },
       Card: { defaultProps: flatSurfaceProps },
       // `variant="soft"`: a table inside a card (see the CSS module).
-      Table: { classNames: { table: classes.tableRoot } },
+      Table: { classNames: { table: classes.tableRoot, th: classes.tableTh } },
       // `Combobox.Option variant="wash"`: a picked option in the accent wash
       // (see the CSS module).
       Combobox: { classNames: { option: classes.comboboxOption } },

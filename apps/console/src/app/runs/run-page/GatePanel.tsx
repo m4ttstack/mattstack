@@ -724,7 +724,7 @@ function Question({
     ? Array.isArray(value) && value.length > 0
     : typeof value === 'string' && value !== '';
   const label = <span data-parity="q">{item.prompt}</span>;
-  const labelProps = { fz: 'h2', fw: 700, lh: 'normal' };
+  const labelProps = { fz: 'h3', fw: 600, lh: 'normal' };
   const options = (
     <Stack gap={10}>
       {item.choices.map((choice, i) => {

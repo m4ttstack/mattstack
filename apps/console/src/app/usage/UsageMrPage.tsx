@@ -68,7 +68,7 @@ function StepLine({
           className={classes.stepOpen}
           onClick={() => onOpen(row)}
         >
-          <Text span fz="md" fw={group ? 700 : 400} lh="normal">
+          <Text span fz="md" fw={group ? 500 : 400} lh="normal">
             {row.label}
           </Text>
         </UnstyledButton>
@@ -87,7 +87,7 @@ function StepLine({
       <Table.Td ta="right" c="dimmed">
         {compact(row.totals.cacheRead)}
       </Table.Td>
-      <Table.Td ta="right" fw={group ? 700 : 500}>
+      <Table.Td ta="right" fw={500}>
         {usd(row.totals.cost)}
       </Table.Td>
       <Table.Td className={classes.barCell}>

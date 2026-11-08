@@ -105,7 +105,7 @@ export function HealthIssueRow({
     >
       <Text
         fz={13}
-        fw={wrapName ? 400 : 700}
+        fw={wrapName ? 400 : 500}
         style={
           wrapName
             ? { flex: 1, minWidth: 0, overflowWrap: 'anywhere' }
