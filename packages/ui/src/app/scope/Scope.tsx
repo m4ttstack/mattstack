@@ -307,9 +307,6 @@ export function TeamMenu({
         ) : null
       }
       isSelectedItem={item => item.selected}
-      showItemBadge={item => item.selected}
-      itemBadgeText="Selected"
-      itemBadgeColor={item => (item.org ? 'gold' : 'purple')}
       onItemClick={item =>
         item.org ? onPickOrg?.(item.name) : onPick(item.own ? null : item.name)
       }

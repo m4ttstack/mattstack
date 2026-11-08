@@ -264,7 +264,7 @@ export function SearchableMenu<T extends Record<string, unknown>>({
     if (!startsGroup) return renderMenuItem(item, index);
     return (
       <Fragment key={`group-${group}`}>
-        <Menu.Label>{group}</Menu.Label>
+        <Menu.Label px={4}>{group}</Menu.Label>
         {renderMenuItem(item, index)}
       </Fragment>
     );
