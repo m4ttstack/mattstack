@@ -21,6 +21,12 @@ const OK_GLYPH = 'var(--tk-text-ok-vivid)';
 
 const CELLS = { th: classes.cell, td: classes.cell };
 
+const ROLE_COLOR: Record<BuiltFromRow['layer'], string> = {
+  mattstack: 'gray',
+  org: 'gold',
+  team: 'purple',
+};
+
 function Status({ status }: { status: FileStatus }) {
   if (status === 'changed')
     return (
@@ -100,44 +106,53 @@ export function BuiltFromTable({ rows }: { rows: BuiltFromRow[] }) {
             >
               <Table.Td>
                 <Stack gap={4}>
-                  {row.role && (
-                    <Text fz={13} fw={500} lh="normal" c={BODY}>
-                      {row.role}
-                    </Text>
-                  )}
-                  {packSkillOf(row) ? (
-                    <Anchor
-                      component="button"
-                      type="button"
-                      ff="monospace"
-                      fz={row.role ? 12 : 13}
-                      lh="normal"
-                      ta="left"
-                      truncate
-                      data-parity="f"
-                      data-testid="built-from-open"
-                      onClick={() =>
-                        patch({
-                          focus: packSkillOf(row),
-                          block: null,
-                          select: null,
-                        })
-                      }
-                    >
-                      {row.file}
-                    </Anchor>
-                  ) : (
-                    <Text
-                      ff="monospace"
-                      fz={row.role ? 12 : 13}
-                      lh="normal"
-                      c={row.role ? SECONDARY : BODY}
-                      truncate
-                      data-parity="f"
-                    >
-                      {row.file}
-                    </Text>
-                  )}
+                  <Group gap={8} wrap="nowrap">
+                    {packSkillOf(row) ? (
+                      <Anchor
+                        component="button"
+                        type="button"
+                        ff="monospace"
+                        fz={13}
+                        lh="normal"
+                        ta="left"
+                        miw={0}
+                        truncate
+                        data-parity="f"
+                        data-testid="built-from-open"
+                        onClick={() =>
+                          patch({
+                            focus: packSkillOf(row),
+                            block: null,
+                            select: null,
+                          })
+                        }
+                      >
+                        {row.file}
+                      </Anchor>
+                    ) : (
+                      <Text
+                        ff="monospace"
+                        fz={13}
+                        lh="normal"
+                        c={BODY}
+                        miw={0}
+                        truncate
+                        data-parity="f"
+                      >
+                        {row.file}
+                      </Text>
+                    )}
+                    {row.role && (
+                      <Badge
+                        size="sm"
+                        color={ROLE_COLOR[row.layer]}
+                        flex="none"
+                        data-testid="built-from-role"
+                      >
+                        {row.role}
+                      </Badge>
+                    )}
+                  </Group>
                   {!row.role && (
                     <Text fz={12} lh="normal" c={SECONDARY} data-parity="k">
                       {row.kind}
