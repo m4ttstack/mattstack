@@ -149,7 +149,7 @@ export const ScopeTrigger = forwardRef<
   {
     icon: ReactNode;
     label: string;
-    color?: 'purple' | 'gold';
+    color?: 'purple' | 'gold' | 'gray';
     'aria-label': string;
   }
 >(function ScopeTrigger({ icon, label, color = 'purple', ...rest }, ref) {
@@ -184,6 +184,8 @@ export type TeamItem = {
   selected: boolean;
   /** An org-level pack beside the teams, not a team of its own. */
   org?: boolean;
+  /** A pack no team owns, which only the dev app lists. */
+  dev?: boolean;
 };
 
 /** Who to ask about a team: its owners, by face and name. A span, since
@@ -226,7 +228,8 @@ export function OwnersLine({ item }: { item: TeamItem }) {
 /** The team picker: a scope pill opening a searchable menu of teams with
     their owners. Picking your own team answers null. With `orgPacks` the
     menu lists those under Org above the teams, and picking one answers
-    through `onPickOrg`. */
+    through `onPickOrg`; `devPacks` and `onPickDev` do the same under Dev
+    below them. */
 export function TeamMenu({
   teams,
   owners,
@@ -236,6 +239,9 @@ export function TeamMenu({
   orgPacks = [],
   orgPack = null,
   onPickOrg,
+  devPacks = [],
+  devPack = null,
+  onPickDev,
 }: {
   teams: string[];
   owners: Record<string, string[]>;
@@ -246,6 +252,10 @@ export function TeamMenu({
   /** The org-level pack in view, in place of a team. */
   orgPack?: string | null;
   onPickOrg?: (pack: string) => void;
+  devPacks?: string[];
+  /** The dev pack in view, in place of a team. */
+  devPack?: string | null;
+  onPickDev?: (pack: string) => void;
 }) {
   const items: TeamItem[] = [
     ...orgPacks.map(name => ({
@@ -261,34 +271,52 @@ export function TeamMenu({
       owners: owners[t] ?? [],
       selected: t === team,
     })),
+    ...devPacks.map(name => ({
+      name,
+      own: false,
+      owners: [],
+      selected: name === devPack,
+      dev: true,
+    })),
   ];
-  const grouped = orgPacks.length > 0;
-  const picked = orgPack ?? team;
+  const grouped = orgPacks.length > 0 || devPacks.length > 0;
+  const picked = orgPack ?? devPack ?? team;
   return (
     <SearchableMenu<TeamItem>
       menuTrigger={
         <ScopeTrigger
-          icon={<Icon name={orgPack ? 'building' : 'team'} size={14} />}
+          icon={
+            <Icon
+              name={orgPack ? 'building' : devPack ? 'terminal' : 'team'}
+              size={14}
+            />
+          }
           label={picked ?? 'Pick a team'}
-          color={orgPack ? 'gold' : 'purple'}
+          color={orgPack ? 'gold' : devPack ? 'gray' : 'purple'}
           aria-label={
             orgPack
               ? `org pack: ${orgPack}, switch`
-              : team
-                ? `team: ${team}, switch team`
-                : 'pick a team'
+              : devPack
+                ? `dev pack: ${devPack}, switch`
+                : team
+                  ? `team: ${team}, switch team`
+                  : 'pick a team'
           }
         />
       }
       items={items}
       title={grouped ? 'Packs' : 'Teams'}
       titleIcon={<Icon name="team" size={14} />}
-      itemGroup={grouped ? item => (item.org ? 'Org' : 'Teams') : undefined}
+      itemGroup={
+        grouped
+          ? item => (item.org ? 'Org' : item.dev ? 'Dev' : 'Teams')
+          : undefined
+      }
       itemTitle={item => item.name}
       itemSubtitle={item =>
-        item.org ? (
+        item.org || item.dev ? (
           <Text span fz={12} c="dimmed">
-            org base pack
+            {item.org ? 'org base pack' : 'plugin source, dev app only'}
           </Text>
         ) : (
           <OwnersLine item={item} />
@@ -307,9 +335,11 @@ export function TeamMenu({
         ) : null
       }
       isSelectedItem={item => item.selected}
-      onItemClick={item =>
-        item.org ? onPickOrg?.(item.name) : onPick(item.own ? null : item.name)
-      }
+      onItemClick={item => {
+        if (item.org) onPickOrg?.(item.name);
+        else if (item.dev) onPickDev?.(item.name);
+        else onPick(item.own ? null : item.name);
+      }}
       filterPlaceholder={() => (grouped ? 'Find pack…' : 'Find team…')}
       emptyMessage={grouped ? 'No pack matches' : 'No team matches'}
       position="bottom-start"

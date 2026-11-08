@@ -25,7 +25,6 @@ import { useEditorHref } from '../editorHref';
 import { StepLoader } from '../StepLoader';
 import { ConfigTab } from './ConfigTab';
 import { ContentReadyContext } from './contentReady';
-import { DevPackSwitch } from './DevPackSwitch';
 import graphClasses from './graph/graph.module.css';
 import { GraphTab, GraphTabSidebar } from './graph/GraphTab';
 import { MissingPackNotice } from './graph/MissingPackNotice';
@@ -71,6 +70,13 @@ export function WiringMap() {
   const who = useViewer();
   const org = who?.org ?? null;
   const viewer = who?.viewer ?? null;
+  // The dropdown's Org section outlives a stop on a pack with no base, so it
+  // reads the base of the team you would return to.
+  const homeTeam =
+    pack && teamPacks.includes(pack)
+      ? pack
+      : (viewer?.team ?? teamPacks[0] ?? null);
+  const orgBase = useCompositionSnapshot(homeTeam).data?.extends ?? null;
   const unsynced = useUnsyncedBanner(pack);
   const unsyncedCount = useUnsyncedSummary(pack)?.count ?? 0;
   // The notification waits for the tab's content and the changes read, so it
@@ -178,7 +184,7 @@ export function WiringMap() {
           {pack && <ScopeSlash />}
         </>
       )}
-      {(packs.length > 1 || base) && pack && teamPacks.length > 0 && (
+      {(packs.length > 1 || base) && pack && (
         // A team's pack carries the team's name, so this is settings' own
         // team menu over the team packs: picking your team (null) reads yours.
         <TeamMenu
@@ -193,9 +199,14 @@ export function WiringMap() {
               focus: null,
             })
           }
-          orgPacks={base ? [base.name] : []}
+          orgPacks={orgBase ? [orgBase.name] : []}
           orgPack={baseView && base ? base.name : null}
-          onPickOrg={() => patch({ tab: 'graph', base: true, focus: null })}
+          onPickOrg={() =>
+            patch({ pack: homeTeam, tab: 'graph', base: true, focus: null })
+          }
+          devPacks={packs.length > 1 ? devPacks : []}
+          devPack={devPacks.includes(pack) ? pack : null}
+          onPickDev={dev => patch({ pack: dev, base: false, focus: null })}
         />
       )}
       {packs.length === 1 && pack && !base && (
@@ -220,20 +231,6 @@ export function WiringMap() {
     </MattstackShell.AppBar>
   );
 
-  const devSwitch = packs.length > 1 && devPacks.length > 0 && (
-    <MattstackShell.AppBar side="end">
-      <DevPackSwitch
-        packs={devPacks}
-        pack={pack}
-        onPick={dev =>
-          patch({
-            pack: dev ?? viewer?.team ?? teamPacks[0] ?? pack,
-          })
-        }
-      />
-    </MattstackShell.AppBar>
-  );
-
   const actions = packDir && (
     <Button
       size="compact-sm"
@@ -250,7 +247,6 @@ export function WiringMap() {
   return (
     <>
       {packScope}
-      {devSwitch}
       <ContentReadyContext.Provider value={markReady}>
         <PageShell
           tabBarHeight={PAGE_ROW_HEIGHT}
