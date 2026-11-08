@@ -200,9 +200,15 @@ export function SearchableMenu<T extends Record<string, unknown>>({
             : undefined
         }
         rightSection={
-          <Text c="gray" lh={0}>
-            <Icons.chevronRight size={16} />
-          </Text>
+          isSelectedItem?.(item) ? (
+            <Text c="var(--mantine-primary-color-filled)" lh={0}>
+              <Icons.check size={16} aria-label="Selected" />
+            </Text>
+          ) : (
+            <Text c="gray" lh={0}>
+              <Icons.chevronRight size={16} />
+            </Text>
+          )
         }
         p={12}
         mb={4}
