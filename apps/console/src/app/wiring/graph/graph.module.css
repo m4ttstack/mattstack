@@ -424,13 +424,9 @@
   white-space: nowrap;
 }
 
-/* A muted gold mixed with a dark rather than with transparency, so the bar's
-   hue never shows through and the pill reads the same on every bar. */
+/* The same opaque gold as a light Badge on the page; the bar would otherwise
+   paint this badge itself. */
 :global(.mantine-AppShell-header) .extendsPill.extendsPill {
-  background: color-mix(
-    in srgb,
-    var(--tk-fill-gold) 24%,
-    var(--tk-on-fill-gold)
-  );
-  color: var(--tk-fill-gold);
+  background: var(--mantine-color-gold-light);
+  color: var(--tk-text-gold-small);
 }
