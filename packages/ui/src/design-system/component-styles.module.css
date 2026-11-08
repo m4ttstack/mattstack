@@ -488,11 +488,7 @@
 }
 
 :global(#page-shell-sidebar) .navLinkRoot.navLinkRoot[data-active] {
-  background-color: color-mix(
-    in srgb,
-    var(--tk-app-hue) 22%,
-    var(--tk-app-chrome)
-  );
+  background-color: var(--tk-app-chrome-selected);
   color: var(--tk-text-1);
   font-weight: 500;
 }
