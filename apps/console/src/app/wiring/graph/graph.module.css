@@ -21,6 +21,10 @@
   padding: 12px 8px 4px;
 }
 
+.baseHead {
+  padding: 10px 8px 2px;
+}
+
 .groupToggle {
   display: flex;
   align-items: center;

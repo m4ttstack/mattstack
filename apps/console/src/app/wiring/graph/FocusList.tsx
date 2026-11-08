@@ -13,6 +13,7 @@ import {
 import { useLocalStorage } from '@mattstack/app-kit/hooks';
 import { Icon, Icons } from '@mattstack/app-kit/icons';
 
+import { BackPill } from '../../nav/BackPill';
 import { StepLoader, useStepLoading } from '../../StepLoader';
 import classes from './graph.module.css';
 import {
@@ -46,17 +47,20 @@ function AttentionDot() {
 /** A sidebar group whose label folds it; each group remembers its fold. */
 function FocusGroup({
   label,
+  scope = '',
   count,
   defaultOpen = true,
   children,
 }: {
   label: string;
+  /** Keeps this list's folds apart from another list's group of that name. */
+  scope?: string;
   count?: number;
   defaultOpen?: boolean;
   children: ReactNode;
 }) {
   const [open, setOpen] = useLocalStorage<boolean>({
-    key: `console-wiring-group-${label.toLowerCase()}`,
+    key: `console-wiring-group-${scope}${label.toLowerCase()}`,
     defaultValue: defaultOpen,
   });
   return (
@@ -407,6 +411,57 @@ export function GraphSidebar({ pack }: { pack: string }) {
             activeKey={focused?.key ?? null}
             onFocus={onFocus}
           />
+        )}
+      </Stack>
+    </PackContext.Provider>
+  );
+}
+
+/** The org base pack this pack extends, read-only: everything in it, each
+    opening from its own file. */
+export function BaseSidebar({ pack }: { pack: string }) {
+  const { patch, groups, focused } = useGraphFocus(pack);
+  const base = groups?.basePack;
+  if (!base) return null;
+  const onFocus = (key: string) => patch({ focus: key });
+  const total = base.fills.length + base.reference.length;
+  const lists = [
+    ['Fills', base.fills],
+    ['Reference skills', base.reference],
+  ] as const;
+  return (
+    <PackContext.Provider value={pack}>
+      <Stack gap={2} className={classes.list} data-testid="base-list">
+        <BackPill
+          label={pack}
+          onClick={() => patch({ base: false, focus: null })}
+          testId="base-back"
+        />
+        <div className={classes.baseHead}>
+          <Text fw={500}>{base.name}</Text>
+          <Text fz="xs" c={MUTED}>
+            Org base pack, {total} skills
+          </Text>
+        </div>
+        {lists.map(
+          ([label, items]) =>
+            items.length > 0 && (
+              <FocusGroup
+                key={label}
+                label={label}
+                scope="base-"
+                count={items.length}
+              >
+                {items.map(item => (
+                  <ItemRow
+                    key={item.key}
+                    item={item}
+                    activeKey={focused?.key ?? null}
+                    onFocus={onFocus}
+                  />
+                ))}
+              </FocusGroup>
+            )
         )}
       </Stack>
     </PackContext.Provider>

@@ -68,9 +68,23 @@ function frontmatterEnd(lines: string[]): number {
 }
 
 function descriptionOf(frontmatter: string[]): string | null {
-  for (const line of frontmatter) {
+  for (const [index, line] of frontmatter.entries()) {
     const value = /^description:\s*(.*)$/.exec(line)?.[1]?.trim();
-    if (value) return value.replace(/^(['"])(.*)\1$/, '$2');
+    if (!value) continue;
+    // A YAML block scalar (`>-`, `|`) carries its text on the indented lines
+    // under the key.
+    if (/^[>|][+-]?$/.test(value)) {
+      const rest = frontmatter.slice(index + 1);
+      const end = rest.findIndex(next => next.trim() && !/^\s/.test(next));
+      const block = end === -1 ? rest : rest.slice(0, end);
+      return (
+        block
+          .map(next => next.trim())
+          .filter(Boolean)
+          .join(' ') || null
+      );
+    }
+    return value.replace(/^(['"])(.*)\1$/, '$2');
   }
   return null;
 }

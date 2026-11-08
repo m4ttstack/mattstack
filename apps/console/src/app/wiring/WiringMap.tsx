@@ -198,10 +198,19 @@ export function WiringMap() {
       )}
       {pack && base && (
         <Badge
+          component="button"
+          type="button"
           size="sm"
           variant="card-outline"
-          title={`This pack's fills and shared attachments come partly from the org's ${base.name} base pack.`}
+          style={{ cursor: 'pointer' }}
+          title={`See everything in the org's ${base.name} base pack`}
+          aria-pressed={Boolean(url.base)}
           data-testid="pack-extends"
+          onClick={() =>
+            url.base
+              ? patch({ base: false, focus: null })
+              : patch({ tab: 'graph', base: true, focus: null })
+          }
         >
           {`extends ${base.name}`}
         </Badge>

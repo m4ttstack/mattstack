@@ -12,7 +12,7 @@ import { BlockSidebar } from '../blocks/BlockSidebar';
 import { BlockStage } from '../blocks/BlockStage';
 import { useReportReady } from '../contentReady';
 import { FailureText } from '../FailureText';
-import { GraphSidebar } from './FocusList';
+import { BaseSidebar, GraphSidebar } from './FocusList';
 import classes from './graph.module.css';
 import { useGraphFocus } from './useGraphFocus';
 
@@ -72,10 +72,11 @@ function NoFocus({ pack, height }: { pack: string; height: string }) {
     the URL. With no focus named, the list stays, so "All skills" always
     lands back on it. */
 export function GraphTabSidebar({ pack }: { pack: string }) {
-  const { url, focused } = useGraphFocus(pack);
+  const { url, focused, groups } = useGraphFocus(pack);
   if (url.focus !== null && focused) {
     return <BlockSidebar key={focused.key} pack={pack} />;
   }
+  if (url.base && groups?.basePack) return <BaseSidebar pack={pack} />;
   return <GraphSidebar pack={pack} />;
 }
 

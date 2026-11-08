@@ -12,7 +12,7 @@ import {
 } from '../../outline';
 
 export type FocusIcon =
-  'workflow' | 'squareTerminal' | 'lock' | 'layoutDashboard';
+  'workflow' | 'squareTerminal' | 'lock' | 'layoutDashboard' | 'fileText';
 
 export type FocusItem = {
   key: string;
@@ -44,6 +44,9 @@ export type PackSkill = {
   kind: 'compiled' | 'hand-authored' | 'missing';
   status: 'public' | 'internal';
   path?: string;
+  /** The org base pack the skill comes from, and its file there. */
+  base?: string;
+  basePath?: string;
 };
 
 export type FocusGroups = {
@@ -57,6 +60,8 @@ export type FocusGroups = {
   /** The hand-written skills a binding plugs into another skill, as
       Config's fills. */
   fills: FocusItem[];
+  /** Everything in the org base pack this pack extends, read-only. */
+  basePack: { name: string; fills: FocusItem[]; reference: FocusItem[] } | null;
   /** `count` is the verbs whose props nothing binds plus the fills nothing
       binds; `items` holds only the verbs, since a fill has no template to
       focus. */
@@ -271,12 +276,47 @@ export function buildFocusGroups(
     });
   const fills = [...handWritten.filter(item => item.fill), ...outsideFills];
 
+  const baseName = composition.extends?.name ?? null;
+  const baseItem = (
+    name: string,
+    file: string,
+    isFill: boolean
+  ): FocusItem => ({
+    key: name,
+    label: name,
+    skill: name,
+    icon: 'fileText',
+    step: null,
+    attention: false,
+    children: [],
+    file,
+    handWritten: true,
+    from: baseName as string,
+    ...(isFill ? { fill: true as const } : {}),
+  });
+  const baseFillItems = outsideFillsOf(composition)
+    .filter(fill => fill.binding.startsWith(`${baseName}:`))
+    .map(fill => baseItem(suffixOf(fill.binding), fill.sourcePath, true));
+  const baseFillNames = new Set(baseFillItems.map(item => item.skill));
+  const basePack = baseName
+    ? {
+        name: baseName,
+        fills: baseFillItems,
+        reference: packSkills.flatMap(row =>
+          row.base === baseName && row.basePath && !baseFillNames.has(row.name)
+            ? [baseItem(row.name, row.basePath, false)]
+            : []
+        ),
+      }
+    : null;
+
   return {
     pipelines,
     standalone,
     board,
     skills,
     fills,
+    basePack,
     unwired: {
       count: unwiredItems.length + first.orphans.length,
       attention: unwiredItems.some(item => item.attention),
@@ -296,6 +336,8 @@ export function findFocus(groups: FocusGroups, key: string): FocusItem | null {
     ...groups.skills,
     ...groups.fills,
     ...groups.unwired.items,
+    ...(groups.basePack?.fills ?? []),
+    ...(groups.basePack?.reference ?? []),
   ];
   return (
     all.find(item => item.key === key) ??
