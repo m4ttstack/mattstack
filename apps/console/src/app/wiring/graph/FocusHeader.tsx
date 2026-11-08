@@ -184,6 +184,7 @@ export function FocusHeader({
   inline = false,
   meta = null,
   command = null,
+  source = null,
 }: {
   /** The title is this command in full, as typed in Claude Code. */
   command?: string | null;
@@ -202,6 +203,8 @@ export function FocusHeader({
   actions?: ReactNode;
   /** In the block view's column instead of floating over a canvas. */
   inline?: boolean;
+  /** The pack this skill's file comes from, for a hand-written skill. */
+  source?: { name: string; tone: 'team' | 'org' | 'plugin' } | null;
 }) {
   const statusBadge = status && checkError === null && (
     <Badge
@@ -277,6 +280,17 @@ export function FocusHeader({
                 attributes={{ label: { 'data-parity': 'l' } }}
               >
                 {kind}
+              </Badge>
+            )}
+            {source && (
+              <Badge
+                classNames={{ root: classes.chip }}
+                {...(source.tone === 'plugin'
+                  ? { variant: 'default' as const }
+                  : { color: source.tone === 'org' ? 'gold' : 'purple' })}
+                data-testid="focus-source"
+              >
+                From {source.name}
               </Badge>
             )}
             {block && <BlockChips block={block} />}

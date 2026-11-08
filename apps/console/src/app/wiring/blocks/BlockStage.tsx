@@ -78,6 +78,14 @@ export function BlockStage({
         ? focused.label
         : focused.skill,
     kind: skillKindOf(focused, pipeline),
+    source: focused.from
+      ? {
+          name: focused.from,
+          tone: focused.fromOrg ? ('org' as const) : ('plugin' as const),
+        }
+      : focused.handWritten
+        ? { name: pack, tone: 'team' as const }
+        : null,
     description:
       anatomy?.description ??
       composition?.verbs.find(verb => verb.name === focused.skill)

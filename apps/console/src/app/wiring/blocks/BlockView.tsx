@@ -57,6 +57,8 @@ export type SkillHeader = {
   command?: string | null;
   /** The skill's name in a trail: its command short, or its stage label. */
   crumb?: string;
+  /** The pack a hand-written skill's file comes from. */
+  source?: { name: string; tone: 'team' | 'org' | 'plugin' } | null;
 };
 
 /** What Used by and History read beyond the payload. */
@@ -422,6 +424,7 @@ export function BlockView({
           title={title}
           command={block ? null : (skill?.command ?? null)}
           kind={block ? null : (skill?.kind ?? null)}
+          source={skill?.source ?? null}
           description={description}
           status={status}
           checkError={block ? null : (skill?.checkError ?? null)}

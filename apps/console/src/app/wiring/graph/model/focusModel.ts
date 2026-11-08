@@ -295,6 +295,7 @@ export function buildFocusGroups(
     file,
     handWritten: true,
     from: baseName as string,
+    fromOrg: true,
     ...(isFill ? { fill: true as const } : {}),
   });
   const baseFillItems = outsideFillsOf(composition)
