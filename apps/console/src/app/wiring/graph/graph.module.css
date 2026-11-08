@@ -86,6 +86,11 @@
   margin-top: 4px;
 }
 
+/* The gap sets expanded groups apart; a folded one has nothing to set apart. */
+.groupToggle[aria-expanded='false'] + * + .groupToggle {
+  margin-top: 0;
+}
+
 @media (hover: hover) {
   .groupToggle:hover {
     background: var(--tk-raised);
