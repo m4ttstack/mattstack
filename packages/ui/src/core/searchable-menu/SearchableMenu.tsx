@@ -191,12 +191,11 @@ export function SearchableMenu<T extends Record<string, unknown>>({
         component={component}
         {...getItemProps?.(item)}
         onClick={() => onItemClick?.(item)}
-        // Selected tint follows the theme's primary color (same calm
-        // `-light` tint SelectableList uses for its selected rows), not a
-        // hardcoded palette color.
+        // Selected reads stronger than the menu's 14% hover wash, at the
+        // same step as an active sidebar row.
         bg={
           isSelectedItem?.(item)
-            ? 'var(--mantine-primary-color-light)'
+            ? 'color-mix(in srgb, var(--tk-app-hue, var(--mantine-primary-color-filled)) 22%, transparent)'
             : undefined
         }
         rightSection={
