@@ -280,27 +280,28 @@ private struct DeckMini: View {
         Button {
             model.select(WindowModel.deckApp.name)
         } label: {
-            ZStack(alignment: .bottom) {
-                HStack(spacing: 6) {
-                    Text("deck")
-                        .font(.system(size: 12))
-                        .foregroundColor(isActive ? activeLabelColor : inactiveLabelColor)
-                    ZStack(alignment: .topTrailing) {
-                        deckIcon
-                            .frame(width: deckIconSize, height: deckIconSize)
-                            .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-                        if model.catalogFresh {
-                            Circle()
-                                .fill(okGreen)
-                                .overlay(Circle().stroke(isActive ? activeFill : barFill, lineWidth: 2))
-                                .frame(width: 7, height: 7)
-                                .offset(x: 4, y: -4)
-                        }
+            HStack(spacing: 6) {
+                Text("deck")
+                    .font(.system(size: 12))
+                    .foregroundColor(isActive ? activeLabelColor : inactiveLabelColor)
+                ZStack(alignment: .topTrailing) {
+                    deckIcon
+                        .frame(width: deckIconSize, height: deckIconSize)
+                        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                    if model.catalogFresh {
+                        Circle()
+                            .fill(okGreen)
+                            .overlay(Circle().stroke(isActive ? activeFill : barFill, lineWidth: 2))
+                            .frame(width: 7, height: 7)
+                            .offset(x: 4, y: -4)
                     }
                 }
-                .padding(.horizontal, 16)
-                .frame(height: barHeight)
-
+            }
+            .padding(.horizontal, 16)
+            .frame(height: barHeight)
+            // An overlay takes the label's width; a bare Rectangle in a
+            // ZStack is greedy and stretched the cell across the bar.
+            .overlay(alignment: .bottom) {
                 if isActive {
                     Rectangle()
                         .fill(IconTint.of(model.icons[WindowModel.deckApp.name]) ?? tabAccentColor)
