@@ -149,6 +149,26 @@ export function shownLabel(
 }
 
 /** The layer's role colour, not its label: `mattstack` draws no dot. */
+/** The layers that pass a value anywhere under a block, the block itself
+    and each include it heads counted, so a folded folder still says that
+    a pack's fill sits inside it. */
+export function subtreeDotsOf(
+  payload: BlocksPayload,
+  block: PayloadBlock
+): Dot[] {
+  const seen = new Set<string>();
+  const found = new Set<Dot>();
+  const visit = (heading: PayloadBlock) => {
+    const at = includedTree(payload, heading) ?? heading;
+    if (seen.has(at.id)) return;
+    seen.add(at.id);
+    for (const dot of [...dotsOf(heading), ...dotsOf(at)]) found.add(dot);
+    childrenOf(payload, at.id).forEach(visit);
+  };
+  visit(block);
+  return (['org', 'team'] as const).filter(dot => found.has(dot));
+}
+
 export function dotsOf(block: PayloadBlock): Dot[] {
   const colors = new Set(
     block.props.flatMap(prop => prop.values.map(value => value.color))

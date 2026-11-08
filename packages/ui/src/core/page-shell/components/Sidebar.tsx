@@ -143,6 +143,7 @@ export const Sidebar = ({
         scrollbars="y"
         id="page-shell-sidebar-scrollarea"
         className={classes.sidebarScrollArea}
+        classNames={{ content: classes.sidebarScrollContent }}
         {...scrollAreaProps}
       >
         <Flex

@@ -38,6 +38,7 @@ import {
 import { sectionsAt } from './model/sections';
 import { usedBySites } from './model/usedBy';
 import { crumbsOf, zoomOf } from './model/zoom';
+import { PackFills, packFillsOf } from './PackFills';
 import { SectionBand } from './SectionBand';
 import { UsedBy, useUsedBySites } from './UsedBy';
 
@@ -447,6 +448,9 @@ export function BlockView({
       </div>
 
       <div className={classes.main}>
+        {zoom.level === 'skill' && !rendered && (
+          <PackFills pack={pack} fills={packFillsOf(payload)} onOpen={open} />
+        )}
         {document}
 
         {!rendered && owner && zoom.level !== 'block' && (

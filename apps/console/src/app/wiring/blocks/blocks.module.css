@@ -1176,6 +1176,57 @@ a.propBandSource {
   color: var(--tk-text-accent);
 }
 
+.packFills {
+  overflow: hidden;
+  border: 1px solid var(--tk-border-soft);
+  border-radius: var(--mantine-radius-md);
+}
+
+.packFillsHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background-color: color-mix(in srgb, var(--tk-text-purple) 8%, transparent);
+}
+
+.packFillRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 16px;
+  border-top: 1px solid var(--tk-border-soft);
+}
+
+@media (hover: hover) {
+  .packFillRow:hover {
+    background-color: var(--tk-raised);
+  }
+}
+
+.packFillRow:focus-visible {
+  background-color: var(--tk-raised);
+}
+
+.packFillText {
+  flex: 1;
+  min-width: 0;
+}
+
+.packFillOpen {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+
+.treeTrail {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .treeCount {
   color: var(--tk-text-3);
   font-size: 11px;
