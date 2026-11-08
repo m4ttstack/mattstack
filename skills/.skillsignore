@@ -25,7 +25,7 @@ rt-build-dev-app
 mattstack-release
 
 # Vendored docs-writing skills (doc-standards, Docusaurus). Read by path from
-# website/AGENTS.md and the rt-docs skill.
+# sites/docs/AGENTS.md and the rt-docs skill.
 doc-standards
 docusaurus-config
 docusaurus-documentation

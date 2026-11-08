@@ -5,14 +5,14 @@ description: Use when updating the mattstack docs at docs.mattstack.dev (the Get
 
 # Updating the mattstack docs
 
-The mattstack docs site lives in `website/` (a Docusaurus site served at https://docs.mattstack.dev with base URL `/`). It has five tabs, one folder each under `website/docs/`: `start/` (Get started), `apps/` (Apps), `rt/` (rt CLI), `gitq/` (gitq) and `skills/` (Skills). Two kinds of content live side by side there, and mixing them up is the main way this goes wrong.
+The mattstack docs site lives in `sites/docs/` (a Docusaurus site served at https://docs.mattstack.dev with base URL `/`). It has five tabs, one folder each under `sites/docs/docs/`: `start/` (Get started), `apps/` (Apps), `rt/` (rt CLI), `gitq/` (gitq) and `skills/` (Skills). Two kinds of content live side by side there, and mixing them up is the main way this goes wrong.
 
 ## Context
 
-- `website/docs/rt/reference/` is GENERATED. `scripts/gen-docs.ts` builds every page under it from `lib/command-tree-def.ts`, the single source of truth for command names, subcommands, flags, and args. Never hand-edit a generated page; your edit is silently discarded the next time someone runs the generator. Only three entries under it are hand-written: `_partials/`, `_category_.json` and `global.mdx`.
-- Everything else under `website/docs/` is hand-written: every page in `start/`, `apps/`, `skills/` and `gitq/`, and the rt tab's `index.mdx`, `first-commands.mdx` and `guides/*`. These are where prose, rationale, and workflow explanation live.
-- `website/docs/gitq/reference/` is hand-written too, not generated. `apps/gitq/tests/docs-coverage.test.ts` checks it: every gitq CLI command has a reference page, and every page in a command subdirectory matches a real command.
-- `website/docs/rt/reference/_partials/<relpath>.mdx` files are hand-written worked examples spliced into an otherwise-generated reference page (`<relpath>` mirrors the command's path, e.g. `_partials/worktree/create.mdx` for the `worktree create` command). The generator checks whether a partial exists for a given command and, if so, imports it into the generated page rather than overwriting it. These files are never clobbered by generation, so they are the one place you can add worked prose underneath a generated flag table.
+- `sites/docs/docs/rt/reference/` is GENERATED. `scripts/gen-docs.ts` builds every page under it from `lib/command-tree-def.ts`, the single source of truth for command names, subcommands, flags, and args. Never hand-edit a generated page; your edit is silently discarded the next time someone runs the generator. Only three entries under it are hand-written: `_partials/`, `_category_.json` and `global.mdx`.
+- Everything else under `sites/docs/docs/` is hand-written: every page in `start/`, `apps/`, `skills/` and `gitq/`, and the rt tab's `index.mdx`, `first-commands.mdx` and `guides/*`. These are where prose, rationale, and workflow explanation live.
+- `sites/docs/docs/gitq/reference/` is hand-written too, not generated. `apps/gitq/tests/docs-coverage.test.ts` checks it: every gitq CLI command has a reference page, and every page in a command subdirectory matches a real command.
+- `sites/docs/docs/rt/reference/_partials/<relpath>.mdx` files are hand-written worked examples spliced into an otherwise-generated reference page (`<relpath>` mirrors the command's path, e.g. `_partials/worktree/create.mdx` for the `worktree create` command). The generator checks whether a partial exists for a given command and, if so, imports it into the generated page rather than overwriting it. These files are never clobbered by generation, so they are the one place you can add worked prose underneath a generated flag table.
 
 ## The rule
 
@@ -123,17 +123,17 @@ The dry run changes nothing and prints the impact list: a `docs to review:` bloc
 
 ```text
 [dry-run] docs to review:
-  apps: website/docs/apps/board.mdx
-  rt: website/docs/rt/
+  apps: sites/docs/docs/apps/board.mdx
+  rt: sites/docs/docs/rt/
 ```
 
 | A change under | Lists |
 | --- | --- |
-| `apps/board/`, `apps/boxscore/`, `apps/chat/`, `apps/console/`, `apps/deck/` | `apps:` that app's page, `website/docs/apps/<app>.mdx` |
-| `apps/gitq/` | `gitq: website/docs/gitq/` |
-| `commands/`, `lib/command-tree-def.ts` | `rt: website/docs/rt/` |
-| `plugins/` | `skills: website/docs/skills/` |
-| `rt-tray/`, `lib/setup/`, `lib/team/`, `packages/rt-client/src/settings/` | `start: website/docs/start/` |
+| `apps/board/`, `apps/boxscore/`, `apps/chat/`, `apps/console/`, `apps/deck/` | `apps:` that app's page, `sites/docs/docs/apps/<app>.mdx` |
+| `apps/gitq/` | `gitq: sites/docs/docs/gitq/` |
+| `commands/`, `lib/command-tree-def.ts` | `rt: sites/docs/docs/rt/` |
+| `plugins/` | `skills: sites/docs/docs/skills/` |
+| `rt-tray/`, `lib/setup/`, `lib/team/`, `packages/rt-client/src/settings/` | `start: sites/docs/docs/start/` |
 
 `docs to review: none` means no changed file maps to a docs area. Never run update-docs without `--dry-run` here: a full run writes `RELEASE_NOTES.md`, which belongs to the release.
 
@@ -147,13 +147,13 @@ Then read the diff of any other commit in the range that touches a command handl
 
 For every changed, added, or removed behavior, update the page that describes it, by area:
 
-- **apps**: an app change updates that app's page, `website/docs/apps/<app>.mdx`.
-- **skills**: a plugin change updates the Skills page for that skill, under `website/docs/skills/` (`website/docs/skills/index.mdx` lists which page covers which skill).
-- **start**: a setup, team or settings change updates the Get started page that covers it, under `website/docs/start/` (`setup.mdx`, `teams.mdx`, `settings.mdx` and the rest).
-- **gitq**: a gitq change updates its pages under `website/docs/gitq/`, including the hand-written reference in `website/docs/gitq/reference/`. A command added, renamed or removed needs its reference page added, moved or removed; from `apps/gitq`, `bun test tests/docs-coverage.test.ts` confirms the reference still matches the commands.
-- **rt**: a command change updates the rt guide that describes it under `website/docs/rt/guides/`, or adds a worked example in `website/docs/rt/reference/_partials/<relpath>.mdx` when one would help under the command's generated page. A genuinely new subsystem with no existing home gets a new guide under `website/docs/rt/guides/`, with a `sidebar_position` in its frontmatter so it slots into the sidebar correctly.
+- **apps**: an app change updates that app's page, `sites/docs/docs/apps/<app>.mdx`.
+- **skills**: a plugin change updates the Skills page for that skill, under `sites/docs/docs/skills/` (`sites/docs/docs/skills/index.mdx` lists which page covers which skill).
+- **start**: a setup, team or settings change updates the Get started page that covers it, under `sites/docs/docs/start/` (`setup.mdx`, `teams.mdx`, `settings.mdx` and the rest).
+- **gitq**: a gitq change updates its pages under `sites/docs/docs/gitq/`, including the hand-written reference in `sites/docs/docs/gitq/reference/`. A command added, renamed or removed needs its reference page added, moved or removed; from `apps/gitq`, `bun test tests/docs-coverage.test.ts` confirms the reference still matches the commands.
+- **rt**: a command change updates the rt guide that describes it under `sites/docs/docs/rt/guides/`, or adds a worked example in `sites/docs/docs/rt/reference/_partials/<relpath>.mdx` when one would help under the command's generated page. A genuinely new subsystem with no existing home gets a new guide under `sites/docs/docs/rt/guides/`, with a `sidebar_position` in its frontmatter so it slots into the sidebar correctly.
 
-Write and lint every hand-written page by `website/AGENTS.md`: the docs conventions, the terminology table in `website/TERMINOLOGY.md`, and the `doc-standards` workflow with its gate, `python3 skills/doc-standards/scripts/check_docs.py <page> --no-vale`, which must report zero errors on each page you touched (the graph's lint node; warnings are judgment calls). No CI job runs that gate, so this skill is where it runs. For Docusaurus config and syntax, read `skills/docusaurus-config/SKILL.md` and `skills/docusaurus-documentation/SKILL.md`. These three are listed in `skills/.skillsignore`, so they are not installed for users; read each `SKILL.md` by path.
+Write and lint every hand-written page by `sites/docs/AGENTS.md`: the docs conventions, the terminology table in `sites/docs/TERMINOLOGY.md`, and the `doc-standards` workflow with its gate, `python3 skills/doc-standards/scripts/check_docs.py <page> --no-vale`, which must report zero errors on each page you touched (the graph's lint node; warnings are judgment calls). No CI job runs that gate, so this skill is where it runs. For Docusaurus config and syntax, read `skills/docusaurus-config/SKILL.md` and `skills/docusaurus-documentation/SKILL.md`. These three are listed in `skills/.skillsignore`, so they are not installed for users; read each `SKILL.md` by path.
 
 When nothing hand-written needs to change for a given change, that's a valid outcome; do not pad pages with restatements of the generated flag table. Never invent or guess behavior to fill a gap; if you are not certain a claim is true, go read the actual source before writing the sentence. No em dashes or en dashes in anything you write; use commas, periods, or "..." instead.
 
@@ -175,15 +175,15 @@ Quote the `docs:check` failure output (a failure outright, not reference drift o
 
 ### bun run docs:build
 
-`docs:check` reads only the generated reference; the Docusaurus build is what proves the whole site holds together. It installs the site's dependencies and builds `website/`, and the site config makes every broken link, broken anchor and broken Markdown link fail the build. A release commits these pages straight to main and tags without waiting on CI's site build, so the deploy after the tag would be the first build to see a broken link. Every pass through this skill builds the site before anything is staged.
+`docs:check` reads only the generated reference; the Docusaurus build is what proves the whole site holds together. It installs the site's dependencies and builds `sites/docs/`, and the site config makes every broken link, broken anchor and broken Markdown link fail the build. A release commits these pages straight to main and tags without waiting on CI's site build, so the deploy after the tag would be the first build to see a broken link. Every pass through this skill builds the site before anything is staged.
 
-A failed build prints each broken link with the page that holds it. Pass means the build finished and wrote `website/build/`.
+A failed build prints each broken link with the page that holds it. Pass means the build finished and wrote `sites/docs/build/`.
 
 The deploy is not this skill's: rt:release's publish leg runs `bun run docs:deploy` (the `mattstack-docs` Cloudflare Worker at docs.mattstack.dev) and `bun run docs:smoke` after the tag. This skill ends with the pages staged.
 
 ### Look at each touched page in Fast Browser, light and dark
 
-A clean lint and a green build do not catch a page that reads wrong. Serve the built site (`bun run serve` from `website/`, or `bun run start` for a live reload) and look at every page you touched in both color schemes through Fast Browser; say plainly what looks wrong and fix it before staging.
+A clean lint and a green build do not catch a page that reads wrong. Serve the built site (`bun run serve` from `sites/docs/`, or `bun run start` for a live reload) and look at every page you touched in both color schemes through Fast Browser; say plainly what looks wrong and fix it before staging.
 
 ### Off-script gate: docs site build failed
 
@@ -191,7 +191,7 @@ Quote the build's broken-link lines (or its error, when it failed some other way
 
 ### Fix the links the build names
 
-Fix each broken link in the hand-written page that holds it, using the URL facts below for the target. A broken link inside a generated page under `website/docs/rt/reference/` is fixed by `bun run docs:gen` after the source is fixed, never by a hand edit. When a link points at a page that no longer exists, link the page that now covers the topic, or drop the link; never create a page only to satisfy the link.
+Fix each broken link in the hand-written page that holds it, using the URL facts below for the target. A broken link inside a generated page under `sites/docs/docs/rt/reference/` is fixed by `bun run docs:gen` after the source is fixed, never by a hand edit. When a link points at a page that no longer exists, link the page that now covers the topic, or drop the link; never create a page only to satisfy the link.
 
 ## How gates ask
 

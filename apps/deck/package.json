@@ -32,6 +32,7 @@
     "deploy": "bun run scripts/deploy.ts"
   },
   "dependencies": {
+    "@mattstack/app-icons": "workspace:*",
     "@mattstack/app-server": "workspace:*",
     "@mattstack/glance": "workspace:*",
     "@mattstack/rt-client": "workspace:*",

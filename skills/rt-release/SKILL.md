@@ -158,7 +158,7 @@ patch release, however many there are: the diff since the last tag touches only 
 directories (`apps/board`, `apps/boxscore`, `apps/chat`, `apps/console`, `apps/gitq`), the
 kits only those apps build from (`packages/ui`, `packages/tokyo`, `packages/gate-kit`, each
 counting as every app built from it), `RELEASE_NOTES.md` and
-`website/`. A deck change, a tool row, fast-browser, any other package, or any rt file takes
+`sites/docs/`. A deck change, a tool row, fast-browser, any other package, or any rt file takes
 the full path.
 
 Counters say what one count is. `Preflight runs = 3?` counts every preflight run in this release,

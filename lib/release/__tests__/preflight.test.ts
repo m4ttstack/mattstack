@@ -200,7 +200,7 @@ function seamsWithDiff(files: string[]): PreflightSeams {
 describe("checkGate by path", () => {
   const gate = (files: string[]) => checkGate(seamsWithDiff(files), "v2.13.0");
   test("a served app plus notes and website is fast", async () => {
-    expect((await gate(["apps/board/src/a.ts", "RELEASE_NOTES.md", "website/docs/x.md"])).path).toBe("fast");
+    expect((await gate(["apps/board/src/a.ts", "RELEASE_NOTES.md", "sites/docs/docs/x.md"])).path).toBe("fast");
   });
   test("deck alone is full", async () => {
     expect((await gate(["apps/deck/src/main.ts"])).path).toBe("full");

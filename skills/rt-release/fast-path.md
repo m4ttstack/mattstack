@@ -162,7 +162,7 @@ Run each `rt release apps ... --json` call in the background: it waits on the ta
 (25 to 50 minutes) and prints one envelope when it exits. The dry run prints one envelope too: it
 qualifies when its `status` is `planned`, its `nextTag` is the tag a real run cuts, and its
 `steps` carry the qualify result and each planned command. The verb skips the rehearsal because its gate admits only the
-served-app path, the notes and `website/`, and its qualify step has confirmed the newest tag
+served-app path, the notes and `sites/docs/`, and its qualify step has confirmed the newest tag
 verified. Every step detects its own completion, so rerunning the verb resumes, even after a run
 killed mid-wait, and a newest tag whose publish has not verified is re-verified before anything
 new starts. The verified outcome continues at Publish and finish (`publish-and-finish.md`) for the
@@ -210,7 +210,7 @@ after that commit as before it. No match is a first pass. A match is a resume: t
 
 The dry run changes nothing and prints the impact list, the `docs to review:` block rt:docs
 describes, for the newest tag to HEAD: on this path, an `apps:` line naming each moved app's page
-(`website/docs/apps/<app>.mdx`) and a `gitq:` line when gitq moved. Never run update-docs without
+(`sites/docs/docs/apps/<app>.mdx`) and a `gitq:` line when gitq moved. Never run update-docs without
 `--dry-run`: a full run writes `RELEASE_NOTES.md`, and on this path the verb writes the notes.
 
 ### bun scripts/update-docs.ts --dry-run --no-agent --range <newest docs commit>
@@ -241,8 +241,8 @@ today" pre-authorizes no answer here. Hold and hand back leave local main as it 
 ### Update the app pages with rt:docs
 
 Follow rt:docs from its trigger, scoped by the impact list to the apps that moved: update only
-the pages it names (each app's `website/docs/apps/<app>.mdx`, gitq's pages under
-`website/docs/gitq/`), and leave rt:docs at its `Staged for review`. A hold inside rt:docs is this
+the pages it names (each app's `sites/docs/docs/apps/<app>.mdx`, gitq's pages under
+`sites/docs/docs/gitq/`), and leave rt:docs at its `Staged for review`. A hold inside rt:docs is this
 stage's `Held: release paused, resume point named`, resuming at `Update the app pages with
 rt:docs`; a hand back inside it is this stage's `Handed back to Matt`. Do the judgment in this
 session; never shell out to a nested headless Claude.
@@ -250,7 +250,7 @@ session; never shell out to a nested headless Claude.
 ### Gate: approve the app docs diff
 
 Show the impact list, `git diff --staged --stat`, the staged diff of each page, and
-`git log --oneline origin/main..main`. Everything staged must sit under `website/`. The push sends
+`git log --oneline origin/main..main`. Everything staged must sit under `sites/docs/`. The push sends
 every commit that log lists along with the docs commit, so name them as part of the push, or say
 the log is empty. Approve is Matt's confirmation for both the commit and the push to main,
 covering those listed commits, the same confirmation Prepare the release (`prepare.md`) asks

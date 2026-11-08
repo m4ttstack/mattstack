@@ -72,7 +72,7 @@ function isDocs(f: string): boolean {
 // against it: a test that names a page as data (docs-impact.test.ts) would
 // otherwise send every page edit through the full suite.
 function isWebsiteTree(f: string): boolean {
-  return f.startsWith("website/");
+  return f.startsWith("sites/docs/");
 }
 
 function isProse(f: string): boolean {
@@ -129,6 +129,7 @@ const APPS_ROOT_FILES = new Set([
 function isAppsTree(f: string): boolean {
   return (
     f.startsWith("apps/") ||
+    f.startsWith("sites/home/") ||
     APPS_PACKAGES.some((p) => f.startsWith(`packages/${p}/`)) ||
     f.startsWith("docs/apps/") ||
     f.startsWith("stories/") ||
@@ -188,7 +189,7 @@ export function prPluginDirs(changed: string[], root: string = ROOT): string[] {
 }
 
 const WEBSITE_TRIGGERS = [
-  "website/",
+  "sites/docs/",
   "scripts/gen-docs.ts",
   "scripts/check-docs.ts",
   "scripts/gen-rt-cool-redirects.ts",

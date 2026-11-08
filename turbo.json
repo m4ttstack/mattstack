@@ -136,7 +136,7 @@
       "dependsOn": ["^build"],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/website/docs/gitq/**",
+        "$TURBO_ROOT$/sites/docs/docs/gitq/**",
         "!$TURBO_ROOT$/**/node_modules/**"
       ]
     },
@@ -230,7 +230,7 @@
         "lib/**",
         "commands/**",
         "scripts/**",
-        "website/docs/**",
+        "sites/docs/docs/**",
         "!**/node_modules/**"
       ]
     },

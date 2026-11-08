@@ -1,0 +1,23 @@
+{
+  "name": "@mattstack/app-icons",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Every mattstack app's mark in one place: its glyph and colour, as an SVG string for icon files and as a React mark for the apps.",
+  "type": "module",
+  "types": "./src/index.ts",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./react": "./src/AppMark.tsx"
+  },
+  "files": [
+    "src"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "react": "catalog:"
+  }
+}

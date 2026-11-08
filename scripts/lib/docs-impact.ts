@@ -4,17 +4,17 @@ export type DocsImpact = { area: DocsArea; page?: string };
 const APPS = new Set(["board", "boxscore", "chat", "console", "deck"]);
 const ORDER: DocsArea[] = ["start", "apps", "rt", "gitq", "skills"];
 const TAB_DIR: Record<DocsArea, string> = {
-  start: "website/docs/start/",
-  apps: "website/docs/apps/",
-  rt: "website/docs/rt/",
-  gitq: "website/docs/gitq/",
-  skills: "website/docs/skills/",
+  start: "sites/docs/docs/start/",
+  apps: "sites/docs/docs/apps/",
+  rt: "sites/docs/docs/rt/",
+  gitq: "sites/docs/docs/gitq/",
+  skills: "sites/docs/docs/skills/",
 };
 
 function impactOf(f: string): DocsImpact | undefined {
   if (f.startsWith("apps/gitq/")) return { area: "gitq" };
   const app = /^apps\/([^/]+)\//.exec(f)?.[1];
-  if (app && APPS.has(app)) return { area: "apps", page: `website/docs/apps/${app}.mdx` };
+  if (app && APPS.has(app)) return { area: "apps", page: `sites/docs/docs/apps/${app}.mdx` };
   if (f.startsWith("commands/") || f === "lib/command-tree-def.ts") return { area: "rt" };
   if (f.startsWith("plugins/")) return { area: "skills" };
   if (["rt-tray/", "lib/setup/", "lib/team/", "packages/rt-client/src/settings/"].some((p) => f.startsWith(p))) {

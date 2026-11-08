@@ -25,7 +25,6 @@ import { useRefreshJob } from './hooks/useRefreshJob';
 
 import './icons';
 
-import { AppMark } from './chrome/AppMark';
 import {
   LeaderboardPage,
   leaderboardSubtitle,
@@ -358,12 +357,7 @@ function AppShell() {
           ];
 
   return (
-    <MattstackShell
-      name="boxscore"
-      rail={false}
-      hue="green"
-      mark={<AppMark size={30} />}
-    >
+    <MattstackShell name="boxscore" rail={false} app="boxscore">
       <MattstackShell.Header
         actions={
           <>

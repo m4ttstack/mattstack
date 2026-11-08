@@ -29,9 +29,9 @@ e2e/artifacts/*
 !e2e/artifacts/.gitkeep
 
 # Docusaurus site build output
-website/build/
-website/.docusaurus/
-website/.wrangler/
+sites/docs/build/
+sites/docs/.docusaurus/
+sites/docs/.wrangler/
 
 rt-tray/deps/
 rt-tray/out/

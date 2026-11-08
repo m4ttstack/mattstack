@@ -9,6 +9,8 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 
+import { APP_MARKS, type AppName } from '@mattstack/app-icons';
+import { AppMark } from '@mattstack/app-icons/react';
 import {
   Box,
   Group,
@@ -87,6 +89,9 @@ function AppBar({ side = 'start', children }: MattstackShellAppBarProps) {
 
 export interface MattstackShellProps {
   name: string;
+  /** A mattstack app: the shell draws its mark and takes its colour from
+   *  @mattstack/app-icons, so the app passes neither `mark` nor `hue`. */
+  app?: AppName;
   /** 30px works with the wordmark recipe; the app owns the artwork. */
   mark?: ReactNode;
   headerHeight?: number;
@@ -150,16 +155,19 @@ function MarkSlot({
 
 function Shell({
   name,
-  mark,
+  mark: markProp,
   headerHeight = MATTSTACK_HEADER_HEIGHT,
   rail: withRail = true,
   railLabel = 'App sections',
   appName,
   deckBase,
   markInRail = false,
-  hue: appHue = 'blue',
+  app,
+  hue: hueProp,
   children,
 }: MattstackShellProps) {
+  const mark = markProp ?? (app ? <AppMark app={app} /> : undefined);
+  const appHue = hueProp ?? (app ? APP_MARKS[app].hue : 'blue');
   const rail = useRailState();
   const isMobile = useIsMobile();
   const [hue, setHue] = useAppHue(name, appHue);

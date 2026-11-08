@@ -38,7 +38,7 @@ const config: Config = {
         docs: {
           routeBasePath: "/",
           sidebarPath: "./sidebars.ts",
-          editUrl: "https://github.com/m4ttstack/mattstack/tree/main/website/",
+          editUrl: "https://github.com/m4ttstack/mattstack/tree/main/sites/docs/",
         },
         blog: false,
         theme: { customCss: "./src/css/custom.css" },

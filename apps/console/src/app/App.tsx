@@ -6,7 +6,6 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { Redirect, useLocation } from 'wouter';
 
 import { SHELL_HEADER_HEIGHT } from './chrome';
-import { AppMark } from './chrome/AppMark';
 import { GateRedirect } from './gates/GateRedirect';
 import { SlackGates } from './gates/SlackGates';
 import { SlackRailEntry } from './gates/SlackRailEntry';
@@ -136,7 +135,7 @@ export function App() {
         name="console"
         markInRail
         headerHeight={SHELL_HEADER_HEIGHT}
-        mark={<AppMark size={26} />}
+        app="console"
       >
         <ViewerChip info={viewer} />
         <MattstackShell.Rail>

@@ -8,6 +8,7 @@ import {
   type CSSProperties,
 } from 'react';
 
+import { AppMark } from '@mattstack/app-icons/react';
 import type { GateDomain } from '@mattstack/gate-kit';
 import {
   ICONS,
@@ -87,7 +88,6 @@ import {
   type RunnerDeps,
 } from './action-runner.ts';
 import { ActionMenu } from './ActionMenu.tsx';
-import { AppMark } from './AppMark.tsx';
 import {
   bandDismissRequest,
   bandRetryAction,
@@ -1910,7 +1910,7 @@ export function Board() {
               </button>
               <div className="tui-header-title">
                 <h1>
-                  <AppMark />
+                  <AppMark app="board" size={22} />
                   <span>{data.title.toLowerCase()}</span>{' '}
                   {activeMember && (
                     <span className="tui-author">

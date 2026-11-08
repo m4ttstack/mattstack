@@ -312,7 +312,7 @@ export async function checkGate(seams: Pick<PreflightSeams, "repoRoot" | "exec">
   try {
     const files = (await git(seams, ["diff", "--no-renames", "--name-only", `${tag}..${ref}`])).split("\n").map((f) => f.trim()).filter(Boolean);
     if (files.length === 0) return { path: "full", reason: "no changes since the tag" };
-    const outside = files.filter((f) => !FAST_PATH_FILES.has(f) && !f.startsWith("website/") && appsMovedBy(f).length === 0);
+    const outside = files.filter((f) => !FAST_PATH_FILES.has(f) && !f.startsWith("sites/docs/") && appsMovedBy(f).length === 0);
     if (outside.length > 0) return { path: "full", reason: `changes outside the served apps, their kits, notes and website: ${outside.slice(0, 5).join(", ")}` };
     const moved = movedServedApps(files);
     if (moved.length === 0) return { path: "full", reason: "no served app moved since the tag" };

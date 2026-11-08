@@ -32,7 +32,7 @@
   "exclude": [
     "apps",
     "extensions",
-    "website",
+    "sites",
     "docs",
     "stories",
     ".storybook",

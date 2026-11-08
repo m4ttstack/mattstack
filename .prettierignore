@@ -38,7 +38,7 @@ scripts/parity/*.js
 /skills
 /marketplace
 /extensions
-/website
+/sites/docs
 /rt-tray
 /ui
 /packages/rt-client

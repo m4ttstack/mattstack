@@ -32,7 +32,6 @@ import { navigate } from 'wouter/use-browser-location';
 import { FaceGroup } from './AgentName';
 import { BuddiesProvider } from './buddies-context';
 import { RailSkeleton, RoomSkeleton, TitleSkeleton } from './ChatSkeleton';
-import { AppMark } from './chrome/AppMark';
 import { Composer, type ComposerHandle } from './Composer';
 import { PageShellDemoPage } from './demo/PageShellDemoPage';
 import { DIRECT_PATH, isMine, waitingCount } from './direct';
@@ -1024,12 +1023,7 @@ function AppContent({
         actions={buddyActions}
       >
         <FaceGroup handles={drawnTogether}>
-          <MattstackShell
-            name="chat"
-            rail={false}
-            hue="pink"
-            mark={<AppMark size={26} />}
-          >
+          <MattstackShell name="chat" rail={false} app="chat">
             <MattstackShell.Header actions={<SettingsButton />} />
             <ScopeBar info={viewer} />
             <ViewerChip info={viewer} />

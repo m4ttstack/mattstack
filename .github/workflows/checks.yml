@@ -447,7 +447,7 @@ jobs:
         with:
           bun-version: 1.4.4
       - name: Build the docs site
-        working-directory: website
+        working-directory: sites/docs
         run: bun install --frozen-lockfile && bun run build
 
   # The job branch protection requires. Without always(), a failed scope
