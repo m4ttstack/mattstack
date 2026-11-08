@@ -915,6 +915,15 @@ a.propBandSource {
   visibility: hidden;
 }
 
+/* The caret column only holds rows in line with one that can fold. */
+.rows:not(:has(.rowToggle[aria-expanded])) .rowToggle {
+  grid-template-columns: 24px minmax(0, 1fr);
+}
+
+.rows:not(:has(.rowToggle[aria-expanded])) .rowCaret {
+  display: none;
+}
+
 .rowToggle .rowText {
   padding-top: 3px;
 }
