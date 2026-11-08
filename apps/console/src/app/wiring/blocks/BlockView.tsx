@@ -517,7 +517,9 @@ export function BlockView({
           />
         )}
         {context && (context.anatomy || context.anatomyError) && (
-          <Section title={block ? 'Files in this block' : 'Built from'}>
+          <Section
+            title={block ? 'Files in this block' : 'Files in this skill'}
+          >
             {context.anatomy ? (
               <BuiltFrom
                 pack={pack}

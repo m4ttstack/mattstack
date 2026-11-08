@@ -127,6 +127,24 @@ export function builtFrom(
   return rows;
 }
 
+const withFromRoles = (rows: BuiltFromRow[], pack: string): BuiltFromRow[] =>
+  rows.map(row => ({
+    ...row,
+    role: `From ${row.owner.kind === 'pack' ? pack : row.owner.name}`,
+  }));
+
+/** A whole skill's files as its page lists them: its own file first, then
+    whose text each of the others is. */
+export function skillFileRows(
+  rows: BuiltFromRow[],
+  pack: string
+): BuiltFromRow[] {
+  const [own, ...others] = rows;
+  return own
+    ? [{ ...own, role: 'This skill' }, ...withFromRoles(others, pack)]
+    : [];
+}
+
 /**
  * One block's share of the build: an engine row for the block's own text,
  * which the template's version covers, then the files its props paste in
@@ -156,12 +174,7 @@ export function blockBuiltFrom(
       kind: 'engine',
       role: 'This block',
     },
-    ...props.map(prop => ({
-      ...prop,
-      role: `From ${
-        prop.owner.kind === 'pack' ? anatomy.pack : prop.owner.name
-      }`,
-    })),
+    ...withFromRoles(props, anatomy.pack),
   ];
 }
 

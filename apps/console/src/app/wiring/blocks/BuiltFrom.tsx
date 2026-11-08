@@ -20,6 +20,7 @@ import {
   blockBuiltFrom,
   blockNote,
   builtFrom,
+  skillFileRows,
   staleSteps,
   stampNote,
   type StaleStep,
@@ -197,7 +198,7 @@ function SkillHistory({
   return (
     <>
       <BuiltFromTable
-        rows={rows}
+        rows={skillFileRows(rows, anatomy.pack)}
         outsideFills={outsideFillNames(composition)}
       />
       {note && <HistoryNote>{note}</HistoryNote>}
