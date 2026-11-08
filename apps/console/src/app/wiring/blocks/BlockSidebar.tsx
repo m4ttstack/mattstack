@@ -160,7 +160,10 @@ export function BlockSidebar({ pack }: { pack: string }) {
           </li>
           {rows.some(row => row.dots.includes('team')) && (
             <li>
-              <LayerDots dots={['team']} /> {pack} fill inside
+              <span className={classes.keySlot}>
+                <LayerDots dots={['team']} />
+              </span>
+              {pack} fill
             </li>
           )}
         </ul>

@@ -1233,20 +1233,31 @@ a.propBandSource {
 }
 
 .glyphKey {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
   margin: 12px 0 0;
-  padding: 0 6px;
+  padding: 0 8px;
   list-style: none;
 }
 
 .glyphKey li {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  min-width: 0;
   color: var(--tk-text-3);
-  font-size: 11px;
+  font-size: 12px;
+}
+
+/* A dot sits in a badge-sized slot so every key label starts on one edge. */
+.keySlot {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
 }
 
 .map {
