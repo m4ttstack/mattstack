@@ -382,7 +382,7 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
           <Stack gap={2} className={classes.ttl}>
             <Text
               fz="xl"
-              fw={700}
+              fw={600}
               lh="normal"
               c={mine ? 'bad' : undefined}
               data-parity="title"

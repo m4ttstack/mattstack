@@ -682,3 +682,14 @@ body {
   background: rgb(255 255 255 / 24%) !important;
   color: white;
 }
+
+/* A select's chevron reads in the bar's ink; a pressed toggle in the bar
+   holds the hover's fill, so on looks like the state it is. */
+.mantine-AppShell-header .mantine-ComboboxChevron-chevron {
+  color: rgb(255 255 255 / 90%);
+}
+
+.mantine-AppShell-header [aria-pressed='true'] {
+  background: rgb(255 255 255 / 24%) !important;
+  color: white;
+}

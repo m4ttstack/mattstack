@@ -68,7 +68,7 @@ export function DecisionsToday({
                   {ticketOf(run) ? (
                     <Text
                       fz="md"
-                      fw={700}
+                      fw={500}
                       lh="normal"
                       className={classes.keep}
                       data-parity="ticket"

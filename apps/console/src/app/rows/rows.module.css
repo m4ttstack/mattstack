@@ -1,0 +1,40 @@
+/* Console's list rows: every page's list composes these, so a run, a search
+   hit and an MR read at one height, one inset and one type scale. A row's
+   title line is md, its sub line and cells sm. */
+
+.row {
+  box-sizing: border-box;
+  min-height: 64px;
+  padding: 10px 20px;
+  color: var(--tk-text-1);
+  text-decoration: none;
+  border-bottom: 1px solid var(--tk-border-soft);
+}
+
+@media (hover: hover) {
+  .row:hover {
+    background-color: color-mix(in srgb, var(--tk-app-hue) 5%, transparent);
+  }
+}
+
+.row:focus-visible {
+  outline: none;
+  background-color: color-mix(in srgb, var(--tk-app-hue) 5%, transparent);
+}
+
+/* A day or a column header above the rows. */
+.group {
+  padding: 8px 20px;
+  background-color: var(--tk-panel);
+  border-bottom: 1px solid var(--tk-border-soft);
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 500;
+  color: var(--tk-text-3);
+}
+
+.lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}

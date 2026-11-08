@@ -10,8 +10,10 @@ import {
 import { createPortal } from 'react-dom';
 
 import {
+  Box,
   Group,
   Rail,
+  RAIL_WIDTH,
   RailShell,
   Text,
   useRailState,
@@ -20,12 +22,21 @@ import { useIsMobile } from '@mattstack/app-kit/hooks';
 import { AppLauncher } from './AppLauncher';
 import { ColorSchemeControl } from './ColorSchemeControl';
 import { HueControl, useAppHue, type AppHue } from './HueControl';
+import classes from './MattstackShell.module.css';
 import { ShellAppBarContext, ShellRailContext } from './shell-context';
 
 export const MATTSTACK_HEADER_HEIGHT = 48;
 
 /** The gap the bar keeps around the page sheet. */
 export const MATTSTACK_SHEET_INSET = 8;
+
+/** The app mark's size, the same in every app. */
+export const MATTSTACK_MARK_SIZE = 26;
+
+const BAR_INSET = 20;
+// The mark sits on the rail's centre line whether or not the app has a
+// rail, so it does not move between apps.
+const MARK_X = (RAIL_WIDTH - MATTSTACK_MARK_SIZE) / 2;
 
 /** ActionIcon size for top-bar icon buttons: Mantine's `compact-sm` Button
  *  height, so an icon sits level with the header's text buttons. A number,
@@ -117,6 +128,25 @@ function partition(children: ReactNode) {
 
 const HEADER_PROPS = { style: { borderBottom: 'none' } } as const;
 
+function MarkSlot({
+  children,
+  style,
+}: {
+  children: ReactNode;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <Box
+      w={MATTSTACK_MARK_SIZE}
+      h={MATTSTACK_MARK_SIZE}
+      className={classes.mark}
+      style={style}
+    >
+      {children}
+    </Box>
+  );
+}
+
 function Shell({
   name,
   mark,
@@ -154,7 +184,7 @@ function Shell({
         <RailShell
           headerHeight={headerHeight}
           headerProps={HEADER_PROPS}
-          headerPx={20}
+          headerPx={BAR_INSET}
           sheet={
             isMobile
               ? undefined
@@ -166,7 +196,17 @@ function Shell({
           header={
             <Group justify="space-between" w="100%" wrap="nowrap">
               <Group gap="sm" wrap="nowrap" miw={0}>
-                {!railMark && mark}
+                {!railMark && mark != null && (
+                  <MarkSlot
+                    style={
+                      withRail
+                        ? undefined
+                        : { marginInlineStart: MARK_X - BAR_INSET }
+                    }
+                  >
+                    {mark}
+                  </MarkSlot>
+                )}
                 {header?.children ??
                   (railMark ? null : (
                     <Text
@@ -207,7 +247,17 @@ function Shell({
             withRail ? (
               <Rail
                 label={railLabel}
-                top={railMark ? mark : undefined}
+                top={
+                  railMark && mark != null ? (
+                    <MarkSlot
+                      style={{
+                        marginTop: `calc(${(headerHeight - MATTSTACK_MARK_SIZE) / 2}px - var(--mantine-spacing-md))`,
+                      }}
+                    >
+                      {mark}
+                    </MarkSlot>
+                  ) : undefined
+                }
                 expanded={expanded}
                 onToggleExpanded={rail.toggleExpanded}
                 pinBottom={

@@ -113,7 +113,7 @@ function SideCard({
 }) {
   return (
     <Paper variant="ground" withBorder radius={12} className={classes.card}>
-      <Text fz="md" fw={700} lh="normal" mb={12}>
+      <Text fz="md" fw={500} lh="normal" mb={12}>
         {title}
       </Text>
       <Stack gap={12}>
@@ -255,7 +255,7 @@ export function UsageMrPage({ mrKey }: { mrKey: string }) {
             {mr && counts ? (
               <>
                 <Group gap={10} wrap="nowrap" miw={0}>
-                  <Text fz="xl" fw={700} lh="normal" className={classes.name}>
+                  <Text fz="xl" fw={600} lh="normal" className={classes.name}>
                     {name}
                   </Text>
                   <Text fz="xl" lh="normal" truncate>

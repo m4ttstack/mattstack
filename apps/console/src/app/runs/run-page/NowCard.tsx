@@ -46,7 +46,7 @@ export function NowCard({
       head={
         <>
           <Dot tone="accent" size="md" data-parity="live" />
-          <Text fz="md" fw={700} lh="normal" c="accent" data-parity="title">
+          <Text fz="md" fw={500} lh="normal" c="accent" data-parity="title">
             Now · {label}
           </Text>
           <Text fz="md" lh="normal" c="accent" ml="auto" data-parity="times">

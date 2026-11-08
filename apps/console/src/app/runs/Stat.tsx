@@ -21,7 +21,7 @@ export function Stat({
 }: StatProps) {
   return (
     <Stack gap={2} miw={0} className={className} {...data}>
-      <Text fz={size} fw={700} lh="normal" data-parity="value">
+      <Text fz={size} fw={600} lh="normal" data-parity="value">
         {value}
       </Text>
       <Text fz="md" lh="normal" data-parity="label">

@@ -8,8 +8,3 @@
   width: 100%;
   scroll-margin-top: var(--mantine-spacing-xl);
 }
-
-/* Matt asked for the active record tab on the card surface (2026-10-09). */
-.recordTab[data-active] {
-  background-color: var(--tk-card);
-}

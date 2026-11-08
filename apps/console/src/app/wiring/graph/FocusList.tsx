@@ -88,28 +88,40 @@ function FocusGroup({
     its text role. */
 function RowLabel({
   text,
-  size,
   active,
   rest,
   mono = false,
 }: {
   text: string;
-  size: number;
   active: boolean;
   rest: string;
   /** A skill's name as Claude Code shows it. */
   mono?: boolean;
 }) {
+  // A command keeps one line: the pack prefix reads quieter than the name,
+  // and the full text shows on hover once the row cuts it.
+  const split = mono ? /^(\/[^:]+:)(.+)$/.exec(text) : null;
   return (
     <Text
       span
-      fz={mono ? size - 0.5 : size}
+      fz={mono ? 'sm' : 'md'}
       fw={active ? 500 : 400}
       ff={mono ? 'monospace' : undefined}
       c={active ? undefined : rest}
+      truncate
+      title={text}
       data-parity="l"
     >
-      {text}
+      {split ? (
+        <>
+          <Text span inherit c="dimmed">
+            {split[1]}
+          </Text>
+          {split[2]}
+        </>
+      ) : (
+        text
+      )}
     </Text>
   );
 }
@@ -147,7 +159,6 @@ function ItemRow({
       label={
         <RowLabel
           text={typed(pack, item) ?? item.label}
-          size={13}
           active={active}
           rest={BODY}
           mono
@@ -165,7 +176,7 @@ function ItemRow({
         item.attention ? (
           <AttentionDot />
         ) : item.icon === 'lock' ? (
-          <Text span fz={11} lh="normal" c={MUTED}>
+          <Text span fz="xs" lh="normal" c={MUTED}>
             internal
           </Text>
         ) : undefined
@@ -198,7 +209,6 @@ function StepRow({
       label={
         <RowLabel
           text={typed(pack, item) ?? item.label}
-          size={13}
           active={active}
           rest={BODY}
           mono={item.command !== undefined}
@@ -207,7 +217,7 @@ function StepRow({
       leftSection={
         <Text
           span
-          fz={11}
+          fz="xs"
           lh="normal"
           c={active ? undefined : SECONDARY}
           className={classes.stepNumber}
@@ -271,7 +281,6 @@ function PipelineRow({
           label={
             <RowLabel
               text={typed(pack, item) ?? item.label}
-              size={13}
               active={active}
               rest={BODY}
               mono
@@ -279,7 +288,7 @@ function PipelineRow({
           }
           rightSection={
             <Group gap={8} wrap="nowrap">
-              <Text span fz={11} lh="normal" c={MUTED} data-parity="sub">
+              <Text span fz="xs" lh="normal" c={MUTED} data-parity="sub">
                 {workTypeOf(item.key)}
               </Text>
               {item.attention && <AttentionDot />}
@@ -320,7 +329,7 @@ function FocusGroupsList({
     <>
       <FocusGroup label="Pipelines" count={groups.pipelines.length}>
         {groups.empty && (
-          <Text fz={12} c={MUTED} className={classes.notice}>
+          <Text fz="xs" c={MUTED} className={classes.notice}>
             {PIPELINE_NOTICE[groups.empty]}
           </Text>
         )}

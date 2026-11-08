@@ -3,6 +3,7 @@ import { useLayoutEffect } from 'react';
 import { ActionIcon, Box, Menu } from '@mattstack/app-kit/core';
 import { useLocalStorage } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
+import { setAppTone } from './app-tone';
 
 /** The theme's own hues, so each holds up in both colour schemes. `tone`
  *  names the fill and small-text tokens the chrome mixes from. */
@@ -18,7 +19,8 @@ export const APP_HUES = [
 export type AppHue = (typeof APP_HUES)[number]['id'];
 
 /** The app's hue as the viewer last picked it in this browser, or the app's
- *  own. Writes the chrome's two hue tokens on the document root. */
+ *  own. Writes the chrome's two hue tokens on the document root and makes
+ *  the hue the theme's primary colour. */
 export function useAppHue(app: string, fallback: AppHue) {
   const [picked, setPicked] = useLocalStorage<AppHue | null>({
     key: `${app}-theme-color`,
@@ -32,6 +34,7 @@ export function useAppHue(app: string, fallback: AppHue) {
     const { style } = document.documentElement;
     style.setProperty('--tk-app-hue', `var(--tk-fill-${hue.tone})`);
     style.setProperty('--tk-app-ink-tint', `var(--tk-text-${hue.tone}-small)`);
+    setAppTone(hue.tone);
   }, [hue.tone]);
   return [hue.id, setPicked] as const;
 }

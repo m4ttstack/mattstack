@@ -94,7 +94,7 @@ function GateRowItem({
       </ThemeIcon>
       <div className={classes.body}>
         <div className={classes.who}>
-          <Text fz="md" fw={700} lh="normal">
+          <Text fz="md" fw={500} lh="normal">
             {view.name}
           </Text>
           <Badge variant="light" color={tone} size="sm">

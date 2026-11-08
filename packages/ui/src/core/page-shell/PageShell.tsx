@@ -32,7 +32,7 @@ export interface PageShellProps extends Omit<StackProps, 'children' | 'title'> {
   children: React.ReactNode;
   /** Height of `PageShell.Header`, when one is rendered. @default 64 */
   headerHeight?: string | number;
-  /** Open width of `PageShell.Sidebar`. @default '20vw' */
+  /** Open width of `PageShell.Sidebar`. @default 296 */
   sidebarWidth?: string | number;
   /** Lets the viewer drag the sidebar's width between `bounds`, kept per
    *  browser under `storageKey`; replaces `sidebarWidth` on desktop. */
@@ -181,7 +181,7 @@ function PageShellRoot({
   children,
   headerHeight = 64,
   tabBarHeight = PAGE_SHELL_TAB_BAR_HEIGHT,
-  sidebarWidth = '20vw',
+  sidebarWidth = 296,
   resizableSidebar,
   sideBarHeaderBg,
   scrollClamp = false,

@@ -32,13 +32,7 @@ function TreeRow({
       color="accent"
       active={row.selected}
       label={
-        <Text
-          span
-          fz={13}
-          fw={row.selected ? 500 : 400}
-          c={row.selected ? 'var(--tk-text-accent)' : undefined}
-          truncate
-        >
+        <Text span fz="md" fw={row.selected ? 500 : 400} truncate>
           {row.label}
         </Text>
       }
@@ -137,7 +131,7 @@ export function BlockSidebar({ pack }: { pack: string }) {
         </Text>
       )}
       {(skill.state === 'error' || skill.state === 'note') && (
-        <Text fz={12} c="dimmed" px={6}>
+        <Text fz="xs" c="dimmed" px={6}>
           {skill.message}
         </Text>
       )}

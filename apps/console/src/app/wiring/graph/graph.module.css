@@ -57,7 +57,7 @@
 
 .groupLabel {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--tk-text-1);
 }
 
@@ -309,7 +309,7 @@
 
 .toastTitle {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .toastMeta {
@@ -385,7 +385,7 @@
 
 .asksLabel {
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--tk-text-3);

@@ -243,7 +243,7 @@ export function WiringMap() {
       <ContentReadyContext.Provider value={markReady}>
         <PageShell
           tabBarHeight={PAGE_ROW_HEIGHT}
-          sidebarWidth={historyPack && !packFailed ? commitsWidth : 296}
+          sidebarWidth={historyPack && !packFailed ? commitsWidth : undefined}
           drawerStateKey="console-wiring-focus"
         >
           {graphPack && !packFailed && (
@@ -267,7 +267,7 @@ export function WiringMap() {
             </PageShell.Sidebar>
           )}
           <PageShell.Main>
-            <PageShell.TabBar tabs={tabs} title="Packs" actions={actions} />
+            <PageShell.TabBar tabs={tabs} actions={actions} />
             {pack && url.tab !== 'history' && (
               <UnsyncedToast
                 key={pack}

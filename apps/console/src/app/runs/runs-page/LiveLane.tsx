@@ -43,7 +43,7 @@ export function LiveLane({ runId, ticket, title, href, facts }: LiveLaneProps) {
             component={Link}
             href={href}
             fz="lg"
-            fw={700}
+            fw={500}
             lh="normal"
             data-parity="ticket"
           >

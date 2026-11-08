@@ -19,7 +19,7 @@ export function ConfirmTitle({ children }: { children: ReactNode }) {
       span
       display="block"
       fz={15}
-      fw={700}
+      fw={500}
       lh="normal"
       c={BODY}
       data-parity="t"

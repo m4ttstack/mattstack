@@ -175,7 +175,7 @@ export function StageDocDrawer({
       classNames={{ header: drawer.header, body: drawer.body }}
       title={
         <Stack gap={2}>
-          <Text fz="xl" fw={700} lh="normal" data-parity="t">
+          <Text fz="xl" fw={600} lh="normal" data-parity="t">
             {stage} · stage doc
           </Text>
           {source ? (

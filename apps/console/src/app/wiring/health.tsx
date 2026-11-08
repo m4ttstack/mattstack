@@ -216,7 +216,7 @@ export function HealthGroupCard<T>({
             background: dotColor,
           }}
         />
-        <Text fz={12.5} fw={700} style={{ flex: 'none' }}>
+        <Text fz={12.5} fw={500} style={{ flex: 'none' }}>
           {title}
         </Text>
         {intent ? (

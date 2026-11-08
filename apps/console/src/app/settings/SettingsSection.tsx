@@ -44,7 +44,7 @@ function ScopeBlock({
     >
       <Group gap={8} wrap="nowrap" className={classes.head}>
         {scope === 'unset' ? (
-          <Text fz={13} fw={600} c="var(--tk-text-1)">
+          <Text fz={13} fw={500} c="var(--tk-text-1)">
             Not set
           </Text>
         ) : (
@@ -108,7 +108,7 @@ function Header({
     <Stack ref={ref} gap={4} className={classes.header} mod={{ stuck }}>
       <Group justify="space-between" wrap="nowrap">
         <Group gap={8}>
-          <Title order={2} size={16} fw={700}>
+          <Title order={2} size={16} fw={500}>
             {section.group.label}
           </Title>
           <Text fz={12} ff="monospace" c={text.muted}>

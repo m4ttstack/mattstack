@@ -477,9 +477,9 @@
   margin: 8px 0;
 }
 
-/* A NavLink row in a PageShell sidebar takes the sidebar's own tints, as
-   chat's rooms do: a hover step, a deeper selected step that beats it, and
-   body text either way. */
+/* A NavLink row in a PageShell sidebar takes the sidebar's own tints: a
+   faint hover step and a selected step well past it, so the row you are on
+   never reads as one the pointer is over. Body text either way. */
 @media (hover: hover) {
   :global(#page-shell-sidebar)
     .navLinkRoot.navLinkRoot:hover:where(:not([data-active])) {
@@ -488,8 +488,13 @@
 }
 
 :global(#page-shell-sidebar) .navLinkRoot.navLinkRoot[data-active] {
-  background-color: var(--tk-app-chrome-selected);
+  background-color: color-mix(
+    in srgb,
+    var(--tk-app-hue) 22%,
+    var(--tk-app-chrome)
+  );
   color: var(--tk-text-1);
+  font-weight: 500;
 }
 
 /* Scrollbars: 8px, a thumb in the border step on no track. */

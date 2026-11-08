@@ -53,7 +53,7 @@ export function HandoffCard({
       head={
         <>
           <Dot tone="warn" size="md" data-parity="live" />
-          <Text fz="md" fw={700} lh="normal" c="warn" data-parity="title">
+          <Text fz="md" fw={500} lh="normal" c="warn" data-parity="title">
             {gateKindLabel(gate.kind)} · waiting in the board
           </Text>
           <Text fz="md" lh="normal" c="warn" ml="auto" data-parity="times">
