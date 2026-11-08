@@ -175,18 +175,7 @@ function ItemRow({
       rightSection={
         item.attention ? (
           <AttentionDot />
-        ) : item.from && item.icon === 'lock' ? (
-          <Badge
-            size="sm"
-            // A light gray wash disappears into the sidebar's tint.
-            {...(item.fromOrg
-              ? { color: 'gold' }
-              : { variant: 'default' as const })}
-            data-testid="focus-from"
-          >
-            {item.from}
-          </Badge>
-        ) : item.icon === 'lock' ? (
+        ) : item.icon === 'lock' && !item.from ? (
           <Text span fz="xs" lh="normal" c={MUTED}>
             off
           </Text>
@@ -325,6 +314,49 @@ function PipelineRow({
   );
 }
 
+/** The fills under one heading per pack they come from, this pack's first,
+    so a row need not repeat its source. */
+function FillsBySource({
+  items,
+  activeKey,
+  onFocus,
+}: {
+  items: readonly FocusItem[];
+  activeKey: string | null;
+  onFocus: (key: string) => void;
+}) {
+  const pack = useContext(PackContext);
+  const sources = new Map<string, FocusItem[]>();
+  for (const item of items) {
+    const source = item.from ?? pack;
+    sources.set(source, [...(sources.get(source) ?? []), item]);
+  }
+  return [...sources].map(([source, rows]) => (
+    <div key={source} data-testid={`fills-from-${source}`}>
+      <div className={classes.fillSource}>
+        <Badge
+          size="sm"
+          {...(source === pack
+            ? { color: 'purple' }
+            : rows[0]?.fromOrg
+              ? { color: 'gold' }
+              : { variant: 'default' as const })}
+        >
+          {source}
+        </Badge>
+      </div>
+      {rows.map(item => (
+        <ItemRow
+          key={item.key}
+          item={item}
+          activeKey={activeKey}
+          onFocus={onFocus}
+        />
+      ))}
+    </div>
+  ));
+}
+
 function FocusGroupsList({
   groups,
   activeKey,
@@ -368,14 +400,22 @@ function FocusGroupsList({
               count={items.length}
               defaultOpen={label === 'Commands' || label === 'Board'}
             >
-              {items.map(item => (
-                <ItemRow
-                  key={item.key}
-                  item={item}
+              {label === 'Fills' ? (
+                <FillsBySource
+                  items={items}
                   activeKey={activeKey}
                   onFocus={onFocus}
                 />
-              ))}
+              ) : (
+                items.map(item => (
+                  <ItemRow
+                    key={item.key}
+                    item={item}
+                    activeKey={activeKey}
+                    onFocus={onFocus}
+                  />
+                ))
+              )}
             </FocusGroup>
           )
       )}
