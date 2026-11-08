@@ -211,6 +211,7 @@ export function SearchableMenu<T extends Record<string, unknown>>({
         }
         p={12}
         mb={4}
+        bdrs="md"
       >
         <Group gap="xs">
           {isItemPinned?.(item) && <Icons.pin />}
