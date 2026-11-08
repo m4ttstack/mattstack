@@ -65,6 +65,7 @@
 }
 
 .fillSource {
+  display: flex;
   padding: 0 8px 6px;
 }
 
