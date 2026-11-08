@@ -335,6 +335,9 @@ function FillsBySource({
     <div
       key={source}
       className={classes.fillGroup}
+      data-source={
+        source === pack ? 'team' : rows[0]?.fromOrg ? 'org' : 'plugin'
+      }
       data-testid={`fills-from-${source}`}
     >
       <div className={classes.fillSource}>

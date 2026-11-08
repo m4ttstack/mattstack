@@ -25,7 +25,18 @@
   margin: 6px 0 8px 14px;
   padding: 4px;
   border-radius: var(--mantine-radius-md);
-  background-color: color-mix(in srgb, var(--tk-app-hue) 6%, transparent);
+}
+
+.fillGroup[data-source='team'] {
+  background-color: color-mix(in srgb, var(--tk-fill-purple) 10%, transparent);
+}
+
+.fillGroup[data-source='org'] {
+  background-color: color-mix(in srgb, var(--tk-fill-gold) 16%, transparent);
+}
+
+.fillGroup[data-source='plugin'] {
+  background-color: color-mix(in srgb, var(--tk-text-2) 8%, transparent);
 }
 
 .fillSource {
