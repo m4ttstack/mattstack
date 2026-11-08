@@ -153,7 +153,8 @@ function blockOf(
 export function headingTree(
   skillMd: string,
   skill: string,
-  path = ''
+  path = '',
+  companions: readonly { path: string; content: string }[] = []
 ): BlocksPayload {
   const lines = skillMd.split('\n');
   const fmEnd = frontmatterEnd(lines);
@@ -208,6 +209,27 @@ export function headingTree(
     });
     blocks.push(block);
     stack.push({ level: heading.level, block });
+  }
+
+  // A file beside SKILL.md is one block of its own, whatever its headings.
+  for (const companion of companions) {
+    const name = companion.path.split('/').pop()?.replace(/\.md$/, '') ?? '';
+    const body = companion.content.split('\n');
+    let id = `${root.id}/${slugOf(name)}`;
+    for (let n = 2; taken.has(id); n++) id = `${root.id}/${slugOf(name)}-${n}`;
+    taken.add(id);
+    blocks.push(
+      blockOf({
+        id,
+        parentId: root.id,
+        depth: 1,
+        title: name,
+        label: name,
+        path: companion.path,
+        lines: [1, body.length],
+        body,
+      })
+    );
   }
 
   return {

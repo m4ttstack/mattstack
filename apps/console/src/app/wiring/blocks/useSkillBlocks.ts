@@ -88,12 +88,13 @@ export function useSkillBlocks(
         : null;
   const sourceQuery = useSkillSource(pack, sourcePath);
   const content = sourceQuery.data?.content;
+  const companions = sourceQuery.data?.companions;
   const tree = useMemo(
     () =>
       item && content !== undefined && sourcePath
-        ? headingTree(content, item.skill, sourcePath)
+        ? headingTree(content, item.skill, sourcePath, companions)
         : null,
-    [item, content, sourcePath]
+    [item, content, sourcePath, companions]
   );
 
   if (!item) return { state: 'loading' };

@@ -371,7 +371,11 @@ export function BlockView({
   const docNote = !headingOnly
     ? null
     : noText
-      ? 'rt sent no text for this block'
+      ? readOnly
+        ? hasChildren
+          ? 'no text of its own: its files are below'
+          : 'no text in this file'
+        : 'rt sent no text for this block'
       : hasChildren
         ? 'a heading only: its blocks are below'
         : 'a heading only';
