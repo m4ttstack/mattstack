@@ -127,7 +127,7 @@ export function HeroTitle({
           {ticket ? `· ${meta}` : meta}
         </Text>
       </Group>
-      <Text fz="h1" fw={600} lh="normal" data-parity="title">
+      <Text fz="h2" fw={600} lh="normal" data-parity="title">
         {title}
       </Text>
     </Stack>

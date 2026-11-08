@@ -255,10 +255,10 @@ export function UsageMrPage({ mrKey }: { mrKey: string }) {
             {mr && counts ? (
               <>
                 <Group gap={10} wrap="nowrap" miw={0}>
-                  <Text fz="xl" fw={600} lh="normal" className={classes.name}>
+                  <Text fz="h3" fw={600} lh="normal" className={classes.name}>
                     {name}
                   </Text>
-                  <Text fz="xl" lh="normal" truncate>
+                  <Text fz="h3" lh="normal" truncate>
                     {title}
                   </Text>
                   <MrState state={state} number={number} url={mr.url} />

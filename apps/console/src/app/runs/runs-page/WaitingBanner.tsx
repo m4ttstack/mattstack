@@ -74,7 +74,7 @@ export function WaitingBanner({
             </Text>
           </Group>
           {question ? (
-            <Text fz="xl" fw={500} lh="normal" data-parity="q">
+            <Text fz="h3" fw={500} lh="normal" data-parity="q">
               {question.label}
             </Text>
           ) : null}

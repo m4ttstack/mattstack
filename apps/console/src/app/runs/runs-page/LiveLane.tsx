@@ -73,7 +73,7 @@ export function LiveLane({ runId, ticket, title, href, facts }: LiveLaneProps) {
       <Anchor
         component={Link}
         href={href}
-        fz="xl"
+        fz="h3"
         fw={500}
         lh="normal"
         c="bright"
