@@ -201,8 +201,14 @@ export function WiringMap() {
           component="button"
           type="button"
           size="sm"
-          variant="card-outline"
-          style={{ cursor: 'pointer' }}
+          variant="filled"
+          color="gold"
+          style={{
+            cursor: 'pointer',
+            background: 'var(--tk-fill-gold)',
+            borderColor: 'transparent',
+            color: 'var(--tk-on-fill-gold)',
+          }}
           title={`See everything in the org's ${base.name} base pack`}
           aria-pressed={Boolean(url.base)}
           data-testid="pack-extends"
