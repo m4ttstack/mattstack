@@ -311,11 +311,44 @@ export function Board() {
     mrUrl: string | null;
   } | null>(null);
 
-  const pickTheme = (m: ThemeMode) => {
+  const applyTheme = (m: ThemeMode) => {
     localStorage.setItem(THEME_KEY, m);
     window.__applyTheme();
     setTheme(m);
   };
+  const pickTheme = (m: ThemeMode) => {
+    applyTheme(m);
+    void fetch('/api/color-scheme', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scheme: m === 'system' ? 'auto' : m }),
+    }).catch(() => undefined);
+  };
+  // This Mac's one choice for every mattstack app: read on open and each
+  // time the board comes back to the front, so a pick made elsewhere shows.
+  useEffect(() => {
+    const pull = () => {
+      if (document.visibilityState === 'hidden') return;
+      fetch('/api/color-scheme')
+        .then(res => (res.ok ? res.json() : null))
+        .then((body: { scheme?: string } | null) => {
+          const s = body?.scheme;
+          const mode: ThemeMode | null =
+            s === 'auto' ? 'system' : s === 'light' || s === 'dark' ? s : null;
+          if (mode && mode !== localStorage.getItem(THEME_KEY))
+            applyTheme(mode);
+        })
+        .catch(() => undefined);
+    };
+    pull();
+    window.addEventListener('focus', pull);
+    document.addEventListener('visibilitychange', pull);
+    return () => {
+      window.removeEventListener('focus', pull);
+      document.removeEventListener('visibilitychange', pull);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const memberOnTab = (member: string, tabId: string): string => {
     if (member === 'all' || !data) return 'all';
     const tabs = boardTabs(data);

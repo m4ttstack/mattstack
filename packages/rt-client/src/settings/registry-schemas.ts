@@ -365,6 +365,7 @@ export const SCHEMAS = {
     .meta({ title: "Model invocation disabled", description: "Skills with model invocation disabled, by pack.", labels: { key: "pack", value: "skills" } }),
   "chat.humanHandle": z.string().regex(/^[a-z0-9._-]*$/),
   "chat.displayName": z.string().min(1),
+  "mattstack.colorScheme": z.enum(["auto", "light", "dark"]),
   "chat.slackSupport.defaultRepo": z.string().min(1),
   "chat.slackSupport.persona": z.looseObject({
     name: z.string().regex(/\S/).meta({ title: "Name", description: "What the bot calls itself in every Slack message." }),

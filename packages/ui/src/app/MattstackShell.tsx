@@ -23,6 +23,7 @@ import { AppLauncher } from './AppLauncher';
 import { ColorSchemeControl } from './ColorSchemeControl';
 import { HueControl, useAppHue, type AppHue } from './HueControl';
 import classes from './MattstackShell.module.css';
+import { useSharedColorScheme } from './shared-scheme';
 import { ShellAppBarContext, ShellRailContext } from './shell-context';
 
 export const MATTSTACK_HEADER_HEIGHT = 48;
@@ -162,6 +163,7 @@ function Shell({
   const rail = useRailState();
   const isMobile = useIsMobile();
   const [hue, setHue] = useAppHue(name, appHue);
+  useSharedColorScheme();
   const [appBarStart, setAppBarStart] = useState<HTMLElement | null>(null);
   const [appBarEnd, setAppBarEnd] = useState<HTMLElement | null>(null);
   const [appBarViewer, setAppBarViewer] = useState<HTMLElement | null>(null);
