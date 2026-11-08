@@ -154,13 +154,13 @@ export function blockBuiltFrom(
       name: file.split('/')[0] ?? file,
       file,
       kind: 'engine',
-      role: "this block's text",
+      role: "This block's text",
     },
     ...props.map(prop => ({
       ...prop,
-      role: `${
+      role: `Text from ${
         prop.owner.kind === 'pack' ? anatomy.pack : prop.owner.name
-      }'s text`,
+      }`,
     })),
   ];
 }

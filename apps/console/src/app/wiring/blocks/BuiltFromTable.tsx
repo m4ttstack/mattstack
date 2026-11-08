@@ -99,13 +99,18 @@ export function BuiltFromTable({ rows }: { rows: BuiltFromRow[] }) {
               data-testid="built-from-row"
             >
               <Table.Td>
-                <Stack gap={1}>
+                <Stack gap={4}>
+                  {row.role && (
+                    <Text fz={13} fw={500} lh="normal" c={BODY}>
+                      {row.role}
+                    </Text>
+                  )}
                   {packSkillOf(row) ? (
                     <Anchor
                       component="button"
                       type="button"
                       ff="monospace"
-                      fz={13}
+                      fz={row.role ? 12 : 13}
                       lh="normal"
                       ta="left"
                       truncate
@@ -124,18 +129,20 @@ export function BuiltFromTable({ rows }: { rows: BuiltFromRow[] }) {
                   ) : (
                     <Text
                       ff="monospace"
-                      fz={13}
+                      fz={row.role ? 12 : 13}
                       lh="normal"
-                      c={BODY}
+                      c={row.role ? SECONDARY : BODY}
                       truncate
                       data-parity="f"
                     >
                       {row.file}
                     </Text>
                   )}
-                  <Text fz={12} lh="normal" c={SECONDARY} data-parity="k">
-                    {row.role ?? row.kind}
-                  </Text>
+                  {!row.role && (
+                    <Text fz={12} lh="normal" c={SECONDARY} data-parity="k">
+                      {row.kind}
+                    </Text>
+                  )}
                 </Stack>
               </Table.Td>
               <Table.Td>
