@@ -172,7 +172,7 @@ function ItemRow({
           <AttentionDot />
         ) : item.icon === 'lock' ? (
           <Text span fz="xs" lh="normal" c={MUTED}>
-            internal
+            off
           </Text>
         ) : undefined
       }
@@ -340,7 +340,8 @@ function FocusGroupsList({
           // A verb nothing binds still runs on its own, so it lists here.
           ['Commands', [...groups.standalone, ...groups.unwired.items]],
           ['Board', groups.board],
-          ['Standard', groups.skills],
+          ['Reference skills', groups.skills],
+          ['Fills', groups.fills],
         ] as const
       ).map(
         ([label, items]) =>
@@ -349,7 +350,7 @@ function FocusGroupsList({
               key={label}
               label={label}
               count={items.length}
-              defaultOpen={label !== 'Standard'}
+              defaultOpen={label === 'Commands' || label === 'Board'}
             >
               {items.map(item => (
                 <ItemRow

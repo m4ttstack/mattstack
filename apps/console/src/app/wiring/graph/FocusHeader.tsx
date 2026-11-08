@@ -44,7 +44,9 @@ export function kindOf(item: FocusItem, pipeline: FocusItem | null): string {
       ? `stage ${item.step} of ${pipeline.children.length} · run by /${pipeline.command}`
       : `stage ${item.step} of ${pipeline.children.length} · ${pipeline.skill} · ${workType}`;
   if (item.icon === 'layoutDashboard') return 'board skill';
-  return item.icon === 'lock' ? 'internal verb' : 'public verb';
+  if (item.fill) return 'fill';
+  const kind = item.handWritten ? 'reference skill' : 'command';
+  return item.icon === 'lock' ? `${kind} · off` : kind;
 }
 
 /**

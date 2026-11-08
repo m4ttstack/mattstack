@@ -441,7 +441,7 @@ export function BlockView({
         )}
         {readOnly && (
           <Text fz={13} c="dimmed" data-testid="read-only-note">
-            Standard skill: read from its headings, not built from blocks.
+            Read from its headings, not built from blocks.
           </Text>
         )}
       </div>

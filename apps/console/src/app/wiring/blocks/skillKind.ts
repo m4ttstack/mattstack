@@ -8,7 +8,7 @@ export function skillKindOf(
   pipeline: FocusItem | null
 ): string {
   const kind = kindOf(item, pipeline);
-  return kind === 'public verb' ? 'on-demand' : kind;
+  return kind === 'command' ? 'on-demand' : kind;
 }
 
 const blocks = (n: number) => `${n} ${n === 1 ? 'block' : 'blocks'}`;

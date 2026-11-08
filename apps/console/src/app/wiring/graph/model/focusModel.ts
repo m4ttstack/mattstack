@@ -29,9 +29,11 @@ export type FocusItem = {
   /** A hand-written skill's SKILL.md, read for its headings when it is
       not built from blocks. */
   file?: string;
-  /** In the Standard group: rt builds no block tree for it, so it is
-      only ever read from its file. */
+  /** A reference skill or a fill: rt builds no block tree for it, so it
+      is only ever read from its file. */
   handWritten?: true;
+  /** A hand-written skill a binding plugs into another skill. */
+  fill?: true;
 };
 
 /** A skill folder as the Surface tab lists it. */
@@ -46,9 +48,13 @@ export type FocusGroups = {
   pipelines: FocusItem[];
   standalone: FocusItem[];
   board: FocusItem[];
-  /** The pack's hand-written skills: no template, so no wiring to draw,
-      but each opens in the block view. */
+  /** The pack's hand-written skills agents can be pointed at, as Config's
+      Reference skills: no template, so no wiring to draw, but each opens in
+      the block view. */
   skills: FocusItem[];
+  /** The hand-written skills a binding plugs into another skill, as
+      Config's fills. */
+  fills: FocusItem[];
   /** `count` is the verbs whose props nothing binds plus the fills nothing
       binds; `items` holds only the verbs, since a fill has no template to
       focus. */
@@ -210,7 +216,10 @@ export function buildFocusGroups(
       ...unwiredItems,
     ].map(item => item.skill)
   );
-  const skills = packSkills
+  const fillNames = new Set(
+    (composition.fills ?? []).map(fill => suffixOf(fill.binding))
+  );
+  const handWritten = packSkills
     .filter(row => row.kind === 'hand-authored' && !listed.has(row.name))
     .map((row): FocusItem => ({
       key: row.name,
@@ -223,13 +232,19 @@ export function buildFocusGroups(
       ...(row.status === 'public' ? { command: row.name } : {}),
       ...(row.path ? { file: row.path } : {}),
       handWritten: true,
+      ...(fillNames.has(row.name) && row.status !== 'public'
+        ? { fill: true as const }
+        : {}),
     }));
+  const skills = handWritten.filter(item => !item.fill);
+  const fills = handWritten.filter(item => item.fill);
 
   return {
     pipelines,
     standalone,
     board,
     skills,
+    fills,
     unwired: {
       count: unwiredItems.length + first.orphans.length,
       attention: unwiredItems.some(item => item.attention),
@@ -247,6 +262,7 @@ export function findFocus(groups: FocusGroups, key: string): FocusItem | null {
     ...groups.standalone,
     ...groups.board,
     ...groups.skills,
+    ...groups.fills,
     ...groups.unwired.items,
   ];
   return (
@@ -264,6 +280,7 @@ export function firstFocus(groups: FocusGroups): FocusItem | null {
     groups.standalone[0] ??
     groups.board[0] ??
     groups.skills[0] ??
+    groups.fills[0] ??
     groups.unwired.items[0] ??
     null
   );
