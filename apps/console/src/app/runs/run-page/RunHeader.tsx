@@ -95,7 +95,7 @@ export function HeroTitle({
               target="_blank"
               rel="noopener noreferrer"
               fz="lg"
-              fw={700}
+              fw={500}
               lh="normal"
               c="accent"
               className={classes.keep}
@@ -113,7 +113,7 @@ export function HeroTitle({
           ) : (
             <Text
               fz="lg"
-              fw={700}
+              fw={500}
               lh="normal"
               c="accent"
               className={classes.keep}
@@ -127,7 +127,7 @@ export function HeroTitle({
           {ticket ? `· ${meta}` : meta}
         </Text>
       </Group>
-      <Text fz="h1" fw={700} lh="normal" data-parity="title">
+      <Text fz="h3" fw={600} lh="normal" data-parity="title">
         {title}
       </Text>
     </Stack>
@@ -264,7 +264,7 @@ export function RunHeader({
     destructive: true,
     modalProps: {
       title: (
-        <Text span fz="h3" fw={700} lh="normal" data-parity="t">
+        <Text span fz="h3" fw={600} lh="normal" data-parity="t">
           {`Mark ${ticket ?? runId} abandoned?`}
         </Text>
       ),

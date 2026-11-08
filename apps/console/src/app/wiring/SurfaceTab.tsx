@@ -433,7 +433,7 @@ function SurfaceGridRow({
         />
       )}
       <div className={legendClasses.rowLine}>
-        <Text size="sm" fw={600} style={{ flex: 'none' }}>
+        <Text size="sm" fw={500} style={{ flex: 'none' }}>
           {row.name}
         </Text>
         {row.base !== undefined && (
@@ -800,7 +800,7 @@ export function SurfaceTab({
         }}
       >
         <Group justify="space-between" wrap="nowrap">
-          <Text size="sm" fw={600} style={{ flex: 'none' }}>
+          <Text size="sm" fw={500} style={{ flex: 'none' }}>
             {stagedLabel}
           </Text>
           {lines.length > 0 && (

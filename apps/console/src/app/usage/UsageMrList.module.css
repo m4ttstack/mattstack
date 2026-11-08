@@ -24,15 +24,12 @@
   grid-template-columns: var(--columns);
   column-gap: 16px;
   align-items: center;
-  padding-inline: 16px;
 }
 
 .head {
+  composes: group from '../rows/rows.module.css';
   flex: none;
-  min-height: 36px;
-  background-color: var(--tk-panel);
-  font-size: var(--mantine-font-size-sm);
-  font-weight: 700;
+  min-height: 40px;
 }
 
 .sort {
@@ -61,17 +58,8 @@
 }
 
 .row {
+  composes: row from '../rows/rows.module.css';
   position: relative;
-  height: 56px;
-  border-top: 1px solid var(--tk-line-3);
-}
-
-/* The same faint accent step as the Changes tree's hover: Mantine's
-   default hover is the card's own grey. */
-@media (hover: hover) {
-  .row:hover {
-    background-color: color-mix(in srgb, var(--tk-fill-accent) 6%, transparent);
-  }
 }
 
 .name {

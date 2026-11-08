@@ -172,7 +172,7 @@ export function TimelineView({
     <>
       <div className={classes.titleRow} data-parity="Title row">
         <Stack gap={4} className={classes.titleBlock}>
-          <Text fz="h1" fw={700} lh="normal" data-parity="title">
+          <Text fz="h2" fw={600} lh="normal" data-parity="title">
             {timeline.title}
           </Text>
           <Text fz="lg" lh="normal" c="dimmed" data-parity="sub">

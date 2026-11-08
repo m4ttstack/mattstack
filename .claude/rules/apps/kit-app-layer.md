@@ -60,11 +60,13 @@ ModalsProvider > node + Notifications`, brackets the render with the boot
 family (§7), and imports `./styles.css` (pulling in the Tokyo CSS) as a
 side effect of the module. Target element is `#root`.
 
-`MattstackShell` owns the `RailShell` wiring, `useRailState`, the
-translucent header, the mark + wordmark recipe, and the colour-scheme
-control pinned to the rail bottom (`HybridMenu`'s three-way System /
-Light / Dark). `Rail` and `RailBottom` are compound statics attached with
-`/* @__PURE__ */ Object.assign`, per §2's tree-shake rules:
+`MattstackShell` owns the `RailShell` wiring, `useRailState`, the bar in
+the app's hue (`hue`, blue by default) with the palette menu that lets a
+viewer pick another per browser, the mark + wordmark recipe, the
+colour-scheme control pinned to the rail bottom (`HybridMenu`'s three-way
+System / Light / Dark), and the sheet: on desktop it publishes an 8px
+inset through `RailShell`, and a hosted `PageShell` lays itself on the bar
+as a rounded sheet whose sidebar takes the hue's tint.
 
 ```tsx
 <MattstackShell name="chat" mark={<AppMark size={30} />}>

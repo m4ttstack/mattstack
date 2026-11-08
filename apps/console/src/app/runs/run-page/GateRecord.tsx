@@ -226,7 +226,7 @@ function Section({
   return (
     <Stack gap={0}>
       <Group gap={8} className={classes.sectionHead}>
-        <Text fz="xs" fw={600} c="dimmed" tt="uppercase">
+        <Text fz="xs" fw={500} c="dimmed" tt="uppercase">
           {title}
         </Text>
         {count ? (
@@ -260,7 +260,7 @@ function ReviewPost({ record }: { record: ReviewPostRecord }) {
           classNames={{ root: classes.verdict }}
         >
           <Group gap={10} wrap="nowrap" align="baseline">
-            <Text fz="md" fw={600} c="accent">
+            <Text fz="md" fw={500} c="accent">
               {record.verdict.pick}
             </Text>
             <Text fz="md" className={classes.grow}>

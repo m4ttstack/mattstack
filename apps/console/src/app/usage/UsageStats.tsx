@@ -25,7 +25,7 @@ export function UsageStats({ stats }: { stats: UsageStat[] }) {
       {stats.map(stat => (
         <Stat
           key={stat.key}
-          size="h2"
+          size="h3"
           className={classes.stat}
           value={stat.value}
           label={

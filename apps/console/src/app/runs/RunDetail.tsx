@@ -114,7 +114,7 @@ function RunCrumbs({ repo, runId }: { repo: string; runId: string }) {
           {repoLabel(repo)}
         </Text>
         <ScopeSlash />
-        <Text span fz="sm" fw={600} truncate data-testid="run-crumb">
+        <Text span fz="sm" fw={500} truncate data-testid="run-crumb">
           {useRunName(repo, runId)}
         </Text>
         <Freshness repo={repo} runId={runId} />

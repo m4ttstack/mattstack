@@ -10,7 +10,7 @@ rt supports user plugins: a folder at `~/.mattstack/user/plugins/<name>/` (insid
 Two contract references, in order of authority:
 
 1. `~/.mattstack/rt/plugin-api/index.d.ts` ... the exact injected-API types for the rt version installed on this machine (rt writes and refreshes this file itself). Trust it over anything else.
-2. The full plugin guide (manifest reference, exec env vars, troubleshooting): <https://docs.mattstack.dev/rt/guides/plugins>, which is `website/docs/rt/guides/plugins.mdx` in the mattstack checkout when it is checked out locally.
+2. The full plugin guide (manifest reference, exec env vars, troubleshooting): <https://docs.mattstack.dev/rt/guides/plugins>, which is `sites/docs/docs/rt/guides/plugins.mdx` in the mattstack checkout when it is checked out locally.
 
 ## Workflow
 

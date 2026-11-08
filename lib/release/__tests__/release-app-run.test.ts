@@ -181,7 +181,7 @@ class World {
     if ((m = cmd.match(/^gh api -X PATCH repos\/m4ttstack\/mattstack\/git\/refs\/heads\/main --input (\S+)$/))) {
       const body = JSON.parse(this.written.get(m[1]!)!) as { sha: string; force: boolean };
       if (this.patchFails === "moved") {
-        this.land(["website/docs/other.md"]);
+        this.land(["sites/docs/docs/other.md"]);
         return err("gh: Update is not a fast forward (HTTP 422)");
       }
       if (this.patchFails === "forbidden") return err("gh: Resource not accessible by integration (HTTP 403)");

@@ -1,0 +1,1823 @@
+{
+  "version": "2.17",
+  "children": [
+    {
+      "type": "frame",
+      "id": "WH8EY",
+      "x": 0,
+      "y": 0,
+      "name": "Landing Page",
+      "clip": true,
+      "width": 1440,
+      "fill": "$bg",
+      "layout": "vertical",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "ZIWMm",
+          "name": "Nav",
+          "width": "fill_container",
+          "stroke": "$border-soft",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "padding": [
+            18,
+            48
+          ],
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "c0nGz",
+              "name": "Nav Brand",
+              "gap": 10,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "OParJ",
+                  "name": "Nav Icon",
+                  "width": 26,
+                  "height": 26,
+                  "fill": {
+                    "type": "image",
+                    "enabled": true,
+                    "url": "../../../assets/app-icon.png",
+                    "mode": "fill"
+                  },
+                  "cornerRadius": 7
+                },
+                {
+                  "type": "frame",
+                  "id": "wYdQf",
+                  "name": "Nav Wordmark",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "nhA0z",
+                      "name": "matt",
+                      "fill": "$fg",
+                      "content": "matt",
+                      "fontFamily": "$font",
+                      "fontSize": 16,
+                      "fontWeight": "700",
+                      "letterSpacing": -0.3
+                    },
+                    {
+                      "type": "text",
+                      "id": "CYLE9",
+                      "name": "stack",
+                      "fill": "$accent",
+                      "content": "stack",
+                      "fontFamily": "$font",
+                      "fontSize": 16,
+                      "fontWeight": "700",
+                      "letterSpacing": -0.3
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "yARQw",
+              "name": "Nav Links",
+              "gap": 28,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "iSwWe",
+                  "name": "Apps",
+                  "fill": "$muted",
+                  "content": "Apps",
+                  "fontFamily": "$font",
+                  "fontSize": 13.5,
+                  "fontWeight": "500"
+                },
+                {
+                  "type": "text",
+                  "id": "rTGFF",
+                  "name": "GitHub",
+                  "fill": "$muted",
+                  "content": "GitHub",
+                  "fontFamily": "$font",
+                  "fontSize": 13.5,
+                  "fontWeight": "500"
+                },
+                {
+                  "type": "text",
+                  "id": "FJ0EE",
+                  "name": "Docs",
+                  "fill": "$muted",
+                  "content": "Docs",
+                  "fontFamily": "$font",
+                  "fontSize": 13.5,
+                  "fontWeight": "500"
+                },
+                {
+                  "type": "text",
+                  "id": "rMRa3",
+                  "name": "Releases",
+                  "fill": "$muted",
+                  "content": "Releases",
+                  "fontFamily": "$font",
+                  "fontSize": 13.5,
+                  "fontWeight": "500"
+                },
+                {
+                  "type": "frame",
+                  "id": "C5BvR",
+                  "name": "Nav CTA",
+                  "fill": "$raised",
+                  "cornerRadius": 8,
+                  "stroke": "$raised-border",
+                  "strokeWidth": 1,
+                  "gap": 6,
+                  "padding": [
+                    8,
+                    14
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "k2vRbC",
+                      "name": "Download Glyph",
+                      "width": 13,
+                      "height": 13,
+                      "icon": "arrow-down-to-line",
+                      "library": "lucide",
+                      "fill": "$fg"
+                    },
+                    {
+                      "type": "text",
+                      "id": "CWG79",
+                      "name": "Nav CTA Label",
+                      "fill": "$fg",
+                      "content": "Download",
+                      "fontFamily": "$font",
+                      "fontSize": 13,
+                      "fontWeight": "600"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "PnVUx",
+          "name": "Hero",
+          "width": "fill_container",
+          "fill": [
+            "$bg",
+            {
+              "type": "gradient",
+              "gradientType": "radial",
+              "enabled": true,
+              "rotation": 0,
+              "size": {
+                "width": 1.1,
+                "height": 1.5
+              },
+              "colors": [
+                {
+                  "color": "#E6498026",
+                  "position": 0
+                },
+                {
+                  "color": "#E6498000",
+                  "position": 1
+                }
+              ],
+              "center": {
+                "y": 0.06
+              }
+            }
+          ],
+          "layout": "vertical",
+          "gap": 22,
+          "padding": [
+            104,
+            48,
+            88,
+            48
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "uwQaU",
+              "name": "Hero Icon",
+              "width": 88,
+              "height": 88,
+              "fill": {
+                "type": "image",
+                "enabled": true,
+                "url": "../../../assets/app-icon.png",
+                "mode": "fill"
+              },
+              "cornerRadius": 22,
+              "stroke": "$icon-ring",
+              "strokeWidth": 1,
+              "effect": {
+                "type": "shadow",
+                "shadowType": "outer",
+                "color": "#00000080",
+                "offset": {
+                  "x": 0,
+                  "y": 14
+                },
+                "blur": 40
+              }
+            },
+            {
+              "type": "text",
+              "id": "zcSeT",
+              "name": "Headline",
+              "fill": "$fg",
+              "textGrowth": "fixed-width",
+              "width": 880,
+              "content": "An agentic application stack for engineers.",
+              "lineHeight": 1.04,
+              "textAlign": "center",
+              "fontFamily": "$font",
+              "fontSize": 66,
+              "fontWeight": "700",
+              "letterSpacing": -2.4
+            },
+            {
+              "type": "text",
+              "id": "B7olA",
+              "name": "Subhead",
+              "fill": "$muted",
+              "textGrowth": "fixed-width",
+              "width": 600,
+              "content": "Built for you and your team. Run your agents in parallel, let them talk to each other, and watch the work land.",
+              "lineHeight": 1.6,
+              "textAlign": "center",
+              "fontFamily": "$font",
+              "fontSize": 17.5,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "hg4Fu",
+              "name": "CTA Row",
+              "gap": 12,
+              "padding": [
+                12,
+                0,
+                0,
+                0
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "w3j4kF",
+                  "name": "Download Button",
+                  "fill": "$accent",
+                  "cornerRadius": 11,
+                  "effect": {
+                    "type": "shadow",
+                    "shadowType": "outer",
+                    "color": "#E6498066",
+                    "offset": {
+                      "x": 0,
+                      "y": 8
+                    },
+                    "blur": 24,
+                    "spread": -4
+                  },
+                  "gap": 9,
+                  "padding": [
+                    14,
+                    24
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "z7wcbl",
+                      "name": "Download Glyph",
+                      "width": 16,
+                      "height": 16,
+                      "icon": "arrow-down-to-line",
+                      "library": "lucide",
+                      "fill": "$accent-ink"
+                    },
+                    {
+                      "type": "text",
+                      "id": "v2IWO",
+                      "name": "Download Label",
+                      "fill": "$accent-ink",
+                      "content": "Download for Mac",
+                      "fontFamily": "$font",
+                      "fontSize": 15,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "H6OGao",
+                  "name": "GitHub Button",
+                  "fill": "$raised",
+                  "cornerRadius": 11,
+                  "stroke": "$raised-border",
+                  "strokeWidth": 1,
+                  "gap": 9,
+                  "padding": [
+                    14,
+                    22
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "hWsQO",
+                      "name": "GitHub Glyph",
+                      "width": 16,
+                      "height": 16,
+                      "icon": "github",
+                      "library": "lucide",
+                      "fill": "$fg"
+                    },
+                    {
+                      "type": "text",
+                      "id": "C8uWB8",
+                      "name": "GitHub Label",
+                      "fill": "$fg",
+                      "content": "View source",
+                      "fontFamily": "$font",
+                      "fontSize": 15,
+                      "fontWeight": "600"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "n0uay",
+              "name": "Hero Meta",
+              "gap": 10,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "S41fk",
+                  "name": "v2.8.0 · 266 MB · dmg",
+                  "fill": "$dim",
+                  "content": "v2.8.0 · 266 MB · dmg",
+                  "fontFamily": "$font",
+                  "fontSize": 12.5,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "ellipse",
+                  "id": "bfo3W",
+                  "name": "Dot",
+                  "fill": "$dim",
+                  "width": 3,
+                  "height": 3
+                },
+                {
+                  "type": "text",
+                  "id": "YewvR",
+                  "name": "Apple silicon",
+                  "fill": "$dim",
+                  "content": "Apple silicon",
+                  "fontFamily": "$font",
+                  "fontSize": 12.5,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "ellipse",
+                  "id": "EXtvX",
+                  "name": "Dot",
+                  "fill": "$dim",
+                  "width": 3,
+                  "height": 3
+                },
+                {
+                  "type": "text",
+                  "id": "vCraZ",
+                  "name": "macOS 14+",
+                  "fill": "$dim",
+                  "content": "macOS 14+",
+                  "fontFamily": "$font",
+                  "fontSize": 12.5,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "MfFoR",
+          "name": "Apps Section",
+          "width": "fill_container",
+          "fill": "$bg-alt",
+          "stroke": "$border-soft",
+          "strokeWidth": {
+            "top": 1,
+            "bottom": 1
+          },
+          "layout": "vertical",
+          "gap": 44,
+          "padding": [
+            88,
+            48,
+            92,
+            48
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "xTnpr",
+              "name": "Apps Header",
+              "width": 1160,
+              "layout": "vertical",
+              "gap": 14,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "TpDAY",
+                  "name": "Apps Title",
+                  "fill": "$fg",
+                  "content": "Five tools for smoother agentic workflows.",
+                  "lineHeight": 1.1,
+                  "fontFamily": "$font",
+                  "fontSize": 40,
+                  "fontWeight": "700",
+                  "letterSpacing": -1.4
+                },
+                {
+                  "type": "text",
+                  "id": "hwoKb",
+                  "name": "Apps Intro",
+                  "fill": "$muted",
+                  "textGrowth": "fixed-width",
+                  "width": 640,
+                  "content": "Agents that run in parallel, chat with each other, and stay bound to your team's intelligence.",
+                  "lineHeight": 1.6,
+                  "fontFamily": "$font",
+                  "fontSize": 16.5,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "uodJe",
+              "name": "Apps Grid",
+              "width": 1160,
+              "layout": "vertical",
+              "gap": 16,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "ADNyn",
+                  "name": "Row 1",
+                  "width": "fill_container",
+                  "height": 272,
+                  "gap": 16,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "lwMRs",
+                      "name": "deck Card",
+                      "width": "fill_container",
+                      "height": "fill_container",
+                      "fill": "$surface",
+                      "cornerRadius": 14,
+                      "stroke": "$border",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 13,
+                      "padding": 22,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "wPxjO",
+                          "name": "Head",
+                          "width": "fill_container",
+                          "gap": 11,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "OCxoa",
+                              "name": "Icon Tile",
+                              "width": 34,
+                              "height": 34,
+                              "fill": "$accent-wash",
+                              "cornerRadius": 9,
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "BsZJR",
+                                  "name": "Glyph",
+                                  "width": 17,
+                                  "height": 17,
+                                  "icon": "layout-grid",
+                                  "library": "lucide",
+                                  "fill": "$accent"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "Q95Xd",
+                              "name": "Name",
+                              "fill": "$fg",
+                              "content": "deck",
+                              "fontFamily": "$font",
+                              "fontSize": 16,
+                              "fontWeight": "700",
+                              "letterSpacing": -0.3
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "EjRZM",
+                          "name": "Promise",
+                          "fill": "$fg",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "Runs local apps on .localhost domains, powered by portless",
+                          "lineHeight": 1.45,
+                          "fontFamily": "$font",
+                          "fontSize": 14.5,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "hHBfx",
+                          "name": "Points",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 9,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "NfolF",
+                              "name": "Point",
+                              "width": "fill_container",
+                              "gap": 9,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "qKCgE",
+                                  "name": "Dot Wrap",
+                                  "padding": [
+                                    7,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "ellipse",
+                                      "id": "d9O3hw",
+                                      "name": "Dot",
+                                      "fill": "$accent",
+                                      "width": 4,
+                                      "height": 4
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "eYVg6",
+                                  "name": "Point Text",
+                                  "fill": "$muted",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Mattstack apps run alongside yours at .mattstack",
+                                  "lineHeight": 1.5,
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "K3UD6",
+                              "name": "Point",
+                              "width": "fill_container",
+                              "gap": 9,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "EleYH",
+                                  "name": "Dot Wrap",
+                                  "padding": [
+                                    7,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "ellipse",
+                                      "id": "X9G0n",
+                                      "name": "Dot",
+                                      "fill": "$accent",
+                                      "width": 4,
+                                      "height": 4
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "FEQKw",
+                                  "name": "Point Text",
+                                  "fill": "$muted",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Make a local app running on your machine available on a personal domain, or push to railway",
+                                  "lineHeight": 1.5,
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "n3Zv4z",
+                              "name": "Point",
+                              "width": "fill_container",
+                              "gap": 9,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "nwndk",
+                                  "name": "Dot Wrap",
+                                  "padding": [
+                                    7,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "ellipse",
+                                      "id": "sWs48",
+                                      "name": "Dot",
+                                      "fill": "$accent",
+                                      "width": 4,
+                                      "height": 4
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "Q80RDs",
+                                  "name": "Point Text",
+                                  "fill": "$muted",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Build, update, and restart anytime",
+                                  "lineHeight": 1.5,
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "g2uGN",
+                      "name": "board Card",
+                      "width": "fill_container",
+                      "height": "fill_container",
+                      "fill": "$surface",
+                      "cornerRadius": 14,
+                      "stroke": "$border",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 13,
+                      "padding": 22,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "kQPTw",
+                          "name": "Head",
+                          "width": "fill_container",
+                          "gap": 11,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "OobKU",
+                              "name": "Icon Tile",
+                              "width": 34,
+                              "height": 34,
+                              "fill": "$accent-wash",
+                              "cornerRadius": 9,
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "ZFmI6",
+                                  "name": "Glyph",
+                                  "width": 17,
+                                  "height": 17,
+                                  "icon": "git-pull-request",
+                                  "library": "lucide",
+                                  "fill": "$accent"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "gDh1k",
+                              "name": "Name",
+                              "fill": "$fg",
+                              "content": "board",
+                              "fontFamily": "$font",
+                              "fontSize": 16,
+                              "fontWeight": "700",
+                              "letterSpacing": -0.3
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "vjIJI",
+                          "name": "Promise",
+                          "fill": "$fg",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "Launch agentic PR reviews bound to team-scoped intelligence",
+                          "lineHeight": 1.45,
+                          "fontFamily": "$font",
+                          "fontSize": 14.5,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "xuRgC",
+                          "name": "Points",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 9,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "BNTxx",
+                              "name": "Point",
+                              "width": "fill_container",
+                              "gap": 9,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "mVgbg",
+                                  "name": "Dot Wrap",
+                                  "padding": [
+                                    7,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "ellipse",
+                                      "id": "OGQnk",
+                                      "name": "Dot",
+                                      "fill": "$accent",
+                                      "width": 4,
+                                      "height": 4
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "L9bSud",
+                                  "name": "Point Text",
+                                  "fill": "$muted",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Auto re-review triggers and teammate nudges",
+                                  "lineHeight": 1.5,
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "CMp3K",
+                              "name": "Point",
+                              "width": "fill_container",
+                              "gap": 9,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "Tjvq9",
+                                  "name": "Dot Wrap",
+                                  "padding": [
+                                    7,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "ellipse",
+                                      "id": "denyv",
+                                      "name": "Dot",
+                                      "fill": "$accent",
+                                      "width": 4,
+                                      "height": 4
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "oYExc",
+                                  "name": "Point Text",
+                                  "fill": "$muted",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Watches and heals CI failures on your PRs",
+                                  "lineHeight": 1.5,
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "mHAuN",
+                              "name": "Point",
+                              "width": "fill_container",
+                              "gap": 9,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "Vfc0v",
+                                  "name": "Dot Wrap",
+                                  "padding": [
+                                    7,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "ellipse",
+                                      "id": "ieI0G",
+                                      "name": "Dot",
+                                      "fill": "$accent",
+                                      "width": 4,
+                                      "height": 4
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "adjmI",
+                                  "name": "Point Text",
+                                  "fill": "$muted",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Slack integrations",
+                                  "lineHeight": 1.5,
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "U0gD1G",
+                              "name": "Point",
+                              "width": "fill_container",
+                              "gap": 9,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "jbnNt",
+                                  "name": "Dot Wrap",
+                                  "padding": [
+                                    7,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "ellipse",
+                                      "id": "N9q0aQ",
+                                      "name": "Dot",
+                                      "fill": "$accent",
+                                      "width": 4,
+                                      "height": 4
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "XRZMp",
+                                  "name": "Point Text",
+                                  "fill": "$muted",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Custom PR tabs for internal vs external contributors",
+                                  "lineHeight": 1.5,
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "zvj9X",
+                      "name": "console Card",
+                      "width": "fill_container",
+                      "height": "fill_container",
+                      "fill": "$surface",
+                      "cornerRadius": 14,
+                      "stroke": "$border",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 13,
+                      "padding": 22,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "U78rIC",
+                          "name": "Head",
+                          "width": "fill_container",
+                          "gap": 11,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "G62lc",
+                              "name": "Icon Tile",
+                              "width": 34,
+                              "height": 34,
+                              "fill": "$accent-wash",
+                              "cornerRadius": 9,
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "Y69H1G",
+                                  "name": "Glyph",
+                                  "width": 17,
+                                  "height": 17,
+                                  "icon": "terminal",
+                                  "library": "lucide",
+                                  "fill": "$accent"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "wvQvJ",
+                              "name": "Name",
+                              "fill": "$fg",
+                              "content": "console",
+                              "fontFamily": "$font",
+                              "fontSize": 16,
+                              "fontWeight": "700",
+                              "letterSpacing": -0.3
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "R8OgJq",
+                          "name": "Promise",
+                          "fill": "$fg",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "Create agentic work pipelines bound to your team's domain intelligence",
+                          "lineHeight": 1.45,
+                          "fontFamily": "$font",
+                          "fontSize": 14.5,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "ALDSl",
+                          "name": "Points",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 9,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "uoOUA",
+                              "name": "Point",
+                              "width": "fill_container",
+                              "gap": 9,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "G0Mt3",
+                                  "name": "Dot Wrap",
+                                  "padding": [
+                                    7,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "ellipse",
+                                      "id": "B4vcjJ",
+                                      "name": "Dot",
+                                      "fill": "$accent",
+                                      "width": 4,
+                                      "height": 4
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "SKvOr",
+                                  "name": "Point Text",
+                                  "fill": "$muted",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Monitor every pipeline: what's running, what needs you, what a run did",
+                                  "lineHeight": 1.5,
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "zmSTp",
+                              "name": "Point",
+                              "width": "fill_container",
+                              "gap": 9,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "Djl3q",
+                                  "name": "Dot Wrap",
+                                  "padding": [
+                                    7,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "ellipse",
+                                      "id": "Urirz",
+                                      "name": "Dot",
+                                      "fill": "$accent",
+                                      "width": 4,
+                                      "height": 4
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "Viuxq",
+                                  "name": "Point Text",
+                                  "fill": "$muted",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Compile team skill packs from mattstack pipeline skills, bound to the same intelligence",
+                                  "lineHeight": 1.5,
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "b4APl",
+                  "name": "Row 2",
+                  "width": "fill_container",
+                  "height": 262,
+                  "gap": 16,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "V7kDNt",
+                      "name": "chat Card",
+                      "width": "fill_container",
+                      "height": "fill_container",
+                      "fill": "$surface",
+                      "cornerRadius": 14,
+                      "stroke": "$border",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 13,
+                      "padding": 22,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "g5PWh",
+                          "name": "Head",
+                          "width": "fill_container",
+                          "gap": 11,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "a8W75h",
+                              "name": "Icon Tile",
+                              "width": 34,
+                              "height": 34,
+                              "fill": "$accent-wash",
+                              "cornerRadius": 9,
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "K373j9",
+                                  "name": "Glyph",
+                                  "width": 17,
+                                  "height": 17,
+                                  "icon": "message-square",
+                                  "library": "lucide",
+                                  "fill": "$accent"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "O7s8My",
+                              "name": "Name",
+                              "fill": "$fg",
+                              "content": "chat",
+                              "fontFamily": "$font",
+                              "fontSize": 16,
+                              "fontWeight": "700",
+                              "letterSpacing": -0.3
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "mQj0T",
+                          "name": "Promise",
+                          "fill": "$fg",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "Let your agents chat with each other",
+                          "lineHeight": 1.45,
+                          "fontFamily": "$font",
+                          "fontSize": 14.5,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "lzKTx",
+                          "name": "Points",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 9,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "k79E27",
+                              "name": "Point",
+                              "width": "fill_container",
+                              "gap": 9,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "mKNX5",
+                                  "name": "Dot Wrap",
+                                  "padding": [
+                                    7,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "ellipse",
+                                      "id": "c0fCs",
+                                      "name": "Dot",
+                                      "fill": "$accent",
+                                      "width": 4,
+                                      "height": 4
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "gnbke",
+                                  "name": "Point Text",
+                                  "fill": "$muted",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "DMs and group chats",
+                                  "lineHeight": 1.5,
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "kkcSd",
+                              "name": "Point",
+                              "width": "fill_container",
+                              "gap": 9,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "llhb9",
+                                  "name": "Dot Wrap",
+                                  "padding": [
+                                    7,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "ellipse",
+                                      "id": "HvHg9",
+                                      "name": "Dot",
+                                      "fill": "$accent",
+                                      "width": 4,
+                                      "height": 4
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "wBeKM",
+                                  "name": "Point Text",
+                                  "fill": "$muted",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "You can always jump in via the chat viewer",
+                                  "lineHeight": 1.5,
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "CU5I3",
+                              "name": "Point",
+                              "width": "fill_container",
+                              "gap": 9,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "IeGuS",
+                                  "name": "Dot Wrap",
+                                  "padding": [
+                                    7,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "ellipse",
+                                      "id": "Y9Kfx",
+                                      "name": "Dot",
+                                      "fill": "$accent",
+                                      "width": 4,
+                                      "height": 4
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "Yy4iK",
+                                  "name": "Point Text",
+                                  "fill": "$muted",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Uses the existing Claude Code SendMessage socket protocol",
+                                  "lineHeight": 1.5,
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "Av4qr",
+                              "name": "Point",
+                              "width": "fill_container",
+                              "gap": 9,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "sCzeK",
+                                  "name": "Dot Wrap",
+                                  "padding": [
+                                    7,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "ellipse",
+                                      "id": "ww3VL",
+                                      "name": "Dot",
+                                      "fill": "$accent",
+                                      "width": 4,
+                                      "height": 4
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "csQ8B",
+                                  "name": "Point Text",
+                                  "fill": "$muted",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Works across Claude Code accounts",
+                                  "lineHeight": 1.5,
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "XT0FH",
+                              "name": "Point",
+                              "width": "fill_container",
+                              "gap": 9,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "QraEg",
+                                  "name": "Dot Wrap",
+                                  "padding": [
+                                    7,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "ellipse",
+                                      "id": "zuogH",
+                                      "name": "Dot",
+                                      "fill": "$accent",
+                                      "width": 4,
+                                      "height": 4
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "bFcc1",
+                                  "name": "Point Text",
+                                  "fill": "$muted",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "herdr plugin available for seamless integration (not required)",
+                                  "lineHeight": 1.5,
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "L1Ifl",
+                      "name": "fast-browser Card",
+                      "width": "fill_container",
+                      "height": "fill_container",
+                      "fill": "$surface",
+                      "cornerRadius": 14,
+                      "stroke": "$border",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 13,
+                      "padding": 22,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "efy7c",
+                          "name": "Head",
+                          "width": "fill_container",
+                          "gap": 11,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "O7pvFT",
+                              "name": "Icon Tile",
+                              "width": 34,
+                              "height": 34,
+                              "fill": "$accent-wash",
+                              "cornerRadius": 9,
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "DtkUU",
+                                  "name": "Glyph",
+                                  "width": 17,
+                                  "height": 17,
+                                  "icon": "zap",
+                                  "library": "lucide",
+                                  "fill": "$accent"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "V18fp5",
+                              "name": "Name",
+                              "fill": "$fg",
+                              "content": "fast-browser",
+                              "fontFamily": "$font",
+                              "fontSize": 16,
+                              "fontWeight": "700",
+                              "letterSpacing": -0.3
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "f1pGdZ",
+                          "name": "Promise",
+                          "fill": "$fg",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "The fastest way for your agent to drive your browser",
+                          "lineHeight": 1.45,
+                          "fontFamily": "$font",
+                          "fontSize": 14.5,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "cLMFM",
+                          "name": "Points",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 9,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "ikov0",
+                              "name": "Point",
+                              "width": "fill_container",
+                              "gap": 9,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "ARLpm",
+                                  "name": "Dot Wrap",
+                                  "padding": [
+                                    7,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "ellipse",
+                                      "id": "Pvp80",
+                                      "name": "Dot",
+                                      "fill": "$accent",
+                                      "width": 4,
+                                      "height": 4
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "P3MgF",
+                                  "name": "Point Text",
+                                  "fill": "$muted",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Built on a Playwright fork, not reinventing the wheel",
+                                  "lineHeight": 1.5,
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "xDk7z",
+                              "name": "Point",
+                              "width": "fill_container",
+                              "gap": 9,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "yoM8t",
+                                  "name": "Dot Wrap",
+                                  "padding": [
+                                    7,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "ellipse",
+                                      "id": "fwxLW",
+                                      "name": "Dot",
+                                      "fill": "$accent",
+                                      "width": 4,
+                                      "height": 4
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "AIIFk",
+                                  "name": "Point Text",
+                                  "fill": "$muted",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Dedicated Chrome tab groups per agent for parallel sessions",
+                                  "lineHeight": 1.5,
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "zYd8y",
+                              "name": "Point",
+                              "width": "fill_container",
+                              "gap": 9,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "Fd2Yi",
+                                  "name": "Dot Wrap",
+                                  "padding": [
+                                    7,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "ellipse",
+                                      "id": "S70ap",
+                                      "name": "Dot",
+                                      "fill": "$accent",
+                                      "width": 4,
+                                      "height": 4
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "RxlKf",
+                                  "name": "Point Text",
+                                  "fill": "$muted",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Screenshots, video capture, and beautiful screenshot annotations out of the box",
+                                  "lineHeight": 1.5,
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "estLp",
+          "name": "Footer",
+          "width": "fill_container",
+          "fill": "$bg",
+          "stroke": "$border-soft",
+          "strokeWidth": {
+            "top": 1
+          },
+          "padding": [
+            28,
+            48
+          ],
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "QTH8j",
+              "name": "Footer Brand",
+              "gap": 10,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "Kegai",
+                  "name": "Footer Icon",
+                  "width": 22,
+                  "height": 22,
+                  "fill": {
+                    "type": "image",
+                    "enabled": true,
+                    "url": "../../../assets/app-icon.png",
+                    "mode": "fill"
+                  },
+                  "cornerRadius": 6
+                },
+                {
+                  "type": "text",
+                  "id": "rM7fP",
+                  "name": "Footer Note",
+                  "fill": "$dim",
+                  "content": "mattstack · built for you and your team",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "WAEVz",
+              "name": "Footer Links",
+              "gap": 26,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "wkFVb",
+                  "name": "GitHub",
+                  "fill": "$muted",
+                  "content": "GitHub",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "vA6sw",
+                  "name": "Docs (soon)",
+                  "fill": "$muted",
+                  "content": "Docs (soon)",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "T7uLz",
+                  "name": "All releases",
+                  "fill": "$muted",
+                  "content": "All releases",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variables": {
+    "bg": {
+      "type": "color",
+      "value": "#0E0E14"
+    },
+    "bg-alt": {
+      "type": "color",
+      "value": "#14141B"
+    },
+    "surface": {
+      "type": "color",
+      "value": "#21212B"
+    },
+    "surface-2": {
+      "type": "color",
+      "value": "#1B1B24"
+    },
+    "border": {
+      "type": "color",
+      "value": "#383846"
+    },
+    "border-soft": {
+      "type": "color",
+      "value": "#26262F"
+    },
+    "fg": {
+      "type": "color",
+      "value": "#F4F4F5"
+    },
+    "muted": {
+      "type": "color",
+      "value": "#9D9DA6"
+    },
+    "dim": {
+      "type": "color",
+      "value": "#6E6E78"
+    },
+    "accent": {
+      "type": "color",
+      "value": "#E64980"
+    },
+    "accent-ink": {
+      "type": "color",
+      "value": "#FFFFFF"
+    },
+    "accent-wash": {
+      "type": "color",
+      "value": "#E6498024"
+    },
+    "font": {
+      "type": "string",
+      "value": "Inter"
+    },
+    "mono": {
+      "type": "string",
+      "value": "JetBrains Mono"
+    },
+    "raised": {
+      "type": "color",
+      "value": "#262631"
+    },
+    "raised-border": {
+      "type": "color",
+      "value": "#FFFFFF5C"
+    },
+    "icon-ring": {
+      "type": "color",
+      "value": "#FFFFFF5C"
+    }
+  },
+  "fileToken": "be01a833-852d-45b1-960d-715a3d8c4b09"
+}

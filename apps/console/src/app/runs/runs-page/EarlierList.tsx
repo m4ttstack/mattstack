@@ -78,8 +78,8 @@ function EarlierRow({
         <Group gap={8} wrap="nowrap" className={classes.line}>
           {info.ticket ? (
             <Text
-              fz="lg"
-              fw={700}
+              fz="md"
+              fw={500}
               lh="normal"
               c={stale ? 'dimmed' : undefined}
               className={classes.keep}
@@ -89,7 +89,7 @@ function EarlierRow({
             </Text>
           ) : null}
           <Text
-            fz="lg"
+            fz="md"
             lh="normal"
             c={stale ? 'dimmed' : undefined}
             truncate
@@ -110,7 +110,7 @@ function EarlierRow({
             </Badge>
           ) : null}
         </Group>
-        <Text fz="md" lh="normal" c="dimmed" truncate data-parity="sub">
+        <Text fz="sm" lh="normal" c="dimmed" truncate data-parity="sub">
           {rowSub(run)}
           {info.aging ? (
             <Text span inherit c="warn" data-testid="aging-warning">
@@ -122,7 +122,7 @@ function EarlierRow({
       </div>
       <div className={classes.meta}>
         <Text
-          fz="md"
+          fz="sm"
           lh="normal"
           c="dimmed"
           className={classes.duration}
@@ -131,7 +131,7 @@ function EarlierRow({
           {formatDuration(rowDuration(run, now))}
         </Text>
         <Text
-          fz="md"
+          fz="sm"
           lh="normal"
           c="dimmed"
           className={classes.end}

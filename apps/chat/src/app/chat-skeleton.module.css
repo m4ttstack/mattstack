@@ -41,14 +41,5 @@
   align-items: flex-start;
   gap: 10px;
   padding: 10px 16px;
-  border-bottom: 1px solid var(--chat-chrome-line);
-}
-
-/* On the tinted sidebar, grey bars read as dirt: they take the hue instead. */
-.rail :global(.mantine-Skeleton-root)::before {
-  background: var(--chat-chrome);
-}
-
-.rail :global(.mantine-Skeleton-root)::after {
-  background: color-mix(in srgb, var(--chat-hue) 18%, var(--chat-chrome));
+  border-bottom: 1px solid var(--tk-app-chrome-line);
 }

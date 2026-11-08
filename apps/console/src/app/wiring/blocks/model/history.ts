@@ -18,6 +18,8 @@ export type BuiltFromRow = {
   name: string;
   file: string;
   kind: 'template' | 'engine' | 'partial' | 'pack text' | 'team values';
+  /** What a block page calls the row, in place of its kind. */
+  role?: string;
   /** Owner and version the skill was built with; null when never built. */
   builtWith: string | null;
   installed: string;
@@ -125,6 +127,24 @@ export function builtFrom(
   return rows;
 }
 
+const withFromRoles = (rows: BuiltFromRow[], pack: string): BuiltFromRow[] =>
+  rows.map(row => ({
+    ...row,
+    role: `From ${row.owner.kind === 'pack' ? pack : row.owner.name}`,
+  }));
+
+/** A whole skill's files as its page lists them: its own file first, then
+    whose text each of the others is. */
+export function skillFileRows(
+  rows: BuiltFromRow[],
+  pack: string
+): BuiltFromRow[] {
+  const [own, ...others] = rows;
+  return own
+    ? [{ ...own, role: 'This skill' }, ...withFromRoles(others, pack)]
+    : [];
+}
+
 /**
  * One block's share of the build: an engine row for the block's own text,
  * which the template's version covers, then the files its props paste in
@@ -152,8 +172,9 @@ export function blockBuiltFrom(
       name: file.split('/')[0] ?? file,
       file,
       kind: 'engine',
+      role: 'This block',
     },
-    ...props,
+    ...withFromRoles(props, anatomy.pack),
   ];
 }
 

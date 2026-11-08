@@ -20,6 +20,7 @@
     "build:bundle": "bun run build:client && rm -rf dist/app && bun build --target bun --define MATTSTACK_HELPER_BUNDLE=true --entry-naming 'main.[ext]' --outdir dist/app src/compiled.ts"
   },
   "dependencies": {
+    "@mattstack/app-icons": "workspace:*",
     "@mattstack/app-server": "workspace:*",
     "@mattstack/gate-kit": "workspace:*",
     "@mattstack/glance": "workspace:*",

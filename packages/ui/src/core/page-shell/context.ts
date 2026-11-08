@@ -1,6 +1,8 @@
 import { createContext } from 'react';
 import type { BoxProps } from '@mantine/core';
 
+import type { PaneBounds } from '../pane-resizer/PaneResizer';
+
 /**
  * Everything the PageShell root decides once and its sub-components read:
  * geometry (heights, sidebar width, top offset), the shared surface color,
@@ -24,7 +26,17 @@ export interface PageShellContextValue {
    */
   hasTabBar: boolean;
   setHasTabBar: (present: boolean) => void;
+  /** True when a `PageShell.TabBar` sits inside `Main`, over the content
+   *  only: the content subtracts it, a full-height sidebar does not. */
+  hasMainTabBar: boolean;
+  setHasMainTabBar: (present: boolean) => void;
   sidebarWidth: string | number;
+  /** Set when the sidebar's width is the viewer's to drag. */
+  sidebarResize?: {
+    width: number;
+    onWidth: (width: number) => void;
+    bounds: PaneBounds;
+  };
   toggleSidebar: () => void;
   sidebarOpen: boolean;
   /** Shared surface color for the sidebar and header (bg.level2 by default, or `sideBarHeaderBg` when set). */

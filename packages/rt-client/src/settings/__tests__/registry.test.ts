@@ -315,7 +315,7 @@ describe("settings/registry", () => {
       expect(def?.merge).toBe("replace");
     });
 
-    test("has exactly the 25 migrated:true keys and the 106 suite keys", () => {
+    test("has exactly the 25 migrated:true keys and the 107 suite keys", () => {
       const migratedFalseKeys: string[] = [];
       const migratedTrueKeys = [
         "rt.roles", "rt.intercepts", "rt.ignoredMrs", "rt.worktrees", "rt.worktreeReadyApproval", "rt.repoIdentityOverrides", "rt.repoRoots",
@@ -328,6 +328,7 @@ describe("settings/registry", () => {
         "mattstack.integrations",
         "mattstack.tracking",
         "mattstack.appPath",
+        "mattstack.colorScheme",
         "mattstack.directory",
         "setup.waived",
         "mattstack.roster",
@@ -432,7 +433,7 @@ describe("settings/registry", () => {
         "rt.notify.sounds",
         "review.ruleSelector",
       ];
-      expect(suiteKeys).toHaveLength(106);
+      expect(suiteKeys).toHaveLength(107);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),

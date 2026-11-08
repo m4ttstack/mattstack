@@ -1,4 +1,4 @@
-# docs site (website/)
+# docs site (sites/docs/)
 
 The Docusaurus site served at https://docs.mattstack.dev. The `rt:docs` skill
 (`skills/rt-docs/SKILL.md`) owns the process: what is generated, `docs:gen`,
@@ -74,7 +74,7 @@ Follow the `doc-standards` skill (`skills/doc-standards/SKILL.md`):
 3. Style pass.
 4. AI pass: cut narration, filler and dashes.
 5. Gate, from the repo root:
-   - `python3 skills/doc-standards/scripts/check_docs.py website/docs/<path>.mdx --no-vale`
+   - `python3 skills/doc-standards/scripts/check_docs.py sites/docs/docs/<path>.mdx --no-vale`
      shows zero errors on every page you touched. Warnings are judgment calls:
      UI labels and table cells often trip the passive-voice check.
    - `bun run docs:check`, then `bun run docs:build` (bun, never npm).

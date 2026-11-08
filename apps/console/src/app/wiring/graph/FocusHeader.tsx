@@ -44,7 +44,9 @@ export function kindOf(item: FocusItem, pipeline: FocusItem | null): string {
       ? `stage ${item.step} of ${pipeline.children.length} · run by /${pipeline.command}`
       : `stage ${item.step} of ${pipeline.children.length} · ${pipeline.skill} · ${workType}`;
   if (item.icon === 'layoutDashboard') return 'board skill';
-  return item.icon === 'lock' ? 'internal verb' : 'public verb';
+  if (item.fill) return 'fill';
+  const kind = item.handWritten ? 'reference skill' : 'command';
+  return item.icon === 'fileText' && !item.from ? `${kind} · off` : kind;
 }
 
 /**
@@ -182,6 +184,7 @@ export function FocusHeader({
   inline = false,
   meta = null,
   command = null,
+  source = null,
 }: {
   /** The title is this command in full, as typed in Claude Code. */
   command?: string | null;
@@ -200,6 +203,8 @@ export function FocusHeader({
   actions?: ReactNode;
   /** In the block view's column instead of floating over a canvas. */
   inline?: boolean;
+  /** The pack this skill's file comes from, for a hand-written skill. */
+  source?: { name: string; tone: 'team' | 'org' | 'plugin' } | null;
 }) {
   const statusBadge = status && checkError === null && (
     <Badge
@@ -247,7 +252,7 @@ export function FocusHeader({
             <Group gap={6} wrap="nowrap" align="center">
               <Title
                 order={3}
-                fz={inline ? (command ? 22 : 24) : 20}
+                fz={20}
                 fw={command ? 500 : undefined}
                 lh="normal"
                 ff={command ? 'monospace' : undefined}
@@ -275,6 +280,17 @@ export function FocusHeader({
                 attributes={{ label: { 'data-parity': 'l' } }}
               >
                 {kind}
+              </Badge>
+            )}
+            {source && (
+              <Badge
+                classNames={{ root: classes.chip }}
+                {...(source.tone === 'plugin'
+                  ? { variant: 'default' as const }
+                  : { color: source.tone === 'org' ? 'gold' : 'purple' })}
+                data-testid="focus-source"
+              >
+                From {source.name}
               </Badge>
             )}
             {block && <BlockChips block={block} />}

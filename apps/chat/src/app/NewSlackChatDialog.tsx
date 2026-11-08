@@ -260,20 +260,11 @@ export function NewSlackChatDialog({
       onClose={() => {
         if (!starting) onClose();
       }}
-      title={
-        <Text component="span" size="xl" fw={600}>
-          {supportChatLabel(persona)}
-        </Text>
-      }
+      title={supportChatLabel(persona)}
       size={520}
-      centered
-      padding="xxxl"
-      styles={{
-        content: { overflow: 'visible' },
-        header: { paddingBottom: 'var(--mantine-spacing-md)' },
-      }}
+      styles={{ content: { overflow: 'visible' } }}
     >
-      <Stack gap="xxl" className={classes.form}>
+      <Stack gap="xxl">
         <Text size="md" className={classes.lede}>
           Let {name} chat with a teammate to provide support or gather info on
           bugs or feature requests for mattstack. Messages are sent under your

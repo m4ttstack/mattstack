@@ -214,17 +214,17 @@ describe("stageLocalDevApp", () => {
     expect(calls.some((c) => c.includes("rt-tray/build.sh dev"))).toBe(false);
   });
 
-  test("after fetch-deps, the scratch copy installs and builds the tree rows before build.sh", async () => {
+  test("the scratch copy installs before fetch-deps, then builds the tree rows before build.sh", async () => {
     const { seams, calls, cwds } = fakeSeams({ sourceDeps: "none" });
     await stageLocalDevApp(seams, "/src/tree");
     const fetch = calls.indexOf("bash scripts/fetch-deps.sh arm64");
     const install = calls.indexOf("bun install --frozen-lockfile");
     const buildApps = calls.indexOf("bun scripts/build-apps.ts --arch arm64");
     const build = calls.findIndex((c) => c.includes("rt-tray/build.sh dev"));
-    expect(fetch).toBeGreaterThan(-1);
-    expect(install).toBeGreaterThan(fetch);
+    expect(install).toBeGreaterThan(-1);
+    expect(fetch).toBeGreaterThan(install);
     expect(cwds[install]).toBe("/scratch");
-    expect(buildApps).toBeGreaterThan(install);
+    expect(buildApps).toBeGreaterThan(fetch);
     expect(cwds[buildApps]).toBe("/scratch");
     expect(build).toBeGreaterThan(buildApps);
   });

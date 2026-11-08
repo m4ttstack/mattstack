@@ -125,7 +125,7 @@ function Index({
                       opacity: empty ? 0.45 : undefined,
                       marginBottom: 2,
                     },
-                    label: { fontSize: 14, fontWeight: current ? 500 : 400 },
+                    label: { fontSize: 'var(--mantine-font-size-md)' },
                   }}
                   onClick={e => {
                     e.preventDefault();
@@ -282,7 +282,6 @@ export function SettingsPage() {
                 <PageShell
                   headerHeight={HEADER_HEIGHT}
                   sideBarHeaderBg="var(--tk-panel)"
-                  sidebarWidth={232}
                   drawerStateKey="console-settings-index"
                 >
                   <PageShell.Sidebar hideCollapseButton>

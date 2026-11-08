@@ -348,20 +348,14 @@ describe('WiringMap: the base a pack extends', () => {
 });
 
 describe('WiringMap: the header row', () => {
-  it('leads the tab row with the page title and trails it with the pack actions, outside the tablist', async () => {
+  it('trails the tab row with the pack actions, outside the tablist', async () => {
     mockHappyPath();
     renderWiring();
 
     const tabList = await screen.findByRole('tablist', { name: 'Page tabs' });
-    const heading = screen.getByRole('heading', { level: 2, name: 'Packs' });
     const open = await screen.findByTestId('open-pack');
 
-    expect(tabList).not.toContainElement(heading);
     expect(tabList).not.toContainElement(open);
-    expect(
-      heading.compareDocumentPosition(tabList) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
     expect(
       tabList.compareDocumentPosition(open) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
@@ -393,14 +387,13 @@ describe('WiringMap: the header row', () => {
     expect(screen.queryByTestId('pack-name')).not.toBeInTheDocument();
   });
 
-  it('keeps the title on screen when no packs are found', async () => {
+  it('says so when no packs are found', async () => {
     packsGet.mockResolvedValue(ok({ packs: [] }));
     renderWiring();
 
-    await screen.findByTestId('no-packs');
-    expect(
-      screen.getByRole('heading', { level: 2, name: 'Packs' })
-    ).toBeInTheDocument();
+    expect(await screen.findByTestId('no-packs')).toHaveTextContent(
+      'No skills packs found.'
+    );
   });
 });
 
@@ -466,7 +459,7 @@ describe('WiringMap: dev packs apart from the team packs', () => {
     onTestFinished(restore);
   }
 
-  it('keeps a dev pack out of the team menu', async () => {
+  it('lists a dev pack under its own group in the pack menu', async () => {
     teamsAndPlugin();
     renderWiring();
 
@@ -476,32 +469,39 @@ describe('WiringMap: dev packs apart from the team packs', () => {
       })
     );
     await screen.findByRole('menuitem', { name: /ingest/ });
+    expect(screen.getByText('Teams')).toBeInTheDocument();
+    expect(screen.getByText('Dev')).toBeInTheDocument();
     expect(
-      screen.queryByRole('menuitem', { name: /mattstack/ })
-    ).not.toBeInTheDocument();
+      screen.getByRole('menuitem', { name: /mattstack/ })
+    ).toBeInTheDocument();
   });
 
-  it('opens a dev pack from its toggle and toggles back to a team', async () => {
+  it('opens a dev pack from the menu and goes back to a team', async () => {
     teamsAndPlugin();
     renderWiring();
 
-    const toggle = await screen.findByRole('button', {
-      name: 'dev pack: mattstack',
-    });
-    expect(toggle).toHaveAttribute('aria-pressed', 'false');
-    await userEvent.click(toggle);
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: 'team: widgets, switch team',
+      })
+    );
+    await userEvent.click(
+      await screen.findByRole('menuitem', { name: /mattstack/ })
+    );
 
     await waitFor(() =>
       expect(compositionGet).toHaveBeenCalledWith(
         expect.objectContaining({ query: { pack: 'mattstack' } })
       )
     );
-    expect(toggle).toHaveAttribute('aria-pressed', 'true');
-    expect(
-      screen.getByRole('button', { name: 'pick a team' })
-    ).toBeInTheDocument();
-
-    await userEvent.click(toggle);
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: 'dev pack: mattstack, switch',
+      })
+    );
+    await userEvent.click(
+      await screen.findByRole('menuitem', { name: /widgets/ })
+    );
     await screen.findByRole('button', { name: 'team: widgets, switch team' });
   });
 

@@ -20,6 +20,8 @@ const GROUPS: FocusGroups = {
   standalone: [item('review')],
   board: [],
   skills: [],
+  fills: [],
+  basePack: null,
   unwired: { count: 1, attention: false, items: [item('loose')] },
   empty: null,
 };

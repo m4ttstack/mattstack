@@ -22,7 +22,7 @@ export function NotFoundPage() {
         <PageShell.Content contentContainer={false}>
           <div className={classes.page} data-parity="Not found">
             <Stack align="center" gap={8} ta="center">
-              <Text fz="h2" fw={700} lh="normal" data-parity="h">
+              <Text fz="h2" fw={600} lh="normal" data-parity="h">
                 Nothing at this address
               </Text>
               <Text fz="lg" lh="normal" c="dimmed" data-parity="p">

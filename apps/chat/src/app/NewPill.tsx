@@ -35,7 +35,7 @@ export function NewPill({ count, onClick }: NewPillProps) {
         fontSize: 'var(--mantine-font-size-sm)',
         fontWeight: 600,
         color: news ? 'white' : 'var(--tk-text-1)',
-        background: news ? 'var(--chat-bar)' : 'var(--tk-card)',
+        background: news ? 'var(--tk-app-bar)' : 'var(--tk-card)',
         border: news ? 0 : '1px solid var(--tk-border-soft)',
         boxShadow: '0 2px 8px rgba(0,0,0,0.14)',
       }}

@@ -1,3 +1,4 @@
+import { pluginRootOf } from '../../../../shared/pluginRoot';
 import {
   buildSpine,
   looseEnd,
@@ -12,7 +13,7 @@ import {
 } from '../../outline';
 
 export type FocusIcon =
-  'workflow' | 'squareTerminal' | 'lock' | 'layoutDashboard';
+  'workflow' | 'squareTerminal' | 'layoutDashboard' | 'fileText';
 
 export type FocusItem = {
   key: string;
@@ -29,6 +30,15 @@ export type FocusItem = {
   /** A hand-written skill's SKILL.md, read for its headings when it is
       not built from blocks. */
   file?: string;
+  /** A reference skill or a fill: rt builds no block tree for it, so it
+      is only ever read from its file. */
+  handWritten?: true;
+  /** A hand-written skill a binding plugs into another skill. */
+  fill?: true;
+  /** The other pack this skill's file comes from. */
+  from?: string;
+  /** That pack is the org's base, not a plugin. */
+  fromOrg?: true;
 };
 
 /** A skill folder as the Surface tab lists it. */
@@ -37,15 +47,24 @@ export type PackSkill = {
   kind: 'compiled' | 'hand-authored' | 'missing';
   status: 'public' | 'internal';
   path?: string;
+  /** The org base pack the skill comes from, and its file there. */
+  base?: string;
+  basePath?: string;
 };
 
 export type FocusGroups = {
   pipelines: FocusItem[];
   standalone: FocusItem[];
   board: FocusItem[];
-  /** The pack's hand-written skills: no template, so no wiring to draw,
-      but each opens in the block view. */
+  /** The pack's hand-written skills agents can be pointed at, as Config's
+      Reference skills: no template, so no wiring to draw, but each opens in
+      the block view. */
   skills: FocusItem[];
+  /** The hand-written skills a binding plugs into another skill, as
+      Config's fills. */
+  fills: FocusItem[];
+  /** Everything in the org base pack this pack extends, read-only. */
+  basePack: { name: string; fills: FocusItem[]; reference: FocusItem[] } | null;
   /** `count` is the verbs whose props nothing binds plus the fills nothing
       binds; `items` holds only the verbs, since a fill has no template to
       focus. */
@@ -93,6 +112,31 @@ export function copyLinkLabelOf(
     : null;
 }
 
+/** The fills whose file another pack owns: the org base's or a plugin's.
+    Compile also copies a base's fills under this pack's name, so a binding
+    that names this pack is never one of them. rt lists every installed
+    plugin's fills, but the source route only opens the extended base's and
+    those of the plugin this pack's verbs run in. */
+export function outsideFillsOf(
+  composition: Pick<SkillsComposition, 'fills' | 'pack' | 'extends' | 'verbs'>
+) {
+  const base = composition.extends?.name;
+  const verbRoots = new Set(
+    (composition.verbs ?? []).flatMap(verb => {
+      const root = verb.sourcePath ? pluginRootOf(verb.sourcePath) : null;
+      return root ? [root] : [];
+    })
+  );
+  return (composition.fills ?? []).filter(fill => {
+    if (fill.binding.startsWith(`${composition.pack}:`)) return false;
+    if (fill.origin === 'base' && fill.base === base) {
+      return fill.binding.startsWith(`${base}:`);
+    }
+    const root = pluginRootOf(fill.sourcePath);
+    return root !== null && verbRoots.has(root);
+  });
+}
+
 export function buildFocusGroups(
   composition: SkillsComposition,
   check: SkillsCheck | undefined,
@@ -118,7 +162,7 @@ export function buildFocusGroups(
       key: skill,
       label: skill,
       skill,
-      icon: entry.invocable ? 'squareTerminal' : 'lock',
+      icon: entry.invocable ? 'squareTerminal' : 'fileText',
       step: null,
       attention: attentionOf(entry, skill),
       children: [],
@@ -207,25 +251,91 @@ export function buildFocusGroups(
       ...unwiredItems,
     ].map(item => item.skill)
   );
-  const skills = packSkills
+  const fillNames = new Set(
+    (composition.fills ?? []).map(fill => suffixOf(fill.binding))
+  );
+  const handWritten = packSkills
     .filter(row => row.kind === 'hand-authored' && !listed.has(row.name))
     .map((row): FocusItem => ({
       key: row.name,
       label: row.name,
       skill: row.name,
-      icon: row.status === 'public' ? 'squareTerminal' : 'lock',
+      icon: row.status === 'public' ? 'squareTerminal' : 'fileText',
       step: null,
       attention: false,
       children: [],
       ...(row.status === 'public' ? { command: row.name } : {}),
       ...(row.path ? { file: row.path } : {}),
+      handWritten: true,
+      ...(fillNames.has(row.name) && row.status !== 'public'
+        ? { fill: true as const }
+        : {}),
     }));
+  const skills = handWritten.filter(item => !item.fill);
+  const taken = new Set([...listed, ...handWritten.map(item => item.skill)]);
+  const outsideFills = outsideFillsOf(composition)
+    .filter(fill => !taken.has(suffixOf(fill.binding)))
+    .map((fill): FocusItem => {
+      const name = suffixOf(fill.binding);
+      return {
+        key: name,
+        label: name,
+        skill: name,
+        icon: 'fileText',
+        step: null,
+        attention: false,
+        children: [],
+        file: fill.sourcePath,
+        handWritten: true,
+        fill: true,
+        from: fill.binding.slice(0, fill.binding.indexOf(':')),
+        ...(fill.origin === 'base' ? { fromOrg: true as const } : {}),
+      };
+    });
+  const fills = [...handWritten.filter(item => item.fill), ...outsideFills];
+
+  const baseName = composition.extends?.name ?? null;
+  const baseItem = (
+    name: string,
+    file: string,
+    isFill: boolean
+  ): FocusItem => ({
+    key: `base:${name}`,
+    label: name,
+    skill: name,
+    icon: 'fileText',
+    step: null,
+    attention: false,
+    children: [],
+    file,
+    handWritten: true,
+    from: baseName as string,
+    fromOrg: true,
+    ...(isFill ? { fill: true as const } : {}),
+  });
+  const baseFillItems = outsideFillsOf(composition)
+    .filter(fill => fill.binding.startsWith(`${baseName}:`))
+    .map(fill => baseItem(suffixOf(fill.binding), fill.sourcePath, true));
+  const baseFillNames = new Set(baseFillItems.map(item => item.skill));
+  const basePack = baseName
+    ? {
+        name: baseName,
+        fills: baseFillItems,
+        reference: packSkills.flatMap(row =>
+          row.base === baseName && row.basePath && !baseFillNames.has(row.name)
+            ? [baseItem(row.name, row.basePath, false)]
+            : []
+        ),
+      }
+    : null;
 
   return {
     pipelines,
     standalone,
     board,
     skills,
+    fills,
+    basePack,
     unwired: {
       count: unwiredItems.length + first.orphans.length,
       attention: unwiredItems.some(item => item.attention),
@@ -243,7 +353,10 @@ export function findFocus(groups: FocusGroups, key: string): FocusItem | null {
     ...groups.standalone,
     ...groups.board,
     ...groups.skills,
+    ...groups.fills,
     ...groups.unwired.items,
+    ...(groups.basePack?.fills ?? []),
+    ...(groups.basePack?.reference ?? []),
   ];
   return (
     all.find(item => item.key === key) ??
@@ -260,6 +373,7 @@ export function firstFocus(groups: FocusGroups): FocusItem | null {
     groups.standalone[0] ??
     groups.board[0] ??
     groups.skills[0] ??
+    groups.fills[0] ??
     groups.unwired.items[0] ??
     null
   );

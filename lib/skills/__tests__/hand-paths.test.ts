@@ -84,7 +84,7 @@ describe("handPathDiagnostics", () => {
       "The `...` stand-in in .../plugin/attachments/x is prose, and so is a bare `../`.",
       'PACK_DIRS="$(cd "${CLAUDE_SKILL_DIR}/../.." && pwd -P)"; cd ${CLAUDE_SKILL_DIR}/../../ && pwd',
       'FORGE=$(dirname "$STAGE")/../forge/ci-forge.sh',
-      "Read ${CLAUDE_SKILL_DIR}/../../pack/params.jsonc and ../../website/docs/x.md.",
+      "Read ${CLAUDE_SKILL_DIR}/../../pack/params.jsonc and ../../sites/docs/docs/x.md.",
     ].join("\n");
     expect(handPathDiagnostics(text, FILE, { verbs: VERBS })).toEqual([]);
   });

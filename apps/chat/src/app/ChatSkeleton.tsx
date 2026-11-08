@@ -83,7 +83,7 @@ export function RailSkeleton() {
       <SectionLabel label="Rooms" />
       {ROOM_WIDTHS.map((width, i) => (
         <div key={i} className={classes.roomRow}>
-          <Icon name="hash" size={13} color="var(--chat-ink-soft)" />
+          <Icon name="hash" size={13} color="var(--tk-app-ink-soft)" />
           <Skeleton height={13} width={width} />
         </div>
       ))}

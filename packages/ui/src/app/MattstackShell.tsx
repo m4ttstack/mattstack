@@ -9,19 +9,37 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 
+import { APP_MARKS, type AppName } from '@mattstack/app-icons';
+import { AppMark } from '@mattstack/app-icons/react';
 import {
+  Box,
   Group,
   Rail,
+  RAIL_WIDTH,
   RailShell,
   Text,
   useRailState,
 } from '@mattstack/app-kit/core';
-import { useSchemeColors } from '@mattstack/app-kit/hooks';
+import { useIsMobile } from '@mattstack/app-kit/hooks';
 import { AppLauncher } from './AppLauncher';
 import { ColorSchemeControl } from './ColorSchemeControl';
+import { HueControl, useAppHue, type AppHue } from './HueControl';
+import classes from './MattstackShell.module.css';
+import { useSharedColorScheme } from './shared-scheme';
 import { ShellAppBarContext, ShellRailContext } from './shell-context';
 
 export const MATTSTACK_HEADER_HEIGHT = 48;
+
+/** The gap the bar keeps around the page sheet. */
+export const MATTSTACK_SHEET_INSET = 8;
+
+/** The app mark's size, the same in every app. */
+export const MATTSTACK_MARK_SIZE = 26;
+
+const BAR_INSET = 20;
+// The mark sits on the rail's centre line whether or not the app has a
+// rail, so it does not move between apps.
+const MARK_X = (RAIL_WIDTH - MATTSTACK_MARK_SIZE) / 2;
 
 /** ActionIcon size for top-bar icon buttons: Mantine's `compact-sm` Button
  *  height, so an icon sits level with the header's text buttons. A number,
@@ -71,6 +89,9 @@ function AppBar({ side = 'start', children }: MattstackShellAppBarProps) {
 
 export interface MattstackShellProps {
   name: string;
+  /** A mattstack app: the shell draws its mark and takes its colour from
+   *  @mattstack/app-icons, so the app passes neither `mark` nor `hue`. */
+  app?: AppName;
   /** 30px works with the wordmark recipe; the app owns the artwork. */
   mark?: ReactNode;
   headerHeight?: number;
@@ -84,9 +105,10 @@ export interface MattstackShellProps {
   appName?: string;
   /** Override the launcher's derived deck base URL (dev, custom domain). */
   deckBase?: string;
-  /** Drops the top bar's bottom line, for an app whose top bar meets its
-   *  sidebar as one piece of chrome. @default true */
-  headerBorder?: boolean;
+  /** The app's own colour for the bar, the sheet's tint and menu washes.
+   *  The viewer can pick another per browser from the bar's palette menu.
+   *  @default 'blue' */
+  hue?: AppHue;
   /** Puts `mark` in the rail's top spot, in place of the expand trigger,
    *  and leaves the top bar to the page's own controls: no mark and no app
    *  name there. Needs the rail. @default false */
@@ -110,36 +132,46 @@ function partition(children: ReactNode) {
   return { rail, railBottom, header, page };
 }
 
-/**
- * The header surface: a translucent take on bg.level2 so the backdrop blur
- * reads as depth while staying scheme-aware.
- */
-function useHeaderProps(border: boolean) {
-  const { bg } = useSchemeColors();
-  return {
-    style: {
-      ...(border ? {} : { borderBottom: 'none' }),
-      backgroundColor: `color-mix(in srgb, ${bg.level2} 88%, transparent)`,
-      backdropFilter: 'blur(8px)',
-      WebkitBackdropFilter: 'blur(8px)',
-    },
-  } as const;
+const HEADER_PROPS = { style: { borderBottom: 'none' } } as const;
+
+function MarkSlot({
+  children,
+  style,
+}: {
+  children: ReactNode;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <Box
+      w={MATTSTACK_MARK_SIZE}
+      h={MATTSTACK_MARK_SIZE}
+      className={classes.mark}
+      style={style}
+    >
+      {children}
+    </Box>
+  );
 }
 
 function Shell({
   name,
-  mark,
+  mark: markProp,
   headerHeight = MATTSTACK_HEADER_HEIGHT,
   rail: withRail = true,
   railLabel = 'App sections',
   appName,
   deckBase,
   markInRail = false,
-  headerBorder = true,
+  app,
+  hue: hueProp,
   children,
 }: MattstackShellProps) {
+  const mark = markProp ?? (app ? <AppMark app={app} /> : undefined);
+  const appHue = hueProp ?? (app ? APP_MARKS[app].hue : undefined) ?? 'blue';
   const rail = useRailState();
-  const headerProps = useHeaderProps(headerBorder);
+  const isMobile = useIsMobile();
+  const [hue, setHue] = useAppHue(name, appHue);
+  useSharedColorScheme();
   const [appBarStart, setAppBarStart] = useState<HTMLElement | null>(null);
   const [appBarEnd, setAppBarEnd] = useState<HTMLElement | null>(null);
   const [appBarViewer, setAppBarViewer] = useState<HTMLElement | null>(null);
@@ -161,18 +193,37 @@ function Shell({
       >
         <RailShell
           headerHeight={headerHeight}
-          headerProps={headerProps}
+          headerProps={HEADER_PROPS}
+          headerPx={BAR_INSET}
+          sheet={
+            isMobile
+              ? undefined
+              : {
+                  inset: MATTSTACK_SHEET_INSET,
+                  left: withRail ? 0 : MATTSTACK_SHEET_INSET,
+                }
+          }
           header={
             <Group justify="space-between" w="100%" wrap="nowrap">
               <Group gap="sm" wrap="nowrap" miw={0}>
-                {!railMark && mark}
+                {!railMark && mark != null && (
+                  <MarkSlot
+                    style={
+                      withRail
+                        ? undefined
+                        : { marginInlineStart: MARK_X - BAR_INSET }
+                    }
+                  >
+                    {mark}
+                  </MarkSlot>
+                )}
                 {header?.children ??
                   (railMark ? null : (
                     <Text
-                      fw={700}
+                      fw={600}
                       fz={15}
                       lh={1}
-                      style={{ whiteSpace: 'nowrap' }}
+                      style={{ whiteSpace: 'nowrap', marginRight: 5 }}
                     >
                       {name}
                     </Text>
@@ -183,6 +234,12 @@ function Shell({
                 <div ref={setAppBarEnd} style={{ display: 'contents' }} />
                 <div ref={setAppBarViewer} style={{ display: 'contents' }} />
                 {header?.actions}
+                <HueControl
+                  value={hue}
+                  onChange={setHue}
+                  size={MATTSTACK_HEADER_ICON_SIZE}
+                  iconSize={16}
+                />
                 {!withRail && (
                   <ColorSchemeControl
                     variant="button"
@@ -200,7 +257,17 @@ function Shell({
             withRail ? (
               <Rail
                 label={railLabel}
-                top={railMark ? mark : undefined}
+                top={
+                  railMark && mark != null ? (
+                    <MarkSlot
+                      style={{
+                        marginTop: `calc(${(headerHeight - MATTSTACK_MARK_SIZE) / 2}px - var(--mantine-spacing-md))`,
+                      }}
+                    >
+                      {mark}
+                    </MarkSlot>
+                  ) : undefined
+                }
                 expanded={expanded}
                 onToggleExpanded={rail.toggleExpanded}
                 pinBottom={

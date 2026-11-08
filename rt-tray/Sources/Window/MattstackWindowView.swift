@@ -152,8 +152,7 @@ private struct TabButton: View {
                         tabIcon
                             .frame(width: tabIconSize, height: tabIconSize)
                             .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-                            .saturation(isActive ? 1 : 0)
-                            .opacity(isActive ? 1 : 0.75)
+                            .opacity(isActive ? 1 : 0.8)
                         Text(app.displayName.lowercased())
                             .font(.system(size: 12))
                             .foregroundColor(isActive ? activeLabelColor : inactiveLabelColor)
@@ -165,7 +164,9 @@ private struct TabButton: View {
                     .frame(width: tabWidth, height: barHeight, alignment: .leading)
 
                     if isActive {
-                        Rectangle().fill(tabAccentColor).frame(width: tabWidth, height: 2)
+                        Rectangle()
+                            .fill(IconTint.of(model.icons[app.name]) ?? tabAccentColor)
+                            .frame(width: tabWidth, height: 2)
                     }
                 }
                 .frame(width: tabWidth, height: barHeight)
@@ -269,19 +270,20 @@ private struct NewBuildPill: View {
 private struct DeckMini: View {
     @ObservedObject var model: WindowModel
 
+    private var isActive: Bool { model.activeApp == WindowModel.deckApp.name }
+
     var body: some View {
         // Size and hit shape live on the label, inside the Button, not
         // chained after it, for the same reason as TabButton: chained
         // after, only the label's own content is clickable, not the full
-        // cell. DeckMini has no separate fill to move (it always showed the
-        // bar's own background through), so only frame + contentShape move.
+        // cell. The active fill sits on the label for the same reason.
         Button {
             model.select(WindowModel.deckApp.name)
         } label: {
             HStack(spacing: 6) {
                 Text("deck")
                     .font(.system(size: 12))
-                    .foregroundColor(inactiveLabelColor)
+                    .foregroundColor(isActive ? activeLabelColor : inactiveLabelColor)
                 ZStack(alignment: .topTrailing) {
                     deckIcon
                         .frame(width: deckIconSize, height: deckIconSize)
@@ -289,7 +291,7 @@ private struct DeckMini: View {
                     if model.catalogFresh {
                         Circle()
                             .fill(okGreen)
-                            .overlay(Circle().stroke(barFill, lineWidth: 2))
+                            .overlay(Circle().stroke(isActive ? activeFill : barFill, lineWidth: 2))
                             .frame(width: 7, height: 7)
                             .offset(x: 4, y: -4)
                     }
@@ -297,6 +299,16 @@ private struct DeckMini: View {
             }
             .padding(.horizontal, 16)
             .frame(height: barHeight)
+            // An overlay takes the label's width; a bare Rectangle in a
+            // ZStack is greedy and stretched the cell across the bar.
+            .overlay(alignment: .bottom) {
+                if isActive {
+                    Rectangle()
+                        .fill(IconTint.of(model.icons[WindowModel.deckApp.name]) ?? tabAccentColor)
+                        .frame(height: 2)
+                }
+            }
+            .background(isActive ? activeFill : Color.clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

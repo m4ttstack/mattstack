@@ -51,4 +51,4 @@ start a chat at once. The `chat.slackSupport.persona` setting names the bot;
 `skills/rt-slack-support/SKILL.md` owns what the agent does. Read
 `docs/superpowers/specs/2026-11-03-slack-support-chat-design.md` and
 `2026-11-06-slack-support-requester-design.md` before touching it, and
-`website/docs/rt/guides/slack-support-chat.mdx` for the user view.
+`sites/docs/docs/rt/guides/slack-support-chat.mdx` for the user view.

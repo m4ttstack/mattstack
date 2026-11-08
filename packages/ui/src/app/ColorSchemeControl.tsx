@@ -3,6 +3,7 @@ import type { ActionIconProps } from '@mattstack/app-kit/core';
 import { useColorScheme } from '@mattstack/app-kit/hooks';
 import { Icon, type IconName } from '@mattstack/app-kit/icons';
 import classes from './ColorSchemeControl.module.css';
+import { saveSharedColorScheme } from './shared-scheme';
 
 type ColorSchemePreference = 'auto' | 'light' | 'dark';
 
@@ -42,7 +43,10 @@ export function ColorSchemeControl(props: ColorSchemeControlProps) {
     <HybridMenu
       options={OPTIONS}
       value={colorScheme}
-      onChange={value => setColorScheme(value as ColorSchemePreference)}
+      onChange={value => {
+        setColorScheme(value as ColorSchemePreference);
+        saveSharedColorScheme(value as ColorSchemePreference);
+      }}
       target={
         props.variant === 'button' ? (
           <ActionIcon

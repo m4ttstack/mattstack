@@ -40,7 +40,7 @@ const RailEntryInner = /* @__PURE__ */ forwardRef<
       label={label}
       disabled={expanded}
       position="right"
-      offset={16}
+      offset={6}
       transitionProps={{ transition: 'fade', duration: 200 }}
     >
       <UnstyledButton

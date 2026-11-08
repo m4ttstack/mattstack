@@ -68,6 +68,7 @@ export function usePageShellContentHeight(): string {
     headerHeight,
     hasHeader,
     hasTabBar,
+    hasMainTabBar,
     tabBarHeight,
     heightMode,
     topOffset,
@@ -78,7 +79,7 @@ export function usePageShellContentHeight(): string {
   if (heightMode === 'auto') return 'auto';
 
   const headerTerm = hasHeader && !fixedHeader ? headerHeight : 0;
-  const tabBarTerm = hasTabBar ? tabBarHeight : 0;
+  const tabBarTerm = hasTabBar || hasMainTabBar ? tabBarHeight : 0;
   return `calc(${heightMode} - ${toUnit(topOffset)} - ${toUnit(headerTerm)} - ${toUnit(tabBarTerm)}${notchTerm(topNotchHeight)})`;
 }
 

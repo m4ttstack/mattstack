@@ -25,8 +25,7 @@ import { useEditorHref } from '../editorHref';
 import { StepLoader } from '../StepLoader';
 import { ConfigTab } from './ConfigTab';
 import { ContentReadyContext } from './contentReady';
-import { DevPackSwitch } from './DevPackSwitch';
-import toastClasses from './graph/graph.module.css';
+import graphClasses from './graph/graph.module.css';
 import { GraphTab, GraphTabSidebar } from './graph/GraphTab';
 import { MissingPackNotice } from './graph/MissingPackNotice';
 import { useUnsyncedBanner, useUnsyncedSummary } from './graph/UnsyncedBanner';
@@ -67,9 +66,17 @@ export function WiringMap() {
 
   const snapshot = useCompositionSnapshot(pack);
   const base = snapshot.data?.extends ?? null;
+  const baseView = Boolean(url.base && base && url.tab === 'graph');
   const who = useViewer();
   const org = who?.org ?? null;
   const viewer = who?.viewer ?? null;
+  // The dropdown's Org section outlives a stop on a pack with no base, so it
+  // reads the base of the team you would return to.
+  const homeTeam =
+    pack && teamPacks.includes(pack)
+      ? pack
+      : (viewer?.team ?? teamPacks[0] ?? null);
+  const orgBase = useCompositionSnapshot(homeTeam).data?.extends ?? null;
   const unsynced = useUnsyncedBanner(pack);
   const unsyncedCount = useUnsyncedSummary(pack)?.count ?? 0;
   // The notification waits for the tab's content and the changes read, so it
@@ -78,7 +85,7 @@ export function WiringMap() {
   const markReady = useCallback(() => setReadyPack(pack), [pack]);
   const contentReady = readyPack !== null && readyPack === pack;
   const reviewChanges = () => {
-    patch({ tab: 'history' });
+    patch({ tab: 'history', base: false });
     writeHistoryUrl({ commits: [WORKING] });
   };
   const showTab = (tab: WiringTab) => patch({ tab });
@@ -119,7 +126,7 @@ export function WiringMap() {
                   variant="tint"
                   color="warn"
                   radius="xl"
-                  leftSection={<span className={toastClasses.tabDot} />}
+                  leftSection={<span className={graphClasses.tabDot} />}
                   title={`${attentionCount} need attention`}
                   data-testid="config-tab-count"
                 >
@@ -144,7 +151,7 @@ export function WiringMap() {
                   variant="tint"
                   color="warn"
                   radius="xl"
-                  leftSection={<span className={toastClasses.tabDot} />}
+                  leftSection={<span className={graphClasses.tabDot} />}
                   title={`${unsyncedCount} unsynced`}
                   data-testid="history-tab-unsynced"
                 >
@@ -160,6 +167,8 @@ export function WiringMap() {
       ]
     : [];
 
+  // An org base pack is only read: Config and Changes are a team pack's.
+  const shownTabs = baseView ? tabs.filter(tab => tab.id === 'graph') : tabs;
   const graphPack = url.tab === 'graph' ? pack : null;
   const historyPack = url.tab === 'history' ? pack : null;
   // A pack whose skills failed to load has nothing to list; the stage says why.
@@ -175,20 +184,32 @@ export function WiringMap() {
           {pack && <ScopeSlash />}
         </>
       )}
-      {packs.length > 1 && pack && teamPacks.length > 0 && (
+      {(packs.length > 1 || base) && pack && (
         // A team's pack carries the team's name, so this is settings' own
         // team menu over the team packs: picking your team (null) reads yours.
         <TeamMenu
           teams={teamPacks}
           owners={viewer?.owners ?? {}}
           ownTeam={viewer?.team ?? null}
-          team={teamPacks.includes(pack) ? pack : null}
+          team={!baseView && teamPacks.includes(pack) ? pack : null}
           onPick={team =>
-            patch({ pack: team ?? viewer?.team ?? teamPacks[0] ?? pack })
+            patch({
+              pack: team ?? viewer?.team ?? teamPacks[0] ?? pack,
+              base: false,
+              focus: null,
+            })
           }
+          orgPacks={orgBase ? [orgBase.name] : []}
+          orgPack={baseView && base ? base.name : null}
+          onPickOrg={() =>
+            patch({ pack: homeTeam, tab: 'graph', base: true, focus: null })
+          }
+          devPacks={packs.length > 1 ? devPacks : []}
+          devPack={devPacks.includes(pack) ? pack : null}
+          onPickDev={dev => patch({ pack: dev, base: false, focus: null })}
         />
       )}
-      {packs.length === 1 && pack && (
+      {packs.length === 1 && pack && !base && (
         <Group gap={7} wrap="nowrap" data-testid="pack-name">
           <Icons.package size={14} />
           <Text fz={14} fw={500} maw={168} truncate title={pack}>
@@ -196,30 +217,17 @@ export function WiringMap() {
           </Text>
         </Group>
       )}
-      {pack && base && (
+      {pack && base && !baseView && (
         <Badge
           size="sm"
           variant="card-outline"
+          className={graphClasses.extendsPill}
           title={`This pack's fills and shared attachments come partly from the org's ${base.name} base pack.`}
           data-testid="pack-extends"
         >
           {`extends ${base.name}`}
         </Badge>
       )}
-    </MattstackShell.AppBar>
-  );
-
-  const devSwitch = packs.length > 1 && devPacks.length > 0 && (
-    <MattstackShell.AppBar side="end">
-      <DevPackSwitch
-        packs={devPacks}
-        pack={pack}
-        onPick={dev =>
-          patch({
-            pack: dev ?? viewer?.team ?? teamPacks[0] ?? pack,
-          })
-        }
-      />
     </MattstackShell.AppBar>
   );
 
@@ -239,22 +247,19 @@ export function WiringMap() {
   return (
     <>
       {packScope}
-      {devSwitch}
       <ContentReadyContext.Provider value={markReady}>
         <PageShell
           tabBarHeight={PAGE_ROW_HEIGHT}
-          sidebarWidth={historyPack && !packFailed ? commitsWidth : 296}
+          sidebarWidth={historyPack && !packFailed ? commitsWidth : undefined}
           drawerStateKey="console-wiring-focus"
-          tabs={tabs}
-          tabBar={{ title: 'Packs', actions }}
         >
           {graphPack && !packFailed && (
-            <PageShell.Sidebar hideCollapseButton bg="var(--tk-panel)">
+            <PageShell.Sidebar hideCollapseButton>
               <GraphTabSidebar pack={graphPack} />
             </PageShell.Sidebar>
           )}
           {historyPack && !packFailed && (
-            <PageShell.Sidebar hideCollapseButton bg="var(--tk-card)">
+            <PageShell.Sidebar hideCollapseButton>
               <div style={{ position: 'relative', minHeight: '100%' }}>
                 <HistorySidebar pack={historyPack} />
                 <PaneResizer
@@ -269,6 +274,10 @@ export function WiringMap() {
             </PageShell.Sidebar>
           )}
           <PageShell.Main>
+            <PageShell.TabBar
+              tabs={shownTabs}
+              actions={baseView ? undefined : actions}
+            />
             {pack && url.tab !== 'history' && (
               <UnsyncedToast
                 key={pack}

@@ -22,7 +22,7 @@ function Section({
 }) {
   return (
     <Stack gap={8}>
-      <Text fz="md" fw={700} lh="normal">
+      <Text fz="md" fw={500} lh="normal">
         {shown < total ? `${title} (first ${shown} of ${total})` : title}
       </Text>
       {children}
@@ -162,7 +162,7 @@ export function StepActivity({
       padding={24}
       title={
         <Stack gap={2}>
-          <Text fz="lg" fw={700} lh="normal">
+          <Text fz="lg" fw={500} lh="normal">
             {step?.label}
           </Text>
           {step ? (

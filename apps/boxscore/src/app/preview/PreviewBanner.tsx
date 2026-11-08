@@ -23,7 +23,6 @@ export function PreviewBanner({
           component={Link}
           href={teamPersonHref(username)}
           variant="subtle"
-          color="accent"
           size="compact-sm"
         >
           Exit preview

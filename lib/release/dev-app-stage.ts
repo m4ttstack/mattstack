@@ -153,6 +153,17 @@ export async function stageLocalDevApp(seams: StageSeams, cwd: string): Promise<
     const cp = await seams.exec(["cp", "-R", deps, `${scratch}/rt-tray/deps`]);
     if (cp.exitCode !== 0) throw new UserActionableError("dev-app-deps-failed", `copying ${deps} failed: ${tail(cp)}`);
   }
+  // The scratch copy installs first: fetch-deps runs repo scripts that import
+  // workspace packages (rt-client and its dependencies), which a copy with no
+  // node_modules cannot resolve. The install also serves build-apps below,
+  // since fetch-deps does not cover the tree rows (board, boxscore, chat,
+  // console, gitq).
+  const install = await seams.exec(["bun", "install", "--frozen-lockfile"], { cwd: scratch, timeoutMs: 1_800_000 });
+  if (install.exitCode !== 0) {
+    const detail = tail(install);
+    throw new UserActionableError("dev-app-deps-failed", `bun install failed (see its output above)${detail ? `: ${detail}` : ""}`);
+  }
+
   // fetch-deps.sh is bash-only.
   const fetchStep: [string, ...string[]] = ["bash", "scripts/fetch-deps.sh", "arm64"];
   const fetched = await seams.exec(fetchStep, { cwd: scratch, timeoutMs: 1_800_000 });
@@ -162,15 +173,6 @@ export async function stageLocalDevApp(seams: StageSeams, cwd: string): Promise<
       "dev-app-deps-failed",
       `reconciling rt-tray/deps against deps.lock failed (${fetchStep.join(" ")} downloads any helper the lock moved past; see its output above)${detail ? `: ${detail}` : ""}`,
     );
-  }
-
-  // fetch-deps does not cover the tree rows (board, boxscore, chat, console, gitq): without
-  // building them here, build.sh dev either bundles stale binaries from a worktree's
-  // rt-tray/deps or refuses for lacking them.
-  const install = await seams.exec(["bun", "install", "--frozen-lockfile"], { cwd: scratch, timeoutMs: 1_800_000 });
-  if (install.exitCode !== 0) {
-    const detail = tail(install);
-    throw new UserActionableError("dev-app-deps-failed", `bun install failed (see its output above)${detail ? `: ${detail}` : ""}`);
   }
 
   const buildApps = await seams.exec(["bun", "scripts/build-apps.ts", "--arch", "arm64"], { cwd: scratch, timeoutMs: 1_800_000 });

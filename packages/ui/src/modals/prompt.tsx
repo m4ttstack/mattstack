@@ -2,7 +2,7 @@ import { useState, type FormEvent, type ReactNode } from 'react';
 import { closeModal, openModal } from '@mantine/modals';
 import type { ModalSettings } from '@mantine/modals';
 
-import { Button, Stack, Text, TextInput } from '@mattstack/app-kit/core';
+import { Button, Group, Stack, Text, TextInput } from '@mattstack/app-kit/core';
 import type { ButtonProps } from '@mattstack/app-kit/core';
 
 export interface PromptOptions extends Omit<
@@ -98,16 +98,18 @@ function PromptForm({
   };
 
   return (
-    <Stack gap="sm">
+    <Stack gap="xxl">
       {message ? (
         typeof message === 'string' ? (
-          <Text size="sm">{message}</Text>
+          <Text size="md" lh={1.5} c="var(--ui-text-2)">
+            {message}
+          </Text>
         ) : (
           message
         )
       ) : null}
       <form onSubmit={handleSubmit}>
-        <Stack gap="sm">
+        <Stack gap="xxl">
           <TextInput
             data-autofocus
             label={label}
@@ -121,9 +123,11 @@ function PromptForm({
               if (error) setError(null);
             }}
           />
-          <Button type="submit" fullWidth loading={loading} {...confirmProps}>
-            {confirmLabel}
-          </Button>
+          <Group justify="flex-end">
+            <Button type="submit" loading={loading} {...confirmProps}>
+              {confirmLabel}
+            </Button>
+          </Group>
         </Stack>
       </form>
     </Stack>

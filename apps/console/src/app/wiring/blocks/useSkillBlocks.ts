@@ -73,8 +73,12 @@ export function useSkillBlocks(
   composition: SkillsComposition | undefined
 ): SkillBlocks {
   const board = item?.icon === 'layoutDashboard';
-  const blocksQuery = useBlocks(pack, item && !board ? item.skill : null);
-  const notBlocks = board || blocksQuery.data === null;
+  const handWritten = item?.handWritten === true;
+  const blocksQuery = useBlocks(
+    pack,
+    item && !board && !handWritten ? item.skill : null
+  );
+  const notBlocks = board || handWritten || blocksQuery.data === null;
   const sourcePath = !item
     ? null
     : board
@@ -84,12 +88,13 @@ export function useSkillBlocks(
         : null;
   const sourceQuery = useSkillSource(pack, sourcePath);
   const content = sourceQuery.data?.content;
+  const companions = sourceQuery.data?.companions;
   const tree = useMemo(
     () =>
       item && content !== undefined && sourcePath
-        ? headingTree(content, item.skill, sourcePath)
+        ? headingTree(content, item.skill, sourcePath, companions)
         : null,
-    [item, content, sourcePath]
+    [item, content, sourcePath, companions]
   );
 
   if (!item) return { state: 'loading' };

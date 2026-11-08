@@ -1,6 +1,6 @@
 /* Room and DM rows share one hover paint. */
 .listRow {
-  --row-hover: var(--chat-chrome-hover);
+  --row-hover: var(--tk-app-chrome-hover);
 }
 
 @media (hover: hover) {
@@ -16,11 +16,11 @@
 
 /* The selected room or DM keeps its deeper tint over any hover. */
 .listRow[data-active] {
-  background-color: var(--chat-chrome-selected);
+  background-color: var(--tk-app-chrome-selected);
 }
 
 .dmRow {
-  --stack-ring: var(--chat-chrome);
+  --stack-ring: var(--tk-app-chrome);
   position: relative;
   display: flex;
   align-items: flex-start;
@@ -28,14 +28,14 @@
   width: 100%;
   min-width: 0;
   padding: 10px 16px;
-  border-bottom: 1px solid var(--chat-chrome-line);
+  border-bottom: 1px solid var(--tk-app-chrome-line);
   cursor: pointer;
 }
 
 .when {
   flex: none;
   font-size: var(--mantine-font-size-xs);
-  color: var(--chat-ink-soft);
+  color: var(--tk-app-ink-soft);
 }
 
 .preview {
@@ -47,22 +47,22 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   font-size: var(--mantine-font-size-md);
-  color: color-mix(in srgb, var(--tk-text-1) 72%, var(--chat-chrome));
+  color: color-mix(in srgb, var(--tk-text-1) 72%, var(--tk-app-chrome));
 }
 
 @media (hover: hover) {
   .dmRow:hover {
-    --stack-ring: var(--chat-chrome-hover);
-    border-bottom-color: var(--chat-chrome-hover);
-    box-shadow: 0 -1px 0 var(--chat-chrome-hover);
+    --stack-ring: var(--tk-app-chrome-hover);
+    border-bottom-color: var(--tk-app-chrome-hover);
+    box-shadow: 0 -1px 0 var(--tk-app-chrome-hover);
   }
 }
 
 /* The tint covers the divider above and its own, so no pale line edges it. */
 .dmRow[data-active] {
-  --stack-ring: var(--chat-chrome-selected);
-  border-bottom-color: var(--chat-chrome-selected);
-  box-shadow: 0 -1px 0 var(--chat-chrome-selected);
+  --stack-ring: var(--tk-app-chrome-selected);
+  border-bottom-color: var(--tk-app-chrome-selected);
+  box-shadow: 0 -1px 0 var(--tk-app-chrome-selected);
 }
 
 .dmText {
@@ -82,7 +82,7 @@
   height: 40px;
   margin-top: 8px;
   padding: 0 16px;
-  color: var(--chat-ink);
+  color: var(--tk-app-ink);
 }
 
 .pinnedLabel {
@@ -103,7 +103,7 @@
 
 /* The first row of Direct: start a Slack chat. */
 .newChatRow:active {
-  background-color: var(--chat-chrome-selected);
+  background-color: var(--tk-app-chrome-selected);
 }
 
 .newChatRow {
@@ -115,5 +115,5 @@
   padding: 0 16px;
   font-size: var(--mantine-font-size-lg);
   font-weight: 500;
-  color: var(--chat-ink-soft);
+  color: var(--tk-app-ink-soft);
 }

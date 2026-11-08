@@ -22,31 +22,32 @@
 
 @media (hover: hover) {
   .railEntry[data-rail-expanded]:hover {
-    background-color: color-mix(in srgb, var(--tk-text-1) 10%, transparent);
+    background-color: rgb(255 255 255 / 18%);
   }
 }
 
 .railEntry[data-rail-expanded]:focus-visible {
-  background-color: color-mix(in srgb, var(--tk-text-1) 10%, transparent);
+  background-color: rgb(255 255 255 / 18%);
 }
 
-/* The rail marks place in neutral, leaving colour to the app's mark. The
-   current entry is a small card: the card surface and soft edge (no drop
-   shadow: .railEntryRow clips outside the icon, so a shadow shows cut). Hover is a thin
-   wash of the body text (darker in light, lighter in dark), and the current
-   entry keeps its card under the pointer. Mantine sets the
+/* The rail sits on the app's bar, so it marks place in white: the current
+   entry a translucent white square, hover a thinner one. Mantine sets the
    ActionIcon's colour variables inline, so these set the properties
    themselves. */
+.railEntry .railEntryIcon {
+  background-color: transparent;
+  border-color: transparent;
+  color: white;
+}
+
 .railEntry[aria-current] .railEntryIcon {
-  background-color: var(--tk-card);
-  box-shadow: inset 0 0 0 1px var(--tk-border-soft);
-  color: var(--tk-text-1);
+  background-color: rgb(255 255 255 / 24%);
 }
 
 @media (hover: hover) {
   .railEntry:not([data-rail-expanded]):not([aria-current]):hover
     .railEntryIcon {
-    background-color: color-mix(in srgb, var(--tk-text-1) 10%, transparent);
+    background-color: rgb(255 255 255 / 18%);
   }
 }
 
@@ -61,7 +62,7 @@
 }
 
 .railEntry:focus-visible .railEntryIcon {
-  outline: 2px solid var(--mantine-primary-color-filled);
+  outline: 2px solid white;
   outline-offset: -2px;
 }
 

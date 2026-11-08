@@ -111,7 +111,7 @@ export function SectionLabel({
         style={{
           margin: 0,
           fontSize: 'var(--mantine-font-size-lg)',
-          color: 'var(--chat-ink)',
+          color: 'var(--tk-app-ink)',
         }}
       >
         {label}
@@ -121,7 +121,7 @@ export function SectionLabel({
           <Text
             component="span"
             data-testid="section-detail"
-            style={{ ...MUTED_XS, color: 'var(--chat-ink-soft)' }}
+            style={{ ...MUTED_XS, color: 'var(--tk-app-ink-soft)' }}
           >
             {detail}
           </Text>
@@ -159,7 +159,7 @@ function ArchiveAllDms({
         size={22}
         aria-label="Archive all direct messages"
         onClick={confirm}
-        style={{ color: 'var(--chat-ink-soft)' }}
+        style={{ color: 'var(--tk-app-ink-soft)' }}
       >
         <Icon name="archive" size={14} />
       </ActionIcon>
@@ -311,7 +311,7 @@ function RoomRow({
       <Icon
         name="hash"
         size={13}
-        color="var(--chat-ink-soft)"
+        color="var(--tk-app-ink-soft)"
         style={{ flex: 'none' }}
       />
       <Text

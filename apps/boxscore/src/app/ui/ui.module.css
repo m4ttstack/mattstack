@@ -19,7 +19,7 @@
 .leaderNumeral {
   color: var(--tk-on-fill-gold);
   font-size: 9px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .rankRow {
@@ -103,7 +103,7 @@
 
 .groupLabel {
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.8px;
 }
 
@@ -200,5 +200,5 @@
 .dayCount {
   color: var(--tk-on-fill-gold);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
 }

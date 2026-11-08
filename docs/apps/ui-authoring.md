@@ -38,6 +38,17 @@ How many pages the app has decides the chrome:
 Either way each title shows once: nothing in a title bar repeats the app
 bar.
 
+Either way the chrome is chat's: the app bar (and the rail, when there
+is one) is one band in the app's hue, and the page sits on it as a
+rounded sheet inset 8px, its sidebar on the hue's pale tint with no
+border, running the sheet's full height. `MattstackShell` draws all of
+it from its `hue` prop (chat pink, boxscore green, console the default
+blue); the bar's palette menu lets a viewer pick another hue per
+browser. An app passes `hue` and nothing else: no bar colour, no sheet
+CSS, no sidebar resizer of its own (`PageShell resizableSidebar`).
+A page's tab row that should leave the sidebar full height goes inside
+`PageShell.Main` as `PageShell.TabBar`.
+
 | Excuse | Reality |
 |---|---|
 | "The board's rail looks different" | The board is wrong there. List the difference as a pending board fix. |
@@ -101,7 +112,7 @@ where its board draws one, the sidebar's: `PageShell.Content` and
 to a surface role from the table below (`bg="var(--tk-panel)"`), never a
 hue or a raw value. An explicit `bg` marks the frame `data-own-surface`,
 and the theme keeps that surface instead of painting its own (the grid on
-Content, the card on Sidebar).
+Content, the hue's tint on Sidebar).
 
 When a kit control reads wrong (it blends into the page, or its contrast
 is low), check where it sits. Kit controls are drawn for `PageShell`
@@ -169,7 +180,8 @@ not a mystery.
 | job | token | notes |
 |---|---|---|
 | surface behind everything | `--tk-bg` | page ground |
-| card / panel / chrome / inset / overlay / raised | `--tk-card`, `--tk-panel`, `--tk-chrome`, `--tk-inset`, `--tk-overlay`, `--tk-raised` | roles map to different surface steps per scheme (dark inverts card and page); never assume a role's step |
+| card / panel / inset / overlay / raised | `--tk-card`, `--tk-panel`, `--tk-inset`, `--tk-overlay`, `--tk-raised` | roles map to different surface steps per scheme (dark inverts card and page); never assume a role's step |
+| the app's chrome | `--tk-app-bar`, `--tk-app-chrome`, `--tk-app-chrome-hover`, `--tk-app-chrome-selected`, `--tk-app-chrome-line`, `--tk-app-ink`, `--tk-app-ink-soft` | mixed from `--tk-app-hue`, which `MattstackShell` sets; for a row, divider or label that sits on the sidebar tint, as chat's sidebar rows do. Inside the bar every `--tk-text-*` is white |
 | raw surface ramp | `--tk-surface-1..4` | prefer the role tokens above |
 | body text | `--tk-text-1..4` | 1 is high-contrast (slate 12), 2-4 are slate 11 in muted shades; bars: 7.0 / 4.5 / 4.8 / 4.8 |
 | status/hue text at body size | `--tk-text-<hue>` | step 11; bars: 4.5 as text, 3.0 floor as a glyph |
@@ -244,14 +256,16 @@ small-hue bar, signed off by Matt 2026-10-21
 
 ## Type
 
-- Font weights follow radix-ui/themes: 400 regular, 500 medium, 700
-  bold. There is no 600. Headings are 700, control labels 500. A
-  neighbouring `fw={600}` is a pre-Radix straggler, not precedent: new
-  code picks 500 or 700, and fixing the straggler in passing is welcome.
-- chat has its own four-step ladder (xs 12 / sm 13 / md 14 / lg 16 /
-  xl 20, mounted at the root provider so portals agree) -- inside chat,
-  never size text with a raw px or an off-ladder token; see
-  `apps/chat/src/app/chat-font-theme.ts`.
+- Weights follow chat's: 400 body, 500 for emphasis inside a line (a
+  name, a ticket key, a cost, a label, a table head), 600 for a heading or
+  title (page, card, dialog). Nothing takes 700, and control labels are
+  500.
+- One ladder for every app, tokyo's (`packages/tokyo/src/theme.ts`):
+  xs 12 meta, sm 13 chrome (buttons, inputs, nav rows), md 14 titles,
+  lg 15 prose, xl 20 headings, in Inter. Headings add h1 24, h2 20 and
+  h3 17: a page title is 20, a stat or section title 17. Never size text
+  with a raw px or an off-ladder token.
+- Dialog titles are xl at 600, the kit's `Modal` default.
 - In every app: a sizeless Mantine `Text` resolves to `md`, it does NOT
   inherit. State a size.
 

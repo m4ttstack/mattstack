@@ -19,6 +19,16 @@
   overflow-x: hidden;
 }
 
+/* Mantine sizes scroll content to its widest child (min-content), so a
+ * long row label widened the column past the sidebar instead of
+ * truncating. The column takes the sidebar's width; rows cut their own
+ * text. */
+.sidebarScrollArea
+  :global(.mantine-ScrollArea-viewport)
+  > .sidebarScrollContent.sidebarScrollContent {
+  min-width: 0;
+}
+
 /* Only the active tab is underlined; the row's own border is the rule. */
 .tabBarList {
   --tab-border-color: transparent;

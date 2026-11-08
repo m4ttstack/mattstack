@@ -665,8 +665,10 @@ test('compactHeader sizes the auto-rendered header title to the row, as TabBar s
   );
 
   const heading = screen.getByRole('heading', { level: 2, name: 'Runs' });
-  expect(heading.style.getPropertyValue('--title-fz')).toContain('h5');
-  expect(heading.style.fontWeight).toBe('700');
+  expect(heading.style.getPropertyValue('--title-fz')).toContain(
+    'font-size-lg'
+  );
+  expect(heading.style.fontWeight).toBe('500');
 });
 
 test('a default header keeps the full-size title', () => {
@@ -696,8 +698,10 @@ test("TabBar's title is the same row-scale title a compact header renders", () =
   );
 
   const heading = screen.getByRole('heading', { level: 2, name: 'Wiring' });
-  expect(heading.style.getPropertyValue('--title-fz')).toContain('h5');
-  expect(heading.style.fontWeight).toBe('700');
+  expect(heading.style.getPropertyValue('--title-fz')).toContain(
+    'font-size-lg'
+  );
+  expect(heading.style.fontWeight).toBe('500');
 });
 
 test('Content marks an explicit surface so a theme can leave it alone', () => {

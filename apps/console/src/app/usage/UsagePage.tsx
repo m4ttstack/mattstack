@@ -116,7 +116,7 @@ function BreakdownCard({
 }) {
   return (
     <Paper variant="ground" withBorder radius={12} className={classes.card}>
-      <Text fz="md" fw={700} lh="normal" mb={10}>
+      <Text fz="md" fw={500} lh="normal" mb={10}>
         {title}
       </Text>
       <Stack gap={10}>
@@ -336,7 +336,7 @@ export function UsagePage() {
                     className={classes.card}
                   >
                     <Group justify="space-between" gap={16} mb={14}>
-                      <Text fz="md" fw={700} lh="normal">
+                      <Text fz="md" fw={500} lh="normal">
                         Estimated cost per week
                       </Text>
                       <KindLegend kinds={usedKinds} />

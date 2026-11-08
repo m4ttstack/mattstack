@@ -49,7 +49,7 @@ export function InputsDrawer({
       classNames={{ header: classes.header, body: classes.body }}
       title={
         <Stack gap={4}>
-          <Text fz="h2" fw={700} lh="normal" data-parity="title">
+          <Text fz="h2" fw={600} lh="normal" data-parity="title">
             Effective inputs
           </Text>
           <Text fz="lg" lh="normal" c="dimmed" data-parity="sub">

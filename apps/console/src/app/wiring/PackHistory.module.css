@@ -13,7 +13,7 @@
 
 .title {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--tk-text-1);
 }
 
@@ -103,7 +103,7 @@
 
 .end {
   margin-left: auto;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--tk-text-accent-small);
 }
 
@@ -185,7 +185,7 @@
 }
 
 .compileHead .subject {
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .compileSkills {

@@ -8,6 +8,7 @@
       "packages/*",
       "packages/tui-kit/workshop",
       "apps/*",
+      "sites/home",
       "extensions/vscode/rt-context",
       "extensions/vscode/skill-blocks"
     ],
@@ -56,6 +57,7 @@
       "vite-tsconfig-paths": "^6.1.1",
       "vitest": "^4.1.10",
       "wouter": "^3.10.0",
+      "wrangler": "^4.148.0",
       "zod": "^4.6.5"
     }
   },
@@ -74,7 +76,7 @@
     "docs:redirects": "bun scripts/gen-rt-cool-redirects.ts",
     "docs:redirects:check": "bun scripts/check-rt-cool-redirects.ts",
     "docs:check": "bun scripts/check-docs.ts",
-    "docs:build": "cd website && bun install --frozen-lockfile && bun run build",
+    "docs:build": "cd sites/docs && bun install --frozen-lockfile && bun run build",
     "docs:smoke": "bun scripts/docs-smoke.ts",
     "picker:check": "bun scripts/lib/picker-conformance.ts",
     "skills:expand:board": "bun cli.ts skills expand --src apps/board/skills-src --out apps/board/skills --mattstack-dir . --strict",
@@ -126,6 +128,7 @@
     "deck:test-dom": "cd apps/deck && bun run test:dom"
   },
   "devDependencies": {
+    "@mattstack/app-icons": "workspace:*",
     "@chromatic-com/storybook": "^5.2.1",
     "@eslint/css": "^2.0.0",
     "@eslint/js": "^10.0.1",

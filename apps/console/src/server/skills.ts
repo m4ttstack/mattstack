@@ -1,12 +1,13 @@
 import {
   realpath as fsRealpath,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   writeFile,
 } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 
@@ -361,6 +362,9 @@ interface SkillsSourceResponse {
   path: string;
   content: string;
   lines: number;
+  /** For a SKILL.md, the other Markdown files beside it: a fill can keep
+      its text in those and leave SKILL.md as frontmatter alone. */
+  companions?: { path: string; content: string }[];
 }
 
 /** `from` is set only on a rename or copy, naming where the file came from. */
@@ -1830,11 +1834,38 @@ export function mountSkills(
         if (Buffer.byteLength(content, 'utf8') > MAX_SOURCE_BYTES) {
           return c.json({ error: 'file too large' }, 413);
         }
+        const companions: NonNullable<SkillsSourceResponse['companions']> = [];
+        if (basename(real) === 'SKILL.md') {
+          const folder = dirname(path);
+          // The file asked for still answers when its folder cannot be listed.
+          const names = (await readdir(dirname(real)).catch(() => []))
+            .filter(name => name.endsWith('.md') && name !== 'SKILL.md')
+            .sort();
+          for (const name of names) {
+            const realCompanion = await realpath(
+              join(dirname(real), name)
+            ).catch(() => null);
+            if (
+              !realCompanion ||
+              !realRoots.some(r => realCompanion.startsWith(`${r}/`))
+            ) {
+              continue;
+            }
+            const text = await readPackFile(realCompanion).catch(() => null);
+            if (
+              text !== null &&
+              Buffer.byteLength(text, 'utf8') <= MAX_SOURCE_BYTES
+            ) {
+              companions.push({ path: join(folder, name), content: text });
+            }
+          }
+        }
         return c.json(
           {
             path,
             content,
             lines: fileLineCount(content),
+            ...(companions.length > 0 ? { companions } : {}),
           } as SkillsSourceResponse,
           200
         );

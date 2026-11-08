@@ -422,3 +422,102 @@
   border-bottom-width: 2px;
   line-height: 1;
 }
+
+/* Modals: 24px around (the Modal's `padding`), the title at the heading step
+   with room under it before the body starts. */
+.modalHeader.modalHeader {
+  padding-bottom: var(--mantine-spacing-md);
+}
+
+.modalTitle.modalTitle {
+  font-size: var(--mantine-font-size-xl);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+/* A field label sits a little clear of its control. */
+.inputLabel.inputLabel {
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+/* Menus: full-width rows in a list padded top and bottom, as Slack's are.
+   Icons sit in a right gutter (`rightSection`), so every label starts on
+   one edge; the hover wash takes the app's hue. */
+.menuDropdown.menuDropdown {
+  padding: 12px 0;
+}
+
+.menuItem.menuItem {
+  padding: 5px 20px;
+  border-radius: 0;
+  font-size: var(--mantine-font-size-md);
+  line-height: 20px;
+}
+
+.menuItem.menuItem[data-hovered]:not([data-disabled]),
+.menuItem.menuItem:hover:where(:not([data-disabled])) {
+  background-color: color-mix(in srgb, var(--tk-app-hue) 14%, transparent);
+}
+
+.menuItemSection.menuItemSection[data-position='left'] {
+  margin-inline-end: 10px;
+}
+
+.menuLabel.menuLabel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 20px 4px;
+  font-size: var(--mantine-font-size-sm);
+  color: var(--tk-text-2);
+}
+
+.menuDivider.menuDivider {
+  margin: 8px 0;
+}
+
+/* A NavLink row in a PageShell sidebar takes the sidebar's own tints: a
+   faint hover step and a selected step well past it, so the row you are on
+   never reads as one the pointer is over. Body text either way. */
+@media (hover: hover) {
+  :global(#page-shell-sidebar)
+    .navLinkRoot.navLinkRoot:hover:where(:not([data-active])) {
+    background-color: var(--tk-app-chrome-hover);
+  }
+}
+
+:global(#page-shell-sidebar) .navLinkRoot.navLinkRoot[data-active] {
+  background-color: var(--tk-app-chrome-selected);
+  color: var(--tk-text-1);
+  font-weight: 500;
+}
+
+/* Scrollbars: 8px, a thumb in the border step on no track. */
+.scrollAreaScrollbar.scrollAreaScrollbar {
+  padding: 0;
+}
+
+.scrollAreaThumb.scrollAreaThumb {
+  background-color: var(--tk-border);
+}
+
+/* A pill in an input reads as the app's: its hue's wash and ink. */
+.pillRoot.pillRoot {
+  background-color: color-mix(in srgb, var(--tk-app-hue) 18%, transparent);
+  color: var(--tk-app-ink);
+}
+
+/* On a sidebar's tint grey bars read as dirt, so they take the hue. */
+:global(#page-shell-sidebar) .skeletonRoot.skeletonRoot::before {
+  background: var(--tk-app-chrome);
+}
+
+:global(#page-shell-sidebar) .skeletonRoot.skeletonRoot::after {
+  background: color-mix(in srgb, var(--tk-app-hue) 18%, var(--tk-app-chrome));
+}
+
+/* The browser's default header weight is bold, heavier than the ladder. */
+.tableTh.tableTh {
+  font-weight: 500;
+}

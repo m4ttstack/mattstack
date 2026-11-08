@@ -8,7 +8,12 @@ import { Title } from '@mantine/core';
  * so a page that swaps between the two keeps one title treatment.
  */
 export const RowTitle = ({ children }: { children: React.ReactNode }) => (
-  <Title order={2} size="h5" fw={700} style={{ whiteSpace: 'nowrap' }}>
+  <Title
+    order={2}
+    size="var(--mantine-font-size-lg)"
+    fw={500}
+    style={{ whiteSpace: 'nowrap' }}
+  >
     {children}
   </Title>
 );

@@ -103,12 +103,17 @@ The Packs page (`WiringMap.tsx`, route `/packs`; old `/wiring` links redirect th
 `health` links opening Config), so every view, selection and open block is a link. Each tab
 reports when its content is ready through `contentReady.ts`, and the unsynced toast waits for it.
 
-- **Overview** (`graph/`). The sidebar's focus list (`FocusList.tsx`) groups the pack as
-  Pipelines (each a row that folds its stages), Commands, Board and Standard. A row is named as
-  Claude Code names it, `/<pack>:<command>`, only when rt marks the skill public; a stage or an
-  internal verb keeps its plain name. The first pipeline stands in when the URL names no focus,
-  so the stage always shows a block view (`GraphTab.tsx`); with no pipeline it shows only the
-  pack's load error or a focus the pack does not have.
+- **Pack picker.** The kit's `TeamMenu` groups the packs as Org, Teams and Dev. Org is the org
+  base pack (`base=1` in the URL, a view of its own since rt never installs it), and a team pack
+  that extends a base names it beside the pack actions.
+- **Overview** (`graph/`). The sidebar's focus list (`FocusList.tsx`) groups the pack by Config's
+  terms: Pipelines (each a row that folds its stages), Commands, Board, Reference skills and
+  Fills, the fills grouped and washed by the pack they come from (`FillsBySource`). A row is
+  named as Claude Code names it, `/<pack>:<command>`, only when rt marks the skill public; a
+  stage or a verb that is off keeps its plain name. The base view swaps in `BaseSidebar`. The
+  first pipeline stands in when the URL names no focus, so the stage always shows a block view
+  (`GraphTab.tsx`); with no pipeline it shows only the pack's load error or a focus the pack
+  does not have.
 - **Block view** (`blocks/`). A focused skill or stage opens one skill as a tree of blocks
   (`rt skills blocks`, `useBlocks`): `BlockSidebar.tsx` (the skill switcher and the block tree)
   replaces the focus list, and `BlockStage.tsx` renders `BlockView.tsx` under a `Trail`
@@ -118,10 +123,13 @@ reports when its content is ready through `contentReady.ts`, and the unsynced to
   single block (its document with the Layers strip and each prop in a box, Around this block,
   Copy for Claude). The document card (`DocumentCard.tsx`) folds, names its file and opens it in
   the editor; a row folds open in place and Open goes into its block. An included block shows
-  Used by, and the skill or block its Built from history (`BuiltFrom.tsx`: its engine text and
-  the files its props include). A standard skill, one not built from blocks (its installed
-  `SKILL.md`, composition's `binders[].skillFile`), is read from its file's headings
-  (`model/headingTree.ts`) into the same view, read-only. Pure models live in `blocks/model/*`.
+  Used by, and the skill or block its "Files in this block" or "Files in this skill" table
+  (`BuiltFrom.tsx`: its own file and the files its props include, each with a role badge and a
+  link to any page it has). A fill from another pack carries a "From <pack>" card
+  (`PackFills.tsx`). A standard skill, one not built from blocks (its installed `SKILL.md`,
+  composition's `binders[].skillFile`), is read from its file's headings
+  (`model/headingTree.ts`) into the same view, read-only, and each other `.md` file beside it
+  becomes a block. Pure models live in `blocks/model/*`.
 - **Block graphs** (`blocks/`). A block's Diagram opens `BlockMap.tsx`, the block map: blocks
   only, other steps folded into dotted links, shared forks as small dots, and one jump as a pill
   naming its target or several as a jumps chip. `FlowGraph.tsx` draws Every step and Around this

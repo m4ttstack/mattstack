@@ -15,7 +15,7 @@ import type {
 import { useIsMobile } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 import { SiteShell } from '../site-shell/SiteShell';
-import { RailShellContext } from './context';
+import { RailShellContext, type RailShellSheet } from './context';
 import classes from './RailShell.module.css';
 
 /** Mini icon rail geometry: a slim always-visible icon strip that expands
@@ -52,6 +52,8 @@ export interface RailShellProps {
   railWidth?: number;
   /** Expanded rail width, in px. @default RAIL_WIDTH_EXPANDED (260) */
   railWidthExpanded?: number;
+  /** Lays a hosted `PageShell` on the bar as a rounded, inset sheet. */
+  sheet?: RailShellSheet;
   children: React.ReactNode;
 }
 
@@ -94,6 +96,7 @@ export function RailShell({
   onCloseRail,
   railWidth = RAIL_WIDTH,
   railWidthExpanded = RAIL_WIDTH_EXPANDED,
+  sheet,
   children,
 }: RailShellProps) {
   const isMobile = useIsMobile();
@@ -111,7 +114,13 @@ export function RailShell({
 
   // Memoized so a hosted PageShell doesn't re-render on every rail state
   // change just because the context object is new.
-  const railContext = useMemo(() => ({ headerHeight }), [headerHeight]);
+  const railContext = useMemo(
+    () => ({ headerHeight, sheet }),
+    // The sheet's two numbers are its identity; an inline object literal
+    // from the caller must not re-render every hosted page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [headerHeight, sheet?.inset, sheet?.left]
+  );
 
   return (
     <RailShellContext.Provider value={railContext}>

@@ -4,6 +4,7 @@ import { NavLink, Stack, Text, UnstyledButton } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
 import { BackPill } from '../../nav/BackPill';
+import { titleIfCut } from '../graph/titleIfCut';
 import { useGraphFocus } from '../graph/useGraphFocus';
 import { KindBadge, LayerDots } from './BlockRow';
 import classes from './blocks.module.css';
@@ -34,10 +35,11 @@ function TreeRow({
       label={
         <Text
           span
-          fz={13}
+          display="block"
+          fz="md"
           fw={row.selected ? 500 : 400}
-          c={row.selected ? 'var(--tk-text-accent)' : undefined}
           truncate
+          onMouseEnter={titleIfCut(row.label)}
         >
           {row.label}
         </Text>
@@ -55,10 +57,13 @@ function TreeRow({
         ) : undefined
       }
       rightSection={
-        row.dots.length > 0 ? (
-          <LayerDots dots={row.dots} />
-        ) : folder && !row.open ? (
-          <span className={classes.treeCount}>{row.count}</span>
+        row.dots.length > 0 || (folder && !row.open) ? (
+          <span className={classes.treeTrail}>
+            <LayerDots dots={row.dots} />
+            {folder && !row.open && (
+              <span className={classes.treeCount}>{row.count}</span>
+            )}
+          </span>
         ) : undefined
       }
       classNames={{ root: classes.treeRow }}
@@ -137,7 +142,7 @@ export function BlockSidebar({ pack }: { pack: string }) {
         </Text>
       )}
       {(skill.state === 'error' || skill.state === 'note') && (
-        <Text fz={12} c="dimmed" px={6}>
+        <Text fz="xs" c="dimmed" px={6}>
           {skill.message}
         </Text>
       )}
@@ -155,6 +160,14 @@ export function BlockSidebar({ pack }: { pack: string }) {
           <li>
             <KindBadge glyph="gate" size={10} compact /> gate
           </li>
+          {rows.some(row => row.dots.includes('team')) && (
+            <li>
+              <span className={classes.keySlot}>
+                <LayerDots dots={['team']} />
+              </span>
+              {pack} fill
+            </li>
+          )}
         </ul>
       )}
     </Stack>

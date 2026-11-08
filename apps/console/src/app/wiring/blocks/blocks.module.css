@@ -233,7 +233,7 @@
 .propBandTitle {
   color: var(--band-title);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: normal;
 }
 
@@ -250,6 +250,13 @@
   gap: 4px;
   font-family: var(--mantine-font-family-monospace);
   font-size: 11px;
+}
+
+.propBandOpen {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-inline-start: auto;
 }
 
 a.propBandSource {
@@ -453,7 +460,7 @@ a.propBandSource {
 .flowRowName {
   color: var(--tk-text-1);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: normal;
 }
 
@@ -795,7 +802,7 @@ a.propBandSource {
 .bandTitle {
   color: var(--tk-text-1);
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: normal;
 }
 
@@ -906,6 +913,15 @@ a.propBandSource {
 
 .rowCaret[data-hidden] {
   visibility: hidden;
+}
+
+/* The caret column only holds rows in line with one that can fold. */
+.rows:not(:has(.rowToggle[aria-expanded])) .rowToggle {
+  grid-template-columns: 24px minmax(0, 1fr);
+}
+
+.rows:not(:has(.rowToggle[aria-expanded])) .rowCaret {
+  display: none;
 }
 
 .rowToggle .rowText {
@@ -1067,8 +1083,8 @@ a.propBandSource {
 .switcherName {
   overflow: hidden;
   color: var(--tk-text-1);
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--mantine-font-size-md);
+  font-weight: 500;
   line-height: normal;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1088,16 +1104,16 @@ a.propBandSource {
 }
 
 .groupLabel {
-  padding: 2px 6px;
-  color: var(--tk-text-3);
-  font-size: 10px;
+  margin-top: 8px;
+  padding: 6px 8px;
+  color: var(--tk-text-1);
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
 }
 
 .treeRow {
-  padding-block: 3px;
+  height: 30px;
+  padding-block: 0;
   padding-inline-start: calc(var(--depth, 0) * 16px + 6px);
   border-radius: 6px;
 }
@@ -1176,26 +1192,93 @@ a.propBandSource {
   color: var(--tk-text-accent);
 }
 
+.packFills {
+  overflow: hidden;
+  border: 1px solid var(--tk-border-soft);
+  border-radius: var(--mantine-radius-md);
+}
+
+.packFillsHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background-color: color-mix(in srgb, var(--tk-text-purple) 8%, transparent);
+}
+
+.packFillRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 16px;
+  border-top: 1px solid var(--tk-border-soft);
+}
+
+@media (hover: hover) {
+  .packFillRow:hover {
+    background-color: var(--tk-raised);
+  }
+}
+
+.packFillRow:focus-visible {
+  background-color: var(--tk-raised);
+}
+
+.packFillText {
+  flex: 1;
+  min-width: 0;
+}
+
+.packFillMeta {
+  display: flex;
+  gap: 12px;
+}
+
+.packFillOpen {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+
+.treeTrail {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .treeCount {
   color: var(--tk-text-3);
   font-size: 11px;
 }
 
 .glyphKey {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
   margin: 12px 0 0;
-  padding: 0 6px;
+  padding: 0 8px;
   list-style: none;
 }
 
 .glyphKey li {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  min-width: 0;
   color: var(--tk-text-3);
-  font-size: 11px;
+  font-size: 12px;
+}
+
+/* A dot sits in a badge-sized slot so every key label starts on one edge. */
+.keySlot {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
 }
 
 .map {
@@ -1329,7 +1412,7 @@ a.propBandSource {
 .sourceTitle {
   color: var(--tk-text-1);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .sourceMeta {
@@ -1374,7 +1457,7 @@ a.propBandSource {
 
 .sourceBody [data-tone='keyword'] {
   color: var(--tk-text-purple);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .sourceBody [data-tone='id'] {
@@ -1962,7 +2045,7 @@ a.propBandSource {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .stepsCardVia {
@@ -1985,7 +2068,7 @@ a.propBandSource {
 .stepsCardLabel {
   color: var(--tk-text-3);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -2056,7 +2139,7 @@ a.propBandSource {
 .foldBandCount {
   color: var(--tk-text-accent);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: normal;
 }
 

@@ -135,15 +135,7 @@ export function App() {
         name="console"
         markInRail
         headerHeight={SHELL_HEADER_HEIGHT}
-        mark={
-          <img
-            src="/favicon.svg"
-            alt=""
-            width={26}
-            height={26}
-            style={{ display: 'block', flex: 'none' }}
-          />
-        }
+        app="console"
       >
         <ViewerChip info={viewer} />
         <MattstackShell.Rail>

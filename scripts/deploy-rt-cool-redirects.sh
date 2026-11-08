@@ -4,4 +4,4 @@
 # `bunx --bun wrangler` silently uploads nothing; run wrangler on Node.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-bunx wrangler pages deploy "$ROOT/website/redirects/rt-cool" --project-name rt-cool --branch main "$@"
+bunx wrangler pages deploy "$ROOT/sites/docs/redirects/rt-cool" --project-name rt-cool --branch main "$@"

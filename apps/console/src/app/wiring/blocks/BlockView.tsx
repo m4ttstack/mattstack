@@ -38,6 +38,7 @@ import {
 import { sectionsAt } from './model/sections';
 import { usedBySites } from './model/usedBy';
 import { crumbsOf, zoomOf } from './model/zoom';
+import { PackFills, packFillsOf } from './PackFills';
 import { SectionBand } from './SectionBand';
 import { UsedBy, useUsedBySites } from './UsedBy';
 
@@ -56,6 +57,8 @@ export type SkillHeader = {
   command?: string | null;
   /** The skill's name in a trail: its command short, or its stage label. */
   crumb?: string;
+  /** The pack a hand-written skill's file comes from. */
+  source?: { name: string; tone: 'team' | 'org' | 'plugin' } | null;
 };
 
 /** What Used by and History read beyond the payload. */
@@ -370,7 +373,11 @@ export function BlockView({
   const docNote = !headingOnly
     ? null
     : noText
-      ? 'rt sent no text for this block'
+      ? readOnly
+        ? hasChildren
+          ? 'no text of its own: its files are below'
+          : 'no text in this file'
+        : 'rt sent no text for this block'
       : hasChildren
         ? 'a heading only: its blocks are below'
         : 'a heading only';
@@ -386,7 +393,7 @@ export function BlockView({
       {headingOnly ? null : rendered ? (
         <RenderedText
           pack={pack}
-          path={renderedPath}
+          path={readOnly && block ? block.path : renderedPath}
           range={block ? renderedRangeOf(payload, block) : null}
         />
       ) : (
@@ -417,6 +424,7 @@ export function BlockView({
           title={title}
           command={block ? null : (skill?.command ?? null)}
           kind={block ? null : (skill?.kind ?? null)}
+          source={skill?.source ?? null}
           description={description}
           status={status}
           checkError={block ? null : (skill?.checkError ?? null)}
@@ -441,12 +449,19 @@ export function BlockView({
         )}
         {readOnly && (
           <Text fz={13} c="dimmed" data-testid="read-only-note">
-            Standard skill: read from its headings, not built from blocks.
+            Read from its headings, not built from blocks.
           </Text>
         )}
       </div>
 
       <div className={classes.main}>
+        {zoom.level === 'skill' && !rendered && (
+          <PackFills
+            pack={pack}
+            fills={packFillsOf(payload, pack)}
+            onOpen={skill => patch({ focus: skill, block: null, select: null })}
+          />
+        )}
         {document}
 
         {!rendered && owner && zoom.level !== 'block' && (
@@ -509,7 +524,9 @@ export function BlockView({
           />
         )}
         {context && (context.anatomy || context.anatomyError) && (
-          <Section title="Built from">
+          <Section
+            title={block ? 'Files in this block' : 'Files in this skill'}
+          >
             {context.anatomy ? (
               <BuiltFrom
                 pack={pack}

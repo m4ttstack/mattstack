@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import {
   ActionIcon,
   Alert,
+  Badge,
   Collapse,
   Group,
   NavLink,
@@ -13,6 +14,7 @@ import {
 import { useLocalStorage } from '@mattstack/app-kit/hooks';
 import { Icon, Icons } from '@mattstack/app-kit/icons';
 
+import { BackPill } from '../../nav/BackPill';
 import { StepLoader, useStepLoading } from '../../StepLoader';
 import classes from './graph.module.css';
 import {
@@ -21,6 +23,7 @@ import {
   type FocusItem,
 } from './model/focusModel';
 import { StatusDot } from './StatusDot';
+import { titleIfCut } from './titleIfCut';
 import { useGraphFocus } from './useGraphFocus';
 
 const BODY = 'var(--tk-text-1)';
@@ -46,17 +49,20 @@ function AttentionDot() {
 /** A sidebar group whose label folds it; each group remembers its fold. */
 function FocusGroup({
   label,
+  scope = '',
   count,
   defaultOpen = true,
   children,
 }: {
   label: string;
+  /** Keeps this list's folds apart from another list's group of that name. */
+  scope?: string;
   count?: number;
   defaultOpen?: boolean;
   children: ReactNode;
 }) {
   const [open, setOpen] = useLocalStorage<boolean>({
-    key: `console-wiring-group-${label.toLowerCase()}`,
+    key: `console-wiring-group-${scope}${label.toLowerCase()}`,
     defaultValue: defaultOpen,
   });
   return (
@@ -85,31 +91,40 @@ function FocusGroup({
 }
 
 /** An active row takes the NavLink's own active colour; a resting one names
-    its text role. */
+    its text role. Every row shares one face and size; a command's pack
+    prefix reads quieter than its name, and the full text shows on hover
+    once the row cuts it. */
 function RowLabel({
   text,
-  size,
   active,
   rest,
-  mono = false,
 }: {
   text: string;
-  size: number;
   active: boolean;
   rest: string;
-  /** A skill's name as Claude Code shows it. */
-  mono?: boolean;
 }) {
+  const split = /^(\/[^:]+:)(.+)$/.exec(text);
   return (
     <Text
       span
-      fz={mono ? size - 0.5 : size}
+      display="block"
+      fz="md"
       fw={active ? 500 : 400}
-      ff={mono ? 'monospace' : undefined}
       c={active ? undefined : rest}
+      truncate
+      onMouseEnter={titleIfCut(text)}
       data-parity="l"
     >
-      {text}
+      {split ? (
+        <>
+          <Text span inherit c="dimmed">
+            {split[1]}
+          </Text>
+          {split[2]}
+        </>
+      ) : (
+        text
+      )}
     </Text>
   );
 }
@@ -147,10 +162,8 @@ function ItemRow({
       label={
         <RowLabel
           text={typed(pack, item) ?? item.label}
-          size={13}
           active={active}
           rest={BODY}
-          mono
         />
       }
       leftSection={
@@ -164,9 +177,9 @@ function ItemRow({
       rightSection={
         item.attention ? (
           <AttentionDot />
-        ) : item.icon === 'lock' ? (
-          <Text span fz={11} lh="normal" c={MUTED}>
-            internal
+        ) : item.icon === 'fileText' && !item.fill && !item.from ? (
+          <Text span fz="xs" lh="normal" c={MUTED}>
+            off
           </Text>
         ) : undefined
       }
@@ -198,16 +211,14 @@ function StepRow({
       label={
         <RowLabel
           text={typed(pack, item) ?? item.label}
-          size={13}
           active={active}
           rest={BODY}
-          mono={item.command !== undefined}
         />
       }
       leftSection={
         <Text
           span
-          fz={11}
+          fz="xs"
           lh="normal"
           c={active ? undefined : SECONDARY}
           className={classes.stepNumber}
@@ -271,15 +282,13 @@ function PipelineRow({
           label={
             <RowLabel
               text={typed(pack, item) ?? item.label}
-              size={13}
               active={active}
               rest={BODY}
-              mono
             />
           }
           rightSection={
             <Group gap={8} wrap="nowrap">
-              <Text span fz={11} lh="normal" c={MUTED} data-parity="sub">
+              <Text span fz="xs" lh="normal" c={MUTED} data-parity="sub">
                 {workTypeOf(item.key)}
               </Text>
               {item.attention && <AttentionDot />}
@@ -307,6 +316,56 @@ function PipelineRow({
   );
 }
 
+/** The fills under one heading per pack they come from, this pack's first,
+    so a row need not repeat its source. */
+function FillsBySource({
+  items,
+  activeKey,
+  onFocus,
+}: {
+  items: readonly FocusItem[];
+  activeKey: string | null;
+  onFocus: (key: string) => void;
+}) {
+  const pack = useContext(PackContext);
+  const sources = new Map<string, FocusItem[]>();
+  for (const item of items) {
+    const source = item.from ?? pack;
+    sources.set(source, [...(sources.get(source) ?? []), item]);
+  }
+  return [...sources].map(([source, rows]) => (
+    <div
+      key={source}
+      className={classes.fillGroup}
+      data-source={
+        source === pack ? 'team' : rows[0]?.fromOrg ? 'org' : 'plugin'
+      }
+      data-testid={`fills-from-${source}`}
+    >
+      <div className={classes.fillSource}>
+        <Badge
+          size="sm"
+          {...(source === pack
+            ? { color: 'purple' }
+            : rows[0]?.fromOrg
+              ? { color: 'gold' }
+              : { variant: 'default' as const })}
+        >
+          {source}
+        </Badge>
+      </div>
+      {rows.map(item => (
+        <ItemRow
+          key={item.key}
+          item={item}
+          activeKey={activeKey}
+          onFocus={onFocus}
+        />
+      ))}
+    </div>
+  ));
+}
+
 function FocusGroupsList({
   groups,
   activeKey,
@@ -320,7 +379,7 @@ function FocusGroupsList({
     <>
       <FocusGroup label="Pipelines" count={groups.pipelines.length}>
         {groups.empty && (
-          <Text fz={12} c={MUTED} className={classes.notice}>
+          <Text fz="xs" c={MUTED} className={classes.notice}>
             {PIPELINE_NOTICE[groups.empty]}
           </Text>
         )}
@@ -338,7 +397,8 @@ function FocusGroupsList({
           // A verb nothing binds still runs on its own, so it lists here.
           ['Commands', [...groups.standalone, ...groups.unwired.items]],
           ['Board', groups.board],
-          ['Standard', groups.skills],
+          ['Reference skills', groups.skills],
+          ['Fills', groups.fills],
         ] as const
       ).map(
         ([label, items]) =>
@@ -347,16 +407,24 @@ function FocusGroupsList({
               key={label}
               label={label}
               count={items.length}
-              defaultOpen={label !== 'Standard'}
+              defaultOpen={label === 'Commands' || label === 'Board'}
             >
-              {items.map(item => (
-                <ItemRow
-                  key={item.key}
-                  item={item}
+              {label === 'Fills' ? (
+                <FillsBySource
+                  items={items}
                   activeKey={activeKey}
                   onFocus={onFocus}
                 />
-              ))}
+              ) : (
+                items.map(item => (
+                  <ItemRow
+                    key={item.key}
+                    item={item}
+                    activeKey={activeKey}
+                    onFocus={onFocus}
+                  />
+                ))
+              )}
             </FocusGroup>
           )
       )}
@@ -404,6 +472,57 @@ export function GraphSidebar({ pack }: { pack: string }) {
             activeKey={focused?.key ?? null}
             onFocus={onFocus}
           />
+        )}
+      </Stack>
+    </PackContext.Provider>
+  );
+}
+
+/** The org base pack this pack extends, read-only: everything in it, each
+    opening from its own file. */
+export function BaseSidebar({ pack }: { pack: string }) {
+  const { patch, groups, focused } = useGraphFocus(pack);
+  const base = groups?.basePack;
+  if (!base) return null;
+  const onFocus = (key: string) => patch({ focus: key });
+  const total = base.fills.length + base.reference.length;
+  const lists = [
+    ['Fills', base.fills],
+    ['Reference skills', base.reference],
+  ] as const;
+  return (
+    <PackContext.Provider value={pack}>
+      <Stack gap={2} className={classes.list} data-testid="base-list">
+        <BackPill
+          label={pack}
+          onClick={() => patch({ base: false, focus: null })}
+          testId="base-back"
+        />
+        <div className={classes.baseHead}>
+          <Text fw={500}>{base.name}</Text>
+          <Text fz="xs" c={MUTED}>
+            Org base pack, {total} skills
+          </Text>
+        </div>
+        {lists.map(
+          ([label, items]) =>
+            items.length > 0 && (
+              <FocusGroup
+                key={label}
+                label={label}
+                scope="base-"
+                count={items.length}
+              >
+                {items.map(item => (
+                  <ItemRow
+                    key={item.key}
+                    item={item}
+                    activeKey={focused?.key ?? null}
+                    onFocus={onFocus}
+                  />
+                ))}
+              </FocusGroup>
+            )
         )}
       </Stack>
     </PackContext.Provider>

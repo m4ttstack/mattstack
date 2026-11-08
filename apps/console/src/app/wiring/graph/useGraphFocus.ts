@@ -34,8 +34,10 @@ export function useGraphFocus(pack: string) {
   );
   const focused = useMemo(() => {
     if (!groups) return null;
-    return url.focus ? findFocus(groups, url.focus) : firstFocus(groups);
-  }, [groups, url.focus]);
+    if (url.focus) return findFocus(groups, url.focus);
+    const base = url.base ? groups.basePack : null;
+    return base?.fills[0] ?? base?.reference[0] ?? firstFocus(groups);
+  }, [groups, url.focus, url.base]);
   const pipeline = useMemo(
     () => (groups && focused ? pipelineOf(groups, focused) : null),
     [groups, focused]

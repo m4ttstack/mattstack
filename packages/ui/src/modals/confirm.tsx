@@ -48,13 +48,19 @@ export function confirm(options: ConfirmOptions): void {
     title: destructive ? (
       <Group gap="xs" wrap="nowrap">
         <Icon name="warning" size={18} color="var(--mantine-color-red-6)" />
-        <Text fw={600}>{title}</Text>
+        <span>{title}</span>
       </Group>
     ) : (
-      <Text fw={600}>{title}</Text>
+      title
     ),
     children:
-      typeof message === 'string' ? <Text size="sm">{message}</Text> : message,
+      typeof message === 'string' ? (
+        <Text size="md" lh={1.5} c="var(--ui-text-2)">
+          {message}
+        </Text>
+      ) : (
+        message
+      ),
     labels: {
       confirm: labels?.confirm ?? 'Confirm',
       cancel: labels?.cancel ?? 'Cancel',
@@ -62,10 +68,10 @@ export function confirm(options: ConfirmOptions): void {
     confirmProps: destructive
       ? { color: 'red', ...confirmProps }
       : confirmProps,
-    // Cancel reads as the quiet, secondary action by default.
     cancelProps: hideCancelButton
       ? { display: 'none' }
-      : { color: 'gray', variant: 'light', ...cancelProps },
+      : { variant: 'default', ...cancelProps },
+    groupProps: { mt: 'xxl', ...rest.groupProps },
     onConfirm,
     onCancel,
   });

@@ -8,6 +8,7 @@ import {
   findFocus,
   firstFocus,
   focusUnder,
+  outsideFillsOf,
   pipelineOf,
   workTypeOf,
   type FocusItem,
@@ -60,14 +61,14 @@ describe('buildFocusGroups on the design pack', () => {
     ]);
   });
 
-  it('lists the standalone verbs, propless ones included, with internal ones locked, review and standup flagged', () => {
+  it('lists the standalone verbs, propless ones included, with internal ones off, review and standup flagged', () => {
     expect(
       groups.standalone.map(item => [item.label, item.key, item.icon])
     ).toEqual([
       ['shepherdr', 'shepherdr', 'squareTerminal'],
       ['review', 'review', 'squareTerminal'],
-      ['self-review', 'self-review', 'lock'],
-      ['receive-review', 'receive-review', 'lock'],
+      ['self-review', 'self-review', 'fileText'],
+      ['receive-review', 'receive-review', 'fileText'],
       ['ship', 'ship', 'squareTerminal'],
       ['watch-ci', 'watch-ci', 'squareTerminal'],
       ['checkout', 'checkout', 'squareTerminal'],
@@ -294,5 +295,32 @@ describe('workTypeOf', () => {
   it('reads the work type out of a pipeline key and nothing else', () => {
     expect(workTypeOf('pipeline:feature')).toBe('feature');
     expect(workTypeOf('stage-plan')).toBeNull();
+  });
+});
+
+describe('outsideFillsOf', () => {
+  const fill = (binding: string, sourcePath: string, base?: string) => ({
+    binding,
+    sourcePath,
+    ...(base ? { origin: 'base', base } : {}),
+  });
+  const bindings = (fills: ReturnType<typeof fill>[]) =>
+    outsideFillsOf({
+      pack: 'team',
+      extends: { name: 'org-base', version: '1.0.0' },
+      verbs: [{ sourcePath: '/p/engine/attachments/flow/work/index.block.md' }],
+      fills,
+    } as unknown as Parameters<typeof outsideFillsOf>[0]).map(f => f.binding);
+
+  it('keeps only the fills the source route can open', () => {
+    expect(
+      bindings([
+        fill('team:own', '/p/team/skills/own/SKILL.md'),
+        fill('org-base:rules', '/p/org-base/skills/rules/SKILL.md', 'org-base'),
+        fill('engine:tiering', '/p/engine/skills/tiering/SKILL.md'),
+        fill('other:stray', '/p/other/skills/stray/SKILL.md'),
+        fill('second:base', '/p/second/skills/base/SKILL.md', 'second'),
+      ])
+    ).toEqual(['org-base:rules', 'engine:tiering']);
   });
 });
