@@ -26,7 +26,7 @@ import { StepLoader } from '../StepLoader';
 import { ConfigTab } from './ConfigTab';
 import { ContentReadyContext } from './contentReady';
 import { DevPackSwitch } from './DevPackSwitch';
-import toastClasses from './graph/graph.module.css';
+import graphClasses from './graph/graph.module.css';
 import { GraphTab, GraphTabSidebar } from './graph/GraphTab';
 import { MissingPackNotice } from './graph/MissingPackNotice';
 import { useUnsyncedBanner, useUnsyncedSummary } from './graph/UnsyncedBanner';
@@ -119,7 +119,7 @@ export function WiringMap() {
                   variant="tint"
                   color="warn"
                   radius="xl"
-                  leftSection={<span className={toastClasses.tabDot} />}
+                  leftSection={<span className={graphClasses.tabDot} />}
                   title={`${attentionCount} need attention`}
                   data-testid="config-tab-count"
                 >
@@ -144,7 +144,7 @@ export function WiringMap() {
                   variant="tint"
                   color="warn"
                   radius="xl"
-                  leftSection={<span className={toastClasses.tabDot} />}
+                  leftSection={<span className={graphClasses.tabDot} />}
                   title={`${unsyncedCount} unsynced`}
                   data-testid="history-tab-unsynced"
                 >
@@ -203,12 +203,7 @@ export function WiringMap() {
           size="sm"
           variant="filled"
           color="gold"
-          style={{
-            cursor: 'pointer',
-            background: 'var(--tk-fill-gold)',
-            borderColor: 'transparent',
-            color: 'var(--tk-on-fill-gold)',
-          }}
+          className={graphClasses.extendsPill}
           title={`See everything in the org's ${base.name} base pack`}
           aria-pressed={Boolean(url.base)}
           data-testid="pack-extends"

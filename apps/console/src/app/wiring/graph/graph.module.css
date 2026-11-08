@@ -423,3 +423,17 @@
   font-size: 12px;
   white-space: nowrap;
 }
+
+/* The org level's gold on the app bar. The bar paints every badge and every
+   hovered button itself, with !important on hover. */
+:global(.mantine-AppShell-header) .extendsPill.extendsPill {
+  border-color: transparent;
+  background: var(--tk-fill-gold);
+  color: var(--tk-on-fill-gold);
+  cursor: pointer;
+}
+
+:global(.mantine-AppShell-header) .extendsPill.extendsPill:hover {
+  background: var(--tk-fill-gold-hover) !important;
+  color: var(--tk-on-fill-gold);
+}
