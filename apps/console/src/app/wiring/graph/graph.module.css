@@ -424,9 +424,7 @@
   white-space: nowrap;
 }
 
-/* The org level's gold on the app bar, which paints every badge itself. */
+/* The org level's gold as ink, on the bar's own quiet badge fill. */
 :global(.mantine-AppShell-header) .extendsPill.extendsPill {
-  border-color: transparent;
-  background: var(--tk-fill-gold);
-  color: var(--tk-on-fill-gold);
+  color: var(--tk-fill-gold);
 }

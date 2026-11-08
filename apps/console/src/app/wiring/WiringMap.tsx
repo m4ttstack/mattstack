@@ -209,8 +209,7 @@ export function WiringMap() {
       {pack && base && !baseView && (
         <Badge
           size="sm"
-          variant="filled"
-          color="gold"
+          variant="card-outline"
           className={graphClasses.extendsPill}
           title={`This pack's fills and shared attachments come partly from the org's ${base.name} base pack.`}
           data-testid="pack-extends"
