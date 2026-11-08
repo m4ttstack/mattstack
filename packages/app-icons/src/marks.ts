@@ -66,8 +66,8 @@ export const APP_MARKS: Record<AppName, AppMarkSpec> = {
   board: {
     hue: 'purple',
     fill: '#8e4ec6',
-    shapes: [circle(11, 22, 2.25), circle(21, 22, 2.25), circle(21, 10, 2.25)],
-    lines: ['M21 12.25v7.5M11 19.75V17a3 3 0 0 1 3-3h7'],
+    shapes: [circle(11, 22, 1.75), circle(21, 22, 1.75), circle(21, 10, 1.75)],
+    lines: ['M21 11.75v8.5M11 20.25V17a3 3 0 0 1 3-3h7'],
   },
   deck: {
     hue: 'orange',
