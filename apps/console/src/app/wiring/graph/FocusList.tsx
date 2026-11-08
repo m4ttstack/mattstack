@@ -178,7 +178,10 @@ function ItemRow({
         ) : item.from && item.icon === 'lock' ? (
           <Badge
             size="sm"
-            color={item.fromOrg ? 'gold' : 'gray'}
+            // A light gray wash disappears into the sidebar's tint.
+            {...(item.fromOrg
+              ? { color: 'gold' }
+              : { variant: 'default' as const })}
             data-testid="focus-from"
           >
             {item.from}
