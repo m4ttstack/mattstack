@@ -105,13 +105,15 @@ export function RecordHeader({
               meta={meta}
               title={title}
             />
-            {outcome ? <OutcomeBadge outcome={outcome} /> : null}
-            {cost && details === null ? <HeadCost stat={cost} /> : null}
-            <Accordion.Control aria-label="Run details">
-              <Text span fz="sm" c="dimmed">
-                Details
-              </Text>
-            </Accordion.Control>
+            <Group gap={12} wrap="nowrap" align="center" flex="none">
+              {outcome ? <OutcomeBadge outcome={outcome} /> : null}
+              {cost && details === null ? <HeadCost stat={cost} /> : null}
+              <Accordion.Control aria-label="Run details">
+                <Text span fz="sm" c="dimmed">
+                  Details
+                </Text>
+              </Accordion.Control>
+            </Group>
           </Group>
           <Accordion.Panel>
             <Stack gap={14}>

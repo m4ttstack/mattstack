@@ -149,14 +149,14 @@ function badge({ id, layer, color, icon, label, layers }: Pill): ReactNode {
   return (
     <Badge
       key={id}
-      size="lg"
+      size="md"
       variant="light"
       color={color}
       tt="none"
       data-outcome={id}
       data-parity={layer}
       leftSection={
-        <Icon name={icon} size={13} data-parity={layers?.icon ?? GLYPH[icon]} />
+        <Icon name={icon} size={12} data-parity={layers?.icon ?? GLYPH[icon]} />
       }
     >
       <span data-parity={layers?.label ?? 'label'}>{label}</span>
