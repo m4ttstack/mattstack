@@ -1,3 +1,4 @@
+import { pluginRootOf } from '../../../../shared/pluginRoot';
 import {
   buildSpine,
   looseEnd,
@@ -113,13 +114,27 @@ export function copyLinkLabelOf(
 
 /** The fills whose file another pack owns: the org base's or a plugin's.
     Compile also copies a base's fills under this pack's name, so a binding
-    that names this pack is never one of them. */
+    that names this pack is never one of them. rt lists every installed
+    plugin's fills, but the source route only opens the extended base's and
+    those of the plugin this pack's verbs run in. */
 export function outsideFillsOf(
-  composition: Pick<SkillsComposition, 'fills' | 'pack'>
+  composition: Pick<SkillsComposition, 'fills' | 'pack' | 'extends' | 'verbs'>
 ) {
-  return (composition.fills ?? []).filter(
-    fill => !fill.binding.startsWith(`${composition.pack}:`)
+  const base = composition.extends?.name;
+  const verbRoots = new Set(
+    (composition.verbs ?? []).flatMap(verb => {
+      const root = verb.sourcePath ? pluginRootOf(verb.sourcePath) : null;
+      return root ? [root] : [];
+    })
   );
+  return (composition.fills ?? []).filter(fill => {
+    if (fill.binding.startsWith(`${composition.pack}:`)) return false;
+    if (fill.origin === 'base' && fill.base === base) {
+      return fill.binding.startsWith(`${base}:`);
+    }
+    const root = pluginRootOf(fill.sourcePath);
+    return root !== null && verbRoots.has(root);
+  });
 }
 
 export function buildFocusGroups(
@@ -285,7 +300,7 @@ export function buildFocusGroups(
     file: string,
     isFill: boolean
   ): FocusItem => ({
-    key: name,
+    key: `base:${name}`,
     label: name,
     skill: name,
     icon: 'fileText',

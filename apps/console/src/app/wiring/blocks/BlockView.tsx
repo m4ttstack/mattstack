@@ -393,7 +393,7 @@ export function BlockView({
       {headingOnly ? null : rendered ? (
         <RenderedText
           pack={pack}
-          path={renderedPath}
+          path={readOnly && block ? block.path : renderedPath}
           range={block ? renderedRangeOf(payload, block) : null}
         />
       ) : (

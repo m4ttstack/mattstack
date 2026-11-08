@@ -107,6 +107,7 @@ function RowLabel({
   return (
     <Text
       span
+      display="block"
       fz="md"
       fw={active ? 500 : 400}
       c={active ? undefined : rest}

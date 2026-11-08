@@ -85,7 +85,7 @@ export function WiringMap() {
   const markReady = useCallback(() => setReadyPack(pack), [pack]);
   const contentReady = readyPack !== null && readyPack === pack;
   const reviewChanges = () => {
-    patch({ tab: 'history' });
+    patch({ tab: 'history', base: false });
     writeHistoryUrl({ commits: [WORKING] });
   };
   const showTab = (tab: WiringTab) => patch({ tab });

@@ -73,7 +73,7 @@ export function PackFills({
         <UnstyledButton
           key={`${fill.blockId} ${fill.skill}`}
           className={classes.packFillRow}
-          onClick={() => onOpen(fill.skill)}
+          onClick={() => onOpen(fill.skill.replace(/\/.*$/, ''))}
           data-testid={`pack-fill-${fill.blockId}`}
         >
           <span className={classes.packFillText}>

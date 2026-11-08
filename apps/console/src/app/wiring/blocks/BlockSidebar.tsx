@@ -35,6 +35,7 @@ function TreeRow({
       label={
         <Text
           span
+          display="block"
           fz="md"
           fw={row.selected ? 500 : 400}
           truncate

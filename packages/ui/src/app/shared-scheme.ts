@@ -26,11 +26,9 @@ export function saveSharedColorScheme(scheme: MantineColorScheme): void {
     body: JSON.stringify({ scheme }),
   })
     .then(res => {
-      refused = !res.ok;
+      refused = res.status === 403;
     })
-    .catch(() => {
-      refused = true;
-    })
+    .catch(() => undefined)
     .finally(() => {
       saving -= 1;
     });
