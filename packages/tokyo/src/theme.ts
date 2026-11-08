@@ -98,15 +98,15 @@ export const tokyoTheme = /* @__PURE__ */ createTheme({
   headings: {
     fontFamily:
       "'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-    // h3 is the body ladder's heading step (xl, 20px); the steps above and
-    // below it stay clear of the body sizes they sit next to.
+    // h2 is the body ladder's heading step (xl, 20px); one step above it for
+    // a page title, and the rest descend through the body sizes.
     sizes: {
-      h1: { fontSize: '1.75rem', lineHeight: '1.25', fontWeight: '700' },
-      h2: { fontSize: '1.5rem', lineHeight: '1.3', fontWeight: '700' },
-      h3: { fontSize: '1.25rem', lineHeight: '1.35', fontWeight: '600' },
-      h4: { fontSize: '1.0625rem', lineHeight: '1.4', fontWeight: '600' },
-      h5: { fontSize: '0.9375rem', lineHeight: '1.45', fontWeight: '600' },
-      h6: { fontSize: '0.875rem', lineHeight: '1.5', fontWeight: '600' },
+      h1: { fontSize: '1.5rem', lineHeight: '1.3', fontWeight: '700' },
+      h2: { fontSize: '1.25rem', lineHeight: '1.35', fontWeight: '600' },
+      h3: { fontSize: '1.0625rem', lineHeight: '1.4', fontWeight: '600' },
+      h4: { fontSize: '0.9375rem', lineHeight: '1.45', fontWeight: '600' },
+      h5: { fontSize: '0.875rem', lineHeight: '1.45', fontWeight: '600' },
+      h6: { fontSize: '0.8125rem', lineHeight: '1.5', fontWeight: '600' },
     },
   },
   shadows: {
