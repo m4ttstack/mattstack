@@ -245,16 +245,14 @@ export function WiringMap() {
           tabBarHeight={PAGE_ROW_HEIGHT}
           sidebarWidth={historyPack && !packFailed ? commitsWidth : 296}
           drawerStateKey="console-wiring-focus"
-          tabs={tabs}
-          tabBar={{ title: 'Packs', actions }}
         >
           {graphPack && !packFailed && (
-            <PageShell.Sidebar hideCollapseButton bg="var(--tk-panel)">
+            <PageShell.Sidebar hideCollapseButton>
               <GraphTabSidebar pack={graphPack} />
             </PageShell.Sidebar>
           )}
           {historyPack && !packFailed && (
-            <PageShell.Sidebar hideCollapseButton bg="var(--tk-card)">
+            <PageShell.Sidebar hideCollapseButton>
               <div style={{ position: 'relative', minHeight: '100%' }}>
                 <HistorySidebar pack={historyPack} />
                 <PaneResizer
@@ -269,6 +267,7 @@ export function WiringMap() {
             </PageShell.Sidebar>
           )}
           <PageShell.Main>
+            <PageShell.TabBar tabs={tabs} title="Packs" actions={actions} />
             {pack && url.tab !== 'history' && (
               <UnsyncedToast
                 key={pack}

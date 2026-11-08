@@ -8,7 +8,6 @@ import {
   Hash,
   History,
   MessageSquare,
-  Palette,
 } from 'lucide-react';
 
 registerIcons({
@@ -17,5 +16,4 @@ registerIcons({
   hash: lucideWrapperFn(Hash),
   history: lucideWrapperFn(History),
   messageSquare: lucideWrapperFn(MessageSquare),
-  palette: lucideWrapperFn(Palette),
 });

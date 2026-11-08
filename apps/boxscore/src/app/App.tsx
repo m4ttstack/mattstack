@@ -360,6 +360,7 @@ function AppShell() {
     <MattstackShell
       name="boxscore"
       rail={false}
+      hue="green"
       mark={
         <img
           src="/favicon.svg"

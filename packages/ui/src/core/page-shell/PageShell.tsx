@@ -10,7 +10,11 @@ import { Box, Group, Stack } from '@mantine/core';
 import type { BoxProps, StackProps } from '@mantine/core';
 
 import { useIsMobile, useSchemeColors } from '@mattstack/app-kit/hooks';
-import { useRailShellHeaderHeight } from '../rail-shell/context';
+import { usePaneWidth, type PaneBounds } from '../pane-resizer/PaneResizer';
+import {
+  useRailShellHeaderHeight,
+  useRailShellSheet,
+} from '../rail-shell/context';
 import { Content } from './components/Content';
 import { Header } from './components/Header';
 import { Main } from './components/Main';
@@ -30,6 +34,9 @@ export interface PageShellProps extends Omit<StackProps, 'children' | 'title'> {
   headerHeight?: string | number;
   /** Open width of `PageShell.Sidebar`. @default '20vw' */
   sidebarWidth?: string | number;
+  /** Lets the viewer drag the sidebar's width between `bounds`, kept per
+   *  browser under `storageKey`; replaces `sidebarWidth` on desktop. */
+  resizableSidebar?: { storageKey: string; bounds: PaneBounds };
   /**
    * Override for the shared surface `PageShell.Sidebar` and `PageShell.Header`
    * sit on. @default bg.level2
@@ -175,6 +182,7 @@ function PageShellRoot({
   headerHeight = 64,
   tabBarHeight = PAGE_SHELL_TAB_BAR_HEIGHT,
   sidebarWidth = '20vw',
+  resizableSidebar,
   sideBarHeaderBg,
   scrollClamp = false,
   drawerStateKey,
@@ -197,7 +205,25 @@ function PageShellRoot({
   // double-nav case lines up with no prop and no shared constant to keep in
   // sync by hand. Undefined outside a RailShell, which is the standalone case.
   const railHeaderHeight = useRailShellHeaderHeight();
-  const resolvedTopOffset = topOffset ?? railHeaderHeight ?? 0;
+  const shellSheet = useRailShellSheet();
+  const sheet = isMobile ? undefined : shellSheet;
+  // The sheet keeps `inset` clear under it. Adding it to the offset shortens
+  // every height the shell derives by that much; the sheet then pulls back
+  // up by the same amount, so the gap lands at the bottom only.
+  const resolvedTopOffset =
+    topOffset ?? (railHeaderHeight ?? 0) + (sheet?.inset ?? 0);
+  const [draggedWidth, setDraggedWidth] = usePaneWidth(
+    resizableSidebar?.storageKey ?? 'page-shell-sidebar-width',
+    resizableSidebar?.bounds ?? { initial: 0, min: 0, max: 0 }
+  );
+  const sidebarResize =
+    resizableSidebar && !isMobile
+      ? {
+          width: draggedWidth,
+          onWidth: setDraggedWidth,
+          bounds: resizableSidebar.bounds,
+        }
+      : undefined;
 
   // Only the desktop rail's state persists. The mobile overlay drawer keeps
   // its own unpersisted state: persisting the close it is forced into would
@@ -234,6 +260,7 @@ function PageShellRoot({
   // truth after the initial render.
   const showRootTabBar = (tabs?.length ?? 0) > 0 || tabBar !== undefined;
   const [hasTabBar, setHasTabBar] = useState(showRootTabBar);
+  const [hasMainTabBar, setHasMainTabBar] = useState(false);
 
   // Compound mode is opted into by composing the statics as direct
   // children; otherwise the shell auto-wraps children in Main/Content
@@ -267,7 +294,12 @@ function PageShellRoot({
         tabBarHeight,
         hasTabBar,
         setHasTabBar,
-        sidebarWidth: isMobile ? '100%' : sidebarWidth,
+        hasMainTabBar,
+        setHasMainTabBar,
+        sidebarWidth: isMobile
+          ? '100%'
+          : (sidebarResize?.width ?? sidebarWidth),
+        sidebarResize,
         toggleSidebar,
         sidebarOpen,
         bg: sideBarHeaderBg ?? bg.level2,
@@ -289,7 +321,7 @@ function PageShellRoot({
         gap={0}
         h="100%"
         w="100%"
-        bg={bg.level1}
+        bg={sheet ? 'var(--tk-app-bar)' : bg.level1}
         // `contain: layout` (not `content`: paint containment would clip
         // the sidebar trigger's overhang at the root box) plus a modest
         // explicit stacking level, so edge-riding UI like the collapsed
@@ -305,15 +337,36 @@ function PageShellRoot({
         }}
         {...stackProps}
       >
-        {showRootTabBar && <TabBar {...tabBar} tabs={tabs ?? []} />}
-        {dockedNotch && (
-          <Box flex="none">
-            <TopNotchSlot notch={dockedNotch} onHeight={setDockedNotchHeight} />
-          </Box>
-        )}
-        <Group gap={0} align="stretch" pos="relative" flex={1} w="100%">
-          {body}
-        </Group>
+        <Stack
+          gap={0}
+          flex={1}
+          w={sheet ? `calc(100% - ${sheet.left + sheet.inset}px)` : '100%'}
+          mih={0}
+          style={
+            sheet
+              ? {
+                  margin: `-${sheet.inset}px ${sheet.inset}px ${sheet.inset}px ${sheet.left}px`,
+                  borderRadius: 'var(--mantine-radius-lg)',
+                  overflow: 'hidden',
+                  background: 'var(--tk-app-chrome)',
+                }
+              : undefined
+          }
+          data-sheet={sheet ? '' : undefined}
+        >
+          {showRootTabBar && <TabBar {...tabBar} tabs={tabs ?? []} />}
+          {dockedNotch && (
+            <Box flex="none">
+              <TopNotchSlot
+                notch={dockedNotch}
+                onHeight={setDockedNotchHeight}
+              />
+            </Box>
+          )}
+          <Group gap={0} align="stretch" pos="relative" flex={1} w="100%">
+            {body}
+          </Group>
+        </Stack>
       </Stack>
     </PageShellContext.Provider>
   );

@@ -16,12 +16,16 @@ import {
   Text,
   useRailState,
 } from '@mattstack/app-kit/core';
-import { useSchemeColors } from '@mattstack/app-kit/hooks';
+import { useIsMobile } from '@mattstack/app-kit/hooks';
 import { AppLauncher } from './AppLauncher';
 import { ColorSchemeControl } from './ColorSchemeControl';
+import { HueControl, useAppHue, type AppHue } from './HueControl';
 import { ShellAppBarContext, ShellRailContext } from './shell-context';
 
 export const MATTSTACK_HEADER_HEIGHT = 48;
+
+/** The gap the bar keeps around the page sheet. */
+export const MATTSTACK_SHEET_INSET = 8;
 
 /** ActionIcon size for top-bar icon buttons: Mantine's `compact-sm` Button
  *  height, so an icon sits level with the header's text buttons. A number,
@@ -84,9 +88,10 @@ export interface MattstackShellProps {
   appName?: string;
   /** Override the launcher's derived deck base URL (dev, custom domain). */
   deckBase?: string;
-  /** Drops the top bar's bottom line, for an app whose top bar meets its
-   *  sidebar as one piece of chrome. @default true */
-  headerBorder?: boolean;
+  /** The app's own colour for the bar, the sheet's tint and menu washes.
+   *  The viewer can pick another per browser from the bar's palette menu.
+   *  @default 'blue' */
+  hue?: AppHue;
   /** Puts `mark` in the rail's top spot, in place of the expand trigger,
    *  and leaves the top bar to the page's own controls: no mark and no app
    *  name there. Needs the rail. @default false */
@@ -110,21 +115,7 @@ function partition(children: ReactNode) {
   return { rail, railBottom, header, page };
 }
 
-/**
- * The header surface: a translucent take on bg.level2 so the backdrop blur
- * reads as depth while staying scheme-aware.
- */
-function useHeaderProps(border: boolean) {
-  const { bg } = useSchemeColors();
-  return {
-    style: {
-      ...(border ? {} : { borderBottom: 'none' }),
-      backgroundColor: `color-mix(in srgb, ${bg.level2} 88%, transparent)`,
-      backdropFilter: 'blur(8px)',
-      WebkitBackdropFilter: 'blur(8px)',
-    },
-  } as const;
-}
+const HEADER_PROPS = { style: { borderBottom: 'none' } } as const;
 
 function Shell({
   name,
@@ -135,11 +126,12 @@ function Shell({
   appName,
   deckBase,
   markInRail = false,
-  headerBorder = true,
+  hue: appHue = 'blue',
   children,
 }: MattstackShellProps) {
   const rail = useRailState();
-  const headerProps = useHeaderProps(headerBorder);
+  const isMobile = useIsMobile();
+  const [hue, setHue] = useAppHue(name, appHue);
   const [appBarStart, setAppBarStart] = useState<HTMLElement | null>(null);
   const [appBarEnd, setAppBarEnd] = useState<HTMLElement | null>(null);
   const [appBarViewer, setAppBarViewer] = useState<HTMLElement | null>(null);
@@ -161,7 +153,16 @@ function Shell({
       >
         <RailShell
           headerHeight={headerHeight}
-          headerProps={headerProps}
+          headerProps={HEADER_PROPS}
+          headerPx={20}
+          sheet={
+            isMobile
+              ? undefined
+              : {
+                  inset: MATTSTACK_SHEET_INSET,
+                  left: withRail ? 0 : MATTSTACK_SHEET_INSET,
+                }
+          }
           header={
             <Group justify="space-between" w="100%" wrap="nowrap">
               <Group gap="sm" wrap="nowrap" miw={0}>
@@ -172,7 +173,7 @@ function Shell({
                       fw={700}
                       fz={15}
                       lh={1}
-                      style={{ whiteSpace: 'nowrap' }}
+                      style={{ whiteSpace: 'nowrap', marginRight: 5 }}
                     >
                       {name}
                     </Text>
@@ -183,6 +184,12 @@ function Shell({
                 <div ref={setAppBarEnd} style={{ display: 'contents' }} />
                 <div ref={setAppBarViewer} style={{ display: 'contents' }} />
                 {header?.actions}
+                <HueControl
+                  value={hue}
+                  onChange={setHue}
+                  size={MATTSTACK_HEADER_ICON_SIZE}
+                  iconSize={16}
+                />
                 {!withRail && (
                   <ColorSchemeControl
                     variant="button"

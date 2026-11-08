@@ -3,6 +3,7 @@ export type { MountOptions } from './mount';
 export {
   MATTSTACK_HEADER_HEIGHT,
   MATTSTACK_HEADER_ICON_SIZE,
+  MATTSTACK_SHEET_INSET,
   MattstackShell,
 } from './MattstackShell';
 export type {
@@ -11,6 +12,8 @@ export type {
   MattstackShellProps,
 } from './MattstackShell';
 export { ColorSchemeControl } from './ColorSchemeControl';
+export { APP_HUES, HueControl, useAppHue } from './HueControl';
+export type { AppHue } from './HueControl';
 export type { ColorSchemeControlProps } from './ColorSchemeControl';
 export { AppLauncher } from './AppLauncher';
 export type { AppLauncherProps } from './AppLauncher';

@@ -11,16 +11,18 @@ export interface Freshness {
   tone: FreshnessTone;
 }
 
+// On the app's bar the label reads in the bar's ink; the dot alone carries
+// the tone, and fresh is the bar's own white.
 const DOT: Record<FreshnessTone, string> = {
-  ok: 'var(--tk-dot-ok)',
+  ok: 'var(--tk-text-1)',
   accent: 'var(--tk-fill-accent)',
   warn: 'var(--tk-dot-warn)',
 };
 
 const LABEL: Record<FreshnessTone, string> = {
-  ok: 'var(--tk-text-3)',
-  accent: 'var(--tk-text-accent)',
-  warn: 'var(--tk-text-warn)',
+  ok: 'var(--tk-text-2)',
+  accent: 'var(--tk-text-2)',
+  warn: 'var(--tk-text-2)',
 };
 
 const SEP_NAMES = ['Sep', 'Sep2'];

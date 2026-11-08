@@ -62,11 +62,38 @@
     U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
-/* `--tk-app-hue` is the app's own colour, one of the theme's fills: the
-   chrome, menu hover washes and selected rows mix from it. The accent until
-   an app names its own. */
+/* `--tk-app-hue` is the app's own colour, one of the theme's fills, and
+   `--tk-app-ink-tint` the same hue's small-text step. MattstackShell sets
+   both from its `hue` (and the viewer's pick); the accent until it does.
+   The chrome mixes from them: a saturated bar, a pale tint for the sheet and
+   its sidebar, and that tint's line, hover and selected steps. */
 :root {
   --tk-app-hue: var(--tk-fill-accent);
+  --tk-app-ink-tint: var(--tk-text-accent-small);
+  --tk-app-bar: color-mix(in srgb, var(--tk-app-hue) 80%, black);
+  --tk-app-ink: var(--tk-app-ink-tint);
+  --tk-app-ink-soft: color-mix(
+    in srgb,
+    var(--tk-app-ink) 72%,
+    var(--tk-app-chrome)
+  );
+  --tk-app-chrome: color-mix(in srgb, var(--tk-app-hue) 7%, var(--tk-card));
+  --tk-app-chrome-line: color-mix(in srgb, var(--tk-app-hue) 14%, transparent);
+  --tk-app-chrome-hover: color-mix(
+    in srgb,
+    var(--tk-app-hue) 6%,
+    var(--tk-app-chrome)
+  );
+  --tk-app-chrome-selected: color-mix(
+    in srgb,
+    var(--tk-app-hue) 14%,
+    var(--tk-app-chrome)
+  );
+}
+
+:root[data-mantine-color-scheme='dark'] {
+  --tk-app-chrome: color-mix(in srgb, var(--tk-app-hue) 12%, var(--tk-bg));
+  --tk-app-ink: var(--tk-text-1);
 }
 
 /* `--tk-wash` is the translucent tint an active or alert surface lays over
@@ -527,15 +554,12 @@ body {
 }
 
 /*
- * The chrome ladder, Supabase model: the app's rail and site header sit on the
- * CHROME surface (--tk-chrome, the grey frame around the app), PageShell's own
- * sidebar and header on the CARD surface (white), and the route's content on the
- * PANEL surface, so its cards (white ground Papers) lift off it by fill alone.
- * Chrome is its own token so the
- * bg/panel/card elevation ladder stays ordered (bg < panel < card) -- panel is the
- * raised content surface, not the frame. Every kit consumer lays out the same way
- * by importing this file; without it the kit puts rail, header and sidebar on one
- * surface and the chrome reads flat.
+ * The chrome ladder, Slack model: the app's rail and site header are one bar
+ * in the app's hue (--tk-app-bar); the page sits on it as a rounded sheet
+ * whose sidebar takes the hue's pale tint (--tk-app-chrome), PageShell's
+ * header the CARD surface, and the route's content the PANEL surface, so its
+ * cards (white ground Papers) lift off it by fill alone. Every kit consumer
+ * lays out the same way by importing this file.
  *
  * `!important` for the same reason as the grid above: the kit sets these
  * backgrounds as inline styles. A Sidebar given its own `bg` carries
@@ -543,10 +567,49 @@ body {
  */
 .mantine-AppShell-header,
 .mantine-AppShell-navbar {
-  background-color: var(--tk-chrome) !important;
+  background-color: var(--tk-app-bar) !important;
+  border-color: transparent !important;
 }
 
-#page-shell-header,
-#page-shell-sidebar:not([data-own-surface]) {
+#page-shell-header {
   background-color: var(--tk-card) !important;
+}
+
+#page-shell-sidebar:not([data-own-surface]) {
+  background-color: var(--tk-app-chrome) !important;
+}
+
+/* The bar is the app's hue, so inside it every text token turns white and
+   its controls sit on translucent black, brightening to translucent white
+   under the pointer (never the theme's grey). */
+.mantine-AppShell-header,
+.mantine-AppShell-navbar {
+  color: white;
+  --tk-text-1: white;
+  --tk-text-2: rgb(255 255 255 / 85%);
+  --tk-text-3: rgb(255 255 255 / 85%);
+  --tk-text-4: rgb(255 255 255 / 85%);
+  --mantine-color-text: white;
+  --mantine-color-dimmed: rgb(255 255 255 / 85%);
+}
+
+.mantine-AppShell-header .mantine-Button-root,
+.mantine-AppShell-header .mantine-Badge-root,
+.mantine-AppShell-header .mantine-Input-input {
+  background: rgb(0 0 0 / 22%);
+  border-color: transparent;
+  color: white;
+}
+
+.mantine-AppShell-header .mantine-Input-section,
+.mantine-AppShell-header .mantine-ActionIcon-root,
+.mantine-AppShell-header .mantine-UnstyledButton-root,
+.mantine-AppShell-navbar .mantine-ActionIcon-root {
+  color: white;
+}
+
+.mantine-AppShell-header button:hover,
+.mantine-AppShell-header [data-expanded] {
+  background: rgb(255 255 255 / 24%) !important;
+  color: white;
 }

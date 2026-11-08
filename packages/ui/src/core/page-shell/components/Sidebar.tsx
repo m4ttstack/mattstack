@@ -8,6 +8,7 @@ import type {
 import clsx from 'clsx';
 
 import { Icons } from '@mattstack/app-kit/icons';
+import { PaneResizer } from '../../pane-resizer/PaneResizer';
 import { SlideInSidebar } from '../../slide-in-sidebar/SlideInSidebar';
 import {
   useIsInPageShell,
@@ -41,9 +42,8 @@ export interface PageShellSidebarProps {
   /** Hides the floating collapse control on the rail's edge. @default false */
   hideCollapseButton?: boolean;
   /**
-   * Right-edge divider on the desktop rail, the sidebar's parallel to
-   * `Header`'s `withBorder`. Keeps the sidebar legible against the content
-   * even when both land on the same near-white surface. @default true
+   * Right-edge divider on the desktop rail. Off by default: the sidebar's
+   * tint against the content is the divider. @default false
    */
   withBorder?: boolean;
 }
@@ -62,7 +62,7 @@ export const Sidebar = ({
   scrollAreaProps,
   drawerProps,
   hideCollapseButton = false,
-  withBorder = true,
+  withBorder = false,
 }: PageShellSidebarProps) => {
   useIsInPageShell('Sidebar');
 
@@ -73,6 +73,7 @@ export const Sidebar = ({
     sidebarOpen,
     bg,
     collapsedSidebar,
+    sidebarResize,
   } = usePageShellContext();
 
   useLayoutEffect(() => {
@@ -154,6 +155,16 @@ export const Sidebar = ({
           {renderedChildren}
         </Flex>
       </ScrollArea.Autosize>
+      {sidebarResize && sidebarOpen && (
+        <PaneResizer
+          width={sidebarResize.width}
+          onWidth={sidebarResize.onWidth}
+          bounds={sidebarResize.bounds}
+          label="Resize the sidebar"
+          testId="sidebar-resizer"
+          style={{ top: 0, right: -4 }}
+        />
+      )}
     </SlideInSidebar>
   );
 };
