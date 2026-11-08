@@ -263,6 +263,8 @@ const WAIVED_TOKYO: Record<string, string> = {
     "the grey frame surface the bar used before it took the app's hue; generated from the tokens ramp and kept for any app outside MattstackShell, which no packages/ui component is.",
   '--tk-app-chrome-line':
     "the chrome tint's divider step, read by apps/chat's DM rows and sidebar skeletons, outside this test's kit-CSS scope.",
+  '--tk-app-chrome-selected':
+    "the chrome tint's selected step, read by apps/chat's fleet tree rows and stack rings, outside this test's kit-CSS scope.",
   '--tk-app-ink-soft':
     "the chrome tint's muted ink, read by apps/chat's sidebar meta and new-chat row, outside this test's kit-CSS scope.",
   '--tk-overlay':
@@ -373,7 +375,13 @@ describe('token consumption: tokyo', () => {
     isCss
   );
   const uiFiles = walk(join(REPO_ROOT, 'packages', 'ui', 'src'), isUiSource);
-  const referenced = referencedVars(readAll([...tokyoCssFiles, ...uiFiles]));
+  const iconFiles = walk(
+    join(REPO_ROOT, 'packages', 'app-icons', 'src'),
+    isUiSource
+  );
+  const referenced = referencedVars(
+    readAll([...tokyoCssFiles, ...uiFiles, ...iconFiles])
+  );
 
   it('every --tk-* name defined in tokyo-theme.css is referenced or waived', () => {
     const unaccounted = [...defined]
