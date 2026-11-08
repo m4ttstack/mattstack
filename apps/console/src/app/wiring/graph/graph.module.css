@@ -424,13 +424,13 @@
   white-space: nowrap;
 }
 
-/* The org level's gold as a wash over the bar's quiet badge fill. The ink is
-   paled so it holds contrast on the orange bar, gold's closest neighbour. */
+/* A muted gold mixed with a dark rather than with transparency, so the bar's
+   hue never shows through and the pill reads the same on every bar. */
 :global(.mantine-AppShell-header) .extendsPill.extendsPill {
-  background:
-    linear-gradient(
-      color-mix(in srgb, var(--tk-fill-gold) 16%, transparent) 0 0
-    ),
-    rgb(0 0 0 / 22%);
-  color: color-mix(in srgb, var(--tk-fill-gold) 60%, white);
+  background: color-mix(
+    in srgb,
+    var(--tk-fill-gold) 24%,
+    var(--tk-on-fill-gold)
+  );
+  color: var(--tk-fill-gold);
 }
