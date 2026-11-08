@@ -582,9 +582,22 @@ body {
   background-color: var(--tk-app-chrome) !important;
 }
 
+/* The page's own text colours, resolved here at the root, so a surface
+   inside the bar can take them back. */
+:root {
+  --tk-page-text-1: var(--tk-text-1);
+  --tk-page-text-2: var(--tk-text-2);
+  --tk-page-text-3: var(--tk-text-3);
+  --tk-page-text-4: var(--tk-text-4);
+  --tk-page-mantine-text: var(--mantine-color-text);
+  --tk-page-mantine-dimmed: var(--mantine-color-dimmed);
+}
+
 /* The bar is the app's hue, so inside it every text token turns white and
    its controls sit on translucent black, brightening to translucent white
-   under the pointer (never the theme's grey). */
+   under the pointer (never the theme's grey). A dropdown rendered inside the
+   bar (`withinPortal={false}`) is a page surface: it takes the page's text
+   back and none of the bar's control rules. */
 .mantine-AppShell-header,
 .mantine-AppShell-navbar {
   color: white;
@@ -596,23 +609,74 @@ body {
   --mantine-color-dimmed: rgb(255 255 255 / 90%);
 }
 
-.mantine-AppShell-header .mantine-Button-root,
-.mantine-AppShell-header .mantine-Badge-root,
-.mantine-AppShell-header .mantine-Input-input {
+:is(.mantine-AppShell-header, .mantine-AppShell-navbar)
+  :is(
+    .mantine-Popover-dropdown,
+    .mantine-Menu-dropdown,
+    .mantine-HoverCard-dropdown,
+    .mantine-Combobox-dropdown
+  ) {
+  color: var(--tk-page-text-1);
+  --tk-text-1: var(--tk-page-text-1);
+  --tk-text-2: var(--tk-page-text-2);
+  --tk-text-3: var(--tk-page-text-3);
+  --tk-text-4: var(--tk-page-text-4);
+  --mantine-color-text: var(--tk-page-mantine-text);
+  --mantine-color-dimmed: var(--tk-page-mantine-dimmed);
+}
+
+.mantine-AppShell-header
+  :is(.mantine-Button-root, .mantine-Badge-root, .mantine-Input-input):not(
+    :is(
+        .mantine-Popover-dropdown,
+        .mantine-Menu-dropdown,
+        .mantine-HoverCard-dropdown,
+        .mantine-Combobox-dropdown
+      )
+      *
+  ) {
   background: rgb(0 0 0 / 22%);
   border-color: transparent;
   color: white;
 }
 
-.mantine-AppShell-header .mantine-Input-section,
-.mantine-AppShell-header .mantine-ActionIcon-root,
-.mantine-AppShell-header .mantine-UnstyledButton-root,
-.mantine-AppShell-navbar .mantine-ActionIcon-root {
+.mantine-AppShell-header
+  :is(
+    .mantine-Input-section,
+    .mantine-ActionIcon-root,
+    .mantine-UnstyledButton-root
+  ):not(
+    :is(
+        .mantine-Popover-dropdown,
+        .mantine-Menu-dropdown,
+        .mantine-HoverCard-dropdown,
+        .mantine-Combobox-dropdown
+      )
+      *
+  ),
+.mantine-AppShell-navbar
+  .mantine-ActionIcon-root:not(
+    :is(
+        .mantine-Popover-dropdown,
+        .mantine-Menu-dropdown,
+        .mantine-HoverCard-dropdown,
+        .mantine-Combobox-dropdown
+      )
+      *
+  ) {
   color: white;
 }
 
-.mantine-AppShell-header button:hover,
-.mantine-AppShell-header [data-expanded] {
+.mantine-AppShell-header
+  :is(button:hover, [data-expanded]):not(
+    :is(
+        .mantine-Popover-dropdown,
+        .mantine-Menu-dropdown,
+        .mantine-HoverCard-dropdown,
+        .mantine-Combobox-dropdown
+      )
+      *
+  ) {
   background: rgb(255 255 255 / 24%) !important;
   color: white;
 }
