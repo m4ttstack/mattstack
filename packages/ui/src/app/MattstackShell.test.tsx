@@ -107,11 +107,7 @@ test('rail={false} drops the rail and puts the scheme control at the end of the 
   const names = within(screen.getByRole('banner'))
     .getAllByRole('button')
     .map(b => b.getAttribute('aria-label') ?? b.textContent);
-  expect(names).toEqual([
-    'Refresh',
-    'Theme colour',
-    'Color scheme: System',
-  ]);
+  expect(names).toEqual(['Refresh', 'Theme colour', 'Color scheme: System']);
   expect(
     screen
       .getByRole('button', { name: 'Color scheme: System' })
@@ -253,7 +249,9 @@ test('the palette menu sets the app hue tokens and remembers the pick per app', 
     'var(--tk-text-ok-small)'
   );
   await userEvent.click(screen.getByRole('button', { name: 'Theme colour' }));
-  await userEvent.click(await screen.findByRole('menuitem', { name: 'Purple' }));
+  await userEvent.click(
+    await screen.findByRole('menuitem', { name: 'Purple' })
+  );
   expect(root.getPropertyValue('--tk-app-hue')).toBe('var(--tk-fill-purple)');
   expect(window.localStorage.getItem('probe-theme-color')).toBe('"purple"');
 });

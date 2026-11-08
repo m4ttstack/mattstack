@@ -233,6 +233,9 @@ const TK_COMPONENT_STYLES_NAMES = new Set([
   '--tk-fill-bad',
 ]);
 
+// Read by tokyo's app-chrome block: the default hue's small-text step.
+const TK_APP_CHROME_NAMES = new Set(['--tk-text-accent-small']);
+
 const TK_ON_FILL_NAMES = RAMP_HUES.map(h => `--tk-on-fill-${h}`);
 // The Kbd `on-fill` variant (component-styles.module.css) references the accent one by name.
 const TK_ON_FILL_STATIC_NAMES = new Set(['--tk-on-fill-accent']);
@@ -247,7 +250,8 @@ const WAIVED_TOKYO: Record<string, string> = {
         !TK_APP_LAUNCHER_NAMES.has(name) &&
         !TK_CODEMIRROR_NAMES.has(name) &&
         !TK_CHART_DEFAULTS_NAMES.has(name) &&
-        !TK_COMPONENT_STYLES_NAMES.has(name)
+        !TK_COMPONENT_STYLES_NAMES.has(name) &&
+        !TK_APP_CHROME_NAMES.has(name)
     ).map(name => [name, TK_RAMP_WAIVER])
   ),
   ...Object.fromEntries(
@@ -255,6 +259,12 @@ const WAIVED_TOKYO: Record<string, string> = {
       name => [name, TK_ON_FILL_WAIVER]
     )
   ),
+  '--tk-chrome':
+    "the grey frame surface the bar used before it took the app's hue; generated from the tokens ramp and kept for any app outside MattstackShell, which no packages/ui component is.",
+  '--tk-app-chrome-line':
+    "the chrome tint's divider step, read by apps/chat's DM rows and sidebar skeletons, outside this test's kit-CSS scope.",
+  '--tk-app-ink-soft':
+    "the chrome tint's muted ink, read by apps/chat's sidebar meta and new-chat row, outside this test's kit-CSS scope.",
   '--tk-overlay':
     "modal/overlay chrome role (dark sits level with the card so a dialog has an edge against the page, light sits above it), mirrored from the tui theme's --surface-overlay; no packages/ui component wires this surface yet.",
   '--tk-soft-on-card':
