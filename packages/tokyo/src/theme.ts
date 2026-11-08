@@ -61,16 +61,18 @@ export const tokyoTheme = /* @__PURE__ */ createTheme({
     yellow: virtual('yellow', 'warn'),
     violet: virtual('violet', 'purple'),
   },
-  radius: { xs: '3px', sm: '4px', md: '6px', lg: '8px', xl: '10px' },
+  // Rows and menus 6, controls and code 8, sheets and message boxes 12.
+  radius: { xs: '4px', sm: '6px', md: '8px', lg: '12px', xl: '16px' },
   defaultRadius: 'md',
-  // The ladder follows tui-kit's census usage frequency, not a geometric
-  // progression: `md` is 0.76rem because that is the board's most-used size.
+  // Four text steps and a heading step, each a whole pixel or more apart:
+  // xs 12 meta (counts, chips, badges, labels), sm 13 chrome (buttons,
+  // inputs, nav rows), md 14 titles, lg 15 prose, xl 20 headings.
   fontSizes: {
-    xs: '0.66rem',
-    sm: '0.7rem',
-    md: '0.76rem',
-    lg: '0.85rem',
-    xl: '0.92rem',
+    xs: '0.75rem',
+    sm: '0.8125rem',
+    md: '0.875rem',
+    lg: '0.9375rem',
+    xl: '1.25rem',
   },
   spacing: {
     xs: '0.3rem',
@@ -86,31 +88,31 @@ export const tokyoTheme = /* @__PURE__ */ createTheme({
     xxxl: '1.5rem',
   },
   lineHeights: { md: '1.55' },
-  // UI and headings read in the system sans; the monospace slot stays
-  // JetBrains Mono for code, tabular numbers, and data tables. An all-monospace
-  // body was fatiguing for long-form UI prose (descriptions, names, labels).
+  // UI and headings read in Inter (its faces live in tokyo-theme.css); the
+  // monospace slot stays JetBrains Mono for code, tabular numbers, and data
+  // tables.
   fontFamily:
-    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+    "'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
   fontFamilyMonospace:
     '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
   headings: {
     fontFamily:
-      '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
-    // Mantine's stock ladder (h1 2.125rem … h2 1.625rem) is sized for a roomy
-    // page; this kit runs a compact, xs-anchored body, so an unsized h2 renders
-    // ~2x the largest body text and swallows its own header row. The ladder
-    // below keeps the step ratios but lands the whole scale on the body's.
+      "'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+    // h3 is the body ladder's heading step (xl, 20px); the steps above and
+    // below it stay clear of the body sizes they sit next to.
     sizes: {
-      h1: { fontSize: '1.35rem', lineHeight: '1.3', fontWeight: '700' },
-      h2: { fontSize: '1.1rem', lineHeight: '1.35', fontWeight: '700' },
-      h3: { fontSize: '0.98rem', lineHeight: '1.4', fontWeight: '700' },
-      h4: { fontSize: '0.9rem', lineHeight: '1.45', fontWeight: '600' },
-      h5: { fontSize: '0.82rem', lineHeight: '1.45', fontWeight: '600' },
-      h6: { fontSize: '0.76rem', lineHeight: '1.5', fontWeight: '600' },
+      h1: { fontSize: '1.75rem', lineHeight: '1.25', fontWeight: '700' },
+      h2: { fontSize: '1.5rem', lineHeight: '1.3', fontWeight: '700' },
+      h3: { fontSize: '1.25rem', lineHeight: '1.35', fontWeight: '600' },
+      h4: { fontSize: '1.0625rem', lineHeight: '1.4', fontWeight: '600' },
+      h5: { fontSize: '0.9375rem', lineHeight: '1.45', fontWeight: '600' },
+      h6: { fontSize: '0.875rem', lineHeight: '1.5', fontWeight: '600' },
     },
   },
   shadows: {
-    md: '0 10px 30px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.18)',
+    // Floating surfaces (menus, popovers, cards): the frame's hairline under
+    // one soft shadow.
+    md: '0 4px 16px rgb(0 0 0 / 14%)',
     lg: '0 12px 40px rgba(0, 0, 0, 0.25)',
     xl: '-6px 0 32px rgba(0, 0, 0, 0.3)',
   },
