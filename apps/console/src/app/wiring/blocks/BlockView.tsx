@@ -449,7 +449,11 @@ export function BlockView({
 
       <div className={classes.main}>
         {zoom.level === 'skill' && !rendered && (
-          <PackFills pack={pack} fills={packFillsOf(payload)} onOpen={open} />
+          <PackFills
+            pack={pack}
+            fills={packFillsOf(payload)}
+            onOpen={skill => patch({ focus: skill, block: null, select: null })}
+          />
         )}
         {document}
 

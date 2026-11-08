@@ -105,12 +105,14 @@ export function labelOf(block: PayloadBlock): string {
 }
 
 /** rt draws an include as a heading block whose one child is the shared
-    tree; the view reads the two as one, so it opens as that tree. */
+    tree; the view reads the two as one, so it opens as that tree. A heading
+    that takes values of its own stays a block, or opening it would lose
+    what the pack passed there. */
 export function includedTree(
   payload: BlocksPayload,
   block: PayloadBlock
 ): PayloadBlock | null {
-  if (block.kind === 'shared') return null;
+  if (block.kind === 'shared' || block.props.length > 0) return null;
   if (!payload.includes.some(include => include.blockId === block.id)) {
     return null;
   }

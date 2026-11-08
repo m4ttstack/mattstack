@@ -48,7 +48,8 @@ export function PackFills({
 }: {
   pack: string;
   fills: PackFill[];
-  onOpen: (blockId: string) => void;
+  /** Opens the fill's own skill, where its text can be read. */
+  onOpen: (skill: string) => void;
 }) {
   if (fills.length === 0) return null;
   return (
@@ -66,7 +67,7 @@ export function PackFills({
         <UnstyledButton
           key={`${fill.blockId} ${fill.skill}`}
           className={classes.packFillRow}
-          onClick={() => onOpen(fill.blockId)}
+          onClick={() => onOpen(fill.skill)}
           data-testid={`pack-fill-${fill.blockId}`}
         >
           <span className={classes.packFillText}>
