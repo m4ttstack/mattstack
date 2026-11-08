@@ -1,4 +1,5 @@
 import {
+  Anchor,
   Badge,
   Group,
   Paper,
@@ -9,6 +10,7 @@ import {
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
+import { useWiringUrl } from '../graph/useWiringUrl';
 import layerClasses from './blocks.module.css';
 import classes from './history.module.css';
 import type { BuiltFromRow, FileStatus } from './model/history';
@@ -40,9 +42,17 @@ function Status({ status }: { status: FileStatus }) {
   );
 }
 
+/** The skill a row's file is the whole of, when that skill is in this pack
+    and so has a page here. */
+const packSkillOf = (row: BuiltFromRow) =>
+  row.kind === 'pack text'
+    ? (/^([^/]+)\/SKILL\.md$/.exec(row.file)?.[1] ?? null)
+    : null;
+
 /** The files a compiled skill was built from: the version each was built
     with, the one installed now, and whether its content changed since. */
 export function BuiltFromTable({ rows }: { rows: BuiltFromRow[] }) {
+  const [, patch] = useWiringUrl();
   return (
     <Paper
       variant="soft-outline"
@@ -90,16 +100,39 @@ export function BuiltFromTable({ rows }: { rows: BuiltFromRow[] }) {
             >
               <Table.Td>
                 <Stack gap={1}>
-                  <Text
-                    ff="monospace"
-                    fz={13}
-                    lh="normal"
-                    c={BODY}
-                    truncate
-                    data-parity="f"
-                  >
-                    {row.file}
-                  </Text>
+                  {packSkillOf(row) ? (
+                    <Anchor
+                      component="button"
+                      type="button"
+                      ff="monospace"
+                      fz={13}
+                      lh="normal"
+                      ta="left"
+                      truncate
+                      data-parity="f"
+                      data-testid="built-from-open"
+                      onClick={() =>
+                        patch({
+                          focus: packSkillOf(row),
+                          block: null,
+                          select: null,
+                        })
+                      }
+                    >
+                      {row.file}
+                    </Anchor>
+                  ) : (
+                    <Text
+                      ff="monospace"
+                      fz={13}
+                      lh="normal"
+                      c={BODY}
+                      truncate
+                      data-parity="f"
+                    >
+                      {row.file}
+                    </Text>
+                  )}
                   <Text fz={12} lh="normal" c={SECONDARY} data-parity="k">
                     {row.kind}
                   </Text>

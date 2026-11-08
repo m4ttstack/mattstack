@@ -6,6 +6,7 @@ import type {
   PayloadSegment,
 } from '../../../server/blocksPayload';
 import { useEditorHref } from '../../editorHref';
+import { useWiringUrl } from '../graph/useWiringUrl';
 import classes from './blocks.module.css';
 import { MarkdownText } from './MarkdownText';
 
@@ -39,6 +40,7 @@ export function PropBox({
   packs = [],
 }: PropBoxProps) {
   const editorHref = useEditorHref();
+  const [, patch] = useWiringUrl();
   const sourceOf = (segment: PayloadSegment, index: number) => {
     const value =
       prop.values.find(candidate => candidate.layer === segment.layer) ??
@@ -48,6 +50,12 @@ export function PropBox({
     return {
       name: UNDER.exec(value.path)?.[1] ?? value.binding,
       href: value.path.startsWith('/') ? editorHref(value.path) : null,
+      // Only the pack's own skills have a page in this list; a binding with
+      // a path below the skill names a file inside one.
+      page:
+        segment.color === 'team' && owner && !value.binding.includes('/')
+          ? value.binding.slice(owner.length + 1)
+          : null,
       // A layer can bind another pack's file: the base's, say.
       from:
         owner && owner !== layerName(segment) && packs.includes(owner)
@@ -123,6 +131,25 @@ export function PropBox({
                       {source.name}
                     </span>
                   ))}
+                {source?.page && (
+                  <Anchor
+                    component="button"
+                    type="button"
+                    size="xs"
+                    className={classes.propBandOpen}
+                    data-testid="prop-open-fill"
+                    onClick={() =>
+                      patch({
+                        focus: source.page,
+                        block: null,
+                        select: null,
+                      })
+                    }
+                  >
+                    Open {source.page}
+                    <Icon name="chevronRight" size={12} />
+                  </Anchor>
+                )}
               </header>
               <MarkdownText text={segment.text} />
             </section>

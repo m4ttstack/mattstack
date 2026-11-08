@@ -252,6 +252,13 @@
   font-size: 11px;
 }
 
+.propBandOpen {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-inline-start: auto;
+}
+
 a.propBandSource {
   color: var(--tk-text-2);
 }
