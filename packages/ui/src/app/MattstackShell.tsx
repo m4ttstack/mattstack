@@ -220,7 +220,7 @@ function Shell({
                 {header?.children ??
                   (railMark ? null : (
                     <Text
-                      fw={700}
+                      fw={600}
                       fz={15}
                       lh={1}
                       style={{ whiteSpace: 'nowrap', marginRight: 5 }}

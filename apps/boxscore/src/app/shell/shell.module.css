@@ -40,7 +40,7 @@
 .appName {
   color: var(--tk-text-1);
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .sep {
@@ -90,8 +90,8 @@
   line-height: normal;
   white-space: nowrap;
   color: var(--tk-text-1);
-  font-size: 26px;
-  font-weight: 700;
+  font-size: 20px;
+  font-weight: 600;
   letter-spacing: -0.4px;
 }
 

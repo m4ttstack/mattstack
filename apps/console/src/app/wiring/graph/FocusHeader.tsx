@@ -252,7 +252,7 @@ export function FocusHeader({
             <Group gap={6} wrap="nowrap" align="center">
               <Title
                 order={3}
-                fz={inline ? (command ? 22 : 24) : 20}
+                fz={20}
                 fw={command ? 500 : undefined}
                 lh="normal"
                 ff={command ? 'monospace' : undefined}

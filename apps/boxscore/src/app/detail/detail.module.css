@@ -65,8 +65,8 @@
 .name {
   margin: 0;
   color: var(--tk-text-1);
-  font-size: 26px;
-  font-weight: 700;
+  font-size: 20px;
+  font-weight: 600;
   letter-spacing: -0.4px;
 }
 
@@ -150,7 +150,7 @@
 
 .sumV {
   color: var(--tk-text-1);
-  font-size: 22px;
+  font-size: 17px;
   font-weight: 500;
 }
 
@@ -200,7 +200,7 @@
 
 .groupLabel {
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.8px;
 }
 
@@ -264,7 +264,7 @@
 .rankPillGold {
   background: var(--tk-fill-gold);
   color: var(--tk-on-fill-gold);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 /* Stat panel */
@@ -304,8 +304,8 @@
 .statTitle {
   margin: 0;
   color: var(--tk-text-1);
-  font-size: 20px;
-  font-weight: 700;
+  font-size: 17px;
+  font-weight: 600;
 }
 
 .src {
@@ -329,7 +329,7 @@
 
 .bigValue {
   color: var(--tk-text-1);
-  font-size: 48px;
+  font-size: 32px;
   font-weight: 500;
   letter-spacing: -2px;
 }
@@ -365,7 +365,7 @@
 
 .rankR {
   color: var(--tk-text-1);
-  font-size: 22px;
+  font-size: 17px;
   font-weight: 500;
 }
 
