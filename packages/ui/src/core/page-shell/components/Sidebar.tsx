@@ -141,6 +141,7 @@ export const Sidebar = ({
         mah={height}
         type="hover"
         scrollbars="y"
+        offsetScrollbars="present"
         id="page-shell-sidebar-scrollarea"
         className={classes.sidebarScrollArea}
         classNames={{ content: classes.sidebarScrollContent }}
