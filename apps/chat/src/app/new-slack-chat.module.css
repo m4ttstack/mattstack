@@ -1,8 +1,3 @@
-.form :global(.mantine-InputWrapper-label) {
-  margin-bottom: 6px;
-  font-weight: 500;
-}
-
 .lede {
   margin-top: calc(var(--mantine-spacing-xs) * -1);
   color: var(--ui-text-2);

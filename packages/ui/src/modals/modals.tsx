@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import { closeAllModals, closeModal, openModal } from '@mantine/modals';
 
-import { Text } from '@mattstack/app-kit/core';
 import { confirm } from './confirm';
 import { prompt } from './prompt';
 
@@ -15,16 +14,7 @@ export type OpenModalOptions = Omit<ModalSettings, 'title' | 'children'> & {
 function open({ title, closeButtonProps, ...options }: OpenModalOptions) {
   return openModal({
     ...options,
-    // Consistent modal-title styling across the app (a plain string title
-    // gets the kit's heading treatment; a node title is left as-is).
-    title:
-      typeof title === 'string' ? (
-        <Text size="xl" fw={700}>
-          {title}
-        </Text>
-      ) : (
-        title
-      ),
+    title,
     closeButtonProps: { 'aria-label': 'Close modal', ...closeButtonProps },
   });
 }

@@ -62,6 +62,13 @@
     U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
+/* `--tk-app-hue` is the app's own colour, one of the theme's fills: the
+   chrome, menu hover washes and selected rows mix from it. The accent until
+   an app names its own. */
+:root {
+  --tk-app-hue: var(--tk-fill-accent);
+}
+
 /* `--tk-wash` is the translucent tint an active or alert surface lays over
    its background, as color-mix(in srgb, <token> var(--tk-wash), transparent):
    the accent wash on a selected room and an armed icon, the mention-of-you

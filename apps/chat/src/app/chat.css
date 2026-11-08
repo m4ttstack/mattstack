@@ -2,6 +2,7 @@
    tint, both from the theme's pink ramp. */
 :root {
   --chat-hue: var(--tk-fill-bad);
+  --tk-app-hue: var(--chat-hue);
   --chat-bar: color-mix(in srgb, var(--chat-hue) 80%, black);
   --chat-ink: var(--chat-ink-tint, var(--tk-text-bad-small));
   --chat-ink-soft: color-mix(in srgb, var(--chat-ink) 72%, var(--chat-chrome));

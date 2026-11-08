@@ -136,7 +136,14 @@ export const baseTheme = /* @__PURE__ */ createTheme({
       // The control's focus ring sits inside its edge (see the CSS module).
       Accordion: { classNames: { control: classes.accordionControl } },
       Code: { defaultProps: { fz: 'sm' } },
-      Modal: { defaultProps: { centered: true, padding: 'lg' } },
+      // The dialog rhythm: 24px around, the title at the heading step with
+      // room under it, and the large centred shadow (Mantine's own default,
+      // `xl`, is tokyo's drawer shadow and falls to one side).
+      Modal: {
+        defaultProps: { centered: true, padding: 'xxxl', shadow: 'lg' },
+        classNames: { header: classes.modalHeader, title: classes.modalTitle },
+      },
+      InputWrapper: { classNames: { label: classes.inputLabel } },
       // Tight, single-line-by-default groups: the common case is a row of
       // controls that should stay on one line, not a wrapping flex container.
       Group: { defaultProps: { wrap: 'nowrap', gap: 'xs' } },
@@ -196,26 +203,30 @@ export const baseTheme = /* @__PURE__ */ createTheme({
       // A group of tooltips (a rail) waits as long as one tooltip does before
       // its first opens; the rest then open at once.
       TooltipGroup: { defaultProps: { openDelay: 750 } },
-      // Menus pop in from the corner they open from; dropdown surfaces carry a shadow so
-      // floating layers separate from the page the same way everywhere.
+      // Menus pop in from the corner they open from, as full-width rows in a
+      // padded list washed in the app's hue on hover (see the CSS module).
+      // Spacing lives in the classes, never in padding props, which would
+      // land inline and beat them; a submenu reads the same classes.
       Menu: {
         defaultProps: {
           transitionProps: { transition: 'pop-top-left' },
           shadow: 'md',
+          radius: 'sm',
+        },
+        classNames: {
+          dropdown: classes.menuDropdown,
+          item: classes.menuItem,
+          itemSection: classes.menuItemSection,
+          label: classes.menuLabel,
+          divider: classes.menuDivider,
         },
       },
-      MenuDropdown: { defaultProps: { p: 'xs', miw: 200 } },
-      MenuItem: { defaultProps: { p: 'sm' } },
-      // `Menu.Sub.Item` and `Menu.Sub.Dropdown` read their own props keys, so a
-      // submenu only matches the menu around it when it carries the same
-      // padding. The open delay stops a pointer travelling down a list from
-      // flashing every submenu it crosses.
+      MenuDropdown: { defaultProps: { miw: 200 } },
+      // The open delay stops a pointer travelling down a list from flashing
+      // every submenu it crosses.
       MenuSub: { defaultProps: { openDelay: 150 } },
-      MenuSubItem: { defaultProps: { p: 'sm' } },
-      MenuSubDropdown: { defaultProps: { p: 'xs' } },
-      MenuDivider: { defaultProps: { my: 'xs' } },
-      Popover: { defaultProps: { shadow: 'md' } },
-      HoverCard: { defaultProps: { shadow: 'md' } },
+      Popover: { defaultProps: { shadow: 'md', radius: 'sm' } },
+      HoverCard: { defaultProps: { shadow: 'md', radius: 'sm' } },
       // No default `c`: a link takes `--mantine-color-anchor`, the theme's
       // link-text role. A hue's `-text` shade is not held to the text bar in
       // dark, and read under it there.

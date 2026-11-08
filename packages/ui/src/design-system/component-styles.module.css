@@ -422,3 +422,57 @@
   border-bottom-width: 2px;
   line-height: 1;
 }
+
+/* Modals: 24px around (the Modal's `padding`), the title at the heading step
+   with room under it before the body starts. */
+.modalHeader.modalHeader {
+  padding-bottom: var(--mantine-spacing-md);
+}
+
+.modalTitle.modalTitle {
+  font-size: var(--mantine-font-size-xl);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+/* A field label sits a little clear of its control. */
+.inputLabel.inputLabel {
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+/* Menus: full-width rows in a list padded top and bottom, as Slack's are.
+   Icons sit in a right gutter (`rightSection`), so every label starts on
+   one edge; the hover wash takes the app's hue. */
+.menuDropdown.menuDropdown {
+  padding: 12px 0;
+}
+
+.menuItem.menuItem {
+  padding: 5px 20px;
+  border-radius: 0;
+  font-size: var(--mantine-font-size-md);
+  line-height: 20px;
+}
+
+.menuItem.menuItem[data-hovered]:not([data-disabled]),
+.menuItem.menuItem:hover:where(:not([data-disabled])) {
+  background-color: color-mix(in srgb, var(--tk-app-hue) 14%, transparent);
+}
+
+.menuItemSection.menuItemSection[data-position='left'] {
+  margin-inline-end: 10px;
+}
+
+.menuLabel.menuLabel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 20px 4px;
+  font-size: var(--mantine-font-size-sm);
+  color: var(--tk-text-2);
+}
+
+.menuDivider.menuDivider {
+  margin: 8px 0;
+}
