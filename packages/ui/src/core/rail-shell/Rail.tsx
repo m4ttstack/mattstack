@@ -85,7 +85,7 @@ export function Rail({
               label={expandLabel}
               disabled={expanded}
               position="right"
-              offset={16}
+              offset={6}
             >
               <ActionIcon
                 variant="subtle"
