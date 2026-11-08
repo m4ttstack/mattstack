@@ -258,13 +258,13 @@ small-hue bar, signed off by Matt 2026-10-21
 
 - Weights follow chat's: 400 body, 500 for emphasis inside a line (a
   name, a ticket key, a cost, a label, a table head), 600 for a heading or
-  title (page, card, dialog). Nothing takes 700. Headings are 700, control labels 500. A
-  neighbouring `fw={600}` is a pre-Radix straggler, not precedent: new
-  code picks 500 or 700, and fixing the straggler in passing is welcome.
+  title (page, card, dialog). Nothing takes 700, and control labels are
+  500.
 - One ladder for every app, tokyo's (`packages/tokyo/src/theme.ts`):
   xs 12 meta, sm 13 chrome (buttons, inputs, nav rows), md 14 titles,
-  lg 15 prose, xl 20 headings, in Inter. Never size text with a raw px
-  or an off-ladder token.
+  lg 15 prose, xl 20 headings, in Inter. Headings add h1 24, h2 20 and
+  h3 17: a page title is 20, a stat or section title 17. Never size text
+  with a raw px or an off-ladder token.
 - Dialog titles are xl at 600, the kit's `Modal` default.
 - In every app: a sizeless Mantine `Text` resolves to `md`, it does NOT
   inherit. State a size.
