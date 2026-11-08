@@ -85,28 +85,24 @@ function FocusGroup({
 }
 
 /** An active row takes the NavLink's own active colour; a resting one names
-    its text role. */
+    its text role. Every row shares one face and size; a command's pack
+    prefix reads quieter than its name, and the full text shows on hover
+    once the row cuts it. */
 function RowLabel({
   text,
   active,
   rest,
-  mono = false,
 }: {
   text: string;
   active: boolean;
   rest: string;
-  /** A skill's name as Claude Code shows it. */
-  mono?: boolean;
 }) {
-  // A command keeps one line: the pack prefix reads quieter than the name,
-  // and the full text shows on hover once the row cuts it.
-  const split = mono ? /^(\/[^:]+:)(.+)$/.exec(text) : null;
+  const split = /^(\/[^:]+:)(.+)$/.exec(text);
   return (
     <Text
       span
-      fz={mono ? 'sm' : 'md'}
+      fz="md"
       fw={active ? 500 : 400}
-      ff={mono ? 'monospace' : undefined}
       c={active ? undefined : rest}
       truncate
       title={text}
@@ -161,7 +157,6 @@ function ItemRow({
           text={typed(pack, item) ?? item.label}
           active={active}
           rest={BODY}
-          mono
         />
       }
       leftSection={
@@ -211,7 +206,6 @@ function StepRow({
           text={typed(pack, item) ?? item.label}
           active={active}
           rest={BODY}
-          mono={item.command !== undefined}
         />
       }
       leftSection={
@@ -283,7 +277,6 @@ function PipelineRow({
               text={typed(pack, item) ?? item.label}
               active={active}
               rest={BODY}
-              mono
             />
           }
           rightSection={
