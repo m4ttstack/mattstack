@@ -102,8 +102,8 @@ export const tokyoTheme = /* @__PURE__ */ createTheme({
     // a page title, and the rest descend through the body sizes.
     sizes: {
       h1: { fontSize: '1.5rem', lineHeight: '1.3', fontWeight: '700' },
-      h2: { fontSize: '1.25rem', lineHeight: '1.35', fontWeight: '600' },
-      h3: { fontSize: '1.0625rem', lineHeight: '1.4', fontWeight: '600' },
+      h2: { fontSize: '1.25rem', lineHeight: '1.35', fontWeight: '700' },
+      h3: { fontSize: '1.0625rem', lineHeight: '1.4', fontWeight: '700' },
       h4: { fontSize: '0.9375rem', lineHeight: '1.45', fontWeight: '600' },
       h5: { fontSize: '0.875rem', lineHeight: '1.45', fontWeight: '600' },
       h6: { fontSize: '0.8125rem', lineHeight: '1.5', fontWeight: '600' },

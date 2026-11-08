@@ -39,9 +39,9 @@ Read it before writing any colour, contrast, or font
 decision; tokens are picked by role there, and raw values fail lint and the
 contrast gates.
 
-Chat-specific: the app has ONE type ladder (xs 12 / sm 13 / md 14 / lg 15 /
-xl 20), defined in `src/app/chat-theme.ts` and merged at the ROOT
-Mantine provider so portalled content resolves the same sizes. Never size
+Chat's type ladder, Inter, radii, menus, dialogs and chrome (the pink bar,
+the sheet, the hue menu, the sidebar tints) are the kit's now; chat passes
+`hue="pink"` to `MattstackShell` and keeps no theme of its own. Never size
 text with a raw px or a Mantine size the ladder does not define.
 `design/spec.json` predates the Radix migration: its font sizes are historic
 reference, its colours are stale -- do not conform new work to its colour
