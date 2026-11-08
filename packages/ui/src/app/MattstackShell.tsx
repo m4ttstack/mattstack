@@ -167,7 +167,7 @@ function Shell({
   children,
 }: MattstackShellProps) {
   const mark = markProp ?? (app ? <AppMark app={app} /> : undefined);
-  const appHue = hueProp ?? (app ? APP_MARKS[app].hue : 'blue');
+  const appHue = hueProp ?? (app ? APP_MARKS[app].hue : undefined) ?? 'blue';
   const rail = useRailState();
   const isMobile = useIsMobile();
   const [hue, setHue] = useAppHue(name, appHue);

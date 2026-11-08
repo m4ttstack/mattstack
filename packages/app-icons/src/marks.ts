@@ -13,8 +13,9 @@ export const APP_NAMES = [
 export type AppName = (typeof APP_NAMES)[number];
 
 export interface AppMarkSpec {
-  /** The hue as the palette menu names it (MattstackShell's `hue`). */
-  hue: 'pink' | 'purple' | 'blue' | 'cyan' | 'green' | 'orange';
+  /** The hue as the palette menu names it (MattstackShell's `hue`); deck
+      has no shell, so no palette hue. */
+  hue?: 'pink' | 'purple' | 'blue' | 'cyan' | 'green' | 'orange';
   /** The hue's light-scheme fill, which the static icon files mix from. */
   fill: string;
   /** Closed shapes, filled and stroked. */
@@ -70,8 +71,7 @@ export const APP_MARKS: Record<AppName, AppMarkSpec> = {
     lines: ['M21 11.75v8.5M11 20.25V17a3 3 0 0 1 3-3h7'],
   },
   deck: {
-    hue: 'orange',
-    fill: '#ef5f00',
+    fill: '#2c3242',
     shapes: [
       rounded(9.5, 9.5, 4.5, 4.5, 1),
       rounded(18, 9.5, 4.5, 4.5, 1),
