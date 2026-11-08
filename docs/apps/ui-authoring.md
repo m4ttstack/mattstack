@@ -257,7 +257,7 @@ small-hue bar, signed off by Matt 2026-10-21
 ## Type
 
 - Font weights follow radix-ui/themes: 400 regular, 500 medium, 700
-  bold. There is no 600. Headings are 700, control labels 500. A
+  bold. The one 600 is a dialog title (below); nothing else takes it. Headings are 700, control labels 500. A
   neighbouring `fw={600}` is a pre-Radix straggler, not precedent: new
   code picks 500 or 700, and fixing the straggler in passing is welcome.
 - One ladder for every app, tokyo's (`packages/tokyo/src/theme.ts`):

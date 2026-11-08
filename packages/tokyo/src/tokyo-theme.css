@@ -74,6 +74,8 @@
      white secondary text at 4.6:1 or better on every hue. */
   --tk-app-bar: color-mix(in srgb, var(--tk-app-hue) 76%, black);
   --tk-app-ink: var(--tk-app-ink-tint);
+  /* An app mark's tile: a light step of the hue, clear of the bar. */
+  --tk-app-mark: color-mix(in srgb, var(--tk-app-hue) 55%, white);
   --tk-app-ink-soft: color-mix(
     in srgb,
     var(--tk-app-ink) 72%,

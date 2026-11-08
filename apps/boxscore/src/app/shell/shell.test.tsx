@@ -30,10 +30,9 @@ function renderAt(path: string) {
 describe('kit shell', () => {
   it('mounts the rail-less MattstackShell with the boxscore mark and a top-bar cluster', () => {
     const { container } = renderAt('/');
-    expect(container.querySelector('header img')).toHaveAttribute(
-      'src',
-      '/favicon.svg'
-    );
+    expect(
+      container.querySelector('header svg rect[fill="var(--tk-app-mark)"]')
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole('navigation', { name: 'App sections' })
     ).not.toBeInTheDocument();
