@@ -18,6 +18,8 @@ export type BuiltFromRow = {
   name: string;
   file: string;
   kind: 'template' | 'engine' | 'partial' | 'pack text' | 'team values';
+  /** What a block page calls the row, in place of its kind. */
+  role?: string;
   /** Owner and version the skill was built with; null when never built. */
   builtWith: string | null;
   installed: string;
@@ -152,8 +154,14 @@ export function blockBuiltFrom(
       name: file.split('/')[0] ?? file,
       file,
       kind: 'engine',
+      role: "this block's text",
     },
-    ...props,
+    ...props.map(prop => ({
+      ...prop,
+      role: `${
+        prop.owner.kind === 'pack' ? anatomy.pack : prop.owner.name
+      }'s text`,
+    })),
   ];
 }
 

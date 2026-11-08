@@ -134,7 +134,7 @@ export function BuiltFromTable({ rows }: { rows: BuiltFromRow[] }) {
                     </Text>
                   )}
                   <Text fz={12} lh="normal" c={SECONDARY} data-parity="k">
-                    {row.kind}
+                    {row.role ?? row.kind}
                   </Text>
                 </Stack>
               </Table.Td>
