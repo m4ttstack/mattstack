@@ -29,6 +29,9 @@ export type FocusItem = {
   /** A hand-written skill's SKILL.md, read for its headings when it is
       not built from blocks. */
   file?: string;
+  /** In the Standard group: rt builds no block tree for it, so it is
+      only ever read from its file. */
+  handWritten?: true;
 };
 
 /** A skill folder as the Surface tab lists it. */
@@ -219,6 +222,7 @@ export function buildFocusGroups(
       children: [],
       ...(row.status === 'public' ? { command: row.name } : {}),
       ...(row.path ? { file: row.path } : {}),
+      handWritten: true,
     }));
 
   return {

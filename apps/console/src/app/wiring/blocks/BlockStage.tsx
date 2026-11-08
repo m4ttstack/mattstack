@@ -156,7 +156,7 @@ export function BlockStage({
               {...heldBind}
               testId="block-view-loading"
               steps={[
-                board
+                board || focused.handWritten
                   ? 'reading its SKILL.md'
                   : `rt skills blocks --skill ${focused.skill}`,
               ]}

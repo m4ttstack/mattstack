@@ -73,8 +73,12 @@ export function useSkillBlocks(
   composition: SkillsComposition | undefined
 ): SkillBlocks {
   const board = item?.icon === 'layoutDashboard';
-  const blocksQuery = useBlocks(pack, item && !board ? item.skill : null);
-  const notBlocks = board || blocksQuery.data === null;
+  const handWritten = item?.handWritten === true;
+  const blocksQuery = useBlocks(
+    pack,
+    item && !board && !handWritten ? item.skill : null
+  );
+  const notBlocks = board || handWritten || blocksQuery.data === null;
   const sourcePath = !item
     ? null
     : board
