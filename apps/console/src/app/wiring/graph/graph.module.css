@@ -77,7 +77,7 @@
 }
 
 .item {
-  height: 32px;
+  height: 30px;
   padding: 0 8px;
   border-radius: var(--mantine-radius-md);
 }
@@ -85,7 +85,7 @@
 /* Indented by margin, so its hover and active fill start at the step. */
 .step {
   width: auto;
-  height: 26px;
+  height: 30px;
   margin-inline-start: 22px;
   padding: 0 8px;
   border-radius: var(--mantine-radius-md);

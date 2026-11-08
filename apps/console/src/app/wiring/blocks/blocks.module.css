@@ -1096,7 +1096,8 @@ a.propBandSource {
 }
 
 .treeRow {
-  padding-block: 3px;
+  height: 30px;
+  padding-block: 0;
   padding-inline-start: calc(var(--depth, 0) * 16px + 6px);
   border-radius: 6px;
 }
