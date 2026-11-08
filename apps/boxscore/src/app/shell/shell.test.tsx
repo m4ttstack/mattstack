@@ -45,7 +45,12 @@ describe('kit shell', () => {
     const controls = Array.from(banner.querySelectorAll('button, a')).map(
       el => el.getAttribute('aria-label') ?? el.textContent
     );
-    expect(controls).toEqual(['Refresh', 'Settings', 'Color scheme: System']);
+    expect(controls).toEqual([
+      'Refresh',
+      'Settings',
+      'Theme colour',
+      'Color scheme: System',
+    ]);
   });
 
   it("opens console's boxscore settings in a modal", async () => {
