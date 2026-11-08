@@ -140,7 +140,6 @@ export const Sidebar = ({
       <ScrollArea.Autosize
         mah={height}
         type="hover"
-        scrollbarSize={6}
         scrollbars="y"
         id="page-shell-sidebar-scrollarea"
         className={classes.sidebarScrollArea}

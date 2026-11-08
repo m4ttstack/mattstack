@@ -154,7 +154,15 @@ export const baseTheme = /* @__PURE__ */ createTheme({
         // Badges read as labels, not shouting -- Mantine uppercases by default.
         styles: { root: { textTransform: 'none' } },
       },
-      ScrollArea: { defaultProps: { type: 'auto' } },
+      ScrollArea: {
+        defaultProps: { type: 'auto', scrollbarSize: 8 },
+        classNames: {
+          scrollbar: classes.scrollAreaScrollbar,
+          thumb: classes.scrollAreaThumb,
+        },
+      },
+      Pill: { classNames: { root: classes.pillRoot } },
+      Skeleton: { classNames: { root: classes.skeletonRoot } },
       // The whole switch is a click target; the cursor should say so.
       Switch: {
         classNames: { root: classes.switchRoot, track: classes.switchTrack },
@@ -164,7 +172,12 @@ export const baseTheme = /* @__PURE__ */ createTheme({
         },
       },
       // Nav labels sit a step below body text (token, not a hardcoded px size).
-      NavLink: { defaultProps: { fz: 'sm' } },
+      // In a sheet's sidebar a row hovers and selects in the chrome's tints
+      // (see the CSS module).
+      NavLink: {
+        defaultProps: { fz: 'sm' },
+        classNames: { root: classes.navLinkRoot },
+      },
       Notification: {
         classNames: {
           root: classes.notificationRoot,

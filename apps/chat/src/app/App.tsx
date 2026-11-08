@@ -522,14 +522,7 @@ function ChatPage({
             // The kit's sidebar ScrollArea content defaults to
             // `min-width: min-content`, which would size the column to its
             // widest row and defeat each row's own truncation.
-            scrollAreaProps={{
-              scrollbarSize: 8,
-              styles: {
-                content: { minWidth: 0 },
-                scrollbar: { padding: 0 },
-                thumb: { background: 'var(--tk-border)' },
-              },
-            }}
+            scrollAreaProps={{ styles: { content: { minWidth: 0 } } }}
           >
             {roomsLoaded ? (
               <ChatSidebar

@@ -70,8 +70,6 @@
   align-items: center;
   padding-left: 5px;
   font-size: var(--mantine-font-size-md);
-  color: var(--tk-app-ink);
-  background-color: color-mix(in srgb, var(--tk-app-hue) 18%, transparent);
 }
 
 .chip :global(.mantine-Pill-label) {
