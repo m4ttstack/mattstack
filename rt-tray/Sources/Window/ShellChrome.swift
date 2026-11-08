@@ -29,3 +29,37 @@ enum ShellChrome {
     static let badgeFill = warn
     static let badgeText = bar
 }
+
+/// An app's own colour, read from its icon's tile: every mark is a glyph on a
+/// tile in a light step of the app's hue (@mattstack/app-icons), so the
+/// viewer takes the colour from the icon deck serves rather than keeping a
+/// second copy of each hue here.
+enum IconTint {
+    private static var cache: [ObjectIdentifier: Color] = [:]
+
+    static func of(_ image: NSImage?) -> Color? {
+        guard let image else { return nil }
+        let key = ObjectIdentifier(image)
+        if let hit = cache[key] { return hit }
+        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        var pixel = [UInt8](repeating: 0, count: 4)
+        let drawn: Bool = pixel.withUnsafeMutableBytes { buffer in
+            guard let ctx = CGContext(
+                data: buffer.baseAddress, width: 1, height: 1, bitsPerComponent: 8,
+                bytesPerRow: 4, space: space,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            // The tile's left edge at mid height: clear of the rounded
+            // corners and of every glyph, which starts past an eighth in.
+            let w = CGFloat(cg.width), h = CGFloat(cg.height)
+            ctx.draw(cg, in: CGRect(x: -w * 0.08, y: -h * 0.5, width: w, height: h))
+            return true
+        }
+        guard drawn, pixel[3] > 200 else { return nil }
+        let tint = Color(red: Double(pixel[0]) / 255, green: Double(pixel[1]) / 255,
+                         blue: Double(pixel[2]) / 255)
+        cache[key] = tint
+        return tint
+    }
+}
