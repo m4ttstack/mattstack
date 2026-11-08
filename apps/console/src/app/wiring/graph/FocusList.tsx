@@ -23,6 +23,7 @@ import {
   type FocusItem,
 } from './model/focusModel';
 import { StatusDot } from './StatusDot';
+import { titleIfCut } from './titleIfCut';
 import { useGraphFocus } from './useGraphFocus';
 
 const BODY = 'var(--tk-text-1)';
@@ -110,7 +111,7 @@ function RowLabel({
       fw={active ? 500 : 400}
       c={active ? undefined : rest}
       truncate
-      title={text}
+      onMouseEnter={titleIfCut(text)}
       data-parity="l"
     >
       {split ? (

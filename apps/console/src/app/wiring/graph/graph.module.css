@@ -27,16 +27,41 @@
   border-radius: var(--mantine-radius-md);
 }
 
+.fillGroup {
+  background-color: color-mix(
+    in srgb,
+    var(--group-hue) var(--group-wash),
+    transparent
+  );
+}
+
 .fillGroup[data-source='team'] {
-  background-color: color-mix(in srgb, var(--tk-fill-purple) 10%, transparent);
+  --group-hue: var(--tk-fill-purple);
+  --group-wash: 10%;
+  --group-hover: 20%;
 }
 
 .fillGroup[data-source='org'] {
-  background-color: color-mix(in srgb, var(--tk-fill-gold) 16%, transparent);
+  --group-hue: var(--tk-fill-gold);
+  --group-wash: 16%;
+  --group-hover: 30%;
 }
 
 .fillGroup[data-source='plugin'] {
-  background-color: color-mix(in srgb, var(--tk-text-2) 8%, transparent);
+  --group-hue: var(--tk-text-2);
+  --group-wash: 8%;
+  --group-hover: 16%;
+}
+
+/* Over the kit's blue sidebar hover, which that id-scoped rule sets. */
+@media (hover: hover) {
+  :global(#page-shell-sidebar) .fillGroup .item.item:hover:not([data-active]) {
+    background-color: color-mix(
+      in srgb,
+      var(--group-hue) var(--group-hover),
+      transparent
+    );
+  }
 }
 
 .fillSource {

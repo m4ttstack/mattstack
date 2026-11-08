@@ -4,6 +4,7 @@ import { NavLink, Stack, Text, UnstyledButton } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
 import { BackPill } from '../../nav/BackPill';
+import { titleIfCut } from '../graph/titleIfCut';
 import { useGraphFocus } from '../graph/useGraphFocus';
 import { KindBadge, LayerDots } from './BlockRow';
 import classes from './blocks.module.css';
@@ -37,7 +38,7 @@ function TreeRow({
           fz="md"
           fw={row.selected ? 500 : 400}
           truncate
-          title={row.label}
+          onMouseEnter={titleIfCut(row.label)}
         >
           {row.label}
         </Text>
