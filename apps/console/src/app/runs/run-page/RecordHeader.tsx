@@ -135,7 +135,7 @@ export function RecordHeader({
                           s.label
                         )
                       }
-                      size="h2"
+                      size="h3"
                       className={classes.stat}
                       data-stat={s.id}
                       data-parity={i > 0 ? STAT_LAYER[s.id] : undefined}
