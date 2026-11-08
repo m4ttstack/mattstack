@@ -166,7 +166,7 @@ export async function execWithTimeout(argv: string[], opts?: ExecOpts & { onStde
         : new Response(proc.stderr as ReadableStream).text();
     const collected = Promise.all([stdoutP, stderrP, proc.exited]);
 
-    const withSignal = (r: ExecResult): ExecResult => (proc.signalCode ? { ...r, signal: proc.signalCode } : r);
+    const withSignal = (r: ExecResult): ExecResult => (proc.signalCode ? { ...r, signal: String(proc.signalCode) } : r);
 
     if (!opts?.timeoutMs) {
       const [stdout, stderr, code] = await collected;

@@ -37,6 +37,7 @@
     "stories",
     ".storybook",
     "probe",
+    "packages/app-icons",
     "packages/gate-kit",
     "packages/glance",
     "packages/glance-react",
