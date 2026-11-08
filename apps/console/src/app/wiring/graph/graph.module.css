@@ -23,7 +23,7 @@
 
 .fillGroup {
   margin: 6px 0 8px 14px;
-  padding: 6px 8px;
+  padding: 8px;
   border-radius: var(--mantine-radius-md);
 }
 
@@ -65,7 +65,7 @@
 }
 
 .fillSource {
-  padding: 4px 8px 6px;
+  padding: 0 8px 6px;
 }
 
 .baseHead {
