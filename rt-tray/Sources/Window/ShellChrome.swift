@@ -35,12 +35,18 @@ enum ShellChrome {
 /// viewer takes the colour from the icon deck serves rather than keeping a
 /// second copy of each hue here.
 enum IconTint {
-    private static var cache: [ObjectIdentifier: Color] = [:]
+    private static var cache: [ObjectIdentifier: Color?] = [:]
 
     static func of(_ image: NSImage?) -> Color? {
         guard let image else { return nil }
         let key = ObjectIdentifier(image)
         if let hit = cache[key] { return hit }
+        let tint = sample(image)
+        cache[key] = tint
+        return tint
+    }
+
+    private static func sample(_ image: NSImage) -> Color? {
         guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
               let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
         var pixel = [UInt8](repeating: 0, count: 4)
@@ -57,9 +63,12 @@ enum IconTint {
             return true
         }
         guard drawn, pixel[3] > 200 else { return nil }
-        let tint = Color(red: Double(pixel[0]) / 255, green: Double(pixel[1]) / 255,
-                         blue: Double(pixel[2]) / 255)
-        cache[key] = tint
-        return tint
+        // Any other app's favicon has no tile: a white or black sample there
+        // would draw an underline the bar swallows or shouts with.
+        let channels = pixel[0..<3].map(Int.init)
+        let light = channels.reduce(0, +) / 3
+        guard (40...235).contains(light) else { return nil }
+        return Color(red: Double(pixel[0]) / 255, green: Double(pixel[1]) / 255,
+                     blue: Double(pixel[2]) / 255)
     }
 }

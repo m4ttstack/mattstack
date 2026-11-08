@@ -41,7 +41,7 @@ contrast gates.
 
 Chat's type ladder, Inter, radii, menus, dialogs and chrome (the pink bar,
 the sheet, the hue menu, the sidebar tints) are the kit's now; chat passes
-`hue="pink"` to `MattstackShell` and keeps no theme of its own. Never size
+`app="chat"` to `MattstackShell` and keeps no theme of its own. Never size
 text with a raw px or a Mantine size the ladder does not define.
 `design/spec.json` predates the Radix migration: its font sizes are historic
 reference, its colours are stale -- do not conform new work to its colour

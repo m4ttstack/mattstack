@@ -3,7 +3,11 @@ import { HTTPException } from 'hono/http-exception';
 
 import { daemonHealth, getSetting, setSetting } from '@mattstack/rt-client';
 import { canonicalHostRedirect } from './canonical-host';
-import { hasLocalOrigin, isLocalRequest } from './local-request';
+import {
+  hasLocalOrigin,
+  isLocalRequest,
+  type LocalServer,
+} from './local-request';
 import { shellHandoff as defaultShellHandoff } from './shell-handoff';
 
 const SCHEME_KEY = 'mattstack.colorScheme';
@@ -50,7 +54,10 @@ export function createApp({
     )
     .put('/api/color-scheme', async c => {
       const req = c.req.raw;
-      if (!isLocalRequest(req) || !hasLocalOrigin(req))
+      // Bun.serve hands Hono its server as the env; tests have none.
+      const env = c.env as Partial<LocalServer> | undefined;
+      const server = env?.requestIP ? (env as LocalServer) : undefined;
+      if (!isLocalRequest(req, server) || !hasLocalOrigin(req))
         return c.json({ error: 'local requests only' }, 403);
       const body = (await c.req.json().catch(() => ({}))) as {
         scheme?: unknown;

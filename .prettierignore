@@ -9,6 +9,7 @@ packages/tui-kit
 /packages/glance
 /packages/glance-react
 /apps/gitq
+/sites/home
 apps/*/design
 apps/board/skills/*/SKILL.md
 apps/board/skills/*/compiled.json
