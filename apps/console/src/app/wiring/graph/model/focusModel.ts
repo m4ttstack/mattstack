@@ -36,6 +36,8 @@ export type FocusItem = {
   fill?: true;
   /** The other pack this skill's file comes from. */
   from?: string;
+  /** That pack is the org's base, not a plugin. */
+  fromOrg?: true;
 };
 
 /** A skill folder as the Surface tab lists it. */
@@ -272,6 +274,7 @@ export function buildFocusGroups(
         handWritten: true,
         fill: true,
         from: fill.binding.slice(0, fill.binding.indexOf(':')),
+        ...(fill.origin === 'base' ? { fromOrg: true as const } : {}),
       };
     });
   const fills = [...handWritten.filter(item => item.fill), ...outsideFills];

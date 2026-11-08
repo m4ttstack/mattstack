@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import {
   ActionIcon,
   Alert,
+  Badge,
   Collapse,
   Group,
   NavLink,
@@ -174,9 +175,17 @@ function ItemRow({
       rightSection={
         item.attention ? (
           <AttentionDot />
+        ) : item.from && item.icon === 'lock' ? (
+          <Badge
+            size="sm"
+            color={item.fromOrg ? 'gold' : 'gray'}
+            data-testid="focus-from"
+          >
+            {item.from}
+          </Badge>
         ) : item.icon === 'lock' ? (
           <Text span fz="xs" lh="normal" c={MUTED}>
-            {item.from ?? 'off'}
+            off
           </Text>
         ) : undefined
       }
