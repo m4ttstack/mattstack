@@ -1128,7 +1128,7 @@ describe('RunDetail: finished run', () => {
     ]);
     expect(within(record).getByRole('tablist')).toHaveAttribute(
       'data-variant',
-      'outline'
+      'default'
     );
     expect(record.querySelector('[data-parity="Story label"]')).toBeNull();
     expect(within(record).queryByTestId('now-card')).toBeNull();

@@ -26,7 +26,7 @@ describe('switcherMetaOf', () => {
   it('says how a verb runs and how many blocks it has', () => {
     expect(switcherMetaOf(item(), null, 38)).toBe('on-demand · 38 blocks');
     expect(switcherMetaOf(item({ icon: 'fileText' }), null, 1)).toBe(
-      'internal verb · 1 block'
+      'command · off · 1 block'
     );
   });
 

@@ -60,14 +60,14 @@ describe('buildFocusGroups on the design pack', () => {
     ]);
   });
 
-  it('lists the standalone verbs, propless ones included, with internal ones locked, review and standup flagged', () => {
+  it('lists the standalone verbs, propless ones included, with internal ones off, review and standup flagged', () => {
     expect(
       groups.standalone.map(item => [item.label, item.key, item.icon])
     ).toEqual([
       ['shepherdr', 'shepherdr', 'squareTerminal'],
       ['review', 'review', 'squareTerminal'],
-      ['self-review', 'self-review', 'lock'],
-      ['receive-review', 'receive-review', 'lock'],
+      ['self-review', 'self-review', 'fileText'],
+      ['receive-review', 'receive-review', 'fileText'],
       ['ship', 'ship', 'squareTerminal'],
       ['watch-ci', 'watch-ci', 'squareTerminal'],
       ['checkout', 'checkout', 'squareTerminal'],

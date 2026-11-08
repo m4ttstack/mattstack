@@ -131,12 +131,11 @@ afterEach(() => {
 });
 
 describe('Graph tab: the page', () => {
-  it('heads the page Packs, with Overview, Config and Changes tabs', async () => {
+  it('has Overview, Config and Changes tabs', async () => {
     mockDesignPack();
     renderAt('?tab=graph');
     await focusList();
 
-    expect(screen.getByRole('heading', { name: 'Packs' })).toBeInTheDocument();
     expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual([
       'Overview',
       expect.stringMatching(/^Config/),
@@ -242,7 +241,7 @@ describe('Graph tab: the focus list', () => {
     expect(within(list).queryByTestId('focus-unwired')).toBeNull();
   });
 
-  it('names a public command as typed in Claude Code, and an internal verb by its name', async () => {
+  it('names a public command as typed in Claude Code, and a verb that is off by its name', async () => {
     mockDesignPack();
     renderAt('?tab=graph');
     const list = await focusList();
@@ -250,10 +249,10 @@ describe('Graph tab: the focus list', () => {
     expect(within(list).getByTestId('focus-shepherdr')).toHaveTextContent(
       /^\/acme:shepherdr$/
     );
-    const internal = within(list).getByTestId('focus-self-review');
-    expect(internal).toHaveTextContent('self-review');
-    expect(internal).toHaveTextContent('internal');
-    expect(internal).not.toHaveTextContent('/acme:');
+    const off = within(list).getByTestId('focus-self-review');
+    expect(off).toHaveTextContent('self-review');
+    expect(off).toHaveTextContent('off');
+    expect(off).not.toHaveTextContent('/acme:');
     // A stage the pipeline alone runs is never named as a command.
     expect(within(list).getByTestId('focus-stage-plan')).toHaveTextContent(
       /^2plan$/
@@ -563,12 +562,12 @@ describe('Graph tab: the focus header', () => {
     expect(within(header).getByText('on-demand')).toBeInTheDocument();
   });
 
-  it('calls a locked verb internal', async () => {
+  it('says a verb is off', async () => {
     mockDesignPack();
     renderAt('?tab=graph&focus=self-review');
     const header = await screen.findByTestId('focus-header');
 
-    expect(within(header).getByText('internal verb')).toBeInTheDocument();
+    expect(within(header).getByText('command · off')).toBeInTheDocument();
   });
 
   it('focuses the first pipeline when the URL names no focus', async () => {

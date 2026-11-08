@@ -447,7 +447,7 @@ describe('BlockView: a hand-written skill', () => {
     renderView({ focus: 'gadgets' }, { payload: tree, readOnly: true });
 
     expect(screen.getByTestId('read-only-note')).toHaveTextContent(
-      'Standard skill: read from its headings, not built from blocks.'
+      'Read from its headings, not built from blocks.'
     );
     expect(
       within(screen.getAllByTestId('section-band')[0])
@@ -578,7 +578,7 @@ describe('BlockView: Used by and History', () => {
       .getAllByTestId('built-from-row')
       .map(row => row.querySelector('[data-parity="f"]')?.textContent);
 
-  it("lists a block's History from its prop files, after one engine row", () => {
+  it("lists a block's History from its prop files, after its own row", () => {
     renderView(
       { focus: 'ship', block: 'ship/flow/domain-fast-checks' },
       { payload: shipPayload, context: shipContext }
@@ -590,9 +590,9 @@ describe('BlockView: Used by and History', () => {
       'ship-lint/base-checks.md',
       'ship-lint/fast-checks.md',
     ]);
-    const [engine] = screen.getAllByTestId('built-from-row');
-    expect(engine).toHaveTextContent('engine');
-    expect(engine).toHaveTextContent('mattstack 0.32.23');
+    const [own] = screen.getAllByTestId('built-from-row');
+    expect(own).toHaveTextContent('This block');
+    expect(own).toHaveTextContent('mattstack 0.32.23');
     expect(screen.queryByTestId('history-no-copy')).not.toBeInTheDocument();
   });
 
@@ -612,7 +612,7 @@ describe('BlockView: Used by and History', () => {
     );
 
     expect(
-      screen.getByRole('region', { name: 'Built from' })
+      screen.getByRole('region', { name: 'Files in this skill' })
     ).toBeInTheDocument();
     expect(screen.queryByTestId('history-heading')).not.toBeInTheDocument();
     expect(fileCells()).toContain('ship/index.block.md');
