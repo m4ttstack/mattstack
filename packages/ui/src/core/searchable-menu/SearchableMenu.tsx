@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import type { ComponentType, ElementType, ReactNode } from 'react';
 import {
   Badge,
@@ -65,6 +65,9 @@ export interface SearchableMenuProps<T extends Record<string, unknown>> {
   items: T[];
   itemTitle: (item: T) => string;
   itemSubtitle?: (item: T, filterKeyword?: string) => ReactNode;
+  /** Sections the list: a heading is drawn wherever this changes between
+      neighbours, so pass `items` already in group order. */
+  itemGroup?: (item: T) => string;
   /** Drawn right after an item's title, on the same line (a tag such as
       "your team"). */
   itemTitleSuffix?: (item: T) => ReactNode;
@@ -128,6 +131,7 @@ export function SearchableMenu<T extends Record<string, unknown>>({
   itemTitle,
   itemSubtitle,
   itemTitleSuffix,
+  itemGroup,
   isSelectedItem,
   showItemBadge,
   itemBadgeText,
@@ -251,6 +255,21 @@ export function SearchableMenu<T extends Record<string, unknown>>({
     );
   };
 
+  const renderGroupedItem = (item: T, index: number) => {
+    const group = itemGroup?.(item);
+    const previous = filteredItems[index - 1];
+    const startsGroup =
+      group !== undefined &&
+      (previous === undefined || itemGroup?.(previous) !== group);
+    if (!startsGroup) return renderMenuItem(item, index);
+    return (
+      <Fragment key={`group-${group}`}>
+        <Menu.Label>{group}</Menu.Label>
+        {renderMenuItem(item, index)}
+      </Fragment>
+    );
+  };
+
   return (
     <Menu
       opened={opened}
@@ -331,7 +350,7 @@ export function SearchableMenu<T extends Record<string, unknown>>({
         ) : (
           <VirtualList
             items={filteredItems}
-            renderRow={renderMenuItem}
+            renderRow={renderGroupedItem}
             estimateSize={() => 70}
             maxHeight="70dvh"
             minHeight="100px"

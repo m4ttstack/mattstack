@@ -67,6 +67,7 @@ export function WiringMap() {
 
   const snapshot = useCompositionSnapshot(pack);
   const base = snapshot.data?.extends ?? null;
+  const baseView = Boolean(url.base && base && url.tab === 'graph');
   const who = useViewer();
   const org = who?.org ?? null;
   const viewer = who?.viewer ?? null;
@@ -160,6 +161,8 @@ export function WiringMap() {
       ]
     : [];
 
+  // An org base pack is only read: Config and Changes are a team pack's.
+  const shownTabs = baseView ? tabs.filter(tab => tab.id === 'graph') : tabs;
   const graphPack = url.tab === 'graph' ? pack : null;
   const historyPack = url.tab === 'history' ? pack : null;
   // A pack whose skills failed to load has nothing to list; the stage says why.
@@ -175,20 +178,27 @@ export function WiringMap() {
           {pack && <ScopeSlash />}
         </>
       )}
-      {packs.length > 1 && pack && teamPacks.length > 0 && (
+      {(packs.length > 1 || base) && pack && teamPacks.length > 0 && (
         // A team's pack carries the team's name, so this is settings' own
         // team menu over the team packs: picking your team (null) reads yours.
         <TeamMenu
           teams={teamPacks}
           owners={viewer?.owners ?? {}}
           ownTeam={viewer?.team ?? null}
-          team={teamPacks.includes(pack) ? pack : null}
+          team={!baseView && teamPacks.includes(pack) ? pack : null}
           onPick={team =>
-            patch({ pack: team ?? viewer?.team ?? teamPacks[0] ?? pack })
+            patch({
+              pack: team ?? viewer?.team ?? teamPacks[0] ?? pack,
+              base: false,
+              focus: null,
+            })
           }
+          orgPacks={base ? [base.name] : []}
+          orgPack={baseView && base ? base.name : null}
+          onPickOrg={() => patch({ tab: 'graph', base: true, focus: null })}
         />
       )}
-      {packs.length === 1 && pack && (
+      {packs.length === 1 && pack && !base && (
         <Group gap={7} wrap="nowrap" data-testid="pack-name">
           <Icons.package size={14} />
           <Text fz={14} fw={500} maw={168} truncate title={pack}>
@@ -196,22 +206,14 @@ export function WiringMap() {
           </Text>
         </Group>
       )}
-      {pack && base && (
+      {pack && base && !baseView && (
         <Badge
-          component="button"
-          type="button"
           size="sm"
           variant="filled"
           color="gold"
           className={graphClasses.extendsPill}
-          title={`See everything in the org's ${base.name} base pack`}
-          aria-pressed={Boolean(url.base)}
+          title={`This pack's fills and shared attachments come partly from the org's ${base.name} base pack.`}
           data-testid="pack-extends"
-          onClick={() =>
-            url.base
-              ? patch({ base: false, focus: null })
-              : patch({ tab: 'graph', base: true, focus: null })
-          }
         >
           {`extends ${base.name}`}
         </Badge>
@@ -277,7 +279,10 @@ export function WiringMap() {
             </PageShell.Sidebar>
           )}
           <PageShell.Main>
-            <PageShell.TabBar tabs={tabs} actions={actions} />
+            <PageShell.TabBar
+              tabs={shownTabs}
+              actions={baseView ? undefined : actions}
+            />
             {pack && url.tab !== 'history' && (
               <UnsyncedToast
                 key={pack}
