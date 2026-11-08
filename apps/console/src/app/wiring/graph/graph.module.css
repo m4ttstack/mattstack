@@ -39,18 +39,26 @@
   --group-hue: var(--tk-fill-purple);
   --group-wash: 10%;
   --group-hover: 20%;
+  --group-ink: var(--tk-text-purple);
 }
 
 .fillGroup[data-source='org'] {
   --group-hue: var(--tk-fill-gold);
   --group-wash: 16%;
   --group-hover: 30%;
+  --group-ink: var(--tk-text-gold);
 }
 
 .fillGroup[data-source='plugin'] {
   --group-hue: var(--tk-text-2);
   --group-wash: 8%;
   --group-hover: 16%;
+  --group-ink: var(--tk-text-2);
+}
+
+.fillGroup .item [data-parity='i'] {
+  color: var(--group-ink);
+  stroke: var(--group-ink);
 }
 
 /* Over the kit's blue sidebar hover, which that id-scoped rule sets. */

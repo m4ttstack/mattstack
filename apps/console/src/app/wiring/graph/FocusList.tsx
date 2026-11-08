@@ -176,7 +176,7 @@ function ItemRow({
       rightSection={
         item.attention ? (
           <AttentionDot />
-        ) : item.icon === 'lock' && !item.from ? (
+        ) : item.icon === 'fileText' && !item.fill && !item.from ? (
           <Text span fz="xs" lh="normal" c={MUTED}>
             off
           </Text>

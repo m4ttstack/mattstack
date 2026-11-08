@@ -12,7 +12,7 @@ import {
 } from '../../outline';
 
 export type FocusIcon =
-  'workflow' | 'squareTerminal' | 'lock' | 'layoutDashboard' | 'fileText';
+  'workflow' | 'squareTerminal' | 'layoutDashboard' | 'fileText';
 
 export type FocusItem = {
   key: string;
@@ -147,7 +147,7 @@ export function buildFocusGroups(
       key: skill,
       label: skill,
       skill,
-      icon: entry.invocable ? 'squareTerminal' : 'lock',
+      icon: entry.invocable ? 'squareTerminal' : 'fileText',
       step: null,
       attention: attentionOf(entry, skill),
       children: [],
@@ -245,7 +245,7 @@ export function buildFocusGroups(
       key: row.name,
       label: row.name,
       skill: row.name,
-      icon: row.status === 'public' ? 'squareTerminal' : 'lock',
+      icon: row.status === 'public' ? 'squareTerminal' : 'fileText',
       step: null,
       attention: false,
       children: [],
@@ -266,7 +266,7 @@ export function buildFocusGroups(
         key: name,
         label: name,
         skill: name,
-        icon: 'lock',
+        icon: 'fileText',
         step: null,
         attention: false,
         children: [],

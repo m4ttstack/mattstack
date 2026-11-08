@@ -46,7 +46,7 @@ export function kindOf(item: FocusItem, pipeline: FocusItem | null): string {
   if (item.icon === 'layoutDashboard') return 'board skill';
   if (item.fill) return 'fill';
   const kind = item.handWritten ? 'reference skill' : 'command';
-  return item.icon === 'lock' ? `${kind} · off` : kind;
+  return item.icon === 'fileText' && !item.from ? `${kind} · off` : kind;
 }
 
 /**
