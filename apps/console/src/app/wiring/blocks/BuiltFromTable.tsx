@@ -1,4 +1,5 @@
 import {
+  Anchor,
   Badge,
   Group,
   Paper,
@@ -9,6 +10,7 @@ import {
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
+import { useWiringUrl } from '../graph/useWiringUrl';
 import layerClasses from './blocks.module.css';
 import classes from './history.module.css';
 import type { BuiltFromRow, FileStatus } from './model/history';
@@ -18,6 +20,12 @@ const BODY = 'var(--tk-text-1)';
 const OK_GLYPH = 'var(--tk-text-ok-vivid)';
 
 const CELLS = { th: classes.cell, td: classes.cell };
+
+const ROLE_COLOR: Record<BuiltFromRow['layer'], string> = {
+  mattstack: 'gray',
+  org: 'gold',
+  team: 'purple',
+};
 
 function Status({ status }: { status: FileStatus }) {
   if (status === 'changed')
@@ -40,9 +48,25 @@ function Status({ status }: { status: FileStatus }) {
   );
 }
 
+/** The skill a row's file is the whole of, when that skill has a page here:
+    the pack's own, or a fill from another pack. */
+const pageOf = (row: BuiltFromRow, outsideFills: ReadonlySet<string>) => {
+  const skill = /^([^/]+)\/SKILL\.md$/.exec(row.file)?.[1] ?? null;
+  if (row.kind === 'pack text') return skill;
+  return skill && outsideFills.has(skill) ? skill : null;
+};
+
 /** The files a compiled skill was built from: the version each was built
     with, the one installed now, and whether its content changed since. */
-export function BuiltFromTable({ rows }: { rows: BuiltFromRow[] }) {
+export function BuiltFromTable({
+  rows,
+  outsideFills = new Set(),
+}: {
+  rows: BuiltFromRow[];
+  /** Fills from other packs by name, which have pages in this list. */
+  outsideFills?: ReadonlySet<string>;
+}) {
+  const [, patch] = useWiringUrl();
   return (
     <Paper
       variant="soft-outline"
@@ -89,20 +113,59 @@ export function BuiltFromTable({ rows }: { rows: BuiltFromRow[] }) {
               data-testid="built-from-row"
             >
               <Table.Td>
-                <Stack gap={1}>
-                  <Text
-                    ff="monospace"
-                    fz={13}
-                    lh="normal"
-                    c={BODY}
-                    truncate
-                    data-parity="f"
-                  >
-                    {row.file}
-                  </Text>
-                  <Text fz={12} lh="normal" c={SECONDARY} data-parity="k">
-                    {row.kind}
-                  </Text>
+                <Stack gap={4}>
+                  <Group gap={8} wrap="nowrap">
+                    {pageOf(row, outsideFills) ? (
+                      <Anchor
+                        component="button"
+                        type="button"
+                        ff="monospace"
+                        fz={13}
+                        lh="normal"
+                        ta="left"
+                        miw={0}
+                        truncate
+                        data-parity="f"
+                        data-testid="built-from-open"
+                        onClick={() =>
+                          patch({
+                            focus: pageOf(row, outsideFills),
+                            block: null,
+                            select: null,
+                          })
+                        }
+                      >
+                        {row.file}
+                      </Anchor>
+                    ) : (
+                      <Text
+                        ff="monospace"
+                        fz={13}
+                        lh="normal"
+                        c={BODY}
+                        miw={0}
+                        truncate
+                        data-parity="f"
+                      >
+                        {row.file}
+                      </Text>
+                    )}
+                    {row.role && (
+                      <Badge
+                        size="sm"
+                        color={ROLE_COLOR[row.layer]}
+                        flex="none"
+                        data-testid="built-from-role"
+                      >
+                        {row.role}
+                      </Badge>
+                    )}
+                  </Group>
+                  {!row.role && (
+                    <Text fz={12} lh="normal" c={SECONDARY} data-parity="k">
+                      {row.kind}
+                    </Text>
+                  )}
                 </Stack>
               </Table.Td>
               <Table.Td>

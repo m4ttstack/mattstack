@@ -1,7 +1,7 @@
 /**
  * Before cutover: every page rt.cool ever served must redirect to a page the
  * new build has. Usage:
- *   bun scripts/check-rt-cool-redirects.ts [--sitemap <url|file>] [--build website/build]
+ *   bun scripts/check-rt-cool-redirects.ts [--sitemap <url|file>] [--build sites/docs/build]
  */
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
@@ -13,7 +13,7 @@ const opt = (name: string, dflt: string) => {
   return i >= 0 ? args[i + 1]! : dflt;
 };
 const sitemap = opt("--sitemap", "https://rt.cool/sitemap.xml");
-const build = opt("--build", "website/build");
+const build = opt("--build", "sites/docs/build");
 
 const fail = (reason: string): never => {
   console.error(reason);

@@ -11,6 +11,10 @@ export const EXAMPLES: Record<string, Example> = {
     good: ["matt", "Pat Smith"],
     bad: [{ value: "", path: [] }],
   },
+  "mattstack.colorScheme": {
+    good: ["auto", "light", "dark"],
+    bad: [{ value: "system", path: [] }],
+  },
   "chat.slackSupport.defaultRepo": {
     good: ["gitlab.com/acme/support", "github.com/acme/app"],
     bad: [

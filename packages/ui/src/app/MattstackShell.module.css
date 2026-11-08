@@ -1,0 +1,11 @@
+/* The app mark's frame: one size whatever artwork an app passes, so the mark
+   holds its place as the viewer moves between apps. */
+.mark {
+  flex: none;
+}
+
+.mark > * {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}

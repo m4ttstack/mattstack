@@ -1,4 +1,4 @@
-export const REFERENCE_ROOT = "website/docs/rt/reference";
+export const REFERENCE_ROOT = "sites/docs/docs/rt/reference";
 
 /**
  * Files under REFERENCE_ROOT that are hand-written, not generated.

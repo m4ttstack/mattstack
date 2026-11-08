@@ -80,7 +80,7 @@ function Axis({ axis }: { axis: DayAxis }) {
         {axis.now != null ? (
           <Text
             fz="sm"
-            fw={700}
+            fw={500}
             lh="normal"
             c="accent"
             className={classes.nowLabel}
@@ -155,7 +155,7 @@ function BarSegment({ bar, share }: { bar: Bar; share: number }) {
       >
         <Text
           fz="lg"
-          fw={700}
+          fw={500}
           lh="normal"
           c={TITLE_COLOR[bar.kind]}
           data-parity="h"
@@ -250,7 +250,7 @@ function Lane({
               component={Link}
               href={href}
               fz="md"
-              fw={700}
+              fw={500}
               lh="normal"
               className={classes.keep}
               data-parity="ticket"

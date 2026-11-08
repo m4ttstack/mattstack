@@ -174,7 +174,7 @@ export function StagePane({
       {heading ? (
         <Group gap={10} wrap="nowrap">
           <Bullet entry={entry} />
-          <Text fz="xl" fw={600} lh="normal" data-parity="name">
+          <Text fz="h3" fw={600} lh="normal" data-parity="name">
             {entry.label}
           </Text>
           {entry.durationMs != null ? (

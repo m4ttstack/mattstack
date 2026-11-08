@@ -68,7 +68,7 @@ function StepLine({
           className={classes.stepOpen}
           onClick={() => onOpen(row)}
         >
-          <Text span fz="md" fw={group ? 700 : 400} lh="normal">
+          <Text span fz="md" fw={group ? 500 : 400} lh="normal">
             {row.label}
           </Text>
         </UnstyledButton>
@@ -87,7 +87,7 @@ function StepLine({
       <Table.Td ta="right" c="dimmed">
         {compact(row.totals.cacheRead)}
       </Table.Td>
-      <Table.Td ta="right" fw={group ? 700 : 500}>
+      <Table.Td ta="right" fw={500}>
         {usd(row.totals.cost)}
       </Table.Td>
       <Table.Td className={classes.barCell}>
@@ -113,7 +113,7 @@ function SideCard({
 }) {
   return (
     <Paper variant="ground" withBorder radius={12} className={classes.card}>
-      <Text fz="md" fw={700} lh="normal" mb={12}>
+      <Text fz="md" fw={500} lh="normal" mb={12}>
         {title}
       </Text>
       <Stack gap={12}>
@@ -255,10 +255,10 @@ export function UsageMrPage({ mrKey }: { mrKey: string }) {
             {mr && counts ? (
               <>
                 <Group gap={10} wrap="nowrap" miw={0}>
-                  <Text fz="xl" fw={700} lh="normal" className={classes.name}>
+                  <Text fz="h3" fw={600} lh="normal" className={classes.name}>
                     {name}
                   </Text>
-                  <Text fz="xl" lh="normal" truncate>
+                  <Text fz="h3" lh="normal" truncate>
                     {title}
                   </Text>
                   <MrState state={state} number={number} url={mr.url} />

@@ -68,7 +68,7 @@ If you work with others, read
 | [`plugins/`](plugins) | The mattstack skills plugin and the herdr-chat plugin |
 | [`rt-tray/`](rt-tray) | The Swift menu bar app and the bundle build |
 | [`ui/`](ui) | The Go `rt-ui` helper that renders prompts, spinners and the runner board |
-| [`website/`](website) | The docs site published at docs.mattstack.dev |
+| [`sites/docs/`](sites/docs) | The docs site published at docs.mattstack.dev |
 
 ## Development
 

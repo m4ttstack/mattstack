@@ -10,6 +10,7 @@ import {
   isSharedTop,
   labelOf,
   rootOf,
+  subtreeDotsOf,
 } from './blockFacts';
 import type { Dot, Glyph } from './blockFacts';
 
@@ -67,7 +68,8 @@ export function sidebarRows(
       depth,
       label: labelOf(heading),
       glyph: glyphOf(payload, heading),
-      dots: dotsOf(block),
+      dots:
+        children.length > 0 ? subtreeDotsOf(payload, heading) : dotsOf(block),
       count: children.length > 0 ? children.length : null,
       open,
       selected: block.id === selectedId,
@@ -90,7 +92,9 @@ export function sidebarRows(
       depth: 0,
       label: 'Includes',
       glyph: 'shared',
-      dots: [],
+      dots: (['org', 'team'] as const).filter(dot =>
+        shared.some(block => subtreeDotsOf(payload, block).includes(dot))
+      ),
       count: shared.length,
       open,
       selected: selectedId === 'shared',

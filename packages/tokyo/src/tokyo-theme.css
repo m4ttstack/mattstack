@@ -30,6 +30,77 @@
   src: url('./fonts/jetbrains-mono.woff2') format('woff2');
 }
 
+/*
+ * Inter, the UI face: the system stack renders too light at the kit's 12 to
+ * 15px sizes on the soft surfaces. Vendored from @fontsource-variable/inter
+ * 5.3.0 (OFL, fonts/inter-LICENSE.txt), the latin and latin-ext variable
+ * faces with fontsource's own unicode ranges; other scripts fall through to
+ * the system stack after it.
+ */
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('./fonts/inter-latin-ext-wght-normal.woff2')
+    format('woff2-variations');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
+    U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB,
+    U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('./fonts/inter-latin-wght-normal.woff2') format('woff2-variations');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212,
+    U+2215, U+FEFF, U+FFFD;
+}
+
+/* `--tk-app-hue` is the app's own colour, one of the theme's fills, and
+   `--tk-app-ink-tint` the same hue's small-text step. MattstackShell sets
+   both from its `hue` (and the viewer's pick); the accent until it does.
+   The chrome mixes from them: a saturated bar, a pale tint for the sheet and
+   its sidebar, and that tint's line, hover and selected steps. */
+:root {
+  --tk-app-hue: var(--tk-fill-accent);
+  --tk-app-ink-tint: var(--tk-text-accent-small);
+  /* 76% in light and 70% in dark keep white at 5.3:1 and the bar's 90%
+     white secondary text at 4.6:1 or better on every hue. */
+  --tk-app-bar: color-mix(in srgb, var(--tk-app-hue) 76%, black);
+  --tk-app-ink: var(--tk-app-ink-tint);
+  /* An app mark's tile: a light step of the hue, clear of the bar. */
+  --tk-app-mark: color-mix(in srgb, var(--tk-app-hue) 55%, white);
+  --tk-app-ink-soft: color-mix(
+    in srgb,
+    var(--tk-app-ink) 72%,
+    var(--tk-app-chrome)
+  );
+  --tk-app-chrome: color-mix(in srgb, var(--tk-app-hue) 7%, var(--tk-card));
+  --tk-app-chrome-line: color-mix(in srgb, var(--tk-app-hue) 14%, transparent);
+  --tk-app-chrome-hover: color-mix(
+    in srgb,
+    var(--tk-app-hue) 6%,
+    var(--tk-app-chrome)
+  );
+  --tk-app-chrome-selected: color-mix(
+    in srgb,
+    var(--tk-app-hue) 14%,
+    var(--tk-app-chrome)
+  );
+}
+
+:root[data-mantine-color-scheme='dark'] {
+  --tk-app-bar: color-mix(in srgb, var(--tk-app-hue) 70%, black);
+  --tk-app-chrome: color-mix(in srgb, var(--tk-app-hue) 12%, var(--tk-bg));
+  --tk-app-ink: var(--tk-text-1);
+}
+
 /* `--tk-wash` is the translucent tint an active or alert surface lays over
    its background, as color-mix(in srgb, <token> var(--tk-wash), transparent):
    the accent wash on a selected room and an armed icon, the mention-of-you
@@ -488,15 +559,12 @@ body {
 }
 
 /*
- * The chrome ladder, Supabase model: the app's rail and site header sit on the
- * CHROME surface (--tk-chrome, the grey frame around the app), PageShell's own
- * sidebar and header on the CARD surface (white), and the route's content on the
- * PANEL surface, so its cards (white ground Papers) lift off it by fill alone.
- * Chrome is its own token so the
- * bg/panel/card elevation ladder stays ordered (bg < panel < card) -- panel is the
- * raised content surface, not the frame. Every kit consumer lays out the same way
- * by importing this file; without it the kit puts rail, header and sidebar on one
- * surface and the chrome reads flat.
+ * The chrome ladder, Slack model: the app's rail and site header are one bar
+ * in the app's hue (--tk-app-bar); the page sits on it as a rounded sheet
+ * whose sidebar takes the hue's pale tint (--tk-app-chrome), PageShell's
+ * header the CARD surface, and the route's content the PANEL surface, so its
+ * cards (white ground Papers) lift off it by fill alone. Every kit consumer
+ * lays out the same way by importing this file.
  *
  * `!important` for the same reason as the grid above: the kit sets these
  * backgrounds as inline styles. A Sidebar given its own `bg` carries
@@ -504,10 +572,124 @@ body {
  */
 .mantine-AppShell-header,
 .mantine-AppShell-navbar {
-  background-color: var(--tk-chrome) !important;
+  background-color: var(--tk-app-bar) !important;
+  border-color: transparent !important;
 }
 
-#page-shell-header,
-#page-shell-sidebar:not([data-own-surface]) {
+#page-shell-header {
   background-color: var(--tk-card) !important;
+}
+
+#page-shell-sidebar:not([data-own-surface]) {
+  background-color: var(--tk-app-chrome) !important;
+}
+
+/* The page's own text colours, resolved here at the root, so a surface
+   inside the bar can take them back. */
+:root {
+  --tk-page-text-1: var(--tk-text-1);
+  --tk-page-text-2: var(--tk-text-2);
+  --tk-page-text-3: var(--tk-text-3);
+  --tk-page-text-4: var(--tk-text-4);
+  --tk-page-mantine-text: var(--mantine-color-text);
+  --tk-page-mantine-dimmed: var(--mantine-color-dimmed);
+}
+
+/* The bar is the app's hue, so inside it every text token turns white and
+   its controls sit on translucent black, brightening to translucent white
+   under the pointer (never the theme's grey). A dropdown rendered inside the
+   bar (`withinPortal={false}`) is a page surface: it takes the page's text
+   back and none of the bar's control rules. */
+.mantine-AppShell-header,
+.mantine-AppShell-navbar {
+  color: white;
+  --tk-text-1: white;
+  --tk-text-2: rgb(255 255 255 / 90%);
+  --tk-text-3: rgb(255 255 255 / 90%);
+  --tk-text-4: rgb(255 255 255 / 90%);
+  --mantine-color-text: white;
+  --mantine-color-dimmed: rgb(255 255 255 / 90%);
+}
+
+:is(.mantine-AppShell-header, .mantine-AppShell-navbar)
+  :is(
+    .mantine-Popover-dropdown,
+    .mantine-Menu-dropdown,
+    .mantine-HoverCard-dropdown,
+    .mantine-Combobox-dropdown
+  ) {
+  color: var(--tk-page-text-1);
+  --tk-text-1: var(--tk-page-text-1);
+  --tk-text-2: var(--tk-page-text-2);
+  --tk-text-3: var(--tk-page-text-3);
+  --tk-text-4: var(--tk-page-text-4);
+  --mantine-color-text: var(--tk-page-mantine-text);
+  --mantine-color-dimmed: var(--tk-page-mantine-dimmed);
+}
+
+.mantine-AppShell-header
+  :is(.mantine-Button-root, .mantine-Badge-root, .mantine-Input-input):not(
+    :is(
+        .mantine-Popover-dropdown,
+        .mantine-Menu-dropdown,
+        .mantine-HoverCard-dropdown,
+        .mantine-Combobox-dropdown
+      )
+      *
+  ) {
+  background: rgb(0 0 0 / 22%);
+  border-color: transparent;
+  color: white;
+}
+
+.mantine-AppShell-header
+  :is(
+    .mantine-Input-section,
+    .mantine-ActionIcon-root,
+    .mantine-UnstyledButton-root
+  ):not(
+    :is(
+        .mantine-Popover-dropdown,
+        .mantine-Menu-dropdown,
+        .mantine-HoverCard-dropdown,
+        .mantine-Combobox-dropdown
+      )
+      *
+  ),
+.mantine-AppShell-navbar
+  .mantine-ActionIcon-root:not(
+    :is(
+        .mantine-Popover-dropdown,
+        .mantine-Menu-dropdown,
+        .mantine-HoverCard-dropdown,
+        .mantine-Combobox-dropdown
+      )
+      *
+  ) {
+  color: white;
+}
+
+.mantine-AppShell-header
+  :is(button:hover, [data-expanded]):not(
+    :is(
+        .mantine-Popover-dropdown,
+        .mantine-Menu-dropdown,
+        .mantine-HoverCard-dropdown,
+        .mantine-Combobox-dropdown
+      )
+      *
+  ) {
+  background: rgb(255 255 255 / 24%) !important;
+  color: white;
+}
+
+/* A select's chevron reads in the bar's ink; a pressed toggle in the bar
+   holds the hover's fill, so on looks like the state it is. */
+.mantine-AppShell-header .mantine-ComboboxChevron-chevron {
+  color: rgb(255 255 255 / 90%);
+}
+
+.mantine-AppShell-header [aria-pressed='true'] {
+  background: rgb(255 255 255 / 24%) !important;
+  color: white;
 }

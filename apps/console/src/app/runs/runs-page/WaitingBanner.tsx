@@ -41,7 +41,7 @@ export function WaitingBanner({
       head={
         <>
           <Glyph name="hand" size={14} color="bad" data-parity="hand" />
-          <Text fz="md" fw={700} lh="normal" c="bad" data-parity="title">
+          <Text fz="md" fw={500} lh="normal" c="bad" data-parity="title">
             Waiting on you
           </Text>
           <Text fz="md" lh="normal" c="bad" data-parity="gate">
@@ -61,7 +61,7 @@ export function WaitingBanner({
             {ticket ? (
               <Text
                 fz="lg"
-                fw={700}
+                fw={500}
                 lh="normal"
                 c="accent"
                 data-parity="ticket"
@@ -74,7 +74,7 @@ export function WaitingBanner({
             </Text>
           </Group>
           {question ? (
-            <Text fz="xl" fw={500} lh="normal" data-parity="q">
+            <Text fz="h3" fw={500} lh="normal" data-parity="q">
               {question.label}
             </Text>
           ) : null}

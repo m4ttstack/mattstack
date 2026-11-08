@@ -423,6 +423,14 @@ const ROWS: readonly SettingDef[] = [
     description: "Absolute path to the installed mattstack.app bundle, written by the app at launch so rt stops hardcoding ~/Applications.",
   },
   {
+    key: "mattstack.colorScheme",
+    type: "string",
+    scopes: ["machine"],
+    default: "auto",
+    merge: "replace",
+    description: "Light, dark or auto (follow the Mac) for every mattstack app on this Mac: board, boxscore, chat and console. Changing it in one app's scheme control changes it in all of them.",
+  },
+  {
     key: "setup.waived",
     type: "array",
     scopes: ["machine"],

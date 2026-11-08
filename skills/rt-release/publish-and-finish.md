@@ -378,7 +378,7 @@ line fails, say so in the gate: the fix is on that project, not the docs deploy.
 
 `scripts/deploy-docs.sh` builds the site and deploys it with `wrangler deploy` to the Cloudflare
 Worker `mattstack-docs`, which serves the build as static assets on its custom domain
-docs.mattstack.dev. `website/wrangler.jsonc` holds the Worker's config, domain included, so the
+docs.mattstack.dev. `sites/docs/wrangler.jsonc` holds the Worker's config, domain included, so the
 deploy attaches the domain itself. The one setup it needs is wrangler auth (`wrangler login` or
 `CLOUDFLARE_API_TOKEN`), as the script's header describes. Quote what is missing and give Matt
 that step; never log in for him. Take: Matt deployed the docs site himself. Iterate: Matt did the setup, and the deploy runs again.

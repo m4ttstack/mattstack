@@ -28,10 +28,7 @@ export function SettingsEmbedModal({
       onClose={onClose}
       title={title}
       size={920}
-      styles={{
-        body: { paddingRight: 0 },
-        title: { fontSize: 'var(--mantine-font-size-lg)', fontWeight: 600 },
-      }}
+      styles={{ body: { paddingRight: 0 } }}
     >
       {opened && <SettingsFrame {...frame} title={title} onClose={onClose} />}
     </Modal>

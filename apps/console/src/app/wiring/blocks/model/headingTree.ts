@@ -68,9 +68,23 @@ function frontmatterEnd(lines: string[]): number {
 }
 
 function descriptionOf(frontmatter: string[]): string | null {
-  for (const line of frontmatter) {
+  for (const [index, line] of frontmatter.entries()) {
     const value = /^description:\s*(.*)$/.exec(line)?.[1]?.trim();
-    if (value) return value.replace(/^(['"])(.*)\1$/, '$2');
+    if (!value) continue;
+    // A YAML block scalar (`>-`, `|`) carries its text on the indented lines
+    // under the key.
+    if (/^[>|][+-]?$/.test(value)) {
+      const rest = frontmatter.slice(index + 1);
+      const end = rest.findIndex(next => next.trim() && !/^\s/.test(next));
+      const block = end === -1 ? rest : rest.slice(0, end);
+      return (
+        block
+          .map(next => next.trim())
+          .filter(Boolean)
+          .join(' ') || null
+      );
+    }
+    return value.replace(/^(['"])(.*)\1$/, '$2');
   }
   return null;
 }
@@ -139,7 +153,8 @@ function blockOf(
 export function headingTree(
   skillMd: string,
   skill: string,
-  path = ''
+  path = '',
+  companions: readonly { path: string; content: string }[] = []
 ): BlocksPayload {
   const lines = skillMd.split('\n');
   const fmEnd = frontmatterEnd(lines);
@@ -194,6 +209,27 @@ export function headingTree(
     });
     blocks.push(block);
     stack.push({ level: heading.level, block });
+  }
+
+  // A file beside SKILL.md is one block of its own, whatever its headings.
+  for (const companion of companions) {
+    const name = companion.path.split('/').pop()?.replace(/\.md$/, '') ?? '';
+    const body = companion.content.split('\n');
+    let id = `${root.id}/${slugOf(name)}`;
+    for (let n = 2; taken.has(id); n++) id = `${root.id}/${slugOf(name)}-${n}`;
+    taken.add(id);
+    blocks.push(
+      blockOf({
+        id,
+        parentId: root.id,
+        depth: 1,
+        title: name,
+        label: name,
+        path: companion.path,
+        lines: [1, body.length],
+        body,
+      })
+    );
   }
 
   return {

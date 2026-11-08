@@ -6,7 +6,7 @@ type DataAttributes = { [key: `data-${string}`]: string | undefined };
 export interface StatProps extends DataAttributes {
   value: ReactNode;
   label: ReactNode;
-  /** The number's size: `xl` in a card's totals, `h2` in a record's hero. */
+  /** The number's size: `h3` in a card's totals, `h2` in a record's hero. */
   size?: MantineFontSize;
   className?: string;
 }
@@ -15,13 +15,13 @@ export interface StatProps extends DataAttributes {
 export function Stat({
   value,
   label,
-  size = 'xl',
+  size = 'h3',
   className,
   ...data
 }: StatProps) {
   return (
     <Stack gap={2} miw={0} className={className} {...data}>
-      <Text fz={size} fw={700} lh="normal" data-parity="value">
+      <Text fz={size} fw={600} lh="normal" data-parity="value">
         {value}
       </Text>
       <Text fz="md" lh="normal" data-parity="label">

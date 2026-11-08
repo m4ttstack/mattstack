@@ -2,7 +2,7 @@
 # Build the mattstack docs site and deploy it to the Cloudflare Worker
 # mattstack-docs, which serves build/ as static assets on docs.mattstack.dev.
 # The Worker's name, assets, routing and custom domain live in
-# website/wrangler.jsonc, and wrangler is pinned in website/package.json.
+# sites/docs/wrangler.jsonc, and wrangler is pinned in sites/docs/package.json.
 #
 # One-time setup (maintainer, outside this script):
 #   Authenticate wrangler: `wrangler login`, or set CLOUDFLARE_API_TOKEN.
@@ -22,7 +22,7 @@ case "$#:${1:-}" in
 esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT/website"
+cd "$ROOT/sites/docs"
 
 echo "==> Building site"
 bun install --frozen-lockfile

@@ -260,6 +260,8 @@ describe('RunSearch: chrome', () => {
     const heading = document.querySelector(
       '#page-shell-header h2'
     ) as HTMLElement;
-    expect(heading.style.getPropertyValue('--title-fz')).toContain('h5');
+    expect(heading.style.getPropertyValue('--title-fz')).toContain(
+      'font-size-lg'
+    );
   });
 });

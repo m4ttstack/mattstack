@@ -228,7 +228,6 @@ export function UnsyncedActions({
   const trial = changes.trialBranch ?? null;
   const sync_ = (
     <Button
-      color="accent"
       // The diff's 41px head wants the compact size; the Config bar has room.
       size={publishOnly ? 'xs' : 'compact-sm'}
       radius={6}

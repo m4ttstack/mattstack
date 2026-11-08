@@ -86,14 +86,14 @@ function MrRow({
               <Text
                 span
                 fz="md"
-                fw={700}
+                fw={500}
                 lh="normal"
                 className={classes.ticket}
               >
                 {row.ticket}
               </Text>
             ) : null}
-            <Text span fz="md" fw={row.ticket ? 400 : 700} lh="normal" truncate>
+            <Text span fz="md" fw={row.ticket ? 400 : 500} lh="normal" truncate>
               {title ?? row.branch ?? number}
             </Text>
           </span>
@@ -120,7 +120,7 @@ function MrRow({
       <Text role="cell" fz="sm" c="dimmed" ta="right">
         {compact(row.totals.cacheRead)}
       </Text>
-      <Text role="cell" fz="sm" fw={700} ta="right">
+      <Text role="cell" fz="sm" fw={500} ta="right">
         {usd(row.totals.cost)}
       </Text>
       <div role="cell" className={classes.chevron}>

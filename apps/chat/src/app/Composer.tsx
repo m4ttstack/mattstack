@@ -666,7 +666,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
                 loading={sending}
                 onClick={() => void send()}
                 variant="filled"
-                color="accent"
                 radius="xl"
                 size={phone ? 32 : compact ? 26 : 30}
                 className={classes.send}

@@ -16,7 +16,7 @@
 }
 
 .switchKeyTerm {
-  font-weight: 600;
+  font-weight: 500;
   color: var(--tk-text-1);
 }
 
@@ -84,7 +84,7 @@
 
 .groupTitle {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--tk-text-1);
 }
 

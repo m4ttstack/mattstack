@@ -41,6 +41,7 @@ import {
   Monitor,
   Moon,
   Package,
+  Palette,
   PanelLeft,
   PanelLeftOpen,
   Pencil,
@@ -144,6 +145,7 @@ const FeedbackIcons = {
 const MiscIcons = {
   layers: /* @__PURE__ */ lucideWrapperFn(Layers),
   package: /* @__PURE__ */ lucideWrapperFn(Package),
+  palette: /* @__PURE__ */ lucideWrapperFn(Palette),
   wrench: /* @__PURE__ */ lucideWrapperFn(Wrench),
   // Dev tools / experimental sections, which otherwise land on `wrench` or
   // `layers` and read as settings or stacking.

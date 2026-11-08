@@ -511,7 +511,7 @@ export function GraphPage({
     >
       <Trail items={trail} testId="graph-trail" />
       <div className={classes.mapHead}>
-        <Title order={3} fz={22} lh="normal" c="var(--tk-text-1)">
+        <Title order={3} fz={20} lh="normal" c="var(--tk-text-1)">
           {title}
         </Title>
         <Text fz={13} lh="normal" c="dimmed">

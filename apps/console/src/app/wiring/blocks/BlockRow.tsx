@@ -138,11 +138,7 @@ export function BlockRow({
             className={classes.rowCaret}
             data-hidden={!expanded || undefined}
           />
-          {row.glyph === 'shared' ? (
-            <span aria-hidden />
-          ) : (
-            <KindBadge glyph={row.glyph} />
-          )}
+          <KindBadge glyph={row.glyph} />
           <span className={classes.rowText}>
             <span className={classes.rowLabel}>{row.label}</span>
           </span>

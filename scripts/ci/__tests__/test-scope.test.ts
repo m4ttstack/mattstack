@@ -103,7 +103,7 @@ describe("decide", () => {
   test.each([
     ["AGENTS.md"],
     ["docs/release-and-distribution.md"],
-    ["website/docs/apps/board-guide.mdx"],
+    ["sites/docs/docs/apps/board-guide.mdx"],
     ["apps/chat/package.json"],
     ["apps/console/AGENTS.md"],
     ["plugins/mattstack/skills/a/SKILL.md"],
@@ -420,7 +420,7 @@ describe("rt changes that affect a plugin", () => {
 
 describe("websiteChanged", () => {
   test("site, generator and command tree changes build the site", () => {
-    expect(websiteChanged(["website/docs/rt/index.mdx"])).toBe(true);
+    expect(websiteChanged(["sites/docs/docs/rt/index.mdx"])).toBe(true);
     expect(websiteChanged(["scripts/gen-docs.ts"])).toBe(true);
     expect(websiteChanged(["scripts/lib/docs-render.ts"])).toBe(true);
     expect(websiteChanged(["scripts/gen-rt-cool-redirects.ts"])).toBe(true);
@@ -687,15 +687,15 @@ describe("e2e reach", () => {
 
 describe("the docs site and prose", () => {
   test("a website-only PR skips the unit shards, even a page a test names as data", () => {
-    // scripts/__tests__/docs-impact.test.ts names website/docs/apps/board.mdx as an input.
-    const changed = ["website/docs/apps/board.mdx", "website/docs/apps/flock-guide.mdx", "website/sidebars.ts", "website/package.json"];
+    // scripts/__tests__/docs-impact.test.ts names sites/docs/docs/apps/board.mdx as an input.
+    const changed = ["sites/docs/docs/apps/board.mdx", "sites/docs/docs/apps/flock-guide.mdx", "sites/docs/sidebars.ts", "sites/docs/package.json"];
     expect(decide(prInput(changed)).mode).toBe("skip");
   });
   test("mdx is docs", () => {
     expect(decide(pr(["docs/guide.mdx"])).mode).toBe("skip");
   });
   test("website beside rt code runs --changed", () => {
-    expect(decide(pr(["website/docs/rt/index.mdx", "lib/x.ts"])).mode).toBe("changed");
+    expect(decide(pr(["sites/docs/docs/rt/index.mdx", "lib/x.ts"])).mode).toBe("changed");
   });
 });
 
@@ -841,7 +841,7 @@ describe("jobsFor", () => {
   });
 
   test("a website-only PR builds the site and nothing else", () => {
-    expect(jobsFor("pull_request", ["website/docs/apps/board.mdx", "website/sidebars.ts", "website/package.json"])).toEqual({
+    expect(jobsFor("pull_request", ["sites/docs/docs/apps/board.mdx", "sites/docs/sidebars.ts", "sites/docs/package.json"])).toEqual({
       ...none,
       website: true,
     });

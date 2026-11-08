@@ -36,7 +36,7 @@ test("cleanGenerated is a no-op when the dir does not exist", () => {
 });
 
 test("the reference root is the rt tab's reference folder", () => {
-  expect(REFERENCE_ROOT).toBe("website/docs/rt/reference");
+  expect(REFERENCE_ROOT).toBe("sites/docs/docs/rt/reference");
 });
 
 test("hand-written reference files survive a clean at the reference root", () => {

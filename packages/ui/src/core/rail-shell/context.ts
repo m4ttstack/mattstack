@@ -13,6 +13,14 @@ import { createContext, useContext } from 'react';
  */
 export interface RailShellContextValue {
   headerHeight: number;
+  /** Set when the page sits on the bar as an inset sheet: the gap kept
+   *  clear around it, and its left gap (none beside a rail). */
+  sheet?: RailShellSheet;
+}
+
+export interface RailShellSheet {
+  inset: number;
+  left: number;
 }
 
 export const RailShellContext = /* @__PURE__ */ createContext<
@@ -25,4 +33,10 @@ export const RailShellContext = /* @__PURE__ */ createContext<
  */
 export function useRailShellHeaderHeight(): number | undefined {
   return useContext(RailShellContext)?.headerHeight;
+}
+
+/** The hosting chrome's sheet geometry, or `undefined` when the page fills
+ *  the frame edge to edge. */
+export function useRailShellSheet(): RailShellSheet | undefined {
+  return useContext(RailShellContext)?.sheet;
 }

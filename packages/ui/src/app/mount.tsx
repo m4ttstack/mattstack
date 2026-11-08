@@ -1,4 +1,4 @@
-import { StrictMode, type ReactNode } from 'react';
+import { StrictMode, useMemo, type ReactNode } from 'react';
 import {
   MantineProvider,
   mergeThemeOverrides,
@@ -12,6 +12,8 @@ import { ModalsProvider } from '@mattstack/app-kit/modals';
 import { Notifications } from '@mattstack/app-kit/notifications';
 
 import '@mattstack/app-kit/styles.css';
+
+import { useAppTone } from './app-tone';
 
 export interface MountOptions {
   /** Merged on top of the Tokyo theme. Colour NAMES cannot be added here; see app-colors.ts. */
@@ -44,20 +46,44 @@ export function mountMattstackApp(
   const root = createRoot(container);
   root.render(
     <StrictMode>
-      <MantineProvider
-        theme={theme}
-        defaultColorScheme="auto"
-        forceColorScheme={opts.forceColorScheme}
-      >
+      <AppThemeProvider theme={theme} opts={opts}>
         <ModalsProvider>
           {node}
           <Notifications
             notificationMaxHeight={opts.notificationMaxHeight ?? 400}
           />
         </ModalsProvider>
-      </MantineProvider>
+      </AppThemeProvider>
     </StrictMode>
   );
   markMounted();
   return root;
+}
+
+/** The provider, with the app's hue as the theme's primary colour once the
+    shell has named it, so a primary button or any colourless control takes
+    the app's colour. */
+function AppThemeProvider({
+  theme,
+  opts,
+  children,
+}: {
+  theme: MantineThemeOverride;
+  opts: MountOptions;
+  children: ReactNode;
+}) {
+  const tone = useAppTone();
+  const themed = useMemo(
+    () => (tone ? mergeThemeOverrides(theme, { primaryColor: tone }) : theme),
+    [theme, tone]
+  );
+  return (
+    <MantineProvider
+      theme={themed}
+      defaultColorScheme="auto"
+      forceColorScheme={opts.forceColorScheme}
+    >
+      {children}
+    </MantineProvider>
+  );
 }

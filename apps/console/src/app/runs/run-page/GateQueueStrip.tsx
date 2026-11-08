@@ -70,7 +70,7 @@ function Strip({ queue, now }: GateQueueStripProps) {
       head={
         <>
           <Glyph name="hand" size={14} color="bad" />
-          <Text fz="md" fw={700} lh="normal" c="bad">
+          <Text fz="md" fw={500} lh="normal" c="bad">
             {queue.length} waiting on other runs
           </Text>
           <Group gap={6} wrap="wrap" className={classes.chips}>
@@ -87,7 +87,7 @@ function Strip({ queue, now }: GateQueueStripProps) {
                   classNames={{ root: classes.chip }}
                 >
                   {ticket ? (
-                    <Text span fz="sm" fw={700} c="accent" mr={6}>
+                    <Text span fz="sm" fw={500} c="accent" mr={6}>
                       {ticket}
                     </Text>
                   ) : null}

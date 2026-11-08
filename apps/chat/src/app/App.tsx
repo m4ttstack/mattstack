@@ -14,11 +14,9 @@ import {
   Center,
   Group,
   PageShell,
-  PaneResizer,
   Stack,
   Text,
   usePageShellContext,
-  usePaneWidth,
 } from '@mattstack/app-kit/core';
 import { useIsMobile } from '@mattstack/app-kit/hooks';
 import { notifications } from '@mattstack/app-kit/notifications';
@@ -32,10 +30,8 @@ import { useLocation } from 'wouter';
 import { navigate } from 'wouter/use-browser-location';
 
 import { FaceGroup } from './AgentName';
-import classes from './app.module.css';
 import { BuddiesProvider } from './buddies-context';
 import { RailSkeleton, RoomSkeleton, TitleSkeleton } from './ChatSkeleton';
-import { AppMark } from './chrome/AppMark';
 import { Composer, type ComposerHandle } from './Composer';
 import { PageShellDemoPage } from './demo/PageShellDemoPage';
 import { DIRECT_PATH, isMine, waitingCount } from './direct';
@@ -58,7 +54,6 @@ import {
   useSlackChats,
 } from './slack-chats-context';
 import { SlackOpeningNote } from './SlackOpeningNote';
-import { ThemeColorButton } from './ThemeColor';
 import { PAGE_SIZE, Transcript } from './Transcript';
 import { latestActiveRoom, visibleRooms } from './visible-rooms';
 
@@ -72,12 +67,6 @@ export type Buddy = RosterBuddy;
 
 const SIDEBAR_BOUNDS = { initial: 340, min: 260, max: 520 };
 const PAGE_ROW_HEIGHT = 52;
-const SHELL_HEADER_HEIGHT = 48;
-/** Matches the sheet's margin in app.module.css; PageShell takes it off the
-    content height through its top offset. */
-const SHEET_INSET = 8;
-/** The top bar and sidebar are one surface; the room sits on it as a sheet. */
-const CHROME_SURFACE = 'var(--chat-chrome)';
 
 /**
  * Seeds the app's data instead of a network call -- every UI test in this
@@ -515,175 +504,145 @@ function ChatPage({
 }: ChatPageProps) {
   const isMobile = useIsMobile();
   const opening = isOpening(useSlackChat(activeRoom ?? ''), activeRoomSummary);
-  const [sidebarWidth, setSidebarWidth] = usePaneWidth(
-    'chat-sidebar-width',
-    SIDEBAR_BOUNDS
-  );
   return (
-    <div className={classes.sheet}>
-      {!isMobile && (
-        <PaneResizer
-          width={sidebarWidth}
-          onWidth={setSidebarWidth}
-          bounds={SIDEBAR_BOUNDS}
-          label="Resize the sidebar"
-          testId="sidebar-resizer"
-          style={{
-            position: 'fixed',
-            top: SHELL_HEADER_HEIGHT,
-            left: sidebarWidth + SHEET_INSET - 4,
-            zIndex: 11,
-          }}
-        />
+    <PageShell
+      scrollClamp
+      resizableSidebar={{
+        storageKey: 'chat-sidebar-width',
+        bounds: SIDEBAR_BOUNDS,
+      }}
+      headerHeight={PAGE_ROW_HEIGHT}
+      compactHeader
+      drawerStateKey="chat-rooms-sidebar"
+    >
+      {(!roomsLoaded || rooms.length > 0 || buddies.length > 0) && (
+        <PageShell.Sidebar
+          hideCollapseButton
+          // The kit's sidebar ScrollArea content defaults to
+          // `min-width: min-content`, which would size the column to its
+          // widest row and defeat each row's own truncation.
+          scrollAreaProps={{ styles: { content: { minWidth: 0 } } }}
+        >
+          {roomsLoaded ? (
+            <ChatSidebar
+              rooms={railRooms}
+              buddies={buddies}
+              activeRoom={activeRoom}
+              selectRoom={selectRoom}
+              reachable={daemon.reachable}
+              onCloseRoom={onCloseRoom}
+              onNewSlackChat={onNewSlackChat}
+              direct={railDirect}
+            />
+          ) : (
+            <RailSkeleton />
+          )}
+        </PageShell.Sidebar>
       )}
-      <PageShell
-        scrollClamp
-        sidebarWidth={sidebarWidth}
-        headerHeight={PAGE_ROW_HEIGHT}
-        compactHeader
-        topOffset={SHELL_HEADER_HEIGHT + SHEET_INSET}
-        drawerStateKey="chat-rooms-sidebar"
-      >
-        {(!roomsLoaded || rooms.length > 0 || buddies.length > 0) && (
-          <PageShell.Sidebar
-            bg={CHROME_SURFACE}
-            hideCollapseButton
-            withBorder={false}
-            // The kit's sidebar ScrollArea content defaults to
-            // `min-width: min-content`, which would size the column to its
-            // widest row and defeat each row's own truncation.
-            scrollAreaProps={{
-              scrollbarSize: 8,
-              styles: {
-                content: { minWidth: 0 },
-                scrollbar: { padding: 0 },
-                thumb: { background: 'var(--tk-border)' },
-              },
-            }}
-          >
-            {roomsLoaded ? (
-              <ChatSidebar
-                rooms={railRooms}
-                buddies={buddies}
-                activeRoom={activeRoom}
-                selectRoom={selectRoom}
+      <PageShell.Main>
+        {!directOpen && (activeRoomSummary || !roomsLoaded) ? (
+          <PageShell.Header>
+            {activeRoomSummary ? (
+              <PageBar
+                room={activeRoomSummary}
+                buddies={buddies.filter(b => roomMembers.includes(b.handle))}
+                membersLoading={!membersLoaded}
+                onArchive={onCloseRoom}
                 reachable={daemon.reachable}
-                onCloseRoom={onCloseRoom}
-                onNewSlackChat={onNewSlackChat}
-                direct={railDirect}
               />
             ) : (
-              <RailSkeleton />
+              <TitleSkeleton />
             )}
-          </PageShell.Sidebar>
-        )}
-        <PageShell.Main>
-          {!directOpen && (activeRoomSummary || !roomsLoaded) ? (
-            <PageShell.Header
-              withBorder={false}
-              style={{ borderBottom: '1px solid var(--tk-border-soft)' }}
-            >
-              {activeRoomSummary ? (
-                <PageBar
-                  room={activeRoomSummary}
-                  buddies={buddies.filter(b => roomMembers.includes(b.handle))}
-                  membersLoading={!membersLoaded}
-                  onArchive={onCloseRoom}
+          </PageShell.Header>
+        ) : null}
+        <PageShell.Content
+          contentContainer={false}
+          bg="var(--tk-card)"
+          topNotch={{
+            opened: !daemon.reachable,
+            content: (
+              <Box w="100%" px="lg" pt="lg" data-testid="daemon-banner-slot">
+                <DaemonBanner
                   reachable={daemon.reachable}
+                  downSince={daemon.downSince}
+                  probeCount={daemon.probeCount}
+                  lastAnsweredAt={daemon.lastAnsweredAt}
+                  onProbeNow={daemon.probeNow}
                 />
-              ) : (
-                <TitleSkeleton />
-              )}
-            </PageShell.Header>
-          ) : null}
-          <PageShell.Content
-            contentContainer={false}
-            topNotch={{
-              opened: !daemon.reachable,
-              content: (
-                <Box w="100%" px="lg" pt="lg" data-testid="daemon-banner-slot">
-                  <DaemonBanner
-                    reachable={daemon.reachable}
-                    downSince={daemon.downSince}
-                    probeCount={daemon.probeCount}
-                    lastAnsweredAt={daemon.lastAnsweredAt}
-                    onProbeNow={daemon.probeNow}
+              </Box>
+            ),
+          }}
+        >
+          <Group
+            align="stretch"
+            wrap="nowrap"
+            gap={0}
+            style={{ flex: 1, minHeight: 0, minWidth: 0 }}
+          >
+            {directOpen ? (
+              <DirectView
+                rooms={rooms}
+                me={me.handle}
+                picked={directPick}
+                onPick={onDirectPick}
+                composer={(room, to, onDraftChange) => (
+                  <Composer
+                    ref={composerRef}
+                    phone={isMobile}
+                    humanHandle={me.handle}
+                    room={room}
+                    roomMembers={to ? [me.handle, to.handle] : [me.handle]}
+                    buddies={buddies}
+                    isDm
+                    daemonReachable={daemon.reachable}
+                    onOpenDm={onOpenDm}
+                    replyTo={to}
+                    onDraftChange={onDraftChange}
+                    prefill={directDraft ? { body: directDraft } : undefined}
+                  />
+                )}
+              />
+            ) : openRooms.length === 0 && !activeRoomSummary ? (
+              roomsLoaded ? (
+                <Box style={{ flex: 1, minWidth: 0 }} p="xl">
+                  <RoomsPlaceholder
+                    anyBuddies={buddies.length > 0}
+                    allClosed={rooms.length > 0}
                   />
                 </Box>
-              ),
-            }}
-          >
-            <Group
-              align="stretch"
-              wrap="nowrap"
-              gap={0}
-              style={{ flex: 1, minHeight: 0, minWidth: 0 }}
-            >
-              {directOpen ? (
-                <DirectView
-                  rooms={rooms}
-                  me={me.handle}
-                  picked={directPick}
-                  onPick={onDirectPick}
-                  composer={(room, to, onDraftChange) => (
+              ) : (
+                <RoomSkeleton />
+              )
+            ) : (
+              activeRoom && (
+                <Transcript
+                  room={activeRoom}
+                  messages={messages}
+                  loading={!messagesLoaded}
+                  humanHandle={me.handle}
+                  anchor={anchor}
+                  empty={opening ? <SlackOpeningNote /> : undefined}
+                  footer={
                     <Composer
                       ref={composerRef}
                       phone={isMobile}
                       humanHandle={me.handle}
-                      room={room}
-                      roomMembers={to ? [me.handle, to.handle] : [me.handle]}
+                      room={activeRoom}
+                      roomMembers={roomMembers}
                       buddies={buddies}
-                      isDm
+                      isDm={activeRoomSummary?.kind === 'dm'}
                       daemonReachable={daemon.reachable}
                       onOpenDm={onOpenDm}
-                      replyTo={to}
-                      onDraftChange={onDraftChange}
-                      prefill={directDraft ? { body: directDraft } : undefined}
+                      opening={opening}
                     />
-                  )}
+                  }
                 />
-              ) : openRooms.length === 0 && !activeRoomSummary ? (
-                roomsLoaded ? (
-                  <Box style={{ flex: 1, minWidth: 0 }} p="xl">
-                    <RoomsPlaceholder
-                      anyBuddies={buddies.length > 0}
-                      allClosed={rooms.length > 0}
-                    />
-                  </Box>
-                ) : (
-                  <RoomSkeleton />
-                )
-              ) : (
-                activeRoom && (
-                  <Transcript
-                    room={activeRoom}
-                    messages={messages}
-                    loading={!messagesLoaded}
-                    humanHandle={me.handle}
-                    anchor={anchor}
-                    empty={opening ? <SlackOpeningNote /> : undefined}
-                    footer={
-                      <Composer
-                        ref={composerRef}
-                        phone={isMobile}
-                        humanHandle={me.handle}
-                        room={activeRoom}
-                        roomMembers={roomMembers}
-                        buddies={buddies}
-                        isDm={activeRoomSummary?.kind === 'dm'}
-                        daemonReachable={daemon.reachable}
-                        onOpenDm={onOpenDm}
-                        opening={opening}
-                      />
-                    }
-                  />
-                )
-              )}
-            </Group>
-          </PageShell.Content>
-        </PageShell.Main>
-      </PageShell>
-    </div>
+              )
+            )}
+          </Group>
+        </PageShell.Content>
+      </PageShell.Main>
+    </PageShell>
   );
 }
 
@@ -1064,20 +1023,8 @@ function AppContent({
         actions={buddyActions}
       >
         <FaceGroup handles={drawnTogether}>
-          <MattstackShell
-            name="chat"
-            rail={false}
-            headerBorder={false}
-            mark={<AppMark size={26} />}
-          >
-            <MattstackShell.Header
-              actions={
-                <>
-                  <ThemeColorButton />
-                  <SettingsButton />
-                </>
-              }
-            />
+          <MattstackShell name="chat" rail={false} app="chat">
+            <MattstackShell.Header actions={<SettingsButton />} />
             <ScopeBar info={viewer} />
             <ViewerChip info={viewer} />
             {chatRoute ? (

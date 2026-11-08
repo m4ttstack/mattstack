@@ -368,7 +368,7 @@ export function RunsPage() {
                 lanes &&
                 !(url.filter === 'waiting' && lanes.length === 0) ? (
                   <>
-                    <Eyebrow c="var(--tk-fg)" fw={600} data-parity="Live label">
+                    <Eyebrow c="var(--tk-fg)" fw={500} data-parity="Live label">
                       {`Live · ${lanes.length}`}
                     </Eyebrow>
                     {lanes.length > 0 ? (
@@ -399,7 +399,7 @@ export function RunsPage() {
                     <div className={classes.label}>
                       <Eyebrow
                         c="var(--tk-fg)"
-                        fw={600}
+                        fw={500}
                         data-parity="Earlier label"
                       >
                         Earlier

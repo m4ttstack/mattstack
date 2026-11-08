@@ -101,6 +101,7 @@ export function OrgPill({ org }: { org: string }) {
     <Button
       component="span"
       size="compact-sm"
+      px={12}
       radius="xl"
       variant="hue-outline"
       color="gold"
@@ -120,6 +121,7 @@ export function TeamPill({ team }: { team: string }) {
     <Button
       component="span"
       size="compact-sm"
+      px={12}
       radius="xl"
       variant="hue-outline"
       color="purple"
@@ -141,19 +143,26 @@ export function ScopeSlash() {
   );
 }
 
-/** A scope menu's trigger: a purple pill naming what is picked. A
-    SearchableMenu hands it the ref and the open state. */
+/** A scope menu's trigger: a pill in its scope's colour naming what is
+    picked, purple for a team. A SearchableMenu hands it the ref and the open
+    state. */
 export const ScopeTrigger = forwardRef<
   HTMLButtonElement,
-  { icon: ReactNode; label: string; 'aria-label': string }
->(function ScopeTrigger({ icon, label, ...rest }, ref) {
+  {
+    icon: ReactNode;
+    label: string;
+    color?: 'purple' | 'gold' | 'gray';
+    'aria-label': string;
+  }
+>(function ScopeTrigger({ icon, label, color = 'purple', ...rest }, ref) {
   return (
     <Button
       ref={ref}
       size="compact-sm"
+      px={12}
       radius="xl"
       variant="hue-outline"
-      color="purple"
+      color={color}
       className={classes.trigger}
       leftSection={icon}
       rightSection={<Icons.chevronsUpDown size={14} />}
@@ -176,6 +185,10 @@ export type TeamItem = {
   own: boolean;
   owners: string[];
   selected: boolean;
+  /** An org-level pack beside the teams, not a team of its own. */
+  org?: boolean;
+  /** A pack no team owns, which only the dev app lists. */
+  dev?: boolean;
 };
 
 /** Who to ask about a team: its owners, by face and name. A span, since
@@ -215,41 +228,103 @@ export function OwnersLine({ item }: { item: TeamItem }) {
   );
 }
 
-/** The team picker: a purple scope pill opening a searchable menu of
-    teams with their owners. Picking your own team answers null. */
+/** The team picker: a scope pill opening a searchable menu of teams with
+    their owners. Picking your own team answers null. With `orgPacks` the
+    menu lists those under Org above the teams, and picking one answers
+    through `onPickOrg`; `devPacks` and `onPickDev` do the same under Dev
+    below them. */
 export function TeamMenu({
   teams,
   owners,
   ownTeam,
   team,
   onPick,
+  orgPacks = [],
+  orgPack = null,
+  onPickOrg,
+  devPacks = [],
+  devPack = null,
+  onPickDev,
 }: {
   teams: string[];
   owners: Record<string, string[]>;
   ownTeam: string | null;
   team: string | null;
   onPick: (team: string | null) => void;
+  orgPacks?: string[];
+  /** The org-level pack in view, in place of a team. */
+  orgPack?: string | null;
+  onPickOrg?: (pack: string) => void;
+  devPacks?: string[];
+  /** The dev pack in view, in place of a team. */
+  devPack?: string | null;
+  onPickDev?: (pack: string) => void;
 }) {
-  const items: TeamItem[] = teams.map(t => ({
-    name: t,
-    own: t === ownTeam,
-    owners: owners[t] ?? [],
-    selected: t === team,
-  }));
+  const items: TeamItem[] = [
+    ...orgPacks.map(name => ({
+      name,
+      own: false,
+      owners: [],
+      selected: name === orgPack,
+      org: true,
+    })),
+    ...teams.map(t => ({
+      name: t,
+      own: t === ownTeam,
+      owners: owners[t] ?? [],
+      selected: t === team,
+    })),
+    ...devPacks.map(name => ({
+      name,
+      own: false,
+      owners: [],
+      selected: name === devPack,
+      dev: true,
+    })),
+  ];
+  const grouped = orgPacks.length > 0 || devPacks.length > 0;
+  const picked = orgPack ?? devPack ?? team;
   return (
     <SearchableMenu<TeamItem>
       menuTrigger={
         <ScopeTrigger
-          icon={<Icon name="team" size={14} />}
-          label={team ?? 'Pick a team'}
-          aria-label={team ? `team: ${team}, switch team` : 'pick a team'}
+          icon={
+            <Icon
+              name={orgPack ? 'building' : devPack ? 'terminal' : 'team'}
+              size={14}
+            />
+          }
+          label={picked ?? 'Pick a team'}
+          color={orgPack ? 'gold' : devPack ? 'gray' : 'purple'}
+          aria-label={
+            orgPack
+              ? `org pack: ${orgPack}, switch`
+              : devPack
+                ? `dev pack: ${devPack}, switch`
+                : team
+                  ? `team: ${team}, switch team`
+                  : 'pick a team'
+          }
         />
       }
       items={items}
-      title="Teams"
+      title={grouped ? 'Packs' : 'Teams'}
       titleIcon={<Icon name="team" size={14} />}
+      itemGroup={
+        grouped
+          ? item => (item.org ? 'Org' : item.dev ? 'Dev' : 'Teams')
+          : undefined
+      }
       itemTitle={item => item.name}
-      itemSubtitle={item => <OwnersLine item={item} />}
+      itemSubtitle={item =>
+        item.org || item.dev ? (
+          <Text span fz={12} c="dimmed">
+            {item.org ? 'org base pack' : 'plugin source, dev app only'}
+          </Text>
+        ) : (
+          <OwnersLine item={item} />
+        )
+      }
       itemTitleSuffix={item =>
         item.own ? (
           <Badge
@@ -262,13 +337,14 @@ export function TeamMenu({
           </Badge>
         ) : null
       }
-      isSelectedItem={item => item.name === team}
-      showItemBadge={item => item.name === team}
-      itemBadgeText="Selected"
-      itemBadgeColor={() => 'purple'}
-      onItemClick={item => onPick(item.own ? null : item.name)}
-      filterPlaceholder={() => 'Find team…'}
-      emptyMessage="No team matches"
+      isSelectedItem={item => item.selected}
+      onItemClick={item => {
+        if (item.org) onPickOrg?.(item.name);
+        else if (item.dev) onPickDev?.(item.name);
+        else onPick(item.own ? null : item.name);
+      }}
+      filterPlaceholder={() => (grouped ? 'Find pack…' : 'Find team…')}
+      emptyMessage={grouped ? 'No pack matches' : 'No team matches'}
       position="bottom-start"
     />
   );

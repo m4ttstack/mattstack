@@ -4,7 +4,7 @@ import { join } from "path";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const ALLOWED = [
-  /^website\/redirects\//,
+  /^sites\/docs\/redirects\//,
   /^scripts\/deploy-rt-cool-redirects\.sh$/,
   /^scripts\/check-rt-cool-redirects\.ts$/,
   /^scripts\/lib\/docs-smoke\.ts$/,

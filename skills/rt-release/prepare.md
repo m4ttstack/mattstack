@@ -41,7 +41,7 @@ digraph prepare_release {
     "git log --oneline HEAD..origin/main" [shape=plaintext];
     "Range grew since the approval?" [shape=diamond];
     "Range growths after the approval = 3?" [shape=diamond];
-    "git add website RELEASE_NOTES.md" [shape=plaintext];
+    "git add sites/docs RELEASE_NOTES.md" [shape=plaintext];
     "git commit -m \"chore(release): docs and notes for <tag>\"" [shape=plaintext];
     "git rev-parse HEAD" [shape=plaintext];
     "Push main: the notes commit" [shape=box];
@@ -119,11 +119,11 @@ digraph prepare_release {
     "Release-day PRs merged?" -> "git fetch origin, before the notes commit" [label="yes"];
     "git fetch origin, before the notes commit" -> "git log --oneline HEAD..origin/main";
     "git log --oneline HEAD..origin/main" -> "Range grew since the approval?";
-    "Range grew since the approval?" -> "git add website RELEASE_NOTES.md" [label="no"];
+    "Range grew since the approval?" -> "git add sites/docs RELEASE_NOTES.md" [label="no"];
     "Range grew since the approval?" -> "Range growths after the approval = 3?" [label="yes: commits landed after the approval"];
     "Range growths after the approval = 3?" -> "git_pull {tree: <release checkout>}, after the release-day merges" [label="no: fold them in"];
     "Range growths after the approval = 3?" -> "Held: release paused, resume point named" [label="yes: main will not hold still"];
-    "Off-script gate: release-day PRs still open" -> "git add website RELEASE_NOTES.md" [label="take: Matt rules they ride the next release"];
+    "Off-script gate: release-day PRs still open" -> "git add sites/docs RELEASE_NOTES.md" [label="take: Matt rules they ride the next release"];
     "Off-script gate: release-day PRs still open" -> "Release-day PRs still open: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
     "Off-script gate: release-day PRs still open" -> "Held: release paused, resume point named" [label="hold"];
     "Off-script gate: release-day PRs still open" -> "Handed back to Matt" [label="hand back"];
@@ -139,7 +139,7 @@ digraph prepare_release {
     "Local main diverged after the release-day merges: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "Pull after the release-day merges result?" -> "Off-script gate: local main diverged after the release-day merges" [label="refused"];
     "Release-day PRs merged?" -> "Off-script gate: release-day PRs still open" [label="no"];
-    "git add website RELEASE_NOTES.md" -> "git commit -m \"chore(release): docs and notes for <tag>\"";
+    "git add sites/docs RELEASE_NOTES.md" -> "git commit -m \"chore(release): docs and notes for <tag>\"";
     "git commit -m \"chore(release): docs and notes for <tag>\"" -> "git rev-parse HEAD";
     "git rev-parse HEAD" -> "Push main: the notes commit";
     "Push main: the notes commit" -> "Notes push result?";
@@ -260,14 +260,14 @@ gained or changed keeps his approval, and the stage goes on to the commit.
 ### Gate: re-approve the notes delta
 
 Ask only about what changed: quote the added and changed lines exactly as they will publish, name
-the commits they cover, and show `git diff HEAD --stat -- website RELEASE_NOTES.md`. Do not
+the commits they cover, and show `git diff HEAD --stat -- sites/docs RELEASE_NOTES.md`. Do not
 re-ask the whole body. The answers are the same as the full gate's (approve, revise, hold,
 abort), and a revise counts toward `Notes revision rounds = 3?`.
 
 ### Gate: approve the tag, notes and docs diff
 
 Print the proposed tag, the full `RELEASE_NOTES.md` body, and
-`git diff HEAD --stat -- website RELEASE_NOTES.md`: against HEAD it shows the guides rt:docs
+`git diff HEAD --stat -- sites/docs RELEASE_NOTES.md`: against HEAD it shows the guides rt:docs
 already staged and the generated reference and notes it did not, where `--staged` alone hides the
 unstaged ones and a plain `git diff` hides the staged ones. A pre-authorized release covers the
 early main push only; these notes still need Matt's explicit approval. Revise applies his changes
@@ -284,7 +284,7 @@ pull brings it into the checkout, update-docs and the notes run again on the gro
 ### Push main: the notes commit
 
 Every release-day PR this release depends on (deps.lock pins, a catalog refresh, anything the
-notes describe) is merged before the commit. The add is scoped to `website` and
+notes describe) is merged before the commit. The add is scoped to `sites/docs` and
 `RELEASE_NOTES.md`, never `git add -A`. The `git rev-parse HEAD` before the push is the exercised
 sha.
 

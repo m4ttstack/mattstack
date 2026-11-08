@@ -150,7 +150,6 @@ export function RecordPage({
         <GatesUnreadable onRetry={() => void parts.retryGates()} />
       ) : null}
       <Tabs
-        variant="outline"
         value={shown}
         onChange={v => v && pickTab(v as RecordTab)}
         keepMounted={false}
@@ -162,7 +161,6 @@ export function RecordPage({
                 key={t}
                 value={t}
                 fz="md"
-                className={classesPage.recordTab}
                 rightSection={
                   counts[t] != null ? (
                     <TabCount count={counts[t]} active={t === shown} />

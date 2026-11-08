@@ -201,7 +201,6 @@ function PackStatusBar({
               Claude has an older version
             </span>
             <Button
-              color="accent"
               size="compact-sm"
               leftSection={<Icon name="download" size={13} />}
               loading={install.isPending}

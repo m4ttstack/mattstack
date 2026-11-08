@@ -105,12 +105,14 @@ export function labelOf(block: PayloadBlock): string {
 }
 
 /** rt draws an include as a heading block whose one child is the shared
-    tree; the view reads the two as one, so it opens as that tree. */
+    tree; the view reads the two as one, so it opens as that tree. A heading
+    that takes values of its own stays a block, or opening it would lose
+    what the pack passed there. */
 export function includedTree(
   payload: BlocksPayload,
   block: PayloadBlock
 ): PayloadBlock | null {
-  if (block.kind === 'shared') return null;
+  if (block.kind === 'shared' || block.props.length > 0) return null;
   if (!payload.includes.some(include => include.blockId === block.id)) {
     return null;
   }
@@ -149,6 +151,26 @@ export function shownLabel(
 }
 
 /** The layer's role colour, not its label: `mattstack` draws no dot. */
+/** The layers that pass a value anywhere under a block, the block itself
+    and each include it heads counted, so a folded folder still says that
+    a pack's fill sits inside it. */
+export function subtreeDotsOf(
+  payload: BlocksPayload,
+  block: PayloadBlock
+): Dot[] {
+  const seen = new Set<string>();
+  const found = new Set<Dot>();
+  const visit = (heading: PayloadBlock) => {
+    const at = includedTree(payload, heading) ?? heading;
+    if (seen.has(at.id)) return;
+    seen.add(at.id);
+    for (const dot of [...dotsOf(heading), ...dotsOf(at)]) found.add(dot);
+    childrenOf(payload, at.id).forEach(visit);
+  };
+  visit(block);
+  return (['org', 'team'] as const).filter(dot => found.has(dot));
+}
+
 export function dotsOf(block: PayloadBlock): Dot[] {
   const colors = new Set(
     block.props.flatMap(prop => prop.values.map(value => value.color))

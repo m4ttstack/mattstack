@@ -70,7 +70,7 @@ export const Header = ({
       wrap="nowrap"
       style={{
         borderBottom: withBorder
-          ? '1px solid var(--mantine-color-default-border)'
+          ? '1px solid var(--tk-border-soft)'
           : undefined,
         position: fixedHeader ? 'fixed' : undefined,
         zIndex: fixedHeader ? 1 : undefined,

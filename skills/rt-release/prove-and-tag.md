@@ -195,7 +195,7 @@ validates the catalog without pushing it and uploads `out/` as the `release-dry-
 tag that fails halfway has already re-signed the app and cost Matt his TCC grants, so the
 rehearsal is where defects are cheap. The path fast path: when
 `git diff --name-only <last-tag>..<exercised-sha>` stays inside the served-app directories,
-`RELEASE_NOTES.md` and `website/`, the tag rests on the rehearsal alone; deck, every tool row,
+`RELEASE_NOTES.md` and `sites/docs/`, the tag rests on the rehearsal alone; deck, every tool row,
 fast-browser and any rt file keep the walkthrough.
 
 The walkthrough runs only on this machine (GitHub runners cannot nest virtualization), takes

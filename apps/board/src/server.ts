@@ -2097,6 +2097,29 @@ const httpServer = Bun.serve({
         },
       });
     }
+    // One light / dark / auto choice for every mattstack app on this Mac.
+    if (pathname === '/api/color-scheme') {
+      if (req.method === 'GET')
+        return Response.json({
+          scheme: getSetting<string>('mattstack.colorScheme').value,
+        });
+      if (req.method === 'PUT') {
+        if (!isLocalRequest(req, server) || !hasLocalOrigin(req))
+          return Response.json({ error: 'local only' }, { status: 403 });
+        const notJson = requireJsonBody(req);
+        if (notJson) return notJson;
+        const { scheme } = (await req.json().catch(() => ({}))) as {
+          scheme?: unknown;
+        };
+        if (scheme !== 'auto' && scheme !== 'light' && scheme !== 'dark')
+          return Response.json(
+            { error: 'scheme must be auto, light or dark' },
+            { status: 400 }
+          );
+        setSetting('mattstack.colorScheme', scheme, 'machine');
+        return Response.json({ scheme });
+      }
+    }
     if (pathname === '/api/config/reload' && req.method === 'POST') {
       if (!isLocalRequest(req, server))
         return Response.json({ error: 'local only' }, { status: 403 });

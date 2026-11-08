@@ -1,8 +1,9 @@
-import { useLayoutEffect } from 'react';
+import { useContext, useLayoutEffect } from 'react';
 import { Divider, Group, Tabs } from '@mantine/core';
 import type { TabsProps } from '@mantine/core';
 
 import { Icon, type IconName } from '@mattstack/app-kit/icons';
+import { MainContext } from '../context';
 import { useIsInPageShell, usePageShellContext } from '../hooks';
 import classes from '../PageShell.module.css';
 import { RowTitle } from './RowTitle';
@@ -79,17 +80,19 @@ export const TabBar = ({
 }: PageShellTabBarProps) => {
   useIsInPageShell('TabBar');
 
-  const { tabBarHeight, bg, setHasTabBar } = usePageShellContext();
+  const { tabBarHeight, bg, setHasTabBar, setHasMainTabBar } =
+    usePageShellContext();
+  // Inside Main the bar spans the content only, so a sidebar beside it keeps
+  // its full height.
+  const inMain = useContext(MainContext);
+  const register = inMain ? setHasMainTabBar : setHasTabBar;
 
   useLayoutEffect(() => {
-    // Lets other components know a tab bar is present (Content/Sidebar
-    // subtract its height). A consumer composing their own tab row
-    // registers into the same context state the same way.
-    setHasTabBar(true);
+    register(true);
     return () => {
-      setHasTabBar(false);
+      register(false);
     };
-  }, [setHasTabBar]);
+  }, [register]);
 
   return (
     <Group
@@ -100,7 +103,7 @@ export const TabBar = ({
       bg={bg}
       style={{
         flexShrink: 0,
-        borderBottom: '1px solid var(--mantine-color-default-border)',
+        borderBottom: '1px solid var(--tk-border-soft)',
       }}
     >
       {title != null && (

@@ -65,7 +65,7 @@ export function DayCalendar({
             >
               <Icon name="chevronLeft" size={14} />
             </ActionIcon>
-            <Text fz="md" fw={600} lh="normal" miw={124} ta="center">
+            <Text fz="md" fw={500} lh="normal" miw={124} ta="center">
               {monthName}
             </Text>
             <ActionIcon

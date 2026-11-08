@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import type { ComponentType, ElementType, ReactNode } from 'react';
 import {
   Badge,
@@ -65,6 +65,9 @@ export interface SearchableMenuProps<T extends Record<string, unknown>> {
   items: T[];
   itemTitle: (item: T) => string;
   itemSubtitle?: (item: T, filterKeyword?: string) => ReactNode;
+  /** Sections the list: a heading is drawn wherever this changes between
+      neighbours, so pass `items` already in group order. */
+  itemGroup?: (item: T) => string;
   /** Drawn right after an item's title, on the same line (a tag such as
       "your team"). */
   itemTitleSuffix?: (item: T) => ReactNode;
@@ -128,6 +131,7 @@ export function SearchableMenu<T extends Record<string, unknown>>({
   itemTitle,
   itemSubtitle,
   itemTitleSuffix,
+  itemGroup,
   isSelectedItem,
   showItemBadge,
   itemBadgeText,
@@ -187,21 +191,27 @@ export function SearchableMenu<T extends Record<string, unknown>>({
         component={component}
         {...getItemProps?.(item)}
         onClick={() => onItemClick?.(item)}
-        // Selected tint follows the theme's primary color (same calm
-        // `-light` tint SelectableList uses for its selected rows), not a
-        // hardcoded palette color.
+        // The same tint as an active sidebar row, which also reads stronger
+        // than the menu's hover wash.
         bg={
           isSelectedItem?.(item)
-            ? 'var(--mantine-primary-color-light)'
+            ? 'var(--tk-app-chrome-selected, var(--mantine-primary-color-light))'
             : undefined
         }
         rightSection={
-          <Text c="gray" lh={0}>
-            <Icons.chevronRight size={16} />
-          </Text>
+          isSelectedItem?.(item) ? (
+            <Text c="var(--mantine-primary-color-filled)" lh={0}>
+              <Icons.check size={16} aria-label="Selected" />
+            </Text>
+          ) : (
+            <Text c="gray" lh={0}>
+              <Icons.chevronRight size={16} />
+            </Text>
+          )
         }
         p={12}
         mb={4}
+        bdrs="md"
       >
         <Group gap="xs">
           {isItemPinned?.(item) && <Icons.pin />}
@@ -248,6 +258,21 @@ export function SearchableMenu<T extends Record<string, unknown>>({
           </Flex>
         </Group>
       </PolymorphicMenuItem>
+    );
+  };
+
+  const renderGroupedItem = (item: T, index: number) => {
+    const group = itemGroup?.(item);
+    const previous = filteredItems[index - 1];
+    const startsGroup =
+      group !== undefined &&
+      (previous === undefined || itemGroup?.(previous) !== group);
+    if (!startsGroup) return renderMenuItem(item, index);
+    return (
+      <Fragment key={`group-${group}`}>
+        <Menu.Label px={4}>{group}</Menu.Label>
+        {renderMenuItem(item, index)}
+      </Fragment>
     );
   };
 
@@ -331,7 +356,7 @@ export function SearchableMenu<T extends Record<string, unknown>>({
         ) : (
           <VirtualList
             items={filteredItems}
-            renderRow={renderMenuItem}
+            renderRow={renderGroupedItem}
             estimateSize={() => 70}
             maxHeight="70dvh"
             minHeight="100px"

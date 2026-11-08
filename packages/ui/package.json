@@ -85,6 +85,7 @@
     }
   },
   "dependencies": {
+    "@mattstack/app-icons": "workspace:*",
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "^6.10.4",
     "@codemirror/lang-javascript": "^6.2.5",

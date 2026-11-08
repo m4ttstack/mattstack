@@ -16,6 +16,8 @@ export type WiringUrl = {
   view: WiringView | null;
   attention: boolean;
   block: string | null;
+  /** The sidebar lists the org base pack the pack extends. */
+  base?: boolean;
 };
 
 const TABS: readonly WiringTab[] = ['graph', 'config', 'history'];
@@ -38,6 +40,7 @@ const KEYS = [
   'view',
   'attention',
   'block',
+  'base',
 ] as const;
 
 function oneOf<T extends string>(
@@ -77,6 +80,7 @@ export function parseWiringUrl(search: string): WiringUrl {
     view: oneOf(VIEWS, params.get('view'), null),
     attention: params.get('attention') === '1',
     block: text('block'),
+    ...(params.get('base') === '1' ? { base: true } : {}),
   };
 }
 
@@ -103,6 +107,7 @@ export function formatWiringUrl(state: WiringUrl): string {
     ['view', state.view],
     ['attention', state.attention ? '1' : null],
     ['block', state.block],
+    ['base', state.base ? '1' : null],
   ];
   return pairs
     .flatMap(([key, value]) => (value ? [`${key}=${encodeValue(value)}`] : []))
@@ -143,7 +148,8 @@ function pushes(current: WiringUrl, next: WiringUrl): boolean {
     current.pack !== next.pack ||
     current.focus !== next.focus ||
     current.block !== next.block ||
-    current.select !== next.select
+    current.select !== next.select ||
+    Boolean(current.base) !== Boolean(next.base)
   );
 }
 
@@ -173,6 +179,7 @@ export function useWiringUrl(): [
 
     const packChanged = next.pack !== current.pack;
     if (packChanged && change.focus === undefined) next.focus = null;
+    if (packChanged && change.base === undefined) next.base = false;
     const focusChanged = packChanged || next.focus !== current.focus;
     if (focusChanged && change.select === undefined) next.select = null;
     if (focusChanged && change.block === undefined) next.block = null;
