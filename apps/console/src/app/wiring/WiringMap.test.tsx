@@ -395,6 +395,29 @@ describe('WiringMap: the header row', () => {
       'No skills packs found.'
     );
   });
+
+  it('points a Mac with no team at Settings', async () => {
+    packsGet.mockResolvedValue(ok({ packs: [] }));
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ org: null, activeTeam: null, viewer: null }),
+            { status: 200 }
+          )
+        )
+    );
+    renderWiring();
+
+    await waitFor(() =>
+      expect(screen.getByTestId('no-packs')).toHaveTextContent(
+        'Skill packs come with a team. Add one in mattstack Settings > Team'
+      )
+    );
+    vi.unstubAllGlobals();
+  });
 });
 
 describe('WiringMap: the pack picker', () => {
