@@ -74,6 +74,13 @@ describe("probeTeamRepoAccess", () => {
     expect(v.invitation).toBe("https://github.com/acme/team/invitations");
   });
 
+  test("a 403 inside the repo's own name does not hide the invitation", async () => {
+    const remote = "https://github.com/acme/team403.git";
+    const exec = git(() => ({ code: 128, stdout: "", stderr: `remote: Repository not found.\nfatal: repository '${remote}/' not found` }));
+    const v = await probeTeamRepoAccess(fakeProbes({ exec }), remote, TOKEN);
+    expect(v.invitation).toBe("https://github.com/acme/team403/invitations");
+  });
+
   test("GitLab hiding the project is denied, with no invitation to accept", async () => {
     const remote = "https://gitlab.example.com/acme/team.git";
     const exec = git(() => ({ code: 128, stdout: "", stderr: `remote: The project you were looking for could not be found or you don't have permission to view it.\nfatal: repository '${remote}/' not found` }));

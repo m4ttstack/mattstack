@@ -69,11 +69,12 @@ export async function probeTeamRepoAccess(p: Probes, remote: string, lookup: For
             : "rt offered its token and git still had none to send";
       return { kind: "indeterminate", detail: `couldn't determine access: ${why}` };
     }
-    if (AUTH_REFUSAL_PATTERN.test(res.stderr)) return { kind: "denied", detail: "the forge refused this account" };
+    // First, because git echoes the url and AUTH_REFUSAL_PATTERN's bare 403 can match a repo's name.
     if (REPO_HIDDEN_PATTERN.test(res.stderr)) {
       const invitation = invitationUrl(remote);
       return { kind: "denied", detail: "the forge hides this repo from this account", ...(invitation ? { invitation } : {}) };
     }
+    if (AUTH_REFUSAL_PATTERN.test(res.stderr)) return { kind: "denied", detail: "the forge refused this account" };
   }
   if (res.code === 124) return { kind: "unreachable", detail: "unreachable: git ls-remote timed out" };
   const firstLine = withoutUrls(res.stderr.trim().split("\n")[0] || `exit ${res.code}`);

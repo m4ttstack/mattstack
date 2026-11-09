@@ -862,7 +862,7 @@ describe("team.join outcomes", () => {
 
   test("a denial with an invitation waiting asks the joiner to accept it", () => {
     const outcome = outcomeFromJoin({ ...joined, access: "denied", peering: "idle", invitation: "https://github.com/acme/widgets/invitations", message: "Accept it" });
-    expect(outcome).toEqual({ state: "failed", detail: "Accept it", remedy: "Accept the GitHub invitation, then Retry" });
+    expect(outcome).toEqual({ state: "failed", detail: "Accept it", remedy: "Accept the GitHub invitation or ask the owner for access, then Retry" });
   });
 
   test("a join that peered, or had nothing to peer, is done", () => {
