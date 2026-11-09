@@ -7,6 +7,7 @@ import {
   useViewer,
 } from '@mattstack/app-kit/app';
 import {
+  Alert,
   Badge,
   Button,
   GenericError,
@@ -318,11 +319,16 @@ export function WiringMap() {
                       testId="packs-loading"
                       steps={['rt skills packs']}
                     />
+                  ) : who && !who.activeTeam && !viewer?.team ? (
+                    <Alert variant="light" data-testid="no-packs">
+                      <Text fz={12}>
+                        Skill packs come with a team. Add one in mattstack
+                        Settings &gt; Team
+                      </Text>
+                    </Alert>
                   ) : (
                     <Text size="sm" c={text.dimmed} data-testid="no-packs">
-                      {who && !who.activeTeam && !viewer?.team
-                        ? 'Skill packs come with a team. Add one in mattstack Settings > Team'
-                        : 'No skills packs found.'}
+                      No skills packs found.
                     </Text>
                   )
                 ) : (
