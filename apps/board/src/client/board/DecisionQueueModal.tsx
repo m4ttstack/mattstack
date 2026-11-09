@@ -156,11 +156,13 @@ function DecisionQueueModal({
       : {}),
   });
   // The seed is read on the first render only, so a predecessor named later
-  // was never read: its draft stays. The one read is done with, since this
-  // gate saves its own from then on.
+  // was never read: its draft stays. The one read is done with once this
+  // gate's own draft has saved; a save can fail on storage quota.
   const seededFrom = useRef(predecessor?.previousGateId);
+  const seededGateId = useRef(gate.gateId);
   useEffect(() => {
-    if (seededFrom.current) clearGateDraft(seededFrom.current);
+    if (seededFrom.current && readGateDraft(seededGateId.current))
+      clearGateDraft(seededFrom.current);
   }, []);
   const deliveryStuck = answered && gate.delivery?.outcome === 'stuck';
   const executionUnassigned = answered && gate.execution === 'unassigned';

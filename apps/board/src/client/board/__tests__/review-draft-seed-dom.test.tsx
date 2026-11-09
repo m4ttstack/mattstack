@@ -356,6 +356,38 @@ describe('a re-raised review gate', () => {
     expect(savedDraft('g-a')).not.toBeNull();
   });
 
+  test("keeps the superseded gate's draft when its own could not save", async () => {
+    await userEditsGateA();
+    const real = localStorage;
+    const quotaFull = new Proxy(real, {
+      get(target, prop) {
+        if (prop === 'setItem')
+          return (key: string, value: string) => {
+            if (key === gateDraftKey('g-b')) throw new Error('quota exceeded');
+            target.setItem(key, value);
+          };
+        const member = Reflect.get(target, prop) as unknown;
+        return typeof member === 'function' ? member.bind(target) : member;
+      },
+    });
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: quotaFull,
+    });
+    try {
+      await show(
+        gateFor('g-b', DRAFTS_A),
+        mrWith({ gateId: 'g-b', previousGateId: 'g-a' })
+      );
+    } finally {
+      Object.defineProperty(globalThis, 'localStorage', {
+        configurable: true,
+        value: real,
+      });
+    }
+    expect(savedDraft('g-a')).not.toBeNull();
+  });
+
   test('a revision of another gate seeds nothing', async () => {
     await userEditsGateA();
     await show(
