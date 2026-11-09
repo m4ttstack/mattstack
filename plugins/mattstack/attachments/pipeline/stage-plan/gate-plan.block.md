@@ -21,8 +21,9 @@ form: the printed tier and why.
 | `next` | `proceed` / `iterate` / `go-back` / `hold` | always |
 | `to` | one option per earlier stage, split `to-1`, ... over 4 | `go-back` answered and more than one earlier stage row |
 
-Write `approach` = the tier the gate recorded and `evidence-plan` = the
-EVIDENCE value, after the `execution-strategy@1` record: the gate tools
+Write `approach` = the tier the gate recorded, `evidence-plan` = the
+EVIDENCE value and `failing-test` = the FAILING TEST line (`none` on any
+other tier), after the `execution-strategy@1` record: the gate tools
 record the gate's answers, not that contract.
 `hold` passes their words (or `held`) as `reason` and the gate result's
 `decidedBy`.

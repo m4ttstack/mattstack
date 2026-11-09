@@ -6,7 +6,7 @@ type: pipeline-step
 metadata:
   stage: "plan"
   stage-consumes: "ticket"
-  stage-produces: "approach evidence-plan"
+  stage-produces: "approach evidence-plan failing-test"
 replaced-slots: [domain]
 ---
 
@@ -33,6 +33,7 @@ flowchart TB
     run_decision_strategy[/"run_decision {contract: execution-strategy@1, scope: run, selection: {tier}, decidedBy: stage-plan}"/]
     run_field_set_approach[/"run_field_set {key: approach, value: <the recorded tier>, stage: plan}"/]
     run_field_set_evidence_plan[/"run_field_set {key: evidence-plan, value: <the EVIDENCE value>, stage: plan}"/]
+    run_field_set_failing_test[/"run_field_set {key: failing-test, value: <the FAILING TEST line, or none>, stage: plan}"/]
     hand_back_go_back(((Hand the Go back answer to the orchestrator)))
     run_hold[/"run_hold {runDb, stage: plan, reason, decidedBy}"/]
     held_end_turn(((Held: end the turn naming run and stage)))
@@ -53,5 +54,6 @@ flowchart TB
     run_hold --> held_end_turn
     run_decision_strategy --> run_field_set_approach
     run_field_set_approach --> run_field_set_evidence_plan
-    run_field_set_evidence_plan --> plan_done
+    run_field_set_evidence_plan --> run_field_set_failing_test
+    run_field_set_failing_test --> plan_done
 ```
