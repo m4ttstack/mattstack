@@ -20,7 +20,7 @@ above the form: what was found (the tree, the missing ticket, the title).
 | `ticket` (write-in) | **Create one (Recommended)** / **I will recheck the id** | a ticket was not found |
 | `slug` | the slug as their text (a typed slug arrives as the note, or as `text`) | the title is too generic for a slug |
 | the domain's own | as the domain words them | the domain declares them |
-| `next` | **Proceed** / **Iterate here** / **Hold** | always |
+| `next` | `proceed` / `iterate` / `hold` | always |
 
 The picked branch for a resume is that tree's `branch`, `base` for a
 surviving local branch, or after a `branch-attached` refusal the branch

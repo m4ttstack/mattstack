@@ -15,8 +15,8 @@ own:
 
 - `finding` (write-in): **Try this finding again** (`retry:<finding id>`)
   / **Leave it open and move on** (`leave:<finding id>`)
-- `next`: **Proceed** (`proceed`, recommended) / **Hold** (`hold`) /
-  **Abandon** (`abandon`)
+- `next`: `proceed` (recommended) / `hold` /
+  `abandon`
 
 `next: hold` or `abandon` wins whatever `finding` says, a write-in riding
 as its note; otherwise `finding` decides, and a write-in goes through Act

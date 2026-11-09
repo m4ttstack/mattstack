@@ -19,7 +19,7 @@ fails the stage, naming the roles.
 |---|---|---|
 | the domain's intake | as the domain words them; an open-ended one is free text in the form | the domain declares them |
 | `source` (write-in) | **Proceed with `<source>` (Recommended)** / **Switch to local** | the data source is not local |
-| `next` | **Proceed** / **Iterate here** / **Hold**, plus **Hand back** once three captures have failed; when the gate reopens from an unfixable Not drawn, **Hand back** / **Go on without this BEFORE** / **Iterate here** / **Hold** (no **Proceed**) | always |
+| `next` | `proceed` / `iterate` / `hold`, plus **Hand back** once three captures have failed; when the gate reopens from an unfixable Not drawn, **Hand back** / **Go on without this BEFORE** / `iterate` / `hold` (no `proceed`) | always |
 
 Selection: `{"intake":{<answers>},"source":"<as confirmed>","next":"proceed|iterate|hold|handback|goon","note":"<their words or null>"}`.
 
