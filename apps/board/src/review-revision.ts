@@ -9,15 +9,17 @@ import type { GateQuestion } from './gates/store.ts';
 
 const REVIEW_GATE_KIND = 'review-post';
 
-/** What the MR's open review gate changed from the gate it superseded in
-    the same run: the original of each finding whose severity, anchor,
+/** What the MR's open review gate changed across the gates it superseded in
+    the same run: the earliest version of each finding whose severity, anchor,
     title, body, fix or comment differ. A finding the new gate dropped has no
-    card, so it is left out. `previousGateId` and `previousFindingIds` let
-    the sheet carry the reviewer's draft over from that gate. */
+    card, so it is left out. `previousGateId`, `previousFindingIds` and
+    `changedIds` (revised since the immediately previous gate) let the sheet
+    carry the reviewer's draft over from that gate. */
 export interface ReviewRevision {
   gateId: string;
   previousGateId: string;
   previousFindingIds: string[];
+  changedIds: string[];
   revised: Record<string, { original: FindingEntry }>;
 }
 
@@ -88,10 +90,27 @@ export function reviewRevisionFor(
   const before = gateFindings(previous);
   const now = gateFindings(open);
   if (!before || !now) return undefined;
+  const originals = new Map(before);
+  const seen = new Set([open.id, previous.id]);
+  let older = cache.supersededBy(previous.id);
+  while (
+    older &&
+    !seen.has(older.id) &&
+    older.subject === open.subject &&
+    (runStartedAt === undefined || older.openedAt >= runStartedAt)
+  ) {
+    const findings = gateFindings(older);
+    if (!findings) break;
+    for (const [id, finding] of findings)
+      if (originals.has(id)) originals.set(id, finding);
+    seen.add(older.id);
+    older = cache.supersededBy(older.id);
+  }
   return {
     gateId: open.id,
     previousGateId: previous.id,
     previousFindingIds: [...before.keys()],
-    revised: revisedFindings(before, now),
+    changedIds: Object.keys(revisedFindings(before, now)),
+    revised: revisedFindings(originals, now),
   };
 }

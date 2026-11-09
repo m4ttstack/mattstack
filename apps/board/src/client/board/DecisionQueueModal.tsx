@@ -150,7 +150,7 @@ function DecisionQueueModal({
             seedReviewDraft(readGateDraft(predecessor.previousGateId), {
               findingIds: reviewFindingIds(gate),
               previousFindingIds: predecessor.previousFindingIds,
-              revisedIds: Object.keys(predecessor.revised),
+              revisedIds: predecessor.changedIds,
             }),
         }
       : {}),

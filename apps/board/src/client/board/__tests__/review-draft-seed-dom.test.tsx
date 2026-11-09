@@ -129,6 +129,7 @@ const mrWith = (revision?: {
               'f2',
               'f3',
             ],
+            changedIds: revision.revisedIds ?? [],
             revised: Object.fromEntries(
               (revision.revisedIds ?? []).map(id => [
                 id,

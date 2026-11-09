@@ -1,3 +1,12 @@
+import {
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { join } from 'node:path';
+
 import { optionValue, type GateOption } from '@mattstack/gate-kit';
 import type {
   GateRow as FacilityGateRow,
@@ -8,7 +17,7 @@ import { hasQuestionForm } from './question-form.ts';
 
 // `POST /review/finding-question`: the human's question about one finding
 // of a review gate goes into the review agent's own pane as
-// `/board:review-finding-question <gate> <finding> "<question>"`, so the
+// `/board:review-finding-question <gate> <finding> "<question-file>"`, so the
 // session that wrote the finding answers it (skills-src/review-finding-question).
 // A parked gate's pane was closed on park, so its question resumes the
 // session with that line as the prompt instead.
@@ -18,16 +27,19 @@ export const FINDING_ID_RE = /^[A-Za-z0-9._:-]+$/;
 export const MAX_QUESTION_CHARS = 2000;
 /** How long the pane gets to drop its gate form after the Escape. */
 export const ESCAPE_SETTLE_MS = 600;
-export const NO_REVIEW_PANE =
-  "the review pane isn't running; resume the review from its row first";
+export const NO_REVIEW_PANE = 'Resume the review from its row first';
 /** A parked gate whose resume tab is already open: the pane is on its way
     up, and a second resume would only focus it. */
 export const REVIEW_RESUMING =
-  'the review pane is already reopening; ask again once it is up';
+  'Review pane is reopening. Ask again once it is up';
 /** The pane is blocked on something other than Claude Code's question form
     (a permission prompt, a trust dialog): an Escape there would answer it. */
 export const PANE_AT_OTHER_PROMPT =
-  'the review pane is waiting on a prompt; answer it there first';
+  'Review pane is at a prompt. Answer it there first';
+const QUESTION_FILE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+/** The review-finding-question skill's own forms, whose question lines must
+    match its SKILL.md: an Escape there would drop a pending revision. */
+const OWN_FORM_RE = /What should happen to \S+\?|Apply this revision to \S+\?/;
 
 export interface FindingQuestionIo {
   /** The MR's review-post gate in the board's gate cache, any status. */
@@ -61,6 +73,8 @@ export interface FindingQuestionIo {
   /** `herdr pane send-keys <paneId> escape`. */
   sendEscape(paneId: string): Promise<void>;
   sleep(ms: number): Promise<void>;
+  /** Saves the question where the review pane can read it; returns the path. */
+  writeQuestion(gateId: string, findingId: string, question: string): string;
   focusPane(state: { paneId: string; tabId?: string }): Promise<unknown>;
   logError?(message: string): void;
 }
@@ -103,21 +117,38 @@ function readBody(x: unknown): Body | null {
   };
 }
 
-/** The question as one quoted argument: every run of whitespace (newlines
-    included) becomes one space, then `\` and `"` are escaped, backslash
-    first so a question ending in `\` cannot escape the closing quote. */
-export function quoteQuestion(question: string): string {
-  const flat = question.replace(/\s+/g, ' ').trim();
-  return `"${flat.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+/** Saves the question for the review pane and returns its path. A slash
+    command over rt's paste limit never reaches the pane, so the line typed
+    there carries this path and the question lives in the file. Files past
+    `QUESTION_FILE_MAX_AGE_MS` are pruned on each write. */
+export function writeQuestionFile(
+  dir: string,
+  gateId: string,
+  findingId: string,
+  question: string,
+  now: number = Date.now()
+): string {
+  mkdirSync(dir, { recursive: true });
+  for (const name of readdirSync(dir)) {
+    const old = join(dir, name);
+    try {
+      if (now - statSync(old).mtimeMs > QUESTION_FILE_MAX_AGE_MS) rmSync(old);
+    } catch {
+      // Another board's prune got there first.
+    }
+  }
+  const path = join(dir, `${gateId}-${findingId}-${now}.md`);
+  writeFileSync(path, `${question}\n`, { mode: 0o600 });
+  return path;
 }
 
 /** The line typed into the review pane. */
 export function findingQuestionText(
   gateId: string,
   findingId: string,
-  question: string
+  questionPath: string
 ): string {
-  return `/board:review-finding-question ${gateId} ${findingId} ${quoteQuestion(question)}`;
+  return `/board:review-finding-question ${gateId} ${findingId} "${questionPath}"`;
 }
 
 /** The finding ids a review-post gate offers, from its findings questions'
@@ -150,8 +181,8 @@ function failureReason(res: {
   error?: string;
 }): string {
   if (!res.ok)
-    return `the review pane didn't take the question: ${res.error ?? 'unknown error'}`;
-  return `the review pane didn't take the question: ${res.data?.delivered ?? 'no answer'}${res.data?.reason ? ` (${res.data.reason})` : ''}`;
+    return `Review pane didn't take the question: ${res.error ?? 'unknown error'}`;
+  return `Review pane didn't take the question: ${res.data?.delivered ?? 'no answer'}${res.data?.reason ? ` (${res.data.reason})` : ''}`;
 }
 
 const message = (err: unknown) =>
@@ -186,11 +217,11 @@ export async function handleFindingQuestion(
       body: 'finding id has a character the prompt cannot carry',
     };
   const question = body.question.trim();
-  if (!question) return { status: 400, body: 'the question is empty' };
+  if (!question) return { status: 400, body: 'Question is empty' };
   if (body.question.length > MAX_QUESTION_CHARS)
     return {
       status: 400,
-      body: `the question is longer than ${MAX_QUESTION_CHARS} characters`,
+      body: `Question is over ${MAX_QUESTION_CHARS} characters`,
     };
 
   const gate = io.reviewGate(body.mrUrl);
@@ -201,12 +232,11 @@ export async function handleFindingQuestion(
   )
     return {
       status: 409,
-      body: "that gate isn't this MR's open review gate any more",
+      body: 'This review gate is no longer open',
     };
   if (!gateFindingIds(gate).has(body.findingId))
-    return { status: 409, body: "the review gate doesn't list that finding" };
+    return { status: 409, body: 'This review gate has no such finding' };
   const lane = io.reviewPane(body.mrUrl);
-  const text = findingQuestionText(body.gateId, body.findingId, question);
 
   // The pane on file can be stale (herdr renumbers panes across restarts)
   // and can belong to another agent by now, so the session is resolved
@@ -218,20 +248,35 @@ export async function handleFindingQuestion(
     } catch (err) {
       return {
         status: 409,
-        body: `couldn't find the review pane: ${message(err)}`,
+        body: `Couldn't find the review pane: ${message(err)}`,
       };
     }
   }
+  if (!paneId && (gate.status !== 'parked' || !lane?.agentId))
+    return { status: 409, body: NO_REVIEW_PANE };
+
+  let text: string;
+  try {
+    text = findingQuestionText(
+      body.gateId,
+      body.findingId,
+      io.writeQuestion(body.gateId, body.findingId, question)
+    );
+  } catch (err) {
+    return {
+      status: 409,
+      body: `Couldn't save the question: ${message(err)}`,
+    };
+  }
+
   if (!paneId) {
-    if (gate.status !== 'parked' || !lane?.agentId)
-      return { status: 409, body: NO_REVIEW_PANE };
     let resumed;
     try {
       resumed = await io.resumeReview(body.mrUrl, text);
     } catch (err) {
       return {
         status: 409,
-        body: `the review didn't resume: ${message(err)}`,
+        body: `Review didn't resume: ${message(err)}`,
       };
     }
     if (resumed.focusedExisting) return { status: 409, body: REVIEW_RESUMING };
@@ -262,14 +307,14 @@ export async function handleFindingQuestion(
     } catch (err) {
       io.logError?.(`finding question screen read failed: ${message(err)}`);
     }
-    if (screen === null || !hasQuestionForm(screen))
+    if (screen === null || !hasQuestionForm(screen) || OWN_FORM_RE.test(screen))
       return { status: 409, body: PANE_AT_OTHER_PROMPT };
     try {
       await io.sendEscape(livePane);
     } catch (err) {
       return {
         status: 409,
-        body: `the review pane didn't take the question: ${message(err)}`,
+        body: `Review pane didn't take the question: ${message(err)}`,
       };
     }
     await io.sleep(ESCAPE_SETTLE_MS);

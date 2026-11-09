@@ -427,6 +427,7 @@ export const reviewRevised: StoryGate = {
       gateId: reviewFirstRound.gate.gateId,
       previousGateId: 'story-review-before-revision',
       previousFindingIds: Object.keys(TILE_FINDINGS),
+      changedIds: ['f2'],
       revised: {
         f2: {
           original: {

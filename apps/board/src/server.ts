@@ -143,7 +143,10 @@ import {
 } from './draft-state.ts';
 import faviconSvg from './favicon.svg' with { type: 'text' };
 import { fileDiffRoute } from './file-diff-route.ts';
-import { handleFindingQuestion } from './finding-question.ts';
+import {
+  handleFindingQuestion,
+  writeQuestionFile,
+} from './finding-question.ts';
 import { shiftPeerReviews } from './fixture-peer-reviews.ts';
 import {
   actionCommand,
@@ -3358,6 +3361,13 @@ const httpServer = Bun.serve({
           readScreen: paneId => readPaneScreen(paneId),
           sendEscape: paneId => sendPaneEscape(paneId),
           sleep: ms => Bun.sleep(ms),
+          writeQuestion: (gateId, findingId, question) =>
+            writeQuestionFile(
+              join(boardStateRoot(), 'finding-questions'),
+              gateId,
+              findingId,
+              question
+            ),
           focusPane,
           logError: message => console.error(message),
         });

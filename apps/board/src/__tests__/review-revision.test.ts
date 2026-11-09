@@ -140,8 +140,40 @@ describe('reviewRevisionFor', () => {
       gateId: 'g-new',
       previousGateId: 'g-old',
       previousFindingIds: ['f1', 'f2'],
+      changedIds: ['f1'],
       revised: { f1: { original: F1 } },
     });
+  });
+
+  test('an earlier re-raise keeps its notice, against the earliest version', () => {
+    const firstF1 = { ...F1, body: 'Narrower.' };
+    const secondF1 = { ...F1, body: 'Narrower still.' };
+    const revisedF2 = { ...F2, title: 'Doc comment drifted' };
+    const cache = cacheWith(
+      reviewRow('g-3', [secondF1, revisedF2]),
+      superseded('g-2', [firstF1, F2], 'g-3'),
+      superseded('g-1', [F1, F2], 'g-2')
+    );
+    expect(reviewRevisionFor(cache, MR)).toEqual({
+      gateId: 'g-3',
+      previousGateId: 'g-2',
+      previousFindingIds: ['f1', 'f2'],
+      changedIds: ['f1', 'f2'],
+      revised: { f1: { original: F1 }, f2: { original: F2 } },
+    });
+  });
+
+  test('only the last re-raise counts as changed for the draft', () => {
+    const firstF1 = { ...F1, body: 'Narrower.' };
+    const revisedF2 = { ...F2, title: 'Doc comment drifted' };
+    const cache = cacheWith(
+      reviewRow('g-3', [firstF1, revisedF2]),
+      superseded('g-2', [firstF1, F2], 'g-3'),
+      superseded('g-1', [F1, F2], 'g-2')
+    );
+    const revision = reviewRevisionFor(cache, MR);
+    expect(revision?.changedIds).toEqual(['f2']);
+    expect(Object.keys(revision?.revised ?? {})).toEqual(['f1', 'f2']);
   });
 
   test('a dropped finding has no card, so it is left out', () => {
@@ -183,6 +215,7 @@ describe('reviewRevisionFor', () => {
       gateId: 'g-new',
       previousGateId: 'g-old',
       previousFindingIds: ['f1', 'f2'],
+      changedIds: [],
       revised: {},
     });
   });

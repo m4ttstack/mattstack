@@ -1,4 +1,11 @@
-import { readFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'bun:test';
 
@@ -12,8 +19,8 @@ import {
   handleFindingQuestion,
   NO_REVIEW_PANE,
   PANE_AT_OTHER_PROMPT,
-  quoteQuestion,
   REVIEW_RESUMING,
+  writeQuestionFile,
   type FindingQuestionIo,
 } from '../finding-question.ts';
 
@@ -138,6 +145,7 @@ function io(
     sleep: async ms => {
       calls.push(`sleep:${ms}`);
     },
+    writeQuestion: () => '/q/q.md',
     focusPane: async pane => {
       calls.push('focus');
       focused.push(pane);
@@ -156,28 +164,31 @@ const body = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-describe('quoting the question', () => {
-  test('collapses every run of whitespace, newlines included, to one space', () => {
-    expect(quoteQuestion('  why\n\n is  this\tcritical? ')).toBe(
-      '"why is this critical?"'
+describe('the question file', () => {
+  test('the pane line names the skill, the gate, the finding and the file', () => {
+    expect(findingQuestionText('g-review', 'f2', '/q/q.md')).toBe(
+      '/board:review-finding-question g-review f2 "/q/q.md"'
     );
   });
 
-  test('escapes double quotes', () => {
-    expect(quoteQuestion('does "retry" mean the loop?')).toBe(
-      '"does \\"retry\\" mean the loop?"'
-    );
+  test('keeps the question as typed, newlines included', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'finding-question-'));
+    const path = writeQuestionFile(dir, 'g1', 'f2', 'line one\n\n"line two"');
+    expect(readFileSync(path, 'utf8')).toBe('line one\n\n"line two"\n');
   });
 
-  test('escapes backslashes before quotes, so a trailing one cannot eat the closing quote', () => {
-    expect(quoteQuestion('is C:\\temp\\')).toBe('"is C:\\\\temp\\\\"');
-    expect(quoteQuestion('a \\"b\\" c')).toBe('"a \\\\\\"b\\\\\\" c"');
-  });
-
-  test('the pane line names the skill, the gate and the finding', () => {
-    expect(findingQuestionText('g-review', 'f2', 'a\nb "c"')).toBe(
-      '/board:review-finding-question g-review f2 "a b \\"c\\""'
-    );
+  test('prunes files older than a week and keeps newer ones', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'finding-question-'));
+    const now = Date.now();
+    const old = join(dir, 'old.md');
+    const fresh = join(dir, 'fresh.md');
+    writeFileSync(old, 'x');
+    writeFileSync(fresh, 'x');
+    const eightDays = (now - 8 * 24 * 60 * 60 * 1000) / 1000;
+    utimesSync(old, eightDays, eightDays);
+    writeQuestionFile(dir, 'g1', 'f2', 'q', now);
+    expect(existsSync(old)).toBe(false);
+    expect(existsSync(fresh)).toBe(true);
   });
 });
 
@@ -220,9 +231,7 @@ describe('handleFindingQuestion refusals', () => {
     const { io: deps, calls } = io({ reviewPane: () => ({ tabId: 'w1:t1' }) });
     const res = await handleFindingQuestion(body(), deps);
     expect(res).toEqual({ status: 409, body: NO_REVIEW_PANE });
-    expect(NO_REVIEW_PANE).toBe(
-      "the review pane isn't running; resume the review from its row first"
-    );
+    expect(NO_REVIEW_PANE).toBe('Resume the review from its row first');
     expect(calls).toEqual([]);
   });
 
@@ -263,14 +272,26 @@ describe('handleFindingQuestion refusals', () => {
 
 describe('handleFindingQuestion delivery', () => {
   test('types the line into the review pane and focuses it', async () => {
-    const { io: deps, calls, texts, focused } = io();
+    const written: string[] = [];
+    const {
+      io: deps,
+      calls,
+      texts,
+      focused,
+    } = io({
+      writeQuestion: (_gate, _finding, text) => {
+        written.push(text);
+        return '/q/q.md';
+      },
+    });
     const res = await handleFindingQuestion(
       body({ question: 'Is "this"\nreally Important?' }),
       deps
     );
     expect(res).toEqual({ status: 200, body: { ok: true } });
+    expect(written).toEqual(['Is "this"\nreally Important?']);
     expect(texts).toEqual([
-      '/board:review-finding-question g-review f2 "Is \\"this\\" really Important?"',
+      '/board:review-finding-question g-review f2 "/q/q.md"',
     ]);
     expect(calls).toEqual(['send:w1:p1', 'focus']);
     expect(focused).toEqual([{ paneId: 'w1:p1', tabId: 'w1:t1' }]);
@@ -315,9 +336,49 @@ describe('handleFindingQuestion delivery', () => {
     const res = await handleFindingQuestion(body(), deps);
     expect(res).toEqual({ status: 409, body: PANE_AT_OTHER_PROMPT });
     expect(PANE_AT_OTHER_PROMPT).toBe(
-      'the review pane is waiting on a prompt; answer it there first'
+      'Review pane is at a prompt. Answer it there first'
     );
     expect(calls).toEqual(['send:w1:p1']);
+  });
+
+  test.each(['What should happen to f2?', 'Apply this revision to f2?'])(
+    "the skill's own form (%s) gets no Escape",
+    async formLine => {
+      const { io: deps, calls } = io(
+        { readScreen: async () => `${formLine}\n${FORM_SCREEN}` },
+        [sent('refused', 'at a prompt')]
+      );
+      const res = await handleFindingQuestion(body(), deps);
+      expect(res).toEqual({ status: 409, body: PANE_AT_OTHER_PROMPT });
+      expect(calls).toEqual(['send:w1:p1']);
+    }
+  );
+
+  test('a question past the paste limit still types a short line', async () => {
+    const written: string[] = [];
+    const question = 'why is this critical? '.repeat(90).trim();
+    const { io: deps, texts } = io({
+      writeQuestion: (_gate, _finding, text) => {
+        written.push(text);
+        return '/q/q.md';
+      },
+    });
+    const res = await handleFindingQuestion(body({ question }), deps);
+    expect(res.status).toBe(200);
+    expect(written).toEqual([question]);
+    expect(texts[0]!.length).toBeLessThan(800);
+  });
+
+  test('a question that cannot be saved types nothing', async () => {
+    const { io: deps, calls } = io({
+      writeQuestion: () => {
+        throw new Error('disk full');
+      },
+    });
+    const res = await handleFindingQuestion(body(), deps);
+    expect(res.status).toBe(409);
+    expect(res.body).toContain('disk full');
+    expect(calls).toEqual([]);
   });
 
   test('a blocked pane whose screen cannot be read gets no Escape either', async () => {
@@ -426,8 +487,7 @@ describe('handleFindingQuestion on a parked gate', () => {
     expect(resumed).toEqual([
       {
         mrUrl: MR,
-        prompt:
-          '/board:review-finding-question g-review f2 "Is this really Important?"',
+        prompt: '/board:review-finding-question g-review f2 "/q/q.md"',
       },
     ]);
     expect(calls).toEqual(['resume', 'focus']);
