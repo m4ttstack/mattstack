@@ -286,6 +286,43 @@ test('a stage dock row holds one line and carries its full question as a title',
   ).not.toContain('nowrap');
 });
 
+test('a dock chip reads the option name, and falls back to the value past 24 characters', async () => {
+  await render(
+    ship({
+      questions: [
+        {
+          id: 'next',
+          label: 'Happy with this, or should something change?',
+          multi: false,
+          options: [
+            {
+              value: 'proceed',
+              label: 'Looks good, continue (Recommended)',
+              description: 'Move on to the next step',
+            },
+          ],
+        },
+        {
+          id: 'conflict',
+          label: 'What should happen to the rebase?',
+          multi: false,
+          options: [
+            {
+              value: 'leave',
+              label: 'Leave the rebase in progress for me (Recommended)',
+            },
+          ],
+        },
+      ],
+    }),
+    MR
+  );
+  expect(dockRows().map(([chip]) => chip)).toEqual([
+    'Looks good, continue',
+    'leave',
+  ]);
+});
+
 test('one question reads in the singular', async () => {
   await render(ship({ questions: ship().questions.slice(2, 3) }));
   expect(text('.tui-sheet-list-title')).toBe('Ship: 1 question');
