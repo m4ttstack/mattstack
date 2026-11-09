@@ -48,13 +48,15 @@ function written(
   return q.writeIn === true && !answered(v) && (note ?? '').trim() !== '';
 }
 
-/** A pick as short as the option allows: its label, or its value when the
-    label runs longer. */
+const CHIP_LABEL_MAX = 24;
+
+/** A pick by its option's name, or its value when the name would not fit
+    the dock's chip. */
 function shortPick(q: GateItemDisplay, value: string): RowChip {
   const choice = q.choices.find(c => c.value === value);
   const label = choice?.label ?? value;
   return {
-    text: label.length <= value.length ? label : value,
+    text: label.length <= CHIP_LABEL_MAX ? label : value,
     intent: 'accent',
     title: label,
   };
