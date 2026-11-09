@@ -151,7 +151,15 @@ func renderSlot(_ slot: Slot, into iconsetDir: String, palette: Palette) {
         return
     }
 
-    let size   = CGFloat(px)
+    // macOS draws icons at the full canvas, so the transparent margin is what
+    // keeps this one the same size as other apps in the Dock: 824 of 1024 px.
+    let canvas = CGFloat(px)
+    let inset  = canvas * 100 / 1024
+    let scale  = 824.0 / 1024
+    ctx.translateBy(x: inset, y: inset)
+    ctx.scaleBy(x: scale, y: scale)
+
+    let size   = canvas
     let radius = size * 0.225          // matches macOS icon corner rounding
 
     // ── Background ────────────────────────────────────────────────────────────
