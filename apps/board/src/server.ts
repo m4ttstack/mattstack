@@ -5205,12 +5205,16 @@ async function resumeReviewWithPrompt(
     env: resumePackEnv(pack),
   });
   if (result.focusedExisting) return result;
+  // A new run launched during the resume owns the lane now.
+  if (readReviewStates().get(mrUrl)?.runStartedAt !== lane.runStartedAt)
+    return result;
   // The pane is up either way: a failed write must not report it lost.
   try {
     writeReviewState(reviewFilePath(mrUrl), {
       status: 'reviewing',
       noPack: !pack,
       agentId: result.agentId,
+      ...(result.sessionId ? { sessionId: result.sessionId } : {}),
       paneId: result.paneId,
       tabId: result.tabId,
       workspaceId: result.workspaceId,

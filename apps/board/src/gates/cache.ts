@@ -158,6 +158,8 @@ export class GateCache {
     const next = [...kept.filter(r => r.id !== row.id), row]
       .sort((a, b) => a.openedAt - b.openedAt)
       .slice(-REPLACED_KEPT);
+    // A row too old to keep changes nothing, and every resync offers it again.
+    if (!next.includes(row)) return;
     this.replaced.set(key, next);
     this.revision++;
   }

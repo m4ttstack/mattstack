@@ -1379,6 +1379,27 @@ describe('GateCache.replacements', () => {
     expect(cache.supersededBy('g-2')?.id).toBe('g-1');
   });
 
+  test('a resync of gates past the replaced limit is not a change', () => {
+    const cache = new GateCache();
+    const count = REPLACED_KEPT + 2;
+    const rows = [
+      row({ id: `g-${count}`, openedAt: count * 1000 }),
+      ...Array.from({ length: count - 1 }, (_, i) =>
+        row({
+          id: `g-${i + 1}`,
+          openedAt: (i + 1) * 1000,
+          status: 'closed',
+          closedReason: 'superseded',
+          supersededBy: `g-${i + 2}`,
+        })
+      ),
+    ];
+    cache.reconcile(rows);
+    const before = cache.revision;
+    cache.reconcile(rows);
+    expect(cache.revision).toBe(before);
+  });
+
   test(`keeps only the newest ${REPLACED_KEPT} replaced gates per subject and kind`, () => {
     const cache = new GateCache();
     const count = REPLACED_KEPT + 2;

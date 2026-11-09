@@ -152,14 +152,18 @@ function useFindingAsks(
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [asked, setAsked] = useState<ReadonlySet<string>>(new Set());
   const [sending, setSending] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<Readonly<Record<string, string>>>({});
   useEffect(() => {
     setOpen(new Set());
     setAsked(new Set());
     setSending(null);
+    setDrafts({});
   }, [gateId]);
   const live = useRef(gateId);
   live.current = gateId;
   if (!send) return () => undefined;
+  const setDraft = (id: string, text: string) =>
+    setDrafts(d => ({ ...d, [id]: text }));
   const without = (set: ReadonlySet<string>, id: string) => {
     const next = new Set(set);
     next.delete(id);
@@ -180,7 +184,12 @@ function useFindingAsks(
       setAsked(a => without(a, findingId));
       setOpen(o => new Set(o).add(findingId));
     },
-    onCancel: () => setOpen(o => without(o, findingId)),
+    onCancel: () => {
+      setOpen(o => without(o, findingId));
+      setDraft(findingId, '');
+    },
+    draft: drafts[findingId] ?? '',
+    onDraft: text => setDraft(findingId, text),
     onSend: question => {
       if (sending !== null || question.trim() === '') return;
       const forGate = gateId;
@@ -193,6 +202,7 @@ function useFindingAsks(
           if (!ok) return;
           setOpen(o => without(o, findingId));
           setAsked(a => new Set(a).add(findingId));
+          setDraft(findingId, '');
         });
     },
     ...(onFocusPane ? { onFocusPane } : {}),

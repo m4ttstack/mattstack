@@ -27,6 +27,7 @@ export const FINDING_ID_RE = /^[A-Za-z0-9._:-]+$/;
 export const MAX_QUESTION_CHARS = 2000;
 /** How long the pane gets to drop its gate form after the Escape. */
 export const ESCAPE_SETTLE_MS = 600;
+const GATE_NOT_OPEN = 'This review gate is no longer open';
 export const NO_REVIEW_PANE = 'Resume the review from its row first';
 /** A parked gate whose resume tab is already open: the pane is on its way
     up, and a second resume would only focus it. */
@@ -46,9 +47,14 @@ export interface FindingQuestionIo {
   reviewGate(mrUrl: string): FacilityGateRow | undefined;
   /** The review lane's herdr tab, Claude session and rt agent on file
       (`readReviewStates()`). */
-  reviewPane(
-    mrUrl: string
-  ): { tabId?: string; sessionId?: string; agentId?: string } | undefined;
+  reviewPane(mrUrl: string):
+    | {
+        tabId?: string;
+        sessionId?: string;
+        agentId?: string;
+        runStartedAt?: number;
+      }
+    | undefined;
   /** The pane running that Claude session, or null when none runs it
       (rt-client `paneSelf` with no pane given, so a stale pane on file is
       never the answer); throws when the daemon cannot say. */
@@ -230,13 +236,15 @@ export async function handleFindingQuestion(
     gate.id !== body.gateId ||
     (gate.status !== 'open' && gate.status !== 'parked')
   )
-    return {
-      status: 409,
-      body: 'This review gate is no longer open',
-    };
+    return { status: 409, body: GATE_NOT_OPEN };
   if (!gateFindingIds(gate).has(body.findingId))
     return { status: 409, body: 'This review gate has no such finding' };
   const lane = io.reviewPane(body.mrUrl);
+  // A fresh review leaves the last run's parked gate live until its own gate
+  // opens, and finding ids are positional, so the lane's session is not the
+  // one that wrote this gate.
+  if (lane?.runStartedAt !== undefined && gate.openedAt < lane.runStartedAt)
+    return { status: 409, body: GATE_NOT_OPEN };
 
   // The pane on file can be stale (herdr renumbers panes across restarts)
   // and can belong to another agent by now, so the session is resolved

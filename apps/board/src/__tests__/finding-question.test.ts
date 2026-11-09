@@ -242,6 +242,24 @@ describe('handleFindingQuestion refusals', () => {
     expect(calls).toEqual([]);
   });
 
+  test("409, typing nothing, when the gate is from before the lane's current run", async () => {
+    const { io: deps, calls } = io({
+      reviewGate: () => gateRow({ openedAt: 1000 }),
+      reviewPane: () => ({
+        tabId: 'w1:t1',
+        sessionId: 'sess-new',
+        agentId: 'agent-new',
+        runStartedAt: 2000,
+      }),
+    });
+    const res = await handleFindingQuestion(body(), deps);
+    expect(res).toEqual({
+      status: 409,
+      body: 'This review gate is no longer open',
+    });
+    expect(calls).toEqual([]);
+  });
+
   test('409, typing nothing, when rt cannot say where the session runs', async () => {
     const { io: deps, calls } = io({
       sessionPane: async () => {

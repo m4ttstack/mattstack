@@ -842,6 +842,9 @@ export interface FindingAsk {
   unavailable?: string;
   onOpen: () => void;
   onCancel: () => void;
+  /** What is written so far, held by the sheet so a tab switch keeps it. */
+  draft: string;
+  onDraft: (text: string) => void;
   onSend: (question: string) => void;
   /** Brings the review pane forward; absent when the sheet cannot. */
   onFocusPane?: () => void;
@@ -878,7 +881,7 @@ export function AskLink({ title, ask }: { title: string; ask: FindingAsk }) {
 /** The area under the card head where the question is written and sent to
     the review pane, then where the sheet says the pane took it. */
 function AskArea({ title, ask }: { title: string; ask: FindingAsk }) {
-  const [text, setText] = useState('');
+  const text = ask.draft;
   const fieldRef = useAutoGrowTextarea([text, ask.state]);
   const areaRef = useRef<HTMLDivElement | null>(null);
   // autoFocus lands while the card body is still at height 0, so the browser
@@ -893,10 +896,6 @@ function AskArea({ title, ask }: { title: string; ask: FindingAsk }) {
     }, CARD_BODY_MS);
     return () => clearTimeout(timer);
   }, []);
-  // A question the pane took is done with; asking again starts empty.
-  useEffect(() => {
-    if (ask.state === 'asked') setText('');
-  }, [ask.state]);
   if (ask.state === 'asked')
     return (
       <div className="tui-review-ask" data-asked="">
@@ -933,7 +932,7 @@ function AskArea({ title, ask }: { title: string; ask: FindingAsk }) {
           aria-label={`${title}: your question`}
           disabled={sending}
           autoFocus
-          onChange={e => setText(e.currentTarget.value)}
+          onChange={e => ask.onDraft(e.currentTarget.value)}
           onKeyDown={e => {
             // Escape and Cmd/Ctrl+Enter here are the question's, never the
             // sheet's: Escape cancels the question rather than closing the

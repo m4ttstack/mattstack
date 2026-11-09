@@ -400,6 +400,27 @@ describe('asking a question from the review sheet', () => {
     await settle();
   });
 
+  test('a half-written question survives a trip to the Report tab', async () => {
+    await show(gate(), mrWith());
+    await openAndType('First finding', 'Why critical?');
+    const tab = (label: string) =>
+      [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
+        b => b.textContent?.startsWith(label)
+      )!;
+    await React.act(async () => tab('Report').click());
+    await React.act(async () => tab('Findings').click());
+    expect(field('First finding')!.value).toBe('Why critical?');
+  });
+
+  test('a cancelled question starts empty next time', async () => {
+    await show(gate(), mrWith());
+    await openAndType('First finding', 'Why critical?');
+    await React.act(async () => button('First finding', 'Cancel')!.click());
+    await settle();
+    await React.act(async () => askLink('First finding')!.click());
+    expect(field('First finding')!.value).toBe('');
+  });
+
   test('a refused question keeps the area and its text to try again', async () => {
     await show(gate(), mrWith());
     await openAndType('First finding', 'Why critical?');
