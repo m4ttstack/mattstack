@@ -958,7 +958,9 @@ function AskArea({ title, ask }: { title: string; ask: FindingAsk }) {
           intent="accent"
           size="sm"
           disabled={sending || empty || ask.blocked}
-          title={ask.blocked ? 'Wait for the other question to send' : undefined}
+          title={
+            ask.blocked ? 'Wait for the other question to send' : undefined
+          }
           onClick={() => ask.onSend(text)}
         >
           Send to the agent
