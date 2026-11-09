@@ -66,6 +66,13 @@ describe("enrichBranches on-deck short-circuit", () => {
     expect(branch!.unknownForge).toBeUndefined();
   });
 
+  test("a remote on this disk stays Local Only", async () => {
+    for (const remote of ["/srv/git/acme.git", "file:///srv/git/acme.git"]) {
+      const [branch] = await enrichBranches([{ path: "/x/wt", branch: "feature-x" }], remote, { silent: true });
+      expect(branch!.unknownForge).toBeUndefined();
+    }
+  });
+
   test("a repo with no remote stays Local Only", async () => {
     const [branch] = await enrichBranches([{ path: "/x/wt", branch: "feature-x" }], undefined, { silent: true });
     expect(branch!.unknownForge).toBeUndefined();

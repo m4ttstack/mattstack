@@ -1682,7 +1682,7 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
   // A team can declare a self-hosted forge, but that declaration is never
   // sent a credential on its own: the user confirms it once, here, by
   // passing --host, and ctxFor then only ever trusts the confirmed value.
-  const hostFlag = id === "gitlab" ? flagValue(args, "--host") : undefined;
+  const hostFlag = id === "gitlab" ? flagValue(args, "--host")?.toLowerCase() : undefined;
   if (hostFlag !== undefined && !isValidHostname(hostFlag)) {
     throw new UserActionableError("bad-host", `--host takes a bare hostname such as gitlab.example.com, not ${hostFlag}`);
   }

@@ -327,7 +327,7 @@ export async function enrichBranches(
   const enrichedReal = real.length > 0
     ? await enrichRealBranches(real, remoteUrl, options)
     : [];
-  const unknownForge = !!remoteUrl && !isGitHubRemote(remoteUrl) && !isGitLabRemote(remoteUrl);
+  const unknownForge = !!remoteUrl && parseRemoteUrl(remoteUrl) !== null && !isGitHubRemote(remoteUrl) && !isGitLabRemote(remoteUrl);
   const byPath = new Map(enrichedReal.map((e) => [e.path, unknownForge ? { ...e, unknownForge } : e]));
   return branches.map((b) => byPath.get(b.path) ?? localOnly(b));
 }
