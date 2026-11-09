@@ -14,8 +14,8 @@ two questions, each its own:
 - `fix` (write-in): **Fix the blocking findings now** (`blocking`: Critical
   and Important; recommended when any exists) / **Fix the minors too**
   (`all`) / **Ship as is** (`none`)
-- `next`: **Proceed** (`proceed`, recommended) / **Iterate here**
-  (`iterate`) / **Hold** (`hold`) / **Abandon** (`abandon`)
+- `next`: `proceed` (recommended) / `iterate`
+  / `hold` / `abandon`
 
 The answers map is `{fix, next}` at scope `self-review`. On a resume, a
 recorded `self-review` decision whose `fix` is `blocking`, `all` or `none`

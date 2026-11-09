@@ -14,8 +14,8 @@ options sends the whole gate to the wait queue):
   pre-selected by the rule under **Plan the sweep** (deselecting skips
   one); over 4 branches it splits into `branches-1`, `branches-2`, ... of
   up to 4 options each, in order, whose answers read as one union
-- `next`: **Proceed** (recommended) / **Iterate here** (their text
-  reorders or excludes) / **Hold**
+- `next`: `proceed` (recommended) / `iterate` (their text
+  reorders or excludes) / `hold`
 
 Selection `{"branches":[...]}`. Nothing is touched before the answer.
 Read `next` first: **Hold** ends the turn with nothing rebased; **Iterate

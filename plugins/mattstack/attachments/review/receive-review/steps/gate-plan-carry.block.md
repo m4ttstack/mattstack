@@ -20,8 +20,8 @@ know those pane cards never showed their drafts. The record then passes
 - **form:** `### Present the in-pane gate form`, holding `code-changes`
   back from the chunks. Then one last call: `code-changes`, only when some
   thread answered `fix:` (otherwise submit its sentinel `skip` unasked),
-  plus a pane-only `next` question of **Continue** / **Iterate here** /
-  **Hold**. That `next` never reaches the registry, and Iterate / Hold are
+  plus a pane-only `next` question of **Continue** / `iterate` /
+  `hold`. That `next` never reaches the registry, and Iterate / Hold are
   never extra options on a thread or code-changes question.
   - **Continue:** ONE `gate_answer {id, answers, runDb?, stage?}` after
     that last call, carrying every thread answer plus `code-changes`. A

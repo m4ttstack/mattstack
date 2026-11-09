@@ -11,8 +11,8 @@ label: Respond post
 `paneAction?`; a gate is never asked or answered from the shell.
 
 - **form:** `### Present the in-pane gate form`. Here `next` is a question
-  of the open itself (**Proceed**, recommended / **Iterate here** /
-  **Hold**), so it rides in the chunks; never fold it into a thread
+  of the open itself (`proceed` (recommended) / `iterate` /
+  `hold`), so it rides in the chunks; never fold it into a thread
   question. Then ONE `gate_answer {id, answers, runDb?, stage?}` carrying
   every thread answer plus `next`. The pane's answer never carries `text`:
   whatever the human types, a full replacement reply included, rides as

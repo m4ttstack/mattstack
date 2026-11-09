@@ -17,7 +17,7 @@ to the wait queue):
 
 - `conflict`: **Leave the rebase in progress for me** (recommended) /
   **Abort the rebase**
-- `next`: **Proceed** (recommended) / **Iterate here** / **Hold**
+- `next`: `proceed` (recommended) / `iterate` / `hold`
 
 Selection `{"conflict":"leave|abort","next":"proceed|iterate|hold","note":"<their words or null>"}`.
 Read `next` first: **Hold** ends the turn with nothing aborted; **Iterate

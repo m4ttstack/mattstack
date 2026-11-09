@@ -25,7 +25,7 @@ later openings are not charged to the first.
 | Question | Options | Shown when |
 |---|---|---|
 | `boards` (write-in) | **Nothing here should stay private** / **Hide something first**, with free text naming the board and what shows | always |
-| `next` | **Proceed** / **Hold** | always |
+| `next` | `proceed` / `hold` | always |
 
 No option is recommended: whether a file may go public is the human's
 call, made by looking at it. Selection: `{"boards":"clear|hide|<their words>","next":"proceed|hold","note":"<their words or null>"}`.

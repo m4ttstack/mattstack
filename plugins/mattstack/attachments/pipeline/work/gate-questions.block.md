@@ -10,9 +10,9 @@ Each question is its own; never fold one list into another.
 |---|---|---|
 | `clarify` | `resume` (write-in) | **Resume it (Recommended)** / **Start fresh** / **Hold** |
 | `<stage>-failed:<attempt>` | `action` | **Retry the stage (Recommended)** (when the reason names something fixable) / **Abandon the run** |
-| | `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** |
+| | `next` | `proceed` / `iterate` / `go-back` / `hold` |
 | | `to` | on Go back, with more than one `earlier` stage: one per stage, split `to-1`, `to-2`, ... over 4 |
-| `close` | `next` | **Done** (when `ci` is green and the MR ready) / **Iterate here** / **Go back** / **Hold** |
+| `close` | `next` | **Done** (when `ci` is green and the MR ready) / `iterate` / `go-back` / `hold` |
 | | `to` | on Go back, with more than one stage: one per `stages` entry, split over 4 |
 
 With one candidate stage, label the option **Go back to `<stage>`** and

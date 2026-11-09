@@ -13,7 +13,7 @@ queue):
 
 - `push`: **Push with force-with-lease now** / **Leave it unpushed**
   (recommended when the branch has an open MR others may have pulled)
-- `next`: **Proceed** / **Iterate here** / **Hold**
+- `next`: `proceed` / `iterate` / `hold`
 
 Selection `{"push":true|false,"next":"proceed|iterate|hold","note":"<their words or null>"}`.
 Read `next` first: **Hold** ends the turn with nothing pushed; **Iterate
