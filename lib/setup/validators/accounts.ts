@@ -28,6 +28,7 @@ import type { TeamSnapshot, UserIntegrationOverrides } from "../team-settings.ts
 import { slackSupportRow, type SlackCheck } from "./slack-support.ts";
 import { forgeRole, missingScopes, scopeShortfallDetail, tokenCreateLink, tokenField, type ForgeProvider, type ForgeRole } from "../token-create.ts";
 import { readTeamLocal } from "../../team/team-local.ts";
+import { ghSessionToken } from "../../team/forge-token.ts";
 import { roleFor } from "../../team/roles.ts";
 import { boardEnvHas, boardPeering } from "../../team/board-token.ts";
 import { slackSecretWait, slackWaitRowDetail, type SlackSecretWait } from "../team-slack-secret.ts";
@@ -170,6 +171,9 @@ async function githubRow(p: Probes, base: Omit<Row, "status" | "detail" | "actio
   if (stored === null) {
     const ghStatus = await p.exec(["gh", "auth", "status"]);
     if (ghStatus.code === 0) {
+      if ((await ghSessionToken(p)) === null) {
+        return row({ ...base, status: "missing", detail: "The gh CLI is signed in but won't share a token, so git can't use it", action: connectAction(def, false, forge) });
+      }
       const user = parseGhUser(`${ghStatus.stdout}\n${ghStatus.stderr}`);
       return row({ ...base, status: "ready", detail: user ? `Signed in through the gh CLI as ${user}` : "Signed in through the gh CLI" });
     }

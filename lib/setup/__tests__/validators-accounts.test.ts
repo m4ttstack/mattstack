@@ -207,9 +207,17 @@ describe("accountRows — account.github", () => {
     return baseTeam({ integrations: { forge: { host: "github.com", provider: "github" } } });
   }
 
+  test("no token, gh signed in but holding back its token -> not ready, so git is never promised a credential", async () => {
+    const exec: ExecScript = (argv) =>
+      argv[0] === "gh" && argv[2] === "status" ? ok("✓ Logged in to github.com account octocat (keyring)\n") : { code: 1, stdout: "", stderr: "no oauth token found" };
+    const r = await pickRow(accountRows(fakeProbes({ exec }), githubTeam(), [], fakeSecrets(), null), "account.github");
+    expect(r.status).toBe("missing");
+    expect(r.action?.type).toBe("connect");
+  });
+
   test("no token, gh authenticated -> ready 'via gh (<user>)'", async () => {
     const exec: ExecScript = (argv) =>
-      argv[0] === "gh" && argv[1] === "auth" && argv[2] === "status" ? ok("✓ Logged in to github.com account octocat (keyring)\n") : ok();
+      argv[0] === "gh" && argv[1] === "auth" && argv[2] === "status" ? ok("✓ Logged in to github.com account octocat (keyring)\n") : argv[0] === "gh" ? ok("gho_session\n") : ok();
     const r = await pickRow(accountRows(fakeProbes({ exec }), githubTeam(), [], fakeSecrets(), null), "account.github");
     expect(r.status).toBe("ready");
     expect(r.detail).toBe("Signed in through the gh CLI as octocat");

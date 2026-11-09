@@ -21,7 +21,7 @@ import { sharedStorePath } from "../../packages/rt-client/test/org-fixture.ts";
 import type { ExecScript } from "../../lib/setup/__tests__/fakes.ts";
 import type { SecretPresence } from "../../lib/setup/validators/accounts.ts";
 
-const readyExec: ExecScript = (argv) => (argv[0] === "sw_vers" ? ok("15.6") : ok());
+const readyExec: ExecScript = (argv) => (argv[0] === "sw_vers" ? ok("15.6") : argv[0] === "gh" && argv[2] === "token" ? ok("gho_session\n") : ok());
 const secrets: SecretPresence = { async has() { return null; } };
 
 async function plan(mode: "plan" | "status"): Promise<Plan> {
