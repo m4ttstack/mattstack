@@ -19,7 +19,7 @@ form: the printed tier and why.
 | `tier` (write-in) | the printed tier, its label ending ` (Recommended)`, then the other two; a write-in names one of the three, and any other is iterated | always |
 | `failing_test` | the FAILING TEST line to keep, or their rename as text | direct-tdd |
 | the domain's own | as the domain policy words them | the domain declares them |
-| `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** | always |
+| `next` | `proceed` / `iterate` / `go-back` / `hold` | always |
 | `to` | one option per earlier stage, split `to-1`, ... over 4 | Go back answered and more than one earlier stage row |
 
 Write `approach` = the tier the gate recorded and `evidence-plan` = the

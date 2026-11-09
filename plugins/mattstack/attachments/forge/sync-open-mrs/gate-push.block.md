@@ -16,7 +16,7 @@ question over 4 options sends the whole gate to the wait queue):
   splits into `branches-1`, `branches-2`, ... of up to 4 options each,
   in order, whose answers read as one union
 - `watch_ci`: **Watch CI after pushing** (yes / no)
-- `next`: **Proceed** (recommended) / **Iterate here** / **Hold**
+- `next`: `proceed` (recommended) / `iterate` / `hold`
 
 Selection `{"branches":[...],"watch_ci":true|false}`. Read `next` first:
 **Hold** ends the turn with nothing pushed; **Iterate here** goes back to

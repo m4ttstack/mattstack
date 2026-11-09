@@ -23,7 +23,19 @@ not your own.
   `next`, marks none.
 - **`next` values** are exactly `proceed`, `iterate`, `go-back`, `hold`,
   and `abandon`, `done`, `handback` or `goon` where the site's table offers
-  them; the tools read `proceed` and `iterate`.
+  them; the tools read `proceed` and `iterate`. A site lists `next` by
+  value; send each as `{value, label}` with its label from this table.
+  A site's `(recommended)` after a value makes that label end
+  ` (Recommended)`, and an option the site writes in bold keeps the
+  site's label:
+
+  | Value | Label |
+  |---|---|
+  | `proceed` | Proceed |
+  | `iterate` | Iterate here |
+  | `go-back` | Go back |
+  | `hold` | Hold |
+  | `abandon` | Abandon |
 - **Write-ins** go only on a decision question whose free text you can act
   on, never on `next` or a review-post, respond, doctor or pane-attention
   question.

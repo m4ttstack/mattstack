@@ -13,7 +13,7 @@ each its own question:
 
 - `action`: **Take the proposed move** (the value spells the move in full,
   one move per branch) / **Hand back**
-- `next`: **Proceed** (recommended) / **Iterate here** / **Hold**
+- `next`: `proceed` (recommended) / `iterate` / `hold`
 
 Selection `{"action":"take: <the move in full>|handback","next":"proceed|iterate|hold","note":"<their words or null>"}`.
 Read `next` first: **Hold** ends the turn with no move made; **Iterate

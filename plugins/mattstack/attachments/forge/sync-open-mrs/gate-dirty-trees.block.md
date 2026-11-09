@@ -13,7 +13,7 @@ came back `dirty-tree`. One sentence per tree listing its uncommitted
 - `retry`: a multi-select "I committed them, retry" of those branches,
   none pre-selected; over 4 branches it splits into `retry-1`, `retry-2`,
   ... of up to 4 options each, whose answers read as one union
-- `next`: **Proceed** (recommended) / **Hold**
+- `next`: `proceed` (recommended) / `hold`
 
 Selection `{"retry":[...]}`. Read `next` first: **Hold** ends the turn
 with nothing more synced; **Proceed** re-syncs the picked trees once and

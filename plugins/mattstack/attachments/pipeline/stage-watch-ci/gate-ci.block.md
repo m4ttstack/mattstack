@@ -14,7 +14,7 @@ verdict and a one-line triage per blocking failure.
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
 | `action` (write-in) | **Fix and re-push** (a REAL failure in your change) / **Retry the job** (a flake not yet retried) / **Hand back** (leave it red for the human) / **Abandon the run** | always |
-| `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** | always |
+| `next` | `proceed` / `iterate` / `go-back` / `hold` | always |
 | `to` | one option per earlier stage; with one candidate, **Go back to `<stage>`** in `next` instead | Go back, with more than one earlier stage row |
 
 Mark one `action` option `(Recommended)`: **Fix and re-push** when any
