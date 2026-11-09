@@ -35,6 +35,8 @@ import {
 } from "@mattstack/glance";
 import { withTransientStep } from "./ui/transient-step.ts";
 import { resolveGithubToken } from "./github-token.ts";
+import { mayOfferGitLabToken } from "./team/forge-token.ts";
+import { readUserIntegrationOverrides } from "./setup/team-settings.ts";
 import { remoteDefaultRef, runGit } from "./worktree/git-async.ts";
 import {
   loadSecrets,
@@ -86,12 +88,18 @@ export function isGitHubRemote(url: string | undefined): boolean {
 
 export type Forge = "github" | "gitlab";
 
+/** `isGitLabRemote` only says a host looks like GitLab, which anyone can name a host to look like. */
+function gitlabTokenFor(remoteUrl: string | undefined, secrets: { gitlabToken?: string }): string | null {
+  if (!remoteUrl || !secrets.gitlabToken) return null;
+  return mayOfferGitLabToken(remoteUrl, readUserIntegrationOverrides().forgeHost) ? secrets.gitlabToken : null;
+}
+
 /** The forge a remote points at and the token rt would call it with; null for a remote on neither. */
 export async function forgeTokenFor(
   remoteUrl: string | undefined,
   secrets: { gitlabToken?: string; githubToken?: string },
 ): Promise<{ forge: Forge; token: string | null } | null> {
-  if (isGitLabRemote(remoteUrl)) return { forge: "gitlab", token: secrets.gitlabToken ?? null };
+  if (isGitLabRemote(remoteUrl)) return { forge: "gitlab", token: gitlabTokenFor(remoteUrl, secrets) };
   if (isGitHubRemote(remoteUrl)) return { forge: "github", token: (await resolveGithubToken(secrets.githubToken))?.token ?? null };
   return null;
 }
@@ -420,8 +428,9 @@ async function fetchFresh(
     const branchNames = branches.map(b => b.branch).filter(b => b !== "" && b !== defaultBranch);
     if (branchNames.length > 0) {
       try {
-        if (secrets.gitlabToken && isGitLabRemote(remoteUrl)) {
-          const provider = new GitLabProvider(remote.host, secrets.gitlabToken);
+        const gitlabToken = isGitLabRemote(remoteUrl) ? gitlabTokenFor(remoteUrl, secrets) : null;
+        if (gitlabToken) {
+          const provider = new GitLabProvider(remote.host, gitlabToken);
           mrMap = await provider.fetchPullRequestsByBranches(remote.projectPath, branchNames, "all");
           mrFetchSucceeded = true;
         } else if (secrets.githubToken && isGitHubRemote(remoteUrl)) {
@@ -535,8 +544,9 @@ export async function refreshAllMRs(
     const branchNames = branches.map(b => b.branch).filter(b => b !== "");
     if (branchNames.length > 0) {
       try {
-        if (secrets.gitlabToken && isGitLabRemote(remoteUrl)) {
-          const provider = new GitLabProvider(remote.host, secrets.gitlabToken);
+        const gitlabToken = isGitLabRemote(remoteUrl) ? gitlabTokenFor(remoteUrl, secrets) : null;
+        if (gitlabToken) {
+          const provider = new GitLabProvider(remote.host, gitlabToken);
           mrsByBranch = await provider.fetchPullRequestsByBranches(remote.projectPath, branchNames, 'all');
           mrFetchSucceeded = true;
         } else if (secrets.githubToken && isGitHubRemote(remoteUrl)) {

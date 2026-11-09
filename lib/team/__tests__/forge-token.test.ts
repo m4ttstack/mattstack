@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { NoAgeKeyError } from "../../secrets/store.ts";
-import { forgeTokenLookup, forgeTokenLookupFromPresence, mayOfferToken, tokenOrNull, withholdFromUntrustedHost } from "../forge-token.ts";
+import { forgeTokenLookup, forgeTokenLookupFromPresence, mayOfferGitLabToken, mayOfferToken, tokenOrNull, withholdFromUntrustedHost } from "../forge-token.ts";
 import type { SecretPresence } from "../../setup/validators/accounts.ts";
 
 const REMOTE = "https://github.com/acme/team.git";
@@ -64,6 +64,17 @@ describe("mayOfferToken", () => {
     expect(mayOfferToken("https://gitlab.evil.example/acme/team.git", null)).toBe(false);
     expect(mayOfferToken("https://gitlab.evil.example/acme/team.git", "gitlab.acme.internal")).toBe(false);
     expect(mayOfferToken("https://gitlab.acme.internal/acme/team.git", "gitlab.acme.internal")).toBe(true);
+  });
+
+  test("the GitLab token never goes to github.com, even when github.com is the confirmed host", () => {
+    expect(mayOfferGitLabToken("https://github.com/acme/team.git", null)).toBe(false);
+    expect(mayOfferGitLabToken("git@github.com:acme/team.git", "github.com")).toBe(false);
+  });
+
+  test("the GitLab token goes to gitlab.com or the one confirmed host", () => {
+    expect(mayOfferGitLabToken("git@gitlab.com:acme/team.git", null)).toBe(true);
+    expect(mayOfferGitLabToken("https://git.acme.internal/acme/team.git", "git.acme.internal")).toBe(true);
+    expect(mayOfferGitLabToken("https://gitlab.evil.example/acme/team.git", "git.acme.internal")).toBe(false);
   });
 
   test("a real token is withheld from an unconfirmed host", () => {
