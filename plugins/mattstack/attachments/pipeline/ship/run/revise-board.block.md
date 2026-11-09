@@ -18,7 +18,7 @@ carries no `linkRefused`; this is the last attach, so only a Take at its
 upload off-script gate resends with `linkRefused: true`.
 
 `Revise outcome (ship)?`: revised is Recorded, then Attached. Held is a
-Hold at Gate evidence-redaction (step 5, nothing recorded), Record held
+`hold` at Gate evidence-redaction (step 5, nothing recorded), Record held
 or Attach held; the run is already closed, so no `run_hold`. A board with
 no spec beside it is the no-spec exit. A compose error, a re-render that
 still reads wrong after its two tries, a refused confirm, a recapture that

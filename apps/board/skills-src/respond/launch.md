@@ -362,7 +362,7 @@ other answer records its marks, then reads.
   the file), and whose answer then stands in for the joined Gate 1
   answer. A hand back or round-2 iterate writes `error` naming the
   refusal.
-- **Hold** keeps the pane open with nothing more moved and no terminal
+- `hold` keeps the pane open with nothing more moved and no terminal
   status.
 
 ### Record the resumed escalation's marks in --report

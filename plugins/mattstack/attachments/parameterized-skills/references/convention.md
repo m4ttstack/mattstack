@@ -455,10 +455,10 @@ Standing options on every gate form but `clarify` (defined below): *Iterate
 here* (the human's free text is the change request) and *Hold*; *Go back to
 <stage>* when `snapshot` shows an earlier stage row.
 
-Iterate here at a stage gate means: act on the human's note inside the
+`iterate` at a stage gate means: act on the human's note inside the
 stage, then gate the same scope again (the upsert keeps the latest
 answer). Redirect is only for Go back. On a form with more than one
-question, Iterate here and Hold are the last question's options.
+question, `iterate` and `hold` are the last question's options.
 
 `-` is the cleared sentinel for any field this contract writes (`hold`, a
 redirected stage's produces): `run_field_set {runDb, key, value: "-",
@@ -492,7 +492,7 @@ back; `note` carries their free text or null. A gate's own answer keys
 stand beside them.
 
 A `clarify` form carries its candidates, optionally their text, and Hold;
-it offers no Iterate here (the free-text candidate plays that role) and no
+it offers no `iterate` (the free-text candidate plays that role) and no
 Go back, and its selection keeps its single key. Hold on any form: one
 sentence, end the turn; under a run, `run_hold {runDb, stage, reason:
 "<their words>", decidedBy: <the answer's by>}` records the hold (at a

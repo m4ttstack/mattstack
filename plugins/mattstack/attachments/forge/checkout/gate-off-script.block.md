@@ -16,12 +16,12 @@ questions, each its own question:
 - `next`: `proceed` (recommended) / `iterate` / `hold`
 
 Selection `{"action":"take: <the move in full>|handback","next":"proceed|iterate|hold","note":"<their words or null>"}`.
-Read `next` first: **Hold** ends the turn with no move made; **Iterate
-here** means the human fixed the cause (started the daemon, registered the
+Read `next` first: `hold` ends the turn with no move made; `iterate`
+ means the human fixed the cause (started the daemon, registered the
 repo) and wants `worktree_provision` retried, and it ignores `action`; only
-**Proceed** applies `action` (take or hand back). The proposed
+`proceed` applies `action` (take or hand back). The proposed
 move is one plain-git worktree for the branch at a path the value names;
-retrying the refused tool is **Iterate here**, never **Take**. A plain-git
+retrying the refused tool is `iterate`, never **Take**. A plain-git
 worktree is a move only the human's **Take** can authorize; never make one
 on any other answer. **Provision refused: reported** quotes the
 `worktree_provision` error.

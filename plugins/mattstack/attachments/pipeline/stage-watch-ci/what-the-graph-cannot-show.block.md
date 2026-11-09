@@ -17,5 +17,5 @@ label: Graph notes
 - **The sha guard.** `ci_watch` counts only a pipeline for `sha` and
   returns `superseded` when the head moves on. On GitHub `headRefOid` must equal it, "no checks reported" is
   pending, and `gh run rerun` takes the run id from the failed check's link.
-- **Hold.** `run_hold` takes the gate as `reason` and `decidedBy` as the
+- **`hold`.** `run_hold` takes the gate as `reason` and `decidedBy` as the
   answer recorded it.

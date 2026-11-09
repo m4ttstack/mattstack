@@ -11,7 +11,7 @@ props:
 # Gate `evidence` (before any capture)
 
 One sentence above the form: what the plan asks for and what is unknown,
-naming any dev-server role left waiting or unclaimed. Iterate on such a
+naming any dev-server role left waiting or unclaimed. `iterate` on such a
 role re-runs `dev_endpoints` twice at most (`gate-iterates`); the third
 fails the stage, naming the roles.
 

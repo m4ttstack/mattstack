@@ -20,8 +20,8 @@ to the wait queue):
 - `next`: `proceed` (recommended) / `iterate` / `hold`
 
 Selection `{"conflict":"leave|abort","next":"proceed|iterate|hold","note":"<their words or null>"}`.
-Read `next` first: **Hold** ends the turn with nothing aborted; **Iterate
-here** re-reads the tree, ignoring `conflict`; only **Proceed** applies
+Read `next` first: `hold` ends the turn with nothing aborted; `iterate`
+ re-reads the tree, ignoring `conflict`; only `proceed` applies
 the `conflict` choice (`leave` or `abort`). Never resolve the
 conflict yourself, stage the files, or continue or skip the rebase.
 

@@ -13,7 +13,7 @@ a board steps 1 to 6 on that board with no wording change (step 3's
 it, pass Gate evidence-redaction, confirm after a yes and record the new
 bundle. Recorded is Repaired, and a repaired board is new bytes: Gate
 evidence-boards shows every file to show again from the first opening before the
-next `evidence_attach`. A Hold at the gate, or Record held, is
+next `evidence_attach`. A `hold` at the gate, or Record held, is
 Held at evidence-redaction, with nothing uploaded; no spec beside the
 board, a compose error, a refused confirm, a confirm that left an empty
 record unconfirmed, spent redaction rounds or openings, or Record failed

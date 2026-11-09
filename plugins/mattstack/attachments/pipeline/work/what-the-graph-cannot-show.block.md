@@ -16,7 +16,7 @@ label: Graph notes
 - **One owner for stage rows.** The run tools write them; a stage writes
   its fields and its own `run_stage fail`. Never write stage rows, produce
   clears, `shipTarget` or `pipeline-stages` here.
-- **Hand-back.** A stage ending at a Go back hands `{to, note,
+- **Hand-back.** A stage ending at a `go-back` hands `{to, note,
   decidedBy}`, and a Fix hands `{to: implement, note, decidedBy}` the same
   way; `attempt` is its running attempt.
 - **`repeated: true`**: already applied; follow the result.

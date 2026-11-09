@@ -21,12 +21,12 @@ know those pane cards never showed their drafts. The record then passes
   back from the chunks. Then one last call: `code-changes`, only when some
   thread answered `fix:` (otherwise submit its sentinel `skip` unasked),
   plus a pane-only `next` question of **Continue** / `iterate` /
-  `hold`. That `next` never reaches the registry, and Iterate / Hold are
+  `hold`. That `next` never reaches the registry, and `iterate` / `hold` are
   never extra options on a thread or code-changes question.
   - **Continue:** ONE `gate_answer {id, answers, runDb?, stage?}` after
     that last call, carrying every thread answer plus `code-changes`. A
     replacement reply typed in the free-text field rides as `note`.
-  - **Iterate here** or **Hold:** answer nothing. Hold leaves the gate
+  - `iterate` or `hold`: answer nothing. `hold` leaves the gate
     open for another surface.
 - **wait:** as gate-protocol draws it; an answer from the board or
   console carries no `next`: it is the `answered off the pane` edge.

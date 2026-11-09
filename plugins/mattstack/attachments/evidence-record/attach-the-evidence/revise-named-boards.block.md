@@ -10,7 +10,7 @@ name, walk browser-evidence's Revise a board steps 1 to 6, adding a
 words as `asked`. A waived capture they name goes back through `Record the
 evidence` with no waiver, so its annotate pass draws a board that hides
 what they name. Recorded reopens this gate with the new files. Words that
-name no board reopen it too, the context asking which board. A Hold at the
+name no board reopen it too, the context asking which board. A `hold` at the
 redaction gate or Record held is Held at evidence-redaction; no spec
 beside the board, a compose error, a refused confirm, a confirm that left
 an empty record unconfirmed, spent redaction rounds or openings, or Record

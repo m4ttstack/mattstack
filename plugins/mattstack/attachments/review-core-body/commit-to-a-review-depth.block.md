@@ -25,5 +25,5 @@ checkout is touched, or the diff is read. A commitment, not reasoning.
 EVIDENCE CHECK: `screenshot` if a user can see the change, `data-shape` for
 a backend-only change, `none` only when there is no runtime surface.
 
-The tier is a recommendation: a different tier is an Iterate here answer at
+The tier is a recommendation: a different tier is an `iterate` answer at
 the next gate, against a printed tier rather than a silent one.

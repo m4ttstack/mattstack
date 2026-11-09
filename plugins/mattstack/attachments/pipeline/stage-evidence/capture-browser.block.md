@@ -39,7 +39,7 @@ Its terminals answer `Captured?`:
   spent, no driver to spawn, redaction rounds or openings spent, confirm
   refused twice, a confirm that left an empty record unconfirmed) reopens the evidence gate with what was tried, which then
   offers **Hand back** and **Go on without this BEFORE** in place of
-  **Proceed**, since the same pass would end Not drawn again.
+  `proceed`, since the same pass would end Not drawn again.
 - **Not drawn** for a failed brief or spent re-renders takes the no edge,
   counted against `capture-attempts`.
 

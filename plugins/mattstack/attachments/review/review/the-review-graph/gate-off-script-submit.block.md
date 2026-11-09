@@ -19,7 +19,7 @@ recorded as posted by the human.
   without the summary, so the human checks the MR's threads. Take only:
   the human finishes the review in the forge UI, summary included.
 
-`context` then says **Iterate here** is only for a human who confirmed
+`context` then says `iterate` is only for a human who confirmed
 nothing from this review is up, never a blind resubmit. From `This review
 already on the MR?` with partly, it quotes the hold reason and which
 `mr_posted_since` items are posted.

@@ -17,7 +17,7 @@ label: Graph notes
   `refused: "lease_held"` means another attendant holds the MR's CI lease:
   report the `holder` and stop, releasing nothing; that lease is someone
   else's.
-- **Hold** records `run_hold`: `reason` their words or the gate,
+- `hold` records `run_hold`: `reason` their words or the gate,
   `decidedBy` as the answer recorded it.
 - **`targetBranch`** is what `branch_stack` resolved; a default branch is
   read from git, never guessed. A GitHub PR takes it as `--base`, with `--draft` unless the gate

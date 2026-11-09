@@ -689,7 +689,7 @@ the retry goes straight back to the off-script gate.
 - **An iterate at a posting origin** walks the posting again from the
   top; the Posted already read finds whether the review is up, so the
   refused call is the first to run.
-- **Hold** keeps the pane open with nothing more posted and no terminal
+- `hold` keeps the pane open with nothing more posted and no terminal
   status. **Hand back** writes `error` naming the refusal the value names.
   At `mr_review_submit refused` or `pending comments on the MR`, a hand
   back or an iterate at round 2 first takes `Record the round again with

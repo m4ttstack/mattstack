@@ -5,7 +5,7 @@ disable-model-invocation: true
 type: pipeline-step
 metadata:
   stage: "implement"
-  stage-consumes: "approach branch worktree"
+  stage-consumes: "approach branch worktree failing-test"
   stage-produces: "commits"
 ---
 
@@ -25,6 +25,7 @@ flowchart TB
     run_field_get_approach[/"run_field_get {key: approach}"/]
     run_field_get_branch[/"run_field_get {key: branch}"/]
     run_field_get_worktree[/"run_field_get {key: worktree}"/]
+    run_field_get_failing_test[/"run_field_get {key: failing-test}"/]
     approach_tier{approach?}
     make_trivial_change
     test_while_trivial{Found yourself writing a test?}
@@ -46,7 +47,8 @@ flowchart TB
     implement_entered --> run_field_get_approach
     run_field_get_approach --> run_field_get_branch
     run_field_get_branch --> run_field_get_worktree
-    run_field_get_worktree --> approach_tier
+    run_field_get_worktree --> run_field_get_failing_test
+    run_field_get_failing_test --> approach_tier
     approach_tier -->|trivial| make_trivial_change
     approach_tier -->|direct-tdd| red_green_refactor
     approach_tier -->|superpowers| superpowers_chain

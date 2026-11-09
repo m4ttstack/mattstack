@@ -24,22 +24,23 @@ not your own.
 - **`next` values** are exactly `proceed`, `iterate`, `go-back`, `hold`,
   and `abandon`, `done`, `handback` or `goon` where the site's table offers
   them; the tools read `proceed` and `iterate`. A site lists `next` by
-  value; send each as `{value, label}` with its label from this table.
-  A site's `(recommended)` after a value makes that label end
+  value; send each as `{value, label, description}` from this table,
+  under the question label `Happy with this, or should something
+  change?`. A site's `(recommended)` after a value makes that label end
   ` (Recommended)`, and an option the site writes in bold keeps the
-  site's label:
+  site's label and takes no description:
 
-  | Value | Label |
-  |---|---|
-  | `proceed` | Proceed |
-  | `iterate` | Iterate here |
-  | `go-back` | Go back |
-  | `hold` | Hold |
-  | `abandon` | Abandon |
+  | Value | Label | Description |
+  |---|---|---|
+  | `proceed` | Looks good, continue | Move on to the next step |
+  | `iterate` | Change something | Say what to change, then redo this step |
+  | `go-back` | Redo an earlier step | Return to a step that needs redoing |
+  | `hold` | Pause | Stop until you resume this run |
+  | `abandon` | Abandon | End this run for good |
 - **Write-ins** go only on a decision question whose free text you can act
   on, never on `next` or a review-post, respond, doctor or pane-attention
   question.
 - **At most 4 options per question**, or the whole gate goes to the wait.
-  Navigation (Iterate here, Go back, Hold, Abandon) is its own `next`
+  Navigation (`iterate`, `go-back`, `hold`, Abandon) is its own `next`
   question; a longer list splits into `<id>-1`, `<id>-2`, ... read as one
   union.

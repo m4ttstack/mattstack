@@ -16,9 +16,9 @@ queue):
 - `next`: `proceed` / `iterate` / `hold`
 
 Selection `{"push":true|false,"next":"proceed|iterate|hold","note":"<their words or null>"}`.
-Read `next` first: **Hold** ends the turn with nothing pushed; **Iterate
-here** goes back to **Report the move** and ignores `push`; only
-**Proceed** applies `push`.
+Read `next` first: `hold` ends the turn with nothing pushed; `iterate`
+ goes back to **Report the move** and ignores `push`; only
+`proceed` applies `push`.
 Any `git_push` error other than "not registered with rt" is reported with
 its text; the rebase stands unpushed.
 
@@ -29,4 +29,4 @@ its text; the rebase stands unpushed.
 | Thought | Reality |
 |---------|---------|
 | "Push with force-with-lease now is the natural next action, so I'll mark it Recommended" | Only **Leave it unpushed** carries a recommended label, and only conditionally (an open MR others may have pulled). Keep that qualifier on that option; never move it to the push option. |
-| "Restating the finding and explaining each option makes the ask clearer" | A gate's form is one sentence of context, then the bare option labels the gate text names, nothing more -- no restated heading, no per-option description, no conditional aside on when Hold applies. |
+| "Restating the finding and explaining each option makes the ask clearer" | A gate's form is one sentence of context, then the bare option labels the gate text names, nothing more -- no restated heading, no per-option description beyond the shared `next` table's, no conditional aside on when `hold` applies. |

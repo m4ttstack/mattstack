@@ -12,9 +12,9 @@ are not).
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
 | `ready` (write-in) | **Mark ready now (Recommended)** (CI green, evidence attached) / **Keep it draft** | always |
-| `next` | `proceed` / `iterate` / `go-back` / `hold` | always; **Go back** only in an inherited run |
-| `to` | one option per earlier stage; with one candidate, **Go back to `<stage>`** in `next` instead | Go back, with more than one earlier stage in `run_snapshot` |
+| `next` | `proceed` / `iterate` / `go-back` / `hold` | always; `go-back` only in an inherited run |
+| `to` | one option per earlier stage; with one candidate, **Redo `<stage>`** in `next` instead | `go-back`, with more than one earlier stage in `run_snapshot` |
 
 Scope `mark-ready`. Selection: `{"ready":true|false,"next":"proceed|iterate|go-back|hold","to":"<stage or null>","note":"<their words or null>"}`.
-The first Iterate opens a new gate with the note; the second ends the
+The first `iterate` opens a new gate with the note; the second ends the
 verb done, the MR a draft, the note quoted in the report.

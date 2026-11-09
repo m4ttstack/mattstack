@@ -26,7 +26,7 @@ label: Graph notes
   report. After `url: null`, the re-call's `existing: true` MR is the first
   call's: the report says squash is unset when it was asked and no result
   said it applied.
-- **Hold** at any gate records `run_hold`: the gate-write stage, the gate
+- `hold` at any gate records `run_hold`: the gate-write stage, the gate
   as `reason`, `decidedBy` as the answer recorded it. The turn ends naming
   the run and the gate.
 - **A board revision asked at a gate** (a note at the ship gate, say) runs
