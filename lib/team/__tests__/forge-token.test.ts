@@ -57,7 +57,7 @@ describe("forgeTokenLookup", () => {
 
 describe("ghSessionToken", () => {
   test("reads the token gh holds", async () => {
-    const p = fakeProbes({ exec: (argv) => (argv.join(" ") === "gh auth token" ? ok("gho_session\n") : ok()) });
+    const p = fakeProbes({ exec: (argv) => (argv.join(" ") === "gh auth token --hostname github.com" ? ok("gho_session\n") : ok()) });
     expect(await ghSessionToken(p)).toBe("gho_session");
   });
 

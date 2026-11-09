@@ -258,7 +258,16 @@ describe("accountRows — account.github", () => {
     const p = fakeProbes({ fetch });
     const r = await pickRow(accountRows(p, githubTeam(), [], fakeSecrets({ "rt.githubToken": "gh_tok" }), null), "account.github");
     expect(r.status).toBe("ready");
-    expect(p.calls.exec).not.toContainEqual(["gh", "auth", "status"]);
+    expect(p.calls.exec.some((argv) => argv[0] === "gh" && argv[2] === "status")).toBe(false);
+  });
+
+  test("no token, gh signed in only to another host -> missing, since github.com would refuse that login", async () => {
+    const exec: ExecScript = (argv) => {
+      if (argv[0] !== "gh") return ok();
+      return argv.join(" ").endsWith("--hostname github.com") ? { code: 1, stdout: "", stderr: "not logged in to github.com" } : ok("gho_enterprise\n");
+    };
+    const r = await pickRow(accountRows(fakeProbes({ exec }), githubTeam(), [], fakeSecrets(), null), "account.github");
+    expect(r.status).toBe("missing");
   });
 
   test("token present, forge accepts it but its classic scopes fall short -> needs-you naming the shortfall, still replaceable", async () => {

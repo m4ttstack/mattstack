@@ -860,7 +860,7 @@ describe("team.join", () => {
 
 describe("forgeTokenFor", () => {
   test("join and publish get the gh session's token when rt holds none", async () => {
-    const p = fakeProbes({ home: "/fake-home", exec: (argv) => (argv.join(" ") === "gh auth token" ? ok("gho_session\n") : ok()) });
+    const p = fakeProbes({ home: "/fake-home", exec: (argv) => (argv.join(" ") === "gh auth token --hostname github.com" ? ok("gho_session\n") : ok()) });
     const { ctx } = makeCtx(p);
     expect(await forgeTokenFor(ctx, "https://github.com/acme/widgets.git")).toBe("gho_session");
   });

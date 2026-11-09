@@ -32,7 +32,8 @@ const GH_TOKEN_TIMEOUT_MS = 5000;
 export async function ghSessionToken(p: Probes): Promise<string | null> {
   // test-setup.ts sets this so no unit test can read the developer's real gh login.
   if (p.env.RT_GH_TOKEN_FALLBACK === "off") return null;
-  const res = await p.exec([...(bundledToolExec(p, "gh") ?? ["gh"]), "auth", "token"], { timeoutMs: GH_TOKEN_TIMEOUT_MS });
+  // Named, because a bare `gh auth token` answers for gh's default host, and rt files the answer as github.com's.
+  const res = await p.exec([...(bundledToolExec(p, "gh") ?? ["gh"]), "auth", "token", "--hostname", "github.com"], { timeoutMs: GH_TOKEN_TIMEOUT_MS });
   const token = res.stdout.trim();
   return res.code === 0 && token ? token : null;
 }
