@@ -25,6 +25,6 @@ an MR lookup error).
 
 Selection: `{"action":"fix|retry|handback|abandon","next":"proceed|iterate|hold","note":"<their words or null>"}`.
 An `action` write-in records `{"writeIn": "<their words>"}` as `action`.
-Read `next` first: Proceed applies `action`; Iterate here and Hold win
+Read `next` first: `proceed` applies `action`; `iterate` and `hold` win
 over it. Hand back leaves the MR red
 for the human.

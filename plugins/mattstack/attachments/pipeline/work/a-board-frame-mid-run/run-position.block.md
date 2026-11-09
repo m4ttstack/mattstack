@@ -10,6 +10,6 @@ stage at the position and its `ci_watch` is attending. **Waiting at the
 close gate**: watch-ci has finished (its lease released, ship already
 pushed this attempt) and the armed gate is close. Nothing a fix commits
 here would be pushed, so every frame, own or stacked, becomes a run note
-for the human answering close, who can choose Iterate (back through
+for the human answering close, who can choose `iterate` (back through
 implement and ship). **Any other stage** is everything else, watch-ci between pushes
 included.

@@ -36,7 +36,7 @@ by hand:
    redact marks: mock data from ...` before this revision and nobody asked
    for anything to be hidden in it; the hide line comes from that field. A
    confirm either way writes the field anew (Record the clearance). Naming this board returns to step 3
-   with their words, counted against `redaction-rounds:<stem>:r<k>`. A Hold there
+   with their words, counted against `redaction-rounds:<stem>:r<k>`. A `hold` there
    holds the revision with nothing recorded; a refused confirm, a confirm
    that left an empty record unconfirmed, or spent redaction rounds or
    openings ends the revision, the output or the spent budget quoted.

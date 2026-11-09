@@ -19,7 +19,7 @@ question over 4 options sends the whole gate to the wait queue):
 - `next`: `proceed` (recommended) / `iterate` / `hold`
 
 Selection `{"branches":[...],"watch_ci":true|false}`. Read `next` first:
-**Hold** ends the turn with nothing pushed; **Iterate here** goes back to
+`hold` ends the turn with nothing pushed; `iterate` goes back to
 **Summarize the rebase pass** and ignores `branches` and `watch_ci`; only
-**Proceed** applies the selection. Each selected branch then goes to
+`proceed` applies the selection. Each selected branch then goes to
 `git_push` with `tree` = its worktree path.
