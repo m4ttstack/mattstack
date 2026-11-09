@@ -3561,7 +3561,7 @@ a.tui-id-card-ref:focus-visible {
   min-height: 0;
   overflow: hidden;
 }
-.tui-disclosure.open .tui-disclosure-body {
+.tui-disclosure.open > .tui-disclosure-body {
   padding-top: 6px;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -4693,20 +4693,25 @@ a.tui-id-card-ref:focus-visible {
 .tui-review-card-head > .tui-review-sev {
   margin-left: auto;
 }
-/* The head row: the tick's label fills it, and an unticked card's "ask a
-   question" link sits after it, outside the label so its click never
-   toggles the finding. */
+/* The tick's label fills the head row. The ask icon lies over the label's
+   right end but is not inside it, so its click never toggles the finding. */
 .tui-review-card-head-bar {
-  display: flex;
-  align-items: center;
+  position: relative;
 }
-.tui-review-card-head-bar > .tui-review-card-head {
-  flex: 1;
-  min-width: 0;
+:where(.tui-review-card-head-bar:hover)
+  > .tui-review-card-head.tui-review-finding-row {
+  background: color-mix(in srgb, var(--fill-accent-hover) 6%, transparent);
 }
-.tui-review-card-head-bar > .tui-review-section-link {
-  flex: none;
-  padding: 0 16px 0 4px;
+.tui-review-card-head.tui-review-finding-row:has(
+    + :is(.tui-review-ask-link, [data-part='tooltip'])
+  ) {
+  padding-right: 45px;
+}
+.tui-review-card-head-bar > :is(.tui-review-ask-link, [data-part='tooltip']) {
+  position: absolute;
+  top: 50%;
+  right: 9px;
+  transform: translateY(-50%);
 }
 .tui-review-card-head .tui-gate-choice-input {
   margin-top: 0;
@@ -4766,6 +4771,14 @@ a.tui-id-card-ref:focus-visible {
 }
 /* The card's own border already closes the top. */
 .tui-review-card > .tui-review-section:first-child {
+  border-top: none;
+}
+/* A ticked head already draws the line above what follows it; an unticked
+   head draws none, so there the section keeps its own. */
+.tui-review-card:not([data-off])
+  > .tui-review-card-head-bar
+  + .tui-review-card-body
+  > .tui-review-section:first-child {
   border-top: none;
 }
 .tui-review-section-head {
@@ -4832,11 +4845,6 @@ a.tui-id-card-ref:focus-visible {
     text-decoration: underline;
   }
 }
-/* An ask link while another finding's question is sending: one at a time. */
-.tui-review-section-link:disabled {
-  cursor: default;
-  color: var(--text-3);
-}
 .tui-review-section-link:focus-visible {
   outline: 2px solid var(--fill-accent);
   outline-offset: 2px;
@@ -4851,11 +4859,19 @@ a.tui-id-card-ref:focus-visible {
   margin-top: 10px;
   max-width: 140ch;
 }
+.tui-review-section[data-section='ask']:has(> .tui-review-ask[data-asked]) {
+  padding: 0;
+}
 .tui-review-ask[data-asked] {
   flex-direction: row;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
+  justify-content: space-between;
   gap: 4px 12px;
+  max-width: none;
+  margin-top: 0;
+  padding: 6px 9px 6px 16px;
+  background: color-mix(in srgb, var(--fill-accent) 7%, transparent);
 }
 .tui-review-ask-field {
   border: 1px solid var(--border);
@@ -4877,42 +4893,80 @@ a.tui-id-card-ref:focus-visible {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 16px;
+  gap: 8px;
 }
 .tui-review-ask-done {
-  font-size: 12px;
-  color: var(--text-ok-small);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-1);
 }
-/* A finding the review agent revised in its pane: the card's border and a
-   strip under its head take the warn hue, the way the board's banners do,
-   so a changed finding stands out before it posts. */
-.tui-review-card.tui-review-finding[data-revised] {
-  border-color: color-mix(in srgb, var(--fill-warn) 45%, transparent);
+.tui-review-ask-done svg {
+  color: var(--text-accent-small);
 }
 .tui-review-revised {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 16px;
-  border-top: 1px solid color-mix(in srgb, var(--fill-warn) 45%, transparent);
-  background: color-mix(in srgb, var(--fill-warn) 7%, transparent);
-  font-size: 12px;
-  color: var(--text-warn-small);
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 13px;
+  color: var(--text-1);
+}
+.tui-review-revised:last-child {
+  border-bottom: none;
+}
+/* A ticked head draws the line above the strip; an unticked head draws none. */
+.tui-review-card[data-off] .tui-review-revised {
+  border-top: 1px solid var(--border-soft);
+}
+.tui-review-revised + .tui-review-card-body > .tui-review-section:first-child {
+  border-top: none;
 }
 .tui-review-revised-head {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 4px 12px;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 9px 0 16px;
+}
+.tui-review-revised-head > svg {
+  flex: none;
+  color: var(--text-3);
 }
 .tui-review-revised-text {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 2px 12px;
+  font-weight: 500;
+}
+.tui-review-revised-count {
+  color: var(--text-3);
+}
+.tui-review-revised-toggle {
+  margin-left: auto;
+}
+.tui-review-revised-changes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0 9px 10px 38px;
+}
+.tui-review-revised-change {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  min-height: 28px;
+}
+.tui-review-revised-change dt {
+  color: var(--text-3);
+}
+.tui-review-revised-change dd {
+  margin: 0;
   overflow-wrap: anywhere;
 }
+.tui-review-revised-change > .tui-disclosure {
+  grid-column: 2 / -1;
+}
 .tui-review-revised-original {
+  padding: 2px 0 8px;
   font-size: 13px;
   line-height: 1.5;
   color: var(--text-2);

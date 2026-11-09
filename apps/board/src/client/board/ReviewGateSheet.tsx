@@ -128,8 +128,7 @@ function safeDepth(report: ReviewReportJson | null): string | undefined {
 
 /** The ask link's tooltip while the review pane is gone (the server's
     NO_REVIEW_PANE refusal, said before the click). */
-export const ASK_PANE_GONE =
-  "the review pane isn't running; resume the review from its row first";
+export const ASK_PANE_GONE = 'Resume the review from its row first';
 
 /** Types a question about one finding into the review pane (`POST
     /review/finding-question` through the board's launch flow, which toasts

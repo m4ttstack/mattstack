@@ -294,7 +294,7 @@ async function openQuestion(canvasElement: HTMLElement) {
 async function sendQuestion(canvasElement: HTMLElement) {
   const body = await openQuestion(canvasElement);
   await userEvent.click(
-    body.getByRole('button', { name: 'send to the review pane' })
+    body.getByRole('button', { name: 'Send to the agent' })
   );
   return body;
 }
@@ -343,7 +343,7 @@ export const QuestionAsked: Story = {
   render: () => <QuestionFace entry={live} reply={answered(200)} />,
   play: async ({ canvasElement }) => {
     const body = await sendQuestion(canvasElement);
-    await body.findByText('asked in the review pane');
+    await body.findByText('Sent a question to the reviewing agent');
   },
 };
 
@@ -355,15 +355,12 @@ export const QuestionRefused: Story = {
   render: () => (
     <QuestionFace
       entry={live}
-      reply={answered(
-        409,
-        'the review pane is waiting on a prompt; answer it there first'
-      )}
+      reply={answered(409, 'Review pane is at a prompt. Answer it there first')}
     />
   ),
   play: async ({ canvasElement }) => {
     const body = await sendQuestion(canvasElement);
-    await body.findByText(/question failed for !826 \(409\)/);
+    await body.findByText(/Question failed for !826 \(409\)/);
     await waitFor(() =>
       expect(
         body.getByRole('textbox', { name: /: your question$/ })
@@ -373,8 +370,8 @@ export const QuestionRefused: Story = {
 };
 
 /** An open gate whose review pane is gone: every link stays, disabled,
-    with the reason as its tooltip ("the review pane isn't running; resume
-    the review from its row first"). */
+    with what unlocks them as the tooltip ("Resume the review from its row
+    first"). */
 export const QuestionPaneGone: Story = {
   name: 'Review question: pane gone',
   decorators: [ReviewReport],
@@ -393,7 +390,7 @@ export const QuestionParked: Story = {
 };
 
 /** The gate the reviewer re-raised after narrowing f2: its card carries
-    the revised strip, with the original behind "show original". */
+    the revised line, with what changed behind "Show changes". */
 export const QuestionRevised: Story = {
   name: 'Review question: revised strip',
   decorators: [ReviewReport],

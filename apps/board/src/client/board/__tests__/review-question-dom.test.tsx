@@ -2,7 +2,7 @@
     the "ask a question" link on each drafted finding card, the area it opens
     and the question it sends to the review pane, the one-at-a-time rule, and
     the revised strip a finding the review pane revised carries. Also
-    `revisionSummary`, the strip's list of what changed. */
+    `revisionChanges`, the strip's list of what changed. */
 
 import React from 'react';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
@@ -22,7 +22,7 @@ import type { ReviewRevision } from '../../../review-revision.ts';
 import type { BoardMRWithReview } from '../../types.ts';
 import type { FindingEntry } from '../gate-ctx.ts';
 import { useGateForm } from '../GateForm.tsx';
-import { ASK_PLACEHOLDER, revisionSummary } from '../ReviewDraftCard.tsx';
+import { ASK_PLACEHOLDER, revisionChanges } from '../ReviewDraftCard.tsx';
 import { ASK_PANE_GONE, ReviewGateSheet } from '../ReviewGateSheet.tsx';
 
 GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -263,7 +263,7 @@ async function openAndType(title: string, text: string) {
   await type(field(title)!, text);
 }
 
-describe('revisionSummary', () => {
+describe('revisionChanges', () => {
   const entry = (extra: Partial<FindingEntry>): FindingEntry => ({
     id: 'f2',
     severity: 'important',
@@ -272,10 +272,12 @@ describe('revisionSummary', () => {
     file: 'lib/a.ts:117–119',
     ...extra,
   });
+  const rows = (a: FindingEntry, b: FindingEntry) =>
+    revisionChanges(a, b).map(c => `${c.label}: ${c.value}`);
 
   test('names severity, anchor and wording changes in order', () => {
     expect(
-      revisionSummary(
+      rows(
         entry({}),
         entry({
           severity: 'minor',
@@ -284,29 +286,42 @@ describe('revisionSummary', () => {
         })
       )
     ).toEqual([
-      'Important → Minor',
-      'lines 117–119 → 121–123',
-      'finding reworded',
+      'Severity: Important → Minor',
+      'Lines: 117–119 → 121–123',
+      'Finding: Reworded',
     ]);
   });
 
   test('an unchanged finding has nothing to say', () => {
-    expect(revisionSummary(entry({}), entry({}))).toEqual([]);
+    expect(rows(entry({}), entry({}))).toEqual([]);
   });
 
-  test('a title change alone reads as reworded', () => {
-    expect(revisionSummary(entry({}), entry({ title: 'Other' }))).toEqual([
-      'finding reworded',
-    ]);
+  test('a title change alone reads as reworded and carries the original', () => {
+    const [change] = revisionChanges(entry({}), entry({ title: 'Other' }));
+    expect(change).toEqual({
+      label: 'Finding',
+      value: 'Reworded',
+      originalTitle: 'Same title',
+      original: 'Same body.',
+    });
   });
 
   test('names a changed fix and a rewritten comment last', () => {
     expect(
-      revisionSummary(
+      rows(
         entry({ fix: 'Old fix.', comment: 'Old comment.' }),
         entry({ fix: 'New fix.', comment: 'New comment.' })
       )
-    ).toEqual(['fix changed', 'comment rewritten']);
+    ).toEqual(['Fix: Changed', 'Comment: Rewritten']);
+  });
+
+  test('a fix or comment with no earlier text has no original to show', () => {
+    const changes = revisionChanges(
+      entry({}),
+      entry({ fix: 'New fix.', comment: 'New comment.' })
+    );
+    expect(changes.map(c => c.value)).toEqual(['Added', 'Added']);
+    expect(changes.every(c => c.original === undefined)).toBe(true);
   });
 });
 
@@ -314,14 +329,14 @@ describe('asking a question from the review sheet', () => {
   test('each drafted finding offers an ask link that opens an area', async () => {
     await show(gate(), mrWith());
     const first = askLink('First finding')!;
-    expect(first.textContent).toBe('ask a question');
+    expect(first.textContent).toBe('');
     expect(askLink('Second finding')).not.toBeNull();
     expect(field('First finding')).toBeNull();
     await React.act(async () => first.click());
     const area = field('First finding')!;
     expect(area.placeholder).toBe(ASK_PLACEHOLDER);
-    expect(button('First finding', 'send to the review pane')).toBeDefined();
-    expect(button('First finding', 'cancel')).toBeDefined();
+    expect(button('First finding', 'Send to the agent')).toBeDefined();
+    expect(button('First finding', 'Cancel')).toBeDefined();
     expect(field('Second finding')).toBeNull();
     expect(asks).toEqual([]);
   });
@@ -329,7 +344,7 @@ describe('asking a question from the review sheet', () => {
   test('cancel closes the area without asking', async () => {
     await show(gate(), mrWith());
     await openAndType('First finding', 'Is this real?');
-    await React.act(async () => button('First finding', 'cancel')!.click());
+    await React.act(async () => button('First finding', 'Cancel')!.click());
     expect(field('First finding')).toBeNull();
     expect(asks).toEqual([]);
   });
@@ -338,7 +353,7 @@ describe('asking a question from the review sheet', () => {
     await show(gate(), mrWith());
     await openAndType('Second finding', 'Is this\nreally Important?');
     await React.act(async () =>
-      button('Second finding', 'send to the review pane')!.click()
+      button('Second finding', 'Send to the agent')!.click()
     );
     expect(asks.map(({ resolve: _, ...a }) => a)).toEqual([
       {
@@ -354,9 +369,9 @@ describe('asking a question from the review sheet', () => {
     await settle();
     expect(field('Second finding')).toBeNull();
     const done = card('Second finding').querySelector('.tui-review-ask-done')!;
-    expect(done.textContent).toBe('asked in the review pane');
+    expect(done.textContent).toBe('Sent a question to the reviewing agent');
     await React.act(async () =>
-      button('Second finding', 'go to the review pane')!.click()
+      button('Second finding', 'Focus the review pane')!.click()
     );
     expect(focuses).toEqual(['31:review']);
   });
@@ -365,7 +380,7 @@ describe('asking a question from the review sheet', () => {
     await show(gate(), mrWith());
     await openAndType('First finding', 'Why critical?');
     await React.act(async () =>
-      button('First finding', 'send to the review pane')!.click()
+      button('First finding', 'Send to the agent')!.click()
     );
     await React.act(async () => asks[0]!.resolve(false));
     await settle();
@@ -381,7 +396,7 @@ describe('asking a question from the review sheet', () => {
     await show(gate(), mrWith());
     await openAndType('First finding', 'Why critical?');
     await React.act(async () =>
-      button('First finding', 'send to the review pane')!.click()
+      button('First finding', 'Send to the agent')!.click()
     );
     expect(askLink('Second finding')!.disabled).toBe(true);
     await React.act(async () => asks[0]!.resolve(true));
@@ -392,16 +407,16 @@ describe('asking a question from the review sheet', () => {
   test('an empty question cannot be sent', async () => {
     await show(gate(), mrWith());
     await openAndType('First finding', '   ');
-    expect(button('First finding', 'send to the review pane')!.disabled).toBe(
-      true
-    );
+    expect(button('First finding', 'Send to the agent')!.disabled).toBe(true);
   });
 
   test('a skipped finding has no ask link', async () => {
     await show(gate({ skipped: true }), mrWith());
     const skipped = container.querySelector('.tui-review-skipped')!;
     expect(skipped).not.toBeNull();
-    expect(skipped.textContent).not.toContain('ask a question');
+    expect(
+      skipped.querySelector('[aria-label$=": ask a question"]')
+    ).toBeNull();
     expect(
       container.querySelectorAll('[aria-label$=": ask a question"]').length
     ).toBe(2);
@@ -422,7 +437,7 @@ describe('asking a question from the review sheet', () => {
     expect(tick().checked).toBe(false);
     await type(field('First finding')!, 'Why skip this?');
     await React.act(async () =>
-      button('First finding', 'send to the review pane')!.click()
+      button('First finding', 'Send to the agent')!.click()
     );
     expect(asks.map(a => a.findingId)).toEqual(['f1']);
   });
@@ -497,9 +512,7 @@ describe('asking a question from the review sheet', () => {
     const link = askLink('First finding')!;
     expect(link.disabled).toBe(true);
     expect(link.title).toBe(ASK_PANE_GONE);
-    expect(ASK_PANE_GONE).toBe(
-      "the review pane isn't running; resume the review from its row first"
-    );
+    expect(ASK_PANE_GONE).toBe('Resume the review from its row first');
   });
 
   test('a parked gate still asks: the question resumes its session', async () => {
@@ -508,14 +521,16 @@ describe('asking a question from the review sheet', () => {
     expect(link.disabled).toBe(false);
     await openAndType('First finding', 'Still real?');
     await React.act(async () =>
-      button('First finding', 'send to the review pane')!.click()
+      button('First finding', 'Send to the agent')!.click()
     );
     expect(asks.map(a => a.findingId)).toEqual(['f1']);
   });
 
   test('an answered gate offers no ask link: nothing waits on it', async () => {
     await show(gate({ status: 'answered' }), mrWith());
-    expect(container.textContent).not.toContain('ask a question');
+    expect(
+      container.querySelector('[aria-label$=": ask a question"]')
+    ).toBeNull();
   });
 });
 
@@ -524,6 +539,7 @@ describe('the revised strip', () => {
     gateId,
     previousGateId: 'g-before',
     previousFindingIds: ['f1', 'f2'],
+    changedIds: ['f2'],
     revised: {
       f2: {
         original: {
@@ -536,33 +552,56 @@ describe('the revised strip', () => {
     },
   });
 
-  test('a revised finding carries the strip and shows its original on demand', async () => {
+  test('a revised finding carries one quiet line and opens what changed', async () => {
     await show(gate(), mrWith(revision('g-review')));
     const revised = card('Second finding');
     expect(revised.hasAttribute('data-revised')).toBe(true);
     expect(card('First finding').hasAttribute('data-revised')).toBe(false);
     const strip = revised.querySelector('.tui-review-revised')!;
+    expect(strip.querySelector('.tui-review-revised-text')!.textContent).toBe(
+      'Revised by the agent'
+    );
+    expect(strip.querySelector('.tui-review-revised-count')!.textContent).toBe(
+      '3 changes'
+    );
+    const panel = strip.querySelector('.tui-disclosure')!;
+    const toggle = strip.querySelector<HTMLButtonElement>(
+      '.tui-review-revised-toggle'
+    )!;
+    expect(toggle.textContent).toBe('Show changes');
+    expect(panel.classList.contains('open')).toBe(false);
+    await React.act(async () => toggle.click());
+    expect(panel.classList.contains('open')).toBe(true);
+    expect(toggle.textContent).toBe('Hide changes');
     expect(
-      [...strip.querySelectorAll('.tui-review-revised-text > span')].map(
-        p => p.textContent
+      [...strip.querySelectorAll('.tui-review-revised-change')].map(
+        row =>
+          `${row.querySelector('dt')!.textContent}: ${row.querySelector('dd')!.textContent}`
       )
     ).toEqual([
-      'Revised in the review pane',
-      'Critical → Important',
-      'lines 2 → 3',
-      'finding reworded',
+      'Severity: Critical → Important',
+      'Lines: 2 → 3',
+      'Finding: Reworded',
     ]);
-    expect(strip.textContent).not.toContain('·');
-    expect(strip.textContent).not.toContain('The original wording.');
-    const toggle = [...strip.querySelectorAll('button')].find(
-      b => b.textContent === 'show original'
+  });
+
+  test('each original opens on its own toggle', async () => {
+    await show(gate(), mrWith(revision('g-review')));
+    const strip = card('Second finding').querySelector('.tui-review-revised')!;
+    const row = [...strip.querySelectorAll('.tui-review-revised-change')].find(
+      r => r.querySelector('dt')!.textContent === 'Finding'
     )!;
+    const original = row.querySelector('.tui-disclosure')!;
+    const toggle = row.querySelector('button')!;
+    expect(toggle.textContent).toBe('Show original');
+    expect(original.classList.contains('open')).toBe(false);
     await React.act(async () => toggle.click());
-    expect(strip.textContent).toContain('The original wording.');
-    expect(strip.querySelector('.tui-review-revised-title')!.textContent).toBe(
+    expect(original.classList.contains('open')).toBe(true);
+    expect(toggle.textContent).toBe('Hide original');
+    expect(original.textContent).toContain('The original wording.');
+    expect(row.querySelector('.tui-review-revised-title')!.textContent).toBe(
       'Second finding'
     );
-    expect(toggle.textContent).toBe('hide original');
   });
 
   test('a revision of another gate puts no strip on this one', async () => {

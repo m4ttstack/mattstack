@@ -10,9 +10,16 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
+import {
+  ChevronDown,
+  ChevronUp,
+  History,
+  MessageCircleQuestionMark,
+} from 'lucide-react';
 import { AnimatePresence, domAnimation, LazyMotion, m } from 'motion/react';
 
-import { Button, ICONS, Modal, Popover } from '@mattstack/tui-kit';
+import { Button, ICONS, Modal, Popover, Tooltip } from '@mattstack/tui-kit';
+import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
 import { ClickToEditField } from './ClickToEditField.tsx';
 import { CodePath } from './CodePath.tsx';
 import { commentState, resetToWrite } from './CommentComposer.tsx';
@@ -28,15 +35,21 @@ import {
   type FileDiff,
 } from './diff-source.ts';
 import type { DiffPin } from './DiffView.tsx';
+import { Disclosure } from './Disclosure.tsx';
 import type { FindingEntry } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
-import { CardBody, CommentArea, DraftField } from './GateParts.tsx';
+import {
+  CARD_BODY_MS,
+  CardBody,
+  CommentArea,
+  DraftField,
+} from './GateParts.tsx';
 import {
   AgentGlyph,
   ArrowOutGlyph,
+  CheckGlyph,
   ChevronGlyph,
   FileGlyph,
-  QuestionGlyph,
   UndoGlyph,
 } from './icons.tsx';
 import { CommentAuthor } from './PersonLead.tsx';
@@ -673,38 +686,68 @@ function splitAnchor(file: string | undefined): {
   return m ? { path: m[1]!, lines: m[2]! } : { path: file };
 }
 
-/** What a revision changed, in the strip's order: the severity, the anchor
-    (`lines a → b` on the same file, the whole anchor when the file moved),
-    whether the title or body was reworded, then the fix and the drafted
-    comment. */
-export function revisionSummary(
+export interface RevisionChange {
+  label: string;
+  value: string;
+  originalTitle?: string;
+  original?: string;
+}
+
+/** What a revision changed, in the list's order: the severity, the anchor
+    (lines on the same file, the whole anchor when the file moved), whether
+    the title or body was reworded, then the fix and the drafted comment. */
+export function revisionChanges(
   original: FindingEntry,
   revised: FindingEntry
-): string[] {
-  const parts: string[] = [];
+): RevisionChange[] {
+  const changes: RevisionChange[] = [];
   if (original.severity !== revised.severity)
-    parts.push(
-      `${SEVERITY_LABEL[original.severity]} → ${SEVERITY_LABEL[revised.severity]}`
-    );
+    changes.push({
+      label: 'Severity',
+      value: `${SEVERITY_LABEL[original.severity]} → ${SEVERITY_LABEL[revised.severity]}`,
+    });
   if (original.file !== revised.file) {
     const a = splitAnchor(original.file);
     const b = splitAnchor(revised.file);
-    parts.push(
+    changes.push(
       a.path === b.path && a.lines !== undefined && b.lines !== undefined
-        ? `lines ${a.lines} → ${b.lines}`
-        : `${original.file ?? 'no file'} → ${revised.file ?? 'no file'}`
+        ? { label: 'Lines', value: `${a.lines} → ${b.lines}` }
+        : {
+            label: 'File',
+            value: `${original.file ?? 'No file'} → ${revised.file ?? 'No file'}`,
+          }
     );
   }
   if (original.title !== revised.title || original.body !== revised.body)
-    parts.push('finding reworded');
-  if (original.fix !== revised.fix) parts.push('fix changed');
-  if (original.comment !== revised.comment) parts.push('comment rewritten');
-  return parts;
+    changes.push({
+      label: 'Finding',
+      value: 'Reworded',
+      originalTitle: original.title,
+      original: original.body,
+    });
+  if (original.fix !== revised.fix)
+    changes.push({
+      label: 'Fix',
+      value:
+        original.fix === undefined
+          ? 'Added'
+          : revised.fix === undefined
+            ? 'Removed'
+            : 'Changed',
+      original: original.fix,
+    });
+  if (original.comment !== revised.comment)
+    changes.push({
+      label: 'Comment',
+      value: original.comment === undefined ? 'Added' : 'Rewritten',
+      original: original.comment,
+    });
+  return changes;
 }
 
 /** A finding the review agent revised in its own pane and re-raised the
-    gate with: what changed, with the original's title and body behind a
-    toggle. */
+    gate with: one quiet line, with what changed behind a toggle and each
+    original behind its own. */
 function RevisedStrip({
   original,
   revised,
@@ -713,33 +756,76 @@ function RevisedStrip({
   revised: FindingEntry;
 }) {
   const [open, setOpen] = useState(false);
-  const parts = [
-    'Revised in the review pane',
-    ...revisionSummary(original, revised),
-  ];
+  const [shown, setShown] = useState<string | null>(null);
+  const changes = revisionChanges(original, revised);
+  const Chevron = open ? ChevronUp : ChevronDown;
   return (
     <div className="tui-review-revised">
       <div className="tui-review-revised-head">
-        <span className="tui-review-revised-text">
-          {parts.map(part => (
-            <span key={part}>{part}</span>
-          ))}
-        </span>
-        <button
-          type="button"
-          className="tui-review-section-link"
-          aria-expanded={open}
-          onClick={() => setOpen(o => !o)}
-        >
-          {open ? 'hide original' : 'show original'}
-        </button>
+        <History size={14} aria-hidden />
+        <span className="tui-review-revised-text">Revised by the agent</span>
+        {changes.length > 0 && (
+          <span className="tui-review-revised-count">
+            {changes.length} {changes.length === 1 ? 'change' : 'changes'}
+          </span>
+        )}
+        {changes.length > 0 && (
+          <Button
+            type="button"
+            variant="subtle"
+            intent="accent"
+            size="sm"
+            className="tui-review-revised-toggle"
+            aria-expanded={open}
+            onClick={() => setOpen(o => !o)}
+          >
+            {open ? 'Hide changes' : 'Show changes'}
+            <Chevron size={14} aria-hidden />
+          </Button>
+        )}
       </div>
-      {open && (
-        <div className="tui-review-revised-original">
-          <p className="tui-review-revised-title">{original.title}</p>
-          <CommentMarkdown>{original.body}</CommentMarkdown>
-        </div>
-      )}
+      <Disclosure open={open}>
+        <dl className="tui-review-revised-changes">
+          {changes.map(change => (
+            <div className="tui-review-revised-change" key={change.label}>
+              <dt>{change.label}</dt>
+              <dd>{change.value}</dd>
+              {change.original !== undefined && (
+                <Button
+                  type="button"
+                  variant="subtle"
+                  intent="accent"
+                  size="sm"
+                  aria-label={`${change.label}: ${shown === change.label ? 'hide' : 'show'} original`}
+                  aria-expanded={shown === change.label}
+                  onClick={() =>
+                    setShown(s => (s === change.label ? null : change.label))
+                  }
+                >
+                  {shown === change.label ? 'Hide original' : 'Show original'}
+                  {shown === change.label ? (
+                    <ChevronUp size={14} aria-hidden />
+                  ) : (
+                    <ChevronDown size={14} aria-hidden />
+                  )}
+                </Button>
+              )}
+              {change.original !== undefined && (
+                <Disclosure open={shown === change.label}>
+                  <div className="tui-review-revised-original">
+                    {change.originalTitle !== undefined && (
+                      <p className="tui-review-revised-title">
+                        {change.originalTitle}
+                      </p>
+                    )}
+                    <CommentMarkdown>{change.original}</CommentMarkdown>
+                  </div>
+                </Disclosure>
+              )}
+            </div>
+          ))}
+        </dl>
+      </Disclosure>
     </div>
   );
 }
@@ -763,12 +849,18 @@ export interface FindingAsk {
 
 export const ASK_PLACEHOLDER = 'What do you want to know about this finding?';
 
+const ASK_TIP = 'Ask the reviewing agent about this finding';
+
 /** A finding's "ask a question" link, at the end of the card head. */
 export function AskLink({ title, ask }: { title: string; ask: FindingAsk }) {
-  return (
-    <button
+  const link = (
+    <Button
       type="button"
-      className="tui-review-section-link"
+      iconOnly
+      variant="subtle"
+      intent="muted"
+      size="sm"
+      className="tui-review-ask-link"
       aria-label={`${title}: ask a question`}
       aria-expanded={ask.state !== 'idle'}
       disabled={
@@ -777,16 +869,30 @@ export function AskLink({ title, ask }: { title: string; ask: FindingAsk }) {
       title={ask.unavailable}
       onClick={ask.onOpen}
     >
-      ask a question
-      <QuestionGlyph />
-    </button>
+      <MessageCircleQuestionMark size={18} aria-hidden />
+    </Button>
   );
+  return ask.unavailable ? link : <Tooltip tip={ASK_TIP}>{link}</Tooltip>;
 }
 
 /** The area under the card head where the question is written and sent to
     the review pane, then where the sheet says the pane took it. */
 function AskArea({ title, ask }: { title: string; ask: FindingAsk }) {
   const [text, setText] = useState('');
+  const fieldRef = useAutoGrowTextarea([text, ask.state]);
+  const areaRef = useRef<HTMLDivElement | null>(null);
+  // autoFocus lands while the card body is still at height 0, so the browser
+  // cannot scroll to it: the box comes into view once the body has opened.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      areaRef.current?.scrollIntoView?.({
+        block: 'nearest',
+        behavior: reduced ? 'auto' : 'smooth',
+      });
+    }, CARD_BODY_MS);
+    return () => clearTimeout(timer);
+  }, []);
   // A question the pane took is done with; asking again starts empty.
   useEffect(() => {
     if (ask.state === 'asked') setText('');
@@ -795,26 +901,30 @@ function AskArea({ title, ask }: { title: string; ask: FindingAsk }) {
     return (
       <div className="tui-review-ask" data-asked="">
         <span className="tui-review-ask-done" role="status">
-          asked in the review pane
+          <CheckGlyph />
+          Sent a question to the reviewing agent
         </span>
         {ask.onFocusPane && (
-          <button
+          <Button
             type="button"
-            className="tui-review-section-link"
+            variant="subtle"
+            intent="accent"
+            size="sm"
             onClick={ask.onFocusPane}
           >
-            go to the review pane
+            Focus the review pane
             <ArrowOutGlyph />
-          </button>
+          </Button>
         )}
       </div>
     );
   const sending = ask.state === 'sending';
   const empty = text.trim() === '';
   return (
-    <div className="tui-review-ask">
+    <div className="tui-review-ask" ref={areaRef}>
       <div className="tui-review-ask-field">
         <textarea
+          ref={fieldRef}
           className="tui-composer-input"
           rows={3}
           maxLength={2000}
@@ -844,22 +954,24 @@ function AskArea({ title, ask }: { title: string; ask: FindingAsk }) {
       <div className="tui-review-ask-actions">
         <Button
           type="button"
-          variant="light"
+          variant="filled"
           intent="accent"
           size="sm"
           disabled={sending || empty}
           onClick={() => ask.onSend(text)}
         >
-          send to the review pane
+          Send to the agent
         </Button>
-        <button
+        <Button
           type="button"
-          className="tui-review-section-link"
+          variant="light"
+          intent="muted"
+          size="sm"
           disabled={sending}
           onClick={ask.onCancel}
         >
-          cancel
-        </button>
+          Cancel
+        </Button>
       </div>
     </div>
   );
@@ -906,14 +1018,16 @@ export function FindingCard({
     >
       {head}
       {revision && <RevisedStrip original={revision.original} revised={f} />}
-      {ask && ask.state !== 'idle' && (
-        <section
-          className="tui-review-section"
-          data-section="ask"
-          aria-label="Question"
-        >
-          <AskArea title={f.title} ask={ask} />
-        </section>
+      {ask && (
+        <CardBody open={ask.state !== 'idle'}>
+          <section
+            className="tui-review-section"
+            data-section="ask"
+            aria-label="Question"
+          >
+            <AskArea title={f.title} ask={ask} />
+          </section>
+        </CardBody>
       )}
       <CardBody open={checked}>
         {hasDiffLine(f) ? (

@@ -107,11 +107,11 @@ export async function runLaunchFlow(
     running), so the click never does nothing visible. */
 export const FINDING_QUESTION = {
   path: '/review/finding-question',
-  verbing: 'asking in the review pane',
-  started: 'question asked in the review pane',
+  verbing: 'Asking in the review pane',
+  started: 'Question asked in the review pane',
   noun: 'question',
   failureMessage: (result: ActionResult, mr: BoardMR): string =>
-    `question failed for !${mr.iid} (${result.status})${result.text ? `: ${result.text}` : ''}`,
+    `Question failed for !${mr.iid} (${result.status})${result.text ? `: ${result.text}` : ''}`,
 } as const;
 
 /** The `/review/finding-question` body beyond the flow's own `mrUrl`/`iid`.
