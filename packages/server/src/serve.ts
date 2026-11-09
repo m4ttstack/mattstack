@@ -25,6 +25,8 @@ export interface ServeOptions {
   /** @default '127.0.0.1' */
   hostname?: string;
   relay?: RelaySpec[];
+  /** False on a fixture server; see `CreateAppOptions`. */
+  sharedColorScheme?: boolean;
   /** The app's `() => import('./embedded/manifest' as string)`; omit for disk mode. */
   embedded?: () => Promise<EmbeddedManifestModule | null>;
 }
@@ -48,6 +50,7 @@ export async function serveMattstackApp(
     name: opts.name,
     version: opts.version,
     routes: opts.routes,
+    sharedColorScheme: opts.sharedColorScheme,
   });
   const relays = opts.relay ?? [];
 

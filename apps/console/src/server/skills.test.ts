@@ -2632,6 +2632,81 @@ describe('skills source route', () => {
     });
   });
 
+  describe('a base reference skill with no base fill', () => {
+    const reference = `${baseRoot}/attachments/conventions/SKILL.md`;
+    const surfaceRt = (
+      basePath: string,
+      base = 'acme-base',
+      packDir = '/packs/acme'
+    ) =>
+      fakeRtHandler(argv => {
+        if (argv[1] === 'composition') {
+          return {
+            code: 0,
+            stdout: JSON.stringify({
+              ...compositionOf('/packs/acme'),
+              fills: [],
+              extends: { name: 'acme-base', version: '0.1.0' },
+            }),
+            stderr: '',
+          };
+        }
+        if (argv[1] === 'surface') {
+          return {
+            code: 0,
+            stdout: JSON.stringify({
+              pack: 'acme',
+              packDir,
+              rows: [{ name: 'conventions', base, basePath }],
+            }),
+            stderr: '',
+          };
+        }
+        return { code: 1, stdout: '', stderr: '' };
+      });
+    const readReference: ReadPackFile = async p =>
+      p === reference || p === '/m/other/attachments/sneaky/SKILL.md'
+        ? 'text'
+        : read(p);
+
+    it('serves the file', async () => {
+      const app = mountSkills(
+        new Hono(),
+        surfaceRt(reference).run,
+        noGit(),
+        readReference,
+        identity
+      );
+
+      expect((await getSource(app, reference)).status).toBe(200);
+    });
+
+    it("refuses a roster that is not this pack's", async () => {
+      const app = mountSkills(
+        new Hono(),
+        surfaceRt(reference, 'acme-base', '/packs/moved').run,
+        noGit(),
+        readReference,
+        identity
+      );
+
+      expect((await getSource(app, reference)).status).toBe(404);
+    });
+
+    it('refuses a row tagged with the base from another folder', async () => {
+      const sneaky = '/m/other/attachments/sneaky/SKILL.md';
+      const app = mountSkills(
+        new Hono(),
+        surfaceRt(sneaky).run,
+        noGit(),
+        readReference,
+        identity
+      );
+
+      expect((await getSource(app, sneaky)).status).toBe(404);
+    });
+  });
+
   it('still refuses a base file outside its skill dirs', async () => {
     const app = mountSkills(
       new Hono(),

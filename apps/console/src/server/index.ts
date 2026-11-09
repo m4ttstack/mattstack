@@ -12,6 +12,7 @@ await serveMattstackApp({
   version: pkg.version,
   routes,
   port: PORT,
+  sharedColorScheme: !fixtureMode(process.env),
   relay: [
     { match: t => t === 'run-updated', topic: 'runs' },
     { match: t => t.startsWith('gate/'), topic: 'gates' },

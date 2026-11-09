@@ -63,6 +63,8 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
+  /* The warn dot's own color can vanish into a bar in the same hue. */
+  box-shadow: 0 0 0 1px var(--tk-text-1);
 }
 
 .freshLabel {

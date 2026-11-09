@@ -21,6 +21,9 @@ export interface CreateAppOptions {
   version: string;
   /** The app's own Hono chain; `typeof routes` stays the RPC AppType. */
   routes: Hono;
+  /** False on a fixture server: it neither reads nor writes this Mac's
+      `mattstack.colorScheme`, so the browser's own scheme stands. */
+  sharedColorScheme?: boolean;
   /** Test seam; production always uses the real helper. */
   shellHandoff?: (req: Request) => Promise<Response | null>;
 }
@@ -34,6 +37,7 @@ export function createApp({
   name,
   version,
   routes,
+  sharedColorScheme = true,
   shellHandoff = defaultShellHandoff,
 }: CreateAppOptions): Hono {
   const app = new Hono()
@@ -50,9 +54,18 @@ export function createApp({
     )
     // One light / dark / auto choice for every mattstack app on this Mac.
     .get('/api/color-scheme', c =>
-      c.json({ scheme: getSetting<Scheme>(SCHEME_KEY).value }, 200)
+      c.json(
+        {
+          scheme: sharedColorScheme
+            ? getSetting<Scheme>(SCHEME_KEY).value
+            : null,
+        },
+        200
+      )
     )
     .put('/api/color-scheme', async c => {
+      if (!sharedColorScheme)
+        return c.json({ error: 'not on a fixture server' }, 403);
       const req = c.req.raw;
       // Bun.serve hands Hono its server as the env; tests have none.
       const env = c.env as Partial<LocalServer> | undefined;
