@@ -25,7 +25,7 @@ import {
   type CacheEntry,
 } from "./state/index.ts";
 import { composeKey } from "./state/branch-cache.ts";
-import { identityFromRemote, serializeIdentity } from "./settings/identity.ts";
+import { identityFromRemote, normalizeRemote, serializeIdentity } from "./settings/identity.ts";
 import {
   GitLabProvider,
   GitHubProvider,
@@ -56,14 +56,16 @@ function identityForRemote(remoteUrl: string | undefined): string | undefined {
 // ─── Remote URL parser ───────────────────────────────────────────────────────
 
 export function parseRemoteUrl(url: string): { host: string; projectPath: string } | null {
-  const sshMatch = /^git@([^:]+):(.+?)(?:\.git)?$/.exec(url);
-  if (sshMatch) return { host: `https://${sshMatch[1]}`, projectPath: sshMatch[2]! };
-
-  // Userinfo (a token-bearing clone's `oauth2:<token>@`) must never reach host: every URL built from it would carry the token.
-  const httpsMatch = /^https?:\/\/(?:[^@/]+@)?([^/]+)\/(.+?)(?:\.git)?$/.exec(url);
-  if (httpsMatch) return { host: `https://${httpsMatch[1]}`, projectPath: httpsMatch[2]! };
-
-  return null;
+  const trimmed = url.trim();
+  if (/^file:/i.test(trimmed)) return null;
+  const normalized = normalizeRemote(trimmed);
+  if (!normalized) return null;
+  const slash = normalized.indexOf("/");
+  const host = normalized.slice(0, slash);
+  // A port on an ssh remote belongs to sshd, so it would point the API at the wrong service.
+  const webHost = /^https?:\/\//i.test(trimmed) ? host : host.replace(/:\d+$/, "");
+  // normalizeRemote strips `.git` before trailing slashes, so a `.git/` remote keeps its suffix.
+  return { host: `https://${webHost}`, projectPath: normalized.slice(slash + 1).replace(/\.git$/, "") };
 }
 
 /**
@@ -151,6 +153,7 @@ export interface EnrichedBranch {
   linearId: string | null;
   ticket: LinearTicket | null;
   mr: MRInfo | null;
+  unknownForge?: boolean;
 }
 
 // ─── PullRequest → MRDashboardProps ──────────────────────────────────────────
@@ -285,7 +288,7 @@ export function formatBranchSegments(eb: EnrichedBranch, opts: BranchSegmentOpti
       ];
 
   if (right.length === 0 && opts.placeholderTags !== false) {
-    right.push({ text: isDefault ? "[main branch]" : "[Local Only]", tone: "dimmer" });
+    right.push({ text: isDefault ? "[main branch]" : eb.unknownForge ? "[Unknown Forge]" : "[Local Only]", tone: "dimmer" });
   }
 
   return { left, right, match };
@@ -324,7 +327,8 @@ export async function enrichBranches(
   const enrichedReal = real.length > 0
     ? await enrichRealBranches(real, remoteUrl, options)
     : [];
-  const byPath = new Map(enrichedReal.map((e) => [e.path, e]));
+  const unknownForge = !!remoteUrl && !isGitHubRemote(remoteUrl) && !isGitLabRemote(remoteUrl);
+  const byPath = new Map(enrichedReal.map((e) => [e.path, unknownForge ? { ...e, unknownForge } : e]));
   return branches.map((b) => byPath.get(b.path) ?? localOnly(b));
 }
 
