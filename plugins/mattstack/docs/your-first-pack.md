@@ -15,8 +15,8 @@ On the machine that runs it:
 | rt daemon | `rt daemon status --json` prints `"ok":true` | `rt setup pack` |
 | mattstack plugin | `claude plugin list --json` lists `mattstack@...` | `rt setup pack` |
 | superpowers plugin | `claude plugin list --json` lists `superpowers@...` | `rt setup pack` |
-| glab | `which glab` | the mattstack app bundles it |
-| a GitLab remote | `git remote get-url origin` | the repo's origin |
+| `gh` on GitHub, `glab` on GitLab | `which gh` or `which glab` | the mattstack app bundles both |
+| a GitHub or GitLab remote | `git remote get-url origin` | the repo's origin |
 
 Your org must be on the machine too: `~/.mattstack/orgs/<org>/`, a clone
 of the org repo, with one folder per team under `mattstack/teams/`. If

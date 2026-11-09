@@ -186,17 +186,17 @@ digraph create_pack {
 | rt daemon | `rt_verb {args: ["daemon", "status"]}` | `"state":"running"` |
 | mattstack plugin | `claude plugin list --json` | an id starting `mattstack@` |
 | superpowers | `claude plugin list --json` | an id starting `superpowers@` |
-| a GitLab remote | `git remote get-url origin` | host is a GitLab host |
+| a GitHub or GitLab remote | `git remote get-url origin` | host is github.com or a GitLab host |
 
 ## Steps
 
 ### Name each miss and the command that installs it
 
 Report the missing thing and the command that installs it: `rt setup pack`,
-run once and not routine, covers only the first three rows. A missing or
-non-GitLab `origin` is the author's to fix: name the miss and say the remote
-must be the repo on its GitLab host. Never set a remote yourself. Do not
-improvise a substitute.
+run once and not routine, covers only the first three rows. An `origin`
+that is missing or on neither forge is the author's to fix: name the host
+you found and say a pack needs the repo on GitHub or GitLab. Never set a
+remote yourself. Do not improvise a substitute.
 
 ### Ask the author which team
 
