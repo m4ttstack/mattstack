@@ -1830,13 +1830,13 @@ export function mountSkills(
             pack,
             '--json',
           ]).catch(() => null);
-          const rows = surface
-            ? (
-                parseJsonPayload(surface.stdout) as
-                  SkillsSurfaceResponse | undefined
-              )?.rows
+          const roster = surface
+            ? (parseJsonPayload(surface.stdout) as
+                SkillsSurfaceResponse | undefined)
             : undefined;
-          for (const row of rows ?? []) {
+          const rows =
+            roster?.packDir === composition.packDir ? roster.rows : [];
+          for (const row of rows) {
             const root =
               row.base === base && row.basePath
                 ? pluginRootOf(row.basePath)

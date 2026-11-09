@@ -2634,7 +2634,11 @@ describe('skills source route', () => {
 
   describe('a base reference skill with no base fill', () => {
     const reference = `${baseRoot}/attachments/conventions/SKILL.md`;
-    const surfaceRt = (basePath: string, base = 'acme-base') =>
+    const surfaceRt = (
+      basePath: string,
+      base = 'acme-base',
+      packDir = '/packs/acme'
+    ) =>
       fakeRtHandler(argv => {
         if (argv[1] === 'composition') {
           return {
@@ -2652,7 +2656,7 @@ describe('skills source route', () => {
             code: 0,
             stdout: JSON.stringify({
               pack: 'acme',
-              packDir: '/packs/acme',
+              packDir,
               rows: [{ name: 'conventions', base, basePath }],
             }),
             stderr: '',
@@ -2675,6 +2679,18 @@ describe('skills source route', () => {
       );
 
       expect((await getSource(app, reference)).status).toBe(200);
+    });
+
+    it("refuses a roster that is not this pack's", async () => {
+      const app = mountSkills(
+        new Hono(),
+        surfaceRt(reference, 'acme-base', '/packs/moved').run,
+        noGit(),
+        readReference,
+        identity
+      );
+
+      expect((await getSource(app, reference)).status).toBe(404);
     });
 
     it('refuses a row tagged with the base from another folder', async () => {
