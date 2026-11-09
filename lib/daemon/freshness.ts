@@ -38,6 +38,8 @@ import { loadRepoTracking, grants, type RepoGrants, type RepoTracking } from "..
 import { existsSync } from "fs";
 import { loadSecrets } from "../linear.ts";
 import { parseRemoteUrl, isGitLabRemote, toMRInfo } from "../enrich.ts";
+import { mayOfferGitLabToken } from "../team/forge-token.ts";
+import { hostFromRemote, readUserIntegrationOverrides } from "../setup/team-settings.ts";
 import { checkAndNotify } from "../notifier.ts";
 import type { HandlerContext } from "./handlers/types.ts";
 import { lazyChildLogger } from "../daemon-logger.ts";
@@ -109,6 +111,14 @@ export function providerRequestHook(): { onRequest: (info: { op: string; transpo
  */
 function makeProvider(host: string, token: string): GitLabProvider {
   return new GitLabProvider(host, token, providerRequestHook());
+}
+
+/** Why the GitLab token may not go to this remote's host, or null when it may. */
+function gitlabHostRefusal(remoteUrl: string): string | null {
+  const host = hostFromRemote(remoteUrl);
+  if (host === null || mayOfferGitLabToken(remoteUrl, readUserIntegrationOverrides().forgeHost)) return null;
+  const refusal = `unsupported: ${host} is not a configured GitLab host`;
+  return host === "github.com" ? refusal : `${refusal} (run: rt setup gitlab connect --host ${host})`;
 }
 
 async function fetchProjectId(provider: GitLabProvider, projectPath: string): Promise<number> {
@@ -320,6 +330,12 @@ function createFreshnessCore() {
       return null;
     }
 
+    const refusal = gitlabHostRefusal(remoteUrl);
+    if (refusal) {
+      log.info(`${refusal}; skipping events watch for ${repoName}`);
+      return null;
+    }
+
     const remote = parseRemoteUrl(remoteUrl);
     if (!remote) {
       log.info(`could not parse remote "${redactCredentials(remoteUrl)}" for ${repoName}; skipping`);
@@ -479,11 +495,13 @@ function createFreshnessCore() {
       if (!repoPath) {
         throw new Error(`repo "${repoName}" not in the repo index (run rt repos register)`);
       }
+      const remoteUrl = await getRemoteUrl(repoPath);
+      const refusal = remoteUrl ? gitlabHostRefusal(remoteUrl) : null;
+      if (refusal) throw new Error(refusal);
       const secrets = await loadSecrets();
       if (!secrets.gitlabToken) {
         throw new Error("missing gitlabToken (run: rt secrets set rt gitlabToken)");
       }
-      const remoteUrl = await getRemoteUrl(repoPath);
       if (!remoteUrl) {
         throw new Error(`could not read git remote.origin.url in ${repoPath}`);
       }
