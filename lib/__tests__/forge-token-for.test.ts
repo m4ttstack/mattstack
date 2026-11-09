@@ -48,4 +48,8 @@ describe("forgeTokenFor", () => {
     expect(await forgeTokenFor("https://example.com/o/r.git", { githubToken: "ghp" })).toBeNull();
     expect(await forgeTokenFor(undefined, {})).toBeNull();
   });
+
+  test("withholds the GitLab token from a gitlab-looking host nobody confirmed", async () => {
+    expect(await forgeTokenFor("https://gitlab.evil.example/o/r.git", { gitlabToken: "glpat" })).toEqual({ forge: "gitlab", token: null });
+  });
 });
