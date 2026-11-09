@@ -10,6 +10,7 @@ import {
   Alert,
   Badge,
   Button,
+  Center,
   GenericError,
   Group,
   PageShell,
@@ -245,6 +246,41 @@ export function WiringMap() {
     </Button>
   );
 
+  if (
+    !pack &&
+    packsQuery.isSuccess &&
+    who &&
+    !who.activeTeam &&
+    !viewer?.team
+  ) {
+    return (
+      <>
+        {packScope}
+        <PageShell>
+          <PageShell.Main>
+            <PageShell.Content contentContainer={false}>
+              {height => (
+                <Center h={height} p="xl">
+                  <Alert
+                    variant="light"
+                    title="No team yet"
+                    icon={<Icons.team size={18} />}
+                    w="100%"
+                    maw={480}
+                    data-testid="no-packs"
+                  >
+                    Skill packs come with a team. Add one in mattstack Settings
+                    &gt; Team
+                  </Alert>
+                </Center>
+              )}
+            </PageShell.Content>
+          </PageShell.Main>
+        </PageShell>
+      </>
+    );
+  }
+
   return (
     <>
       {packScope}
@@ -319,19 +355,6 @@ export function WiringMap() {
                       testId="packs-loading"
                       steps={['rt skills packs']}
                     />
-                  ) : who && !who.activeTeam && !viewer?.team ? (
-                    <Alert
-                      variant="light"
-                      title="No team yet"
-                      icon={<Icons.team size={16} />}
-                      maw={480}
-                      data-testid="no-packs"
-                    >
-                      <Text fz={12}>
-                        Skill packs come with a team. Add one in mattstack
-                        Settings &gt; Team
-                      </Text>
-                    </Alert>
                   ) : (
                     <Text size="sm" c={text.dimmed} data-testid="no-packs">
                       No skills packs found.
