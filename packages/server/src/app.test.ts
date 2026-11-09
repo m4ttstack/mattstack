@@ -28,6 +28,25 @@ function app() {
   return createApp({ name: 'probe', version: '1.2.3', routes });
 }
 
+test('a fixture server neither reads nor writes the shared color scheme', async () => {
+  const fixture = createApp({
+    name: 'probe',
+    version: '1.2.3',
+    routes: new Hono(),
+    sharedColorScheme: false,
+  });
+
+  const read = await fixture.request('/api/color-scheme');
+  expect(await read.json()).toEqual({ scheme: null });
+
+  const write = await fixture.request('/api/color-scheme', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ scheme: 'dark' }),
+  });
+  expect(write.status).toBe(403);
+});
+
 test('/api/health names the app and version', async () => {
   const res = await app().request('/api/health');
   expect(res.status).toBe(200);
