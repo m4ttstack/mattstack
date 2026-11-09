@@ -1820,6 +1820,34 @@ export function mountSkills(
           const root = pluginRootOf(fill.sourcePath);
           if (root) for (const dir of pluginSkillDirs(root)) roots.add(dir);
         }
+        const base = composition.extends?.name;
+        if (base) {
+          const surface = await cachedRun([
+            'skills',
+            'surface',
+            'list',
+            '--pack',
+            pack,
+            '--json',
+          ]).catch(() => null);
+          const rows = surface
+            ? (
+                parseJsonPayload(surface.stdout) as
+                  SkillsSurfaceResponse | undefined
+              )?.rows
+            : undefined;
+          for (const row of rows ?? []) {
+            const root =
+              row.base === base && row.basePath
+                ? pluginRootOf(row.basePath)
+                : null;
+            // A row's own tag is not proof, as with a fill's: the file must
+            // sit in the folder named for the base this pack extends.
+            if (root?.endsWith(`/${base}`)) {
+              for (const dir of pluginSkillDirs(root)) roots.add(dir);
+            }
+          }
+        }
         // Confinement compares resolved against resolved, so a symlink inside
         // a root cannot lead out of it and a root reached through a symlink
         // still admits its own files.
