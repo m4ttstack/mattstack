@@ -320,7 +320,9 @@ export function WiringMap() {
                     />
                   ) : (
                     <Text size="sm" c={text.dimmed} data-testid="no-packs">
-                      No skills packs found.
+                      {who && !who.activeTeam && !viewer?.team
+                        ? 'Skill packs come with a team. Add one in mattstack Settings > Team'
+                        : 'No skills packs found.'}
                     </Text>
                   )
                 ) : (
