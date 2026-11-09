@@ -320,7 +320,13 @@ export function WiringMap() {
                       steps={['rt skills packs']}
                     />
                   ) : who && !who.activeTeam && !viewer?.team ? (
-                    <Alert variant="light" data-testid="no-packs">
+                    <Alert
+                      variant="light"
+                      title="No team yet"
+                      icon={<Icons.team size={16} />}
+                      maw={480}
+                      data-testid="no-packs"
+                    >
                       <Text fz={12}>
                         Skill packs come with a team. Add one in mattstack
                         Settings &gt; Team
