@@ -947,7 +947,7 @@ function AskArea({ title, ask }: { title: string; ask: FindingAsk }) {
             if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return;
             e.stopPropagation();
             e.preventDefault();
-            if (!sending && !empty) ask.onSend(text);
+            if (!sending && !empty && !ask.blocked) ask.onSend(text);
           }}
         />
       </div>
@@ -957,7 +957,8 @@ function AskArea({ title, ask }: { title: string; ask: FindingAsk }) {
           variant="filled"
           intent="accent"
           size="sm"
-          disabled={sending || empty}
+          disabled={sending || empty || ask.blocked}
+          title={ask.blocked ? 'Wait for the other question to send' : undefined}
           onClick={() => ask.onSend(text)}
         >
           Send to the agent

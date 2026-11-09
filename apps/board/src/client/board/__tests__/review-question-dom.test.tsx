@@ -376,6 +376,30 @@ describe('asking a question from the review sheet', () => {
     expect(focuses).toEqual(['31:review']);
   });
 
+  test('a second open question cannot send while the first is sending', async () => {
+    await show(gate(), mrWith());
+    await openAndType('First finding', 'Why critical?');
+    await openAndType('Second finding', 'Why important?');
+    await React.act(async () =>
+      button('First finding', 'Send to the agent')!.click()
+    );
+    const blocked = button('Second finding', 'Send to the agent')!;
+    expect(blocked.disabled).toBe(true);
+    expect(blocked.title).toBe('Wait for the other question to send');
+    await React.act(async () => {
+      field('Second finding')!.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Enter',
+          metaKey: true,
+          bubbles: true,
+        })
+      );
+    });
+    expect(asks.length).toBe(1);
+    await React.act(async () => asks[0]!.resolve(true));
+    await settle();
+  });
+
   test('a refused question keeps the area and its text to try again', async () => {
     await show(gate(), mrWith());
     await openAndType('First finding', 'Why critical?');

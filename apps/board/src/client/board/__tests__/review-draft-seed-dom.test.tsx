@@ -346,6 +346,16 @@ describe('a re-raised review gate', () => {
     expect(savedDraft('g-a')).not.toBeNull();
   });
 
+  test('a predecessor named after the first render keeps its draft', async () => {
+    await userEditsGateA();
+    await show(gateFor('g-b', DRAFTS_A), mrWith());
+    await show(
+      gateFor('g-b', DRAFTS_A),
+      mrWith({ gateId: 'g-b', previousGateId: 'g-a' })
+    );
+    expect(savedDraft('g-a')).not.toBeNull();
+  });
+
   test('a revision of another gate seeds nothing', async () => {
     await userEditsGateA();
     await show(

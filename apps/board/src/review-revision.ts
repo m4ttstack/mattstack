@@ -82,7 +82,8 @@ export function reviewRevisionFor(
   runStartedAt?: number
 ): ReviewRevision | undefined {
   const open = cache.get(`mr:${mrUrl}`, REVIEW_GATE_KIND);
-  if (!open || open.status !== 'open') return undefined;
+  if (!open || (open.status !== 'open' && open.status !== 'parked'))
+    return undefined;
   const previous = cache.supersededBy(open.id);
   if (!previous || previous.subject !== open.subject) return undefined;
   if (runStartedAt !== undefined && previous.openedAt < runStartedAt)

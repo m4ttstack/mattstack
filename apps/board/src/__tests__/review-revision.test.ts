@@ -198,6 +198,17 @@ describe('reviewRevisionFor', () => {
     expect(reviewRevisionFor(cache, MR)).toBeUndefined();
   });
 
+  test('a re-raised gate that has parked keeps its revision', () => {
+    const revisedF1 = { ...F1, body: 'Narrower.' };
+    const cache = cacheWith(
+      reviewRow('g-new', [revisedF1], { status: 'parked' }),
+      superseded('g-old', [F1], 'g-new')
+    );
+    expect(reviewRevisionFor(cache, MR)?.revised).toEqual({
+      f1: { original: F1 },
+    });
+  });
+
   test('an answered gate is not on screen to mark', () => {
     const cache = cacheWith(
       reviewRow('g-new', [{ ...F1, title: 'New' }], { status: 'answered' }),

@@ -181,12 +181,6 @@ export async function gateOpen(
   if (!res.ok || !res.data)
     throw new Error(`gate:ask failed: ${res.error ?? 'unknown error'}`);
 
-  // Only once the gate is open: a re-raise whose open fails restores the
-  // report files, and the board must not keep serving the revision. The skill
-  // writes its report just before parking here, so this is also when that
-  // write has most likely just landed.
-  ingestReport(statePath, db);
-
   if (domain === 'review') {
     writeReviewState(
       statePath,
@@ -220,6 +214,15 @@ export async function gateOpen(
       Date.now(),
       db
     );
+  }
+
+  // Only once the gate is open and recorded: a re-raise whose open fails
+  // restores the report files, so the board must not keep serving the
+  // revision, and a failure here must not report the open gate as failed.
+  try {
+    ingestReport(statePath, db);
+  } catch (err) {
+    console.error(`report ingestion failed: ${String(err)}`);
   }
 
   return {

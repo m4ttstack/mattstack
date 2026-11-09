@@ -155,12 +155,13 @@ function DecisionQueueModal({
         }
       : {}),
   });
-  // The seed was read on the first render and this gate saves its own draft
-  // from then on, so the superseded gate's is done with.
-  const previousGateId = predecessor?.previousGateId;
+  // The seed is read on the first render only, so a predecessor named later
+  // was never read: its draft stays. The one read is done with, since this
+  // gate saves its own from then on.
+  const seededFrom = useRef(predecessor?.previousGateId);
   useEffect(() => {
-    if (previousGateId) clearGateDraft(previousGateId);
-  }, [previousGateId]);
+    if (seededFrom.current) clearGateDraft(seededFrom.current);
+  }, []);
   const deliveryStuck = answered && gate.delivery?.outcome === 'stuck';
   const executionUnassigned = answered && gate.execution === 'unassigned';
   const reason = gate.kind === 'pane-attention' ? paneReason(gate) : undefined;
