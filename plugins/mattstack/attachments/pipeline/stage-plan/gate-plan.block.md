@@ -17,15 +17,15 @@ form: the printed tier and why.
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
 | `tier` (write-in) | the printed tier, its label ending ` (Recommended)`, then the other two; a write-in names one of the three, and any other is iterated | always |
-| `failing_test` | the FAILING TEST line to keep, or their rename as text | direct-tdd |
 | the domain's own | as the domain policy words them | the domain declares them |
 | `next` | `proceed` / `iterate` / `go-back` / `hold` | always |
-| `to` | one option per earlier stage, split `to-1`, ... over 4 | Go back answered and more than one earlier stage row |
+| `to` | one option per earlier stage, split `to-1`, ... over 4 | `go-back` answered and more than one earlier stage row |
 
-Write `approach` = the tier the gate recorded and `evidence-plan` = the
-EVIDENCE value, after the `execution-strategy@1` record: the gate tools
+Write `approach` = the tier the gate recorded, `evidence-plan` = the
+EVIDENCE value and `failing-test` = the FAILING TEST line (`none` on any
+other tier), after the `execution-strategy@1` record: the gate tools
 record the gate's answers, not that contract.
-Hold passes their words (or `held`) as `reason` and the gate result's
+`hold` passes their words (or `held`) as `reason` and the gate result's
 `decidedBy`.
 
 {{props.rules}}

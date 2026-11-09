@@ -31,7 +31,7 @@ drawn yet (a ticket image's board is drawn at Record), it opens through
 Selection: `{"boards":"clear|hide|<their words>|null","annotations":[...],"attach":"now|handback","next":"proceed|iterate|hold","note":"<their words or null>"}`.
 
 **Hide something first**, or words naming a board, is a revision of that
-board as under Iterate here, adding a `redact` mark over what they name;
+board as under `iterate`, adding a `redact` mark over what they name;
 then this gate is asked again. `Attach the evidence` still shows every
 board but a cleared board at its evidence-boards gate before anything
 goes up, these included.
@@ -39,13 +39,13 @@ goes up, these included.
 For a board not yet drawn (a ticket image, a non-browser image), the kept
 labels are its brief's `point at`. A browser case's board is already
 drawn: kept labels that differ from its `point at` are a revision, as
-under Iterate here, and an image left with nothing selected keeps its
+under `iterate`, and an image left with nothing selected keeps its
 board unless the note asks to waive it.
 
-**Iterate here** with a drawn board the note names is a revision. The
+`iterate` with a drawn board the note names is a revision. The
 board is not recorded yet and still sits in `~/.fast-browser/screenshots/`,
 so walk browser-evidence's Revise a board steps 3 to 5 on it, then re-ask
-this gate; `Record the evidence` records the revised board. A Hold at its
+this gate; `Record the evidence` records the revised board. A `hold` at its
 redaction gate (step 5) is the stage's hold (`run_hold`); a refused
 confirm, a confirm that left an empty record unconfirmed, or spent
 redaction rounds or openings re-asks this gate with the output or the spent

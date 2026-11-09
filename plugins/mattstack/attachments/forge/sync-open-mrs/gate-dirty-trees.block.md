@@ -15,6 +15,6 @@ came back `dirty-tree`. One sentence per tree listing its uncommitted
   ... of up to 4 options each, whose answers read as one union
 - `next`: `proceed` (recommended) / `hold`
 
-Selection `{"retry":[...]}`. Read `next` first: **Hold** ends the turn
-with nothing more synced; **Proceed** re-syncs the picked trees once and
+Selection `{"retry":[...]}`. Read `next` first: `hold` ends the turn
+with nothing more synced; `proceed` re-syncs the picked trees once and
 leaves the rest skipped (dirty tree, aborted by the human). Never stash.

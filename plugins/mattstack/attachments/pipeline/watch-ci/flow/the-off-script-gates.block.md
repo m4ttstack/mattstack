@@ -7,7 +7,7 @@ Each off-script gate in this flow is the gate protocol's Off-script gate (scope
 `off-script:<stage>:<n>`, `context` quoting the refusal), with `action`
 **Take** (the move its section names) / **Hand back**, and `next`
 `proceed` (recommended) / `iterate` (the human fixed it) /
-`hold`. A spent Iterate budget fails, quoting the refusals.
+`hold`. A spent `iterate` budget fails, quoting the refusals.
 
 The `lease_unavailable` and `git_push` gates have no budget: `ci_watch`
 re-claims itself, a `git_push` retry needs a new answer, a refusal reopens

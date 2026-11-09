@@ -18,7 +18,7 @@ options sends the whole gate to the wait queue):
   reorders or excludes) / `hold`
 
 Selection `{"branches":[...]}`. Nothing is touched before the answer.
-Read `next` first: **Hold** ends the turn with nothing rebased; **Iterate
-here** goes back to **Plan the sweep** and ignores `branches`; only
-**Proceed** applies the selection.
-**Proceed** with an empty `branches` union is "proceed with none selected".
+Read `next` first: `hold` ends the turn with nothing rebased; `iterate`
+ goes back to **Plan the sweep** and ignores `branches`; only
+`proceed` applies the selection.
+`proceed` with an empty `branches` union is "proceed with none selected".

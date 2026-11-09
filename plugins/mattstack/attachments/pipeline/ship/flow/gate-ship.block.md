@@ -13,7 +13,7 @@ props:
 One sentence above the form: the branch, the commits about to go, whether
 the tree is dirty, and the resolved target (the stack parent, the default
 branch, or "the stack could not be read, so the default branch"), so
-Proceed is consent to that target. A reopening with a rebase in progress
+`proceed` is consent to that target. A reopening with a rebase in progress
 says so, and Abort aborts that rebase first.
 
 | Question | Options (recommended first) | Shown when |
@@ -24,15 +24,15 @@ says so, and Abort aborts that rebase first.
 | `next` | `proceed` / `iterate` / `hold` | always |
 
 Scope `ship`. Selection: `{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>},"next":"proceed|iterate|hold","note":"<their words or null>"}`.
-Iterate and Hold clear `shipTarget` first, so
-a resume re-asks. With the stack store unreadable, Proceed records
+`iterate` and `hold` clear `shipTarget` first, so
+a resume re-asks. With the stack store unreadable, `proceed` records
 `<default branch> (stack store unreadable)`, telling consent to the
 fallback from a real read; the rebase and `mr_create` use the plain name.
 
 Running out of fix or conflict rounds reopens this gate (not an
-Iterate), quoting the failing output or conflicted files; a second time
+`iterate`), quoting the failing output or conflicted files; a second time
 fails the verb. Fix and conflict rounds carry over a reopen (the human's
-turn to fix), so a Proceed whose checks still fail reopens again with no
+turn to fix), so a `proceed` whose checks still fail reopens again with no
 new fix rounds.
 
 {{props.rules}}
