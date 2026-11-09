@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import { mkdtempSync, realpathSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -13,7 +13,8 @@ let repoCounter = 0;
 
 function repoWithOrigin(origin: string): { name: string; path: string } {
   const path = realpathSync(mkdtempSync(join(tmpdir(), "rt-token-gate-")));
-  execSync(`git init -q && git remote add origin ${origin}`, { cwd: path, shell: "/bin/zsh", stdio: "pipe" });
+  execFileSync("git", ["init", "-q"], { cwd: path, stdio: "pipe" });
+  execFileSync("git", ["remote", "add", "origin", origin], { cwd: path, stdio: "pipe" });
   return { name: `token-gate-repo-${++repoCounter}`, path };
 }
 
