@@ -13,6 +13,7 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
   const registered: Registered[] = []
   const opened: string[] = []
   let sessionId = SESSION
+  let isPlaced = true
   on('session.id', () => ({ value: sessionId }))
   on('store.get', (_, e) => ({ value: store.get(e.key) }))
   on('store.set', (_, e) => {
@@ -28,11 +29,19 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
     registered.push(e as Registered)
     return { value: { tool: `${prefix}${e.name}` } }
   })
+  const panes = new Map<string, boolean>()
   on('ui.open', (_, e) => {
     opened.push(e.id)
-    return { value: { isPlaced: true } }
+    panes.set(e.id, isPlaced)
+    return { value: isPlaced ? { isPlaced: true } : { isPlaced: false, reason: 'narrow' } }
   })
-  on('ui.close', () => ({ value: undefined }))
+  on('ui.close', (_, e) => {
+    panes.delete(e.id)
+    return { value: undefined }
+  })
+  on('ui.panes', () => ({
+    value: [...panes].map(([id, placed]) => ({ id, title: id, isShown: placed, isFocused: false, isPlaced: placed })),
+  }))
   on('command.register', (_, e) => ({ value: { command: e.name } }))
   on('command.run', () => ({ text: '' }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -43,6 +52,10 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
     store,
     registered,
     opened,
+    setPlaced: (value: boolean) => {
+      isPlaced = value
+      for (const id of panes.keys()) panes.set(id, value)
+    },
     setSession: (id: string) => {
       sessionId = id
     },

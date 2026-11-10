@@ -7,7 +7,6 @@ import { toTodo } from './items'
 export const todos = atom({ plugin: 'human-todos', key: 'todos' } as const, [] as Todo[], { shape: 'todos-1' })
 export const nextId = atom({ plugin: 'human-todos', key: 'nextId' } as const, 1)
 export const expanded = atom({ plugin: 'human-todos', key: 'expanded' } as const, [] as string[])
-export const isPaneOpen = atom({ plugin: 'human-todos', key: 'isPaneOpen' } as const, false)
 export const frame = atom({ plugin: 'human-todos', key: 'frame' } as const, 0)
 export const workspace = atom({ plugin: 'human-todos', key: 'workspace' } as const, null as string | null)
 export const runnerPref = atom({ plugin: 'human-todos', key: 'runnerPref' } as const, 'auto' as 'auto' | 'herdr' | 'local')
@@ -97,12 +96,4 @@ export async function readPane($: EngineInterface): Promise<{ list: Todo[]; open
 
 export function toggleExpanded($: EngineInterface, id: string): Promise<void> {
   return update($, expanded, ids => (ids.includes(id) ? ids.filter(i => i !== id) : [...ids, id]))
-}
-
-export function isPaneShown($: EngineInterface): Promise<boolean> {
-  return read($, isPaneOpen)
-}
-
-export function setPaneShown($: EngineInterface, isShown: boolean): Promise<void> {
-  return update($, isPaneOpen, () => isShown)
 }

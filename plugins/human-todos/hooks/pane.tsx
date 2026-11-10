@@ -3,7 +3,7 @@ import type { EngineInterface, On } from 'claude-code'
 import type { Todo } from '../types'
 import { PLUGIN, TITLE, buttonsFor, hardWrap, isActionable } from './items'
 import type { ButtonId } from './items'
-import { isPaneShown, readPane, removeTodos, setPaneShown, toggleExpanded, listTodos } from './store'
+import { listTodos, readPane, removeTodos, toggleExpanded } from './store'
 import { cleanup, press } from './wiring'
 
 const PANE = PLUGIN
@@ -27,13 +27,13 @@ const LABELS: Record<ButtonId, string> = {
 const PRIMARY: readonly ButtonId[] = ['run', 'open', 'confirm', 'show']
 
 export async function openPane($: EngineInterface): Promise<void> {
-  const opened = await $.ui.open({ id: PANE, title: TITLE })
-  await setPaneShown($, opened?.isPlaced !== false)
+  await $.ui.open({ id: PANE, title: TITLE })
+  $.ui.invalidate('ui.render')
 }
 
 async function closePane($: EngineInterface): Promise<void> {
   await $.ui.close({ id: PANE })
-  await setPaneShown($, false)
+  $.ui.invalidate('ui.render')
 }
 
 function markFor(todo: Todo): { mark: string; color: string } {
@@ -43,19 +43,21 @@ function markFor(todo: Todo): { mark: string; color: string } {
 }
 
 export function registerPane(on: On): void {
+  // The band reads the engine's pane list, which no atom write tracks, so a close redraws it.
+  on('ui.close', async ($, e, next) => {
+    const closed = await next(e)
+    $.ui.invalidate('ui.render')
+    return closed
+  })
+
   on('command.run', { command: 'todos' }, async $ => {
     await openPane($)
     return { text: `${TITLE} pane opened.` }
   })
 
-  on('ui.close', async ($, e, next) => {
-    const closed = await next(e)
-    if (e.id === PANE) await setPaneShown($, false)
-    return closed
-  })
-
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.props.hasSurvey || (await isPaneShown($))) return next(e)
+    if (e.props.hasSurvey) return next(e)
+    if ((await $.ui.panes()).some(p => p.id === PANE && p.isPlaced)) return next(e)
     const waiting = (await listTodos($)).filter(t => t.status === 'open' || t.status === 'confirming').length
     if (waiting === 0) return next(e)
     const { Box, Text, Button } = $.ui.resolve(e)

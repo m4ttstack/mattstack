@@ -38,7 +38,6 @@ declare module 'claude-code' {
       todos: Shaped<Todo[]>
       nextId: number
       expanded: string[]
-      isPaneOpen: boolean
       frame: number
       workspace: string | null
       runnerPref: 'auto' | 'herdr' | 'local'

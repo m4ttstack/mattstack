@@ -236,3 +236,18 @@ test('/todos opens the pane', async ($, on) => {
   expect(opened).toEqual(['human-todos'])
   expect(JSON.stringify(ran)).toContain('Human Todos')
 })
+
+test('the band follows where the engine has the pane: shown while it is undrawn, hidden once placed', async ($, on) => {
+  const { setPlaced } = await seeded($, on, [todo({})])
+  setPlaced(false)
+  await $.command.run({ command: 'todos', args: '' })
+
+  const covered = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await covered.find({ key: 'open-pane' }))?.text).toBe('Open')
+  await covered.unmount()
+
+  setPlaced(true)
+  const placed = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await placed.find({ key: 'open-pane' })).toBeUndefined()
+  await placed.unmount()
+})
