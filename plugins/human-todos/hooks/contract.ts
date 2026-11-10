@@ -121,7 +121,7 @@ export function registerContract(on: On): void {
     const id = String((e as unknown as { id: string | number }).id).replace(/^#/, '')
     const gone = await removeTodos($, t => t.id === id)
     if (gone.length === 0) return { result: `No to-do #${id}.` }
-    await cleanup($, gone)
+    await cleanup($, gone).catch(() => $.ui.toast(`Could not tidy up after #${id}`))
     return { result: `Withdrew #${id}.` }
   })
 }

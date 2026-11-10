@@ -21,8 +21,12 @@ export async function syncSpinner($: EngineInterface): Promise<void> {
   if (timer) return
   timer = $.clock.every(FRAME_MS, () => {
     void (async () => {
-      if (await hasRunning($)) await bumpFrame($)
-      else stop()
+      try {
+        if (await hasRunning($)) await bumpFrame($)
+        else stop()
+      } catch {
+        // the next tick tries again
+      }
     })()
   })
 }

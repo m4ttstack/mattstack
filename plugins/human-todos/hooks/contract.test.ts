@@ -77,3 +77,28 @@ test('the add description names every kind and forbids asking for "done"', () =>
   for (const kind of ['task', 'run', 'terminal', 'link']) expect(text).toContain(kind)
   expect(text).toContain('never ask them to type "done"')
 })
+
+test('add refuses a kind that is not one of the four', async ($, on) => {
+  world(on)
+  await startSession($)
+
+  const refused = await $.tool.call({ tool: ADD, kind: 'bogus', title: 'x' })
+  expect(refused).toMatchObject({ deny: 'kind bogus is not one of task, run, terminal, link.' })
+  expect((await $.tool.call({ tool: LIST })).result).toBe('No to-dos.')
+})
+
+test('withdraw still answers when the runner cannot tidy up, and tells the person', async ($, on) => {
+  const todo = { id: '1', kind: 'run', title: 't', script: 'ls', status: 'done', runner: 'local', logPath: '/log/1' }
+  world(on, { entries: { 'list:sess-1': { todos: [todo], nextId: 2, savedAt: 1_000_000 } } })
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  on('process.run', () => ({ deny: 'no command stand-in' }))
+  await startSession($)
+
+  expect((await $.tool.call({ tool: WITHDRAW, id: '1' })).result).toBe('Withdrew #1.')
+  expect(toasts).toEqual(['Could not tidy up after #1'])
+  expect((await $.tool.call({ tool: LIST })).result).toBe('No to-dos.')
+})

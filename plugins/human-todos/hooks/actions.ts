@@ -3,14 +3,15 @@ import type { EngineInterface, On, RenderSurface } from 'claude-code'
 import type { Todo } from '../types'
 import type { ButtonId } from './items'
 import { report } from './report'
+import { cleanupHerdr } from './herdr'
 import { cleanupRun, showRun, startRun, stopRun } from './runners'
 import { syncSpinner } from './spinner'
 import { getRunnerPref, listTodos, patchTodo, setRunnerPref } from './store'
 
-export { report } from './report'
-export type { Outcome } from './report'
-
 const HERDR_PROBE_MS = 15_000
+
+// Two presses read the item before either has marked it running, so the check and the add share one synchronous step.
+const confirmingIds = new Set<string>()
 
 export async function chooseRunner($: EngineInterface): Promise<'herdr' | 'local'> {
   const pref = await getRunnerPref($)
@@ -33,7 +34,10 @@ async function launch($: EngineInterface, todo: Todo): Promise<void> {
     // fall through to put the item back
   }
   try {
-    await patchTodo($, todo.id, { status: 'open', runner: undefined, liveTail: undefined, note: 'Could not start' })
+    const held = (await listTodos($)).find(t => t.id === todo.id)
+    if (held?.tabId) await cleanupHerdr($, held).catch(() => undefined)
+    const gone = { runner: undefined, token: undefined, paneId: undefined, tabId: undefined }
+    await patchTodo($, todo.id, { ...gone, status: 'open', liveTail: undefined, note: 'Could not start' })
     await syncSpinner($)
   } catch {
     // the toast below still tells the person
@@ -54,7 +58,12 @@ async function confirm($: EngineInterface, todo: Todo): Promise<void> {
 }
 
 async function stop($: EngineInterface, todo: Todo): Promise<void> {
-  if (!todo.runner || todo.isStopping) return
+  if (todo.isStopping) return
+  if (!todo.runner) {
+    await patchTodo($, todo.id, { status: 'open', liveTail: undefined, note: 'Stopped' })
+    await syncSpinner($)
+    return
+  }
   await patchTodo($, todo.id, { isStopping: true })
   $.ui.toast(`Stopping #${todo.id}`)
   await stopRun($, { ...todo, isStopping: true })
@@ -77,7 +86,13 @@ export async function press($: EngineInterface, todo: Todo, button: ButtonId, su
       if (current.status === 'confirming') await patchTodo($, current.id, { status: 'open' })
       return
     case 'confirm':
-      if (current.status === 'confirming') await confirm($, current)
+      if (current.status !== 'confirming' || confirmingIds.has(current.id)) return
+      confirmingIds.add(current.id)
+      try {
+        await confirm($, current)
+      } finally {
+        confirmingIds.delete(current.id)
+      }
       return
     case 'done':
     case 'skip':
@@ -103,9 +118,9 @@ export async function press($: EngineInterface, todo: Todo, button: ButtonId, su
 export async function cleanup($: EngineInterface, gone: readonly Todo[]): Promise<void> {
   let isFailed = false
   for (const t of gone) {
-    if (!t.runner) continue
     try {
-      await cleanupRun($, t)
+      if (t.runner) await cleanupRun($, t)
+      if (t.tabId && t.runner !== 'herdr') await cleanupHerdr($, t)
     } catch {
       isFailed = true
     }

@@ -516,3 +516,62 @@ test('with the pane closed and nothing drawn, a finished run is still reported',
 
   expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 0.\n```\nok\n```'])
 })
+
+test('Stop during the herdr probe cancels the run: the item is open again and nothing launches', async ($, on) => {
+  const fake = herdrFake()
+  const { clock } = await seeded($, on, [todo({})], { env: { HERDR_SOCKET_PATH: '/s' }, probeHold: 5000, run: argv => fake.run(argv.at(-1) ?? '') ?? {} })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await confirming(pane)
+  await pane.press({ key: 'confirm-1' })
+  expect(await state($)).toMatch(/^#1 \[running\]/)
+
+  await pane.press({ key: 'stop-1' })
+  await clock.advance(5000)
+
+  expect(await state($)).toMatch(/^#1 \[open\]/)
+  expect(await texts(pane)).toContain('Stopped')
+  expect(fake.ran('herdr pane run')).toEqual([])
+  expect(fake.ran('herdr workspace create')).toEqual([])
+  await pane.unmount()
+})
+
+test('two Confirm presses in the same tick start the run once', async ($, on) => {
+  const { clock, spawned } = await seeded($, on, [todo({})], { script: () => exits([]), run: () => ({}) })
+  await $.command.run({ command: 'todos-runner', args: 'local' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await confirming(pane)
+
+  await Promise.all([pane.press({ key: 'confirm-1' }), pane.press({ key: 'confirm-1' })])
+  await clock.settle()
+
+  expect(spawned).toHaveLength(1)
+  await pane.unmount()
+})
+
+test('a herdr run that cannot be typed closes its tab and clears the item\'s pane and tab', async ($, on) => {
+  const fake = herdrFake()
+  fake.state.isRunRefused = true
+  const { events, store } = await seeded($, on, [todo({})], { run: argv => fake.run(argv.at(-1) ?? '') ?? {} })
+  await $.command.run({ command: 'todos-runner', args: 'herdr' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await confirming(pane)
+  await pane.press({ key: 'confirm-1' })
+
+  const saved = (store.get(`list:${SESSION}`) as { todos: Todo[] }).todos[0]
+  expect(saved).toMatchObject({ status: 'open', note: 'Could not start' })
+  expect(saved?.paneId).toBeUndefined()
+  expect(saved?.tabId).toBeUndefined()
+  expect(fake.ran('herdr tab close')).toHaveLength(1)
+  expect(toasts(events)).toEqual(['Could not start #1'])
+  await pane.unmount()
+})
+
+test('withdrawing an item that now runs locally still closes the herdr tab it once held', async ($, on) => {
+  const fake = herdrFake()
+  const { ran } = await seeded($, on, [todo({ status: 'done', runner: 'local', logPath: '/log/1', tabId: 'tabZ' })], { run: argv => fake.run(argv.at(-1) ?? '') ?? {} })
+
+  await $.tool.call({ tool: WITHDRAW, id: '1' })
+
+  expect(fake.ran('herdr tab close')).toEqual(["herdr tab close 'tabZ'"])
+  expect(ran.filter(argv => argv[0] === 'rm').map(argv => argv[3])).toEqual(['/log/1'])
+})
