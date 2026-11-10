@@ -445,6 +445,33 @@ test('a session that starts with a running herdr item watches it again', async (
   expect(w.sent).toHaveLength(1)
 })
 
+test('an in-session /resume into a session with a running herdr item watches it again', async ($, on) => {
+  const w = world(on, {
+    entries: {
+      'list:sess-2': {
+        todos: [todo({ id: '1', status: 'running', runner: 'herdr', token: 'abc123', paneId: 'pane1', tabId: 'tab1' })],
+        nextId: 2,
+        savedAt: 1_000_000,
+      },
+    },
+  })
+  const fake = herdrFake()
+  on('process.run', (_, e) => {
+    const reply = fake.run(e.argv.at(-1) ?? '')
+    return reply ? { value: { ...reply, isStdoutTruncated: false, isStderrTruncated: false } } : { deny: 'no stand-in' }
+  })
+  fake.panes.set('pane1', { tab: 'tab1', lines: ['x', 'part', '__todo_exit_abc123 5'], isIdle: false, isAlive: true })
+  await startSession($)
+
+  await $.session.end({ reason: 'resume', sessionId: SESSION, resume: { id: 'sess-2' } })
+  w.setSession('sess-2')
+  await $.tool.call({ tool: 'mcp__human-todos__list' })
+  await w.clock.advance(1000)
+
+  expect((w.store.get('list:sess-2') as { todos: Todo[] }).todos[0]).toMatchObject({ status: 'failed', exitCode: 5 })
+  expect(w.sent).toHaveLength(1)
+})
+
 test('a resumed herdr item can still be stopped', async ($, on) => {
   const w = world(on, {
     entries: {

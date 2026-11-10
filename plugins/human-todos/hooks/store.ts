@@ -2,7 +2,9 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type { AddInput, Todo } from '../types'
+import { resumeWatching } from './herdr'
 import { toTodo } from './items'
+import { syncSpinner } from './spinner'
 
 export const todos = atom({ plugin: 'human-todos', key: 'todos' } as const, [] as Todo[], { shape: 'todos-1' })
 export const nextId = atom({ plugin: 'human-todos', key: 'nextId' } as const, 1)
@@ -37,9 +39,26 @@ export async function saveList($: EngineInterface): Promise<void> {
 
 // Writers and tools call this; a render must not, because the engine refuses a state write while drawing.
 // An in-session /resume changes the session id without a session.start, so the list loads on the first touch under a new id.
+// Two hooks can touch the list in one await, so they share a single load instead of each restoring over the other's write.
+let loading: { id: string; done: Promise<void> } | undefined
+
 async function ensureLoaded($: EngineInterface): Promise<void> {
-  if ((await read($, loadedFor)) === (await $.session.id())) return
+  const id = await $.session.id()
+  if ((await read($, loadedFor)) === id) return
+  const pending = loading
+  if (pending && pending.id === id) return pending.done
+  const done = loadResumed($).finally(() => {
+    if (loading?.done === done) loading = undefined
+  })
+  loading = { id, done }
+  await done
+}
+
+// The resumed session's herdr runs are still in their tabs, so watching starts again as session.start would.
+async function loadResumed($: EngineInterface): Promise<void> {
   await restoreList($)
+  await resumeWatching($)
+  await syncSpinner($)
 }
 
 export async function addTodo($: EngineInterface, input: AddInput): Promise<Todo> {
@@ -102,11 +121,15 @@ export async function restoreList($: EngineInterface): Promise<void> {
 
   const id = await $.session.id()
   const mine = (await $.store.get(`${LIST_PREFIX}${id}`)) as SavedList | undefined
+  if (mine) {
+    await update($, todos, () => mine.todos.map(resume))
+    await update($, expanded, () => [])
+    await update($, nextId, () => mine.nextId)
+  } else {
+    await resetList($)
+  }
+  // Marked last, so a hook that sees the list loaded never sees it half loaded.
   await update($, loadedFor, () => id)
-  if (!mine) return resetList($)
-  await update($, todos, () => mine.todos.map(resume))
-  await update($, expanded, () => [])
-  await update($, nextId, () => mine.nextId)
 }
 
 export async function resetList($: EngineInterface): Promise<void> {
