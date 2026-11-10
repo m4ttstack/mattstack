@@ -468,6 +468,14 @@ describe("joinDryRun", () => {
     });
   });
 
+  test("a pending GitHub invite tells the joiner to accept it", async () => {
+    const p = fakeProbes({ exec: gitAnswers(() => ({ code: 128, stdout: "", stderr: "remote: Repository not found." })) });
+    const r = await joinDryRun(p, relayWith(POINTER), CODE);
+    expect(r.access).toBe("denied");
+    expect(r.message).toContain("Accept your invitation at https://github.com/acme/widgets/invitations");
+    expect(r.message).toContain("ask matt or your org admin for read access.");
+  });
+
   test("a denial writes the intent anyway, so Continue can proceed and the checklist holds the line", async () => {
     const p = fakeProbes({ exec: gitAnswers(() => ({ code: 128, stdout: "", stderr: "remote: Permission denied" })) });
     const r = await joinDryRun(p, relayWith(POINTER), CODE);
@@ -1381,6 +1389,19 @@ describe("joinRedeem", () => {
 
     expect(result.peering).toBe("unavailable");
     expect(result.access).toBe("ok");
+  });
+
+  test("a clone GitHub hides returns access:denied and links the invitation", async () => {
+    const p = redeemProbes({ exec: () => ({ code: 128, stdout: "", stderr: "remote: Repository not found.\nfatal: repository not found" }) });
+    const relay = fakeRelay();
+
+    const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
+
+    expect(result.access).toBe("denied");
+    expect(result.invitation).toBe("https://github.com/acme/widgets/invitations");
+    expect(result.message).toContain("https://github.com/acme/widgets/invitations");
+    expect(result.message).toContain("you don't have access yet");
+    expect(relay.redeemCalls).toHaveLength(0);
   });
 
   test("clone auth failure returns access:denied without ever calling relay.redeem", async () => {

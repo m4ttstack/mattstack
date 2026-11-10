@@ -16,6 +16,7 @@ import { UserActionableError } from "../errors.ts";
 import type { ExecResult, Probes } from "../setup/probes.ts";
 import { parseOriginUrl, stripUserinfo } from "../setup/team-settings.ts";
 import { withoutUrls } from "./redact.ts";
+import { REPO_HIDDEN_PATTERN } from "./repo-access.ts";
 import { assertMayWrite, roleFor, rolesFor } from "./roles.ts";
 import { isOrgAdmin, mayWritePath, orgOwnersAsk, ownedRoots, roleOf, writeRefusalFor } from "../../packages/rt-client/src/settings/org-roles.ts";
 import { unpublishedPaths } from "./publish-history.ts";
@@ -34,7 +35,7 @@ export interface PublishTeamResult {
 }
 
 /** git's own auth-failure phrasing on a denied push — distinguishes a credentials problem (user-actionable) from every other push failure. Exported for join.ts, which classifies `git ls-remote`/`git clone` failures the same way. */
-export const AUTH_FAILURE_PATTERN = /authentication failed|permission denied|could not read username|denied to|403|access denied/i;
+export const AUTH_FAILURE_PATTERN = new RegExp(`authentication failed|permission denied|could not read username|denied to|403|access denied|${REPO_HIDDEN_PATTERN.source}`, "i");
 
 /** git's non-fast-forward rejection: the contract requires an existing EMPTY repo, so on a clone that has never pushed this shape means the pasted/created remote already has commits. A hook's `[remote rejected]` is not one. */
 const REJECTED_PATTERN = /\[rejected\]|fetch first|non-fast-forward/i;
