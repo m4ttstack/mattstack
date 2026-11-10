@@ -96,3 +96,23 @@ export function assignMemberLooks(
   });
   return out;
 }
+
+/** Who gets a look, in look order: `listed` (the roster on screen) first,
+    then alphabetically every MR author, board member (hidden ones too) and
+    org team member, so a face reaches wherever that person is drawn. */
+export function lookOrder(
+  listed: readonly string[],
+  data: {
+    mrs: readonly { author: { username: string } }[];
+    allMembers: readonly { username: string }[];
+    teams?: readonly { members: readonly { username: string }[] }[];
+  }
+): string[] {
+  const seen = new Set(listed);
+  const others = new Set([
+    ...data.mrs.map(mr => mr.author.username),
+    ...data.allMembers.map(m => m.username),
+    ...(data.teams ?? []).flatMap(t => t.members.map(m => m.username)),
+  ]);
+  return [...listed, ...[...others].filter(u => !seen.has(u)).sort()];
+}

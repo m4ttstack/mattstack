@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
-import { assignMemberLooks, themePalette } from '../invadr-colors.ts';
+import {
+  assignMemberLooks,
+  lookOrder,
+  themePalette,
+} from '../invadr-colors.ts';
 
 describe('themePalette', () => {
   test('a small roster gets the seven wheel hues and a grey', () => {
@@ -56,5 +60,39 @@ describe('assignMemberLooks', () => {
 
   test('a repeated id is assigned once', () => {
     expect(assignMemberLooks(['a', 'a', 'b']).size).toBe(2);
+  });
+});
+
+describe('lookOrder', () => {
+  const author = (username: string) => ({ author: { username } });
+
+  test('the listed roster leads, everyone else follows alphabetically', () => {
+    expect(
+      lookOrder(['zed', 'amy'], {
+        mrs: [author('carl'), author('amy')],
+        allMembers: [],
+        teams: [],
+      })
+    ).toEqual(['zed', 'amy', 'carl']);
+  });
+
+  test('a hidden member with no MRs keeps a look, so their face stays', () => {
+    expect(
+      lookOrder(['amy'], {
+        mrs: [],
+        allMembers: [{ username: 'amy' }, { username: 'lance' }],
+        teams: [],
+      })
+    ).toEqual(['amy', 'lance']);
+  });
+
+  test('other teams’ members get a look for the ask picker', () => {
+    expect(
+      lookOrder(['amy'], {
+        mrs: [],
+        allMembers: [],
+        teams: [{ members: [{ username: 'leath' }, { username: 'amy' }] }],
+      })
+    ).toEqual(['amy', 'leath']);
   });
 });
