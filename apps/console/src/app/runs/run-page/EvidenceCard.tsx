@@ -139,12 +139,13 @@ function UrlLink({ url, short = false }: { url: string; short?: boolean }) {
   );
 }
 
-/** A link's last path segment (`CV-3415` for a ticket), else its host. */
+const TICKET_ID = /^[A-Z][A-Z0-9]*-\d+$/;
+
+/** A ticket link as its id (`CV-3415`); any other link as `urlLabel` does. */
 function shortUrlLabel(url: string): string {
   try {
-    const u = new URL(url);
-    const last = u.pathname.split('/').filter(Boolean).at(-1);
-    return last ?? u.host;
+    const last = new URL(url).pathname.split('/').filter(Boolean).at(-1);
+    return last && TICKET_ID.test(last) ? last : urlLabel(url);
   } catch {
     return url;
   }

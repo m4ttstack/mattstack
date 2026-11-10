@@ -39,6 +39,7 @@ describe('GateRecordView', () => {
   it('draws a review post as its verdict and findings', () => {
     renderWithProviders(
       <GateRecordView
+        number={1}
         gate={gate({
           kind: 'review-post',
           questions: [
@@ -81,6 +82,7 @@ describe('GateRecordView', () => {
   it('folds the Then? move into the stamp and leads with the agent summary', () => {
     renderWithProviders(
       <GateRecordView
+        number={1}
         gate={gate({
           kind: 'mark-ready',
           context: 'Pipeline green for head abc1234.',
@@ -114,6 +116,7 @@ describe('GateRecordView', () => {
   it('offers the unpicked options behind a chevron, closed at first', () => {
     renderWithProviders(
       <GateRecordView
+        number={1}
         gate={gate({
           kind: 'mark-ready',
           questions: [
@@ -137,6 +140,7 @@ describe('GateRecordView', () => {
   it('says none picked and hides nothing else when a multi was left empty', () => {
     renderWithProviders(
       <GateRecordView
+        number={1}
         gate={gate({
           kind: 'ship',
           questions: [
@@ -157,6 +161,7 @@ describe('GateRecordView', () => {
   it('marks an escalation and says why a closed gate ended', () => {
     renderWithProviders(
       <GateRecordView
+        number={1}
         gate={gate({
           kind: 'review-escalation',
           status: 'closed',

@@ -244,7 +244,12 @@ export function FieldStrip({ fields }: { fields: RunFieldRow[] }) {
         {fields.map(f => {
           if (!isJson(f))
             return (
-              <Group key={f.key} gap={8} wrap="nowrap" data-row={f.key}>
+              <Group
+                key={f.key}
+                gap={8}
+                wrap="nowrap"
+                data-row={fieldLabel(f.key)}
+              >
                 <Text fz="sm" lh="normal" c="dimmed">
                   {fieldLabel(f.key)}
                 </Text>
@@ -262,7 +267,7 @@ export function FieldStrip({ fields }: { fields: RunFieldRow[] }) {
               color="gray"
               size="compact-sm"
               aria-expanded={expanded}
-              data-row={f.key}
+              data-row={fieldLabel(f.key)}
               data-open={expanded || undefined}
               className={classes.toggle}
               rightSection={<Icon name="chevronDown" size={13} />}

@@ -281,9 +281,8 @@ describe('RunDetail: live work run', () => {
     const main = panel.closest('[data-parity="Story"]');
     expect(main?.firstElementChild).toContainElement(panel);
     expect(screen.queryByTestId('now-card')).toBeNull();
-    expect(screen.getByTestId('liveness')).toHaveTextContent(
-      'waiting on you · 1m'
-    );
+    expect(screen.queryByTestId('liveness')).toBeNull();
+    expect(screen.getByText('waiting 1m')).toBeInTheDocument();
   });
 
   it('keeps decisions in the story only, with no side card for them', async () => {
@@ -699,7 +698,9 @@ describe('RunDetail: one-stage review run', () => {
     const story = within(page).getByTestId('story');
     expect(story.querySelectorAll('[data-stage]')).toHaveLength(1);
     expect(story).toHaveTextContent('4 (2 must fix, 2 suggestions)');
-    expect(within(page).getByText('Reviewed MR')).toBeInTheDocument();
+    expect(
+      within(page).getByTestId('run-header').querySelector('[data-fact="MR"]')
+    ).toBeTruthy();
   });
 
   it('titles the review by the MR its field names before rt records it', async () => {
@@ -810,7 +811,8 @@ describe('RunDetail: finished run', () => {
     await waitFor(() =>
       expect(outcomesOf(header)).toEqual(['merged !405', 'CI passed'])
     );
-    expect(header).toHaveTextContent('· work pipeline · Oct 8,');
+    expect(header).toHaveTextContent('work pipeline');
+    expect(header).toHaveTextContent('Oct 8,');
     expect(header.querySelector('[data-stage]')).toBeNull();
     await waitFor(() =>
       expect(statsOf(header)).toEqual([
