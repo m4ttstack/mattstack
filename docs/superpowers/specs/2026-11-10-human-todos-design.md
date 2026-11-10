@@ -175,7 +175,9 @@ the adjustments listed below.
   a number, and two items then share one).
 - A resumed session (`--resume`, `--continue`) finds its list again; a
   brand-new session starts empty (Matt's call). The list is mirrored to
-  `$.store` keyed by session id and read back at `session.start`. Entries
+  `$.store` keyed by session id and read back at `session.start`. `/clear`
+  and an in-session resume start a new session id without `session.start`,
+  so they start with an empty list (my call, listed below). Entries
   for sessions untouched for 30 days are dropped (my call).
 - `Show` works without rt: `herdr workspace focus` and `herdr tab focus`
   directly, `rt pane focus` only as a nicety when rt is present (it also
@@ -226,6 +228,9 @@ transcripts are in that session's scratchpad (`todo-eval/`).
   fallback if `prompt.compose` is skipped there; the tests showed it
   carries the rules alone. Checking it on such an account is a
   verification step, not a design change.
+- **`/clear` and in-session resume** start with an empty list: they get a
+  new session id and no `session.start`, and carrying the list across them
+  would need a different key than the session id.
 - **Store expiry** of 30 days, and log files under a per-user cache
   folder removed with their item.
 
