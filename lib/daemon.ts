@@ -93,7 +93,7 @@ import { realMilestoneDeps } from "./daemon/handlers/slack-milestones.ts";
 import { closeSupportPane, realHerdrRunnerFor } from "./slack/support-pane.ts";
 import { closeResumeGates, type SlackOpenDeps } from "./slack/request.ts";
 import { offerResume } from "./slack/resume.ts";
-import { slackPersona } from "./slack/persona.ts";
+import { slackPersona, slackTrigger } from "./slack/persona.ts";
 import { offerTriggerChat, supportRepoFromSetting } from "./slack/trigger-offer.ts";
 import { slackClientFromSecrets } from "./slack/daemon-client.ts";
 import { startSocketServer } from "./daemon/socket-server.ts";
@@ -1085,7 +1085,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           triggers: {
             offer: async (hit) =>
               slackOpenDeps
-                ? offerTriggerChat({ ...slackOpenDeps, defaultRepo: () => supportRepoFromSetting(getSetting<string | undefined>("chat.slackSupport.defaultRepo").value) }, hit, slackPersona())
+                ? offerTriggerChat({ ...slackOpenDeps, defaultRepo: () => supportRepoFromSetting(getSetting<string | undefined>("chat.slackSupport.defaultRepo").value) }, hit, slackPersona(), slackTrigger())
                 : "failed",
           },
         });

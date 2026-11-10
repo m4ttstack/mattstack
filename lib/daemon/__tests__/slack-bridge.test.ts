@@ -446,7 +446,7 @@ test("an operator message with no chat handle is queued without a room post", as
 const CLOSED_AT_MS = OPENED_AT_MS + 30_000;
 const GRACE_MS = 3_600_000;
 
-function graceHarness(opts: { history?: SlackMessage[]; assignedPane?: string | null; persona?: SlackPersona } = {}) {
+function graceHarness(opts: { history?: SlackMessage[]; assignedPane?: string | null; persona?: SlackPersona; trigger?: string } = {}) {
   const db = openStateDb(join(tmpdir(), `slack-grace-${process.pid}-${n++}-${Date.now()}.db`));
   const opened = openConversation({ ...conv, assignedPane: opts.assignedPane === undefined ? "bg:w1:p9" : opts.assignedPane }, db);
   closeConversation(opened.id, "idle", CLOSED_AT_MS, db);
@@ -501,6 +501,7 @@ function graceHarness(opts: { history?: SlackMessage[]; assignedPane?: string | 
     log: spyLog,
     now: () => state.clock,
     persona: opts.persona ? () => opts.persona! : undefined,
+    trigger: opts.trigger ? () => opts.trigger : undefined,
     grace: {
       offer: (c, text, triggerTs) => offerResume(deps as unknown as ResumeOfferDeps, c, text, triggerTs),
       closeResume: (c) => closeResumeGates({ gates: deps.gates, log } as unknown as SlackOpenDeps, c.id),
@@ -548,8 +549,8 @@ test("a graced conversation's @Maude message opens one resume gate and sends res
 });
 
 test("a custom persona's own trigger opens the resume gate, and the default one no longer does", async () => {
-  const ada = { name: "Ada", emoji: "🦊", trigger: "!!ada" };
-  const h = graceHarness({ persona: ada, history: [msg(ts(40), "U0TEST", "@Maude not me"), msg(ts(41), "U0TEST", "!!ada over here")] });
+  const ada = { name: "Ada", emoji: "🦊" };
+  const h = graceHarness({ persona: ada, trigger: "!!ada", history: [msg(ts(40), "U0TEST", "@Maude not me"), msg(ts(41), "U0TEST", "!!ada over here")] });
   await h.bridge.sweepGraced();
   expect(h.openedGates).toHaveLength(1);
   expect(h.openedGates[0]!.context).toContain("over here");

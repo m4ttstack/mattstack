@@ -46,7 +46,7 @@ a daemon-only `slack-open` gate; the operator answers it in the pane's form
 `gate_answer` is refused for it. A teammate's DM that starts with the
 persona's trigger raises the same gate. The chat app's new and resume
 screens and the `/slack-support` mod command are the operator's own taps and
-start a chat at once. The `chat.slackSupport.persona` setting names the bot;
+start a chat at once. The `agent.persona` setting names the bot and `chat.slackSupport.trigger` is the words that call it back;
 `chat.slackSupport.defaultRepo` is the repo the agent starts in when no pane asked.
 `skills/rt-slack-support/SKILL.md` owns what the agent does. Read
 `docs/superpowers/specs/2026-11-03-slack-support-chat-design.md` and

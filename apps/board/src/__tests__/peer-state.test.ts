@@ -1164,6 +1164,73 @@ describe('sentNudgeDisplay', () => {
   });
 });
 
+describe('a parked or stopped sent ask', () => {
+  const T0 = 1_000_000;
+  const sentAsk = (over: Partial<SentNudge> = {}): SentNudge => ({
+    nudgeId: 'n',
+    mrUrl: URL_A,
+    iid: 1,
+    reviewer: 'grace',
+    sentAt: T0 - 60_000,
+    ...over,
+  });
+
+  test('a parked sent ask reads parked, not no-update', () => {
+    const n = sentAsk({ resolution: { result: 'parked', at: T0 } });
+    expect(sentNudgeDisplay(n, T0 + 45 * 60_000)).toBe('parked');
+    expect(sentNudgeDisplay(n, T0 + 49 * 3_600_000)).toBe('no-response');
+  });
+
+  test('a stopped sent ask leaves the row', () => {
+    expect(
+      sentNudgeView(sentAsk({ resolution: { result: 'stopped', at: T0 } }), T0)
+    ).toBeNull();
+    expect(
+      sentNudgeDisplay(
+        sentAsk({ resolution: { result: 'stopped', at: T0 } }),
+        T0
+      )
+    ).not.toBe('failed');
+  });
+
+  test('parked replaces a started ask, a later confirmation replaces parked, and a late launched does not', () => {
+    for (const first of ['launched', 'confirmed'] as const) {
+      writeSentNudge(sentAsk(), db);
+      resolveSentNudge(URL_A, { result: first, at: 10 }, db);
+      resolveSentNudge(URL_A, { result: 'parked', at: 20 }, db);
+      expect(readSentNudges(db).get(URL_A)?.resolution).toEqual({
+        result: 'parked',
+        at: 20,
+      });
+      resolveSentNudge(URL_A, { result: 'launched', at: 25 }, db);
+      expect(readSentNudges(db).get(URL_A)?.resolution?.result).toBe('parked');
+      resolveSentNudge(URL_A, { result: 'confirmed', at: 30 }, db);
+      expect(readSentNudges(db).get(URL_A)?.resolution).toEqual({
+        result: 'confirmed',
+        at: 30,
+      });
+    }
+  });
+
+  test('a parked ask finishes done, failed or stopped', () => {
+    for (const result of ['done', 'failed', 'stopped'] as const) {
+      writeSentNudge(sentAsk(), db);
+      resolveSentNudge(URL_A, { result: 'parked', at: 20 }, db);
+      finishSentNudge(URL_A, { result, at: 30 }, T0, db, 'n', 'grace');
+      expect(readSentNudges(db).get(URL_A)?.resolution).toEqual({
+        result,
+        at: 30,
+      });
+    }
+  });
+
+  test('a stopped ask clears itself after the keep window', () => {
+    writeSentNudge(sentAsk({ resolution: { result: 'stopped', at: 5 } }), db);
+    pruneFinishedSentNudges(5 + SENT_FINISH_KEEP_MS + 1, db);
+    expect(readSentNudges(db).size).toBe(0);
+  });
+});
+
 describe('sentNudgeView', () => {
   const base: SentNudge = {
     nudgeId: 'n',

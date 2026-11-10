@@ -23,6 +23,13 @@ export interface ExecuteSweepActionIo {
   doctor: DomainStateIo;
   now(): number;
   graceMinutes: number;
+  /** The review lane's current `runStartedAt`, undefined with no lane. */
+  reviewRunStartedAt?(mrUrl: string): number | undefined;
+  /** Runs before the tab closes: the closed pane sweep must already know the
+      gone pane was parked. A throw is logged. */
+  markReviewParked?(mrUrl: string, parkedAt: number): void;
+  /** Runs once per accepted review-domain park; a rejection is logged. */
+  onReviewParked?(mrUrl: string, parkedAt: number): Promise<void>;
   log(message: string): void;
   logError(message: string): void;
 }
@@ -39,6 +46,20 @@ async function closeTabBestEffort(
       `gate sweep: closeTab(${action.tabId}) failed for ${action.mrUrl}: ${err instanceof Error ? err.message : err}`
     );
   }
+}
+
+/** A gate that opened before the lane's current run began belongs to an
+    older run: the live run's own status is the truth, so its park is not
+    reported. With no lane, or no open time, the park is reported. */
+function isCurrentRunReviewPark(
+  action: SweepAction,
+  io: ExecuteSweepActionIo
+): boolean {
+  if (action.domain !== 'review') return false;
+  const runStartedAt = io.reviewRunStartedAt?.(action.mrUrl);
+  if (runStartedAt === undefined || action.gateOpenedAt === undefined)
+    return true;
+  return action.gateOpenedAt >= runStartedAt;
 }
 
 function stateIo(domain: GateDomain, io: ExecuteSweepActionIo): DomainStateIo {
@@ -72,10 +93,30 @@ export async function executeSweepAction(
       return;
     }
 
+    const parkedAt = io.now();
+    const reportable = isCurrentRunReviewPark(action, io);
+    if (reportable && io.markReviewParked) {
+      try {
+        io.markReviewParked(action.mrUrl, parkedAt);
+      } catch (err) {
+        io.logError(
+          `gate sweep: park record failed for ${action.mrUrl}: ${err instanceof Error ? err.message : err}`
+        );
+      }
+    }
     await closeTabBestEffort(action, io);
     io.log(
       `gate sweep: parked gate ${action.gateId} for ${action.mrUrl} after ${io.graceMinutes}m with no answer`
     );
+    if (reportable && io.onReviewParked) {
+      try {
+        await io.onReviewParked(action.mrUrl, parkedAt);
+      } catch (err) {
+        io.logError(
+          `gate sweep: park report failed for ${action.mrUrl}: ${err instanceof Error ? err.message : err}`
+        );
+      }
+    }
     return;
   }
 

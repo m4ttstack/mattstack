@@ -1,12 +1,16 @@
 /** POST /nudge/dismiss: the sent-ask band's dismiss. Deletes the board's own
-    sent ask for one MR from a real state db, and nothing else. Minimal boot,
+    sent ask for one MR from a real state db and stamps that reviewer's peer
+    state dismissed. Minimal boot,
     same recipe as server-dismiss.test.ts. */
 import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { expect, test } from 'bun:test';
 
+import { bandSource } from '../client/board/ask-band.ts';
+import type { BoardMRWithReview } from '../client/types.ts';
 import { readSentNudges, writeSentNudge } from '../peer/nudges.ts';
+import { readPeerReviews, writePeerReview } from '../peer/peer-reviews.ts';
 import { openStateDb } from '../state/db.ts';
 import { bootBoardServer } from './board-server.ts';
 
@@ -32,6 +36,7 @@ writeFileSync(
 
 const MR_A = 'https://gitlab.example.com/g/p/-/merge_requests/7';
 const MR_B = 'https://gitlab.example.com/g/p/-/merge_requests/8';
+const MR_C = 'https://gitlab.example.com/g/p/-/merge_requests/9';
 const dbPath = join(fakeHome, 'state.db');
 const db = openStateDb(dbPath);
 for (const [i, mrUrl] of [MR_A, MR_B].entries())
@@ -46,6 +51,31 @@ for (const [i, mrUrl] of [MR_A, MR_B].entries())
     },
     db
   );
+
+const PARKED_AT = Date.now() - 60_000;
+writeSentNudge(
+  {
+    nudgeId: 'n-parked',
+    mrUrl: MR_C,
+    iid: 9,
+    reviewer: 'grace',
+    sentAt: PARKED_AT - 60_000,
+    resolution: { result: 'parked', at: PARKED_AT },
+  },
+  db
+);
+writePeerReview(
+  {
+    mrUrl: MR_C,
+    iid: 9,
+    reviewer: 'grace',
+    status: 'parked',
+    parkedAt: PARKED_AT,
+    updatedAt: PARKED_AT,
+    receivedAt: PARKED_AT,
+  },
+  db
+);
 
 const board = bootBoardServer({
   env: {
@@ -73,6 +103,20 @@ test('dismisses one MR sent ask and leaves the rest', async () => {
   const rows = readSentNudges(db);
   expect(rows.has(MR_A)).toBe(false);
   expect(rows.has(MR_B)).toBe(true);
+});
+
+test("dismissing a parked sent ask also dismisses the reviewer's parked state, so no band comes back", async () => {
+  expect((await dismiss({ mrUrl: MR_C })).status).toBe(200);
+  expect(readSentNudges(db).has(MR_C)).toBe(false);
+  const peerReviews = readPeerReviews(db).get(MR_C) ?? [];
+  expect(peerReviews[0]?.dismissedAt).toBeNumber();
+  const mr = {
+    iid: 9,
+    webUrl: MR_C,
+    author: { username: 'me', name: 'Me' },
+    peerReviews,
+  } as unknown as BoardMRWithReview;
+  expect(bandSource(mr, 'me')).toBeNull();
 });
 
 test('is fine on an MR with no sent ask', async () => {

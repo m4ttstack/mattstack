@@ -17,6 +17,7 @@ GlobalRegistrator.register({ url: 'http://localhost/' });
 let React: typeof import('react');
 let createRoot: typeof import('react-dom/client').createRoot;
 let AskBand: typeof import('../AskBand.tsx').AskBand;
+let remindToastName: typeof import('../ask-band.ts').remindToastName;
 type RowContext = import('../../types.ts').RowContext;
 type BoardMRWithReview = import('../../types.ts').BoardMRWithReview;
 type SentNudgeInfo = import('../../types.ts').SentNudgeInfo;
@@ -25,6 +26,7 @@ beforeAll(async () => {
   React = await import('react');
   ({ createRoot } = await import('react-dom/client'));
   ({ AskBand } = await import('../AskBand.tsx'));
+  ({ remindToastName } = await import('../ask-band.ts'));
 });
 
 afterAll(async () => {
@@ -260,6 +262,230 @@ test('a review a peer board lost renders as a band with retry and dismiss, and i
   await React.act(async () => retry!.click());
   await React.act(async () => dismiss!.click());
   expect(calls).toEqual(['retry 1418', 'dismiss 1418']);
+});
+
+test('a parked ask offers remind then dismiss, and remind calls the remind handler', async () => {
+  const calls: string[] = [];
+  await render(
+    {
+      ...mrWith({ display: 'parked', resolvedAt: NOW - 60_000 }),
+      peerReviews: [
+        {
+          mrUrl: 'https://gitlab.example.com/acme/webapp/-/merge_requests/1418',
+          iid: 1418,
+          reviewer: 'grace',
+          status: 'parked',
+          updatedAt: Date.now() - 60_000,
+          receivedAt: Date.now() - 60_000,
+        },
+      ],
+    } as unknown as BoardMRWithReview,
+    ctx({
+      slackNames: { grace: 'Grace Hopper' },
+      onAskRemind: async m => {
+        calls.push(`remind ${m.iid}`);
+      },
+      onAskDismiss: m => calls.push(`dismiss ${m.iid}`),
+    })
+  );
+  const band = container.querySelector('.tui-ask')!;
+  expect(band.getAttribute('data-ask-tone')).toBe('warn');
+  expect(band.getAttribute('data-ask')).toBe('parked');
+  expect(container.querySelector('.tui-ask-label')?.textContent).toBe(
+    'waiting on Grace'
+  );
+  expect(buttons()).toEqual(['Remind', 'Dismiss']);
+  expect(
+    container.querySelector('.tui-ask-trigger')?.textContent
+  ).not.toContain('·');
+  const [remind, dismiss] = [
+    ...container.querySelectorAll<HTMLButtonElement>('.tui-ask-btn'),
+  ];
+  await React.act(async () => remind!.click());
+  await React.act(async () => dismiss!.click());
+  expect(calls).toEqual(['remind 1418', 'dismiss 1418']);
+  await React.act(async () => {
+    container.querySelector<HTMLButtonElement>('.tui-ask-trigger')!.click();
+  });
+  const trail = document.querySelector('.tui-ask-trail')!;
+  expect(trail.textContent).toContain("at Grace's approval gate");
+  expect(trail.textContent).not.toContain('Retry');
+  expect(trail.textContent).not.toContain('·');
+  expect(
+    trail.querySelector('.tui-ask-trail-detail > span + .tui-ask-trail-time')
+  ).not.toBeNull();
+});
+
+test('a parked review their board started renders as a peer-parked band', async () => {
+  const mr = {
+    ...mrWith(),
+    peerReviews: [
+      {
+        mrUrl: 'https://gitlab.example.com/acme/webapp/-/merge_requests/1418',
+        iid: 1418,
+        reviewer: 'grace',
+        status: 'parked',
+        parkedAt: Date.now() - 60_000,
+        updatedAt: Date.now() - 60_000,
+        receivedAt: Date.now() - 60_000,
+      },
+    ],
+  } as unknown as BoardMRWithReview;
+  await render(mr, ctx());
+  const band = container.querySelector('.tui-ask')!;
+  expect(band.getAttribute('data-ask')).toBe('peer-parked');
+  expect(band.getAttribute('data-ask-tone')).toBe('warn');
+  expect(buttons()).toEqual(['Remind', 'Dismiss']);
+});
+
+const MR_URL = 'https://gitlab.example.com/acme/webapp/-/merge_requests/1418';
+const parkedPeer = (over: Record<string, unknown> = {}) => ({
+  mrUrl: MR_URL,
+  iid: 1418,
+  reviewer: 'grace',
+  status: 'parked',
+  parkedAt: Date.now() - 60 * 60_000,
+  updatedAt: Date.now() - 60 * 60_000,
+  receivedAt: Date.now() - 60 * 60_000,
+  ...over,
+});
+const FACES = { grace: 'Grace Hopper' };
+const remindButton = () =>
+  container.querySelector<HTMLButtonElement>('[data-action="remind"]')!;
+
+test('a matched reviewer gets an enabled Remind that shows busy while the DM sends', async () => {
+  let finish!: () => void;
+  const mr = {
+    ...mrWith(),
+    peerReviews: [parkedPeer()],
+  } as unknown as BoardMRWithReview;
+  await render(
+    mr,
+    ctx({
+      slackNames: FACES,
+      onAskRemind: () => new Promise<void>(r => (finish = r)),
+    })
+  );
+  expect(remindButton().disabled).toBe(false);
+  await React.act(async () => remindButton().click());
+  expect(remindButton().getAttribute('aria-busy')).toBe('true');
+  await React.act(async () => finish());
+  expect(remindButton().getAttribute('aria-busy')).not.toBe('true');
+});
+
+test("Remind names the matched Slack person, not the board's name for the reviewer", async () => {
+  const mr = {
+    ...mrWith(),
+    peerReviews: [parkedPeer()],
+  } as unknown as BoardMRWithReview;
+  await render(mr, ctx({ slackNames: { grace: 'Grace B. Hopper' } }));
+  expect(container.querySelector('.tui-ask-label')?.textContent).toBe(
+    'waiting on grace'
+  );
+  expect(remindButton().title).toBe('Send Grace B. Hopper a Slack DM');
+  await React.act(async () =>
+    container.querySelector<HTMLButtonElement>('.tui-ask-trigger')!.click()
+  );
+  expect(document.querySelector('.tui-ask-trail-foot')?.textContent).toBe(
+    'Dismiss clears it now. Remind sends Grace B. Hopper a Slack DM.'
+  );
+});
+
+test("a Remind toast names the Slack person, falling back to the board's name", () => {
+  expect(remindToastName({ slackName: 'Grace B. Hopper' }, 'grace')).toBe(
+    'Grace B. Hopper'
+  );
+  expect(remindToastName({}, 'grace')).toBe('grace');
+});
+
+test('a reviewer with no Slack match gets Remind disabled with the reason', async () => {
+  const calls: string[] = [];
+  const mr = {
+    ...mrWith(),
+    peerReviews: [parkedPeer()],
+  } as unknown as BoardMRWithReview;
+  await render(
+    mr,
+    ctx({
+      slackNames: {},
+      onAskRemind: async () => {
+        calls.push('remind');
+      },
+    })
+  );
+  expect(remindButton().disabled).toBe(true);
+  expect(remindButton().title).toBe('No Slack account matches grace');
+  await React.act(async () => remindButton().click());
+  expect(calls).toEqual([]);
+});
+
+test('a reminded review shows when, and holds Remind for 15 minutes', async () => {
+  const remindedAt = Date.now() - 5 * 60_000;
+  const mr = {
+    ...mrWith(),
+    peerReviews: [parkedPeer({ remindedAt })],
+  } as unknown as BoardMRWithReview;
+  await render(mr, ctx({ slackNames: FACES }));
+  const { clock } = await import('../ask-band.ts');
+  expect(container.querySelector('.tui-ask-note')?.textContent).toBe(
+    'Reminded 5m ago'
+  );
+  expect(remindButton().disabled).toBe(true);
+  expect(remindButton().title).toBe(
+    `Remind again at ${clock(remindedAt + 15 * 60_000)}`
+  );
+});
+
+test("a parked sent ask shows the reminder kept on its reviewer's state", async () => {
+  const remindedAt = Date.now() - 20 * 60_000;
+  const mr = {
+    ...mrWith({ display: 'parked', resolvedAt: Date.now() - 60 * 60_000 }),
+    peerReviews: [parkedPeer({ remindedAt })],
+  } as unknown as BoardMRWithReview;
+  await render(mr, ctx({ slackNames: FACES }));
+  const { clock } = await import('../ask-band.ts');
+  expect(container.querySelector('.tui-ask')?.getAttribute('data-ask')).toBe(
+    'parked'
+  );
+  expect(container.querySelector('.tui-ask-note')?.textContent).toBe(
+    'Reminded 20m ago'
+  );
+  expect(remindButton().disabled).toBe(false);
+});
+
+test('a roster username with capitals still matches the canonical reviewer', async () => {
+  const mr = {
+    ...mrWith(),
+    peerReviews: [parkedPeer()],
+  } as unknown as BoardMRWithReview;
+  await render(mr, ctx({ slackNames: { Grace: 'Grace Hopper' } }));
+  expect(remindButton().disabled).toBe(false);
+});
+
+test('a parked sent ask whose reviewer state was dismissed or went stale cannot remind', async () => {
+  const old = Date.now() - 49 * 60 * 60_000;
+  for (const peer of [
+    parkedPeer({ dismissedAt: Date.now() }),
+    parkedPeer({ updatedAt: old, receivedAt: old, parkedAt: old }),
+  ]) {
+    const calls: string[] = [];
+    const mr = {
+      ...mrWith({ display: 'parked', resolvedAt: Date.now() - 60_000 }),
+      peerReviews: [peer],
+    } as unknown as BoardMRWithReview;
+    await render(
+      mr,
+      ctx({
+        slackNames: FACES,
+        onAskRemind: async () => {
+          calls.push('remind');
+        },
+      })
+    );
+    expect(remindButton().disabled).toBe(true);
+    await React.act(async () => remindButton().click());
+    expect(calls).toEqual([]);
+  }
 });
 
 test('a dismissed peer failure renders nothing', async () => {

@@ -118,6 +118,27 @@ describe('payload parsers', () => {
     ).toBeNull();
   });
 
+  test('review-state carries an optional finite parkedAt', () => {
+    const parked = { mrUrl: 'u', iid: 1, status: 'parked', updatedAt: 5 };
+    expect(parseReviewStatePayload({ ...parked, parkedAt: 4 })?.parkedAt).toBe(
+      4
+    );
+    expect(parseReviewStatePayload(parked)).not.toHaveProperty('parkedAt');
+    for (const parkedAt of ['4', Number.NaN, Number.POSITIVE_INFINITY])
+      expect(parseReviewStatePayload({ ...parked, parkedAt })).toBeNull();
+  });
+
+  test('review-state keeps a status it does not know', () => {
+    expect(
+      parseReviewStatePayload({
+        mrUrl: 'u',
+        iid: 1,
+        status: 'some-later-status',
+        updatedAt: 5,
+      })?.status
+    ).toBe('some-later-status');
+  });
+
   test('review-state requires mrUrl, iid, status, updatedAt', () => {
     expect(
       parseReviewStatePayload({

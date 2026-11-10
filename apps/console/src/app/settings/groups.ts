@@ -24,7 +24,8 @@ export const GROUPS: Group[] = [
     id: 'agents',
     label: 'Agents',
     tier: 'rt',
-    blurb: 'Defaults for every rt agent start that does not pass its own flag.',
+    blurb:
+      'Defaults for every rt agent start that does not pass its own flag, and the persona agents sign their messages with.',
     match: prefix('agent.'),
   },
   {
@@ -121,7 +122,7 @@ export const GROUPS: Group[] = [
     label: 'Chat',
     tier: 'apps',
     blurb:
-      'rt chat handles, auto sign-in, the viewer, push alerts, and the Slack support bot persona.',
+      'rt chat handles, auto sign-in, the viewer, push alerts, and the Slack support trigger. The bot persona is under Agents.',
     match: prefix('chat.'),
   },
   {

@@ -143,7 +143,7 @@ test("the teammate's words reach the gate context and never the brief", async ()
 
 test("a persona with its own trigger names it in the brief", async () => {
   const h = harness();
-  await offerTriggerChat(h.deps, { ...hit, text: "hey bot, help" }, { ...MAUDE, trigger: "hey bot" });
+  await offerTriggerChat(h.deps, { ...hit, text: "hey bot, help" }, MAUDE, "hey bot");
   expect(h.opened[0]!.meta.brief).toBe("Alex Example asked for help over Slack with hey bot. Their message arrives first.");
 });
 

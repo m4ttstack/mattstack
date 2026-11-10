@@ -548,7 +548,7 @@ test("an item undelivered for 10 minutes with a live watcher notifies the operat
 
 test("the holding line follows the persona as it is when the line is sent", async () => {
   const h = harness();
-  const persona = { name: "Maude", emoji: "🤖" } as { name: string; emoji: string; trigger?: string };
+  const persona = { name: "Maude", emoji: "🤖" } as { name: string; emoji: string };
   Object.assign(h.deps, { persona: () => persona });
   h.queueMessage();
   await h.run(SLACK_STALLED_MS - TICK_MS);
@@ -559,7 +559,7 @@ test("the holding line follows the persona as it is when the line is sent", asyn
 
 test("a close speaks as the persona and offers its trigger", async () => {
   const h = harness();
-  Object.assign(h.deps, { persona: () => ({ name: "Ada", emoji: "🦊", trigger: "!!ada" }) });
+  Object.assign(h.deps, { persona: () => ({ name: "Ada", emoji: "🦊" }), trigger: () => "!!ada" });
   await finishClose(h.opened.id, "closed-by-pane", "All sorted.", h.deps);
   expect(h.sent).toEqual([
     "[Ada 🦊]: All sorted.",

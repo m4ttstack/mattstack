@@ -1102,6 +1102,8 @@ export interface Commands {
   "chat:slack-close": { payload: { agentHandle?: string; sessionId?: string; pane?: string; farewell?: string }; data: { conversationId: number; closed: boolean; /** Set only when something shaped like a credential was removed from the farewell before it went to Slack. */ redacted?: true } };
   "chat:slack-status": { payload: { /** Who is asking: the brief comes back only for a chat this handle holds or this session requested. */ agentHandle?: string; sessionId?: string }; data: { conversations: { id: number; room: string; handle: string; /** Takes to `chat:slack-avatar-file`, once the daemon knows the teammate's picture. */ avatarId?: string; avatarVersion?: string; pane?: string; name: string; agentName: string; displayName: string; openedAt: number; lastActiveAt: number; /** The requesting session's chat name. */ requester?: string; requesterPane?: string; resumedFrom?: number; graceUntil?: number; assignedSession?: string; assignedPane?: string; /** Every ticket filed in this chat and the chats it resumed. */ tickets: { id: string; title: string; url: string; createdAt: number }[]; brief?: string }[]; closed: { /** What `chat:slack-resume` takes. */ id: number; room: string; handle: string; avatarId?: string; avatarVersion?: string; agentName: string; displayName: string; closedAt: number; graceUntil?: number; tickets: { id: string; title: string; url: string; createdAt: number }[] }[] } };
   "chat:slack-people": { payload: Record<string, never>; data: { people: { name: string; /** The Slack user id, which `/slack-support` takes as the person. */ person: string; title?: string; /** Take to `chat:slack-avatar-file`, set when Slack gives the person a picture. */ avatarId?: string; avatarVersion?: string }[] } };
+  /** Sends a DM as the operator, prefixed with the agent persona. */
+  "chat:slack-dm": { payload: { userId: string; text: string }; data: { ts: string } };
   "chat:slack-avatars": { payload: Record<string, never>; data: { people: { id: string; displayName: string; realName: string; /** Changes with the picture. */ version: string }[] } };
   /** The daemon's on-disk copy of a Slack picture, fetched on first ask; no `file` when there is none. */
   "chat:slack-avatar-file": { payload: { person: string }; data: { file?: { path: string; contentType: string } } };
@@ -1491,6 +1493,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "chat:slack-status",
   "chat:slack-people",
   "chat:slack-avatars",
+  "chat:slack-dm",
   "chat:slack-avatar-file",
   "chat:slack-pending",
   "chat:slack-delivered",

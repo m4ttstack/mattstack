@@ -57,7 +57,7 @@
 import { homedir } from "os";
 import { activeTeamFrom } from "./active-team.ts";
 import { machineSettingsPath, orgDir, orgSettingsPath, teamSettingsPath, userSettingsPath } from "./paths.ts";
-import { currentStoreName, readSection, storeNameStatus, worstLabel, type OlderLabel, type OlderNameRead, type SectionRead } from "./migrate.ts";
+import { currentStoreName, readSection, renamedHeir, storeNameStatus, worstLabel, type OlderLabel, type OlderNameRead, type SectionRead } from "./migrate.ts";
 import { allDefs, getDef, isMigrated, validateValue, type SettingDef, type SettingScope } from "./registry-machinery.ts";
 import { checkSchema, type SchemaIssue } from "./schema.ts";
 import { listOrgs, readStore, TEAM_NAME_RE, type StoreFile } from "./stores.ts";
@@ -116,6 +116,8 @@ export interface Resolved<T> {
   provenance: Provenance[];
   /** Present only for a `merge: "add"` key: each item of `value`, in order, with the layers it came from. */
   items?: ItemSource[];
+  /** Present only when `key` is a renamed key's old name: the value is its heir's. */
+  deprecated?: { use: string };
 }
 
 /** A scope whose authored value was found but refused (type, path guard, or store). */
@@ -281,6 +283,16 @@ function readStores(view: { team?: string | null } = {}): StoreBundle {
 
 let multiOrgWarned: string | null = null;
 const aliasWarned = new Set<string>();
+const renamedWarned = new Set<string>();
+
+/** Never on stderr, like `warnTeamAlias`: `rt settings get` prints its own notice. */
+function warnRenamedKey(oldKey: string, heir: string): void {
+  if (renamedWarned.has(oldKey)) return;
+  renamedWarned.add(oldKey);
+  const msg = `rt: setting "${oldKey}" is now "${heir}"`;
+  if (warnSink) emitSettingsWarning(msg);
+  else logSink?.(msg);
+}
 
 /**
  * Once per process and per name, and never on stderr: every rt command whose
@@ -780,6 +792,7 @@ export function setSettingsWarnSink(sink: ((msg: string) => void) | null): void 
   warnedOnce.clear();
   multiOrgWarned = null;
   aliasWarned.clear();
+  renamedWarned.clear();
 }
 
 export function emitSettingsWarning(msg: string): void {
@@ -805,7 +818,12 @@ function warnInvalid(key: string, entry: InvalidScope): void {
  */
 export function getSetting<T>(key: string, opts: ResolveOpts = {}): Resolved<T> {
   const def = getDef(key);
-  if (!def) throw unknownKey(key);
+  if (!def) {
+    const heir = renamedHeir(key);
+    if (!heir) throw unknownKey(key);
+    warnRenamedKey(key, heir.key);
+    return { ...getSetting<T>(heir.key, opts), deprecated: { use: heir.key } };
+  }
 
   const stores = readStores({ team: opts.team });
   const resolution = resolveDef(def, stores, opts);

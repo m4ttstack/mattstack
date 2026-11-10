@@ -27,8 +27,22 @@ describe("settings/registry", () => {
     });
   });
 
-  test("the Slack support persona can be set once for the whole org", () => {
-    expect([...(getDef("chat.slackSupport.persona")?.scopes ?? [])].sort()).toEqual(["org", "team", "user"]);
+  test("the agent persona can be set once for the whole org", () => {
+    expect([...(getDef("agent.persona")?.scopes ?? [])].sort()).toEqual(["org", "team", "user"]);
+  });
+
+  test("agent.persona replaces chat.slackSupport.persona", () => {
+    const def = getDef("agent.persona")!;
+    expect(def.scopes).toEqual(["user", "team", "org"]);
+    expect(def.default).toEqual({ name: "Maude", emoji: "🤖" });
+    expect(def.renamedFrom).toEqual(["chat.slackSupport.persona"]);
+    expect(getDef("chat.slackSupport.persona")).toBeUndefined();
+    expect(getDef("chat.slackSupport.trigger")?.type).toBe("string");
+  });
+
+  test("the v1 step drops trigger", () => {
+    const step = getDef("agent.persona")!.migrateFrom!.find((s) => s.version === 1)!;
+    expect(step.up({ name: "Ada", emoji: "🦊", trigger: "!!ada" })).toEqual({ name: "Ada", emoji: "🦊" });
   });
 
   test("rt.check never reads a shared store, since its command runs on the Mac that reads it", () => {
@@ -315,7 +329,7 @@ describe("settings/registry", () => {
       expect(def?.merge).toBe("replace");
     });
 
-    test("has exactly the 25 migrated:true keys and the 107 suite keys", () => {
+    test("has exactly the 25 migrated:true keys and the 108 suite keys", () => {
       const migratedFalseKeys: string[] = [];
       const migratedTrueKeys = [
         "rt.roles", "rt.intercepts", "rt.ignoredMrs", "rt.worktrees", "rt.worktreeReadyApproval", "rt.repoIdentityOverrides", "rt.repoRoots",
@@ -385,8 +399,9 @@ describe("settings/registry", () => {
         "rt.worktreeMergeCleanupNotice",
         "chat.push.provider",
         "chat.push.target",
+        "chat.slackSupport.trigger",
         "chat.slackSupport.defaultRepo",
-        "chat.slackSupport.persona",
+        "agent.persona",
         "agent.provider",
         "agent.claude.model",
         "agent.claude.effort",
@@ -433,7 +448,7 @@ describe("settings/registry", () => {
         "rt.notify.sounds",
         "review.ruleSelector",
       ];
-      expect(suiteKeys).toHaveLength(107);
+      expect(suiteKeys).toHaveLength(108);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),

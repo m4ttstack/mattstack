@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
+import { NUDGE_NO_RESPONSE_MS } from '../../../peer/presence.ts';
 import type {
   BoardMRWithReview,
   PeerReviewInfo,
@@ -13,6 +14,7 @@ import {
   clock,
   askBandModel as model,
   peerFailureBandModel,
+  peerParkedBandModel,
 } from '../ask-band.ts';
 import { people } from '../people.ts';
 
@@ -311,6 +313,76 @@ describe('askBandModel', () => {
   });
 });
 
+describe('parked', () => {
+  const T0 = NOW - 60 * MIN;
+
+  test('the parked band', () => {
+    const b = model(
+      sent({ display: 'parked', resolvedAt: T0 }),
+      T0 + 40 * MIN,
+      'Rowan'
+    );
+    expect(b.tone).toBe('warn');
+    expect(b.icon).toBe('hourglass');
+    expect(b.label).toBe('waiting on Rowan');
+    expect(b.actions).toEqual(['remind', 'dismiss']);
+    expect(b.steps.map(s => s.name)).toEqual([
+      'Requested',
+      'Started',
+      'Parked',
+    ]);
+    expect(b.steps[2]).toEqual({
+      name: 'Parked',
+      detail: "at Rowan's approval gate",
+      at: T0,
+    });
+    expect(b.note).toBe('Parked 40m ago');
+  });
+
+  test("the peer park's time is this board's receipt, the clock freshness uses", () => {
+    const m = peerParkedBandModel(
+      {
+        mrUrl: 'https://gitlab.example.com/acme/webapp/-/merge_requests/1418',
+        iid: 1418,
+        reviewer: 'rowan',
+        status: 'parked',
+        parkedAt: T0 - 7 * MIN,
+        receivedAt: T0,
+        updatedAt: T0 - 7 * MIN,
+      },
+      'Rowan',
+      T0 + MIN
+    );
+    expect(m.steps[1]?.at).toBe(T0);
+    expect(m.note).toBe('Parked 1m ago');
+  });
+
+  test('a parked review the author did not ask for: the same band, from their board', () => {
+    const peer: PeerReviewInfo = {
+      mrUrl: 'https://gitlab.example.com/acme/webapp/-/merge_requests/1418',
+      iid: 1418,
+      reviewer: 'rowan',
+      status: 'parked',
+      parkedAt: T0,
+      updatedAt: T0,
+    };
+    expect(peerParkedBandModel(peer, 'Rowan', T0 + 40 * MIN)).toEqual({
+      tone: 'warn',
+      icon: 'hourglass',
+      name: 'Rowan',
+      who: "Rowan's agent",
+      title: 'Review from Rowan',
+      label: 'waiting on Rowan',
+      note: 'Parked 40m ago',
+      actions: ['remind', 'dismiss'],
+      steps: [
+        { name: 'Started', detail: "Rowan's board" },
+        { name: 'Parked', detail: "at Rowan's approval gate", at: T0 },
+      ],
+    });
+  });
+});
+
 describe('peerFailureBandModel', () => {
   const peer = (over: Partial<PeerReviewInfo> = {}): PeerReviewInfo => ({
     mrUrl: 'https://gitlab.example.com/acme/webapp/-/merge_requests/1418',
@@ -423,6 +495,41 @@ describe('bandSource', () => {
         bandSource(mr({ peerReviews: [errored({ status })] }), 'me')
       ).toBeNull();
     expect(bandSource(mr({}), 'me')).toBeNull();
+  });
+
+  test("bandSource shows a parked peer review on the author's own MR", () => {
+    const p = errored({ status: 'parked', receivedAt: NOW - 5 * 60 * MIN });
+    expect(bandSource(mr({ peerReviews: [p] }), 'me', NOW)).toEqual({
+      kind: 'peer',
+      peer: p,
+    });
+    expect(
+      bandSource(mr({ peerReviews: [p], author: ED }), 'me', NOW)
+    ).toBeNull();
+    expect(
+      bandSource(
+        mr({ peerReviews: [errored({ status: 'parked', dismissedAt: NOW })] }),
+        'me',
+        NOW
+      )
+    ).toBeNull();
+    expect(
+      bandSource(
+        mr({
+          peerReviews: [
+            errored({
+              status: 'parked',
+              receivedAt: NOW - NUDGE_NO_RESPONSE_MS - 1,
+            }),
+          ],
+        }),
+        'me',
+        NOW
+      )
+    ).toBeNull();
+    expect(
+      bandSource(mr({ peerReviews: [errored({ status: 'stopped' })] }), 'me')
+    ).toBeNull();
   });
 
   const URL = 'https://gitlab.example.com/acme/webapp/-/merge_requests/1418';

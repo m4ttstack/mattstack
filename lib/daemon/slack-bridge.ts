@@ -6,7 +6,7 @@
 import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
 import { decodeSlackText, hasPrefix } from "../slack/format.ts";
-import { resumeTrigger, slackPersona, type SlackPersona } from "../slack/persona.ts";
+import { resumeTrigger, slackPersona, slackTrigger, type SlackPersona } from "../slack/persona.ts";
 import { isResumePhrase } from "../slack/resume-phrase.ts";
 import type { ResumeOffer } from "../slack/resume.ts";
 import type { TriggerHit, TriggerOffer } from "../slack/trigger-offer.ts";
@@ -35,6 +35,8 @@ export interface SlackBridgeOptions {
   now?: () => number;
   /** Real by default: the persona setting, read for each message. */
   persona?: () => SlackPersona;
+  /** Real by default: the trigger setting, undefined while unset. */
+  trigger?: () => string | undefined;
   /** Without it a closed chat's grace window is never read or ended. */
   grace?: {
     /** Records a trigger message on the chat's resume request; anything but `recorded` leaves the message to be offered again. */
@@ -105,6 +107,7 @@ export function createSlackBridge(opts: SlackBridgeOptions): { sweep(): Promise<
   const { db, post, log } = opts;
   const now = opts.now ?? Date.now;
   const persona = opts.persona ?? slackPersona;
+  const trigger = opts.trigger ?? slackTrigger;
   /** Slack limits per token, so one 429 holds every conversation. */
   let waitUntil = 0;
   const failing = new Set<number>();
@@ -219,7 +222,7 @@ export function createSlackBridge(opts: SlackBridgeOptions): { sweep(): Promise<
           compareTs(m.ts, since) > 0 &&
           m.user === conv.slackUserId &&
           DELIVERABLE_SUBTYPES.has(m.subtype) &&
-          isResumePhrase(decodeSlackText(m.text), persona()),
+          isResumePhrase(decodeSlackText(m.text), persona(), trigger()),
       )
       .sort((a, b) => compareTs(a.ts, b.ts));
     for (const msg of hits) {
@@ -246,11 +249,12 @@ export function createSlackBridge(opts: SlackBridgeOptions): { sweep(): Promise<
   async function sweepTriggerHits(client: SlackClient, triggers: NonNullable<SlackBridgeOptions["triggers"]>, at: number): Promise<void> {
     operatorUserId ??= (await client.authTest()).userId;
     const current = persona();
+    const currentTrigger = trigger();
     const since = tsFromMs(at - TRIGGER_LOOKBACK_MS);
-    const hits = (await client.searchDms(triggerQuery(resumeTrigger(current), at)))
+    const hits = (await client.searchDms(triggerQuery(resumeTrigger(current, currentTrigger), at)))
       .filter((h) => h.isIm && h.user !== undefined && h.user !== operatorUserId && DELIVERABLE_SUBTYPES.has(h.subtype) && compareTs(h.ts, since) > 0)
       .map((h) => ({ userId: h.user!, ts: h.ts, text: decodeSlackText(h.text).trim() }))
-      .filter((h) => isResumePhrase(h.text, current))
+      .filter((h) => isResumePhrase(h.text, current, currentTrigger))
       .sort((a, b) => compareTs(a.ts, b.ts));
     if (hits.length === 0) return;
 

@@ -42,9 +42,16 @@ export const MIGRATION_STEPS: KeyedMigrationStep[] = [
       return tabs.length > 0 ? tabs : [{ id: "team", label: "Team", source: { kind: "authors" } }];
     },
   },
+  {
+    key: "chat.slackSupport.persona",
+    version: 1,
+    // A stored trigger is dropped on purpose: chat.slackSupport.trigger starts unset.
+    up: (value) => deleteProperty(value, [], "trigger"),
+  },
   // @draft-steps
 ];
 
 export const RENAMES: Record<string, string[]> = {
+  "agent.persona": ["chat.slackSupport.persona"],
   // @draft-renames
 };

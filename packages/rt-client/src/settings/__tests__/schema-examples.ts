@@ -21,18 +21,21 @@ export const EXAMPLES: Record<string, Example> = {
       { value: "", path: [] },
     ],
   },
-  "chat.slackSupport.persona": {
+  "agent.persona": {
     good: [
       { name: "Maude", emoji: "🤖" },
-      { name: "Ada", emoji: "🦊", trigger: "!!ada" },
+      { name: "Ada", emoji: "🦊" },
     ],
     bad: [
       { value: { name: "", emoji: "🤖" }, path: ["name"] },
       { value: { name: "  ", emoji: "🤖" }, path: ["name"] },
-      { value: { name: "Maude", emoji: "🤖", trigger: " " }, path: ["trigger"] },
       { value: { name: "Maude" }, path: ["emoji"] },
     ],
-    layer: [{ emoji: "🦊" }, { trigger: "!!ada" }],
+    layer: [{ emoji: "🦊" }, { name: "Ada" }],
+  },
+  "chat.slackSupport.trigger": {
+    good: ["!!ada"],
+    bad: [{ value: "", path: [] }],
   },
   "rt.roles": {
     good: [

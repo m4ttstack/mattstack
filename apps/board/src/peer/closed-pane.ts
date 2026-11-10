@@ -31,7 +31,8 @@ export interface ClosedPaneReport {
 
 /** A teammate's in-flight review with a gone executor reports error.
     The review lane stays unchanged and resumable. A pane gone since before
-    the run began is a re-review resuming that agent, not yet re-attached. */
+    the run began is a re-review resuming that agent, not yet re-attached.
+    A parked review gate closed the pane itself, so it is no failure. */
 export function closedPaneReports(input: {
   reviews: Map<string, ClosedPaneLane>;
   executors: ReadonlyArray<{
@@ -44,6 +45,7 @@ export function closedPaneReports(input: {
   self: string;
   reported: Map<string, unknown>;
   nudges: readonly NudgeState[];
+  isParked: (mrUrl: string, runStartedAt: number) => boolean;
   now: number;
 }): ClosedPaneReport[] {
   const me = canonicalUsername(input.self);
@@ -62,6 +64,7 @@ export function closedPaneReports(input: {
       seen.add(mrUrl);
       const lane = input.reviews.get(mrUrl)!;
       if (executor.since < (lane.runStartedAt ?? 0)) continue;
+      if (input.isParked(mrUrl, lane.runStartedAt ?? 0)) continue;
       const author = input.authorOf(mrUrl);
       if (!author || canonicalUsername(author) === me) continue;
       const runStartedAt = lane.runStartedAt ?? 0;
@@ -107,6 +110,7 @@ interface ClosedPaneIO {
   >;
   fetchAuthors: () => Promise<ReadonlyMap<string, string>>;
   readNudges: () => readonly NudgeState[];
+  isParked: (mrUrl: string, runStartedAt: number) => boolean;
   kickOutbox: (client: SwitchboardClient) => void;
   /** Who hears about this author's MR, author first. */
   recipients: (author: string) => string[];
@@ -233,6 +237,7 @@ function persistClosedPaneReports(
     self: current.self,
     reported: listKvValues(CLOSED_REPORTED_NS, stateDb),
     nudges: io.readNudges(),
+    isParked: io.isParked,
     now: Date.now(),
   });
   for (const report of reports) {
@@ -252,6 +257,16 @@ function persistClosedPaneReports(
     })();
   }
   if (reports.length) io.kickOutbox(current.client);
+}
+
+/** Another report already closed this run for its author, so the closed
+    pane sweep must not follow it with `pane closed`. */
+export function markClosedPaneReported(
+  mrUrl: string,
+  runStartedAt: number,
+  db: Database = getStateDb()
+): void {
+  setKvValue(CLOSED_REPORTED_NS, mrUrl, runStartedAt, db);
 }
 
 export function pruneClosedPaneMarkers(

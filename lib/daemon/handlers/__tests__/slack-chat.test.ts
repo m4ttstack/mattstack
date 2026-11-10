@@ -1093,3 +1093,44 @@ test("slack-start records the repo on the row", async () => {
   if (!res.ok) throw new Error(res.error);
   expect(conversationById(res.data.conversation, h.db)!.repo).toBe("github.com/acme/app");
 });
+
+const DM_TEXT = "Matt is waiting on your review of !7 (Fix it). It's parked at your approval gate: https://gitlab.example/x/-/merge_requests/7";
+
+test("chat:slack-dm opens the DM and posts with the persona prefix", async () => {
+  const h = harness();
+  const res = await h.handlers["chat:slack-dm"]({ userId: "U0MIRA0001", text: DM_TEXT });
+  expect(res).toEqual({ ok: true, data: { ts: "1" } });
+  expect(h.calls).toContain("openDm");
+  expect(h.sent).toHaveLength(1);
+  expect(h.sent[0]?.startsWith(SLACK_PREFIX)).toBe(true);
+  expect(h.sent[0]).toContain("Matt is waiting on your review of !7");
+});
+
+test("chat:slack-dm refuses a malformed user id", async () => {
+  const h = harness();
+  const res = await h.handlers["chat:slack-dm"]({ userId: "nope", text: DM_TEXT });
+  expect(res.ok).toBe(false);
+  expect(h.calls).not.toContain("openDm");
+  expect(h.sent).toEqual([]);
+});
+
+test("chat:slack-dm refuses empty text", async () => {
+  const h = harness();
+  const res = await h.handlers["chat:slack-dm"]({ userId: "U0MIRA0001", text: "  " });
+  expect(res.ok).toBe(false);
+  expect(h.calls).not.toContain("openDm");
+});
+
+test("chat:slack-dm refuses when no Slack token is stored", async () => {
+  const h = harness({ connected: false });
+  const res = await h.handlers["chat:slack-dm"]({ userId: "U0MIRA0001", text: DM_TEXT });
+  expect(res.ok).toBe(false);
+  expect(h.sent).toEqual([]);
+});
+
+test("chat:slack-dm refuses when Slack fails to answer", async () => {
+  const h = harness({ openDm: () => Promise.reject(new SlackError("ratelimited", 1000)) });
+  const res = await h.handlers["chat:slack-dm"]({ userId: "U0MIRA0001", text: DM_TEXT });
+  expect(res.ok).toBe(false);
+  expect(h.sent).toEqual([]);
+});

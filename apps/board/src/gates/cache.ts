@@ -289,7 +289,7 @@ export class GateCache {
   /** Thin patches (answered/parked/closed/released/escalated) carry only
       an id -- finding the row by id (not subject+kind) is what keeps this
       correct regardless of how the row is keyed. */
-  private findById(id: string): FacilityGateRow | undefined {
+  findById(id: string): FacilityGateRow | undefined {
     for (const row of this.byKey.values()) {
       if (row.id === id) return row;
     }

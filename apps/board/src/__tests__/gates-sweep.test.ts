@@ -105,6 +105,7 @@ describe('planSweep', () => {
         mrUrl: MR_URL,
         tabId: 'tab-1',
         gateId: 'gate-1',
+        gateOpenedAt: NOW - GRACE_MS - 1,
       },
     ]);
   });
@@ -126,6 +127,7 @@ describe('planSweep', () => {
         mrUrl: MR_URL,
         tabId: undefined,
         gateId: 'gate-1',
+        gateOpenedAt: NOW - GRACE_MS - 1,
       },
     ]);
   });
@@ -361,6 +363,7 @@ describe('planSweep', () => {
       mrUrl: MR_URL,
       tabId: 'tab-1',
       gateId: 'gate-1',
+      gateOpenedAt: NOW - GRACE_MS - 1,
     });
     expect(actions).toContainEqual({
       kind: 'close-missed-done',
@@ -393,6 +396,7 @@ describe('planSweep', () => {
         mrUrl: MR_URL,
         tabId: 'doctor-tab',
         gateId: 'gate-1',
+        gateOpenedAt: NOW - GRACE_MS - 1,
       },
     ]);
   });
@@ -428,6 +432,7 @@ describe('planSweep', () => {
         mrUrl: MR_URL,
         tabId: 'review-tab',
         gateId: 'gate-esc',
+        gateOpenedAt: NOW - GRACE_MS - 1,
       },
     ]);
   });
@@ -489,6 +494,7 @@ describe('planSweep', () => {
         mrUrl: MR_URL,
         tabId: 'respond-tab',
         gateId: 'gate-esc',
+        gateOpenedAt: NOW - GRACE_MS - 1,
       },
     ]);
   });
@@ -543,6 +549,7 @@ describe('planSweep', () => {
         mrUrl: MR_URL,
         tabId: 'doctor-tab',
         gateId: 'gate-doctor',
+        gateOpenedAt: NOW - GRACE_MS - 1,
       },
     ]);
   });

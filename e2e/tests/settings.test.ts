@@ -414,6 +414,14 @@ describe("rt settings (four stores, one resolver — e2e)", () => {
     expect(out.provenance).toEqual([{ scope: "org.repo", file: teamStore }]);
   }, 30_000);
 
+  test("get of a renamed key's old name answers with its heir and names it", async () => {
+    const out = await rtJson(["settings", "get", "chat.slackSupport.persona", "--json"]);
+    expect(out.ok).toBe(true);
+    expect(out.key).toBe("chat.slackSupport.persona");
+    expect(out.deprecated.use).toBe("agent.persona");
+    expect(out.value.name).toBe("Maude");
+  }, 30_000);
+
   test("get on a replace key reports exactly one provenance entry", async () => {
     const out = await rtJson(["settings", "get", "rt.intercepts", "--repo", REPO_NAME, "--json"]);
     expect(out.value).toHaveLength(1);

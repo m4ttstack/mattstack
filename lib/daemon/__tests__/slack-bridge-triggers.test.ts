@@ -34,7 +34,7 @@ const conv = {
   openedAt: OPENED_AT_MS,
 };
 
-function harness(opts: { hits?: SlackSearchHit[]; open?: boolean; graced?: boolean; db?: ReturnType<typeof openStateDb>; persona?: SlackPersona } = {}) {
+function harness(opts: { hits?: SlackSearchHit[]; open?: boolean; graced?: boolean; db?: ReturnType<typeof openStateDb>; persona?: SlackPersona; trigger?: string } = {}) {
   const db = opts.db ?? openStateDb(join(tmpdir(), `slack-trigger-${process.pid}-${n++}-${Date.now()}.db`));
   if (opts.open) openConversation(conv, db);
   if (opts.graced) {
@@ -94,7 +94,8 @@ function harness(opts: { hits?: SlackSearchHit[]; open?: boolean; graced?: boole
     log: spyLog,
     now: () => state.clock,
     persona: () => persona,
-    triggers: { offer: (hit) => offerTriggerChat(offerDeps, hit, persona) },
+    trigger: () => opts.trigger,
+    triggers: { offer: (hit) => offerTriggerChat(offerDeps, hit, persona, opts.trigger) },
   });
   return { db, bridge, state, queries, opened, contexts, failures, warns, desk };
 }
@@ -153,7 +154,7 @@ test("the operator's own message, a mid-text mention, @Maudeline, a channel mess
 });
 
 test("a custom trigger replaces the default", async () => {
-  const h = harness({ persona: { name: "Ada", emoji: "🦊", trigger: "!!ada" }, hits: [dm(200, "U0NEW", "@Maude no"), dm(201, "U0NEW", "!!ada yes")] });
+  const h = harness({ persona: { name: "Ada", emoji: "🦊" }, trigger: "!!ada", hits: [dm(200, "U0NEW", "@Maude no"), dm(201, "U0NEW", "!!ada yes")] });
   await h.bridge.sweepTriggers();
   expect(h.opened).toHaveLength(1);
   expect(h.opened[0]!.meta.brief).toBe("Nia Newcomer asked for help over Slack with !!ada. Their message arrives first.");

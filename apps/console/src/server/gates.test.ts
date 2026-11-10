@@ -156,10 +156,15 @@ describe('GET /api/gates/slack', () => {
       trigger: '@Maude',
     });
 
-    vi.mocked(rt.getSetting).mockReturnValueOnce({
-      value: { name: 'Maude', emoji: 'x', trigger: 'hey bot' },
-      provenance: [],
-    });
+    vi.mocked(rt.getSetting)
+      .mockReturnValueOnce({
+        value: { name: 'Maude', emoji: 'x' },
+        provenance: [],
+      })
+      .mockReturnValueOnce({
+        value: 'hey bot',
+        provenance: [{ scope: 'user', file: 'settings.user.jsonc' }],
+      });
     await expect((await slackGet()).json()).resolves.toMatchObject({
       trigger: 'hey bot',
     });

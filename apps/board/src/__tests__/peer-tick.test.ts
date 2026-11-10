@@ -82,7 +82,7 @@ function fakeDeps(): MaterializeDeps & {
   resolutions: Array<{
     mrUrl: string;
     resolution: {
-      result: NudgeResult | 'confirmed';
+      result: NudgeResult | 'confirmed' | 'parked';
       reason?: string;
       at: number;
     };
@@ -94,7 +94,7 @@ function fakeDeps(): MaterializeDeps & {
   const resolutions: Array<{
     mrUrl: string;
     resolution: {
-      result: NudgeResult | 'confirmed';
+      result: NudgeResult | 'confirmed' | 'parked';
       reason?: string;
       at: number;
     };

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { closingLine, decodeSlackText, escapeSlackText, hasPrefix, holdingLine, namesTicket, redactSecrets, slackPrefix, withPrefix } from "../format.ts";
 
 const MAUDE = { name: "Maude", emoji: "🤖" };
-const ADA = { name: "Ada", emoji: "🦊", trigger: "!!ada" };
+const ADA = { name: "Ada", emoji: "🦊" };
 
 describe("the prefix", () => {
   test("names the persona", () => {
@@ -97,7 +97,7 @@ describe("the closing and holding lines", () => {
   });
 
   test("a custom persona names itself and its own trigger", () => {
-    expect(closingLine("alex", false, ADA)).toBe(
+    expect(closingLine("alex", false, ADA, "!!ada")).toBe(
       "[Ada 🦊]: This chat with Ada is closed. Anything you send now goes to alex. To add something for Ada in the next hour, start your message with !!ada",
     );
   });

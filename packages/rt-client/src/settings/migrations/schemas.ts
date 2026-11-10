@@ -37,5 +37,15 @@ export const MIGRATION_SCHEMAS: MigrationSchema[] = [
       [],
     ],
   },
+  {
+    key: "chat.slackSupport.persona",
+    version: 1,
+    schema: z.looseObject({ name: z.string().regex(/\S/), emoji: z.string().regex(/\S/), trigger: z.string().regex(/\S/).optional() }),
+    examples: [
+      { name: "Maude", emoji: "🤖" },
+      { name: "Ada", emoji: "🦊", trigger: "!!ada" },
+      { emoji: "🦊" },
+    ],
+  },
   // @draft-schemas
 ];

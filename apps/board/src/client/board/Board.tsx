@@ -90,8 +90,11 @@ import {
 import { ActionMenu } from './ActionMenu.tsx';
 import {
   bandDismissRequest,
+  bandRemind,
   bandRetryAction,
   bandRetrySettles,
+  clock,
+  remindToastName,
 } from './ask-band.ts';
 import { AskConfirmDialog } from './AskConfirmDialog.tsx';
 import { verbLane } from './asks/ask-copy.ts';
@@ -1020,6 +1023,32 @@ export function Board() {
     [addToast, load]
   );
 
+  const handleAskRemind = useCallback(
+    async (mr: BoardMRWithReview) => {
+      const self = seatRef.current;
+      const req = bandRemind(mr, self, seenSlackNames.current);
+      if (!req) return;
+      const name = remindToastName(req, people.short(req.body.reviewer));
+      const result = await postAction(req.path, req.body);
+      if (result.ok) addToast(`reminded ${name} on Slack`);
+      else if ((result.body as { maybeSent?: boolean } | null)?.maybeSent)
+        addToast(`may have reminded ${name}, rt timed out`);
+      else if (result.status === 409) {
+        const retryAt = (result.body as { retryAt?: number } | null)?.retryAt;
+        addToast(
+          retryAt
+            ? `already reminded ${name}, try again at ${clock(retryAt)}`
+            : `already reminded ${name}`
+        );
+      } else
+        addToast(
+          `could not remind ${name} (${result.status})${result.text ? `: ${result.text}` : ''}`
+        );
+      load();
+    },
+    [addToast, load, people]
+  );
+
   const [asksOpen, setAsksOpen] = useState(false);
   const [askFlashId, setAskFlashId] = useState<string | null>(null);
   const askLinkConsumed = useRef(false);
@@ -1532,6 +1561,10 @@ export function Board() {
   if (Object.keys(data?.slackFaces ?? {}).length > 0) {
     seenFaces.current = data!.slackFaces!;
   }
+  const seenSlackNames = useRef<Record<string, string>>({});
+  if (Object.keys(data?.slackNames ?? {}).length > 0) {
+    seenSlackNames.current = data!.slackNames!;
+  }
   const faces = JSON.stringify(seenFaces.current);
   const memberLooks = useMemo(() => {
     const looks = assignMemberLooks(lookIds ? lookIds.split('\n') : []);
@@ -1787,6 +1820,8 @@ export function Board() {
     onDismissLane: handleDismissLane,
     onAskRetry: handleAskRetry,
     onAskDismiss: handleAskDismiss,
+    onAskRemind: handleAskRemind,
+    slackNames: seenSlackNames.current,
     onStandDown: handleStandDown,
     noteEditing,
     onEditNote: setNoteEditing,

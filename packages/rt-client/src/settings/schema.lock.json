@@ -1,4 +1,58 @@
 {
+  "agent.persona": {
+    "storeVersion": 2,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "\\S",
+          "title": "Name",
+          "description": "What the agent calls itself in every Slack message."
+        },
+        "emoji": {
+          "type": "string",
+          "pattern": "\\S",
+          "title": "Emoji",
+          "description": "Shown beside the name in the prefix of every Slack message."
+        }
+      },
+      "required": [
+        "name",
+        "emoji"
+      ],
+      "additionalProperties": {}
+    },
+    "migrateFrom": {
+      "1": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "\\S"
+          },
+          "emoji": {
+            "type": "string",
+            "pattern": "\\S"
+          },
+          "trigger": {
+            "type": "string",
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "name",
+          "emoji"
+        ],
+        "additionalProperties": {}
+      }
+    },
+    "renamedFrom": [
+      "chat.slackSupport.persona"
+    ]
+  },
   "board.botUsernames": {
     "storeVersion": 1,
     "schema": {
@@ -656,36 +710,12 @@
       "minLength": 1
     }
   },
-  "chat.slackSupport.persona": {
+  "chat.slackSupport.trigger": {
     "storeVersion": 1,
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string",
-          "pattern": "\\S",
-          "title": "Name",
-          "description": "What the bot calls itself in every Slack message."
-        },
-        "emoji": {
-          "type": "string",
-          "pattern": "\\S",
-          "title": "Emoji",
-          "description": "Shown beside the name in the prefix of every Slack message."
-        },
-        "trigger": {
-          "title": "Trigger",
-          "description": "What a teammate starts a message with to ask the bot back after a chat closes. Without it, the name after an @.",
-          "type": "string",
-          "pattern": "\\S"
-        }
-      },
-      "required": [
-        "name",
-        "emoji"
-      ],
-      "additionalProperties": {}
+      "type": "string",
+      "pattern": "\\S"
     }
   },
   "ci.triage.infraPatterns": {

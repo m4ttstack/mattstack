@@ -207,11 +207,14 @@ export function gatesRoutes(fixture: RunsFixture | null = null) {
           ? ({ ok: true, gates: [] } as const)
           : await listSlackGates();
         if (!res.ok) return c.json({ error: res.error }, 502);
-        const persona = getSetting<{ name: string; trigger?: string }>(
-          'chat.slackSupport.persona'
-        ).value;
+        const persona = getSetting<{ name: string }>('agent.persona').value;
+        const trigger = getSetting<string>('chat.slackSupport.trigger');
+        const set = trigger.provenance.some(p => p.scope !== 'default');
         return c.json(
-          { gates: res.gates, trigger: personaTrigger(persona) },
+          {
+            gates: res.gates,
+            trigger: personaTrigger(persona, set ? trigger.value : undefined),
+          },
           200
         );
       })

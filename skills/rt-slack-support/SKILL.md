@@ -184,7 +184,7 @@ one line in a whole chat, at the end of `The outcome DM`.
 Every reply to the teammate is `chat_dm` to `<handle>`, whoever's message
 started the turn. `chat_post` into that room is refused. The daemon puts the
 bot's name ahead of every message (`[Maude 🤖]: ` by default, from the
-`chat.slackSupport.persona` setting), so never write it yourself. To the
+`agent.persona` setting), so never write it yourself. To the
 teammate, the operator is the name in their message, and everything they read
 is in plain words, with no mention of the brief or these rules.
 

@@ -5,6 +5,7 @@ import {
   clearClosedPeerReviews,
   CLOSED_REPORTED_NS,
   closedPaneReports,
+  markClosedPaneReported,
   pruneClosedPaneMarkers,
   sweepClosedPeerReviews,
   type ClosedPaneLane,
@@ -51,6 +52,7 @@ function input(over: Partial<Parameters<typeof closedPaneReports>[0]> = {}) {
     self: 'pat',
     reported: new Map<string, unknown>(),
     nudges,
+    isParked: (_mrUrl: string) => false,
     now: NOW,
     ...over,
   };
@@ -73,6 +75,20 @@ describe('closedPaneReports', () => {
         },
       },
     ]);
+  });
+
+  test('a lane whose review gate is parked is not reported', () => {
+    expect(
+      closedPaneReports(input({ isParked: url => url === URL_A }))
+    ).toEqual([]);
+  });
+
+  test('the same lane with no parked review gate reports pane closed', () => {
+    const [report] = closedPaneReports(input({ isParked: () => false }));
+    expect(report?.payload).toMatchObject({
+      status: 'error',
+      reason: 'pane closed',
+    });
   });
 
   test('a queued lane is reported too', () => {
@@ -205,6 +221,7 @@ function runtime(extraRecipients: string[] = []) {
   const initial = input();
   let reviews = initial.reviews;
   let kicks = 0;
+  let parked = false;
   const io = {
     current: () => peer,
     readReviews: () => reviews,
@@ -215,6 +232,7 @@ function runtime(extraRecipients: string[] = []) {
         [URL_B, 'pat'],
       ]),
     readNudges: () => initial.nudges,
+    isParked: (_mrUrl: string) => parked,
     recipients: (author: string) => [author, ...extraRecipients],
     kickOutbox: (target: SwitchboardClient) => {
       expect(target).toBe(client);
@@ -231,10 +249,34 @@ function runtime(extraRecipients: string[] = []) {
       reviews = next;
     },
     kicks: () => kicks,
+    setParked: (next: boolean) => {
+      parked = next;
+    },
   };
 }
 
 describe('sweepClosedPeerReviews', () => {
+  test('a run already closed by a stopped report is not followed by pane closed', async () => {
+    const r = runtime();
+    markClosedPaneReported(URL_A, 500, r.db);
+    expect(
+      closedPaneReports(
+        input({ reported: listKvValues(CLOSED_REPORTED_NS, r.db) })
+      )
+    ).toEqual([]);
+    await sweepClosedPeerReviews(r.io, r.db);
+    expect(readOutbox(r.db)).toEqual([]);
+  });
+
+  test('a parked lane queues nothing and leaves no marker', async () => {
+    const r = runtime();
+    r.setParked(true);
+    await sweepClosedPeerReviews(r.io, r.db);
+    expect(readOutbox(r.db)).toEqual([]);
+    expect(listKvValues(CLOSED_REPORTED_NS, r.db).size).toBe(0);
+    expect(r.kicks()).toBe(0);
+  });
+
   test('a closed pane reports to every recipient in one commit, nudgeId only to the author', async () => {
     const { io, db } = runtime(['mira']);
     await sweepClosedPeerReviews(io, db);
