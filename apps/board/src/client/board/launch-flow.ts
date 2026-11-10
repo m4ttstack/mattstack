@@ -82,7 +82,11 @@ export async function runLaunchFlow(
     );
     return result;
   }
+  // A refusal or a focus starts no run, so the server may never write the
+  // lane the claim is waiting on; the claim would otherwise stand until its
+  // hold lapses.
   if (intent === 'launch' && result.body?.refused) {
+    deps.rollback();
     toast?.fail(result.body.refused);
     deps.reload();
     return result;
@@ -91,6 +95,7 @@ export async function runLaunchFlow(
     if (result.body?.focused)
       deps.addToast(`focused ${deps.noun} tab for ${mrRef(mr)}`);
   } else {
+    if (result.body?.focused) deps.rollback();
     toast?.done(
       result.body?.focused
         ? `${deps.noun} already running for ${mrRef(mr)}... focused its tab`
