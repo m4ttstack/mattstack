@@ -44,8 +44,12 @@ function CopyRef({ value }: { value: string }) {
       className="tui-syncsteps-action"
       title="Copy the backup branch"
       onClick={() => {
-        void navigator.clipboard?.writeText(value);
-        setCopied(true);
+        // Only a write that landed says "copied": a remote board on plain
+        // http has no clipboard, and a write can be refused.
+        navigator.clipboard
+          ?.writeText(value)
+          .then(() => setCopied(true))
+          .catch(() => {});
       }}
     >
       {copied ? 'copied' : 'copy'}

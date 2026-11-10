@@ -64,6 +64,8 @@ export function tidySyncLog(
   running: boolean
 ): SyncLine[] {
   const parsed = lines.map(parseSyncLine);
+  // Plain child output can follow the step at work; it never ends it.
+  const lastTagged = parsed.findLastIndex(l => l.status !== null);
   const stopped = parsed.some(l => l.status && STOPPED.has(l.status));
   const name = (s: string) =>
     branch
@@ -72,9 +74,7 @@ export function tidySyncLog(
   return parsed
     .filter(
       (l, i) =>
-        stopped ||
-        l.status !== 'running' ||
-        (running && i === parsed.length - 1)
+        stopped || l.status !== 'running' || (running && i === lastTagged)
     )
     .map(l => ({
       ...l,

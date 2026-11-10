@@ -62,13 +62,21 @@ const ORDER: StepKey[] = ['fetch', 'backup', 'rebase', 'push'];
 const shortTarget = (t: string) => t.replace(/^origin\//, '');
 const commits = (hint?: string) => hint?.replace(/ behind$/, '');
 
+/** Each step by rt's own wording, anchored where the branch cannot reach:
+    titles carry the branch name, so a loose match would read a branch named
+    "backup" or "conflict" as that step. */
 function keyOf(title: string): StepKey | null {
   if (/^Fetch(ing|ed) from origin/.test(title)) return 'fetch';
-  if (/backup/i.test(title)) return 'backup';
-  if (/^Rebas(ing|ed) /.test(title) || / is up to date with /.test(title))
+  if (/^(Saved a backup|Could not save a backup)/.test(title)) return 'backup';
+  if (
+    /^Rebas(ing|ed) /.test(title) ||
+    / is up to date with \S+$/.test(title) ||
+    /^\d+ files? (has|have) conflicts/.test(title) ||
+    /^The rebase /.test(title)
+  )
     return 'rebase';
-  if (/conflicts?/.test(title)) return 'rebase';
-  if (/^Push(ing|ed)|push/i.test(title)) return 'push';
+  if (/^Push(ing|ed)\b/.test(title) || /^Could not push /.test(title))
+    return 'push';
   return null;
 }
 

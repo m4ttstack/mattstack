@@ -25,5 +25,9 @@ export function useLingering<T>(
     }, ms);
     return () => clearTimeout(t);
   }, [value, ms]);
-  return { shown: value ?? shown, leaving: value === null && leaving };
+  // Nothing shown, nothing to leave: a first mount with null never exits.
+  return {
+    shown: value ?? shown,
+    leaving: value === null && leaving && shown !== null,
+  };
 }

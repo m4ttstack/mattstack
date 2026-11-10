@@ -97,6 +97,15 @@ describe('tidySyncLog', () => {
     });
   });
 
+  test('a stray plain line after the running step does not hide it', () => {
+    const shown = tidySyncLog(
+      [...log.slice(0, 4), 'some stray child output'],
+      B,
+      true
+    );
+    expect(shown.some(l => l.status === 'running')).toBe(true);
+  });
+
   test('a failed sync keeps every line, so nothing that led to it is hidden', () => {
     const failed = [...log.slice(0, 5), `[failed] Could not push ${B}`];
     expect(tidySyncLog(failed, B, false)).toHaveLength(6);

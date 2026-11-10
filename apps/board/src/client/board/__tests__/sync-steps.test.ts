@@ -128,4 +128,23 @@ describe('syncSteps once finished', () => {
     const v = syncSteps([L.tree, 'some stray child output', L.fetched], false);
     expect(v.steps[0]!.state).toBe('done');
   });
+
+  test('a branch named like a step still lands each line on its own step', () => {
+    const b = 'acme-12-backup-conflict-job';
+    const v = syncSteps(
+      [
+        L.tree,
+        L.fetched,
+        `[ok] Saved a backup  rt-backup/rebase/${b}/2026-11-10T04-31-54`,
+        `[running] Rebasing ${b} onto origin/main  50 commits behind`,
+        `[ok] Rebased ${b} onto origin/main`,
+        L.pushing,
+        `[failed] Could not push ${b}`,
+      ],
+      false
+    );
+    expect(states(v)).toEqual(['done', 'done', 'done', 'failed']);
+    expect(v.steps[1]!.ref).toBe(`rt-backup/rebase/${b}/2026-11-10T04-31-54`);
+    expect(v.steps[2]!.detail).toBe('50 commits');
+  });
 });
