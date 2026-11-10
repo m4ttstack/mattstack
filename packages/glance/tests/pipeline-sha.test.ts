@@ -9,6 +9,9 @@
 import { describe, expect, test } from 'bun:test';
 import { GitLabProvider, MR_DASHBOARD_FRAGMENT, MR_LIST_FRAGMENT } from '../src/GitLabProvider.ts';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
+import { ghNode, stubForge, useForgeStub } from './helpers/gh-fill-fixture.ts';
+
+useForgeStub();
 
 function gitlabNode(over: Record<string, unknown> = {}) {
   const user = { id: 'gid://gitlab/User/1', username: 'ada', name: 'Ada', avatarUrl: null };
@@ -127,6 +130,30 @@ describe('GitLab head pipeline sha, ref and event type', () => {
 });
 
 describe('GitHub pipeline sha and ref', () => {
+  test('a filled PR carries the head sha and head ref on its pipeline', async () => {
+    stubForge({
+      fill: () => ({ 7: ghNode({ number: 7, headRefOid: 'def456', headRefName: 'feat' }) })
+    });
+    const p = new GitHubProvider('https://github.com', 'tok-pipeline-sha');
+
+    const pr = await p.fetchSingleMR('o/r', 7, null);
+
+    expect(pr!.pipeline).toMatchObject({ sha: 'def456', ref: 'feat', mergeRequestEventType: null });
+  });
+
+  test('a filled PR with no checks carries a null pipeline', async () => {
+    stubForge({
+      fill: () => ({
+        7: ghNode({ number: 7, commits: { nodes: [{ commit: { oid: 'def456', statusCheckRollup: null } }] } })
+      })
+    });
+    const p = new GitHubProvider('https://github.com', 'tok-pipeline-none');
+
+    const pr = await p.fetchSingleMR('o/r', 7, null);
+
+    expect(pr!.pipeline).toBeNull();
+  });
+
   test('pipeline sha is the checks head sha and ref is the PR head ref', async () => {
     const p = new GitHubProvider('https://github.com', 't');
     const user = { id: 3, login: 'ada', avatar_url: null, name: 'Ada' };

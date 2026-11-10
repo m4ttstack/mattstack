@@ -15,6 +15,9 @@
 import { describe, expect, test } from 'bun:test';
 import { RequestError } from '@octokit/request-error';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
+import { ghNode, stubForge, useForgeStub } from './helpers/gh-fill-fixture.ts';
+
+useForgeStub();
 
 const API = 'https://api.github.com';
 
@@ -249,13 +252,42 @@ describe('GitHubProvider unresolved review threads', () => {
     expect(batches[0]).toEqual(['PR_node_1', 'PR_node_2', 'PR_node_3']);
   });
 
-  test('fetchSingleMR carries the count too', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    install(provider, [ghPR(4)], [{ id: 'PR_node_4', resolved: [false, false] }]);
+  test('fetchSingleMR carries the count too, read from the fill', async () => {
+    stubForge({
+      fill: () => ({
+        4: ghNode({
+          number: 4,
+          reviewThreads: {
+            totalCount: 3,
+            nodes: [{ isResolved: false }, { isResolved: false }, { isResolved: true }]
+          }
+        })
+      })
+    });
+    const provider = new GitHubProvider('https://github.com', 'tok-threads');
 
     const pr = await provider.fetchSingleMR('acme/repo', 4, null);
 
     expect(pr?.unresolvedThreadCount).toBe(2);
+  });
+
+  test('fetchSingleMR reads more than 100 threads as unknown, not as a count', async () => {
+    stubForge({
+      fill: () => ({
+        4: ghNode({
+          number: 4,
+          reviewThreads: {
+            totalCount: 101,
+            nodes: Array.from({ length: 100 }, () => ({ isResolved: true }))
+          }
+        })
+      })
+    });
+    const provider = new GitHubProvider('https://github.com', 'tok-threads-cap');
+
+    const pr = await provider.fetchSingleMR('acme/repo', 4, null);
+
+    expect(pr?.unresolvedThreadCount).toBeNull();
   });
 
   test('detailedMergeStatus stays null on GitHub (GitLab-only field)', async () => {

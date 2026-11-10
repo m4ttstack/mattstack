@@ -159,6 +159,32 @@ describe('mapReviews', () => {
     expect(s.reviewers[0]!.reviewState).toBe('REQUESTED_CHANGES');
   });
 
+  it("the PR author's own thread replies do not list them as a reviewer", () => {
+    // GitHub files an author's reply in a review thread as a COMMENTED review.
+    const s = mapReviews(
+      ghNode({
+        author: user('alice', 11),
+        latestReviews: {
+          nodes: [review('COMMENTED', 'alice', 11), review('APPROVED', 'bob', 12)]
+        },
+        latestOpinionatedReviews: { nodes: [review('APPROVED', 'bob', 12)] }
+      }),
+      null
+    );
+    expect(s.reviewers.map(r => r.username)).toEqual(['bob']);
+  });
+
+  it('a deleted PR author does not hide a deleted reviewer', () => {
+    const s = mapReviews(
+      ghNode({
+        author: null,
+        latestReviews: { nodes: [{ state: 'COMMENTED', submittedAt: null, author: null }] }
+      }),
+      null
+    );
+    expect(s.reviewers.map(r => r.username)).toEqual(['ghost']);
+  });
+
   it('deleted and bot authors map without throwing', () => {
     const s = mapReviews(
       ghNode({

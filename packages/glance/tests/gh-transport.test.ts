@@ -425,6 +425,7 @@ describe('GitHubProvider transport: reviews pagination (real octokit.paginate)',
   const PULL_URL = 'https://api.github.com/repos/acme/repo/pulls/5';
   const REVIEWS_PAGE1_URL = `${PULL_URL}/reviews?per_page=100`;
   const REVIEWS_PAGE2_URL = `${REVIEWS_PAGE1_URL}&page=2`;
+  const LIST_URL = 'https://api.github.com/repos/acme/repo/pulls?state=open';
 
   /** Minimal PR fixture: only the fields `withRoles` and `toPullRequest` read. */
   function reviewsPR() {
@@ -459,10 +460,11 @@ describe('GitHubProvider transport: reviews pagination (real octokit.paginate)',
   }
 
   /**
-   * Answers `/user`, the GraphQL thread-count batch, and the single PR
-   * detail GET identically for both tests below, and delegates anything
-   * to do with the reviews pages to `onReviews`, so each test only has to
-   * describe the one thing it's varying.
+   * Answers `/user`, the GraphQL thread-count batch, and the repository
+   * listing identically for both tests below, and delegates anything to do
+   * with the reviews pages to `onReviews`, so each test only has to describe
+   * the one thing it's varying. The listing, not `iids`: known-number reads
+   * go through the GraphQL fill and never paginate reviews.
    */
   function stubAroundReviews(
     onReviews: (url: string) => Response | undefined
@@ -474,8 +476,8 @@ describe('GitHubProvider transport: reviews pagination (real octokit.paginate)',
       if (url === 'https://api.github.com/graphql') {
         return jsonResponse({ data: { nodes: [] } });
       }
-      if (url === PULL_URL) {
-        return jsonResponse(reviewsPR());
+      if (url.startsWith(LIST_URL)) {
+        return jsonResponse([reviewsPR()]);
       }
       const answer = onReviews(url);
       if (answer) return answer;
@@ -529,7 +531,6 @@ describe('GitHubProvider transport: reviews pagination (real octokit.paginate)',
     // wall-clock time and blows past the default 5s timeout.
     const prs = await withInstantTimers(() =>
       provider.fetchPullRequests({
-        iids: [5],
         projectPath: 'acme/repo',
         listWeight: true
       })
@@ -591,7 +592,6 @@ describe('GitHubProvider transport: reviews pagination (real octokit.paginate)',
     // test's own GraphQL thread-count call.
     const prs = await withInstantTimers(() =>
       provider.fetchPullRequests({
-        iids: [5],
         projectPath: 'acme/repo',
         listWeight: true,
         onWarning: w => warnings.push(w)

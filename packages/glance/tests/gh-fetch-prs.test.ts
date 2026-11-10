@@ -19,6 +19,14 @@ import { GitHubProvider } from '../src/GitHubProvider.ts';
 import type { FetchPullRequestsWarning } from '../src/GitProvider.ts';
 import { warningTarget } from '../src/GitProvider.ts';
 import { fetchDashboardBatch } from '../src/MRDashboard.ts';
+import {
+  ghNode,
+  jsonResponse as fillJson,
+  stubForge,
+  useForgeStub
+} from './helpers/gh-fill-fixture.ts';
+
+useForgeStub();
 
 const API = 'https://api.github.com';
 
@@ -248,9 +256,15 @@ describe('GitHubProvider.fetchPullRequests: state', () => {
 });
 
 describe('GitHubProvider.fetchPullRequests: repository modes', () => {
-  test('iids + projectPath fetches those PRs by number and skips search', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    const calls = install(provider, [ghPR(1), ghPR(7)]);
+  test('iids + projectPath fills those PRs by number and skips search', async () => {
+    const filled: number[][] = [];
+    const { urls } = stubForge({
+      fill: (numbers) => {
+        filled.push(numbers);
+        return { 7: ghNode({ number: 7 }) };
+      }
+    });
+    const provider = new GitHubProvider('https://github.com', 'tok-iids');
 
     const prs = await provider.fetchPullRequests({
       iids: [7],
@@ -258,8 +272,8 @@ describe('GitHubProvider.fetchPullRequests: repository modes', () => {
     });
 
     expect(prs.map((p) => p.iid)).toEqual([7]);
-    expect(searchQueries(calls)).toEqual([]);
-    expect(calls).toContain('/repos/acme/repo/pulls/7');
+    expect(urls.some((u) => u.includes('/search/'))).toBe(false);
+    expect(filled).toEqual([[7]]);
   });
 
   test('an empty iids list asks for nothing, not for the whole repository', async () => {
@@ -819,73 +833,62 @@ describe('GitHubProvider.fetchPullRequests: truncation and failures are observab
  * standing in for either side's actual `target`.
  */
 describe('fetchDashboardBatch against the real GitHubProvider, not a fake (MAT-143 review round 4)', () => {
-  test('a real checks failure lands in `degraded`, keyed by the target GitHubProvider actually emits', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    install(provider, [ghPR(1), ghPR(2)]);
-    const inner = (provider as any).octokit.request;
-    (provider as any).octokit.request = async (route: string, params?: unknown) => {
-      const path = route.slice(route.indexOf(' ') + 1);
-      if (path === '/repos/acme/repo/commits/sha2/check-runs?per_page=100') {
-        throw new RequestError('API rate limit exceeded', 403, {
-          request: { method: 'GET', url: `${API}${path}`, headers: {} },
-          response: {
-            status: 403,
-            url: '',
-            headers: {},
-            data: { message: 'API rate limit exceeded' }
+  /** PR 2 has more than 100 checks, so its second page is a separate request. */
+  function moreChecks(n: number) {
+    return ghNode({
+      number: n,
+      commits: {
+        nodes: [
+          {
+            commit: {
+              oid: 'abc123',
+              statusCheckRollup: {
+                state: 'SUCCESS',
+                contexts: {
+                  totalCount: 101,
+                  pageInfo: { hasNextPage: true, endCursor: 'CUR' },
+                  nodes: []
+                }
+              }
+            }
           }
-        });
+        ]
       }
-      return inner(route, params);
-    };
+    });
+  }
+
+  test('a real contexts failure lands in `degraded`, keyed by the target GitHubProvider actually emits', async () => {
+    stubForge({
+      graphql: (query) =>
+        query.includes('after:') ? fillJson({ message: 'Bad Gateway' }, 502) : undefined,
+      fill: () => ({ 1: ghNode({ number: 1 }), 2: moreChecks(2) })
+    });
+    const provider = new GitHubProvider('https://github.com', 'tok-dash-contexts');
 
     const { prs, degraded } = await fetchDashboardBatch(provider, 'acme/repo', [1, 2]);
 
-    // Present, not dropped: a checks failure degrades `pipeline` to `null`,
-    // it does not exclude the PR the way a reviews failure does.
+    // Present, not dropped: an unread checks page leaves the pipeline
+    // pending, it does not exclude the PR the way a failed fill does.
     expect(prs.has(2)).toBe(true);
-    expect(degraded.get(2)?.source).toBe('checks');
+    expect(degraded.get(2)?.source).toBe('contexts');
+    expect(degraded.has(1)).toBe(false);
   });
 
-  test('a real threads failure lands in `degraded` for every affected PR', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    install(provider, [ghPR(1), ghPR(2)]);
-    (provider as any).graphql = async () => {
-      throw new Error('GraphQL: something went wrong');
-    };
-
-    const { prs, degraded } = await fetchDashboardBatch(provider, 'acme/repo', [1, 2]);
-
-    expect(prs.has(1)).toBe(true);
-    expect(prs.has(2)).toBe(true);
-    expect(degraded.get(1)?.source).toBe('threads');
-    expect(degraded.get(2)?.source).toBe('threads');
-  });
-
-  test('a real reviews failure drops the PR from `prs` but still lands in `degraded`', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    install(provider, [ghPR(1), ghPR(2)]);
-    const inner = (provider as any).octokit.paginate;
-    (provider as any).octokit.paginate = async (route: string, params?: any) => {
-      if (params?.pull_number === 2) {
-        throw new RequestError('API rate limit exceeded', 403, {
-          request: { method: 'GET', url: `${API}/x`, headers: {} },
-          response: {
-            status: 403,
-            url: '',
-            headers: {},
-            data: { message: 'API rate limit exceeded' }
-          }
-        });
-      }
-      return inner(route, params);
-    };
+  test('a real fill failure drops the PR from `prs` but still lands in `degraded`', async () => {
+    stubForge({
+      graphql: () =>
+        fillJson({
+          data: { repository: { p1: ghNode({ number: 1 }), p2: null } },
+          errors: [{ type: 'INTERNAL', path: ['repository', 'p2'], message: 'Something went wrong' }]
+        })
+    });
+    const provider = new GitHubProvider('https://github.com', 'tok-dash-fill');
 
     const { prs, degraded } = await fetchDashboardBatch(provider, 'acme/repo', [1, 2]);
 
     expect(prs.has(1)).toBe(true);
     expect(prs.has(2)).toBe(false);
-    expect(degraded.get(2)?.source).toBe('reviews');
+    expect(degraded.get(2)?.source).toBe('fill');
   });
 });
 

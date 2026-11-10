@@ -304,28 +304,6 @@ describe('createGitHubClient throttle id', () => {
   });
 });
 
-function minimalPR(number: number) {
-  return {
-    id: number * 10,
-    node_id: `PR_node_${number}`,
-    number,
-    title: `PR ${number}`,
-    body: null,
-    state: 'open',
-    draft: false,
-    merged_at: null,
-    html_url: `https://github.com/a/b/pull/${number}`,
-    created_at: '2026-07-01T00:00:00Z',
-    updated_at: '2026-07-10T00:00:00Z',
-    head: { sha: `sha${number}`, ref: `feature/${number}` },
-    base: { ref: 'main', repo: { id: 1, full_name: 'a/b' } },
-    user: { id: 999, login: 'octocat', avatar_url: null },
-    assignees: [],
-    requested_reviewers: [],
-    labels: []
-  };
-}
-
 describe('rate limits fail fast', () => {
   const realFetch = globalThis.fetch;
   afterEach(() => {
@@ -496,36 +474,37 @@ describe('rate limits fail fast', () => {
     expect(warnings).toEqual([]);
   });
 
-  test('a rate-limited reviews leg of a single-PR read throws too', async () => {
-    const limit = new RateLimitedError('limited', {
-      kind: 'primary',
-      resetAt: null,
-      retryAfterMs: null,
-      operation: 'GET /reviews'
-    });
-    const provider = new GitHubProvider('https://github.com', 'tok-reviews');
-    (provider as any).octokit = {
-      request: async (route: string) => {
-        const path = route.slice(route.indexOf(' ') + 1);
-        if (path === '/repos/a/b/pulls/1') {
-          return { status: 200, headers: {}, data: minimalPR(1) };
-        }
-        return { status: 200, headers: {}, data: { id: 1, login: 'me', avatar_url: null } };
-      },
-      paginate: async () => {
-        throw limit;
-      }
-    };
-    (provider as any).graphql = async () => ({ nodes: [] });
+  test('a rate-limited iids read throws rather than returning a short list', async () => {
+    stub([
+      () => limited(403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': inAnHour() })
+    ]);
 
-    const err = await provider.fetchSingleMR('a/b', 1, null).catch(e => e);
+    const provider = new GitHubProvider('https://github.com', 'tok-iids-limited');
+    const err = await withInstantTimers(() =>
+      provider.fetchPullRequests({ projectPath: 'a/b', iids: [1] }).catch(e => e)
+    );
 
-    expect(err).toBe(limit);
+    expect(err).toBeInstanceOf(RateLimitedError);
   });
 
-  test('a rate-limited detail read on a list path reports kind rate-limited', async () => {
+  test('a rate-limited detail read on a search path reports kind rate-limited', async () => {
     const reset = inAnHour();
     stub([
+      () =>
+        new Response(
+          JSON.stringify({
+            items: [
+              {
+                number: 1,
+                state: 'open',
+                updated_at: '2026-07-10T00:00:00Z',
+                repository_url: 'https://api.github.com/repos/a/b',
+                pull_request: { merged_at: null }
+              }
+            ]
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        ),
       () => limited(403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': reset })
     ]);
     const warnings: FetchPullRequestsWarning[] = [];
@@ -534,7 +513,7 @@ describe('rate limits fail fast', () => {
     await withInstantTimers(() =>
       provider.fetchPullRequests({
         projectPath: 'a/b',
-        iids: [1],
+        authorUsernames: ['alice'],
         onWarning: w => warnings.push(w)
       })
     );

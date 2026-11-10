@@ -3,6 +3,7 @@ import type {
   MRState,
   Pipeline,
   PipelineJob,
+  PullRequest,
   Readiness,
   ReadinessReason,
   Reviewer,
@@ -109,7 +110,7 @@ export interface GHFillNode {
   reviewThreads: { totalCount: number; nodes: Array<{ isResolved: boolean }> };
   autoMergeRequest: {
     mergeMethod: string;
-    enabledBy: { login: string } | null;
+    enabledBy: GHFillActor | null;
   } | null;
   commits: {
     nodes: Array<{
@@ -155,7 +156,7 @@ reviewRequests(first: 20) { nodes { requestedReviewer {
 latestReviews(first: 50) { nodes { state submittedAt author ${ACTOR} } }
 latestOpinionatedReviews(first: 50) { nodes { state submittedAt author ${ACTOR} } }
 reviewThreads(first: 100) { totalCount nodes { isResolved } }
-autoMergeRequest { mergeMethod enabledBy { login } }
+autoMergeRequest { mergeMethod enabledBy ${ACTOR} }
 commits(last: 1) { nodes { commit { oid statusCheckRollup { state
   ${contextsSelection(number, 'first: 100')} } } } }`;
 }
@@ -173,7 +174,8 @@ export function buildFillQuery(
   const aliases = numbers
     .map((n) => `p${n}: pullRequest(number: ${n}) { ${fillFields(n, opts.listWeight)} }`)
     .join('\n');
-  return `query { ${repoHead(owner, repo)} {\n${aliases}\n} }`;
+  // `viewer` costs nothing extra and gives roles without a REST GET /user.
+  return `query { viewer { databaseId login } ${repoHead(owner, repo)} {\n${aliases}\n} }`;
 }
 
 export function buildContextsPageQuery(
@@ -238,6 +240,9 @@ function reviewStateOf(state: string): MergeRequestReviewState {
 
 /** `rulesRequired` is the rulesets count; null means none found or unreadable. */
 export function mapReviews(node: GHFillNode, rulesRequired: number | null): ReviewSummary {
+  // GitHub files the author's own thread replies as COMMENTED reviews, and
+  // GitLab never lists an author as a reviewer.
+  const authorId = node.author ? toUserRefFromActor(node.author).id : null;
   const byId = new Map<string, Reviewer>();
   for (const { requestedReviewer: u } of node.reviewRequests.nodes) {
     if (!u?.login) continue;
@@ -252,6 +257,7 @@ export function mapReviews(node: GHFillNode, rulesRequired: number | null): Revi
   }
   for (const r of node.latestReviews.nodes) {
     const ref = toUserRefFromActor(r.author);
+    if (ref.id === authorId) continue;
     // A pending re-request is newer than the review it follows.
     if (!byId.has(ref.id)) byId.set(ref.id, { ...ref, reviewState: reviewStateOf(r.state) });
   }
@@ -441,4 +447,137 @@ export function githubReadiness(input: {
     default:
       return { state: 'checking', reasons: [] };
   }
+}
+
+/** The token user, as the fill's `viewer` field reports it. */
+export interface GHFillViewer {
+  databaseId: number | null;
+  login: string;
+}
+
+function toMRStateFromNode(node: GHFillNode): MRState {
+  if (node.state === 'MERGED' || node.mergedAt) return 'merged';
+  if (node.state === 'OPEN') return 'opened';
+  return 'closed';
+}
+
+function userRef(u: GHFillUser): UserRef {
+  return toUserRefFromActor({
+    __typename: 'User',
+    login: u.login,
+    avatarUrl: u.avatarUrl,
+    databaseId: u.databaseId,
+    name: u.name
+  });
+}
+
+/**
+ * The token user's roles on a PR, defaulting to `author` as the REST path
+ * did. `reviewer` counts past reviewers too, so a PR stays in "my reviews"
+ * after the review lands.
+ */
+export function rolesFromViewer(
+  node: GHFillNode,
+  viewer: GHFillViewer | null,
+  reviewers: Reviewer[]
+): string[] {
+  const roles: string[] = [];
+  if (viewer) {
+    const me = toUserRefFromActor({ __typename: 'User', avatarUrl: null, ...viewer }).id;
+    if (node.author && toUserRefFromActor(node.author).id === me) roles.push('author');
+    if (node.assignees.nodes.some((a) => userRef(a).id === me)) roles.push('assignee');
+    if (reviewers.some((r) => r.id === me)) roles.push('reviewer');
+  }
+  return roles.length > 0 ? roles : ['author'];
+}
+
+function unresolvedThreads(node: GHFillNode): number | null {
+  const threads = node.reviewThreads;
+  // Past the first page the count would be a guess.
+  if (threads.totalCount > threads.nodes.length) return null;
+  return threads.nodes.filter((t) => !t.isResolved).length;
+}
+
+export function toPullRequestFromNode(
+  node: GHFillNode,
+  ctx: {
+    roles: string[];
+    contexts: GHFillContext[];
+    contextsComplete: boolean;
+    rulesRequired: number | null;
+  }
+): PullRequest {
+  const state = toMRStateFromNode(node);
+  const reviews = mapReviews(node, ctx.rulesRequired);
+  const mapped = mapPipeline(ctx.contexts, node.url, node.headRefName, node.headRefOid);
+  // A check past the pages that arrived may be failing, so the rollup cannot
+  // read green; a failure already seen still stands.
+  const pipeline =
+    mapped && !ctx.contextsComplete && mapped.status !== 'failed' && mapped.status !== 'canceled'
+      ? { ...mapped, status: 'pending' }
+      : mapped;
+  const unresolvedThreadCount = unresolvedThreads(node);
+  const defaultBranch = node.baseRepository?.defaultBranchRef?.name;
+  const autoMerge = node.autoMergeRequest;
+
+  return {
+    id: `github:pr:${node.databaseId}`,
+    iid: node.number,
+    repositoryId: `github:${node.baseRepository?.databaseId ?? 'unknown'}`,
+    title: node.title,
+    description: node.body ?? null,
+    state,
+    draft: node.isDraft,
+    conflicts: node.mergeStateStatus === 'DIRTY' || node.mergeable === 'CONFLICTING',
+    webUrl: node.url,
+    sourceBranch: node.headRefName,
+    targetBranch: node.baseRefName,
+    isStacked: !!defaultBranch && node.baseRefName !== defaultBranch,
+    createdAt: node.createdAt,
+    updatedAt: node.updatedAt,
+    mergedAt: node.mergedAt,
+    sha: node.headRefOid,
+    author: toUserRefFromActor(node.author),
+    assignees: node.assignees.nodes.map(userRef),
+    reviewers: reviews.reviewers,
+    roles: ctx.roles,
+    pipeline,
+    unresolvedThreadCount,
+    approvalsLeft: reviews.approvalsLeft,
+    approved: reviews.approved,
+    approvedBy: reviews.approvedBy,
+    diffStats: {
+      additions: node.additions,
+      deletions: node.deletions,
+      filesChanged: node.changedFiles
+    },
+    // Documented as the raw GitLab status; GitHub's vocabulary differs (MAT-14).
+    detailedMergeStatus: null,
+    autoMergeEnabled: autoMerge != null,
+    // REST reported the method lowercase; GraphQL reports the enum.
+    autoMergeStrategy: autoMerge ? autoMerge.mergeMethod.toLowerCase() : null,
+    mergeUser: autoMerge ? toUserRefFromActor(autoMerge.enabledBy) : null,
+    mergeAfter: null,
+    divergedCommitsCount: null,
+    rebaseInProgress: false,
+    mergeOngoing: false,
+    inProgressMergeCommitSha: null,
+    mergeError: null,
+    shouldBeRebased: node.mergeStateStatus === 'BEHIND',
+    mergeabilityChecks: [],
+    blockingMergeRequestsCount: 0,
+    approvalsRequired: reviews.approvalsRequired,
+    squash: false,
+    squashOnMerge: false,
+    mergeTrainIndex: null,
+    readiness: githubReadiness({
+      state,
+      isDraft: node.isDraft,
+      mergeStateStatus: node.mergeStateStatus,
+      reviewDecision: node.reviewDecision,
+      pipeline,
+      unresolvedThreadCount,
+      contextsComplete: ctx.contextsComplete
+    })
+  };
 }

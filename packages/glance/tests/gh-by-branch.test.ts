@@ -5,28 +5,46 @@
  *  - MRState -> GitHub `state` query param mapping
  *  - the 2-arg call shape still works (default state 'opened')
  *
- * `(provider as any).octokit.request` is monkey-patched so no network is
- * involved; `fetchSingleMR` is stubbed to avoid needing a full GHPullRequest
- * fixture.
+ * `fetch` is stubbed (`stubForge`) so no network is involved: REST answers
+ * the lookups, and the PR found is read through the GraphQL fill, whose
+ * requested numbers are recorded.
  */
 import { describe, expect, test } from 'bun:test';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
 import type { ForgeLogger } from '../src/logger.ts';
+import { ghNode, jsonResponse, stubForge, useForgeStub } from './helpers/gh-fill-fixture.ts';
 
-/** Installs an octokit.request stub and returns the paths (route minus method) it saw. */
-function stubRequest(
-  provider: GitHubProvider,
-  answer: (path: string) => unknown
-): string[] {
+useForgeStub();
+
+/**
+ * Answers REST from `answer` and the fill with a node per number. Returns the
+ * REST URLs seen and the numbers the fill was asked for.
+ */
+function stubRequest(answer: (url: string) => unknown): { calls: string[]; filled: number[] } {
   const calls: string[] = [];
-  (provider as any).octokit = {
-    request: async (route: string) => {
-      const path = route.slice(route.indexOf(' ') + 1);
-      calls.push(path);
-      return { status: 200, headers: {}, data: answer(path) };
+  const filled: number[] = [];
+  stubForge({
+    rest: (url) => {
+      calls.push(url);
+      return jsonResponse(answer(url));
+    },
+    fill: (numbers) => {
+      filled.push(...numbers);
+      return Object.fromEntries(numbers.map((n) => [n, ghNode({ number: n })]));
     }
-  };
-  return calls;
+  });
+  return { calls, filled };
+}
+
+let tokens = 0;
+
+/**
+ * A fresh token per provider: GraphQL POSTs share a throttling group keyed by
+ * token with a real 1s spacing, and a token other files used carries their
+ * backlog.
+ */
+function freshToken(): string {
+  return `tok-by-branch-${++tokens}`;
 }
 
 function forkPR(number: number, headRef: string) {
@@ -75,10 +93,10 @@ function fakeLogger(): ForgeLogger & { calls: Array<{ level: string; msg: string
 
 describe('GitHubProvider.fetchPullRequestByBranch', () => {
   test('falls back to listing + client-side head.ref match when the head-filtered query is empty (fork PR)', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = new GitHubProvider('https://github.com', freshToken());
     const fork = forkPR(42, 'feature/fork-branch');
 
-    const calls = stubRequest(provider, (path) => {
+    const { calls, filled } = stubRequest((path) => {
       if (path.includes('head=')) {
         return []; // fast path: no match (fork PR)
       }
@@ -88,12 +106,6 @@ describe('GitHubProvider.fetchPullRequestByBranch', () => {
       throw new Error(`unexpected path: ${path}`);
     });
 
-    let fetchSingleMRCall: [string, number] | null = null;
-    (provider as any).fetchSingleMR = async (projectPath: string, mrIid: number) => {
-      fetchSingleMRCall = [projectPath, mrIid];
-      return { iid: mrIid } as any;
-    };
-
     const result = await provider.fetchPullRequestByBranch(
       'acme/repo',
       'feature/fork-branch'
@@ -101,15 +113,14 @@ describe('GitHubProvider.fetchPullRequestByBranch', () => {
 
     expect(calls.some((c) => c.includes('head='))).toBe(true);
     expect(calls.some((c) => c.includes('/pulls?state='))).toBe(true);
-    expect(fetchSingleMRCall).toEqual(['acme/repo', 42]);
-    expect(result).toEqual({ iid: 42 } as any);
+    expect(filled).toEqual([42]);
+    expect(result?.iid).toBe(42);
   });
 
   test("state 'merged' maps to state=closed in the fallback list request", async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = new GitHubProvider('https://github.com', freshToken());
 
-    const calls = stubRequest(provider, () => []);
-    (provider as any).fetchSingleMR = async () => null;
+    const { calls } = stubRequest(() => []);
 
     await provider.fetchPullRequestByBranch('acme/repo', 'some-branch', 'merged');
 
@@ -122,10 +133,9 @@ describe('GitHubProvider.fetchPullRequestByBranch', () => {
   });
 
   test('2-arg call still works: default state is opened -> state=open in the URL', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = new GitHubProvider('https://github.com', freshToken());
 
-    const calls = stubRequest(provider, () => []);
-    (provider as any).fetchSingleMR = async () => null;
+    const { calls } = stubRequest(() => []);
 
     await provider.fetchPullRequestByBranch('acme/repo', 'some-branch');
 
@@ -136,10 +146,10 @@ describe('GitHubProvider.fetchPullRequestByBranch', () => {
   });
 
   test('fallback paginates past page 1: a match on page 2 is found', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = new GitHubProvider('https://github.com', freshToken());
     const match = forkPR(9999, 'feature/deep-fork-branch');
 
-    const calls = stubRequest(provider, (path) => {
+    const { calls, filled } = stubRequest((path) => {
       if (path.includes('head=')) {
         return []; // fast path: no match
       }
@@ -153,12 +163,6 @@ describe('GitHubProvider.fetchPullRequestByBranch', () => {
       throw new Error(`unexpected path: ${path}`);
     });
 
-    let fetchSingleMRCall: [string, number] | null = null;
-    (provider as any).fetchSingleMR = async (projectPath: string, mrIid: number) => {
-      fetchSingleMRCall = [projectPath, mrIid];
-      return { iid: mrIid } as any;
-    };
-
     const result = await provider.fetchPullRequestByBranch(
       'acme/repo',
       'feature/deep-fork-branch'
@@ -166,15 +170,15 @@ describe('GitHubProvider.fetchPullRequestByBranch', () => {
 
     const listCalls = calls.filter((c) => c.includes('/pulls?state='));
     expect(listCalls.some((c) => c.includes('page=2'))).toBe(true);
-    expect(fetchSingleMRCall).toEqual(['acme/repo', 9999]);
-    expect(result).toEqual({ iid: 9999 } as any);
+    expect(filled).toEqual([9999]);
+    expect(result?.iid).toBe(9999);
   });
 
   test('fallback stops after 5 full pages with no match, returns null, and warns about the page limit', async () => {
     const logger = fakeLogger();
-    const provider = new GitHubProvider('https://github.com', 'tok', { logger });
+    const provider = new GitHubProvider('https://github.com', freshToken(), { logger });
 
-    const calls = stubRequest(provider, (path) => {
+    const { calls, filled } = stubRequest((path) => {
       if (path.includes('head=')) {
         return [];
       }
@@ -185,11 +189,6 @@ describe('GitHubProvider.fetchPullRequestByBranch', () => {
       throw new Error(`unexpected path: ${path}`);
     });
 
-    let fetchSingleMRCalled = false;
-    (provider as any).fetchSingleMR = async () => {
-      fetchSingleMRCalled = true;
-      return null;
-    };
 
     const result = await provider.fetchPullRequestByBranch(
       'acme/repo',
@@ -198,7 +197,7 @@ describe('GitHubProvider.fetchPullRequestByBranch', () => {
 
     const listCalls = calls.filter((c) => c.includes('/pulls?state='));
     expect(listCalls.length).toBe(5);
-    expect(fetchSingleMRCalled).toBe(false);
+    expect(filled).toEqual([]);
     expect(result).toBeNull();
 
     const warnCall = logger.calls.find(

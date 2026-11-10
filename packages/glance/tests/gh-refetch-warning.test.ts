@@ -19,11 +19,11 @@
  * actually happened.
  */
 import { describe, expect, test } from 'bun:test';
-import { RequestError } from '@octokit/request-error';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
 import type { FetchPullRequestsWarning } from '../src/GitProvider.ts';
+import { jsonResponse, stubForge, useForgeStub } from './helpers/gh-fill-fixture.ts';
 
-const API = 'https://api.github.com';
+useForgeStub();
 
 function ghPR(number: number) {
   return {
@@ -47,22 +47,10 @@ function ghPR(number: number) {
   };
 }
 
-function requestError(status: number, message: string): RequestError {
-  return new RequestError(message, status, {
-    request: { method: 'GET', url: `${API}/x`, headers: {} },
-    response: { status, url: '', headers: {}, data: { message } }
-  });
-}
-
 describe('GitHubProvider.fetchSingleMR: onWarning captures the real failure', () => {
-  test('a rejected detail fetch reaches onWarning, not just the log', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    (provider as any).octokit = {
-      request: async () => {
-        throw requestError(403, 'API rate limit exceeded');
-      },
-      paginate: async () => []
-    };
+  test('a rejected fill reaches onWarning, not just the log', async () => {
+    stubForge({ graphql: () => jsonResponse({ message: 'Resource not accessible' }, 403) });
+    const provider = new GitHubProvider('https://github.com', 'tok-refetch-403');
 
     const warnings: FetchPullRequestsWarning[] = [];
     const pr = await provider.fetchSingleMR('acme/repo', 5, null, w =>
@@ -73,30 +61,21 @@ describe('GitHubProvider.fetchSingleMR: onWarning captures the real failure', ()
     expect(warnings.length).toBe(1);
     expect(warnings[0]).toMatchObject({
       kind: 'request-failed',
-      source: 'detail',
+      source: 'fill',
       status: 403,
       target: 'acme/repo#5'
     });
   });
 
-  test('a rejected reviews fetch reaches onWarning too, distinct from a missing PR', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    (provider as any).octokit = {
-      request: async (route: string) => {
-        const path = route.slice(route.indexOf(' ') + 1);
-        if (path === '/repos/acme/repo/pulls/5') {
-          return { status: 200, headers: {}, data: ghPR(5) };
-        }
-        if (path === '/user') {
-          return { status: 200, headers: {}, data: { id: 1, login: 'me', avatar_url: null } };
-        }
-        throw new Error(`unexpected path: ${path}`);
-      },
-      paginate: async () => {
-        throw requestError(403, 'API rate limit exceeded');
-      }
-    };
-    (provider as any).graphql = async () => ({ nodes: [] });
+  test("an error on the PR's own alias reaches onWarning too, distinct from a missing PR", async () => {
+    stubForge({
+      graphql: () =>
+        jsonResponse({
+          data: { repository: { p5: null } },
+          errors: [{ type: 'INTERNAL', path: ['repository', 'p5'], message: 'Something went wrong' }]
+        })
+    });
+    const provider = new GitHubProvider('https://github.com', 'tok-refetch-alias');
 
     const warnings: FetchPullRequestsWarning[] = [];
     const pr = await provider.fetchSingleMR('acme/repo', 5, null, w =>
@@ -105,41 +84,16 @@ describe('GitHubProvider.fetchSingleMR: onWarning captures the real failure', ()
 
     expect(pr).toBeNull();
     expect(warnings.length).toBe(1);
-    expect(warnings[0]?.source).toBe('reviews');
+    expect(warnings[0]?.source).toBe('fill');
     expect(warnings[0]?.target).toBe('acme/repo#5');
+    expect(warnings[0]?.message).toContain('Something went wrong');
   });
 
-  test('a transport failure fetching the reviews leg is tagged "reviews", not "detail"', async () => {
-    // `fetchPR` and `fetchReviews` each handle their own `RequestError`s
-    // internally and never let one reach `fetchSingleMR`'s catch. What
-    // does reach it is the rarer case neither call handles: a thrown error
-    // with no `.response` (DNS failure, connection reset), which both
-    // legs rethrow rather than swallow. Before this fix, one catch block
-    // wrapped both `fetchPR` and `enrich`, so a transport failure on the
-    // *reviews* leg still got tagged `source: 'detail'` -- correct-looking
-    // for the wrong reason, since the tag was really just "whichever leg
-    // this method happens to fetch first." Two separate catches, one per
-    // leg, is what makes the tag actually name where the failure was.
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    (provider as any).octokit = {
-      request: async (route: string) => {
-        const path = route.slice(route.indexOf(' ') + 1);
-        if (path === '/repos/acme/repo/pulls/5') {
-          return { status: 200, headers: {}, data: ghPR(5) };
-        }
-        if (path === '/user') {
-          return { status: 200, headers: {}, data: { id: 1, login: 'me', avatar_url: null } };
-        }
-        throw new Error(`unexpected path: ${path}`);
-      },
-      paginate: async () => {
-        // No `.response`: a transport failure, not an HTTP result GitHub
-        // actually returned -- exactly what `fetchReviews` rethrows rather
-        // than converting to a warning itself.
-        throw new Error('socket hang up');
-      }
-    };
-    (provider as any).graphql = async () => ({ nodes: [] });
+  test('a transport failure is reported through onWarning too', async () => {
+    globalThis.fetch = (async () => {
+      throw new TypeError('fetch failed', { cause: new Error('socket hang up') });
+    }) as unknown as typeof fetch;
+    const provider = new GitHubProvider('https://github.com', 'tok-refetch-transport');
 
     const warnings: FetchPullRequestsWarning[] = [];
     const pr = await provider.fetchSingleMR('acme/repo', 5, null, w =>
@@ -148,36 +102,12 @@ describe('GitHubProvider.fetchSingleMR: onWarning captures the real failure', ()
 
     expect(pr).toBeNull();
     expect(warnings.length).toBe(1);
-    expect(warnings[0]?.source).toBe('reviews');
-  });
-
-  test('a transport failure fetching the detail leg is tagged "detail"', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    (provider as any).octokit = {
-      request: async () => {
-        throw new Error('socket hang up');
-      },
-      paginate: async () => []
-    };
-
-    const warnings: FetchPullRequestsWarning[] = [];
-    const pr = await provider.fetchSingleMR('acme/repo', 5, null, w =>
-      warnings.push(w)
-    );
-
-    expect(pr).toBeNull();
-    expect(warnings.length).toBe(1);
-    expect(warnings[0]?.source).toBe('detail');
+    expect(warnings[0]?.source).toBe('fill');
   });
 
   test('no onWarning supplied still degrades to null (fetchPullRequestByBranch relies on this)', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    (provider as any).octokit = {
-      request: async () => {
-        throw requestError(500, 'boom');
-      },
-      paginate: async () => []
-    };
+    stubForge({ graphql: () => jsonResponse({ message: 'boom' }, 500) });
+    const provider = new GitHubProvider('https://github.com', 'tok-refetch-500');
 
     const pr = await provider.fetchSingleMR('acme/repo', 5, null);
     expect(pr).toBeNull();

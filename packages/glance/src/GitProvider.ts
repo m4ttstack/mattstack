@@ -46,16 +46,19 @@ export interface FetchPullRequestsWarning {
    * only that one field (`pipeline`/`unresolvedThreadCount`) reads as its
    * existing "unknown" value instead of a measured one -- neither feeds an
    * approval count, so dropping the whole PR over either would be a bigger
-   * degradation than the failure itself warrants.
+   * degradation than the failure itself warrants. For `fill`, the PR is
+   * missing from the result. For `contexts`, the PR stays, with a `pending`
+   * pipeline and `checking` readiness, since an unread check may be failing.
    */
   kind: 'page-cap' | 'request-failed' | 'rate-limited';
   /**
    * Which leg of the fetch: the search API, a repository listing, a per-MR
    * detail fetch, a per-MR reviews fetch (the approvals a failed page here
-   * would otherwise under-report), a per-MR checks fetch, or a batched
-   * thread-count query.
+   * would otherwise under-report), a per-MR checks fetch, a batched
+   * thread-count query, GitHub's batched GraphQL fill, or a follow-up page
+   * of one PR's checks past the fill's first 100.
    */
-  source: 'search' | 'list' | 'detail' | 'reviews' | 'checks' | 'threads';
+  source: 'search' | 'list' | 'detail' | 'reviews' | 'checks' | 'threads' | 'fill' | 'contexts';
   /** Human-readable summary, always populated. */
   message: string;
   /** The HTTP status, when `kind` is `request-failed`. */
@@ -67,7 +70,8 @@ export interface FetchPullRequestsWarning {
   resetAt?: string;
   /**
    * What the warning is about: a search query, a project path, or (for
-   * `detail`/`reviews`/`checks`/`threads`, every single-PR source) exactly
+   * `detail`/`reviews`/`checks`/`threads`/`fill`/`contexts`, every single-PR
+   * source) exactly
    * `owner/repo#number` -- build it with `warningTarget`, not by hand.
    *
    * One PR per warning even for a thread-count batch that covers many at

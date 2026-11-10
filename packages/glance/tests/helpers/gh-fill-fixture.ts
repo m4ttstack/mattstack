@@ -1,4 +1,4 @@
-import { afterEach } from 'bun:test';
+import { afterEach, beforeEach } from 'bun:test';
 import { parseFillAliases, type GHFillNode } from '../../src/githubFill.ts';
 
 export type DeepPartial<T> = T extends Array<infer U>
@@ -17,6 +17,27 @@ const realFetch = globalThis.fetch;
 export function useForgeStub(): void {
   afterEach(() => {
     globalThis.fetch = realFetch;
+  });
+}
+
+const realSetTimeout = globalThis.setTimeout;
+
+/**
+ * Collapses every `setTimeout` in the file's tests to the next tick.
+ * `@octokit/plugin-throttling` spaces GraphQL POSTs a real second apart per
+ * token, so a read that makes two GraphQL requests otherwise costs a second
+ * of wall clock per test. Call once at the top level, beside `useForgeStub()`.
+ */
+export function useInstantTimers(): void {
+  beforeEach(() => {
+    globalThis.setTimeout = ((
+      callback: (...args: unknown[]) => void,
+      _ms?: number,
+      ...args: unknown[]
+    ) => realSetTimeout(callback, 0, ...args)) as typeof setTimeout;
+  });
+  afterEach(() => {
+    globalThis.setTimeout = realSetTimeout;
   });
 }
 
@@ -129,7 +150,22 @@ export function ghNode(over: DeepPartial<GHFillNode> = {}): GHFillNode {
 
 export interface StubForgeHandlers {
   fill?: (numbers: number[], query: string) => Record<number, GHFillNode | null>;
-  rest?: (url: string) => Response | undefined;
+  /**
+   * Consulted before `fill` for every GraphQL POST. A `Response` is served as
+   * is (failures, partial data with `errors`); any other value is served as
+   * `{ data: value }`; `undefined` falls through to `fill`.
+   */
+  graphql?: (query: string, variables: Record<string, unknown>) => unknown;
+  /** The token user, served as `data.viewer` beside a fill. */
+  viewer?: { databaseId: number; login: string };
+  rest?: (url: string, method: string) => Response | undefined;
+}
+
+export function jsonResponse(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json', ...headers }
+  });
 }
 
 /** Installs the fetch stub for the current test; `useForgeStub()` in the test file restores the real fetch. */
@@ -141,18 +177,23 @@ export function stubForge(handlers: StubForgeHandlers): { urls: string[] } {
     urls.push(url);
     const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
     if (/\/graphql(\?|$)/.test(url) && method === 'POST') {
-      const { query } = JSON.parse(String(init?.body)) as { query: string };
+      const { query, variables } = JSON.parse(String(init?.body)) as {
+        query: string;
+        variables?: Record<string, unknown>;
+      };
+      const custom = handlers.graphql?.(query, variables ?? {});
+      if (custom instanceof Response) return custom;
+      if (custom !== undefined) return jsonResponse({ data: custom });
       const numbers = parseFillAliases(query);
       const out = handlers.fill?.(numbers, query) ?? {};
       const repository: Record<string, GHFillNode | null> = {};
       for (const n of numbers) repository[`p${n}`] = out[n] ?? null;
-      return new Response(JSON.stringify({ data: { repository } }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' }
+      return jsonResponse({
+        data: handlers.viewer ? { viewer: handlers.viewer, repository } : { repository }
       });
     }
     return (
-      handlers.rest?.(url) ??
+      handlers.rest?.(url, method) ??
       new Response(JSON.stringify({ message: 'Not Found' }), {
         status: 404,
         headers: { 'content-type': 'application/json' }

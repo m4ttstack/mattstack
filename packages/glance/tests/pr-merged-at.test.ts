@@ -13,6 +13,9 @@
 import { describe, expect, test } from 'bun:test';
 import { GitLabProvider, MR_DASHBOARD_FRAGMENT, MR_LIST_FRAGMENT } from '../src/GitLabProvider.ts';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
+import { ghNode, stubForge, useForgeStub } from './helpers/gh-fill-fixture.ts';
+
+useForgeStub();
 
 function gitlabNode(over: Record<string, unknown> = {}) {
   const user = { id: 'gid://gitlab/User/1', username: 'ada', name: 'Ada', avatarUrl: null };
@@ -74,6 +77,27 @@ describe('GitLab PullRequest.mergedAt', () => {
 });
 
 describe('GitHub PullRequest.mergedAt', () => {
+  test('maps mergedAt from the fill', async () => {
+    stubForge({
+      fill: () => ({ 7: ghNode({ number: 7, state: 'MERGED', mergedAt: '2026-08-02T10:00:00Z' }) })
+    });
+    const p = new GitHubProvider('https://github.com', 'tok-merged-at');
+
+    const pr = await p.fetchSingleMR('o/r', 7, null);
+
+    expect(pr!.mergedAt).toBe('2026-08-02T10:00:00Z');
+    expect(pr!.state).toBe('merged');
+  });
+
+  test('an open filled PR has a null mergedAt', async () => {
+    stubForge({ fill: () => ({ 7: ghNode({ number: 7 }) }) });
+    const p = new GitHubProvider('https://github.com', 'tok-merged-at-open');
+
+    const pr = await p.fetchSingleMR('o/r', 7, null);
+
+    expect(pr!.mergedAt).toBeNull();
+  });
+
   test('maps merged_at in toPullRequest', () => {
     const p = new GitHubProvider('https://github.com', 't');
     const user = { id: 3, login: 'ada', avatar_url: null, name: 'Ada' };
