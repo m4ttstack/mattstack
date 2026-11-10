@@ -137,6 +137,21 @@ describe("executeInitPlan", () => {
     expect(call.env?.RT_GIT_HOST).toBe("github.com");
   });
 
+  test("cloneUserRepo: a clone rt's token cannot make falls back to git's own credentials", async () => {
+    const seam = new FakeExecSeam({
+      cloneToken: async () => "gho_other_account",
+      failRun: (cmd) => (cmd.includes("-c") ? "remote: Repository not found." : undefined),
+    });
+
+    const result = await executeInitPlan([{ kind: "cloneUserRepo", url: REPO_URL }], seam, noopLog);
+
+    expect(result).toEqual({ ok: true });
+    const runs = seam.calls.filter((c) => c.kind === "run") as { cmd: string[]; env?: Record<string, string> }[];
+    expect(runs).toHaveLength(2);
+    expect(runs[1]!.cmd).toEqual(["git", "clone", "--", REPO_URL, "user"]);
+    expect(runs[1]!.env).toBeUndefined();
+  });
+
   test("cloneUserRepo: a failing clone aborts and reports it", async () => {
     const seam = new FakeExecSeam({ failRun: () => "fatal: could not read from remote repository" });
     const steps: InitStep[] = [{ kind: "cloneUserRepo", url: REPO_URL }];

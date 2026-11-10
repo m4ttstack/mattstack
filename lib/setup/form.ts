@@ -160,7 +160,7 @@ export const FORM_COPY = {
     continue: "Continue",
   },
   restore: {
-    github: { title: "GitHub", subtext: "Only for a private backup on GitHub", signedIn: "Signed in" },
+    github: { title: "GitHub", subtext: "Only for a private backup on GitHub", signedIn: "Signed in", signInAgain: "Sign in again" },
   },
   thisMac: {
     title: "Last bit: this Mac",
@@ -927,7 +927,8 @@ function restoreGitHubRow(i: RestoreInputs): FormRow | null {
   if (!i.githubClientId) return null;
   const c = FORM_COPY.restore.github;
   const base = { id: "restore.github", title: c.title, subtext: c.subtext, waiting: null, watch: false, optional: true };
-  if (i.githubStored) return { ...base, state: "done", detail: c.signedIn, action: null };
+  // A backup the held token can't see may belong to another account, so signing in again stays on offer.
+  if (i.githubStored) return { ...base, state: "done", detail: c.signedIn, action: { type: "run", label: c.signInAgain, verb: ["setup", "github", "sign-in"] } };
   const sign = i.githubSignIn;
   if (sign && sign.outcome === undefined) {
     const t = FORM_COPY.connect.teamTool;

@@ -174,12 +174,12 @@ async function cloneAndProvision(
   const remedy = homeInitRemedy(result.stderr);
   // The app shows no error above this one, so the generic remedy would point at nothing.
   // A fresh Mac has no gh on its PATH, but the restore screen offers a GitHub sign-in the clone then uses.
-  const onGitHub = forgeFromRemote(target.url)?.provider === "github";
-  const why =
-    remedy === CHECK_ABOVE_REMEDY ? "Retry, or run rt home restore in a terminal to see why."
-    : remedy === REMOTE_AUTH_REMEDY && onGitHub ? "Sign in to GitHub, then restore again"
-    : remedy;
-  throw new UserActionableError("init-failed", detail, {}, { why, next: `rt home restore ${arg} --stdin`, log: result.stderr });
+  const again = `rt home restore ${arg} --stdin`;
+  if (remedy === REMOTE_AUTH_REMEDY && forgeFromRemote(target.url)?.provider === "github") {
+    throw new UserActionableError("init-failed", detail, {}, { why: "Sign in to GitHub, then restore again", next: "rt setup github sign-in", thenRun: again, log: result.stderr });
+  }
+  const why = remedy === CHECK_ABOVE_REMEDY ? "Retry, or run rt home restore in a terminal to see why." : remedy;
+  throw new UserActionableError("init-failed", detail, {}, { why, next: again, log: result.stderr });
 }
 
 export type HomeRestoreProbes = Pick<Probes, "exists" | "readFile" | "writeFile" | "mkdirp" | "home" | "now" | "runRt">;

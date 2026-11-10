@@ -294,7 +294,8 @@ describe("runHomeRestore", () => {
     expect(err.code).toBe("init-failed");
     expect(err.message).toBe("rt could not clone your home repo: fatal: repository not found");
     expect(err.why).toBe("Sign in to GitHub, then restore again");
-    expect(err.next).toBe(`rt home restore ${REPO} --stdin`);
+    expect(err.next).toBe("rt setup github sign-in");
+    expect(err.thenRun).toBe(`rt home restore ${REPO} --stdin`);
     expect(keychain.stored).toBe(PASTED_KEY);
     expect(intentOf(p)).toBeNull();
 

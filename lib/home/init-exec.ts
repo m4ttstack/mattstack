@@ -95,8 +95,16 @@ async function runStep(step: InitStep, exec: ExecSeam, log: StepLog): Promise<vo
     }
     case "cloneUserRepo": {
       log(`Cloning ${step.url}`);
-      const cmd = gitWithToken(["clone", "--", step.url, "user"], (await exec.cloneToken?.(step.url)) ?? null, {}, { remote: step.url });
-      await run(exec, cmd.argv, Object.keys(cmd.env).length > 0 ? { env: cmd.env } : undefined);
+      const clone = ["clone", "--", step.url, "user"];
+      const cmd = gitWithToken(clone, (await exec.cloneToken?.(step.url)) ?? null, {}, { remote: step.url });
+      if (Object.keys(cmd.env).length === 0) {
+        await run(exec, cmd.argv);
+        return;
+      }
+      if ((await exec.run(cmd.argv, { env: cmd.env })).code === 0) return;
+      // rt's token can belong to another account than the one git's own helpers hold for this repo.
+      log("rt's GitHub token could not clone it, so trying git's own credentials");
+      await run(exec, ["git", ...clone]);
       return;
     }
     case "initUserRepo": {

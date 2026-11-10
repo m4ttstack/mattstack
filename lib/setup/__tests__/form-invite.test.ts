@@ -158,7 +158,12 @@ describe("restoreRows", () => {
 
   test("a token rt already holds reads done", () => {
     const [github] = restoreRows({ ...ready, githubStored: true });
-    expect(github).toMatchObject({ id: "restore.github", state: "done", action: null });
+    expect(github).toMatchObject({ id: "restore.github", state: "done" });
+  });
+
+  test("a held token can be swapped for another account's", () => {
+    const [github] = restoreRows({ ...ready, githubStored: true });
+    expect(github!.action).toMatchObject({ type: "run", label: "Sign in again", verb: ["setup", "github", "sign-in"] });
   });
 });
 

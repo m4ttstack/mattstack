@@ -955,7 +955,8 @@ enum FastSetupSnapshot {
                                                   action: RowAction(type: .openURL, label: "Open again", url: "https://github.com/login/device"),
                                                   watch: true, optional: true)
         static let restoreGitHubDone = FormRow(id: "restore.github", title: "GitHub", subtext: "Only for a private backup on GitHub",
-                                               state: .done, detail: "Signed in", optional: true)
+                                               state: .done, detail: "Signed in",
+                                               action: RowAction(type: .run, label: "Sign in again", verb: ["setup", "github", "sign-in"]), optional: true)
         static let gitlabToken = FormRow(id: "forge.token", title: "GitLab", subtext: "Lets mattstack reach the team's repo and open MRs",
                                          state: .todo, detail: "No GitLab account connected yet",
                                          action: RowAction(type: .connect, label: "Connect", integration: "gitlab", fields: [
