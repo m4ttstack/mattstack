@@ -148,6 +148,12 @@ export function isTransitionalMergeStatus(status: string | null | undefined): bo
   return status != null && TRANSITIONAL_MERGE_STATUSES.includes(status);
 }
 
+export type ReadinessState = 'ready' | 'blocked' | 'checking' | 'draft' | 'merged' | 'closed';
+export type ReadinessReason =
+  | 'conflicts' | 'behind' | 'checks-failing' | 'checks-running'
+  | 'approvals' | 'changes-requested' | 'threads' | 'merge-error' | 'other';
+export interface Readiness { state: ReadinessState; reasons: ReadinessReason[] }
+
 export interface PullRequest {
   /** Scoped provider ID, e.g. "gitlab:12345". */
   id: string;
@@ -265,6 +271,8 @@ export interface PullRequest {
   squashOnMerge: boolean;
   /** Zero-based position in the merge train queue. Null if not in a merge train. */
   mergeTrainIndex: number | null;
+  /** Forge-neutral merge readiness. Absent on PRs built by SDKs before this release. */
+  readiness?: Readiness;
 }
 
 // ── MR Dashboard props ────────────────────────────────────────────────────────

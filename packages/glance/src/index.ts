@@ -21,9 +21,14 @@
 import type { ProviderParameterDrift } from './providerConformance.ts';
 type _ProvidersConform = ProviderParameterDrift;
 
+export { gitlabReadiness } from './readiness.ts';
+
 // ── Domain types ──────────────────────────────────────────────────────────────
 export type {
   PullRequest,
+  Readiness,
+  ReadinessState,
+  ReadinessReason,
   PullRequestsSnapshot,
   ApprovalRuleLite,
   MRApprovalRules,
