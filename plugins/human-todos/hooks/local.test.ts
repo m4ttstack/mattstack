@@ -1,0 +1,292 @@
+import { expect, mock, test } from 'claude-code/testing'
+import type { Engine } from 'claude-code/testing'
+
+import type { Todo } from '../types'
+import { SESSION, children, exits, hangs, pid, startSession, world } from './test-world'
+import type { Child } from './test-world'
+
+type On = Parameters<typeof world>[0]
+
+const PREFIX = 'print -u2 "__human_todo_pid__$$"; '
+const WITHDRAW = 'mcp__human-todos__withdraw'
+const LIST = 'mcp__human-todos__list'
+
+const PANE = {
+  plugin: 'human-todos',
+  component: 'Pane',
+  requestId: 'human-todos',
+  surface: 'terminal',
+  props: { title: 'Human Todos', isFocused: false, bodyColumns: 40, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} },
+} as const
+
+const todo = (over: Partial<Todo>): Todo => ({ id: '1', kind: 'run', title: 'T', script: 'make', status: 'open', ...over })
+const out = (text: string) => ({ stream: 'stdout' as const, text })
+const killing = (n: number) => ['/bin/sh', '-c', `pkill -TERM -P ${n}; kill -TERM ${n}`]
+
+type Setup = {
+  env?: Record<string, string>
+  // Answers the child for a script (the text after the pid line); it may hold on the test's clock.
+  script: (script: string) => Child
+  // Answers a command run beneath the plugin (the kill, the log removal).
+  run?: (argv: readonly string[]) => void
+}
+
+async function seeded($: Engine, on: On, list: Todo[], { env = {}, script, run }: Setup) {
+  const w = world(on, { entries: { [`list:${SESSION}`]: { todos: list, nextId: 20, savedAt: 1_000_000 } } })
+  const toasts: string[] = []
+  const ran: string[][] = []
+  const writes: { path: string; text: string }[] = []
+  const sent = w.sent
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  on('process.run', (_, e) => {
+    ran.push([...e.argv])
+    run?.(e.argv)
+    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('fs.write', (_, e) => {
+    writes.push({ path: e.path, text: e.text })
+    return { value: undefined }
+  })
+  const spawned = children(on, ({ argv }) => script((argv.at(-1) ?? '').replace(PREFIX, '')))
+  mock.env(on, { HOME: '/home/u', ...env })
+  await startSession($)
+  await $.command.run({ command: 'todos-runner', args: 'local' })
+  const pane = await $.ui.mount(PANE)
+  const run1 = async (id: string) => {
+    await pane.press({ key: `run-${id}` })
+    await pane.press({ key: `confirm-${id}` })
+  }
+  const items = () => (w.store.get(`list:${SESSION}`) as { todos: Todo[] }).todos
+  const item = (id: string) => items().find(t => t.id === id)
+  return { ...w, pane, toasts, ran, writes, sent, spawned, run1, item }
+}
+
+test('start spawns the script after the pid line, in the item\'s cwd, and keeps a log under the cache folder', async ($, on) => {
+  const { run1, spawned, writes, item, sent, clock } = await seeded($, on, [todo({ cwd: '/work' })], {
+    script: () => exits([pid(4242), out('hello\n')]),
+  })
+
+  await run1('1')
+  await clock.settle()
+
+  expect(spawned).toEqual([{ argv: ['/bin/zsh', '-lc', `${PREFIX}make`], cwd: '/work' }])
+  expect(writes.map(w => w.path)).toHaveLength(2)
+  expect(writes[0]).toMatchObject({ text: '' })
+  expect(writes[0]?.path).toMatch(/^\/home\/u\/Library\/Caches\/human-todos\/sess-1-1-[a-z0-9]+\.log$/)
+  expect(writes[1]).toEqual({ path: writes[0]?.path, text: 'hello\n' })
+  expect(item('1')).toMatchObject({ status: 'done', exitCode: 0, outputTail: 'hello' })
+  expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 0.\n```\nhello\n```'])
+})
+
+test('XDG_CACHE_HOME, when set, holds the log instead of the home Library', async ($, on) => {
+  const { run1, writes, clock } = await seeded($, on, [todo({})], {
+    env: { XDG_CACHE_HOME: '/xdg' },
+    script: () => exits([pid(1)]),
+  })
+
+  await run1('1')
+  await clock.settle()
+
+  expect(writes[0]?.path).toMatch(/^\/xdg\/human-todos\/sess-1-1-[a-z0-9]+\.log$/)
+})
+
+test('output updates the live tail and the log at most once a second, keeping 15 lines', async ($, on) => {
+  const lines = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, n) => `line ${from + n}\n`).join('')
+  const { run1, writes, item, clock } = await seeded($, on, [todo({})], {
+    script: async function* () {
+      yield pid(7)
+      yield out(`${lines(1, 8)}\n   \n`)
+      await clock.sleep(500)
+      yield out(lines(9, 20))
+      await clock.sleep(10_000)
+      return { code: 0, signal: null }
+    },
+  })
+
+  await run1('1')
+  await clock.advance(999)
+  expect(item('1')?.liveTail).toEqual([])
+  expect(writes).toHaveLength(1)
+
+  await clock.advance(1)
+  expect(item('1')?.liveTail).toEqual(Array.from({ length: 15 }, (_, n) => `line ${n + 6}`))
+  expect(writes).toHaveLength(2)
+  expect(writes[1]?.text).not.toContain('__human_todo_pid__')
+  expect(writes[1]?.text).toContain('line 1\n')
+
+  await clock.advance(500)
+  expect(writes).toHaveLength(2)
+})
+
+test('a script with quotes, a dollar, backslashes and a newline reaches the shell unchanged', async ($, on) => {
+  const script = `echo 'a "b" $HOME \\\\ c'\necho "it's \\$x"\n`
+  const { run1, spawned, clock } = await seeded($, on, [todo({ script })], { script: () => exits([pid(1)]) })
+
+  await run1('1')
+  await clock.settle()
+
+  expect(spawned[0]?.argv).toEqual(['/bin/zsh', '-lc', `${PREFIX}${script}`])
+})
+
+test('a non-zero exit fails the item and tells the agent the code', async ($, on) => {
+  const { run1, item, sent, clock } = await seeded($, on, [todo({})], {
+    script: () => exits([pid(1), { stream: 'stderr', text: 'nope\n' }], 2),
+  })
+
+  await run1('1')
+  await clock.settle()
+
+  expect(item('1')).toMatchObject({ status: 'failed', exitCode: 2, outputTail: 'nope' })
+  expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 2.\n```\nnope\n```'])
+})
+
+test('a child that breaks mid-run ends the item with exit -1 and the error after its output', async ($, on) => {
+  const { run1, item, clock } = await seeded($, on, [todo({})], {
+    script: async function* () {
+      yield pid(1)
+      yield out('half\n')
+      throw new Error('pipe closed')
+    },
+  })
+
+  await run1('1')
+  await clock.settle()
+
+  expect(item('1')).toMatchObject({ status: 'failed', exitCode: -1 })
+  expect(item('1')?.outputTail).toMatch(/^half\n+\S+/)
+})
+
+// The kill ends the child the way the shell would: the stand-in releases it when the kill command runs.
+function killable() {
+  let release: () => void = () => {}
+  const gate = new Promise<void>(resolve => {
+    release = resolve
+  })
+  const child = async function* (): Child {
+    yield pid(4242)
+    await gate
+    return { code: null, signal: 'SIGTERM' }
+  }
+  return { child, release }
+}
+
+test('Stop signals the script and its children, then reports the run as stopped', async ($, on) => {
+  const k = killable()
+  const { run1, ran, item, sent, toasts, clock, pane } = await seeded($, on, [todo({})], { script: k.child, run: k.release })
+  await run1('1')
+  await clock.settle()
+
+  await pane.press({ key: 'stop-1' })
+  await clock.settle()
+
+  expect(toasts).toEqual(['Stopping #1'])
+  expect(ran).toEqual([killing(4242)])
+  expect(item('1')).toMatchObject({ status: 'open', note: 'Stopped', isStopping: false })
+  expect(sent).toEqual(['[Human Todos] The user stopped #1 "T" before it finished. It is open again.'])
+})
+
+test('Stop before the pid is known asks to try again and brings the button back', async ($, on) => {
+  const { run1, ran, item, toasts, clock, pane } = await seeded($, on, [todo({})], { script: hangs })
+  await run1('1')
+  await clock.settle()
+
+  await pane.press({ key: 'stop-1' })
+
+  expect(toasts).toEqual(['Stopping #1', 'Still starting; try Stop again in a moment'])
+  expect(ran).toEqual([])
+  expect(item('1')).toMatchObject({ status: 'running', isStopping: false })
+  expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toContain('stop-1')
+})
+
+test('a kill that cannot run puts Stop back and does not report a stop', async ($, on) => {
+  const k = killable()
+  const { run1, item, sent, toasts, clock, pane } = await seeded($, on, [todo({})], {
+    script: k.child,
+    run: () => {
+      throw new Error('refused')
+    },
+  })
+  await run1('1')
+  await clock.settle()
+
+  await pane.press({ key: 'stop-1' })
+  await clock.settle()
+
+  expect(toasts).toEqual(['Stopping #1', 'Could not stop #1'])
+  expect(item('1')).toMatchObject({ status: 'running', isStopping: false })
+  expect(sent).toEqual([])
+  k.release()
+  await clock.settle()
+  expect(item('1')).toMatchObject({ status: 'failed' })
+})
+
+test('two runs at once each have their own child, token and log, and one finishing leaves the other alone', async ($, on) => {
+  const { run1, item, sent, ran, spawned, writes, clock, pane } = await seeded(
+    $,
+    on,
+    [todo({ id: '1', script: 'first' }), todo({ id: '2', script: 'second' })],
+    {
+      script: async function* (script) {
+        yield pid(script === 'first' ? 11 : 22)
+        yield out(`${script} output\n`)
+        await clock.sleep(script === 'first' ? 500 : 60_000)
+        return { code: 0, signal: null }
+      },
+    },
+  )
+
+  await run1('1')
+  await run1('2')
+  await clock.advance(1000)
+
+  expect(spawned.map(s => s.argv.at(-1))).toEqual([`${PREFIX}first`, `${PREFIX}second`])
+  expect(item('1')).toMatchObject({ status: 'done', outputTail: 'first output' })
+  expect(item('2')).toMatchObject({ status: 'running', liveTail: ['second output'], isStopping: false })
+  expect(item('1')?.token).not.toBe(item('2')?.token)
+  expect(item('1')?.logPath).not.toBe(item('2')?.logPath)
+  expect(writes.filter(w => w.path === item('2')?.logPath).at(-1)?.text).toBe('second output\n')
+  expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 0.\n```\nfirst output\n```'])
+
+  await pane.press({ key: 'stop-2' })
+  expect(ran).toEqual([killing(22)])
+})
+
+test('withdrawing a running item kills its child, removes its log and reports nothing', async ($, on) => {
+  const k = killable()
+  const { run1, ran, item, sent, clock } = await seeded($, on, [todo({})], { script: k.child, run: k.release })
+  await run1('1')
+  await clock.settle()
+  const log = item('1')?.logPath
+
+  await $.tool.call({ tool: WITHDRAW, id: '1' })
+  await clock.advance(5000)
+
+  expect(ran).toEqual([killing(4242), ['rm', '-f', log]])
+  expect(sent).toEqual([])
+  expect((await $.tool.call({ tool: LIST })).result).toBe('No to-dos.')
+})
+
+test('a finished item\'s log is removed with rm -f when it is cleared', async ($, on) => {
+  const { run1, ran, item, clock, pane } = await seeded($, on, [todo({})], { script: () => exits([pid(1)]) })
+  await run1('1')
+  await clock.settle()
+  const log = item('1')?.logPath
+
+  await pane.press({ key: 'clear' })
+
+  expect(ran).toEqual([['rm', '-f', log]])
+})
+
+test('Show does nothing for a local run', async ($, on) => {
+  const { run1, ran, toasts, clock, pane } = await seeded($, on, [todo({})], { script: hangs })
+  await run1('1')
+  await clock.settle()
+
+  await pane.press({ key: 'show-1' }).catch(() => undefined)
+
+  expect(ran).toEqual([])
+  expect(toasts).toEqual([])
+})

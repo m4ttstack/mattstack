@@ -73,3 +73,35 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
 }
 
 export const startSession = ($: Engine) => $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+export type Piece = { stream: 'stdout' | 'stderr'; text: string }
+export type Exit = { code: number | null; signal: string | null }
+export type Child = AsyncGenerator<Piece, Exit>
+
+export const pid = (n: number): Piece => ({ stream: 'stderr', text: `__human_todo_pid__${n}\n` })
+
+// A child that writes each piece, then exits with `code`.
+export async function* exits(pieces: Piece[], code = 0): Child {
+  for (const piece of pieces) yield piece
+  return { code, signal: null }
+}
+
+// A child that never writes or exits, until the test drops it.
+export async function* hangs(): Child {
+  await new Promise<void>(() => {})
+  return { code: 0, signal: null }
+}
+
+type Spawned = { argv: readonly string[]; cwd?: string }
+
+// Answers `process.spawn` beneath the plugin. A handler that returns nothing is a child that cannot start.
+export function children(on: On, handler: (spawn: Spawned) => Child | undefined): Spawned[] {
+  const spawned: Spawned[] = []
+  on('process.spawn', async function* (_, e) {
+    spawned.push({ argv: [...e.argv], ...(e.cwd !== undefined && { cwd: e.cwd }) })
+    const child = handler({ argv: e.argv, cwd: e.cwd })
+    if (!child) throw new Error('no such command')
+    return { value: yield* child }
+  })
+  return spawned
+}

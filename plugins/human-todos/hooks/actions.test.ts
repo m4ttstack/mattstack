@@ -3,12 +3,15 @@ import type { Engine } from 'claude-code/testing'
 
 import type { Todo } from '../types'
 import { settle } from './report'
-import { SESSION, startSession, world } from './test-world'
+import { SESSION, children, exits, hangs, startSession, world } from './test-world'
+import type { Child } from './test-world'
 
 type On = Parameters<typeof world>[0]
 type Result = { exitCode: number; stdout: string; stderr: string }
 
-const SURFACES = ['terminal', 'desktop'] as const
+const PID_PREFIX = 'print -u2 "__human_todo_pid__$$"; '
+
+const SURFACES =['terminal', 'desktop'] as const
 
 const PANE = {
   plugin: 'human-todos',
@@ -38,12 +41,14 @@ type Setup = {
   // Holds the herdr probe on the test's clock for this long, or refuses it outright.
   probeHold?: number
   probeDeny?: boolean
-  // Answers a script run beneath the plugin; may hold on the test's clock.
-  script?: (argv: readonly string[]) => Promise<Partial<Result>> | Partial<Result>
+  // Answers the child started for a script; omitted, nothing can start. It may hold on the test's clock.
+  script?: (script: string) => Child
+  // Answers any other command run beneath the plugin (the kill, the log removal); omitted, it is refused.
+  run?: (argv: readonly string[]) => Partial<Result>
 }
 
 // The world plus recorders for everything the actions reach beneath the plugin.
-async function seeded($: Engine, on: On, list: Todo[], { env = {}, probeExit = 0, probeHold = 0, probeDeny = false, script }: Setup = {}) {
+async function seeded($: Engine, on: On, list: Todo[], { env = {}, probeExit = 0, probeHold = 0, probeDeny = false, script, run }: Setup = {}) {
   const w = world(on, { entries: { [`list:${SESSION}`]: { todos: list, nextId: 20, savedAt: 1_000_000 } } })
   const events: string[] = []
   const ran: string[][] = []
@@ -68,13 +73,18 @@ async function seeded($: Engine, on: On, list: Todo[], { env = {}, probeExit = 0
     }
     if (e.argv.join(' ').includes('herdr workspace list')) return { value: { exitCode: probeExit, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv[0] === 'open') return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
-    if (script === undefined) return { deny: 'no script stand-in' }
-    const answer = await script(e.argv)
-    return { value: { exitCode: 0, stdout: '', stderr: '', ...answer, isStdoutTruncated: false, isStderrTruncated: false } }
+    if (run === undefined) return { deny: 'no command stand-in' }
+    return { value: { exitCode: 0, stdout: '', stderr: '', ...run(e.argv), isStdoutTruncated: false, isStderrTruncated: false } }
   })
-  mock.env(on, env)
+  const spawned = children(on, ({ argv }) => (script ? script((argv.at(-1) ?? '').replace(PID_PREFIX, '')) : undefined))
+  const written = new Map<string, string>()
+  on('fs.write', (_, e) => {
+    written.set(e.path, e.text)
+    return { value: undefined }
+  })
+  mock.env(on, { HOME: '/home/u', ...env })
   await startSession($)
-  return { ...w, events, ran, copied }
+  return { ...w, events, ran, copied, spawned, written }
 }
 
 // A session start settles a confirming item back to open, so a test reaches confirming the way a person does.
@@ -128,21 +138,30 @@ test('Cancel returns a confirming item to open and tells the agent nothing', asy
 })
 
 test('Confirm on the local runner runs the script and reports exit 0 with its output', async ($, on) => {
-  const { sent, ran } = await seeded($, on, [todo({})], { script: () => ({ stdout: 'hello\n' }) })
+  const { sent, spawned } = await seeded($, on, [todo({})], { script: () => exits([{ stream: 'stdout', text: 'hello\n' }]) })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await $.command.run({ command: 'todos-runner', args: 'local' })
 
   await confirming(pane)
   await pane.press({ key: 'confirm-1' })
 
-  expect(ran).toEqual([['/bin/zsh', '-lc', 'ls -la']])
+  expect(spawned.map(s => s.argv)).toEqual([['/bin/zsh', '-lc', 'print -u2 "__human_todo_pid__$$"; ls -la']])
   expect(await state($)).toMatch(/^#1 \[done\]/)
   expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 0.\n```\nhello\n```'])
   await pane.unmount()
 })
 
 test('a script that exits non-zero fails the item and reports the exit code and tail', async ($, on) => {
-  const { sent } = await seeded($, on, [todo({})], { script: () => ({ exitCode: 3, stdout: 'a\n', stderr: 'boom\n' }) })
+  const { sent } = await seeded($, on, [todo({})], {
+    script: () =>
+      exits(
+        [
+          { stream: 'stdout', text: 'a\n' },
+          { stream: 'stderr', text: 'boom\n' },
+        ],
+        3,
+      ),
+  })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await $.command.run({ command: 'todos-runner', args: 'local' })
 
@@ -156,9 +175,9 @@ test('a script that exits non-zero fails the item and reports the exit code and 
 
 test('Confirm shows the item running at once and the report follows when the runner finishes', async ($, on) => {
   const { clock, sent } = await seeded($, on, [todo({})], {
-    script: async () => {
+    script: async function* () {
       await clock.sleep(60_000)
-      return { stdout: 'late\n' }
+      return yield* exits([{ stream: 'stdout', text: 'late\n' }])
     },
   })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
@@ -282,8 +301,8 @@ test('Copy puts the script on the clipboard of the surface that was pressed', as
   ])
 })
 
-test('Open log waits for the run to have a log file', async ($, on) => {
-  const { ran } = await seeded($, on, [todo({})], { script: () => new Promise(() => {}) })
+test('Open log opens the log file the run writes', async ($, on) => {
+  const { ran, written } = await seeded($, on, [todo({})], { script: hangs })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await $.command.run({ command: 'todos-runner', args: 'local' })
   await confirming(pane)
@@ -291,34 +310,55 @@ test('Open log waits for the run to have a log file', async ($, on) => {
 
   expect(await buttons(pane)).toEqual(['close', 'openLog-1', 'stop-1'])
   await pane.press({ key: 'openLog-1' })
-  expect(ran.filter(argv => argv[0] === 'open')).toEqual([])
+
+  const [log] = [...written.keys()]
+  expect(log).toMatch(/^\/home\/u\/Library\/Caches\/human-todos\/sess-1-1-[a-z0-9]+\.log$/)
+  expect(ran.filter(argv => argv[0] === 'open')).toEqual([['open', '-t', log]])
   await pane.unmount()
 })
 
 test('withdrawing, clearing and /clear hand each item that ran to its runner, and skip those that never did', async ($, on) => {
-  const { events } = await seeded($, on, [
-    todo({ id: '1', status: 'running', runner: 'herdr', token: 't' }),
-    todo({ id: '2', status: 'done', runner: 'local' }),
-    todo({ id: '3', status: 'failed', runner: 'herdr', exitCode: 1 }),
-    todo({ id: '4', kind: 'task', script: undefined }),
-    todo({ id: '5', status: 'running', runner: 'local' }),
-    todo({ id: '6', status: 'running', runner: 'herdr', token: 'u' }),
-  ])
+  const { events, ran } = await seeded(
+    $,
+    on,
+    [
+      todo({ id: '1', status: 'running', runner: 'herdr', token: 't' }),
+      todo({ id: '2', status: 'done', runner: 'local', logPath: '/log/2' }),
+      todo({ id: '3', status: 'failed', runner: 'herdr', exitCode: 1 }),
+      todo({ id: '4', kind: 'task', script: undefined }),
+      todo({ id: '5', status: 'running', runner: 'local', logPath: '/log/5' }),
+      todo({ id: '6', status: 'running', runner: 'herdr', token: 'u' }),
+    ],
+    { run: () => ({}) },
+  )
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const removed = () => ran.filter(argv => argv[0] === 'rm').map(argv => argv[2])
 
   await $.tool.call({ tool: WITHDRAW, id: '1' })
   expect(logs(events)).toEqual(['herdr.cleanup #1'])
 
   await $.tool.call({ tool: WITHDRAW, id: '4' })
   expect(logs(events)).toEqual(['herdr.cleanup #1'])
+  expect(removed()).toEqual([])
 
   await pane.press({ key: 'clear' })
-  expect(logs(events)).toEqual(['herdr.cleanup #1', 'local.cleanup #2', 'herdr.cleanup #3'])
+  expect(logs(events)).toEqual(['herdr.cleanup #1', 'herdr.cleanup #3'])
+  expect(removed()).toEqual(['/log/2'])
 
   await $.session.end({ reason: 'clear', sessionId: SESSION, resume: { id: SESSION } })
-  expect(logs(events)).toEqual(['herdr.cleanup #1', 'local.cleanup #2', 'herdr.cleanup #3', 'local.cleanup #5', 'herdr.cleanup #6'])
+  expect(logs(events)).toEqual(['herdr.cleanup #1', 'herdr.cleanup #3', 'herdr.cleanup #6'])
+  expect(removed()).toEqual(['/log/2', '/log/5'])
   expect(await state($)).toBe('No to-dos.')
   await pane.unmount()
+})
+
+test('a local cleanup that fails at /clear is told to the person', async ($, on) => {
+  const { events } = await seeded($, on, [todo({ status: 'done', runner: 'local', logPath: '/log/1' })])
+
+  await $.session.end({ reason: 'clear', sessionId: SESSION, resume: { id: SESSION } })
+
+  expect(toasts(events)).toEqual(['Could not tidy up after the cleared items'])
+  expect(await state($)).toBe('No to-dos.')
 })
 
 const CHOICES: { name: string; setup: Setup; pin?: string; started: 'herdr' | 'local' }[] = [
@@ -331,7 +371,7 @@ const CHOICES: { name: string; setup: Setup; pin?: string; started: 'herdr' | 'l
 
 for (const { name, setup, pin, started } of CHOICES) {
   test(name, async ($, on) => {
-    const { events, ran } = await seeded($, on, [todo({})], { script: () => ({}), ...setup })
+    const { events, ran, spawned } = await seeded($, on, [todo({})], { script: () => exits([]), ...setup })
     if (pin) await $.command.run({ command: 'todos-runner', args: pin })
     const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
@@ -339,7 +379,7 @@ for (const { name, setup, pin, started } of CHOICES) {
     await pane.press({ key: 'confirm-1' })
 
     expect(logs(events).includes('herdr.start #1')).toBe(started === 'herdr')
-    expect(ran.some(argv => argv.includes('ls -la'))).toBe(started === 'local')
+    expect(spawned.some(s => s.argv.at(-1)?.includes('ls -la'))).toBe(started === 'local')
     const probed = ran.some(argv => argv.join(' ').includes('herdr workspace list'))
     expect(probed).toBe(!pin && Boolean(setup.env?.HERDR_SOCKET_PATH))
     await pane.unmount()
@@ -359,9 +399,9 @@ test('/todos-runner sets the choice and, with no argument, reports it', async ($
 
 test('the spinner advances every 100 ms while an item runs and rests when none does', async ($, on) => {
   const { clock } = await seeded($, on, [todo({ id: '1', script: 'first' }), todo({ id: '2' })], {
-    script: async argv => {
-      await clock.sleep(argv.includes('first') ? 450 : 10_000)
-      return {}
+    script: async function* (script) {
+      await clock.sleep(script === 'first' ? 450 : 10_000)
+      return yield* exits([])
     },
   })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
@@ -399,20 +439,20 @@ test('a second Confirm during a slow herdr probe starts the run once', async ($,
 })
 
 test('a probe that fails to run falls back to the local runner', async ($, on) => {
-  const { ran, events } = await seeded($, on, [todo({})], { env: { HERDR_SOCKET_PATH: '/s' }, probeDeny: true, script: () => ({}) })
+  const { spawned, events } = await seeded($, on, [todo({})], { env: { HERDR_SOCKET_PATH: '/s' }, probeDeny: true, script: () => exits([]) })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await confirming(pane)
 
   await pane.press({ key: 'confirm-1' })
 
-  expect(ran.some(argv => argv.includes('ls -la'))).toBe(true)
+  expect(spawned).toHaveLength(1)
   expect(await state($)).toMatch(/^#1 \[done\]/)
   expect(events).toEqual([])
   await pane.unmount()
 })
 
 test('a run starts clean: the last run\'s exit code, output and note are gone', async ($, on) => {
-  const { store } = await seeded($, on, [todo({ exitCode: 3, outputTail: 'old', note: 'Stopped' })], { script: () => new Promise(() => {}) })
+  const { store } = await seeded($, on, [todo({ exitCode: 3, outputTail: 'old', note: 'Stopped' })], { script: hangs })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await $.command.run({ command: 'todos-runner', args: 'local' })
   await confirming(pane)
@@ -442,9 +482,9 @@ test('a refused message to the agent is told to the person, not dropped', async 
 
 test('with the pane closed and nothing drawn, a finished run is still reported', async ($, on) => {
   const { clock, sent } = await seeded($, on, [todo({})], {
-    script: async () => {
+    script: async function* () {
       await clock.sleep(1000)
-      return { stdout: 'ok\n' }
+      return yield* exits([{ stream: 'stdout', text: 'ok\n' }])
     },
   })
   await $.command.run({ command: 'todos', args: '' })
