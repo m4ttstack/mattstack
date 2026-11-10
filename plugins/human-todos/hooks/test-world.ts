@@ -13,6 +13,7 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
   const registered: Registered[] = []
   const opened: string[] = []
   const sent: string[] = []
+  const fail = { submit: false }
   let sessionId = SESSION
   let isPlaced = true
   on('session.id', () => ({ value: sessionId }))
@@ -48,6 +49,7 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
   on('prompt.submit', (_, e) => {
+    if (fail.submit) return { drop: 'refused' }
     sent.push(e.text)
     return { text: e.text }
   })
@@ -59,6 +61,7 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
     registered,
     opened,
     sent,
+    fail,
     setPlaced: (value: boolean) => {
       isPlaced = value
       for (const id of panes.keys()) panes.set(id, value)

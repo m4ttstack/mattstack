@@ -16,20 +16,41 @@ export async function chooseRunner($: EngineInterface): Promise<'herdr' | 'local
   const pref = await getRunnerPref($)
   if (pref !== 'auto') return pref
   if (!(await $.env.get('HERDR_SOCKET_PATH'))) return 'local'
-  const probe = await $.process.run(['/bin/zsh', '-lc', 'herdr workspace list'], { timeoutMs: HERDR_PROBE_MS })
-  return probe.exitCode === 0 ? 'herdr' : 'local'
+  try {
+    const probe = await $.process.run(['/bin/zsh', '-lc', 'herdr workspace list'], { timeoutMs: HERDR_PROBE_MS })
+    return probe.exitCode === 0 ? 'herdr' : 'local'
+  } catch {
+    return 'local'
+  }
 }
 
-async function confirm($: EngineInterface, todo: Todo): Promise<void> {
-  const runner = await chooseRunner($)
-  const running: Todo = { ...todo, status: 'running', runner, liveTail: [], isStopping: false, note: undefined }
-  await patchTodo($, todo.id, running)
-  await syncSpinner($)
-  void startRun($, running).catch(async () => {
-    await patchTodo($, todo.id, { status: 'open', liveTail: undefined, note: 'Could not start' })
+// Never rejects: it runs detached, and the item must not be left running with nothing behind it.
+async function launch($: EngineInterface, todo: Todo): Promise<void> {
+  try {
+    await startRun($, todo)
+    return
+  } catch {
+    // fall through to put the item back
+  }
+  try {
+    await patchTodo($, todo.id, { status: 'open', runner: undefined, liveTail: undefined, note: 'Could not start' })
     await syncSpinner($)
-    $.ui.toast(`Could not start #${todo.id}`)
-  })
+  } catch {
+    // the toast below still tells the person
+  }
+  $.ui.toast(`Could not start #${todo.id}`)
+}
+
+// The item turns running before the runner is chosen, so a second Confirm during a slow probe finds nothing to confirm.
+async function confirm($: EngineInterface, todo: Todo): Promise<void> {
+  const fresh = { runner: undefined, liveTail: [], isStopping: false, note: undefined, exitCode: undefined, outputTail: undefined }
+  await patchTodo($, todo.id, { ...fresh, status: 'running' })
+  await syncSpinner($)
+  const runner = await chooseRunner($)
+  const still = (await listTodos($)).find(t => t.id === todo.id)
+  if (still?.status !== 'running') return
+  await patchTodo($, todo.id, { runner })
+  void launch($, { ...still, runner })
 }
 
 async function stop($: EngineInterface, todo: Todo): Promise<void> {

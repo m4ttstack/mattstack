@@ -44,5 +44,14 @@ export async function report($: EngineInterface, todo: Todo, outcome: Outcome): 
   const { patch, text } = settle(todo, outcome)
   await patchTodo($, todo.id, patch)
   await syncSpinner($)
-  void $.prompt.submit({ text: `[${TITLE}] ${text}` }).catch(() => undefined)
+  const warn = () => {
+    $.ui.log(`could not send #${todo.id} to the agent`, { to: 'debug' })
+    $.ui.toast(`Could not tell the agent about #${todo.id}`)
+  }
+  void $.prompt
+    .submit({ text: `[${TITLE}] ${text}` })
+    .then(sent => {
+      if (sent.drop !== undefined) warn()
+    })
+    .catch(warn)
 }

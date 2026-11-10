@@ -35,12 +35,15 @@ const buttons = async (ui: { findAll: (q: { type: string }) => Promise<{ key: st
 type Setup = {
   env?: Record<string, string>
   probeExit?: number
+  // Holds the herdr probe on the test's clock for this long, or refuses it outright.
+  probeHold?: number
+  probeDeny?: boolean
   // Answers a script run beneath the plugin; may hold on the test's clock.
   script?: (argv: readonly string[]) => Promise<Partial<Result>> | Partial<Result>
 }
 
 // The world plus recorders for everything the actions reach beneath the plugin.
-async function seeded($: Engine, on: On, list: Todo[], { env = {}, probeExit = 0, script }: Setup = {}) {
+async function seeded($: Engine, on: On, list: Todo[], { env = {}, probeExit = 0, probeHold = 0, probeDeny = false, script }: Setup = {}) {
   const w = world(on, { entries: { [`list:${SESSION}`]: { todos: list, nextId: 20, savedAt: 1_000_000 } } })
   const events: string[] = []
   const ran: string[][] = []
@@ -59,6 +62,10 @@ async function seeded($: Engine, on: On, list: Todo[], { env = {}, probeExit = 0
   })
   on('process.run', async (_, e) => {
     ran.push([...e.argv])
+    if (e.argv.join(' ').includes('herdr workspace list')) {
+      if (probeDeny) return { deny: 'no herdr' }
+      if (probeHold > 0) await w.clock.sleep(probeHold)
+    }
     if (e.argv.join(' ').includes('herdr workspace list')) return { value: { exitCode: probeExit, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv[0] === 'open') return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (script === undefined) return { deny: 'no script stand-in' }
@@ -180,10 +187,12 @@ test('a runner that cannot start puts the item back to open with a note and a to
   expect(await texts(pane)).toContain('Could not start')
   expect(toasts(events)).toEqual(['Could not start #1'])
   expect(sent).toEqual([])
+  await $.tool.call({ tool: WITHDRAW, id: '1' })
+  expect(logs(events)).toEqual([])
   await pane.unmount()
 })
 
-test('Done and Skip mark the item and tell the agent, with the pane never opened', async ($, on) => {
+test('Done and Skip mark the item and tell the agent', async ($, on) => {
   const { sent } = await seeded($, on, [todo({ id: '1' }), todo({ id: '2', kind: 'task', title: 'U', script: undefined })])
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
@@ -372,4 +381,81 @@ test('the spinner advances every 100 ms while an item runs and rests when none d
   await clock.advance(100)
   expect(await texts(pane)).toContain('⠴ T')
   await pane.unmount()
+})
+
+test('a second Confirm during a slow herdr probe starts the run once', async ($, on) => {
+  const { clock, events } = await seeded($, on, [todo({})], { env: { HERDR_SOCKET_PATH: '/s' }, probeHold: 5000 })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await confirming(pane)
+
+  await pane.press({ key: 'confirm-1' })
+  expect(await state($)).toMatch(/^#1 \[running\]/)
+  expect(await texts(pane)).toContain('⠋ Running ')
+  await pane.press({ key: 'confirm-1' }).catch(() => undefined)
+  await clock.advance(5000)
+
+  expect(logs(events)).toEqual(['herdr.start #1'])
+  await pane.unmount()
+})
+
+test('a probe that fails to run falls back to the local runner', async ($, on) => {
+  const { ran, events } = await seeded($, on, [todo({})], { env: { HERDR_SOCKET_PATH: '/s' }, probeDeny: true, script: () => ({}) })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await confirming(pane)
+
+  await pane.press({ key: 'confirm-1' })
+
+  expect(ran.some(argv => argv.includes('ls -la'))).toBe(true)
+  expect(await state($)).toMatch(/^#1 \[done\]/)
+  expect(events).toEqual([])
+  await pane.unmount()
+})
+
+test('a run starts clean: the last run\'s exit code, output and note are gone', async ($, on) => {
+  const { store } = await seeded($, on, [todo({ exitCode: 3, outputTail: 'old', note: 'Stopped' })], { script: () => new Promise(() => {}) })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await $.command.run({ command: 'todos-runner', args: 'local' })
+  await confirming(pane)
+
+  await pane.press({ key: 'confirm-1' })
+
+  const [item] = (store.get(`list:${SESSION}`) as { todos: Todo[] }).todos
+  expect(item).toMatchObject({ status: 'running', runner: 'local' })
+  expect(item?.exitCode).toBeUndefined()
+  expect(item?.outputTail).toBeUndefined()
+  expect(item?.note).toBeUndefined()
+  await pane.unmount()
+})
+
+test('a refused message to the agent is told to the person, not dropped', async ($, on) => {
+  const { events, sent, fail } = await seeded($, on, [todo({})])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  fail.submit = true
+
+  await pane.press({ key: 'done-1' })
+
+  expect(sent).toEqual([])
+  expect(toasts(events)).toEqual(['Could not tell the agent about #1'])
+  expect(logs(events)).toEqual(['could not send #1 to the agent'])
+  await pane.unmount()
+})
+
+test('with the pane closed and nothing drawn, a finished run is still reported', async ($, on) => {
+  const { clock, sent } = await seeded($, on, [todo({})], {
+    script: async () => {
+      await clock.sleep(1000)
+      return { stdout: 'ok\n' }
+    },
+  })
+  await $.command.run({ command: 'todos', args: '' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await $.command.run({ command: 'todos-runner', args: 'local' })
+  await confirming(pane)
+  await pane.press({ key: 'confirm-1' })
+  await pane.press({ key: 'close' })
+  await pane.unmount()
+
+  await clock.advance(1000)
+
+  expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 0.\n```\nok\n```'])
 })

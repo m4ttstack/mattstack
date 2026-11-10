@@ -84,7 +84,7 @@ export function registerContract(on: On): void {
     if (e.reason === 'clear' || e.reason === 'resume') {
       const dropped = await listTodos($)
       await resetList($)
-      await cleanup($, dropped).catch(() => undefined)
+      await cleanup($, dropped).catch(() => $.ui.toast('Could not tidy up after the cleared items'))
     }
     return ended
   })
