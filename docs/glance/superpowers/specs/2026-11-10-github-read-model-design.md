@@ -253,9 +253,10 @@ discussions rule, merge error), and `other` when none apply.
   fed by readiness instead of the GitLab string.
   `isCheckingMergeability` is `readiness.state === 'checking'`, and `isReady`
   is `readiness.state === 'ready' || (checking && !draft && !conflicts &&
-  !pipelineFailing)`, which is exactly today's GitLab expression
-  (`MRDashboard.ts:133-141`), so GitLab output does not change and the
-  "false BLOCKED flash" guard now covers GitHub's `UNKNOWN` too. `MRStatus`
+  !pipelineFailing)` for an open PR, so GitLab output does not change and
+  the "false BLOCKED flash" guard now covers GitHub's `UNKNOWN` too. Draft,
+  merged and closed keep the legacy `isReady` / `isCheckingMergeability`
+  reading (`MRDashboard.ts`), which is what GitLab output needs. `MRStatus`
   gets no new member: `status` stays `mergeable` / `blocked` / `draft` /
   `merged` / `closed`, derived from that `isReady`. When `readiness` is
   absent, today's derivation runs unchanged. New prop `readiness` passes the
@@ -303,7 +304,8 @@ discussions rule, merge error), and `other` when none apply.
     readable with read access; it does not include classic protection), the
     largest `required_approving_review_count` among `pull_request` rules.
     Cached per provider, per repo and target branch, for 10 minutes (my
-    call).
+    call). The lookup runs only for an open PR with a non-null
+    `reviewDecision`, and its GET is sent once, without retries.
   - When both are unreadable or empty: `null` if `reviewDecision` is
     `REVIEW_REQUIRED` or `CHANGES_REQUESTED` (a requirement exists, count
     unknown), `0` if `reviewDecision` is null (GitHub's own "no review
@@ -372,8 +374,9 @@ discussions rule, merge error), and `other` when none apply.
 - GraphQL: the fill's read variant raises the same `RateLimitedError`
   instead of returning null. The existing `graphql()` keeps its MAT-133
   contract for its other callers.
-- `onWarning` gains `kind: 'rate-limited'` carrying `resetAt`, so list paths
-  report it as its own cause.
+- A rate limit throws `RateLimitedError` on every read path, list paths
+  included, so a short list never reads as complete. The `rate-limited`
+  warning kind stays in the union, unused.
 - `EventsWatcher.classifyError` recognises Octokit's shape (`err.status`
   403 or 429 with `x-ratelimit-remaining: 0` or `retry-after`, and
   `RateLimitedError`) as `rate-limited`, and `retryAfterMs` reads Octokit's

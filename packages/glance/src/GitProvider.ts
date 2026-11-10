@@ -43,7 +43,8 @@ export interface FetchPullRequestsWarning {
    * `request-failed`: a non-ok response. For `search`/`list`/`fill`,
    * whatever it would have returned is missing from the result entirely.
    * For `contexts`, the PR stays, with a `pending` pipeline and `checking`
-   * readiness, since an unread check may be failing.
+   * readiness, since an unread check may be failing; a failed or canceled
+   * pipeline already seen stays as it is.
    * `rate-limited`: reserved for a provider that reports a rate limit
    * without throwing. `GitHubProvider` throws `RateLimitedError` from every
    * read instead, so a short list never reads as complete.
@@ -144,7 +145,8 @@ export interface FetchPullRequestsOptions {
   updatedAfter?: string;
   /** Project mode: fetch the list-weight fragment (no CI stages/jobs trees). ~10x cheaper
       per page on large projects and immune to GitLab's resolver timeouts on job trees;
-      per-MR job detail stays available via fetchSingleMR. */
+      per-MR job detail stays available via fetchSingleMR. GitHub drops only `body`:
+      one fill reads the checks too. */
   listWeight?: boolean;
 
   /**
@@ -338,11 +340,12 @@ export interface GitProvider {
    * | `state`       | all modes                     | all modes                 |
    * | `updatedAfter`| `projectPath`-alone mode only | all modes                 |
    * | `listWeight`  | `projectPath`-alone mode only | all modes                 |
-   * | `onWarning`   | never fires (see below)       | page caps + failed detail/reviews/checks/threads |
+   * | `onWarning`   | never fires (see below)       | page caps, failed searches and fills, unread checks pages |
    *
    * GitLab returns full dashboard fields from every mode and paginates its
    * project mode to exhaustion, so it has no truncation to report; GitHub
-   * assembles a PR from several endpoints under bounded page walks, so it does.
+   * reads discovery under bounded page walks and each PR through a batched
+   * GraphQL fill, so it can, and a rate limit throws `RateLimitedError`.
    */
   fetchPullRequests(options?: FetchPullRequestsOptions): Promise<PullRequest[]>;
 

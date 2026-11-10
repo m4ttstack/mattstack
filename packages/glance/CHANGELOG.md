@@ -1,9 +1,38 @@
 # @mattstack/glance
 
-## Unreleased
+## 0.28.0
 
 ### Minor Changes
 
+- `PullRequest.readiness` (`{ state, reasons }`), a forge-neutral merge
+  verdict: `ready`, `blocked`, `checking`, `draft`, `merged` or `closed`, with
+  the reasons a block names. GitLab derives it from `detailedMergeStatus`;
+  GitHub derives it from `mergeStateStatus`, required checks, review decision
+  and unresolved threads, and an unsettled `UNKNOWN` reads `checking`, never
+  `blocked`. New exports `gitlabReadiness`, `Readiness`, `ReadinessState` and
+  `ReadinessReason`.
+- Typed break: `PullRequest.approvalsRequired` and `MRDashboardProps.reviews.required`
+  are now `number | null`. `null` means the forge did not say how many
+  approvals are required; GitHub reads the count from branch protection and
+  rulesets and never invents a number. A caller that did arithmetic on the
+  old `number` must handle `null`.
+- Typed break: `MRDashboardProps.readiness` is a new required prop
+  (`Readiness | null`). A caller that builds `MRDashboardProps` by hand must
+  supply it.
+- `getMRDashboardProps` reads `readiness` for an open PR, so `isReady`,
+  `isCheckingMergeability` and `status` follow it on GitHub. GitLab output is
+  unchanged.
+- Behavior change: every `GitHubProvider` read throws `RateLimitedError`
+  (`kind`, `resetAt`, `retryAfterMs`, `operation`) when a rate limit refuses
+  it, list reads included, instead of waiting out the window or returning a
+  short list. The `rate-limited` warning kind stays in the union, unused.
+- Behavior change: GitHub reads cost one batched GraphQL request per 25 pull
+  requests, plus one cached REST rulesets read (10 minutes) for an open PR
+  awaiting a verdict. A project listing now carries `diffStats`,
+  `listWeight` drops only `body`, and the involvement search no longer gives
+  you the `reviewer` role on your own PRs.
+- Behavior change: the GitHub throttle id is hashed without `node:crypto`, so
+  glance no longer imports it.
 - `GitProvider.enqueuePullRequest(projectPath, iid, { expectedHeadSha? })` adds a
   pull request to its branch's merge queue and returns its position and state.
   GitHub only; check `capabilities.canEnqueue`.
