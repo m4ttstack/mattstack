@@ -224,6 +224,22 @@ describe("accountRows — account.github", () => {
     expect(r.why).toBe("Lets rt open PRs, check CI, and read repo metadata on github.com.");
   });
 
+  test("no token, gh session without the workflow scope -> ready, with a warning", async () => {
+    const status = "✓ Logged in to github.com account octocat (keyring)\n  - Token scopes: 'gist', 'read:org', 'repo'\n";
+    const exec: ExecScript = (argv) => (argv[0] === "gh" && argv[2] === "status" ? ok(status) : argv[0] === "gh" ? ok("gho_session\n") : ok());
+    const r = await pickRow(accountRows(fakeProbes({ exec }), githubTeam(), [], fakeSecrets(), null), "account.github");
+    expect(r.status).toBe("ready");
+    expect(r.detail).toStartWith("Signed in through the gh CLI as octocat");
+    expect(r.detail).toContain("workflow");
+  });
+
+  test("no token, gh session with the workflow scope -> ready with no warning", async () => {
+    const status = "✓ Logged in to github.com account octocat (keyring)\n  - Token scopes: 'gist', 'read:org', 'repo', 'workflow'\n";
+    const exec: ExecScript = (argv) => (argv[0] === "gh" && argv[2] === "status" ? ok(status) : argv[0] === "gh" ? ok("gho_session\n") : ok());
+    const r = await pickRow(accountRows(fakeProbes({ exec }), githubTeam(), [], fakeSecrets(), null), "account.github");
+    expect(r.detail).toBe("Signed in through the gh CLI as octocat");
+  });
+
   test("no token, gh output doesn't match the known 'as'/'account' shapes -> ready 'via gh' with no user suffix", async () => {
     const exec: ExecScript = (argv) => (argv[0] === "gh" ? ok("gh: you are authenticated\n") : ok());
     const r = await pickRow(accountRows(fakeProbes({ exec }), githubTeam(), [], fakeSecrets(), null), "account.github");

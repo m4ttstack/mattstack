@@ -164,6 +164,17 @@ export function teamDeclaresIntegration(team: TeamSnapshot, reqs: PackRequiremen
   return declaredIntegrations(team, reqs).some((entry) => entry.id === id);
 }
 
+/** `gh auth status` lists them as `Token scopes: 'gist', 'read:org', 'repo'`; a token type that has none prints no such line. */
+function parseGhScopes(output: string): string[] {
+  const line = /Token scopes: (.+)/.exec(output)?.[1] ?? "";
+  return line.split(",").map((s) => s.trim().replace(/^'|'$/g, "")).filter(Boolean);
+}
+
+function recommendedWarning(scopesSeen: readonly string[]): string {
+  const missing = missingRecommended("github", scopesSeen);
+  return missing.length ? `, but without ${missing.join(", ")} it can't push workflow changes` : "";
+}
+
 async function githubRow(p: Probes, base: Omit<Row, "status" | "detail" | "action" | "recheck">, def: IntegrationDef, secrets: SecretPresence, ctx: ValidateCtx, forge: ForgeConnect): Promise<Row> {
   const spec = secretSpec(def);
   const stored = await secrets.has(spec.domain, spec.key);
@@ -174,8 +185,10 @@ async function githubRow(p: Probes, base: Omit<Row, "status" | "detail" | "actio
       if ((await ghSessionToken(p)) === null) {
         return row({ ...base, status: "missing", detail: "The gh CLI is signed in but won't share a token, so git can't use it", action: connectAction(def, false, forge) });
       }
-      const user = parseGhUser(`${ghStatus.stdout}\n${ghStatus.stderr}`);
-      return row({ ...base, status: "ready", detail: user ? `Signed in through the gh CLI as ${user}` : "Signed in through the gh CLI" });
+      const output = `${ghStatus.stdout}\n${ghStatus.stderr}`;
+      const user = parseGhUser(output);
+      const signedIn = user ? `Signed in through the gh CLI as ${user}` : "Signed in through the gh CLI";
+      return row({ ...base, status: "ready", detail: `${signedIn}${recommendedWarning(parseGhScopes(output))}` });
     }
     const detail = ghStatus.code === 127 ? "No GitHub account connected yet, and the gh CLI is not installed" : "No GitHub account connected yet";
     return row({ ...base, status: "missing", detail, action: connectAction(def, false, forge) });
@@ -183,11 +196,7 @@ async function githubRow(p: Probes, base: Omit<Row, "status" | "detail" | "actio
 
   const result = await def.validate(p, stored, ctx);
   const short = scopeShortfall(forge, result);
-  if (result.status === "ready" && !short) {
-    const unrecommended = missingRecommended("github", result.scopesSeen);
-    const detail = unrecommended.length ? `${result.detail}, but without ${unrecommended.join(", ")} it can't push workflow changes` : result.detail;
-    return row({ ...base, status: "ready", detail });
-  }
+  if (result.status === "ready" && !short) return row({ ...base, status: "ready", detail: `${result.detail}${recommendedWarning(result.scopesSeen)}` });
 
   // A stored token that's now invalid/unreachable still needs a replaceable action — check whether a healthy
   // gh session sits right there before deciding whether "use gh instead" is an affordance that can actually work.
