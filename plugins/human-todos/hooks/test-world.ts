@@ -12,6 +12,7 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
   const store = new Map<string, unknown>(Object.entries(entries))
   const registered: Registered[] = []
   const opened: string[] = []
+  const sent: string[] = []
   let sessionId = SESSION
   let isPlaced = true
   on('session.id', () => ({ value: sessionId }))
@@ -46,12 +47,18 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
   on('command.run', () => ({ text: '' }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
+  on('prompt.submit', (_, e) => {
+    sent.push(e.text)
+    return { text: e.text }
+  })
   on('prompt.compose', () => ({ sections: [] }))
-  mock.clock(on, { now })
+  const clock = mock.clock(on, { now })
   return {
+    clock,
     store,
     registered,
     opened,
+    sent,
     setPlaced: (value: boolean) => {
       isPlaced = value
       for (const id of panes.keys()) panes.set(id, value)

@@ -110,13 +110,13 @@ test('every kind draws the buttons the spec lists, each keyed button-id', async 
   await pane.unmount()
 })
 
-test('pressing a button leaves the list as it was and the pane drawn', async ($, on) => {
+test('pressing a button hands the press to the actions and leaves the pane drawn', async ($, on) => {
   await seeded($, on, [todo({ kind: 'run', script: 'ls' })])
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
   await pane.press({ key: 'done-1' })
-  expect(await pane.find({ key: 'done-1' })).toBeDefined()
-  expect((await $.tool.call({ tool: 'mcp__human-todos__list' })).result).toBe('#1 [open] Do it\n    script: ls')
+  expect(await pane.find({ key: 'close' })).toBeDefined()
+  expect((await $.tool.call({ tool: 'mcp__human-todos__list' })).result).toBe('#1 [done] Do it\n    script: ls')
   await pane.unmount()
 })
 

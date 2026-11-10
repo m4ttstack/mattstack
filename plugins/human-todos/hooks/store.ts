@@ -94,6 +94,18 @@ export async function readPane($: EngineInterface): Promise<{ list: Todo[]; open
   return { list: await read($, todos), openIds: await read($, expanded), spin: await read($, frame) }
 }
 
-export function toggleExpanded($: EngineInterface, id: string): Promise<void> {
-  return update($, expanded, ids => (ids.includes(id) ? ids.filter(i => i !== id) : [...ids, id]))
+export async function bumpFrame($: EngineInterface): Promise<void> {
+  await update($, frame, n => n + 1)
+}
+
+export function getRunnerPref($: EngineInterface): Promise<'auto' | 'herdr' | 'local'> {
+  return read($, runnerPref)
+}
+
+export async function setRunnerPref($: EngineInterface, pref: 'auto' | 'herdr' | 'local'): Promise<void> {
+  await update($, runnerPref, () => pref)
+}
+
+export async function toggleExpanded($: EngineInterface, id: string): Promise<void> {
+  await update($, expanded, ids => (ids.includes(id) ? ids.filter(i => i !== id) : [...ids, id]))
 }

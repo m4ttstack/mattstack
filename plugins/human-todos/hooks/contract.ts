@@ -3,7 +3,7 @@ import type { On } from 'claude-code'
 import type { AddInput } from '../types'
 import { TITLE, checkKind, describe } from './items'
 import { addTodo, listTodos, removeTodos, resetList, restoreList } from './store'
-import { cleanup, openPane } from './wiring'
+import { cleanup, openPane, syncSpinner } from './wiring'
 
 const PREFIX = 'mcp__human-todos__'
 
@@ -67,15 +67,25 @@ export function registerContract(on: On): void {
     })
     names = { add: add.tool, list: list.tool, withdraw: withdraw.tool }
     await $.command.register({ name: 'todos', description: `Open the ${TITLE} pane` })
+    await $.command.register({
+      name: 'todos-runner',
+      description: 'Choose where Run executes scripts: auto, herdr or local',
+      argumentHint: 'auto|herdr|local',
+    })
 
     const started = await next(e)
     await restoreList($)
+    await syncSpinner($)
     return started
   })
 
   on('session.end', async ($, e, next) => {
     const ended = await next(e)
-    if (e.reason === 'clear' || e.reason === 'resume') await resetList($)
+    if (e.reason === 'clear' || e.reason === 'resume') {
+      const dropped = await listTodos($)
+      await resetList($)
+      await cleanup($, dropped).catch(() => undefined)
+    }
     return ended
   })
 
