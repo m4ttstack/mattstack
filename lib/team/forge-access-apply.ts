@@ -154,7 +154,8 @@ async function inspect(p: Probes, slug: string, seams: ForgeAccessSeams, repair 
   const local = readTeamLocal(p, slug);
   let movedDefault = false;
   if (branch === main.value && !SHARED_BRANCH_NAMES.has(branch.toLowerCase()) && (await firstPushMadeDefault(p, seams, remote, token, branch))) {
-    if (!repair || !local.rtMayManageMembership) return { report: { kind: "shared-branch", branch, firstPush: true }, access };
+    // Read again: the pointer fetch can take seconds, and the admin may turn management off meanwhile.
+    if (!repair || !readTeamLocal(p, slug).rtMayManageMembership) return { report: { kind: "shared-branch", branch, firstPush: true }, access };
     const moved = await access.setDefaultBranch(POINTER_BRANCH);
     if (!moved.ok) return { report: { kind: "refused", manualSteps: moved.manualSteps }, access };
     movedDefault = true;
