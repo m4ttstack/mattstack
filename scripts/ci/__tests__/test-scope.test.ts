@@ -481,7 +481,7 @@ describe("workflow wiring", () => {
   });
 
   describe("the checks gate on unit-macos", () => {
-    const passing = { SCOPE: "success", STATIC: "success", GO: "success", DECK: "success", UNIT: "success", UNIT_MACOS: "success", GUARDS: "success", HERDR_CHAT: "success", MATTSTACK: "success", WEBSITE: "success", MODE: "full", RUN_GO: "true", RUN_DECK: "true", RUN_MACOS: "./a.test.ts" };
+    const passing = { SCOPE: "success", STATIC: "success", GO: "success", DECK: "success", UNIT: "success", UNIT_MACOS: "success", GUARDS: "success", HERDR_CHAT: "success", MATTSTACK: "success", HUMAN_TODOS: "success", WEBSITE: "success", MODE: "full", RUN_GO: "true", RUN_DECK: "true", RUN_MACOS: "./a.test.ts" };
     function gate(env: Record<string, string>): number {
       const script = jobs("checks.yml").checks!.steps!.find((step) => step.name === "Every gate passed")!.run!;
       return Bun.spawnSync(["bash", "-c", script], { env: { PATH: process.env.PATH ?? "", ...passing, ...env }, stdout: "pipe", stderr: "pipe" }).exitCode;
