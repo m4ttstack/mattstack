@@ -83,7 +83,7 @@
 }
 
 .code {
-  overflow-x: auto;
+  overflow: hidden;
 }
 
 .points {

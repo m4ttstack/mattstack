@@ -10,6 +10,7 @@ import {
   Button,
   Checkbox,
   Code,
+  CodeLines,
   Group,
   Kbd,
   Paper,
@@ -576,12 +577,16 @@ function StepLabel({
 }
 
 /** A fenced block's first line read as a `file:line` location. */
-const LOCATION = /^\S+:\d+$/;
+const LOCATION = /^\S+:(\d+)$/;
+/** CodeLines' row height, so a short excerpt's viewer fits it exactly. */
+const CODE_ROW = 19;
+const CODE_MAX = 240;
 
 /** A fenced excerpt the agent quoted: where it is from, when its first line
     says, then the code. */
 function CodeExcerpt({ lines }: { lines: string[] }) {
-  const path = lines.length > 0 && LOCATION.test(lines[0]!) ? lines[0]! : null;
+  const at = lines.length > 0 ? LOCATION.exec(lines[0]!) : null;
+  const path = at ? lines[0]! : null;
   const code = path === null ? lines : lines.slice(1);
   return (
     <Stack gap={4} data-parity="code">
@@ -596,7 +601,12 @@ function CodeExcerpt({ lines }: { lines: string[] }) {
         className={classes.code}
         data-parity="block"
       >
-        <Code block>{code.join('\n')}</Code>
+        <CodeLines
+          lines={code}
+          firstLine={at ? Number(at[1]) : 1}
+          height={Math.min(code.length * CODE_ROW + 8, CODE_MAX)}
+          wrap
+        />
       </Paper>
     </Stack>
   );
