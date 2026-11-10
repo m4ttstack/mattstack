@@ -73,7 +73,7 @@ export function SyncSteps({
   /** A doctor picked up the paused rebase. */
   handoff?: { onFocus: () => void };
 }) {
-  const [showRaw, setShowRaw] = useState(false);
+  const [showRaw, setShowRaw] = useState(true);
   const note =
     handoff && view.outcome === 'paused'
       ? { tone: 'work' as const, text: 'Doctor resolving' }

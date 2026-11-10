@@ -153,10 +153,27 @@ function OpenRow({ row }: { row: BoardMRWithReview }) {
   if (!ready) return null;
   return (
     <div style={{ minHeight: 360 }}>
-      <RowView mrs={[row]} now={NOW} showAuthor={false} ctx={ctx} />
+      <RowView
+        mrs={[neighbours[0]!, row, neighbours[1]!]}
+        now={NOW}
+        showAuthor={false}
+        ctx={ctx}
+      />
     </div>
   );
 }
+
+/** Rows around the synced one, so the spotlight has something to dim. */
+const neighbours = [
+  mr(undefined, {
+    title: 'WEB-398 Split the settings page into tabs',
+    behindTarget: null,
+  }),
+  mr(undefined, {
+    title: 'WEB-405 Retry flaky uploads with backoff',
+    behindTarget: 12,
+  }),
+];
 
 export const Running: Story = {
   render: () => (

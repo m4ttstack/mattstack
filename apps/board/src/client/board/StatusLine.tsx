@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type RefObject,
+} from 'react';
 
 import { createPortal } from 'react-dom';
 
@@ -191,6 +197,33 @@ function StepPips({ view }: { view: SyncView }) {
   );
 }
 
+/** Where the trigger's row sits on screen while the drawer is open, so the
+    wash around it can leave that row bright. */
+function useRowSpot(
+  trigger: RefObject<HTMLElement | null>,
+  open: boolean
+): DOMRect | null {
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  useEffect(() => {
+    if (!open) {
+      setRect(null);
+      return;
+    }
+    const measure = () => {
+      const row = trigger.current?.closest('.tui-row');
+      setRect(row ? row.getBoundingClientRect() : null);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    window.addEventListener('scroll', measure, true);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure, true);
+    };
+  }, [open, trigger]);
+  return rect;
+}
+
 function SyncLogWord({
   mr,
   word,
@@ -212,9 +245,12 @@ function SyncLogWord({
     if (takeAutoOpen(url)) setOpen(true);
   }, [url, lines.length]);
   const close = () => setOpen(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const spot = useRowSpot(trigger, open);
   return (
     <>
       <button
+        ref={trigger}
         type="button"
         className="tui-status-word tui-status-word-log"
         title="Show the sync steps"
@@ -238,6 +274,18 @@ function SyncLogWord({
             onMouseDown={e => e.stopPropagation()}
             onContextMenu={e => e.stopPropagation()}
           >
+            {spot && (
+              <div
+                className="tui-sync-spot"
+                aria-hidden
+                style={{
+                  top: spot.top,
+                  left: spot.left,
+                  width: spot.width,
+                  height: spot.height,
+                }}
+              />
+            )}
             <SideDrawer
               side="right"
               className="tui-cd-panel tui-sync-drawer"
