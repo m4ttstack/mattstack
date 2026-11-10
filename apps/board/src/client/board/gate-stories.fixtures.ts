@@ -416,6 +416,34 @@ const N1 = {
     '**nitpick:** the success path relies on the new entry not having `stale` at all. an explicit `stale: false` would say it out loud.',
 };
 
+/** The first round after the reviewer answered a question about f2 in its
+    pane and re-raised the gate with it narrowed: the MR's revision names
+    the original, which read as Critical, sat two lines up and said more. */
+export const reviewRevised: StoryGate = {
+  ...reviewFirstRound,
+  mr: {
+    ...reviewFirstRound.mr,
+    reviewRevision: {
+      gateId: reviewFirstRound.gate.gateId,
+      previousGateId: 'story-review-before-revision',
+      previousFindingIds: Object.keys(TILE_FINDINGS),
+      changedIds: ['f2'],
+      revised: {
+        f2: {
+          original: {
+            ...f2,
+            severity: 'critical',
+            file: `${CACHE}:56`,
+            body: 'When the refetch throws, the catch returns `entry.tile` without checking `expiresAt`, so every region keeps rendering stale tiles for as long as the forecast service is down.',
+            comment:
+              '**issue:** if the refetch throws, this hands back `entry.tile` no matter how old it is, so every region keeps rendering stale tiles while the service is down. could it rethrow past a hard limit?',
+          },
+        },
+      },
+    },
+  },
+};
+
 /** Round 2 of the same review: the key fix landed, the stale-tile answer
     was a fair pushback, the evidence is still missing, and one small new
     finding turned up. */
