@@ -90,6 +90,8 @@ export interface ProjectMRs {
   setScope(repoName: string, scope: ProjectScope | null): void;
   /** Per-iid replace; [] deletes the tag. replaceAll first clears every tag for the repo (deep sweep semantics). */
   setSectionTags(repoName: string, tags: Record<number, string[]>, opts?: { replaceAll?: boolean }): void;
+  /** Patches only `divergedCommitsCount` on stored open MRs, keeping `fetchedAt`; returns the iids whose count changed. */
+  setDivergedCounts(repoName: string, counts: Record<number, number>): number[];
 }
 
 // ─── Row shapes ──────────────────────────────────────────────────────────
@@ -512,6 +514,32 @@ export function createProjectMRs(db: Database = getStateDb("daemon"), opts: Proj
     }
   }
 
+  // fetchedAt stays put: only the count was read, and a sync that began
+  // before this write must still be free to replace the rest of the row.
+  function setDivergedCounts(repoName: string, counts: Record<number, number>): number[] {
+    const store = data[repoName];
+    if (!store) return [];
+    const changed: Array<{ iid: number; entry: ProjectMREntry }> = [];
+    for (const [iidStr, count] of Object.entries(counts)) {
+      const iid = Number(iidStr);
+      const entry = store.mrs[iid];
+      if (!entry || entry.pr.state !== "opened" || entry.pr.divergedCommitsCount === count) continue;
+      changed.push({ iid, entry: { ...entry, pr: { ...entry.pr, divergedCommitsCount: count } } });
+    }
+    if (changed.length === 0) return [];
+
+    const persisted = persistOrWarn("project-mrs", () => {
+      const run = db.transaction(() => {
+        for (const { iid, entry } of changed) upsertMrStmt.run(repoName, iid, JSON.stringify(entry.pr), entry.fetchedAt);
+      });
+      run();
+    }, { repo: repoName, op: "setDivergedCounts" });
+    if (!persisted) return [];
+
+    for (const { iid, entry } of changed) store.mrs[iid] = entry;
+    return changed.map((c) => c.iid);
+  }
+
   return {
     data,
     read: (repoName) => data[repoName],
@@ -523,6 +551,7 @@ export function createProjectMRs(db: Database = getStateDb("daemon"), opts: Proj
     expireDemands,
     setScope,
     setSectionTags,
+    setDivergedCounts,
   };
 }
 

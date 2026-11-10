@@ -222,7 +222,8 @@ export interface PullRequest {
    * GitLab populates it only where the REST
    * `?include_diverged_commits_count=true` call is made: `fetchSingleMR`
    * (and `fetchPullRequestByBranch`, which is backed by it) and the
-   * role-based mode of `fetchPullRequests`. The `iids`, `authorUsernames`,
+   * role-based mode of `fetchPullRequests`. `GitLabProvider.fetchDivergedCount`
+   * returns the count alone, for refreshing it on an MR another path read. The `iids`, `authorUsernames`,
    * and `projectPath` modes of `fetchPullRequests`, plus
    * `fetchPullRequestsByBranches`, all leave it null. GitHub always leaves it
    * null: it would need a `GET /compare/{base}...{head}` per PR.
