@@ -5,7 +5,6 @@
  * throttling, pagination that silently truncated on a failed page, and no
  * request instrumentation at all on the GitHub side.
  */
-import { createHash } from 'node:crypto';
 import { Octokit } from '@octokit/core';
 import { paginateRest } from '@octokit/plugin-paginate-rest';
 import { retry } from '@octokit/plugin-retry';
@@ -312,12 +311,18 @@ function isGraphQLRequest(options: { url?: string }): boolean {
 
 /**
  * A non-secret discriminator for the throttle group key -- see the
- * `throttle.id` comment above. Any stable hash works here; a short prefix of
- * a fast, non-cryptographic-strength digest is enough, since this only needs
- * to distinguish tokens from each other, not resist attack.
+ * `throttle.id` comment above. It only needs to distinguish tokens from each
+ * other, not resist attack, so a 64-bit FNV-1a in pure JS is enough. It must
+ * stay free of Node built-ins: the glance root bundle is also loaded in
+ * browsers.
  */
-function hashToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex').slice(0, 16);
+export function hashToken(token: string): string {
+  const mask = (1n << 64n) - 1n;
+  let hash = 0xcbf29ce484222325n;
+  for (const byte of new TextEncoder().encode(token)) {
+    hash = ((hash ^ BigInt(byte)) * 0x100000001b3n) & mask;
+  }
+  return hash.toString(16).padStart(16, '0');
 }
 
 function emit(
