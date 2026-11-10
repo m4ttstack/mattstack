@@ -4,7 +4,9 @@ import {
   buildFillQuery,
   parseFillAliases
 } from '../src/githubFill.ts';
-import { ghNode, stubForge } from './helpers/gh-fill-fixture.ts';
+import { ghNode, stubForge, useForgeStub } from './helpers/gh-fill-fixture.ts';
+
+useForgeStub();
 
 describe('buildFillQuery', () => {
   test('one alias per number, isRequired inlined', () => {

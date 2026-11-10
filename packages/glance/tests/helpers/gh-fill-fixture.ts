@@ -8,9 +8,17 @@ export type DeepPartial<T> = T extends Array<infer U>
     : T;
 
 const realFetch = globalThis.fetch;
-afterEach(() => {
-  globalThis.fetch = realFetch;
-});
+
+/**
+ * Call once at the top level of every test file that uses `stubForge`: bun
+ * scopes hooks to the file that registers them, and this module is cached, so
+ * an import-time hook would cover only the first importing file.
+ */
+export function useForgeStub(): void {
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+}
 
 function merge(base: unknown, over: unknown): unknown {
   if (over === undefined) return base;
@@ -124,7 +132,7 @@ export interface StubForgeHandlers {
   rest?: (url: string) => Response | undefined;
 }
 
-/** Installs the fetch stub for the current test; the `afterEach` above restores the real fetch. */
+/** Installs the fetch stub for the current test; `useForgeStub()` in the test file restores the real fetch. */
 export function stubForge(handlers: StubForgeHandlers): { urls: string[] } {
   const urls: string[] = [];
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
