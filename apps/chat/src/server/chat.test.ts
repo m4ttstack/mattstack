@@ -1724,10 +1724,7 @@ test('start and resume need application/json, so a form post cannot forge one', 
 
 test('slack-people names the support agent for the form, from settings', async () => {
   vi.mocked(rt.getSetting).mockImplementation(((key: string) => ({
-    value:
-      key === 'agent.persona'
-        ? { name: 'Maude', emoji: 'x' }
-        : 'matt',
+    value: key === 'agent.persona' ? { name: 'Maude', emoji: 'x' } : 'matt',
   })) as never);
   vi.mocked(rt.chatSlackPeople).mockResolvedValueOnce({
     ok: true,

@@ -191,9 +191,7 @@ describe('ages', () => {
 
 describe('personaTrigger', () => {
   it('is the trigger when set, else the name after an @', () => {
-    expect(personaTrigger({ name: 'Maude' }, ' hey bot ')).toBe(
-      'hey bot'
-    );
+    expect(personaTrigger({ name: 'Maude' }, ' hey bot ')).toBe('hey bot');
     expect(personaTrigger({ name: 'Otto' })).toBe('@Otto');
     expect(personaTrigger({ name: 'Otto' }, '  ')).toBe('@Otto');
   });

@@ -324,18 +324,18 @@ import {
 } from './peer/presence.ts';
 import { createReminder, isDaemonTimeout } from './peer/remind.ts';
 import {
-  foldSlackMatch,
-  NO_SLACK_MATCH,
-  slackMatchPayload,
-  type SlackMatch,
-} from './peer/slack-match.ts';
-import {
   makePeering,
   startPeeringWhenTokenLoads,
   switchboardTokenBanner,
   tickOnPeerInbox,
   tokenMissingNotice,
 } from './peer/runtime.ts';
+import {
+  foldSlackMatch,
+  NO_SLACK_MATCH,
+  slackMatchPayload,
+  type SlackMatch,
+} from './peer/slack-match.ts';
 import { launchReopen, type ReopenIo } from './reopen-launch.ts';
 import {
   attachRespondRounds,
