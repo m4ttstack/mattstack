@@ -149,7 +149,8 @@ export function getMRDashboardProps(
   // anyone has looked at them. An approval nobody gave is not an approval.
   // Mergeability keeps reading the raw flag via blockers.awaitingApprovals.
   const genuinelyApproved =
-    mr.approved && !(mr.approvalsRequired === 0 && mr.approvedBy.length === 0);
+    mr.approved &&
+    !((mr.approvalsRequired ?? 0) === 0 && mr.approvedBy.length === 0);
 
   return {
     // Identity

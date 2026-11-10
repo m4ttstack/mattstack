@@ -263,8 +263,8 @@ export interface PullRequest {
 
   // ── Squash / approval counts ──────────────────────────────────────────
 
-  /** Total number of required approvals (complements approvalsLeft). GitLab only. */
-  approvalsRequired: number;
+  /** Total number of required approvals (complements approvalsLeft). Null when the forge cannot report it. */
+  approvalsRequired: number | null;
   /** Whether the MR is configured to squash commits on merge. */
   squash: boolean;
   /** True if the project's merge method forces squash regardless of per-MR setting. */
@@ -346,7 +346,7 @@ export interface MRDashboardProps {
 
   // ── Reviews & Approvals ─────────────────────────────────────────────────
   reviews: {
-    required: number;
+    required: number | null;
     given: number;
     remaining: number;
     isApproved: boolean;

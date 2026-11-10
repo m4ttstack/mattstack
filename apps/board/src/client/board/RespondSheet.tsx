@@ -376,7 +376,7 @@ function ResponseRows({
     row's status pill never disagree. */
 function MrStatusCard({ mr }: { mr: BoardMRWithReview }) {
   const b = mr.blockers;
-  const { filled, required } = approvalSlots(mr);
+  const slots = approvalSlots(mr);
   const ci =
     mr.pipelineState === 'passed'
       ? { chip: 'pass', intent: 'ok' as const, text: 'pipeline passing' }
@@ -391,7 +391,9 @@ function MrStatusCard({ mr }: { mr: BoardMRWithReview }) {
       key: 'approvals',
       chip: mr.reviews.isApproved ? 'ok' : 'wait',
       intent: mr.reviews.isApproved ? ('ok' as const) : ('warn' as const),
-      text: `${filled} of ${required} approvals`,
+      text: slots
+        ? `${slots.filled} of ${slots.required} approvals`
+        : 'approvals required unknown',
     },
     b.hasConflicts
       ? {
