@@ -19,7 +19,7 @@ import { composeKey } from "../state/branch-cache.ts";
 import { checkAndNotify } from "../notifier.ts";
 import { getCurrentUserId, resolveUserIdAcrossTracking } from "./freshness.ts";
 import { loadRepoTracking, grants } from "../repo-tracking.ts";
-import { syncProjectMRs } from "./project-sync.ts";
+import { remeasureDivergedCounts, syncProjectMRs } from "./project-sync.ts";
 import { getProjectMRs } from "./project-mrs-store.ts";
 import { pruneDiscussionsStore } from "./discussions-file-store.ts";
 import { reconcileForRepo } from "./doppler-sync.ts";
@@ -285,6 +285,9 @@ export function createCacheRefresher(deps: CacheRefresherDeps): () => Promise<vo
         if (g.caches.has("project-mrs")) {
           try {
             await syncProjectMRs({ repoIndex, broadcast }, repoName);
+            void remeasureDivergedCounts({ repoIndex, broadcast }, repoName).catch((err) => {
+              log.warn({ err, repo: repoName }, "behind count re-measure failed");
+            });
           } catch (err) {
             log.warn({ err, repo: repoName }, "project sync failed");
             failedRepos.add(repoName);
