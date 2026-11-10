@@ -15,7 +15,8 @@ import { UserActionableError } from "../errors.ts";
 import { homeGitDir } from "../setup/home-paths.ts";
 import { writeIntent } from "../setup/intent.ts";
 import type { Probes } from "../setup/probes.ts";
-import { CHECK_ABOVE_REMEDY, failureDetail, homeInitRemedy } from "../setup/steps/home.ts";
+import { CHECK_ABOVE_REMEDY, failureDetail, homeInitRemedy, REMOTE_AUTH_REMEDY } from "../setup/steps/home.ts";
+import { forgeFromRemote } from "../setup/team-settings.ts";
 import { scrub } from "../team/redact.ts";
 import { importAgeKey, PRIVATE_KEY_PREFIX, readAgeKey, removeAgeKeyIf, sopsYamlRecipients, type AgeKeySeam } from "./age-key.ts";
 import { homeRepoTarget, originNames, RESTORE_USAGE, type HomeRepoTarget } from "./home-repo.ts";
@@ -172,8 +173,13 @@ async function cloneAndProvision(
   }
   const remedy = homeInitRemedy(result.stderr);
   // The app shows no error above this one, so the generic remedy would point at nothing.
+  // A fresh Mac has no gh on its PATH, but the restore screen offers a GitHub sign-in the clone then uses.
+  const again = `rt home restore ${arg} --stdin`;
+  if (remedy === REMOTE_AUTH_REMEDY && forgeFromRemote(target.url)?.provider === "github") {
+    throw new UserActionableError("init-failed", detail, {}, { why: "Sign in to GitHub, then restore again", next: "rt setup github sign-in", thenRun: again, log: result.stderr });
+  }
   const why = remedy === CHECK_ABOVE_REMEDY ? "Retry, or run rt home restore in a terminal to see why." : remedy;
-  throw new UserActionableError("init-failed", detail, {}, { why, next: `rt home restore ${arg} --stdin`, log: result.stderr });
+  throw new UserActionableError("init-failed", detail, {}, { why, next: again, log: result.stderr });
 }
 
 export type HomeRestoreProbes = Pick<Probes, "exists" | "readFile" | "writeFile" | "mkdirp" | "home" | "now" | "runRt">;

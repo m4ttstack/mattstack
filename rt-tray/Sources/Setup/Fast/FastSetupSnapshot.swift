@@ -275,6 +275,9 @@ enum FastSetupSnapshot {
             ("restore-empty", page(rows: [])),
             ("restore-as-mock", page(repo: "gitlab.com/janedoe/mattstack-home", key: "AGE-SECRET-KEY-1PLACEHOLDERVALUE", rows: [])),
             ("restore-clt-busy", page(repo: repo, key: key, rows: [Rows.cltInstalling])),
+            ("restore-github-signin", page(repo: repo, key: key, rows: [Rows.restoreGitHub])),
+            ("restore-github-waiting", page(repo: repo, key: key, rows: [Rows.restoreGitHubWaiting])),
+            ("restore-github-done", page(repo: repo, key: key, rows: [Rows.restoreGitHubDone])),
             ("restore-ready", page(repo: repo, key: key, rows: [])),
             ("restore-restoring", page(repo: repo, key: key, rows: [], restoring: true)),
             ("restore-error", page(repo: repo, key: key, rows: [],
@@ -944,6 +947,16 @@ enum FastSetupSnapshot {
                                  action: RowAction(type: .install, label: "Install", tool: "apple-clt", via: "apple-clt"), watch: true)
         static let cltInstalling = FormRow(id: "tool.clt", title: "Git tools", subtext: "Gives setup git and Apple's build tools",
                                            state: .busy, detail: "Installing Command Line Tools…", watch: true)
+        static let restoreGitHub = FormRow(id: "restore.github", title: "GitHub", subtext: "Only for a private backup on GitHub",
+                                           state: .todo, detail: "",
+                                           action: RowAction(type: .run, label: "Sign in to GitHub", verb: ["setup", "github", "sign-in"]), optional: true)
+        static let restoreGitHubWaiting = FormRow(id: "restore.github", title: "GitHub", subtext: "Only for a private backup on GitHub",
+                                                  state: .waiting, detail: "Your code is ABCD-1234. Confirm it in your browser",
+                                                  action: RowAction(type: .openURL, label: "Open again", url: "https://github.com/login/device"),
+                                                  watch: true, optional: true)
+        static let restoreGitHubDone = FormRow(id: "restore.github", title: "GitHub", subtext: "Only for a private backup on GitHub",
+                                               state: .done, detail: "Signed in",
+                                               action: RowAction(type: .run, label: "Sign in again", verb: ["setup", "github", "sign-in"]), optional: true)
         static let gitlabToken = FormRow(id: "forge.token", title: "GitLab", subtext: "Lets mattstack reach the team's repo and open MRs",
                                          state: .todo, detail: "No GitLab account connected yet",
                                          action: RowAction(type: .connect, label: "Connect", integration: "gitlab", fields: [
