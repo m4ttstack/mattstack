@@ -189,6 +189,7 @@ test('Confirm shows the item running at once and the report follows when the run
 
   expect(await state($)).toMatch(/^#1 \[running\]/)
   expect(sent).toEqual([])
+  await clock.sleeping()
   await clock.advance(60_000)
   expect(await state($)).toMatch(/^#1 \[done\]/)
   expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 0.\n```\nlate\n```'])
@@ -450,6 +451,7 @@ test('the spinner advances every 100 ms while an item runs and rests when none d
   await confirming(pane)
   await pane.press({ key: 'confirm-1' })
   expect(await texts(pane)).toContain('⠋ T')
+  await clock.sleeping(1)
   await clock.advance(400)
   expect(await texts(pane)).toContain('⠼ T')
   await clock.advance(50)
@@ -458,6 +460,7 @@ test('the spinner advances every 100 ms while an item runs and rests when none d
   await clock.advance(1000)
   await confirming(pane, '2')
   await pane.press({ key: 'confirm-2' })
+  await clock.sleeping(2)
   await clock.advance(100)
   expect(await texts(pane)).toContain('⠴ T')
   await pane.unmount()
@@ -472,6 +475,7 @@ test('a second Confirm during a slow herdr probe starts the run once', async ($,
   await pane.press({ key: 'confirm-1' })
   expect(await state($)).toMatch(/^#1 \[running\]/)
   expect(await texts(pane)).toContain('⠋ Running ')
+  await clock.sleeping()
   await pane.press({ key: 'confirm-1' }).catch(() => undefined)
   await clock.advance(5000)
 
@@ -537,6 +541,7 @@ test('with the pane closed and nothing drawn, a finished run is still reported',
   await pane.press({ key: 'close' })
   await pane.unmount()
 
+  await clock.sleeping()
   await clock.advance(1000)
 
   expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 0.\n```\nok\n```'])
@@ -549,6 +554,7 @@ test('Stop during the herdr probe cancels the run: the item is open again and no
   await confirming(pane)
   await pane.press({ key: 'confirm-1' })
   expect(await state($)).toMatch(/^#1 \[running\]/)
+  await clock.sleeping()
 
   await pane.press({ key: 'stop-1' })
   await clock.advance(5000)

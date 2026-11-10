@@ -40,9 +40,10 @@ async function seeded($: Engine, on: On, list: Todo[], opts: { hasRt?: boolean; 
   await $.command.run({ command: 'todos-runner', args: 'herdr' })
   const pane = await $.ui.mount(PANE)
   const run1 = async (id: string) => {
+    const polls = w.clock.ticks(1000)
     await pane.press({ key: `run-${id}` })
     await pane.press({ key: `confirm-${id}` })
-    await w.clock.settle()
+    while (w.clock.ticks(1000) === polls && item(id)?.status === 'running') await w.clock.settle()
   }
   const items = () => (w.store.get(`list:${SESSION}`) as { todos: Todo[] }).todos
   const item = (id: string) => items().find(t => t.id === id)

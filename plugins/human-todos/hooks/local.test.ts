@@ -111,6 +111,7 @@ test('output updates the live tail and the log at most once a second, keeping 15
   })
 
   await run1('1')
+  await clock.sleeping()
   await clock.advance(999)
   expect(item('1')?.liveTail).toEqual([])
   expect(writes).toHaveLength(1)
@@ -319,6 +320,7 @@ test('two runs at once each have their own child, token and log, and one finishi
 
   await run1('1')
   await run1('2')
+  await clock.sleeping(2)
   await clock.advance(1000)
 
   expect(spawned.map(s => s.argv.at(-1))).toEqual([`${PREFIX}first`, `${PREFIX}second`])
@@ -453,6 +455,7 @@ test('a log that cannot be written toasts once for the run and the run still rep
   })
 
   await run1('1')
+  await clock.sleeping()
   await clock.advance(3000)
 
   expect(toasts).toEqual(['Could not save the output of #1'])
@@ -480,6 +483,7 @@ test('output past 4 MiB rolls: the log stays under the write limit, the live tai
   })
 
   await run1('1')
+  await clock.sleeping()
   await clock.advance(3000)
 
   expect(toasts).toEqual([])

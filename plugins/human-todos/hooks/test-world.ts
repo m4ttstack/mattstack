@@ -7,6 +7,50 @@ type Registered = { name: string; description: string; inputSchema?: Record<stri
 
 export const SESSION = 'sess-1'
 
+// The mock clock, plus the means to wait for work the engine starts detached. `advance` and `settle` only
+// settle what has already reached the clock, so a child or a poller that has not yet got as far as its timer
+// would miss the advance. A test waits on `sleeping` (sleeps a fake script holds on the clock) or `ticks`
+// (repeating timers the plugin sets) before it moves the time.
+function timed(on: On, now: number) {
+  const counts = new Map<string, number>()
+  const waiting: { key: string; n: number; resolve: () => void }[] = []
+  const bump = (key: string) => {
+    const n = (counts.get(key) ?? 0) + 1
+    counts.set(key, n)
+    for (const w of [...waiting]) {
+      if (w.key !== key || n < w.n) continue
+      waiting.splice(waiting.indexOf(w), 1)
+      w.resolve()
+    }
+  }
+  const reached = (key: string, n: number) =>
+    (counts.get(key) ?? 0) >= n ? Promise.resolve() : new Promise<void>(resolve => waiting.push({ key, n, resolve }))
+  const counting = ((event: string, ...rest: unknown[]) => {
+    const hook = rest.pop() as (...args: unknown[]) => unknown
+    const wrapped =
+      event === 'clock.every'
+        ? (...args: unknown[]) => {
+            bump(`every ${(args[1] as { ms: number }).ms}`)
+            return hook(...args)
+          }
+        : hook
+    return (on as (...args: unknown[]) => unknown)(event, ...rest, wrapped)
+  }) as On
+  const clock = mock.clock(counting, { now })
+  return {
+    ...clock,
+    sleep: (ms: number) => {
+      const slept = clock.sleep(ms)
+      bump('sleep')
+      return slept
+    },
+    // Resolves once the test's clock has been asked to sleep `n` times in all.
+    sleeping: (n = 1) => reached('sleep', n),
+    // How many repeating timers of `ms` the plugin has set.
+    ticks: (ms: number) => counts.get(`every ${ms}`) ?? 0,
+  }
+}
+
 // Stands for the engine beneath the plugin. The store is a plain map so a test can read what was saved.
 export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__human-todos__' }: Options = {}) {
   const store = new Map<string, unknown>(Object.entries(entries))
@@ -56,7 +100,7 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
     return { text: e.text }
   })
   on('prompt.compose', () => ({ sections: [] }))
-  const clock = mock.clock(on, { now })
+  const clock = timed(on, now)
   return {
     clock,
     store,
