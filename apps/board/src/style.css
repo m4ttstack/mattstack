@@ -7166,6 +7166,7 @@ a.tui-id-card-ref:focus-visible {
   align-items: center;
   gap: 8px;
   margin-top: 8px;
+  min-height: 39px;
   padding: 5px 10px 5px 8px;
   min-width: 0;
   font-size: 0.76rem;
@@ -7264,9 +7265,9 @@ a.tui-id-card-ref:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* The actions are the kit's ghost Button, taller than the band's 20px line;
-   the band keeps them from shrinking and from setting its height, so a band
-   with no actions matches one with them. */
+/* The actions are the kit's ghost Button. The band's min-height is the
+   height they gave it, so a band with no actions matches; they keep from
+   shrinking and stay out of the height, so every band is exactly that. */
 .tui-ask-btn {
   flex-shrink: 0;
   margin-block: -4px;
