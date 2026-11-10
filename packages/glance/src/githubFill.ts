@@ -1,4 +1,13 @@
-import type { MergeRequestReviewState, Reviewer, UserRef } from './types.ts';
+import type {
+  MergeRequestReviewState,
+  MRState,
+  Pipeline,
+  PipelineJob,
+  Readiness,
+  ReadinessReason,
+  Reviewer,
+  UserRef
+} from './types.ts';
 
 /** PRs per fill request; keeps one request well under GitHub's GraphQL node limit. */
 export const FILL_BATCH_SIZE = 25;
@@ -271,4 +280,160 @@ export function mapReviews(node: GHFillNode, rulesRequired: number | null): Revi
     approvalsLeft:
       approvalsRequired === null ? 0 : Math.max(0, approvalsRequired - approvedBy.length)
   };
+}
+
+function checkRunStatus(c: Extract<GHFillContext, { __typename: 'CheckRun' }>): string {
+  switch (c.status) {
+    case 'COMPLETED':
+      switch (c.conclusion) {
+        case 'SUCCESS':
+        case 'NEUTRAL':
+          return 'success';
+        case 'FAILURE':
+        case 'TIMED_OUT':
+        case 'STALE':
+        case 'STARTUP_FAILURE':
+          return 'failed';
+        case 'CANCELLED':
+          return 'canceled';
+        case 'SKIPPED':
+          return 'skipped';
+        case 'ACTION_REQUIRED':
+          return 'manual';
+        default:
+          return 'pending';
+      }
+    case 'IN_PROGRESS':
+      return 'running';
+    default:
+      return 'pending';
+  }
+}
+
+function statusContextStatus(state: string): string {
+  switch (state) {
+    case 'SUCCESS':
+      return 'success';
+    case 'FAILURE':
+    case 'ERROR':
+      return 'failed';
+    default:
+      return 'pending';
+  }
+}
+
+function jobDuration(start: string | null, end: string | null): number | null {
+  if (!start || !end) return null;
+  return Math.round((new Date(end).getTime() - new Date(start).getTime()) / 1000);
+}
+
+export function mapPipeline(
+  contexts: GHFillContext[],
+  prUrl: string,
+  headRef: string,
+  headSha: string | null
+): Pipeline | null {
+  if (contexts.length === 0) return null;
+
+  const entries = contexts.map((c) => {
+    if (c.__typename === 'CheckRun') {
+      const job: PipelineJob = {
+        id: `github:check:${c.databaseId}`,
+        name: c.name,
+        stage: 'checks',
+        status: checkRunStatus(c),
+        allowFailure: !c.isRequired,
+        duration: jobDuration(c.startedAt, c.completedAt),
+        webUrl: c.detailsUrl,
+        runId: c.checkSuite?.workflowRun ? String(c.checkSuite.workflowRun.databaseId) : null
+      };
+      return { job, required: c.isRequired };
+    }
+    const job: PipelineJob = {
+      id: `github:status:${c.context}`,
+      name: c.context,
+      stage: 'checks',
+      status: statusContextStatus(c.state),
+      allowFailure: !c.isRequired,
+      duration: null,
+      webUrl: c.targetUrl,
+      runId: null
+    };
+    return { job, required: c.isRequired };
+  });
+
+  // With no required contexts configured every check counts, so a failure
+  // still reads red to the PR author.
+  const anyRequired = entries.some((e) => e.required);
+  const counted = entries.filter((e) => e.required || !anyRequired).map((e) => e.job);
+  const statuses = counted.map((j) => j.status);
+  let status: string;
+  if (statuses.includes('failed')) status = 'failed';
+  else if (statuses.includes('canceled')) status = 'canceled';
+  else if (statuses.includes('running')) status = 'running';
+  else if (statuses.includes('pending') || statuses.includes('manual')) status = 'pending';
+  else status = 'success';
+
+  const jobs = entries.map((e) => e.job);
+  const runIds: string[] = [];
+  for (const j of jobs) if (j.runId && !runIds.includes(j.runId)) runIds.push(j.runId);
+
+  const failedRun = counted.find((j) => j.status === 'failed' && j.runId)?.runId;
+  const highest = runIds.reduce<string | null>(
+    (best, id) => (best === null || Number(id) > Number(best) ? id : best),
+    null
+  );
+  const runId = failedRun ?? highest;
+
+  return {
+    id: runId ? `github:run:${runId}` : `github:checks:${prUrl}`,
+    status,
+    sha: headSha,
+    ref: headRef,
+    mergeRequestEventType: null,
+    createdAt: null,
+    webUrl: `${prUrl}/checks`,
+    jobs,
+    runIds
+  };
+}
+
+export function githubReadiness(input: {
+  state: MRState;
+  isDraft: boolean;
+  mergeStateStatus: string;
+  reviewDecision: string | null;
+  pipeline: Pipeline | null;
+  unresolvedThreadCount: number | null;
+  contextsComplete: boolean;
+}): Readiness {
+  const { state, mergeStateStatus: merge } = input;
+  if (state === 'merged') return { state: 'merged', reasons: [] };
+  if (state === 'closed') return { state: 'closed', reasons: [] };
+  if (input.isDraft || merge === 'DRAFT') return { state: 'draft', reasons: [] };
+  // Missing contexts could hide a failing required check.
+  if (!input.contextsComplete) return { state: 'checking', reasons: [] };
+
+  switch (merge) {
+    case 'CLEAN':
+    case 'HAS_HOOKS':
+    case 'UNSTABLE':
+      return { state: 'ready', reasons: [] };
+    case 'DIRTY':
+      return { state: 'blocked', reasons: ['conflicts'] };
+    case 'BEHIND':
+      return { state: 'blocked', reasons: ['behind'] };
+    case 'BLOCKED': {
+      const reasons: ReadinessReason[] = [];
+      const checks = input.pipeline?.status;
+      if (checks === 'failed' || checks === 'canceled') reasons.push('checks-failing');
+      if (checks === 'running' || checks === 'pending') reasons.push('checks-running');
+      if (input.reviewDecision === 'REVIEW_REQUIRED') reasons.push('approvals');
+      if (input.reviewDecision === 'CHANGES_REQUESTED') reasons.push('changes-requested');
+      if ((input.unresolvedThreadCount ?? 0) > 0) reasons.push('threads');
+      return { state: 'blocked', reasons: reasons.length > 0 ? reasons : ['other'] };
+    }
+    default:
+      return { state: 'checking', reasons: [] };
+  }
 }

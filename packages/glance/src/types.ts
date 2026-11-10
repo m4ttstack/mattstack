@@ -82,6 +82,8 @@ export interface PipelineJob {
   webUrl: string | null;
   /** If this job triggered a child/downstream pipeline, its details are here. */
   downstreamPipeline?: Pipeline | null;
+  /** GitHub workflow run this job belongs to; null for commit statuses. Absent on GitLab. */
+  runId?: string | null;
 }
 
 export interface Pipeline {
@@ -98,6 +100,8 @@ export interface Pipeline {
   createdAt: string | null;
   webUrl: string | null;
   jobs: PipelineJob[];
+  /** GitHub workflow run ids on the head commit, each once. Absent on GitLab. */
+  runIds?: string[];
 }
 
 /**
