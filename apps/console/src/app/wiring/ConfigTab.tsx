@@ -199,6 +199,11 @@ function PackStatusBar({
             </Button>
             <UnsyncedActions pack={pack} publishOnly />
           </>
+        ) : installed === null ? (
+          <span className={classes.stateLine} data-testid="pack-unknown">
+            <Icon name="circleDot" size={15} color="var(--tk-text-3)" />
+            Claude's copy not checked
+          </span>
         ) : installed?.status === 'missing' ? (
           <span className={classes.stateLine} data-testid="pack-not-installed">
             <Icon name="circleDot" size={15} color="var(--tk-text-3)" />

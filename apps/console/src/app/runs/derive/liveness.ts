@@ -8,6 +8,8 @@ export type HeroTone = 'ok' | 'warn' | 'bad' | 'accent' | 'gray';
 export interface HeroLiveness {
   tone: HeroTone;
   label: string;
+  /** A gate or a block is waiting on you. */
+  waiting?: boolean;
 }
 
 /** What the run page's header chip says: a gate waiting on you or in the
@@ -20,7 +22,11 @@ export function heroLiveness(
 ): HeroLiveness {
   const age = (g: GateRow) => formatDuration(now - g.openedAt);
   if (waiting.mine)
-    return { tone: 'bad', label: `waiting on you · ${age(waiting.mine)}` };
+    return {
+      tone: 'bad',
+      label: `waiting on you · ${age(waiting.mine)}`,
+      waiting: true,
+    };
   if (waiting.handoff)
     return {
       tone: 'warn',
@@ -29,7 +35,7 @@ export function heroLiveness(
   const spec = livenessSpec(run);
   switch (spec.state) {
     case 'blocked':
-      return { tone: 'bad', label: 'waiting on you' };
+      return { tone: 'bad', label: 'waiting on you', waiting: true };
     case 'failed':
     case 'stale':
       return { tone: 'bad', label: spec.label };

@@ -111,7 +111,8 @@ const SUMMARY_ITEM = 'summary';
 const plainText = (md: string) =>
   md
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/[*_`]+/g, '')
+    .replace(/[*`]+/g, '')
+    .replace(/(^|\W)_+|_+(?=\W|$)/g, '$1')
     .replace(/^\s*(#+|[-*+>]|\d+[.)])\s+/gm, '')
     .replace(/\s+/g, ' ')
     .trim();

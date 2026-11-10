@@ -63,6 +63,7 @@ describe('storyFields', () => {
     const fields = [
       { ...f('evidence-cleared:list-before', 5), value: 'abc no redact marks' },
       { ...f('evidence-cleared:panel-before', 9), value: 'def approved at x' },
+      { ...f('evidence-cleared:reset-board', 12), value: '-' },
       f('approach', 3),
     ];
     const out = storyFields(fields);

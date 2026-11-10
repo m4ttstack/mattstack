@@ -26,7 +26,7 @@ export interface LiveLaneProps {
     band with its rail, the stage it is in and how long it has run. */
 export function LiveLane({ runId, ticket, title, href, facts }: LiveLaneProps) {
   const { liveness, focusPane: pane } = facts;
-  const waiting = liveness.label.startsWith('waiting on you');
+  const waiting = liveness.waiting === true;
   return (
     <Paper
       variant="ground"

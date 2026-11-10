@@ -102,6 +102,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     /// One smd read in flight at a time: a wedged smd blocks each read's
     /// thread, and a read per poll would use up the shared pool.
     @MainActor private var loginReadPending = false
+    /// A read asked for while one was pending, run once that one lands so
+    /// a toggle mid-read never leaves the pre-toggle state showing.
+    @MainActor private var loginReadAgain = false
     @MainActor private var downReadPending = false
     /// Set by `NSWorkspace.willPowerOffNotification`, an independent signal
     /// from the quit AppleEvent's `kAEQuitReason` parameter -- which is
@@ -1228,10 +1231,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     /// the menu read it on the main thread.
     @MainActor
     private func startLoginItemRead() {
-        guard !loginReadPending else { return }
+        guard !loginReadPending else {
+            loginReadAgain = true
+            return
+        }
         loginReadPending = true
         Task { @MainActor in
-            defer { loginReadPending = false }
+            defer {
+                loginReadPending = false
+                if loginReadAgain {
+                    loginReadAgain = false
+                    startLoginItemRead()
+                }
+            }
             loginItemEnabled = await Task.detached(priority: .utility) {
                 SMAppService.mainApp.status == .enabled
             }.value

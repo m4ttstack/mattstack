@@ -34,7 +34,9 @@ function isPlumbing(key: string): boolean {
 /** The boards the evidence step cleared for redaction, as one line a person
     reads, placed where the last one was cleared. */
 function redactionField(fields: RunFieldRow[]): RunFieldRow | null {
-  const cleared = fields.filter(f => f.key.startsWith('evidence-cleared:'));
+  const cleared = fields.filter(
+    f => f.key.startsWith('evidence-cleared:') && hasValue(f)
+  );
   const last = cleared.reduce<RunFieldRow | null>(
     (latest, f) => (!latest || f.at > latest.at ? f : latest),
     null
@@ -48,15 +50,17 @@ function redactionField(fields: RunFieldRow[]): RunFieldRow | null {
   };
 }
 
+/** A `-` or empty value is rt clearing the field: nothing to tell. */
+const hasValue = (f: RunFieldRow) =>
+  f.value.trim() !== '' && f.value.trim() !== '-';
+
 export function storyFields(fields: RunFieldRow[]): RunFieldRow[] {
-  // A `-` or empty value is rt clearing the field: nothing to tell.
   const shown = fields.filter(
     f =>
       !isPlumbing(f.key) &&
       !SIDE_KEYS.has(f.key) &&
       f.key !== 'evidence' &&
-      f.value.trim() !== '' &&
-      f.value.trim() !== '-'
+      hasValue(f)
   );
   const redaction = redactionField(fields);
   return redaction ? [...shown, redaction] : shown;
