@@ -143,6 +143,26 @@ describe("publishTeam", () => {
     expect(p.calls.exec).toEqual([]);
   });
 
+  test("a repo the forge hides from this account is push-denied, not a generic failure", async () => {
+    const remote = "https://github.com/acme/repo.git";
+    const p = probesWithZone({
+      home: "/home/x",
+      exec: (argv) =>
+        argv[0] === "git" && argv[1] === "push"
+          ? { code: 128, stdout: "", stderr: `remote: Repository not found.\nfatal: repository '${remote}/' not found` }
+          : { code: 0, stdout: "", stderr: "" },
+    });
+
+    let thrown: unknown;
+    try {
+      await publishTeam(p, "acme", remote);
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect((thrown as UserActionableError).code).toBe("push-denied");
+  });
+
   test("auth failure (exit 128) throws push-denied with the credential-bearing URL stripped", async () => {
     const remote = "https://x-access-token:SECRET@github.com/acme/repo.git";
     const p = probesWithZone({

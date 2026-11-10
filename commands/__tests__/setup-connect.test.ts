@@ -402,6 +402,25 @@ describe("integrationConnect: forge token scopes", () => {
       expect(JSON.parse(deps.lines[0]!).status).toBe(scenario.valid ? "ready" : "invalid");
     });
   }
+  test("a --host typed in mixed case still matches the clone's origin", async () => {
+    const probes = fakeProbes({
+      fetch: gitlabWithScopes(["api", "read_user"]),
+      dirs: { "/fake-home/.mattstack/orgs": ["acme"] },
+      files: { "/fake-home/.mattstack/orgs/acme/.git/config": '[remote "origin"]\nurl = https://forge.example.com/acme/org.git\n' },
+    });
+    const asked: unknown[][] = [];
+    const deps = baseDeps({
+      probes,
+      stdin: async () => ({ token: "glpat-x" }),
+      writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+      writeSetting: () => {},
+      teamSnapshot: () => ({ ...slackTeamSnapshot(), slug: "", remote: null, integrations: {} }),
+      forgeLogin: async (...args: unknown[]) => { asked.push(args.slice(1)); return "dev1"; },
+    });
+    await integrationConnect("gitlab", ["--host", "Forge.Example.com", "--json"], deps);
+    expect(asked).toEqual([["gitlab", "forge.example.com", "glpat-x"]]);
+  });
+
   test("a forge connect retries pending roles for a stored username and reports a failed publish", async () => {
     let fail = true;
     const probes = fakeProbes({
@@ -608,6 +627,18 @@ describe("integrationConnect: forge token scopes", () => {
     expect(body.detail).toBe("This token is missing read:org (run: gh auth refresh -s read:org)");
   });
 
+  test("a github token without workflow is stored as ready, with a warning", async () => {
+    const fetch: Probes["fetch"] = async (url) =>
+      url.includes("api.github.com/user") ? { status: 200, body: "{}", headers: { "x-oauth-scopes": "repo, read:org" } as Record<string, string> } : { status: 0, body: "", headers: {} };
+    const deps = baseDeps({ probes: fakeProbes({ fetch }), stdin: async () => ({ token: "ghp_x" }), writer: { storeReady: async () => true, write: async () => {} } });
+
+    await integrationConnect("github", ["--json"], deps);
+
+    const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
+    expect(body.status).toBe("ready");
+    expect(body.detail).toContain("workflow");
+  });
+
   test("a github token that reports no scopes (fine-grained) is stored as ready", async () => {
     const fetch: Probes["fetch"] = async (url) => (url.includes("api.github.com/user") ? { status: 200, body: "{}", headers: {} } : { status: 0, body: "", headers: {} });
     const probes = fakeProbes({ fetch });
@@ -645,7 +676,7 @@ describe("integrationConnect — github --use-gh", () => {
 
     await integrationConnect("github", ["--use-gh", "--json"], deps);
 
-    expect(probes.calls.exec).toContainEqual(["gh", "auth", "token"]);
+    expect(probes.calls.exec).toContainEqual(["gh", "auth", "token", "--hostname", "github.com"]);
     expect(writes).toEqual([["rt", "githubToken", "ghp_from_gh"]]);
     const body = JSON.parse(deps.lines[0]!) as { status: string };
     expect(body.status).toBe("ready");
@@ -655,7 +686,7 @@ describe("integrationConnect — github --use-gh", () => {
 describe("integrationStatus — github handle/owners", () => {
   test("gh authenticated -> handle + owners present", async () => {
     const exec: Probes["exec"] = async (argv) => {
-      if (argv.join(" ") === "gh auth status") return ok();
+      if (argv.join(" ") === "gh auth status --hostname github.com") return ok();
       if (argv.join(" ") === "gh api user") return ok(JSON.stringify({ login: "matt" }));
       if (argv.join(" ") === "gh api user/orgs") return ok(JSON.stringify([{ login: "m4ttstack" }]));
       return ok();
@@ -669,9 +700,21 @@ describe("integrationStatus — github handle/owners", () => {
     expect(body.owners).toEqual(["matt", "m4ttstack"]);
   });
 
+  test("a gh session without workflow is ready, with a warning", async () => {
+    const exec: Probes["exec"] = async (argv) =>
+      argv.join(" ") === "gh auth status --hostname github.com" ? ok("✓ Logged in to github.com account matt (keyring)\n  - Token scopes: 'gist', 'read:org', 'repo'\n") : ok();
+    const deps = baseDeps({ probes: fakeProbes({ exec }) });
+
+    await integrationStatus("github", ["--json"], deps);
+
+    const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
+    expect(body.status).toBe("ready");
+    expect(body.detail).toContain("workflow");
+  });
+
   test("gh unauthenticated -> no handle/owners keys", async () => {
     const exec: Probes["exec"] = async (argv) => {
-      if (argv.join(" ") === "gh auth status") return { code: 1, stdout: "", stderr: "not logged in" };
+      if (argv.join(" ") === "gh auth status --hostname github.com") return { code: 1, stdout: "", stderr: "not logged in" };
       return ok();
     };
     const deps = baseDeps({ probes: fakeProbes({ exec }) });

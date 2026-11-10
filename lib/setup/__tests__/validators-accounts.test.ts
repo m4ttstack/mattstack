@@ -207,13 +207,37 @@ describe("accountRows — account.github", () => {
     return baseTeam({ integrations: { forge: { host: "github.com", provider: "github" } } });
   }
 
+  test("no token, gh signed in but holding back its token -> not ready, so git is never promised a credential", async () => {
+    const exec: ExecScript = (argv) =>
+      argv[0] === "gh" && argv[2] === "status" ? ok("✓ Logged in to github.com account octocat (keyring)\n") : { code: 1, stdout: "", stderr: "no oauth token found" };
+    const r = await pickRow(accountRows(fakeProbes({ exec }), githubTeam(), [], fakeSecrets(), null), "account.github");
+    expect(r.status).toBe("missing");
+    expect(r.action?.type).toBe("connect");
+  });
+
   test("no token, gh authenticated -> ready 'via gh (<user>)'", async () => {
     const exec: ExecScript = (argv) =>
-      argv[0] === "gh" && argv[1] === "auth" && argv[2] === "status" ? ok("✓ Logged in to github.com account octocat (keyring)\n") : ok();
+      argv[0] === "gh" && argv[1] === "auth" && argv[2] === "status" ? ok("✓ Logged in to github.com account octocat (keyring)\n") : argv[0] === "gh" ? ok("gho_session\n") : ok();
     const r = await pickRow(accountRows(fakeProbes({ exec }), githubTeam(), [], fakeSecrets(), null), "account.github");
     expect(r.status).toBe("ready");
     expect(r.detail).toBe("Signed in through the gh CLI as octocat");
     expect(r.why).toBe("Lets rt open PRs, check CI, and read repo metadata on github.com.");
+  });
+
+  test("no token, gh session without the workflow scope -> ready, with a warning", async () => {
+    const status = "✓ Logged in to github.com account octocat (keyring)\n  - Token scopes: 'gist', 'read:org', 'repo'\n";
+    const exec: ExecScript = (argv) => (argv[0] === "gh" && argv[2] === "status" ? ok(status) : argv[0] === "gh" ? ok("gho_session\n") : ok());
+    const r = await pickRow(accountRows(fakeProbes({ exec }), githubTeam(), [], fakeSecrets(), null), "account.github");
+    expect(r.status).toBe("ready");
+    expect(r.detail).toStartWith("Signed in through the gh CLI as octocat");
+    expect(r.detail).toContain("workflow");
+  });
+
+  test("no token, gh session with the workflow scope -> ready with no warning", async () => {
+    const status = "✓ Logged in to github.com account octocat (keyring)\n  - Token scopes: 'gist', 'read:org', 'repo', 'workflow'\n";
+    const exec: ExecScript = (argv) => (argv[0] === "gh" && argv[2] === "status" ? ok(status) : argv[0] === "gh" ? ok("gho_session\n") : ok());
+    const r = await pickRow(accountRows(fakeProbes({ exec }), githubTeam(), [], fakeSecrets(), null), "account.github");
+    expect(r.detail).toBe("Signed in through the gh CLI as octocat");
   });
 
   test("no token, gh output doesn't match the known 'as'/'account' shapes -> ready 'via gh' with no user suffix", async () => {
@@ -232,7 +256,7 @@ describe("accountRows — account.github", () => {
       label: "Connect",
       integration: "github",
       fields: [{ name: "token", label: "GitHub token", secret: true, hint: "repo, read:org" }],
-      create: { label: "Create a token on GitHub…", url: "https://github.com/settings/tokens/new?description=mattstack&scopes=repo%2Cread%3Aorg" },
+      create: { label: "Create a token on GitHub…", url: "https://github.com/settings/tokens/new?description=mattstack&scopes=repo%2Cread%3Aorg%2Cworkflow" },
     });
   });
 
@@ -250,7 +274,30 @@ describe("accountRows — account.github", () => {
     const p = fakeProbes({ fetch });
     const r = await pickRow(accountRows(p, githubTeam(), [], fakeSecrets({ "rt.githubToken": "gh_tok" }), null), "account.github");
     expect(r.status).toBe("ready");
-    expect(p.calls.exec).not.toContainEqual(["gh", "auth", "status"]);
+    expect(p.calls.exec.some((argv) => argv[0] === "gh" && argv[2] === "status")).toBe(false);
+  });
+
+  test("token present without the workflow scope -> still ready, with a warning", async () => {
+    const fetch = async () => ({ status: 200, body: "{}", headers: { "x-oauth-scopes": "repo, read:org" } as Record<string, string> });
+    const r = await pickRow(accountRows(fakeProbes({ fetch }), githubTeam(), [], fakeSecrets({ "rt.githubToken": "gh_tok" }), null), "account.github");
+    expect(r.status).toBe("ready");
+    expect(r.detail).toContain("workflow");
+  });
+
+  test("token present with the workflow scope -> ready with no warning", async () => {
+    const fetch = async () => ({ status: 200, body: "{}", headers: { "x-oauth-scopes": "repo, read:org, workflow" } as Record<string, string> });
+    const r = await pickRow(accountRows(fakeProbes({ fetch }), githubTeam(), [], fakeSecrets({ "rt.githubToken": "gh_tok" }), null), "account.github");
+    expect(r.status).toBe("ready");
+    expect(r.detail).not.toContain("workflow");
+  });
+
+  test("no token, gh signed in only to another host -> missing, since github.com would refuse that login", async () => {
+    const exec: ExecScript = (argv) => {
+      if (argv[0] !== "gh") return ok();
+      return argv.join(" ").endsWith("--hostname github.com") ? { code: 1, stdout: "", stderr: "not logged in to github.com" } : ok("gho_enterprise\n");
+    };
+    const r = await pickRow(accountRows(fakeProbes({ exec }), githubTeam(), [], fakeSecrets(), null), "account.github");
+    expect(r.status).toBe("missing");
   });
 
   test("token present, forge accepts it but its classic scopes fall short -> needs-you naming the shortfall, still replaceable", async () => {
@@ -259,7 +306,7 @@ describe("accountRows — account.github", () => {
     const r = await pickRow(accountRows(fakeProbes({ exec, fetch }), githubTeam(), [], fakeSecrets({ "rt.githubToken": "gh_tok" }), null), "account.github");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("This token is missing read:org");
-    expect(r.action).toMatchObject({ type: "connect", create: { url: "https://github.com/settings/tokens/new?description=mattstack&scopes=repo%2Cread%3Aorg" } });
+    expect(r.action).toMatchObject({ type: "connect", create: { url: "https://github.com/settings/tokens/new?description=mattstack&scopes=repo%2Cread%3Aorg%2Cworkflow" } });
   });
 
   test("token present, validate invalid + gh authenticated -> invalid WITH alternatives (H1 fixed direction)", async () => {
@@ -273,7 +320,7 @@ describe("accountRows — account.github", () => {
       integration: "github",
       fields: [{ name: "token", label: "GitHub token", secret: true, hint: "repo, read:org" }],
       alternatives: [{ id: "use-gh", label: "Use your existing gh CLI session instead" }],
-      create: { label: "Create a token on GitHub…", url: "https://github.com/settings/tokens/new?description=mattstack&scopes=repo%2Cread%3Aorg" },
+      create: { label: "Create a token on GitHub…", url: "https://github.com/settings/tokens/new?description=mattstack&scopes=repo%2Cread%3Aorg%2Cworkflow" },
     });
   });
 

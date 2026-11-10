@@ -30,6 +30,7 @@ function fakeSecrets(): SecretPresence {
 
 const readyExec: ExecScript = (argv) => {
   if (argv[0] === "sw_vers") return ok("15.6");
+  if (argv[0] === "gh" && argv[2] === "token") return ok("gho_session\n");
   return ok();
 };
 

@@ -22,8 +22,10 @@ export interface FakeForgeOpts {
   members?: Record<string, FakeMember>;
   /** Defaults to ["main", "mattstack"]. */
   branches?: string[];
-  /** Defaults to "main". */
+  /** Defaults to `firstPushed`, else "main". */
   defaultBranch?: string;
+  /** The branch pushed first into the empty repo, which both forges make its default. */
+  firstPushed?: string;
   /** GitHub: a repo a personal account owns. GitLab: the Free plan. Either way the forge cannot name who may push. */
   cannotNameUsers?: boolean;
   /** GitHub only: a private repo on a free plan, which cannot protect any branch. */
@@ -92,6 +94,7 @@ export function fakeGitHub(opts: FakeForgeOpts): FakeForge {
   const rules = new Map<string, { restricted: boolean; users: string[] }>();
   const writes: string[] = [];
   const base = "/repos/acme/widgets";
+  let defaultBranch = opts.defaultBranch ?? opts.firstPushed ?? "main";
   const fail = (status: number, message: string): ExecResult => ({ code: 1, stdout: JSON.stringify({ message }), stderr: `gh: ${message} (HTTP ${status})` });
   const exists = (user: string) => opts.users.some((u) => u.toLowerCase() === user.toLowerCase());
 
@@ -102,7 +105,12 @@ export function fakeGitHub(opts: FakeForgeOpts): FakeForge {
     const [route = "", query = ""] = path.split("?");
     const page = (items: unknown[]) => okJson(paginate ? [items] : items);
 
-    if (method === "GET" && route === base) return okJson({ default_branch: opts.defaultBranch ?? "main", owner: { type: opts.cannotNameUsers ? "User" : "Organization" } });
+    if (method === "GET" && route === base) return okJson({ default_branch: defaultBranch, owner: { type: opts.cannotNameUsers ? "User" : "Organization" } });
+    if (method === "PATCH" && route === base) {
+      if (!branches.has(fields.default_branch ?? "")) return fail(422, "Validation Failed");
+      defaultBranch = fields.default_branch!;
+      return okJson({ default_branch: defaultBranch });
+    }
     if (method === "GET" && route === `${base}/collaborators`) {
       const directOnly = query.includes("affiliation=direct");
       return page(
@@ -187,6 +195,7 @@ export function fakeGitLab(opts: FakeForgeOpts): FakeForge {
   let nextEntry = 1;
   const writes: string[] = [];
   const project = "projects/acme%2Fwidgets";
+  let defaultBranch = opts.defaultBranch ?? opts.firstPushed ?? "main";
   const fail = (status: number, message: string): ExecResult => ({ code: 1, stdout: JSON.stringify({ message }), stderr: `glab: ${status} ${message} (HTTP ${status})` });
   const row = (m: { username: string; level: AccessLevel; pending: boolean }) => ({ id: ids.get(m.username.toLowerCase()), username: m.username, access_level: GITLAB_LEVEL[m.level], membership_state: m.pending ? "awaiting" : "active" });
 
@@ -206,7 +215,12 @@ export function fakeGitLab(opts: FakeForgeOpts): FakeForge {
       const name = nameOf(Number(user[1]));
       return name ? okJson({ id: Number(user[1]), username: name }) : fail(404, "404 User Not Found");
     }
-    if (route === project) return okJson({ default_branch: opts.defaultBranch ?? "main" });
+    if (method === "PUT" && route === project) {
+      if (!branches.has(fields.default_branch ?? "")) return fail(400, "Invalid default branch");
+      defaultBranch = fields.default_branch!;
+      return okJson({ default_branch: defaultBranch });
+    }
+    if (route === project) return okJson({ default_branch: defaultBranch });
     if (method === "GET" && route === `${project}/members/all`) return okJson([...members.values()].map(row));
     if (method === "GET" && route === `${project}/members`) return okJson([...members.values()].filter((m) => !m.inherited).map(row));
     if (method === "POST" && route === `${project}/members`) {

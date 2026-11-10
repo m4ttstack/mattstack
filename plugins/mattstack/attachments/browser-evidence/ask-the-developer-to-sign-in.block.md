@@ -7,7 +7,7 @@ kind: gate
 
 A clarify question through gate-protocol, scope `clarify:browser-login:<n>`.
 The question says the saved login could not sign in, and offers exactly two
-options, each with one sentence and no free text and no Hold:
+options, each with one sentence and no free text and no `hold`:
 
 - **Logged in, retry**: the developer has signed in for this origin;
   spawn the driver again for these briefs.

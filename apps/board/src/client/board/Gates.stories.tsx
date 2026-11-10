@@ -1,6 +1,8 @@
 import { useEffect, type ReactNode } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
+import { expect, userEvent, waitFor, within } from 'storybook/test';
 
+import { ToastHost, useToasts } from '@mattstack/tui-kit';
 import { registerTheme, SoribashiProvider } from '@mattstack/tui-kit/provider';
 import { tuiTheme } from '@mattstack/tui-kit/theme';
 
@@ -8,12 +10,20 @@ import '@mattstack/tui-kit/theme.css';
 import '@mattstack/tui-kit/canvas.css';
 import '../../style.css';
 
+import type { ActionResult } from '../api.ts';
+import type { ExecutorState } from '../types.ts';
 import { DecisionQueueModal } from './DecisionQueueModal.tsx';
 import { DiffSourceContext, noDiffSource } from './diff-source.ts';
 import * as G from './gate-stories.fixtures.ts';
 import { assignMemberLooks } from './invadr-colors.ts';
+import {
+  FINDING_QUESTION,
+  findingQuestionFields,
+  runLaunchFlow,
+} from './launch-flow.ts';
 import { MemberLooksProvider } from './MemberInvadr.tsx';
 import { boardPeople, PeopleProvider } from './people.ts';
+import type { AskQuestion } from './ReviewGateSheet.tsx';
 
 /**
  * The review and respond gates as the board opens them, one story per gate
@@ -117,7 +127,18 @@ const STORY_LOOKS = assignMemberLooks(
   [...G.PEOPLE].map(([username]) => username)
 );
 
-function Face({ entry }: { entry: G.StoryGate }) {
+/** A story gate, optionally with the reconciler's view of its pane. */
+type FaceEntry = G.StoryGate & {
+  gate: G.StoryGate['gate'] & { executor?: ExecutorState };
+};
+
+function Face({
+  entry,
+  onAskQuestion,
+}: {
+  entry: FaceEntry;
+  onAskQuestion?: AskQuestion;
+}) {
   const people = boardPeople({
     allMembers: [...G.PEOPLE].map(([username, name]) => ({ username, name })),
     mrs: [entry.mr],
@@ -139,6 +160,7 @@ function Face({ entry }: { entry: G.StoryGate }) {
             onAnswered={noop}
             onContinue={noop}
             self="renee"
+            onAskQuestion={onAskQuestion}
           />
         </DiffSourceContext.Provider>
       </PeopleProvider>
@@ -193,4 +215,184 @@ export const ReviewCodeLoading: Story = {
       }}
     />
   ),
+};
+
+/** The review sheet's questions to the review pane, sent through the
+    board's own launch flow (`runLaunchFlow` with `FINDING_QUESTION`), so the
+    toasts read as they do on the board. `reply` stands in for the route:
+    a promise that never settles leaves the question sending. */
+function QuestionFace({
+  entry,
+  reply,
+}: {
+  entry: FaceEntry;
+  reply: () => Promise<ActionResult>;
+}) {
+  const { toasts, addToast, startToast } = useToasts();
+  const ask: AskQuestion = async (mr, gateId, findingId, question) => {
+    const result = await runLaunchFlow(
+      {
+        ...FINDING_QUESTION,
+        post: reply,
+        setQueued: noop,
+        rollback: noop,
+        addToast,
+        startToast,
+        reload: noop,
+      },
+      mr,
+      findingQuestionFields(gateId, findingId, question)
+    );
+    return Boolean(result?.ok);
+  };
+  return (
+    <>
+      <Face entry={entry} onAskQuestion={ask} />
+      <ToastHost toasts={toasts} />
+    </>
+  );
+}
+
+const answered =
+  (status: number, text = ''): (() => Promise<ActionResult>) =>
+  async () => ({
+    ok: status === 200,
+    status,
+    body: status === 200 ? {} : null,
+    text,
+  });
+const pending = () => new Promise<ActionResult>(() => {});
+
+/** The first round with the review pane holding at its gate. */
+const live: FaceEntry = G.reviewFirstRound;
+/** The same gate with its pane gone, as the reconciler reports it. */
+const paneGone: FaceEntry = {
+  ...live,
+  gate: { ...live.gate, executor: 'gone' },
+};
+/** The same gate parked after a long wait: the board closed its pane. */
+const parked: FaceEntry = {
+  ...live,
+  gate: { ...live.gate, status: 'parked', executor: 'gone' },
+};
+
+const QUESTION =
+  'Is a stale tile really worse than none here? The map shows the last good forecast on purpose.';
+
+/** Opens the first finding's question box and types `QUESTION` into it. */
+async function openQuestion(canvasElement: HTMLElement) {
+  const body = within(canvasElement.ownerDocument.body);
+  const [link] = await body.findAllByRole('button', {
+    name: /: ask a question$/,
+  });
+  await userEvent.click(link!);
+  const box = await body.findByRole('textbox', { name: /: your question$/ });
+  await userEvent.type(box, QUESTION);
+  return body;
+}
+
+async function sendQuestion(canvasElement: HTMLElement) {
+  const body = await openQuestion(canvasElement);
+  await userEvent.click(
+    body.getByRole('button', { name: 'Send to the agent' })
+  );
+  return body;
+}
+
+/** Every drafted finding, ticked or not, offers "ask a question" at the
+    end of its card head. */
+export const QuestionAskLink: Story = {
+  name: 'Review question: ask link',
+  decorators: [ReviewReport],
+  render: () => <QuestionFace entry={live} reply={answered(200)} />,
+};
+
+/** The question box under the first finding's head, with a question in
+    it. Cmd/Ctrl+Enter sends it, Escape cancels it. */
+export const QuestionBoxOpen: Story = {
+  name: 'Review question: box open',
+  decorators: [ReviewReport],
+  render: () => <QuestionFace entry={live} reply={answered(200)} />,
+  play: async ({ canvasElement }) => {
+    await openQuestion(canvasElement);
+  },
+};
+
+/** The question on its way: the box holds, the board toasts "asking in
+    the review pane", and every other finding's link waits. The route never
+    answers here, so it stays sending. */
+export const QuestionSending: Story = {
+  name: 'Review question: sending',
+  decorators: [ReviewReport],
+  render: () => <QuestionFace entry={live} reply={pending} />,
+  play: async ({ canvasElement }) => {
+    const body = await sendQuestion(canvasElement);
+    await waitFor(() =>
+      expect(
+        body.getByRole('textbox', { name: /: your question$/ })
+      ).toBeDisabled()
+    );
+  },
+};
+
+/** The review pane took the question: the area says so and offers the
+    pane. */
+export const QuestionAsked: Story = {
+  name: 'Review question: asked',
+  decorators: [ReviewReport],
+  render: () => <QuestionFace entry={live} reply={answered(200)} />,
+  play: async ({ canvasElement }) => {
+    const body = await sendQuestion(canvasElement);
+    await body.findByText('Sent a question to the reviewing agent');
+  },
+};
+
+/** The route refused (409): the toast names its reason, and the box keeps
+    the question to try again. */
+export const QuestionRefused: Story = {
+  name: 'Review question: 409 refused',
+  decorators: [ReviewReport],
+  render: () => (
+    <QuestionFace
+      entry={live}
+      reply={answered(409, 'Review pane is at a prompt. Answer it there first')}
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    const body = await sendQuestion(canvasElement);
+    await body.findByText(/Question failed for !826 \(409\)/);
+    await waitFor(() =>
+      expect(
+        body.getByRole('textbox', { name: /: your question$/ })
+      ).toBeEnabled()
+    );
+  },
+};
+
+/** An open gate whose review pane is gone: every link stays, disabled,
+    with what unlocks them as the tooltip ("Resume the review from its row
+    first"). */
+export const QuestionPaneGone: Story = {
+  name: 'Review question: pane gone',
+  decorators: [ReviewReport],
+  render: () => <QuestionFace entry={paneGone} reply={answered(200)} />,
+};
+
+/** A parked gate: its pane was closed on park, but the link stays live,
+    since asking resumes the review's session with the question. */
+export const QuestionParked: Story = {
+  name: 'Review question: parked gate',
+  decorators: [ReviewReport],
+  render: () => <QuestionFace entry={parked} reply={answered(200)} />,
+  play: async ({ canvasElement }) => {
+    await openQuestion(canvasElement);
+  },
+};
+
+/** The gate the reviewer re-raised after narrowing f2: its card carries
+    the revised line, with what changed behind "Show changes". */
+export const QuestionRevised: Story = {
+  name: 'Review question: revised strip',
+  decorators: [ReviewReport],
+  render: () => <QuestionFace entry={G.reviewRevised} reply={answered(200)} />,
 };

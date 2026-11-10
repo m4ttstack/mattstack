@@ -16,7 +16,12 @@ import type { GateQuestion } from '../types';
 
 export { Questionnaire } from '@shadcn/react/questionnaire';
 export type { QuestionnaireItemDefinition } from '@shadcn/react/questionnaire';
-export { gateDraftKey, useGateDraft } from './draft';
+export {
+  clearGateDraft,
+  gateDraftKey,
+  readGateDraft,
+  useGateDraft,
+} from './draft';
 export type { GateDraft } from './draft';
 
 /** The slice of a gate the adapter needs; both apps' row shapes satisfy it

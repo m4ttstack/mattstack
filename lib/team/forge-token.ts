@@ -13,6 +13,7 @@ import { createRealAgeKeySeam } from "../home/age-key.ts";
 import { createRealSecretsExecSeam } from "../secrets/store.ts";
 import type { Probes } from "../setup/probes.ts";
 import { readStagedSecret } from "../setup/staging.ts";
+import { bundledToolExec } from "../deps/resolve.ts";
 
 export type ForgeTokenLookup =
   | { kind: "token"; token: string }
@@ -23,6 +24,18 @@ export type ForgeTokenLookup =
 export interface ForgeTokenSeams {
   readStored: (domain: string, key: string) => Promise<string | null>;
   readStaged: (domain: string, key: string) => string | null;
+  readGhSession?: () => Promise<string | null>;
+}
+
+const GH_TOKEN_TIMEOUT_MS = 5000;
+
+export async function ghSessionToken(p: Probes): Promise<string | null> {
+  // test-setup.ts sets this so no unit test can read the developer's real gh login.
+  if (p.env.RT_GH_TOKEN_FALLBACK === "off") return null;
+  // Named, because a bare `gh auth token` answers for gh's default host, and rt files the answer as github.com's.
+  const res = await p.exec([...(bundledToolExec(p, "gh") ?? ["gh"]), "auth", "token", "--hostname", "github.com"], { timeoutMs: GH_TOKEN_TIMEOUT_MS });
+  const token = res.stdout.trim();
+  return res.code === 0 && token ? token : null;
 }
 
 export async function forgeTokenLookup(remote: string, seams: ForgeTokenSeams): Promise<ForgeTokenLookup> {
@@ -37,7 +50,9 @@ export async function forgeTokenLookup(remote: string, seams: ForgeTokenSeams): 
     }
   }
   const staged = seams.readStaged("rt", key);
-  return staged === null ? { kind: "absent" } : { kind: "token", token: staged };
+  if (staged !== null) return { kind: "token", token: staged };
+  const session = key === "githubToken" ? await seams.readGhSession?.() : null;
+  return session ? { kind: "token", token: session } : { kind: "absent" };
 }
 
 export function tokenOrNull(lookup: ForgeTokenLookup): string | null {
@@ -45,9 +60,9 @@ export function tokenOrNull(lookup: ForgeTokenLookup): string | null {
 }
 
 /** The plan's own presence read (`realSecretPresence`) already folds stored-then-staged into one answer, so a second staged read here would double-count, not fill a gap. */
-export async function forgeTokenLookupFromPresence(remote: string, secrets: SecretPresence | undefined): Promise<ForgeTokenLookup> {
+export async function forgeTokenLookupFromPresence(remote: string, secrets: SecretPresence | undefined, p?: Probes): Promise<ForgeTokenLookup> {
   if (!secrets) return { kind: "absent" };
-  return forgeTokenLookup(remote, { readStored: (d, k) => secrets.has(d, k), readStaged: () => null });
+  return forgeTokenLookup(remote, { readStored: (d, k) => secrets.has(d, k), readStaged: () => null, ...(p ? { readGhSession: () => ghSessionToken(p) } : {}) });
 }
 
 /** The standalone read, for callers with no plan in hand: both stages are theirs to do. */
@@ -55,6 +70,15 @@ export async function forgeTokenLookupReal(p: Probes, remote: string): Promise<F
   return forgeTokenLookup(remote, {
     readStored: (d, k) => readSecret(d, k, { ageKeySeam: createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() }),
     readStaged: (d, k) => readStagedSecret(p, d, k),
+  });
+}
+
+/** What git can authenticate with: rt's own token, else the gh session, which git cannot reach by itself unless `gh auth setup-git` ran. */
+export async function forgeTokenLookupForGit(p: Probes, remote: string): Promise<ForgeTokenLookup> {
+  return forgeTokenLookup(remote, {
+    readStored: (d, k) => readSecret(d, k, { ageKeySeam: createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() }),
+    readStaged: (d, k) => readStagedSecret(p, d, k),
+    readGhSession: () => ghSessionToken(p),
   });
 }
 
@@ -70,7 +94,7 @@ const UNSPOOFABLE_FORGE_HOSTS = new Set(["github.com", "gitlab.com"]);
 export function mayOfferTokenToHost(host: string | null, confirmedHost: string | null | undefined): boolean {
   if (host === null) return false;
   if (UNSPOOFABLE_FORGE_HOSTS.has(host)) return true;
-  return confirmedHost !== null && confirmedHost !== undefined && host === confirmedHost;
+  return confirmedHost !== null && confirmedHost !== undefined && host === confirmedHost.toLowerCase();
 }
 
 export function mayOfferToken(remote: string, confirmedHost: string | null | undefined): boolean {
@@ -117,5 +141,5 @@ export async function forgeTokenLookupForRemote(
   remote: string,
   confirmedHost: string | null | undefined,
 ): Promise<ForgeTokenLookup> {
-  return withholdFromUntrustedHost(await forgeTokenLookupReal(p, remote), remote, confirmedHost);
+  return withholdFromUntrustedHost(await forgeTokenLookupForGit(p, remote), remote, confirmedHost);
 }

@@ -97,4 +97,31 @@ describe("parseRemoteUrl", () => {
     expect(isGitLabRemote(spoof)).toBe(false);
     expect(isGitLabRemote(`https://oauth2:${FAKE}@gitlab.example.com/acme/app.git`)).toBe(true);
   });
+
+  test("ssh:// and non-git ssh users parse like git@", () => {
+    expect(parseRemoteUrl("ssh://git@github.com/acme/app.git")).toEqual({ host: "https://github.com", projectPath: "acme/app" });
+    expect(parseRemoteUrl("org-123@github.com:acme/app.git")).toEqual({ host: "https://github.com", projectPath: "acme/app" });
+    expect(isGitHubRemote("ssh://git@github.com/acme/app.git")).toBe(true);
+    expect(isGitHubRemote("org-123@github.com:acme/app.git")).toBe(true);
+  });
+
+  test("an uppercase host is the same forge", () => {
+    expect(isGitHubRemote("https://GitHub.com/acme/app")).toBe(true);
+    expect(parseRemoteUrl("https://GitHub.com/acme/app")?.host).toBe("https://github.com");
+  });
+
+  test("a trailing slash stays out of the project path", () => {
+    expect(parseRemoteUrl("https://github.com/acme/app/")?.projectPath).toBe("acme/app");
+    expect(parseRemoteUrl("https://github.com/acme/app.git/")?.projectPath).toBe("acme/app");
+  });
+
+  test("an ssh port is not the API port, and an https port is", () => {
+    expect(parseRemoteUrl("ssh://git@gitlab.example.com:2222/acme/app.git")).toEqual({ host: "https://gitlab.example.com", projectPath: "acme/app" });
+    expect(parseRemoteUrl("https://gitlab.example.com:8443/acme/app.git")).toEqual({ host: "https://gitlab.example.com:8443", projectPath: "acme/app" });
+  });
+
+  test("a local remote has no host to parse", () => {
+    expect(parseRemoteUrl("/srv/git/app.git")).toBeNull();
+    expect(parseRemoteUrl("file:///srv/git/app.git")).toBeNull();
+  });
 });

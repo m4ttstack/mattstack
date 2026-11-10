@@ -154,10 +154,6 @@ export async function gateOpen(
   const questions = JSON.parse(questionsJson) as GateQuestion[];
   const db = openDbForHandle(statePath);
   const state = readGateVerbState(statePath, db);
-  // The skill writes its report just before parking at a gate, so the board
-  // must be able to serve it for the whole time the pane sits here -- this
-  // is the moment that write is most likely to have just landed.
-  ingestReport(statePath, db);
   const domain = domainForKind(kind);
   if (!domain) throw new Error(`gate open: unrecognized kind "${kind}"`);
 
@@ -218,6 +214,15 @@ export async function gateOpen(
       Date.now(),
       db
     );
+  }
+
+  // Only once the gate is open and recorded: a re-raise whose open fails
+  // restores the report files, so the board must not keep serving the
+  // revision, and a failure here must not report the open gate as failed.
+  try {
+    ingestReport(statePath, db);
+  } catch (err) {
+    console.error(`report ingestion failed: ${String(err)}`);
   }
 
   return {

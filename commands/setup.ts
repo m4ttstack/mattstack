@@ -47,7 +47,7 @@ import { isValidHostname } from "../lib/setup/host-validate.ts";
 import { CONNECT_WAIT_MS, endLogin, FINISH_IN_BROWSER, readLogin, startLogin, waitForSignIn, type LoginSeams } from "../lib/setup/cli-login.ts";
 import { integrationDef, type ValidateCtx } from "../lib/setup/integrations.ts";
 import { clearIntent, HOME_REPO_PATTERN, readIntent, orgRefFromIntent, writeIntent } from "../lib/setup/intent.ts";
-import { forgeRole, missingScopes, scopeShortfallDetail } from "../lib/setup/token-create.ts";
+import { forgeRole, missingScopes, recommendedScopeWarning, scopeShortfallDetail } from "../lib/setup/token-create.ts";
 import type { forgeLogin } from "../lib/team/forge.ts";
 import { cloneOrigin, recordForgeIdentity } from "../lib/setup/steps/org.ts";
 import { cloneSlugs, forgeFromRemote, hostFromRemote, legacyDeclaredForge } from "../lib/setup/team-settings.ts";
@@ -75,7 +75,7 @@ import { discoverOrgs, readTeamSnapshot, readUserIntegrationOverrides, type Team
 import type { Plan, Row } from "../lib/setup/contract.ts";
 import { createRelayClient, type RelayClient } from "../lib/team/relay-client.ts";
 import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
-import type { SecretPresence } from "../lib/setup/validators/accounts.ts";
+import { parseGhScopes, type SecretPresence } from "../lib/setup/validators/accounts.ts";
 
 export interface SetupDeps {
   probes: Probes;
@@ -1112,7 +1112,7 @@ function realHomeBackupDeps(): HomeBackupDeps {
 }
 
 async function canCreateGitHubRepo(deps: HomeBackupDeps): Promise<boolean> {
-  if ((await deps.probes.exec(["gh", "auth", "status"])).code === 0) return true;
+  if ((await deps.probes.exec(["gh", "auth", "status", "--hostname", "github.com"])).code === 0) return true;
   return (await createCapableGitHubToken(deps.probes, deps.githubToken)) !== null;
 }
 
@@ -1435,17 +1435,19 @@ function parseOrgLogins(stdout: string): string[] {
 /** Handle/owners come from a live `gh` session regardless of which credential source produced the row's own status — a stored token and a gh session are independent facts. */
 async function evalGithub(p: Probes, secrets: SecretPresence, ctx: ValidateCtx): Promise<IntegrationEval> {
   const def = integrationDef("github");
-  const ghStatus = await p.exec(["gh", "auth", "status"]);
+  const ghStatus = await p.exec(["gh", "auth", "status", "--hostname", "github.com"]);
   const ghAuthed = ghStatus.code === 0;
   const stored = await secrets.has("rt", "githubToken");
 
   let base: IntegrationEval;
   if (stored === null) {
+    const ghScopes = parseGhScopes(`${ghStatus.stdout}\n${ghStatus.stderr}`);
     base = ghAuthed
-      ? { status: "ready", detail: GH_SOURCE_DETAIL, scopesSeen: [] }
+      ? { status: "ready", detail: `${GH_SOURCE_DETAIL}${recommendedScopeWarning("github", ghScopes)}`, scopesSeen: [] }
       : { status: "missing", detail: ghStatus.code === 127 ? "No GitHub account connected yet, and the gh CLI is not installed" : "No GitHub account connected yet", scopesSeen: [] };
   } else {
-    base = nonErrorEval(await def.validate(p, stored, ctx));
+    const evaluated = nonErrorEval(await def.validate(p, stored, ctx));
+    base = evaluated.status === "ready" ? { ...evaluated, detail: `${evaluated.detail}${recommendedScopeWarning("github", evaluated.scopesSeen)}` } : evaluated;
   }
 
   if (!ghAuthed) return base;
@@ -1651,7 +1653,7 @@ export async function setupJoinStatus(args: string[], _ctx: CommandContext = {},
 // ─── connect ────────────────────────────────────────────────────────────
 
 async function ghAuthToken(p: Probes): Promise<string> {
-  const res = await p.exec(["gh", "auth", "token"]);
+  const res = await p.exec(["gh", "auth", "token", "--hostname", "github.com"]);
   if (res.code !== 0) throw new UserActionableError("gh-token-failed", "Could not read a token from gh. Run gh auth login first");
   return res.stdout.trim();
 }
@@ -1682,7 +1684,7 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
   // A team can declare a self-hosted forge, but that declaration is never
   // sent a credential on its own: the user confirms it once, here, by
   // passing --host, and ctxFor then only ever trusts the confirmed value.
-  const hostFlag = id === "gitlab" ? flagValue(args, "--host") : undefined;
+  const hostFlag = id === "gitlab" ? flagValue(args, "--host")?.toLowerCase() : undefined;
   if (hostFlag !== undefined && !isValidHostname(hostFlag)) {
     throw new UserActionableError("bad-host", `--host takes a bare hostname such as gitlab.example.com, not ${hostFlag}`);
   }
@@ -1778,7 +1780,7 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
     ? sourceDetail
       ? `${sourceDetail}. Saved for now; Install stores it once your key exists`
       : "Saved for now; Install stores it once your key exists"
-    : (sourceDetail ?? result.detail));
+    : `${sourceDetail ?? result.detail}${id === "github" ? recommendedScopeWarning("github", result.scopesSeen) : ""}`);
 
   printIntegrationResult(deps, args.includes("--json"), { integration: id, status: "ready", detail, scopesSeen: result.scopesSeen });
 }

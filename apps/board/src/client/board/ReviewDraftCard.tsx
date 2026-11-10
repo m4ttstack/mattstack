@@ -10,9 +10,16 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
+import {
+  ChevronDown,
+  ChevronUp,
+  History,
+  MessageCircleQuestionMark,
+} from 'lucide-react';
 import { AnimatePresence, domAnimation, LazyMotion, m } from 'motion/react';
 
-import { Button, ICONS, Modal, Popover } from '@mattstack/tui-kit';
+import { Button, ICONS, Modal, Popover, Tooltip } from '@mattstack/tui-kit';
+import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
 import { ClickToEditField } from './ClickToEditField.tsx';
 import { CodePath } from './CodePath.tsx';
 import { commentState, resetToWrite } from './CommentComposer.tsx';
@@ -28,18 +35,26 @@ import {
   type FileDiff,
 } from './diff-source.ts';
 import type { DiffPin } from './DiffView.tsx';
+import { Disclosure } from './Disclosure.tsx';
 import type { FindingEntry } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
-import { CardBody, CommentArea, DraftField } from './GateParts.tsx';
+import {
+  CARD_BODY_MS,
+  CardBody,
+  CommentArea,
+  DraftField,
+} from './GateParts.tsx';
 import {
   AgentGlyph,
   ArrowOutGlyph,
+  CheckGlyph,
   ChevronGlyph,
   FileGlyph,
   UndoGlyph,
 } from './icons.tsx';
 import { CommentAuthor } from './PersonLead.tsx';
 import { commentKey, hasDiffLine, summaryKey } from './review-drafts.ts';
+import { SEVERITY_LABEL } from './review-gate.ts';
 
 /** A diff that fails to load or render leaves the file header standing. */
 class DiffBoundary extends Component<
@@ -660,9 +675,316 @@ function CommentSection({
   );
 }
 
+/** A `file:line` anchor split into its path and the line part after the
+    last colon (a single line or a range such as `117–119`). */
+function splitAnchor(file: string | undefined): {
+  path: string;
+  lines?: string;
+} {
+  if (file === undefined) return { path: '' };
+  const m = /^(.*):(\d[^:]*)$/.exec(file);
+  return m ? { path: m[1]!, lines: m[2]! } : { path: file };
+}
+
+export interface RevisionChange {
+  label: string;
+  value: string;
+  originalTitle?: string;
+  original?: string;
+}
+
+/** What a revision changed, in the list's order: the severity, the anchor
+    (lines on the same file, the whole anchor when the file moved), whether
+    the title or body was reworded, then the fix and the drafted comment. */
+export function revisionChanges(
+  original: FindingEntry,
+  revised: FindingEntry
+): RevisionChange[] {
+  const changes: RevisionChange[] = [];
+  if (original.severity !== revised.severity)
+    changes.push({
+      label: 'Severity',
+      value: `${SEVERITY_LABEL[original.severity]} → ${SEVERITY_LABEL[revised.severity]}`,
+    });
+  if (original.file !== revised.file) {
+    const a = splitAnchor(original.file);
+    const b = splitAnchor(revised.file);
+    changes.push(
+      a.path === b.path && a.lines !== undefined && b.lines !== undefined
+        ? { label: 'Lines', value: `${a.lines} → ${b.lines}` }
+        : {
+            label: 'File',
+            value: `${original.file ?? 'No file'} → ${revised.file ?? 'No file'}`,
+          }
+    );
+  }
+  if (original.title !== revised.title || original.body !== revised.body)
+    changes.push({
+      label: 'Finding',
+      value: 'Reworded',
+      originalTitle: original.title,
+      original: original.body,
+    });
+  if (original.fix !== revised.fix)
+    changes.push({
+      label: 'Fix',
+      value:
+        original.fix === undefined
+          ? 'Added'
+          : revised.fix === undefined
+            ? 'Removed'
+            : 'Changed',
+      original: original.fix,
+    });
+  if (original.comment !== revised.comment)
+    changes.push({
+      label: 'Comment',
+      value: original.comment === undefined ? 'Added' : 'Rewritten',
+      original: original.comment,
+    });
+  return changes;
+}
+
+/** A finding the review agent revised in its own pane and re-raised the
+    gate with: one quiet line, with what changed behind a toggle and each
+    original behind its own. */
+function RevisedStrip({
+  original,
+  revised,
+}: {
+  original: FindingEntry;
+  revised: FindingEntry;
+}) {
+  const [open, setOpen] = useState(false);
+  const [shown, setShown] = useState<string | null>(null);
+  const changes = revisionChanges(original, revised);
+  const Chevron = open ? ChevronUp : ChevronDown;
+  return (
+    <div className="tui-review-revised">
+      <div className="tui-review-revised-head">
+        <History size={14} aria-hidden />
+        <span className="tui-review-revised-text">Revised by the agent</span>
+        {changes.length > 0 && (
+          <span className="tui-review-revised-count">
+            {changes.length} {changes.length === 1 ? 'change' : 'changes'}
+          </span>
+        )}
+        {changes.length > 0 && (
+          <Button
+            type="button"
+            variant="subtle"
+            intent="accent"
+            size="sm"
+            className="tui-review-revised-toggle"
+            aria-expanded={open}
+            onClick={() => setOpen(o => !o)}
+          >
+            {open ? 'Hide changes' : 'Show changes'}
+            <Chevron size={14} aria-hidden />
+          </Button>
+        )}
+      </div>
+      <Disclosure open={open}>
+        <dl className="tui-review-revised-changes">
+          {changes.map(change => (
+            <div className="tui-review-revised-change" key={change.label}>
+              <dt>{change.label}</dt>
+              <dd>{change.value}</dd>
+              {change.original !== undefined && (
+                <Button
+                  type="button"
+                  variant="subtle"
+                  intent="accent"
+                  size="sm"
+                  aria-label={`${change.label}: ${shown === change.label ? 'hide' : 'show'} original`}
+                  aria-expanded={shown === change.label}
+                  onClick={() =>
+                    setShown(s => (s === change.label ? null : change.label))
+                  }
+                >
+                  {shown === change.label ? 'Hide original' : 'Show original'}
+                  {shown === change.label ? (
+                    <ChevronUp size={14} aria-hidden />
+                  ) : (
+                    <ChevronDown size={14} aria-hidden />
+                  )}
+                </Button>
+              )}
+              {change.original !== undefined && (
+                <Disclosure open={shown === change.label}>
+                  <div className="tui-review-revised-original">
+                    {change.originalTitle !== undefined && (
+                      <p className="tui-review-revised-title">
+                        {change.originalTitle}
+                      </p>
+                    )}
+                    <CommentMarkdown>{change.original}</CommentMarkdown>
+                  </div>
+                </Disclosure>
+              )}
+            </div>
+          ))}
+        </dl>
+      </Disclosure>
+    </div>
+  );
+}
+
+/** One finding's question to the review pane: `idle` offers "ask a
+    question", `open` is the area being written, `sending` is the request in
+    flight, `asked` is a question the pane took. `blocked` is set while
+    another finding's question is sending: one question at a time.
+    `unavailable` is why no question can be asked at all (the review pane is
+    gone): the link stays, disabled, with the reason as its tooltip. */
+export interface FindingAsk {
+  state: 'idle' | 'open' | 'sending' | 'asked';
+  blocked: boolean;
+  unavailable?: string;
+  onOpen: () => void;
+  onCancel: () => void;
+  /** What is written so far, held by the sheet so a tab switch keeps it. */
+  draft: string;
+  onDraft: (text: string) => void;
+  onSend: (question: string) => void;
+  /** Brings the review pane forward; absent when the sheet cannot. */
+  onFocusPane?: () => void;
+}
+
+export const ASK_PLACEHOLDER = 'What do you want to know about this finding?';
+
+const ASK_TIP = 'Ask the reviewing agent about this finding';
+
+/** A finding's "ask a question" link, at the end of the card head. */
+export function AskLink({ title, ask }: { title: string; ask: FindingAsk }) {
+  const link = (
+    <Button
+      type="button"
+      iconOnly
+      variant="subtle"
+      intent="muted"
+      size="sm"
+      className="tui-review-ask-link"
+      aria-label={`${title}: ask a question`}
+      aria-expanded={ask.state !== 'idle'}
+      disabled={
+        ask.unavailable !== undefined || ask.blocked || ask.state === 'sending'
+      }
+      title={ask.unavailable}
+      onClick={ask.onOpen}
+    >
+      <MessageCircleQuestionMark size={18} aria-hidden />
+    </Button>
+  );
+  return ask.unavailable ? link : <Tooltip tip={ASK_TIP}>{link}</Tooltip>;
+}
+
+/** The area under the card head where the question is written and sent to
+    the review pane, then where the sheet says the pane took it. */
+function AskArea({ title, ask }: { title: string; ask: FindingAsk }) {
+  const text = ask.draft;
+  const fieldRef = useAutoGrowTextarea([text, ask.state]);
+  const areaRef = useRef<HTMLDivElement | null>(null);
+  // autoFocus lands while the card body is still at height 0, so the browser
+  // cannot scroll to it: the box comes into view once the body has opened.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      areaRef.current?.scrollIntoView?.({
+        block: 'nearest',
+        behavior: reduced ? 'auto' : 'smooth',
+      });
+    }, CARD_BODY_MS);
+    return () => clearTimeout(timer);
+  }, []);
+  if (ask.state === 'asked')
+    return (
+      <div className="tui-review-ask" data-asked="">
+        <span className="tui-review-ask-done" role="status">
+          <CheckGlyph />
+          Sent a question to the reviewing agent
+        </span>
+        {ask.onFocusPane && (
+          <Button
+            type="button"
+            variant="subtle"
+            intent="accent"
+            size="sm"
+            onClick={ask.onFocusPane}
+          >
+            Focus the review pane
+            <ArrowOutGlyph />
+          </Button>
+        )}
+      </div>
+    );
+  const sending = ask.state === 'sending';
+  const empty = text.trim() === '';
+  return (
+    <div className="tui-review-ask" ref={areaRef}>
+      <div className="tui-review-ask-field">
+        <textarea
+          ref={fieldRef}
+          className="tui-composer-input"
+          rows={3}
+          maxLength={2000}
+          value={text}
+          placeholder={ASK_PLACEHOLDER}
+          aria-label={`${title}: your question`}
+          disabled={sending}
+          autoFocus
+          onChange={e => ask.onDraft(e.currentTarget.value)}
+          onKeyDown={e => {
+            // Escape and Cmd/Ctrl+Enter here are the question's, never the
+            // sheet's: Escape cancels the question rather than closing the
+            // sheet, and Cmd/Ctrl+Enter sends it rather than posting the
+            // review (sheet-keys.ts submits from any field).
+            if (e.key === 'Escape') {
+              e.stopPropagation();
+              if (!sending) ask.onCancel();
+              return;
+            }
+            if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return;
+            e.stopPropagation();
+            e.preventDefault();
+            if (!sending && !empty && !ask.blocked) ask.onSend(text);
+          }}
+        />
+      </div>
+      <div className="tui-review-ask-actions">
+        <Button
+          type="button"
+          variant="filled"
+          intent="accent"
+          size="sm"
+          disabled={sending || empty || ask.blocked}
+          title={
+            ask.blocked ? 'Wait for the other question to send' : undefined
+          }
+          onClick={() => ask.onSend(text)}
+        >
+          Send to the agent
+        </Button>
+        <Button
+          type="button"
+          variant="light"
+          intent="muted"
+          size="sm"
+          disabled={sending}
+          onClick={ask.onCancel}
+        >
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /** One finding in a review whose comments the board posts: the header
     with its tick, then The Code, the agent's finding and the comment that
-    posts. Unticked, only the header shows. */
+    posts. Unticked, only the header shows, carrying the ask link (the
+    caller puts it in `head`) with the ask area under it. A finding the review pane
+    revised carries the revised strip under its header, ticked or not, so
+    the change is in view while deciding whether to post it. */
 export function FindingCard({
   finding: f,
   checked,
@@ -673,6 +995,8 @@ export function FindingCard({
   mrRevision,
   pins,
   you,
+  ask,
+  revision,
 }: {
   finding: FindingEntry;
   checked: boolean;
@@ -684,13 +1008,29 @@ export function FindingCard({
   pins: FilePin[];
   /** The reviewer's username, for the avatar beside the comment. */
   you?: string;
+  ask?: FindingAsk;
+  /** The finding as the gate this one superseded carried it. */
+  revision?: { original: FindingEntry };
 }) {
   return (
     <article
       className="tui-review-finding tui-review-card"
       data-off={checked ? undefined : ''}
+      data-revised={revision ? '' : undefined}
     >
       {head}
+      {revision && <RevisedStrip original={revision.original} revised={f} />}
+      {ask && (
+        <CardBody open={ask.state !== 'idle'}>
+          <section
+            className="tui-review-section"
+            data-section="ask"
+            aria-label="Question"
+          >
+            <AskArea title={f.title} ask={ask} />
+          </section>
+        </CardBody>
+      )}
       <CardBody open={checked}>
         {hasDiffLine(f) ? (
           <CodeSection

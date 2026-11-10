@@ -40,16 +40,15 @@ approves. The reviewer keeps its context across rounds, so round two is
 
 ## Reviewer prompt
 
-Do not write a custom review prompt; pick by document type:
+Every document uses the generic template below. Fill [DOC_FILE_PATH]
+with the target and [REF_FILE_PATH] with whatever it answers to (the spec
+a plan implements, a ticket, a brief); drop that line if nothing upstream
+exists. Write no other custom review prompt.
 
-- **Implementation plan:** use the reviewer template that ships with
-  superpowers:writing-plans (plan-document-reviewer-prompt.md in that
-  skill's directory). Fill [PLAN_FILE_PATH] with the plan and
-  [SPEC_FILE_PATH] with the spec it implements.
-- **Anything else** (spec, design doc, RFC, any document): use the
-  generic template below. Fill [DOC_FILE_PATH] with the target and
-  [REF_FILE_PATH] with whatever it answers to (spec, ticket, brief);
-  drop that line if nothing upstream exists.
+For an **implementation plan**, the template also carries the plan's own
+rubric. Fill [PLAN_CHECKS] with the numbered checks from the
+`## Self-Review` section of superpowers:writing-plans' SKILL.md, copied
+verbatim. For any other document, delete the `## Plan checks` section.
 
 Either way, append this loop clause to the prompt:
 
@@ -84,6 +83,13 @@ for what comes next.
 | Internal consistency | contradictions, assumptions made in one section broken in another |
 | Alignment | covers the upstream reference's requirements, no silent scope creep |
 | Actionability | could the next person act on this without getting stuck? |
+
+## Plan checks
+
+Run each check below against the plan as its author would, and report
+every failure as an issue.
+
+[PLAN_CHECKS]
 
 ## Calibration
 

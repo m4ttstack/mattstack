@@ -1,8 +1,9 @@
 /**
  * The token scopes rt needs on each forge, and the forge's own new-token page
  * with them pre-checked. The required list feeds the Connect sheet's hint and
- * the scope check; the create link pre-checks it plus a few extras
- * (LINK_EXTRAS), which the check and the hint never read.
+ * the scope check; the create link and GitHub's device sign-in also ask for
+ * the recommended scopes (RECOMMENDED), which only warn when missing, and the
+ * link pre-checks a few extras (LINK_EXTRAS) that nothing else reads.
  *
  * GitLab grants git abilities through API scopes (lib/gitlab/auth.rb):
  * `read_api` carries download_code but no API writes, and the board's
@@ -21,6 +22,12 @@ export type ForgeRole = "owner" | "member";
 const SCOPES: Record<ForgeProvider, Record<ForgeRole, readonly string[]>> = {
   github: { owner: ["repo", "read:org"], member: ["repo", "read:org"] },
   gitlab: { owner: ["api"], member: ["api"] },
+};
+
+/** Scopes rt asks new tokens for without requiring them, so a token people already have keeps working. */
+const RECOMMENDED: Partial<Record<ForgeProvider, readonly string[]>> = {
+  // GitHub refuses an https push that changes .github/workflows without it.
+  github: ["workflow"],
 };
 
 /** Scopes the create link pre-checks beyond the required ones; the check and the hint never read them. */
@@ -58,7 +65,7 @@ export function forgeScopes(provider: ForgeProvider, role: ForgeRole): string[] 
 
 /** What the create link pre-checks: the required scopes plus the extras. */
 export function linkScopes(provider: ForgeProvider, role: ForgeRole): string[] {
-  return [...new Set([...forgeScopes(provider, role), ...(LINK_EXTRAS[provider] ?? [])])];
+  return [...new Set([...forgeScopes(provider, role), ...(RECOMMENDED[provider] ?? []), ...(LINK_EXTRAS[provider] ?? [])])];
 }
 
 export function tokenField(provider: ForgeProvider, role: ForgeRole): ConnectField {
@@ -83,6 +90,18 @@ export function missingScopes(provider: ForgeProvider, role: ForgeRole, scopesSe
     for (const implied of IMPLIES[scope] ?? []) held.add(implied);
   }
   return forgeScopes(provider, role).filter((scope) => !held.has(scope));
+}
+
+/** Empty for a token that reports no scopes, as `missingScopes` is. */
+export function missingRecommended(provider: ForgeProvider, scopesSeen: readonly string[]): string[] {
+  if (scopesSeen.length === 0) return [];
+  return (RECOMMENDED[provider] ?? []).filter((scope) => !scopesSeen.includes(scope));
+}
+
+/** A clause that follows a "token works" detail, or nothing. */
+export function recommendedScopeWarning(provider: ForgeProvider, scopesSeen: readonly string[]): string {
+  const missing = missingRecommended(provider, scopesSeen);
+  return missing.length ? `, but without ${missing.join(", ")} it can't push workflow changes` : "";
 }
 
 export function scopeShortfallDetail(provider: ForgeProvider, role: ForgeRole, missing: readonly string[]): string {

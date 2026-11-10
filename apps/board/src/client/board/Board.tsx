@@ -135,7 +135,8 @@ import {
   useMerging,
   useOptimisticLifecycle,
 } from './hooks.ts';
-import { assignMemberLooks } from './invadr-colors.ts';
+import { assignMemberLooks, lookOrder } from './invadr-colors.ts';
+import { FINDING_QUESTION, findingQuestionFields } from './launch-flow.ts';
 import { MemberInvadr, MemberLooksProvider } from './MemberInvadr.tsx';
 import { mrRef, onGitHub } from './MrLinks.tsx';
 import { NEED_LABEL, NEED_ORDER, needOf } from './needs-me.ts';
@@ -755,6 +756,32 @@ export function Board() {
     reload: load,
     failureMessage: resumeRespondFailureMessage,
   });
+
+  const questionAction = useLaunchAction({
+    axis: null,
+    ...FINDING_QUESTION,
+    optimistic: optimisticLifecycle,
+    addToast,
+    startToast,
+    reload: load,
+  });
+  // Resolves whether the review pane took the question, so the sheet can
+  // say so under the finding.
+  const askQuestion = useCallback(
+    async (
+      mr: BoardMRWithReview,
+      gateId: string,
+      findingId: string,
+      question: string
+    ) => {
+      const result = await questionAction(
+        mr,
+        findingQuestionFields(gateId, findingId, question, mr.review?.tabId)
+      );
+      return Boolean(result?.ok);
+    },
+    [questionAction]
+  );
 
   // Each flow's payload lives here once: the row menu, the bulk menu, the
   // status line's verbs and the decision queue all launch through it.
@@ -1486,19 +1513,15 @@ export function Board() {
   }, [data, optimisticLifecycle.state, merging.merging, state, draftResolved]);
   // Looks follow the roster on screen, so whoever this tab lists gets the
   // most distinct colours first: the team in roster order, or an inferred
-  // roster (codeowners, Needs me) alphabetically. Every other author follows
-  // alphabetically so their rows still match. Joined to a string so a poll
-  // with the same people keeps the memo.
+  // roster (codeowners, Needs me) alphabetically. Everyone else the board
+  // can draw follows (see lookOrder). Joined to a string so a poll with the
+  // same people keeps the memo.
   const lookIds = useMemo(() => {
     if (!data || !boardView) return '';
     const listed = boardView.inferred
       ? boardView.roster.map(m => m.username).sort()
       : data.members.map(m => m.username);
-    const seen = new Set(listed);
-    const others = [...new Set(data.mrs.map(mr => mr.author.username))]
-      .filter(u => !seen.has(u))
-      .sort();
-    return [...listed, ...others].join('\n');
+    return lookOrder(listed, data).join('\n');
   }, [data, boardView]);
   // A restarted server answers with no faces until it has read Slack again,
   // so only an empty answer keeps the last ones.
@@ -1556,7 +1579,12 @@ export function Board() {
       if (gate.status === 'answered') ids.add(gate.gateId);
     return ids;
   }, [data]);
-  const queue = useDecisionQueue(queueEntries, answeredGateIds);
+  const gateReplacements = data?.gateReplacements;
+  const queue = useDecisionQueue(
+    queueEntries,
+    answeredGateIds,
+    gateReplacements
+  );
   const activeGateId = queue.active?.gate.gateId ?? null;
   const retireActiveGate = () => {
     if (activeGateId === null) return;
@@ -2314,6 +2342,7 @@ export function Board() {
               onContinue={retireActiveGate}
               onLostChange={lost => queue.hold(lost ? activeGateId : null)}
               self={seat}
+              onAskQuestion={askQuestion}
               readOnly={gateReadOnlyReason(
                 queue.active.gate,
                 queue.active.mr,

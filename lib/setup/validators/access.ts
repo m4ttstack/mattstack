@@ -31,7 +31,13 @@ function rowFromVerdict(v: RepoAccessVerdict, ctx: { grantedBy: string; provider
     case "no-account":
       return { status: "needs-you", detail: `Connect your ${forge} account so rt can prove access`, action: { type: "connect", label: "Connect", integration: ctx.provider, fields: integrationDef(ctx.provider).fields } };
     case "denied":
-      return { status: "needs-you", detail: `Your ${forge} account cannot see this repo yet. Ask ${ctx.grantedBy} or your org admin for read access`, action: RECHECK_ACTION };
+      return {
+        status: "needs-you",
+        detail: v.invitation
+          ? `Your ${forge} account cannot see this repo yet. Accept the invitation at ${v.invitation}, or ask ${ctx.grantedBy} or your org admin for read access`
+          : `Your ${forge} account cannot see this repo yet. Ask ${ctx.grantedBy} or your org admin for read access`,
+        action: RECHECK_ACTION,
+      };
     default:
       return { status: "error", detail: v.detail, action: RECHECK_ACTION };
   }
@@ -49,7 +55,7 @@ async function teamRepoRow(p: Probes, team: TeamSnapshot, intent: SetupIntent | 
   if (!remote) return row({ ...base, status: "missing", detail: "No team repo yet. Create or join a team first" });
 
   const provider = forgeFromRemote(remote)?.provider ?? "github";
-  const lookup = withholdFromUntrustedHost(await forgeTokenLookupFromPresence(remote, secrets), remote, overrides.forgeHost);
+  const lookup = withholdFromUntrustedHost(await forgeTokenLookupFromPresence(remote, secrets, p), remote, overrides.forgeHost);
   const verdict = await probeTeamRepoAccess(p, remote, lookup);
   const grantedBy = intent?.join?.pointer.owner ?? "the repo's owner";
   return row({ ...base, ...rowFromVerdict(verdict, { grantedBy, provider }) });
@@ -105,7 +111,7 @@ async function repoRow(p: Probes, identity: string, overrides: UserIntegrationOv
   };
   const remote = `https://${identity}.git`;
   const provider = forgeFromRemote(remote)?.provider ?? "github";
-  const lookup = withholdFromUntrustedHost(await forgeTokenLookupFromPresence(remote, secrets), remote, overrides.forgeHost);
+  const lookup = withholdFromUntrustedHost(await forgeTokenLookupFromPresence(remote, secrets, p), remote, overrides.forgeHost);
   const withToken = await probeTeamRepoAccess(p, remote, lookup);
   // rt's token can be scoped narrower than git's own credential helper, so a
   // refusal is only final once the bare probe is refused too.

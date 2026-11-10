@@ -57,7 +57,7 @@ case and claim), at most four options per question, so more boards spread
 over consecutive questions in that form, then a `next` question with
 `proceed` / `hold`. The form's one-line context says that boards left unpicked count as
 confirmed, and that picking none confirms them all. Their earlier words
-travel with each board they pick. A Hold in the form is Held at
+travel with each board they pick. A `hold` in the form is Held at
 evidence-redaction.
 
 ## Crops left for this board?
