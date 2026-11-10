@@ -7,7 +7,17 @@ const pipe = (status: string): Pipeline => ({
   status,
   createdAt: null,
   webUrl: null,
-  jobs: []
+  jobs: [
+    {
+      id: 'github:check:1',
+      name: 'build',
+      stage: 'checks',
+      status,
+      allowFailure: false,
+      duration: null,
+      webUrl: null
+    }
+  ]
 });
 
 type Input = Parameters<typeof githubReadiness>[0];
@@ -55,6 +65,23 @@ describe('githubReadiness', () => {
   });
   it('BLOCKED by a canceled required check', () => {
     expect(blocked({ pipeline: pipe('canceled') }).reasons).toEqual(['checks-failing']);
+  });
+  it('BLOCKED ignores an optional failing check', () => {
+    const optional: Pipeline = {
+      ...pipe('failed'),
+      jobs: [
+        {
+          id: 'github:check:1',
+          name: 'lint',
+          stage: 'checks',
+          status: 'failed',
+          allowFailure: true,
+          duration: null,
+          webUrl: null
+        }
+      ]
+    };
+    expect(blocked({ pipeline: optional })).toEqual({ state: 'blocked', reasons: ['other'] });
   });
   it('BLOCKED by unresolved threads', () => {
     expect(blocked({ unresolvedThreadCount: 1 }).reasons).toEqual(['threads']);

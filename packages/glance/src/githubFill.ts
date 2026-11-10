@@ -425,9 +425,14 @@ export function githubReadiness(input: {
       return { state: 'blocked', reasons: ['behind'] };
     case 'BLOCKED': {
       const reasons: ReadinessReason[] = [];
-      const checks = input.pipeline?.status;
-      if (checks === 'failed' || checks === 'canceled') reasons.push('checks-failing');
-      if (checks === 'running' || checks === 'pending') reasons.push('checks-running');
+      // allowFailure is !isRequired, so only required jobs can explain a block.
+      const required = (input.pipeline?.jobs ?? []).filter((j) => !j.allowFailure);
+      if (required.some((j) => j.status === 'failed' || j.status === 'canceled')) {
+        reasons.push('checks-failing');
+      }
+      if (required.some((j) => ['running', 'pending', 'manual'].includes(j.status))) {
+        reasons.push('checks-running');
+      }
       if (input.reviewDecision === 'REVIEW_REQUIRED') reasons.push('approvals');
       if (input.reviewDecision === 'CHANGES_REQUESTED') reasons.push('changes-requested');
       if ((input.unresolvedThreadCount ?? 0) > 0) reasons.push('threads');
