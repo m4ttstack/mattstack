@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 import type { Todo } from '../types'
 import { LIVE_LINES_LOCAL, clipLines, newToken } from './items'
 import { report } from './report'
-import { patchTodo } from './store'
+import { listTodos, patchTodo } from './store'
 
 const PID_LINE = /^__human_todo_pid__(\d+)$/
 const FLUSH_MS = 1000
@@ -64,6 +64,14 @@ export async function startLocal($: EngineInterface, todo: Todo): Promise<void> 
   const job: Job = { isStopped: false, isGone: false }
   jobs.set(token, job)
   await patchTodo($, todo.id, { token, logPath, liveTail: [], isStopping: false })
+  // A Stop or a withdraw can land while the run is set up, and neither may leave a script running.
+  const still = (await listTodos($)).find(t => t.id === todo.id)
+  if (still?.status !== 'running' || still.token !== token) {
+    jobs.delete(token)
+    await $.process.run(['rm', '-f', '--', logPath]).catch(() => undefined)
+    if (still?.token === token) await patchTodo($, todo.id, { token: undefined, logPath: undefined }).catch(() => undefined)
+    return
+  }
 
   let output = ''
   let isTrimmed = false

@@ -350,6 +350,24 @@ test('withdrawing a running item kills its child, removes its log and reports no
   expect((await $.tool.call({ tool: LIST })).result).toBe('No to-dos.')
 })
 
+test('a withdraw that lands while the run is set up starts no script and leaves no log', async ($, on) => {
+  let withdrawn: Promise<unknown> | undefined
+  const { run1, ran, sent, spawned, clock } = await seeded($, on, [todo({})], {
+    script: () => exits(0),
+    write: text => {
+      if (text === '' && !withdrawn) withdrawn = $.tool.call({ tool: WITHDRAW, id: '1' })
+    },
+  })
+
+  await run1('1')
+  await withdrawn
+  await clock.settle()
+
+  expect(spawned).toHaveLength(0)
+  expect(ran.filter(argv => argv[0] === 'rm')).toHaveLength(1)
+  expect(sent).toEqual([])
+})
+
 test('a finished item\'s log is removed with rm -f when it is cleared', async ($, on) => {
   const { run1, ran, item, clock, pane } = await seeded($, on, [todo({})], { script: () => exits([pid(1)]) })
   await run1('1')
