@@ -42,7 +42,7 @@ function nodeFor(n: number, over: Parameters<typeof ghNode>[0] = {}): GHFillNode
 
 const allNodes = (numbers: number[]) => Object.fromEntries(numbers.map((n) => [n, nodeFor(n)]));
 
-/** The ruleset lookup Task 9 adds is answered empty, so it can be counted once it exists. */
+/** The ruleset lookup is answered empty so it can be counted. */
 const rules = (url: string) => (url.includes('/rules/branches/') ? jsonResponse([]) : undefined);
 
 function checkRun(id: number): GHFillContext {
@@ -61,16 +61,19 @@ function checkRun(id: number): GHFillContext {
 }
 
 describe('GitHub read cost', () => {
-  test('fetchSingleMR: 1 GraphQL', async () => {
+  test('fetchSingleMR: 1 GraphQL + 1 REST cold, 1 GraphQL warm', async () => {
     stubForge({ fill: allNodes, rest: rules });
     const { provider, requests } = counted();
 
     expect(await provider.fetchSingleMR('o/r', 1, null)).not.toBeNull();
+    expect(byTransport(requests)).toEqual({ graphql: 1, rest: 1 });
 
+    requests.length = 0;
+    expect(await provider.fetchSingleMR('o/r', 1, null)).not.toBeNull();
     expect(byTransport(requests)).toEqual({ graphql: 1, rest: 0 });
   });
 
-  test('iids x20: 1 GraphQL', async () => {
+  test('iids x20: 1 GraphQL + 1 REST', async () => {
     stubForge({ fill: allNodes, rest: rules });
     const { provider, requests } = counted();
     const iids = Array.from({ length: 20 }, (_, i) => i + 1);
@@ -78,10 +81,10 @@ describe('GitHub read cost', () => {
     const prs = await provider.fetchPullRequests({ projectPath: 'o/r', iids });
 
     expect(prs).toHaveLength(20);
-    expect(byTransport(requests)).toEqual({ graphql: 1, rest: 0 });
+    expect(byTransport(requests)).toEqual({ graphql: 1, rest: 1 });
   });
 
-  test('byBranches x20: 2 GraphQL', async () => {
+  test('byBranches x20: 2 GraphQL + 1 REST', async () => {
     const branches = Array.from({ length: 20 }, (_, i) => `feat/${i + 1}`);
     stubForge({
       graphql: (query, variables) => {
@@ -101,10 +104,10 @@ describe('GitHub read cost', () => {
     const map = await provider.fetchPullRequestsByBranches!('o/r', branches);
 
     expect([...map.values()].filter((v) => v !== null)).toHaveLength(20);
-    expect(byTransport(requests)).toEqual({ graphql: 2, rest: 0 });
+    expect(byTransport(requests)).toEqual({ graphql: 2, rest: 1 });
   });
 
-  test('byBranch: 1 REST + 1 GraphQL', async () => {
+  test('byBranch: 2 REST + 1 GraphQL', async () => {
     stubForge({
       rest: (url) =>
         url.includes('/pulls?head=') ? jsonResponse([{ number: 5, head: { ref: 'feature' } }]) : rules(url),
@@ -114,10 +117,10 @@ describe('GitHub read cost', () => {
 
     expect(await provider.fetchPullRequestByBranch('o/r', 'feature')).not.toBeNull();
 
-    expect(byTransport(requests)).toEqual({ graphql: 1, rest: 1 });
+    expect(byTransport(requests)).toEqual({ graphql: 1, rest: 2 });
   });
 
-  test('150 contexts: 2 GraphQL', async () => {
+  test('150 contexts: 2 GraphQL + 1 REST', async () => {
     const first = Array.from({ length: 100 }, (_, i) => checkRun(i + 1));
     const rest = Array.from({ length: 50 }, (_, i) => checkRun(i + 101));
     const page = (nodes: GHFillContext[], hasNextPage: boolean) => ({
@@ -148,6 +151,6 @@ describe('GitHub read cost', () => {
     const pr = await provider.fetchSingleMR('o/r', 1, null);
 
     expect(pr!.pipeline!.jobs).toHaveLength(150);
-    expect(byTransport(requests)).toEqual({ graphql: 2, rest: 0 });
+    expect(byTransport(requests)).toEqual({ graphql: 2, rest: 1 });
   });
 });

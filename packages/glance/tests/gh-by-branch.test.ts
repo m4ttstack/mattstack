@@ -25,6 +25,7 @@ function stubRequest(answer: (url: string) => unknown): { calls: string[]; fille
   const filled: number[] = [];
   stubForge({
     rest: (url) => {
+      if (url.includes('/rules/branches/')) return jsonResponse([]);
       calls.push(url);
       return jsonResponse(answer(url));
     },

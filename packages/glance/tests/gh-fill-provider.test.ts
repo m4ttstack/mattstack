@@ -187,6 +187,67 @@ describe('GitHubProvider known-number reads through the fill', () => {
     expect(warnings[0]).toMatchObject({ kind: 'request-failed', source: 'fill', target: 'o/r#2' });
   });
 
+  test('an error under baseRef.branchProtectionRule reads as no classic count and keeps the PR', async () => {
+    stubForge({
+      graphql: () =>
+        jsonResponse({
+          data: { repository: { p1: nodeFor(1, { baseRef: { branchProtectionRule: null } }) } },
+          errors: [
+            {
+              type: 'FORBIDDEN',
+              path: ['repository', 'p1', 'baseRef', 'branchProtectionRule'],
+              message: 'Resource not accessible by personal access token'
+            }
+          ]
+        })
+    });
+    const warnings: FetchPullRequestsWarning[] = [];
+
+    const pr = await provider().fetchSingleMR('o/r', 1, null, (w) => warnings.push(w));
+
+    expect(pr).not.toBeNull();
+    expect(warnings).toEqual([]);
+  });
+
+  test('any other error under a resolved alias still drops the PR with a fill warning', async () => {
+    stubForge({
+      graphql: () =>
+        jsonResponse({
+          data: { repository: { p1: nodeFor(1) } },
+          errors: [
+            {
+              type: 'INTERNAL',
+              path: ['repository', 'p1', 'reviewThreads'],
+              message: 'Something went wrong'
+            }
+          ]
+        })
+    });
+    const warnings: FetchPullRequestsWarning[] = [];
+
+    const pr = await provider().fetchSingleMR('o/r', 1, null, (w) => warnings.push(w));
+
+    expect(pr).toBeNull();
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatchObject({ kind: 'request-failed', source: 'fill', target: 'o/r#1' });
+  });
+
+  test('30 numbers make two fill requests of 25 then 5', async () => {
+    const batches: number[][] = [];
+    stubForge({
+      fill: (numbers) => {
+        batches.push(numbers);
+        return Object.fromEntries(numbers.map((n) => [n, nodeFor(n)]));
+      }
+    });
+    const iids = Array.from({ length: 30 }, (_, i) => i + 1);
+
+    const prs = await provider().fetchPullRequests({ projectPath: 'o/r', iids });
+
+    expect(batches).toEqual([iids.slice(0, 25), iids.slice(25)]);
+    expect(prs).toHaveLength(30);
+  });
+
   test('150 contexts fetch one more page', async () => {
     stubForge({
       graphql: (query) =>
@@ -276,8 +337,9 @@ describe('GitHubProvider known-number reads through the fill', () => {
 
     expect(pr!.iid).toBe(5);
     expect(urls.filter((u) => u.includes('/pulls?head='))).toHaveLength(1);
-    expect(urls).toHaveLength(2);
-    expect(urls[1]).toMatch(/\/graphql$/);
+    const beyondRules = urls.filter((u) => !u.includes('/rules/branches/'));
+    expect(beyondRules).toHaveLength(2);
+    expect(beyondRules[1]).toMatch(/\/graphql$/);
     expect(filled).toEqual([[5]]);
   });
 
@@ -373,7 +435,7 @@ describe('GitHubProvider known-number reads through the fill', () => {
     const pr = await provider().fetchSingleMR('o/r', 1, null);
 
     expect(pr!.roles).toEqual(['assignee', 'reviewer']);
-    expect(urls).toHaveLength(1);
+    expect(urls.filter((u) => !u.includes('/rules/branches/'))).toHaveLength(1);
   });
 
   test('iids honours the state and updatedAfter filters', async () => {

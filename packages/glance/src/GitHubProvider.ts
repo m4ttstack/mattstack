@@ -276,7 +276,9 @@ interface GraphQLReadError {
  * `NOT_FOUND` error, which is a missing PR, not a failure. An error under
  * the alias fails the PR even when its node arrived, since a field inside
  * it may be null for that reason; an error with no alias path fails only
- * the aliases that came back null.
+ * the aliases that came back null. The exception is the classic protection
+ * rule: a token that cannot see it gets an error there and a null rule, and
+ * that is an unknown count, not a failed read.
  */
 function fillErrorFor(
   errors: GraphQLReadError[],
@@ -285,9 +287,12 @@ function fillErrorFor(
 ): GraphQLReadError | null {
   for (const e of errors) {
     if (e.type === 'NOT_FOUND') continue;
-    const [root, alias] = e.path ?? [];
+    const [root, alias, ...rest] = e.path ?? [];
     if (root === 'viewer') continue;
-    if (alias === `p${n}`) return e;
+    if (alias === `p${n}`) {
+      if (rest[0] === 'baseRef' && rest[1] === 'branchProtectionRule') continue;
+      return e;
+    }
     if (!resolved && alias === undefined) return e;
   }
   return null;
@@ -329,6 +334,13 @@ const SEARCH_MAX_PAGES = 5;
 
 /** Pages of 100 to walk when listing every PR in a repository. */
 const LIST_MAX_PAGES = 20;
+
+/**
+ * How long a branch's ruleset answer is reused. A daemon loop re-reads the
+ * same PRs constantly, and rulesets change rarely, so this keeps the extra
+ * REST call to one per branch per window.
+ */
+const RULES_CACHE_MS = 600_000;
 
 /** PRs per batched `nodes(ids:)` review-thread query. */
 const THREAD_BATCH_SIZE = 50;
@@ -650,18 +662,22 @@ export class GitHubProvider implements GitProvider {
   private readonly log: ForgeLogger;
   private readonly octokit: GlanceOctokit;
   private currentUserPromise: Promise<GHUser | null> | null = null;
+  private readonly now: () => number;
+  private readonly rulesCache = new Map<string, { required: number | null; at: number }>();
 
   /**
    * @param baseURL — The user-facing GitHub URL. For github.com: "https://github.com".
    *   For GHES: "https://github.mycompany.com".
    * @param token — A GitHub PAT (classic or fine-grained) with `repo` scope.
    * @param options.logger — Optional logger; defaults to noop.
+   * @param options.now Clock for the ruleset cache; defaults to `Date.now`.
    */
   constructor(
     baseURL: string,
     token: string,
-    options: { logger?: ForgeLogger; onRequest?: OnRequestHook } = {}
+    options: { logger?: ForgeLogger; onRequest?: OnRequestHook; now?: () => number } = {}
   ) {
+    this.now = options.now ?? Date.now;
     this.baseURL = baseURL.replace(/\/$/, '');
     this.token = token;
     this.log = options.logger ?? noopLogger;
@@ -2726,18 +2742,31 @@ export class GitHubProvider implements GitProvider {
 
       const { data, errors } = response;
       const viewer = data.viewer ?? null;
+      const nodes = new Map<number, GHFillNode>();
       for (const n of batch) {
         const node = data.repository?.[`p${n}`] ?? null;
         const failure = fillErrorFor(errors, n, node !== null);
         if (failure) {
           this.warnFillFailed(opts.onWarning, projectPath, n, new Error(failure.message));
           out.set(n, null);
-          continue;
-        }
-        if (!node) {
+        } else if (node) {
+          nodes.set(n, node);
+        } else {
           out.set(n, null);
-          continue;
         }
+      }
+
+      // The base branch is only known once the fill returns.
+      const rulesByBranch = new Map<string, number | null>();
+      for (const node of nodes.values()) {
+        if (rulesByBranch.has(node.baseRefName)) continue;
+        rulesByBranch.set(
+          node.baseRefName,
+          await this.requiredFromRules(projectPath, node.baseRefName)
+        );
+      }
+
+      for (const [n, node] of nodes) {
         const { contexts, complete } = await this.readAllContexts(
           projectPath,
           owner,
@@ -2749,13 +2778,63 @@ export class GitHubProvider implements GitProvider {
           roles: opts.roles.get(n) ?? [],
           contexts,
           contextsComplete: complete,
-          rulesRequired: null
+          rulesRequired: rulesByBranch.get(node.baseRefName) ?? null
         });
         if (!opts.roles.has(n)) pr.roles = rolesFromViewer(node, viewer, pr.reviewers);
         out.set(n, pr);
       }
     }
     return out;
+  }
+
+  /**
+   * The largest `required_approving_review_count` among a branch's
+   * `pull_request` rules, null when it has none or they cannot be read.
+   *
+   * Rulesets are not in the fill and classic protection is not in this
+   * endpoint, so the two are combined by the caller. Answers are cached per
+   * repo and branch for `RULES_CACHE_MS`: a 403 or 404 caches null, since
+   * the token will not gain access within the window; a 5xx or a transport
+   * failure yields null for this read only. A rate limit throws.
+   */
+  private async requiredFromRules(
+    projectPath: string,
+    branch: string
+  ): Promise<number | null> {
+    const key = `${projectPath}#${branch}`;
+    const cached = this.rulesCache.get(key);
+    if (cached && this.now() - cached.at < RULES_CACHE_MS) return cached.required;
+
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    let required: number | null = null;
+    try {
+      const res = await this.octokit.request(
+        'GET /repos/{owner}/{repo}/rules/branches/{branch}',
+        { owner, repo, branch, per_page: 100 }
+      );
+      for (const rule of res.data as Array<{
+        type: string;
+        parameters?: { required_approving_review_count?: number };
+      }>) {
+        const count = rule.parameters?.required_approving_review_count;
+        if (rule.type !== 'pull_request' || typeof count !== 'number') continue;
+        required = required === null ? count : Math.max(required, count);
+      }
+    } catch (err) {
+      if (err instanceof RateLimitedError) throw err;
+      if (err instanceof RequestError && (err.status === 403 || err.status === 404)) {
+        this.rulesCache.set(key, { required: null, at: this.now() });
+        return null;
+      }
+      this.log.warn('GitHub rulesets read failed', {
+        projectPath,
+        branch,
+        error: err instanceof Error ? err.message : String(err)
+      });
+      return null;
+    }
+    this.rulesCache.set(key, { required, at: this.now() });
+    return required;
   }
 
   /**
