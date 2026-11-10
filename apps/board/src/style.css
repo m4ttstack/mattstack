@@ -1214,43 +1214,114 @@ body {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+/* Each extra status reads like the row's own line, with the part of the
+   board that made it named on the left and its action on the right. */
 .tui-status-more-pop {
-  width: 340px;
+  width: 420px;
   max-width: calc(100vw - 24px);
   padding: 0;
 }
 .tui-status-more-list {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-px6);
-  padding: var(--spacing-px8) var(--spacing-px10);
-  font-size: var(--font-size-px12);
-  line-height: 1.45;
+  overflow: hidden;
+  border-radius: inherit;
+  font-size: 0.8rem;
+  line-height: 20px;
   color: var(--text-3);
 }
 .tui-status-more-line {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  column-gap: var(--spacing-px14);
+  align-items: center;
+  width: 100%;
+  min-height: 40px;
+  margin: 0;
+  padding: 0 1rem;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
 }
-.tui-status-more-word {
+.tui-status-more-line + .tui-status-more-line {
+  border-top: 1px solid var(--border-soft);
+}
+/* A line with an action is one button: its verb, in the lane's colour,
+   shows only under the pointer or keyboard focus. */
+button.tui-status-more-line {
+  cursor: pointer;
+}
+button.tui-status-more-line:hover,
+button.tui-status-more-line:focus-visible {
+  background: var(--surface-wash-bg-55);
+  outline: none;
+}
+.tui-status-more-line[data-lane='review'] {
+  --verb: var(--text-accent);
+}
+.tui-status-more-line[data-lane='respond'] {
+  --verb: var(--text-ok-vivid);
+}
+.tui-status-more-line[data-lane='doctor'] {
+  --verb: var(--orange);
+}
+.tui-status-more-verb {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--verb, var(--text-2));
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+button.tui-status-more-line:hover .tui-status-more-verb,
+button.tui-status-more-line:focus-visible .tui-status-more-verb {
+  opacity: 1;
+}
+.tui-status-more-chevron {
+  display: inline-flex;
+  transform: rotate(-90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tui-status-more-verb {
+    transition: none;
+  }
+}
+.tui-status-more-list:focus {
+  outline: none;
+}
+.tui-status-more-source {
+  font-size: var(--font-size-px12);
+  color: var(--text-3);
+}
+.tui-status-more-text {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.tui-status-more-text .tui-status-ring {
+  margin-left: 8px;
+}
+.tui-status-more-line[data-tone='bad'] .tui-status-word {
+  color: var(--text-bad);
+}
+.tui-status-more-line[data-tone='warn'] .tui-status-word {
+  color: var(--text-warn-vivid);
+}
+.tui-status-more-line[data-tone='work'] .tui-status-word,
+.tui-status-more-line[data-tone='work'] .tui-status-ring {
+  color: var(--text-purple);
+}
+.tui-status-more-line[data-tone='go'] .tui-status-word,
+.tui-status-more-line[data-tone='clear'] .tui-status-word {
+  color: var(--text-ok-vivid);
+}
+.tui-status-more-line[data-tone='quiet'] .tui-status-word {
   font-weight: 500;
   color: var(--text-2);
-}
-.tui-status-more-detail {
-  overflow-wrap: anywhere;
-}
-.tui-status-more-line[data-tone='bad'] .tui-status-more-word {
-  color: var(--text-bad-small);
-}
-.tui-status-more-line[data-tone='warn'] .tui-status-more-word {
-  color: var(--text-warn-small);
-}
-.tui-status-more-line[data-tone='work'] .tui-status-more-word {
-  color: var(--text-purple-small);
-}
-.tui-status-more-line[data-tone='go'] .tui-status-more-word,
-.tui-status-more-line[data-tone='clear'] .tui-status-more-word {
-  color: var(--text-ok-small);
 }
 /* Centered like the tools, not baseline-aligned: the line's baseline would
    otherwise follow whichever verb is first, and a secondary appearing left

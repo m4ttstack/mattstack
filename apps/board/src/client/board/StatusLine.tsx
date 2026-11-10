@@ -8,7 +8,7 @@ import { clauseOf } from './clause.ts';
 import { cleanTitle } from './format.ts';
 import { RowSpotlight } from './RowSpotlight.tsx';
 import { useLingering } from './use-lingering.ts';
-import { AgentGlyph, CloudSpinner, Sun } from './icons.tsx';
+import { AgentGlyph, ChevronGlyph, CloudSpinner, Sun } from './icons.tsx';
 import type { Candidate, RowStatus, Verb, VerbKind } from './row-status.ts';
 import {
   liveSyncLines,
@@ -285,15 +285,21 @@ const DOCTOR_AT_WORK = new Set(['diagnosing', 'rebasing', 'fixing', 'watching'])
 function MoreStatuses({
   mr,
   more,
+  ctx,
 }: {
   mr: BoardMRWithReview;
   more: readonly Candidate[];
+  ctx: RowContext;
 }) {
   const [open, setOpen] = useState(false);
+  const list = useRef<HTMLDivElement>(null);
   return (
     <Popover
       open={open}
       onOpenChange={setOpen}
+      // The list, not its first action, takes focus: a ringed "focus" on
+      // every open reads as the thing to press.
+      initialFocus={list}
       align="start"
       sideOffset={6}
       ariaLabel={`other statuses for !${mr.iid}`}
@@ -312,20 +318,64 @@ function MoreStatuses({
       }
     >
       <div
+        ref={list}
+        tabIndex={-1}
         className="tui-status-more-list"
         onClick={e => e.stopPropagation()}
         onContextMenu={e => e.stopPropagation()}
       >
         {more.map((l, i) => {
           const detail = l.detail ? clauseOf(l.detail) : null;
-          return (
-            <div key={i} className="tui-status-more-line" data-tone={l.tone}>
-              <span className="tui-status-more-word">{l.word}</span>
-              {detail && (
-                <span className="tui-status-more-detail">
-                  {detail.full ?? detail.text}
+          // Merge needs the row line's two-click arm, so it never fires
+          // from here.
+          const verb = l.verbs.find(v => v.kind !== 'merge');
+          const lane = verb ? laneOf(verb) : undefined;
+          const body = (
+            <>
+              <span className="tui-status-more-source">{l.source ?? ''}</span>
+              <span className="tui-status-more-text">
+                <span className="tui-status-word">{l.word}</span>
+                {l.spin === true && (
+                  <span className="tui-status-ring" aria-hidden />
+                )}
+                {detail && (
+                  <span
+                    className="tui-status-detail"
+                    title={detail.full ?? undefined}
+                  >
+                    {detail.text}
+                  </span>
+                )}
+              </span>
+            </>
+          );
+          // The whole line is the action; its verb shows under the pointer.
+          return verb ? (
+            <button
+              key={i}
+              type="button"
+              className="tui-status-more-line"
+              data-tone={l.tone}
+              data-lane={lane}
+              data-verb={verb.kind}
+              onClick={e => {
+                e.stopPropagation();
+                setOpen(false);
+                runVerb(verb, mr, ctx);
+              }}
+            >
+              {body}
+              <span className="tui-status-more-verb">
+                {lane && <AgentGlyph />}
+                {verb.label}
+                <span className="tui-status-more-chevron" aria-hidden>
+                  <ChevronGlyph />
                 </span>
-              )}
+              </span>
+            </button>
+          ) : (
+            <div key={i} className="tui-status-more-line" data-tone={l.tone}>
+              {body}
             </div>
           );
         })}
@@ -415,7 +465,7 @@ export function StatusLine({
           </Badge>
         </Tooltip>
       )}
-      {more.length > 0 && <MoreStatuses mr={mr} more={more} />}
+      {more.length > 0 && <MoreStatuses mr={mr} more={more} ctx={ctx} />}
       {verbs.length > 0 && (
         <span className="tui-status-verbs">
           {ordered(verbs).map(({ verb, primary }) => {
