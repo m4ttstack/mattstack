@@ -155,6 +155,21 @@ describe('required approvals from rulesets', () => {
     expect(rulesCalls(urls)).toBeGreaterThan(failed);
   });
 
+  test('a 502 costs exactly one rules request per fill, and the next fill tries again', async () => {
+    const { urls } = stubForge({
+      fill: () => ({ 1: unprotected(1) }),
+      rest: (url) =>
+        url.includes('/rules/branches/') ? jsonResponse({ message: 'Bad Gateway' }, 502) : undefined
+    });
+    const p = provider();
+
+    expect((await p.fetchSingleMR('o/r', 1, null))!.approvalsRequired).toBeNull();
+    expect(rulesCalls(urls)).toBe(1);
+
+    expect((await p.fetchSingleMR('o/r', 1, null))!.approvalsRequired).toBeNull();
+    expect(rulesCalls(urls)).toBe(2);
+  });
+
   test('a transport failure is not cached and leaves the count null', async () => {
     let healthy = false;
     stubForge({ fill: () => ({ 1: unprotected(1) }) });

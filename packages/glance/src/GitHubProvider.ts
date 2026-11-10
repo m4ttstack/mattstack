@@ -2810,7 +2810,8 @@ export class GitHubProvider implements GitProvider {
     try {
       const res = await this.octokit.request(
         'GET /repos/{owner}/{repo}/rules/branches/{branch}',
-        { owner, repo, branch, per_page: 100 }
+        // Optional data: a failing endpoint costs one request, not the retry ladder.
+        { owner, repo, branch, per_page: 100, request: { retries: 0 } }
       );
       for (const rule of res.data as Array<{
         type: string;
