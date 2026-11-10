@@ -1269,19 +1269,14 @@ button.tui-status-more-line:focus-visible {
   --verb: var(--orange);
   --verb-wash: var(--fill-warn);
 }
-/* A pill in the lane's wash, like a row verb under the pointer, so it reads
-   as the thing the click does. */
+/* The action takes the lane's wash when the pointer is on it, like a row
+   verb, so it reads as its own button within the line. */
 .tui-status-more-verb {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   padding: 2px 6px 2px 8px;
   border-radius: var(--radius-px5);
-  background: color-mix(
-    in srgb,
-    var(--verb-wash, var(--muted)) 12%,
-    transparent
-  );
   font-size: 0.76rem;
   font-weight: 600;
   color: var(--verb, var(--text-2));
@@ -1292,7 +1287,18 @@ button.tui-status-more-line:hover .tui-status-more-verb,
 button.tui-status-more-line:focus-visible .tui-status-more-verb {
   opacity: 1;
 }
+.tui-status-more-verb:hover {
+  background: color-mix(
+    in srgb,
+    var(--verb-wash, var(--muted)) 14%,
+    transparent
+  );
+}
+.tui-status-more-verb:hover .tui-status-more-chevron {
+  transform: rotate(-90deg) translateY(2px);
+}
 .tui-status-more-chevron {
+  transition: transform 120ms ease;
   display: inline-flex;
   transform: rotate(-90deg);
 }
