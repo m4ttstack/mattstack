@@ -72,6 +72,8 @@ built from the kit piece named, whatever the board draws:
 | page title and page body | the title as above; the body in `PageShell.Content` |
 | switch, tooltip, table, input, select, badge, chip, menu | the Mantine component from `@mattstack/app-kit/core` |
 | icons | `Icon` with a Lucide icon; a new one is registered in the app's `icons.ts` |
+| code, JSON, a log, any block of monospace text | `CodeLines` from `@mattstack/app-kit/core`: line numbers, the kit's scrollbars and virtualized rows in a fixed `height`; `wrap` breaks long lines. Never a `Code block` in a `ScrollArea` |
+| a single short code value inside prose or a row | `Code` from `@mattstack/app-kit/core` |
 
 When the board and the kit differ, build the kit piece and list the
 difference for Matt as a pending board fix. A parity mismatch on a kit
