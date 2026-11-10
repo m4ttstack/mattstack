@@ -247,12 +247,19 @@ function hasGraphQLRateLimit(err: object): boolean {
   );
 }
 
+const SECONDARY_LIMIT_DEFAULT_WAIT_MS = 60_000;
+
 /**
  * Recognise a GitHub rate limit in a thrown error, or return null.
  *
- * REST: a 403 or 429 carrying `x-ratelimit-remaining: 0` (primary) or
- * `retry-after` (secondary). GraphQL: a `RATE_LIMITED` entry in the errors,
- * which GitHub returns with a 200, so there is no status to read.
+ * REST: a 403 or 429 is a primary limit when it names `x-ratelimit-remaining:
+ * 0`, and a secondary limit when its message says so, when it carries
+ * `retry-after`, or when it is a bare 429. GraphQL: a `RATE_LIMITED` entry in
+ * the errors, which GitHub returns with a 200, so there is no status to read.
+ *
+ * The wait is `retry-after` when present. Otherwise a primary limit waits for
+ * its reset, and a secondary limit with quota left waits one minute with
+ * `resetAt` null: the primary window says nothing about a secondary limit.
  */
 export function toRateLimitedError(
   err: unknown,
@@ -284,14 +291,20 @@ export function toRateLimitedError(
   if (kind === null) return null;
 
   const resetSeconds = Number(headerValue(headers, 'x-ratelimit-reset'));
-  const resetAt =
+  const primaryResetAt =
     Number.isFinite(resetSeconds) && resetSeconds > 0
       ? new Date(resetSeconds * 1000).toISOString()
       : null;
   const retryAfterSeconds = Number(headerValue(headers, 'retry-after'));
-  const retryAfterMs =
-    Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
-      ? retryAfterSeconds * 1000
+  const primaryExhausted =
+    kind === 'primary' || headerValue(headers, 'x-ratelimit-remaining') === '0';
+  const unhinted = !(Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0);
+  const secondaryWithoutHint = unhinted && !primaryExhausted;
+  const resetAt = secondaryWithoutHint ? null : primaryResetAt;
+  const retryAfterMs = !unhinted
+    ? retryAfterSeconds * 1000
+    : secondaryWithoutHint
+      ? SECONDARY_LIMIT_DEFAULT_WAIT_MS
       : resetAt !== null
         ? Math.max(0, Date.parse(resetAt) - Date.now())
         : null;

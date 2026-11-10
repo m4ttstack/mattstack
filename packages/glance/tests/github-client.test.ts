@@ -427,7 +427,7 @@ describe('rate limits fail fast', () => {
     expect(state.calls).toBe(1);
     expect(err).toBeInstanceOf(RateLimitedError);
     expect(err.kind).toBe('secondary');
-    expect(err.retryAfterMs).toBeNull();
+    expect(err.retryAfterMs).toBe(60_000);
   });
 
   test('a plain 403 is not a rate limit and stays a RequestError', async () => {
@@ -577,6 +577,50 @@ describe('toRateLimitedError', () => {
     const out = toRateLimitedError(requestError(429, { 'retry-after': '7' }), 'GET /x');
     expect(out?.kind).toBe('secondary');
     expect(out?.retryAfterMs).toBe(7000);
+  });
+
+  describe('a secondary limit', () => {
+    const hourOut = String(Math.floor(Date.now() / 1000) + 3600);
+    const message = 'You have exceeded a secondary rate limit. Please wait.';
+
+    test('with quota left and no Retry-After waits a minute and names no reset', () => {
+      const out = toRateLimitedError(
+        requestError(
+          403,
+          { 'x-ratelimit-remaining': '4000', 'x-ratelimit-reset': hourOut },
+          message
+        ),
+        'GET /x'
+      );
+      expect(out?.kind).toBe('secondary');
+      expect(out?.resetAt).toBeNull();
+      expect(out?.retryAfterMs).toBe(60_000);
+    });
+
+    test('with no quota left keeps the primary reset', () => {
+      const out = toRateLimitedError(
+        requestError(
+          403,
+          { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': hourOut },
+          message
+        ),
+        'GET /x'
+      );
+      expect(out?.resetAt).toBe(new Date(Number(hourOut) * 1000).toISOString());
+      expect(out?.retryAfterMs).toBeGreaterThan(3_000_000);
+    });
+
+    test('with Retry-After waits what GitHub said', () => {
+      const out = toRateLimitedError(
+        requestError(
+          403,
+          { 'x-ratelimit-remaining': '4000', 'x-ratelimit-reset': hourOut, 'retry-after': '5' },
+          message
+        ),
+        'GET /x'
+      );
+      expect(out?.retryAfterMs).toBe(5000);
+    });
   });
 
   test('reads a GraphQL RATE_LIMITED error', () => {

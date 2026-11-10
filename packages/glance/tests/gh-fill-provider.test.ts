@@ -904,6 +904,30 @@ describe('GitHubProvider re-request and merge cleanup', () => {
     ).rejects.toBeInstanceOf(RateLimitedError);
   });
 
+  test('a rate limit after a landed merge says it merged and keeps the original as cause', async () => {
+    stubForge({
+      fill: fillAll,
+      rest: (url, method) => {
+        if (method === 'PUT') return jsonResponse({ merged: true, sha: 'm1' });
+        if (method === 'GET' && /\/pulls\/9$/.test(url)) return rateLimited();
+        return undefined;
+      }
+    });
+
+    const err = await provider()
+      .mergePullRequest('o/r', 9, { shouldRemoveSourceBranch: true })
+      .then(
+        () => null,
+        (e: unknown) => e as RateLimitedError
+      );
+
+    expect(err).toBeInstanceOf(RateLimitedError);
+    expect(err?.message).toMatch(/^mergePullRequest merged o\/r#9 but .* was rate limited: /);
+    expect(err?.cause).toBeInstanceOf(RateLimitedError);
+    expect(err?.kind).toBe((err?.cause as RateLimitedError).kind);
+    expect(err?.retryAfterMs).toBe((err?.cause as RateLimitedError).retryAfterMs);
+  });
+
   test('a failed head repository read after a merge says so, not "head repository unknown"', async () => {
     stubForge({
       fill: fillAll,
