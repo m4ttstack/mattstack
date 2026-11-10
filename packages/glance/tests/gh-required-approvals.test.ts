@@ -119,6 +119,53 @@ describe('required approvals from rulesets', () => {
     expect(rulesCalls(urls)).toBe(2);
   });
 
+  test('merged and closed PRs make no rules request', async () => {
+    const { urls } = stubForge({
+      fill: () => ({
+        1: ghNode({ number: 1, state: 'MERGED', mergedAt: '2026-01-03T00:00:00Z', reviewDecision: 'REVIEW_REQUIRED' }),
+        2: ghNode({ number: 2, state: 'CLOSED', reviewDecision: 'REVIEW_REQUIRED' })
+      }),
+      rest: (url) => (url.includes('/rules/branches/') ? jsonResponse([pullRequestRule(2)]) : undefined)
+    });
+
+    const prs = await provider().fetchPullRequests({
+      projectPath: 'o/r',
+      iids: [1, 2],
+      state: ['merged', 'closed']
+    });
+
+    expect(prs).toHaveLength(2);
+    expect(rulesCalls(urls)).toBe(0);
+  });
+
+  test('an open PR with no review decision makes no rules request and reads 0', async () => {
+    const { urls } = stubForge({
+      fill: () => ({
+        1: ghNode({
+          number: 1,
+          reviewDecision: null,
+          baseRef: { branchProtectionRule: null },
+          latestReviews: { nodes: [] },
+          latestOpinionatedReviews: { nodes: [] }
+        })
+      }),
+      rest: (url) => (url.includes('/rules/branches/') ? jsonResponse([pullRequestRule(2)]) : undefined)
+    });
+
+    expect((await provider().fetchSingleMR('o/r', 1, null))!.approvalsRequired).toBe(0);
+    expect(rulesCalls(urls)).toBe(0);
+  });
+
+  test('an open REVIEW_REQUIRED PR still makes one rules request', async () => {
+    const { urls } = stubForge({
+      fill: () => ({ 1: unprotected(1) }),
+      rest: (url) => (url.includes('/rules/branches/') ? jsonResponse([pullRequestRule(2)]) : undefined)
+    });
+
+    expect((await provider().fetchSingleMR('o/r', 1, null))!.approvalsRequired).toBe(2);
+    expect(rulesCalls(urls)).toBe(1);
+  });
+
   test('a 403 or 404 is cached as null', async () => {
     for (const status of [403, 404]) {
       const { urls } = stubForge({

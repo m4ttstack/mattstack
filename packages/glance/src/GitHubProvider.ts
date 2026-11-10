@@ -2756,9 +2756,14 @@ export class GitHubProvider implements GitProvider {
         }
       }
 
-      // The base branch is only known once the fill returns.
+      // The base branch is only known once the fill returns. Only an open PR
+      // awaiting a verdict needs the count: GitHub's decision already folds in
+      // rulesets, so a null one means none are required, and a merged or
+      // closed PR shows no remaining approvals. A provider built per cycle
+      // loses its cache, so every skipped lookup is a request saved each time.
       const rulesByBranch = new Map<string, number | null>();
       for (const node of nodes.values()) {
+        if (node.state !== 'OPEN' || node.reviewDecision === null) continue;
         if (rulesByBranch.has(node.baseRefName)) continue;
         rulesByBranch.set(
           node.baseRefName,
