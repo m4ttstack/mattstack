@@ -71,6 +71,12 @@ export function workingLanes(mr: BoardMRWithReview): Set<Lane> {
   return busy;
 }
 
+const SOURCE_LANE: Record<string, Lane> = {
+  Review: 'review',
+  Respond: 'respond',
+  Doctor: 'doctor',
+};
+
 export interface MoreAction {
   verb: Verb;
   lane?: Lane;
@@ -89,13 +95,17 @@ export function moreAction(
   const lane = laneOf(verb);
   if (!LAUNCHES.has(verb.kind)) return { verb, ...(lane ? { lane } : {}), launches: false };
   const busy = workingLanes(mr);
-  // The server's dedup turns a launch on a running lane into a focus.
+  // The server's dedup turns a launch on a running lane into a focus. Said
+  // as "focus" only on that lane's own line: on another source's line it
+  // would jump to an agent the line does not name.
   if (lane && busy.has(lane))
-    return {
-      verb: { kind: 'focus', label: 'focus', domain: lane },
-      lane,
-      launches: false,
-    };
+    return SOURCE_LANE[line.source ?? ''] === lane
+      ? {
+          verb: { kind: 'focus', label: 'focus', domain: lane },
+          lane,
+          launches: false,
+        }
+      : null;
   // Two agents on one branch race each other's pushes.
   if (busy.size > 0) return null;
   return { verb, ...(lane ? { lane } : {}), launches: true };

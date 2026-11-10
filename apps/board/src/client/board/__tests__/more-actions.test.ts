@@ -42,9 +42,21 @@ describe('moreAction', () => {
     expect(a).toBe(null);
   });
 
+  test('a launch into a running lane on another source line offers nothing', () => {
+    const a = moreAction(
+      line([{ kind: 'launch-respond', label: 'respond' }], {
+        source: 'Review',
+      }),
+      mr({ respond: { status: 'implementing' } } as never)
+    );
+    expect(a).toBe(null);
+  });
+
   test('a launch on its own running lane says focus, since that is all it does', () => {
     const a = moreAction(
-      line([{ kind: 'launch-respond', label: 'respond' }]),
+      line([{ kind: 'launch-respond', label: 'respond' }], {
+        source: 'Respond',
+      }),
       mr({ respond: { status: 'implementing' } } as never)
     );
     expect(a).toMatchObject({
