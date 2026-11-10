@@ -52,6 +52,35 @@ export function parseSyncLine(raw: string): SyncLine {
   };
 }
 
+const STOPPED = new Set<SyncLineStatus>(['failed', 'needs-you', 'refused']);
+
+/** The raw log as the drawer shows it: a running line drops out once a later
+    line moved past it, and the branch the drawer already names reads as
+    "this branch". A sync that stopped keeps every line, so nothing that led
+    to the stop is hidden. */
+export function tidySyncLog(
+  lines: readonly string[],
+  branch: string | undefined,
+  running: boolean
+): SyncLine[] {
+  const parsed = lines.map(parseSyncLine);
+  const stopped = parsed.some(l => l.status && STOPPED.has(l.status));
+  const name = (s: string) =>
+    branch ? s.split(`/${branch}/`).join('/…/').split(branch).join('this branch') : s;
+  return parsed
+    .filter(
+      (l, i) =>
+        stopped ||
+        l.status !== 'running' ||
+        (running && i === parsed.length - 1)
+    )
+    .map(l => ({
+      ...l,
+      title: name(l.title),
+      ...(l.hint ? { hint: name(l.hint) } : {}),
+    }));
+}
+
 type Listener = () => void;
 const live = new Map<string, readonly string[]>();
 const autoOpen = new Set<string>();

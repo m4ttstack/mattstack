@@ -12,10 +12,10 @@ import { AgentGlyph, ChevronGlyph, CloudSpinner, Sun } from './icons.tsx';
 import type { Candidate, RowStatus, Verb } from './row-status.ts';
 import {
   liveSyncLines,
-  parseSyncLine,
   shownSyncLog,
   subscribeSyncLines,
   takeAutoOpen,
+  tidySyncLog,
 } from './sync-lines.ts';
 import {
   heldOrder,
@@ -104,19 +104,34 @@ function runVerb(verb: Verb, mr: BoardMRWithReview, ctx: RowContext): void {
 
 /** rt sync's output as the terminal draws it: rt-ui's glyph, the title,
     and the hint in its quieter column. */
+/** A path wraps after its slashes, never inside a segment. */
+function breakAfterSlashes(text: string) {
+  return text.split('/').flatMap((part, i, all) =>
+    i < all.length - 1 ? [part, '/', <wbr key={i} />] : [part]
+  );
+}
+
 function SyncLogBody({
   lines,
   running,
+  branch,
 }: {
   lines: readonly string[];
   running: boolean;
+  branch?: string;
 }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
     end.current?.scrollIntoView({ block: 'end' });
   }, [lines.length]);
+  const shown = tidySyncLog(lines, branch, running);
   return (
     <div className="tui-synclog-body" role="log" aria-live="polite">
+      {branch && lines.length > 0 && (
+        <div className="tui-synclog-branch" title={branch}>
+          {branch}
+        </div>
+      )}
       {lines.length === 0 && (
         <div className="tui-synclog-line" data-status="pending">
           <span className="tui-synclog-glyph" aria-hidden>
@@ -127,11 +142,10 @@ function SyncLogBody({
           </span>
         </div>
       )}
-      {lines.map((raw, i) => {
-        const line = parseSyncLine(raw);
-        // A running step that later lines have moved past is done drawing.
+      {shown.map((line, i) => {
+        // A running line kept on a stopped sync is done drawing.
         const stale =
-          line.status === 'running' && (!running || i < lines.length - 1);
+          line.status === 'running' && (!running || i < shown.length - 1);
         return (
           <div
             key={i}
@@ -145,7 +159,9 @@ function SyncLogBody({
             <span className="tui-synclog-text">
               <span className="tui-synclog-title">{line.title}</span>
               {line.hint && (
-                <span className="tui-synclog-hint">{line.hint}</span>
+                <span className="tui-synclog-hint">
+                  {breakAfterSlashes(line.hint)}
+                </span>
               )}
             </span>
           </div>
@@ -254,7 +270,13 @@ function SyncLogWord({
               </div>
               <SyncSteps
                 view={view}
-                raw={<SyncLogBody lines={lines} running={running} />}
+                raw={
+                  <SyncLogBody
+                    lines={lines}
+                    running={running}
+                    branch={mr.sourceBranch}
+                  />
+                }
                 {...(handoff ? { handoff } : {})}
               />
             </SideDrawer>

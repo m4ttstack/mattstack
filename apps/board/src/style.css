@@ -1050,8 +1050,18 @@ body {
 .tui-synclog-line[data-status='text'] .tui-synclog-glyph {
   display: none;
 }
+/* The hint gets its own line, so a long path never splits a title. */
 .tui-synclog-hint {
-  margin-left: 2ch;
+  display: block;
+  color: var(--text-3);
+  overflow-wrap: normal;
+}
+/* The branch, named once above the lines that say "this branch". */
+.tui-synclog-branch {
+  margin-bottom: var(--spacing-px6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--text-3);
 }
 .tui-synclog-glyph {
