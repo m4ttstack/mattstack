@@ -537,6 +537,7 @@ function CommentsDrawer({
   mr,
   local,
   self,
+  closing = false,
   onClose,
 }: {
   mr: BoardMR;
@@ -544,6 +545,8 @@ function CommentsDrawer({
   /** The board's seat: it resolves any thread on its own MR, and elsewhere
       only the threads it started. */
   self: string | null;
+  /** The drawer is playing its slide-out before it unmounts. */
+  closing?: boolean;
   onClose: () => void;
 }) {
   const [data, setData] = useState<Discussions | null>(null);
@@ -587,6 +590,7 @@ function CommentsDrawer({
       side="right"
       className="tui-cd-panel tui-spotlit"
       ariaLabel="comment threads"
+      data-closing={closing ? 'true' : undefined}
       onClose={onClose}
     >
       <div className="tui-cd-head">

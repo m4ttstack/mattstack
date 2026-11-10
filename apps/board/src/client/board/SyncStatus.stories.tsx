@@ -1,39 +1,22 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
-
-import { registerTheme, SoribashiProvider } from '@mattstack/tui-kit/provider';
-import { tuiTheme } from '@mattstack/tui-kit/theme';
 
 import '@mattstack/tui-kit/theme.css';
 import '@mattstack/tui-kit/canvas.css';
 import '../../style.css';
 
-import type { BoardMRWithReview, RowContext } from '../types.ts';
+import type { BoardMRWithReview } from '../types.ts';
 import { CommentsDrawer } from './CommentsDrawer.tsx';
+import {
+  NOW,
+  stage,
+  storyCtx as ctx,
+  storyMr,
+} from './row-stories.fixtures.tsx';
 import { RowSpotlight } from './RowSpotlight.tsx';
 import { RowView } from './RowView.tsx';
 import { pushSyncLine, startSyncLines } from './sync-lines.ts';
-
-const stage = (
-  Story: () => ReactNode,
-  context: { globals: { scheme?: string } }
-) => (
-  <div
-    className={context.globals.scheme === 'dark' ? 'dark' : undefined}
-    style={{
-      background: 'var(--page)',
-      color: 'var(--text-1)',
-      minHeight: '100vh',
-      padding: 32,
-    }}
-  >
-    <SoribashiProvider theme={tuiTheme}>
-      <div style={{ maxWidth: 820, margin: '0 auto' }}>
-        <Story />
-      </div>
-    </SoribashiProvider>
-  </div>
-);
+import { useLingering } from './use-lingering.ts';
 
 const meta = {
   title: 'Board/Rebase locally',
@@ -44,9 +27,6 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-registerTheme(tuiTheme);
-
-const NOW = Date.parse('2026-11-10T15:30:00Z');
 const BRANCH = 'web-412-show-hide-ternaries';
 
 /** rt sync's plain lines, as the daemon streams them. */
@@ -64,42 +44,11 @@ const L = {
   pushFailed: `[failed] Could not push ${BRANCH}`,
 };
 
-let iid = 1287;
 function mr(
   doctor: BoardMRWithReview['doctor'] | undefined,
   over: Partial<BoardMRWithReview> = {}
 ): BoardMRWithReview {
-  const n = iid++;
-  return {
-    iid: n,
-    title: 'WEB-412 Show and hide ternaries in the lint backlog',
-    webUrl: `https://gitlab.example.com/acme/webapp/-/merge_requests/${n}`,
-    sourceBranch: BRANCH,
-    targetBranch: 'main',
-    author: { username: 'pat', name: 'Pat' },
-    reviews: {
-      isApproved: false,
-      required: 1,
-      given: 0,
-      remaining: 1,
-      reviewers: [],
-    },
-    reviewerComments: 0,
-    diff: { additions: 307, deletions: 126, filesChanged: 9 },
-    updatedAt: new Date(NOW - 21 * 3600_000).toISOString(),
-    threadSummary: { awaiting: 0, replied: 0, resolved: 4 },
-    generalComments: 0,
-    blockers: { any: false },
-    mergeButton: { visible: false, disabled: false, loading: false },
-    rebaseButton: { visible: false, loading: false },
-    autoMergeButton: { visible: false, isActive: false },
-    behindTarget: 110,
-    isDraft: false,
-    codeownerSections: [],
-    gates: [],
-    ...(doctor ? { doctor } : {}),
-    ...over,
-  } as unknown as BoardMRWithReview;
+  return storyMr({ ...(doctor ? { doctor } : {}), ...over });
 }
 
 const doctor = (
@@ -113,36 +62,6 @@ const doctor = (
     updatedAt: NOW - 60_000,
     ...(message ? { message } : {}),
   }) as unknown as BoardMRWithReview['doctor'];
-
-const noop = () => {};
-const ctx = {
-  local: true,
-  self: 'pat',
-  slackTemplates: { single: '{title}', multiHeader: '', multiItem: '' },
-  slackEnabled: false,
-  onContext: noop,
-  onOpenReview: noop,
-  onOpenRespond: noop,
-  onOpenDraft: noop,
-  onOpenComments: noop,
-  draftResolved: new Map(),
-  onResumeRespond: noop,
-  onResumeReview: noop,
-  onRedo: noop,
-  onFocusPane: noop,
-  onOpenGate: noop,
-  selected: new Set(),
-  onToggleSelect: noop,
-  onClearOrphan: noop,
-  onDismissLane: noop,
-  noteEditing: null,
-  onEditNote: noop,
-  onSaveNote: noop,
-  onLaunch: noop,
-  onReReview: noop,
-  onRespond: noop,
-  onDoctor: noop,
-} as unknown as RowContext;
 
 /** A row with its sync popover open, the way a click on "rebase locally"
     leaves it for whoever clicked. */
@@ -367,17 +286,19 @@ export const ThreadsSpotlight: Story = {
 function ThreadsDrawerToggle() {
   const [open, setOpen] = useState(true);
   const row = neighbours[0]!;
+  const drawer = useLingering(open ? row : null);
   return (
     <>
       <button type="button" onClick={() => setOpen(true)}>
         open threads
       </button>
       <RowSpotlight mrUrl={row.webUrl} open={open} />
-      {open && (
+      {drawer.shown && (
         <CommentsDrawer
-          mr={row}
+          mr={drawer.shown}
           local={false}
           self="pat"
+          closing={drawer.leaving}
           onClose={() => setOpen(false)}
         />
       )}

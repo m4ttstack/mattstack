@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 
-/** Matches the wash's fade in style.css. */
-const SPOT_FADE_MS = 150;
+import { useLingering } from './use-lingering.ts';
 
 /** Where an MR's row sits on screen, followed through scrolls and resizes. */
 function useRowRect(mrUrl: string | null): DOMRect | null {
@@ -39,23 +38,7 @@ export function RowSpotlight({
   mrUrl: string | null | undefined;
   open: boolean;
 }) {
-  const [shown, setShown] = useState<string | null>(
-    open && mrUrl ? mrUrl : null
-  );
-  const [leaving, setLeaving] = useState(false);
-  useEffect(() => {
-    if (open && mrUrl) {
-      setShown(mrUrl);
-      setLeaving(false);
-      return;
-    }
-    setLeaving(true);
-    const t = setTimeout(() => {
-      setShown(null);
-      setLeaving(false);
-    }, SPOT_FADE_MS);
-    return () => clearTimeout(t);
-  }, [open, mrUrl]);
+  const { shown, leaving } = useLingering(open && mrUrl ? mrUrl : null);
   const rect = useRowRect(shown);
   if (!rect) return null;
   return (

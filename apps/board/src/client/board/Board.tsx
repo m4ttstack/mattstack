@@ -98,6 +98,7 @@ import { verbLane } from './asks/ask-copy.ts';
 import { AsksButton } from './asks/AsksButton.tsx';
 import { CommentsDrawer } from './CommentsDrawer.tsx';
 import { RowSpotlight } from './RowSpotlight.tsx';
+import { useLingering } from './use-lingering.ts';
 import { ConsoleSettingsModal } from './ConsoleSettingsModal.tsx';
 import {
   Controls,
@@ -587,6 +588,7 @@ export function Board() {
     []
   );
   const [commentsFor, setCommentsFor] = useState<BoardMR | null>(null);
+  const comments = useLingering(commentsFor);
   const { toasts, addToast, startToast } = useToasts();
 
   // A drawer action succeeded: swap the chip to its resolved state, close the
@@ -2402,15 +2404,16 @@ export function Board() {
           )}
 
           <RowSpotlight mrUrl={commentsFor?.webUrl} open={!!commentsFor} />
-          {commentsFor && (
+          {comments.shown && (
             <CommentsDrawer
               mr={
                 data.mrs.find(
-                  m => !!m.webUrl && m.webUrl === commentsFor.webUrl
-                ) ?? commentsFor
+                  m => !!m.webUrl && m.webUrl === comments.shown!.webUrl
+                ) ?? comments.shown
               }
               local={data.local}
               self={effectiveSeat(data.defaultMember, data.tokenUser)}
+              closing={comments.leaving}
               onClose={() => setCommentsFor(null)}
             />
           )}

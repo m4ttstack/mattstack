@@ -7,6 +7,7 @@ import type { BoardMRWithReview, RowContext } from '../types.ts';
 import { clauseOf } from './clause.ts';
 import { cleanTitle } from './format.ts';
 import { RowSpotlight } from './RowSpotlight.tsx';
+import { useLingering } from './use-lingering.ts';
 import { AgentGlyph, CloudSpinner, Sun } from './icons.tsx';
 import type { Candidate, RowStatus, Verb, VerbKind } from './row-status.ts';
 import {
@@ -213,6 +214,7 @@ function SyncLogWord({
     if (takeAutoOpen(url)) setOpen(true);
   }, [url, lines.length]);
   const close = () => setOpen(false);
+  const drawer = useLingering(open ? true : null);
   return (
     <>
       <button
@@ -233,7 +235,7 @@ function SyncLogWord({
         <RowSpotlight mrUrl={mr.webUrl} open={open} />,
         document.body
       )}
-      {open &&
+      {drawer.shown &&
         createPortal(
           // A portal still bubbles React events to the row, whose own click
           // opens the MR.
@@ -247,6 +249,7 @@ function SyncLogWord({
               side="right"
               className="tui-cd-panel tui-sync-drawer tui-spotlit"
               ariaLabel={`rt sync for !${mr.iid}`}
+              data-closing={drawer.leaving ? 'true' : undefined}
               onClose={close}
             >
               <div className="tui-cd-head">
