@@ -71,7 +71,7 @@ cannot tell what was done without asking the person to type "done".
    one machine.
 
 Matt picked 1 and 2 together: the code lives once, as its own plugin at
-`marketplace/plugins/human-todos/` (beside `chat`), and the mattstack
+`plugins/human-todos/` (beside `plugins/mattstack`, where the per-plugin CI rule and the marketplace publisher both look), and the mattstack
 plugin lists it under `dependencies` in its `plugin.json`. mattstack
 users get it automatically; anyone else adds the marketplace and
 installs only `human-todos`.
