@@ -47,7 +47,7 @@ import { isValidHostname } from "../lib/setup/host-validate.ts";
 import { CONNECT_WAIT_MS, endLogin, FINISH_IN_BROWSER, readLogin, startLogin, waitForSignIn, type LoginSeams } from "../lib/setup/cli-login.ts";
 import { integrationDef, type ValidateCtx } from "../lib/setup/integrations.ts";
 import { clearIntent, HOME_REPO_PATTERN, readIntent, orgRefFromIntent, writeIntent } from "../lib/setup/intent.ts";
-import { forgeRole, missingScopes, scopeShortfallDetail } from "../lib/setup/token-create.ts";
+import { forgeRole, missingScopes, recommendedScopeWarning, scopeShortfallDetail } from "../lib/setup/token-create.ts";
 import type { forgeLogin } from "../lib/team/forge.ts";
 import { cloneOrigin, recordForgeIdentity } from "../lib/setup/steps/org.ts";
 import { cloneSlugs, forgeFromRemote, hostFromRemote, legacyDeclaredForge } from "../lib/setup/team-settings.ts";
@@ -75,7 +75,7 @@ import { discoverOrgs, readTeamSnapshot, readUserIntegrationOverrides, type Team
 import type { Plan, Row } from "../lib/setup/contract.ts";
 import { createRelayClient, type RelayClient } from "../lib/team/relay-client.ts";
 import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
-import type { SecretPresence } from "../lib/setup/validators/accounts.ts";
+import { parseGhScopes, type SecretPresence } from "../lib/setup/validators/accounts.ts";
 
 export interface SetupDeps {
   probes: Probes;
@@ -1441,11 +1441,13 @@ async function evalGithub(p: Probes, secrets: SecretPresence, ctx: ValidateCtx):
 
   let base: IntegrationEval;
   if (stored === null) {
+    const ghScopes = parseGhScopes(`${ghStatus.stdout}\n${ghStatus.stderr}`);
     base = ghAuthed
-      ? { status: "ready", detail: GH_SOURCE_DETAIL, scopesSeen: [] }
+      ? { status: "ready", detail: `${GH_SOURCE_DETAIL}${recommendedScopeWarning("github", ghScopes)}`, scopesSeen: [] }
       : { status: "missing", detail: ghStatus.code === 127 ? "No GitHub account connected yet, and the gh CLI is not installed" : "No GitHub account connected yet", scopesSeen: [] };
   } else {
-    base = nonErrorEval(await def.validate(p, stored, ctx));
+    const evaluated = nonErrorEval(await def.validate(p, stored, ctx));
+    base = evaluated.status === "ready" ? { ...evaluated, detail: `${evaluated.detail}${recommendedScopeWarning("github", evaluated.scopesSeen)}` } : evaluated;
   }
 
   if (!ghAuthed) return base;
@@ -1778,7 +1780,7 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
     ? sourceDetail
       ? `${sourceDetail}. Saved for now; Install stores it once your key exists`
       : "Saved for now; Install stores it once your key exists"
-    : (sourceDetail ?? result.detail));
+    : `${sourceDetail ?? result.detail}${id === "github" ? recommendedScopeWarning("github", result.scopesSeen) : ""}`);
 
   printIntegrationResult(deps, args.includes("--json"), { integration: id, status: "ready", detail, scopesSeen: result.scopesSeen });
 }

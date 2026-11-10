@@ -57,7 +57,9 @@ Pick one card:
 | Forge | Joining a team | Owning a team |
 |---|---|---|
 | GitLab | `api` | `api` |
-| GitHub (classic token) | `repo`, `read:org` | `repo`, `read:org` |
+| GitHub (classic token) | `repo`, `read:org`, `workflow` | `repo`, `read:org`, `workflow` |
+
+On GitHub, rt requires `repo` and `read:org`. A token without `workflow` still works, but it can't push changes to `.github/workflows`, so rt shows a warning.
 
 On GitLab, rt requires only `api`. The link also checks `read_api`, `read_user`, `read_repository`, `write_repository`, and `ai_features`. rt refuses a token that lacks a scope, and names the scope. A GitLab member needs `api` because the board posts review comments and replies on MRs as you. The GitLab link targets GitLab 16 or newer.
 

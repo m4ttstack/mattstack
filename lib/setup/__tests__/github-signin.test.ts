@@ -25,7 +25,7 @@ describe("requestDeviceCode", () => {
     const call = p.calls.fetchInits[0]!;
     expect(call.url).toBe("https://github.com/login/device/code");
     expect(call.init?.method).toBe("POST");
-    expect(call.init?.body).toBe("client_id=acme-client&scope=repo+read%3Aorg");
+    expect(call.init?.body).toBe("client_id=acme-client&scope=repo+read%3Aorg+workflow");
     expect(call.init?.headers?.Accept).toBe("application/json");
     expect(call.init?.timeoutMs).toBe(15000);
   });

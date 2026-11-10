@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { forgeRole, forgeScopes, linkScopes, missingScopes, scopeShortfallDetail, tokenCreateLink, tokenField } from "../token-create.ts";
+import { forgeRole, forgeScopes, linkScopes, missingRecommended, missingScopes, scopeShortfallDetail, tokenCreateLink, tokenField } from "../token-create.ts";
 
 describe("forgeScopes", () => {
   test("gitlab member: api, because the board posts review comments and replies as the member", () => {
@@ -49,7 +49,7 @@ describe("tokenCreateLink", () => {
   test("github: the classic new-token page, host ignored", () => {
     expect(tokenCreateLink("github", "member", "ghe.example.com")).toEqual({
       label: "Create a token on GitHub…",
-      url: "https://github.com/settings/tokens/new?description=mattstack&scopes=repo%2Cread%3Aorg",
+      url: "https://github.com/settings/tokens/new?description=mattstack&scopes=repo%2Cread%3Aorg%2Cworkflow",
     });
   });
 });
@@ -94,7 +94,15 @@ describe("linkScopes", () => {
     expect(missingScopes("gitlab", "member", ["api"])).toEqual([]);
   });
 
-  test("github link scopes equal the required scopes", () => {
-    expect(linkScopes("github", "owner")).toEqual(forgeScopes("github", "owner"));
+  test("github link scopes add workflow on top of the required scopes", () => {
+    expect(forgeScopes("github", "owner")).toEqual(["repo", "read:org"]);
+    expect(linkScopes("github", "owner")).toEqual(["repo", "read:org", "workflow"]);
+  });
+
+  test("a recommended scope the token lacks is named, and silence names none", () => {
+    expect(missingRecommended("github", ["repo", "read:org"])).toEqual(["workflow"]);
+    expect(missingRecommended("github", ["repo", "read:org", "workflow"])).toEqual([]);
+    expect(missingRecommended("github", [])).toEqual([]);
+    expect(missingRecommended("gitlab", ["api"])).toEqual([]);
   });
 });

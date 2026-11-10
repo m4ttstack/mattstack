@@ -627,6 +627,18 @@ describe("integrationConnect: forge token scopes", () => {
     expect(body.detail).toBe("This token is missing read:org (run: gh auth refresh -s read:org)");
   });
 
+  test("a github token without workflow is stored as ready, with a warning", async () => {
+    const fetch: Probes["fetch"] = async (url) =>
+      url.includes("api.github.com/user") ? { status: 200, body: "{}", headers: { "x-oauth-scopes": "repo, read:org" } as Record<string, string> } : { status: 0, body: "", headers: {} };
+    const deps = baseDeps({ probes: fakeProbes({ fetch }), stdin: async () => ({ token: "ghp_x" }), writer: { storeReady: async () => true, write: async () => {} } });
+
+    await integrationConnect("github", ["--json"], deps);
+
+    const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
+    expect(body.status).toBe("ready");
+    expect(body.detail).toContain("workflow");
+  });
+
   test("a github token that reports no scopes (fine-grained) is stored as ready", async () => {
     const fetch: Probes["fetch"] = async (url) => (url.includes("api.github.com/user") ? { status: 200, body: "{}", headers: {} } : { status: 0, body: "", headers: {} });
     const probes = fakeProbes({ fetch });
@@ -686,6 +698,18 @@ describe("integrationStatus — github handle/owners", () => {
     const body = JSON.parse(deps.lines[0]!) as { handle?: string; owners?: string[] };
     expect(body.handle).toBe("matt");
     expect(body.owners).toEqual(["matt", "m4ttstack"]);
+  });
+
+  test("a gh session without workflow is ready, with a warning", async () => {
+    const exec: Probes["exec"] = async (argv) =>
+      argv.join(" ") === "gh auth status --hostname github.com" ? ok("✓ Logged in to github.com account matt (keyring)\n  - Token scopes: 'gist', 'read:org', 'repo'\n") : ok();
+    const deps = baseDeps({ probes: fakeProbes({ exec }) });
+
+    await integrationStatus("github", ["--json"], deps);
+
+    const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
+    expect(body.status).toBe("ready");
+    expect(body.detail).toContain("workflow");
   });
 
   test("gh unauthenticated -> no handle/owners keys", async () => {
