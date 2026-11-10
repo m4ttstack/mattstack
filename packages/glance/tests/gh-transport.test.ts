@@ -868,7 +868,9 @@ describe('GitHubProvider transport: GraphQL detection matches pathname, not subs
       headers: {
         'content-type': 'application/json',
         'x-ratelimit-remaining': '0',
-        'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 60)
+        // Inside the 30s retry deadline: a reset further out fails fast
+        // instead of retrying, which is not what these tests pin.
+        'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 5)
       }
     });
   }

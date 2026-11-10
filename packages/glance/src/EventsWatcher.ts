@@ -11,6 +11,7 @@
 import type { EventCursor, InvalidationBatch, WatchEventsOptions, WatchEventsStatus } from './types.ts';
 import { EventsPoller, type FetchEvents } from './EventsPoller.ts';
 import { type ForgeLogger, noopLogger } from './logger.ts';
+import { RateLimitedError } from './errors.ts';
 
 const MAX_BACKOFF_MS = 5 * 60_000;
 
@@ -22,10 +23,40 @@ export interface LoopTick {
   nextIntervalMs?: number;
 }
 
+function headerValue(headers: unknown, name: string): string | null {
+  if (!headers || typeof headers !== 'object') return null;
+  const get = (headers as { get?: unknown }).get;
+  const raw =
+    typeof get === 'function'
+      ? (get as (n: string) => unknown).call(headers, name)
+      : (headers as Record<string, unknown>)[name];
+  return raw === undefined || raw === null ? null : String(raw);
+}
+
+/** Octokit's RequestError keeps the status and headers on the error itself,
+ *  where gitbeaker keeps them under `cause.response`. */
+function octokitResponse(err: unknown): { status: number; headers: unknown } | null {
+  const e = err as { status?: unknown; response?: { headers?: unknown } } | null;
+  return typeof e?.status === 'number' ? { status: e.status, headers: e.response?.headers } : null;
+}
+
 /** Duck-typed error classification. GitbeakerRequestError carries
  *  `cause.response`; GitbeakerRetryError mentions the last status code in
- *  its message; anything without an HTTP shape is a network problem. */
+ *  its message; Octokit's RequestError carries `status` and
+ *  `response.headers`, and GitHub's rate limits arrive as a 403 or 429
+ *  (RateLimitedError is the same limit, already recognised); anything
+ *  without an HTTP shape is a network problem. */
 function classifyError(err: unknown): NonNullable<WatchEventsStatus['cause']> {
+  if (err instanceof RateLimitedError) return 'rate-limited';
+  const octokit = octokitResponse(err);
+  if (octokit) {
+    const limited =
+      octokit.status === 429 ||
+      (octokit.status === 403 &&
+        (headerValue(octokit.headers, 'x-ratelimit-remaining') === '0' ||
+          headerValue(octokit.headers, 'retry-after') !== null));
+    return limited ? 'rate-limited' : 'http-error';
+  }
   const status: unknown = (err as any)?.cause?.response?.status;
   if (status === 429) return 'rate-limited';
   if (typeof status === 'number') return 'http-error';
@@ -40,18 +71,20 @@ function classifyError(err: unknown): NonNullable<WatchEventsStatus['cause']> {
  * at MAX_BACKOFF_MS -- an unbounded server-supplied value must not be able
  * to stall the loop far past our own backoff ceiling.
  *
- * Honesty note: in production this path rarely fires. A 429 from a
- * gitbeaker-based provider surfaces as GitbeakerRetryError, which does not
- * carry the original response/headers, so `err.cause.response.headers` is
- * absent and this returns null (falling back to exponential backoff). This
- * function only matters for callers that inject `fetchEvents` via direct
- * `fetch()` and construct a duck-typed error exposing real headers.
+ * Sources, in order: a RateLimitedError's own `retryAfterMs`; Octokit's
+ * `err.response.headers` (a plain object); gitbeaker's
+ * `err.cause.response.headers` (a `Headers` instance). A GitbeakerRetryError
+ * carries neither, so a GitLab 429 usually falls back to exponential backoff.
  */
 function retryAfterMs(err: unknown): number | null {
-  const headers: unknown = (err as any)?.cause?.response?.headers;
-  const get = (headers as { get?: (name: string) => string | null } | undefined)?.get;
-  if (typeof get !== 'function') return null;
-  const raw = get.call(headers, 'retry-after');
+  if (err instanceof RateLimitedError) {
+    return err.retryAfterMs !== null && err.retryAfterMs > 0
+      ? Math.min(err.retryAfterMs, MAX_BACKOFF_MS)
+      : null;
+  }
+  const raw =
+    headerValue((err as any)?.response?.headers, 'retry-after') ??
+    headerValue((err as any)?.cause?.response?.headers, 'retry-after');
   const seconds = raw ? Number(raw) : NaN;
   if (!Number.isFinite(seconds) || seconds <= 0) return null;
   return Math.min(seconds * 1000, MAX_BACKOFF_MS);

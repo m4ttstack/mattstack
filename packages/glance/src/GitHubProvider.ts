@@ -49,6 +49,7 @@ import {
   type GitHubEvent
 } from './GitHubEventsPoller.ts';
 import { startWatcherLoop, type LoopTick } from './EventsWatcher.ts';
+import { RateLimitedError } from './errors.ts';
 import {
   bodyText,
   createGitHubClient,
@@ -898,11 +899,43 @@ export class GitHubProvider implements GitProvider {
     err: unknown
   ): void {
     const message = err instanceof Error ? err.message : String(err);
+    const target = warningTarget(projectPath, mrIid);
+    if (err instanceof RateLimitedError) {
+      this.warnRateLimited(
+        onWarning,
+        source,
+        target,
+        err,
+        `${projectPath}#${mrIid} was not read`
+      );
+      return;
+    }
     this.warn(onWarning, {
       kind: 'request-failed',
       source,
-      target: warningTarget(projectPath, mrIid),
+      target,
       message: `GitHubProvider.fetchSingleMR failed for ${projectPath}#${mrIid}: ${message}`
+    });
+  }
+
+  /**
+   * A rate-limited read as its own warning cause, so a caller can show "rate
+   * limited until X" instead of a generic failure. `effect` says what is
+   * missing from the result because of it.
+   */
+  private warnRateLimited(
+    onWarning: FetchPullRequestsOptions['onWarning'],
+    source: FetchPullRequestsWarning['source'],
+    target: string,
+    err: RateLimitedError,
+    effect: string
+  ): void {
+    this.warn(onWarning, {
+      kind: 'rate-limited',
+      source,
+      target,
+      ...(err.resetAt ? { resetAt: err.resetAt } : {}),
+      message: `GitHub ${err.kind} rate limit hit; ${effect}.${err.resetAt ? ` It lifts at ${err.resetAt}.` : ''}`
     });
   }
 
@@ -2380,7 +2413,15 @@ export class GitHubProvider implements GitProvider {
         ...(body !== undefined ? { data: body } : {})
       });
       return toResponse(res.status, res.headers, res.data);
-    } catch (err) {
+    } catch (caught) {
+      // `api()` hands callers an HTTP outcome to branch on (`res.ok`,
+      // `res.status`), never a throw, and a rate-limited 403 or 429 is one.
+      // The client converts it to `RateLimitedError` for the typed read
+      // paths, so unwrap it back to the response it came from here.
+      const err =
+        caught instanceof RateLimitedError && caught.cause instanceof RequestError
+          ? caught.cause
+          : caught;
       if (err instanceof RequestError) {
         if (!err.response) {
           // No `response` means Octokit's fetch wrapper never got an HTTP
@@ -2855,6 +2896,16 @@ export class GitHubProvider implements GitProvider {
         );
         data = res.data as { items: GHSearchItem[] };
       } catch (err) {
+        if (err instanceof RateLimitedError) {
+          this.warnRateLimited(
+            onWarning,
+            'search',
+            qualifiers,
+            err,
+            `PRs matching "${qualifiers}" are missing from this result`
+          );
+          break;
+        }
         if (err instanceof RequestError && err.response) {
           this.warn(onWarning, {
             kind: 'request-failed',
@@ -2925,6 +2976,16 @@ export class GitHubProvider implements GitProvider {
       );
       return res.data as GHPullRequest;
     } catch (err) {
+      if (err instanceof RateLimitedError) {
+        this.warnRateLimited(
+          onWarning,
+          'detail',
+          warningTarget(projectPath, prNumber),
+          err,
+          `${projectPath}#${prNumber} is missing from this result`
+        );
+        return null;
+      }
       if (err instanceof RequestError && err.response) {
         if (err.status === 404) return null;
         this.warn(onWarning, {
@@ -3123,6 +3184,16 @@ export class GitHubProvider implements GitProvider {
         { owner, repo, pull_number: prNumber, per_page: 100 }
       );
     } catch (err) {
+      if (err instanceof RateLimitedError) {
+        this.warnRateLimited(
+          onWarning,
+          'reviews',
+          warningTarget(repoPath, prNumber),
+          err,
+          `the approval count for ${repoPath}#${prNumber} could not be verified, so it is missing from this result`
+        );
+        return null;
+      }
       if (err instanceof RequestError && err.response) {
         this.warn(onWarning, {
           kind: 'request-failed',
@@ -3173,6 +3244,16 @@ export class GitHubProvider implements GitProvider {
       const data = res.data as GHCheckSuite;
       return data.check_runs;
     } catch (err) {
+      if (err instanceof RateLimitedError) {
+        this.warnRateLimited(
+          onWarning,
+          'checks',
+          warningTarget(repoPath, prNumber),
+          err,
+          `the pipeline for ${repoPath}#${prNumber} reads as "no checks" but that could not be verified`
+        );
+        return [];
+      }
       const status = err instanceof RequestError ? err.status : undefined;
       const message = err instanceof Error ? err.message : String(err);
       this.warn(onWarning, {

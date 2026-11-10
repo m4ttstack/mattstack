@@ -48,7 +48,7 @@ export interface FetchPullRequestsWarning {
    * approval count, so dropping the whole PR over either would be a bigger
    * degradation than the failure itself warrants.
    */
-  kind: 'page-cap' | 'request-failed';
+  kind: 'page-cap' | 'request-failed' | 'rate-limited';
   /**
    * Which leg of the fetch: the search API, a repository listing, a per-MR
    * detail fetch, a per-MR reviews fetch (the approvals a failed page here
@@ -60,6 +60,11 @@ export interface FetchPullRequestsWarning {
   message: string;
   /** The HTTP status, when `kind` is `request-failed`. */
   status?: number;
+  /**
+   * When `kind` is `rate-limited`: the ISO time the limit lifts, if GitHub
+   * said. The read behind this warning was refused, not truncated.
+   */
+  resetAt?: string;
   /**
    * What the warning is about: a search query, a project path, or (for
    * `detail`/`reviews`/`checks`/`threads`, every single-PR source) exactly
