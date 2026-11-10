@@ -1,12 +1,12 @@
 import type { EngineInterface, On } from 'claude-code'
 
 import type { Todo } from '../types'
-import { TITLE, buttonsFor, hardWrap, isActionable } from './items'
+import { PLUGIN, TITLE, buttonsFor, hardWrap, isActionable } from './items'
 import type { ButtonId } from './items'
 import { isPaneShown, readPane, removeTodos, setPaneShown, toggleExpanded, listTodos } from './store'
 import { cleanup, press } from './wiring'
 
-const PANE = 'human-todos'
+const PANE = PLUGIN
 const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 const SCRIPT_ROWS = 2
 const FINISHED_SHOWN = 8
@@ -61,7 +61,7 @@ export function registerPane(on: On): void {
     const { Box, Text, Button } = $.ui.resolve(e)
     return (
       <Box flexDirection="row" gap={2}>
-        <Text color="warning">{`○ ${waiting} ${waiting === 1 ? 'Human Todo' : 'Human Todos'}`}</Text>
+        <Text color="warning">{`○ ${waiting} ${waiting === 1 ? TITLE.replace(/s$/, '') : TITLE}`}</Text>
         <Button key="open-pane" label="Open" onPress={() => openPane($)} />
       </Box>
     )
@@ -69,7 +69,7 @@ export function registerPane(on: On): void {
 
   on('ui.render', { component: 'UserMessage', props: { origin: { kind: 'plugin' } } }, async ($, e, next) => {
     const origin = e.props.origin as { kind: string; name?: string }
-    if (e.props.isExpanded || origin.name !== 'human-todos') return next(e)
+    if (e.props.isExpanded || origin.name !== PLUGIN) return next(e)
     const { Box, Text } = $.ui.resolve(e)
     const [first, ...rest] = e.props.text.split('\n')
     const extra = rest.filter(line => line.trim() !== '' && !line.startsWith('```')).length
@@ -85,7 +85,7 @@ export function registerPane(on: On): void {
     )
   })
 
-  on('ui.render', { component: 'Pane', requestId: 'human-todos' }, async ($, e) => {
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const { list, openIds, spin: frameNo } = await readPane($)
     const actionable = list.filter(isActionable)
@@ -99,7 +99,9 @@ export function registerPane(on: On): void {
           key={`${id}-${todo.id}`}
           variant={PRIMARY.includes(id) ? 'primary' : undefined}
           label={LABELS[id]}
-          onPress={p => press($, todo, id, p.surface)}
+          onPress={p => {
+            void press($, todo, id, p.surface).catch(() => $.ui.toast(`Could not ${LABELS[id].toLowerCase()} #${todo.id}`))
+          }}
         />
       ))
 
@@ -177,7 +179,7 @@ export function registerPane(on: On): void {
               label="Clear finished"
               onPress={async () => {
                 const gone = await removeTodos($, t => !isActionable(t))
-                await cleanup($, gone)
+                void cleanup($, gone).catch(() => $.ui.toast('Could not tidy up after the cleared items'))
               }}
             />
           </Box>

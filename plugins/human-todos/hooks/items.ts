@@ -1,5 +1,6 @@
 import type { AddInput, Todo } from '../types'
 
+export const PLUGIN = 'human-todos'
 export const TITLE = 'Human Todos'
 
 export type ButtonId = 'run' | 'open' | 'copy' | 'done' | 'skip' | 'confirm' | 'cancel' | 'show' | 'stop' | 'openLog'
