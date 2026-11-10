@@ -10,6 +10,7 @@ import '../../style.css';
 
 import type { BoardMRWithReview, RowContext } from '../types.ts';
 import { CommentsDrawer } from './CommentsDrawer.tsx';
+import { RowSpotlight } from './RowSpotlight.tsx';
 import { RowView } from './RowView.tsx';
 import { pushSyncLine, startSyncLines } from './sync-lines.ts';
 
@@ -356,12 +357,30 @@ export const ThreadsSpotlight: Story = {
         showAuthor={false}
         ctx={ctx}
       />
-      <CommentsDrawer
-        mr={neighbours[0]!}
-        local={false}
-        self="pat"
-        onClose={noop}
-      />
+      <ThreadsDrawerToggle />
     </div>
   ),
 };
+
+/** Board's own wiring: the spotlight beside the drawer's condition, so it
+    fades out after the drawer closes. */
+function ThreadsDrawerToggle() {
+  const [open, setOpen] = useState(true);
+  const row = neighbours[0]!;
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>
+        open threads
+      </button>
+      <RowSpotlight mrUrl={row.webUrl} open={open} />
+      {open && (
+        <CommentsDrawer
+          mr={row}
+          local={false}
+          self="pat"
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  );
+}

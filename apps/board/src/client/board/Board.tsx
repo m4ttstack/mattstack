@@ -97,6 +97,7 @@ import { AskConfirmDialog } from './AskConfirmDialog.tsx';
 import { verbLane } from './asks/ask-copy.ts';
 import { AsksButton } from './asks/AsksButton.tsx';
 import { CommentsDrawer } from './CommentsDrawer.tsx';
+import { RowSpotlight } from './RowSpotlight.tsx';
 import { ConsoleSettingsModal } from './ConsoleSettingsModal.tsx';
 import {
   Controls,
@@ -2400,6 +2401,7 @@ export function Board() {
             />
           )}
 
+          <RowSpotlight mrUrl={commentsFor?.webUrl} open={!!commentsFor} />
           {commentsFor && (
             <CommentsDrawer
               mr={

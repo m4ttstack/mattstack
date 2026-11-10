@@ -229,6 +229,10 @@ function SyncLogWord({
         {word}
         <StepPips view={view} />
       </button>
+      {createPortal(
+        <RowSpotlight mrUrl={mr.webUrl} open={open} />,
+        document.body
+      )}
       {open &&
         createPortal(
           // A portal still bubbles React events to the row, whose own click
@@ -239,7 +243,6 @@ function SyncLogWord({
             onMouseDown={e => e.stopPropagation()}
             onContextMenu={e => e.stopPropagation()}
           >
-            <RowSpotlight mrUrl={mr.webUrl} />
             <SideDrawer
               side="right"
               className="tui-cd-panel tui-sync-drawer tui-spotlit"

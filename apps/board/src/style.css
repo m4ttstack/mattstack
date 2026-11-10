@@ -8486,12 +8486,29 @@ a.tui-id-card-ref:focus-visible {
   background: transparent;
   backdrop-filter: none;
 }
+/* One under the drawer's overlay, which can mount before or after it. */
 .tui-row-spot {
   position: fixed;
-  z-index: 100;
+  z-index: 99;
+  transition: opacity 150ms ease-in;
   border-radius: 8px;
   box-shadow: 0 0 0 200vmax color-mix(in srgb, black 16%, transparent);
   pointer-events: none;
+  animation: tui-row-spot-in 150ms ease-out;
+}
+.tui-row-spot[data-leaving] {
+  opacity: 0;
+}
+@keyframes tui-row-spot-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tui-row-spot {
+    animation: none;
+    transition: none;
+  }
 }
 .dark .tui-row-spot {
   box-shadow: 0 0 0 200vmax color-mix(in srgb, black 45%, transparent);

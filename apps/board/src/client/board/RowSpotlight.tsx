@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 
+/** Matches the wash's fade in style.css. */
+const SPOT_FADE_MS = 150;
+
 /** Where an MR's row sits on screen, followed through scrolls and resizes. */
-function useRowRect(mrUrl: string | null | undefined): DOMRect | null {
+function useRowRect(mrUrl: string | null): DOMRect | null {
   const [rect, setRect] = useState<DOMRect | null>(null);
   useEffect(() => {
     if (!mrUrl) {
@@ -26,15 +29,39 @@ function useRowRect(mrUrl: string | null | undefined): DOMRect | null {
 }
 
 /** A light wash over the board with the drawer's own row left bright, so a
-    drawer stays tied to the MR it belongs to. Render it just before the
-    drawer and give the drawer's panel `tui-spotlit`, which clears the
-    drawer's own wash and blur. */
-export function RowSpotlight({ mrUrl }: { mrUrl: string | null | undefined }) {
-  const rect = useRowRect(mrUrl);
+    drawer stays tied to the MR it belongs to. It outlives the drawer by its
+    fade, so render it beside the drawer's condition, never inside it, and
+    give the drawer's panel `tui-spotlit` to clear the drawer's own wash. */
+export function RowSpotlight({
+  mrUrl,
+  open,
+}: {
+  mrUrl: string | null | undefined;
+  open: boolean;
+}) {
+  const [shown, setShown] = useState<string | null>(
+    open && mrUrl ? mrUrl : null
+  );
+  const [leaving, setLeaving] = useState(false);
+  useEffect(() => {
+    if (open && mrUrl) {
+      setShown(mrUrl);
+      setLeaving(false);
+      return;
+    }
+    setLeaving(true);
+    const t = setTimeout(() => {
+      setShown(null);
+      setLeaving(false);
+    }, SPOT_FADE_MS);
+    return () => clearTimeout(t);
+  }, [open, mrUrl]);
+  const rect = useRowRect(shown);
   if (!rect) return null;
   return (
     <div
       className="tui-row-spot"
+      data-leaving={leaving ? 'true' : undefined}
       aria-hidden
       style={{
         top: rect.top,
