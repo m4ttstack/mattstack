@@ -426,6 +426,12 @@ describe('stageSummary', () => {
     ).toBe('Back to implement');
   });
 
+  it('says a redirect that names no stage was redirected', () => {
+    expect(
+      stageSummary(entryOf({ redirect: 'CI red: lint failed', gates: [] }))
+    ).toBe('Redirected');
+  });
+
   it('counts the decisions and names the first pick', () => {
     expect(
       stageSummary(

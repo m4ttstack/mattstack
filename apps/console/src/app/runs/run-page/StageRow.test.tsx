@@ -147,6 +147,30 @@ describe('StagePane', () => {
     ]);
   });
 
+  it('badges a one-line clean review too', () => {
+    renderWithProviders(
+      <StagePane
+        entry={planEntry({
+          gates: [],
+          fields: [
+            {
+              key: 'review',
+              value: 'Ready to merge: yes - no findings',
+              produced_by: 'self-review',
+              at: AT - 90_000,
+            },
+          ],
+        })}
+        repo="remote:acme%2Fweb"
+        runId="20261008-1338"
+        evidenceField={null}
+      />
+    );
+    expect(document.querySelector('[data-verdict="yes"]')).toHaveTextContent(
+      'Ready to merge'
+    );
+  });
+
   it('draws the stage doc, fields and every decision', () => {
     pane(true);
     expect(screen.getByText('Stage doc')).toBeInTheDocument();

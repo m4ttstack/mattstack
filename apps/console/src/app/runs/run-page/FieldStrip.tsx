@@ -30,11 +30,13 @@ const isJson = (f: RunFieldRow) => fieldKind(f.key, f.value) === 'json';
     line of plain text. Anything longer keeps a row of its own. */
 export const isStripField = (f: RunFieldRow) =>
   isJson(f) ||
-  (fieldKind(f.key, f.value) === 'text' &&
+  (f.key !== 'review' &&
+    fieldKind(f.key, f.value) === 'text' &&
     f.value.length <= STRIP_TEXT_MAX &&
     !f.value.includes('\n'));
 
 interface Upload {
+  path: string;
   name: string;
   url: string | null;
   sha: string | null;
@@ -72,6 +74,7 @@ function shapeOf(value: string): Shape {
     const uploads = Object.entries(parsed.uploads).map(([path, entry]) => {
       const e = isRecord(entry) ? entry : {};
       return {
+        path,
         name: path.split('/').at(-1) ?? path,
         url: typeof e.url === 'string' ? e.url : null,
         sha: typeof e.sha256 === 'string' ? e.sha256.slice(0, 7) : null,
@@ -110,7 +113,7 @@ function jsonPreview(value: string): string | null {
 
 function UploadRows({ uploads }: { uploads: Upload[] }) {
   return uploads.map(u => (
-    <div key={u.name} className={classes.row}>
+    <div key={u.path} className={classes.row}>
       <Icon name="image" size={15} className={classes.muted} />
       <div className={classes.grow}>
         <Text fz="md" fw={500} lh="normal" truncate>

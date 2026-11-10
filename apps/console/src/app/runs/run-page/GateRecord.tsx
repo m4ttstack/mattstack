@@ -106,11 +106,21 @@ function Stamp({ gate, then }: { gate: GateRow; then: string | null }) {
 
 const SUMMARY_ITEM = 'summary';
 
+/** Markdown's inline marks dropped, for text drawn inside a toggle button,
+    where a link or code block would nest one control in another. */
+const plainText = (md: string) =>
+  md
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/[*_`]+/g, '')
+    .replace(/^\s*(#+|[-*+>]|\d+[.)])\s+/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
 /** The agent's prose for the whole ask. Its first line stays put in the row
     whether open or closed; opening reveals only what follows it. */
 function Summary({ text, escalation }: { text: string; escalation: boolean }) {
   const trimmed = text.trim();
-  const breakAt = trimmed.indexOf('\n');
+  const breakAt = trimmed.search(/\n\s*\n/);
   const first = breakAt < 0 ? trimmed : trimmed.slice(0, breakAt);
   const rest = breakAt < 0 ? '' : trimmed.slice(breakAt).trim();
   const row = (
@@ -119,7 +129,13 @@ function Summary({ text, escalation }: { text: string; escalation: boolean }) {
         {escalation ? 'The agent hit a wall' : 'What the agent found'}
       </Text>
       <div className={classes.grow}>
-        <GateContext text={first} />
+        {rest ? (
+          <Text fz="md" lh="normal">
+            {plainText(first)}
+          </Text>
+        ) : (
+          <GateContext text={first} />
+        )}
       </div>
     </div>
   );

@@ -619,6 +619,11 @@ function Findings({ text }: { text: string }) {
         type="auto"
         offsetScrollbars="present"
         classNames={{ root: classes.scroll, thumb: classes.thumb }}
+        viewportProps={{
+          tabIndex: 0,
+          role: 'region',
+          'aria-label': 'What the agent found',
+        }}
       >
         <Stack gap={10} className={classes.scrollBody}>
           {blocks.map((block, i) =>

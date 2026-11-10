@@ -17,7 +17,7 @@ import { readEvidence } from '@mattstack/rt-client/evidence';
 import { formatDuration } from '../derive/duration';
 import { fieldLabel } from '../derive/fields';
 import type { StageAttempt } from '../derive/stages';
-import { stageSummary, type StoryEntry } from '../derive/story';
+import { splitRedirect, stageSummary, type StoryEntry } from '../derive/story';
 import { FailureExcerpt } from '../FailureExcerpt';
 import { EvidenceCard } from './EvidenceCard';
 import { FieldStrip, isStripField } from './FieldStrip';
@@ -66,14 +66,12 @@ function StageField({
 /** How a redirected attempt ended, after the gate that sent it back:
     "back to implement: <note>" as a quiet outcome line and its note. */
 function RedirectOutcome({ text }: { text: string }) {
-  const split = text.indexOf(': ');
-  const head = split < 0 ? text : text.slice(0, split);
-  const note = split < 0 ? '' : text.slice(split + 2);
+  const { head, note } = splitRedirect(text);
   const label = (
     <Group gap={6} wrap="nowrap" c="dimmed">
       <Icon name="cornerUpLeft" size={13} />
       <Text fz="sm" fw={500} lh="normal">
-        {head.charAt(0).toUpperCase() + head.slice(1)}
+        {head}
       </Text>
     </Group>
   );

@@ -126,8 +126,9 @@ export function HeroTitle({
           )
         ) : null}
         <Text fz="sm" lh="normal" c="dimmed" truncate data-parity="meta">
-          {meta.split(' · ').map(part => (
-            <span key={part} className={classes.metaPart}>
+          {meta.split(' · ').map((part, i) => (
+            <span key={i} className={classes.metaPart}>
+              {i > 0 ? ' ' : null}
               {part}
             </span>
           ))}

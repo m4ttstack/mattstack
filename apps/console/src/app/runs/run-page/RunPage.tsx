@@ -198,7 +198,11 @@ export function RunPage({
         onViewInputs={drawer.open}
         facts={parts.factRows}
         cost={usage.data === undefined ? null : liveCost(usage.data)}
-        waitedFor={mine ? formatDuration(now - mine.openedAt) : null}
+        waitedFor={
+          mine && rail?.some(s => s.status === 'waiting')
+            ? formatDuration(now - mine.openedAt)
+            : null
+        }
       />
       {parts.gatesFailed ? (
         <GatesUnreadable onRetry={() => void parts.retryGates()} />
