@@ -3,7 +3,7 @@ import type { Engine } from 'claude-code/testing'
 
 import type { Todo } from '../types'
 import { SESSION, children, exits, hangs, pid, startSession, world } from './test-world'
-import type { Child } from './test-world'
+import type { Child, Piece } from './test-world'
 
 type On = Parameters<typeof world>[0]
 
@@ -29,9 +29,11 @@ type Setup = {
   script: (script: string) => Child
   // Answers a command run beneath the plugin (the kill, the log removal).
   run?: (argv: readonly string[]) => void
+  // Sees each log write; it may throw to refuse one.
+  write?: (text: string) => void
 }
 
-async function seeded($: Engine, on: On, list: Todo[], { env = {}, script, run }: Setup) {
+async function seeded($: Engine, on: On, list: Todo[], { env = {}, script, run, write }: Setup) {
   const w = world(on, { entries: { [`list:${SESSION}`]: { todos: list, nextId: 20, savedAt: 1_000_000 } } })
   const toasts: string[] = []
   const ran: string[][] = []
@@ -47,6 +49,7 @@ async function seeded($: Engine, on: On, list: Todo[], { env = {}, script, run }
     return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('fs.write', (_, e) => {
+    write?.(e.text)
     writes.push({ path: e.path, text: e.text })
     return { value: undefined }
   })
@@ -160,13 +163,13 @@ test('a child that breaks mid-run ends the item with exit -1 and the error after
 })
 
 // The kill ends the child the way the shell would: the stand-in releases it when the kill command runs.
-function killable() {
+function killable(first: Piece[] = [pid(4242)]) {
   let release: () => void = () => {}
   const gate = new Promise<void>(resolve => {
     release = resolve
   })
   const child = async function* (): Child {
-    yield pid(4242)
+    yield* first
     await gate
     return { code: null, signal: 'SIGTERM' }
   }
@@ -264,7 +267,7 @@ test('withdrawing a running item kills its child, removes its log and reports no
   await $.tool.call({ tool: WITHDRAW, id: '1' })
   await clock.advance(5000)
 
-  expect(ran).toEqual([killing(4242), ['rm', '-f', log]])
+  expect(ran).toEqual([killing(4242), ['rm', '-f', '--', log]])
   expect(sent).toEqual([])
   expect((await $.tool.call({ tool: LIST })).result).toBe('No to-dos.')
 })
@@ -277,7 +280,7 @@ test('a finished item\'s log is removed with rm -f when it is cleared', async ($
 
   await pane.press({ key: 'clear' })
 
-  expect(ran).toEqual([['rm', '-f', log]])
+  expect(ran).toEqual([['rm', '-f', '--', log]])
 })
 
 test('Show does nothing for a local run', async ($, on) => {
@@ -289,4 +292,94 @@ test('Show does nothing for a local run', async ($, on) => {
 
   expect(ran).toEqual([])
   expect(toasts).toEqual([])
+})
+
+test('a rerun removes the last run\'s log, so clearing leaves no log behind', async ($, on) => {
+  const k = killable()
+  let starts = 0
+  const { run1, ran, item, clock, pane } = await seeded($, on, [todo({})], {
+    script: () => (starts++ === 0 ? k.child() : exits([pid(1)])),
+    run: k.release,
+  })
+  await run1('1')
+  await clock.settle()
+  const first = item('1')?.logPath
+  await pane.press({ key: 'stop-1' })
+  await clock.settle()
+
+  await run1('1')
+  await clock.settle()
+  const second = item('1')?.logPath
+  await pane.press({ key: 'clear' })
+
+  expect(first).not.toBe(second)
+  expect(ran).toEqual([killing(4242), ['rm', '-f', '--', first], ['rm', '-f', '--', second]])
+})
+
+test('a pid split across pieces is read whole, never short', async ($, on) => {
+  const k = killable([
+    { stream: 'stderr', text: '__human_to' },
+    { stream: 'stderr', text: 'do_pid__12' },
+    { stream: 'stderr', text: '34\nreal output\n' },
+  ])
+  const { run1, ran, item, clock, pane } = await seeded($, on, [todo({})], { script: k.child, run: k.release })
+  await run1('1')
+  await clock.settle()
+
+  await pane.press({ key: 'stop-1' })
+  await clock.settle()
+
+  expect(ran).toEqual([killing(1234)])
+  expect(item('1')).toMatchObject({ status: 'open', outputTail: 'real output' })
+})
+
+test('marker text a script prints later stays in its output and never replaces the pid', async ($, on) => {
+  const k = killable([
+    pid(4242),
+    { stream: 'stderr', text: '__human_todo_pid__999\n' },
+    { stream: 'stderr', text: 'x __human_todo_pid__5\n' },
+  ])
+  const { run1, ran, item, clock, pane } = await seeded($, on, [todo({})], { script: k.child, run: k.release })
+  await run1('1')
+  await clock.settle()
+
+  await pane.press({ key: 'stop-1' })
+  await clock.settle()
+
+  expect(ran).toEqual([killing(4242)])
+  expect(item('1')?.outputTail).toBe('__human_todo_pid__999\nx __human_todo_pid__5')
+})
+
+test('output that precedes the pid line, and a half line with no newline at the end, are kept', async ($, on) => {
+  const { run1, item, clock } = await seeded($, on, [todo({})], {
+    script: () => exits([{ stream: 'stderr', text: 'profile noise\n' }, pid(7), { stream: 'stderr', text: 'tail' }]),
+  })
+
+  await run1('1')
+  await clock.settle()
+
+  expect(item('1')).toMatchObject({ status: 'done', outputTail: 'profile noise\ntail' })
+})
+
+test('a log that cannot be written toasts once for the run and the run still reports', async ($, on) => {
+  const { run1, item, toasts, sent, clock } = await seeded($, on, [todo({})], {
+    write: text => {
+      if (text !== '') throw new Error('disk full')
+    },
+    script: async function* () {
+      yield pid(7)
+      yield out('one\n')
+      await clock.sleep(1500)
+      yield out('two\n')
+      await clock.sleep(1500)
+      return { code: 0, signal: null }
+    },
+  })
+
+  await run1('1')
+  await clock.advance(3000)
+
+  expect(toasts).toEqual(['Could not save the output of #1'])
+  expect(item('1')).toMatchObject({ status: 'done', outputTail: 'one\ntwo' })
+  expect(sent).toHaveLength(1)
 })

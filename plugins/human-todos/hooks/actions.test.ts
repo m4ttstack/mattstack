@@ -11,7 +11,7 @@ type Result = { exitCode: number; stdout: string; stderr: string }
 
 const PID_PREFIX = 'print -u2 "__human_todo_pid__$$"; '
 
-const SURFACES =['terminal', 'desktop'] as const
+const SURFACES = ['terminal', 'desktop'] as const
 
 const PANE = {
   plugin: 'human-todos',
@@ -332,7 +332,7 @@ test('withdrawing, clearing and /clear hand each item that ran to its runner, an
     { run: () => ({}) },
   )
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  const removed = () => ran.filter(argv => argv[0] === 'rm').map(argv => argv[2])
+  const removed = () => ran.filter(argv => argv[0] === 'rm').map(argv => argv[3])
 
   await $.tool.call({ tool: WITHDRAW, id: '1' })
   expect(logs(events)).toEqual(['herdr.cleanup #1'])
