@@ -1,8 +1,9 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { Paper } from '@mattstack/app-kit/core';
+import { Paper, Text } from '@mattstack/app-kit/core';
 import type { RunFieldRow } from '@mattstack/rt-client';
 
 import type { StoryEntry } from '../derive/story';
+import { StageDocLink } from './StageDoc';
 import { StageNavItem, StagePane } from './StageRow';
 import classes from './Story.module.css';
 
@@ -138,18 +139,34 @@ export function Story({
             className={classes.split}
             style={{ height: fit.height }}
           >
-            <nav aria-label="Stages" className={classes.stages}>
-              {entries.map(entry => (
-                <StageNavItem
-                  key={entry.key}
-                  entry={entry}
-                  evidenceField={evidenceField}
-                  active={entry.key === shown.key}
-                  onPick={() => setPicked(entry.key)}
-                />
-              ))}
-            </nav>
-            <div className={classes.pane}>{pane}</div>
+            <div className={`${classes.column} ${classes.stagesColumn}`}>
+              <div className={classes.columnHead}>
+                <Text fz="md" fw={600} lh="normal">
+                  Stages
+                </Text>
+              </div>
+              <nav aria-label="Stages" className={classes.stages}>
+                {entries.map(entry => (
+                  <div key={entry.key} className={classes.stageRow}>
+                    <StageNavItem
+                      entry={entry}
+                      evidenceField={evidenceField}
+                      active={entry.key === shown.key}
+                      onPick={() => setPicked(entry.key)}
+                    />
+                  </div>
+                ))}
+              </nav>
+            </div>
+            <div className={`${classes.column} ${classes.paneColumn}`}>
+              <div className={classes.columnHead}>
+                <Text fz="md" fw={600} lh="normal" truncate>
+                  {shown.label}
+                </Text>
+                <StageDocLink stage={shown.attempt.stage} />
+              </div>
+              <div className={classes.pane}>{pane}</div>
+            </div>
           </div>
         ) : (
           <div className={classes.pane}>

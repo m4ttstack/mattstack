@@ -1,10 +1,32 @@
 .lane {
   display: flex;
   flex-direction: column;
-  gap: 14px;
   flex: 1 1 0;
   min-width: 0;
-  padding: 18px;
+  overflow: hidden;
+}
+
+.top {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px 14px;
+}
+
+.band {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 18px 14px;
+  background: var(--tk-app-chrome);
+}
+
+.band[data-waiting] {
+  background: color-mix(
+    in srgb,
+    var(--tk-fill-bad) var(--tk-wash),
+    var(--tk-card)
+  );
 }
 
 .full {
@@ -14,20 +36,6 @@
 
 .spacer {
   flex: 1;
-}
-
-.now {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 100%;
-}
-
-.footer {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  width: 100%;
 }
 
 /* The kit's 28px ActionIcon keeps its size without making the head row

@@ -67,6 +67,7 @@ export function useRunParts(repo: string, runId: string, data: RunPageData) {
       href: facts.mr.url,
       copy: facts.mr.url ?? facts.mr.value,
       sub: facts.mr.sub,
+      note: facts.mr.value ? facts.mr.sub : null,
     },
     {
       name: 'Branch',

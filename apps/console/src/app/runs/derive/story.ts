@@ -291,6 +291,10 @@ export function stageSummary(
   entry: StoryEntry,
   evidence: EvidenceRecord | null = null
 ): string {
+  if (entry.redirect) {
+    const head = entry.redirect.split(': ')[0]!;
+    return head.charAt(0).toUpperCase() + head.slice(1);
+  }
   const count = answeredQuestionCount(entry.gates);
   const captured =
     entry.evidence && evidence

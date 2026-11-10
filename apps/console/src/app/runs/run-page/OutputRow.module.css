@@ -10,10 +10,19 @@
 .value {
   flex: 1;
   min-width: 0;
+  max-width: 80ch;
   display: flex;
 }
 
 .value > * {
   flex: 1;
   min-width: 0;
+}
+
+/* The Now card shows a field's gist; the stage pane has the whole of it. */
+.value p {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }

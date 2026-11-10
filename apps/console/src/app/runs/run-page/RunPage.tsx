@@ -4,6 +4,7 @@ import type { GateRow } from '@mattstack/rt-client';
 import { useSearch } from 'wouter';
 
 import { useUsageRun } from '../../usage/useUsage';
+import { formatDuration } from '../derive/duration';
 import { gateStage } from '../derive/gates';
 import { heroLiveness } from '../derive/liveness';
 import { liveCost } from '../derive/record';
@@ -197,6 +198,7 @@ export function RunPage({
         onViewInputs={drawer.open}
         facts={parts.factRows}
         cost={usage.data === undefined ? null : liveCost(usage.data)}
+        waitedFor={mine ? formatDuration(now - mine.openedAt) : null}
       />
       {parts.gatesFailed ? (
         <GatesUnreadable onRetry={() => void parts.retryGates()} />

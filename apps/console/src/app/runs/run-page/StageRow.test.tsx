@@ -107,18 +107,19 @@ const paneStage = () =>
     ?.getAttribute('data-stage');
 
 describe('StagePane', () => {
-  const pane = () =>
+  const pane = (heading = false) =>
     renderWithProviders(
       <StagePane
         entry={planEntry()}
         repo="remote:acme%2Fweb"
         runId="20261008-1338"
         evidenceField={null}
+        heading={heading}
       />
     );
 
   it('draws the stage doc, fields and every decision', () => {
-    pane();
+    pane(true);
     expect(screen.getByText('Stage doc')).toBeInTheDocument();
     expect(screen.getByText('Approach')).toBeInTheDocument();
     expect(screen.getByText('Which approach?')).toBeInTheDocument();

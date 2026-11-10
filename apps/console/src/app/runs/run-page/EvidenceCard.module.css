@@ -3,17 +3,73 @@
   padding: 16px;
 }
 
-/* Thumbnails line up at the top: their captions run to different lengths. */
+/* As many boards a row as fit at a readable size; they line up at the top,
+   since their captions run to different lengths. */
 .strip {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  align-items: start;
+  gap: 20px 16px;
 }
 
 .storyThumb {
-  width: 240px;
   min-width: 0;
+}
+
+/* Room before the gates under it. */
+.storySection {
+  padding-bottom: 16px;
+}
+
+.boardList {
+  display: flex;
+  flex-direction: column;
+  padding: 0 16px;
+  border-radius: 8px;
+  background: var(--tk-panel);
+}
+
+.board {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  padding: 14px 0;
+}
+
+.board + .board {
+  border-top: 1px solid var(--tk-border-soft);
+}
+
+.boardImage {
+  display: flex;
+  flex: 0 0 150px;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border: 1px solid var(--tk-border-soft);
+  border-radius: 6px;
+  background: var(--tk-card);
+}
+
+.boardText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  max-width: 60ch;
+}
+
+/* Open stays at the row's right edge however short the text runs. */
+.boardText + .boardOpen {
+  margin-left: auto;
+}
+
+.boardOpen {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
 }
 
 /* A screenshot's 16:10, at the width of the column; the image fills it. */
