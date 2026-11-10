@@ -17,6 +17,7 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
   let sessionId = SESSION
   let isPlaced = true
   on('session.id', () => ({ value: sessionId }))
+  on('session.cwd', () => ({ value: '/work' }))
   on('store.get', (_, e) => ({ value: store.get(e.key) }))
   on('store.set', (_, e) => {
     store.set(e.key, e.value)
@@ -104,4 +105,149 @@ export function children(on: On, handler: (spawn: Spawned) => Child | undefined)
     return { value: yield* child }
   })
   return spawned
+}
+
+// Splits a command the way a shell would, undoing `quote` from items.ts.
+export function words(command: string): string[] {
+  const out: string[] = []
+  let current = ''
+  let isOpen = false
+  let isInside = false
+  for (let i = 0; i < command.length; i++) {
+    const ch = command.charAt(i)
+    if (isInside) {
+      if (ch === "'") isInside = false
+      else current += ch
+    } else if (ch === "'") {
+      isInside = true
+      isOpen = true
+    } else if (ch === '\\') {
+      current += command.charAt(++i)
+      isOpen = true
+    } else if (/\s/.test(ch)) {
+      if (isOpen) out.push(current)
+      current = ''
+      isOpen = false
+    } else {
+      current += ch
+      isOpen = true
+    }
+  }
+  if (isOpen) out.push(current)
+  return out
+}
+
+type FakePane = { tab: string; lines: string[]; isIdle: boolean; isAlive: boolean; typed?: string }
+type Reply = { exitCode: number; stdout: string; stderr: string }
+
+// Stands for herdr and rt. A test hands `run` the command a plugin ran through `/bin/zsh -lc`.
+export function herdrFake({ hasRt = true }: { hasRt?: boolean } = {}) {
+  const calls: string[] = []
+  const workspaces = new Set<string>()
+  const panes = new Map<string, FakePane>()
+  const labels = new Map<string, string>()
+  const state = { hasRt, isCtrlCEnding: true, isCreateRefused: false, isRunRefused: false }
+  let seq = 0
+  const ok = (stdout = ''): Reply => ({ exitCode: 0, stdout, stderr: '' })
+  const no = (): Reply => ({ exitCode: 1, stdout: '', stderr: 'failed' })
+  const json = (result: unknown) => ok(JSON.stringify({ result }))
+  const tokenOf = (pane: FakePane) => /__todo_exit_(\w+) %s/.exec(pane.typed ?? '')?.[1]
+  const finish = (id: string, code: number) => {
+    const pane = panes.get(id)
+    if (!pane) throw new Error(`no pane ${id}`)
+    pane.lines.push(`__todo_exit_${tokenOf(pane)} ${code}`)
+    pane.isIdle = true
+  }
+  const newPane = (tab: string) => {
+    const id = `pane${++seq}`
+    panes.set(id, { tab, lines: [], isIdle: true, isAlive: true })
+    return id
+  }
+
+  const run = (command: string): Reply | undefined => {
+    calls.push(command)
+    const w = words(command)
+    const [head, a, b] = w
+    if (command === 'command -v rt') return state.hasRt ? ok('/bin/rt') : no()
+    if (head === 'rt') return ok()
+    if (head !== 'herdr') return undefined
+    const flag = (name: string) => w[w.indexOf(name) + 1] ?? ''
+    switch (`${a} ${b}`) {
+      case 'workspace list':
+        return ok('[]')
+      case 'workspace get':
+        return workspaces.has(w[3] ?? '') ? json({ workspace: { workspace_id: w[3] } }) : no()
+      case 'workspace create': {
+        if (state.isCreateRefused) return no()
+        const ws = `ws${++seq}`
+        workspaces.add(ws)
+        const tab = `tab${++seq}`
+        const pane = newPane(tab)
+        labels.set(tab, flag('--label'))
+        return json({ workspace: { workspace_id: ws }, root_pane: { pane_id: pane, tab_id: tab } })
+      }
+      case 'tab create': {
+        if (state.isCreateRefused || !workspaces.has(flag('--workspace'))) return no()
+        const tab = `tab${++seq}`
+        labels.set(tab, flag('--label'))
+        return json({ tab: { tab_id: tab }, root_pane: { pane_id: newPane(tab) } })
+      }
+      case 'tab rename':
+        labels.set(w[3] ?? '', w[4] ?? '')
+        return ok()
+      case 'tab close':
+        for (const pane of panes.values()) if (pane.tab === w[3]) pane.isAlive = false
+        return ok()
+      case 'tab focus':
+      case 'workspace focus':
+        return ok()
+      case 'pane get':
+        return panes.get(w[3] ?? '')?.isAlive ? json({ pane: { pane_id: w[3] } }) : no()
+      case 'pane run': {
+        const pane = panes.get(w[3] ?? '')
+        if (!pane?.isAlive || state.isRunRefused) return no()
+        pane.typed = w[4]
+        pane.isIdle = false
+        pane.lines.push(...(w[4] ?? '').split('\n'))
+        return ok()
+      }
+      case 'pane read': {
+        const pane = panes.get(w[3] ?? '')
+        return pane?.isAlive ? ok(pane.lines.join('\n')) : no()
+      }
+      case 'pane process-info': {
+        const pane = panes.get(flag('--pane'))
+        if (!pane?.isAlive) return no()
+        return json({ process_info: { shell_pid: 10, foreground_process_group_id: pane.isIdle ? 10 : 20 } })
+      }
+      case 'pane send-keys': {
+        const pane = panes.get(w[3] ?? '')
+        if (!pane?.isAlive) return no()
+        if (w[4] === 'ctrl+c' && state.isCtrlCEnding && tokenOf(pane)) {
+          pane.lines.push('^C')
+          finish(w[3] ?? '', 130)
+        }
+        return ok()
+      }
+      default:
+        return undefined
+    }
+  }
+
+  return {
+    run,
+    calls,
+    labels,
+    state,
+    panes,
+    workspaces,
+    print: (id: string, ...lines: string[]) => panes.get(id)?.lines.push(...lines),
+    finish,
+    idle: (id: string) => {
+      const pane = panes.get(id)
+      if (pane) pane.isIdle = true
+    },
+    closeTab: (tab: string) => run(`herdr tab close '${tab}'`),
+    ran: (prefix: string) => calls.filter(c => c.startsWith(prefix)),
+  }
 }

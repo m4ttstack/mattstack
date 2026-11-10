@@ -3,7 +3,7 @@ import type { Engine } from 'claude-code/testing'
 
 import type { Todo } from '../types'
 import { settle } from './report'
-import { SESSION, children, exits, hangs, startSession, world } from './test-world'
+import { SESSION, children, exits, hangs, herdrFake, startSession, world } from './test-world'
 import type { Child } from './test-world'
 
 type On = Parameters<typeof world>[0]
@@ -250,25 +250,37 @@ test('settle turns each outcome into the item change and the message to the agen
   expect(kept?.[0]).toBe('line 10')
 })
 
+const herdrItem = (over: Partial<Todo> = {}) => todo({ status: 'running', runner: 'herdr', token: 't', paneId: 'pane1', tabId: 'tab1', ...over })
+
+// A herdr that already holds the tab the seeded running item points at.
+function herdrWithTab() {
+  const fake = herdrFake()
+  fake.panes.set('pane1', { tab: 'tab1', lines: [], isIdle: false, isAlive: true })
+  return { fake, run: (argv: readonly string[]) => fake.run(argv.at(-1) ?? '') ?? {} }
+}
+
 test('Stop shows a toast, marks the item stopping, then asks the runner to stop', async ($, on) => {
-  const { events } = await seeded($, on, [todo({ status: 'running', runner: 'herdr', token: 't' })])
+  const { fake, run } = herdrWithTab()
+  const { events } = await seeded($, on, [herdrItem()], { run })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
   await pane.press({ key: 'stop-1' })
 
-  expect(events).toEqual(['toast: Stopping #1', 'log: herdr.stop #1'])
+  expect(events).toEqual(['toast: Stopping #1'])
+  expect(fake.ran('herdr pane send-keys')).toEqual(["herdr pane send-keys 'pane1' ctrl+c"])
   expect(await texts(pane)).toContain('⠋ Stopping… ')
   expect(await buttons(pane)).toEqual(['close', 'show-1'])
   await pane.unmount()
 })
 
 test('Show goes to the runner the item ran under', async ($, on) => {
-  const { events } = await seeded($, on, [todo({ status: 'running', runner: 'herdr', token: 't' })])
+  const { fake, run } = herdrWithTab()
+  await seeded($, on, [herdrItem()], { run })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
   await pane.press({ key: 'show-1' })
 
-  expect(logs(events)).toEqual(['herdr.show #1'])
+  expect(fake.ran('herdr tab focus')).toEqual(["herdr tab focus 'tab1'"])
   await pane.unmount()
 })
 
@@ -318,35 +330,37 @@ test('Open log opens the log file the run writes', async ($, on) => {
 })
 
 test('withdrawing, clearing and /clear hand each item that ran to its runner, and skip those that never did', async ($, on) => {
-  const { events, ran } = await seeded(
+  const fake = herdrFake()
+  const { ran } = await seeded(
     $,
     on,
     [
-      todo({ id: '1', status: 'running', runner: 'herdr', token: 't' }),
+      herdrItem({ id: '1', tabId: 'tabA' }),
       todo({ id: '2', status: 'done', runner: 'local', logPath: '/log/2' }),
-      todo({ id: '3', status: 'failed', runner: 'herdr', exitCode: 1 }),
+      todo({ id: '3', status: 'failed', runner: 'herdr', exitCode: 1, tabId: 'tabC' }),
       todo({ id: '4', kind: 'task', script: undefined }),
       todo({ id: '5', status: 'running', runner: 'local', logPath: '/log/5' }),
-      todo({ id: '6', status: 'running', runner: 'herdr', token: 'u' }),
+      herdrItem({ id: '6', token: 'u', tabId: 'tabF' }),
     ],
-    { run: () => ({}) },
+    { run: argv => fake.run(argv.at(-1) ?? '') ?? {} },
   )
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const removed = () => ran.filter(argv => argv[0] === 'rm').map(argv => argv[3])
+  const closed = () => fake.ran('herdr tab close')
 
   await $.tool.call({ tool: WITHDRAW, id: '1' })
-  expect(logs(events)).toEqual(['herdr.cleanup #1'])
+  expect(closed()).toEqual(["herdr tab close 'tabA'"])
 
   await $.tool.call({ tool: WITHDRAW, id: '4' })
-  expect(logs(events)).toEqual(['herdr.cleanup #1'])
+  expect(closed()).toEqual(["herdr tab close 'tabA'"])
   expect(removed()).toEqual([])
 
   await pane.press({ key: 'clear' })
-  expect(logs(events)).toEqual(['herdr.cleanup #1', 'herdr.cleanup #3'])
+  expect(closed()).toEqual(["herdr tab close 'tabA'", "herdr tab close 'tabC'"])
   expect(removed()).toEqual(['/log/2'])
 
   await $.session.end({ reason: 'clear', sessionId: SESSION, resume: { id: SESSION } })
-  expect(logs(events)).toEqual(['herdr.cleanup #1', 'herdr.cleanup #3', 'herdr.cleanup #6'])
+  expect(closed()).toEqual(["herdr tab close 'tabA'", "herdr tab close 'tabC'", "herdr tab close 'tabF'"])
   expect(removed()).toEqual(['/log/2', '/log/5'])
   expect(await state($)).toBe('No to-dos.')
   await pane.unmount()
@@ -371,14 +385,15 @@ const CHOICES: { name: string; setup: Setup; pin?: string; started: 'herdr' | 'l
 
 for (const { name, setup, pin, started } of CHOICES) {
   test(name, async ($, on) => {
-    const { events, ran, spawned } = await seeded($, on, [todo({})], { script: () => exits([]), ...setup })
+    const fake = herdrFake()
+    const { ran, spawned } = await seeded($, on, [todo({})], { script: () => exits([]), run: argv => fake.run(argv.at(-1) ?? '') ?? {}, ...setup })
     if (pin) await $.command.run({ command: 'todos-runner', args: pin })
     const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
     await confirming(pane)
     await pane.press({ key: 'confirm-1' })
 
-    expect(logs(events).includes('herdr.start #1')).toBe(started === 'herdr')
+    expect(fake.ran('herdr pane run').length === 1).toBe(started === 'herdr')
     expect(spawned.some(s => s.argv.at(-1)?.includes('ls -la'))).toBe(started === 'local')
     const probed = ran.some(argv => argv.join(' ').includes('herdr workspace list'))
     expect(probed).toBe(!pin && Boolean(setup.env?.HERDR_SOCKET_PATH))
@@ -424,7 +439,8 @@ test('the spinner advances every 100 ms while an item runs and rests when none d
 })
 
 test('a second Confirm during a slow herdr probe starts the run once', async ($, on) => {
-  const { clock, events } = await seeded($, on, [todo({})], { env: { HERDR_SOCKET_PATH: '/s' }, probeHold: 5000 })
+  const fake = herdrFake()
+  const { clock } = await seeded($, on, [todo({})], { env: { HERDR_SOCKET_PATH: '/s' }, probeHold: 5000, run: argv => fake.run(argv.at(-1) ?? '') ?? {} })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await confirming(pane)
 
@@ -434,7 +450,8 @@ test('a second Confirm during a slow herdr probe starts the run once', async ($,
   await pane.press({ key: 'confirm-1' }).catch(() => undefined)
   await clock.advance(5000)
 
-  expect(logs(events)).toEqual(['herdr.start #1'])
+  expect(fake.ran('herdr pane run')).toHaveLength(1)
+  expect(fake.ran('herdr workspace create')).toHaveLength(1)
   await pane.unmount()
 })
 

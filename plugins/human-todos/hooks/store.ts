@@ -106,6 +106,14 @@ export async function setRunnerPref($: EngineInterface, pref: 'auto' | 'herdr' |
   await update($, runnerPref, () => pref)
 }
 
+export function getWorkspace($: EngineInterface): Promise<string | null> {
+  return read($, workspace)
+}
+
+export async function setWorkspace($: EngineInterface, id: string): Promise<void> {
+  await update($, workspace, () => id)
+}
+
 export async function toggleExpanded($: EngineInterface, id: string): Promise<void> {
   await update($, expanded, ids => (ids.includes(id) ? ids.filter(i => i !== id) : [...ids, id]))
 }

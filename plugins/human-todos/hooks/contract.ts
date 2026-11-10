@@ -1,6 +1,7 @@
 import type { On } from 'claude-code'
 
 import type { AddInput } from '../types'
+import { resumeWatching } from './herdr'
 import { TITLE, checkKind, describe } from './items'
 import { addTodo, listTodos, removeTodos, resetList, restoreList } from './store'
 import { cleanup, openPane, syncSpinner } from './wiring'
@@ -75,6 +76,7 @@ export function registerContract(on: On): void {
 
     const started = await next(e)
     await restoreList($)
+    await resumeWatching($)
     await syncSpinner($)
     return started
   })
