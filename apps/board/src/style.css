@@ -855,16 +855,8 @@ body {
   border-top: 1px solid var(--border-soft);
   margin-top: 0.4rem;
 }
-.tui-synclog {
-  width: 380px;
-  max-width: calc(100vw - 24px);
-  padding: 0;
-}
 /* The sync's four fixed steps: a step changes state in place, so the list
    never grows or repeats a branch name while the sync runs. */
-.tui-synclog-inner:focus {
-  outline: none;
-}
 .tui-syncsteps {
   font-size: var(--font-size-px13);
   color: var(--text-1);
@@ -1030,25 +1022,6 @@ body {
 }
 .tui-syncsteps-rawlog {
   border-top: 1px solid var(--border-soft);
-}
-.tui-synclog-head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--spacing-px8);
-  padding: var(--spacing-px6) var(--spacing-px10);
-  border-bottom: 1px solid var(--border-soft);
-  font: var(--font-size-px11) / 1.4 var(--font-mono);
-}
-.tui-synclog-cmd {
-  color: var(--text-1);
-  font-weight: 600;
-}
-.tui-synclog-branch {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-3);
 }
 .tui-synclog-body {
   max-height: 280px;
