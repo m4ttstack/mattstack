@@ -8,7 +8,9 @@ struct GeneralPane: View {
     @ObservedObject private var readiness: ReadinessModel
     @State private var chooseRow: PlanRow?
     @State private var steps: (title: String, steps: [String])?
-    @State private var startAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var startAtLogin = false
+    @State private var loginLoaded = false
+    @State private var loginChanging = false
     @State private var autoUpdates = false
     @State private var switchError: String?
     @State private var confirmingSwitch = false
@@ -44,8 +46,14 @@ struct GeneralPane: View {
                 SettingsExtraSection(title: "Skill overrides", row: row, isChecking: readiness.checkingRowIds.contains(row.id)) { perform(row) }
             }
             Section("Startup") {
-                Toggle("Start mattstack at login", isOn: $startAtLogin).toggleStyle(.switch).controlSize(.mini)
-                    .onChange(of: startAtLogin) { _, on in toggleLogin(on) }
+                Toggle("Start mattstack at login", isOn: Binding(
+                    get: { startAtLogin },
+                    set: { on in
+                        startAtLogin = on
+                        Task { await toggleLogin(on) }
+                    }))
+                    .toggleStyle(.switch).controlSize(.mini)
+                    .disabled(!loginLoaded || loginChanging)
                     .accessibilityIdentifier(AXID.settingsGeneralStartAtLogin)
             }
             Section("mattstack window") {
@@ -110,7 +118,10 @@ struct GeneralPane: View {
         }
         .onAppear {
             autoUpdates = env.updater.automaticallyChecks
-            startAtLogin = SMAppService.mainApp.status == .enabled
+            Task {
+                startAtLogin = await Self.loginItemEnabled()
+                loginLoaded = true
+            }
         }
         .alert(FlavorSwitchCopy.confirmTitle(isDevBuild: env.isDevBuild), isPresented: $confirmingSwitch) {
             Button("Open") { openOtherApp() }
@@ -147,12 +158,25 @@ struct GeneralPane: View {
         }
     }
 
-    private func toggleLogin(_ on: Bool) {
-        do {
-            if on { try SMAppService.mainApp.register(); LoginItemPreference.isOptedOut = false }
-            else { try SMAppService.mainApp.unregister(); LoginItemPreference.isOptedOut = true }
-        } catch { TrayLog.error("login item toggle failed", ["err": String(describing: error)]) }
-        startAtLogin = SMAppService.mainApp.status == .enabled
+    // Every SMAppService call waits on smd, so these run off the main thread:
+    // a wedged smd held it and froze the app.
+    private static func loginItemEnabled() async -> Bool {
+        await Task.detached(priority: .utility) { SMAppService.mainApp.status == .enabled }.value
+    }
+
+    private func toggleLogin(_ on: Bool) async {
+        loginChanging = true
+        defer {
+            loginChanging = false
+            NotificationCenter.default.post(name: .rtLoginItemChanged, object: nil)
+        }
+        startAtLogin = await Task.detached(priority: .utility) { () -> Bool in
+            do {
+                if on { try SMAppService.mainApp.register(); LoginItemPreference.isOptedOut = false }
+                else { try SMAppService.mainApp.unregister(); LoginItemPreference.isOptedOut = true }
+            } catch { TrayLog.error("login item toggle failed", ["err": String(describing: error)]) }
+            return SMAppService.mainApp.status == .enabled
+        }.value
     }
 }
 

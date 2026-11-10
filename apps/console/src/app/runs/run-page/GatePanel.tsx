@@ -14,6 +14,7 @@ import {
   Kbd,
   Paper,
   Radio,
+  ScrollArea,
   SegmentedControl,
   Stack,
   Text,
@@ -79,6 +80,7 @@ function stepName(id: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+const FINDINGS_MAX_HEIGHT = 320;
 const NOTE_PLACEHOLDER = 'Add a note for the agent (optional)';
 const WRITE_IN_PLACEHOLDER = 'Write your own answer, or pick one above';
 
@@ -381,7 +383,7 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
           />
           <Stack gap={2} className={classes.ttl}>
             <Text
-              fz="h3"
+              fz="lg"
               fw={600}
               lh="normal"
               c={mine ? 'bad' : undefined}
@@ -391,7 +393,7 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
                 ? `The ${stage} stage needs ${answersNeeded(display.length)}`
                 : `This gate needs ${answersNeeded(display.length)}`}
             </Text>
-            <Text fz="md" lh="normal" c="dimmed" data-parity="sub">
+            <Text fz="sm" lh="normal" c="dimmed" data-parity="sub">
               {mine
                 ? `Opened ${age} ago · the agent waits until you submit`
                 : `Opened ${age} ago. A shepherd owns this gate; answering here overrides it.`}
@@ -423,7 +425,6 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
                       i !== index &&
                       isAnswered(d, selections[d.name], notes[d.name])
                     }
-                    mine={mine}
                   />
                 ),
               }))}
@@ -433,7 +434,6 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
       }
       headClassName={classes.head}
       headProps={{ 'data-parity': 'head' }}
-      className={classes.panel}
       data-tone={tone}
       data-testid="gate-panel"
       data-gate-id={gate.id}
@@ -443,12 +443,12 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
     >
       {lostChip !== null ? (
         <div className={classes.lost}>
-          <Text fz="lg" lh="normal" c="bad">
+          <Text fz="md" lh="normal" c="bad">
             Answered elsewhere: {lostChip}
           </Text>
         </div>
       ) : (
-        <div className={classes.split} data-stacked={boards ? true : undefined}>
+        <div className={classes.split}>
           {boards ? (
             <GateBoards gateId={gate.id} boards={boards} />
           ) : context !== null ? (
@@ -502,12 +502,12 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
               </Tooltip>
               <span className={classes.grow} />
               {focusError && (
-                <Text fz="md" lh="normal" c="bad">
+                <Text fz="sm" lh="normal" c="bad">
                   {focusError}
                 </Text>
               )}
               {draft.saved && (
-                <Text fz="md" lh="normal" c="dimmed" data-parity="draft">
+                <Text fz="sm" lh="normal" c="dimmed" data-parity="draft">
                   Draft saved
                 </Text>
               )}
@@ -537,13 +537,11 @@ function StepLabel({
   name,
   current,
   done,
-  mine,
 }: {
   n: number;
   name: string;
   current: boolean;
   done: boolean;
-  mine: boolean;
 }) {
   const body = (
     <>
@@ -552,7 +550,6 @@ function StepLabel({
         fz="sm"
         fw={500}
         lh="normal"
-        c={current && mine ? 'bad' : undefined}
         className={classes.stepN}
         data-parity="n"
       >
@@ -560,7 +557,7 @@ function StepLabel({
       </Text>
       <Text
         component="span"
-        fz="md"
+        fz="sm"
         fw={current ? 500 : 400}
         lh="normal"
         data-parity="l"
@@ -609,38 +606,54 @@ function Findings({ text }: { text: string }) {
   const blocks = contextBlocks(text);
   return (
     <Stack
-      gap={10}
+      gap={0}
       className={classes.context}
       data-parity="context"
       data-testid="gate-findings"
     >
-      <Eyebrow data-parity="label">What the agent found</Eyebrow>
-      {blocks.map((block, i) =>
-        block.kind === 'markdown' ? (
-          <div
-            key={i}
-            className={classes.findings}
-            data-parity={i === 0 ? 'lead' : undefined}
-          >
-            <GateContext text={block.text} />
-          </div>
-        ) : block.kind === 'code' ? (
-          <CodeExcerpt key={i} lines={block.lines} />
-        ) : (
-          <div key={i} className={classes.points}>
-            {block.points.map((point, j) => (
-              <div key={j} className={classes.point}>
-                <Text fz="md" fw={500} lh="normal" data-parity="k">
-                  {point.label}
-                </Text>
-                <div className={classes.pointText} data-parity="v">
-                  <GateContext text={point.text} />
-                </div>
+      <Eyebrow className={classes.contextLabel} data-parity="label">
+        What the agent found
+      </Eyebrow>
+      <ScrollArea.Autosize
+        mah={FINDINGS_MAX_HEIGHT}
+        type="auto"
+        offsetScrollbars="present"
+        classNames={{ root: classes.scroll, thumb: classes.thumb }}
+        viewportProps={{
+          tabIndex: 0,
+          role: 'region',
+          'aria-label': 'What the agent found',
+        }}
+      >
+        <Stack gap={10} className={classes.scrollBody}>
+          {blocks.map((block, i) =>
+            block.kind === 'markdown' ? (
+              <div
+                key={i}
+                className={classes.findings}
+                data-parity={i === 0 ? 'lead' : undefined}
+              >
+                <GateContext text={block.text} />
               </div>
-            ))}
-          </div>
-        )
-      )}
+            ) : block.kind === 'code' ? (
+              <CodeExcerpt key={i} lines={block.lines} />
+            ) : (
+              <div key={i} className={classes.points}>
+                {block.points.map((point, j) => (
+                  <div key={j} className={classes.point}>
+                    <Text fz="sm" fw={500} lh="normal" data-parity="k">
+                      {point.label}
+                    </Text>
+                    <div className={classes.pointText} data-parity="v">
+                      <GateContext text={point.text} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
+          )}
+        </Stack>
+      </ScrollArea.Autosize>
     </Stack>
   );
 }
@@ -667,7 +680,7 @@ function OptionBody({
       )}
       <Stack gap={3} className={classes.optionText}>
         <Group gap={8} wrap="nowrap">
-          <Text fz="lg" fw={500} lh="normal" data-parity="t">
+          <Text fz="md" fw={500} lh="normal" data-parity="t">
             {choice.label}
           </Text>
           {choice.recommended && (
@@ -683,7 +696,7 @@ function OptionBody({
           )}
         </Group>
         {prose && (
-          <Text fz="md" lh="normal" c="dimmed" data-parity="d">
+          <Text fz="sm" lh="normal" c="dimmed" data-parity="d">
             {prose}
           </Text>
         )}
@@ -724,7 +737,7 @@ function Question({
     ? Array.isArray(value) && value.length > 0
     : typeof value === 'string' && value !== '';
   const label = <span data-parity="q">{item.prompt}</span>;
-  const labelProps = { fz: 'h3', fw: 600, lh: 'normal' };
+  const labelProps = { fz: 'lg', fw: 600, lh: 'normal' };
   const options = (
     <Stack gap={10}>
       {item.choices.map((choice, i) => {

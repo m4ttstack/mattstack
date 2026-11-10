@@ -9,6 +9,7 @@ import {
 } from '@mattstack/app-kit/core';
 
 import { fieldKind } from '../derive/run';
+import { GateContext } from '../GateContext';
 
 const SHORT_SHA = 7;
 
@@ -28,7 +29,7 @@ export interface FieldValueProps {
   'data-parity'?: string;
 }
 
-function prettyJson(value: string): string {
+export function prettyJson(value: string): string {
   try {
     return JSON.stringify(JSON.parse(value), null, 2);
   } catch {
@@ -124,7 +125,13 @@ export function FieldValue({
         </Text>
       );
     case 'text':
-      return (
+      // Several lines are a stage writing Markdown (a summary over a list);
+      // one line stays plain, so a name with underscores never turns italic.
+      return v.includes('\n') ? (
+        <div data-kind={kind} data-parity={parity}>
+          <GateContext text={v} />
+        </div>
+      ) : (
         <Text {...type} data-kind={kind} data-parity={parity}>
           {value}
         </Text>

@@ -2,19 +2,25 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 4px;
   min-width: 0;
+  padding: 4px 16px;
+  border-radius: 8px;
+  background: var(--tk-panel);
   overflow-wrap: anywhere;
   scroll-margin-top: var(--mantine-spacing-xl);
 }
 
-.gate + .gate {
-  padding-top: 14px;
-  border-top: 1px solid var(--tk-line-1);
+.gate[data-flat] {
+  padding: 0;
+  background: transparent;
+}
+
+.gateHead {
+  padding-block: 10px;
+  border-bottom: 1px solid var(--tk-border-soft);
 }
 
 .gate[data-linked] {
-  border-radius: 8px;
   outline: 2px solid var(--tk-accent);
   outline-offset: 6px;
 }
@@ -27,28 +33,32 @@
   justify-content: flex-end;
 }
 
-.summary {
-  margin-bottom: 4px;
+.item:last-child {
+  border-bottom: 0;
 }
 
-.summaryTitle {
-  font-size: var(--mantine-font-size-sm);
+.row.row {
+  padding: 10px 0;
 }
 
-.question {
+.rowLabel.rowLabel {
+  padding: 0;
+}
+
+.rowBody {
   display: flex;
   gap: 16px;
   align-items: flex-start;
-  padding-block: 10px;
 }
 
-.question + .question {
-  border-top: 1px solid var(--tk-line-1);
+/* Lines a panel up under the answers: the question column and its gap. */
+.rowPanel.rowPanel {
+  padding-inline: 230px 0;
 }
 
 .ask {
-  flex: 0 0 230px;
-  width: 230px;
+  flex: 0 0 214px;
+  width: 214px;
 }
 
 .grow {
@@ -112,7 +122,7 @@
 }
 
 .row + .row {
-  border-top: 1px solid var(--tk-line-1);
+  border-top: 1px solid var(--tk-border-soft);
 }
 
 .row[data-dim] {
@@ -135,10 +145,4 @@
 .rows {
   display: flex;
   flex-direction: column;
-}
-
-/* A clamped summary fades out above its Show all instead of cutting a line
-   in half. */
-.faded {
-  mask-image: linear-gradient(to bottom, #000 55%, transparent);
 }

@@ -21,14 +21,49 @@ export const SIDE_KEYS: ReadonlySet<string> = new Set([
   'commits',
 ]);
 
+/** `evidence-cleared:<board>` is the evidence step's own check that a board
+    is safe to attach; nothing a person reads. */
 function isPlumbing(key: string): boolean {
-  return PLUMBING_KEYS.has(key) || key.startsWith('extra.');
+  return (
+    PLUMBING_KEYS.has(key) ||
+    key.startsWith('extra.') ||
+    key.startsWith('evidence-cleared:')
+  );
 }
 
-export function storyFields(fields: RunFieldRow[]): RunFieldRow[] {
-  return fields.filter(
-    f => !isPlumbing(f.key) && !SIDE_KEYS.has(f.key) && f.key !== 'evidence'
+/** The boards the evidence step cleared for redaction, as one line a person
+    reads, placed where the last one was cleared. */
+function redactionField(fields: RunFieldRow[]): RunFieldRow | null {
+  const cleared = fields.filter(
+    f => f.key.startsWith('evidence-cleared:') && hasValue(f)
   );
+  const last = cleared.reduce<RunFieldRow | null>(
+    (latest, f) => (!latest || f.at > latest.at ? f : latest),
+    null
+  );
+  if (!last) return null;
+  const n = cleared.length;
+  return {
+    ...last,
+    key: 'redaction',
+    value: `${n} ${n === 1 ? 'board' : 'boards'} cleared`,
+  };
+}
+
+/** A `-` or empty value is rt clearing the field: nothing to tell. */
+const hasValue = (f: RunFieldRow) =>
+  f.value.trim() !== '' && f.value.trim() !== '-';
+
+export function storyFields(fields: RunFieldRow[]): RunFieldRow[] {
+  const shown = fields.filter(
+    f =>
+      !isPlumbing(f.key) &&
+      !SIDE_KEYS.has(f.key) &&
+      f.key !== 'evidence' &&
+      hasValue(f)
+  );
+  const redaction = redactionField(fields);
+  return redaction ? [...shown, redaction] : shown;
 }
 
 const LABELS: Readonly<Record<string, string>> = {

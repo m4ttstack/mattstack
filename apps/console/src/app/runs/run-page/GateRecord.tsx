@@ -1,9 +1,9 @@
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import {
+  Accordion,
   Alert,
   Badge,
   Group,
-  Spoiler,
   Stack,
   Text,
   Tooltip,
@@ -13,6 +13,7 @@ import { Icon } from '@mattstack/app-kit/icons';
 import type { IconName } from '@mattstack/app-kit/icons';
 import type { GateRow } from '@mattstack/rt-client';
 
+import accordion from '../accordion.module.css';
 import { answeredBy, answerSurface } from '../derive/answers';
 import { formatClock } from '../derive/clock';
 import type { FindingSeverity } from '../derive/findings';
@@ -103,28 +104,55 @@ function Stamp({ gate, then }: { gate: GateRow; then: string | null }) {
   );
 }
 
-/** The agent's prose for the whole ask, three lines until opened. */
+const SUMMARY_ITEM = 'summary';
+
+/** Markdown's inline marks dropped, for text drawn inside a toggle button,
+    where a link or code block would nest one control in another. */
+const plainText = (md: string) =>
+  md
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/[*`]+/g, '')
+    .replace(/(^|\W)_+|_+(?=\W|$)/g, '$1')
+    .replace(/^\s*(#+|[-*+>]|\d+[.)])\s+/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/** The agent's prose for the whole ask. Its first line stays put in the row
+    whether open or closed; opening reveals only what follows it. */
 function Summary({ text, escalation }: { text: string; escalation: boolean }) {
-  const [open, setOpen] = useState(false);
+  const trimmed = text.trim();
+  const breakAt = trimmed.search(/\n\s*\n/);
+  const first = breakAt < 0 ? trimmed : trimmed.slice(0, breakAt);
+  const rest = breakAt < 0 ? '' : trimmed.slice(breakAt).trim();
+  const row = (
+    <div className={classes.rowBody}>
+      <Text fz="md" c={escalation ? 'warn' : 'dimmed'} className={classes.ask}>
+        {escalation ? 'The agent hit a wall' : 'What the agent found'}
+      </Text>
+      <div className={classes.grow}>
+        {rest ? (
+          <Text fz="md" lh="normal">
+            {plainText(first)}
+          </Text>
+        ) : (
+          <GateContext text={first} />
+        )}
+      </div>
+    </div>
+  );
   return (
-    <Alert
-      variant="light"
-      color={escalation ? 'warn' : 'gray'}
-      icon={<Icon name={escalation ? 'warning' : 'sparkles'} size={14} />}
-      title={escalation ? 'The agent hit a wall' : 'What the agent found'}
-      classNames={{ root: classes.summary, title: classes.summaryTitle }}
-    >
-      <Spoiler
-        maxHeight={66}
-        showLabel="Show all"
-        hideLabel="Show less"
-        expanded={open}
-        onExpandedChange={setOpen}
-        classNames={{ content: open ? undefined : classes.faded }}
-      >
-        <GateContext text={text} />
-      </Spoiler>
-    </Alert>
+    <Accordion.Item value={SUMMARY_ITEM}>
+      {rest ? (
+        <>
+          <Accordion.Control>{row}</Accordion.Control>
+          <Accordion.Panel>
+            <GateContext text={rest} />
+          </Accordion.Panel>
+        </>
+      ) : (
+        <div className={classes.row}>{row}</div>
+      )}
+    </Accordion.Item>
   );
 }
 
@@ -159,14 +187,24 @@ function OptionLine({
   );
 }
 
+/** One answered question: the question and what was picked, with the other
+    options in the panel. A question with no others has nothing to open. */
 function Question({ q }: { q: RecordQuestion }) {
-  return (
-    <div className={classes.question}>
+  const picked = q.options.filter(o => o.picked);
+  const others = q.options.filter(o => !o.picked);
+  const nonePicked = picked.length === 0 && !q.text && !q.writeIn;
+  const answer = (
+    <div className={classes.rowBody}>
       <Text fz="md" c="dimmed" className={classes.ask}>
         {q.label}
       </Text>
       <Stack gap={5} className={classes.grow}>
-        {q.options.map(o => (
+        {nonePicked && others.length > 0 ? (
+          <Text fz="md" c="dimmed">
+            None picked
+          </Text>
+        ) : null}
+        {picked.map(o => (
           <OptionLine key={o.value} multi={q.multi} {...o} />
         ))}
         {q.note ? (
@@ -199,18 +237,46 @@ function Question({ q }: { q: RecordQuestion }) {
       </Stack>
     </div>
   );
+  return (
+    <Accordion.Item value={q.id}>
+      {others.length > 0 ? (
+        <>
+          <Accordion.Control>{answer}</Accordion.Control>
+          <Accordion.Panel>
+            <Stack gap={5}>
+              {others.map(o => (
+                <OptionLine key={o.value} multi={q.multi} {...o} />
+              ))}
+            </Stack>
+          </Accordion.Panel>
+        </>
+      ) : (
+        <div className={classes.row}>{answer}</div>
+      )}
+    </Accordion.Item>
+  );
 }
 
+/** An escalation opens on what stopped the agent, since that is why it asked. */
 function Form({ record }: { record: FormRecord }) {
   return (
-    <Stack gap={0}>
+    <Accordion
+      multiple
+      defaultValue={record.escalation ? [SUMMARY_ITEM] : []}
+      classNames={{
+        item: classes.item,
+        control: classes.row,
+        label: classes.rowLabel,
+        content: `${accordion.content} ${classes.rowPanel}`,
+      }}
+    >
       {record.summary ? (
         <Summary text={record.summary} escalation={record.escalation} />
       ) : null}
       {record.questions.map(q => (
         <Question key={q.id} q={q} />
       ))}
-    </Stack>
+    </Accordion>
   );
 }
 
@@ -471,13 +537,23 @@ function RespondPost({ record }: { record: RespondPostRecord }) {
 
 export interface GateRecordViewProps {
   gate: GateRow;
+  /** Its place among the stage's gates, for its heading. */
+  number: number;
+  /** Drawn straight on its card, with no grey group of its own: the Now
+      card is already one. */
+  flat?: boolean;
   /** A deep link names this gate: it rings until the next click or key. */
   linked?: boolean;
 }
 
 /** One gate of a stage as it was answered: a review's verdict and findings,
     a reply's threads, or the form with every option and the picks checked. */
-export function GateRecordView({ gate, linked = false }: GateRecordViewProps) {
+export function GateRecordView({
+  gate,
+  number,
+  flat = false,
+  linked = false,
+}: GateRecordViewProps) {
   if (gate.closedReason === 'superseded')
     return (
       <section
@@ -503,12 +579,18 @@ export function GateRecordView({ gate, linked = false }: GateRecordViewProps) {
       className={classes.gate}
       data-gate-id={gate.id}
       data-shape={record.shape}
+      data-flat={flat || undefined}
       data-linked={linked ? 'true' : undefined}
       data-selected={linked || undefined}
       data-ended={gate.status === 'closed' || undefined}
       tabIndex={linked ? -1 : undefined}
     >
-      <Stamp gate={gate} then={then} />
+      <Group justify="space-between" wrap="nowrap" className={classes.gateHead}>
+        <Text fz="md" fw={600} lh="normal">
+          Gate {number}
+        </Text>
+        <Stamp gate={gate} then={then} />
+      </Group>
       {record.shape === 'review-post' ? <ReviewPost record={record} /> : null}
       {record.shape === 'respond-plan' ? <RespondPlan record={record} /> : null}
       {record.shape === 'respond-post' ? <RespondPost record={record} /> : null}

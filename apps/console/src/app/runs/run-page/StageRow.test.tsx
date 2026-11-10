@@ -107,18 +107,72 @@ const paneStage = () =>
     ?.getAttribute('data-stage');
 
 describe('StagePane', () => {
-  const pane = () =>
+  const pane = (heading = false) =>
     renderWithProviders(
       <StagePane
         entry={planEntry()}
         repo="remote:acme%2Fweb"
         runId="20261008-1338"
         evidenceField={null}
+        heading={heading}
       />
     );
 
+  it('leads a review with its verdict badge and draws its bullets as a list', () => {
+    renderWithProviders(
+      <StagePane
+        entry={planEntry({
+          gates: [],
+          fields: [
+            {
+              key: 'review',
+              value:
+                'Ready to merge: with fixes - one item open\n- Fixed: the null check\n- Open: the admin toggle',
+              produced_by: 'self-review',
+              at: AT - 90_000,
+            },
+          ],
+        })}
+        repo="remote:acme%2Fweb"
+        runId="20261008-1338"
+        evidenceField={null}
+      />
+    );
+    expect(
+      document.querySelector('[data-verdict="with fixes"]')
+    ).toHaveTextContent('Ready with fixes');
+    expect(screen.getAllByRole('listitem').map(li => li.textContent)).toEqual([
+      'Fixed: the null check',
+      'Open: the admin toggle',
+    ]);
+  });
+
+  it('badges a one-line clean review too', () => {
+    renderWithProviders(
+      <StagePane
+        entry={planEntry({
+          gates: [],
+          fields: [
+            {
+              key: 'review',
+              value: 'Ready to merge: yes - no findings',
+              produced_by: 'self-review',
+              at: AT - 90_000,
+            },
+          ],
+        })}
+        repo="remote:acme%2Fweb"
+        runId="20261008-1338"
+        evidenceField={null}
+      />
+    );
+    expect(document.querySelector('[data-verdict="yes"]')).toHaveTextContent(
+      'Ready to merge'
+    );
+  });
+
   it('draws the stage doc, fields and every decision', () => {
-    pane();
+    pane(true);
     expect(screen.getByText('Stage doc')).toBeInTheDocument();
     expect(screen.getByText('Approach')).toBeInTheDocument();
     expect(screen.getByText('Which approach?')).toBeInTheDocument();

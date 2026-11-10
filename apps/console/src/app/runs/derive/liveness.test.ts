@@ -20,7 +20,7 @@ describe('heroLiveness', () => {
   it('says how long a gate has waited on you', () => {
     expect(
       heroLiveness(run(), { handoff: null, mine: gate(0) }, 4 * MIN)
-    ).toEqual({ tone: 'bad', label: 'waiting on you · 4m' });
+    ).toEqual({ tone: 'bad', label: 'waiting on you · 4m', waiting: true });
   });
 
   it('says how long a hand-off has waited in the board', () => {

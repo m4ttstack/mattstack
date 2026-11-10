@@ -43,6 +43,12 @@ class DaemonLifecycle: @unchecked Sendable {
     }
 
     var status: SMAppService.Status { service.status }
+
+    /// `status` off the main thread, for the same reason as
+    /// `ServicesRegistrar.smStatusesOffMain`.
+    func statusOffMain() async -> SMAppService.Status {
+        await Task.detached(priority: .utility) { [service] in service.status }.value
+    }
     private var plistName: String { "\(label).plist" }
 
     /// One lifecycle op at a time, and one register+kickstart per herd of

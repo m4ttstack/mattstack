@@ -4,6 +4,21 @@
   gap: 14px 32px;
 }
 
+.line {
+  width: 100%;
+  color: var(--tk-text-3);
+}
+
+.lineFact {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.lineEnd {
+  flex: none;
+  margin-left: auto;
+}
+
 .fact {
   width: 100%;
   min-width: 0;
