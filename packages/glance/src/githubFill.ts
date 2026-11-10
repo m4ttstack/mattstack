@@ -1,3 +1,5 @@
+import type { MergeRequestReviewState, Reviewer, UserRef } from './types.ts';
+
 /** PRs per fill request; keeps one request well under GitHub's GraphQL node limit. */
 export const FILL_BATCH_SIZE = 25;
 
@@ -180,4 +182,93 @@ p${number}: pullRequest(number: ${number}) { commits(last: 1) { nodes { commit {
 /** Reads the PR numbers from the `p<n>: pullRequest(number: <n>)` aliases of a fill or contexts-page query. */
 export function parseFillAliases(query: string): number[] {
   return [...query.matchAll(/\bp(\d+): pullRequest\(number: \d+\)/g)].map((m) => Number(m[1]));
+}
+
+const GHOST: UserRef = {
+  id: 'github:user:ghost',
+  username: 'ghost',
+  name: 'Deleted user',
+  avatarUrl: null
+};
+
+/** GraphQL reports a Bot login without the suffix REST appends. */
+export function toUserRefFromActor(actor: GHFillActor | null): UserRef {
+  if (!actor) return GHOST;
+  const username =
+    actor.__typename === 'Bot' && !actor.login.endsWith('[bot]')
+      ? `${actor.login}[bot]`
+      : actor.login;
+  return {
+    id: `github:user:${actor.databaseId ?? actor.login}`,
+    username,
+    name: actor.name ?? username,
+    avatarUrl: actor.avatarUrl
+  };
+}
+
+export interface ReviewSummary {
+  reviewers: Reviewer[];
+  approvedBy: UserRef[];
+  approved: boolean;
+  approvalsRequired: number | null;
+  approvalsLeft: number;
+}
+
+function reviewStateOf(state: string): MergeRequestReviewState {
+  switch (state) {
+    case 'APPROVED':
+      return 'APPROVED';
+    case 'CHANGES_REQUESTED':
+      return 'REQUESTED_CHANGES';
+    case 'PENDING':
+      return 'REVIEW_STARTED';
+    default:
+      return 'REVIEWED';
+  }
+}
+
+/** `rulesRequired` is the rulesets count; null means none found or unreadable. */
+export function mapReviews(node: GHFillNode, rulesRequired: number | null): ReviewSummary {
+  const byId = new Map<string, Reviewer>();
+  for (const { requestedReviewer: u } of node.reviewRequests.nodes) {
+    if (!u?.login) continue;
+    const ref = toUserRefFromActor({
+      __typename: 'User',
+      login: u.login,
+      avatarUrl: u.avatarUrl ?? null,
+      databaseId: u.databaseId,
+      name: u.name
+    });
+    byId.set(ref.id, { ...ref, reviewState: 'UNREVIEWED' });
+  }
+  for (const r of node.latestReviews.nodes) {
+    const ref = toUserRefFromActor(r.author);
+    // A pending re-request is newer than the review it follows.
+    if (!byId.has(ref.id)) byId.set(ref.id, { ...ref, reviewState: reviewStateOf(r.state) });
+  }
+
+  const approvedBy = node.latestOpinionatedReviews.nodes
+    .filter((r) => r.state === 'APPROVED')
+    .map((r) => toUserRefFromActor(r.author));
+
+  const decision = node.reviewDecision;
+  const approved = decision !== 'REVIEW_REQUIRED' && decision !== 'CHANGES_REQUESTED';
+
+  // A zero count cannot explain a REVIEW_REQUIRED verdict (code owners, for
+  // one), so only positive counts are treated as answers.
+  const known = [
+    node.baseRef?.branchProtectionRule?.requiredApprovingReviewCount,
+    rulesRequired
+  ].filter((n): n is number => typeof n === 'number' && n > 0);
+  const approvalsRequired =
+    known.length > 0 ? Math.max(...known) : decision === null ? 0 : null;
+
+  return {
+    reviewers: [...byId.values()],
+    approvedBy,
+    approved,
+    approvalsRequired,
+    approvalsLeft:
+      approvalsRequired === null ? 0 : Math.max(0, approvalsRequired - approvedBy.length)
+  };
 }
