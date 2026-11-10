@@ -97,6 +97,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     /// termination (Cmd-Q, Dock right-click Quit) is intercepted by
     /// `applicationShouldTerminate` and turned into a window close instead.
     private var quitConfirmed = false
+    /// Last known "Start at Login" state, refreshed off the main thread.
+    private var loginItemEnabled = false
     /// Set by `NSWorkspace.willPowerOffNotification`, an independent signal
     /// from the quit AppleEvent's `kAEQuitReason` parameter -- which is
     /// documented as optional, so a genuine shutdown/restart/logout whose
@@ -912,14 +914,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             TrayLog.info("login item auto-register skipped (user opted out)")
             return
         }
-        let status = SMAppService.mainApp.status
-        guard status == .notRegistered else { return }
-        do {
-            try SMAppService.mainApp.register()
-            TrayLog.info("login item auto-registered",
-                         ["status": TrayServer.statusName(SMAppService.mainApp.status)])
-        } catch {
-            TrayLog.error("login item auto-register failed", ["err": String(describing: error)])
+        // Off the main thread: every SMAppService call waits on smd, and a
+        // wedged smd held the main thread here and froze launch.
+        Task.detached(priority: .utility) { [weak self] in
+            if SMAppService.mainApp.status == .notRegistered {
+                do {
+                    try SMAppService.mainApp.register()
+                    TrayLog.info("login item auto-registered",
+                                 ["status": TrayServer.statusName(SMAppService.mainApp.status)])
+                } catch {
+                    TrayLog.error("login item auto-register failed", ["err": String(describing: error)])
+                }
+            }
+            await self?.refreshLoginItemState()
         }
     }
 
@@ -1008,8 +1015,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
         menu.addItem(troubleshootMenuItem())
         menu.addItem(.separator())
-        let startAtLogin = SMAppService.mainApp.status == .enabled
-        menu.addItem(ActionMenuItem("Start at Login", state: startAtLogin ? .on : .off, axid: AXID.trayStartAtLogin) { [weak self] in
+        menu.addItem(ActionMenuItem("Start at Login", state: loginItemEnabled ? .on : .off, axid: AXID.trayStartAtLogin) { [weak self] in
             self?.toggleTrayStartAtLogin()
         })
         let updateItem = ActionMenuItem(trayUpdateMenuTitle, axid: AXID.trayCheckForUpdates) {
@@ -1189,17 +1195,28 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     /// opt-out and turning it on clears it, each only after the
     /// SMAppService call succeeds.
     private func toggleTrayStartAtLogin() {
-        do {
-            if SMAppService.mainApp.status == .enabled {
-                try SMAppService.mainApp.unregister()
-                LoginItemPreference.isOptedOut = true
-            } else {
-                try SMAppService.mainApp.register()
-                LoginItemPreference.isOptedOut = false
+        Task.detached(priority: .utility) { [weak self] in
+            do {
+                if SMAppService.mainApp.status == .enabled {
+                    try await SMAppService.mainApp.unregister()
+                    LoginItemPreference.isOptedOut = true
+                } else {
+                    try SMAppService.mainApp.register()
+                    LoginItemPreference.isOptedOut = false
+                }
+            } catch {
+                TrayLog.error("login item toggle failed", ["err": String(describing: error)])
             }
-        } catch {
-            TrayLog.error("login item toggle failed", ["err": String(describing: error)])
+            await self?.refreshLoginItemState()
         }
+    }
+
+    /// The menu draws `loginItemEnabled`, never a live status read: every
+    /// SMAppService call waits on smd, and a wedged smd froze the app when
+    /// the menu read it on the main thread.
+    private func refreshLoginItemState() async {
+        let on = await Task.detached(priority: .utility) { SMAppService.mainApp.status == .enabled }.value
+        await MainActor.run { self.loginItemEnabled = on }
     }
 
     /// The only real quit (dock-first spec 2026-09-15): every other path to
@@ -1328,24 +1345,29 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             TrayState.shared.statusText = "Daemon: starting…"
             TrayState.shared.needsApproval = false
         case .down:
-            switch daemonLifecycle.status {
-            case .requiresApproval:
-                TrayState.shared.statusText = "Daemon: needs approval in Login Items"
-                TrayState.shared.bootVerdict = nil
-            case .notRegistered, .notFound:
-                TrayState.shared.statusText = "Daemon: not registered"
-                TrayState.shared.bootVerdict = nil
-            case .enabled:
-                // launchd considers the job registered and enabled, yet
-                // `ping` isn't answering — alive but not serving, the third
-                // named verdict (S026), distinct from "not registered".
-                TrayState.shared.statusText = "Daemon: alive but not serving"
-                TrayState.shared.bootVerdict = "alive but not serving"
-            default:
-                TrayState.shared.statusText = "Daemon: not running"
-                TrayState.shared.bootVerdict = nil
+            Task { @MainActor in
+                let daemonStatus = await daemonLifecycle.statusOffMain()
+                let approval = await needsLoginItemApproval()
+                guard case .down = currentHealth else { return }
+                switch daemonStatus {
+                case .requiresApproval:
+                    TrayState.shared.statusText = "Daemon: needs approval in Login Items"
+                    TrayState.shared.bootVerdict = nil
+                case .notRegistered, .notFound:
+                    TrayState.shared.statusText = "Daemon: not registered"
+                    TrayState.shared.bootVerdict = nil
+                case .enabled:
+                    // launchd considers the job registered and enabled, yet
+                    // `ping` isn't answering — alive but not serving, the third
+                    // named verdict (S026), distinct from "not registered".
+                    TrayState.shared.statusText = "Daemon: alive but not serving"
+                    TrayState.shared.bootVerdict = "alive but not serving"
+                default:
+                    TrayState.shared.statusText = "Daemon: not running"
+                    TrayState.shared.bootVerdict = nil
+                }
+                TrayState.shared.needsApproval = approval
             }
-            TrayState.shared.needsApproval = needsLoginItemApproval()
         default:
             break
         }
@@ -1354,8 +1376,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     /// The worst status across every agent this bundle registers (daemon,
     /// deck, …), not just the daemon — a single-agent check would miss a
     /// second agent stuck in Login Items while the daemon itself is fine.
-    private func needsLoginItemApproval() -> Bool {
-        PermissionsService.combinedLoginItems(servicesRegistrar?.smStatuses() ?? []) == "requiresApproval"
+    private func needsLoginItemApproval() async -> Bool {
+        let statuses = await servicesRegistrar?.smStatusesOffMain() ?? []
+        return PermissionsService.combinedLoginItems(statuses) == "requiresApproval"
     }
 
     // MARK: - Actions
@@ -1900,7 +1923,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
         // The daemon being reachable only proves the daemon's own agent is
         // approved — another registered agent (deck) can still be pending.
-        TrayState.shared.needsApproval = needsLoginItemApproval()
+        TrayState.shared.needsApproval = await needsLoginItemApproval()
+        await refreshLoginItemState()
 
         updateReadyHeld(status.readyHeld)
 
