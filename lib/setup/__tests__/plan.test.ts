@@ -42,6 +42,7 @@ const readyExec: ExecScript = (argv) => {
   if (argv[0] === "claude") return ok("1.2.3");
   if (argv[0] === "brew") return ok("Homebrew 4.0.0");
   if (argv[0] === "rt") return ok("rt v1.0.0");
+  if (argv[0] === "gh" && argv[2] === "token") return ok("gho_session\n");
   return ok();
 };
 

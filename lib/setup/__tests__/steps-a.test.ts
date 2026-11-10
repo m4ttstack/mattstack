@@ -40,6 +40,7 @@ import { resolveWritingStyle } from "../../skills/writing-style.ts";
 import { INIT_STEP_FAILED } from "../../home/init-exec.ts";
 import { homeInitStep, homeRestoreStep } from "../steps/home.ts";
 import { outcomeFromJoin, outcomeFromJoinError, teamCreateStep, teamJoinStep } from "../steps/team.ts";
+import { forgeTokenFor } from "../steps/forge-token.ts";
 import { JoinPeeringStoreError, type JoinResult } from "../../team/join.ts";
 import { UserActionableError } from "../../errors.ts";
 import { secretsWriteStep } from "../steps/secrets.ts";
@@ -590,7 +591,7 @@ describe("team.create", () => {
 
   test("idempotent re-run: a zone with a real matching clone on disk skips re-scaffolding entirely — proven by which exec calls the second run does NOT make", async () => {
     const remote = "https://github.com/acme/mattstack-team-personal.git";
-    const p = adminProbes({ home: "/fake-home", env: { RT_TEAM_REMOTE: remote }, exec: gitExecFor(remote) });
+    const p = adminProbes({ home: "/fake-home", env: { RT_TEAM_REMOTE: remote, RT_GH_TOKEN_FALLBACK: "off" }, exec: gitExecFor(remote) });
     const { ctx } = makeCtx(p, { teamOfOne: true, intent: null, team: { slug: "", name: "", mode: "none" } });
 
     expect((await teamCreateStep.run(ctx)).state).toBe("done");
@@ -642,7 +643,7 @@ describe("team.create", () => {
 
   test("team.create pushes the data branch, then main's pointer, then drops the local main", async () => {
     const remote = "https://github.com/acme/mattstack-team-acme.git";
-    const p = fakeProbes({ home: "/fake-home", exec: dataBranchExec(remote) });
+    const p = fakeProbes({ home: "/fake-home", env: { RT_GH_TOKEN_FALLBACK: "off" }, exec: dataBranchExec(remote) });
     const { ctx } = makeCtx(p, { intent: createIntent(remote) });
 
     expect((await teamCreateStep.run(ctx)).state).toBe("done");
@@ -854,6 +855,14 @@ describe("team.join", () => {
     expect((outcome as { remedy?: string }).remedy).toBe(
       "Unlock your keychain, then Retry. The invite is already redeemed, so Retry resumes here without a new code",
     );
+  });
+});
+
+describe("forgeTokenFor", () => {
+  test("join and publish get the gh session's token when rt holds none", async () => {
+    const p = fakeProbes({ home: "/fake-home", exec: (argv) => (argv.join(" ") === "gh auth token --hostname github.com" ? ok("gho_session\n") : ok()) });
+    const { ctx } = makeCtx(p);
+    expect(await forgeTokenFor(ctx, "https://github.com/acme/widgets.git")).toBe("gho_session");
   });
 });
 

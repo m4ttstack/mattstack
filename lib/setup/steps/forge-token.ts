@@ -7,7 +7,7 @@
 import { readSecret } from "../../secrets/store.ts";
 import type { ApplyContext } from "../apply.ts";
 import { readStagedSecret } from "../staging.ts";
-import { forgeTokenLookup, mayOfferToken, tokenOrNull } from "../../team/forge-token.ts";
+import { forgeTokenLookup, ghSessionToken, mayOfferToken, tokenOrNull } from "../../team/forge-token.ts";
 import { readUserIntegrationOverrides, type SettingsReader } from "../team-settings.ts";
 
 /** Null when rt holds no token for the remote's host. */
@@ -16,6 +16,7 @@ export async function forgeTokenFor(ctx: ApplyContext, remote: string): Promise<
     await forgeTokenLookup(remote, {
       readStored: (d, k) => readSecret(d, k, ctx.secrets),
       readStaged: (d, k) => readStagedSecret(ctx.p, d, k),
+      readGhSession: () => ghSessionToken(ctx.p),
     })
   );
 }

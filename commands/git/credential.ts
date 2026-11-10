@@ -9,7 +9,7 @@ import { createRealProbes } from "../../lib/setup/probes.ts";
 import { readUserIntegrationOverrides } from "../../lib/setup/team-settings.ts";
 import { credentialHelperReply } from "../../lib/team/git-credential.ts";
 import * as out from "../../lib/ui/out.ts";
-import { forgeTokenLookupReal, mayOfferToken, tokenLookupRemoteForHost, tokenOrNull } from "../../lib/team/forge-token.ts";
+import { forgeTokenLookupForGit, mayOfferToken, tokenLookupRemoteForHost, tokenOrNull } from "../../lib/team/forge-token.ts";
 
 export interface GitCredentialDeps {
   confirmedHost: () => string | null;
@@ -18,7 +18,7 @@ export interface GitCredentialDeps {
 
 const REAL_DEPS: GitCredentialDeps = {
   confirmedHost: () => readUserIntegrationOverrides().forgeHost ?? null,
-  lookupStored: async (remote) => tokenOrNull(await forgeTokenLookupReal(createRealProbes(), remote)),
+  lookupStored: async (remote) => tokenOrNull(await forgeTokenLookupForGit(createRealProbes(), remote)),
 };
 
 export async function gitCredentialReply(op: string, input: string, deps: GitCredentialDeps = REAL_DEPS): Promise<string> {

@@ -12,7 +12,7 @@
 import { createRealProbes } from "../setup/probes.ts";
 import { hostFromRemote, readUserIntegrationOverrides } from "../setup/team-settings.ts";
 import { forgeTokenKey, gitWithToken } from "../team/git-credential.ts";
-import { forgeTokenLookupReal, mayOfferToken, tokenOrNull } from "../team/forge-token.ts";
+import { forgeTokenLookupForGit, mayOfferToken, tokenOrNull } from "../team/forge-token.ts";
 import { runGit, type GitResult } from "./git-async.ts";
 
 export interface FetchAuthSeams {
@@ -58,7 +58,7 @@ async function cachedTokenFor(remote: string): Promise<string | null> {
   if (!key) return null;
   const hit = tokenCache.get(key);
   if (hit && Date.now() - hit.at < TOKEN_TTL_MS) return hit.value;
-  const value = tokenOrNull(await forgeTokenLookupReal(createRealProbes(), remote));
+  const value = tokenOrNull(await forgeTokenLookupForGit(createRealProbes(), remote));
   if (value) tokenCache.set(key, { value, at: Date.now() });
   return value;
 }
