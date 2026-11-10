@@ -94,7 +94,7 @@ const UNSPOOFABLE_FORGE_HOSTS = new Set(["github.com", "gitlab.com"]);
 export function mayOfferTokenToHost(host: string | null, confirmedHost: string | null | undefined): boolean {
   if (host === null) return false;
   if (UNSPOOFABLE_FORGE_HOSTS.has(host)) return true;
-  return confirmedHost !== null && confirmedHost !== undefined && host === confirmedHost;
+  return confirmedHost !== null && confirmedHost !== undefined && host === confirmedHost.toLowerCase();
 }
 
 export function mayOfferToken(remote: string, confirmedHost: string | null | undefined): boolean {

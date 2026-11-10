@@ -7,6 +7,7 @@ import {
   cachedExecution,
   GateCache,
   isRowAnswerable,
+  REPLACED_KEPT,
 } from '../gates/cache.ts';
 
 const SUBJECT_A = 'mr:https://gitlab.com/acme/webapp/-/merge_requests/4821';
@@ -1225,5 +1226,213 @@ describe('attachGates owner', () => {
     );
     const [mr] = attachGates([{ webUrl: url }], cache);
     expect(mr!.gates[0]!.owner).toBe('human');
+  });
+});
+
+describe('GateCache.supersededBy', () => {
+  const opened = (id: string) => ({
+    topic: `gate/opened/${id}`,
+    payload: {
+      id,
+      subject: SUBJECT_A,
+      kind: 'review-post',
+      questions: [{ id: 'q1', label: 'Ship it?', options: ['yes', 'no'] }],
+    },
+  });
+
+  test("the supersede rule's frames keep the old gate as the new one's predecessor", () => {
+    const cache = new GateCache();
+    cache.applyEvent(opened('g-old'));
+    cache.applyEvent(opened('g-new'));
+    cache.applyEvent({
+      topic: 'gate/closed/g-old',
+      payload: {
+        id: 'g-old',
+        subject: SUBJECT_A,
+        kind: 'review-post',
+        reason: 'superseded',
+        supersededBy: 'g-new',
+      },
+    });
+    expect(cache.get(SUBJECT_A, 'review-post')?.id).toBe('g-new');
+    expect(cache.rows().map(r => r.id)).toEqual(['g-new']);
+    const prior = cache.supersededBy('g-new');
+    expect(prior?.id).toBe('g-old');
+    expect(prior?.status).toBe('closed');
+    expect(prior?.closedReason).toBe('superseded');
+  });
+
+  test('a replaced gate that was never closed as superseded is no predecessor', () => {
+    const cache = new GateCache();
+    cache.applyEvent(opened('g-old'));
+    cache.applyEvent(opened('g-new'));
+    expect(cache.supersededBy('g-new')).toBeUndefined();
+  });
+
+  test('a reconcile listing both rounds, newest first, keeps the predecessor', () => {
+    const cache = new GateCache();
+    cache.reconcile([
+      row({ id: 'g-new', openedAt: 2000 }),
+      row({
+        id: 'g-old',
+        openedAt: 1000,
+        status: 'closed',
+        closedReason: 'superseded',
+        supersededBy: 'g-new',
+      }),
+    ]);
+    expect(cache.get(SUBJECT_A, 'review-post')?.id).toBe('g-new');
+    expect(cache.supersededBy('g-new')?.id).toBe('g-old');
+  });
+
+  test('a reconcile listing a whole chain keeps every link, in any order', () => {
+    const cache = new GateCache();
+    cache.reconcile([
+      row({
+        id: 'g-older',
+        openedAt: 500,
+        status: 'closed',
+        closedReason: 'superseded',
+        supersededBy: 'g-old',
+      }),
+      row({ id: 'g-new', openedAt: 2000 }),
+      row({
+        id: 'g-old',
+        openedAt: 1000,
+        status: 'closed',
+        closedReason: 'superseded',
+        supersededBy: 'g-new',
+      }),
+    ]);
+    expect(cache.supersededBy('g-new')?.id).toBe('g-old');
+    expect(cache.supersededBy('g-old')?.id).toBe('g-older');
+  });
+
+  test('an older round nothing superseded is dropped', () => {
+    const cache = new GateCache();
+    cache.reconcile([
+      row({ id: 'g-new', openedAt: 2000 }),
+      row({ id: 'g-old', openedAt: 1000, status: 'answered' }),
+    ]);
+    expect(cache.supersededBy('g-new')).toBeUndefined();
+    expect(cache.replacements()).toEqual({});
+  });
+});
+
+describe('GateCache.replacements', () => {
+  const opened = (id: string) => ({
+    topic: `gate/opened/${id}`,
+    payload: {
+      id,
+      subject: SUBJECT_A,
+      kind: 'review-post',
+      questions: [{ id: 'q1', label: 'Ship it?', options: ['yes', 'no'] }],
+    },
+  });
+
+  test('maps each superseded gate to the gate that replaced it', () => {
+    const cache = new GateCache();
+    cache.reconcile([
+      row({ id: 'g-new', openedAt: 2000 }),
+      row({
+        id: 'g-old',
+        openedAt: 1000,
+        status: 'closed',
+        closedReason: 'superseded',
+        supersededBy: 'g-new',
+      }),
+      row({ id: 'p-new', kind: 'respond-plan', openedAt: 2000 }),
+      row({
+        id: 'p-old',
+        kind: 'respond-plan',
+        openedAt: 1000,
+        status: 'closed',
+        closedReason: 'superseded',
+        supersededBy: 'p-new',
+      }),
+    ]);
+    expect(cache.replacements()).toEqual({
+      'g-old': 'g-new',
+      'p-old': 'p-new',
+    });
+  });
+
+  test('two re-raises in a row map both old gates to the live one', () => {
+    const cache = new GateCache();
+    const closed = (id: string, by: string) => ({
+      topic: `gate/closed/${id}`,
+      payload: {
+        id,
+        subject: SUBJECT_A,
+        kind: 'review-post',
+        reason: 'superseded',
+        supersededBy: by,
+      },
+    });
+    cache.applyEvent(opened('g-1'));
+    cache.applyEvent(opened('g-2'));
+    cache.applyEvent(closed('g-1', 'g-2'));
+    cache.applyEvent(opened('g-3'));
+    cache.applyEvent(closed('g-2', 'g-3'));
+    expect(cache.replacements()).toEqual({ 'g-1': 'g-3', 'g-2': 'g-3' });
+    expect(cache.supersededBy('g-3')?.id).toBe('g-2');
+    expect(cache.supersededBy('g-2')?.id).toBe('g-1');
+  });
+
+  test('a resync of gates past the replaced limit is not a change', () => {
+    const cache = new GateCache();
+    const count = REPLACED_KEPT + 2;
+    const rows = [
+      row({ id: `g-${count}`, openedAt: count * 1000 }),
+      ...Array.from({ length: count - 1 }, (_, i) =>
+        row({
+          id: `g-${i + 1}`,
+          openedAt: (i + 1) * 1000,
+          status: 'closed',
+          closedReason: 'superseded',
+          supersededBy: `g-${i + 2}`,
+        })
+      ),
+    ];
+    cache.reconcile(rows);
+    const before = cache.revision;
+    cache.reconcile(rows);
+    expect(cache.revision).toBe(before);
+  });
+
+  test(`keeps only the newest ${REPLACED_KEPT} replaced gates per subject and kind`, () => {
+    const cache = new GateCache();
+    const count = REPLACED_KEPT + 2;
+    cache.reconcile([
+      row({ id: `g-${count}`, openedAt: count * 1000 }),
+      ...Array.from({ length: count - 1 }, (_, i) =>
+        row({
+          id: `g-${i + 1}`,
+          openedAt: (i + 1) * 1000,
+          status: 'closed',
+          closedReason: 'superseded',
+          supersededBy: `g-${i + 2}`,
+        })
+      ),
+    ]);
+    const kept = Object.keys(cache.replacements()).sort();
+    expect(kept.length).toBe(REPLACED_KEPT);
+    expect(kept).not.toContain('g-1');
+    expect(new Set(Object.values(cache.replacements()))).toEqual(
+      new Set([`g-${count}`])
+    );
+  });
+
+  test('a replaced gate that is not closed with a successor is left out', () => {
+    const cache = new GateCache();
+    cache.applyEvent(opened('g-old'));
+    cache.applyEvent(opened('g-new'));
+    expect(cache.replacements()).toEqual({});
+  });
+
+  test('is empty for a cache that replaced nothing', () => {
+    const cache = new GateCache();
+    cache.applyRow(row());
+    expect(cache.replacements()).toEqual({});
   });
 });

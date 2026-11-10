@@ -269,4 +269,14 @@ describe("formatBranchSegments", () => {
     expect(match).toContain("acme-token-pipeline");
     expect(match).toContain("ACME-1234");
   });
+
+  test("a bare row on a remote rt cannot place says so instead of Local Only", () => {
+    const { right } = formatBranchSegments(mkBranch({ unknownForge: true }));
+    expect(right).toEqual([{ text: "[Unknown Forge]", tone: "dimmer" }]);
+  });
+
+  test("the default branch keeps its own tag on a remote rt cannot place", () => {
+    const { right } = formatBranchSegments(mkBranch({ branch: "main", unknownForge: true }));
+    expect(right).toEqual([{ text: "[main branch]", tone: "dimmer" }]);
+  });
 });

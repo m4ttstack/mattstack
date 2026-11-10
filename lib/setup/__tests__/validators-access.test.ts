@@ -229,6 +229,17 @@ describe("accessRows — access.team-repo", () => {
     expect(r.status).toBe("ready");
   });
 
+  test("a repo GitHub hides reads as no access and links the invitation", async () => {
+    const github = "https://github.com/acme/mattstack.git";
+    const team = baseTeam({ remote: github });
+    const intent: SetupIntent = { v: 1, at: "2026-08-21T00:00:00.000Z", mode: "create", team: { slug: "acme", name: "Acme", remote: github, others: false } };
+    const exec = gitAnswers(() => ({ code: 128, stdout: "", stderr: "remote: Repository not found." }));
+    const r = await pickRow(accessRows(fakeProbes({ exec }), team, intent, {}, { has: async () => "gho_x" }), "access.team-repo");
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toContain("https://github.com/acme/mattstack/invitations");
+    expect(r.detail).toContain("the repo's owner");
+  });
+
   test("a refusal names who grants access and never promises rt will", async () => {
     const team = baseTeam({ remote: REMOTE });
     const exec = gitAnswers(() => ({ code: 128, stdout: "", stderr: "remote: Permission denied" }));

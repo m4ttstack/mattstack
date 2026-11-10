@@ -1,0 +1,8 @@
+{
+  "id": "skills:board:review-finding-question",
+  "dir": "skills/review-finding-question",
+  "covers": [
+    "skills:board:review-finding-question"
+  ],
+  "keys": {}
+}

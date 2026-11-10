@@ -402,6 +402,25 @@ describe("integrationConnect: forge token scopes", () => {
       expect(JSON.parse(deps.lines[0]!).status).toBe(scenario.valid ? "ready" : "invalid");
     });
   }
+  test("a --host typed in mixed case still matches the clone's origin", async () => {
+    const probes = fakeProbes({
+      fetch: gitlabWithScopes(["api", "read_user"]),
+      dirs: { "/fake-home/.mattstack/orgs": ["acme"] },
+      files: { "/fake-home/.mattstack/orgs/acme/.git/config": '[remote "origin"]\nurl = https://forge.example.com/acme/org.git\n' },
+    });
+    const asked: unknown[][] = [];
+    const deps = baseDeps({
+      probes,
+      stdin: async () => ({ token: "glpat-x" }),
+      writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+      writeSetting: () => {},
+      teamSnapshot: () => ({ ...slackTeamSnapshot(), slug: "", remote: null, integrations: {} }),
+      forgeLogin: async (...args: unknown[]) => { asked.push(args.slice(1)); return "dev1"; },
+    });
+    await integrationConnect("gitlab", ["--host", "Forge.Example.com", "--json"], deps);
+    expect(asked).toEqual([["gitlab", "forge.example.com", "glpat-x"]]);
+  });
+
   test("a forge connect retries pending roles for a stored username and reports a failed publish", async () => {
     let fail = true;
     const probes = fakeProbes({

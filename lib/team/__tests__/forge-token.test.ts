@@ -120,6 +120,11 @@ describe("mayOfferToken", () => {
     expect(mayOfferGitLabToken("https://gitlab.evil.example/acme/team.git", "git.acme.internal")).toBe(false);
   });
 
+  test("a confirmed host matches whatever case it was stored in", () => {
+    expect(mayOfferGitLabToken("https://Git.Acme.Internal/acme/team.git", "Git.Acme.Internal")).toBe(true);
+    expect(mayOfferGitLabToken("https://git.acme.internal/acme/team.git", "GIT.ACME.INTERNAL")).toBe(true);
+  });
+
   test("a real token is withheld from an unconfirmed host", () => {
     const held = { kind: "token", token: "glpat_x" } as const;
     expect(withholdFromUntrustedHost(held, "https://gitlab.evil.example/acme/team.git", null)).toEqual({ kind: "withheld", host: "gitlab.evil.example" });

@@ -47,8 +47,12 @@ resolves run to MR in the background; the request path never waits on it).
 (review first round, review re-review, respond plan, respond post), each
 rebuilt from a real gate's shape with invented data
 (`gate-stories.fixtures.ts`). Keep it to gates a real run asks; a variant
-belongs in a DOM test, not a new story. Invented names only (the repo is
-public).
+belongs in a DOM test, not a new story. The one exception is the
+`Review question: …` stories, one per state of asking the review pane about
+a finding (the ask link, the box open, sending, asked, a 409, the pane
+gone, a parked gate, the revised strip), kept so that UI can be worked on
+in Storybook; their play steps click into each state. Invented names only
+(the repo is public).
 
 ## Respond rounds
 
