@@ -5,8 +5,8 @@ import type { BoardMR, BoardSyncError } from '../data.ts';
 import { ALL_TURN } from '../turn.ts';
 import {
   activeOff,
-  approvalSlots,
   ageText,
+  approvalSlots,
   arrangeGroups,
   behindToken,
   dataAgeLabel,

@@ -672,7 +672,9 @@ function anyReviewerActed(mr: BoardMR): boolean {
     shows no review activity at all, so it never hides an approval count. */
 function quietReviewCounts(mr: BoardMR): boolean {
   return (
-    !!mr.quietReview && !anyReviewerActed(mr) && (approvalSlots(mr)?.filled ?? 0) === 0
+    !!mr.quietReview &&
+    !anyReviewerActed(mr) &&
+    (approvalSlots(mr)?.filled ?? 0) === 0
   );
 }
 
