@@ -1,7 +1,13 @@
 /** Deterministic screenshot capture against the BOARD_FIXTURE server.
     Boots the server itself, freezes the page clock to fixture meta.now,
     kills CSS animations, waits for fonts, shoots the named states. */
-import { mkdirSync, readdirSync, readFileSync, rmSync } from 'fs';
+import {
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'fs';
 import { basename, join } from 'path';
 import { chromium, type Locator, type Page } from 'playwright';
 
@@ -102,6 +108,12 @@ async function newPage(
       const json = { ...(await response.json()), defaultMember: 'all' };
       await route.fulfill({ response, json });
     });
+  // The board takes its scheme from the Mac-wide setting on load, which
+  // would override `mrs-theme` with whatever this machine has picked (and
+  // a PUT would change it).
+  await page.route(/\/api\/color-scheme$/, route =>
+    route.fulfill({ json: { scheme: theme } })
+  );
   await page.clock.setFixedTime(META.now);
   await page.addInitScript(
     (mode: string) => localStorage.setItem('mrs-theme', mode),
@@ -159,11 +171,20 @@ async function shoot(
       if (document.fonts.status === 'loaded') return;
     }
   });
-  await page.screenshot({
-    path: join(OUT, `${name}.png`),
-    fullPage: !opts.viewportOnly && !opts.clip,
-    ...(opts.clip ? { clip: opts.clip } : {}),
-  });
+  // Motion's JS tweens (a sheet's parts settling after it opens) are out of
+  // reach of the injected style, so a shot repeats until two in a row match.
+  const take = () =>
+    page.screenshot({
+      fullPage: !opts.viewportOnly && !opts.clip,
+      ...(opts.clip ? { clip: opts.clip } : {}),
+    });
+  let shot = await take();
+  for (let i = 0; i < 10; i++) {
+    const next = await take();
+    if (next.equals(shot)) break;
+    shot = next;
+  }
+  writeFileSync(join(OUT, `${name}.png`), shot);
   console.log(`  ✓ ${name}`);
 }
 
@@ -295,6 +316,12 @@ try {
         ).scrollTo(0, 0)
       );
     }
+    // The gate sheet fills the viewport, so its shots stop there. A
+    // full-page shot lays the page out again past the viewport; a reply
+    // field's ResizeObserver catches that pass and starts its height tween
+    // (motion, which the injected style cannot stop), and the shot lands at
+    // a different point of it each run.
+    const sheetShot = { viewportOnly: true };
     // A doctor gate on someone else's MR (!1271): the queue shows it
     // read-only, under the notice, with its choices out of reach.
     await page.click('.tui-dq-open');
@@ -305,7 +332,7 @@ try {
       await page.waitForTimeout(120);
     }
     await locked.first().waitFor();
-    await shoot(page, `queuelocked-${theme}`);
+    await shoot(page, `queuelocked-${theme}`, sheetShot);
     await page.keyboard.press('Escape');
     // A legacy review-post gate (prose context, tier options) in the stage
     // sheet: its context renders as plain markdown in the rail, wherever it
@@ -321,7 +348,7 @@ try {
       await page.waitForTimeout(120);
     }
     await legacy.waitFor();
-    await shoot(page, `queue-${theme}`);
+    await shoot(page, `queue-${theme}`, sheetShot);
     await page.keyboard.press('Escape');
     // The structured review-post gate: the full-screen review sheet.
     await page.click('.tui-dq-open');
@@ -332,14 +359,14 @@ try {
       await page.waitForTimeout(120);
     }
     await sheet.waitFor();
-    await shoot(page, `reviewsheet-${theme}`);
+    await shoot(page, `reviewsheet-${theme}`, sheetShot);
     await page.keyboard.press('Escape');
     // Structured respond gates in the two-column respond sheet: every thread
     // card (respond-plan), then the replies checklist (respond-post). Each
     // shot reopens the queue, which starts a fresh session at the first
     // gate, and skips forward to its gate.
     for (const [marker, name] of [
-      ['.tui-thread-card', 'queueplan'],
+      ['.tui-plan-card', 'queueplan'],
       ['[data-step="post"]', 'queuepost'],
     ] as const) {
       await page.click('.tui-dq-open');
@@ -350,7 +377,7 @@ try {
         await page.waitForTimeout(120);
       }
       await head.first().waitFor();
-      await shoot(page, `${name}-${theme}`);
+      await shoot(page, `${name}-${theme}`, sheetShot);
       await page.keyboard.press('Escape');
     }
     // settings modal
