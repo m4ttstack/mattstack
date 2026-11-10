@@ -18,7 +18,7 @@ test('postAction swallows network errors as status 0', async () => {
   }) as unknown as typeof fetch);
   expect(r).toMatchObject({ ok: false, status: 0, body: null });
 });
-test('launch flow: ok path settles the launch toast as focused, reloads, no rollback', async () => {
+test('launch flow: a launch the server answered with a focus settles the toast as focused, drops the claim (no run started) and reloads', async () => {
   const events: string[] = [];
   await runLaunchFlow(
     {
@@ -49,6 +49,7 @@ test('launch flow: ok path settles the launch toast as focused, reloads, no roll
   expect(events).toEqual([
     'queued',
     'toast:launching review for !7…',
+    'rollback',
     'done:review already running for !7... focused its tab',
     'reload',
   ]);
@@ -255,7 +256,7 @@ test('launch flow returns the server result', async () => {
   );
   expect(result).toBe(reply);
 });
-test('launch flow: a refused launch fails the toast with the reason and reloads, no rollback', async () => {
+test('launch flow: a refused launch drops the claim, fails the toast with the reason and reloads', async () => {
   const events: string[] = [];
   await runLaunchFlow(
     {
@@ -289,6 +290,7 @@ test('launch flow: a refused launch fails the toast with the reason and reloads,
   expect(events).toEqual([
     'queued',
     'toast:launching review for !7…',
+    'rollback',
     "fail:Couldn't load acme:board-review: the acme plugin is turned off.",
     'reload',
   ]);
