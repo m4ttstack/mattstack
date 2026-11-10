@@ -331,8 +331,10 @@ function MoreStatuses({
           const verb = l.verbs.find(v => v.kind !== 'merge');
           const lane = verb ? laneOf(verb) : undefined;
           const body = (
-            <>
-              <span className="tui-status-more-source">{l.source ?? ''}</span>
+            <span className="tui-status-more-stack">
+              {l.source && (
+                <span className="tui-status-more-source">{l.source}</span>
+              )}
               <span className="tui-status-more-text">
                 <span className="tui-status-word">{l.word}</span>
                 {l.spin === true && (
@@ -347,7 +349,7 @@ function MoreStatuses({
                   </span>
                 )}
               </span>
-            </>
+            </span>
           );
           // The whole line is the action; its verb shows under the pointer.
           return verb ? (

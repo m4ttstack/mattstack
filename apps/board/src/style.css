@@ -1217,7 +1217,7 @@ body {
 /* Each extra status reads like the row's own line, with the part of the
    board that made it named on the left and its action on the right. */
 .tui-status-more-pop {
-  width: 420px;
+  width: 300px;
   max-width: calc(100vw - 24px);
   padding: 0;
 }
@@ -1232,13 +1232,12 @@ body {
 }
 .tui-status-more-line {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   column-gap: var(--spacing-px14);
   align-items: center;
   width: 100%;
-  min-height: 40px;
   margin: 0;
-  padding: 0 1rem;
+  padding: var(--spacing-px8) 1rem;
   border: 0;
   background: none;
   font: inherit;
@@ -1293,8 +1292,15 @@ button.tui-status-more-line:focus-visible .tui-status-more-verb {
 .tui-status-more-list:focus {
   outline: none;
 }
+/* The source sits above its status, so the list stays narrow. */
+.tui-status-more-stack {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
 .tui-status-more-source {
-  font-size: var(--font-size-px12);
+  font-size: var(--font-size-px11);
+  line-height: 16px;
   color: var(--text-3);
 }
 .tui-status-more-text {
