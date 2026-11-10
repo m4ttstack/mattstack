@@ -7154,10 +7154,10 @@ a.tui-id-card-ref:focus-visible {
 /* The sent-ask band: this board's own ask of a teammate's agent, the foot of
    its row. A bordered box inside the row's own padding, aligned with the
    row's content and tinted by where the ask stands, so the row's divider
-   falls below it and it cannot read as the next row's header. */
+   falls below it and it cannot read as the next row's header. The tone's
+   stripe meets square corners; only the far side is rounded. */
 .tui-ask {
   --ask-fill: var(--border);
-  --ask-line: 100%;
   --ask-text: var(--text-1);
   --ask-mix: 0%;
   --ask-base: color-mix(in srgb, var(--card) 55%, var(--chrome));
@@ -7166,7 +7166,7 @@ a.tui-id-card-ref:focus-visible {
   align-items: center;
   gap: 8px;
   margin-top: 8px;
-  padding: 5px 10px;
+  padding: 5px 10px 5px 8px;
   min-width: 0;
   font-size: 0.76rem;
   line-height: 20px;
@@ -7176,35 +7176,31 @@ a.tui-id-card-ref:focus-visible {
     var(--ask-fill) var(--ask-mix),
     var(--ask-base)
   );
-  border: 1px solid
-    color-mix(in srgb, var(--ask-fill) var(--ask-line), transparent);
-  border-radius: 6px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--ask-fill);
+  border-radius: 0 6px 6px 0;
 }
 .tui-ask[data-ask-tone='work'] {
   --ask-fill: var(--fill-accent);
   --ask-mix: 15%;
-  --ask-line: 40%;
   --ask-base: var(--card);
   --ask-text: var(--text-accent-small);
 }
 .tui-ask[data-ask-tone='ok'] {
   --ask-fill: var(--fill-ok);
   --ask-mix: 15%;
-  --ask-line: 40%;
   --ask-base: var(--card);
   --ask-text: var(--text-ok-small);
 }
 .tui-ask[data-ask-tone='bad'] {
   --ask-fill: var(--fill-bad);
   --ask-mix: 15%;
-  --ask-line: 40%;
   --ask-base: var(--card);
   --ask-text: var(--text-bad-small);
 }
 .tui-ask[data-ask-tone='warn'] {
   --ask-fill: var(--fill-warn);
   --ask-mix: 15%;
-  --ask-line: 40%;
   --ask-base: var(--card);
   --ask-text: var(--text-warn-small);
 }
@@ -7268,10 +7264,12 @@ a.tui-id-card-ref:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* The actions are the kit's ghost Button; the band only keeps them from
-   shrinking. */
+/* The actions are the kit's ghost Button, taller than the band's 20px line;
+   the band keeps them from shrinking and from setting its height, so a band
+   with no actions matches one with them. */
 .tui-ask-btn {
   flex-shrink: 0;
+  margin-block: -4px;
 }
 .tui-ask-btn + .tui-ask-btn {
   margin-left: -6px;
