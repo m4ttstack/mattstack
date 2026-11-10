@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { orgDirUnder } from "../../rt-paths.ts";
 import type { SecretsSeams } from "../../secrets/store.ts";
-import { applyForgeAccess, applyForgeAccessAndFollow, readForgeAccess, wantedFingerprint, type ForgeAccessSeams } from "../forge-access-apply.ts";
+import { applyForgeAccess, applyForgeAccessAndFollow, readForgeAccess, sharedBranchSentence, wantedFingerprint, type ForgeAccessSeams } from "../forge-access-apply.ts";
 import { githubForgeAccess } from "../forge-access-github.ts";
 import { gitlabForgeAccess } from "../forge-access-gitlab.ts";
 import { readTeamLocal, teamLocalPath } from "../team-local.ts";
@@ -71,14 +71,22 @@ for (const provider of ["github", "gitlab"] as const) {
 
     test("a data branch the first push made the default is moved back to main, then access applies", async () => {
       const { p, forge, seams } = setup(provider, { users: USERS, members: MEMBERS, firstPushed: "mattstack" }, { mainPointer: { dataBranch: "mattstack", layout: 4 } });
-      const { report } = await applyForgeAccess(p, "acme", seams);
+      const { report, applied } = await applyForgeAccess(p, "acme", seams);
       expect(report.kind).toBe("ready");
       expect(forge.writes[0]).toBe(provider === "github" ? "PATCH /repos/acme/widgets" : "PUT projects/acme%2Fwidgets");
+      expect(applied?.done[0]).toBe("Made main the repo's default branch");
     });
 
-    test("reading forge access never moves the default branch", async () => {
+    test("reading forge access never moves the default branch, and says to make main the default", async () => {
       const { p, forge, seams } = setup(provider, { users: USERS, members: MEMBERS, firstPushed: "mattstack" }, { mainPointer: { dataBranch: "mattstack", layout: 4 } });
-      expect((await readForgeAccess(p, "acme", seams)).kind).toBe("shared-branch");
+      expect(await readForgeAccess(p, "acme", seams)).toEqual({ kind: "shared-branch", branch: "mattstack", firstPush: true });
+      expect(sharedBranchSentence("mattstack", true)).toContain("Make main the repo's default branch");
+      expect(forge.writes).toEqual([]);
+    });
+
+    test("with membership management off the default is left for the admin to move", async () => {
+      const { p, forge, seams } = setup(provider, { users: USERS, members: MEMBERS, firstPushed: "mattstack" }, { latch: false, mainPointer: { dataBranch: "mattstack", layout: 4 } });
+      expect((await applyForgeAccess(p, "acme", seams)).report).toEqual({ kind: "shared-branch", branch: "mattstack", firstPush: true });
       expect(forge.writes).toEqual([]);
     });
 

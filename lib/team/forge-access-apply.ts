@@ -19,7 +19,7 @@ import type { OrgForgeAccess, PushList } from "./forge-access.ts";
 import { githubForgeAccess } from "./forge-access-github.ts";
 import { gitlabForgeAccess } from "./forge-access-gitlab.ts";
 import { accessDiff, fingerprintOf, limitSentence, wantedAccess, type AccessDiff, type Wanted } from "./forge-access-plan.ts";
-import { readMainPointer, type MainPointer } from "./main-pointer.ts";
+import { readMainBranch, type MainPointer } from "./main-pointer.ts";
 import { teamRemote } from "./members.ts";
 import { checkedOutBranch, dataBranchOf } from "./org-branch.ts";
 import { POINTER_BRANCH } from "./org-data-branch.ts";
@@ -45,8 +45,15 @@ export function orgForgeAccessFor(p: Probes, remote: string, token: string | nul
   return gitlabForgeAccess(p, remote, parsed.host, parsed.path, token);
 }
 
+/** The daemon sweep waits on this read and skips every later sweep while it hangs. */
+const MAIN_POINTER_TIMEOUT_MS = 15_000;
+
 export function realForgeAccessSeams(): ForgeAccessSeams {
-  return { forgeToken: storedForgeToken, access: orgForgeAccessFor, mainPointer: readMainPointer };
+  return {
+    forgeToken: storedForgeToken,
+    access: orgForgeAccessFor,
+    mainPointer: async (p, remote, token) => (await readMainBranch(p, remote, token, { timeoutMs: MAIN_POINTER_TIMEOUT_MS }))?.pointer ?? null,
+  };
 }
 
 export type ForgeAccessReport =
@@ -55,7 +62,8 @@ export type ForgeAccessReport =
   | { kind: "not-yet"; branch: string | null }
   | { kind: "trial"; branch: string; dataBranch: string }
   | { kind: "refused"; manualSteps: string[] }
-  | { kind: "shared-branch"; branch: string }
+  /** `firstPush`: the branch is the default only because rt pushed it into the empty repo first. */
+  | { kind: "shared-branch"; branch: string; firstPush?: true }
   | { kind: "ready"; provider: "github" | "gitlab"; branch: string; pushList: PushList; wanted: Wanted; diff: AccessDiff; managing: boolean; lastManualSteps: string[] };
 
 export interface ForgeAccessApplied {
@@ -78,7 +86,8 @@ export type FollowRosterChange = (p: Pick<Probes, "readFile" | "home">, slug: st
 
 const SHARED_BRANCH_NAMES = new Set(["main", "master"]);
 
-export function sharedBranchSentence(branch: string): string {
+export function sharedBranchSentence(branch: string, firstPush = false): string {
+  if (firstPush) return `The repo made ${branch} its default branch when rt first pushed the org's data, so rt leaves its rules alone. Make main the repo's default branch.`;
   return `The org's data is on ${branch}, which the rest of the repo uses too, so rt leaves its rules alone. Move the org's data to its own branch first.`;
 }
 
@@ -122,11 +131,14 @@ export async function wantedFingerprint(p: Probes, slug: string): Promise<string
  * to this very branch is what tells that apart from a repo that chose it.
  */
 async function firstPushMadeDefault(p: Probes, seams: ForgeAccessSeams, remote: string, token: string | null, branch: string): Promise<boolean> {
-  const pointer = await (seams.mainPointer ?? readMainPointer)(p, remote, token).catch(() => null);
+  const read = seams.mainPointer ?? realForgeAccessSeams().mainPointer!;
+  const pointer = await read(p, remote, token).catch(() => null);
   return pointer?.dataBranch === branch;
 }
 
-async function inspect(p: Probes, slug: string, seams: ForgeAccessSeams, repair = false): Promise<{ report: ForgeAccessReport; access: OrgForgeAccess | null }> {
+type Inspected = { report: ForgeAccessReport; access: OrgForgeAccess | null; movedDefault?: true };
+
+async function inspect(p: Probes, slug: string, seams: ForgeAccessSeams, repair = false): Promise<Inspected> {
   if (!isOrgAdmin(roleFor(p, slug))) return { report: { kind: "not-admin" }, access: null };
   const data = await managedDataBranch(p, slug);
   if (data.kind === "none") return { report: { kind: "not-yet", branch: await checkedOutBranch(p, orgDirUnder(p.home, slug)) }, access: null };
@@ -139,13 +151,14 @@ async function inspect(p: Probes, slug: string, seams: ForgeAccessSeams, repair 
 
   const main = await access.defaultBranch();
   if (!main.ok) return { report: { kind: "refused", manualSteps: main.manualSteps }, access };
-  let defaultBranch = main.value;
-  if (repair && branch === defaultBranch && !SHARED_BRANCH_NAMES.has(branch.toLowerCase()) && (await firstPushMadeDefault(p, seams, remote, token, branch))) {
+  const local = readTeamLocal(p, slug);
+  let movedDefault = false;
+  if (branch === main.value && !SHARED_BRANCH_NAMES.has(branch.toLowerCase()) && (await firstPushMadeDefault(p, seams, remote, token, branch))) {
+    if (!repair || !local.rtMayManageMembership) return { report: { kind: "shared-branch", branch, firstPush: true }, access };
     const moved = await access.setDefaultBranch(POINTER_BRANCH);
     if (!moved.ok) return { report: { kind: "refused", manualSteps: moved.manualSteps }, access };
-    defaultBranch = POINTER_BRANCH;
-  }
-  if (SHARED_BRANCH_NAMES.has(branch.toLowerCase()) || branch === defaultBranch) {
+    movedDefault = true;
+  } else if (SHARED_BRANCH_NAMES.has(branch.toLowerCase()) || branch === main.value) {
     return { report: { kind: "shared-branch", branch }, access };
   }
   const pushList = await access.readPushList(branch);
@@ -153,12 +166,12 @@ async function inspect(p: Probes, slug: string, seams: ForgeAccessSeams, repair 
   const members = await access.readMembers();
   if (!members.ok) return { report: { kind: "refused", manualSteps: members.manualSteps }, access };
 
-  const local = readTeamLocal(p, slug);
   const wanted = wantedAccess(rolesFor(p, slug), rosterFor(p, slug));
   const diff = accessDiff(wanted, members.value, pushList.value);
   return {
     report: { kind: "ready", provider: access.provider, branch, pushList: pushList.value, wanted, diff, managing: local.rtMayManageMembership, lastManualSteps: local.forgeAccess?.manualSteps ?? [] },
     access,
+    ...(movedDefault ? { movedDefault: true as const } : {}),
   };
 }
 
@@ -167,11 +180,11 @@ export async function readForgeAccess(p: Probes, slug: string, seams: ForgeAcces
 }
 
 export async function applyForgeAccess(p: Probes, slug: string, seams: ForgeAccessSeams = realForgeAccessSeams()): Promise<{ report: ForgeAccessReport; applied: ForgeAccessApplied | null }> {
-  const { report, access } = await inspect(p, slug, seams, true);
+  const { report, access, movedDefault } = await inspect(p, slug, seams, true);
   if (report.kind !== "ready" || !report.managing || access === null) return { report, applied: null };
   const { branch, diff, wanted } = report;
   const key = (u: string) => u.toLowerCase();
-  const done: string[] = [];
+  const done: string[] = movedDefault ? [`Made ${POINTER_BRANCH} the repo's default branch`] : [];
   const manualSteps: string[] = [];
   let limit: string | null = null;
   let incomplete = false;
