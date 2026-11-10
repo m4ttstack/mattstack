@@ -26,7 +26,7 @@ import type { PackRequirements } from "../requirements.ts";
 import { readSetupState } from "../state.ts";
 import type { TeamSnapshot, UserIntegrationOverrides } from "../team-settings.ts";
 import { slackSupportRow, type SlackCheck } from "./slack-support.ts";
-import { forgeRole, missingRecommended, missingScopes, scopeShortfallDetail, tokenCreateLink, tokenField, type ForgeProvider, type ForgeRole } from "../token-create.ts";
+import { forgeRole, missingScopes, recommendedScopeWarning, scopeShortfallDetail, tokenCreateLink, tokenField, type ForgeProvider, type ForgeRole } from "../token-create.ts";
 import { readTeamLocal } from "../../team/team-local.ts";
 import { ghSessionToken } from "../../team/forge-token.ts";
 import { roleFor } from "../../team/roles.ts";
@@ -165,14 +165,13 @@ export function teamDeclaresIntegration(team: TeamSnapshot, reqs: PackRequiremen
 }
 
 /** `gh auth status` lists them as `Token scopes: 'gist', 'read:org', 'repo'`; a token type that has none prints no such line. */
-function parseGhScopes(output: string): string[] {
+export function parseGhScopes(output: string): string[] {
   const line = /Token scopes: (.+)/.exec(output)?.[1] ?? "";
   return line.split(",").map((s) => s.trim().replace(/^'|'$/g, "")).filter(Boolean);
 }
 
 function recommendedWarning(scopesSeen: readonly string[]): string {
-  const missing = missingRecommended("github", scopesSeen);
-  return missing.length ? `, but without ${missing.join(", ")} it can't push workflow changes` : "";
+  return recommendedScopeWarning("github", scopesSeen);
 }
 
 async function githubRow(p: Probes, base: Omit<Row, "status" | "detail" | "action" | "recheck">, def: IntegrationDef, secrets: SecretPresence, ctx: ValidateCtx, forge: ForgeConnect): Promise<Row> {

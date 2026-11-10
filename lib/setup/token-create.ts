@@ -98,6 +98,12 @@ export function missingRecommended(provider: ForgeProvider, scopesSeen: readonly
   return (RECOMMENDED[provider] ?? []).filter((scope) => !scopesSeen.includes(scope));
 }
 
+/** A clause that follows a "token works" detail, or nothing. */
+export function recommendedScopeWarning(provider: ForgeProvider, scopesSeen: readonly string[]): string {
+  const missing = missingRecommended(provider, scopesSeen);
+  return missing.length ? `, but without ${missing.join(", ")} it can't push workflow changes` : "";
+}
+
 export function scopeShortfallDetail(provider: ForgeProvider, role: ForgeRole, missing: readonly string[]): string {
   const reasons = missing.map((scope) => REASONS[provider]?.[role][scope]).filter((reason): reason is string => reason !== undefined);
   const why = reasons.length ? ` (${reasons.join("; ")})` : "";
