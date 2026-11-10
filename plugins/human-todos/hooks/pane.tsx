@@ -1,9 +1,9 @@
 import type { EngineInterface, On } from 'claude-code'
 
 import type { Todo } from '../types'
-import { PLUGIN, TITLE, buttonsFor, hardWrap, isActionable } from './items'
+import { LIVE_LINES_HERDR, LIVE_LINES_LOCAL, PLUGIN, TITLE, buttonsFor, hardWrap, isActionable } from './items'
 import type { ButtonId } from './items'
-import { listTodos, readPane, removeTodos, toggleExpanded } from './store'
+import { peekTodos, readPane, removeTodos, toggleExpanded } from './store'
 import { cleanup, press } from './wiring'
 
 const PANE = PLUGIN
@@ -58,7 +58,7 @@ export function registerPane(on: On): void {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     if ((await $.ui.panes()).some(p => p.id === PANE && p.isPlaced)) return next(e)
-    const waiting = (await listTodos($)).filter(t => t.status === 'open' || t.status === 'confirming').length
+    const waiting = (await peekTodos($)).filter(t => t.status === 'open' || t.status === 'confirming').length
     if (waiting === 0) return next(e)
     const { Box, Text, Button } = $.ui.resolve(e)
     return (
@@ -116,10 +116,11 @@ export function registerPane(on: On): void {
         {actionable.length === 0 && <Text dimColor>Nothing for you right now.</Text>}
         {actionable.map(todo => {
           const rows = todo.script ? hardWrap(`$ ${todo.script}`, width) : []
-          const isOpen = openIds.includes(todo.id)
+          const isConfirming = todo.status === 'confirming'
+          const isOpen = openIds.includes(todo.id) || isConfirming
           const shown = isOpen ? rows : rows.slice(0, SCRIPT_ROWS)
           const hidden = rows.length - SCRIPT_ROWS
-          const tail = (todo.liveTail ?? []).slice(todo.runner === 'local' ? -15 : -3)
+          const tail = (todo.liveTail ?? []).slice(todo.runner === 'local' ? -LIVE_LINES_LOCAL : -LIVE_LINES_HERDR)
           return (
             <Box key={`item-${todo.id}`} flexDirection="column" marginBottom={1}>
               <Text bold>{`${todo.status === 'running' ? `${spin} ` : '○ '}${todo.title}`}</Text>
@@ -133,7 +134,7 @@ export function registerPane(on: On): void {
                         {row}
                       </Text>
                     ))}
-                    {hidden > 0 && (
+                    {hidden > 0 && !isConfirming && (
                       <Box flexDirection="row" gap={1}>
                         {!isOpen && <Text dimColor>{`… +${hidden} more`}</Text>}
                         <Button key={`more-${todo.id}`} plain label={isOpen ? 'Show less' : 'Show all'} onPress={() => toggleExpanded($, todo.id)} />

@@ -39,7 +39,7 @@ test('session.start restores the saved list and settles unfinished items', async
   const list = [
     saved({ id: '1', status: 'confirming', kind: 'run', script: 'ls' }),
     saved({ id: '2', status: 'running', kind: 'run', script: 'ls', runner: 'local', liveTail: ['x'], isStopping: true }),
-    saved({ id: '3', status: 'running', kind: 'run', script: 'ls', runner: 'herdr', token: 'tok' }),
+    saved({ id: '3', status: 'running', kind: 'run', script: 'ls', runner: 'herdr', token: 'tok', paneId: 'p1' }),
     saved({ id: '4', status: 'done' }),
   ]
   const { store } = world(on, { entries: { 'list:sess-1': savedList(list, 5) } })
@@ -56,7 +56,7 @@ test('session.start restores the saved list and settles unfinished items', async
   expect(now[1]).toMatchObject({ status: 'open', note: 'Ended without an exit code.' })
   expect(now[1]?.liveTail).toBeUndefined()
   expect(now[1]?.isStopping).toBeUndefined()
-  expect(now[2]).toMatchObject({ status: 'running', runner: 'herdr', token: 'tok' })
+  expect(now[2]).toMatchObject({ status: 'running', runner: 'herdr', token: 'tok', paneId: 'p1' })
 })
 
 test('a session with no saved entry starts empty', async ($, on) => {
@@ -117,4 +117,66 @@ test('a saved entry with no numeric savedAt is swept', async ($, on) => {
   const { store } = world(on, { entries: { 'list:bad': { todos: [], nextId: 1 } } })
   await startSession($)
   expect([...store.keys()]).not.toContain('list:bad')
+})
+
+test('a running item with no runner, or a herdr run missing its token or pane, settles to open', async ($, on) => {
+  const run = { kind: 'run', script: 'ls', status: 'running' } as const
+  const list = [
+    saved({ id: '1', ...run }),
+    saved({ id: '2', ...run, runner: 'herdr', paneId: 'p1', liveTail: ['x'], isStopping: true }),
+    saved({ id: '3', ...run, runner: 'herdr', token: 'tok' }),
+  ]
+  const { store } = world(on, { entries: { 'list:sess-1': savedList(list, 4) } })
+  await startSession($)
+
+  expect((await $.tool.call({ tool: LIST })).result).toMatch(/^#1 \[open\].*\n.*\n#2 \[open\].*\n.*\n#3 \[open\]/)
+  await $.tool.call({ tool: ADD, kind: 'task', title: 'next' })
+  const now = (store.get('list:sess-1') as { todos: Todo[] }).todos
+  for (const t of now.slice(0, 3)) expect(t).toMatchObject({ status: 'open', note: 'Ended without an exit code.' })
+  expect(now[1]?.liveTail).toBeUndefined()
+  expect(now[1]?.isStopping).toBeUndefined()
+})
+
+test('an in-session /resume loads the resumed session\'s saved list on first touch and never overwrites it', async ($, on) => {
+  const { store, setSession } = world(on, {
+    entries: { 'list:sess-2': savedList([saved({ id: '1', title: 'from two' }), saved({ id: '2', title: 'also two' })], 3) },
+  })
+  await startSession($)
+  await $.tool.call({ tool: ADD, kind: 'task', title: 'from one' })
+
+  await $.session.end({ reason: 'resume', sessionId: 'sess-1', resume: { id: 'sess-2' } })
+  setSession('sess-2')
+
+  const added = await $.tool.call({ tool: ADD, kind: 'task', title: 'new' })
+  expect(added.result).toMatch(/^Added #3 /)
+  expect((store.get('list:sess-2') as { todos: Todo[] }).todos.map(t => t.title)).toEqual(['from two', 'also two', 'new'])
+  expect((store.get('list:sess-1') as { todos: Todo[] }).todos.map(t => t.title)).toEqual(['from one'])
+})
+
+test('a /resume into a session with no saved entry starts empty and leaves the old list saved', async ($, on) => {
+  const { store, setSession } = world(on)
+  await startSession($)
+  await $.tool.call({ tool: ADD, kind: 'task', title: 'from one' })
+
+  await $.session.end({ reason: 'resume', sessionId: 'sess-1', resume: { id: 'sess-2' } })
+  setSession('sess-2')
+
+  expect((await $.tool.call({ tool: LIST })).result).toBe('No to-dos.')
+  expect((store.get('list:sess-1') as { todos: Todo[] }).todos.map(t => t.title)).toEqual(['from one'])
+})
+
+test('a store that refuses writes keeps the list working and toasts once', async ($, on) => {
+  const w = world(on)
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  await startSession($)
+  w.fail.save = true
+
+  expect((await $.tool.call({ tool: ADD, kind: 'task', title: 'a' })).result).toMatch(/^Added #1 /)
+  expect((await $.tool.call({ tool: ADD, kind: 'task', title: 'b' })).result).toMatch(/^Added #2 /)
+  expect((await $.tool.call({ tool: LIST })).result).toBe('#1 [open] a\n#2 [open] b')
+  expect(toasts).toEqual(['Could not save the to-do list; it will not survive a restart'])
 })

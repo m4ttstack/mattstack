@@ -383,3 +383,44 @@ test('a log that cannot be written toasts once for the run and the run still rep
   expect(item('1')).toMatchObject({ status: 'done', outputTail: 'one\ntwo' })
   expect(sent).toHaveLength(1)
 })
+
+test('output past 4 MiB rolls: the log stays under the write limit, the live tail keeps moving, no toast', async ($, on) => {
+  const MIB = 1024 * 1024
+  const big = out('abcdefghi\n'.repeat(200_000))
+  const { run1, writes, item, toasts, clock } = await seeded($, on, [todo({})], {
+    write: text => {
+      if (text.length > 4 * MIB) throw new Error('over 4 MiB')
+    },
+    script: async function* () {
+      yield pid(7)
+      yield big
+      await clock.sleep(1000)
+      yield big
+      await clock.sleep(1000)
+      yield out(`${'abcdefghi\n'.repeat(200_000)}the newest line\n`)
+      await clock.sleep(10_000)
+      return { code: 0, signal: null }
+    },
+  })
+
+  await run1('1')
+  await clock.advance(3000)
+
+  expect(toasts).toEqual([])
+  expect(writes.every(w => w.text.length <= 4 * MIB)).toBe(true)
+  expect(writes.at(-1)?.text.startsWith('[earlier output was dropped]\n')).toBe(true)
+  expect(writes.at(-1)?.text.endsWith('the newest line\n')).toBe(true)
+  expect(item('1')?.liveTail?.at(-1)).toBe('the newest line')
+})
+
+test('a long line in the output reaches the live tail and the report clipped', async ($, on) => {
+  const { run1, sent, item, clock } = await seeded($, on, [todo({})], {
+    script: () => exits([pid(1), out(`${'z'.repeat(5000)}\n`)]),
+  })
+
+  await run1('1')
+  await clock.settle()
+
+  expect(item('1')?.outputTail?.length).toBeLessThanOrEqual(300)
+  expect(sent[0]?.length).toBeLessThan(600)
+})

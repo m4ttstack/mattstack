@@ -13,13 +13,14 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
   const registered: Registered[] = []
   const opened: string[] = []
   const sent: string[] = []
-  const fail = { submit: false }
+  const fail = { submit: false, save: false }
   let sessionId = SESSION
   let isPlaced = true
   on('session.id', () => ({ value: sessionId }))
   on('session.cwd', () => ({ value: '/work' }))
   on('store.get', (_, e) => ({ value: store.get(e.key) }))
   on('store.set', (_, e) => {
+    if (fail.save) throw new Error('store full')
     store.set(e.key, e.value)
     return { value: undefined }
   })

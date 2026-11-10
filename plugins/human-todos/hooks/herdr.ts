@@ -1,13 +1,12 @@
 import type { EngineInterface, Timer } from 'claude-code'
 
 import type { Todo } from '../types'
-import { TITLE, quote } from './items'
+import { LIVE_LINES_HERDR, TITLE, clipLines, newToken, quote } from './items'
 import { report } from './report'
 import type { Outcome } from './report'
 import { getWorkspace, listTodos, patchTodo, setWorkspace } from './store'
 
 const POLL_MS = 1000
-const LIVE_LINES = 3
 const SCAN_LINES = 400
 const LABEL_MAX = 40
 const POLLS_TO_END = 2
@@ -128,7 +127,7 @@ async function pollOnce($: EngineInterface, token: string, run: Run): Promise<vo
     await conclude($, token, todo, { kind: 'ended', outputTail })
     return
   }
-  const liveTail = scan.output.slice(-LIVE_LINES)
+  const liveTail = clipLines(scan.output.slice(-LIVE_LINES_HERDR))
   if (JSON.stringify(liveTail) !== JSON.stringify(todo.liveTail)) await patchTodo($, todo.id, { liveTail })
 }
 
@@ -156,7 +155,7 @@ function watch($: EngineInterface, token: string): void {
 
 export async function startHerdr($: EngineInterface, todo: Todo): Promise<void> {
   let token = ''
-  do token = Math.random().toString(36).slice(2, 8).padEnd(6, '0')
+  do token = newToken()
   while (runs.has(token))
   const run: Run = { id: todo.id, isGone: false, isBusy: false, idlePolls: 0, unreadPolls: 0, output: [] }
   runs.set(token, run)

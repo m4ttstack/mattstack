@@ -9,6 +9,8 @@ export const nextId = atom({ plugin: 'human-todos', key: 'nextId' } as const, 1)
 export const expanded = atom({ plugin: 'human-todos', key: 'expanded' } as const, [] as string[])
 export const frame = atom({ plugin: 'human-todos', key: 'frame' } as const, 0)
 export const workspace = atom({ plugin: 'human-todos', key: 'workspace' } as const, null as string | null)
+export const loadedFor = atom({ plugin: 'human-todos', key: 'loadedFor' } as const, null as string | null)
+export const isSaveFailed = atom({ plugin: 'human-todos', key: 'isSaveFailed' } as const, false)
 export const runnerPref = atom({ plugin: 'human-todos', key: 'runnerPref' } as const, 'auto' as 'auto' | 'herdr' | 'local')
 
 const LIST_PREFIX = 'list:'
@@ -16,16 +18,32 @@ const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 
 type SavedList = { todos: Todo[]; nextId: number; savedAt: number }
 
+// The in-memory list stays the truth when the store refuses a write (it is capped), so the plugin keeps working and says so once.
 export async function saveList($: EngineInterface): Promise<void> {
-  const entry: SavedList = {
-    todos: await read($, todos),
-    nextId: await read($, nextId),
-    savedAt: await $.clock.now(),
+  try {
+    const entry: SavedList = {
+      todos: await read($, todos),
+      nextId: await read($, nextId),
+      savedAt: await $.clock.now(),
+    }
+    await $.store.set(`${LIST_PREFIX}${await $.session.id()}`, entry)
+    await update($, isSaveFailed, () => false)
+  } catch {
+    if (await read($, isSaveFailed)) return
+    await update($, isSaveFailed, () => true)
+    $.ui.toast('Could not save the to-do list; it will not survive a restart')
   }
-  await $.store.set(`${LIST_PREFIX}${await $.session.id()}`, entry)
+}
+
+// Writers and tools call this; a render must not, because the engine refuses a state write while drawing.
+// An in-session /resume changes the session id without a session.start, so the list loads on the first touch under a new id.
+async function ensureLoaded($: EngineInterface): Promise<void> {
+  if ((await read($, loadedFor)) === (await $.session.id())) return
+  await restoreList($)
 }
 
 export async function addTodo($: EngineInterface, input: AddInput): Promise<Todo> {
+  await ensureLoaded($)
   let id = 0
   await update($, nextId, n => {
     id = n
@@ -37,16 +55,19 @@ export async function addTodo($: EngineInterface, input: AddInput): Promise<Todo
   return todo
 }
 
-export function listTodos($: EngineInterface): Promise<Todo[]> {
+export async function listTodos($: EngineInterface): Promise<Todo[]> {
+  await ensureLoaded($)
   return read($, todos)
 }
 
 export async function patchTodo($: EngineInterface, id: string, change: Partial<Todo>): Promise<void> {
+  await ensureLoaded($)
   await update($, todos, list => list.map(t => (t.id === id ? { ...t, ...change } : t)))
   await saveList($)
 }
 
 export async function removeTodos($: EngineInterface, pick: (t: Todo) => boolean): Promise<Todo[]> {
+  await ensureLoaded($)
   const removed: Todo[] = []
   await update($, todos, list => {
     removed.length = 0
@@ -61,9 +82,10 @@ function isFresh(entry: SavedList | undefined, now: number): boolean {
   return typeof entry?.savedAt === 'number' && now - entry.savedAt <= MAX_AGE_MS
 }
 
+// Only a herdr run with both its token and its pane can be watched again; any other running item has nothing behind it.
 function resume(t: Todo): Todo {
   if (t.status === 'confirming') return { ...t, status: 'open' }
-  if (t.status === 'running' && t.runner === 'local') {
+  if (t.status === 'running' && !(t.runner === 'herdr' && t.token && t.paneId)) {
     const { liveTail: _tail, isStopping: _stopping, ...rest } = t
     return { ...rest, status: 'open', note: 'Ended without an exit code.' }
   }
@@ -78,9 +100,12 @@ export async function restoreList($: EngineInterface): Promise<void> {
     if (!isFresh(entry, now)) await $.store.delete(key)
   }
 
-  const mine = (await $.store.get(`${LIST_PREFIX}${await $.session.id()}`)) as SavedList | undefined
+  const id = await $.session.id()
+  const mine = (await $.store.get(`${LIST_PREFIX}${id}`)) as SavedList | undefined
+  await update($, loadedFor, () => id)
   if (!mine) return resetList($)
   await update($, todos, () => mine.todos.map(resume))
+  await update($, expanded, () => [])
   await update($, nextId, () => mine.nextId)
 }
 
@@ -88,6 +113,11 @@ export async function resetList($: EngineInterface): Promise<void> {
   await update($, todos, () => [])
   await update($, expanded, () => [])
   await update($, nextId, () => 1)
+}
+
+// Drawing is pure: a render reads what is loaded and leaves any restore to the next hook that may write.
+export function peekTodos($: EngineInterface): Promise<Todo[]> {
+  return read($, todos)
 }
 
 export async function readPane($: EngineInterface): Promise<{ list: Todo[]; openIds: string[]; spin: number }> {

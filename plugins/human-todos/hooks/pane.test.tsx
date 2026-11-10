@@ -132,8 +132,8 @@ test('a note draws under the detail', async ($, on) => {
 
 test('a running item draws the live tail, a spinner frame and its own buttons', async ($, on) => {
   await seeded($, on, [
-    todo({ id: '1', kind: 'run', script: 'ls', status: 'running', runner: 'herdr', token: 't', liveTail: ['a', 'b', 'c', 'd'] }),
-    todo({ id: '2', kind: 'run', script: 'ls', status: 'running', runner: 'herdr', token: 't', isStopping: true }),
+    todo({ id: '1', kind: 'run', script: 'ls', status: 'running', runner: 'herdr', token: 't', paneId: 'p1', liveTail: ['a', 'b', 'c', 'd'] }),
+    todo({ id: '2', kind: 'run', script: 'ls', status: 'running', runner: 'herdr', token: 't', paneId: 'p1', isStopping: true }),
   ])
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const rows = await texts(pane)
@@ -194,7 +194,7 @@ test('the band counts open and confirming items and yields to an open pane', asy
 })
 
 test('a band with only finished or running items draws nothing', async ($, on) => {
-  await seeded($, on, [todo({ id: '1', status: 'done' }), todo({ id: '2', kind: 'run', script: 'ls', status: 'running', runner: 'herdr', token: 't' })])
+  await seeded($, on, [todo({ id: '1', status: 'done' }), todo({ id: '2', kind: 'run', script: 'ls', status: 'running', runner: 'herdr', token: 't', paneId: 'p1' })])
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
 
   expect(await band.find({ key: 'open-pane' })).toBeUndefined()
@@ -250,4 +250,31 @@ test('the band follows where the engine has the pane: shown while it is undrawn,
   const placed = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await placed.find({ key: 'open-pane' })).toBeUndefined()
   await placed.unmount()
+})
+
+test('a confirming item shows its whole script, so Confirm never runs what was clipped', async ($, on) => {
+  const script = 'one\ntwo\nthree\nfour'
+  await seeded($, on, [todo({ kind: 'run', script })])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await pane.press({ key: 'run-1' })
+
+  const rows = await texts(pane)
+  for (const row of ['$ one', 'two', 'three', 'four']) expect(rows).toContain(row)
+  expect(rows.some(row => row.includes('more'))).toBe(false)
+  expect(await buttons(pane)).toEqual(['close', 'confirm-1', 'cancel-1'])
+  await pane.unmount()
+})
+
+test('drawing after the session id changed writes nothing and shows the loaded list', async ($, on) => {
+  const { setSession } = await seeded($, on, [todo({ id: '1', title: 'Old' })])
+  setSession('sess-2')
+
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await texts(pane)).toContain('○ Old')
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await band.find({ type: 'Text', text: /Human Todo/ }))?.text).toBe('○ 1 Human Todo')
+  const message = await $.ui.mount({ ...MESSAGE('[Human Todos] x'), surface: 'terminal' })
+  await message.unmount()
+  await pane.unmount()
+  await band.unmount()
 })

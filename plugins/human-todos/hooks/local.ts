@@ -1,12 +1,15 @@
 import type { EngineInterface } from 'claude-code'
 
 import type { Todo } from '../types'
+import { LIVE_LINES_LOCAL, clipLines, newToken } from './items'
 import { report } from './report'
 import { patchTodo } from './store'
 
 const PID_LINE = /^__human_todo_pid__(\d+)$/
-const LIVE_LINES = 15
 const FLUSH_MS = 1000
+// $.fs.write refuses 4 MiB, so the log keeps a rolling window well under it.
+const WINDOW = 1024 * 1024
+const DROPPED = '[earlier output was dropped]\n'
 
 type Job = { pid?: number; isStopped: boolean; isGone: boolean }
 
@@ -45,11 +48,12 @@ function liveLines(output: string): string[] {
   return output
     .split('\n')
     .filter(line => line.trim() !== '')
-    .slice(-LIVE_LINES)
+    .slice(-LIVE_LINES_LOCAL)
 }
 
 export async function startLocal($: EngineInterface, todo: Todo): Promise<void> {
-  const token = Math.random().toString(36).slice(2, 8)
+  let token = newToken()
+  while (jobs.has(token)) token = newToken()
   const logPath = `${await logFolder($)}/${await $.session.id()}-${todo.id}-${token}.log`
   await $.fs.write(logPath, '')
   // A rerun replaces logPath, so the last run's file would otherwise outlive the item.
@@ -59,20 +63,30 @@ export async function startLocal($: EngineInterface, todo: Todo): Promise<void> 
   await patchTodo($, todo.id, { token, logPath, liveTail: [], isStopping: false })
 
   let output = ''
+  let isTrimmed = false
   let held = ''
+  let revision = 0
   let written = 0
   let isWriteFailed = false
+  const append = (text: string) => {
+    output += text
+    if (output.length > WINDOW) {
+      output = output.slice(-WINDOW)
+      isTrimmed = true
+    }
+    revision += 1
+  }
   let queue: Promise<void> = Promise.resolve()
   const writeOut = async () => {
-    if (job.isGone || output.length === written) return
-    written = output.length
+    if (job.isGone || revision === written) return
+    written = revision
     try {
-      await $.fs.write(logPath, output)
-      await patchTodo($, todo.id, { liveTail: liveLines(output) })
+      await $.fs.write(logPath, isTrimmed ? `${DROPPED}${output}` : output)
     } catch {
       if (!isWriteFailed) $.ui.toast(`Could not save the output of #${todo.id}`)
       isWriteFailed = true
     }
+    await patchTodo($, todo.id, { liveTail: clipLines(liveLines(output)) }).catch(() => undefined)
   }
   // Writes queue up so a late timer flush can never overwrite the final one.
   const flush = () => (queue = queue.then(writeOut))
@@ -101,21 +115,21 @@ export async function startLocal($: EngineInterface, todo: Todo): Promise<void> 
       if (job.pid === undefined && step.value.stream === 'stderr') {
         const scanned = scanStderr(held, step.value.text)
         held = scanned.held
-        output += scanned.passed
+        append(scanned.passed)
         if (scanned.pid !== undefined) {
           job.pid = scanned.pid
           if (job.isGone) await signal($, job.pid)
         }
       } else {
-        output += step.value.text
+        append(step.value.text)
       }
       step = await child.next()
     }
     exitCode = step.value.code ?? (step.value.signal ? 130 : -1)
   } catch (err) {
-    output += `\n${String(err)}`
+    append(`\n${String(err)}`)
   }
-  output += held
+  append(held)
   ticker.cancel()
   jobs.delete(token)
   if (job.isGone) return

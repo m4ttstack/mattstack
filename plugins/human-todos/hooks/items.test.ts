@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { Todo, TodoKind } from '../types'
-import { buttonsFor, checkKind, describe, hardWrap, isActionable, quote, tail, toTodo } from './items'
+import { buttonsFor, checkKind, clipLine, describe, hardWrap, isActionable, quote, tail, toTodo } from './items'
 
 const todo = (over: Partial<Todo> & { kind: TodoKind }): Todo => ({ id: '1', title: 't', status: 'open', ...over })
 
@@ -10,6 +10,7 @@ test('checkKind names what each kind is missing', () => {
   expect(checkKind({ kind: 'terminal', title: 'x' })).toBe('kind terminal needs a script.')
   expect(checkKind({ kind: 'link', title: 'x', url: 'ftp://x' })).toBe('kind link needs an http(s) url.')
   expect(checkKind({ kind: 'task', title: 'x' })).toBeUndefined()
+  expect(checkKind({ kind: 'bogus' as TodoKind, title: 'x' })).toBe('kind bogus is not one of task, run, terminal, link.')
 })
 
 test('toTodo drops the fields that do not belong to the kind', () => {
@@ -59,4 +60,18 @@ test('text helpers wrap, trim and quote', () => {
   expect(tail(out).split('\n')).toHaveLength(30)
   expect(tail(out).startsWith('line 11')).toBe(true)
   expect(quote("it's")).toBe(`'it'\\''s'`)
+})
+
+test('tail caps each line and the whole tail, keeping the newest lines', () => {
+  expect(clipLine('x'.repeat(300))).toBe('x'.repeat(300))
+  expect(clipLine('x'.repeat(301))).toBe(`${'x'.repeat(299)}…`)
+
+  const meter = `${'a'.repeat(5000)}\n`.repeat(3)
+  expect(tail(meter).split('\n').every(line => line.length <= 300)).toBe(true)
+
+  const many = Array.from({ length: 30 }, (_, i) => `${String(i).padStart(3, '0')}${'y'.repeat(297)}`).join('\n')
+  const kept = tail(many)
+  expect(kept.length).toBeLessThanOrEqual(8 * 1024)
+  expect(kept.endsWith(`029${'y'.repeat(297)}`)).toBe(true)
+  expect(kept.split('\n').length).toBeLessThan(30)
 })
