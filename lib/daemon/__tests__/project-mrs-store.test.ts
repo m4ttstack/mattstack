@@ -398,6 +398,55 @@ describe("section tags", () => {
   });
 });
 
+describe("setDivergedCounts", () => {
+  test("patches the count and returns only the iids whose count changed", () => {
+    const s = tmpStore();
+    s.fullSync("repo", "g/p", [pr(1, { divergedCommitsCount: 0 } as Partial<PullRequest>), pr(2, { divergedCommitsCount: 4 } as Partial<PullRequest>)], Date.now());
+
+    expect(s.setDivergedCounts("repo", { 1: 1090, 2: 4 })).toEqual([1]);
+    expect(s.read("repo")!.mrs[1]!.pr.divergedCommitsCount).toBe(1090);
+    expect(s.read("repo")!.mrs[2]!.pr.divergedCommitsCount).toBe(4);
+  });
+
+  test("keeps fetchedAt, so a sync that started before still wins the rest of the row", () => {
+    const s = tmpStore();
+    const syncedAt = Date.now() - 10_000;
+    s.fullSync("repo", "g/p", [pr(1)], syncedAt);
+
+    s.setDivergedCounts("repo", { 1: 7 });
+    expect(s.read("repo")!.mrs[1]!.fetchedAt).toBe(syncedAt);
+  });
+
+  test("skips iids the store does not hold and MRs that are no longer open", () => {
+    const s = tmpStore();
+    s.fullSync("repo", "g/p", [pr(1)], Date.now());
+    s.upsert("repo", null, pr(1, { state: "merged" } as Partial<PullRequest>), "events");
+
+    expect(s.setDivergedCounts("repo", { 1: 3, 99: 3 })).toEqual([]);
+    expect(s.read("repo")!.mrs[99]).toBeUndefined();
+    expect(s.setDivergedCounts("other", { 1: 3 })).toEqual([]);
+  });
+
+  test("carries the codeowner tag forward", () => {
+    const s = tmpStore();
+    s.fullSync("repo", "g/p", [pr(1)], Date.now());
+    s.setSectionTags("repo", { 1: ["Frontend"] });
+
+    s.setDivergedCounts("repo", { 1: 3 });
+    expect(s.read("repo")!.mrs[1]!.codeownerSections).toEqual(["Frontend"]);
+  });
+
+  test("persists the new count to the project_mrs row", () => {
+    const db = tmpDb();
+    const s = createProjectMRs(db);
+    s.fullSync("repo", "g/p", [pr(1, { divergedCommitsCount: 0 } as Partial<PullRequest>)], Date.now());
+
+    s.setDivergedCounts("repo", { 1: 48 });
+    expect(createProjectMRs(db).read("repo")!.mrs[1]!.pr.divergedCommitsCount).toBe(48);
+    db.close();
+  });
+});
+
 describe("persistence — rows mirror the in-memory model", () => {
   test("fullSync writes are visible as project_mrs / project_mrs_meta rows", () => {
     const dir = mkdtempSync(join(tmpdir(), "rt-pmrs-"));
