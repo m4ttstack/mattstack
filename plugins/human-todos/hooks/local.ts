@@ -3,12 +3,16 @@ import type { EngineInterface } from 'claude-code'
 import type { Todo } from '../types'
 import { LIVE_LINES_LOCAL, clipLines, newToken } from './items'
 import { report } from './report'
-import { patchTodo } from './store'
+import { listTodos, patchTodo } from './store'
 
 const PID_LINE = /^__human_todo_pid__(\d+)$/
 const FLUSH_MS = 1000
 // $.fs.write refuses 4 MiB, so the log keeps a rolling window well under it.
 const WINDOW = 1024 * 1024
+// Output grows past the window before it is cut, so a chatty script costs one slice per window, not one per piece.
+const SLACK = WINDOW
+// The live tail needs only the last few lines, so it reads no further back than this.
+const TAIL_SCAN = 64 * 1024
 const DROPPED = '[earlier output was dropped]\n'
 
 type Job = { pid?: number; isStopped: boolean; isGone: boolean }
@@ -57,13 +61,27 @@ function liveLines(output: string): string[] {
 export async function startLocal($: EngineInterface, todo: Todo): Promise<void> {
   let token = newToken()
   while (jobs.has(token)) token = newToken()
-  const logPath = `${await logFolder($)}/${await $.session.id()}-${todo.id}-${token}.log`
-  await $.fs.write(logPath, '')
-  // A rerun replaces logPath, so the last run's file would otherwise outlive the item.
-  if (todo.logPath) await $.process.run(['rm', '-f', '--', todo.logPath]).catch(() => undefined)
+  // Registered before the first await, so leaving the session reaches a run still being set up.
   const job: Job = { isStopped: false, isGone: false }
   jobs.set(token, job)
+  const logPath = `${await logFolder($)}/${await $.session.id()}-${todo.id}-${token}.log`
+  const abandon = async () => {
+    jobs.delete(token)
+    await $.process.run(['rm', '-f', '--', logPath]).catch(() => undefined)
+  }
+  await $.fs.write(logPath, '')
+  if (job.isGone) return abandon()
+  // A rerun replaces logPath, so the last run's file would otherwise outlive the item.
+  if (todo.logPath) await $.process.run(['rm', '-f', '--', todo.logPath]).catch(() => undefined)
+  if (job.isGone) return abandon()
   await patchTodo($, todo.id, { token, logPath, liveTail: [], isStopping: false })
+  // A withdraw, a /clear or a Stop before the runner was chosen can land during setup; none may leave a script running.
+  const still = job.isGone ? undefined : (await listTodos($)).find(t => t.id === todo.id)
+  if (job.isGone || still?.status !== 'running' || still.token !== token) {
+    await abandon()
+    if (!job.isGone && still?.token === token) await patchTodo($, todo.id, { token: undefined, logPath: undefined }).catch(() => undefined)
+    return
+  }
 
   let output = ''
   let isTrimmed = false
@@ -73,23 +91,26 @@ export async function startLocal($: EngineInterface, todo: Todo): Promise<void> 
   let isWriteFailed = false
   const append = (text: string) => {
     output += text
-    if (output.length > WINDOW) {
+    if (output.length > WINDOW + SLACK) {
       output = output.slice(-WINDOW)
       isTrimmed = true
     }
     revision += 1
   }
+  const kept = () => (output.length > WINDOW ? output.slice(-WINDOW) : output)
+  const isCut = () => isTrimmed || output.length > WINDOW
   let queue: Promise<void> = Promise.resolve()
   const writeOut = async () => {
     if (job.isGone || revision === written) return
     written = revision
     try {
-      await $.fs.write(logPath, isTrimmed ? `${DROPPED}${output}` : output)
+      await $.fs.write(logPath, isCut() ? `${DROPPED}${kept()}` : output)
     } catch {
       if (!isWriteFailed) $.ui.toast(`Could not save the output of #${todo.id}`)
       isWriteFailed = true
     }
-    await patchTodo($, todo.id, { liveTail: clipLines(liveLines(output)) }).catch(() => undefined)
+    if (job.isGone) return
+    await patchTodo($, todo.id, { liveTail: clipLines(liveLines(output.slice(-TAIL_SCAN))) }).catch(() => undefined)
   }
   // Writes queue up so a late timer flush can never overwrite the final one.
   const flush = () => (queue = queue.then(writeOut))
@@ -134,10 +155,12 @@ export async function startLocal($: EngineInterface, todo: Todo): Promise<void> 
   }
   append(held)
   ticker.cancel()
+  // The job stays listed until the report, so leaving the session meanwhile still silences it.
+  if (job.isGone) return void jobs.delete(token)
+  await flush()
   jobs.delete(token)
   if (job.isGone) return
-  await flush()
-  await report($, todo, job.isStopped ? { kind: 'stopped', outputTail: output } : { kind: 'ran', exitCode, outputTail: output })
+  await report($, todo, job.isStopped ? { kind: 'stopped', outputTail: kept() } : { kind: 'ran', exitCode, outputTail: kept() })
 }
 
 export async function stopLocal($: EngineInterface, todo: Todo): Promise<void> {
@@ -170,6 +193,20 @@ export async function forceStopLocal($: EngineInterface, todo: Todo): Promise<vo
 
 // Local items have no Show button.
 export async function showLocal(_$: EngineInterface, _todo: Todo): Promise<void> {}
+
+// Nothing can watch a local run once its session is left, so every one ends; each log stays with the saved list.
+export async function releaseLocal($: EngineInterface): Promise<void> {
+  const held = [...jobs.values()]
+  for (const job of held) job.isGone = true
+  let isFailed = false
+  for (const job of held) {
+    if (job.pid === undefined) continue
+    await signal($, job.pid).catch(() => {
+      isFailed = true
+    })
+  }
+  if (isFailed) throw new Error('A local run could not be stopped')
+}
 
 // The mod API has no delete, so the log goes through rm.
 export async function cleanupLocal($: EngineInterface, todo: Todo): Promise<void> {

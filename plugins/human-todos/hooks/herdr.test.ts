@@ -366,6 +366,34 @@ test('/clear closes the tab of every herdr item and its poller stays quiet', asy
   expect(sent).toEqual([])
 })
 
+test('an in-session /resume leaves every tab open and stops watching until the session is resumed', async ($, on) => {
+  const { run1, fake, item, clock, sent } = await seeded($, on, [todo({ id: '1' })])
+  await run1('1')
+  const reads = fake.ran('herdr pane read').length
+
+  await $.session.end({ reason: 'resume', sessionId: SESSION, resume: { id: 'sess-2' } })
+  await clock.advance(5000)
+
+  expect(fake.ran('herdr tab close')).toEqual([])
+  expect(fake.ran('herdr pane read')).toHaveLength(reads)
+  expect(item('1')).toMatchObject({ status: 'running', runner: 'herdr' })
+  expect(sent).toEqual([])
+})
+
+test('a touch after /resume but before the session id changes loads nothing back and starts no poller', async ($, on) => {
+  const { run1, fake, clock, store } = await seeded($, on, [todo({ id: '1' })])
+  await run1('1')
+
+  await $.session.end({ reason: 'resume', sessionId: SESSION, resume: { id: 'sess-2' } })
+  const reads = fake.ran('herdr pane read').length
+  const listed = await $.tool.call({ tool: 'mcp__human-todos__list' })
+  await clock.advance(5000)
+
+  expect(listed.result).toBe('No to-dos.')
+  expect(fake.ran('herdr pane read')).toHaveLength(reads)
+  expect((store.get(`list:${SESSION}`) as { todos: Todo[] }).todos[0]).toMatchObject({ id: '1', status: 'running' })
+})
+
 test('clearing a finished item closes its tab too', async ($, on) => {
   const { run1, fake, item, clock, pane } = await seeded($, on, [todo({})])
   await run1('1')
@@ -442,6 +470,33 @@ test('a session that starts with a running herdr item watches it again', async (
 
   expect(items().find(t => t.id === '1')).toMatchObject({ status: 'failed', exitCode: 5 })
   expect(items().find(t => t.id === '2')).toMatchObject({ status: 'running', liveTail: ['still going'] })
+  expect(w.sent).toHaveLength(1)
+})
+
+test('an in-session /resume into a session with a running herdr item watches it again', async ($, on) => {
+  const w = world(on, {
+    entries: {
+      'list:sess-2': {
+        todos: [todo({ id: '1', status: 'running', runner: 'herdr', token: 'abc123', paneId: 'pane1', tabId: 'tab1' })],
+        nextId: 2,
+        savedAt: 1_000_000,
+      },
+    },
+  })
+  const fake = herdrFake()
+  on('process.run', (_, e) => {
+    const reply = fake.run(e.argv.at(-1) ?? '')
+    return reply ? { value: { ...reply, isStdoutTruncated: false, isStderrTruncated: false } } : { deny: 'no stand-in' }
+  })
+  fake.panes.set('pane1', { tab: 'tab1', lines: ['x', 'part', '__todo_exit_abc123 5'], isIdle: false, isAlive: true })
+  await startSession($)
+
+  await $.session.end({ reason: 'resume', sessionId: SESSION, resume: { id: 'sess-2' } })
+  w.setSession('sess-2')
+  await $.tool.call({ tool: 'mcp__human-todos__list' })
+  await w.clock.advance(1000)
+
+  expect((w.store.get('list:sess-2') as { todos: Todo[] }).todos[0]).toMatchObject({ status: 'failed', exitCode: 5 })
   expect(w.sent).toHaveLength(1)
 })
 

@@ -30,8 +30,8 @@ type Setup = {
   script: (script: string) => Child
   // Answers a command run beneath the plugin (the kill, the log removal).
   run?: (argv: readonly string[]) => void
-  // Sees each log write; it may throw to refuse one.
-  write?: (text: string) => void
+  // Sees each log write; it may throw to refuse one, or hold it until a promise settles.
+  write?: (text: string) => void | Promise<unknown>
 }
 
 async function seeded($: Engine, on: On, list: Todo[], { env = {}, script, run, write }: Setup) {
@@ -49,8 +49,8 @@ async function seeded($: Engine, on: On, list: Todo[], { env = {}, script, run, 
     run?.(e.argv)
     return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
-  on('fs.write', (_, e) => {
-    write?.(e.text)
+  on('fs.write', async (_, e) => {
+    await write?.(e.text)
     writes.push({ path: e.path, text: e.text })
     return { value: undefined }
   })
@@ -350,6 +350,81 @@ test('withdrawing a running item kills its child, removes its log and reports no
   expect((await $.tool.call({ tool: LIST })).result).toBe('No to-dos.')
 })
 
+test('a withdraw that lands while the run is set up starts no script and leaves no log', async ($, on) => {
+  let withdrawn: Promise<unknown> | undefined
+  const { run1, ran, sent, spawned, clock } = await seeded($, on, [todo({})], {
+    script: () => exits(0),
+    write: text => {
+      if (text === '' && !withdrawn) withdrawn = $.tool.call({ tool: WITHDRAW, id: '1' })
+    },
+  })
+
+  await run1('1')
+  await withdrawn
+  await clock.settle()
+
+  expect(spawned).toHaveLength(0)
+  expect(ran.filter(argv => argv[0] === 'rm')).toHaveLength(1)
+  expect(sent).toEqual([])
+})
+
+test('an in-session /resume ends a running local script, keeps its log with the saved list and reports nothing', async ($, on) => {
+  const k = killable()
+  const { run1, ran, item, sent, clock } = await seeded($, on, [todo({})], { script: k.child, run: k.release })
+  await run1('1')
+  await clock.settle()
+  const log = item('1')?.logPath
+
+  await $.session.end({ reason: 'resume', sessionId: SESSION, resume: { id: 'sess-2' } })
+  await clock.advance(5000)
+
+  expect(ran).toEqual([killing(4242)])
+  expect(item('1')).toMatchObject({ status: 'running', logPath: log })
+  expect(sent).toEqual([])
+})
+
+test('an in-session /resume during setup starts no script and keeps the left session\'s list saved', async ($, on) => {
+  let left: Promise<unknown> | undefined
+  const { run1, sent, spawned, clock, store } = await seeded($, on, [todo({})], {
+    script: () => exits(0),
+    write: text => {
+      if (text !== '' || left) return
+      left = $.session.end({ reason: 'resume', sessionId: SESSION, resume: { id: 'sess-2' } })
+      return left
+    },
+  })
+
+  await run1('1')
+  await left
+  await clock.advance(5000)
+
+  expect(spawned).toHaveLength(0)
+  expect((store.get(`list:${SESSION}`) as { todos: Todo[] }).todos.map(t => t.id)).toEqual(['1'])
+  expect(sent).toEqual([])
+})
+
+test('an in-session /resume during a log write keeps the left session\'s list saved', async ($, on) => {
+  const k = killable([pid(4242), out('one\n')])
+  let left: Promise<unknown> | undefined
+  const { run1, sent, clock, store } = await seeded($, on, [todo({})], {
+    script: k.child,
+    run: k.release,
+    write: text => {
+      if (text === '' || left) return
+      left = $.session.end({ reason: 'resume', sessionId: SESSION, resume: { id: 'sess-2' } })
+      return left
+    },
+  })
+
+  await run1('1')
+  await clock.advance(1000)
+  await left
+  await clock.advance(5000)
+
+  expect((store.get(`list:${SESSION}`) as { todos: Todo[] }).todos.map(t => t.id)).toEqual(['1'])
+  expect(sent).toEqual([])
+})
+
 test('a finished item\'s log is removed with rm -f when it is cleared', async ($, on) => {
   const { run1, ran, item, clock, pane } = await seeded($, on, [todo({})], { script: () => exits([pid(1)]) })
   await run1('1')
@@ -463,7 +538,7 @@ test('a log that cannot be written toasts once for the run and the run still rep
   expect(sent).toHaveLength(1)
 })
 
-test('output past 4 MiB rolls: the log stays under the write limit, the live tail keeps moving, no toast', async ($, on) => {
+test('output past 4 MiB rolls: the log keeps its last 1 MiB, under the write limit, the live tail keeps moving, no toast', async ($, on) => {
   const MIB = 1024 * 1024
   const big = out('abcdefghi\n'.repeat(200_000))
   const { run1, writes, item, toasts, clock } = await seeded($, on, [todo({})], {
@@ -487,7 +562,7 @@ test('output past 4 MiB rolls: the log stays under the write limit, the live tai
   await clock.advance(3000)
 
   expect(toasts).toEqual([])
-  expect(writes.every(w => w.text.length <= 4 * MIB)).toBe(true)
+  expect(writes.every(w => w.text.length <= MIB + '[earlier output was dropped]\n'.length)).toBe(true)
   expect(writes.at(-1)?.text.startsWith('[earlier output was dropped]\n')).toBe(true)
   expect(writes.at(-1)?.text.endsWith('the newest line\n')).toBe(true)
   expect(item('1')?.liveTail?.at(-1)).toBe('the newest line')

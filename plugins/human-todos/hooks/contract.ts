@@ -3,8 +3,8 @@ import type { On } from 'claude-code'
 import type { AddInput } from '../types'
 import { resumeWatching } from './herdr'
 import { TITLE, checkKind, describe } from './items'
-import { addTodo, listTodos, removeTodos, resetList, restoreList } from './store'
-import { cleanup, openPane, syncSpinner } from './wiring'
+import { addTodo, leaveList, listTodos, removeTodos, resetList, restoreList } from './store'
+import { cleanup, openPane, release, syncSpinner } from './wiring'
 
 const PREFIX = 'mcp__human-todos__'
 
@@ -83,10 +83,15 @@ export function registerContract(on: On): void {
 
   on('session.end', async ($, e, next) => {
     const ended = await next(e)
-    if (e.reason === 'clear' || e.reason === 'resume') {
+    if (e.reason === 'clear') {
       const dropped = await listTodos($)
       await resetList($)
       await cleanup($, dropped).catch(() => $.ui.toast('Could not tidy up after the cleared items'))
+    } else if (e.reason === 'resume' && e.resume?.id !== e.sessionId) {
+      // Every run is marked gone before its first await, so none can touch the list once it is unloaded.
+      const released = release($)
+      await leaveList($)
+      await released.catch(() => $.ui.toast('Could not stop the runs of the session you left'))
     }
     return ended
   })

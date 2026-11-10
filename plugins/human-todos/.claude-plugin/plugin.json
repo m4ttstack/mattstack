@@ -1,6 +1,6 @@
 {
   "name": "human-todos",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A pane of steps only you can do. Claude adds a step, you tick it, run it or skip it, and Claude hears back.",
   "author": {
     "name": "Matthew Goodwin"
