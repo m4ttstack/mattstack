@@ -10,6 +10,7 @@ struct GeneralPane: View {
     @State private var steps: (title: String, steps: [String])?
     @State private var startAtLogin = false
     @State private var loginLoaded = false
+    @State private var loginChanging = false
     @State private var autoUpdates = false
     @State private var switchError: String?
     @State private var confirmingSwitch = false
@@ -52,7 +53,7 @@ struct GeneralPane: View {
                         Task { await toggleLogin(on) }
                     }))
                     .toggleStyle(.switch).controlSize(.mini)
-                    .disabled(!loginLoaded)
+                    .disabled(!loginLoaded || loginChanging)
                     .accessibilityIdentifier(AXID.settingsGeneralStartAtLogin)
             }
             Section("mattstack window") {
@@ -164,6 +165,11 @@ struct GeneralPane: View {
     }
 
     private func toggleLogin(_ on: Bool) async {
+        loginChanging = true
+        defer {
+            loginChanging = false
+            NotificationCenter.default.post(name: .rtLoginItemChanged, object: nil)
+        }
         startAtLogin = await Task.detached(priority: .utility) { () -> Bool in
             do {
                 if on { try SMAppService.mainApp.register(); LoginItemPreference.isOptedOut = false }

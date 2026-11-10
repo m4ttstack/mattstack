@@ -99,6 +99,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private var quitConfirmed = false
     /// Last known "Start at Login" state, refreshed off the main thread.
     private var loginItemEnabled = false
+    /// One smd read in flight at a time: a wedged smd blocks each read's
+    /// thread, and a read per poll would use up the shared pool.
+    @MainActor private var loginReadPending = false
+    @MainActor private var downReadPending = false
     /// Set by `NSWorkspace.willPowerOffNotification`, an independent signal
     /// from the quit AppleEvent's `kAEQuitReason` parameter -- which is
     /// documented as optional, so a genuine shutdown/restart/logout whose
@@ -196,6 +200,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         // Tray menu actions
         NotificationCenter.default.addObserver(
             self, selector: #selector(restartDaemon), name: .rtRestartDaemon, object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(loginItemChanged), name: .rtLoginItemChanged, object: nil)
         NotificationCenter.default.addObserver(
             self, selector: #selector(restartDeck(_:)), name: .rtRestartDeck, object: nil)
         NotificationCenter.default.addObserver(
@@ -912,6 +918,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
         guard !LoginItemPreference.isOptedOut else {
             TrayLog.info("login item auto-register skipped (user opted out)")
+            Task { @MainActor in self.startLoginItemRead() }
             return
         }
         // Off the main thread: every SMAppService call waits on smd, and a
@@ -926,7 +933,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                     TrayLog.error("login item auto-register failed", ["err": String(describing: error)])
                 }
             }
-            await self?.refreshLoginItemState()
+            await MainActor.run { self?.startLoginItemRead() }
         }
     }
 
@@ -1195,9 +1202,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     /// opt-out and turning it on clears it, each only after the
     /// SMAppService call succeeds.
     private func toggleTrayStartAtLogin() {
+        let turnOff = loginItemEnabled
         Task.detached(priority: .utility) { [weak self] in
             do {
-                if SMAppService.mainApp.status == .enabled {
+                if turnOff {
                     try await SMAppService.mainApp.unregister()
                     LoginItemPreference.isOptedOut = true
                 } else {
@@ -1207,16 +1215,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             } catch {
                 TrayLog.error("login item toggle failed", ["err": String(describing: error)])
             }
-            await self?.refreshLoginItemState()
+            await MainActor.run { self?.startLoginItemRead() }
         }
+    }
+
+    @objc private func loginItemChanged() {
+        MainActor.assumeIsolated { startLoginItemRead() }
     }
 
     /// The menu draws `loginItemEnabled`, never a live status read: every
     /// SMAppService call waits on smd, and a wedged smd froze the app when
     /// the menu read it on the main thread.
-    private func refreshLoginItemState() async {
-        let on = await Task.detached(priority: .utility) { SMAppService.mainApp.status == .enabled }.value
-        await MainActor.run { self.loginItemEnabled = on }
+    @MainActor
+    private func startLoginItemRead() {
+        guard !loginReadPending else { return }
+        loginReadPending = true
+        Task { @MainActor in
+            defer { loginReadPending = false }
+            loginItemEnabled = await Task.detached(priority: .utility) {
+                SMAppService.mainApp.status == .enabled
+            }.value
+            let approval = await needsLoginItemApproval()
+            if currentHealth != .down, currentHealth != .starting {
+                TrayState.shared.needsApproval = approval
+            }
+        }
     }
 
     /// The only real quit (dock-first spec 2026-09-15): every other path to
@@ -1345,7 +1368,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             TrayState.shared.statusText = "Daemon: starting…"
             TrayState.shared.needsApproval = false
         case .down:
+            TrayState.shared.statusText = "Daemon: not running"
+            TrayState.shared.bootVerdict = nil
+            guard !downReadPending else { return }
+            downReadPending = true
             Task { @MainActor in
+                defer { downReadPending = false }
                 let daemonStatus = await daemonLifecycle.statusOffMain()
                 let approval = await needsLoginItemApproval()
                 guard case .down = currentHealth else { return }
@@ -1873,7 +1901,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                 guard elapsed >= 30 || consecutiveStatusFailures >= 3 else { return }
                 TrayLog.warn("daemon still unreachable after starting; marking down", [
                     "elapsedSeconds": Int(elapsed), "failures": consecutiveStatusFailures,
-                    "smStatus": String(describing: daemonLifecycle.status),
                 ])
                 setHealth(.down)
                 return
@@ -1923,8 +1950,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
         // The daemon being reachable only proves the daemon's own agent is
         // approved — another registered agent (deck) can still be pending.
-        TrayState.shared.needsApproval = await needsLoginItemApproval()
-        await refreshLoginItemState()
+        startLoginItemRead()
 
         updateReadyHeld(status.readyHeld)
 

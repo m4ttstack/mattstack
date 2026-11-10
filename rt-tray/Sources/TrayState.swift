@@ -69,6 +69,8 @@ class TrayState: ObservableObject {
 // daemon lifecycle and update checker.
 extension Notification.Name {
     static let rtRestartDaemon  = Notification.Name("rtRestartDaemon")
+    /// Settings changed Start at Login; the tray menu re-reads it.
+    static let rtLoginItemChanged = Notification.Name("rtLoginItemChanged")
     /// `object` is the origin string for the lifecycle log.
     static let rtRestartDeck    = Notification.Name("rtRestartDeck")
     static let rtViewDaemonLogs = Notification.Name("rtViewDaemonLogs")
