@@ -47,4 +47,34 @@ describe("enrichBranches on-deck short-circuit", () => {
     expect(onDeck.mr).toBe(null);
     expect(onDeck.ticket).toBe(null);
   });
+
+  test("a real branch is flagged on a remote on neither forge, and pool branches stay Local Only", async () => {
+    const result = await enrichBranches(
+      [
+        { path: "/x/wt", branch: "feature-x" },
+        { path: "/x/slot-1", branch: "on-deck/bill" },
+      ],
+      "git@git-alias:acme/acme.git",
+      { silent: true },
+    );
+    expect(result.find((r) => r.branch === "feature-x")!.unknownForge).toBe(true);
+    expect(result.find((r) => r.branch === "on-deck/bill")!.unknownForge).toBeUndefined();
+  });
+
+  test("a branch on a known forge is not flagged", async () => {
+    const [branch] = await enrichBranches([{ path: "/x/wt", branch: "feature-x" }], "git@gitlab.example.com:acme/acme.git", { silent: true });
+    expect(branch!.unknownForge).toBeUndefined();
+  });
+
+  test("a remote on this disk stays Local Only", async () => {
+    for (const remote of ["/srv/git/acme.git", "file:///srv/git/acme.git"]) {
+      const [branch] = await enrichBranches([{ path: "/x/wt", branch: "feature-x" }], remote, { silent: true });
+      expect(branch!.unknownForge).toBeUndefined();
+    }
+  });
+
+  test("a repo with no remote stays Local Only", async () => {
+    const [branch] = await enrichBranches([{ path: "/x/wt", branch: "feature-x" }], undefined, { silent: true });
+    expect(branch!.unknownForge).toBeUndefined();
+  });
 });
