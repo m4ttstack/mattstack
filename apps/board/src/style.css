@@ -1600,18 +1600,19 @@ body {
   line-height: 16px;
   font-variant-numeric: tabular-nums;
 }
+/* The close button has the bar to itself; the MR title sits below it, so the
+   two never compete for the same line. */
 .tui-cd-head {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 0.6rem;
-  padding: 0.9rem 1rem 0.5rem;
+  justify-content: flex-end;
+  padding: 0.6rem 0.6rem 0;
   position: sticky;
   top: 0;
   background: var(--panel);
   z-index: 1;
 }
 .tui-cd-title {
+  padding: 0.4rem 1rem 0.5rem;
   font-weight: 700;
   font-size: 0.92rem;
   line-height: 1.4;

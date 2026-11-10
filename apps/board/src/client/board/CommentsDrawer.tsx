@@ -593,12 +593,12 @@ function CommentsDrawer({
       onClose={onClose}
     >
       <div className="tui-cd-head">
-        <div className="tui-cd-title">
-          <span className="tui-cd-iid">!{mr.iid}</span> {cleanTitle(mr.title)}
-        </div>
         <button className="tui-modal-x" onClick={onClose} aria-label="close">
           {ICONS.close}
         </button>
+      </div>
+      <div className="tui-cd-title">
+        <span className="tui-cd-iid">!{mr.iid}</span> {cleanTitle(mr.title)}
       </div>
       <a
         className="tui-cd-open"
