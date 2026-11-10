@@ -20,6 +20,11 @@
       "description": "macOS and Chrome alpha browser automation for Claude Code and Codex"
     },
     {
+      "name": "human-todos",
+      "source": "./plugins/human-todos",
+      "description": "A pane of steps only you can do: Claude adds a step, you tick it, run it or skip it, and Claude hears back."
+    },
+    {
       "name": "mattstack",
       "source": "./plugins/mattstack",
       "description": "The mattstack skills pack: the work orchestrator and pipeline stages, orchestration skills, the review cluster, the GitLab CI forge adapter, and the parameterized-skill primitive with its authoring skill."

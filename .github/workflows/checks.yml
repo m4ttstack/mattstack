@@ -435,6 +435,33 @@ jobs:
             exit 1
           }
 
+  # The Human Todos mod's tests and manifest check, run when plugins/human-todos
+  # changed (every push to main runs them). The comma wrap makes the match exact.
+  plugin-human-todos:
+    needs: scope
+    if: contains(format(',{0},', needs.scope.outputs.plugins), ',plugins/human-todos,')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      # A PR checkout is the merge commit, so HEAD^1 is the base branch tip,
+      # the same base the scope job diffs against.
+      - name: plugin.json version bumped
+        if: github.event_name == 'pull_request'
+        run: bun scripts/ci/plugin-version-bumped.ts --base HEAD^1 --plugin plugins/human-todos
+      # No login or secret is needed: the tests run against the mod API's testing helpers.
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code@2.1.322
+      - name: Mod tests and manifest validation
+        run: |
+          claude plugin test plugins/human-todos
+          claude plugin validate plugins/human-todos
+
   # Docusaurus fails the build on a broken link, but only a build catches it.
   website:
     needs: scope
@@ -454,7 +481,7 @@ jobs:
   # would skip unit and this job too, and a skipped required check reads as
   # passing on GitHub.
   checks:
-    needs: [scope, static, go, deck-macos, unit, unit-macos, guards, plugin-herdr-chat, plugin-mattstack, website]
+    needs: [scope, static, go, deck-macos, unit, unit-macos, guards, plugin-herdr-chat, plugin-mattstack, plugin-human-todos, website]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -470,13 +497,14 @@ jobs:
           GUARDS: ${{ needs.guards.result }}
           HERDR_CHAT: ${{ needs.plugin-herdr-chat.result }}
           MATTSTACK: ${{ needs.plugin-mattstack.result }}
+          HUMAN_TODOS: ${{ needs.plugin-human-todos.result }}
           WEBSITE: ${{ needs.website.result }}
           MODE: ${{ needs.scope.outputs.mode }}
           RUN_GO: ${{ needs.scope.outputs.go }}
           RUN_DECK: ${{ needs.scope.outputs.deck }}
           RUN_MACOS: ${{ needs.scope.outputs.macos }}
         run: |
-          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK unit=$UNIT unit-macos=$UNIT_MACOS guards=$GUARDS herdr-chat=$HERDR_CHAT mattstack=$MATTSTACK website=$WEBSITE mode=$MODE"
+          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK unit=$UNIT unit-macos=$UNIT_MACOS guards=$GUARDS herdr-chat=$HERDR_CHAT mattstack=$MATTSTACK human-todos=$HUMAN_TODOS website=$WEBSITE mode=$MODE"
           [ "$SCOPE" = success ] || { echo "scope did not succeed"; exit 1; }
           [ "$STATIC" = success ] || { echo "static did not succeed"; exit 1; }
           # skipped is the untouched case: a needed job whose if: is false.
@@ -487,6 +515,7 @@ jobs:
           [ "$GUARDS" = success ] || { [ "$GUARDS" = skipped ] && [ "$MODE" = full ]; } || { echo "guards did not succeed"; exit 1; }
           [ "$HERDR_CHAT" = success ] || [ "$HERDR_CHAT" = skipped ] || { echo "plugin-herdr-chat did not succeed"; exit 1; }
           [ "$MATTSTACK" = success ] || [ "$MATTSTACK" = skipped ] || { echo "plugin-mattstack did not succeed"; exit 1; }
+          [ "$HUMAN_TODOS" = success ] || [ "$HUMAN_TODOS" = skipped ] || { echo "plugin-human-todos did not succeed"; exit 1; }
           [ "$WEBSITE" = success ] || [ "$WEBSITE" = skipped ] || { echo "website did not succeed"; exit 1; }
           [ "$UNIT" = success ] && exit 0
           [ "$UNIT" = skipped ] && [ "$MODE" = skip ] && exit 0
