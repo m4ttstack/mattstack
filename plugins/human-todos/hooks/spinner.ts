@@ -1,6 +1,6 @@
 import type { EngineInterface, Timer } from 'claude-code'
 
-import { bumpFrame, listTodos } from './store'
+import { bumpFrame, peekTodos } from './store'
 
 const FRAME_MS = 100
 
@@ -11,8 +11,9 @@ function stop(): void {
   timer = undefined
 }
 
+// A tick reads what is loaded and never loads, or a tick just after leaving a session would load it back.
 async function hasRunning($: EngineInterface): Promise<boolean> {
-  return (await listTodos($)).some(t => t.status === 'running')
+  return (await peekTodos($)).some(t => t.status === 'running')
 }
 
 // The pane reads the frame atom, so a timer must advance it while an item runs and rest otherwise.

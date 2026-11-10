@@ -153,6 +153,22 @@ test('an in-session /resume loads the resumed session\'s saved list on first tou
   expect((store.get('list:sess-1') as { todos: Todo[] }).todos.map(t => t.title)).toEqual(['from one'])
 })
 
+test('two touches in one await after an in-session /resume share one load, and neither write is lost', async ($, on) => {
+  const { store, setSession } = world(on, { entries: { 'list:sess-2': savedList([saved({ id: '1', title: 'from two' })], 2) } })
+  await startSession($)
+
+  await $.session.end({ reason: 'resume', sessionId: 'sess-1', resume: { id: 'sess-2' } })
+  setSession('sess-2')
+  await Promise.all([
+    $.tool.call({ tool: ADD, kind: 'task', title: 'a' }),
+    $.tool.call({ tool: ADD, kind: 'task', title: 'b' }),
+  ])
+
+  const kept = (store.get('list:sess-2') as { todos: Todo[] }).todos
+  expect(kept.map(t => t.title).sort()).toEqual(['a', 'b', 'from two'])
+  expect(kept.map(t => t.id).sort()).toEqual(['1', '2', '3'])
+})
+
 test('a /resume into a session with no saved entry starts empty and leaves the old list saved', async ($, on) => {
   const { store, setSession } = world(on)
   await startSession($)
