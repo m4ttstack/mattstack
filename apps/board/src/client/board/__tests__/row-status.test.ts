@@ -520,6 +520,7 @@ describe('rowStatus: interrupted executor', () => {
         tone: 'quiet',
         word: 'pane gone',
         detail: 'pane closed 12m ago',
+        source: 'Agent',
         verbs: [{ kind: 'clear', label: 'clear', agentId: 'ag-1' }],
       },
     ]);
@@ -1461,6 +1462,7 @@ describe('rowStatus: doctor lane', () => {
       tone: 'quiet',
       word: 'handed to worker',
       detail: 'stage implement',
+      source: 'Doctor',
       verbs: [],
     });
   });

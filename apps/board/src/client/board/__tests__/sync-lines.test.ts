@@ -7,6 +7,7 @@ import {
   shownSyncLog,
   startSyncLines,
   takeAutoOpen,
+  tidySyncLog,
 } from '../sync-lines.ts';
 
 describe('parseSyncLine', () => {
@@ -59,5 +60,54 @@ describe('live lines', () => {
     ]);
     expect(shownSyncLog(['a', 'b'], ['x'])).toEqual(['a', 'b', 'x']);
     expect(shownSyncLog(undefined, undefined)).toEqual([]);
+  });
+});
+
+describe('tidySyncLog', () => {
+  const B = 'acme-1234-a-long-branch';
+  const log = [
+    '[ok] Syncing in worktree percy',
+    '[ok] Fetched from origin',
+    `[ok] Saved a backup  rt-backup/rebase/${B}/2026-11-10T18-38-44`,
+    `[running] Rebasing ${B} onto origin/master  50 commits behind`,
+    `[ok] Rebased ${B} onto origin/master`,
+    '[ok] Pushed',
+  ];
+
+  test('a running line a later line moved past drops out', () => {
+    const shown = tidySyncLog(log, B, false).map(l => l.title);
+    expect(shown).not.toContain('Rebasing this branch onto origin/master');
+    expect(shown).toContain('Rebased this branch onto origin/master');
+  });
+
+  test('the branch is named once, not on every line', () => {
+    const shown = tidySyncLog(log, B, false);
+    expect(shown.some(l => l.title.includes(B))).toBe(false);
+    expect(shown.find(l => l.title === 'Saved a backup')!.hint).toBe(
+      'rt-backup/rebase/…/2026-11-10T18-38-44'
+    );
+  });
+
+  test('the step still running keeps its line', () => {
+    const shown = tidySyncLog(log.slice(0, 4), B, true);
+    expect(shown.at(-1)).toMatchObject({
+      status: 'running',
+      title: 'Rebasing this branch onto origin/master',
+      hint: '50 commits behind',
+    });
+  });
+
+  test('a stray plain line after the running step does not hide it', () => {
+    const shown = tidySyncLog(
+      [...log.slice(0, 4), 'some stray child output'],
+      B,
+      true
+    );
+    expect(shown.some(l => l.status === 'running')).toBe(true);
+  });
+
+  test('a failed sync keeps every line, so nothing that led to it is hidden', () => {
+    const failed = [...log.slice(0, 5), `[failed] Could not push ${B}`];
+    expect(tidySyncLog(failed, B, false)).toHaveLength(6);
   });
 });

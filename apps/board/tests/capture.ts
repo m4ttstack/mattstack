@@ -254,6 +254,11 @@ try {
       await page.waitForSelector('[data-part="sidedrawer"][data-side="right"]');
       await shoot(page, `comments-${theme}`);
       await page.keyboard.press('Escape');
+      // The drawer plays its slide-out before it unmounts.
+      await page.waitForSelector(
+        '[data-part="sidedrawer"][data-side="right"]',
+        { state: 'detached' }
+      );
     }
     // review modal: !1236's finished review, opened from its row menu (its
     // gates outrank the review on the status line).

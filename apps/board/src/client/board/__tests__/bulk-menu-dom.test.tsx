@@ -254,14 +254,24 @@ test('call doctor goes to the broken MR and the toast says who was skipped', asy
 });
 
 test('respond, resume response and call doctor send the board tab they launch from', async () => {
-  const mine = boardMr(106, {
-    blockers: { any: true, pipelineFailing: true },
-    respond: { status: 'done', sessionId: 'sess-1' },
-  });
-  servedData = { ...BOARD_DATA, mrs: [...BOARD_DATA.mrs, mine] };
+  // One MR per launch: a launch's claim stands on its row until the server
+  // writes the lane, and this fake server never does.
+  const mine = (iid: number) =>
+    boardMr(iid, {
+      blockers: { any: true, pipelineFailing: true },
+      respond: { status: 'done', sessionId: 'sess-1' },
+    });
+  servedData = {
+    ...BOARD_DATA,
+    mrs: [...BOARD_DATA.mrs, mine(106), mine(108), mine(109)],
+  };
   await renderBoard();
-  for (const label of ['redo response', 'resume response', 'call doctor']) {
-    await rightClick(106);
+  for (const [iid, label] of [
+    [106, 'redo response'],
+    [108, 'resume response'],
+    [109, 'call doctor'],
+  ] as const) {
+    await rightClick(iid);
     await click(label);
     if (label === 'redo response') await confirmWith('Redo response');
   }
@@ -276,13 +286,18 @@ test('respond, resume response and call doctor send the board tab they launch fr
 });
 
 test('follow-up review and resume review send the board tab they launch from', async () => {
-  const reviewed = boardMr(107, {
-    review: { status: 'done', sessionId: 'sess-1' },
-  });
-  servedData = { ...BOARD_DATA, mrs: [...BOARD_DATA.mrs, reviewed] };
+  const reviewed = (iid: number) =>
+    boardMr(iid, { review: { status: 'done', sessionId: 'sess-1' } });
+  servedData = {
+    ...BOARD_DATA,
+    mrs: [...BOARD_DATA.mrs, reviewed(107), reviewed(110)],
+  };
   await renderBoard();
-  for (const label of ['follow-up review', 'resume review']) {
-    await rightClick(107);
+  for (const [iid, label] of [
+    [107, 'follow-up review'],
+    [110, 'resume review'],
+  ] as const) {
+    await rightClick(iid);
     await click(label);
   }
   const sent = posts

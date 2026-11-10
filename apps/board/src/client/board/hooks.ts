@@ -9,6 +9,7 @@ import {
   anyActive,
   clearServerTruth,
   EMPTY_OPTIMISTIC,
+  laneMark,
   nextMergeLapse,
   rollback,
   setQueued,
@@ -33,8 +34,13 @@ export function useOptimisticLifecycle(data: BoardData | null) {
   }, [data]);
 
   const queue = useCallback(
-    (axis: Axis, url: string, status?: 'queued' | 'syncing') => {
-      setState(s => setQueued(s, axis, url, status));
+    (
+      axis: Axis,
+      url: string,
+      status?: 'queued' | 'syncing',
+      prior: string | null = null
+    ) => {
+      setState(s => setQueued(s, axis, url, status, prior));
     },
     []
   );
@@ -324,7 +330,13 @@ export function useLaunchAction(opts: {
         post: payload => postAction(path, payload),
         setQueued:
           axis && url
-            ? () => optimistic.setQueued(axis, url, claims)
+            ? () =>
+                optimistic.setQueued(
+                  axis,
+                  url,
+                  claims,
+                  laneMark((mr as BoardMRWithReview)[axis])
+                )
             : () => {},
         rollback: axis && url ? () => optimistic.rollback(axis, url) : () => {},
         addToast: quiet ? () => {} : addToast,

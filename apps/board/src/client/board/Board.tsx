@@ -159,6 +159,7 @@ import {
 } from './row-actions.ts';
 import { reviewGroupHue, statusGroupHue } from './row-status.ts';
 import { RowMenu } from './RowMenu.tsx';
+import { RowSpotlight } from './RowSpotlight.tsx';
 import { RowView } from './RowView.tsx';
 import { activeRunConfirmFor } from './run-guard.ts';
 import {
@@ -182,6 +183,7 @@ import { startSyncLines } from './sync-lines.ts';
 import { TabBar } from './TabBar.tsx';
 import { turnSummary } from './turn-summary.ts';
 import { TurnSummary } from './TurnSummary.tsx';
+import { useLingering } from './use-lingering.ts';
 
 declare global {
   interface Window {
@@ -586,6 +588,7 @@ export function Board() {
     []
   );
   const [commentsFor, setCommentsFor] = useState<BoardMR | null>(null);
+  const comments = useLingering(commentsFor);
   const { toasts, addToast, startToast } = useToasts();
 
   // A drawer action succeeded: swap the chip to its resolved state, close the
@@ -2400,15 +2403,17 @@ export function Board() {
             />
           )}
 
-          {commentsFor && (
+          <RowSpotlight mrUrl={commentsFor?.webUrl} open={!!commentsFor} />
+          {comments.shown && (
             <CommentsDrawer
               mr={
                 data.mrs.find(
-                  m => !!m.webUrl && m.webUrl === commentsFor.webUrl
-                ) ?? commentsFor
+                  m => !!m.webUrl && m.webUrl === comments.shown!.webUrl
+                ) ?? comments.shown
               }
               local={data.local}
               self={effectiveSeat(data.defaultMember, data.tokenUser)}
+              closing={comments.leaving}
               onClose={() => setCommentsFor(null)}
             />
           )}

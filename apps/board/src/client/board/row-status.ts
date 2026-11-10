@@ -66,10 +66,15 @@ export interface Verb {
   person?: string;
 }
 
+/** Which part of the board made an offer; "+N more" names it beside each. */
+export type CandidateSource =
+  'Decision' | 'Agent' | 'Review' | 'Respond' | 'Doctor' | 'People' | 'MR';
+
 /** One source's offer for the status line. */
 export interface Candidate {
   tone: Tone;
   word: string;
+  source?: CandidateSource;
   detail?: string;
   spin?: boolean | 'cloud';
   /** The lane's launch ran the generic skill because no pack was chosen. */
@@ -1120,6 +1125,16 @@ function withoutAuthorVerbs(line: Candidate): Candidate {
   return verbs.length === line.verbs.length ? line : { ...line, verbs };
 }
 
+/** Stamps each offer with the source that made it, dropping the empty ones. */
+function from(
+  source: CandidateSource,
+  lines: Array<Candidate | null>
+): Candidate[] {
+  return lines
+    .filter((l): l is Candidate => l !== null)
+    .map(l => ({ ...l, source }));
+}
+
 /** Every source's offer, in source order; exported for the tests. */
 export function candidateLines(
   mr: BoardMRWithReview,
@@ -1131,26 +1146,33 @@ export function candidateLines(
   if (mr.mergeButton.loading) return [MERGING];
   const interrupted = interruptedLane(mr);
   const lines: Candidate[] = [
-    ...gateLines(mr),
-    orphanLine(mr, now, interrupted),
-    packless(reviewLine(mr, now, interrupted, self), mr.review),
-    packless(respondLine(mr, now, interrupted, self, people), mr.respond),
+    ...from('Decision', gateLines(mr)),
+    ...from('Agent', [orphanLine(mr, now, interrupted)]),
+    ...from('Review', [
+      packless(reviewLine(mr, now, interrupted, self), mr.review),
+    ]),
+    ...from('Respond', [
+      packless(respondLine(mr, now, interrupted, self, people), mr.respond),
+    ]),
     // A stand-down outranks the doctor's row and is no launch of its own.
-    mr.standDown
-      ? doctorLine(mr, now)
-      : packless(doctorLine(mr, now), mr.doctor),
-    ...draftLines(mr, draftResolved),
-    ...peerLines(mr, now, self, people),
-  ].filter((l): l is Candidate => l !== null);
+    ...from('Doctor', [
+      mr.standDown
+        ? doctorLine(mr, now)
+        : packless(doctorLine(mr, now), mr.doctor),
+      ...draftLines(mr, draftResolved),
+    ]),
+    ...from('People', peerLines(mr, now, self, people)),
+  ];
   const mine = isOwnMr(mr, self);
   if (lines.length === 0)
-    return [
+    return from('MR', [
       mine && self !== null
         ? authorLine(mr, self)
         : reviewerLine(mr, self, people),
-    ];
+    ]);
   if (!mine) return lines.map(withoutAuthorVerbs);
-  const standing = self !== null ? authorLine(mr, self) : null;
+  const standing =
+    self !== null ? from('MR', [authorLine(mr, self)])[0]! : null;
   const handed =
     lines.some(l => l.word === HANDED_TO_WORKER) && repairHandedOff(mr);
   return standing?.repair && !handed ? [...lines, standing] : lines;
