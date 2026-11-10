@@ -11,6 +11,11 @@ import { existsSync, lstatSync, mkdirSync, symlinkSync, unlinkSync, writeFileSyn
 import { join } from "path";
 import type { InitStep } from "./init-plan.ts";
 import { assertNotRealStoreInTest } from "../../packages/rt-client/src/test-isolation.ts";
+import { gitWithToken } from "../team/git-credential.ts";
+import { mayOfferToken } from "../team/forge-token.ts";
+import { storedForgeToken } from "../team/stored-forge-token.ts";
+import { readUserIntegrationOverrides } from "../setup/team-settings.ts";
+import { createRealProbes } from "../setup/probes.ts";
 
 export interface ExecResult {
   code: number;
@@ -19,7 +24,9 @@ export interface ExecResult {
 }
 
 export interface ExecSeam {
-  run(cmd: string[], opts?: { cwd?: string }): Promise<ExecResult>;
+  run(cmd: string[], opts?: { cwd?: string; env?: Record<string, string> }): Promise<ExecResult>;
+  /** The token rt may offer the clone's host. A fresh Mac restoring a private repo has none of git's own. */
+  cloneToken?(url: string): Promise<string | null>;
   writeFile(path: string, content: string): Promise<void>;
   mkdirp(path: string): Promise<void>;
   /** Any entry at all (file, dir, or symlink) — used to seed tracked files only into a genuinely empty clone. */
@@ -61,7 +68,7 @@ class StepFailed extends Error {
   }
 }
 
-async function run(exec: ExecSeam, cmd: string[], opts?: { cwd?: string }): Promise<string> {
+async function run(exec: ExecSeam, cmd: string[], opts?: { cwd?: string; env?: Record<string, string> }): Promise<string> {
   const result = await exec.run(cmd, opts);
   if (result.code !== 0) throw new StepFailed(result.stderr);
   return result.stdout;
@@ -88,7 +95,16 @@ async function runStep(step: InitStep, exec: ExecSeam, log: StepLog): Promise<vo
     }
     case "cloneUserRepo": {
       log(`Cloning ${step.url}`);
-      await run(exec, ["git", "clone", "--", step.url, "user"]);
+      const clone = ["clone", "--", step.url, "user"];
+      const cmd = gitWithToken(clone, (await exec.cloneToken?.(step.url)) ?? null, {}, { remote: step.url });
+      if (Object.keys(cmd.env).length === 0) {
+        await run(exec, cmd.argv);
+        return;
+      }
+      if ((await exec.run(cmd.argv, { env: cmd.env })).code === 0) return;
+      // rt's token can belong to another account than the one git's own helpers hold for this repo.
+      log("rt's GitHub token could not clone it, so trying git's own credentials");
+      await run(exec, ["git", ...clone]);
       return;
     }
     case "initUserRepo": {
@@ -182,7 +198,7 @@ export function createRealExecSeam(home: string): ExecSeam {
         // Bun.spawn resolves the executable against the PATH captured at
         // process start; a runtime process.env.PATH mutation is invisible to
         // it, so this must be a live reference, not a snapshot taken earlier.
-        env: process.env,
+        env: opts?.env ? { ...process.env, ...opts.env } : process.env,
         stdout: "pipe",
         stderr: "pipe",
       });
@@ -192,6 +208,10 @@ export function createRealExecSeam(home: string): ExecSeam {
         proc.exited,
       ]);
       return { code, stdout, stderr };
+    },
+    async cloneToken(url) {
+      if (!mayOfferToken(url, readUserIntegrationOverrides().forgeHost ?? null)) return null;
+      return storedForgeToken(createRealProbes(), url);
     },
     async writeFile(path, content) {
       writeFileSync(join(home, path), content);

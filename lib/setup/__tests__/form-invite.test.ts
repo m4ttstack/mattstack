@@ -128,13 +128,42 @@ describe("inviteRows", () => {
 });
 
 describe("restoreRows", () => {
+  const ready = { cltInstalled: true, prepare: prepare({ running: true }), githubClientId: "client", githubStored: false, githubSignIn: null };
+
   test("the restore section holds Restore while Command Line Tools install", () => {
-    const list = restoreRows({ cltInstalled: false, prepare: prepare({ running: true }) });
+    const list = restoreRows({ ...ready, cltInstalled: false, githubClientId: "" });
     expect(list.map((r) => [r.id, r.state])).toEqual([["tool.clt", "busy"]]);
   });
 
-  test("with git ready the restore section is empty", () => {
-    expect(restoreRows({ cltInstalled: true, prepare: prepare({ running: true }) })).toEqual([]);
+  test("with git ready and no GitHub sign-in in this build the restore section is empty", () => {
+    expect(restoreRows({ ...ready, githubClientId: "" })).toEqual([]);
+  });
+
+  test("a GitHub sign-in is offered and never holds Restore", () => {
+    const [github] = restoreRows(ready);
+    expect(github).toMatchObject({ id: "restore.github", state: "todo", optional: true, action: { type: "run", verb: ["setup", "github", "sign-in"] } });
+  });
+
+  test("a sign-in under way shows its code and reopens the browser", () => {
+    const [github] = restoreRows({ ...ready, githubSignIn: { userCode: "ABCD-1234", url: "https://github.com/login/device", expiresAt: "2026-11-10T00:00:00.000Z", pid: 42 } });
+    expect(github).toMatchObject({ state: "waiting", watch: true, optional: true, action: { type: "open-url", url: "https://github.com/login/device" } });
+    expect(github!.detail).toContain("ABCD-1234");
+  });
+
+  test("an expired sign-in can be started again", () => {
+    const [github] = restoreRows({ ...ready, githubSignIn: { userCode: "ABCD-1234", url: "https://github.com/login/device", expiresAt: "2026-11-10T00:00:00.000Z", pid: null, outcome: "expired" } });
+    expect(github).toMatchObject({ state: "todo", action: { type: "run", verb: ["setup", "github", "sign-in"] } });
+    expect(github!.detail).toContain("expired");
+  });
+
+  test("a token rt already holds reads done", () => {
+    const [github] = restoreRows({ ...ready, githubStored: true });
+    expect(github).toMatchObject({ id: "restore.github", state: "done" });
+  });
+
+  test("a held token can be swapped for another account's", () => {
+    const [github] = restoreRows({ ...ready, githubStored: true });
+    expect(github!.action).toMatchObject({ type: "run", label: "Sign in again", verb: ["setup", "github", "sign-in"] });
   });
 });
 
@@ -199,8 +228,8 @@ describe("composeForm", () => {
 
   test("the restore section reads only this Mac's rows", async () => {
     const p = fakeProbes({ home: "/fake-home", exec: () => ({ code: 2, stdout: "", stderr: "" }) });
-    const form = await composeForm(p, { sections: ["restore"], secrets: NO_SECRETS, orgs: [] });
-    expect(form.sections.restore?.map((r) => [r.id, r.state])).toEqual([["tool.clt", "todo"]]);
+    const form = await composeForm(p, { sections: ["restore"], secrets: NO_SECRETS, orgs: [], githubToken: async () => null, githubClientId: "client" });
+    expect(form.sections.restore?.map((r) => [r.id, r.state])).toEqual([["tool.clt", "todo"], ["restore.github", "todo"]]);
     expect(p.calls.exec.some((argv) => argv[0] === "gh")).toBe(false);
   });
 });

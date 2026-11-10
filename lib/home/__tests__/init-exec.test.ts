@@ -9,7 +9,7 @@ import * as isolation from "../../../packages/rt-client/src/test-isolation.ts";
 const REPO_URL = "https://github.com/m4ttheweric/mattstack-home";
 
 type RecordedCall =
-  | { kind: "run"; cmd: string[]; cwd?: string }
+  | { kind: "run"; cmd: string[]; cwd?: string; env?: Record<string, string> }
   | { kind: "writeFile"; path: string; content: string }
   | { kind: "mkdirp"; path: string }
   | { kind: "exists"; path: string }
@@ -29,11 +29,16 @@ class FakeExecSeam implements ExecSeam {
       blocksSymlink?: (path: string) => boolean;
       /** git config user.name/user.email answers for commitInitialUserRepo's identity check. Defaults to a fully-configured identity so every other test's commit step doesn't have to opt in. */
       identity?: { name?: string; email?: string };
+      cloneToken?: (url: string) => Promise<string | null>;
     } = {},
   ) {}
 
-  async run(cmd: string[], runOpts?: { cwd?: string }): Promise<ExecResult> {
-    this.calls.push({ kind: "run", cmd, cwd: runOpts?.cwd });
+  async cloneToken(url: string): Promise<string | null> {
+    return this.opts.cloneToken ? this.opts.cloneToken(url) : null;
+  }
+
+  async run(cmd: string[], runOpts?: { cwd?: string; env?: Record<string, string> }): Promise<ExecResult> {
+    this.calls.push({ kind: "run", cmd, cwd: runOpts?.cwd, ...(runOpts?.env ? { env: runOpts.env } : {}) });
     const failure = this.opts.failRun?.(cmd);
     if (failure) return { code: 1, stdout: "", stderr: failure };
     const configKey = cmd[cmd.length - 2] === "config" ? cmd[cmd.length - 1] : undefined;
@@ -115,6 +120,36 @@ describe("executeInitPlan", () => {
       ["git", "-C", "user", "symbolic-ref", "HEAD", "refs/heads/main"],
       ["rm", "-rf", "user/.git"],
     ]);
+  });
+
+  test("cloneUserRepo: a token rt holds reaches git through the environment, never argv", async () => {
+    const asked: string[] = [];
+    const seam = new FakeExecSeam({ cloneToken: async (url) => (asked.push(url), "gho_fake") });
+
+    const result = await executeInitPlan([{ kind: "cloneUserRepo", url: REPO_URL }], seam, noopLog);
+
+    expect(result).toEqual({ ok: true });
+    expect(asked).toEqual([REPO_URL]);
+    const call = seam.calls[0] as { cmd: string[]; env?: Record<string, string> };
+    expect(call.cmd.slice(-4)).toEqual(["clone", "--", REPO_URL, "user"]);
+    expect(call.cmd.join(" ")).not.toContain("gho_fake");
+    expect(call.env?.RT_GIT_TOKEN).toBe("gho_fake");
+    expect(call.env?.RT_GIT_HOST).toBe("github.com");
+  });
+
+  test("cloneUserRepo: a clone rt's token cannot make falls back to git's own credentials", async () => {
+    const seam = new FakeExecSeam({
+      cloneToken: async () => "gho_other_account",
+      failRun: (cmd) => (cmd.includes("-c") ? "remote: Repository not found." : undefined),
+    });
+
+    const result = await executeInitPlan([{ kind: "cloneUserRepo", url: REPO_URL }], seam, noopLog);
+
+    expect(result).toEqual({ ok: true });
+    const runs = seam.calls.filter((c) => c.kind === "run") as { cmd: string[]; env?: Record<string, string> }[];
+    expect(runs).toHaveLength(2);
+    expect(runs[1]!.cmd).toEqual(["git", "clone", "--", REPO_URL, "user"]);
+    expect(runs[1]!.env).toBeUndefined();
   });
 
   test("cloneUserRepo: a failing clone aborts and reports it", async () => {
