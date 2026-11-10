@@ -32,7 +32,7 @@ export const FORGE_ACCESS_RETRY_MS = 30 * 60 * 1000;
 
 function heldStep(report: ForgeAccessReport): string | null | undefined {
   if (report.kind === "refused") return report.manualSteps[0] ?? null;
-  if (report.kind === "shared-branch") return sharedBranchSentence(report.branch);
+  if (report.kind === "shared-branch") return sharedBranchSentence(report.branch, report.firstPush);
   return undefined;
 }
 

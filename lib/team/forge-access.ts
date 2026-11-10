@@ -34,6 +34,7 @@ export type ForgeResult<T> = { ok: true; value: T } | { ok: false; reason: Failu
 export interface OrgForgeAccess {
   readonly provider: "github" | "gitlab";
   defaultBranch(): Promise<ForgeResult<string>>;
+  setDefaultBranch(branch: string): Promise<ForgeResult<"set">>;
   readPushList(branch: string): Promise<ForgeResult<PushList>>;
   /** Replaces the people named on the branch's push list. "cannot-name-users": this forge plan cannot name people, and the branch is left open to anyone with write. */
   setPushList(branch: string, usernames: string[]): Promise<ForgeResult<"set" | "cannot-name-users">>;

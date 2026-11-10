@@ -1333,7 +1333,7 @@ export function forgeAccessBlocks(slug: string, report: ForgeAccessReport, appli
         out.callout("next", "Go back to the org's data branch with ", out.cmd(`rt team branch use ${report.dataBranch} --team ${slug}`)),
       ];
     case "shared-branch":
-      return [out.line("refused", `rt leaves the rules of ${report.branch} alone`), out.callout("fix", sharedBranchSentence(report.branch))];
+      return [out.line("refused", `rt leaves the rules of ${report.branch} alone`), out.callout("fix", sharedBranchSentence(report.branch, report.firstPush))];
     case "refused":
       return [out.line("needs-you", "rt could not check forge access"), out.callout("fix", ...report.manualSteps)];
     case "ready": {

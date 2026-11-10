@@ -47,7 +47,7 @@ export async function forgeAccessRow(
     case "trial":
       return row({ ...BASE, status: "skipped", detail: `Forge access waits while this Mac is on the trial branch ${report.branch}` });
     case "shared-branch":
-      return row({ ...BASE, status: "needs-you", detail: sharedBranchSentence(report.branch) });
+      return row({ ...BASE, status: "needs-you", detail: sharedBranchSentence(report.branch, report.firstPush) });
     case "refused":
       return row({ ...BASE, status: "needs-you", detail: "rt could not check who has access to the org's repo on the forge", action: { type: "steps", label: "Show steps…", steps: report.manualSteps } });
     case "ready": {

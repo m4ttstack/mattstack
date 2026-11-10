@@ -57,6 +57,11 @@ export function githubForgeAccess(p: Probes, remote: string, owner: string, repo
       return typeof branch === "string" ? done(branch) : refusal(r, "gh", [`Open https://github.com/${owner}/${repo}`, "Check that your GitHub account can see this repo"]);
     },
 
+    async setDefaultBranch(branch) {
+      const r = await call({ method: "PATCH", path: base, fields: [`default_branch=${branch}`] });
+      return r.code === 0 ? done("set") : refusal(r, "gh", [`Open https://github.com/${owner}/${repo}/settings`, `Make ${branch} the default branch`]);
+    },
+
     async readPushList(branch) {
       const r = await call({ method: "GET", path: protection(branch) });
       if (r.code === 0) {
