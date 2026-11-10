@@ -1,11 +1,10 @@
 import type { On } from 'claude-code'
 
 import type { AddInput } from '../types'
-import { checkKind, describe } from './items'
+import { TITLE, checkKind, describe } from './items'
 import { addTodo, listTodos, removeTodos, resetList, restoreList } from './store'
 import { cleanup, openPane } from './wiring'
 
-export const TITLE = 'Human Todos'
 const PREFIX = 'mcp__human-todos__'
 
 type ToolNames = { add: string; list: string; withdraw: string }
@@ -67,6 +66,7 @@ export function registerContract(on: On): void {
       },
     })
     names = { add: add.tool, list: list.tool, withdraw: withdraw.tool }
+    await $.command.register({ name: 'todos', description: `Open the ${TITLE} pane` })
 
     const started = await next(e)
     await restoreList($)

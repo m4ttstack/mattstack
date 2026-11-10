@@ -90,3 +90,19 @@ export async function resetList($: EngineInterface): Promise<void> {
   await update($, expanded, () => [])
   await update($, nextId, () => 1)
 }
+
+export async function readPane($: EngineInterface): Promise<{ list: Todo[]; openIds: string[]; spin: number }> {
+  return { list: await read($, todos), openIds: await read($, expanded), spin: await read($, frame) }
+}
+
+export function toggleExpanded($: EngineInterface, id: string): Promise<void> {
+  return update($, expanded, ids => (ids.includes(id) ? ids.filter(i => i !== id) : [...ids, id]))
+}
+
+export function isPaneShown($: EngineInterface): Promise<boolean> {
+  return read($, isPaneOpen)
+}
+
+export function setPaneShown($: EngineInterface, isShown: boolean): Promise<void> {
+  return update($, isPaneOpen, () => isShown)
+}

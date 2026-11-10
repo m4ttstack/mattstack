@@ -1,5 +1,7 @@
 import type { AddInput, Todo } from '../types'
 
+export const TITLE = 'Human Todos'
+
 export type ButtonId = 'run' | 'open' | 'copy' | 'done' | 'skip' | 'confirm' | 'cancel' | 'show' | 'stop' | 'openLog'
 
 export function checkKind(input: AddInput): string | undefined {

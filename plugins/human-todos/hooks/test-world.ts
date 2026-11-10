@@ -11,6 +11,7 @@ export const SESSION = 'sess-1'
 export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__human-todos__' }: Options = {}) {
   const store = new Map<string, unknown>(Object.entries(entries))
   const registered: Registered[] = []
+  const opened: string[] = []
   let sessionId = SESSION
   on('session.id', () => ({ value: sessionId }))
   on('store.get', (_, e) => ({ value: store.get(e.key) }))
@@ -27,6 +28,13 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
     registered.push(e as Registered)
     return { value: { tool: `${prefix}${e.name}` } }
   })
+  on('ui.open', (_, e) => {
+    opened.push(e.id)
+    return { value: { isPlaced: true } }
+  })
+  on('ui.close', () => ({ value: undefined }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('command.run', () => ({ text: '' }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
   on('prompt.compose', () => ({ sections: [] }))
@@ -34,6 +42,7 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
   return {
     store,
     registered,
+    opened,
     setSession: (id: string) => {
       sessionId = id
     },
