@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import type { ReadinessState } from "@mattstack/glance";
 import { userSettingsPath } from "../rt-paths.ts";
 import { getSetting } from "../settings/resolve.ts";
 import { setSetting } from "../settings/write.ts";
@@ -63,6 +64,7 @@ const baseSnapshot = {
   isReady: false,
   mergeError: null,
   statusDetail: null as string | null,
+  readinessState: null as ReadinessState | null,
 };
 
 describe("approval transition notifications", () => {
@@ -188,6 +190,80 @@ describe("snapshotBranch readiness", () => {
       blockers: { awaitingApprovals: false, hasConflicts: false },
     }));
     expect(snap.isReady).toBe(false);
+  });
+});
+
+describe("snapshotBranch readiness from the neutral readiness", () => {
+  const githubPr = (over: Record<string, unknown>) => mrEntry({
+    state: "opened",
+    statusDetail: "",
+    readiness: { state: "ready", reasons: [] },
+    reviews: { isApproved: true },
+    blockers: { awaitingApprovals: false, hasConflicts: false },
+    ...over,
+  });
+
+  test("GitHub ready notifies on the false to true edge", () => {
+    const was = __test__.snapshotBranch(githubPr({ readiness: { state: "blocked", reasons: [] } }));
+    const now = __test__.snapshotBranch(githubPr({}));
+    expect(was.isReady).toBe(false);
+    expect(now.isReady).toBe(true);
+    expect(now.readinessState).toBe("ready");
+  });
+
+  test("GitHub ready still needs approvals satisfied and no stack", () => {
+    expect(__test__.snapshotBranch(githubPr({ blockers: { awaitingApprovals: true, hasConflicts: false } })).isReady).toBe(false);
+    expect(__test__.snapshotBranch(githubPr({ isStacked: true })).isReady).toBe(false);
+  });
+
+  test("GitHub checking is not ready and does not re-arm", () => {
+    const ready = __test__.snapshotBranch(githubPr({}));
+    const now = __test__.snapshotBranch(githubPr({ readiness: { state: "checking", reasons: [] } }));
+    expect(now.isReady).toBe(false);
+    expect(now.readinessState).toBe("checking");
+    expect(__test__.shouldRearmReady(ready, now)).toBe(false);
+  });
+
+  test("GitHub checking does not re-arm the conflicts alert", () => {
+    const conflicted = { ...baseSnapshot, conflicts: true, conflictFreeStreak: 0 };
+    const now = { ...baseSnapshot, conflicts: false, conflictFreeStreak: 9, readinessState: "checking" as const };
+    expect(__test__.shouldRearmConflicts(conflicted, now)).toBe(false);
+  });
+
+  test("GitHub blocked after ready re-arms", () => {
+    const ready = __test__.snapshotBranch(githubPr({}));
+    const now = __test__.snapshotBranch(githubPr({ readiness: { state: "blocked", reasons: [] } }));
+    expect(__test__.shouldRearmReady(ready, now)).toBe(true);
+  });
+
+  test("GitLab shapes keep their outcome with readiness present", () => {
+    const gitlab = (statusDetail: string, readiness: unknown) => __test__.snapshotBranch(mrEntry({
+      state: "opened",
+      statusDetail,
+      readiness,
+      reviews: { isApproved: true },
+      blockers: { awaitingApprovals: false, hasConflicts: false },
+    }));
+    expect(gitlab("mergeable", { state: "ready", reasons: [] }).isReady).toBe(true);
+    expect(gitlab("unchecked", { state: "checking", reasons: [] }).isReady).toBe(false);
+    expect(gitlab("ci_still_running", { state: "blocked", reasons: [] }).isReady).toBe(false);
+  });
+
+  test("absent readiness falls back to the statusDetail rule", () => {
+    const snap = __test__.snapshotBranch(mrEntry({
+      state: "opened",
+      statusDetail: "mergeable",
+      reviews: { isApproved: true },
+      blockers: { awaitingApprovals: false, hasConflicts: false },
+    }));
+    expect(snap.isReady).toBe(true);
+    expect(snap.readinessState).toBeNull();
+  });
+
+  test("a snapshot persisted before readinessState existed still re-arms on a real regression", () => {
+    const { readinessState: _omit, ...old } = { ...baseSnapshot, isReady: true, statusDetail: "mergeable" };
+    const now = { ...baseSnapshot, isReady: false, statusDetail: "not_approved" };
+    expect(__test__.shouldRearmReady(old as typeof baseSnapshot, now)).toBe(true);
   });
 });
 

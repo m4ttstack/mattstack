@@ -11,6 +11,7 @@ import {
   PopoverTrigger,
 } from '../ui/popover';
 import { Row } from '../ui/flex';
+import { approvalLabel, isApprovalCountUnknown } from './approval-label';
 import { BlockerApprovalsIcon, CheckIcon } from './icons';
 import { ReviewerList } from './ReviewerList';
 import { ExpandChevron, StatusIcon } from './StatusIcon';
@@ -20,7 +21,8 @@ export function ReviewerStatus({
 }: {
   reviews: MRDashboardProps['reviews'];
 }) {
-  if (reviews.reviewers.length === 0) return null;
+  const countUnknown = isApprovalCountUnknown(reviews);
+  if (reviews.reviewers.length === 0 && !countUnknown) return null;
 
   const totalReviewers = reviews.given + reviews.remaining;
 
@@ -34,7 +36,21 @@ export function ReviewerStatus({
           : 'data-[state=open]:bg-caution/15'
       )}
     >
-      {reviews.isApproved ? (
+      {countUnknown ? (
+        <>
+          <StatusIcon
+            icon={reviews.isApproved ? CheckIcon : BlockerApprovalsIcon}
+            color={reviews.isApproved ? 'positive' : 'caution'}
+          />
+          <span
+            className={
+              reviews.isApproved ? 'text-positive font-semibold' : undefined
+            }
+          >
+            {approvalLabel(reviews)}
+          </span>
+        </>
+      ) : reviews.isApproved ? (
         <>
           <StatusIcon icon={CheckIcon} color="positive" />
           <span>
@@ -56,9 +72,11 @@ export function ReviewerStatus({
           </span>
         </>
       )}
-      <ExpandChevron />
+      {reviews.reviewers.length > 0 && <ExpandChevron />}
     </Row>
   );
+
+  if (reviews.reviewers.length === 0) return reviewTrigger;
 
   return (
     <Popover>

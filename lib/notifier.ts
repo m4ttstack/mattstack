@@ -25,7 +25,7 @@
 
 import { existsSync } from "fs";
 import { join } from "path";
-import { isTransitionalMergeStatus } from "@mattstack/glance";
+import { isTransitionalMergeStatus, type ReadinessState } from "@mattstack/glance";
 import { RT_DIR } from "./daemon-config.ts";
 import { getSetting } from "./settings/resolve.ts";
 import { setSetting } from "./settings/write.ts";
@@ -68,6 +68,8 @@ interface BranchSnapshot {
   mergeError: string | null;
   /** GitLab detailed_merge_status (e.g. "mergeable", "unchecked", "not_approved"). */
   statusDetail: string | null;
+  /** Neutral readiness; null when the entry predates it. Absent in blobs persisted before it existed. */
+  readinessState: ReadinessState | null;
 }
 
 interface PortSnapshot {
@@ -301,15 +303,21 @@ function isSelfAuthored(entry: CacheEntry, currentUserId: number | null): boolea
 const CONFLICT_FREE_OBSERVATIONS_TO_REARM = 2;
 
 /**
- * Strict readiness for notification purposes: the MR is open, GitLab has
- * *settled* on "mergeable", and approvals are satisfied. This deliberately
- * ignores the SDK's optimistic `entry.mr.isReady`, which reports true during
- * transitional merge-status windows even for unreviewed MRs — the source of
- * repeated false "Ready to Merge" alerts.
+ * Strict readiness for notification purposes: the MR is open, the forge has
+ * *settled* on ready (the neutral `readiness`, else GitLab's "mergeable"), and
+ * approvals are satisfied. This deliberately ignores the SDK's optimistic
+ * `entry.mr.isReady`, which reports true during transitional merge-status
+ * windows even for unreviewed MRs, the source of repeated false "Ready to
+ * Merge" alerts. A GitHub PR has no `statusDetail`, so `readiness` is the only
+ * settled signal there; rows from an older SDK carry none and keep the
+ * `statusDetail` rule.
  */
 function isReadyForNotification(entry: CacheEntry): boolean {
+  const settled = entry.mr?.readiness
+    ? entry.mr.readiness.state === "ready"
+    : entry.mr?.statusDetail === "mergeable";
   return entry.mr?.state === "opened"
-    && entry.mr?.statusDetail === "mergeable"
+    && settled
     && !(entry.mr?.blockers?.awaitingApprovals ?? true)
     && entry.mr?.isStacked !== true;
 }
@@ -327,7 +335,13 @@ function snapshotBranch(entry: CacheEntry, prev?: BranchSnapshot): BranchSnapsho
     isReady: isReadyForNotification(entry),
     mergeError: entry.mr?.blockers?.mergeError ?? null,
     statusDetail: entry.mr?.statusDetail ?? null,
+    readinessState: entry.mr?.readiness?.state ?? null,
   };
+}
+
+/** A re-check in flight on either forge: GitLab's transitional statuses, or readiness `checking`. */
+function isRecheckInFlight(snap: BranchSnapshot): boolean {
+  return snap.readinessState === "checking" || isTransitionalMergeStatus(snap.statusDetail);
 }
 
 /**
@@ -338,7 +352,7 @@ function snapshotBranch(entry: CacheEntry, prev?: BranchSnapshot): BranchSnapsho
  */
 function shouldRearmReady(was: BranchSnapshot, now: BranchSnapshot): boolean {
   if (!was.isReady || now.isReady) return false;
-  return !isTransitionalMergeStatus(now.statusDetail);
+  return !isRecheckInFlight(now);
 }
 
 /**
@@ -352,7 +366,7 @@ function shouldRearmReady(was: BranchSnapshot, now: BranchSnapshot): boolean {
  */
 function shouldRearmConflicts(was: BranchSnapshot, now: BranchSnapshot): boolean {
   if (!was.conflicts || now.conflicts) return false;
-  if (isTransitionalMergeStatus(now.statusDetail)) return false;
+  if (isRecheckInFlight(now)) return false;
   return now.conflictFreeStreak >= CONFLICT_FREE_OBSERVATIONS_TO_REARM;
 }
 
