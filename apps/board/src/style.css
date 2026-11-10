@@ -3389,6 +3389,11 @@ a.tui-id-card-ref:focus-visible {
   height: 20px;
   flex-shrink: 0;
 }
+/* A face has no text baseline, so on the baseline it leaves the descender
+   gap under the row. */
+.tui-menu-asking .tui-menu-icon-label {
+  vertical-align: top;
+}
 .tui-menu-ask-empty {
   padding: 14px 8px;
   font-family: var(--font-sans);
