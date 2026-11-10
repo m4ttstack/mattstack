@@ -30,8 +30,8 @@ type Setup = {
   script: (script: string) => Child
   // Answers a command run beneath the plugin (the kill, the log removal).
   run?: (argv: readonly string[]) => void
-  // Sees each log write; it may throw to refuse one.
-  write?: (text: string) => void
+  // Sees each log write; it may throw to refuse one, or hold it until a promise settles.
+  write?: (text: string) => void | Promise<unknown>
 }
 
 async function seeded($: Engine, on: On, list: Todo[], { env = {}, script, run, write }: Setup) {
@@ -49,8 +49,8 @@ async function seeded($: Engine, on: On, list: Todo[], { env = {}, script, run, 
     run?.(e.argv)
     return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
-  on('fs.write', (_, e) => {
-    write?.(e.text)
+  on('fs.write', async (_, e) => {
+    await write?.(e.text)
     writes.push({ path: e.path, text: e.text })
     return { value: undefined }
   })
@@ -380,6 +380,48 @@ test('an in-session /resume ends a running local script, keeps its log with the 
 
   expect(ran).toEqual([killing(4242)])
   expect(item('1')).toMatchObject({ status: 'running', logPath: log })
+  expect(sent).toEqual([])
+})
+
+test('an in-session /resume during setup starts no script and keeps the left session\'s list saved', async ($, on) => {
+  let left: Promise<unknown> | undefined
+  const { run1, sent, spawned, clock, store } = await seeded($, on, [todo({})], {
+    script: () => exits(0),
+    write: text => {
+      if (text !== '' || left) return
+      left = $.session.end({ reason: 'resume', sessionId: SESSION, resume: { id: 'sess-2' } })
+      return left
+    },
+  })
+
+  await run1('1')
+  await left
+  await clock.advance(5000)
+
+  expect(spawned).toHaveLength(0)
+  expect((store.get(`list:${SESSION}`) as { todos: Todo[] }).todos.map(t => t.id)).toEqual(['1'])
+  expect(sent).toEqual([])
+})
+
+test('an in-session /resume during a log write keeps the left session\'s list saved', async ($, on) => {
+  const k = killable([pid(4242), out('one\n')])
+  let left: Promise<unknown> | undefined
+  const { run1, sent, clock, store } = await seeded($, on, [todo({})], {
+    script: k.child,
+    run: k.release,
+    write: text => {
+      if (text === '' || left) return
+      left = $.session.end({ reason: 'resume', sessionId: SESSION, resume: { id: 'sess-2' } })
+      return left
+    },
+  })
+
+  await run1('1')
+  await clock.advance(1000)
+  await left
+  await clock.advance(5000)
+
+  expect((store.get(`list:${SESSION}`) as { todos: Todo[] }).todos.map(t => t.id)).toEqual(['1'])
   expect(sent).toEqual([])
 })
 

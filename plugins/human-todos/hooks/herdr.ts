@@ -162,8 +162,8 @@ export async function startHerdr($: EngineInterface, todo: Todo): Promise<void> 
   try {
     const placed = await placeTab($, todo, todo.cwd ?? (await $.session.cwd()))
     if (!placed) throw new Error('herdr made no tab')
-    const still = (await listTodos($)).find(t => t.id === todo.id)
-    if (still?.status !== 'running') {
+    const still = run.isGone ? undefined : (await listTodos($)).find(t => t.id === todo.id)
+    if (run.isGone || still?.status !== 'running') {
       run.isGone = true
       if (placed.tabId) await sh($, `herdr tab close ${quote(placed.tabId)}`)
       return end(token)
@@ -217,12 +217,12 @@ export async function cleanupHerdr($: EngineInterface, todo: Todo): Promise<void
   if (todo.tabId) await sh($, `herdr tab close ${quote(todo.tabId)}`)
 }
 
-// The script keeps running in its tab, and resuming the session watches it again.
-export async function releaseHerdr(_$: EngineInterface, todo: Todo): Promise<void> {
-  const run = todo.token ? runs.get(todo.token) : undefined
-  if (!todo.token || !run) return
-  run.isGone = true
-  end(todo.token)
+// Each script keeps running in its tab, and resuming the session watches it again.
+export function releaseHerdr(): void {
+  for (const [token, run] of [...runs]) {
+    run.isGone = true
+    end(token)
+  }
 }
 
 export async function resumeWatching($: EngineInterface): Promise<void> {

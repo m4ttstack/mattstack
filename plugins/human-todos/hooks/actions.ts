@@ -3,8 +3,9 @@ import type { EngineInterface, On, RenderSurface } from 'claude-code'
 import type { Todo } from '../types'
 import type { ButtonId } from './items'
 import { report } from './report'
-import { cleanupHerdr } from './herdr'
-import { cleanupRun, forceStopRun, releaseRun, showRun, startRun, stopRun } from './runners'
+import { cleanupHerdr, releaseHerdr } from './herdr'
+import { releaseLocal } from './local'
+import { cleanupRun, forceStopRun, showRun, startRun, stopRun } from './runners'
 import { syncSpinner } from './spinner'
 import { getRunnerPref, listTodos, patchTodo, setRunnerPref } from './store'
 
@@ -142,15 +143,15 @@ export async function cleanup($: EngineInterface, gone: readonly Todo[]): Promis
 }
 
 // The list stays saved under the session being left, so its logs and tabs stay for when it is resumed.
-export async function release($: EngineInterface, left: readonly Todo[]): Promise<void> {
+// Every run goes, including one still being set up that no saved item names yet.
+export async function release($: EngineInterface): Promise<void> {
   let isFailed = false
-  for (const t of left) {
-    try {
-      if (t.status === 'running' && t.runner) await releaseRun($, t)
-    } catch {
-      isFailed = true
-    }
+  try {
+    await releaseLocal($)
+  } catch {
+    isFailed = true
   }
+  releaseHerdr()
   await syncSpinner($)
   if (isFailed) throw new Error('A runner could not let go')
 }

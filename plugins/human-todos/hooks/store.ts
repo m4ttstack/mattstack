@@ -28,7 +28,10 @@ export async function saveList($: EngineInterface): Promise<void> {
       nextId: await read($, nextId),
       savedAt: await $.clock.now(),
     }
-    await $.store.set(`${LIST_PREFIX}${await $.session.id()}`, entry)
+    // Work still in flight when a session is left must not save over the list it left behind.
+    const owner = await read($, loadedFor)
+    if (owner === null) return
+    await $.store.set(`${LIST_PREFIX}${owner}`, entry)
     await update($, isSaveFailed, () => false)
   } catch {
     if (await read($, isSaveFailed)) return
@@ -130,6 +133,12 @@ export async function restoreList($: EngineInterface): Promise<void> {
   }
   // Marked last, so a hook that sees the list loaded never sees it half loaded.
   await update($, loadedFor, () => id)
+}
+
+// The list stays saved under the session being left; the next touch loads whichever session is current.
+export async function leaveList($: EngineInterface): Promise<void> {
+  await update($, loadedFor, () => null)
+  await resetList($)
 }
 
 export async function resetList($: EngineInterface): Promise<void> {
