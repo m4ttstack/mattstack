@@ -1,4 +1,4 @@
-import { describe, expect, test, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test, mock } from 'bun:test';
 import { restoreMockedModulesAfterAll } from './module-restore.ts';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -9,7 +9,8 @@ import { StackManager } from '../src/core/stack-manager.ts';
 import { GitShell } from '../src/core/git-shell.ts';
 import type { Stack } from '../src/core/types.ts';
 import type { GitProvider, PullRequest, Pipeline, CreatePullRequestInput } from '@mattstack/glance';
-import { ReadBackFailedError } from '@mattstack/glance';
+import { GitHubProvider, ReadBackFailedError } from '@mattstack/glance';
+import { normalizePipelineStatus } from '../src/core/forge-helpers.ts';
 
 restoreMockedModulesAfterAll();
 
@@ -366,6 +367,139 @@ describe('ForgeSync.populateNodeData', () => {
     const node = StackManager.findNode(updated, 'feat/a')!;
 
     expect(node.pipelineStatus).toBe('failed');
+  });
+});
+
+// ── GitHub-shaped pipelines ──────────────────────────────────────────────────
+
+const realFetch = globalThis.fetch;
+const realSetTimeout = globalThis.setTimeout;
+let githubTokens = 0;
+
+function checkRun(id: number, conclusion: string, isRequired: boolean) {
+  return {
+    __typename: 'CheckRun',
+    databaseId: id,
+    name: `check-${id}`,
+    status: 'COMPLETED',
+    conclusion,
+    startedAt: '2026-01-02T00:00:00Z',
+    completedAt: '2026-01-02T00:01:00Z',
+    detailsUrl: null,
+    isRequired,
+    checkSuite: { workflowRun: { databaseId: 77, runNumber: 5, workflow: { name: 'CI' } } },
+  };
+}
+
+/** A GitHub provider whose network is one open PR on `feat/a` carrying `checks`. */
+function githubProviderWithChecks(checks: ReturnType<typeof checkRun>[]): GitHubProvider {
+  const user = { __typename: 'User', login: 'dev', avatarUrl: '', databaseId: 11, name: 'Dev' };
+  const node = {
+    id: 'PR_1',
+    databaseId: 1001,
+    number: 1,
+    title: 'Add thing',
+    body: '',
+    state: 'OPEN',
+    isDraft: false,
+    url: 'https://github.com/o/r/pull/1',
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-02T00:00:00Z',
+    mergedAt: null,
+    mergeable: 'MERGEABLE',
+    mergeStateStatus: 'CLEAN',
+    reviewDecision: null,
+    additions: 1,
+    deletions: 1,
+    changedFiles: 1,
+    headRefName: 'feat/a',
+    headRefOid: 'abc123',
+    baseRefName: 'main',
+    baseRepository: { databaseId: 500, nameWithOwner: 'o/r', defaultBranchRef: { name: 'main' } },
+    baseRef: { branchProtectionRule: null },
+    author: user,
+    assignees: { nodes: [] },
+    reviewRequests: { nodes: [] },
+    latestReviews: { nodes: [] },
+    latestOpinionatedReviews: { nodes: [] },
+    reviewThreads: { totalCount: 0, nodes: [] },
+    autoMergeRequest: null,
+    commits: {
+      nodes: [
+        {
+          commit: {
+            oid: 'abc123',
+            statusCheckRollup: {
+              state: 'SUCCESS',
+              contexts: {
+                totalCount: checks.length,
+                pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: checks,
+              },
+            },
+          },
+        },
+      ],
+    },
+  };
+  const json = (body: unknown) =>
+    new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    if (/\/graphql(\?|$)/.test(url)) {
+      return json({ data: { viewer: { databaseId: 11, login: 'dev' }, repository: { p1: node } } });
+    }
+    if (url.includes('/search/issues')) {
+      const q = new URL(url).searchParams.get('q') ?? '';
+      const items = q.includes(' author:@me')
+        ? [
+            {
+              number: 1,
+              state: 'open',
+              updated_at: '2026-01-02T00:00:00Z',
+              repository_url: 'https://api.github.com/repos/o/r',
+              pull_request: { url: '', merged_at: null },
+            },
+          ]
+        : [];
+      return json({ items });
+    }
+    return new Response(JSON.stringify({ message: 'Not Found' }), {
+      status: 404,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+  return new GitHubProvider('https://github.com', `tok-gitq-${++githubTokens}`);
+}
+
+describe('ForgeSync.populateNodeData on a GitHub read', () => {
+  // The provider's throttling plugin spaces GraphQL POSTs a real second apart.
+  beforeEach(() => {
+    globalThis.setTimeout = ((callback: (...args: unknown[]) => void, _ms?: number, ...args: unknown[]) =>
+      realSetTimeout(callback, 0, ...args)) as typeof setTimeout;
+  });
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    globalThis.setTimeout = realSetTimeout;
+  });
+
+  async function nodePipelineStatus(checks: ReturnType<typeof checkRun>[]) {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+    const updated = await ForgeSync.populateNodeData(githubProviderWithChecks(checks), stack, 'o/r');
+    return StackManager.findNode(updated, 'feat/a')!.pipelineStatus;
+  }
+
+  test('an optional failing check beside a required success reads as success', async () => {
+    const status = await nodePipelineStatus([checkRun(1, 'FAILURE', false), checkRun(2, 'SUCCESS', true)]);
+
+    expect(status).toBe(normalizePipelineStatus('success'));
+  });
+
+  test('a required canceled check reads as the canceled mapping', async () => {
+    const status = await nodePipelineStatus([checkRun(1, 'SUCCESS', true), checkRun(2, 'CANCELLED', true)]);
+
+    expect(status).toBe(normalizePipelineStatus('canceled'));
   });
 });
 

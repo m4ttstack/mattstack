@@ -741,7 +741,7 @@ export class GitHubProvider implements GitProvider {
       const involvements = [
         { qualifier: 'author:@me', role: 'author' },
         { qualifier: 'review-requested:@me', role: 'reviewer' },
-        { qualifier: 'reviewed-by:@me', role: 'reviewer' },
+        { qualifier: 'reviewed-by:@me -author:@me', role: 'reviewer' },
         { qualifier: 'assignee:@me', role: 'assignee' }
       ];
       const searched = await Promise.all(

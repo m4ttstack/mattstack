@@ -940,24 +940,31 @@ export async function runWriteConformance(
         'unapprovePullRequest',
         'the same identity can revoke',
         async () => {
+          const approverUsername = (await fixture.approver!.validateToken()).username;
           await fixture.approver!.unapprovePullRequest(projectPath, iid);
           // Same reasoning as requestReReview's check below: pollUntil
-          // resolves only once its predicate already found approved ===
-          // false, so a follow-up assert on that same condition could never
+          // resolves only once its predicate already found the approval
+          // gone, so a follow-up assert on that same condition could never
           // fire, and this success path has never run live before, so a
           // failure here is exactly where phase 4's real bug would recur.
           // Catching the timeout and re-reading gets the actual
           // approved/approvedBy state into the failure message instead of
           // pollUntil's generic "timed out" text.
+          //
+          // The approver leaving `approvedBy` is the claim, not `approved`:
+          // on a repo that requires no reviews GitHub's verdict reads
+          // approved with nobody having approved.
           try {
             await pollUntil(`unapproved state of ${iid}`, async () => {
               const fresh = await provider.fetchSingleMR(projectPath, iid, null);
-              return fresh?.approved === false ? fresh : null;
+              return fresh && !fresh.approvedBy.some(u => u.username === approverUsername)
+                ? fresh
+                : null;
             });
           } catch {
             const fresh = await provider.fetchSingleMR(projectPath, iid, null).catch(() => null);
             throw new Error(
-              `expected approved to become false, got ${fresh?.approved} ` +
+              `expected "${approverUsername}" to leave approvedBy, got approved=${fresh?.approved} ` +
                 `(approvedBy: ${JSON.stringify(fresh?.approvedBy.map(u => u.username) ?? [])})`
             );
           }
@@ -2613,7 +2620,15 @@ export async function runCiConformance(
 
   await check(report, fixture, 'retryPipeline', 'accepts a retry request', async () => {
     try {
-      await provider.retryPipeline(projectPath, probe.pipelineId);
+      if (fixture.name === 'github') {
+        // GitHub re-runs only the failed jobs of a run, and refuses a run
+        // that has none, which is what the settled probe usually is.
+        await withFailedGitHubJob(fixture, async failed => {
+          await provider.retryPipeline(projectPath, failed.pipelineId);
+        });
+      } else {
+        await provider.retryPipeline(projectPath, probe.pipelineId);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       // `latestPipelineAndJob` already scans newest-first and keeps the

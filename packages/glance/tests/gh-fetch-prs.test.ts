@@ -197,7 +197,7 @@ describe('GitHubProvider.fetchPullRequests: state', () => {
     expect(queries.filter((q) => q.includes('is:open is:pr')).length).toBe(4);
     expect(queries.filter((q) => q.includes('is:closed is:pr')).length).toBe(4);
     expect(queries.every((q) => q.includes('is:open') || q.includes('is:closed'))).toBe(true);
-    for (const involvement of ['author:@me', 'review-requested:@me', 'reviewed-by:@me', 'assignee:@me']) {
+    for (const involvement of [' author:@me', 'review-requested:@me', 'reviewed-by:@me -author:@me', 'assignee:@me']) {
       expect(queries.filter((q) => q.includes(involvement)).length).toBe(2);
     }
   });

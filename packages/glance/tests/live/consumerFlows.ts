@@ -272,19 +272,23 @@ interface FlowExpectation {
    * U7 (gitq): what `PullRequest.diffStats` carries for a PR returned by the
    * `projectPath`-alone listing mode.
    *
-   * `null` is the correct answer on GitHub, not a gap: that mode is a REST
-   * `/pulls` listing, and GitHub only returns additions/deletions/changed
-   * files from the single-PR endpoint (GitHubProvider.fetchPullRequests'
-   * own docstring says so). What gitq depends on is that the absence
-   * degrades to `null` -- not a throw, and not fabricated zeros, which would
-   * render as "no changes" in gitq's UI.
+   * `null` would be a provider that cannot read the counts in this mode.
+   * What gitq depends on is that an absence degrades to `null` -- not a
+   * throw, and not fabricated zeros, which would render as "no changes" in
+   * gitq's UI.
    */
   projectListDiffStats: 'populated' | 'null';
+  /**
+   * U9: whether the open, green fixture PR is declared mergeable. GitHub's
+   * fixture has no required reviews, so its readiness settles to `ready`;
+   * GitLab's depends on project approval settings this harness does not pin.
+   */
+  openPrReady: boolean;
 }
 
 const FLOW_EXPECTATIONS: Record<ProviderFixture['name'], FlowExpectation> = {
-  github: { projectListDiffStats: 'null' },
-  gitlab: { projectListDiffStats: 'populated' }
+  github: { projectListDiffStats: 'populated', openPrReady: true },
+  gitlab: { projectListDiffStats: 'populated', openPrReady: false }
 };
 
 function flowExpectationFor(provider: ProviderFixture['name']): FlowExpectation {
@@ -1280,8 +1284,29 @@ async function runDashboardFlows(
     async () => {
       const s = requireFixture(state, setupError);
       const draft = await provider.fetchSingleMR(projectPath, s.draftPr.iid, null);
-      const open = await provider.fetchSingleMR(projectPath, s.stackPr.iid, null);
-      assert(draft !== null && open !== null, 'could not read both fixture PRs back');
+      assert(draft !== null, 'could not read the draft fixture PR back');
+      // A fresh PR's merge state and checks settle behind the write; reading
+      // before they do reports `checking`, which is the right answer for that
+      // moment and the wrong one to pin a value on.
+      const observed: string[] = [];
+      let open = await provider.fetchSingleMR(projectPath, s.stackPr.iid, null);
+      try {
+        open = await pollUntil(
+          `readiness of PR ${s.stackPr.iid} to leave checking`,
+          async () => {
+            const pr = await provider.fetchSingleMR(projectPath, s.stackPr.iid, null);
+            if (pr) observed.push(pr.readiness?.state ?? 'absent');
+            return pr && pr.readiness?.state !== 'checking' ? pr : null;
+          },
+          { timeoutMs: 90_000, intervalMs: 3_000 }
+        );
+      } catch {
+        // Falls through with the last read, which the assertions below judge.
+      }
+      assert(open !== null, 'could not read the open fixture PR back');
+      console.log(
+        `  U9 ${fixture.name} readiness observed on the open PR: ${observed.join(', ') || 'none'}`
+      );
 
       const draftProps = getMRDashboardProps(draft);
       const openProps = getMRDashboardProps(open, 'idle');
@@ -1292,11 +1317,26 @@ async function runDashboardFlows(
       assert(draftProps.state === 'draft', `expected state "draft", got "${draftProps.state}"`);
       assert(draftProps.isDraft === true, 'isDraft should be true for a draft PR');
       assert(draftProps.status === 'draft', `expected status "draft", got "${draftProps.status}"`);
+      assert(
+        draftProps.readiness?.state === 'draft',
+        `expected readiness.state "draft", got ${JSON.stringify(draftProps.readiness)}`
+      );
       assert(draftProps.blockers.isDraft === true, 'blockers.isDraft should be true for a draft PR');
       assert(draftProps.blockers.any === true, 'a draft PR is blocked, so blockers.any must be true');
       assert(openProps.isDraft === false, 'the non-draft PR should not read as a draft');
       assert(openProps.state === 'opened', `expected state "opened", got "${openProps.state}"`);
       assert(openProps.connection === 'idle', `expected connection "idle", got "${openProps.connection}"`);
+      assert(openProps.readiness !== null, 'the open PR carries no readiness');
+      if (flowExpectationFor(fixture.name).openPrReady) {
+        assert(
+          openProps.isReady === true,
+          `the open PR should read isReady, got readiness ${JSON.stringify(openProps.readiness)}`
+        );
+        assert(
+          openProps.readiness!.state === 'ready' || openProps.readiness!.state === 'checking',
+          `the open PR should read ready or checking, got ${JSON.stringify(openProps.readiness)}`
+        );
+      }
 
       const statuses = new Set(['mergeable', 'blocked', 'draft', 'closed', 'merged']);
       for (const [label, props] of [['draft', draftProps], ['open', openProps]] as const) {
@@ -1306,9 +1346,9 @@ async function runDashboardFlows(
           typeof props.isCheckingMergeability === 'boolean',
           `${label}: isCheckingMergeability is ${typeof props.isCheckingMergeability}`
         );
-        // `pipeline` is nullable by design (GitHub reports null under
-        // listWeight, and a PR can genuinely have no pipeline), but a present
-        // one must carry the counts the UI switches on rather than undefined.
+        // `pipeline` is nullable by design (a PR can genuinely have no
+        // pipeline), but a present one must carry the counts the UI
+        // switches on rather than undefined.
         if (props.pipeline !== null) {
           for (const field of ['passing', 'failing', 'running', 'total'] as const) {
             assert(
@@ -1460,8 +1500,24 @@ async function runDashboardFlows(
     'U10 mr-board/rt: a live reviewer\'s raw reviewState maps into the display set, and displayState agrees when present',
     async () => {
       const s = requireFixture(state, setupError);
-      const pr = await provider.fetchSingleMR(projectPath, s.draftPr.iid, null);
+      let pr = await provider.fetchSingleMR(projectPath, s.draftPr.iid, null);
       assert(pr !== null, `fetchSingleMR lost PR ${s.draftPr.iid}`);
+      if (pr.reviewers.length > 0 && fixture.approver) {
+        // The assigned reviewer approves, and the dashboard must then carry
+        // that reviewer with the raw state the display mapping starts from.
+        const reviewer = (await fixture.approver.validateToken()).username;
+        await fixture.approver.approvePullRequest(projectPath, s.draftPr.iid);
+        pr = await pollUntil(
+          `${reviewer} to read as an APPROVED reviewer of PR ${s.draftPr.iid}`,
+          async () => {
+            const fresh = await provider.fetchSingleMR(projectPath, s.draftPr.iid, null);
+            if (!fresh) return null;
+            const row = getMRDashboardProps(fresh).reviews.reviewers.find(r => r.username === reviewer);
+            return row?.reviewState === 'APPROVED' ? fresh : null;
+          },
+          { timeoutMs: 60_000, intervalMs: 2_000 }
+        );
+      }
       if (pr.reviewers.length === 0) {
         throw new Inconclusive(
           `PR ${s.draftPr.iid} has no assigned reviewers, so no live reviewState exists to map: ${s.reviewerReason || 'the reviewer was requested but the forge reports none'}`

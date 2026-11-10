@@ -635,8 +635,12 @@ describe('GitHubProvider list and search reads through the fill', () => {
   });
 
   test('a PR I reviewed stays in my list', async () => {
+    const queries: string[] = [];
     stubForge({
-      rest: searchBy((q) => (q.includes('reviewed-by:@me') ? [searchHit(9)] : [])),
+      rest: searchBy((q) => {
+        queries.push(q);
+        return q.includes('reviewed-by:@me') ? [searchHit(9)] : [];
+      }),
       fill: fillAll
     });
 
@@ -644,13 +648,16 @@ describe('GitHubProvider list and search reads through the fill', () => {
 
     expect(prs.map((p) => p.iid)).toEqual([9]);
     expect(prs[0]!.roles).toContain('reviewer');
+    const reviewedBy = queries.filter((q) => q.includes('reviewed-by:@me'));
+    expect(reviewedBy.length).toBeGreaterThan(0);
+    expect(reviewedBy.every((q) => q.includes('reviewed-by:@me -author:@me'))).toBe(true);
   });
 
   test('the involvement search merges roles and fills each repository once', async () => {
     const filled: Array<{ repo: string; numbers: number[] }> = [];
     stubForge({
       rest: searchBy((q) => {
-        if (q.includes('author:@me')) return [searchHit(1), searchHit(4, 'o/other')];
+        if (q.includes(' author:@me')) return [searchHit(1), searchHit(4, 'o/other')];
         if (q.includes('assignee:@me')) return [searchHit(1), searchHit(2)];
         return [];
       }),
