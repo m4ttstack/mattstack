@@ -35,6 +35,7 @@ afterAll(async () => {
 
 const MR = {
   iid: 1418,
+  title: 'ACME-2214 Port the v2 quiet-mode flows',
   webUrl: 'https://gitlab.example.com/acme/webapp/-/merge_requests/1418',
   gates: [],
 } as unknown as BoardMRWithReview;
@@ -516,7 +517,7 @@ test('a launch-respond verb for one person hands that person to onRespond', asyn
   expect(calls).toEqual(['john']);
 });
 
-test('a sync line opens its output from the word, streaming lines join it while it runs, and clicks inside never reach the row', async () => {
+test('a sync opens its drawer for whoever started it, the word and pips follow the steps, and clicks inside never reach the row', async () => {
   const { startSyncLines, pushSyncLine } = await import('../sync-lines.ts');
   const mr = {
     ...MR,
@@ -525,7 +526,6 @@ test('a sync line opens its output from the word, streaming lines join it while 
   } as unknown as BoardMRWithReview;
   const rowClicks: string[] = [];
   const onRow = () => rowClicks.push('row');
-  document.body.addEventListener('click', onRow);
   startSyncLines(mr.webUrl!);
   await React.act(async () => {
     root.render(
@@ -555,20 +555,39 @@ test('a sync line opens its output from the word, streaming lines join it while 
       '[running] Rebasing feat onto origin/main  3 commits behind'
     );
   });
+  const word = container.querySelector('.tui-status-word-log')!;
+  expect(word.textContent).toBe('rebasing');
   expect(
-    container.querySelector('.tui-status-word-log')?.textContent
-  ).toContain('syncing…');
-  const lines = [...document.querySelectorAll('.tui-synclog-line')];
+    [...word.querySelectorAll('.tui-sync-pip')].map(p =>
+      p.getAttribute('data-state')
+    )
+  ).toEqual(['done', 'pending', 'running', 'pending']);
   expect(
-    lines.map(l => l.querySelector('.tui-synclog-glyph')?.textContent)
+    container.querySelector('.tui-status-detail')?.textContent
+  ).toBe('3 commits onto main');
+
+  const drawer = document.querySelector('[data-part="sidedrawer"]')!;
+  expect(drawer).not.toBeNull();
+  const steps = [...drawer.querySelectorAll('.tui-syncsteps-step')];
+  expect(steps.map(s => s.getAttribute('data-state'))).toEqual([
+    'done',
+    'pending',
+    'running',
+    'pending',
+  ]);
+  expect(
+    steps[2]?.querySelector('.tui-syncsteps-detail')?.textContent
+  ).toBe('3 commits');
+  const raw = [...drawer.querySelectorAll('.tui-synclog-line')];
+  expect(
+    raw.map(l => l.querySelector('.tui-synclog-glyph')?.textContent)
   ).toEqual(['✓', '●']);
-  expect(lines[1]?.querySelector('.tui-synclog-hint')?.textContent).toBe(
-    '3 commits behind'
-  );
+
   rowClicks.length = 0;
   await React.act(async () => {
-    (lines[0] as HTMLElement).click();
+    (steps[0] as HTMLElement).click();
   });
-  document.body.removeEventListener('click', onRow);
+  // The drawer sits in a portal on body, so only React's bubbling could
+  // carry a click from it to the row.
   expect(rowClicks).toEqual([]);
 });

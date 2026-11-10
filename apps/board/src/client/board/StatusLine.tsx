@@ -215,7 +215,8 @@ function SyncLogWord({
         }}
       >
         {word}
-        <StepPips view={view} />
+        {/* Pips are progress; a finished sync's word says how it ended. */}
+        {running && <StepPips view={view} />}
       </button>
       {createPortal(
         <RowSpotlight mrUrl={mr.webUrl} open={open} />,
@@ -345,12 +346,10 @@ function MoreStatuses({
                 {l.spin === true && (
                   <span className="tui-status-ring" aria-hidden />
                 )}
+                {/* The list is where a clipped detail is read in full. */}
                 {detail && (
-                  <span
-                    className="tui-status-detail"
-                    title={detail.full ?? undefined}
-                  >
-                    {detail.text}
+                  <span className="tui-status-detail">
+                    {detail.full ?? detail.text}
                   </span>
                 )}
               </span>

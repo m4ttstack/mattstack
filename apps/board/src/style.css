@@ -1353,6 +1353,13 @@ button.tui-status-more-verb:active {
 .tui-status-more-text .tui-status-ring {
   margin-left: 8px;
 }
+.tui-status-more-text {
+  flex-wrap: wrap;
+}
+.tui-status-more-text .tui-status-detail {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .tui-status-more-line[data-tone='bad'] .tui-status-word {
   color: var(--text-bad);
 }
