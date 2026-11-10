@@ -1025,6 +1025,19 @@ export class GitLabProvider implements GitProvider {
    * Roles are computed by matching `currentUserNumericId` against the MR's
    * author, assignees, and reviewers.
    */
+  /**
+   * Only `diverged_commits_count`, through one REST call and no GraphQL
+   * detail query, for callers that refresh the count on MRs fetched by a
+   * path that leaves it null. Rejects on a failed request so a caller can
+   * keep the value it already has.
+   */
+  async fetchDivergedCount(projectPath: string, mrIid: number): Promise<number | null> {
+    const data = (await this.gb.MergeRequests.show(projectPath, mrIid, {
+      includeDivergedCommitsCount: true,
+    } as never)) as unknown as { diverged_commits_count?: number | null };
+    return data.diverged_commits_count ?? null;
+  }
+
   async fetchSingleMR(
     projectPath: string,
     mrIid: number,
