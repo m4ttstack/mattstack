@@ -487,7 +487,7 @@ describe('rate limits fail fast', () => {
     expect(err).toBeInstanceOf(RateLimitedError);
   });
 
-  test('a rate-limited detail read on a search path reports kind rate-limited', async () => {
+  test('a rate-limited fill on a search path throws RateLimitedError with resetAt', async () => {
     const reset = inAnHour();
     stub([
       () =>
@@ -510,21 +510,19 @@ describe('rate limits fail fast', () => {
     const warnings: FetchPullRequestsWarning[] = [];
 
     const provider = new GitHubProvider('https://github.com', 'tok-listwarn');
-    await withInstantTimers(() =>
-      provider.fetchPullRequests({
-        projectPath: 'a/b',
-        authorUsernames: ['alice'],
-        onWarning: w => warnings.push(w)
-      })
+    const err = await withInstantTimers(() =>
+      provider
+        .fetchPullRequests({
+          projectPath: 'a/b',
+          authorUsernames: ['alice'],
+          onWarning: w => warnings.push(w)
+        })
+        .catch(e => e)
     );
 
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toMatchObject({
-      kind: 'rate-limited',
-      source: 'detail',
-      target: 'a/b#1',
-      resetAt: new Date(Number(reset) * 1000).toISOString()
-    });
+    expect(err).toBeInstanceOf(RateLimitedError);
+    expect(err.resetAt).toBe(new Date(Number(reset) * 1000).toISOString());
+    expect(warnings).toEqual([]);
   });
 
   test('a rate-limited list read throws RateLimitedError', async () => {

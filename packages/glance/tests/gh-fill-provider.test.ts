@@ -504,3 +504,337 @@ describe('buildFillQuery reads the viewer and the auto-merge enabler', () => {
     expect(q).toMatch(/autoMergeRequest \{ mergeMethod enabledBy \{ __typename login avatarUrl/);
   });
 });
+
+/** A `/pulls` listing entry: only the fields discovery reads. */
+function listed(
+  n: number,
+  over: { state?: string; merged_at?: string | null; updated_at?: string; base?: string } = {}
+) {
+  return {
+    number: n,
+    state: over.state ?? 'open',
+    merged_at: over.merged_at ?? null,
+    updated_at: over.updated_at ?? '2026-01-02T00:00:00Z',
+    base: { ref: over.base ?? 'main', repo: { id: 500, full_name: 'o/r', default_branch: 'main' } }
+  };
+}
+
+/** A `/search/issues` PR item. */
+function searchHit(n: number, repo = 'o/r') {
+  return {
+    number: n,
+    state: 'open',
+    updated_at: '2026-01-02T00:00:00Z',
+    repository_url: `https://api.github.com/repos/${repo}`,
+    pull_request: { url: '', merged_at: null }
+  };
+}
+
+const fillAll = (numbers: number[]) => Object.fromEntries(numbers.map((n) => [n, nodeFor(n)]));
+
+/** Answers search pages by the decoded query; every other URL falls through. */
+function searchBy(answer: (q: string) => ReturnType<typeof searchHit>[]) {
+  return (url: string) => {
+    if (!url.includes('/search/issues')) return undefined;
+    const q = new URL(url).searchParams.get('q') ?? '';
+    return jsonResponse({ items: answer(q) });
+  };
+}
+
+function rateLimited(): Response {
+  return jsonResponse({ message: 'API rate limit exceeded' }, 403, {
+    'x-ratelimit-remaining': '0',
+    'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 3600)
+  });
+}
+
+const limitedFill = () =>
+  jsonResponse({ data: null, errors: [{ type: 'RATE_LIMITED', message: 'API rate limit exceeded' }] });
+
+describe('GitHubProvider list and search reads through the fill', () => {
+  test('project list fills every listed PR in one request', async () => {
+    const filled: number[][] = [];
+    const { urls } = stubForge({
+      rest: (url) =>
+        url.includes('/repos/o/r/pulls?') ? jsonResponse([listed(1), listed(2), listed(3)]) : undefined,
+      fill: (numbers) => {
+        filled.push(numbers);
+        return fillAll(numbers);
+      }
+    });
+
+    const prs = await provider().fetchPullRequests({ projectPath: 'o/r' });
+
+    expect(prs.map((p) => p.iid)).toEqual([1, 2, 3]);
+    expect(filled).toEqual([[1, 2, 3]]);
+    expect(prs[0]!.readiness).toEqual({ state: 'ready', reasons: [] });
+    expect(prs[0]!.diffStats).toEqual({ additions: 10, deletions: 2, filesChanged: 3 });
+    expect(urls.some((u) => /\/pulls\/\d+($|\/)/.test(u))).toBe(false);
+  });
+
+  test('listWeight keeps CI', async () => {
+    let query = '';
+    stubForge({
+      rest: (url) => (url.includes('/repos/o/r/pulls?') ? jsonResponse([listed(1)]) : undefined),
+      fill: (numbers, q) => {
+        query = q;
+        // GitHub answers only the fields asked for.
+        const { body: _body, ...node } = nodeFor(1);
+        return /\bbody\b/.test(q) ? fillAll(numbers) : { 1: node };
+      }
+    });
+
+    const [pr] = await provider().fetchPullRequests({ projectPath: 'o/r', listWeight: true });
+
+    expect(pr!.pipeline).not.toBeNull();
+    expect(pr!.pipeline!.status).toBe('success');
+    expect(pr!.description).toBeNull();
+    expect(query).not.toMatch(/\bbody\b/);
+  });
+
+  test('excludeTargetBranches drops listed PRs before the fill', async () => {
+    const filled: number[][] = [];
+    stubForge({
+      rest: (url) =>
+        url.includes('/repos/o/r/pulls?')
+          ? jsonResponse([listed(1), listed(2, { base: 'deployments/qa' })])
+          : undefined,
+      fill: (numbers) => {
+        filled.push(numbers);
+        return fillAll(numbers);
+      }
+    });
+
+    const prs = await provider().fetchPullRequests({
+      projectPath: 'o/r',
+      excludeTargetBranches: ['deployments/qa']
+    });
+
+    expect(prs.map((p) => p.iid)).toEqual([1]);
+    expect(filled).toEqual([[1]]);
+  });
+
+  test('authorUsernames fills the hits once and drops excluded target branches', async () => {
+    const filled: number[][] = [];
+    stubForge({
+      rest: searchBy(() => [searchHit(1), searchHit(2)]),
+      fill: (numbers) => {
+        filled.push(numbers);
+        return { 1: nodeFor(1), 2: nodeFor(2, { baseRefName: 'deployments/qa' }) };
+      }
+    });
+
+    const prs = await provider().fetchPullRequests({
+      projectPath: 'o/r',
+      authorUsernames: ['ada', 'grace'],
+      excludeTargetBranches: ['deployments/qa']
+    });
+
+    expect(prs.map((p) => p.iid)).toEqual([1]);
+    expect(filled).toEqual([[1, 2]]);
+  });
+
+  test('a PR I reviewed stays in my list', async () => {
+    stubForge({
+      rest: searchBy((q) => (q.includes('reviewed-by:@me') ? [searchHit(9)] : [])),
+      fill: fillAll
+    });
+
+    const prs = await provider().fetchPullRequests();
+
+    expect(prs.map((p) => p.iid)).toEqual([9]);
+    expect(prs[0]!.roles).toContain('reviewer');
+  });
+
+  test('the involvement search merges roles and fills each repository once', async () => {
+    const filled: Array<{ repo: string; numbers: number[] }> = [];
+    stubForge({
+      rest: searchBy((q) => {
+        if (q.includes('author:@me')) return [searchHit(1), searchHit(4, 'o/other')];
+        if (q.includes('assignee:@me')) return [searchHit(1), searchHit(2)];
+        return [];
+      }),
+      fill: (numbers, q) => {
+        filled.push({ repo: /name: "([^"]+)"/.exec(q)![1]!, numbers });
+        return fillAll(numbers);
+      }
+    });
+
+    const prs = await provider().fetchPullRequests();
+
+    expect(prs.map((p) => p.iid)).toEqual([1, 4, 2]);
+    expect(prs[0]!.roles.sort()).toEqual(['assignee', 'author']);
+    expect(filled).toEqual([
+      { repo: 'r', numbers: [1, 2] },
+      { repo: 'other', numbers: [4] }
+    ]);
+  });
+
+  test('a list fill that fails for one PR keeps the rest and warns for that PR', async () => {
+    stubForge({
+      rest: (url) =>
+        url.includes('/repos/o/r/pulls?') ? jsonResponse([listed(1), listed(2)]) : undefined,
+      graphql: () =>
+        jsonResponse({
+          data: { repository: { p1: nodeFor(1), p2: null } },
+          errors: [{ type: 'INTERNAL', path: ['repository', 'p2'], message: 'Something went wrong' }]
+        })
+    });
+    const warnings: FetchPullRequestsWarning[] = [];
+
+    const prs = await provider().fetchPullRequests({
+      projectPath: 'o/r',
+      onWarning: (w) => warnings.push(w)
+    });
+
+    expect(prs.map((p) => p.iid)).toEqual([1]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatchObject({ kind: 'request-failed', source: 'fill', target: 'o/r#2' });
+  });
+
+  test('a rate-limited list fill throws, not a short list', async () => {
+    stubForge({
+      rest: (url) => (url.includes('/repos/o/r/pulls?') ? jsonResponse([listed(1)]) : undefined),
+      graphql: limitedFill
+    });
+
+    await expect(provider().fetchPullRequests({ projectPath: 'o/r' })).rejects.toBeInstanceOf(
+      RateLimitedError
+    );
+  });
+
+  test('a rate-limited search page throws, not a short list', async () => {
+    stubForge({
+      rest: (url) => (url.includes('/search/issues') ? rateLimited() : undefined),
+      fill: fillAll
+    });
+
+    await expect(provider().fetchPullRequests()).rejects.toBeInstanceOf(RateLimitedError);
+    await expect(
+      provider().fetchPullRequests({ projectPath: 'o/r', authorUsernames: ['ada'] })
+    ).rejects.toBeInstanceOf(RateLimitedError);
+  });
+
+  test('a rate-limited search fill throws too', async () => {
+    stubForge({ rest: searchBy(() => [searchHit(1)]), graphql: limitedFill });
+
+    await expect(provider().fetchPullRequests()).rejects.toBeInstanceOf(RateLimitedError);
+  });
+});
+
+describe('GitHubProvider re-request and merge cleanup', () => {
+  /** Records the reviewers each re-request POST asked for. */
+  function recordReRequests(node: GHFillNode): { posted: string[][]; urls: string[] } {
+    const posted: string[][] = [];
+    const { urls } = stubForge({
+      fill: () => ({ 3: node }),
+      rest: (url, method, body) => {
+        if (method === 'POST' && url.endsWith('/pulls/3/requested_reviewers')) {
+          posted.push((JSON.parse(body ?? '{}') as { reviewers: string[] }).reviewers);
+          return jsonResponse({});
+        }
+        return undefined;
+      }
+    });
+    return { posted, urls };
+  }
+
+  test('requestReReview reaches past reviewers', async () => {
+    const { posted, urls } = recordReRequests(nodeFor(3));
+
+    await provider().requestReReview('o/r', 3);
+
+    expect(posted).toEqual([['bob']]);
+    expect(urls.some((u) => /\/pulls\/3$/.test(u))).toBe(false);
+    expect(urls.some((u) => u.includes('/rules/branches/'))).toBe(false);
+  });
+
+  test('requestReReview keeps pending requests and skips bots and deleted accounts', async () => {
+    const { posted } = recordReRequests(
+      nodeFor(3, {
+        reviewRequests: {
+          nodes: [
+            { requestedReviewer: { login: 'carol', databaseId: 13, name: 'Carol', avatarUrl: null } }
+          ]
+        },
+        latestReviews: {
+          nodes: [
+            {
+              state: 'COMMENTED',
+              submittedAt: null,
+              author: { __typename: 'Bot', login: 'coderabbitai', avatarUrl: null, databaseId: 99 }
+            },
+            { state: 'APPROVED', submittedAt: null, author: null },
+            {
+              state: 'APPROVED',
+              submittedAt: null,
+              author: { __typename: 'User', login: 'bob', avatarUrl: null, databaseId: 12, name: 'Bob' }
+            }
+          ]
+        }
+      })
+    );
+
+    await provider().requestReReview('o/r', 3);
+
+    expect(posted).toEqual([['carol', 'bob']]);
+  });
+
+  test('requestReReview with nobody to ask still throws', async () => {
+    const { posted } = recordReRequests(
+      nodeFor(3, { latestReviews: { nodes: [] }, latestOpinionatedReviews: { nodes: [] } })
+    );
+
+    await expect(provider().requestReReview('o/r', 3)).rejects.toThrow(
+      'requestReReview: nothing to re-request -- no reviewerUsernames given and the PR has no existing reviewers'
+    );
+    expect(posted).toEqual([]);
+  });
+
+  test('requestReReview names a failed read instead of re-requesting nobody', async () => {
+    stubForge({ graphql: () => jsonResponse({ message: 'Bad Gateway' }, 502) });
+
+    await expect(provider().requestReReview('o/r', 3)).rejects.toThrow(
+      /^requestReReview: failed to fetch PR: 502/
+    );
+  });
+
+  test('a rate-limited head repository read after a merge throws RateLimitedError', async () => {
+    stubForge({
+      fill: fillAll,
+      rest: (url, method) => {
+        if (method === 'PUT') return jsonResponse({ merged: true, sha: 'm1' });
+        if (method === 'GET' && /\/pulls\/9$/.test(url)) return rateLimited();
+        return undefined;
+      }
+    });
+
+    await expect(
+      provider().mergePullRequest('o/r', 9, { shouldRemoveSourceBranch: true })
+    ).rejects.toBeInstanceOf(RateLimitedError);
+  });
+
+  test('a failed head repository read after a merge says so, not "head repository unknown"', async () => {
+    stubForge({
+      fill: fillAll,
+      rest: (url, method) => {
+        if (method === 'PUT') return jsonResponse({ merged: true, sha: 'm1' });
+        if (method === 'GET' && /\/pulls\/9$/.test(url)) {
+          return jsonResponse({ message: 'Forbidden' }, 403);
+        }
+        return undefined;
+      }
+    });
+
+    const err = await provider()
+      .mergePullRequest('o/r', 9, { shouldRemoveSourceBranch: true })
+      .then(
+        () => null,
+        (e: unknown) => e as Error
+      );
+
+    expect(err?.message).toMatch(
+      /^mergePullRequest merged but could not delete source branch "feature": reading the PR failed: 403/
+    );
+  });
+});

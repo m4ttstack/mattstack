@@ -22,7 +22,6 @@ import { parseUpdatedAfter, requireProjectPath, warningTarget } from './GitProvi
 import type {
   BranchProtectionRule,
   CreatePullRequestInput,
-  DiffStats,
   Discussion,
   InvalidationBatch,
   JobDetail,
@@ -35,7 +34,6 @@ import type {
   NoteAuthor,
   NotePosition,
   Pipeline,
-  PipelineJob,
   ProviderCapabilities,
   PullRequest,
   UpdatePullRequestInput,
@@ -71,10 +69,10 @@ import {
   type GHFillViewer
 } from './githubFill.ts';
 // GitHub's own generated REST response shapes (MAT-144): the GH*-prefixed
-// interfaces below derive from these `components`/`operations` types where a
-// schema exists, so a field GitHub renames or drops becomes a compile error
-// here instead of a silent `undefined` at a call site.
-import type { components, operations } from '@octokit/openapi-types';
+// interfaces below derive from these `components` types where a schema
+// exists, so a field GitHub renames or drops becomes a compile error here
+// instead of a silent `undefined` at a call site.
+import type { components } from '@octokit/openapi-types';
 // This package depends on @octokit/request-error directly so `err instanceof
 // RequestError` below can narrow errors thrown by @octokit/core's OWN copy of
 // this class. That only works while npm/bun dedupe the two into one module
@@ -101,8 +99,8 @@ import { ReadBackFailedError } from './errors.ts';
 // beyond what the schema promises -- assumed-always-present, narrowed off
 // `number | bigint`, sliced out of a shape shared with a slimmer sibling
 // endpoint -- are declared explicitly with a one-line comment explaining the
-// narrowing. The four GraphQL response shapes further down (starting at
-// GHReviewThreadsResponse) stay fully hand-rolled: @octokit/openapi-types
+// narrowing. The GraphQL response shapes further down (starting at
+// GHReviewThread) stay fully hand-rolled: @octokit/openapi-types
 // only documents the REST surface, not the GraphQL schema this file queries
 // via `graphqlOrThrow`.
 // ---------------------------------------------------------------------------
@@ -177,34 +175,6 @@ type GHReview = Pick<components['schemas']['pull-request-review'], 'state'> & {
   // /pulls/{number}/reviews page this file reads has never omitted it.
   submitted_at: string;
 };
-
-type GHCheckRun = Pick<
-  components['schemas']['check-run'],
-  'name' | 'status' | 'conclusion' | 'started_at' | 'completed_at' | 'head_sha'
-> & {
-  id: number;
-  // Schema allows `html_url: null`; this file has never observed that case.
-  html_url: string;
-};
-
-/** The `GET .../commits/{sha}/check-runs` envelope (operation, not a named schema). */
-type GHCheckSuite = Pick<
-  operations['checks/list-for-ref']['responses'][200]['content']['application/json'],
-  'total_count'
-> & {
-  check_runs: GHCheckRun[];
-};
-
-/** `nodes(ids:)` review-thread projection. Non-PR nodes come back as null. */
-interface GHReviewThreadsResponse {
-  nodes: Array<{
-    id?: string;
-    reviewThreads?: {
-      pageInfo?: { hasNextPage: boolean };
-      nodes: Array<{ isResolved: boolean }>;
-    };
-  } | null>;
-}
 
 /** One review thread, joined to REST review comments by its root comment. */
 interface GHReviewThread {
@@ -342,28 +312,16 @@ const LIST_MAX_PAGES = 20;
  */
 const RULES_CACHE_MS = 600_000;
 
-/** PRs per batched `nodes(ids:)` review-thread query. */
-const THREAD_BATCH_SIZE = 50;
-
 /**
  * Branch aliases per batched `pullRequests(headRefName:)` query.
  *
- * Same 50 as `THREAD_BATCH_SIZE`, for the same reason: GitHub scores a
- * GraphQL query's cost from the connections it asks for, and a single query
- * with hundreds of aliased connections is both rejected past the node limit
+ * GitHub scores a GraphQL query's cost from the connections it asks for, and
+ * a single query with hundreds of aliased connections is both rejected past
+ * the node limit
  * and unattributable when it fails -- one bad alias takes the whole request
  * with it. Fifty keeps each request cheap and each failure small.
  */
 const BRANCH_BATCH_SIZE = 50;
-
-/**
- * Per-PR requests in flight at once (detail, reviews, check runs).
- *
- * An unbounded `Promise.all` over a few hundred PRs opens a few hundred
- * sockets and spends the secondary rate limit in one burst, which GitHub
- * answers with 403s. Slower and complete beats faster and throttled.
- */
-const DETAIL_CONCURRENCY = 8;
 
 /**
  * Follow-up contexts pages per PR, 100 checks each, past the fill's first
@@ -371,12 +329,7 @@ const DETAIL_CONCURRENCY = 8;
  */
 const CONTEXTS_MAX_PAGES = 10;
 
-/**
- * GraphQL page size for review threads. `fetchUnresolvedThreadCounts` reads
- * a single page per PR and reports the count as unknown beyond it;
- * `fetchReviewThreadIndex` instead walks further pages up to
- * `THREAD_MAX_PAGES`.
- */
+/** GraphQL page size for `fetchReviewThreadIndex`'s review-thread walk. */
 const THREAD_PAGE_SIZE = 100;
 
 /**
@@ -475,13 +428,7 @@ function listStateParam(wanted: Set<MRState>): 'open' | 'closed' | 'all' {
   return 'all';
 }
 
-/** A PR plus the roles the token user holds on it. */
-interface PRWithRoles {
-  pr: GHPullRequest;
-  roles: string[];
-}
-
-/** A PR a search matched, before it has been fetched in full. */
+/** A PR a search matched, before the fill reads it. */
 interface SearchHit {
   /** `owner/repo`. */
   repoPath: string;
@@ -499,28 +446,6 @@ function dedupeHits(hits: SearchHit[]): SearchHit[] {
     if (!seen.has(hitKey(hit))) seen.set(hitKey(hit), hit);
   }
   return [...seen.values()];
-}
-
-/**
- * `task` over every item with at most `limit` running at once, results in
- * input order.
- */
-async function mapPool<T, R>(
-  items: T[],
-  limit: number,
-  task: (item: T) => Promise<R>
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let next = 0;
-  const worker = async () => {
-    for (let i = next++; i < items.length; i = next++) {
-      results[i] = await task(items[i]!);
-    }
-  };
-  await Promise.all(
-    Array.from({ length: Math.min(limit, items.length) }, worker)
-  );
-  return results;
 }
 
 /**
@@ -576,80 +501,6 @@ function mapStateToGraphQLStates(
   }
 }
 
-/**
- * Map GitHub check runs to our Pipeline model.
- * GitHub doesn't have a single "pipeline" concept; we synthesize one from check runs.
- */
-function toPipeline(
-  checkRuns: GHCheckRun[],
-  prHtmlUrl: string,
-  headRef: string | null
-): Pipeline | null {
-  if (checkRuns.length === 0) return null;
-
-  const jobs: PipelineJob[] = checkRuns.map(cr => ({
-    id: `github:check:${cr.id}`,
-    name: cr.name,
-    stage: 'checks', // GitHub doesn't have stages; use a flat stage name
-    status: normalizeCheckStatus(cr),
-    allowFailure: false,
-    duration: cr.started_at && cr.completed_at
-      ? Math.round((new Date(cr.completed_at).getTime() - new Date(cr.started_at).getTime()) / 1000)
-      : null,
-    webUrl: cr.html_url
-  }));
-
-  // Derive overall pipeline status from individual check runs
-  const statuses = jobs.map(j => j.status);
-  let overallStatus: string;
-  if (statuses.some(s => s === 'failed')) {
-    overallStatus = 'failed';
-  } else if (statuses.some(s => s === 'running')) {
-    overallStatus = 'running';
-  } else if (statuses.some(s => s === 'pending')) {
-    overallStatus = 'pending';
-  } else if (statuses.every(s => s === 'success' || s === 'skipped')) {
-    overallStatus = 'success';
-  } else {
-    overallStatus = 'pending';
-  }
-
-  return {
-    id: `github:checks:${prHtmlUrl}`,
-    status: overallStatus,
-    sha: checkRuns[0]?.head_sha ?? null,
-    ref: headRef,
-    mergeRequestEventType: null,
-    createdAt: null,
-    webUrl: `${prHtmlUrl}/checks`,
-    jobs
-  };
-}
-
-function normalizeCheckStatus(cr: GHCheckRun): string {
-  if (cr.status === 'completed') {
-    switch (cr.conclusion) {
-      case 'success':
-        return 'success';
-      case 'failure':
-      case 'timed_out':
-        return 'failed';
-      case 'cancelled':
-        return 'canceled';
-      case 'skipped':
-        return 'skipped';
-      case 'neutral':
-        return 'success';
-      case 'action_required':
-        return 'manual';
-      default:
-        return 'pending';
-    }
-  }
-  if (cr.status === 'in_progress') return 'running';
-  return 'pending'; // "queued"
-}
-
 // ---------------------------------------------------------------------------
 // GitHubProvider
 // ---------------------------------------------------------------------------
@@ -661,7 +512,6 @@ export class GitHubProvider implements GitProvider {
   private readonly token: string;
   private readonly log: ForgeLogger;
   private readonly octokit: GlanceOctokit;
-  private currentUserPromise: Promise<GHUser | null> | null = null;
   private readonly now: () => number;
   private readonly rulesCache = new Map<string, { required: number | null; at: number }>();
 
@@ -770,44 +620,42 @@ export class GitHubProvider implements GitProvider {
    * Fetch pull requests the token user is involved in, or -- with
    * `projectPath` -- pull requests in a single repository.
    *
+   * Discovery (the REST listing or search) yields PR numbers; every PR's data
+   * then comes from the batched GraphQL fill (`fillPullRequests`), one request
+   * per `FILL_BATCH_SIZE` PRs per repository, plus one per extra page of
+   * checks on a PR with more than 100.
+   *
    * How each `FetchPullRequestsOptions` field lands on GitHub:
    * - `state`: honored. GitHub has no merged state of its own, so `merged`
    *   is `is:closed` plus a `merged_at` check (the same reading
    *   `normalizePRState` does). A request for several states runs one search
    *   per `is:` qualifier rather than an unqualified (all-time) search.
-   * - `iids` + `projectPath`: honored, through the batched GraphQL fill
-   *   (`fillPullRequests`): one request per `FILL_BATCH_SIZE` numbers, plus
-   *   one per extra page of checks on a PR with more than 100.
+   * - `iids` + `projectPath`: honored, through the fill alone.
    * - `authorUsernames` + `projectPath`: honored, one search per author and
    *   state qualifier.
-   * - `projectPath` alone: honored, paginated `/pulls` listing. GitHub only
-   *   returns diff stats and mergeability from the single-PR endpoint, so PRs
-   *   from this mode carry `diffStats: null` and `conflicts: false`. Use
-   *   `fetchSingleMR` when those matter.
+   * - `projectPath` alone: honored, paginated `/pulls` listing.
+   * - The involvement mode (no `projectPath`): authored, review-requested,
+   *   reviewed and assigned PRs, so a PR stays in "my reviews" after the
+   *   review lands.
    * - `updatedAfter`: honored in every mode.
-   * - `listWeight`: honored in every mode. The search and listing modes skip
-   *   the per-PR check-run fetch, leaving `pipeline` null; the `iids` mode
-   *   keeps checks and drops only `body`, since one fill reads both.
-   * - `onWarning`: called for page-cap truncation and for detail, reviews,
-   *   checks, or thread-count fetches GitHub rejected (the shape rate
-   *   limiting takes here). A PR whose reviews fetch failed is dropped from
-   *   the result rather than included with a truncated approval count; a PR
-   *   whose checks or thread-count fetch failed stays in the result with
-   *   that one field degraded (`pipeline: null` / `unresolvedThreadCount:
-   *   null`) instead, since neither feeds an approval count. In the `iids`
-   *   mode a failed fill drops the PR (`fill`) and an unread checks page
-   *   leaves its pipeline pending (`contexts`).
+   * - `listWeight`: honored in every mode by dropping only `body`; checks
+   *   stay, since one fill reads both.
+   * - `onWarning`: called for page-cap truncation, a rejected search page,
+   *   a PR whose fill failed (`fill`, the PR is missing from the result) and
+   *   an unread checks page (`contexts`, the pipeline reads pending).
    *
    * `iids` and `authorUsernames` throw without `projectPath`, as the interface
-   * documents. A rate limit throws `RateLimitedError` from the `iids` mode
-   * rather than returning a short list.
+   * documents. A rate limit on any discovery page or fill batch throws
+   * `RateLimitedError` rather than returning a short list.
    *
-   * Cost, for U matching PRs and Q state qualifiers (1, or 2 for a request
-   * mixing open with merged/closed): the involvement mode runs 3*Q searches of
-   * up to `SEARCH_MAX_PAGES` pages each, then 1 detail GET + 1 reviews GET per
-   * unique PR, + 1 check-runs GET unless `listWeight`, + ceil(U/50) GraphQL
-   * calls for thread counts. Searches are merged by PR before any detail
-   * fetch, so a PR three searches matched still costs one GET.
+   * Cost, for U matching PRs in R repositories and Q state qualifiers (1, or
+   * 2 for a request mixing open with merged/closed): the listing mode reads
+   * one REST page per 100 listed PRs; the involvement mode runs 4*Q searches
+   * of up to `SEARCH_MAX_PAGES` pages each; the author mode one search per
+   * author and qualifier. Then about ceil(U/25) GraphQL fills per
+   * repository, plus one cached rulesets read per open PR's base branch
+   * awaiting a verdict. Searches are merged by PR before the fill, so a PR
+   * several searches matched is filled once.
    */
   async fetchPullRequests(
     options?: FetchPullRequestsOptions
@@ -815,6 +663,8 @@ export class GitHubProvider implements GitProvider {
     const wanted = wantedStates(options?.state);
     const updatedAfter = parseUpdatedAfter(options?.updatedAfter);
     const onWarning = options?.onWarning;
+    const listWeight = options?.listWeight ?? false;
+    const excluded = new Set(options?.excludeTargetBranches ?? []);
     const isFresh = (updatedAt: string) =>
       updatedAfter === null || Date.parse(updatedAt) >= updatedAfter;
     const keepRaw = (pr: GHPullRequest) =>
@@ -830,7 +680,7 @@ export class GitHubProvider implements GitProvider {
       : '';
     const stateQualifiers = searchStateQualifiers(wanted);
 
-    let candidates: PRWithRoles[];
+    let results: PullRequest[];
 
     // Mode selection keys off the field being present, not non-empty: an empty
     // `iids` list asks for no MRs, not for the whole repository.
@@ -838,7 +688,7 @@ export class GitHubProvider implements GitProvider {
       const projectPath = requireProjectPath(options.projectPath, 'iids');
       const iids = [...new Set(options.iids)];
       const filled = await this.fillPullRequests(projectPath, iids, {
-        listWeight: options.listWeight ?? false,
+        listWeight,
         roles: new Map(),
         onWarning
       });
@@ -864,27 +714,34 @@ export class GitHubProvider implements GitProvider {
           )
         )
       );
-      const fetched = await this.fetchHits(dedupeHits(perSearch.flat()), onWarning);
-      candidates = await this.withRoles(fetched.map(({ pr }) => pr));
+      results = await this.fillHits(dedupeHits(perSearch.flat()), new Map(), listWeight, onWarning);
+      // A search item carries no base branch, so the exclusion waits for the fill.
+      if (excluded.size > 0) results = results.filter(pr => !excluded.has(pr.targetBranch));
     } else if (options?.projectPath) {
-      candidates = await this.withRoles(
-        await this.listRepoPRs(
-          options.projectPath,
-          wanted,
-          updatedAfter,
-          keepRaw,
-          onWarning
-        )
+      const projectPath = options.projectPath;
+      const listed = await this.listRepoPRs(
+        projectPath,
+        wanted,
+        updatedAfter,
+        keepRaw,
+        onWarning
+      );
+      results = await this.fillHits(
+        listed
+          .filter(pr => !excluded.has(pr.base.ref))
+          .map(pr => ({ repoPath: projectPath, number: pr.number })),
+        new Map(),
+        listWeight,
+        onWarning
       );
     } else {
-      // Involvement search: authored, review-requested, and assigned PRs are
-      // separate searches (times one per state qualifier) merged by PR. The
-      // merge happens on the search results, BEFORE any detail fetch: a PR the
-      // token user authored, was assigned, and was asked to review used to cost
-      // three identical detail GETs.
+      // Involvement search: one search per involvement (times one per state
+      // qualifier), merged by PR before the fill, so a PR the token user
+      // authored, was assigned and reviewed is filled once with every role.
       const involvements = [
         { qualifier: 'author:@me', role: 'author' },
         { qualifier: 'review-requested:@me', role: 'reviewer' },
+        { qualifier: 'reviewed-by:@me', role: 'reviewer' },
         { qualifier: 'assignee:@me', role: 'assignee' }
       ];
       const searched = await Promise.all(
@@ -914,23 +771,8 @@ export class GitHubProvider implements GitProvider {
         }
       }
 
-      const fetched = await this.fetchHits(unique, onWarning);
-      candidates = fetched.map(({ hit, pr }) => ({
-        pr,
-        roles: rolesByHit.get(hitKey(hit)) ?? ['author']
-      }));
+      results = await this.fillHits(unique, rolesByHit, listWeight, onWarning);
     }
-
-    const excluded = new Set(options?.excludeTargetBranches ?? []);
-    if (excluded.size > 0 && options?.projectPath && !options.iids) {
-      candidates = candidates.filter(({ pr }) => !excluded.has(pr.base.ref));
-    }
-
-    const results = await this.enrich(
-      candidates,
-      options?.listWeight ?? false,
-      onWarning
-    );
 
     this.log.debug('GitHubProvider.fetchPullRequests', {
       count: results.length
@@ -962,27 +804,6 @@ export class GitHubProvider implements GitProvider {
       onWarning
     });
     return filled.get(mrIid) ?? null;
-  }
-
-  /**
-   * A rate-limited read as its own warning cause, so a caller can show "rate
-   * limited until X" instead of a generic failure. `effect` says what is
-   * missing from the result because of it.
-   */
-  private warnRateLimited(
-    onWarning: FetchPullRequestsOptions['onWarning'],
-    source: FetchPullRequestsWarning['source'],
-    target: string,
-    err: RateLimitedError,
-    effect: string
-  ): void {
-    this.warn(onWarning, {
-      kind: 'rate-limited',
-      source,
-      target,
-      ...(err.resetAt ? { resetAt: err.resetAt } : {}),
-      message: `GitHub ${err.kind} rate limit hit; ${effect}.${err.resetAt ? ` It lifts at ${err.resetAt}.` : ''}`
-    });
   }
 
   /**
@@ -1790,7 +1611,26 @@ export class GitHubProvider implements GitProvider {
       // delete an unrelated same-named branch in the base repo. The raw PR
       // (not the mapped `PullRequest`, which carries no head-repo field)
       // has to be read to find out which repository actually owns the ref.
-      const raw = await this.fetchPR(projectPath, mrIid);
+      let raw: GHPullRequest | null = null;
+      try {
+        const res = await this.octokit.request(`GET /repos/${projectPath}/pulls/${mrIid}`);
+        raw = res.data as GHPullRequest;
+      } catch (err) {
+        // A failed read is not a deleted fork: saying so would send the
+        // caller looking for the wrong problem.
+        if (err instanceof RateLimitedError) throw err;
+        if (!(err instanceof RequestError && err.status === 404)) {
+          const reason =
+            err instanceof RequestError && err.response
+              ? `${err.status} ${bodyText(err)}`
+              : err instanceof Error
+                ? err.message
+                : String(err);
+          throw new Error(
+            `mergePullRequest merged but could not delete source branch "${pr.sourceBranch}": reading the PR failed: ${reason}`
+          );
+        }
+      }
       const headRepo = raw?.head?.repo?.full_name;
       if (!headRepo) {
         throw new Error(
@@ -1977,8 +1817,8 @@ export class GitHubProvider implements GitProvider {
     // Only APPROVE and REQUEST_CHANGES reviews change a reviewer's state on
     // GitHub, so a later COMMENT review must not be picked over a still-
     // current approval. Filtering to state-bearing reviews before taking
-    // the newest is what makes that true; sorting rather than trusting list
-    // order for the same reason `toPullRequest` does.
+    // the newest is what makes that true, sorted by `submitted_at` rather
+    // than trusting list order.
     const mine = reviews
       .filter(
         r =>
@@ -2274,16 +2114,25 @@ export class GitHubProvider implements GitProvider {
 
   // ── Pipeline mutations ──────────────────────────────────────────────────
 
+  /**
+   * Reruns the failed jobs of one GitHub Actions workflow run, as GitLab's
+   * pipeline retry reruns failed jobs only. `pipelineId` is the run id
+   * (`Pipeline.id` is `github:run:<id>`; `Pipeline.runIds` lists every run on
+   * the head commit). A commit status from external CI has no run to rerun.
+   */
   async retryPipeline(projectPath: string, pipelineId: number): Promise<void> {
-    // GitHub Actions: re-run a workflow run.
-    // pipelineId maps to the workflow run ID.
     try {
       await this.octokit.request(
-        `POST /repos/${projectPath}/actions/runs/${pipelineId}/rerun`
+        `POST /repos/${projectPath}/actions/runs/${pipelineId}/rerun-failed-jobs`
       );
     } catch (err) {
       if (err instanceof RequestError && err.response) {
-        throw ghError('retryPipeline', err, 'statusText');
+        const failure = ghError('retryPipeline', err, 'statusText');
+        if (err.status === 404) {
+          failure.message +=
+            ' (only a GitHub Actions run can be retried; a commit status from external CI has no retry)';
+        }
+        throw failure;
       }
       throw err;
     }
@@ -2359,23 +2208,31 @@ export class GitHubProvider implements GitProvider {
     mrIid: number,
     reviewerUsernames?: string[]
   ): Promise<void> {
-    // GitHub: POST /repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers
-    // With no usernames given, fall back to the PR's current reviewer list.
+    // With no usernames given, everyone on the PR's reviewer list: pending
+    // requests and past reviewers alike, since GitHub drops a request once
+    // its review lands.
     if (!reviewerUsernames?.length) {
-      // Fetch current reviewers from the PR
-      let pr: GHPullRequest;
-      try {
-        const res = await this.octokit.request(
-          `GET /repos/${projectPath}/pulls/${mrIid}`
-        );
-        pr = res.data as GHPullRequest;
-      } catch (err) {
-        if (err instanceof RequestError && err.response) {
-          throw new Error(`requestReReview: failed to fetch PR: ${err.status}`);
+      let warning: FetchPullRequestsWarning | undefined;
+      const filled = await this.fillPullRequests(projectPath, [mrIid], {
+        listWeight: true,
+        roles: new Map(),
+        rules: false,
+        onWarning: w => {
+          warning = w;
         }
-        throw err;
+      });
+      const pr = filled.get(mrIid) ?? null;
+      if (!pr) {
+        const reason = warning
+          ? `${warning.status !== undefined ? `${warning.status} ` : ''}${warning.message}`
+          : `GitHub has no PR ${warningTarget(projectPath, mrIid)} visible to this token`;
+        throw new Error(`requestReReview: failed to fetch PR: ${reason}`);
       }
-      reviewerUsernames = pr.requested_reviewers.map(r => r.login);
+      // GitHub refuses a review request for a bot or a deleted account, and
+      // one refused name fails the whole request.
+      reviewerUsernames = pr.reviewers
+        .filter(r => !r.username.endsWith('[bot]') && r.id !== 'github:user:ghost')
+        .map(r => r.username);
       if (!reviewerUsernames.length) {
         // Matches GitLabProvider.requestReReview: resolving here would be
         // the exact silent-success shape this method must not have. The
@@ -2715,6 +2572,8 @@ export class GitHubProvider implements GitProvider {
     opts: {
       listWeight: boolean;
       roles: Map<number, string[]>;
+      /** False skips the rulesets lookup, for a caller that reads no approval count. */
+      rules?: boolean;
       onWarning?: FetchPullRequestsOptions['onWarning'];
     }
   ): Promise<Map<number, PullRequest | null>> {
@@ -2763,6 +2622,7 @@ export class GitHubProvider implements GitProvider {
       // loses its cache, so every skipped lookup is a request saved each time.
       const rulesByBranch = new Map<string, number | null>();
       for (const node of nodes.values()) {
+        if (opts.rules === false) break;
         if (node.state !== 'OPEN' || node.reviewDecision === null) continue;
         if (rulesByBranch.has(node.baseRefName)) continue;
         rulesByBranch.set(
@@ -2958,103 +2818,6 @@ export class GitHubProvider implements GitProvider {
   }
 
   /**
-   * Unresolved review-thread counts for `prs`, keyed by GraphQL node ID.
-   *
-   * Thread resolution exists only in GraphQL (`reviewThreads { isResolved }`);
-   * REST review comments carry no resolved state, so they are not a substitute.
-   * One batched query per `THREAD_BATCH_SIZE` PRs keeps this off the per-PR
-   * path.
-   *
-   * A PR maps to null -- unknown, not zero -- when the query fails or when the
-   * PR has more than `THREAD_PAGE_SIZE` threads: a truncated read cannot say
-   * how many of the remainder are outstanding.
-   *
-   * A rejected batch used to reject this whole function, and `enrich` awaits
-   * it before its per-PR pool even starts, so one GraphQL blip on a single
-   * batch used to blank every PR passed in, not just the ones in that batch
-   * (MAT-143). `null` already means "unknown" for every PR this function
-   * maps, whether that PR's own read was truncated or the batch it happened
-   * to land in failed outright, so degrading a failed batch to `null` for
-   * just its own ids -- reported through `onWarning` -- reuses that
-   * vocabulary instead of rejecting the batches that succeeded alongside it.
-   */
-  private async fetchUnresolvedThreadCounts(
-    prs: GHPullRequest[],
-    onWarning?: FetchPullRequestsOptions['onWarning']
-  ): Promise<Map<string, number | null>> {
-    const counts = new Map<string, number | null>();
-    const ids = prs.map(pr => pr.node_id).filter(id => !!id);
-    if (ids.length === 0) return counts;
-
-    // Node id back to `owner/repo#number`, for a warning target a human can
-    // read; a GraphQL node id on its own names nothing recognizable.
-    const byNodeId = new Map(prs.map(pr => [pr.node_id, pr]));
-
-    const query = `
-      query GlanceUnresolvedThreads($ids: [ID!]!) {
-        nodes(ids: $ids) {
-          ... on PullRequest {
-            id
-            reviewThreads(first: ${THREAD_PAGE_SIZE}) {
-              pageInfo { hasNextPage }
-              nodes { isResolved }
-            }
-          }
-        }
-      }
-    `;
-
-    for (let i = 0; i < ids.length; i += THREAD_BATCH_SIZE) {
-      const batch = ids.slice(i, i + THREAD_BATCH_SIZE);
-      let data: GHReviewThreadsResponse | null;
-      try {
-        data = await this.graphql<GHReviewThreadsResponse>(query, {
-          ids: batch
-        });
-      } catch (err) {
-        // One warning per PR, not one warning naming the whole batch: a
-        // comma-joined target would be a different shape from every other
-        // source (`detail`/`reviews`/`checks` all name exactly one PR), and
-        // `fetchDashboardBatch` -- this codebase's own consumer -- keys
-        // warnings by a single-PR `owner/repo#number` target. A joined
-        // target could never match that lookup for any PR in the batch, so
-        // splitting here is what makes a threads failure attributable to a
-        // row at all, not just a matter of taste.
-        const message = err instanceof Error ? err.message : String(err);
-        for (const id of batch) {
-          const pr = byNodeId.get(id);
-          const target = pr
-            ? warningTarget(pr.base.repo.full_name, pr.number)
-            : undefined;
-          this.warn(onWarning, {
-            kind: 'request-failed',
-            source: 'threads',
-            target,
-            message: `GitHub thread-count query failed${target ? ` for ${target}` : ''} (${message}); its unresolved-discussion count is unknown, not zero.`
-          });
-          counts.set(id, null);
-        }
-        continue;
-      }
-      for (const node of data?.nodes ?? []) {
-        if (!node?.id) continue;
-        const threads = node.reviewThreads;
-        counts.set(
-          node.id,
-          threads && !threads.pageInfo?.hasNextPage
-            ? threads.nodes.filter(t => !t.isResolved).length
-            : null
-        );
-      }
-      for (const id of batch) {
-        if (!counts.has(id)) counts.set(id, null);
-      }
-    }
-
-    return counts;
-  }
-
-  /**
    * Review threads for one PR, keyed by the databaseId of the comment that
    * roots each thread.
    *
@@ -3064,9 +2827,9 @@ export class GitHubProvider implements GitProvider {
    * thread's first. Fetching `comments(first: 1)` is therefore enough to
    * match a whole thread.
    *
-   * Distinct from `fetchUnresolvedThreadCounts`, which batches many PRs and
-   * only needs a count. This one needs per-thread identity, so it is per-PR
-   * and paginates rather than reporting unknown on the first page alone.
+   * Distinct from the fill's thread count, which only needs a count. This
+   * one needs per-thread identity, so it is per-PR and paginates rather than
+   * reporting unknown on the first page alone.
    *
    * The walk is still bounded, at `THREAD_MAX_PAGES`, so a pathological PR
    * cannot spin it forever. Hitting that bound with pages still remaining
@@ -3180,17 +2943,17 @@ export class GitHubProvider implements GitProvider {
   }
 
   /**
-   * The PRs a search matched, as `owner/repo` + number. No detail fetch: the
-   * caller merges hits across searches first, so a PR several searches matched
-   * is fetched once.
+   * The PRs a search matched, as `owner/repo` + number. No fill: the caller
+   * merges hits across searches first, so a PR several searches matched is
+   * filled once.
    *
    * Filtering on the issue-shaped search result here means a state filter costs
-   * nothing extra: PRs we are about to discard never reach the detail path.
+   * nothing extra: PRs we are about to discard never reach the fill.
    *
    * Walks up to `SEARCH_MAX_PAGES` pages. Stopping there with results
    * outstanding, or a page GitHub rejected, is reported through `onWarning`:
    * this is a bounded scan, not an exhaustive one, and the caller cannot see
-   * the difference from the returned list.
+   * the difference from the returned list. A rate limit throws instead.
    */
   private async searchPRs(
     qualifiers: string,
@@ -3208,16 +2971,9 @@ export class GitHubProvider implements GitProvider {
         );
         data = res.data as { items: GHSearchItem[] };
       } catch (err) {
-        if (err instanceof RateLimitedError) {
-          this.warnRateLimited(
-            onWarning,
-            'search',
-            qualifiers,
-            err,
-            `PRs matching "${qualifiers}" are missing from this result`
-          );
-          break;
-        }
+        // A rate limit throws: its hits would be missing from a list that
+        // otherwise reads as complete.
+        if (err instanceof RateLimitedError) throw err;
         if (err instanceof RequestError && err.response) {
           this.warn(onWarning, {
             kind: 'request-failed',
@@ -3253,72 +3009,9 @@ export class GitHubProvider implements GitProvider {
     return matched;
   }
 
-  /** Full PRs for `hits`, bounded to `DETAIL_CONCURRENCY` requests in flight.
-      Hits GitHub would not return are dropped, having been reported. */
-  private async fetchHits(
-    hits: SearchHit[],
-    onWarning: FetchPullRequestsOptions['onWarning']
-  ): Promise<Array<{ hit: SearchHit; pr: GHPullRequest }>> {
-    const fetched = await mapPool(hits, DETAIL_CONCURRENCY, async hit => ({
-      hit,
-      pr: await this.fetchPR(hit.repoPath, hit.number, onWarning)
-    }));
-    return fetched.filter(
-      (entry): entry is { hit: SearchHit; pr: GHPullRequest } => entry.pr !== null
-    );
-  }
-
   /**
-   * GET a single PR, or null.
-   *
-   * Null means two different things, and the difference matters to a caller
-   * assembling a list: a 404 is a PR that is not there (deleted, or invisible
-   * to this token), while any other failure is a PR that exists and is missing
-   * from the result. Only the second is reported through `onWarning` -- which
-   * is how a rate-limited fetch stops looking like a short one.
-   */
-  private async fetchPR(
-    projectPath: string,
-    prNumber: number,
-    onWarning?: FetchPullRequestsOptions['onWarning']
-  ): Promise<GHPullRequest | null> {
-    try {
-      const res = await this.octokit.request(
-        `GET /repos/${projectPath}/pulls/${prNumber}`
-      );
-      return res.data as GHPullRequest;
-    } catch (err) {
-      if (err instanceof RateLimitedError) {
-        this.warnRateLimited(
-          onWarning,
-          'detail',
-          warningTarget(projectPath, prNumber),
-          err,
-          `${projectPath}#${prNumber} is missing from this result`
-        );
-        return null;
-      }
-      if (err instanceof RequestError && err.response) {
-        if (err.status === 404) return null;
-        this.warn(onWarning, {
-          kind: 'request-failed',
-          source: 'detail',
-          status: err.status,
-          target: warningTarget(projectPath, prNumber),
-          message: `GitHub returned HTTP ${err.status} for ${projectPath}#${prNumber}; it is missing from this result.`
-        });
-        return null;
-      }
-      throw err;
-    }
-  }
-
-  /**
-   * Every PR in a repository, newest-updated first.
-   *
-   * The listing endpoint omits `additions`/`deletions`/`changed_files` and
-   * `mergeable`; PRs from here therefore have no diff stats and report no
-   * conflicts. Fetching those would cost one extra request per PR.
+   * Every PR in a repository, newest-updated first, as the listing reports
+   * it. Discovery only: the caller reads each PR's data through the fill.
    */
   private async listRepoPRs(
     projectPath: string,
@@ -3374,209 +3067,40 @@ export class GitHubProvider implements GitProvider {
   }
 
   /**
-   * The authenticated user, fetched once per provider instance.
-   * Null when the lookup fails, so callers degrade to unknown roles rather than
-   * failing the whole fetch.
+   * The PRs `hits` name, in hit order, through one fill per repository.
+   * A PR the fill reports missing or failed is left out; the fill has
+   * already warned for a failure. `roles` is keyed by `hitKey`, and a hit
+   * it does not name takes the token user's roles from the fill.
    */
-  private async currentUser(): Promise<GHUser | null> {
-    this.currentUserPromise ??= (async () => {
-      const res = await this.octokit.request('GET /user');
-      return res.data as GHUser;
-    })()
-      .catch(() => null)
-      .then(user => {
-        // Concurrent callers share the in-flight request, but a failure is not
-        // cached: the next fetch asks again rather than degrading for the
-        // lifetime of the provider.
-        if (!user) this.currentUserPromise = null;
-        return user;
-      });
-    return this.currentUserPromise;
-  }
-
-  private async withRoles(prs: GHPullRequest[]): Promise<PRWithRoles[]> {
-    if (prs.length === 0) return [];
-    const me = await this.currentUser();
-    return prs.map(pr => {
-      const roles: string[] = [];
-      if (me) {
-        if (pr.user.id === me.id) roles.push('author');
-        if (pr.assignees.some(a => a.id === me.id)) roles.push('assignee');
-        if (pr.requested_reviewers.some(r => r.id === me.id))
-          roles.push('reviewer');
-      }
-      return { pr, roles: roles.length > 0 ? roles : ['author'] };
-    });
-  }
-
-  /**
-   * Turn raw PRs into domain PullRequests: reviews and check runs per PR,
-   * unresolved review-thread counts batched across all of them.
-   *
-   * The per-PR leg runs through the same bounded pool as the detail fetches;
-   * a dashboard-sized result set otherwise opens two sockets per PR at once.
-   *
-   * A PR whose reviews fetch fails is dropped from the result rather than
-   * assembled with whatever reviews did arrive: `fetchReviews` rejects on a
-   * failed page precisely so a partial review list is never mistaken for a
-   * complete one, and presenting that PR here with a truncated approval
-   * count would recreate the bug that rejection exists to prevent. Dropping
-   * it (reported through `onWarning`, same as a failed detail fetch) is the
-   * one option that neither shows a wrong count nor fails every other PR in
-   * the batch alongside it.
-   *
-   * Check runs and thread counts are lower-stakes than reviews -- neither
-   * feeds an approval count -- so a failure in either degrades the one
-   * field instead of dropping the PR: `fetchCheckRuns` still returns `[]`
-   * (read as "no pipeline"), `fetchUnresolvedThreadCounts` still maps a
-   * failed PR to `null` (already "unknown" in that map's own vocabulary).
-   * Both now report the failure through `onWarning` too, so neither looks
-   * like a plain, ordinary empty/unknown reading when it is not one.
-   */
-  private async enrich(
-    candidates: PRWithRoles[],
+  private async fillHits(
+    hits: SearchHit[],
+    roles: Map<string, string[]>,
     listWeight: boolean,
-    onWarning?: FetchPullRequestsOptions['onWarning']
+    onWarning: FetchPullRequestsOptions['onWarning']
   ): Promise<PullRequest[]> {
-    const threadCounts = await this.fetchUnresolvedThreadCounts(
-      candidates.map(c => c.pr),
-      onWarning
-    );
-    const enriched = await mapPool(
-      candidates,
-      DETAIL_CONCURRENCY,
-      async ({ pr, roles }): Promise<PullRequest | null> => {
-        const reviews = await this.fetchReviews(
-          pr.base.repo.full_name,
-          pr.number,
-          onWarning
-        );
-        if (reviews === null) return null;
-        const checkRuns = listWeight
-          ? []
-          : await this.fetchCheckRuns(
-              pr.base.repo.full_name,
-              pr.number,
-              pr.head.sha,
-              onWarning
-            );
-        return this.toPullRequest(
-          pr,
-          roles,
-          reviews,
-          checkRuns,
-          threadCounts.get(pr.node_id) ?? null
-        );
-      }
-    );
-    return enriched.filter((pr): pr is PullRequest => pr !== null);
-  }
-
-  /**
-   * Reviews for one PR, or `null` if GitHub rejected a page partway through.
-   *
-   * `null` (not a truncated array) is the point: the caller computes
-   * approval counts from this list, so a short list and a complete one must
-   * never be the same value. Only a response GitHub actually returned is
-   * reported through `onWarning` -- a transport failure (no `.response`)
-   * rethrows, same as every other fetch in this file.
-   */
-  private async fetchReviews(
-    repoPath: string,
-    prNumber: number,
-    onWarning?: FetchPullRequestsOptions['onWarning']
-  ): Promise<GHReview[] | null> {
-    const { owner, repo } = this.splitOwnerRepo(repoPath);
-    try {
-      // `paginate` needs the route template plus real route params (rather
-      // than one path string) so it can follow the `Link` header itself; every
-      // other call site in this file interpolates a whole path instead.
-      return await this.octokit.paginate<GHReview>(
-        'GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews',
-        { owner, repo, pull_number: prNumber, per_page: 100 }
-      );
-    } catch (err) {
-      if (err instanceof RateLimitedError) {
-        this.warnRateLimited(
-          onWarning,
-          'reviews',
-          warningTarget(repoPath, prNumber),
-          err,
-          `the approval count for ${repoPath}#${prNumber} could not be verified, so it is missing from this result`
-        );
-        return null;
-      }
-      if (err instanceof RequestError && err.response) {
-        this.warn(onWarning, {
-          kind: 'request-failed',
-          source: 'reviews',
-          status: err.status,
-          target: warningTarget(repoPath, prNumber),
-          message: `GitHub returned HTTP ${err.status} fetching reviews for ${repoPath}#${prNumber}; its approval count could not be verified, so it is missing from this result.`
-        });
-        return null;
-      }
-      throw err;
+    const byRepo = new Map<string, number[]>();
+    for (const hit of hits) {
+      const numbers = byRepo.get(hit.repoPath) ?? [];
+      numbers.push(hit.number);
+      byRepo.set(hit.repoPath, numbers);
     }
-  }
-
-  /**
-   * Check runs for one PR's head commit, or `[]` on any failure (404, rate
-   * limit, transport). Returning `[]` rather than failing the PR is existing
-   * behavior, not new -- a pipeline is supplementary to the fields a caller
-   * actually gates decisions on, unlike reviews, and `toPipeline` already
-   * reads `[]` as "no pipeline" (`pipeline: null`).
-   *
-   * That collapse is exactly the gap: "no checks configured" and "could not
-   * ask GitHub" produced the identical `pipeline: null`, with nothing to
-   * tell them apart. This still returns `[]` either way -- changing that
-   * would mean failing the PR over its pipeline, a bigger behavior change
-   * than this ticket asks for -- but now reports the failure case through
-   * `onWarning`, so a caller that cares can tell "no checks" from "unknown."
-   *
-   * `target` is `warningTarget(repoPath, prNumber)`, not `owner/repo@sha`:
-   * an earlier version of this warning named the commit the fetch actually
-   * failed on, which reads as more precise, but `fetchDashboardBatch`
-   * (MRDashboard.ts) attributes a warning to a row by looking up exactly
-   * `owner/repo#iid` -- a `@sha` target can never match that, so the
-   * warning fired (this file's own tests confirmed it) while never once
-   * reaching a `DashboardGroup` consumer. `prNumber` is threaded in just for
-   * this; `sha` still appears in the message for a human reading the log.
-   */
-  private async fetchCheckRuns(
-    repoPath: string,
-    prNumber: number,
-    sha: string,
-    onWarning?: FetchPullRequestsOptions['onWarning']
-  ): Promise<GHCheckRun[]> {
-    try {
-      const res = await this.octokit.request(
-        `GET /repos/${repoPath}/commits/${sha}/check-runs?per_page=100`
-      );
-      const data = res.data as GHCheckSuite;
-      return data.check_runs;
-    } catch (err) {
-      if (err instanceof RateLimitedError) {
-        this.warnRateLimited(
-          onWarning,
-          'checks',
-          warningTarget(repoPath, prNumber),
-          err,
-          `the pipeline for ${repoPath}#${prNumber} reads as "no checks" but that could not be verified`
-        );
-        return [];
+    const filled = new Map<string, PullRequest | null>();
+    for (const [repoPath, numbers] of byRepo) {
+      const repoRoles = new Map<number, string[]>();
+      for (const n of numbers) {
+        const known = roles.get(hitKey({ repoPath, number: n }));
+        if (known) repoRoles.set(n, known);
       }
-      const status = err instanceof RequestError ? err.status : undefined;
-      const message = err instanceof Error ? err.message : String(err);
-      this.warn(onWarning, {
-        kind: 'request-failed',
-        source: 'checks',
-        status,
-        target: warningTarget(repoPath, prNumber),
-        message: `GitHub check runs for ${repoPath}#${prNumber} (commit ${sha}) could not be fetched (${message}); this PR's pipeline reads as "no checks" but that could not be verified.`
+      const prs = await this.fillPullRequests(repoPath, numbers, {
+        listWeight,
+        roles: repoRoles,
+        onWarning
       });
-      return [];
+      for (const [n, pr] of prs) filled.set(hitKey({ repoPath, number: n }), pr);
     }
+    return hits
+      .map(hit => filled.get(hitKey(hit)) ?? null)
+      .filter((pr): pr is PullRequest => pr !== null);
   }
 
   /**
@@ -3597,113 +3121,6 @@ export class GitHubProvider implements GitProvider {
       throw new Error(`splitOwnerRepo: expected "owner/repo", got "${repoPath}"`);
     }
     return { owner: repoPath.slice(0, slash), repo: repoPath.slice(slash + 1) };
-  }
-
-  /**
-   * Convert a GitHub PR + reviews + check runs into our domain PullRequest.
-   *
-   * @param unresolvedThreadCount - null when the count could not be read; the
-   *   field must not claim zero outstanding threads on a guess.
-   */
-  private toPullRequest(
-    pr: GHPullRequest,
-    roles: string[],
-    reviews: GHReview[],
-    checkRuns: GHCheckRun[],
-    unresolvedThreadCount: number | null
-  ): PullRequest {
-    // Compute approvals: latest review per user, count "APPROVED" ones
-    const latestReviewByUser = new Map<number, GHReview>();
-    for (const r of reviews.sort(
-      (a, b) =>
-        new Date(a.submitted_at).getTime() - new Date(b.submitted_at).getTime()
-    )) {
-      latestReviewByUser.set(r.user.id, r);
-    }
-
-    const approvedBy: UserRef[] = [];
-    let changesRequested = 0;
-    for (const r of latestReviewByUser.values()) {
-      if (r.state === 'APPROVED') {
-        approvedBy.push(toUserRef(r.user));
-      } else if (r.state === 'CHANGES_REQUESTED') {
-        changesRequested++;
-      }
-    }
-
-    // GitHub doesn't expose required approval count via REST without the
-    // branch protection API. We use changesRequested as a blocking signal:
-    // 0 = not blocked by reviews, 1 = at least one CHANGES_REQUESTED review.
-    const approvalsLeft = changesRequested > 0 ? 1 : 0;
-
-    const diffStats: DiffStats | null =
-      pr.additions !== undefined
-        ? {
-            additions: pr.additions!,
-            deletions: pr.deletions ?? 0,
-            filesChanged: pr.changed_files ?? 0
-          }
-        : null;
-
-    // Conflicts: GitHub's mergeable_state "dirty" indicates conflicts
-    const conflicts = pr.mergeable === false || pr.mergeable_state === 'dirty';
-
-    const pipeline = toPipeline(checkRuns, pr.html_url, pr.head?.ref ?? null);
-
-    return {
-      id: `github:pr:${pr.id}`,
-      iid: pr.number,
-      repositoryId: `github:${pr.base.repo.id}`,
-      title: pr.title,
-      state: normalizePRState(pr),
-      draft: pr.draft,
-      conflicts,
-      webUrl: pr.html_url,
-      sourceBranch: pr.head.ref,
-      targetBranch: pr.base.ref,
-      isStacked:
-        !!pr.base.repo.default_branch &&
-        pr.base.ref !== pr.base.repo.default_branch,
-      createdAt: pr.created_at,
-      updatedAt: pr.updated_at,
-      mergedAt: pr.merged_at ?? null,
-      sha: pr.head.sha,
-      author: toUserRef(pr.user),
-      assignees: pr.assignees.map(toUserRef),
-      reviewers: pr.requested_reviewers.map(u => ({
-        ...toUserRef(u),
-        reviewState: null as import('./types.ts').Reviewer['reviewState']
-      })),
-      roles,
-      pipeline,
-      description: pr.body ?? null,
-      unresolvedThreadCount,
-      approvalsLeft,
-      approved: approvedBy.length > 0 && changesRequested === 0,
-      approvedBy,
-      diffStats,
-      // Documented as the raw GitLab status; GitHub's mergeable_state uses a
-      // different vocabulary, so publishing it here would invite comparisons
-      // against GitLab values that can never match. `conflicts` above carries
-      // the one part of it we can map. See MAT-14.
-      detailedMergeStatus: null,
-      autoMergeEnabled: pr.auto_merge != null,
-      autoMergeStrategy: pr.auto_merge?.merge_method ?? null,
-      mergeUser: pr.auto_merge ? toUserRef(pr.auto_merge.enabled_by) : null,
-      mergeAfter: null, // GitHub doesn't have scheduled merge
-      divergedCommitsCount: null, // Would need GET /compare/{base}...{head} — too costly per PR
-      rebaseInProgress: false,
-      mergeOngoing: false,
-      inProgressMergeCommitSha: null,
-      mergeError: null,
-      shouldBeRebased: false,
-      mergeabilityChecks: [], // GitHub doesn't expose individual check list via REST
-      blockingMergeRequestsCount: 0,
-      approvalsRequired: 0, // Not available without branch protection API
-      squash: false,
-      squashOnMerge: false,
-      mergeTrainIndex: null
-    };
   }
 }
 

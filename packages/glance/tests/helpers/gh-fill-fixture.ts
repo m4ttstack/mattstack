@@ -158,7 +158,7 @@ export interface StubForgeHandlers {
   graphql?: (query: string, variables: Record<string, unknown>) => unknown;
   /** The token user, served as `data.viewer` beside a fill. */
   viewer?: { databaseId: number; login: string };
-  rest?: (url: string, method: string) => Response | undefined;
+  rest?: (url: string, method: string, body: string | undefined) => Response | undefined;
 }
 
 export function jsonResponse(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
@@ -193,7 +193,7 @@ export function stubForge(handlers: StubForgeHandlers): { urls: string[] } {
       });
     }
     return (
-      handlers.rest?.(url, method) ??
+      handlers.rest?.(url, method, typeof init?.body === 'string' ? init.body : undefined) ??
       new Response(JSON.stringify({ message: 'Not Found' }), {
         status: 404,
         headers: { 'content-type': 'application/json' }

@@ -97,29 +97,4 @@ describe('GitHub PullRequest.mergedAt', () => {
 
     expect(pr!.mergedAt).toBeNull();
   });
-
-  test('maps merged_at in toPullRequest', () => {
-    const p = new GitHubProvider('https://github.com', 't');
-    const user = { id: 3, login: 'ada', avatar_url: null, name: 'Ada' };
-    const raw = {
-      number: 7,
-      id: 700,
-      node_id: 'PR_700',
-      title: 'Add feature',
-      body: null,
-      merged_at: '2026-08-02T10:00:00Z',
-      html_url: 'https://github.com/o/r/pull/7',
-      created_at: '2026-08-01T00:00:00Z',
-      updated_at: '2026-08-03T00:00:00Z',
-      state: 'closed',
-      draft: false,
-      head: { sha: 'abc', ref: 'feat', repo: { full_name: 'o/r' } },
-      base: { ref: 'main', repo: { full_name: 'o/r', default_branch: 'main', id: 9 } },
-      user,
-      assignees: [],
-      requested_reviewers: [],
-    };
-    const pr = (p as any).toPullRequest(raw, ['author'], [], [], null);
-    expect(pr.mergedAt).toBe('2026-08-02T10:00:00Z');
-  });
 });

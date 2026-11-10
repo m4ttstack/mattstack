@@ -40,23 +40,20 @@ export type MRState = 'opened' | 'merged' | 'closed';
 export interface FetchPullRequestsWarning {
   /**
    * `page-cap`: a bounded scan stopped with matches still outstanding.
-   * `request-failed`: a non-ok response. For `search`/`list`/`detail`/
-   * `reviews`, whatever it would have returned is missing from the result
-   * entirely. For `checks`/`threads`, the PR itself is still in the result;
-   * only that one field (`pipeline`/`unresolvedThreadCount`) reads as its
-   * existing "unknown" value instead of a measured one -- neither feeds an
-   * approval count, so dropping the whole PR over either would be a bigger
-   * degradation than the failure itself warrants. For `fill`, the PR is
-   * missing from the result. For `contexts`, the PR stays, with a `pending`
-   * pipeline and `checking` readiness, since an unread check may be failing.
+   * `request-failed`: a non-ok response. For `search`/`list`/`fill`,
+   * whatever it would have returned is missing from the result entirely.
+   * For `contexts`, the PR stays, with a `pending` pipeline and `checking`
+   * readiness, since an unread check may be failing.
+   * `rate-limited`: reserved for a provider that reports a rate limit
+   * without throwing. `GitHubProvider` throws `RateLimitedError` from every
+   * read instead, so a short list never reads as complete.
    */
   kind: 'page-cap' | 'request-failed' | 'rate-limited';
   /**
-   * Which leg of the fetch: the search API, a repository listing, a per-MR
-   * detail fetch, a per-MR reviews fetch (the approvals a failed page here
-   * would otherwise under-report), a per-MR checks fetch, a batched
-   * thread-count query, GitHub's batched GraphQL fill, or a follow-up page
-   * of one PR's checks past the fill's first 100.
+   * Which leg of the fetch: the search API, a repository listing, GitHub's
+   * batched GraphQL fill, or a follow-up page of one PR's checks past the
+   * fill's first 100. `GitHubProvider` no longer emits `detail`, `reviews`,
+   * `checks` or `threads`: the fill replaced those per-PR reads.
    */
   source: 'search' | 'list' | 'detail' | 'reviews' | 'checks' | 'threads' | 'fill' | 'contexts';
   /** Human-readable summary, always populated. */

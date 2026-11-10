@@ -153,68 +153,6 @@ describe('GitHub pipeline sha and ref', () => {
 
     expect(pr!.pipeline).toBeNull();
   });
-
-  test('pipeline sha is the checks head sha and ref is the PR head ref', async () => {
-    const p = new GitHubProvider('https://github.com', 't');
-    const user = { id: 3, login: 'ada', avatar_url: null, name: 'Ada' };
-    const raw = {
-      number: 7,
-      id: 700,
-      node_id: 'PR_700',
-      title: 'Add feature',
-      body: null,
-      merged_at: null,
-      html_url: 'https://github.com/o/r/pull/7',
-      created_at: '2026-08-01T00:00:00Z',
-      updated_at: '2026-08-03T00:00:00Z',
-      state: 'open',
-      draft: false,
-      head: { sha: 'def456', ref: 'feat', repo: { full_name: 'o/r' } },
-      base: { ref: 'main', repo: { full_name: 'o/r', default_branch: 'main', id: 9 } },
-      user,
-      assignees: [],
-      requested_reviewers: [],
-    };
-    const checkRuns = [
-      {
-        id: 1,
-        name: 'build',
-        status: 'completed',
-        conclusion: 'success',
-        started_at: '2026-08-01T00:00:00Z',
-        completed_at: '2026-08-01T00:05:00Z',
-        html_url: 'https://github.com/o/r/runs/1',
-        head_sha: 'def456',
-      },
-    ];
-    const pr = (p as any).toPullRequest(raw, ['author'], [], checkRuns, null);
-    expect(pr.pipeline).toMatchObject({ sha: 'def456', ref: 'feat', mergeRequestEventType: null });
-  });
-
-  test('no check runs still carries a null pipeline', async () => {
-    const p = new GitHubProvider('https://github.com', 't');
-    const user = { id: 3, login: 'ada', avatar_url: null, name: 'Ada' };
-    const raw = {
-      number: 7,
-      id: 700,
-      node_id: 'PR_700',
-      title: 'Add feature',
-      body: null,
-      merged_at: null,
-      html_url: 'https://github.com/o/r/pull/7',
-      created_at: '2026-08-01T00:00:00Z',
-      updated_at: '2026-08-03T00:00:00Z',
-      state: 'open',
-      draft: false,
-      head: { sha: 'def456', ref: 'feat', repo: { full_name: 'o/r' } },
-      base: { ref: 'main', repo: { full_name: 'o/r', default_branch: 'main', id: 9 } },
-      user,
-      assignees: [],
-      requested_reviewers: [],
-    };
-    const pr = (p as any).toPullRequest(raw, ['author'], [], [], null);
-    expect(pr.pipeline).toBeNull();
-  });
 });
 
 describe('GitLabProvider.fetchCommitParents', () => {

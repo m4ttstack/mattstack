@@ -36,6 +36,39 @@ function byTransport(requests: RequestInfo[]): { graphql: number; rest: number }
   };
 }
 
+/** REST split by what it was for, so a stray per-PR call shows up as `other`. */
+function byKind(requests: RequestInfo[]): Record<'graphql' | 'list' | 'search' | 'rules' | 'other', number> {
+  const out = { graphql: 0, list: 0, search: 0, rules: 0, other: 0 };
+  for (const r of requests) {
+    if (r.transport === 'graphql') out.graphql++;
+    else if (r.path.includes('/search/issues')) out.search++;
+    else if (r.path.includes('/rules/branches/')) out.rules++;
+    else if (/\/pulls\?/.test(r.path)) out.list++;
+    else out.other++;
+  }
+  return out;
+}
+
+function listed(n: number) {
+  return {
+    number: n,
+    state: 'open',
+    merged_at: null,
+    updated_at: '2026-01-02T00:00:00Z',
+    base: { ref: 'main', repo: { id: 500, full_name: 'o/r', default_branch: 'main' } }
+  };
+}
+
+function hits(count: number) {
+  return Array.from({ length: count }, (_, i) => ({
+    number: i + 1,
+    state: 'open',
+    updated_at: '2026-01-02T00:00:00Z',
+    repository_url: 'https://api.github.com/repos/o/r',
+    pull_request: { url: '', merged_at: null }
+  }));
+}
+
 function nodeFor(n: number, over: Parameters<typeof ghNode>[0] = {}): GHFillNode {
   return ghNode({ number: n, databaseId: 1000 + n, url: `https://github.com/o/r/pull/${n}`, ...over });
 }
@@ -118,6 +151,62 @@ describe('GitHub read cost', () => {
     expect(await provider.fetchPullRequestByBranch('o/r', 'feature')).not.toBeNull();
 
     expect(byTransport(requests)).toEqual({ graphql: 1, rest: 2 });
+  });
+
+  for (const listWeight of [false, true]) {
+    test(`project list: 1 REST page + 1 GraphQL for 20 PRs, at listWeight ${listWeight}`, async () => {
+      const listing = Array.from({ length: 20 }, (_, i) => listed(i + 1));
+      stubForge({
+        rest: (url) => (url.includes('/repos/o/r/pulls?') ? jsonResponse(listing) : rules(url)),
+        fill: allNodes
+      });
+      const { provider, requests } = counted();
+
+      const prs = await provider.fetchPullRequests({ projectPath: 'o/r', listWeight });
+
+      expect(prs).toHaveLength(20);
+      expect(prs.every((pr) => pr.pipeline !== null)).toBe(true);
+      expect(byKind(requests)).toEqual({ graphql: 1, list: 1, search: 0, rules: 1, other: 0 });
+    });
+  }
+
+  test('authorUsernames x20: 1 search page + 1 GraphQL', async () => {
+    stubForge({
+      rest: (url) => (url.includes('/search/issues') ? jsonResponse({ items: hits(20) }) : rules(url)),
+      fill: allNodes
+    });
+    const { provider, requests } = counted();
+
+    const prs = await provider.fetchPullRequests({ projectPath: 'o/r', authorUsernames: ['ada'] });
+
+    expect(prs).toHaveLength(20);
+    expect(byKind(requests)).toEqual({ graphql: 1, list: 0, search: 1, rules: 1, other: 0 });
+  });
+
+  test('involvement x20 in one repo: 4 search pages + 1 GraphQL', async () => {
+    stubForge({
+      rest: (url) => (url.includes('/search/issues') ? jsonResponse({ items: hits(20) }) : rules(url)),
+      fill: allNodes
+    });
+    const { provider, requests } = counted();
+
+    const prs = await provider.fetchPullRequests();
+
+    expect(prs).toHaveLength(20);
+    expect(byKind(requests)).toEqual({ graphql: 1, list: 0, search: 4, rules: 1, other: 0 });
+  });
+
+  test('requestReReview with no usernames: 1 GraphQL + the POST, no rulesets read', async () => {
+    stubForge({
+      rest: (url, method) =>
+        method === 'POST' && url.endsWith('/requested_reviewers') ? jsonResponse({}) : rules(url),
+      fill: allNodes
+    });
+    const { provider, requests } = counted();
+
+    await provider.requestReReview('o/r', 1);
+
+    expect(byKind(requests)).toEqual({ graphql: 1, list: 0, search: 0, rules: 0, other: 1 });
   });
 
   test('150 contexts: 2 GraphQL + 1 REST', async () => {
