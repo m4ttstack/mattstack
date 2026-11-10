@@ -861,6 +861,9 @@ export class GitHubProvider implements GitProvider {
    * `'detail'` unconditionally, from one catch wrapping both calls, would
    * mislabel a reviews-side transport failure as a detail-side one; keeping
    * the catches apart is what keeps the tag honest.
+   *
+   * A `RateLimitedError` from any leg is the exception to null-plus-warning:
+   * it propagates, so a caller can back off.
    */
   async fetchSingleMR(
     projectPath: string,
@@ -871,8 +874,11 @@ export class GitHubProvider implements GitProvider {
     // projectPath for GitHub is "owner/repo"
     let pr: GHPullRequest | null;
     try {
-      pr = await this.fetchPR(projectPath, mrIid, onWarning);
+      pr = await this.fetchPR(projectPath, mrIid, onWarning, true);
     } catch (err) {
+      // The one failure a single read does not swallow into null: a caller
+      // that backs off on it must not write nulls into a cache instead.
+      if (err instanceof RateLimitedError) throw err;
       this.warnSingleMRFailure(onWarning, 'detail', projectPath, mrIid, err);
       return null;
     }
@@ -882,9 +888,10 @@ export class GitHubProvider implements GitProvider {
     if (!withRoles) return null;
 
     try {
-      const [result] = await this.enrich([withRoles], false, onWarning);
+      const [result] = await this.enrich([withRoles], false, onWarning, true);
       return result ?? null;
     } catch (err) {
+      if (err instanceof RateLimitedError) throw err;
       this.warnSingleMRFailure(onWarning, 'reviews', projectPath, mrIid, err);
       return null;
     }
@@ -899,21 +906,10 @@ export class GitHubProvider implements GitProvider {
     err: unknown
   ): void {
     const message = err instanceof Error ? err.message : String(err);
-    const target = warningTarget(projectPath, mrIid);
-    if (err instanceof RateLimitedError) {
-      this.warnRateLimited(
-        onWarning,
-        source,
-        target,
-        err,
-        `${projectPath}#${mrIid} was not read`
-      );
-      return;
-    }
     this.warn(onWarning, {
       kind: 'request-failed',
       source,
-      target,
+      target: warningTarget(projectPath, mrIid),
       message: `GitHubProvider.fetchSingleMR failed for ${projectPath}#${mrIid}: ${message}`
     });
   }
@@ -2968,7 +2964,8 @@ export class GitHubProvider implements GitProvider {
   private async fetchPR(
     projectPath: string,
     prNumber: number,
-    onWarning?: FetchPullRequestsOptions['onWarning']
+    onWarning?: FetchPullRequestsOptions['onWarning'],
+    throwOnRateLimit = false
   ): Promise<GHPullRequest | null> {
     try {
       const res = await this.octokit.request(
@@ -2977,6 +2974,7 @@ export class GitHubProvider implements GitProvider {
       return res.data as GHPullRequest;
     } catch (err) {
       if (err instanceof RateLimitedError) {
+        if (throwOnRateLimit) throw err;
         this.warnRateLimited(
           onWarning,
           'detail',
@@ -3124,7 +3122,8 @@ export class GitHubProvider implements GitProvider {
   private async enrich(
     candidates: PRWithRoles[],
     listWeight: boolean,
-    onWarning?: FetchPullRequestsOptions['onWarning']
+    onWarning?: FetchPullRequestsOptions['onWarning'],
+    throwOnRateLimit = false
   ): Promise<PullRequest[]> {
     const threadCounts = await this.fetchUnresolvedThreadCounts(
       candidates.map(c => c.pr),
@@ -3137,7 +3136,8 @@ export class GitHubProvider implements GitProvider {
         const reviews = await this.fetchReviews(
           pr.base.repo.full_name,
           pr.number,
-          onWarning
+          onWarning,
+          throwOnRateLimit
         );
         if (reviews === null) return null;
         const checkRuns = listWeight
@@ -3146,7 +3146,8 @@ export class GitHubProvider implements GitProvider {
               pr.base.repo.full_name,
               pr.number,
               pr.head.sha,
-              onWarning
+              onWarning,
+              throwOnRateLimit
             );
         return this.toPullRequest(
           pr,
@@ -3172,7 +3173,8 @@ export class GitHubProvider implements GitProvider {
   private async fetchReviews(
     repoPath: string,
     prNumber: number,
-    onWarning?: FetchPullRequestsOptions['onWarning']
+    onWarning?: FetchPullRequestsOptions['onWarning'],
+    throwOnRateLimit = false
   ): Promise<GHReview[] | null> {
     const { owner, repo } = this.splitOwnerRepo(repoPath);
     try {
@@ -3185,6 +3187,7 @@ export class GitHubProvider implements GitProvider {
       );
     } catch (err) {
       if (err instanceof RateLimitedError) {
+        if (throwOnRateLimit) throw err;
         this.warnRateLimited(
           onWarning,
           'reviews',
@@ -3235,7 +3238,8 @@ export class GitHubProvider implements GitProvider {
     repoPath: string,
     prNumber: number,
     sha: string,
-    onWarning?: FetchPullRequestsOptions['onWarning']
+    onWarning?: FetchPullRequestsOptions['onWarning'],
+    throwOnRateLimit = false
   ): Promise<GHCheckRun[]> {
     try {
       const res = await this.octokit.request(
@@ -3245,6 +3249,7 @@ export class GitHubProvider implements GitProvider {
       return data.check_runs;
     } catch (err) {
       if (err instanceof RateLimitedError) {
+        if (throwOnRateLimit) throw err;
         this.warnRateLimited(
           onWarning,
           'checks',

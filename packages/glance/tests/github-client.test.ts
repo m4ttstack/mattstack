@@ -304,6 +304,28 @@ describe('createGitHubClient throttle id', () => {
   });
 });
 
+function minimalPR(number: number) {
+  return {
+    id: number * 10,
+    node_id: `PR_node_${number}`,
+    number,
+    title: `PR ${number}`,
+    body: null,
+    state: 'open',
+    draft: false,
+    merged_at: null,
+    html_url: `https://github.com/a/b/pull/${number}`,
+    created_at: '2026-07-01T00:00:00Z',
+    updated_at: '2026-07-10T00:00:00Z',
+    head: { sha: `sha${number}`, ref: `feature/${number}` },
+    base: { ref: 'main', repo: { id: 1, full_name: 'a/b' } },
+    user: { id: 999, login: 'octocat', avatar_url: null },
+    assignees: [],
+    requested_reviewers: [],
+    labels: []
+  };
+}
+
 describe('rate limits fail fast', () => {
   const realFetch = globalThis.fetch;
   afterEach(() => {
@@ -428,8 +450,8 @@ describe('rate limits fail fast', () => {
     expect(err.status).toBe(403);
   });
 
-  test('a throttled write keeps its RequestError', async () => {
-    stub([
+  test('a throttled write keeps its RequestError and waits out the limit twice', async () => {
+    const state = stub([
       () => limited(403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': inAnHour() })
     ]);
 
@@ -438,9 +460,25 @@ describe('rate limits fail fast', () => {
     );
 
     expect(err).toBeInstanceOf(RequestError);
+    expect(state.calls).toBe(3);
   });
 
-  test('a rate-limited detail read reports kind rate-limited with resetAt', async () => {
+  test('a write hitting a secondary limit with no Retry-After still retries twice', async () => {
+    const state = stub([
+      () => limited(403, {}, 'You have exceeded a secondary rate limit. Please wait.')
+    ]);
+
+    const err = await withInstantTimers(() =>
+      client('tok-write-secondary')
+        .request('POST /repos/a/b/issues', { title: 't' })
+        .catch(e => e)
+    );
+
+    expect(err).toBeInstanceOf(RequestError);
+    expect(state.calls).toBe(3);
+  });
+
+  test('a rate-limited single-PR read throws RateLimitedError with resetAt', async () => {
     const reset = inAnHour();
     stub([
       () => limited(403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': reset })
@@ -448,8 +486,57 @@ describe('rate limits fail fast', () => {
     const warnings: FetchPullRequestsWarning[] = [];
 
     const provider = new GitHubProvider('https://github.com', 'tok-warn');
+    const err = await withInstantTimers(() =>
+      provider.fetchSingleMR('a/b', 1, null, w => warnings.push(w)).catch(e => e)
+    );
+
+    expect(err).toBeInstanceOf(RateLimitedError);
+    expect(err.kind).toBe('primary');
+    expect(err.resetAt).toBe(new Date(Number(reset) * 1000).toISOString());
+    expect(warnings).toEqual([]);
+  });
+
+  test('a rate-limited reviews leg of a single-PR read throws too', async () => {
+    const limit = new RateLimitedError('limited', {
+      kind: 'primary',
+      resetAt: null,
+      retryAfterMs: null,
+      operation: 'GET /reviews'
+    });
+    const provider = new GitHubProvider('https://github.com', 'tok-reviews');
+    (provider as any).octokit = {
+      request: async (route: string) => {
+        const path = route.slice(route.indexOf(' ') + 1);
+        if (path === '/repos/a/b/pulls/1') {
+          return { status: 200, headers: {}, data: minimalPR(1) };
+        }
+        return { status: 200, headers: {}, data: { id: 1, login: 'me', avatar_url: null } };
+      },
+      paginate: async () => {
+        throw limit;
+      }
+    };
+    (provider as any).graphql = async () => ({ nodes: [] });
+
+    const err = await provider.fetchSingleMR('a/b', 1, null).catch(e => e);
+
+    expect(err).toBe(limit);
+  });
+
+  test('a rate-limited detail read on a list path reports kind rate-limited', async () => {
+    const reset = inAnHour();
+    stub([
+      () => limited(403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': reset })
+    ]);
+    const warnings: FetchPullRequestsWarning[] = [];
+
+    const provider = new GitHubProvider('https://github.com', 'tok-listwarn');
     await withInstantTimers(() =>
-      provider.fetchSingleMR('a/b', 1, null, w => warnings.push(w))
+      provider.fetchPullRequests({
+        projectPath: 'a/b',
+        iids: [1],
+        onWarning: w => warnings.push(w)
+      })
     );
 
     expect(warnings).toHaveLength(1);

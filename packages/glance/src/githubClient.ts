@@ -14,6 +14,7 @@ import { RequestError } from '@octokit/request-error';
 import { safeEmit, type OnRequestHook } from './instrumentation.ts';
 import type { ForgeLogger } from './logger.ts';
 import { RateLimitedError } from './errors.ts';
+import { headerValue } from './headers.ts';
 
 const GlanceOctokitBase = Octokit.plugin(paginateRest, retry, throttling);
 
@@ -102,7 +103,7 @@ export function createGitHubClient(opts: {
         }
         // Two attempts absorb a quota window boundary. Retrying indefinitely
         // would turn a quota exhaustion into a hang with no upper bound.
-        return withinDeadline(retryAfter, retryCount);
+        return shouldRetry(options, retryAfter, retryCount);
       },
       onSecondaryRateLimit: (retryAfter, options, _octokit, retryCount) => {
         opts.log.warn('GitHub secondary rate limit hit', {
@@ -117,7 +118,7 @@ export function createGitHubClient(opts: {
           // up to twice, serves nobody.
           return false;
         }
-        return withinDeadline(retryAfter, retryCount);
+        return shouldRetry(options, retryAfter, retryCount);
       }
     },
     retry: {
@@ -204,23 +205,20 @@ export function createGitHubClient(opts: {
   return octokit;
 }
 
-function withinDeadline(retryAfterSeconds: number, retryCount: number): boolean {
-  return (
-    retryAfterSeconds <= RATE_LIMIT_RETRY_DEADLINE_S &&
-    retryCount < MAX_RATE_LIMIT_RETRIES
-  );
-}
-
-type HeaderBag = Record<string, unknown>;
-
-function headerValue(headers: unknown, name: string): string | null {
-  if (!headers || typeof headers !== 'object') return null;
-  const get = (headers as { get?: unknown }).get;
-  const raw =
-    typeof get === 'function'
-      ? (get as (n: string) => unknown).call(headers, name)
-      : (headers as HeaderBag)[name];
-  return raw === undefined || raw === null ? null : String(raw);
+/**
+ * The 30s deadline binds reads only, which is what a poll waits on. A write
+ * keeps waiting out the reset (twice at most): a mutation the caller asked
+ * for is worth the wait, and its failure is not recoverable by polling later.
+ */
+function shouldRetry(
+  options: { method?: string },
+  retryAfterSeconds: number,
+  retryCount: number
+): boolean {
+  if (retryCount >= MAX_RATE_LIMIT_RETRIES) return false;
+  const method = options.method?.toUpperCase();
+  const isRead = method === 'GET' || method === 'HEAD';
+  return !isRead || retryAfterSeconds <= RATE_LIMIT_RETRY_DEADLINE_S;
 }
 
 function hasGraphQLRateLimit(err: object): boolean {

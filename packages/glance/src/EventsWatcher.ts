@@ -12,6 +12,7 @@ import type { EventCursor, InvalidationBatch, WatchEventsOptions, WatchEventsSta
 import { EventsPoller, type FetchEvents } from './EventsPoller.ts';
 import { type ForgeLogger, noopLogger } from './logger.ts';
 import { RateLimitedError } from './errors.ts';
+import { headerValue } from './headers.ts';
 
 const MAX_BACKOFF_MS = 5 * 60_000;
 
@@ -21,16 +22,6 @@ export interface LoopTick {
   cursor: EventCursor; // always delivered to onCursor when changed
   /** When set, overrides options.intervalMs for the NEXT wait (server-directed cadence). */
   nextIntervalMs?: number;
-}
-
-function headerValue(headers: unknown, name: string): string | null {
-  if (!headers || typeof headers !== 'object') return null;
-  const get = (headers as { get?: unknown }).get;
-  const raw =
-    typeof get === 'function'
-      ? (get as (n: string) => unknown).call(headers, name)
-      : (headers as Record<string, unknown>)[name];
-  return raw === undefined || raw === null ? null : String(raw);
 }
 
 /** Octokit's RequestError keeps the status and headers on the error itself,
