@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
-import { Badge, Popover, Tooltip } from '@mattstack/tui-kit';
+import { createPortal } from 'react-dom';
+
+import { Badge, ICONS, Popover, SideDrawer, Tooltip } from '@mattstack/tui-kit';
 import type { BoardMRWithReview, RowContext } from '../types.ts';
-import { AskGlyph } from './ask-glyph.tsx';
 import { clauseOf } from './clause.ts';
+import { cleanTitle } from './format.ts';
 import { AgentGlyph, CloudSpinner, Sun } from './icons.tsx';
 import type { Candidate, RowStatus, Verb, VerbKind } from './row-status.ts';
 import {
@@ -178,6 +180,17 @@ function useSyncLog(
   return shownSyncLog(saved, running ? streamed : undefined);
 }
 
+/** Four pips, one per sync step: the row's at-a-glance progress. */
+function StepPips({ view }: { view: SyncView }) {
+  return (
+    <span className="tui-sync-pips" aria-hidden>
+      {view.steps.map(step => (
+        <span key={step.key} className="tui-sync-pip" data-state={step.state} />
+      ))}
+    </span>
+  );
+}
+
 function SyncLogWord({
   mr,
   word,
@@ -194,53 +207,66 @@ function SyncLogWord({
   handoff?: { onFocus: () => void };
 }) {
   const url = mr.webUrl ?? '';
-  const body = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(() => takeAutoOpen(url));
   useEffect(() => {
     if (takeAutoOpen(url)) setOpen(true);
   }, [url, lines.length]);
+  const close = () => setOpen(false);
   return (
-    <Popover
-      open={open}
-      onOpenChange={setOpen}
-      // The panel, not its first button, takes focus: a copy link ringed
-      // on every open reads as the thing to press.
-      initialFocus={body}
-      align="start"
-      sideOffset={6}
-      ariaLabel={`rt sync output for !${mr.iid}`}
-      classNames={{ popup: 'tui-synclog' }}
-      trigger={
-        <button
-          type="button"
-          className="tui-status-word tui-status-word-log"
-          title={open ? 'Hide the sync steps' : 'Show the sync steps'}
-          data-open={open ? 'true' : undefined}
-          onMouseDown={e => e.stopPropagation()}
-          onClick={e => e.stopPropagation()}
-        >
-          {word}
-          <span className="tui-status-word-caret" aria-hidden>
-            <AskGlyph name="chevron-down" size={12} />
-          </span>
-        </button>
-      }
-    >
-      {/* The popup renders in a portal, but React still bubbles its clicks
-          to the row, whose own click opens the MR. */}
-      <div
-        ref={body}
-        tabIndex={-1}
-        className="tui-synclog-inner"
-        onClick={e => e.stopPropagation()}
+    <>
+      <button
+        type="button"
+        className="tui-status-word tui-status-word-log"
+        title="Show the sync steps"
+        data-open={open ? 'true' : undefined}
+        onMouseDown={e => e.stopPropagation()}
+        onClick={e => {
+          e.stopPropagation();
+          setOpen(true);
+        }}
       >
-        <SyncSteps
-          view={view}
-          raw={<SyncLogBody lines={lines} running={running} />}
-          {...(handoff ? { handoff } : {})}
-        />
-      </div>
-    </Popover>
+        {word}
+        <StepPips view={view} />
+      </button>
+      {open &&
+        createPortal(
+          // A portal still bubbles React events to the row, whose own click
+          // opens the MR.
+          <div
+            className="tui-sync-drawer-host"
+            onClick={e => e.stopPropagation()}
+            onMouseDown={e => e.stopPropagation()}
+            onContextMenu={e => e.stopPropagation()}
+          >
+            <SideDrawer
+              side="right"
+              className="tui-cd-panel tui-sync-drawer"
+              ariaLabel={`rt sync for !${mr.iid}`}
+              onClose={close}
+            >
+              <div className="tui-cd-head">
+                <div className="tui-cd-title">
+                  <span className="tui-cd-iid">!{mr.iid}</span>{' '}
+                  {cleanTitle(mr.title)}
+                </div>
+                <button
+                  className="tui-modal-x"
+                  onClick={close}
+                  aria-label="close"
+                >
+                  {ICONS.close}
+                </button>
+              </div>
+              <SyncSteps
+                view={view}
+                raw={<SyncLogBody lines={lines} running={running} />}
+                {...(handoff ? { handoff } : {})}
+              />
+            </SideDrawer>
+          </div>,
+          document.body
+        )}
+    </>
   );
 }
 
@@ -360,7 +386,10 @@ export function StatusLine({
           {line.word}
         </span>
       )}
-      {line.spin === true && <span className="tui-status-ring" aria-hidden />}
+      {/* A sync's running pip already moves. */}
+      {line.spin === true && !view && (
+        <span className="tui-status-ring" aria-hidden />
+      )}
       {line.tone === 'clear' && (
         <span className="tui-status-sun" aria-hidden>
           <Sun />

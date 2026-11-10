@@ -807,23 +807,53 @@ body {
   font-weight: 600;
   cursor: pointer;
 }
-.tui-status-word-log:hover,
-.tui-status-word-log[data-open] {
+.tui-status-word-log:hover {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-.tui-status-word-caret {
+/* One pip per sync step, in the word's own tone: the row's progress at a
+   glance once the drawer is closed. */
+.tui-sync-pips {
   display: inline-flex;
-  opacity: 0.7;
-  transition: transform 160ms ease;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
 }
-.tui-status-word-log[data-open] .tui-status-word-caret {
-  transform: rotate(180deg);
+.tui-sync-pip {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.25px color-mix(in srgb, currentColor 40%, transparent);
+}
+.tui-sync-pip[data-state='done'] {
+  background: currentColor;
+  box-shadow: none;
+}
+.tui-sync-pip[data-state='running'] {
+  background: currentColor;
+  box-shadow: none;
+  animation: tui-synclog-pulse 1.2s ease-in-out infinite;
+}
+.tui-sync-pip[data-state='skipped'] {
+  background: color-mix(in srgb, currentColor 30%, transparent);
+  box-shadow: none;
+}
+.tui-sync-pip[data-state='failed'] {
+  background: var(--text-bad);
+  box-shadow: none;
+}
+.tui-sync-pip[data-state='paused'] {
+  background: var(--text-warn-vivid);
+  box-shadow: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .tui-status-word-caret {
-    transition: none;
+  .tui-sync-pip[data-state='running'] {
+    animation: none;
   }
+}
+.tui-sync-drawer .tui-syncsteps-head {
+  border-top: 1px solid var(--border-soft);
+  margin-top: 0.4rem;
 }
 .tui-synclog {
   width: 380px;
@@ -8441,4 +8471,10 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-stacked-area {
   gap: 12px;
+}
+.tui-sync-drawer .tui-syncsteps-head,
+.tui-sync-drawer .tui-syncsteps-list,
+.tui-sync-drawer .tui-syncsteps-note,
+.tui-sync-drawer .tui-syncsteps-foot {
+  padding-inline: 1rem;
 }
