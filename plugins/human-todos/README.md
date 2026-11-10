@@ -17,9 +17,11 @@ On its own:
 
 It is built and tested on Claude Code 2.1.322, and does not need the mattstack app, rt or herdr.
 
+The buttons need the fullscreen renderer (`"tui": "fullscreen"` in settings, or `/tui fullscreen` at the start of a session). In the inline renderer the pane draws inside the transcript and its buttons cannot be clicked.
+
 ## What Claude can add
 
-Claude adds steps with the `add` tool and reads them back with `list` and `withdraw`. Each step has a kind, and the kind sets the buttons.
+Claude adds steps with the `add` tool, reads them with `list` and removes one it no longer needs with `withdraw`. Each step has a kind, and the kind sets the buttons.
 
 | Kind | For | Buttons |
 |---|---|---|
@@ -40,5 +42,7 @@ Run always asks first: press Run, then Confirm. Cancel sends Claude nothing.
 ## Where Run executes
 
 With [herdr](https://github.com/herdrdev/herdr) running, Run opens a tab for the script and the pane shows its last lines. Without herdr, the plugin runs the script itself and shows the last 15 lines, with an Open log button for the full output. herdr is optional.
+
+Open, Open log and the log folder (`~/Library/Caches/human-todos`, unless `XDG_CACHE_HOME` is set) are macOS only: they use `open` and the Library cache folder.
 
 The list belongs to the session and is kept for 30 days.
