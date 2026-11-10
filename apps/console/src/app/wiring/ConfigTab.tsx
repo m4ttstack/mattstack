@@ -100,7 +100,10 @@ function PackStatusBar({
   inSync: number;
   needCompile: number;
   neverCompiled: number;
-  installed: { status: string; version?: string | null } | null | undefined;
+  installed:
+    | { status: string; version?: string | null; sourceVersion?: string }
+    | null
+    | undefined;
   onShowAttention: () => void;
   onReview: () => void;
 }) {
@@ -119,6 +122,8 @@ function PackStatusBar({
       .then(report => {
         const refusal = syncRefusal(report);
         if (refusal) notifications.error(refusal);
+        else if (report.versions?.pack.installedAfter == null)
+          notifications.info(`${pack} is not installed on this Mac`);
         else
           notifications.success(
             `Installed the latest ${pack}. Run /reload-plugins in open Claude sessions.`
@@ -194,6 +199,14 @@ function PackStatusBar({
             </Button>
             <UnsyncedActions pack={pack} publishOnly />
           </>
+        ) : installed?.status === 'missing' ? (
+          <span className={classes.stateLine} data-testid="pack-not-installed">
+            <Icon name="circleDot" size={15} color="var(--tk-text-3)" />
+            Not installed on this Mac
+            {installed.sourceVersion && (
+              <span className={classes.version}>{installed.sourceVersion}</span>
+            )}
+          </span>
         ) : installed && installed.status !== 'current' ? (
           <>
             <span className={classes.stateLine}>
