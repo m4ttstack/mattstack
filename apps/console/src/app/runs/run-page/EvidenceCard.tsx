@@ -141,7 +141,7 @@ function UrlLink({ url, short = false }: { url: string; short?: boolean }) {
 
 const TICKET_ID = /^[A-Z][A-Z0-9]*-\d+$/;
 
-/** A ticket link as its id (`CV-3415`); any other link as `urlLabel` does. */
+/** A ticket link as its id (`WEB-412`); any other link as `urlLabel` does. */
 function shortUrlLabel(url: string): string {
   try {
     const last = new URL(url).pathname.split('/').filter(Boolean).at(-1);

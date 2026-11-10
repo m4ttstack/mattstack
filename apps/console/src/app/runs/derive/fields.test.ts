@@ -61,8 +61,8 @@ describe('storyFields', () => {
 
   it("folds the evidence step's board clearances into one redaction line, placed at the last", () => {
     const fields = [
-      { ...f('evidence-cleared:cv2-before', 5), value: 'abc no redact marks' },
-      { ...f('evidence-cleared:cvi-before', 9), value: 'def approved at x' },
+      { ...f('evidence-cleared:list-before', 5), value: 'abc no redact marks' },
+      { ...f('evidence-cleared:panel-before', 9), value: 'def approved at x' },
       f('approach', 3),
     ];
     const out = storyFields(fields);
