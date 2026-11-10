@@ -826,9 +826,180 @@ body {
   }
 }
 .tui-synclog {
-  width: 460px;
+  width: 380px;
   max-width: calc(100vw - 24px);
   padding: 0;
+}
+/* The sync's four fixed steps: a step changes state in place, so the list
+   never grows or repeats a branch name while the sync runs. */
+.tui-synclog-inner:focus {
+  outline: none;
+}
+.tui-syncsteps {
+  font-size: var(--font-size-px13);
+  color: var(--text-1);
+}
+.tui-syncsteps-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-px12);
+  padding: var(--spacing-px10) var(--spacing-px14);
+  border-bottom: 1px solid var(--border-soft);
+}
+.tui-syncsteps-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.tui-syncsteps-tree {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-px12);
+  color: var(--text-3);
+}
+.tui-syncsteps-list {
+  margin: 0;
+  padding: var(--spacing-px8) var(--spacing-px14);
+  list-style: none;
+}
+.tui-syncsteps-step {
+  display: grid;
+  grid-template-columns: 14px 64px minmax(0, 1fr) auto;
+  column-gap: var(--spacing-px10);
+  align-items: center;
+  min-height: 26px;
+}
+.tui-syncsteps-glyph {
+  display: inline-flex;
+  justify-content: center;
+  color: var(--text-3);
+}
+.tui-syncsteps-step[data-state='done'] .tui-syncsteps-glyph {
+  color: var(--text-ok-vivid);
+}
+.tui-syncsteps-step[data-state='failed'] .tui-syncsteps-glyph {
+  color: var(--text-bad);
+}
+.tui-syncsteps-step[data-state='paused'] .tui-syncsteps-glyph {
+  color: var(--text-warn-vivid);
+}
+.tui-syncsteps-label {
+  font-weight: 500;
+}
+.tui-syncsteps-step[data-state='running'] .tui-syncsteps-label {
+  font-weight: 600;
+}
+.tui-syncsteps-step[data-state='pending'] .tui-syncsteps-label,
+.tui-syncsteps-step[data-state='skipped'] .tui-syncsteps-label {
+  color: var(--text-3);
+}
+.tui-syncsteps-detail,
+.tui-syncsteps-ref {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-px12);
+  color: var(--text-3);
+}
+.tui-syncsteps-step[data-state='running'] .tui-syncsteps-detail {
+  color: var(--text-1);
+}
+.tui-syncsteps-step[data-state='failed'] .tui-syncsteps-detail {
+  color: var(--text-bad-small);
+}
+.tui-syncsteps-step[data-state='paused'] .tui-syncsteps-detail {
+  color: var(--text-warn-small);
+}
+.tui-syncsteps-ref {
+  font-family: var(--font-mono);
+}
+.tui-syncsteps-action {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--font-size-px12);
+  font-weight: 500;
+  color: var(--text-accent);
+  cursor: pointer;
+}
+.tui-syncsteps-action:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.tui-syncsteps-ring {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--text-purple) 35%, transparent);
+  border-top-color: var(--text-purple);
+  animation: tui-status-rot 1s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tui-syncsteps-ring {
+    animation: none;
+  }
+}
+.tui-syncsteps-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-px8);
+  padding: var(--spacing-px10) var(--spacing-px14);
+  border-top: 1px solid var(--border-soft);
+  font-size: var(--font-size-px12);
+  font-weight: 500;
+}
+.tui-syncsteps-note-text {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-px8);
+  min-width: 0;
+}
+.tui-syncsteps-note[data-tone='bad'] {
+  background: color-mix(in srgb, var(--text-bad) 7%, transparent);
+  color: var(--text-bad-small);
+}
+.tui-syncsteps-note[data-tone='work'] {
+  background: color-mix(in srgb, var(--text-purple) 6%, transparent);
+  color: var(--text-purple);
+}
+.tui-syncsteps-foot {
+  padding: var(--spacing-px8) var(--spacing-px14);
+  border-top: 1px solid var(--border-soft);
+}
+.tui-syncsteps-raw {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--font-size-px12);
+  color: var(--text-3);
+  cursor: pointer;
+}
+.tui-syncsteps-raw svg {
+  transition: transform 160ms ease;
+}
+.tui-syncsteps-raw[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tui-syncsteps-raw svg {
+    transition: none;
+  }
+}
+.tui-syncsteps-rawlog {
+  border-top: 1px solid var(--border-soft);
 }
 .tui-synclog-head {
   display: flex;

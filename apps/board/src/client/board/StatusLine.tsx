@@ -13,6 +13,8 @@ import {
   subscribeSyncLines,
   takeAutoOpen,
 } from './sync-lines.ts';
+import { syncSteps, type SyncView } from './sync-steps.ts';
+import { SyncSteps } from './SyncSteps.tsx';
 
 type Lane = 'review' | 'respond' | 'doctor';
 
@@ -164,30 +166,46 @@ function SyncLogBody({
   );
 }
 
+/** The saved sync log joined with whatever this page streamed since. */
+function useSyncLog(
+  mr: BoardMRWithReview,
+  saved: readonly string[] | undefined,
+  running: boolean
+): readonly string[] {
+  const streamed = useSyncExternalStore(subscribeSyncLines, () =>
+    liveSyncLines(mr.webUrl ?? '')
+  );
+  return shownSyncLog(saved, running ? streamed : undefined);
+}
+
 function SyncLogWord({
   mr,
   word,
-  saved,
+  lines,
+  view,
   running,
+  handoff,
 }: {
   mr: BoardMRWithReview;
   word: string;
-  saved: readonly string[];
+  lines: readonly string[];
+  view: SyncView;
   running: boolean;
+  handoff?: { onFocus: () => void };
 }) {
   const url = mr.webUrl ?? '';
-  const streamed = useSyncExternalStore(subscribeSyncLines, () =>
-    liveSyncLines(url)
-  );
+  const body = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(() => takeAutoOpen(url));
   useEffect(() => {
     if (takeAutoOpen(url)) setOpen(true);
-  }, [url, streamed]);
-  const lines = shownSyncLog(saved, running ? streamed : undefined);
+  }, [url, lines.length]);
   return (
     <Popover
       open={open}
       onOpenChange={setOpen}
+      // The panel, not its first button, takes focus: a copy link ringed
+      // on every open reads as the thing to press.
+      initialFocus={body}
       align="start"
       sideOffset={6}
       ariaLabel={`rt sync output for !${mr.iid}`}
@@ -196,7 +214,7 @@ function SyncLogWord({
         <button
           type="button"
           className="tui-status-word tui-status-word-log"
-          title={open ? 'hide the rt sync output' : 'show the rt sync output'}
+          title={open ? 'Hide the sync steps' : 'Show the sync steps'}
           data-open={open ? 'true' : undefined}
           onMouseDown={e => e.stopPropagation()}
           onClick={e => e.stopPropagation()}
@@ -210,16 +228,23 @@ function SyncLogWord({
     >
       {/* The popup renders in a portal, but React still bubbles its clicks
           to the row, whose own click opens the MR. */}
-      <div className="tui-synclog-inner" onClick={e => e.stopPropagation()}>
-        <div className="tui-synclog-head">
-          <span className="tui-synclog-cmd">rt sync</span>
-          <span className="tui-synclog-branch">{mr.sourceBranch}</span>
-        </div>
-        <SyncLogBody lines={lines} running={running} />
+      <div
+        ref={body}
+        tabIndex={-1}
+        className="tui-synclog-inner"
+        onClick={e => e.stopPropagation()}
+      >
+        <SyncSteps
+          view={view}
+          raw={<SyncLogBody lines={lines} running={running} />}
+          {...(handoff ? { handoff } : {})}
+        />
       </div>
     </Popover>
   );
 }
+
+const DOCTOR_AT_WORK = new Set(['diagnosing', 'rebasing', 'fixing', 'watching']);
 
 /** The row's other status lines, behind a count: the line shows only the
     hottest, and the rest are often finished runs rather than live ones. */
@@ -303,16 +328,32 @@ export function StatusLine({
     ? line.verbs
     : line.verbs.filter(verb => verb.kind !== 'merge');
   const hot = line.tone === 'bad' || line.tone === 'warn';
-  const detail = line.detail ? clauseOf(line.detail) : null;
+  const syncing = mr.doctor?.status === 'syncing';
+  const syncLines = useSyncLog(mr, line.syncLog, syncing);
+  const view = line.syncLog ? syncSteps(syncLines, syncing) : null;
+  const handoff =
+    view?.outcome === 'paused' && DOCTOR_AT_WORK.has(mr.doctor?.status ?? '')
+      ? { onFocus: () => ctx.onFocusPane(mr, 'doctor') }
+      : undefined;
+  // The word follows the sync's step; a doctor on its conflicts says so.
+  const word = view?.phase?.word ?? (handoff ? 'resolving conflicts' : line.word);
+  const shownDetail = view?.phase
+    ? view.phase.detail
+    : handoff
+      ? 'doctor'
+      : line.detail;
+  const detail = shownDetail ? clauseOf(shownDetail) : null;
   return (
     <div className="tui-status" data-tone={line.tone}>
       {line.spin === 'cloud' && <CloudSpinner />}
-      {line.syncLog ? (
+      {view ? (
         <SyncLogWord
           mr={mr}
-          word={line.word}
-          saved={line.syncLog}
-          running={mr.doctor?.status === 'syncing'}
+          word={word}
+          lines={syncLines}
+          view={view}
+          running={syncing}
+          {...(handoff ? { handoff } : {})}
         />
       ) : (
         <span className="tui-status-word" title={line.word}>
