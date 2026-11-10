@@ -49,6 +49,12 @@ final class ServicesRegistrar: ServicesProviding, @unchecked Sendable {
 
     func smStatuses() -> [SMAppService.Status] { agents.map { service($0).status } }
 
+    /// `smStatuses` off the main thread: each status read waits on smd, and a
+    /// wedged smd held the main thread there and froze the app.
+    func smStatusesOffMain() async -> [SMAppService.Status] {
+        await Task.detached(priority: .utility) { [self] in smStatuses() }.value
+    }
+
     @discardableResult
     func registerAll() async -> [ServiceRegisterResult] { await register(plists: agents.map(\.fileName)) }
 

@@ -120,21 +120,35 @@ function Thumb({
 }
 
 /** A web link, opened in a new tab and read without its scheme. */
-function UrlLink({ url }: { url: string }) {
+function UrlLink({ url, short = false }: { url: string; short?: boolean }) {
   return (
     <Anchor
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      fz="md"
+      fz={short ? 'sm' : 'md'}
+      fw={short ? 500 : undefined}
       lh="normal"
       c="accent"
+      title={short ? urlLabel(url) : undefined}
       className={classes.link}
     >
       <Icon name="externalLink" size={13} data-parity="i" />
-      <span data-parity="t">{urlLabel(url)}</span>
+      <span data-parity="t">{short ? shortUrlLabel(url) : urlLabel(url)}</span>
     </Anchor>
   );
+}
+
+const TICKET_ID = /^[A-Z][A-Z0-9]*-\d+$/;
+
+/** A ticket link as its id (`WEB-412`); any other link as `urlLabel` does. */
+function shortUrlLabel(url: string): string {
+  try {
+    const last = new URL(url).pathname.split('/').filter(Boolean).at(-1);
+    return last && TICKET_ID.test(last) ? last : urlLabel(url);
+  } catch {
+    return url;
+  }
 }
 
 /** A file the evidence names that is not an image: opened in the editor when
@@ -243,31 +257,46 @@ function CaseThumb({
   const shot = shotIn(c, phase, 'light');
   if (!shot) return null;
   const line = shotLine(c, shot);
+  const open = () =>
+    onCompare({
+      caseId: c.id,
+      mode: phase,
+      theme: shot.theme,
+      variant: 'annotated',
+    });
   return (
-    <Stack gap={4} className={classes.storyThumb} data-testid="case-thumb">
-      <ThumbFrame>
+    <div className={classes.board} data-testid="case-thumb">
+      <div className={classes.boardImage} data-parity="img">
         <EvidenceImage
           src={evidenceUrl(repo, runId, addressOf(c, phase, shot))}
           name={shownName(shot)}
           cover
-          onOpen={() =>
-            onCompare({
-              caseId: c.id,
-              mode: phase,
-              theme: shot.theme,
-              variant: 'annotated',
-            })
-          }
+          onOpen={open}
         />
-      </ThumbFrame>
-      <Group gap={6} wrap="nowrap">
-        <Text fz="sm" lh="normal" fw={500} truncate data-parity="label">
-          {c.label}
-        </Text>
-        <CaseBadges c={c} phase={phase} />
-      </Group>
-      <ShotLine line={line} size="sm" />
-    </Stack>
+      </div>
+      <div className={classes.boardText}>
+        <Group gap={6} wrap="nowrap">
+          <Text fz="md" lh="normal" fw={500} truncate data-parity="label">
+            {c.label}
+          </Text>
+          <CaseBadges c={c} phase={phase} />
+        </Group>
+        <ShotLine line={line} size="sm" lineClamp={2} dim />
+      </div>
+      <Anchor
+        component="button"
+        type="button"
+        fz="sm"
+        fw={500}
+        lh="normal"
+        c="accent"
+        className={classes.boardOpen}
+        onClick={open}
+      >
+        Open
+        <Icon name="maximize" size={12} />
+      </Anchor>
+    </div>
   );
 }
 
@@ -300,62 +329,78 @@ function StoryEvidence({
   const url = withUrl ? rec.url : undefined;
   const one = rec.cases.length === 1 ? inPhase[0]! : null;
   const shot = one ? shotIn(one, phase, 'light') : null;
+  const count = inPhase.length;
   return (
-    <Stack gap={12}>
-      <div className={classes.strip}>
-        {one && shot
-          ? (['plain', 'annotated'] as const)
-              .filter(v => v === 'plain' || shot.annotated)
-              .map(variant => (
-                <Thumb
-                  key={variant}
-                  src={evidenceUrl(
-                    repo,
-                    runId,
-                    addressOf(one, phase, shot, variant)
-                  )}
-                  name={shownName(shot, variant)}
-                  size="story"
-                  line={
-                    variant === 'annotated' || !shot.annotated
-                      ? shotLine(one, shot)
-                      : null
-                  }
-                  onOpen={() =>
-                    onCompare({
-                      caseId: one.id,
-                      mode: phase,
-                      theme: shot.theme,
-                      variant,
-                    })
-                  }
-                />
-              ))
-          : inPhase.map(c => (
-              <CaseThumb
-                key={c.id}
-                repo={repo}
-                runId={runId}
-                c={c}
-                phase={phase}
-                onCompare={onCompare}
+    <Stack gap={10} className={classes.storySection}>
+      <Group justify="space-between" wrap="nowrap" gap={12}>
+        <Group gap={8} wrap="nowrap">
+          <Text fz="md" fw={600} lh="normal">
+            Boards
+          </Text>
+          <Text fz="sm" lh="normal" c="dimmed">
+            {count} {count === 1 ? 'board' : 'boards'}
+          </Text>
+        </Group>
+        <Group gap={14} wrap="nowrap" className={classes.links}>
+          {url ? <UrlLink url={url} short /> : null}
+          <Anchor
+            component="button"
+            type="button"
+            fz="sm"
+            fw={500}
+            lh="normal"
+            c="accent"
+            onClick={() => onCompare({})}
+            data-parity="open"
+          >
+            Open full size
+          </Anchor>
+        </Group>
+      </Group>
+      {one && shot ? (
+        <div className={classes.strip}>
+          {(['plain', 'annotated'] as const)
+            .filter(v => v === 'plain' || shot.annotated)
+            .map(variant => (
+              <Thumb
+                key={variant}
+                src={evidenceUrl(
+                  repo,
+                  runId,
+                  addressOf(one, phase, shot, variant)
+                )}
+                name={shownName(shot, variant)}
+                size="story"
+                line={
+                  variant === 'annotated' || !shot.annotated
+                    ? shotLine(one, shot)
+                    : null
+                }
+                onOpen={() =>
+                  onCompare({
+                    caseId: one.id,
+                    mode: phase,
+                    theme: shot.theme,
+                    variant,
+                  })
+                }
               />
             ))}
-      </div>
-      <Group gap={16} wrap="wrap" className={classes.links}>
-        {url ? <UrlLink url={url} /> : null}
-        <Anchor
-          component="button"
-          type="button"
-          fz="md"
-          lh="normal"
-          c="accent"
-          onClick={() => onCompare({})}
-          data-parity="open"
-        >
-          Open full size →
-        </Anchor>
-      </Group>
+        </div>
+      ) : (
+        <div className={classes.boardList}>
+          {inPhase.map(c => (
+            <CaseThumb
+              key={c.id}
+              repo={repo}
+              runId={runId}
+              c={c}
+              phase={phase}
+              onCompare={onCompare}
+            />
+          ))}
+        </div>
+      )}
     </Stack>
   );
 }

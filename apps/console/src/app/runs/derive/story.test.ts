@@ -415,6 +415,23 @@ describe('stageSummary', () => {
       answer: { answers: { q: picked }, by: 'console', answeredAt: at + 1 },
     } as Partial<GateRow>);
 
+  it('leads a redirected attempt with where it went back to', () => {
+    expect(
+      stageSummary(
+        entryOf({
+          redirect: 'back to implement: fix the spellcheck and re-push',
+          gates: [asked('a', 1, 'fix', 'Fix the spellcheck and re-push')],
+        })
+      )
+    ).toBe('Back to implement');
+  });
+
+  it('says a redirect that names no stage was redirected', () => {
+    expect(
+      stageSummary(entryOf({ redirect: 'CI red: lint failed', gates: [] }))
+    ).toBe('Redirected');
+  });
+
   it('counts the decisions and names the first pick', () => {
     expect(
       stageSummary(

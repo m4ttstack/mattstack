@@ -138,6 +138,27 @@ export const SkippableMultiSelect: Story = {
   },
 };
 
+const LONG_CONTEXT = [
+  'Plan: direct-tdd, because the orders list already switches on `filterMode` and the store setting maps onto it.',
+  '',
+  '- **APPROACH** direct-tdd: a flag-gated copy swap plus removing one button, following an existing pattern',
+  '- **FAILING TEST** `OrdersEmptyState.test.tsx` > "with the store filter flag on, ARCHIVED shows the archive notice and no Manage button"',
+  '- **SURFACES** yes: the storefront copy lives under `apps/storefront/src/orders`',
+  '- **EVIDENCE** screenshot: the change alters the empty state a store owner sees',
+  '',
+  'Findings:',
+  '',
+  ...Array.from(
+    { length: 9 },
+    (_, i) =>
+      `- Finding ${i + 1}: renders the archived state in \`apps/orders/src/components/list/empty-state/OrdersEmptyState${i}.tsx\` with its own heading, and several sibling reasons render the same Manage button, so the copy change has to cover each of them or the wording drifts between the two lists.`
+  ),
+].join('\n');
+
+export const LongFindings: Story = {
+  args: { gate: gate({ context: LONG_CONTEXT }) },
+};
+
 export const NoContext: Story = {
   args: { gate: gate({ context: undefined }) },
 };

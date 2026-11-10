@@ -6,16 +6,22 @@ export type ShotLineData = { kind: 'caption' | 'waiver'; text: string };
 export function ShotLine({
   line,
   size,
+  lineClamp,
+  dim = false,
 }: {
   line?: ShotLineData | null;
   size: 'sm' | 'md';
+  lineClamp?: number;
+  /** Read a caption dimmed too, under a title that already leads. */
+  dim?: boolean;
 }) {
   if (!line) return null;
   return (
     <Text
       fz={size}
       lh="normal"
-      c={line.kind === 'waiver' ? 'dimmed' : undefined}
+      c={dim || line.kind === 'waiver' ? 'dimmed' : undefined}
+      lineClamp={lineClamp}
       data-parity={line.kind}
     >
       {line.text}

@@ -49,6 +49,29 @@ describe('storyFields', () => {
       'plan-path',
     ]);
   });
+
+  it('drops a field rt cleared with "-" or an empty value', () => {
+    const fields = [
+      { ...f('ci', 1), value: '-' },
+      { ...f('note', 2), value: '  ' },
+      f('approach', 3),
+    ];
+    expect(storyFields(fields).map(x => x.key)).toEqual(['approach']);
+  });
+
+  it("folds the evidence step's board clearances into one redaction line, placed at the last", () => {
+    const fields = [
+      { ...f('evidence-cleared:list-before', 5), value: 'abc no redact marks' },
+      { ...f('evidence-cleared:panel-before', 9), value: 'def approved at x' },
+      { ...f('evidence-cleared:reset-board', 12), value: '-' },
+      f('approach', 3),
+    ];
+    const out = storyFields(fields);
+    expect(out.map(x => [x.key, x.value, x.at])).toEqual([
+      ['approach', 'v', 3],
+      ['redaction', '2 boards cleared', 9],
+    ]);
+  });
 });
 
 describe('placeFields', () => {

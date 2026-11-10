@@ -4,11 +4,9 @@
 
 .slot {
   width: 100%;
+  max-width: 960px;
+  margin-inline: auto;
   scroll-margin-top: var(--mantine-spacing-xl);
-}
-
-.panel {
-  container-type: inline-size;
 }
 
 .head {
@@ -43,24 +41,45 @@
 
 .split {
   display: flex;
-  align-items: stretch;
-}
-
-/* A boards gate puts the boards above the form at full width. */
-.split[data-stacked] {
   flex-direction: column;
 }
 
 .context {
-  flex: 0 0 380px;
   min-width: 0;
-  padding: 20px;
-  border-right: 1px solid var(--tk-border-soft);
+  border-bottom: 1px solid var(--tk-border-soft);
+}
+
+.contextLabel {
+  padding: 20px 28px 10px;
+}
+
+.scrollBody {
+  padding: 2px 28px 24px;
+}
+
+.thumb {
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .thumb {
+    transition: opacity 150ms ease;
+  }
+}
+
+.scroll:hover .thumb {
+  opacity: 1;
 }
 
 .findings {
-  --gate-context-fz: var(--mantine-font-size-lg);
+  --gate-context-fz: var(--mantine-font-size-md);
   --gate-context-lh: 20px;
+}
+
+/* List markers hang left of the text, where the scroll viewport clips them. */
+.findings ul,
+.findings ol {
+  padding-inline-start: 18px;
 }
 
 .code {
@@ -75,13 +94,13 @@
 
 .point {
   display: grid;
-  grid-template-columns: 78px minmax(0, 1fr);
+  grid-template-columns: 104px minmax(0, 1fr);
   align-items: start;
   column-gap: 8px;
 }
 
 .pointText {
-  --gate-context-fz: var(--mantine-font-size-md);
+  --gate-context-fz: var(--mantine-font-size-sm);
   --gate-context-lh: 18px;
   --gate-context-color: currentColor;
   color: var(--tk-text-3);
@@ -127,18 +146,6 @@
 
 .lost {
   padding: 20px;
-}
-
-@container (max-width: 44rem) {
-  .split {
-    flex-direction: column;
-  }
-
-  .context {
-    flex-basis: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--tk-border-soft);
-  }
 }
 
 /* A disabled button fires no pointer events, so its tooltip hangs on this. */

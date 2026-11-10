@@ -1,0 +1,58 @@
+.toggle[data-open] svg {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .toggle svg {
+    transition: transform 200ms ease;
+  }
+}
+
+/* Inside the collapsing content, so the gap opens with it. */
+.panel {
+  padding: 8px 0 12px;
+}
+
+.frame {
+  overflow: hidden;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px 3px 12px;
+  border-bottom: 1px solid var(--tk-line-1);
+  background: var(--tk-panel);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+}
+
+.row + .row {
+  border-top: 1px solid var(--tk-line-1);
+}
+
+.key {
+  flex: 0 0 140px;
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.muted {
+  flex-shrink: 0;
+  color: var(--tk-text-3);
+}
+
+.foot {
+  padding: 4px 12px;
+  border-top: 1px solid var(--tk-line-1);
+  background: var(--tk-panel);
+}

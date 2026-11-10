@@ -2,7 +2,7 @@ import '../../icons';
 
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type { GateRow } from '@mattstack/rt-client';
-import { screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { GateRecordView } from './GateRecord';
@@ -39,6 +39,7 @@ describe('GateRecordView', () => {
   it('draws a review post as its verdict and findings', () => {
     renderWithProviders(
       <GateRecordView
+        number={1}
         gate={gate({
           kind: 'review-post',
           questions: [
@@ -81,6 +82,7 @@ describe('GateRecordView', () => {
   it('folds the Then? move into the stamp and leads with the agent summary', () => {
     renderWithProviders(
       <GateRecordView
+        number={1}
         gate={gate({
           kind: 'mark-ready',
           context: 'Pipeline green for head abc1234.',
@@ -111,9 +113,55 @@ describe('GateRecordView', () => {
     expect(screen.getByText('yes').closest('[data-picked]')).not.toBeNull();
   });
 
+  it('offers the unpicked options behind a chevron, closed at first', () => {
+    renderWithProviders(
+      <GateRecordView
+        number={1}
+        gate={gate({
+          kind: 'mark-ready',
+          questions: [
+            {
+              id: 'ready',
+              label: 'Mark it ready?',
+              multi: false,
+              options: ['yes', 'no'],
+            },
+          ],
+          answer: answered({ ready: 'yes' }),
+        })}
+      />
+    );
+    const row = screen.getByRole('button', { name: /Mark it ready/ });
+    expect(row).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(row);
+    expect(row).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('says none picked and hides nothing else when a multi was left empty', () => {
+    renderWithProviders(
+      <GateRecordView
+        number={1}
+        gate={gate({
+          kind: 'ship',
+          questions: [
+            {
+              id: 'envs',
+              label: 'Which previews?',
+              multi: true,
+              options: ['one', 'two'],
+            },
+          ],
+          answer: answered({ envs: [] }),
+        })}
+      />
+    );
+    expect(screen.getByText('None picked')).toBeInTheDocument();
+  });
+
   it('marks an escalation and says why a closed gate ended', () => {
     renderWithProviders(
       <GateRecordView
+        number={1}
         gate={gate({
           kind: 'review-escalation',
           status: 'closed',

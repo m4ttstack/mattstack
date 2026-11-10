@@ -11,6 +11,10 @@
   flex-shrink: 0;
 }
 
+.metaPart + .metaPart {
+  margin-left: 12px;
+}
+
 .cost {
   flex: none;
   white-space: nowrap;

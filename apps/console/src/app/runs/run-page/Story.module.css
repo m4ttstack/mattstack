@@ -4,21 +4,69 @@
 }
 
 .split {
+  --inlay-line: color-mix(in srgb, var(--tk-border-soft) 55%, transparent);
   display: flex;
   align-items: stretch;
 }
 
+.column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.stagesColumn {
+  flex: 0 0 380px;
+  width: 380px;
+  --inlay-line: var(--tk-app-chrome-line);
+  position: relative;
+  background: var(--tk-app-chrome);
+}
+
+/* On its own layer so a row's hover and selected fills pass under it. */
+.stagesColumn::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  content: '';
+  pointer-events: none;
+  box-shadow:
+    inset -1px 0 0 var(--inlay-line),
+    inset -10px 0 10px -10px
+      color-mix(in srgb, var(--tk-text-1) 10%, transparent);
+}
+
+.paneColumn {
+  flex: 1;
+}
+
+.columnHead {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--inlay-line);
+}
+
+.stagesColumn .columnHead {
+  padding: 0 16px;
+}
+
 .stages {
   display: flex;
-  flex: 0 0 280px;
+  flex: 1;
   flex-direction: column;
-  width: 280px;
-  min-width: 0;
+  min-height: 0;
   overflow-y: auto;
-  gap: 2px;
-  padding: 8px;
-  border-right: 1px solid var(--tk-line-1);
-  background: var(--tk-wash);
+}
+
+.stageRow {
+  flex: none;
+  border-bottom: 1px solid var(--inlay-line);
 }
 
 .pane {
@@ -32,10 +80,4 @@
 .pane {
   scrollbar-width: thin;
   scrollbar-color: var(--tk-line-2) transparent;
-}
-
-.split > .pane {
-  margin: 8px 0;
-  padding-top: 10px;
-  padding-bottom: 14px;
 }

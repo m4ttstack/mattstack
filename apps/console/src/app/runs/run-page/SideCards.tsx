@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import {
   Anchor,
   CopyActionIcon,
@@ -26,6 +27,22 @@ export interface FactProps {
   /** What the copy button writes; defaults to the value. */
   copy?: string | null;
   sub: string | null;
+  /** Kept beside the value on the hero's one-line footer, which has no
+      room for `sub`. */
+  note?: string | null;
+}
+
+function FactCopy({ label, value }: { label: string; value: string }) {
+  return (
+    <CopyActionIcon
+      value={value}
+      className={inline.control}
+      size="sm"
+      label={`Copy ${label.toLowerCase()}`}
+      icon={<Icon name="copy" size={13} data-parity="copy" />}
+      iconSize={13}
+    />
+  );
 }
 
 function Fact({
@@ -40,7 +57,7 @@ function Fact({
   sub,
 }: FactProps) {
   const copyValue = copy ?? value;
-  const valueType = { fz: 'lg', fw: 500, lh: 'normal' } as const;
+  const valueType = { fz: 'sm', fw: 500, lh: 'normal' } as const;
   return (
     <Stack gap={4} className={classes.fact} data-fact={name}>
       <Eyebrow data-parity="label">{label}</Eyebrow>
@@ -69,15 +86,7 @@ function Fact({
             {value ?? empty}
           </Text>
         )}
-        <CopyActionIcon
-          value={copyValue ?? ''}
-          disabled={!copyValue}
-          className={inline.control}
-          size="sm"
-          label={copyValue ? `Copy ${label.toLowerCase()}` : undefined}
-          icon={<Icon name="copy" size={13} data-parity="copy" />}
-          iconSize={13}
-        />
+        {copyValue ? <FactCopy label={label} value={copyValue} /> : null}
       </Group>
       {sub ? (
         <Text fz="sm" lh="normal" c="dimmed" truncate data-parity="sub">
@@ -85,6 +94,59 @@ function Fact({
         </Text>
       ) : null}
     </Stack>
+  );
+}
+
+/** The run's links as one unlabelled line along the foot of the live hero,
+    with `end` at its right edge. */
+export function FactsLine({
+  facts,
+  end,
+}: {
+  facts: FactProps[];
+  end?: ReactNode;
+}) {
+  return (
+    <Group gap={20} wrap="nowrap" className={classes.line} data-parity="Facts">
+      {facts.map(f => {
+        const copyValue = f.copy ?? f.value;
+        const type = { fz: 'sm', lh: 'normal', truncate: true } as const;
+        return (
+          <Group
+            key={f.name}
+            gap={6}
+            wrap="nowrap"
+            className={classes.lineFact}
+            data-fact={f.name}
+          >
+            <Icon name={f.icon} size={13} data-parity={f.iconLayer} />
+            {f.value && f.href ? (
+              <Anchor
+                href={f.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                c="accent"
+                data-parity="value"
+                {...type}
+              >
+                {f.value}
+              </Anchor>
+            ) : (
+              <Text c="dimmed" data-parity="value" {...type}>
+                {f.value ?? f.empty}
+              </Text>
+            )}
+            {f.note ? (
+              <Text c="dimmed" data-parity="note" {...type}>
+                {f.note}
+              </Text>
+            ) : null}
+            {copyValue ? <FactCopy label={f.label} value={copyValue} /> : null}
+          </Group>
+        );
+      })}
+      {end ? <span className={classes.lineEnd}>{end}</span> : null}
+    </Group>
   );
 }
 
