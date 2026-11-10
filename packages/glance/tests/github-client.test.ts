@@ -417,6 +417,19 @@ describe('rate limits fail fast', () => {
     expect(err.kind).toBe('secondary');
   });
 
+  test('a bare 429 with no rate-limit headers is still a RateLimitedError, sent once', async () => {
+    const state = stub([() => limited(429, {}, 'Too Many Requests')]);
+
+    const err = await withInstantTimers(() =>
+      client('tok-bare429-noheaders').request('GET /repos/a/b/pulls/1').catch(e => e)
+    );
+
+    expect(state.calls).toBe(1);
+    expect(err).toBeInstanceOf(RateLimitedError);
+    expect(err.kind).toBe('secondary');
+    expect(err.retryAfterMs).toBeNull();
+  });
+
   test('a plain 403 is not a rate limit and stays a RequestError', async () => {
     stub([() => limited(403, {}, 'Resource not accessible')]);
 

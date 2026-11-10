@@ -115,7 +115,7 @@ baseRef { branchProtectionRule { requiredApprovingReviewCount } }
 author { __typename login avatarUrl ... on User { databaseId name } ... on Bot { databaseId } }
 assignees(first: 20) { nodes { login databaseId name avatarUrl } }
 reviewRequests(first: 20) { nodes { requestedReviewer {
-  ... on User { login databaseId name avatarUrl } ... on Team { slug } } } }
+  ... on User { login databaseId name avatarUrl } } } }
 latestReviews(first: 50) { nodes { state submittedAt
   author { __typename login avatarUrl ... on User { databaseId name } ... on Bot { databaseId } } } }
 latestOpinionatedReviews(first: 50) { nodes { state submittedAt
@@ -138,8 +138,11 @@ PR by number rather than using `nodes(ids:)` or a connection.
 Verified on m4ttstack/mattstack#1074 (2026-11-10): `latestOpinionatedReviews`
 omits comment-only reviews (a CodeRabbit `COMMENTED` review appears only in
 `latestReviews`), and GraphQL reports a bot's login without the `[bot]`
-suffix REST adds (`coderabbitai` vs `coderabbitai[bot]`). So reviewer state
-comes from `latestReviews`, `approvedBy` from `latestOpinionatedReviews`, and
+suffix REST adds (`coderabbitai` vs `coderabbitai[bot]`). So the reviewer
+list comes from `latestReviews`, each reviewer's state from their
+`latestOpinionatedReviews` entry when they have one (a reply to a review
+thread files a new `COMMENTED` review that would hide the verdict) and from
+`latestReviews` otherwise, `approvedBy` from `latestOpinionatedReviews`, and
 a `Bot` author's `username` is rebuilt as `<login>[bot]` with its
 `databaseId`, so `id` and `username` match what REST gave consumers before
 (the `authorUsernames` search, project sync's `scopeAuthors`, the board's
@@ -280,7 +283,10 @@ discussions rule, merge error), and `other` when none apply.
 ### 3. Reviewers and approvals (GLANCE-42)
 
 - **Reviewers** are requested reviewers plus every author in
-  `latestReviews` (comment-only reviews included), deduped by user. State: `APPROVED` maps to
+  `latestReviews` (comment-only reviews included), deduped by user. A
+  user's state is read from their `latestOpinionatedReviews` entry when
+  present, else from `latestReviews`, so approve-then-reply still reads
+  approved. State: `APPROVED` maps to
   `APPROVED`, `CHANGES_REQUESTED` to `REQUESTED_CHANGES`, `COMMENTED` to
   `REVIEWED`, and still-requested users with no review to `UNREVIEWED`. A
   re-requested user who had reviewed shows `UNREVIEWED` (GitHub's request is
@@ -374,6 +380,9 @@ discussions rule, merge error), and `other` when none apply.
 - GraphQL: the fill's read variant raises the same `RateLimitedError`
   instead of returning null. The existing `graphql()` keeps its MAT-133
   contract for its other callers.
+- GraphQL reads sent through `graphqlRead` carry an explicit request marker
+  that keeps the retry plugin's 5xx retries (one 502 must not fail a batch
+  of 25); mutations and REST writes stay at `retries: 0`.
 - A rate limit throws `RateLimitedError` on every read path, list paths
   included, so a short list never reads as complete. The `rate-limited`
   warning kind stays in the union, unused.

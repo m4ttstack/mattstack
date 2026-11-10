@@ -243,3 +243,34 @@ describe('GitHub read cost', () => {
     expect(byTransport(requests)).toEqual({ graphql: 2, rest: 1 });
   });
 });
+
+describe('GraphQL 5xx retry', () => {
+  const sentGraphQL = (urls: string[]) => urls.filter((u) => /\/graphql(\?|$)/.test(u)).length;
+
+  test('a fill answered 502 then 200 succeeds on the second GraphQL request', async () => {
+    let calls = 0;
+    const { urls } = stubForge({
+      graphql: () => (++calls === 1 ? jsonResponse({ message: 'Bad Gateway' }, 502) : undefined),
+      fill: allNodes,
+      rest: rules
+    });
+    const { provider } = counted();
+
+    const pr = await provider.fetchSingleMR('o/r', 1, null);
+
+    expect(pr).not.toBeNull();
+    expect(pr!.iid).toBe(1);
+    expect(sentGraphQL(urls)).toBe(2);
+  });
+
+  test('a GraphQL mutation answered 502 is sent once', async () => {
+    const { urls } = stubForge({
+      graphql: () => jsonResponse({ message: 'Bad Gateway' }, 502),
+      rest: (url) => (url.endsWith('/pulls/1') ? jsonResponse({ number: 1, node_id: 'PR_node1' }) : undefined)
+    });
+    const { provider } = counted();
+
+    await expect(provider.setAutoMerge('o/r', 1)).rejects.toThrow(/^setAutoMerge failed: 502/);
+    expect(sentGraphQL(urls)).toBe(1);
+  });
+});

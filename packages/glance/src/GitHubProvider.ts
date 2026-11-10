@@ -55,6 +55,7 @@ import {
   reasonPhrase,
   resolveGitHubUrls,
   toRateLimitedError,
+  GRAPHQL_READ_MARKER,
   type GlanceOctokit
 } from './githubClient.ts';
 import type { OnRequestHook } from './instrumentation.ts';
@@ -2467,9 +2468,8 @@ export class GitHubProvider implements GitProvider {
    * indistinguishable from "auto-merge is off", which is the MAT-15 bug class
    * where a silent no-op meant a draft MR was never actually published.
    *
-   * `graphql()` is deliberately left alone rather than harmonized with this.
-   * Two live-passing read paths depend on its swallow and no failing
-   * assertion drives changing them.
+   * `graphql()` no longer has a caller: every read goes through
+   * `graphqlRead`, which throws instead of swallowing.
    */
   private async graphqlOrThrow<T>(
     op: string,
@@ -2510,6 +2510,9 @@ export class GitHubProvider implements GitProvider {
    * `data` and `errors` returns both, so the fill can keep the PRs that
    * resolved. A response with errors and no data, an HTTP failure or a
    * transport failure throws; a rate limit throws `RateLimitedError`.
+   *
+   * It must only ever send queries: `GRAPHQL_READ_MARKER` keeps the 5xx
+   * retries a REST GET gets, which would duplicate a mutation.
    */
   private async graphqlRead<T>(
     op: string,
@@ -2519,7 +2522,10 @@ export class GitHubProvider implements GitProvider {
     let data: T | null | undefined;
     let errors: GraphQLReadError[] = [];
     try {
-      data = await this.octokit.graphql<T>(query, variables);
+      data = await this.octokit.graphql<T>(query, {
+        ...variables,
+        request: { [GRAPHQL_READ_MARKER]: true }
+      });
     } catch (err) {
       const limited = toRateLimitedError(err, `POST /graphql (${op})`);
       if (limited) throw limited;

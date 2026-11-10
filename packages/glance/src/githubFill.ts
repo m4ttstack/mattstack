@@ -101,7 +101,6 @@ export interface GHFillNode {
         databaseId?: number | null;
         name?: string | null;
         avatarUrl?: string | null;
-        slug?: string;
       } | null;
     }>;
   };
@@ -152,7 +151,7 @@ baseRef { branchProtectionRule { requiredApprovingReviewCount } }
 author ${ACTOR}
 assignees(first: 20) { nodes { login databaseId name avatarUrl } }
 reviewRequests(first: 20) { nodes { requestedReviewer {
-  ... on User { login databaseId name avatarUrl } ... on Team { slug } } } }
+  ... on User { login databaseId name avatarUrl } } } }
 latestReviews(first: 50) { nodes { state submittedAt author ${ACTOR} } }
 latestOpinionatedReviews(first: 50) { nodes { state submittedAt author ${ACTOR} } }
 reviewThreads(first: 100) { totalCount nodes { isResolved } }
@@ -255,11 +254,19 @@ export function mapReviews(node: GHFillNode, rulesRequired: number | null): Revi
     });
     byId.set(ref.id, { ...ref, reviewState: 'UNREVIEWED' });
   }
+  // A reply to a review thread files a new COMMENTED review, which would
+  // otherwise hide the approval or change request it followed.
+  const verdicts = new Map<string, string>();
+  for (const r of node.latestOpinionatedReviews.nodes) {
+    verdicts.set(toUserRefFromActor(r.author).id, r.state);
+  }
   for (const r of node.latestReviews.nodes) {
     const ref = toUserRefFromActor(r.author);
     if (ref.id === authorId) continue;
     // A pending re-request is newer than the review it follows.
-    if (!byId.has(ref.id)) byId.set(ref.id, { ...ref, reviewState: reviewStateOf(r.state) });
+    if (!byId.has(ref.id)) {
+      byId.set(ref.id, { ...ref, reviewState: reviewStateOf(verdicts.get(ref.id) ?? r.state) });
+    }
   }
 
   const approvedBy = node.latestOpinionatedReviews.nodes

@@ -26,6 +26,12 @@ export const RATE_LIMIT_RETRY_DEADLINE_S = 30;
 
 const MAX_RATE_LIMIT_RETRIES = 2;
 
+/**
+ * The `request` option key a GraphQL query sets to keep the retry plugin's
+ * 5xx retries. Only `graphqlRead` may set it: it never sends a mutation.
+ */
+export const GRAPHQL_READ_MARKER = 'glanceGraphQLRead';
+
 export type GlanceOctokit = InstanceType<typeof GlanceOctokitBase>;
 
 /**
@@ -33,7 +39,7 @@ export type GlanceOctokit = InstanceType<typeof GlanceOctokitBase>;
  * not beneath the REST root, so the two cannot be derived from one prefix.
  *
  * `graphqlURL` is no longer read anywhere in `src/` -- `GitHubProvider`'s
- * `graphql()` now calls `octokit.graphql`, which derives the same value
+ * GraphQL helpers call `octokit.graphql`, which derives the same value
  * itself from the REST `apiBase` (see `@octokit/graphql`'s
  * `GHES_V3_SUFFIX_REGEX`). It stays here, and its own test in
  * `github-client.test.ts` stays with it, as a standalone spec of the split
@@ -91,13 +97,11 @@ export function createGitHubClient(opts: {
           retryCount
         });
         if (isGraphQLRequest(options)) {
-          // `graphql()`'s documented contract (MAT-133, owned by phase 4)
-          // is to swallow this outcome and return null immediately, the
-          // same way it swallows an HTTP failure or a GraphQL-level error.
-          // Retrying would wait out `x-ratelimit-reset` in real time --
-          // up to roughly two hours for a primary rate limit, twice, since
-          // the retry plugin's cap is 2 -- before returning the exact same
-          // null, which helps no caller and only delays it.
+          // A GraphQL read throws `RateLimitedError` at once so the daemon
+          // schedules the wait; a mutation fails with the limit for its
+          // caller to retry. Retrying here would wait out
+          // `x-ratelimit-reset` in real time, up to roughly two hours for a
+          // primary rate limit, twice, before failing the same way.
           return false;
         }
         // Two attempts absorb a quota window boundary. Retrying indefinitely
@@ -112,9 +116,9 @@ export function createGitHubClient(opts: {
           retryCount
         });
         if (isGraphQLRequest(options)) {
-          // Same reasoning as `onRateLimit` above: `graphql()` swallows this
-          // by design, so waiting out `retry-after` (or the 60s fallback),
-          // up to twice, serves nobody.
+          // Same reasoning as `onRateLimit` above: waiting out
+          // `retry-after` (or the 60s fallback), up to twice, would hold the
+          // caller past the deadline reads have.
           return false;
         }
         return shouldRetry(options, retryAfter, retryCount);
@@ -124,7 +128,10 @@ export function createGitHubClient(opts: {
       // The retry plugin backs off 429s on its own 1s, 4s, 9s ladder and
       // ignores Retry-After, which spends ~14s on a limit the throttling
       // handlers above already judged past the deadline. A 429 is always a
-      // rate limit, so it belongs to them alone.
+      // rate limit: the throttling handlers take the ones GitHub labels
+      // (secondary-limit text, or `x-ratelimit-remaining: 0`), and
+      // `toRateLimitedError` turns every other 429 on a read into a
+      // `RateLimitedError`, so none is left to this ladder.
       doNotRetry: [400, 401, 403, 404, 410, 422, 429, 451]
     }
   });
@@ -137,7 +144,11 @@ export function createGitHubClient(opts: {
   // request that surfaces as failed and must be retried by the caller, so
   // only the idempotent verbs (GET, HEAD) keep automatic retry; everything
   // else is forced to retries: 0 here, centrally, so no call site has to
-  // remember to opt out.
+  // remember to opt out. A GraphQL query is a POST but writes nothing, so
+  // one carrying `GRAPHQL_READ_MARKER` keeps the 5xx retries: without them
+  // one 502 fails a whole fill batch, and the daemon caches "no PR" for
+  // every branch in it. The marker is explicit rather than inferred from
+  // the query text, so a mutation can never be mistaken for a read.
   octokit.hook.before('request', options => {
     // endpoint.merge does not normalize case, so a caller that passes a
     // lowercase method (e.g. restRequest('get', ...)) would otherwise
@@ -145,7 +156,9 @@ export function createGitHubClient(opts: {
     // Every in-repo call site already uses uppercase; this is defensive
     // for restRequest's external, undocumented-case contract.
     const method = options.method?.toUpperCase();
-    if (method && method !== 'GET' && method !== 'HEAD') {
+    const markedRead =
+      options.request?.[GRAPHQL_READ_MARKER] === true && isGraphQLRequest(options);
+    if (method && method !== 'GET' && method !== 'HEAD' && !markedRead) {
       options.request = { ...options.request, retries: 0 };
     }
   });
@@ -189,9 +202,10 @@ export function createGitHubClient(opts: {
   // outermost error hook: the throttling and retry plugins read the raw
   // RequestError (status, headers) to decide whether to wait, and the
   // instrumentation hook above reports its status. Only what survives all of
-  // them is converted. Reads only: a rejected write keeps its RequestError so
-  // `ghError` still shapes its message, and GraphQL keeps `graphql()`'s
-  // MAT-133 swallow contract (its fill read converts for itself).
+  // them is converted. REST reads only: a rejected write keeps its
+  // RequestError so `ghError` still shapes its message, and a GraphQL error
+  // reaches `graphqlRead` unconverted, since a rate limit there can arrive
+  // in a 200 body this hook never sees as an error; it converts for itself.
   octokit.hook.error('request', (error, options) => {
     const method = options.method?.toUpperCase();
     if ((method === 'GET' || method === 'HEAD') && !isGraphQLRequest(options)) {
@@ -265,6 +279,7 @@ export function toRateLimitedError(
     if (/\b(secondary|abuse) rate limit/i.test(text)) kind = 'secondary';
     else if (headerValue(headers, 'x-ratelimit-remaining') === '0') kind = 'primary';
     else if (headerValue(headers, 'retry-after') !== null) kind = 'secondary';
+    else if (status === 429) kind = 'secondary';
   }
   if (kind === null) return null;
 

@@ -25,10 +25,14 @@ export interface LoopTick {
 }
 
 /** Octokit's RequestError keeps the status and headers on the error itself,
- *  where gitbeaker keeps them under `cause.response`. */
+ *  where gitbeaker keeps them under `cause.response`. A transport failure
+ *  is also a RequestError, a 500 with no `response`, and must not read as a
+ *  server's answer. */
 function octokitResponse(err: unknown): { status: number; headers: unknown } | null {
   const e = err as { status?: unknown; response?: { headers?: unknown } } | null;
-  return typeof e?.status === 'number' ? { status: e.status, headers: e.response?.headers } : null;
+  return typeof e?.status === 'number' && e.response
+    ? { status: e.status, headers: e.response.headers }
+    : null;
 }
 
 /** Duck-typed error classification. GitbeakerRequestError carries

@@ -33,6 +33,12 @@ describe('buildFillQuery', () => {
     }
   });
 
+  test('review requests select users only, never teams (a team field can need read:org)', () => {
+    const q = buildFillQuery('o', 'r', [1], { listWeight: false });
+    expect(q).toContain('... on User { login databaseId name avatarUrl }');
+    expect(q).not.toContain('on Team');
+  });
+
   test('owner and repo are passed as string literals safely', () => {
     const q = buildFillQuery('o', 'we"ird', [1], { listWeight: false });
     expect(q).toContain('name: "we\\"ird"');

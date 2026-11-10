@@ -21,9 +21,10 @@
 import { describe, expect, test } from 'bun:test';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
 import type { FetchPullRequestsWarning } from '../src/GitProvider.ts';
-import { jsonResponse, stubForge, useForgeStub } from './helpers/gh-fill-fixture.ts';
+import { jsonResponse, stubForge, useForgeStub, useInstantTimers } from './helpers/gh-fill-fixture.ts';
 
 useForgeStub();
+useInstantTimers();
 
 function ghPR(number: number) {
   return {

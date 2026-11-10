@@ -1290,18 +1290,23 @@ async function runDashboardFlows(
       // moment and the wrong one to pin a value on.
       const observed: string[] = [];
       let open = await provider.fetchSingleMR(projectPath, s.stackPr.iid, null);
+      let latest = open;
       try {
         open = await pollUntil(
           `readiness of PR ${s.stackPr.iid} to leave checking`,
           async () => {
             const pr = await provider.fetchSingleMR(projectPath, s.stackPr.iid, null);
-            if (pr) observed.push(pr.readiness?.state ?? 'absent');
+            if (pr) {
+              observed.push(pr.readiness?.state ?? 'absent');
+              latest = pr;
+            }
             return pr && pr.readiness?.state !== 'checking' ? pr : null;
           },
           { timeoutMs: 90_000, intervalMs: 3_000 }
         );
       } catch {
-        // Falls through with the last read, which the assertions below judge.
+        // Falls through with the latest poll result, which the assertions below judge.
+        open = latest;
       }
       assert(open !== null, 'could not read the open fixture PR back');
       console.log(

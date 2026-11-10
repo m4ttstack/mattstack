@@ -64,6 +64,67 @@ describe('mapReviews', () => {
     expect(s.approvedBy.map(u => u.username)).toEqual(['bob']);
   });
 
+  // GitHub files a reply to a review thread as a new COMMENTED review, so
+  // latestReviews alone loses the verdict the reply followed.
+  it('approve then reply reads APPROVED', () => {
+    const s = mapReviews(
+      ghNode({
+        latestReviews: { nodes: [review('COMMENTED', 'bob', 12)] },
+        latestOpinionatedReviews: { nodes: [review('APPROVED', 'bob', 12)] }
+      }),
+      null
+    );
+    expect(s.reviewers.map(r => [r.username, r.reviewState])).toEqual([['bob', 'APPROVED']]);
+  });
+
+  it('changes requested then reply reads REQUESTED_CHANGES', () => {
+    const s = mapReviews(
+      ghNode({
+        reviewDecision: 'CHANGES_REQUESTED',
+        latestReviews: { nodes: [review('COMMENTED', 'bob', 12)] },
+        latestOpinionatedReviews: { nodes: [review('CHANGES_REQUESTED', 'bob', 12)] }
+      }),
+      null
+    );
+    expect(s.reviewers.map(r => [r.username, r.reviewState])).toEqual([
+      ['bob', 'REQUESTED_CHANGES']
+    ]);
+  });
+
+  it('a pending re-request still reads UNREVIEWED over an earlier approval and reply', () => {
+    const s = mapReviews(
+      ghNode({
+        reviewRequests: { nodes: [request('bob', 12)] },
+        latestReviews: { nodes: [review('COMMENTED', 'bob', 12)] },
+        latestOpinionatedReviews: { nodes: [review('APPROVED', 'bob', 12)] }
+      }),
+      null
+    );
+    expect(s.reviewers.map(r => [r.username, r.reviewState])).toEqual([['bob', 'UNREVIEWED']]);
+  });
+
+  it('APPROVED with no readable count reads approvalsRequired null', () => {
+    const s = mapReviews(
+      ghNode({ reviewDecision: 'APPROVED', baseRef: { branchProtectionRule: null } }),
+      null
+    );
+    expect(s.approvalsRequired).toBeNull();
+    expect(s.approvalsLeft).toBe(0);
+    expect(s.approved).toBe(true);
+  });
+
+  it('REVIEW_REQUIRED with a classic count of 0 and no rules reads approvalsRequired null', () => {
+    const s = mapReviews(
+      ghNode({
+        reviewDecision: 'REVIEW_REQUIRED',
+        baseRef: { branchProtectionRule: { requiredApprovingReviewCount: 0 } }
+      }),
+      null
+    );
+    expect(s.approvalsRequired).toBeNull();
+    expect(s.approved).toBe(false);
+  });
+
   it('re-requested reviewer reads UNREVIEWED', () => {
     const s = mapReviews(
       ghNode({
@@ -134,7 +195,8 @@ describe('mapReviews', () => {
       ghNode({
         reviewDecision: 'REVIEW_REQUIRED',
         baseRef: { branchProtectionRule: null },
-        reviewRequests: { nodes: [{ requestedReviewer: { slug: 'core' } }] },
+        // The fill selects no Team fields, so a team request arrives empty.
+        reviewRequests: { nodes: [{ requestedReviewer: {} }] },
         latestReviews: { nodes: [] },
         latestOpinionatedReviews: { nodes: [] }
       }),

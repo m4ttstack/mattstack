@@ -362,12 +362,10 @@ export interface DashboardGroup {
    *
    * Fires in two different situations, both worth the same signal to a
    * consumer: the MR can be missing from `subscribe`'s Map entirely (a
-   * `reviews`/`detail` failure drops it rather than showing wrong data), or
-   * it can be present with one field silently at its "unknown" value
-   * because its `checks`/`threads` fetch failed -- `pipeline: null` on the
-   * `PullRequest`, which reads as "no CI"; `unresolvedThreadCount: null`,
-   * which `getMRDashboardProps`'s `?? 0` folds into "no unresolved
-   * discussions" for the rendered props, not merely "count unknown."
+   * failed `fill` read drops it rather than showing wrong data), or it can
+   * be present with its pipeline at a placeholder (a failed `contexts` page
+   * leaves `pending` for checks nobody read, which is not the same as
+   * checks that are running).
    * `subscribe`'s Map has no room to say either on its own -- a missing,
    * stale, or falsely-clean entry all look identical to one nothing ever
    * went wrong with -- which is exactly why this fires for both rather
@@ -616,13 +614,13 @@ function createBranchDashboard(
  *
  * `degraded` is keyed by every iid a warning named, present in `prs` or
  * not -- it is not, despite an earlier version of this function assuming
- * so, the same set as "missing from `prs`". A `reviews`/`detail` failure
- * drops the PR entirely (missing from `prs`, present in `degraded`); a
- * `checks`/`threads` failure keeps the PR (present in `prs` with that one
- * field at its "unknown" value, ALSO present in `degraded`). Skipping the
- * lookup whenever `prs.has(iid)` -- the earlier version's mistake -- made
- * every `checks`/`threads` warning unreachable: `DashboardGroup.onWarning`
- * never fired for either, because the PR they are about is never missing.
+ * so, the same set as "missing from `prs`". A `fill` failure drops the PR
+ * entirely (missing from `prs`, present in `degraded`); a `contexts`
+ * failure keeps the PR (present in `prs` with a placeholder pipeline, ALSO
+ * present in `degraded`). Skipping the lookup whenever `prs.has(iid)` --
+ * the earlier version's mistake -- made every warning about a kept PR
+ * unreachable: `DashboardGroup.onWarning` never fired for one, because the
+ * PR it is about is never missing.
  * Both are "this row is not what it looks like," which is what a consumer
  * needs to know regardless of whether the row is absent or just incomplete.
  */
@@ -702,8 +700,8 @@ function createDashboardGroup(
    * nothing said why." `fetchPullRequests` now excludes just the PR it
    * could not verify instead of rejecting for it, so the row-level case no
    * longer reaches here as an exception at all; `fetchDashboardBatch`
-   * reports it (and a `checks`/`threads` failure, which keeps the PR
-   * present rather than excluding it) through `degraded`, forwarded to
+   * reports it (and a `contexts` failure, which keeps the PR present
+   * rather than excluding it) through `degraded`, forwarded to
    * `warningListener` below.
    */
   const batchFetch = async (): Promise<Map<number, PullRequest> | null> => {

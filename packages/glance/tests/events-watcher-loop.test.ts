@@ -100,6 +100,15 @@ describe('the watcher reads Octokit\'s shape as rate-limited', () => {
     expect(status.cause).toBe('http-error');
   });
 
+  // Octokit wraps a fetch rejection (DNS, reset socket) as a 500 with no
+  // response: no server answered, so it is a network problem.
+  test('a transport failure with no response stays network', async () => {
+    const request = { method: 'GET' as const, url: 'https://api.github.com/x', headers: {} };
+    const err = new RequestError('fetch failed', 500, { request });
+    const status = await degradedStatusFor(err);
+    expect(status.cause).toBe('network');
+  });
+
   test('a RateLimitedError', async () => {
     const err = new RateLimitedError('limited', {
       kind: 'primary', resetAt: null, retryAfterMs: null, operation: 'GET /x',
