@@ -8,6 +8,7 @@ import type {
   UserRef
 } from './types.ts';
 import { isTransitionalMergeStatus } from './types.ts';
+import { blockerReasons } from './readiness.ts';
 import type { FetchPullRequestsWarning, GitProvider } from './GitProvider.ts';
 import { repoIdProvider, warningTarget } from './GitProvider.ts';
 import {
@@ -81,37 +82,19 @@ export function getMRDashboardProps(
   ).length;
 
   // ── Blockers ──────────────────────────────────────────────────────────────
+  // The rules (rebase, threads, approvals, merge error) live in
+  // `blockerReasons`, shared with `gitlabReadiness`; see there for why.
+  const reasons = blockerReasons(mr);
   const isDraft = mr.draft;
-  const hasConflicts = mr.conflicts;
-  // `shouldBeRebased` alone, deliberately. It is GitLab's authoritative answer
-  // to "does this project's merge method require a rebase before merge", and it
-  // rides the GraphQL payload every fetch path shares, so it cannot vary with
-  // the method a consumer happened to call. The old
-  // `|| (mr.divergedCommitsCount ?? 0) > 0` disjunct read a field only two
-  // paths populate and folded its null into "not behind", so one MR read true
-  // on a single-MR refresh and false on the next bulk poll; a consumer
-  // notifying on the false -> true edge re-fired forever (MAT-164). Behind-ness
-  // is reported separately as `behindTarget`, which keeps its null.
-  const needsRebase = mr.shouldBeRebased;
-  const pipelineFailing = mr.pipeline?.status === 'failed';
-  const pipelineRunning =
-    mr.pipeline?.status === 'running' || mr.pipeline?.status === 'pending';
-  const awaitingApprovals = !mr.approved;
-  // Open threads only block where the project requires resolution, which
-  // GitLab reports as the DISCUSSIONS_NOT_RESOLVED check (INACTIVE when the
-  // setting is off). Without a decided check, fall back to the count; an
-  // unknown count (null) is not a blocker, since we cannot claim threads are
-  // outstanding any more than we can claim they are all resolved.
-  const discussionCheck = (mr.mergeabilityChecks ?? []).find(
-    (c) => c.identifier === 'DISCUSSIONS_NOT_RESOLVED'
-  )?.status;
-  const hasUnresolvedDiscussions =
-    discussionCheck === 'FAILED' ||
-    (discussionCheck !== 'INACTIVE' &&
-      discussionCheck !== 'SUCCESS' &&
-      (mr.unresolvedThreadCount ?? 0) > 0);
-  const hasMergeError = mr.mergeError != null;
+  const hasConflicts = reasons.includes('conflicts');
+  const needsRebase = reasons.includes('behind');
+  const pipelineFailing = reasons.includes('checks-failing');
+  const pipelineRunning = reasons.includes('checks-running');
+  const awaitingApprovals = reasons.includes('approvals');
+  const hasUnresolvedDiscussions = reasons.includes('threads');
+  const hasMergeError = reasons.includes('merge-error');
 
+  // A running pipeline is deliberately not a blocker here.
   const anyBlocker =
     isDraft ||
     hasConflicts ||
@@ -130,9 +113,24 @@ export function getMRDashboardProps(
   // both are answering "has GitLab decided yet?" about the same strings, and
   // it includes 'preparing' because GitLab emits that ahead of 'unchecked' on
   // a just-created MR, the earliest part of this same window.
-  const isCheckingMergeability = isTransitionalMergeStatus(mr.detailedMergeStatus);
-  const isReady = mr.detailedMergeStatus === 'mergeable'
-    || (isCheckingMergeability && !isDraft && !hasConflicts && !pipelineFailing);
+  const readiness = mr.readiness ?? null;
+  // draft, merged and closed are decided by `status` below and carry no
+  // merge-check signal, so they keep the legacy reading; that keeps GitLab
+  // output identical for a transitional-status draft, which readiness maps
+  // to 'draft' but the legacy rule reads as still checking.
+  const settled =
+    readiness !== null &&
+    (readiness.state === 'ready' ||
+      readiness.state === 'blocked' ||
+      readiness.state === 'checking');
+  const isCheckingMergeability = settled
+    ? readiness.state === 'checking'
+    : isTransitionalMergeStatus(mr.detailedMergeStatus);
+  const isReady = settled
+    ? readiness.state === 'ready' ||
+      (isCheckingMergeability && !isDraft && !hasConflicts && !pipelineFailing)
+    : mr.detailedMergeStatus === 'mergeable' ||
+      (isCheckingMergeability && !isDraft && !hasConflicts && !pipelineFailing);
   let status: MRDashboardProps['status'];
   if (mr.state === 'merged') status = 'merged';
   else if (mr.state === 'closed') status = 'closed';
@@ -215,6 +213,7 @@ export function getMRDashboardProps(
     statusDetail: mr.detailedMergeStatus ?? '',
     isReady,
     isCheckingMergeability,
+    readiness,
 
     // Spinner states
     isMerging,

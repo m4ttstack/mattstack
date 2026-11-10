@@ -374,6 +374,8 @@ export interface MRDashboardProps {
    * The MR may become mergeable momentarily — show a spinner rather than a hard BLOCKED state.
    */
   isCheckingMergeability: boolean;
+  /** The PullRequest's forge-neutral verdict, or null when the provider supplied none. */
+  readiness: Readiness | null;
 
   // ── In-progress spinners ────────────────────────────────────────────────
   isMerging: boolean;
