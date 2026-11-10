@@ -3,7 +3,6 @@ import {
   ActionIcon,
   Anchor,
   Button,
-  Divider,
   Group,
   Menu,
   Paper,
@@ -25,7 +24,7 @@ import type { RailStage } from '../derive/stages';
 import { focusPane, LivenessBadge } from '../LivenessBadge';
 import { readApiError } from '../useRuns';
 import classes from './RunHeader.module.css';
-import { FactsStrip, type FactProps } from './SideCards';
+import { FactsLine, type FactProps } from './SideCards';
 import { StageRail } from './StageRail';
 
 export interface RunHeaderProps {
@@ -50,6 +49,9 @@ export interface RunHeaderProps {
   /** Absent until the usage read first answers; a failed re-read keeps
       the last figure. */
   cost?: LiveCost | null;
+  /** How long a gate has waited on you; the rail shows it in place of the
+      liveness badge. */
+  waitedFor?: string | null;
 }
 
 export function HeadCost({ cost }: { cost: LiveCost }) {
@@ -87,14 +89,14 @@ export function HeroTitle({
 }) {
   return (
     <Stack gap={8} className={classes.title}>
-      <Group gap={8} wrap="nowrap">
+      <Group gap={12} wrap="nowrap">
         {ticket ? (
           ticketUrl ? (
             <Anchor
               href={ticketUrl}
               target="_blank"
               rel="noopener noreferrer"
-              fz="lg"
+              fz="md"
               fw={500}
               lh="normal"
               c="accent"
@@ -112,7 +114,7 @@ export function HeroTitle({
             </Anchor>
           ) : (
             <Text
-              fz="lg"
+              fz="md"
               fw={500}
               lh="normal"
               c="accent"
@@ -123,11 +125,16 @@ export function HeroTitle({
             </Text>
           )
         ) : null}
-        <Text fz="md" lh="normal" c="dimmed" truncate data-parity="meta">
-          {ticket ? `· ${meta}` : meta}
+        <Text fz="sm" lh="normal" c="dimmed" truncate data-parity="meta">
+          {meta.split(' · ').map((part, i) => (
+            <span key={i} className={classes.metaPart}>
+              {i > 0 ? ' ' : null}
+              {part}
+            </span>
+          ))}
         </Text>
       </Group>
-      <Text fz="h3" fw={600} lh="normal" data-parity="title">
+      <Text fz="lg" fw={600} lh="normal" data-parity="title">
         {title}
       </Text>
     </Stack>
@@ -156,8 +163,9 @@ function RunActions({ actions }: { actions: RunAction[] }) {
     const [only] = actions as [RunAction];
     return (
       <Button
-        variant="default"
-        color={only.danger ? 'bad' : undefined}
+        variant="subtle"
+        size="compact-sm"
+        color={only.danger ? 'bad' : 'gray'}
         leftSection={<Icon name={only.icon} size={14} />}
         onClick={only.onClick}
         data-parity={`btn ${only.label}`}
@@ -170,8 +178,9 @@ function RunActions({ actions }: { actions: RunAction[] }) {
     <Menu position="bottom-end" withinPortal>
       <Menu.Target>
         <ActionIcon
-          variant="default"
-          size="lg"
+          variant="subtle"
+          color="gray"
+          size="md"
           aria-label="more run actions"
           data-parity="Btn more"
         >
@@ -215,6 +224,7 @@ export function RunHeader({
   onViewInputs,
   facts = [],
   cost = null,
+  waitedFor = null,
 }: RunHeaderProps) {
   const queryClient = useQueryClient();
   const [resumed, setResumed] = useState(false);
@@ -341,14 +351,18 @@ export function RunHeader({
             title={title}
           />
           <Group gap={8} wrap="nowrap">
-            {cost ? <HeadCost cost={cost} /> : null}
-            <LivenessBadge
-              liveness={liveness}
-              size="lg"
-              data-testid="liveness"
-            />
+            {waitedFor === null ? (
+              <LivenessBadge
+                liveness={liveness}
+                size="sm"
+                data-testid="liveness"
+              />
+            ) : null}
             {pane ? (
               <Button
+                variant="subtle"
+                color="gray"
+                size="compact-sm"
                 leftSection={
                   <Icon
                     name="squareTerminal"
@@ -366,12 +380,14 @@ export function RunHeader({
             <RunActions actions={actions} />
           </Group>
         </Group>
-        {rail ? <StageRail stages={rail} finished={finished} /> : null}
-        {facts.length ? (
-          <>
-            <Divider />
-            <FactsStrip facts={facts} />
-          </>
+        {rail ? (
+          <StageRail stages={rail} finished={finished} waitedFor={waitedFor} />
+        ) : null}
+        {facts.length || cost ? (
+          <FactsLine
+            facts={facts}
+            end={cost ? <HeadCost cost={cost} /> : null}
+          />
         ) : null}
       </Stack>
     </Paper>

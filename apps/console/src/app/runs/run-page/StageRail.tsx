@@ -47,6 +47,8 @@ export interface StageRailProps {
   compact?: boolean;
   /** A stage still marked running on a run that has ended finished. */
   finished?: boolean;
+  /** How long a gate has waited; a waiting stage shows it as its time. */
+  waitedFor?: string | null;
 }
 
 function Bar({
@@ -73,13 +75,23 @@ function Bar({
   );
 }
 
-function Column({ stage, status }: { stage: RailStage; status: Status }) {
+function Column({
+  stage,
+  status,
+  waitedFor,
+}: {
+  stage: RailStage;
+  status: Status;
+  waitedFor: string | null;
+}) {
   const notStarted = status === 'not-started';
   const icon = STATUS_ICON[status];
   const duration =
-    notStarted || stage.durationMs == null
-      ? '—'
-      : formatDuration(stage.durationMs);
+    status === 'waiting' && waitedFor !== null
+      ? `waiting ${waitedFor}`
+      : notStarted || stage.durationMs == null
+        ? '—'
+        : formatDuration(stage.durationMs);
 
   return (
     <Stack gap={7} data-stage={stage.name} data-status={status}>
@@ -131,6 +143,7 @@ export function StageRail({
   stages,
   compact = false,
   finished = false,
+  waitedFor = null,
 }: StageRailProps) {
   if (stages.length === 0) return null;
   const statusOf = (s: RailStage): Status =>
@@ -154,7 +167,12 @@ export function StageRail({
   return (
     <Group gap={4} wrap="nowrap" grow align="flex-start" data-part="rail">
       {stages.map(s => (
-        <Column key={s.name} stage={s} status={statusOf(s)} />
+        <Column
+          key={s.name}
+          stage={s}
+          status={statusOf(s)}
+          waitedFor={waitedFor}
+        />
       ))}
     </Group>
   );

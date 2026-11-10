@@ -291,6 +291,7 @@ export function stageSummary(
   entry: StoryEntry,
   evidence: EvidenceRecord | null = null
 ): string {
+  if (entry.redirect) return splitRedirect(entry.redirect).head;
   const count = answeredQuestionCount(entry.gates);
   const captured =
     entry.evidence && evidence
@@ -350,6 +351,19 @@ function evidenceSummary(
 }
 
 const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();
+
+/** A redirect's outcome line and its note: "Back to implement" and the
+    reason when the gate named where the run went; "Redirected" and the
+    whole text when it did not. */
+export function splitRedirect(text: string): { head: string; note: string } {
+  if (!text.startsWith('back to ')) return { head: 'Redirected', note: text };
+  const split = text.indexOf(': ');
+  const head = split < 0 ? text : text.slice(0, split);
+  return {
+    head: oneLine(head.charAt(0).toUpperCase() + head.slice(1)),
+    note: split < 0 ? '' : text.slice(split + 2),
+  };
+}
 
 function firstPick(gates: GateRow[]): string | null {
   for (const g of gates) {

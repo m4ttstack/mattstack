@@ -3,6 +3,7 @@ import { Group, Text } from '@mattstack/app-kit/core';
 import type { RunFieldRow } from '@mattstack/rt-client';
 
 import { fieldLabel } from '../derive/fields';
+import { FieldStrip, isStripField } from './FieldStrip';
 import { FieldValue } from './FieldValue';
 import classes from './OutputRow.module.css';
 
@@ -44,14 +45,21 @@ export function FieldRows({
   fields: RunFieldRow[];
   pathHref?: (path: string) => string | null;
 }) {
-  return fields.map(f => (
-    <OutputRow key={f.key} label={fieldLabel(f.key)}>
-      <FieldValue
-        fieldKey={f.key}
-        value={f.value}
-        pathHref={pathHref}
-        data-parity="v"
-      />
-    </OutputRow>
-  ));
+  return (
+    <>
+      <FieldStrip fields={fields.filter(isStripField)} />
+      {fields
+        .filter(f => !isStripField(f))
+        .map(f => (
+          <OutputRow key={f.key} label={fieldLabel(f.key)}>
+            <FieldValue
+              fieldKey={f.key}
+              value={f.value}
+              pathHref={pathHref}
+              data-parity="v"
+            />
+          </OutputRow>
+        ))}
+    </>
+  );
 }

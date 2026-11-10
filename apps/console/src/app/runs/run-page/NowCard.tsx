@@ -64,8 +64,8 @@ export function NowCard({
             <FieldRows fields={fields} pathHref={pathHref} />
           </Stack>
         ) : null}
-        {gates.map(g => (
-          <GateRecordView key={g.id} gate={g} />
+        {gates.map((g, i) => (
+          <GateRecordView key={g.id} gate={g} number={i + 1} flat />
         ))}
         {fields.length + gates.length === 0 ? (
           <Text fz="md" lh="normal" c="dimmed" data-parity="empty">
