@@ -28,7 +28,7 @@
   short list. The `rate-limited` warning kind stays in the union, unused.
 - Behavior change: GitHub reads cost one batched GraphQL request per 25 pull
   requests, plus one cached REST rulesets read (10 minutes) for an open PR
-  awaiting a verdict. A project listing now carries `diffStats`,
+  with a non-null `reviewDecision`. A project listing now carries `diffStats`,
   `listWeight` drops only `body`, and the involvement search no longer gives
   you the `reviewer` role on your own PRs.
 - Behavior change: the GitHub throttle id is hashed without `node:crypto`, so
