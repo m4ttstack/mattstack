@@ -68,13 +68,7 @@ export interface Verb {
 
 /** Which part of the board made an offer; "+N more" names it beside each. */
 export type CandidateSource =
-  | 'Decision'
-  | 'Agent'
-  | 'Review'
-  | 'Respond'
-  | 'Doctor'
-  | 'People'
-  | 'MR';
+  'Decision' | 'Agent' | 'Review' | 'Respond' | 'Doctor' | 'People' | 'MR';
 
 /** One source's offer for the status line. */
 export interface Candidate {

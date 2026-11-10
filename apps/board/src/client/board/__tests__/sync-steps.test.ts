@@ -19,8 +19,7 @@ const L = {
   refused: `[refused] rt will not sync ${B} on its own`,
 };
 
-const states = (v: ReturnType<typeof syncSteps>) =>
-  v.steps.map(s => s.state);
+const states = (v: ReturnType<typeof syncSteps>) => v.steps.map(s => s.state);
 
 describe('syncSteps while running', () => {
   test('before any line: preparing, every step pending', () => {
@@ -44,9 +43,7 @@ describe('syncSteps while running', () => {
       detail: '110 commits onto main',
     });
     expect(v.title).toBe('Rebasing onto main');
-    expect(v.steps[1]!.ref).toBe(
-      `rt-backup/rebase/${B}/2026-11-10T04-31-54`
-    );
+    expect(v.steps[1]!.ref).toBe(`rt-backup/rebase/${B}/2026-11-10T04-31-54`);
     expect(v.steps[2]!.detail).toBe('110 commits');
   });
 
@@ -57,7 +54,10 @@ describe('syncSteps while running', () => {
   });
 
   test('a running line that later lines moved past is done', () => {
-    const v = syncSteps([L.fetching, L.fetched, L.backup, L.rebasing, L.rebased, L.pushing], true);
+    const v = syncSteps(
+      [L.fetching, L.fetched, L.backup, L.rebasing, L.rebased, L.pushing],
+      true
+    );
     expect(states(v)).toEqual(['done', 'done', 'done', 'running']);
     expect(v.phase).toEqual({ word: 'pushing' });
   });
@@ -86,7 +86,15 @@ describe('syncSteps once finished', () => {
 
   test('a rejected push names the step, not the branch', () => {
     const v = syncSteps(
-      [L.tree, L.fetched, L.backup, L.rebasing, L.rebased, L.pushing, L.pushFailed],
+      [
+        L.tree,
+        L.fetched,
+        L.backup,
+        L.rebasing,
+        L.rebased,
+        L.pushing,
+        L.pushFailed,
+      ],
       false
     );
     expect(v.outcome).toBe('failed');

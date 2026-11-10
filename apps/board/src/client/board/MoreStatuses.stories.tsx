@@ -6,12 +6,7 @@ import '@mattstack/tui-kit/canvas.css';
 import '../../style.css';
 
 import type { BoardMRWithReview } from '../types.ts';
-import {
-  NOW,
-  stage,
-  storyCtx,
-  storyMr,
-} from './row-stories.fixtures.tsx';
+import { NOW, stage, storyCtx, storyMr } from './row-stories.fixtures.tsx';
 import { RowView } from './RowView.tsx';
 
 const meta = {

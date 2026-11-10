@@ -66,7 +66,9 @@ export function tidySyncLog(
   const parsed = lines.map(parseSyncLine);
   const stopped = parsed.some(l => l.status && STOPPED.has(l.status));
   const name = (s: string) =>
-    branch ? s.split(`/${branch}/`).join('/…/').split(branch).join('this branch') : s;
+    branch
+      ? s.split(`/${branch}/`).join('/…/').split(branch).join('this branch')
+      : s;
   return parsed
     .filter(
       (l, i) =>

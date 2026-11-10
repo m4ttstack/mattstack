@@ -1,15 +1,14 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-
 import { createPortal } from 'react-dom';
 
 import { Badge, ICONS, Popover, SideDrawer, Tooltip } from '@mattstack/tui-kit';
 import type { BoardMRWithReview, RowContext } from '../types.ts';
 import { clauseOf } from './clause.ts';
 import { cleanTitle } from './format.ts';
-import { RowSpotlight } from './RowSpotlight.tsx';
-import { useLingering } from './use-lingering.ts';
 import { AgentGlyph, ChevronGlyph, CloudSpinner, Sun } from './icons.tsx';
+import { heldOrder, laneOf, moreAction, moreKey } from './more-actions.ts';
 import type { Candidate, RowStatus, Verb } from './row-status.ts';
+import { RowSpotlight } from './RowSpotlight.tsx';
 import {
   liveSyncLines,
   shownSyncLog,
@@ -17,14 +16,9 @@ import {
   takeAutoOpen,
   tidySyncLog,
 } from './sync-lines.ts';
-import {
-  heldOrder,
-  laneOf,
-  moreAction,
-  moreKey,
-} from './more-actions.ts';
 import { syncSteps, type SyncView } from './sync-steps.ts';
 import { SyncSteps } from './SyncSteps.tsx';
+import { useLingering } from './use-lingering.ts';
 
 const NO_PACK_TIP =
   'No pack selected. Launched the generic skill. Set a pack on the tab, or join a team that has one.';
@@ -106,9 +100,11 @@ function runVerb(verb: Verb, mr: BoardMRWithReview, ctx: RowContext): void {
     and the hint in its quieter column. */
 /** A path wraps after its slashes, never inside a segment. */
 function breakAfterSlashes(text: string) {
-  return text.split('/').flatMap((part, i, all) =>
-    i < all.length - 1 ? [part, '/', <wbr key={i} />] : [part]
-  );
+  return text
+    .split('/')
+    .flatMap((part, i, all) =>
+      i < all.length - 1 ? [part, '/', <wbr key={i} />] : [part]
+    );
 }
 
 function SyncLogBody({
@@ -287,7 +283,12 @@ function SyncLogWord({
   );
 }
 
-const DOCTOR_AT_WORK = new Set(['diagnosing', 'rebasing', 'fixing', 'watching']);
+const DOCTOR_AT_WORK = new Set([
+  'diagnosing',
+  'rebasing',
+  'fixing',
+  'watching',
+]);
 
 /** The row's other status lines, behind a count: the line shows only the
     hottest, and the rest are often finished runs rather than live ones. */
@@ -379,7 +380,11 @@ function MoreStatuses({
           );
           if (!action)
             return (
-              <div key={key} className="tui-status-more-line" data-tone={l.tone}>
+              <div
+                key={key}
+                className="tui-status-more-line"
+                data-tone={l.tone}
+              >
                 {body}
               </div>
             );
@@ -462,7 +467,8 @@ export function StatusLine({
       ? { onFocus: () => ctx.onFocusPane(mr, 'doctor') }
       : undefined;
   // The word follows the sync's step; a doctor on its conflicts says so.
-  const word = view?.phase?.word ?? (handoff ? 'resolving conflicts' : line.word);
+  const word =
+    view?.phase?.word ?? (handoff ? 'resolving conflicts' : line.word);
   const shownDetail = view?.phase
     ? view.phase.detail
     : handoff

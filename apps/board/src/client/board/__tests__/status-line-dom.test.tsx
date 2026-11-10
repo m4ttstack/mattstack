@@ -562,9 +562,9 @@ test('a sync opens its drawer for whoever started it, the word and pips follow t
       p.getAttribute('data-state')
     )
   ).toEqual(['done', 'pending', 'running', 'pending']);
-  expect(
-    container.querySelector('.tui-status-detail')?.textContent
-  ).toBe('3 commits onto main');
+  expect(container.querySelector('.tui-status-detail')?.textContent).toBe(
+    '3 commits onto main'
+  );
 
   const drawer = document.querySelector('[data-part="sidedrawer"]')!;
   expect(drawer).not.toBeNull();
@@ -575,9 +575,9 @@ test('a sync opens its drawer for whoever started it, the word and pips follow t
     'running',
     'pending',
   ]);
-  expect(
-    steps[2]?.querySelector('.tui-syncsteps-detail')?.textContent
-  ).toBe('3 commits');
+  expect(steps[2]?.querySelector('.tui-syncsteps-detail')?.textContent).toBe(
+    '3 commits'
+  );
   const raw = [...drawer.querySelectorAll('.tui-synclog-line')];
   expect(
     raw.map(l => l.querySelector('.tui-synclog-glyph')?.textContent)

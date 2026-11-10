@@ -5,12 +5,7 @@ import { parseSyncLine } from './sync-lines.ts';
 
 export type StepKey = 'fetch' | 'backup' | 'rebase' | 'push';
 export type StepState =
-  | 'done'
-  | 'running'
-  | 'pending'
-  | 'skipped'
-  | 'failed'
-  | 'paused';
+  'done' | 'running' | 'pending' | 'skipped' | 'failed' | 'paused';
 
 export interface SyncStep {
   key: StepKey;
@@ -28,7 +23,8 @@ export interface SyncView {
   /** What the row's word says while the sync runs. */
   phase?: { word: string; detail?: string };
   failure?: string;
-  outcome: 'running' | 'pushed' | 'up-to-date' | 'not-pushed' | 'paused' | 'failed';
+  outcome:
+    'running' | 'pushed' | 'up-to-date' | 'not-pushed' | 'paused' | 'failed';
 }
 
 const LABELS: Record<StepKey, string> = {
@@ -101,7 +97,8 @@ export function syncSteps(
     const key = keyOf(line.title);
     if (line.status === 'failed' || line.status === 'refused') {
       const at =
-        key ?? ORDER.find(k => steps.get(k)!.state === 'running') ??
+        key ??
+        ORDER.find(k => steps.get(k)!.state === 'running') ??
         ORDER.find(k => steps.get(k)!.state === 'pending');
       if (at) {
         const step = steps.get(at)!;
@@ -125,7 +122,9 @@ export function syncSteps(
       step.state = 'paused';
       const n = /^(\d+ files?)/.exec(line.title);
       conflicts = n ? n[1] : undefined;
-      step.detail = conflicts ? `conflicts in ${conflicts}` : 'paused on conflicts';
+      step.detail = conflicts
+        ? `conflicts in ${conflicts}`
+        : 'paused on conflicts';
       continue;
     }
     if (key === 'rebase' && / is up to date with /.test(line.title)) {
@@ -138,8 +137,7 @@ export function syncSteps(
     }
     step.state = line.status === 'running' ? 'running' : 'done';
     if (key === 'rebase' && line.hint) {
-      step.detail =
-        line.status === 'running' ? commits(line.hint) : line.hint;
+      step.detail = line.status === 'running' ? commits(line.hint) : line.hint;
     } else if (key === 'fetch') step.detail = 'origin';
   }
 

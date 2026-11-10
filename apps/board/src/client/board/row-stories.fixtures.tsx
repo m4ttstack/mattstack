@@ -5,7 +5,6 @@ import type { ReactNode } from 'react';
 
 import { registerTheme, SoribashiProvider } from '@mattstack/tui-kit/provider';
 import { tuiTheme } from '@mattstack/tui-kit/theme';
-
 import type { BoardMRWithReview, RowContext } from '../types.ts';
 
 registerTheme(tuiTheme);
@@ -34,7 +33,9 @@ export const stage = (
 export const NOW = Date.parse('2026-11-10T15:30:00Z');
 
 let iid = 1287;
-export function storyMr(over: Partial<BoardMRWithReview> = {}): BoardMRWithReview {
+export function storyMr(
+  over: Partial<BoardMRWithReview> = {}
+): BoardMRWithReview {
   const n = iid++;
   return {
     iid: n,

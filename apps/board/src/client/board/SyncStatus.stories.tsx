@@ -8,9 +8,9 @@ import '../../style.css';
 import type { BoardMRWithReview } from '../types.ts';
 import { CommentsDrawer } from './CommentsDrawer.tsx';
 import {
+  storyCtx as ctx,
   NOW,
   stage,
-  storyCtx as ctx,
   storyMr,
 } from './row-stories.fixtures.tsx';
 import { RowSpotlight } from './RowSpotlight.tsx';

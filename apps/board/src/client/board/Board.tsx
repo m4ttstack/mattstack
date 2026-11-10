@@ -97,8 +97,6 @@ import { AskConfirmDialog } from './AskConfirmDialog.tsx';
 import { verbLane } from './asks/ask-copy.ts';
 import { AsksButton } from './asks/AsksButton.tsx';
 import { CommentsDrawer } from './CommentsDrawer.tsx';
-import { RowSpotlight } from './RowSpotlight.tsx';
-import { useLingering } from './use-lingering.ts';
 import { ConsoleSettingsModal } from './ConsoleSettingsModal.tsx';
 import {
   Controls,
@@ -161,6 +159,7 @@ import {
 } from './row-actions.ts';
 import { reviewGroupHue, statusGroupHue } from './row-status.ts';
 import { RowMenu } from './RowMenu.tsx';
+import { RowSpotlight } from './RowSpotlight.tsx';
 import { RowView } from './RowView.tsx';
 import { activeRunConfirmFor } from './run-guard.ts';
 import {
@@ -184,6 +183,7 @@ import { startSyncLines } from './sync-lines.ts';
 import { TabBar } from './TabBar.tsx';
 import { turnSummary } from './turn-summary.ts';
 import { TurnSummary } from './TurnSummary.tsx';
+import { useLingering } from './use-lingering.ts';
 
 declare global {
   interface Window {

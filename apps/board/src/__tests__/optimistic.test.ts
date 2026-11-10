@@ -6,8 +6,8 @@ import {
   EMPTY_OPTIMISTIC,
   laneMark,
   MERGE_HOLD_MS,
-  OPTIMISTIC_HOLD_MS,
   nextMergeLapse,
+  OPTIMISTIC_HOLD_MS,
   overlay,
   overlayMerging,
   rollback,
@@ -107,7 +107,14 @@ test('a claim over a finished lane holds until the server reports the new run', 
 
 test('a claim the server never takes up lapses after the hold', () => {
   const done = { status: 'done' as const, updatedAt: 100 };
-  const s = setQueued(EMPTY_OPTIMISTIC, 'doctor', 'u1', 'syncing', laneMark(done), 1_000);
+  const s = setQueued(
+    EMPTY_OPTIMISTIC,
+    'doctor',
+    'u1',
+    'syncing',
+    laneMark(done),
+    1_000
+  );
   const rows = [mr('u1', { doctor: done } as Partial<BoardMRWithReview>)];
   expect(
     clearServerTruth(s, rows, 1_000 + OPTIMISTIC_HOLD_MS + 1).doctor['u1']

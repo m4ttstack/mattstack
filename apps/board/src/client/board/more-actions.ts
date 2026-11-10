@@ -93,7 +93,8 @@ export function moreAction(
   const verb = line.verbs.find(v => v.kind !== 'merge');
   if (!verb) return null;
   const lane = laneOf(verb);
-  if (!LAUNCHES.has(verb.kind)) return { verb, ...(lane ? { lane } : {}), launches: false };
+  if (!LAUNCHES.has(verb.kind))
+    return { verb, ...(lane ? { lane } : {}), launches: false };
   const busy = workingLanes(mr);
   // The server's dedup turns a launch on a running lane into a focus. Said
   // as "focus" only on that lane's own line: on another source's line it
