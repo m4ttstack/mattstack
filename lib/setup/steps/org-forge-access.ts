@@ -49,7 +49,7 @@ async function run(ctx: ApplyContext): Promise<StepOutcome> {
     if (why !== null) waited.push(`${slug}: ${why}`);
     else checked = true;
     if (report.kind === "refused") manual.push(...report.manualSteps);
-    if (report.kind === "shared-branch") shared.push(`${slug}: ${sharedBranchSentence(report.branch)}`);
+    if (report.kind === "shared-branch") shared.push(`${slug}: ${sharedBranchSentence(report.branch, report.firstPush)}`);
     const changed = [...(applied?.done ?? []), ...(admin && admin.reencrypted.length > 0 ? ["re-encrypted the admin-only secrets for the current owners and admins"] : [])];
     if (changed.length > 0) notes.push(`${slug}: ${changed.join("; ")}`);
     manual.push(...(applied?.manualSteps ?? []));
