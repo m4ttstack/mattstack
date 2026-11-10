@@ -1473,7 +1473,7 @@ test('slack-start with notify refuses 409 when that agent is not signed in', asy
 
 test('slack-persona answers the configured name, or null with none', async () => {
   vi.mocked(rt.getSetting).mockImplementation(((key: string) => ({
-    value: key === 'chat.slackSupport.persona' ? { name: 'Maude' } : 'matt',
+    value: key === 'agent.persona' ? { name: 'Maude' } : 'matt',
   })) as never);
   let res = await routes.request('/api/chat/slack-persona', { headers: LOCAL });
   expect(await res.json()).toEqual({ persona: 'Maude' });
@@ -1724,10 +1724,7 @@ test('start and resume need application/json, so a form post cannot forge one', 
 
 test('slack-people names the support agent for the form, from settings', async () => {
   vi.mocked(rt.getSetting).mockImplementation(((key: string) => ({
-    value:
-      key === 'chat.slackSupport.persona'
-        ? { name: 'Maude', emoji: 'x' }
-        : 'matt',
+    value: key === 'agent.persona' ? { name: 'Maude', emoji: 'x' } : 'matt',
   })) as never);
   vi.mocked(rt.chatSlackPeople).mockResolvedValueOnce({
     ok: true,

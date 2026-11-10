@@ -1,23 +1,9 @@
 import type { BoardMR } from '../../data.ts';
+import { mrRef, onGitHub, type MrLinkTarget } from '../../mr-ref.ts';
 import { extractTicketId, ticketUrl } from '../../ticket.ts';
 import { GitHubLogo, GitLabLogo, LinearLogo } from './icons.tsx';
 
-/** What the logo links need from an MR: a board row, or a peer's ask that
-    names an MR this board may not list. */
-export type MrLinkTarget = Pick<BoardMR, 'iid'> &
-  Partial<Pick<BoardMR, 'webUrl' | 'sourceBranch' | 'title' | 'provider'>>;
-
-/** Whether an MR lives on GitHub: its provider when the row carries one,
-    else its URL (or a gate's `mr:<url>` subject); GitLab otherwise. */
-export function onGitHub(mr?: MrLinkTarget, subject?: string): boolean {
-  if (mr?.provider) return mr.provider === 'github';
-  return (mr?.webUrl ?? subject ?? '').includes('github.com');
-}
-
-/** "#12" on GitHub, "!12" on GitLab: each forge's own way to name one. */
-export function mrRef(mr: MrLinkTarget): string {
-  return `${onGitHub(mr) ? '#' : '!'}${mr.iid}`;
-}
+export { mrRef, onGitHub, type MrLinkTarget };
 
 /** "pull request" on GitHub, "merge request" on GitLab. */
 export function forgeNoun(mr?: BoardMR, subject?: string): string {

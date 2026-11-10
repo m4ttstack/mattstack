@@ -18,6 +18,7 @@ import type { MRDetail, PullRequest } from '@mattstack/glance';
 import {
   chatSlackAvatarFile,
   chatSlackAvatars,
+  chatSlackDm,
   eventsHead,
   eventsList,
   gateAnswer as gateAnswerFacility,
@@ -267,6 +268,7 @@ import {
 } from './peer/client.ts';
 import {
   clearClosedPeerReviews,
+  markClosedPaneReported,
   pruneClosedPaneMarkers,
   sweepClosedPeerReviews,
 } from './peer/closed-pane.ts';
@@ -298,9 +300,20 @@ import {
 import { listPeerBoards } from './peer/onboard.ts';
 import { classifySend, drainOutbox, enqueueOutbox } from './peer/outbox.ts';
 import {
+  commitReviewState,
+  isReviewParked,
+  parkedPayload,
+  pruneLocalParks,
+  recordLocalPark,
+  stoppedPayload,
+} from './peer/park-report.ts';
+import {
   attachPeerReviews,
   dismissPeerReview,
   importPeerReviewFiles,
+  markPeerReviewReminded,
+  PEER_REVIEW_NS,
+  peerReviewKey,
   prunePeerReviews,
   readPeerReviews,
   type PeerReviewState,
@@ -309,6 +322,7 @@ import {
   reviewPresenceRecipients,
   reviewSyncEnvelopes,
 } from './peer/presence.ts';
+import { createReminder, isDaemonTimeout } from './peer/remind.ts';
 import {
   makePeering,
   startPeeringWhenTokenLoads,
@@ -316,6 +330,12 @@ import {
   tickOnPeerInbox,
   tokenMissingNotice,
 } from './peer/runtime.ts';
+import {
+  foldSlackMatch,
+  NO_SLACK_MATCH,
+  slackMatchPayload,
+  type SlackMatch,
+} from './peer/slack-match.ts';
 import { launchReopen, type ReopenIo } from './reopen-launch.ts';
 import {
   attachRespondRounds,
@@ -1660,6 +1680,56 @@ function ownedHere(mr: BoardMR): boolean {
   return isOwnMr(mr, actingSeat());
 }
 
+/** The name the board shows for its own user, said the way the band says a
+    person inline: the first name. */
+function ownName(mr: BoardMR): string {
+  const seat = actingSeat() ?? mr.author.username;
+  const full = memberNames.get(seat) || mr.author.name?.trim() || seat;
+  return full.split(/\s+/)[0]!;
+}
+
+const remindReviewer = createReminder({
+  peerReview: (mrUrl, reviewer) =>
+    getKvValue<PeerReviewState | undefined>(
+      PEER_REVIEW_NS,
+      peerReviewKey(mrUrl, reviewer),
+      undefined
+    ),
+  mr: async mrUrl => {
+    const mr = (await cache.get()).mrs.find(m => m.webUrl === mrUrl);
+    return mr?.webUrl
+      ? {
+          author: ownName(mr),
+          iid: mr.iid,
+          title: mr.title,
+          webUrl: mr.webUrl,
+          ...(mr.provider ? { provider: mr.provider } : {}),
+        }
+      : undefined;
+  },
+  slackIdFor: reviewer => slackMatch.ids.get(reviewer),
+  sendDm: async (userId, text) => {
+    try {
+      const res = await chatSlackDm({ userId, text });
+      if (res.ok) return { ok: true };
+      const message = res.error ?? 'the Slack DM failed';
+      return isDaemonTimeout(res.error)
+        ? { ok: false, message, maybeSent: true }
+        : { ok: false, message };
+    } catch (err) {
+      return {
+        ok: false,
+        message: err instanceof Error ? err.message : String(err),
+        ...(err instanceof Error && err.name === 'TimeoutError'
+          ? { maybeSent: true as const }
+          : {}),
+      };
+    }
+  },
+  markReminded: markPeerReviewReminded,
+  now: Date.now,
+});
+
 function actingSeat(): string | null {
   return effectiveSeat(
     config.defaultMember,
@@ -1879,9 +1949,10 @@ async function refreshMemberNames(): Promise<void> {
 }
 let slackPeople: (SlackPerson & { version?: string })[] = [];
 let slackPeopleFetchedAt = 0;
-/** Kept across polls: a lookup or a name refresh that fails must not take a
-    face away. */
-const knownSlackFaces = new Map<string, string>();
+let slackMatch: SlackMatch = NO_SLACK_MATCH;
+/** Set by a Slack refresh; the next poll's match starts over rather than
+    keeping matches the new people list no longer makes. */
+let slackPeopleChanged = false;
 
 /** rt reads Slack; this keeps its answer for the board's poll to match against. */
 function refreshSlackPeople(): void {
@@ -1892,7 +1963,7 @@ function refreshSlackPeople(): void {
     .then(res => {
       if (res.ok && res.data?.people.length) {
         slackPeople = res.data.people;
-        knownSlackFaces.clear();
+        slackPeopleChanged = true;
       } else {
         slackPeopleFetchedAt = 0;
       }
@@ -1902,18 +1973,18 @@ function refreshSlackPeople(): void {
     });
 }
 
-function currentSlackFaces(mrs: readonly BoardMR[]): Record<string, string> {
+function currentSlackMatch(mrs: readonly BoardMR[]): SlackMatch {
   const matched = matchSlackFaces(
     slackFaceNames(mrs, memberNames, config.orgTeams ?? []),
     slackPeople
   );
-  const versions = new Map(slackPeople.map(p => [p.id, p.version]));
-  for (const [username, id] of Object.entries(matched))
-    knownSlackFaces.set(
-      username,
-      `/api/slack-avatar/${id}?v=${versions.get(id) ?? ''}`
-    );
-  return Object.fromEntries(knownSlackFaces);
+  slackMatch = foldSlackMatch(
+    slackPeopleChanged ? NO_SLACK_MATCH : slackMatch,
+    matched,
+    slackPeople
+  );
+  slackPeopleChanged = false;
+  return slackMatch;
 }
 
 // Fire-and-forget: a hung/down daemon must not delay Bun.serve() by the
@@ -2285,6 +2356,7 @@ const httpServer = Bun.serve({
           pruneDrafts(onBoard);
           prunePeerReviews(onBoard);
           pruneClosedPaneMarkers(onBoard);
+          pruneLocalParks(onBoard);
           pruneSentNudges(onBoard);
           pruneFinishedSentNudges();
           pruneNudges(onBoard);
@@ -2298,7 +2370,7 @@ const httpServer = Bun.serve({
             defaultMember: config.defaultMember,
             tokenUser: readMemory().identity?.username ?? null,
             members: buildRoster(visible, visibleMrs, memberNames),
-            slackFaces: currentSlackFaces(snapshot.mrs),
+            ...slackMatchPayload(currentSlackMatch(snapshot.mrs)),
             allMembers: config.members.map(m => ({
               username: m.username,
               name: memberNames.get(m.username) ?? m.name ?? null,
@@ -4530,7 +4602,9 @@ const httpServer = Bun.serve({
       }
       case '/nudge/dismiss': {
         // The sent-ask band's dismiss: drop this board's own record of the
-        // ask for one MR. Nothing is sent to the peer.
+        // ask for one MR, and stamp that reviewer's state dismissed so its
+        // parked or errored review cannot take the band back. Nothing is sent
+        // to the peer.
         if (req.method !== 'POST')
           return new Response('method not allowed', { status: 405 });
         if (!isLocalRequest(req, server))
@@ -4548,7 +4622,8 @@ const httpServer = Bun.serve({
         const { mrUrl } = (body ?? {}) as { mrUrl?: unknown };
         if (typeof mrUrl !== 'string' || !mrUrl)
           return new Response('expected { mrUrl: string }', { status: 400 });
-        dismissSentNudge(mrUrl);
+        const dropped = dismissSentNudge(mrUrl);
+        if (dropped) dismissPeerReview(mrUrl, dropped.reviewer);
         return new Response(JSON.stringify({ ok: true }), {
           headers: { 'content-type': 'application/json' },
         });
@@ -4587,6 +4662,46 @@ const httpServer = Bun.serve({
         return new Response(JSON.stringify({ ok: true }), {
           headers: { 'content-type': 'application/json' },
         });
+      }
+      case '/peer-review/remind': {
+        if (req.method !== 'POST')
+          return new Response('method not allowed', { status: 405 });
+        if (!isLocalRequest(req, server))
+          return new Response('forbidden', { status: 403 });
+        {
+          const notJson = requireJsonBody(req);
+          if (notJson) return notJson;
+        }
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return new Response('invalid json', { status: 400 });
+        }
+        const { mrUrl, reviewer } = (body ?? {}) as {
+          mrUrl?: unknown;
+          reviewer?: unknown;
+        };
+        if (
+          typeof mrUrl !== 'string' ||
+          !mrUrl ||
+          typeof reviewer !== 'string' ||
+          !reviewer
+        )
+          return new Response('expected { mrUrl: string, reviewer: string }', {
+            status: 400,
+          });
+        // An MR this board does not list falls through to the handler's own 404.
+        const listed = (await cache.get()).mrs.find(m => m.webUrl === mrUrl);
+        const refused = listed ? requireOwnMr(listed) : null;
+        if (refused) return refused;
+        const result = await remindReviewer(mrUrl, reviewer);
+        return 'message' in result
+          ? new Response(result.message, { status: result.status })
+          : new Response(JSON.stringify(result.body ?? {}), {
+              status: result.status,
+              headers: { 'content-type': 'application/json' },
+            });
       }
       case '/peer/boards': {
         if (req.method !== 'GET')
@@ -5168,6 +5283,13 @@ function sweepActionIo(): ExecuteSweepActionIo {
     doctor: { writeState: writeDoctorState, filePath: doctorFilePath },
     now: () => Date.now(),
     graceMinutes: config.gateGraceMinutes,
+    reviewRunStartedAt: mrUrl => readReviewStates().get(mrUrl)?.runStartedAt,
+    markReviewParked: recordLocalPark,
+    onReviewParked: async (mrUrl, parkedAt) => {
+      const lane = readReviewStates().get(mrUrl);
+      if (lane)
+        await sendReviewState(mrUrl, parkedPayload(lane, mrUrl, parkedAt));
+    },
     log: message => console.log(message),
     logError: message => console.error(message),
   };
@@ -5430,42 +5552,14 @@ async function handleAgentSignal(
     }
     if (latestByAsker.size) kickOutbox(pc);
   }
-  // The org's boards are told, the author's included; never this board's own MR.
-  if (pc && signal.kind === 'review' && config.defaultMember !== 'all') {
-    const snapshotForPeer = await cache.get();
-    const authorUsername = snapshotForPeer.mrs.find(
-      m => m.webUrl === signal.mrUrl
-    )?.author.username;
-    const askId = authorUsername
-      ? askIdForRun(
-          readNudges(),
-          signal.mrUrl,
-          authorUsername,
-          readReviewStates().get(signal.mrUrl)?.runStartedAt,
-          emittedAt
-        )
-      : null;
-    const envelopes = reviewSyncEnvelopes({
-      author: authorUsername,
-      self: config.defaultMember,
-      recipients: presenceRecipientsFor,
-      askId,
-      payload: {
-        mrUrl: signal.mrUrl,
-        iid: signal.iid,
-        status: signal.status,
-        outcome: signal.outcome,
-        updatedAt: emittedAt,
-      },
+  if (signal.kind === 'review')
+    await sendReviewState(signal.mrUrl, {
+      mrUrl: signal.mrUrl,
+      iid: signal.iid,
+      status: signal.status,
+      outcome: signal.outcome,
+      updatedAt: emittedAt,
     });
-    if (envelopes.length) {
-      const stateDb = getStateDb();
-      stateDb.transaction(() => {
-        for (const envelope of envelopes) enqueueOutbox(envelope, stateDb);
-      })();
-      kickOutbox(pc);
-    }
-  }
   // Land the follow-up a running latch waits on, arm a latch when a review
   // lands with a comment outcome, spend it when one lands approved.
   // Best-effort, like every other side effect here: the triage latch pass
@@ -5639,6 +5733,73 @@ async function handleAgentSignal(
   }
 }
 
+/** The org's boards are told, the author's included; never this board's own
+    MR. The ask id is judged against the report's own `updatedAt`.
+    The local park clear and `alongside` commit with the envelopes, and still
+    commit when nothing is sent: until then the closed pane sweep must keep
+    seeing the park. */
+async function sendReviewState(
+  mrUrl: string,
+  payload: ReviewStatePayload,
+  alongside?: (db: ReturnType<typeof getStateDb>) => void
+): Promise<void> {
+  const settleOnly = () =>
+    persistOrWarn('review state settle', () =>
+      commitReviewState(mrUrl, payload.status, [], alongside)
+    );
+  const pc = peering.current()?.client;
+  if (!pc || config.defaultMember === 'all') {
+    settleOnly();
+    return;
+  }
+  const authorUsername = (await cache.get()).mrs.find(m => m.webUrl === mrUrl)
+    ?.author.username;
+  const askId = authorUsername
+    ? askIdForRun(
+        readNudges(),
+        mrUrl,
+        authorUsername,
+        readReviewStates().get(mrUrl)?.runStartedAt,
+        payload.updatedAt
+      )
+    : null;
+  const envelopes = reviewSyncEnvelopes({
+    author: authorUsername,
+    self: config.defaultMember,
+    recipients: presenceRecipientsFor,
+    askId,
+    payload,
+  });
+  if (!envelopes.length) {
+    settleOnly();
+    return;
+  }
+  commitReviewState(mrUrl, payload.status, envelopes, alongside);
+  kickOutbox(pc);
+}
+
+/** Read before the closed frame applies: once closed, the row no longer says
+    it was parked. */
+function stoppedReviewFor(
+  frame: GateEventFrame
+): { payload: ReviewStatePayload; runStartedAt: number } | null {
+  const closed = frame.payload as { id?: unknown; reason?: unknown } | null;
+  if (typeof closed?.id !== 'string') return null;
+  const row = gateCache.findById(closed.id);
+  if (!row?.subject.startsWith('mr:')) return null;
+  const mrUrl = row.subject.slice('mr:'.length);
+  const lane = readReviewStates().get(mrUrl);
+  if (!lane) return null;
+  const payload = stoppedPayload(
+    row,
+    mrUrl,
+    lane,
+    typeof closed.reason === 'string' ? closed.reason : 'closed',
+    Date.now()
+  );
+  return payload ? { payload, runStartedAt: lane.runStartedAt ?? 0 } : null;
+}
+
 /** A closed pane emits no agent signal; only the current writer may relay it. */
 async function reportClosedPeerReviews(): Promise<void> {
   await sweepClosedPeerReviews(closedPeerReviewIO());
@@ -5670,6 +5831,8 @@ function closedPeerReviewIO() {
         )
       ),
     readNudges,
+    isParked: (mrUrl: string, runStartedAt: number) =>
+      isReviewParked(gateCache.rowsFor(`mr:${mrUrl}`), mrUrl, runStartedAt),
     kickOutbox,
     recipients: presenceRecipientsFor,
   };
@@ -5826,7 +5989,23 @@ const stopRelay = FIXTURE_DIR
             topic: frame.topic,
             payload: frame.payload,
           } satisfies GateEventFrame;
+          const stopped =
+            writer && frame.topic.startsWith('gate/closed/')
+              ? stoppedReviewFor(gateFrame)
+              : null;
           ingestRelayFrame(gateCache, gateFrame, sseNudge);
+          if (stopped)
+            void sendReviewState(stopped.payload.mrUrl, stopped.payload, db =>
+              markClosedPaneReported(
+                stopped.payload.mrUrl,
+                stopped.runStartedAt,
+                db
+              )
+            ).catch(err =>
+              console.error(
+                `gate closed report failed: ${err instanceof Error ? err.message : err}`
+              )
+            );
           // Resume hangs off the event itself (not the board's own answer
           // endpoint) so a gate answered from any surface -- console, in-pane,
           // this board -- resumes the parked session the same way.

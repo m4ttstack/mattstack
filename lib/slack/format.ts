@@ -61,9 +61,9 @@ export function holdingLine(operatorName: string, persona: SlackPersona): string
   return `${slackPrefix(persona)}${persona.name} is tied up for a moment. Your message is safe, and ${operatorName} has been told.`;
 }
 
-export function closingLine(operatorName: string, paneGone: boolean, persona: SlackPersona): string {
+export function closingLine(operatorName: string, paneGone: boolean, persona: SlackPersona, trigger?: string): string {
   const base = `${slackPrefix(persona)}This chat with ${persona.name} is closed. Anything you send now goes to ${operatorName}.`;
-  const resume = `To add something for ${persona.name} in the next hour, start your message with ${resumeTrigger(persona)}`;
+  const resume = `To add something for ${persona.name} in the next hour, start your message with ${resumeTrigger(persona, trigger)}`;
   return paneGone ? `${base} ${operatorName} will follow up. ${resume}` : `${base} ${resume}`;
 }
 

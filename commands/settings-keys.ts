@@ -44,7 +44,7 @@ import {
 } from "../lib/settings/resolve.ts";
 import { pruneStoreName, setSetting, setSettingsNoticeSink, SettingsOwnershipRefusal, unsetSetting, type SettingsNotice } from "../lib/settings/write.ts";
 import { noticeBlocks } from "../lib/settings/notice-blocks.ts";
-import { currentStoreName } from "../lib/settings/migrate.ts";
+import { currentStoreName, renamedHeir } from "../lib/settings/migrate.ts";
 import { getDef, isMigrated, type SettingDef, type SettingScope } from "../lib/settings/registry.ts";
 import { firstIssueText, formatIssuePath } from "../lib/settings/schema.ts";
 import { checkStores, type CheckFinding } from "../lib/settings/check.ts";
@@ -217,7 +217,7 @@ export async function settingsGet(args: string[]): Promise<void> {
   out.payloadOnStdout();
   const repoCtx = await resolveRepoContext(flagValue(args, "--repo"));
 
-  const def = getDef(key);
+  const def = getDef(key) ?? renamedHeir(key);
   if (!def) fail({ title: `No setting is called ${key}`, next: out.cmd("rt settings list") });
 
   let resolved: Resolved<unknown>;
@@ -230,10 +230,13 @@ export async function settingsGet(args: string[]): Promise<void> {
     failWithError(err);
   }
 
+  if (resolved.deprecated) out.note(out.line("warn", `${key} is now ${resolved.deprecated.use}`, `rt settings get ${resolved.deprecated.use}`));
+
   if (json) {
     out.json({
       ok: true,
       key,
+      ...(resolved.deprecated ? { deprecated: resolved.deprecated } : {}),
       value: resolved.value,
       provenance: resolved.provenance,
       migrated: isMigrated(def),

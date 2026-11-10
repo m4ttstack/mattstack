@@ -3,6 +3,9 @@ import { Database } from 'bun:sqlite';
 import { getStateDb, persistOrWarn, runCriticalWrite } from '../state/index.ts';
 import { ASK_HISTORY_MS } from './ask-inbox.ts';
 import type { AskKind, NudgeResult } from './envelope.ts';
+import { NUDGE_NO_RESPONSE_MS } from './presence.ts';
+
+export { NUDGE_NO_RESPONSE_MS };
 
 /** An inbound review ask, materialized from a peer's envelope. `kind` is
     absent on re-review asks (and on rows written before first-look asks
@@ -177,7 +180,7 @@ export interface SentNudge {
 }
 
 export interface SentNudgeResolution {
-  result: NudgeResult | 'confirmed' | 'done' | 'failed';
+  result: NudgeResult | 'confirmed' | 'parked' | 'done' | 'failed' | 'stopped';
   reason?: string;
   /** The finished run's verdict word ('comment', 'approve'), on 'done'. */
   outcome?: string;
@@ -233,8 +236,9 @@ function readSentNudgeRow(mrUrl: string, db: Database): SentNudge | null {
 
 /** Read-merge-write a sent nudge's resolution. Silently returns when no row
     exists for this MR (a stale or duplicate delivery). Only a `confirmed`
-    resolution may be replaced, and a `launched` one only by a fresh
-    `confirmed`, so progress keeps resetting the quiet clock. */
+    resolution may be replaced, and a `launched` or `parked` one only by a
+    fresh `confirmed` or `parked`, so progress keeps resetting the quiet clock
+    and a late `launched` cannot unpark an ask. */
 export function resolveSentNudge(
   mrUrl: string,
   resolution: SentNudgeResolution,
@@ -247,11 +251,11 @@ export function resolveSentNudge(
       if (!prev) return;
       if (reviewer !== undefined && prev.reviewer !== reviewer) return;
       const was = prev.resolution?.result;
-      const refreshesLaunch =
-        was === 'launched' && resolution.result === 'confirmed';
+      const progress =
+        resolution.result === 'confirmed' || resolution.result === 'parked';
+      const refreshes = (was === 'launched' || was === 'parked') && progress;
       if (resolution.result === 'pending' && was) return;
-      if (was && was !== 'confirmed' && was !== 'pending' && !refreshesLaunch)
-        return;
+      if (was && was !== 'confirmed' && was !== 'pending' && !refreshes) return;
       const next: SentNudge = { ...prev, resolution };
       db.query(
         'UPDATE nudges_sent SET nudge = ?, updated_at = ? WHERE mr_url = ?'
@@ -265,23 +269,23 @@ export function resolveSentNudge(
     clears itself. */
 export const SENT_FINISH_KEEP_MS = 24 * 60 * 60_000;
 
-/** Mark a sent ask finished, `done` or `failed`, and keep it on the row so
-    the asker can read the result. Correlation, in preference order: a
-    `nudgeId` pins the finishing report to one exact ask (no clocks
-    involved); without one, the `ifSentBefore` guard ignores a finishing
+/** Mark a sent ask finished, `done`, `failed` or `stopped`, and keep a done
+    or failed one on the row so the asker can read the result. Correlation,
+    in preference order: a `nudgeId` pins the finishing report to one exact
+    ask (no clocks involved); without one, the `ifSentBefore` guard ignores a finishing
     report older than the ask -- at-least-once delivery means a peer's
     pre-nudge "done" can arrive after a fresh ask went out. The timestamp
     fallback compares two boards' clocks, so skew can hold a finished ask
     open until it self-expires; peers that echo the id back never hit that.
-    Only an unresolved, confirmed or launched ask finishes, and a failed one
-    only to done (a reviewer who resumed a stopped run); a rejected, expired
+    Only an unresolved, confirmed, launched or parked ask finishes, and a
+    failed one only to done (a reviewer who resumed a stopped run); a rejected, expired
     or done one keeps its first verdict. `reviewer`, when
     given, is who sent the report: another teammate's review of the same MR
     is not the answer to this ask. */
 export function finishSentNudge(
   mrUrl: string,
   finish: Pick<SentNudgeResolution, 'outcome' | 'reason' | 'at'> & {
-    result: 'done' | 'failed';
+    result: 'done' | 'failed' | 'stopped';
   },
   ifSentBefore: number,
   db: Database = getStateDb(),
@@ -302,6 +306,7 @@ export function finishSentNudge(
         r &&
         r !== 'confirmed' &&
         r !== 'launched' &&
+        r !== 'parked' &&
         r !== 'pending' &&
         !doneAfterStop
       )
@@ -315,20 +320,30 @@ export function finishSentNudge(
   });
 }
 
-/** Drop a sent ask from the row outright: the asker's dismiss. */
+/** Drop a sent ask from the row outright: the asker's dismiss. Returns the
+    dropped ask, or null when there was none. */
 export function dismissSentNudge(
   mrUrl: string,
   db: Database = getStateDb()
-): void {
+): SentNudge | null {
+  let dropped: SentNudge | null = null;
   persistOrWarn('sent nudge dismiss', () => {
-    db.query('DELETE FROM nudges_sent WHERE mr_url = ?').run(mrUrl);
+    db.transaction(() => {
+      dropped = readSentNudgeRow(mrUrl, db);
+      db.query('DELETE FROM nudges_sent WHERE mr_url = ?').run(mrUrl);
+    })();
   });
+  return dropped;
 }
 
 /** A finished ask past its keep window: off the row, awaiting a prune. */
 export function isFinishedStale(n: SentNudge, now: number): boolean {
   const r = n.resolution;
-  if (!r || (r.result !== 'done' && r.result !== 'failed')) return false;
+  if (
+    !r ||
+    (r.result !== 'done' && r.result !== 'failed' && r.result !== 'stopped')
+  )
+    return false;
   return now - r.at > SENT_FINISH_KEEP_MS;
 }
 
@@ -386,7 +401,7 @@ export function reviewerDisplayName(
 }
 
 /** The board payload's view of a sent ask, or null once a finished one has
-    outlived its keep window. */
+    outlived its keep window or its review stopped without a result. */
 export interface SentNudgeView {
   display: SentNudgeDisplay;
   reviewer: string;
@@ -402,8 +417,8 @@ export interface SentNudgeView {
 }
 
 export function sentNudgeView(n: SentNudge, now: number): SentNudgeView | null {
-  if (isFinishedStale(n, now)) return null;
   const r = n.resolution;
+  if (r?.result === 'stopped' || isFinishedStale(n, now)) return null;
   const finished = r?.result === 'done' || r?.result === 'failed';
   return {
     display: sentNudgeDisplay(n, now),
@@ -419,10 +434,6 @@ export function sentNudgeView(n: SentNudge, now: number): SentNudgeView | null {
   };
 }
 
-/** A sent nudge stays visible for this long with no board-to-board response
-    before the chip self-expires to "no-response" in the UI. */
-export const NUDGE_NO_RESPONSE_MS = 48 * 60 * 60_000;
-
 /** A launched or confirmed ask with nothing heard for this long reads
     "no-update" on the row, without a write. */
 export const NUDGE_QUIET_MS = 30 * 60_000;
@@ -432,6 +443,7 @@ export type SentNudgeDisplay =
   | 'confirmed'
   | 'pending'
   | 'launched'
+  | 'parked'
   | 'no-update'
   | 'rejected'
   | 'expired'
@@ -440,13 +452,14 @@ export type SentNudgeDisplay =
   | 'failed';
 
 /** A launched or confirmed ask quiet for over 30 minutes reads "no-update".
-    An unanswered ask reads "requested" until 48 hours elapse, then
-    "no-response". Both transitions need no write. */
+    An unanswered, pending or parked ask keeps its word until 48 hours
+    elapse, then reads "no-response". Neither transition needs a write. */
 export function sentNudgeDisplay(n: SentNudge, now: number): SentNudgeDisplay {
   const r = n.resolution;
   if (r) {
-    if (r.result === 'pending')
-      return now - r.at > NUDGE_NO_RESPONSE_MS ? 'no-response' : 'pending';
+    if (r.result === 'pending' || r.result === 'parked')
+      return now - r.at > NUDGE_NO_RESPONSE_MS ? 'no-response' : r.result;
+    if (r.result === 'stopped') return 'no-response';
     const running = r.result === 'launched' || r.result === 'confirmed';
     return running && now - r.at > NUDGE_QUIET_MS ? 'no-update' : r.result;
   }

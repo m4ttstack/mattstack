@@ -9,7 +9,13 @@ import '@mattstack/tui-kit/theme.css';
 import '@mattstack/tui-kit/canvas.css';
 import '../../style.css';
 
-import type { BoardMRWithReview, RowContext, SentNudgeInfo } from '../types.ts';
+import type {
+  BoardMRWithReview,
+  PeerReviewInfo,
+  RowContext,
+  SentNudgeInfo,
+} from '../types.ts';
+import { clock } from './ask-band.ts';
 import { AskBand } from './AskBand.tsx';
 import { people, PeopleProvider } from './people.ts';
 
@@ -71,6 +77,15 @@ const states: Array<[string, SentNudgeInfo]> = [
     },
   ],
   [
+    'parked',
+    {
+      ...reviewer,
+      display: 'parked',
+      sentAt: NOW - 90 * MIN,
+      resolvedAt: NOW - 40 * MIN,
+    },
+  ],
+  [
     'stopped',
     {
       ...reviewer,
@@ -128,19 +143,24 @@ const peerFailed = {
     },
   ],
 } as unknown as BoardMRWithReview;
-const miraPeople = people([{ username: 'mira-fixture', name: 'Mira' }]);
+const miraPeople = people([
+  { username: 'mira-fixture', name: 'Mira' },
+  { username: 'ines-fixture', name: 'Ines' },
+]);
 const ctx = {
   local: true,
   self: 'me',
   onAskRetry: () => {},
   onAskDismiss: () => {},
+  onAskRemind: async () => {},
+  slackNames: { 'mira-fixture': 'Mira Okafor' },
 } as unknown as RowContext;
 
 export const AllStates: Story = {
   play: async ({ canvasElement }) => {
     await canvasElement.ownerDocument.fonts.ready;
     const bands = canvasElement.querySelectorAll<HTMLElement>('.tui-ask');
-    expect(bands).toHaveLength(9);
+    expect(bands).toHaveLength(10);
     for (const band of bands) {
       const label = band.querySelector<HTMLElement>('.tui-ask-label')!;
       expect(label.scrollWidth, label.textContent ?? '').toBeLessThanOrEqual(
@@ -175,4 +195,78 @@ export const AllStates: Story = {
       </PeopleProvider>
     </div>
   ),
+};
+
+const parkedMr = (over: Partial<PeerReviewInfo> = {}): BoardMRWithReview =>
+  ({
+    webUrl: 'https://example.invalid/peer-parked',
+    author: { username: 'me', name: 'Me' },
+    peerReviews: [
+      {
+        mrUrl: 'https://example.invalid/peer-parked',
+        iid: 1,
+        reviewer: 'mira-fixture',
+        status: 'parked',
+        parkedAt: NOW - 40 * MIN,
+        receivedAt: NOW - 40 * MIN,
+        updatedAt: NOW - 40 * MIN,
+        ...over,
+      },
+    ],
+  }) as unknown as BoardMRWithReview;
+
+const parkedStage = (mr: BoardMRWithReview) => (
+  <div style={{ display: 'grid', gap: 12, padding: 24, maxWidth: 680 }}>
+    <PeopleProvider value={miraPeople}>
+      <AskBand mr={mr} ctx={ctx} />
+    </PeopleProvider>
+  </div>
+);
+
+export const Parked: Story = {
+  play: async ({ canvasElement }) => {
+    const band = canvasElement.querySelector<HTMLElement>('.tui-ask')!;
+    expect(band.dataset.ask).toBe('peer-parked');
+    expect(band.querySelector('.tui-ask-label')?.textContent).toBe(
+      'waiting on Mira'
+    );
+    const remind = band.querySelector<HTMLButtonElement>(
+      '[data-action="remind"]'
+    )!;
+    expect(remind.disabled).toBe(false);
+    expect(remind.title).toBe('Send Mira Okafor a Slack DM');
+  },
+  render: () => parkedStage(parkedMr()),
+};
+
+export const ParkedAndReminded: Story = {
+  play: async ({ canvasElement }) => {
+    const band = canvasElement.querySelector<HTMLElement>('.tui-ask')!;
+    expect(band.querySelector('.tui-ask-note')?.textContent).toMatch(
+      /^Reminded [56]m ago$/
+    );
+    const remind = band.querySelector<HTMLButtonElement>(
+      '[data-action="remind"]'
+    )!;
+    expect(remind.disabled).toBe(true);
+    expect(remind.title).toBe(`Remind again at ${clock(NOW + 10 * MIN)}`);
+  },
+  render: () => parkedStage(parkedMr({ remindedAt: NOW - 5 * MIN })),
+};
+
+export const ParkedWithNoSlackMatch: Story = {
+  play: async ({ canvasElement }) => {
+    const remind = canvasElement.querySelector<HTMLButtonElement>(
+      '[data-action="remind"]'
+    )!;
+    expect(remind.disabled).toBe(true);
+    expect(remind.title).toBe('No Slack account matches Ines');
+  },
+  render: () =>
+    parkedStage(
+      parkedMr({
+        reviewer: 'ines-fixture',
+        mrUrl: 'https://example.invalid/peer-parked',
+      })
+    ),
 };

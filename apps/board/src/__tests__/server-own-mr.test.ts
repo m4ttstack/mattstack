@@ -431,6 +431,11 @@ const ROUTES: Array<{
     body: (b, u) => ({ mrUrls: [b.url(u)] }),
   },
   {
+    name: '/peer-review/remind',
+    path: '/peer-review/remind',
+    body: (b, u) => ({ mrUrl: b.url(u), reviewer: 'grace' }),
+  },
+  {
     name: '/drafts post',
     path: '/drafts',
     setup: held,

@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   activePeerReviewer,
   isFreshPeerReview,
+  NUDGE_NO_RESPONSE_MS,
   PEER_REVIEW_STALE_MS,
   presenceEnvelopes,
   reviewPresenceRecipients,
@@ -117,9 +118,22 @@ describe('isFreshPeerReview', () => {
     ).toBe(false);
   });
 
-  test('done and error are never fresh', () => {
-    for (const status of ['done', 'error'])
+  test('done, error and stopped are never fresh', () => {
+    for (const status of ['done', 'error', 'stopped'])
       expect(isFreshPeerReview({ status, updatedAt: NOW }, NOW)).toBe(false);
+  });
+
+  test('isFreshPeerReview keeps parked past 2h and drops it past 48h', () => {
+    const parked = (age: number) => ({
+      status: 'parked',
+      updatedAt: 0,
+      receivedAt: NOW - age,
+    });
+    expect(isFreshPeerReview(parked(PEER_REVIEW_STALE_MS + 1), NOW)).toBe(true);
+    expect(isFreshPeerReview(parked(NUDGE_NO_RESPONSE_MS), NOW)).toBe(true);
+    expect(isFreshPeerReview(parked(NUDGE_NO_RESPONSE_MS + 1), NOW)).toBe(
+      false
+    );
   });
 });
 
@@ -201,6 +215,20 @@ describe('reviewSyncEnvelopes', () => {
 
   test('no author sends nothing', () => {
     expect(reviewSyncEnvelopes({ ...base, author: undefined })).toEqual([]);
+  });
+
+  test('a parked state sends nothing for my own MR or the all view', () => {
+    const parked = {
+      ...base,
+      payload: { ...payload, status: 'parked' as const, parkedAt: 5 },
+    };
+    expect(reviewSyncEnvelopes({ ...parked, author: 'Me' })).toEqual([]);
+    expect(reviewSyncEnvelopes({ ...parked, self: 'all' })).toEqual([]);
+    expect(reviewSyncEnvelopes(parked)[0]?.payload).toMatchObject({
+      status: 'parked',
+      parkedAt: 5,
+      nudgeId: 'ask-1',
+    });
   });
 
   test('author and third party each get one, only the author a nudgeId; un-enrolled dropped', () => {

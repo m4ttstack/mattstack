@@ -48,6 +48,7 @@ export {
   chatSlackPeople,
   chatSlackAvatarFile,
   chatSlackAvatars,
+  chatSlackDm,
   chatSlackStatus,
   chatSlackTicket,
   chatSlackRequest,

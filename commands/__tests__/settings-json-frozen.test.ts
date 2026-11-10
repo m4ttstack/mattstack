@@ -64,7 +64,7 @@ describe("settings --json is frozen", () => {
       .replace(/"at":"[^"]+"/g, '"at":"<AT>"');
   }
 
-  function frozen(name: string, text: string = cap.stdout()): void {
+  function frozen(name: string, text: string = cap.stdout(), stderr = ""): void {
     const file = join(FIXTURES, `${name}.txt`);
     const got = normalize(text);
     if (UPDATE) {
@@ -73,13 +73,18 @@ describe("settings --json is frozen", () => {
     }
     expect(existsSync(file)).toBe(true);
     expect(got).toBe(readFileSync(file, "utf8"));
-    expect(cap.stderr()).toBe("");
+    expect(cap.stderr()).toBe(stderr);
     for (const call of warn.mock.calls) expect(String(call[0])).toMatch(/^rt: ignoring "rt\.repoRoots"/);
   }
 
   test("get", async () => {
     await settingsGet(["rt.logLevel", "--json"]);
     frozen("get");
+  });
+
+  test("get of a renamed key's old name", async () => {
+    await settingsGet(["chat.slackSupport.persona", "--json"]);
+    frozen("get-renamed-key", cap.stdout(), "[warning] chat.slackSupport.persona is now agent.persona  rt settings get agent.persona\n");
   });
 
   test("list", async () => {

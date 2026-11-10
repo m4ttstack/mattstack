@@ -136,7 +136,7 @@ describe("rt release preflight schema-lock row", () => {
 
   test("a bump since the tag with a matching migrateFrom entry is ok and lists the bump for the release notes", async () => {
     const tagLock = JSON.parse(COMMITTED_LOCK) as Record<string, { storeVersion: number; schema: Record<string, unknown> }>;
-    const key = Object.keys(tagLock)[0]!;
+    const key = Object.keys(tagLock).find((k) => tagLock[k]!.storeVersion === 1)!;
     const bumped = { ...tagLock, [key]: { storeVersion: 2, schema: { type: "boolean" }, migrateFrom: { "1": tagLock[key]!.schema } } };
     const row = await schemaRow(fakeSeams(COMMITTED_LOCK, JSON.stringify(bumped)));
     expect(row?.status).toBe("ok");
@@ -169,7 +169,7 @@ describe("rt release preflight schema-lock row", () => {
 
   test("a bump since the tag with no migrateFrom entry is stale", async () => {
     const tagLock = JSON.parse(COMMITTED_LOCK) as Record<string, { storeVersion: number; schema: Record<string, unknown> }>;
-    const key = Object.keys(tagLock)[0]!;
+    const key = Object.keys(tagLock).find((k) => tagLock[k]!.storeVersion === 1)!;
     const bumped = { ...tagLock, [key]: { storeVersion: 2, schema: { type: "boolean" } } };
     const row = await schemaRow(fakeSeams(COMMITTED_LOCK, JSON.stringify(bumped)));
     expect(row?.status).toBe("stale");

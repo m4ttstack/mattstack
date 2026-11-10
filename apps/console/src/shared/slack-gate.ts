@@ -76,15 +76,16 @@ export function leftLabel(
   return { text: `${left}m left`, urgent: left < URGENT_MINUTES };
 }
 
-/** What a teammate starts a message with to ask the bot back: the persona's
-    trigger, else the name after an @. The setting's registry default supplies
-    the persona, so there is no fallback here. */
-export function personaTrigger(persona: {
-  name: string;
-  trigger?: string;
-}): string {
-  const trigger = persona.trigger?.trim();
-  return trigger ? trigger : `@${persona.name}`;
+/** What a teammate starts a message with to ask the bot back: the trigger
+    setting when one is set, else the persona's name after an @. The
+    setting's registry default supplies the persona, so there is no fallback
+    here. */
+export function personaTrigger(
+  persona: { name: string },
+  trigger?: string
+): string {
+  const words = trigger?.trim();
+  return words ? words : `@${persona.name}`;
 }
 
 export function isExpired(view: Pick<SlackGateView, 'expiresAt'>, now: number) {

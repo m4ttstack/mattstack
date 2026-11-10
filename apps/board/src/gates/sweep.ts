@@ -17,6 +17,9 @@ export interface SweepAction {
   mrUrl: string;
   tabId?: string;
   gateId?: string;
+  /** On a park: when the parked gate opened, to tell an older run's gate
+      from the lane's current run. */
+  gateOpenedAt?: number;
 }
 
 /** The three lifecycle maps a sweep pass joins gate rows against, one per
@@ -139,6 +142,7 @@ export function planSweep(
         mrUrl,
         tabId: tabIdFor(domain, mrUrl, states),
         gateId: row.id,
+        gateOpenedAt: row.openedAt,
       });
     }
   }

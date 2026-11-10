@@ -909,13 +909,12 @@ const ROWS: readonly SettingDef[] = [
     description: "Destination (topic/URL/token) the configured chat.push.provider sends to.",
   },
   {
-    key: "chat.slackSupport.persona",
-    type: "object",
+    key: "chat.slackSupport.trigger",
+    type: "string",
     scopes: ["user", "team", "org"],
-    default: { name: "Maude", emoji: "🤖" },
-    merge: "deep",
-    description:
-      "How the Slack support bot introduces itself to a teammate: its name, its emoji, and the words a teammate starts a message with to ask it back after a chat closes (trigger, which is the name after an @ when not set).",
+    defaultNote: "Not set, so the trigger is @ and the persona name.",
+    merge: "replace",
+    description: "The words a teammate starts a Slack message with to ask the support bot back after a chat closes.",
   },
 
   {
@@ -929,6 +928,15 @@ const ROWS: readonly SettingDef[] = [
   },
 
   // --- agent (rt agent handoff) --------------------------------------------
+  {
+    key: "agent.persona",
+    type: "object",
+    storeVersion: 2,
+    scopes: ["user", "team", "org"],
+    default: { name: "Maude", emoji: "🤖" },
+    merge: "deep",
+    description: "The name and emoji an agent signs its messages with, in Slack support chats and board reminders.",
+  },
   // agent.provider needs a concrete fallback to preserve claude-only behavior
   // with zero code changes for callers who never set it.
   {

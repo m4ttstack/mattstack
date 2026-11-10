@@ -584,6 +584,38 @@ describe("settings/resolve", () => {
       expect(() => explainSetting("rt.doesNotExist")).toThrow(/unknown setting/);
     });
 
+    test("a renamed key's old name resolves through its heir", () => {
+      const r = getSetting<{ name: string; emoji: string }>("chat.slackSupport.persona");
+      expect(r.value).toEqual({ name: "Maude", emoji: "🤖" });
+      expect(r.deprecated).toEqual({ use: "agent.persona" });
+    });
+
+    test("the heir itself carries no deprecation", () => {
+      expect(getSetting("agent.persona").deprecated).toBeUndefined();
+    });
+
+    test("the alias warns once", () => {
+      const seen: string[] = [];
+      setSettingsWarnSink((m) => seen.push(m));
+      try {
+        getSetting("chat.slackSupport.persona");
+        getSetting("chat.slackSupport.persona");
+      } finally {
+        setSettingsWarnSink(null);
+      }
+      const renamed = seen.filter((m) => m.includes("chat.slackSupport.persona"));
+      expect(renamed).toHaveLength(1);
+      expect(renamed[0]).toContain("agent.persona");
+    });
+
+    test.each(["rt.doesNotExist", "mattstack.mode", "board.switchboardUrl"])("%s still throws", (k) => {
+      expect(() => getSetting(k)).toThrow(/unknown setting/);
+    });
+
+    test("an explicit explain of a renamed key's old name still throws", () => {
+      expect(() => explainSetting("chat.slackSupport.persona")).toThrow(/unknown setting/);
+    });
+
     test("an unregistered key in a store file warns, never throws, and lists as unregistered", () => {
       writeUser({ "rt.fromANewerRt": { hello: "world" } });
 

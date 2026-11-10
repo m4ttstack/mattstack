@@ -1,0 +1,1 @@
+{"ok":true,"key":"chat.slackSupport.persona","deprecated":{"use":"agent.persona"},"value":{"name":"Maude","emoji":"🤖"},"provenance":[{"scope":"default","file":null}],"migrated":true}

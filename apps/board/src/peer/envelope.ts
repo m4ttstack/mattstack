@@ -33,18 +33,27 @@ export interface Envelope extends DraftEnvelope {
   receivedAt: number;
 }
 
+/** `parked` and `stopped` describe the reviewer's gate, not its lane: a
+    board older than them stores the status and shows nothing for it. A
+    respond-state reuses the payload with the respond lane's own statuses. */
+export type WireReviewStatus =
+  'queued' | 'reviewing' | 'done' | 'error' | 'parked' | 'stopped';
+
 export interface ReviewStatePayload {
   mrUrl: string;
   iid: number;
-  status: string;
+  status: WireReviewStatus | (string & {});
   outcome?: string;
   updatedAt: number;
   /** On a respond-state or review-state: the inbound ask this report answers,
       echoed back so the asker retires by identity instead of comparing two
       boards' clocks. */
   nudgeId?: string;
-  /** On an `error`: why the run ended, in words the asker's band shows. */
+  /** On an `error` or a `stopped`: why the run ended, in words the asker's
+      band shows. */
   reason?: string;
+  /** On a `parked`: the reviewer board's clock when its gate parked. */
+  parkedAt?: number;
 }
 
 export interface ReReviewRequestPayload {
@@ -142,7 +151,7 @@ function mrBase(p: unknown): { mrUrl: string; iid: number } | null {
 export function parseReviewStatePayload(p: unknown): ReviewStatePayload | null {
   const base = mrBase(p);
   if (!base) return null;
-  const { status, outcome, updatedAt, nudgeId, reason } = p as Record<
+  const { status, outcome, updatedAt, nudgeId, reason, parkedAt } = p as Record<
     string,
     unknown
   >;
@@ -151,6 +160,11 @@ export function parseReviewStatePayload(p: unknown): ReviewStatePayload | null {
   if (typeof updatedAt !== 'number' || !Number.isFinite(updatedAt)) return null;
   if (nudgeId !== undefined && typeof nudgeId !== 'string') return null;
   if (reason !== undefined && typeof reason !== 'string') return null;
+  if (
+    parkedAt !== undefined &&
+    (typeof parkedAt !== 'number' || !Number.isFinite(parkedAt))
+  )
+    return null;
   return {
     ...base,
     status,
@@ -158,6 +172,7 @@ export function parseReviewStatePayload(p: unknown): ReviewStatePayload | null {
     updatedAt,
     nudgeId: nudgeId as string | undefined,
     reason: reason as string | undefined,
+    ...(parkedAt !== undefined ? { parkedAt } : {}),
   };
 }
 
