@@ -102,6 +102,7 @@ const THREAD_ADDRESS = {
 let React: typeof import('react');
 let createRoot: typeof import('react-dom/client').createRoot;
 let Board: typeof import('../Board.tsx').Board;
+let EXIT_MS: number;
 const realFetch = globalThis.fetch;
 let root: ReturnType<typeof import('react-dom/client').createRoot>;
 let container: HTMLDivElement;
@@ -135,6 +136,7 @@ beforeAll(async () => {
   React = await import('react');
   ({ createRoot } = await import('react-dom/client'));
   ({ Board } = await import('../Board.tsx'));
+  ({ EXIT_MS } = await import('../use-lingering.ts'));
 });
 
 beforeEach(() => {
@@ -231,6 +233,15 @@ test('a click on the drawer scrim closes the drawer without opening the MR', asy
   );
   if (!scrim) throw new Error('no drawer overlay');
   await React.act(async () => scrim.click());
+  // The panel plays its slide-out before it unmounts.
+  expect(
+    document
+      .querySelector('[data-part="sidedrawer"]')
+      ?.getAttribute('data-closing')
+  ).toBe('true');
+  await React.act(
+    () => new Promise(resolve => setTimeout(resolve, EXIT_MS + 20))
+  );
   expect(document.querySelector('[data-part="sidedrawer"]')).toBeNull();
   expect(opened).toBe(0);
 });

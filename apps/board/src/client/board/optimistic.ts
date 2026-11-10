@@ -10,17 +10,52 @@ import { DOCTOR_ACTIVE, RESPOND_ACTIVE } from './format.ts';
     state file round-trips back via /data.json. */
 export type Axis = 'review' | 'respond' | 'doctor';
 
+/** What a claim knew of its lane when it was made: the lane the server had
+    then, and when the click landed. */
+interface Claim {
+  prior: string | null;
+  at: number;
+}
+
 export interface OptimisticState {
   review: Record<string, ReviewInfo>;
   respond: Record<string, RespondInfo>;
   doctor: Record<string, DoctorInfo>;
+  claims: Record<Axis, Record<string, Claim>>;
 }
 
 export const EMPTY_OPTIMISTIC: OptimisticState = {
   review: {},
   respond: {},
   doctor: {},
+  claims: { review: {}, respond: {}, doctor: {} },
 };
+
+/** How long a claim may stand over a server lane that has not moved. A launch
+    the server took up writes its lane within seconds; this only ends a claim
+    whose launch never reached the lane. */
+export const OPTIMISTIC_HOLD_MS = 2 * 60_000;
+
+/** A lane as the server last wrote it. A claim made over a finished run must
+    not give way to that same run on the next poll, only to a newer write;
+    comparing the server's own values keeps a remote board's clock out of it. */
+export function laneMark(
+  lane: { status: string; updatedAt?: number } | undefined | null
+): string | null {
+  return lane ? `${lane.status}@${lane.updatedAt ?? ''}` : null;
+}
+
+/** Whether the server has written this lane since the claim was made. */
+function caughtUp(
+  s: OptimisticState,
+  axis: Axis,
+  mr: BoardMRWithReview
+): boolean {
+  const lane = mr[axis];
+  if (!lane || !mr.webUrl) return false;
+  const claim = s.claims[axis][mr.webUrl];
+  return !claim || laneMark(lane) !== claim.prior;
+}
 
 /** Review's "still going" set is inline (not exported from format.ts) since
     it's only two literals and format.ts has no ReviewStatus active-set today. */
@@ -32,9 +67,18 @@ export function setQueued(
   s: OptimisticState,
   axis: Axis,
   url: string,
-  status: 'queued' | 'syncing' = 'queued'
+  status: 'queued' | 'syncing' = 'queued',
+  prior: string | null = null,
+  now: number = Date.now()
 ): OptimisticState {
-  return { ...s, [axis]: { ...s[axis], [url]: { status } } };
+  return {
+    ...s,
+    [axis]: { ...s[axis], [url]: { status } },
+    claims: {
+      ...s.claims,
+      [axis]: { ...s.claims[axis], [url]: { prior, at: now } },
+    },
+  };
 }
 
 /** Undo an optimistic claim -- a launch request that failed or errored before
@@ -47,27 +91,29 @@ export function rollback(
   if (!(url in s[axis])) return s;
   const next = { ...s[axis] };
   delete next[url];
-  return { ...s, [axis]: next };
+  const claims = { ...s.claims[axis] };
+  delete claims[url];
+  return { ...s, [axis]: next, claims: { ...s.claims, [axis]: claims } };
 }
 
-/** Drop optimistic entries once the server has a real status for that axis on
-    that MR. Returns the SAME reference when nothing changed, so a caller that
-    re-runs this every poll doesn't loop an effect keyed on the result. */
+/** Drop optimistic entries once the server has written that axis since the
+    claim, or the claim has outlived OPTIMISTIC_HOLD_MS. Returns the SAME
+    reference when nothing changed, so a caller that re-runs this every poll
+    doesn't loop an effect keyed on the result. */
 export function clearServerTruth(
   s: OptimisticState,
-  mrs: BoardMRWithReview[]
+  mrs: BoardMRWithReview[],
+  now: number = Date.now()
 ): OptimisticState {
   let next = s;
   (['review', 'respond', 'doctor'] as const).forEach(axis => {
-    let changed = false;
-    const nextAxis = { ...next[axis] };
     for (const mr of mrs) {
-      if (mr.webUrl && mr[axis] && nextAxis[mr.webUrl]) {
-        delete nextAxis[mr.webUrl];
-        changed = true;
-      }
+      const url = mr.webUrl;
+      if (!url || !next[axis][url]) continue;
+      const claim = next.claims[axis][url];
+      const lapsed = !!claim && now - claim.at > OPTIMISTIC_HOLD_MS;
+      if (caughtUp(next, axis, mr) || lapsed) next = rollback(next, axis, url);
     }
-    if (changed) next = { ...next, [axis]: nextAxis };
   });
   return next;
 }
@@ -103,7 +149,8 @@ export function anyActive(
   return doctorActive;
 }
 
-/** Server state wins; optimistic entries fill gaps only, per axis. */
+/** A claim shows until the server writes its lane; after that, server state
+    wins, per axis. */
 export function overlay(
   mrs: BoardMRWithReview[],
   s: OptimisticState
@@ -113,9 +160,14 @@ export function overlay(
     const optResp = mr.webUrl ? s.respond[mr.webUrl] : undefined;
     const optDoc = mr.webUrl ? s.doctor[mr.webUrl] : undefined;
     let next: BoardMRWithReview = mr;
-    if (!mr.review && optRev) next = { ...next, review: optRev };
-    if (!mr.respond && optResp) next = { ...next, respond: optResp };
-    if (!mr.doctor && optDoc) next = { ...next, doctor: optDoc };
+    // A claim stands until the server has written that lane since the click;
+    // an older run's state on the lane does not outrank it.
+    if (optRev && !caughtUp(s, 'review', mr))
+      next = { ...next, review: optRev };
+    if (optResp && !caughtUp(s, 'respond', mr))
+      next = { ...next, respond: optResp };
+    if (optDoc && !caughtUp(s, 'doctor', mr))
+      next = { ...next, doctor: optDoc };
     return next;
   });
 }

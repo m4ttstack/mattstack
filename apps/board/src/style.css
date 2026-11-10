@@ -807,47 +807,222 @@ body {
   font-weight: 600;
   cursor: pointer;
 }
-.tui-status-word-log:hover,
-.tui-status-word-log[data-open] {
+.tui-status-word-log:hover {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-.tui-status-word-caret {
+/* One pip per sync step, in the word's own tone: the row's progress at a
+   glance once the drawer is closed. */
+.tui-sync-pips {
   display: inline-flex;
-  opacity: 0.7;
-  transition: transform 160ms ease;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
 }
-.tui-status-word-log[data-open] .tui-status-word-caret {
-  transform: rotate(180deg);
+.tui-sync-pip {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.25px
+    color-mix(in srgb, currentColor 40%, transparent);
+}
+.tui-sync-pip[data-state='done'] {
+  background: currentColor;
+  box-shadow: none;
+}
+.tui-sync-pip[data-state='running'] {
+  background: currentColor;
+  box-shadow: none;
+  animation: tui-synclog-pulse 1.2s ease-in-out infinite;
+}
+.tui-sync-pip[data-state='skipped'] {
+  background: color-mix(in srgb, currentColor 30%, transparent);
+  box-shadow: none;
+}
+.tui-sync-pip[data-state='failed'] {
+  background: var(--text-bad);
+  box-shadow: none;
+}
+.tui-sync-pip[data-state='paused'] {
+  background: var(--text-warn-vivid);
+  box-shadow: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .tui-status-word-caret {
-    transition: none;
+  .tui-sync-pip[data-state='running'] {
+    animation: none;
   }
 }
-.tui-synclog {
-  width: 460px;
-  max-width: calc(100vw - 24px);
-  padding: 0;
+.tui-sync-drawer .tui-syncsteps-head {
+  border-top: 1px solid var(--border-soft);
+  margin-top: 0.4rem;
 }
-.tui-synclog-head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--spacing-px8);
-  padding: var(--spacing-px6) var(--spacing-px10);
-  border-bottom: 1px solid var(--border-soft);
-  font: var(--font-size-px11) / 1.4 var(--font-mono);
-}
-.tui-synclog-cmd {
+/* The sync's four fixed steps: a step changes state in place, so the list
+   never grows or repeats a branch name while the sync runs. */
+.tui-syncsteps {
+  font-size: var(--font-size-px13);
   color: var(--text-1);
-  font-weight: 600;
 }
-.tui-synclog-branch {
+.tui-syncsteps-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-px12);
+  padding: var(--spacing-px10) var(--spacing-px14);
+  border-bottom: 1px solid var(--border-soft);
+}
+.tui-syncsteps-title {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 600;
+}
+.tui-syncsteps-tree {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-px12);
   color: var(--text-3);
+}
+.tui-syncsteps-list {
+  margin: 0;
+  padding: var(--spacing-px8) var(--spacing-px14);
+  list-style: none;
+}
+.tui-syncsteps-step {
+  display: grid;
+  grid-template-columns: 14px 64px minmax(0, 1fr) auto;
+  column-gap: var(--spacing-px10);
+  align-items: center;
+  min-height: 26px;
+}
+.tui-syncsteps-glyph {
+  display: inline-flex;
+  justify-content: center;
+  color: var(--text-3);
+}
+.tui-syncsteps-step[data-state='done'] .tui-syncsteps-glyph {
+  color: var(--text-ok-vivid);
+}
+.tui-syncsteps-step[data-state='failed'] .tui-syncsteps-glyph {
+  color: var(--text-bad);
+}
+.tui-syncsteps-step[data-state='paused'] .tui-syncsteps-glyph {
+  color: var(--text-warn-vivid);
+}
+.tui-syncsteps-label {
+  font-weight: 500;
+}
+.tui-syncsteps-step[data-state='running'] .tui-syncsteps-label {
+  font-weight: 600;
+}
+.tui-syncsteps-step[data-state='pending'] .tui-syncsteps-label,
+.tui-syncsteps-step[data-state='skipped'] .tui-syncsteps-label {
+  color: var(--text-3);
+}
+.tui-syncsteps-detail,
+.tui-syncsteps-ref {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-px12);
+  color: var(--text-3);
+}
+.tui-syncsteps-step[data-state='running'] .tui-syncsteps-detail {
+  color: var(--text-1);
+}
+.tui-syncsteps-step[data-state='failed'] .tui-syncsteps-detail {
+  color: var(--text-bad-small);
+}
+.tui-syncsteps-step[data-state='paused'] .tui-syncsteps-detail {
+  color: var(--text-warn-small);
+}
+.tui-syncsteps-ref {
+  font-family: var(--font-mono);
+}
+.tui-syncsteps-action {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--font-size-px12);
+  font-weight: 500;
+  color: var(--text-accent);
+  cursor: pointer;
+}
+.tui-syncsteps-action:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.tui-syncsteps-ring {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--text-purple) 35%, transparent);
+  border-top-color: var(--text-purple);
+  animation: tui-status-rot 1s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tui-syncsteps-ring {
+    animation: none;
+  }
+}
+.tui-syncsteps-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-px8);
+  padding: var(--spacing-px10) var(--spacing-px14);
+  border-top: 1px solid var(--border-soft);
+  font-size: var(--font-size-px12);
+  font-weight: 500;
+}
+.tui-syncsteps-note-text {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-px8);
+  min-width: 0;
+}
+.tui-syncsteps-note[data-tone='bad'] {
+  background: color-mix(in srgb, var(--text-bad) 7%, transparent);
+  color: var(--text-bad-small);
+}
+.tui-syncsteps-note[data-tone='work'] {
+  background: color-mix(in srgb, var(--text-purple) 6%, transparent);
+  color: var(--text-purple);
+}
+.tui-syncsteps-foot {
+  padding: var(--spacing-px8) var(--spacing-px14);
+  border-top: 1px solid var(--border-soft);
+}
+.tui-syncsteps-raw {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--font-size-px12);
+  color: var(--text-3);
+  cursor: pointer;
+}
+.tui-syncsteps-raw svg {
+  transition: transform 160ms ease;
+}
+.tui-syncsteps-raw[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tui-syncsteps-raw svg {
+    transition: none;
+  }
+}
+.tui-syncsteps-rawlog {
+  border-top: 1px solid var(--border-soft);
 }
 .tui-synclog-body {
   max-height: 280px;
@@ -876,8 +1051,18 @@ body {
 .tui-synclog-line[data-status='text'] .tui-synclog-glyph {
   display: none;
 }
+/* The hint gets its own line, so a long path never splits a title. */
 .tui-synclog-hint {
-  margin-left: 2ch;
+  display: block;
+  color: var(--text-3);
+  overflow-wrap: normal;
+}
+/* The branch, named once above the lines that say "this branch". */
+.tui-synclog-branch {
+  margin-bottom: var(--spacing-px6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--text-3);
 }
 .tui-synclog-glyph {
@@ -1013,43 +1198,169 @@ body {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+/* Each extra status reads like the row's own line, with the part of the
+   board that made it named on the left and its action on the right. */
 .tui-status-more-pop {
-  width: 340px;
+  width: 300px;
   max-width: calc(100vw - 24px);
   padding: 0;
 }
 .tui-status-more-list {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-px6);
-  padding: var(--spacing-px8) var(--spacing-px10);
-  font-size: var(--font-size-px12);
-  line-height: 1.45;
+  overflow: hidden;
+  border-radius: inherit;
+  font-size: 0.8rem;
+  line-height: 20px;
   color: var(--text-3);
 }
 .tui-status-more-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--spacing-px14);
+  align-items: center;
+  width: 100%;
+  margin: 0;
+  padding: var(--spacing-px8) 1rem;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+.tui-status-more-line + .tui-status-more-line {
+  border-top: 1px solid var(--border-soft);
+}
+/* A line with an action shows its verb, in the lane's colour, under the
+   pointer or keyboard focus. A look or tidy-up runs from anywhere on the line
+   (data-action="line"); starting an agent takes a click on the verb itself
+   (data-action="launch"). */
+.tui-status-more-line[data-action='line'] {
+  cursor: pointer;
+}
+.tui-status-more-line[data-action]:hover,
+.tui-status-more-line[data-action]:focus-visible,
+.tui-status-more-line[data-action]:focus-within {
+  background: var(--surface-wash-bg-55);
+  outline: none;
+}
+.tui-status-more-line[data-lane='review'] {
+  --verb: var(--text-accent);
+  --verb-wash: var(--fill-accent);
+}
+.tui-status-more-line[data-lane='respond'] {
+  --verb: var(--text-ok-vivid);
+  --verb-wash: var(--fill-ok);
+}
+.tui-status-more-line[data-lane='doctor'] {
+  --verb: var(--orange);
+  --verb-wash: var(--fill-warn);
+}
+/* The action takes the lane's wash when the pointer is on it, like a row
+   verb, so it reads as its own button within the line. */
+.tui-status-more-verb {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 2px 6px 2px 8px;
+  border: 0;
+  border-radius: var(--radius-px5);
+  background: none;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--verb, var(--text-2));
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+button.tui-status-more-verb {
+  cursor: pointer;
+}
+.tui-status-more-line[data-action]:hover .tui-status-more-verb,
+.tui-status-more-line[data-action]:focus-visible .tui-status-more-verb,
+.tui-status-more-line[data-action]:focus-within .tui-status-more-verb {
+  opacity: 1;
+}
+.tui-status-more-verb:hover,
+button.tui-status-more-verb:focus-visible {
+  background: color-mix(
+    in srgb,
+    var(--verb-wash, var(--muted)) 14%,
+    transparent
+  );
+  outline: none;
+}
+/* A press on a line-wide action presses its verb; a launch presses only
+   when the verb itself is pressed. */
+.tui-status-more-line[data-action='line']:active .tui-status-more-verb,
+button.tui-status-more-verb:active {
+  background: color-mix(
+    in srgb,
+    var(--verb-wash, var(--muted)) 26%,
+    transparent
+  );
+  transform: translateY(0.5px);
+}
+.tui-status-more-verb:hover .tui-status-more-chevron {
+  transform: rotate(-90deg) translateY(2px);
+}
+.tui-status-more-chevron {
+  transition: transform 120ms ease;
+  display: inline-flex;
+  transform: rotate(-90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tui-status-more-verb {
+    transition: none;
+  }
+}
+.tui-status-more-list:focus {
+  outline: none;
+}
+/* The source sits above its status, so the list stays narrow. */
+.tui-status-more-stack {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
-.tui-status-more-word {
-  font-weight: 500;
-  color: var(--text-2);
+.tui-status-more-source {
+  font-size: var(--font-size-px11);
+  line-height: 16px;
+  color: var(--text-3);
 }
-.tui-status-more-detail {
+.tui-status-more-text {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.tui-status-more-text .tui-status-ring {
+  margin-left: 8px;
+}
+.tui-status-more-text {
+  flex-wrap: wrap;
+}
+.tui-status-more-text .tui-status-detail {
+  white-space: normal;
   overflow-wrap: anywhere;
 }
-.tui-status-more-line[data-tone='bad'] .tui-status-more-word {
-  color: var(--text-bad-small);
+.tui-status-more-line[data-tone='bad'] .tui-status-word {
+  color: var(--text-bad);
 }
-.tui-status-more-line[data-tone='warn'] .tui-status-more-word {
-  color: var(--text-warn-small);
+.tui-status-more-line[data-tone='warn'] .tui-status-word {
+  color: var(--text-warn-vivid);
 }
-.tui-status-more-line[data-tone='work'] .tui-status-more-word {
-  color: var(--text-purple-small);
+.tui-status-more-line[data-tone='work'] .tui-status-word,
+.tui-status-more-line[data-tone='work'] .tui-status-ring {
+  color: var(--text-purple);
 }
-.tui-status-more-line[data-tone='go'] .tui-status-more-word,
-.tui-status-more-line[data-tone='clear'] .tui-status-more-word {
-  color: var(--text-ok-small);
+.tui-status-more-line[data-tone='go'] .tui-status-word,
+.tui-status-more-line[data-tone='clear'] .tui-status-word {
+  color: var(--text-ok-vivid);
+}
+.tui-status-more-line[data-tone='quiet'] .tui-status-word {
+  font-weight: 500;
+  color: var(--text-2);
 }
 /* Centered like the tools, not baseline-aligned: the line's baseline would
    otherwise follow whichever verb is first, and a secondary appearing left
@@ -1399,18 +1710,19 @@ body {
   line-height: 16px;
   font-variant-numeric: tabular-nums;
 }
+/* The close button has the bar to itself; the MR title sits below it, so the
+   two never compete for the same line. */
 .tui-cd-head {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 0.6rem;
-  padding: 0.9rem 1rem 0.5rem;
+  justify-content: flex-end;
+  padding: 0.6rem 0.6rem 0;
   position: sticky;
   top: 0;
   background: var(--panel);
   z-index: 1;
 }
 .tui-cd-title {
+  padding: 0.4rem 1rem 0.5rem;
   font-weight: 700;
   font-size: 0.92rem;
   line-height: 1.4;
@@ -8270,4 +8582,44 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-stacked-area {
   gap: 12px;
+}
+.tui-sync-drawer .tui-syncsteps-head,
+.tui-sync-drawer .tui-syncsteps-list,
+.tui-sync-drawer .tui-syncsteps-note,
+.tui-sync-drawer .tui-syncsteps-foot {
+  padding-inline: 1rem;
+}
+/* Spotlight (RowSpotlight.tsx): a light wash, no blur, with the drawer's row
+   left bright so the drawer stays tied to its MR. The kit's overlay keeps
+   catching the outside click; the spot's shadow draws the wash instead. */
+[data-part='sidedrawer-overlay']:has(> .tui-spotlit) {
+  background: transparent;
+  backdrop-filter: none;
+}
+/* One under the drawer's overlay, which can mount before or after it. */
+.tui-row-spot {
+  position: fixed;
+  z-index: 99;
+  transition: opacity 150ms ease-in;
+  border-radius: 8px;
+  box-shadow: 0 0 0 200vmax color-mix(in srgb, black 16%, transparent);
+  pointer-events: none;
+  animation: tui-row-spot-in 150ms ease-out;
+}
+.tui-row-spot[data-leaving] {
+  opacity: 0;
+}
+@keyframes tui-row-spot-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tui-row-spot {
+    animation: none;
+    transition: none;
+  }
+}
+.dark .tui-row-spot {
+  box-shadow: 0 0 0 200vmax color-mix(in srgb, black 45%, transparent);
 }

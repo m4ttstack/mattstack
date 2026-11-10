@@ -2,7 +2,7 @@ import { describe, expect, setSystemTime, test } from "bun:test";
 import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { syncProjectMRs, fetchDeltaFrom, backfillAuthors, backfillSections, effectiveSections, sectionsMatching, DEEP_RECONCILE_MS, DEEP_RETRY_BACKOFF_MS, DELTA_OVERLAP_MS, DEMAND_IDLE_EXPIRY_MS } from "../project-sync.ts";
+import { syncProjectMRs, fetchDeltaFrom, backfillAuthors, backfillSections, effectiveSections, sectionsMatching, remeasureDivergedCounts, __resetDivergedMeasuresForTest, DIVERGED_REMEASURE_CAP, DEEP_RECONCILE_MS, DEEP_RETRY_BACKOFF_MS, DELTA_OVERLAP_MS, DEMAND_IDLE_EXPIRY_MS } from "../project-sync.ts";
 import { createProjectMRs } from "../project-mrs-store.ts";
 import { openStateDb } from "../../state/index.ts";
 import { readSyncHealth, recordSyncFailure } from "../project-sync-health.ts";
@@ -1760,5 +1760,133 @@ describe("fetchDeltaFrom (terminal MRs via the index)", () => {
       await backfillSections(deps, "repo", ["Pod"], { store: tmpStore(), windowDays: 30, ...seams(fake) });
       expect(fake.ruleCalls.map((o) => o.excludeTargetBranches)).toEqual([EXCLUDED]);
     });
+  });
+});
+
+describe("remeasureDivergedCounts", () => {
+  const deps = (events: Array<{ type: string; data: any }> = []) => ({
+    repoIndex: () => ({ repo: "/tmp/repo" }),
+    broadcast: (type: string, data: unknown) => { events.push({ type, data }); },
+  });
+  const withCount = (iid: number, n: number | null, over: Partial<PullRequest> = {}) =>
+    pr(iid, { divergedCommitsCount: n, ...over } as Partial<PullRequest>);
+
+  test("re-measures a stored zero and broadcasts only the changed iids", async () => {
+    __resetDivergedMeasuresForTest();
+    const store = tmpStore();
+    store.fullSync("repo", "g/p", [withCount(1, 0), withCount(2, 4)], Date.now());
+    const events: Array<{ type: string; data: any }> = [];
+    const live: Record<number, number> = { 1: 1090, 2: 4 };
+    const paths: string[] = [];
+
+    const changed = await remeasureDivergedCounts(deps(events), "repo", {
+      store,
+      fetchDiverged: async (_repo, projectPath, iid) => { paths.push(projectPath); return live[iid]!; },
+    });
+
+    expect(changed).toEqual([1]);
+    expect(paths).toEqual(["g/p", "g/p"]);
+    expect(store.read("repo")!.mrs[1]!.pr.divergedCommitsCount).toBe(1090);
+    expect(events).toEqual([{ type: "project-mrs", data: { repoName: "repo", iids: [1] } }]);
+  });
+
+  test("never makes more than DIVERGED_REMEASURE_CAP calls in one run", async () => {
+    __resetDivergedMeasuresForTest();
+    const store = tmpStore();
+    store.fullSync("repo", "g/p", Array.from({ length: 25 }, (_, i) => withCount(i + 1, 0)), Date.now());
+    let calls = 0;
+
+    await remeasureDivergedCounts(deps(), "repo", { store, fetchDiverged: async () => { calls++; return 0; } });
+
+    expect(calls).toBe(DIVERGED_REMEASURE_CAP);
+  });
+
+  test("missing counts go first, then the oldest measurements, so the rotation reaches every MR", async () => {
+    __resetDivergedMeasuresForTest();
+    const store = tmpStore();
+    const total = DIVERGED_REMEASURE_CAP * 2 + 1;
+    store.fullSync("repo", "g/p", Array.from({ length: total }, (_, i) => withCount(i + 1, i + 1 === total ? null : 0)), Date.now());
+    const runs: number[][] = [];
+    const run = async () => {
+      const seen: number[] = [];
+      await remeasureDivergedCounts(deps(), "repo", { store, fetchDiverged: async (_r, _p, iid) => { seen.push(iid); return 0; } });
+      runs.push(seen);
+    };
+
+    await run();
+    await run();
+    await run();
+
+    expect(runs[0]).toContain(total);
+    expect(new Set(runs.slice(0, 3).flat()).size).toBe(total);
+    expect(runs[2]!.length).toBe(DIVERGED_REMEASURE_CAP);
+  });
+
+  test("a failed call keeps the stored count and does not stop the others", async () => {
+    __resetDivergedMeasuresForTest();
+    const store = tmpStore();
+    store.fullSync("repo", "g/p", [withCount(1, 5), withCount(2, 0)], Date.now());
+
+    const changed = await remeasureDivergedCounts(deps(), "repo", {
+      store,
+      fetchDiverged: async (_r, _p, iid) => { if (iid === 1) throw new Error("502"); return 9; },
+    });
+
+    expect(changed).toEqual([2]);
+    expect(store.read("repo")!.mrs[1]!.pr.divergedCommitsCount).toBe(5);
+  });
+
+  test("a failed call is retried on the next run before older measurements", async () => {
+    __resetDivergedMeasuresForTest();
+    const store = tmpStore();
+    store.fullSync("repo", "g/p", Array.from({ length: DIVERGED_REMEASURE_CAP + 1 }, (_, i) => withCount(i + 1, 0)), Date.now());
+    let fail = true;
+    await remeasureDivergedCounts(deps(), "repo", {
+      store,
+      fetchDiverged: async (_r, _p, iid) => { if (iid === 1 && fail) throw new Error("502"); return 0; },
+    });
+    fail = false;
+    const second: number[] = [];
+
+    await remeasureDivergedCounts(deps(), "repo", { store, fetchDiverged: async (_r, _p, iid) => { second.push(iid); return 0; } });
+
+    expect(second.slice(0, 2).sort((a, b) => a - b)).toEqual([1, DIVERGED_REMEASURE_CAP + 1]);
+  });
+
+  test("skips MRs that are no longer open", async () => {
+    __resetDivergedMeasuresForTest();
+    const store = tmpStore();
+    store.fullSync("repo", "g/p", [withCount(1, 0)], Date.now());
+    store.upsert("repo", null, withCount(1, 0, { state: "merged" } as Partial<PullRequest>), "events");
+    let calls = 0;
+
+    await remeasureDivergedCounts(deps(), "repo", { store, fetchDiverged: async () => { calls++; return 3; } });
+
+    expect(calls).toBe(0);
+  });
+
+  test("a second run for the same repo while one is in flight makes no calls", async () => {
+    __resetDivergedMeasuresForTest();
+    const store = tmpStore();
+    store.fullSync("repo", "g/p", [withCount(1, 0)], Date.now());
+    let calls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const fetchDiverged = async () => { calls++; await gate; return 3; };
+
+    const first = remeasureDivergedCounts(deps(), "repo", { store, fetchDiverged });
+    const second = await remeasureDivergedCounts(deps(), "repo", { store, fetchDiverged });
+    release();
+    await first;
+
+    expect(second).toEqual([]);
+    expect(calls).toBe(1);
+  });
+
+  test("a repo with no record makes no calls", async () => {
+    __resetDivergedMeasuresForTest();
+    let calls = 0;
+    expect(await remeasureDivergedCounts(deps(), "repo", { store: tmpStore(), fetchDiverged: async () => { calls++; return 1; } })).toEqual([]);
+    expect(calls).toBe(0);
   });
 });

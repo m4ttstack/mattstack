@@ -4,8 +4,10 @@ import {
   anyActive,
   clearServerTruth,
   EMPTY_OPTIMISTIC,
+  laneMark,
   MERGE_HOLD_MS,
   nextMergeLapse,
+  OPTIMISTIC_HOLD_MS,
   overlay,
   overlayMerging,
   rollback,
@@ -75,6 +77,48 @@ test('overlay: server state wins over optimistic; optimistic fills gaps only', (
   const [out] = overlay([mr('u1', { review: { status: 'error' } })], s);
   expect(out!.review).toEqual({ status: 'error' }); // server wins
   expect(out!.respond).toEqual({ status: 'queued' }); // optimistic fills
+});
+
+test('a claim over a finished lane holds until the server reports the new run', () => {
+  const done = { status: 'done' as const, updatedAt: 100 };
+  const s = setQueued(
+    EMPTY_OPTIMISTIC,
+    'doctor',
+    'u1',
+    'syncing',
+    laneMark(done),
+    1_000
+  );
+  // The poll that lands before the server wrote the sync still carries the
+  // old run: the claim shows, and stays.
+  const stale = [mr('u1', { doctor: done } as Partial<BoardMRWithReview>)];
+  expect(overlay(stale, s)[0]!.doctor).toEqual({ status: 'syncing' });
+  expect(clearServerTruth(s, stale, 2_000)).toBe(s);
+  // The server's own syncing row replaces it.
+  const fresh = [
+    mr('u1', {
+      doctor: { status: 'syncing', updatedAt: 200, syncLog: [] },
+    } as Partial<BoardMRWithReview>),
+  ];
+  const cleared = clearServerTruth(s, fresh, 2_000);
+  expect(cleared.doctor['u1']).toBeUndefined();
+  expect(overlay(fresh, cleared)[0]!.doctor!.status).toBe('syncing');
+});
+
+test('a claim the server never takes up lapses after the hold', () => {
+  const done = { status: 'done' as const, updatedAt: 100 };
+  const s = setQueued(
+    EMPTY_OPTIMISTIC,
+    'doctor',
+    'u1',
+    'syncing',
+    laneMark(done),
+    1_000
+  );
+  const rows = [mr('u1', { doctor: done } as Partial<BoardMRWithReview>)];
+  expect(
+    clearServerTruth(s, rows, 1_000 + OPTIMISTIC_HOLD_MS + 1).doctor['u1']
+  ).toBeUndefined();
 });
 
 const IDLE = { visible: true, disabled: false, loading: false, label: 'Merge' };

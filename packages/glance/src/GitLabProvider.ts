@@ -1018,6 +1018,19 @@ export class GitLabProvider implements GitProvider {
   }
 
   /**
+   * Only `diverged_commits_count`, through one REST call and no GraphQL
+   * detail query, for callers that refresh the count on MRs fetched by a
+   * path that leaves it null. Rejects on a failed request so a caller can
+   * keep the value it already has.
+   */
+  async fetchDivergedCount(projectPath: string, mrIid: number): Promise<number | null> {
+    const data = (await this.gb.MergeRequests.show(projectPath, mrIid, {
+      includeDivergedCommitsCount: true,
+    } as never)) as unknown as { diverged_commits_count?: number | null };
+    return data.diverged_commits_count ?? null;
+  }
+
+  /**
    * Fetch a single MR by project path and IID.
    * Used by SubscriptionManager when `userMergeRequestUpdated` fires.
    * Returns null if the project or MR doesn't exist.
