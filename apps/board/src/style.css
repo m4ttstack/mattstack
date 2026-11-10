@@ -7242,7 +7242,8 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-ask-trigger:focus-visible {
   outline: 2px solid var(--ask-text);
-  outline-offset: 1px;
+  /* Any offset would carry the ring onto the band's stripe. */
+  outline-offset: 0;
 }
 .tui-ask-caret {
   display: inline-flex;
@@ -7282,6 +7283,10 @@ a.tui-id-card-ref:focus-visible {
   .tui-ask-trigger {
     flex: 1 0 100%;
     margin-right: 0;
+  }
+  /* Wrapped onto their own line, the actions set that line's height. */
+  .tui-ask-btn {
+    margin-block: 0;
   }
 }
 /* The trail, inside the kit's popover (which owns the card, shadow, edge

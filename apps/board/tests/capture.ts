@@ -1,7 +1,7 @@
 /** Deterministic screenshot capture against the BOARD_FIXTURE server.
     Boots the server itself, freezes the page clock to fixture meta.now,
     kills CSS animations, waits for fonts, shoots the named states. */
-import { mkdirSync, readdirSync, readFileSync, rmSync } from 'fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { basename, join } from 'path';
 import { chromium, type Locator, type Page } from 'playwright';
 
@@ -165,11 +165,20 @@ async function shoot(
       if (document.fonts.status === 'loaded') return;
     }
   });
-  await page.screenshot({
-    path: join(OUT, `${name}.png`),
-    fullPage: !opts.viewportOnly && !opts.clip,
-    ...(opts.clip ? { clip: opts.clip } : {}),
-  });
+  // Motion's JS tweens (a sheet's parts settling after it opens) are out of
+  // reach of the injected style, so a shot repeats until two in a row match.
+  const take = () =>
+    page.screenshot({
+      fullPage: !opts.viewportOnly && !opts.clip,
+      ...(opts.clip ? { clip: opts.clip } : {}),
+    });
+  let shot = await take();
+  for (let i = 0; i < 10; i++) {
+    const next = await take();
+    if (next.equals(shot)) break;
+    shot = next;
+  }
+  writeFileSync(join(OUT, `${name}.png`), shot);
   console.log(`  ✓ ${name}`);
 }
 
@@ -351,7 +360,7 @@ try {
     // shot reopens the queue, which starts a fresh session at the first
     // gate, and skips forward to its gate.
     for (const [marker, name] of [
-      ['.tui-thread-card', 'queueplan'],
+      ['.tui-plan-card', 'queueplan'],
       ['[data-step="post"]', 'queuepost'],
     ] as const) {
       await page.click('.tui-dq-open');
