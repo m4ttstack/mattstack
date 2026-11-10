@@ -9,6 +9,7 @@ import '@mattstack/tui-kit/canvas.css';
 import '../../style.css';
 
 import type { BoardMRWithReview, RowContext } from '../types.ts';
+import { CommentsDrawer } from './CommentsDrawer.tsx';
 import { RowView } from './RowView.tsx';
 import { pushSyncLine, startSyncLines } from './sync-lines.ts';
 
@@ -342,4 +343,25 @@ function LiveRow() {
 export const Live: Story = {
   name: 'Live: one sync played through',
   render: () => <LiveRow />,
+};
+
+/** The comment threads drawer takes the same spotlight. */
+export const ThreadsSpotlight: Story = {
+  name: 'Comment threads drawer, same spotlight',
+  render: () => (
+    <div style={{ minHeight: 360 }}>
+      <RowView
+        mrs={[neighbours[0]!, neighbours[1]!]}
+        now={NOW}
+        showAuthor={false}
+        ctx={ctx}
+      />
+      <CommentsDrawer
+        mr={neighbours[0]!}
+        local={false}
+        self="pat"
+        onClose={noop}
+      />
+    </div>
+  ),
 };

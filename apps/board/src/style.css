@@ -8478,20 +8478,20 @@ a.tui-id-card-ref:focus-visible {
 .tui-sync-drawer .tui-syncsteps-foot {
   padding-inline: 1rem;
 }
-/* Spotlight: a light wash, no blur, with the synced row left bright so the
-   drawer stays tied to the MR it belongs to. The kit's overlay keeps catching
-   the outside click; the spot's shadow draws the wash instead. */
-.tui-sync-drawer-host [data-part='sidedrawer-overlay'] {
+/* Spotlight (RowSpotlight.tsx): a light wash, no blur, with the drawer's row
+   left bright so the drawer stays tied to its MR. The kit's overlay keeps
+   catching the outside click; the spot's shadow draws the wash instead. */
+[data-part='sidedrawer-overlay']:has(> .tui-spotlit) {
   background: transparent;
   backdrop-filter: none;
 }
-.tui-sync-spot {
+.tui-row-spot {
   position: fixed;
   z-index: 100;
   border-radius: 8px;
   box-shadow: 0 0 0 200vmax color-mix(in srgb, black 16%, transparent);
   pointer-events: none;
 }
-.dark .tui-sync-spot {
+.dark .tui-row-spot {
   box-shadow: 0 0 0 200vmax color-mix(in srgb, black 45%, transparent);
 }

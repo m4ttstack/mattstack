@@ -14,6 +14,7 @@ import { getDiscussions, postThreadWrite } from '../api.ts';
 import type { CommentNote, CommentThread, GeneralComment } from '../types.ts';
 import { ago, cleanTitle, THREAD_ICON, THREAD_LABEL } from './format.ts';
 import { MessageGlyph } from './icons.tsx';
+import { RowSpotlight } from './RowSpotlight.tsx';
 import { SheetEnd } from './SheetParts.tsx';
 
 /** The facts line's threads token, the drawer's entry. A status outranks
@@ -583,9 +584,11 @@ function CommentsDrawer({
   }, [mr.rtRepo, mr.iid, mr.author.username, freshness]);
   const canWrite = local && !!mr.rtRepo;
   return (
+    <>
+    <RowSpotlight mrUrl={mr.webUrl} />
     <SideDrawer
       side="right"
-      className="tui-cd-panel"
+      className="tui-cd-panel tui-spotlit"
       ariaLabel="comment threads"
       onClose={onClose}
     >
@@ -644,6 +647,7 @@ function CommentsDrawer({
         )}
       </div>
     </SideDrawer>
+    </>
   );
 }
 
