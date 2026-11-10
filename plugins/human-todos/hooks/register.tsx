@@ -1,3 +1,7 @@
 import type { Register } from 'claude-code'
 
-export const register: Register = () => {}
+import { registerContract } from './contract'
+
+export const register: Register = on => {
+  registerContract(on)
+}

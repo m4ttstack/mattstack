@@ -31,3 +31,17 @@ export type Todo = {
   token?: string
   logPath?: string
 }
+
+declare module 'claude-code' {
+  interface PluginState {
+    'human-todos': {
+      todos: Shaped<Todo[]>
+      nextId: number
+      expanded: string[]
+      isPaneOpen: boolean
+      frame: number
+      workspace: string | null
+      runnerPref: 'auto' | 'herdr' | 'local'
+    }
+  }
+}
