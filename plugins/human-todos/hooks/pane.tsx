@@ -114,6 +114,7 @@ export function registerPane(on: On): void {
           <Button key="close" role="dismiss" label="Close" onPress={() => closePane($)} />
         </Box>
         {actionable.length === 0 && <Text dimColor>Nothing for you right now.</Text>}
+        {actionable.length === 0 && finished.length > 0 && <Text> </Text>}
         {actionable.map(todo => {
           const rows = todo.script ? hardWrap(`$ ${todo.script}`, width) : []
           const isConfirming = todo.status === 'confirming'
@@ -156,8 +157,11 @@ export function registerPane(on: On): void {
                     </Box>
                   </Box>
                 ) : (
-                  <Box flexDirection="row" gap={1} marginTop={1}>
-                    {buttonsRow(todo)}
+                  <Box flexDirection="column" marginTop={1}>
+                    {isConfirming && <Text>Are you sure you want to run this script?</Text>}
+                    <Box flexDirection="row" gap={1}>
+                      {buttonsRow(todo)}
+                    </Box>
                   </Box>
                 )}
               </Box>

@@ -278,3 +278,13 @@ test('drawing after the session id changed writes nothing and shows the loaded l
   await pane.unmount()
   await band.unmount()
 })
+
+test('with nothing left to do, a blank row separates the notice from the finished list', async ($, on) => {
+  await seeded($, on, [todo({ id: '1', title: 'Fine', status: 'done' })])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+
+  const rows = await texts(pane)
+  const notice = rows.indexOf('Nothing for you right now.')
+  expect(rows.slice(notice, notice + 3)).toEqual(['Nothing for you right now.', ' ', '✓ '])
+  await pane.unmount()
+})
