@@ -92,6 +92,11 @@ export function gitlabForgeAccess(p: Probes, remote: string, host: string, path:
       return typeof branch === "string" ? done(branch) : refusal(r, "glab", [`Open https://${host}/${path}`, "Check that your GitLab account can see this project"]);
     },
 
+    async setDefaultBranch(branch) {
+      const r = await call({ method: "PUT", path: project, fields: [`default_branch=${branch}`] });
+      return r.code === 0 ? done("set") : refusal(r, "glab", [`Open https://${host}/${path}/-/settings/repository`, `Make ${branch} the default branch`]);
+    },
+
     async readPushList(branch) {
       const r = await call({ method: "GET", path: rulePath(branch) });
       if (r.code !== 0) {

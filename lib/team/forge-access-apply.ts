@@ -19,8 +19,10 @@ import type { OrgForgeAccess, PushList } from "./forge-access.ts";
 import { githubForgeAccess } from "./forge-access-github.ts";
 import { gitlabForgeAccess } from "./forge-access-gitlab.ts";
 import { accessDiff, fingerprintOf, limitSentence, wantedAccess, type AccessDiff, type Wanted } from "./forge-access-plan.ts";
+import { readMainPointer, type MainPointer } from "./main-pointer.ts";
 import { teamRemote } from "./members.ts";
 import { checkedOutBranch, dataBranchOf } from "./org-branch.ts";
+import { POINTER_BRANCH } from "./org-data-branch.ts";
 import { markerState } from "./org-marker.ts";
 import { orgStoreFile } from "./org-store.ts";
 import { roleFor, rolesFor } from "./roles.ts";
@@ -30,6 +32,7 @@ import { editTeamLocal, readTeamLocal } from "./team-local.ts";
 export interface ForgeAccessSeams {
   forgeToken: (p: Probes, remote: string) => Promise<string | null>;
   access: (p: Probes, remote: string, token: string | null) => OrgForgeAccess | null;
+  mainPointer?: (p: Probes, remote: string, token: string | null) => Promise<MainPointer | null>;
 }
 
 export function orgForgeAccessFor(p: Probes, remote: string, token: string | null): OrgForgeAccess | null {
@@ -43,7 +46,7 @@ export function orgForgeAccessFor(p: Probes, remote: string, token: string | nul
 }
 
 export function realForgeAccessSeams(): ForgeAccessSeams {
-  return { forgeToken: storedForgeToken, access: orgForgeAccessFor };
+  return { forgeToken: storedForgeToken, access: orgForgeAccessFor, mainPointer: readMainPointer };
 }
 
 export type ForgeAccessReport =
@@ -113,19 +116,36 @@ export async function wantedFingerprint(p: Probes, slug: string): Promise<string
   return data.kind === "own" ? fingerprintOf(wantedAccess(rolesFor(p, slug), rosterFor(p, slug)), data.branch) : null;
 }
 
-async function inspect(p: Probes, slug: string, seams: ForgeAccessSeams): Promise<{ report: ForgeAccessReport; access: OrgForgeAccess | null }> {
+/**
+ * Both forges make the first branch pushed into an empty repo its default, and
+ * publish pushes the data branch before main's pointer. Main holding a pointer
+ * to this very branch is what tells that apart from a repo that chose it.
+ */
+async function firstPushMadeDefault(p: Probes, seams: ForgeAccessSeams, remote: string, token: string | null, branch: string): Promise<boolean> {
+  const pointer = await (seams.mainPointer ?? readMainPointer)(p, remote, token).catch(() => null);
+  return pointer?.dataBranch === branch;
+}
+
+async function inspect(p: Probes, slug: string, seams: ForgeAccessSeams, repair = false): Promise<{ report: ForgeAccessReport; access: OrgForgeAccess | null }> {
   if (!isOrgAdmin(roleFor(p, slug))) return { report: { kind: "not-admin" }, access: null };
   const data = await managedDataBranch(p, slug);
   if (data.kind === "none") return { report: { kind: "not-yet", branch: await checkedOutBranch(p, orgDirUnder(p.home, slug)) }, access: null };
   if (data.kind === "trial") return { report: { kind: "trial", branch: data.branch, dataBranch: data.dataBranch }, access: null };
   const branch = data.branch;
   const remote = teamRemote(p, slug);
-  const access = remote === null ? null : seams.access(p, remote, await seams.forgeToken(p, remote));
-  if (access === null) return { report: { kind: "no-forge" }, access: null };
+  const token = remote === null ? null : await seams.forgeToken(p, remote);
+  const access = remote === null ? null : seams.access(p, remote, token);
+  if (access === null || remote === null) return { report: { kind: "no-forge" }, access: null };
 
   const main = await access.defaultBranch();
   if (!main.ok) return { report: { kind: "refused", manualSteps: main.manualSteps }, access };
-  if (SHARED_BRANCH_NAMES.has(branch.toLowerCase()) || branch === main.value) {
+  let defaultBranch = main.value;
+  if (repair && branch === defaultBranch && !SHARED_BRANCH_NAMES.has(branch.toLowerCase()) && (await firstPushMadeDefault(p, seams, remote, token, branch))) {
+    const moved = await access.setDefaultBranch(POINTER_BRANCH);
+    if (!moved.ok) return { report: { kind: "refused", manualSteps: moved.manualSteps }, access };
+    defaultBranch = POINTER_BRANCH;
+  }
+  if (SHARED_BRANCH_NAMES.has(branch.toLowerCase()) || branch === defaultBranch) {
     return { report: { kind: "shared-branch", branch }, access };
   }
   const pushList = await access.readPushList(branch);
@@ -147,7 +167,7 @@ export async function readForgeAccess(p: Probes, slug: string, seams: ForgeAcces
 }
 
 export async function applyForgeAccess(p: Probes, slug: string, seams: ForgeAccessSeams = realForgeAccessSeams()): Promise<{ report: ForgeAccessReport; applied: ForgeAccessApplied | null }> {
-  const { report, access } = await inspect(p, slug, seams);
+  const { report, access } = await inspect(p, slug, seams, true);
   if (report.kind !== "ready" || !report.managing || access === null) return { report, applied: null };
   const { branch, diff, wanted } = report;
   const key = (u: string) => u.toLowerCase();
