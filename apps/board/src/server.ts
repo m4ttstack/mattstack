@@ -375,6 +375,7 @@ import {
   canonicalReactions,
   type ReactedBy,
 } from './slack-emoji.ts';
+import { slackFaceNames } from './slack-face-names.ts';
 import {
   attachOwnerPosts,
   attachOwnerPostsLeft,
@@ -1902,8 +1903,10 @@ function refreshSlackPeople(): void {
 }
 
 function currentSlackFaces(mrs: readonly BoardMR[]): Record<string, string> {
-  const authors = mrs.map(mr => [mr.author.username, mr.author.name] as const);
-  const matched = matchSlackFaces([...authors, ...memberNames], slackPeople);
+  const matched = matchSlackFaces(
+    slackFaceNames(mrs, memberNames, config.orgTeams ?? []),
+    slackPeople
+  );
   const versions = new Map(slackPeople.map(p => [p.id, p.version]));
   for (const [username, id] of Object.entries(matched))
     knownSlackFaces.set(

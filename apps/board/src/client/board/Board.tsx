@@ -135,7 +135,7 @@ import {
   useMerging,
   useOptimisticLifecycle,
 } from './hooks.ts';
-import { assignMemberLooks } from './invadr-colors.ts';
+import { assignMemberLooks, lookOrder } from './invadr-colors.ts';
 import { FINDING_QUESTION, findingQuestionFields } from './launch-flow.ts';
 import { MemberInvadr, MemberLooksProvider } from './MemberInvadr.tsx';
 import { mrRef, onGitHub } from './MrLinks.tsx';
@@ -1513,19 +1513,15 @@ export function Board() {
   }, [data, optimisticLifecycle.state, merging.merging, state, draftResolved]);
   // Looks follow the roster on screen, so whoever this tab lists gets the
   // most distinct colours first: the team in roster order, or an inferred
-  // roster (codeowners, Needs me) alphabetically. Every other author follows
-  // alphabetically so their rows still match. Joined to a string so a poll
-  // with the same people keeps the memo.
+  // roster (codeowners, Needs me) alphabetically. Everyone else the board
+  // can draw follows (see lookOrder). Joined to a string so a poll with the
+  // same people keeps the memo.
   const lookIds = useMemo(() => {
     if (!data || !boardView) return '';
     const listed = boardView.inferred
       ? boardView.roster.map(m => m.username).sort()
       : data.members.map(m => m.username);
-    const seen = new Set(listed);
-    const others = [...new Set(data.mrs.map(mr => mr.author.username))]
-      .filter(u => !seen.has(u))
-      .sort();
-    return [...listed, ...others].join('\n');
+    return lookOrder(listed, data).join('\n');
   }, [data, boardView]);
   // A restarted server answers with no faces until it has read Slack again,
   // so only an empty answer keeps the last ones.
