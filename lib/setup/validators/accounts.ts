@@ -26,7 +26,7 @@ import type { PackRequirements } from "../requirements.ts";
 import { readSetupState } from "../state.ts";
 import type { TeamSnapshot, UserIntegrationOverrides } from "../team-settings.ts";
 import { slackSupportRow, type SlackCheck } from "./slack-support.ts";
-import { forgeRole, missingScopes, scopeShortfallDetail, tokenCreateLink, tokenField, type ForgeProvider, type ForgeRole } from "../token-create.ts";
+import { forgeRole, missingRecommended, missingScopes, scopeShortfallDetail, tokenCreateLink, tokenField, type ForgeProvider, type ForgeRole } from "../token-create.ts";
 import { readTeamLocal } from "../../team/team-local.ts";
 import { ghSessionToken } from "../../team/forge-token.ts";
 import { roleFor } from "../../team/roles.ts";
@@ -183,7 +183,11 @@ async function githubRow(p: Probes, base: Omit<Row, "status" | "detail" | "actio
 
   const result = await def.validate(p, stored, ctx);
   const short = scopeShortfall(forge, result);
-  if (result.status === "ready" && !short) return row({ ...base, status: "ready", detail: result.detail });
+  if (result.status === "ready" && !short) {
+    const unrecommended = missingRecommended("github", result.scopesSeen);
+    const detail = unrecommended.length ? `${result.detail}, but without ${unrecommended.join(", ")} it can't push workflow changes` : result.detail;
+    return row({ ...base, status: "ready", detail });
+  }
 
   // A stored token that's now invalid/unreachable still needs a replaceable action — check whether a healthy
   // gh session sits right there before deciding whether "use gh instead" is an affordance that can actually work.
