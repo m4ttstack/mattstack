@@ -349,11 +349,25 @@ test("the Slack match keys ids canonically and names the matched person's Slack 
     MIRA,
   ]);
   expect(match.ids.get('mira-fixture')).toBe('U0MIRA');
-  expect(match.names.get('Mira-Fixture')).toBe('Mira P');
+  expect(match.names.get('Mira-Fixture')).toBe('Mira Park');
   const noDisplay = foldSlackMatch(NO_SLACK_MATCH, { mira: 'U0MIRA' }, [
     { ...MIRA, displayName: ' ' },
   ]);
   expect(noDisplay.names.get('mira')).toBe('Mira Park');
+  const noReal = foldSlackMatch(NO_SLACK_MATCH, { mira: 'U0MIRA' }, [
+    { ...MIRA, realName: ' ' },
+  ]);
+  expect(noReal.names.get('mira')).toBe('Mira P');
+});
+
+test('a re-match to a nameless Slack person drops the previous name', () => {
+  const last = foldSlackMatch(NO_SLACK_MATCH, { mira: 'U0MIRA' }, [MIRA]);
+  const next = foldSlackMatch(last, { mira: 'U0NONAME' }, [
+    MIRA,
+    { id: 'U0NONAME', displayName: ' ', realName: ' ' },
+  ]);
+  expect(next.ids.get('mira')).toBe('U0NONAME');
+  expect(next.names.has('mira')).toBe(false);
 });
 
 test('a Slack refresh builds the next match whole, so the last one answers until it lands', () => {

@@ -17,6 +17,7 @@ GlobalRegistrator.register({ url: 'http://localhost/' });
 let React: typeof import('react');
 let createRoot: typeof import('react-dom/client').createRoot;
 let AskBand: typeof import('../AskBand.tsx').AskBand;
+let remindToastName: typeof import('../ask-band.ts').remindToastName;
 type RowContext = import('../../types.ts').RowContext;
 type BoardMRWithReview = import('../../types.ts').BoardMRWithReview;
 type SentNudgeInfo = import('../../types.ts').SentNudgeInfo;
@@ -25,6 +26,7 @@ beforeAll(async () => {
   React = await import('react');
   ({ createRoot } = await import('react-dom/client'));
   ({ AskBand } = await import('../AskBand.tsx'));
+  ({ remindToastName } = await import('../ask-band.ts'));
 });
 
 afterAll(async () => {
@@ -387,6 +389,13 @@ test("Remind names the matched Slack person, not the board's name for the review
   expect(document.querySelector('.tui-ask-trail-foot')?.textContent).toBe(
     'Dismiss clears it now. Remind sends Grace B. Hopper a Slack DM.'
   );
+});
+
+test("a Remind toast names the Slack person, falling back to the board's name", () => {
+  expect(remindToastName({ slackName: 'Grace B. Hopper' }, 'grace')).toBe(
+    'Grace B. Hopper'
+  );
+  expect(remindToastName({}, 'grace')).toBe('grace');
 });
 
 test('a reviewer with no Slack match gets Remind disabled with the reason', async () => {

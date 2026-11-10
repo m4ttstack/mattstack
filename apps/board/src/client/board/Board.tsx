@@ -94,6 +94,7 @@ import {
   bandRetryAction,
   bandRetrySettles,
   clock,
+  remindToastName,
 } from './ask-band.ts';
 import { AskConfirmDialog } from './AskConfirmDialog.tsx';
 import { verbLane } from './asks/ask-copy.ts';
@@ -1024,7 +1025,7 @@ export function Board() {
       const self = seatRef.current;
       const req = bandRemind(mr, self, seenSlackNames.current);
       if (!req) return;
-      const name = people.short(req.body.reviewer);
+      const name = remindToastName(req, people.short(req.body.reviewer));
       const result = await postAction(req.path, req.body);
       if (result.ok) addToast(`reminded ${name} on Slack`);
       else if ((result.body as { maybeSent?: boolean } | null)?.maybeSent)

@@ -34,8 +34,9 @@ export function foldSlackMatch(
     const person = byId.get(id);
     faces.set(username, `/api/slack-avatar/${id}?v=${person?.version ?? ''}`);
     ids.set(canonicalUsername(username), id);
-    const name = person?.displayName.trim() || person?.realName.trim();
+    const name = person?.realName.trim() || person?.displayName.trim();
     if (name) names.set(username, name);
+    else names.delete(username);
   }
   return { faces, ids, names };
 }

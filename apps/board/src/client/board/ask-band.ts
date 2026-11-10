@@ -426,6 +426,15 @@ export function bandRemind(
   };
 }
 
+/** Who a Remind toast names: the Slack person the band showed, else the
+    board's name for the reviewer. */
+export function remindToastName(
+  req: Pick<BandRemind, 'slackName'>,
+  boardName: string
+): string {
+  return req.slackName ?? boardName;
+}
+
 /** A parked band once its reviewer has been reminded. */
 export function withReminder(
   band: AskBand,
