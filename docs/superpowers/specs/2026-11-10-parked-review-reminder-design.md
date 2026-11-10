@@ -19,7 +19,7 @@ stay app to person (a board notifying its own user).
 - A reviewer's parked review gate shows on the author's row as "waiting on
   <name>" with how long it has been parked.
 - The author's Remind sends a Slack DM to the reviewer from the author's Slack
-  account, prefixed with the agent persona (`[Maude 🤖]: `).
+  account, prefixed with the agent persona (`[Maude 🤖]:`, then a space).
 - The persona's name and emoji become one general setting every surface reads,
   and old setting names keep answering outside callers with a deprecation
   notice.

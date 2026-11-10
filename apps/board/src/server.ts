@@ -4691,6 +4691,10 @@ const httpServer = Bun.serve({
           return new Response('expected { mrUrl: string, reviewer: string }', {
             status: 400,
           });
+        // An MR this board does not list falls through to the handler's own 404.
+        const listed = (await cache.get()).mrs.find(m => m.webUrl === mrUrl);
+        const refused = listed ? requireOwnMr(listed) : null;
+        if (refused) return refused;
         const result = await remindReviewer(mrUrl, reviewer);
         return 'message' in result
           ? new Response(result.message, { status: result.status })
