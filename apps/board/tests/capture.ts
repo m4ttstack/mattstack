@@ -1,7 +1,13 @@
 /** Deterministic screenshot capture against the BOARD_FIXTURE server.
     Boots the server itself, freezes the page clock to fixture meta.now,
     kills CSS animations, waits for fonts, shoots the named states. */
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import {
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'fs';
 import { basename, join } from 'path';
 import { chromium, type Locator, type Page } from 'playwright';
 
