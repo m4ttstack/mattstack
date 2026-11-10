@@ -1018,14 +1018,6 @@ export class GitLabProvider implements GitProvider {
   }
 
   /**
-   * Fetch a single MR by project path and IID.
-   * Used by SubscriptionManager when `userMergeRequestUpdated` fires.
-   * Returns null if the project or MR doesn't exist.
-   *
-   * Roles are computed by matching `currentUserNumericId` against the MR's
-   * author, assignees, and reviewers.
-   */
-  /**
    * Only `diverged_commits_count`, through one REST call and no GraphQL
    * detail query, for callers that refresh the count on MRs fetched by a
    * path that leaves it null. Rejects on a failed request so a caller can
@@ -1038,6 +1030,14 @@ export class GitLabProvider implements GitProvider {
     return data.diverged_commits_count ?? null;
   }
 
+  /**
+   * Fetch a single MR by project path and IID.
+   * Used by SubscriptionManager when `userMergeRequestUpdated` fires.
+   * Returns null if the project or MR doesn't exist.
+   *
+   * Roles are computed by matching `currentUserNumericId` against the MR's
+   * author, assignees, and reviewers.
+   */
   async fetchSingleMR(
     projectPath: string,
     mrIid: number,
