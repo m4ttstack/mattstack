@@ -87,9 +87,11 @@ export function registerContract(on: On): void {
       const dropped = await listTodos($)
       await resetList($)
       await cleanup($, dropped).catch(() => $.ui.toast('Could not tidy up after the cleared items'))
-    } else if (e.reason === 'resume') {
+    } else if (e.reason === 'resume' && e.resume?.id !== e.sessionId) {
+      // Every run is marked gone before its first await, so none can touch the list once it is unloaded.
+      const released = release($)
       await leaveList($)
-      await release($).catch(() => $.ui.toast('Could not stop the runs of the session you left'))
+      await released.catch(() => $.ui.toast('Could not stop the runs of the session you left'))
     }
     return ended
   })

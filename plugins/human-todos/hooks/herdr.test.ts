@@ -380,6 +380,20 @@ test('an in-session /resume leaves every tab open and stops watching until the s
   expect(sent).toEqual([])
 })
 
+test('a touch after /resume but before the session id changes loads nothing back and starts no poller', async ($, on) => {
+  const { run1, fake, clock, store } = await seeded($, on, [todo({ id: '1' })])
+  await run1('1')
+
+  await $.session.end({ reason: 'resume', sessionId: SESSION, resume: { id: 'sess-2' } })
+  const reads = fake.ran('herdr pane read').length
+  const listed = await $.tool.call({ tool: 'mcp__human-todos__list' })
+  await clock.advance(5000)
+
+  expect(listed.result).toBe('No to-dos.')
+  expect(fake.ran('herdr pane read')).toHaveLength(reads)
+  expect((store.get(`list:${SESSION}`) as { todos: Todo[] }).todos[0]).toMatchObject({ id: '1', status: 'running' })
+})
+
 test('clearing a finished item closes its tab too', async ($, on) => {
   const { run1, fake, item, clock, pane } = await seeded($, on, [todo({})])
   await run1('1')

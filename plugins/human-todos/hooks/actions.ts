@@ -146,12 +146,12 @@ export async function cleanup($: EngineInterface, gone: readonly Todo[]): Promis
 // Every run goes, including one still being set up that no saved item names yet.
 export async function release($: EngineInterface): Promise<void> {
   let isFailed = false
+  releaseHerdr()
   try {
     await releaseLocal($)
   } catch {
     isFailed = true
   }
-  releaseHerdr()
   await syncSpinner($)
   if (isFailed) throw new Error('A runner could not let go')
 }

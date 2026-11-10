@@ -44,10 +44,12 @@ export async function saveList($: EngineInterface): Promise<void> {
 // An in-session /resume changes the session id without a session.start, so the list loads on the first touch under a new id.
 // Two hooks can touch the list in one await, so they share a single load instead of each restoring over the other's write.
 let loading: { id: string; done: Promise<void> } | undefined
+// The session /resume is leaving: until another loads, a touch under its id stays unloaded and saves nothing.
+let leaving: string | undefined
 
 async function ensureLoaded($: EngineInterface): Promise<void> {
   const id = await $.session.id()
-  if ((await read($, loadedFor)) === id) return
+  if ((await read($, loadedFor)) === id || id === leaving) return
   const pending = loading
   if (pending && pending.id === id) return pending.done
   const done = loadResumed($).finally(() => {
@@ -115,6 +117,7 @@ function resume(t: Todo): Todo {
 }
 
 export async function restoreList($: EngineInterface): Promise<void> {
+  leaving = undefined
   const now = await $.clock.now()
   for (const key of await $.store.keys()) {
     if (!key.startsWith(LIST_PREFIX)) continue
@@ -137,6 +140,7 @@ export async function restoreList($: EngineInterface): Promise<void> {
 
 // The list stays saved under the session being left; the next touch loads whichever session is current.
 export async function leaveList($: EngineInterface): Promise<void> {
+  leaving = await $.session.id()
   await update($, loadedFor, () => null)
   await resetList($)
 }
