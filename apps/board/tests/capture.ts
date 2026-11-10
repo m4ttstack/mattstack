@@ -102,6 +102,12 @@ async function newPage(
       const json = { ...(await response.json()), defaultMember: 'all' };
       await route.fulfill({ response, json });
     });
+  // The board takes its scheme from the Mac-wide setting on load, which
+  // would override `mrs-theme` with whatever this machine has picked (and
+  // a PUT would change it).
+  await page.route(/\/api\/color-scheme$/, route =>
+    route.fulfill({ json: { scheme: theme } })
+  );
   await page.clock.setFixedTime(META.now);
   await page.addInitScript(
     (mode: string) => localStorage.setItem('mrs-theme', mode),
@@ -295,6 +301,12 @@ try {
         ).scrollTo(0, 0)
       );
     }
+    // The gate sheet fills the viewport, so its shots stop there. A
+    // full-page shot lays the page out again past the viewport; a reply
+    // field's ResizeObserver catches that pass and starts its height tween
+    // (motion, which the injected style cannot stop), and the shot lands at
+    // a different point of it each run.
+    const sheetShot = { viewportOnly: true };
     // A doctor gate on someone else's MR (!1271): the queue shows it
     // read-only, under the notice, with its choices out of reach.
     await page.click('.tui-dq-open');
@@ -305,7 +317,7 @@ try {
       await page.waitForTimeout(120);
     }
     await locked.first().waitFor();
-    await shoot(page, `queuelocked-${theme}`);
+    await shoot(page, `queuelocked-${theme}`, sheetShot);
     await page.keyboard.press('Escape');
     // A legacy review-post gate (prose context, tier options) in the stage
     // sheet: its context renders as plain markdown in the rail, wherever it
@@ -321,7 +333,7 @@ try {
       await page.waitForTimeout(120);
     }
     await legacy.waitFor();
-    await shoot(page, `queue-${theme}`);
+    await shoot(page, `queue-${theme}`, sheetShot);
     await page.keyboard.press('Escape');
     // The structured review-post gate: the full-screen review sheet.
     await page.click('.tui-dq-open');
@@ -332,7 +344,7 @@ try {
       await page.waitForTimeout(120);
     }
     await sheet.waitFor();
-    await shoot(page, `reviewsheet-${theme}`);
+    await shoot(page, `reviewsheet-${theme}`, sheetShot);
     await page.keyboard.press('Escape');
     // Structured respond gates in the two-column respond sheet: every thread
     // card (respond-plan), then the replies checklist (respond-post). Each
@@ -350,7 +362,7 @@ try {
         await page.waitForTimeout(120);
       }
       await head.first().waitFor();
-      await shoot(page, `${name}-${theme}`);
+      await shoot(page, `${name}-${theme}`, sheetShot);
       await page.keyboard.press('Escape');
     }
     // settings modal
