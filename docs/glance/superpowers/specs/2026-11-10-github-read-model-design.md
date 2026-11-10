@@ -50,7 +50,7 @@ requirement here, not a side effect.
   `checking`; it never becomes a default number or "blocked".
 - GitHub faking GitLab's `detailedMergeStatus` vocabulary.
 - A cost regression no test can see.
-- Changing a field gitq's pinned glance reads underneath it.
+- Changing what an existing field means for GitLab readers.
 
 ## Measured cost (2026-11-10)
 
@@ -111,12 +111,15 @@ id databaseId number title body state isDraft url createdAt updatedAt mergedAt
 mergeable mergeStateStatus reviewDecision additions deletions changedFiles
 headRefName headRefOid baseRefName
 baseRepository { databaseId nameWithOwner defaultBranchRef { name } }
-author { login avatarUrl ... on User { databaseId name } }
+baseRef { branchProtectionRule { requiredApprovingReviewCount } }
+author { __typename login avatarUrl ... on User { databaseId name } ... on Bot { databaseId } }
 assignees(first: 20) { nodes { login databaseId name avatarUrl } }
 reviewRequests(first: 20) { nodes { requestedReviewer {
   ... on User { login databaseId name avatarUrl } ... on Team { slug } } } }
-latestOpinionatedReviews(first: 20) { nodes { state submittedAt
-  author { login avatarUrl ... on User { databaseId name } } } }
+latestReviews(first: 50) { nodes { state submittedAt
+  author { __typename login avatarUrl ... on User { databaseId name } ... on Bot { databaseId } } } }
+latestOpinionatedReviews(first: 50) { nodes { state submittedAt
+  author { __typename login avatarUrl ... on User { databaseId name } ... on Bot { databaseId } } } }
 reviewThreads(first: 100) { totalCount nodes { isResolved } }
 autoMergeRequest { mergeMethod enabledBy { login } }
 commits(last: 1) { nodes { commit { oid statusCheckRollup { state
@@ -132,25 +135,49 @@ commits(last: 1) { nodes { commit { oid statusCheckRollup { state
 `isRequired` needs the PR number inline, which is why the fill aliases each
 PR by number rather than using `nodes(ids:)` or a connection.
 
+Verified on m4ttstack/mattstack#1074 (2026-11-10): `latestOpinionatedReviews`
+omits comment-only reviews (a CodeRabbit `COMMENTED` review appears only in
+`latestReviews`), and GraphQL reports a bot's login without the `[bot]`
+suffix REST adds (`coderabbitai` vs `coderabbitai[bot]`). So reviewer state
+comes from `latestReviews`, `approvedBy` from `latestOpinionatedReviews`, and
+a `Bot` author's `username` is rebuilt as `<login>[bot]` with its
+`databaseId`, so `id` and `username` match what REST gave consumers before
+(the `authorUsernames` search, project sync's `scopeAuthors`, the board's
+`filterByMember`).
+
 Read paths after the change:
 
 | Method | Discovery | Fill |
 |---|---|---|
 | `fetchSingleMR` | none | 1 PR |
 | `fetchPullRequests({ iids })` | none | the iids |
-| `fetchPullRequestsByBranches` / `fetchPullRequestByBranch` | existing GraphQL branch query | the PRs found |
+| `fetchPullRequestsByBranches` | existing GraphQL branch query, unchanged | the PRs found |
+| `fetchPullRequestByBranch` | existing REST head filter and fork scan, unchanged | the PR found |
 | `fetchPullRequests({ projectPath })`, `authorUsernames`, involvement | existing REST list or search, unchanged | the PRs found |
 
-`listWeight` keeps its meaning (a caller that does not need CI), but on
-GitHub it only drops the `commits` block from the fragment; it no longer
-saves requests.
+`fetchPullRequestByBranch` keeps its REST discovery (1 REST + 1 GraphQL),
+because its fork scan and ordering are pinned behaviour (U2) and approach A
+leaves discovery alone.
+
+`listWeight` keeps the full rollup on GitHub. GitLab's list weight keeps
+`headPipeline { id status }` and drops only the jobs trees, because those
+time out GitLab's resolvers; on GitHub the full fragment measured the same
+1 point, and the daemon's project sync reads at list weight
+(`project-sync.ts:187,237`), so dropping checks there would leave the
+board's store with `pipeline: null` and unnamed blockers. On GitHub
+`listWeight` drops only `body` (my call).
 
 Failure rules, replacing today's per-call rules:
 
 - The whole fill request failing (HTTP, transport, rate limit, GraphQL
-  errors with no data) throws on the single-PR paths and is reported through
-  `onWarning` with every affected PR missing on the list paths. A PR is never
-  returned with fields from a failed read.
+  errors with no data): the single-PR paths keep today's contract and return
+  `null` with an `onWarning` (`GitProvider.ts:343-347`; the daemon's
+  `freshness.ts:647` relies on it), and `fetchSingleMRAfterMutation` keeps
+  building its message from that warning. The list paths report every
+  affected PR through `onWarning` and leave it out. A PR is never returned
+  with fields from a failed read. A rate limit is the one exception that
+  throws (`RateLimitedError`, section 5), on every path, so a caller can back
+  off instead of writing nulls into a cache.
 - One alias coming back null (PR deleted or not visible) drops that PR; a
   list path does not warn for it, matching today's 404 rule.
 - A partial GraphQL response (data plus `errors`) keeps the PRs whose
@@ -163,10 +190,11 @@ Failure rules, replacing today's per-call rules:
   `UserRef` and never throws. Same for review authors and reviewers.
 
 The read path needs a GraphQL call that does not swallow failures. Today
-`graphql()` returns null on any failure by design (MAT-133) and
-`graphqlOrThrow()` is used for mutations. The fill uses a third, read-side
-variant that returns partial data with its errors and throws a typed error
-on a rate limit (section 5).
+`graphql()` returns null on any failure by design (MAT-133), and
+`graphqlOrThrow()` serves the mutations and two reads
+(`GitHubProvider.ts:1354`, `:2763`) but discards partial data. The fill uses
+a third, read-side variant that returns partial data with its errors and
+throws a typed error on a rate limit (section 5).
 
 ### 2. Readiness (GLANCE-41)
 
@@ -221,12 +249,18 @@ discussions rule, merge error), and `other` when none apply.
 
 **Consumers moved in this work:**
 
-- `getMRDashboardProps` (`MRDashboard.ts`): `isReady` is
-  `readiness.state === 'ready'`, `isCheckingMergeability` is
-  `readiness.state === 'checking'`, and `status` follows it; when
-  `readiness` is absent, today's derivation runs unchanged. New prop
-  `readiness` passes the field through. `statusDetail` keeps the raw GitLab
-  value.
+- `getMRDashboardProps` (`MRDashboard.ts`): keeps today's optimistic rule,
+  fed by readiness instead of the GitLab string.
+  `isCheckingMergeability` is `readiness.state === 'checking'`, and `isReady`
+  is `readiness.state === 'ready' || (checking && !draft && !conflicts &&
+  !pipelineFailing)`, which is exactly today's GitLab expression
+  (`MRDashboard.ts:133-141`), so GitLab output does not change and the
+  "false BLOCKED flash" guard now covers GitHub's `UNKNOWN` too. `MRStatus`
+  gets no new member: `status` stays `mergeable` / `blocked` / `draft` /
+  `merged` / `closed`, derived from that `isReady`. When `readiness` is
+  absent, today's derivation runs unchanged. New prop `readiness` passes the
+  field through for consumers that want the settled state. `statusDetail`
+  keeps the raw GitLab value.
 - `lib/notifier.ts`: `isReadyForNotification` uses settled readiness
   (`readiness.state === 'ready'`) instead of `statusDetail === 'mergeable'`,
   keeping its approvals and stacked guards; `shouldRearmReady` and
@@ -234,13 +268,18 @@ discussions rule, merge error), and `other` when none apply.
   anti-flap behaviour holds on both forges.
 - `packages/glance-react` `MRStatusBadge` and `MRActions`: read `status` and
   `isReady`, so they follow automatically; the GitLab tooltip stays.
-- gitq pins glance by version and keeps working; moving it to `readiness`
-  is a follow-up after the bump.
+- gitq links glance as `workspace:*` (`apps/gitq/package.json:22`) and the
+  bundled gitq CLI builds from the tree, so it sees these changes in the
+  next bundle (`packages/glance/AGENTS.md` still says gitq pins by version;
+  correct that line in this work). Only its CI readers
+  (`forge-sync.ts:273,332`, `data.ts:199`) see a behaviour change (section
+  4). They get a verification task with GitHub-shaped fixtures, not an
+  adaptation; moving gitq to `readiness` is a follow-up.
 
 ### 3. Reviewers and approvals (GLANCE-42)
 
-- **Reviewers** are requested reviewers plus every author of a latest
-  opinionated review, deduped by user. State: `APPROVED` maps to
+- **Reviewers** are requested reviewers plus every author in
+  `latestReviews` (comment-only reviews included), deduped by user. State: `APPROVED` maps to
   `APPROVED`, `CHANGES_REQUESTED` to `REQUESTED_CHANGES`, `COMMENTED` to
   `REVIEWED`, and still-requested users with no review to `UNREVIEWED`. A
   re-requested user who had reviewed shows `UNREVIEWED` (GitHub's request is
@@ -250,21 +289,40 @@ discussions rule, merge error), and `other` when none apply.
   `reviewDecision` is `REVIEW_REQUIRED` or `CHANGES_REQUESTED`. A repo with
   no review requirement reports `reviewDecision: null`, which reads as
   approved, so it never shows as awaiting approval (matching GitLab's
-  no-rules behaviour, and `genuinelyApproved` in the dashboard already
-  separates "nobody approved" from "approved").
+  no-rules behaviour). `genuinelyApproved` (`MRDashboard.ts:151`) widens its
+  test from `approvalsRequired === 0` to "required is 0 or null", so a PR
+  nobody approved never reads `isApproved` on GitHub.
 - **`approvedBy`** comes from `latestOpinionatedReviews`, so a comment after
   an approval keeps it.
 - **Required count** (decided 2026-11-10): `approvalsRequired` becomes
-  `number | null`. GitHub fills it from the branch's rules
-  (`GET /repos/{o}/{r}/rules/branches/{branch}`, readable with read access),
-  else from `baseRef.branchProtectionRule.requiredApprovingReviewCount` when
-  the token can see it, else `null`. Cached per provider, per repo and
-  target branch, for 10 minutes (my call), so it is not refetched on every
-  poll. `approvalsLeft` follows: `max(0, required - approvals)` when known;
-  when unknown, 1 if `REVIEW_REQUIRED`, else 0 (the count it reports then is
-  "at least one more", which is what GitHub's verdict says). GitLab always
-  reports a number. Dashboard `reviews.required` becomes `number | null`;
-  the shared components show the verdict without "x of y" on null.
+  `number | null`. Sources, in order, taking the larger when both answer:
+  - `baseRef.branchProtectionRule.requiredApprovingReviewCount`, read in the
+    fill at no extra request. Null when the repo has no classic protection
+    on that branch or the token cannot see it.
+  - The branch's rulesets (`GET /repos/{o}/{r}/rules/branches/{branch}`,
+    readable with read access; it does not include classic protection), the
+    largest `required_approving_review_count` among `pull_request` rules.
+    Cached per provider, per repo and target branch, for 10 minutes (my
+    call).
+  - When both are unreadable or empty: `null` if `reviewDecision` is
+    `REVIEW_REQUIRED` or `CHANGES_REQUESTED` (a requirement exists, count
+    unknown), `0` if `reviewDecision` is null (GitHub's own "no review
+    required", visible without admin).
+
+  `approvalsLeft` stays a number: `max(0, required - approvals)` when known,
+  and 0 when unknown, with the verdict carrying "still needs review". The
+  shared components build their total from `given + remaining`
+  (`MRRow.tsx:167,185`, `ReviewerStatus.tsx:25`), so they change to show the
+  verdict alone ("Review required", "Approved") when `reviews.required` is
+  null; otherwise an unknown count would draw a made-up "1/2". GitLab always
+  reports a number, so its display does not change. Dashboard
+  `reviews.required` becomes `number | null`.
+- **Board typecheck**: the board reads `reviews.required` as a number
+  (`apps/board/src/view.ts:430`, `client/board/row-status.ts:961`). Widening
+  the type forces a type-only change there: treat null as "count unknown"
+  and draw no slots. The board serves GitLab teams today, whose count is
+  never null, so nothing visible changes; the board's real GitHub work stays
+  in the board phase.
 - **My review list**: the involvement search adds `reviewed-by:@me` with
   role `reviewer`, so a PR leaves "my reviews" only on merge or close, not on
   reviewing.
@@ -281,10 +339,15 @@ discussions rule, merge error), and `other` when none apply.
   (GitHub then lets any failure through, but the PR author still wants to
   see red; my call, matching today's behaviour on repos without
   protection).
-- `cancelled` maps to `canceled` and counts as finished. `stale`,
-  `startup_failure` and `action_required` get explicit mappings (failed,
-  failed, manual); nothing falls through to `pending` by default except
-  `queued`, `waiting`, `requested` and `pending`.
+- Job-level `cancelled` already maps to `canceled`
+  (`GitHubProvider.ts:558`); the bug is the overall status, which falls
+  through to `pending` (`:526-535`). The overall status becomes: `failed` if
+  any counted job failed; else `canceled` if a counted job was canceled (a
+  canceled required check blocks the merge, so readiness gives
+  `checks-failing`); else `running` / `pending`; else `success`. `stale`,
+  `startup_failure` and `action_required` get explicit job mappings
+  (failed, failed, manual); only `queued`, `waiting`, `requested` and
+  `pending` read as pending.
 - Ids: a job from a check run is `github:check:<databaseId>`; a status
   context is `github:status:<context>`. Each job carries its workflow run
   id (new optional `PipelineJob.runId: string | null`).
@@ -322,7 +385,9 @@ discussions rule, merge error), and `other` when none apply.
 Request counts become a tested contract, through `onRequest` against
 recorded responses (no live calls in the unit suite):
 
-- `fetchSingleMR`: exactly 1 request.
+- `fetchSingleMR`: exactly 1 GraphQL request, plus 1 REST rulesets request
+  when that repo and branch are not in the 10-minute cache.
+- `fetchPullRequestByBranch`: 1 REST + 1 GraphQL (plus the rulesets rule).
 - `fetchPullRequests({ iids })` with 20 numbers: 1 request.
 - `fetchPullRequestsByBranches` with 20 branches: 2 requests.
 - Project list of 20 PRs: 1 REST page + 1 GraphQL request, at either
@@ -358,10 +423,12 @@ their reason.
 
 ## Constraints
 
-- `packages/glance` publishes to npm and gitq pins it. Additive fields only,
-  except `approvalsRequired` widening to `number | null`, which is a typed
-  break and needs a minor bump with a changelog entry
-  (`packages/glance/docs/releasing.md`).
+- `packages/glance` publishes to npm; in-repo consumers (gitq, rt-client,
+  the board, the VS Code extension) link the workspace. Additive fields
+  only, except `approvalsRequired` widening to `number | null`, which is a
+  typed break: it needs a minor bump with a changelog entry
+  (`packages/glance/docs/releasing.md`) and the in-repo readers updated in
+  the same change.
 - `packages/glance/dist/` must be rebuilt after source changes; rt-client,
   root typecheck and the VS Code extension resolve it.
 - `bun test`, `check-types` and `check:node` clean before every commit in
@@ -385,9 +452,21 @@ their reason.
 
 - `readiness` optional on the type, absent means unknown.
 - `UNSTABLE` reads as ready.
+- The dashboard keeps today's optimistic `isReady` during `checking` on both
+  forges; no new `MRStatus` value.
+- Single-PR reads keep returning `null` with a warning on a failed fill;
+  only a rate limit throws.
+- `fetchPullRequestByBranch` keeps its REST discovery.
+- `listWeight` on GitHub drops only `body`.
 - With no required checks configured, every failing check fails the pipeline.
-- Required-count cache: 10 minutes per repo and branch.
-- `approvalsLeft` when the count is unknown: 1 if review required, else 0.
+- A canceled check reads `canceled` overall and blocks as `checks-failing`.
+- Required count: classic protection from the fill, rulesets cached 10
+  minutes, `0` when GitHub says no review is required, else `null`.
+- `approvalsLeft` is 0 when the count is unknown; the components show the
+  verdict alone then.
+- A type-only board change for the widened `reviews.required`.
+- gitq gets a verification task, not an adaptation.
+- Bot authors keep REST's `<login>[bot]` username.
 - REST rate-limit retry deadline: 30s.
 - `Pipeline.id` names the failing (else latest) run; `runIds` lists all.
 - Team review requests stay off `reviewers` for now.
