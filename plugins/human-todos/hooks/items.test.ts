@@ -33,8 +33,8 @@ test('buttonsFor follows the kind and the status', () => {
   expect(buttonsFor(todo({ kind: 'run', status: 'confirming' }))).toEqual(['confirm', 'cancel'])
   expect(buttonsFor(todo({ kind: 'run', status: 'running', runner: 'herdr' }))).toEqual(['show', 'stop'])
   expect(buttonsFor(todo({ kind: 'run', status: 'running', runner: 'local' }))).toEqual(['openLog', 'stop'])
-  expect(buttonsFor(todo({ kind: 'run', status: 'running', runner: 'herdr', isStopping: true }))).toEqual(['show'])
-  expect(buttonsFor(todo({ kind: 'run', status: 'running', runner: 'local', isStopping: true }))).toEqual(['openLog'])
+  expect(buttonsFor(todo({ kind: 'run', status: 'running', runner: 'herdr', isStopping: true }))).toEqual(['show', 'forceStop'])
+  expect(buttonsFor(todo({ kind: 'run', status: 'running', runner: 'local', isStopping: true }))).toEqual(['openLog', 'forceStop'])
   expect(buttonsFor(todo({ kind: 'run', status: 'done' }))).toEqual([])
 })
 

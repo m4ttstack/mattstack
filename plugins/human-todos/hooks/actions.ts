@@ -4,7 +4,7 @@ import type { Todo } from '../types'
 import type { ButtonId } from './items'
 import { report } from './report'
 import { cleanupHerdr } from './herdr'
-import { cleanupRun, showRun, startRun, stopRun } from './runners'
+import { cleanupRun, forceStopRun, showRun, startRun, stopRun } from './runners'
 import { syncSpinner } from './spinner'
 import { getRunnerPref, listTodos, patchTodo, setRunnerPref } from './store'
 
@@ -69,6 +69,11 @@ async function stop($: EngineInterface, todo: Todo): Promise<void> {
   await stopRun($, { ...todo, isStopping: true })
 }
 
+async function forceStop($: EngineInterface, todo: Todo): Promise<void> {
+  $.ui.toast(`Force stopping #${todo.id}`)
+  await forceStopRun($, todo)
+}
+
 async function openLink($: EngineInterface, url: string): Promise<void> {
   if (!/^https?:\/\//.test(url)) return $.ui.toast('Only http and https links open from here')
   await $.process.run(['open', url])
@@ -100,6 +105,9 @@ export async function press($: EngineInterface, todo: Todo, button: ButtonId, su
       return
     case 'stop':
       if (current.status === 'running') await stop($, current)
+      return
+    case 'forceStop':
+      if (current.status === 'running' && current.isStopping && current.runner) await forceStop($, current)
       return
     case 'show':
       if (current.status === 'running' && current.runner) await showRun($, current)

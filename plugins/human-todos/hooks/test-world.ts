@@ -94,6 +94,27 @@ export async function* hangs(): Child {
   return { code: 0, signal: null }
 }
 
+// Stands for the processes under a run's shell. `run` reads the plugin's tree-kill command: it lists the
+// descendants of the pid leaves first, as pgrep recursion would, and signals them in that order.
+// A pid in `deaf` survives TERM.
+export function processTree(edges: Record<number, number[]>, { deaf = [] }: { deaf?: number[] } = {}) {
+  const everyone = new Set<number>(Object.entries(edges).flatMap(([parent, kids]) => [Number(parent), ...kids]))
+  const signalled: { pid: number; sig: string }[] = []
+  const walk = (root: number): number[] => [...(edges[root] ?? []).filter(c => everyone.has(c)).flatMap(walk), root]
+  return {
+    signalled,
+    alive: () => [...everyone].sort((a, b) => a - b),
+    run: (argv: readonly string[]) => {
+      const kill = /kill -(TERM|KILL) \$\(walk (\d+)\) 2>\/dev\/null$/.exec(argv.at(-1) ?? '')
+      if (!kill?.[1] || !kill[2]) return
+      for (const target of walk(Number(kill[2]))) {
+        signalled.push({ pid: target, sig: kill[1] })
+        if (kill[1] === 'KILL' || !deaf.includes(target)) everyone.delete(target)
+      }
+    },
+  }
+}
+
 type Spawned = { argv: readonly string[]; cwd?: string }
 
 // Answers `process.spawn` beneath the plugin. A handler that returns nothing is a child that cannot start.

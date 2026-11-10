@@ -21,6 +21,7 @@ const LABELS: Record<ButtonId, string> = {
   cancel: 'Cancel',
   show: 'Show',
   stop: 'Stop',
+  forceStop: 'Force stop',
   openLog: 'Open log',
 }
 
@@ -142,6 +143,11 @@ export function registerPane(on: On): void {
                       </Box>
                     )}
                   </Box>
+                )}
+                {todo.kind === 'run' && todo.cwd && (
+                  <Text dimColor wrap="truncate-end">
+                    {`in ${todo.cwd}`}
+                  </Text>
                 )}
                 {todo.url && <Text color="cyan">{todo.url}</Text>}
                 {todo.status === 'running' ? (

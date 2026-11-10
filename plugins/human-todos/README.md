@@ -30,9 +30,9 @@ Claude adds steps with the `add` tool, reads them with `list` and removes one it
 | `terminal` | A command that needs your own terminal (sudo, a login) | Copy, Done, Skip |
 | `link` | A web page to open | Open, Done, Skip |
 
-Every button press goes back to Claude as a message. A run reports its exit code and the last 30 lines of output.
+Claude hears about Done, Skip, a finished run (its exit code and the last 30 lines of output) and Stop. Copy, Open, Show, Open log, Run and Cancel send nothing.
 
-Run always asks first: press Run, then Confirm. Cancel sends Claude nothing.
+Run always asks first: press Run, then Confirm. Confirm shows the script and the folder it runs in. If a script ignores Stop, the pane offers Force stop, which ends it and everything it started.
 
 ## Commands
 

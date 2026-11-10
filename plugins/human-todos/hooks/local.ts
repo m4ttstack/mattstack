@@ -24,8 +24,11 @@ async function logFolder($: EngineInterface): Promise<string> {
   return `${home}/Library/Caches/human-todos`
 }
 
-function signal($: EngineInterface, pid: number) {
-  return $.process.run(['/bin/sh', '-c', `pkill -TERM -P ${pid}; kill -TERM ${pid}`])
+// The spawned zsh is not a process group the plugin can address, so the tree is walked with pgrep.
+// It is collected before anything is signalled, leaves first, so no parent spawns into a half-killed tree.
+function signal($: EngineInterface, pid: number, sig: 'TERM' | 'KILL' = 'TERM') {
+  const walk = 'walk() { for c in $(pgrep -P "$1"); do walk "$c"; done; echo "$1"; }'
+  return $.process.run(['/bin/sh', '-c', `${walk}; kill -${sig} $(walk ${pid}) 2>/dev/null`])
 }
 
 // Only the first whole stderr line that is the marker is the pid; a half line waits for its newline,
@@ -151,6 +154,17 @@ export async function stopLocal($: EngineInterface, todo: Todo): Promise<void> {
     job.isStopped = false
     await patchTodo($, todo.id, { isStopping: false })
     $.ui.toast(`Could not stop #${todo.id}`)
+  }
+}
+
+// Stop already asked nicely; a script that ignored it gets SIGKILL for the whole tree.
+export async function forceStopLocal($: EngineInterface, todo: Todo): Promise<void> {
+  const job = todo.token ? jobs.get(todo.token) : undefined
+  if (job?.pid === undefined) return
+  try {
+    await signal($, job.pid, 'KILL')
+  } catch {
+    $.ui.toast(`Could not force stop #${todo.id}`)
   }
 }
 

@@ -270,7 +270,31 @@ test('Stop shows a toast, marks the item stopping, then asks the runner to stop'
   expect(events).toEqual(['toast: Stopping #1'])
   expect(fake.ran('herdr pane send-keys')).toEqual(["herdr pane send-keys 'pane1' ctrl+c"])
   expect(await texts(pane)).toContain('⠋ Stopping… ')
-  expect(await buttons(pane)).toEqual(['close', 'show-1'])
+  expect(await buttons(pane)).toEqual(['close', 'show-1', 'forceStop-1'])
+  await pane.unmount()
+})
+
+test('Force stop on a herdr item sends ctrl+c to the tab again', async ($, on) => {
+  const { fake, run } = herdrWithTab()
+  const { events } = await seeded($, on, [herdrItem({ isStopping: true })], { run })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+
+  await pane.press({ key: 'forceStop-1' })
+
+  expect(events).toEqual(['toast: Force stopping #1'])
+  expect(fake.ran('herdr pane send-keys')).toEqual(["herdr pane send-keys 'pane1' ctrl+c"])
+  await pane.unmount()
+})
+
+test('Force stop does nothing for an item that is not stopping', async ($, on) => {
+  const { fake, run } = herdrWithTab()
+  const { events } = await seeded($, on, [herdrItem()], { run })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+
+  await pane.press({ key: 'forceStop-1' }).catch(() => undefined)
+
+  expect(events).toEqual([])
+  expect(fake.ran('herdr pane send-keys')).toEqual([])
   await pane.unmount()
 })
 

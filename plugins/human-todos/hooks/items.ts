@@ -3,7 +3,7 @@ import type { AddInput, Todo } from '../types'
 export const PLUGIN = 'human-todos'
 export const TITLE = 'Human Todos'
 
-export type ButtonId = 'run' | 'open' | 'copy' | 'done' | 'skip' | 'confirm' | 'cancel' | 'show' | 'stop' | 'openLog'
+export type ButtonId = 'run' | 'open' | 'copy' | 'done' | 'skip' | 'confirm' | 'cancel' | 'show' | 'stop' | 'forceStop' | 'openLog'
 
 const KINDS: readonly string[] = ['task', 'run', 'terminal', 'link']
 export const LIVE_LINES_LOCAL = 15
@@ -36,7 +36,7 @@ export function buttonsFor(todo: Todo): readonly ButtonId[] {
   if (todo.status === 'confirming') return ['confirm', 'cancel']
   if (todo.status === 'running') {
     const view: ButtonId = todo.runner === 'local' ? 'openLog' : 'show'
-    return todo.isStopping ? [view] : [view, 'stop']
+    return [view, todo.isStopping ? 'forceStop' : 'stop']
   }
   if (todo.status !== 'open') return []
   switch (todo.kind) {

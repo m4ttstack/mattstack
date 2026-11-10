@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Todo } from '../types'
 import { cleanupHerdr, showHerdr, startHerdr, stopHerdr } from './herdr'
-import { cleanupLocal, showLocal, startLocal, stopLocal } from './local'
+import { cleanupLocal, forceStopLocal, showLocal, startLocal, stopLocal } from './local'
 
 // The host follows `$` into a call only through a function imported by name, never through a
 // runner object or a lookup table, so each verb spells out both runners.
@@ -12,6 +12,11 @@ export function startRun($: EngineInterface, todo: Todo): Promise<void> {
 
 export function stopRun($: EngineInterface, todo: Todo): Promise<void> {
   return todo.runner === 'herdr' ? stopHerdr($, todo) : stopLocal($, todo)
+}
+
+// herdr has no stronger signal than the ctrl+c Stop sent, so it sends it again.
+export function forceStopRun($: EngineInterface, todo: Todo): Promise<void> {
+  return todo.runner === 'herdr' ? stopHerdr($, todo) : forceStopLocal($, todo)
 }
 
 export function showRun($: EngineInterface, todo: Todo): Promise<void> {

@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
 import type { Todo } from '../types'
-import { SESSION, children, exits, hangs, pid, startSession, world } from './test-world'
+import { SESSION, children, exits, hangs, pid, processTree, startSession, world } from './test-world'
 import type { Child, Piece } from './test-world'
 
 type On = Parameters<typeof world>[0]
@@ -21,7 +21,8 @@ const PANE = {
 
 const todo = (over: Partial<Todo>): Todo => ({ id: '1', kind: 'run', title: 'T', script: 'make', status: 'open', ...over })
 const out = (text: string) => ({ stream: 'stdout' as const, text })
-const killing = (n: number) => ['/bin/sh', '-c', `pkill -TERM -P ${n}; kill -TERM ${n}`]
+const WALK = 'walk() { for c in $(pgrep -P "$1"); do walk "$c"; done; echo "$1"; }'
+const killing = (n: number, sig = 'TERM') => ['/bin/sh', '-c', `${WALK}; kill -${sig} $(walk ${n}) 2>/dev/null`]
 
 type Setup = {
   env?: Record<string, string>
@@ -189,6 +190,81 @@ test('Stop signals the script and its children, then reports the run as stopped'
   expect(ran).toEqual([killing(4242)])
   expect(item('1')).toMatchObject({ status: 'open', note: 'Stopped', isStopping: false })
   expect(sent).toEqual(['[Human Todos] The user stopped #1 "T" before it finished. It is open again.'])
+})
+
+// A three-level tree under the script's shell: 100 > 101, 102; 102 > 103, 104.
+const TREE = { 100: [101, 102], 102: [103, 104] }
+const TREE_PIDS = [100, 101, 102, 103, 104]
+
+test('Stop signals every process under the script, leaves first, not only its direct children', async ($, on) => {
+  const tree = processTree(TREE)
+  const k = killable([pid(100)])
+  const { run1, ran, item, clock, pane } = await seeded($, on, [todo({})], {
+    script: k.child,
+    run: argv => {
+      tree.run(argv)
+      if (!tree.alive().includes(100)) k.release()
+    },
+  })
+  await run1('1')
+  await clock.settle()
+
+  await pane.press({ key: 'stop-1' })
+  await clock.settle()
+
+  expect(ran).toEqual([killing(100)])
+  expect(tree.signalled).toEqual([101, 103, 104, 102, 100].map(p => ({ pid: p, sig: 'TERM' })))
+  expect(tree.alive()).toEqual([])
+  expect(item('1')).toMatchObject({ status: 'open', note: 'Stopped' })
+})
+
+test('Force stop kills the whole tree of a script that ignored Stop, and the run then reports as stopped', async ($, on) => {
+  const tree = processTree(TREE, { deaf: TREE_PIDS })
+  const k = killable([pid(100)])
+  const { run1, ran, item, sent, toasts, clock, pane } = await seeded($, on, [todo({})], {
+    script: k.child,
+    run: argv => {
+      tree.run(argv)
+      if (!tree.alive().includes(100)) k.release()
+    },
+  })
+  await run1('1')
+  await clock.settle()
+
+  await pane.press({ key: 'stop-1' })
+  await clock.settle()
+
+  expect(tree.alive()).toEqual(TREE_PIDS)
+  expect(item('1')).toMatchObject({ status: 'running', isStopping: true })
+  expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['close', 'openLog-1', 'forceStop-1'])
+
+  await pane.press({ key: 'forceStop-1' })
+  await clock.settle()
+
+  expect(toasts).toEqual(['Stopping #1', 'Force stopping #1'])
+  expect(ran).toEqual([killing(100), killing(100, 'KILL')])
+  expect(tree.alive()).toEqual([])
+  expect(item('1')).toMatchObject({ status: 'open', note: 'Stopped', isStopping: false })
+  expect(sent).toEqual(['[Human Todos] The user stopped #1 "T" before it finished. It is open again.'])
+})
+
+test('withdrawing a running item signals every process under its script', async ($, on) => {
+  const tree = processTree(TREE)
+  const k = killable([pid(100)])
+  const { run1, clock } = await seeded($, on, [todo({})], {
+    script: k.child,
+    run: argv => {
+      tree.run(argv)
+      k.release()
+    },
+  })
+  await run1('1')
+  await clock.settle()
+
+  await $.tool.call({ tool: WITHDRAW, id: '1' })
+  await clock.advance(5000)
+
+  expect(tree.alive()).toEqual([])
 })
 
 test('Stop before the pid is known asks to try again and brings the button back', async ($, on) => {

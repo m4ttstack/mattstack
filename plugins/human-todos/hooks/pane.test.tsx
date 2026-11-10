@@ -80,6 +80,22 @@ test('an open run item draws title, detail, a clipped script and its buttons in 
   }
 })
 
+test('a run item with a cwd draws it dimmed under the script, open or confirming', async ($, on) => {
+  await seeded($, on, [
+    todo({ id: '1', kind: 'run', script: 'make', cwd: '/work/app' }),
+    todo({ id: '2', kind: 'run', script: 'ls', status: 'confirming', cwd: '/work/lib' }),
+    todo({ id: '3', kind: 'run', script: 'ls' }),
+  ])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const rows = await texts(pane)
+
+  expect(rows.indexOf('in /work/app')).toBe(rows.indexOf('$ make') + 1)
+  expect(rows.indexOf('in /work/lib')).toBe(rows.indexOf('$ ls') + 1)
+  expect(rows.filter(row => row.startsWith('in '))).toHaveLength(2)
+  expect((await pane.find({ type: 'Text', text: 'in /work/app' }))?.props.dimColor).toBe(true)
+  await pane.unmount()
+})
+
 test('every kind draws the buttons the spec lists, each keyed button-id', async ($, on) => {
   await seeded($, on, [
     todo({ id: '1', kind: 'task' }),
@@ -141,7 +157,8 @@ test('a running item draws the live tail, a spinner frame and its own buttons', 
   expect(rows).toContain('⠋ Do it')
   expect(rows).not.toContain('a')
   expect(rows).toEqual(expect.arrayContaining(['b', 'c', 'd', '⠋ Running ', '⠋ Stopping… ']))
-  expect(await buttons(pane)).toEqual(['close', 'show-1', 'stop-1', 'show-2'])
+  expect(await buttons(pane)).toEqual(['close', 'show-1', 'stop-1', 'show-2', 'forceStop-2'])
+  expect((await pane.find({ key: 'forceStop-2' }))?.text).toBe('Force stop')
   await pane.unmount()
 })
 
