@@ -366,6 +366,20 @@ test('/clear closes the tab of every herdr item and its poller stays quiet', asy
   expect(sent).toEqual([])
 })
 
+test('an in-session /resume leaves every tab open and stops watching until the session is resumed', async ($, on) => {
+  const { run1, fake, item, clock, sent } = await seeded($, on, [todo({ id: '1' })])
+  await run1('1')
+  const reads = fake.ran('herdr pane read').length
+
+  await $.session.end({ reason: 'resume', sessionId: SESSION, resume: { id: 'sess-2' } })
+  await clock.advance(5000)
+
+  expect(fake.ran('herdr tab close')).toEqual([])
+  expect(fake.ran('herdr pane read')).toHaveLength(reads)
+  expect(item('1')).toMatchObject({ status: 'running', runner: 'herdr' })
+  expect(sent).toEqual([])
+})
+
 test('clearing a finished item closes its tab too', async ($, on) => {
   const { run1, fake, item, clock, pane } = await seeded($, on, [todo({})])
   await run1('1')

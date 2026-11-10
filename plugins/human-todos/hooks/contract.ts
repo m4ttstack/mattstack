@@ -4,7 +4,7 @@ import type { AddInput } from '../types'
 import { resumeWatching } from './herdr'
 import { TITLE, checkKind, describe } from './items'
 import { addTodo, listTodos, removeTodos, resetList, restoreList } from './store'
-import { cleanup, openPane, syncSpinner } from './wiring'
+import { cleanup, openPane, release, syncSpinner } from './wiring'
 
 const PREFIX = 'mcp__human-todos__'
 
@@ -83,10 +83,14 @@ export function registerContract(on: On): void {
 
   on('session.end', async ($, e, next) => {
     const ended = await next(e)
-    if (e.reason === 'clear' || e.reason === 'resume') {
+    if (e.reason === 'clear') {
       const dropped = await listTodos($)
       await resetList($)
       await cleanup($, dropped).catch(() => $.ui.toast('Could not tidy up after the cleared items'))
+    } else if (e.reason === 'resume') {
+      const left = await listTodos($)
+      await resetList($)
+      await release($, left).catch(() => $.ui.toast('Could not stop the runs of the session you left'))
     }
     return ended
   })

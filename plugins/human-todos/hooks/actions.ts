@@ -4,7 +4,7 @@ import type { Todo } from '../types'
 import type { ButtonId } from './items'
 import { report } from './report'
 import { cleanupHerdr } from './herdr'
-import { cleanupRun, forceStopRun, showRun, startRun, stopRun } from './runners'
+import { cleanupRun, forceStopRun, releaseRun, showRun, startRun, stopRun } from './runners'
 import { syncSpinner } from './spinner'
 import { getRunnerPref, listTodos, patchTodo, setRunnerPref } from './store'
 
@@ -128,6 +128,10 @@ export async function cleanup($: EngineInterface, gone: readonly Todo[]): Promis
   for (const t of gone) {
     try {
       if (t.runner) await cleanupRun($, t)
+    } catch {
+      isFailed = true
+    }
+    try {
       if (t.tabId && t.runner !== 'herdr') await cleanupHerdr($, t)
     } catch {
       isFailed = true
@@ -135,6 +139,20 @@ export async function cleanup($: EngineInterface, gone: readonly Todo[]): Promis
   }
   await syncSpinner($)
   if (isFailed) throw new Error('A runner could not tidy up')
+}
+
+// The list stays saved under the session being left, so its logs and tabs stay for when it is resumed.
+export async function release($: EngineInterface, left: readonly Todo[]): Promise<void> {
+  let isFailed = false
+  for (const t of left) {
+    try {
+      if (t.status === 'running' && t.runner) await releaseRun($, t)
+    } catch {
+      isFailed = true
+    }
+  }
+  await syncSpinner($)
+  if (isFailed) throw new Error('A runner could not let go')
 }
 
 export function registerActions(on: On): void {

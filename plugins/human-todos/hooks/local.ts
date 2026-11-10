@@ -179,6 +179,14 @@ export async function forceStopLocal($: EngineInterface, todo: Todo): Promise<vo
 // Local items have no Show button.
 export async function showLocal(_$: EngineInterface, _todo: Todo): Promise<void> {}
 
+// Nothing can watch a local run once its session is left, so it ends; its log stays with the saved list.
+export async function releaseLocal($: EngineInterface, todo: Todo): Promise<void> {
+  const job = todo.token ? jobs.get(todo.token) : undefined
+  if (!job) return
+  job.isGone = true
+  if (job.pid !== undefined) await signal($, job.pid)
+}
+
 // The mod API has no delete, so the log goes through rm.
 export async function cleanupLocal($: EngineInterface, todo: Todo): Promise<void> {
   const job = todo.token ? jobs.get(todo.token) : undefined

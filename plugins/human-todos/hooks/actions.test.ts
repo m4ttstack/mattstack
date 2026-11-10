@@ -401,6 +401,20 @@ test('a local cleanup that fails at /clear is told to the person', async ($, on)
   expect(await state($)).toBe('No to-dos.')
 })
 
+test('a local cleanup that fails still closes the herdr tab the item once held', async ($, on) => {
+  const fake = herdrFake()
+  const run = (argv: readonly string[]) => {
+    if (argv[0] === 'rm') throw new Error('rm refused')
+    return fake.run(argv.at(-1) ?? '') ?? {}
+  }
+  const { events } = await seeded($, on, [todo({ status: 'done', runner: 'local', logPath: '/log/1', tabId: 'tabZ' })], { run })
+
+  await $.session.end({ reason: 'clear', sessionId: SESSION, resume: { id: SESSION } })
+
+  expect(fake.ran('herdr tab close')).toEqual(["herdr tab close 'tabZ'"])
+  expect(toasts(events)).toEqual(['Could not tidy up after the cleared items'])
+})
+
 const CHOICES: { name: string; setup: Setup; pin?: string; started: 'herdr' | 'local' }[] = [
   { name: 'auto picks herdr when its socket is set and herdr answers', setup: { env: { HERDR_SOCKET_PATH: '/s' }, probeExit: 0 }, started: 'herdr' },
   { name: 'auto picks local when herdr does not answer', setup: { env: { HERDR_SOCKET_PATH: '/s' }, probeExit: 1 }, started: 'local' },

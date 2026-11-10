@@ -217,6 +217,14 @@ export async function cleanupHerdr($: EngineInterface, todo: Todo): Promise<void
   if (todo.tabId) await sh($, `herdr tab close ${quote(todo.tabId)}`)
 }
 
+// The script keeps running in its tab, and resuming the session watches it again.
+export async function releaseHerdr(_$: EngineInterface, todo: Todo): Promise<void> {
+  const run = todo.token ? runs.get(todo.token) : undefined
+  if (!todo.token || !run) return
+  run.isGone = true
+  end(todo.token)
+}
+
 export async function resumeWatching($: EngineInterface): Promise<void> {
   for (const todo of await listTodos($)) {
     if (todo.status !== 'running' || todo.runner !== 'herdr' || !todo.token || !todo.paneId || runs.has(todo.token)) continue

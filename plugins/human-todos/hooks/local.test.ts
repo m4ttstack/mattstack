@@ -368,6 +368,21 @@ test('a withdraw that lands while the run is set up starts no script and leaves 
   expect(sent).toEqual([])
 })
 
+test('an in-session /resume ends a running local script, keeps its log with the saved list and reports nothing', async ($, on) => {
+  const k = killable()
+  const { run1, ran, item, sent, clock } = await seeded($, on, [todo({})], { script: k.child, run: k.release })
+  await run1('1')
+  await clock.settle()
+  const log = item('1')?.logPath
+
+  await $.session.end({ reason: 'resume', sessionId: SESSION, resume: { id: 'sess-2' } })
+  await clock.advance(5000)
+
+  expect(ran).toEqual([killing(4242)])
+  expect(item('1')).toMatchObject({ status: 'running', logPath: log })
+  expect(sent).toEqual([])
+})
+
 test('a finished item\'s log is removed with rm -f when it is cleared', async ($, on) => {
   const { run1, ran, item, clock, pane } = await seeded($, on, [todo({})], { script: () => exits([pid(1)]) })
   await run1('1')
