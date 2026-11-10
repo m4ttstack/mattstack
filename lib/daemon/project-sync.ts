@@ -561,6 +561,93 @@ async function syncImpl(
 }
 
 /**
+ * Behind-count re-measures per repo per cycle. Bulk syncs never measure the
+ * count, so a count read once (often 0, right after a push) would otherwise
+ * stand forever while the target moves. At the 5-minute cycle this rotates
+ * through a ~120-open-MR project in about an hour (BOARD-67).
+ */
+export const DIVERGED_REMEASURE_CAP = 10;
+
+/**
+ * repoName → iid → when this daemon last measured its behind count.
+ * In-memory on purpose: after a restart every count is unmeasured again, and
+ * the cap still bounds how fast the rotation catches up.
+ */
+const divergedMeasuredAt = new Map<string, Map<number, number>>();
+const remeasureInFlight = new Set<string>();
+
+export function __resetDivergedMeasuresForTest(): void {
+  divergedMeasuredAt.clear();
+  remeasureInFlight.clear();
+}
+
+/** Oldest measurement first (never measured counts as oldest); among equals, a missing count first. */
+function pickRemeasure(record: ProjectMRStore, measuredAt: Map<number, number>, cap: number): number[] {
+  return Object.values(record.mrs)
+    .filter((e) => e.pr.state === "opened")
+    .map((e) => ({ iid: e.pr.iid, at: measuredAt.get(e.pr.iid) ?? 0, missing: e.pr.divergedCommitsCount == null }))
+    .sort((a, b) => a.at - b.at || Number(b.missing) - Number(a.missing) || a.iid - b.iid)
+    .slice(0, cap)
+    .map((c) => c.iid);
+}
+
+export interface RemeasureOverrides {
+  store?: ProjectMRs;
+  fetchDiverged?: (repoName: string, projectPath: string, iid: number) => Promise<number | null>;
+}
+
+/**
+ * Refreshes up to DIVERGED_REMEASURE_CAP stored behind counts for one repo
+ * and broadcasts the iids whose count moved. Callers run it after a sync
+ * without awaiting it, so a forced read never waits on these calls.
+ */
+export async function remeasureDivergedCounts(
+  deps: ProjectSyncDeps,
+  repoName: string,
+  overrides: RemeasureOverrides = {},
+): Promise<number[]> {
+  if (remeasureInFlight.has(repoName)) return [];
+  remeasureInFlight.add(repoName);
+  try {
+    const store = overrides.store ?? getProjectMRs();
+    const record = store.read(repoName);
+    if (!record?.projectPath) return [];
+    const measured = divergedMeasuredAt.get(repoName) ?? new Map<number, number>();
+    divergedMeasuredAt.set(repoName, measured);
+    for (const iid of measured.keys()) if (!record.mrs[iid]) measured.delete(iid);
+
+    const picks = pickRemeasure(record, measured, DIVERGED_REMEASURE_CAP);
+    if (picks.length === 0) return [];
+    const fetchDiverged = overrides.fetchDiverged ?? (async (repo: string, projectPath: string, iid: number) => {
+      const { provider } = await getRepoContext(repo, deps.repoIndex()[repo]);
+      return provider.fetchDivergedCount(projectPath, iid);
+    });
+
+    const startedAt = Date.now();
+    const counts: Record<number, number> = {};
+    let failed = 0;
+    for (let i = 0; i < picks.length; i += TOPUP_CONCURRENCY) {
+      await Promise.all(picks.slice(i, i + TOPUP_CONCURRENCY).map(async (iid) => {
+        try {
+          const n = await fetchDiverged(repoName, record.projectPath, iid);
+          measured.set(iid, Date.now());
+          if (n !== null) counts[iid] = n;
+        } catch (err) {
+          failed++;
+          log.warn({ err, repo: repoName, iid }, "behind count re-measure failed");
+        }
+      }));
+    }
+    const changed = store.setDivergedCounts(repoName, counts);
+    log.debug({ repo: repoName, mode: "behind", measured: picks.length - failed, failed, changed: changed.length, durationMs: Date.now() - startedAt }, "project sync");
+    if (changed.length > 0) deps.broadcast("project-mrs", { repoName, iids: changed });
+    return changed;
+  } finally {
+    remeasureInFlight.delete(repoName);
+  }
+}
+
+/**
  * On-demand top-up for authors newly added to a repo's scope (e.g. a board
  * widening its demand) without waiting for the next daily deep. Fetches only
  * the given names, upserts what's in-window, and extends (never replaces)
