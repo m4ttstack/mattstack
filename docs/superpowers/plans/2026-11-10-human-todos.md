@@ -110,7 +110,7 @@
   - `prompt.compose` appends one section with id `human-todos:guidance`, scope `session`, whose text contains the full `add` name returned by `$.tool.register` (stub it to return `mcp__x__add`).
   - `addDescription('Human Todos')` mentions all four kinds and "never ask them to type \"done\"".
 - [ ] **Step 2: Run** the tests. Expected: FAIL.
-- [ ] **Step 3: Implement** `contract.ts`. Register tools before `next(e)` in `session.start` (the reference API example registers first); call `restoreList` there too. Lift the description and guidance text from the spike's `ADD_DESCRIPTION` and `GUIDANCE`.
+- [ ] **Step 3: Implement** `contract.ts`. Register tools before `next(e)` in `session.start` (the reference API example registers first); call `restoreList` there too. Lift the description and guidance text from the spike's `ADD_DESCRIPTION` and `GUIDANCE`. In `register.tsx`, pass do-nothing `openPane` and `cleanup` deps until Tasks 4 and 5 supply the real ones.
 - [ ] **Step 4: Run** the tests. Expected: PASS.
 - [ ] **Step 5: Commit** `human-todos: tools, self-allow and prompt guidance`.
 
@@ -135,7 +135,7 @@
   - A `UserMessage` from origin `{ kind: 'plugin', name: 'human-todos' }` with three lines draws one row: `Human Todos ` then the first line without the `[Human Todos] ` prefix and `(+2 lines, ctrl+o)`; with `isExpanded` it passes; another plugin's row passes.
   - `/todos` opens the pane.
 - [ ] **Step 2: Run** the tests. Expected: FAIL.
-- [ ] **Step 3: Implement** `pane.tsx`, lifting the spike's render (padding 2/1, indented body, blank row before buttons, `Text` spacer before `Clear finished`).
+- [ ] **Step 3: Implement** `pane.tsx`; in `register.tsx` pass the real `openPane` to `registerContract`, and do-nothing `press` and `cleanup` to `registerPane` until Task 5. Lift the spike's render (padding 2/1, indented body, blank row before buttons, `Text` spacer before `Clear finished`).
 - [ ] **Step 4: Run** the tests. Expected: PASS.
 - [ ] **Step 5: Render check:** load the plugin in an interactive session (`claude --plugin-dir plugins/human-todos`), add one item of each kind, screenshot the pane in a dark and a light terminal theme, and write down anything that reads wrong before moving on.
 - [ ] **Step 6: Commit** `human-todos: pane, band and compact transcript rows`.
@@ -180,7 +180,7 @@
   - `start` spawns `['/bin/zsh', '-lc', 'print -u2 "__human_todo_pid__$$"; <script>']` with the item's `cwd`; the pid line is stripped from output; chunks update `liveTail` (last 15 non-empty lines) at most once per second and the log file (`$.fs.write`) under `<cache>/human-todos/<session>-<id>-<token>.log`.
   - A script `echo 'a "b" $HOME \\ c'` reaches the spawn argv byte for byte.
   - Exit code 2 → `report` with `{ kind: 'ran', exitCode: 2 }`.
-  - `stop` after the pid is known runs `pkill -TERM -P <pid>; kill -TERM <pid>` and the ending is reported as `stopped`; `stop` before the pid is known toasts `Still starting; try Stop again in a moment`.
+  - `stop` after the pid is known runs `pkill -TERM -P <pid>; kill -TERM <pid>` and the ending is reported as `stopped`; `stop` before the pid is known toasts `Still starting; try Stop again in a moment` and resets `isStopping` to false, so the Stop button comes back.
   - `show` does nothing (local items have no Show button).
   - `cleanup` deletes the item's log file with `rm -f <logPath>` through `process.run` (the mod API has no delete).
 - [ ] **Step 2: Run** the tests. Expected: FAIL.
