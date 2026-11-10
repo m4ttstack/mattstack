@@ -209,6 +209,48 @@ describe('GitHubProvider known-number reads through the fill', () => {
     expect(warnings).toEqual([]);
   });
 
+  test('an unreadable workflow run keeps the PR and its checks with no run id', async () => {
+    const ctxPath = ['repository', 'p1', 'commits', 'nodes', 0, 'commit', 'statusCheckRollup', 'contexts', 'nodes', 0, 'checkSuite', 'workflowRun'];
+    stubForge({
+      graphql: () =>
+        jsonResponse({
+          data: {
+            repository: {
+              p1: nodeFor(1, {
+                commits: {
+                  nodes: [
+                    {
+                      commit: {
+                        oid: 'abc123',
+                        statusCheckRollup: {
+                          state: 'SUCCESS',
+                          contexts: {
+                            totalCount: 1,
+                            pageInfo: { hasNextPage: false, endCursor: null },
+                            nodes: [{ ...checkRun(1, 'SUCCESS'), checkSuite: { workflowRun: null } }]
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              })
+            }
+          },
+          errors: [{ type: 'FORBIDDEN', path: ctxPath, message: 'Resource not accessible by personal access token' }]
+        })
+    });
+    const warnings: FetchPullRequestsWarning[] = [];
+
+    const pr = await provider().fetchSingleMR('o/r', 1, null, (w) => warnings.push(w));
+
+    expect(pr).not.toBeNull();
+    expect(warnings).toEqual([]);
+    expect(pr!.pipeline!.jobs).toHaveLength(1);
+    expect(pr!.pipeline!.jobs[0]!.runId).toBeNull();
+    expect(pr!.pipeline!.status).toBe('success');
+  });
+
   test('any other error under a resolved alias still drops the PR with a fill warning', async () => {
     stubForge({
       graphql: () =>
@@ -264,6 +306,47 @@ describe('GitHubProvider known-number reads through the fill', () => {
 
     expect(pr!.pipeline!.jobs).toHaveLength(150);
     expect(pr!.pipeline!.status).toBe('failed');
+  });
+
+  test('a contexts page whose only error is an unreadable workflow run keeps its checks', async () => {
+    const path = ['repository', 'p1', 'commits', 'nodes', 0, 'commit', 'statusCheckRollup', 'contexts', 'nodes', 49, 'checkSuite', 'workflowRun'];
+    const page = contextsPage(1, [
+      ...Array.from({ length: 49 }, (_, i) => checkRun(200 + i, 'SUCCESS')),
+      { ...checkRun(300, 'FAILURE'), checkSuite: { workflowRun: null } }
+    ]);
+    stubForge({
+      graphql: (query) =>
+        query.includes('after:')
+          ? jsonResponse({ data: page, errors: [{ type: 'FORBIDDEN', path, message: 'denied' }] })
+          : undefined,
+      fill: () => ({ 1: nodeWithMoreContexts(1) })
+    });
+    const warnings: FetchPullRequestsWarning[] = [];
+
+    const pr = await provider().fetchSingleMR('o/r', 1, null, (w) => warnings.push(w));
+
+    expect(warnings).toEqual([]);
+    expect(pr!.pipeline!.jobs).toHaveLength(150);
+    expect(pr!.pipeline!.status).toBe('failed');
+  });
+
+  test('a contexts page with any other error still reads checking', async () => {
+    stubForge({
+      graphql: (query) =>
+        query.includes('after:')
+          ? jsonResponse({
+              data: contextsPage(1, [checkRun(200, 'SUCCESS')]),
+              errors: [{ type: 'INTERNAL', path: ['repository', 'p1', 'commits'], message: 'boom' }]
+            })
+          : undefined,
+      fill: () => ({ 1: nodeWithMoreContexts(1) })
+    });
+    const warnings: FetchPullRequestsWarning[] = [];
+
+    const pr = await provider().fetchSingleMR('o/r', 1, null, (w) => warnings.push(w));
+
+    expect(pr!.pipeline!.status).toBe('pending');
+    expect(warnings[0]).toMatchObject({ source: 'contexts' });
   });
 
   test('failed contexts page reads checking', async () => {

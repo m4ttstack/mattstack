@@ -158,21 +158,21 @@ export interface FetchPullRequestsOptions {
   excludeTargetBranches?: string[];
 
   /**
-   * Called once per way the result fell short: a page cap reached with matches
-   * outstanding, a search page that failed, or a per-PR fetch that failed and
-   * either dropped that PR from the result or left one of its fields at its
-   * "unknown" value. A quiet fetch made no such compromise.
+   * Called once per way the result fell short: a page cap reached with
+   * matches outstanding, a search or listing page that failed, a batched
+   * fill that could not read a PR (that PR is dropped from the result), or a
+   * follow-up page of one PR's checks that could not be read (the PR stays,
+   * with a `pending` pipeline). A quiet fetch made no such compromise.
    *
    * Invoked synchronously during the fetch; a callback that throws is ignored,
    * never surfaced as a fetch failure.
    *
-   * GitHub emits these for its search/listing page caps (`search`, `list`) and
-   * for the per-PR fetches it assembles a `PullRequest` from: `detail` and
-   * `reviews` (either one failing drops the PR from the result), `checks` and
-   * `threads` (the PR stays, with `pipeline` / `unresolvedThreadCount` at
-   * `null`). Rate limiting reaches a caller this way. GitLab paginates its
-   * project mode to exhaustion and raises transport failures as exceptions, so
-   * it has nothing to report and never calls this.
+   * GitHub emits `search` and `list` for its page caps, `fill` for a PR its
+   * batched read could not resolve, and `contexts` for a checks page past the
+   * first 100. A rate limit throws `RateLimitedError` instead of reaching this
+   * callback. GitLab paginates its project mode to exhaustion and raises
+   * transport failures as exceptions, so it has nothing to report and never
+   * calls this.
    */
   onWarning?: (warning: FetchPullRequestsWarning) => void;
 }

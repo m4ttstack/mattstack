@@ -249,8 +249,15 @@ interface GraphQLReadError {
  * it may be null for that reason; an error with no alias path fails only
  * the aliases that came back null. The exception is the classic protection
  * rule: a token that cannot see it gets an error there and a null rule, and
- * that is an unknown count, not a failed read.
+ * that is an unknown count, not a failed read. A check's workflow run is
+ * the same: a token without Actions read access errors there and gets a null
+ * run, which is an unknown run id, not a failed read.
  */
+function isWorkflowRunError(e: GraphQLReadError): boolean {
+  const path = e.path ?? [];
+  return path.length >= 2 && path[path.length - 2] === 'checkSuite' && path[path.length - 1] === 'workflowRun';
+}
+
 function fillErrorFor(
   errors: GraphQLReadError[],
   n: number,
@@ -262,6 +269,7 @@ function fillErrorFor(
     if (root === 'viewer') continue;
     if (alias === `p${n}`) {
       if (rest[0] === 'baseRef' && rest[1] === 'branchProtectionRule') continue;
+      if (isWorkflowRunError(e)) continue;
       return e;
     }
     if (!resolved && alias === undefined) return e;
@@ -2747,7 +2755,7 @@ export class GitHubProvider implements GitProvider {
         next = data.repository?.[`p${node.number}`]?.commits.nodes[0]?.commit.statusCheckRollup
           ?.contexts;
         reason = errors.map(e => e.message).join('; ') || 'GitHub returned no checks page';
-        if (errors.length > 0) next = undefined;
+        if (errors.some(e => !isWorkflowRunError(e))) next = undefined;
       } catch (err) {
         if (err instanceof RateLimitedError) throw err;
         next = undefined;
