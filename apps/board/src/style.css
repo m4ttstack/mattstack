@@ -1294,6 +1294,15 @@ button.tui-status-more-line:focus-visible .tui-status-more-verb {
     transparent
   );
 }
+/* A press anywhere on the line presses its action. */
+button.tui-status-more-line:active .tui-status-more-verb {
+  background: color-mix(
+    in srgb,
+    var(--verb-wash, var(--muted)) 26%,
+    transparent
+  );
+  transform: translateY(0.5px);
+}
 .tui-status-more-verb:hover .tui-status-more-chevron {
   transform: rotate(-90deg) translateY(2px);
 }
