@@ -664,7 +664,7 @@ describe("integrationConnect — github --use-gh", () => {
 
     await integrationConnect("github", ["--use-gh", "--json"], deps);
 
-    expect(probes.calls.exec).toContainEqual(["gh", "auth", "token"]);
+    expect(probes.calls.exec).toContainEqual(["gh", "auth", "token", "--hostname", "github.com"]);
     expect(writes).toEqual([["rt", "githubToken", "ghp_from_gh"]]);
     const body = JSON.parse(deps.lines[0]!) as { status: string };
     expect(body.status).toBe("ready");
@@ -674,7 +674,7 @@ describe("integrationConnect — github --use-gh", () => {
 describe("integrationStatus — github handle/owners", () => {
   test("gh authenticated -> handle + owners present", async () => {
     const exec: Probes["exec"] = async (argv) => {
-      if (argv.join(" ") === "gh auth status") return ok();
+      if (argv.join(" ") === "gh auth status --hostname github.com") return ok();
       if (argv.join(" ") === "gh api user") return ok(JSON.stringify({ login: "matt" }));
       if (argv.join(" ") === "gh api user/orgs") return ok(JSON.stringify([{ login: "m4ttstack" }]));
       return ok();
@@ -690,7 +690,7 @@ describe("integrationStatus — github handle/owners", () => {
 
   test("gh unauthenticated -> no handle/owners keys", async () => {
     const exec: Probes["exec"] = async (argv) => {
-      if (argv.join(" ") === "gh auth status") return { code: 1, stdout: "", stderr: "not logged in" };
+      if (argv.join(" ") === "gh auth status --hostname github.com") return { code: 1, stdout: "", stderr: "not logged in" };
       return ok();
     };
     const deps = baseDeps({ probes: fakeProbes({ exec }) });

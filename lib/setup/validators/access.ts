@@ -55,7 +55,7 @@ async function teamRepoRow(p: Probes, team: TeamSnapshot, intent: SetupIntent | 
   if (!remote) return row({ ...base, status: "missing", detail: "No team repo yet. Create or join a team first" });
 
   const provider = forgeFromRemote(remote)?.provider ?? "github";
-  const lookup = withholdFromUntrustedHost(await forgeTokenLookupFromPresence(remote, secrets), remote, overrides.forgeHost);
+  const lookup = withholdFromUntrustedHost(await forgeTokenLookupFromPresence(remote, secrets, p), remote, overrides.forgeHost);
   const verdict = await probeTeamRepoAccess(p, remote, lookup);
   const grantedBy = intent?.join?.pointer.owner ?? "the repo's owner";
   return row({ ...base, ...rowFromVerdict(verdict, { grantedBy, provider }) });
@@ -111,7 +111,7 @@ async function repoRow(p: Probes, identity: string, overrides: UserIntegrationOv
   };
   const remote = `https://${identity}.git`;
   const provider = forgeFromRemote(remote)?.provider ?? "github";
-  const lookup = withholdFromUntrustedHost(await forgeTokenLookupFromPresence(remote, secrets), remote, overrides.forgeHost);
+  const lookup = withholdFromUntrustedHost(await forgeTokenLookupFromPresence(remote, secrets, p), remote, overrides.forgeHost);
   const withToken = await probeTeamRepoAccess(p, remote, lookup);
   // rt's token can be scoped narrower than git's own credential helper, so a
   // refusal is only final once the bare probe is refused too.

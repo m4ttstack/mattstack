@@ -110,6 +110,7 @@ function probes(): Probes {
     exec: async (argv, opts) => {
       execCalls.push(argv);
       const bin = basename(argv[0]!);
+      if (bin === "gh" && argv[2] === "token") return { code: 1, stdout: "", stderr: "no oauth token" };
       if (bin === "gh") return login === null ? { code: 1, stdout: "", stderr: "not logged in" } : ok(JSON.stringify({ login }));
       if (bin === "git" && argv.includes("clone")) {
         const dir = argv.at(-1)!;

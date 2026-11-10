@@ -31,7 +31,7 @@ async function realGhToken(): Promise<string | null> {
   if (process.env.RT_GH_TOKEN_FALLBACK === "off") return null;
   const gh = Bun.which("gh", { PATH: ghSearchPath() });
   if (!gh) return null;
-  const res = await runCapture([gh, "auth", "token"], { timeoutMs: 5000 });
+  const res = await runCapture([gh, "auth", "token", "--hostname", "github.com"], { timeoutMs: 5000 });
   const token = res.stdout.trim();
   return res.exitCode === 0 && token ? token : null;
 }

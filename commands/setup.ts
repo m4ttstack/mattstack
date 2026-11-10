@@ -1112,7 +1112,7 @@ function realHomeBackupDeps(): HomeBackupDeps {
 }
 
 async function canCreateGitHubRepo(deps: HomeBackupDeps): Promise<boolean> {
-  if ((await deps.probes.exec(["gh", "auth", "status"])).code === 0) return true;
+  if ((await deps.probes.exec(["gh", "auth", "status", "--hostname", "github.com"])).code === 0) return true;
   return (await createCapableGitHubToken(deps.probes, deps.githubToken)) !== null;
 }
 
@@ -1435,7 +1435,7 @@ function parseOrgLogins(stdout: string): string[] {
 /** Handle/owners come from a live `gh` session regardless of which credential source produced the row's own status — a stored token and a gh session are independent facts. */
 async function evalGithub(p: Probes, secrets: SecretPresence, ctx: ValidateCtx): Promise<IntegrationEval> {
   const def = integrationDef("github");
-  const ghStatus = await p.exec(["gh", "auth", "status"]);
+  const ghStatus = await p.exec(["gh", "auth", "status", "--hostname", "github.com"]);
   const ghAuthed = ghStatus.code === 0;
   const stored = await secrets.has("rt", "githubToken");
 
@@ -1651,7 +1651,7 @@ export async function setupJoinStatus(args: string[], _ctx: CommandContext = {},
 // ─── connect ────────────────────────────────────────────────────────────
 
 async function ghAuthToken(p: Probes): Promise<string> {
-  const res = await p.exec(["gh", "auth", "token"]);
+  const res = await p.exec(["gh", "auth", "token", "--hostname", "github.com"]);
   if (res.code !== 0) throw new UserActionableError("gh-token-failed", "Could not read a token from gh. Run gh auth login first");
   return res.stdout.trim();
 }
