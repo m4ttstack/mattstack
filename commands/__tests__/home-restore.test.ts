@@ -293,7 +293,7 @@ describe("runHomeRestore", () => {
     const err = await failure(restore(p, keychain, { repo: REPO, privateKey: PASTED_KEY }));
     expect(err.code).toBe("init-failed");
     expect(err.message).toBe("rt could not clone your home repo: fatal: repository not found");
-    expect(err.why).toBe("Run gh auth login, then Retry");
+    expect(err.why).toBe("Sign in to GitHub, then restore again");
     expect(err.next).toBe(`rt home restore ${REPO} --stdin`);
     expect(keychain.stored).toBe(PASTED_KEY);
     expect(intentOf(p)).toBeNull();

@@ -159,6 +159,9 @@ export const FORM_COPY = {
     footer: "Continue unlocks once each one is connected",
     continue: "Continue",
   },
+  restore: {
+    github: { title: "GitHub", subtext: "Only for a private backup on GitHub", signedIn: "Signed in" },
+  },
   thisMac: {
     title: "Last bit: this Mac",
     subtitle: (team: string) => `Where ${team}'s repos and your settings live`,
@@ -910,9 +913,33 @@ export function thisMacRows(i: ThisMacInputs): FormRow[] {
   return list.filter((r): r is FormRow => r !== null);
 }
 
-export function restoreRows(i: { cltInstalled: boolean; cltOutdated?: string | null; prepare: MacosPrepare }): FormRow[] {
-  const clt = cltRow(i);
-  return clt ? [clt] : [];
+export interface RestoreInputs {
+  cltInstalled: boolean;
+  cltOutdated?: string | null;
+  prepare: MacosPrepare;
+  githubClientId: string;
+  githubStored: boolean;
+  githubSignIn: GitHubSignIn | null;
+}
+
+/** Optional, since a public backup or one on GitLab needs no GitHub token. */
+function restoreGitHubRow(i: RestoreInputs): FormRow | null {
+  if (!i.githubClientId) return null;
+  const c = FORM_COPY.restore.github;
+  const base = { id: "restore.github", title: c.title, subtext: c.subtext, waiting: null, watch: false, optional: true };
+  if (i.githubStored) return { ...base, state: "done", detail: c.signedIn, action: null };
+  const sign = i.githubSignIn;
+  if (sign && sign.outcome === undefined) {
+    const t = FORM_COPY.connect.teamTool;
+    return { ...base, state: "waiting", detail: t.code(sign.userCode), action: { type: "open-url", label: t.openAgain, url: sign.url }, watch: true };
+  }
+  const r = FORM_COPY.thisMac.remote;
+  const detail = sign ? (sign.outcome === "declined" ? r.declined : r.expired) : "";
+  return { ...base, state: "todo", detail, action: { type: "run", label: r.signIn, verb: ["setup", "github", "sign-in"] } };
+}
+
+export function restoreRows(i: RestoreInputs): FormRow[] {
+  return [cltRow(i), restoreGitHubRow(i)].filter((r): r is FormRow => r !== null);
 }
 
 const EMPTY_SNAPSHOT: TeamSnapshot = { slug: "", integrations: {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null };
@@ -964,9 +991,15 @@ async function createSection(p: Probes, secrets: SecretPresence, choice: CreateC
   return createRows({ rows, forge, ghSignedIn: ghSignedIn(rows), cltInstalled: isReady(rows, "tool.clt"), cltOutdated: cltOutdated(rows), prepare: macosPrepare(p) });
 }
 
-async function restoreSection(p: Probes): Promise<FormRow[]> {
+async function restoreSection(p: Probes, token: () => Promise<string | null>, clientId: string): Promise<FormRow[]> {
   const rows = new Map((await macRows(p)).map((r) => [r.id, r]));
-  return restoreRows({ cltInstalled: isReady(rows, "tool.clt"), cltOutdated: cltOutdated(rows), prepare: macosPrepare(p) });
+  return restoreRows({
+    cltInstalled: isReady(rows, "tool.clt"), cltOutdated: cltOutdated(rows),
+    prepare: macosPrepare(p),
+    githubClientId: clientId,
+    githubStored: (await token()) !== null,
+    githubSignIn: readGitHubSignIn(p),
+  });
 }
 
 interface Clone {
@@ -1279,7 +1312,7 @@ export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupFo
   const sections: SetupForm["sections"] = {};
   if (wanted.includes("macos")) sections.macos = await macosSection(p, permissions);
   if (wanted.includes("invite")) sections.invite = await inviteSection(p, opts.secrets);
-  if (wanted.includes("restore")) sections.restore = await restoreSection(p);
+  if (wanted.includes("restore")) sections.restore = await restoreSection(p, opts.githubToken ?? (() => readStoredGitHubToken(p)), opts.githubClientId ?? GITHUB_OAUTH_CLIENT_ID);
   if (wanted.includes("connect")) sections.connect = await connectSection(p, await plan(), opts.orgs, path ?? "solo");
   if (wanted.includes("this-mac")) sections.thisMac = await thisMacSection(p, await plan(), path ?? "solo", state, opts.githubToken ?? (() => readStoredGitHubToken(p)), opts.githubClientId ?? GITHUB_OAUTH_CLIENT_ID);
   if (wanted.includes("tools")) sections.tools = toolsSection(p, await plan()).rows;
