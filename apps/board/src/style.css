@@ -6905,6 +6905,7 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-ask-where {
   flex-shrink: 0;
+  margin-right: 6px;
 }
 .tui-ask-state {
   min-width: 0;
@@ -6942,9 +6943,6 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-ask-caret[data-open] {
   transform: rotate(180deg);
-}
-.tui-ask-sep {
-  opacity: 0.6;
 }
 .tui-ask-note {
   flex-shrink: 0;
@@ -7032,6 +7030,9 @@ a.tui-id-card-ref:focus-visible {
 .tui-ask-trail-foot {
   font-size: 0.7rem;
   color: var(--text-3);
+}
+.tui-ask-trail-detail > span + .tui-ask-trail-time {
+  margin-left: 0.5rem;
 }
 .tui-ask-trail-foot {
   padding: 0 12px;

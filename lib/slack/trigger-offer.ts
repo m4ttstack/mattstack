@@ -30,7 +30,7 @@ export function supportRepoFromSetting(value: string | undefined): string | null
   return parseIdentity(trimmed) ? trimmed : serializeIdentity({ kind: "remote", id: trimmed });
 }
 
-export async function offerTriggerChat(deps: TriggerOfferDeps, hit: TriggerHit, persona: SlackPersona): Promise<TriggerOffer> {
+export async function offerTriggerChat(deps: TriggerOfferDeps, hit: TriggerHit, persona: SlackPersona, trigger?: string): Promise<TriggerOffer> {
   const subject = `slack:${hit.userId}`;
   const notify = async (person: string, reason: string): Promise<void> => {
     try {
@@ -79,7 +79,7 @@ export async function offerTriggerChat(deps: TriggerOfferDeps, hit: TriggerHit, 
 
   const gateId = crypto.randomUUID();
   // The teammate's words stay in the gate context: the brief is the agent's trusted instruction, and they wrote nothing in it.
-  const brief = `${personName} asked for help over Slack with ${resumeTrigger(persona)}. Their message arrives first.`;
+  const brief = `${personName} asked for help over Slack with ${resumeTrigger(persona, trigger)}. Their message arrives first.`;
   const meta: SlackOpenMeta = {
     action: "open",
     person: hit.userId,

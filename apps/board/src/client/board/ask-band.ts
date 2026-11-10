@@ -1,17 +1,21 @@
 /** The band at the foot of a row that shows a teammate's agent working on
     this MR: this board's own ask of it, or a review their board started and
-    lost, which the same band lets you ask for again. Kept off the status
+    lost (which the same band lets you ask for again) or parked. Kept off the status
     line and its "+N active" count, since the work is remote. */
+import { canonicalUsername } from '../../peer/envelope.ts';
+import { isFreshPeerReview } from '../../peer/presence.ts';
+import { remindRetryAt } from '../../peer/remind.ts';
 import { isOwnMr } from '../../view.ts';
 import type {
   BoardMRWithReview,
   PeerReviewInfo,
   SentNudgeInfo,
 } from '../types.ts';
+import { ago } from './format.ts';
 import type { ActionRequest } from './row-actions.ts';
 
 export type AskTone = 'neutral' | 'work' | 'ok' | 'bad' | 'warn';
-export type AskAction = 'retry' | 'dismiss';
+export type AskAction = 'retry' | 'remind' | 'dismiss';
 
 /** One line of the hover trail. `at` is absent when the step has no time of
     its own (a silence is not an event). */
@@ -87,6 +91,11 @@ export function clock(ms: number, now: number = Date.now()): string {
   if (days === 1) return `yesterday ${time}`;
   const date = at.toLocaleDateString([], { month: 'short', day: 'numeric' });
   return `${date}, ${time}`;
+}
+
+/** A past moment as "5m ago", aging with the board's tick. */
+function agoAt(ms: number, now: number): string {
+  return `${ago(new Date(ms).toISOString(), now)} ago`;
 }
 
 export function askBandModel(
@@ -205,6 +214,20 @@ export function askBandModel(
         },
         { name: 'No answer', detail: `${name}'s board never replied` }
       );
+    case 'parked':
+      return band(
+        {
+          tone: 'warn',
+          icon: 'hourglass',
+          label: `waiting on ${name}`,
+          actions: ['remind', 'dismiss'],
+          ...(sent.resolvedAt
+            ? { note: `Parked ${agoAt(sent.resolvedAt, now)}` }
+            : {}),
+        },
+        { name: 'Started', detail: `${name}'s agent` },
+        parkedStep(name, sent.resolvedAt)
+      );
     case 'no-update':
       return band(
         {
@@ -241,6 +264,38 @@ export function askBandModel(
   }
 }
 
+function parkedStep(name: string, at?: number): AskStep {
+  return {
+    name: 'Parked',
+    detail: `at ${name}'s approval gate`,
+    ...(at ? { at } : {}),
+  };
+}
+
+/** A review a teammate's board started on its own, held at that teammate's
+    approval gate. */
+export function peerParkedBandModel(
+  peer: PeerReviewInfo,
+  name: string = peer.reviewer,
+  now: number = Date.now()
+): AskBand {
+  const at = peer.receivedAt ?? peer.parkedAt ?? peer.updatedAt;
+  return {
+    tone: 'warn',
+    icon: 'hourglass',
+    name,
+    who: `${name}'s agent`,
+    title: `Review from ${name}`,
+    label: `waiting on ${name}`,
+    note: `Parked ${agoAt(at, now)}`,
+    actions: ['remind', 'dismiss'],
+    steps: [
+      { name: 'Started', detail: `${name}'s board` },
+      parkedStep(name, at),
+    ],
+  };
+}
+
 /** A review a teammate's board started on its own and lost. The peer state
     carries only the failure's time, so the Started step has no clock. */
 export function peerFailureBandModel(
@@ -271,22 +326,27 @@ export type BandSource =
   | { kind: 'peer'; peer: PeerReviewInfo };
 
 /** What the row's band shows: this board's own ask first, else a peer's
-    errored review nobody has dismissed. Review state reaches the whole team,
-    but only the author can ask for that review again. */
+    errored or parked review nobody has dismissed. Review state reaches the
+    whole team, but only the author can ask for that review again. */
 export function bandSource(
   mr: BoardMRWithReview,
-  self: string | null
+  self: string | null,
+  now: number = Date.now()
 ): BandSource | null {
   if (mr.sentNudge) return { kind: 'sent', sent: mr.sentNudge };
   if (!isOwnMr(mr, self)) return null;
   const peer = (mr.peerReviews ?? []).find(
-    p => p.status === 'error' && p.dismissedAt === undefined
+    p =>
+      p.dismissedAt === undefined &&
+      (p.status === 'error' ||
+        (p.status === 'parked' && isFreshPeerReview(p, now)))
   );
   return peer ? { kind: 'peer', peer } : null;
 }
 
 /** The band's dismiss, as the local board takes it: a sent ask is dropped
-    outright; a peer's lost review is stamped on that reviewer's state. */
+    outright; a peer's lost or parked review is stamped on that reviewer's
+    state. */
 export function bandDismissRequest(
   mr: BoardMRWithReview,
   self: string | null
@@ -299,6 +359,81 @@ export function bandDismissRequest(
         path: '/peer-review/dismiss',
         body: { mrUrl: mr.webUrl, reviewer: source.peer.reviewer },
       };
+}
+
+/** The parked review behind the band: the peer's own, or the state the
+    asked reviewer's board reported for this board's ask. */
+function parkedPeer(
+  mr: BoardMRWithReview,
+  self: string | null,
+  now: number
+): PeerReviewInfo | null {
+  const source = bandSource(mr, self, now);
+  if (!source) return null;
+  if (source.kind === 'peer')
+    return source.peer.status === 'parked' ? source.peer : null;
+  if (source.sent.display !== 'parked') return null;
+  return (
+    mr.peerReviews?.find(
+      p =>
+        canonicalUsername(p.reviewer) ===
+          canonicalUsername(source.sent.reviewer) &&
+        p.status === 'parked' &&
+        p.dismissedAt === undefined &&
+        isFreshPeerReview(p, now)
+    ) ?? null
+  );
+}
+
+export interface BandRemind {
+  path: '/peer-review/remind';
+  body: { mrUrl: string; reviewer: string };
+  remindedAt?: number;
+  /** The Slack person the face match found, who gets the DM. */
+  slackName?: string;
+  /** Why Remind cannot be clicked now. */
+  blocked?: string;
+}
+
+/** The parked band's remind, as the local board sends it. Both sources key
+    the reminder on the reviewer's peer state. */
+export function bandRemind(
+  mr: BoardMRWithReview,
+  self: string | null,
+  slackNames: Readonly<Record<string, string>>,
+  name?: string,
+  now: number = Date.now()
+): BandRemind | null {
+  const peer = parkedPeer(mr, self, now);
+  if (!peer || !mr.webUrl) return null;
+  name ??= peer.reviewer;
+  const retryAt = remindRetryAt(peer.remindedAt);
+  const reviewer = canonicalUsername(peer.reviewer);
+  const slackName = Object.entries(slackNames).find(
+    ([username]) => canonicalUsername(username) === reviewer
+  )?.[1];
+  const blocked = !slackName
+    ? `No Slack account matches ${name}`
+    : retryAt !== null && now < retryAt
+      ? `Remind again at ${clock(retryAt, now)}`
+      : undefined;
+  return {
+    path: '/peer-review/remind',
+    body: { mrUrl: mr.webUrl, reviewer: peer.reviewer },
+    ...(peer.remindedAt !== undefined ? { remindedAt: peer.remindedAt } : {}),
+    ...(slackName ? { slackName } : {}),
+    ...(blocked ? { blocked } : {}),
+  };
+}
+
+/** A parked band once its reviewer has been reminded. */
+export function withReminder(
+  band: AskBand,
+  remindedAt: number | undefined,
+  now: number = Date.now()
+): AskBand {
+  if (remindedAt === undefined) return band;
+  return { ...band, note: `Reminded ${agoAt(remindedAt, now)}` };
 }
 
 /** What a sent retry settles: the peer failure it replaced, stamped

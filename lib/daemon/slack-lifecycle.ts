@@ -8,7 +8,7 @@ import { lazyChildLogger } from "../daemon-logger.ts";
 import { CHAT_NOTIFICATION_CATEGORY, notify } from "../notifier.ts";
 import { postHonouringRetryAfter, type SlackClient } from "../slack/client.ts";
 import { closingLine, holdingLine, namesTicket, redactSecrets, slackPrefix, withPrefix } from "../slack/format.ts";
-import { slackPersona, type SlackPersona } from "../slack/persona.ts";
+import { slackPersona, slackTrigger, type SlackPersona } from "../slack/persona.ts";
 import { sendMilestone, type MilestoneDeps, type SlackMilestone } from "../slack/milestones.ts";
 import { closeSupportPane, type SupportPaneDeps } from "../slack/support-pane.ts";
 import { agentHasPosted, expireOtherGrace, listSupportTickets, startGrace, ticketsForChain } from "../state/slack-conversation-store.ts";
@@ -56,6 +56,8 @@ export interface SlackLifecycleDeps {
   herdrRunnerFor: SupportPaneDeps["herdrRunnerFor"];
   /** Real by default: the persona setting, read for each message. */
   persona?: () => SlackPersona;
+  /** Real by default: the trigger setting, undefined while unset. */
+  trigger?: () => string | undefined;
 }
 
 interface TickClock {
@@ -157,7 +159,7 @@ export async function finishClose(
   const namedTicket = namesTicket(cleaned.text, ticketsForChain(conversationId, db));
   const wrapUp = namedTicket ? prefix : withPrefix(cleaned.text, persona);
   const hasWrapUp = wrapUp !== prefix;
-  const lines = [...(hasWrapUp ? [wrapUp] : []), withPrefix(closingLine(conv.operatorName, reason === "pane-gone", persona), persona)];
+  const lines = [...(hasWrapUp ? [wrapUp] : []), withPrefix(closingLine(conv.operatorName, reason === "pane-gone", persona, (deps.trigger ?? slackTrigger)()), persona)];
   let allSent = true;
   for (const line of lines) {
     if (await sendToSlack(conv, line, deps)) recordInRoom(conv, line.slice(prefix.length), deps);

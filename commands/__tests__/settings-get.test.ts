@@ -51,6 +51,23 @@ describe("rt settings get / list / explain", () => {
     expect(cap.stderr()).toContain("not set anywhere");
   });
 
+  test("a renamed key's old name answers with its heir and one warn line", async () => {
+    await settingsGet(["chat.slackSupport.persona", "--json"]);
+    const env = JSON.parse(cap.stdout());
+    expect(env.key).toBe("chat.slackSupport.persona");
+    expect(env.deprecated).toEqual({ use: "agent.persona" });
+    expect(env.value).toEqual({ name: "Maude", emoji: "🤖" });
+    const lines = cap.stderr().split("\n").filter(Boolean);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("chat.slackSupport.persona is now agent.persona");
+  });
+
+  test("the heir itself has no deprecated field", async () => {
+    await settingsGet(["agent.persona", "--json"]);
+    expect(JSON.parse(cap.stdout()).deprecated).toBeUndefined();
+    expect(cap.stderr()).toBe("");
+  });
+
   test("the value is the payload on stdout and the notes go to stderr", async () => {
     setSetting("rt.logLevel", "debug", "user");
     await settingsGet(["rt.logLevel"]);

@@ -438,6 +438,10 @@ export function chatSlackAvatars(o: RtClientOptions = {}): Promise<RtResponse<Co
   return rtCommand<Commands["chat:slack-avatars"]["data"]>("chat:slack-avatars", {}, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 60_000 });
 }
 
+export function chatSlackDm(a: Commands["chat:slack-dm"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-dm"]["data"]>> {
+  return rtCommand<Commands["chat:slack-dm"]["data"]>("chat:slack-dm", a, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+}
+
 export function chatSlackAvatarFile(a: Commands["chat:slack-avatar-file"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:slack-avatar-file"]["data"]>> {
   return rtCommand<Commands["chat:slack-avatar-file"]["data"]>("chat:slack-avatar-file", a, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 30_000 });
 }

@@ -12,6 +12,8 @@ import { SLACK_SUPPORT_CHAT_SCOPES } from "../../setup/slack-app.ts";
 import { createSlackAvatars, pictureVersion } from "../../slack/avatars.ts";
 import { SlackError, type SlackClient, type SlackUser } from "../../slack/client.ts";
 import { slackClientFromSecrets } from "../../slack/daemon-client.ts";
+import { slackPrefix } from "../../slack/format.ts";
+import { slackPersona } from "../../slack/persona.ts";
 import {
   SlackConversationBusy,
   closedNoticeForAgent,
@@ -58,7 +60,7 @@ const SLACKBOT_ID = "USLACKBOT";
 // Slack's ids hold a digit, which keeps a capitalised name such as WILL out of this.
 const SLACK_ID_SHAPE = /^[UW][A-Z0-9]*[0-9][A-Z0-9]*$/;
 
-const SLACK_CHAT_COMMANDS = ["chat:slack-open", "chat:slack-close", "chat:slack-status", "chat:slack-people", "chat:slack-avatars", "chat:slack-avatar-file", "chat:slack-pending", "chat:slack-delivered", "chat:slack-ticket", "chat:slack-request", "chat:slack-start", "chat:slack-assignment", "chat:slack-resume", "chat:slack-expire"] as const;
+const SLACK_CHAT_COMMANDS = ["chat:slack-open", "chat:slack-close", "chat:slack-status", "chat:slack-people", "chat:slack-avatars", "chat:slack-dm", "chat:slack-avatar-file", "chat:slack-pending", "chat:slack-delivered", "chat:slack-ticket", "chat:slack-request", "chat:slack-start", "chat:slack-assignment", "chat:slack-resume", "chat:slack-expire"] as const;
 
 const defaultLog = lazyChildLogger("slack-chat");
 
@@ -439,6 +441,22 @@ export function createSlackChatHandlers(opts: {
         return { ok: true, data: { people: people.sort(byShownName) } };
       } catch (err) {
         log.warn({ err }, "chat: Slack people could not be read");
+        return slackRefusal(`Slack did not answer (${slackFailureCode(err)})`);
+      }
+    },
+
+    "chat:slack-dm": async (rawPayload: unknown): Promise<CommandResult<"chat:slack-dm">> => {
+      const { userId, text } = rawPayload as Commands["chat:slack-dm"]["payload"];
+      if (typeof userId !== "string" || !SLACK_ID_SHAPE.test(userId)) return { ok: false, error: "chat: a Slack user id looks like U0ABC123" };
+      if (typeof text !== "string" || !text.trim()) return { ok: false, error: "chat: a Slack message needs some text" };
+      try {
+        const client = await slackClient();
+        if (!client) return slackRefusal(`Slack isn't connected on this machine. To connect it, run ${CONNECT_STEP}`);
+        const channel = await client.openDm(userId);
+        const { ts } = await client.post(channel, slackPrefix(slackPersona()) + text);
+        return { ok: true, data: { ts } };
+      } catch (err) {
+        log.warn({ err }, "chat: the Slack DM could not be sent");
         return slackRefusal(`Slack did not answer (${slackFailureCode(err)})`);
       }
     },

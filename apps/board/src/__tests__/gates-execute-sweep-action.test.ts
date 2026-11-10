@@ -166,3 +166,145 @@ describe('executeSweepAction', () => {
     expect(io.writes.doctor).toEqual([]);
   });
 });
+
+describe('executeSweepAction onReviewParked', () => {
+  function withParkHook(
+    io: ReturnType<typeof makeIo>,
+    impl?: () => Promise<void>
+  ): Array<[string, number]> {
+    const parked: Array<[string, number]> = [];
+    io.onReviewParked = async (mrUrl, parkedAt) => {
+      parked.push([mrUrl, parkedAt]);
+      if (impl) await impl();
+    };
+    return parked;
+  }
+
+  const reviewPark: SweepAction = {
+    kind: 'park',
+    domain: 'review',
+    mrUrl: MR_URL,
+    tabId: 'tab-1',
+    gateId: 'gate-1',
+  };
+
+  test('a review park that gatePark accepts reports the park at now', async () => {
+    const io = makeIo({ ok: true });
+    const parked = withParkHook(io);
+    await executeSweepAction(reviewPark, io);
+    expect(parked).toEqual([[MR_URL, 5000]]);
+  });
+
+  test('a refused park reports nothing', async () => {
+    const io = makeIo({ ok: false, error: 'not-open' });
+    const parked = withParkHook(io);
+    await executeSweepAction(reviewPark, io);
+    expect(parked).toEqual([]);
+  });
+
+  test('a respond-domain park reports nothing', async () => {
+    const io = makeIo({ ok: true });
+    const parked = withParkHook(io);
+    await executeSweepAction({ ...reviewPark, domain: 'respond' }, io);
+    expect(parked).toEqual([]);
+  });
+
+  test('a park after a resume reports again', async () => {
+    const io = makeIo({ ok: true });
+    const parked = withParkHook(io);
+    await executeSweepAction(reviewPark, io);
+    await executeSweepAction({ ...reviewPark, gateId: 'gate-2' }, io);
+    expect(parked).toEqual([
+      [MR_URL, 5000],
+      [MR_URL, 5000],
+    ]);
+  });
+
+  test('the park is recorded before the tab closes, and reported after', async () => {
+    const io = makeIo({ ok: true });
+    io.markReviewParked = (mrUrl, parkedAt) => {
+      io.calls.push(`mark(${mrUrl},${parkedAt})`);
+    };
+    io.onReviewParked = async () => {
+      io.calls.push('report');
+    };
+    await executeSweepAction(reviewPark, io);
+    expect(io.calls).toEqual([
+      'gatePark(gate-1)',
+      `mark(${MR_URL},5000)`,
+      'closeTab(tab-1)',
+      'report',
+    ]);
+  });
+
+  function withBothHooks(io: ReturnType<typeof makeIo>): string[] {
+    const seen: string[] = [];
+    io.markReviewParked = () => {
+      seen.push('mark');
+    };
+    io.onReviewParked = async () => {
+      seen.push('report');
+    };
+    return seen;
+  }
+
+  test("an older run's gate still parks but is neither recorded nor reported", async () => {
+    const io = makeIo({ ok: true });
+    io.reviewRunStartedAt = () => 1_000;
+    const seen = withBothHooks(io);
+    await executeSweepAction({ ...reviewPark, gateOpenedAt: 999 }, io);
+    expect(io.calls).toEqual(['gatePark(gate-1)', 'closeTab(tab-1)']);
+    expect(seen).toEqual([]);
+  });
+
+  test("the current run's gate is recorded and reported", async () => {
+    const io = makeIo({ ok: true });
+    io.reviewRunStartedAt = () => 1_000;
+    const seen = withBothHooks(io);
+    await executeSweepAction({ ...reviewPark, gateOpenedAt: 1_000 }, io);
+    expect(seen).toEqual(['mark', 'report']);
+  });
+
+  test('with no lane the park is recorded and reported', async () => {
+    const io = makeIo({ ok: true });
+    io.reviewRunStartedAt = () => undefined;
+    const seen = withBothHooks(io);
+    await executeSweepAction({ ...reviewPark, gateOpenedAt: 999 }, io);
+    expect(seen).toEqual(['mark', 'report']);
+  });
+
+  test('a refused or respond-domain park records nothing', async () => {
+    const marks: string[] = [];
+    for (const [result, domain] of [
+      [{ ok: false, error: 'not-open' }, 'review'],
+      [{ ok: true }, 'respond'],
+    ] as const) {
+      const io = makeIo(result);
+      io.markReviewParked = mrUrl => {
+        marks.push(mrUrl);
+      };
+      await executeSweepAction({ ...reviewPark, domain }, io);
+    }
+    expect(marks).toEqual([]);
+  });
+
+  test('a failing record is logged and the tab still closes', async () => {
+    const io = makeIo({ ok: true });
+    io.markReviewParked = () => {
+      throw new Error('db locked');
+    };
+    await executeSweepAction(reviewPark, io);
+    expect(io.closed).toEqual(['tab-1']);
+    expect(io.logs.some(l => l.includes('db locked'))).toBe(true);
+  });
+
+  test('a failing report is logged, never thrown', async () => {
+    const io = makeIo({ ok: true });
+    withParkHook(io, async () => {
+      throw new Error('outbox full');
+    });
+    await executeSweepAction(reviewPark, io);
+    expect(io.closed).toEqual(['tab-1']);
+    expect(io.logs.some(l => l.includes('outbox full'))).toBe(true);
+  });
+});

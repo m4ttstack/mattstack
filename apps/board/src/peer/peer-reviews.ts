@@ -19,14 +19,19 @@ export interface PeerReviewState {
   reviewer: string;
   status: string;
   outcome?: string;
-  /** The peer's own words for an error. */
+  /** The peer's own words for an error or a stop. */
   reason?: string;
+  /** On a `parked`: the reviewer board's clock when its gate parked. */
+  parkedAt?: number;
   updatedAt: number;
   /** The relay's clock when this state arrived; freshness is judged on it. */
   receivedAt?: number;
   /** When this board's owner dismissed an errored review from the row. Local
       only: a newer state from the peer replaces the row and clears it. */
   dismissedAt?: number;
+  /** When this board's owner last sent the reviewer a Slack reminder. Local
+      only, and cleared the same way as `dismissedAt`. */
+  remindedAt?: number;
 }
 
 export const PEER_REVIEW_NS = 'peer-review';
@@ -82,7 +87,7 @@ export function writePeerReview(
   return wrote;
 }
 
-/** The row's dismiss of a peer's errored review: stamps the stored state so
+/** The row's dismiss of a peer's errored or parked review: stamps the stored state so
     the band hides it. Nothing is sent to the peer. */
 export function dismissPeerReview(
   mrUrl: string,
@@ -101,6 +106,29 @@ export function dismissPeerReview(
       );
       if (!prev) return;
       setKvValue(PEER_REVIEW_NS, key, { ...prev, dismissedAt: now }, db);
+    })();
+  });
+}
+
+/** Leaves `updatedAt` alone, so the peer's next state still replaces the
+    row. */
+export function markPeerReviewReminded(
+  mrUrl: string,
+  reviewer: string,
+  at: number,
+  db: Database = getStateDb()
+): void {
+  const key = peerReviewKey(mrUrl, reviewer);
+  persistOrWarn('peer review remind', () => {
+    db.transaction(() => {
+      const prev = getKvValue<PeerReviewState | null>(
+        PEER_REVIEW_NS,
+        key,
+        null,
+        db
+      );
+      if (!prev) return;
+      setKvValue(PEER_REVIEW_NS, key, { ...prev, remindedAt: at }, db);
     })();
   });
 }

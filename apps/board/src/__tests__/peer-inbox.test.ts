@@ -11,7 +11,7 @@ const URL_A = 'https://gitlab.com/acme/webapp/-/merge_requests/4821';
 interface FinishCall {
   mrUrl: string;
   finish: {
-    result: 'done' | 'failed';
+    result: 'done' | 'failed' | 'stopped';
     outcome?: string;
     reason?: string;
     at: number;
@@ -28,7 +28,7 @@ function fakeDeps(): MaterializeDeps & {
   resolutions: Array<{
     mrUrl: string;
     resolution: {
-      result: NudgeResult | 'confirmed';
+      result: NudgeResult | 'confirmed' | 'parked';
       reason?: string;
       at: number;
     };
@@ -44,7 +44,7 @@ function fakeDeps(): MaterializeDeps & {
   const resolutions: Array<{
     mrUrl: string;
     resolution: {
-      result: NudgeResult | 'confirmed';
+      result: NudgeResult | 'confirmed' | 'parked';
       reason?: string;
       at: number;
     };
@@ -130,6 +130,64 @@ describe('materializeEnvelope', () => {
           updatedAt: 500,
           reviewer: 'grace',
           receivedAt: 200,
+        },
+      ]);
+    });
+
+    test('inbox: parked resolves the sent ask; a later reviewing puts it back to confirmed', () => {
+      const deps = fakeDeps();
+      const state = (status: string, updatedAt: number, extra = {}) =>
+        envelope({
+          payload: {
+            mrUrl: URL_A,
+            iid: 4821,
+            status,
+            updatedAt,
+            nudgeId: 'ask-1',
+            ...extra,
+          },
+        });
+      materializeEnvelope(state('parked', 500, { parkedAt: 450 }), deps, 1000);
+      materializeEnvelope(state('reviewing', 600), deps, 2000);
+      expect(deps.peerReviews[0]).toMatchObject({
+        status: 'parked',
+        parkedAt: 450,
+      });
+      expect(deps.resolutions).toEqual([
+        { mrUrl: URL_A, resolution: { result: 'parked', at: 1000 } },
+        { mrUrl: URL_A, resolution: { result: 'confirmed', at: 2000 } },
+      ]);
+      expect(deps.finishes).toEqual([]);
+      expect(deps.froms).toEqual(['grace', 'grace']);
+    });
+
+    test('a stopped review-state finishes the ask as stopped, with its reason', () => {
+      const deps = fakeDeps();
+      materializeEnvelope(
+        envelope({
+          payload: {
+            mrUrl: URL_A,
+            iid: 4821,
+            status: 'stopped',
+            reason: 'abandoned',
+            updatedAt: 500,
+            nudgeId: 'ask-1',
+          },
+        }),
+        deps,
+        1000
+      );
+      expect(deps.peerReviews[0]).toMatchObject({
+        status: 'stopped',
+        reason: 'abandoned',
+      });
+      expect(deps.resolutions).toEqual([]);
+      expect(deps.finishes).toEqual([
+        {
+          mrUrl: URL_A,
+          finish: { result: 'stopped', reason: 'abandoned', at: 1000 },
+          ifSentBefore: 500,
+          nudgeId: 'ask-1',
         },
       ]);
     });

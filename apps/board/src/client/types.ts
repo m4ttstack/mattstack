@@ -150,11 +150,15 @@ export interface PeerReviewInfo {
   reviewer: string;
   status: string;
   outcome?: string;
-  /** The peer's own words for an error. */
+  /** The peer's own words for an error or a stop. */
   reason?: string;
   updatedAt: number;
   receivedAt?: number;
-  /** When this board's owner dismissed an errored review from the row. */
+  /** On a `parked`: the reviewer board's clock when its gate parked. */
+  parkedAt?: number;
+  /** When this board's owner last sent the reviewer a reminder. */
+  remindedAt?: number;
+  /** When this board's owner dismissed an errored or parked review from the row. */
   dismissedAt?: number;
 }
 /** The re-review this board asked a peer for, and where that ask now stands.
@@ -165,6 +169,7 @@ export interface SentNudgeInfo {
     | 'confirmed'
     | 'pending'
     | 'launched'
+    | 'parked'
     | 'no-update'
     | 'rejected'
     | 'expired'
@@ -302,6 +307,8 @@ export interface BoardData {
   allMembers: ConfigMember[];
   /** Picture URL by username, for the people whose name matched one Slack person. */
   slackFaces?: Record<string, string>;
+  /** The matched Slack person's own name by username, for the same people. */
+  slackNames?: Record<string, string>;
   mrs: BoardMRWithReview[];
   /** Enrolled peer-board usernames from the relay; absent when peering is off
       or the relay hasn't answered yet, and the ask pickers then fall back to
@@ -452,6 +459,11 @@ export interface RowContext {
   onAskRetry: (mr: BoardMRWithReview) => void;
   /** The sent-ask band's dismiss: drops the board's record of the ask. */
   onAskDismiss: (mr: BoardMRWithReview) => void;
+  /** The parked band's remind: a Slack DM to the reviewer. */
+  onAskRemind?: (mr: BoardMRWithReview) => Promise<void>;
+  /** The matched Slack person's own name by username; the parked band's
+      Remind needs the reviewer among them and names who gets the DM. */
+  slackNames?: Record<string, string>;
   /** Row menu's "never diagnose this stack" toggle: mutes auto-doctor for
       this MR and every descendant (server-enforced), and on -> true clears
       whatever's currently on this row -- see POST /triage/stand-down. */

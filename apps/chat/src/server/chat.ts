@@ -287,7 +287,7 @@ function notJson(c: Context): boolean {
 /** The name the support agent goes by, for the new-chat form's placeholder. */
 function supportPersonaName(): string | undefined {
   const name = getSetting<{ name?: string } | undefined>(
-    'chat.slackSupport.persona'
+    'agent.persona'
   ).value?.name?.trim();
   return name || undefined;
 }

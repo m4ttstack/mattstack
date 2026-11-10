@@ -21,23 +21,22 @@ test("a trigger that is not at the start, or runs into a word, does not match", 
 });
 
 test("a custom trigger replaces the default", () => {
-  const ada = { name: "Ada", emoji: "🦊", trigger: "!!ada" };
-  expect(isResumePhrase("!!Ada please", ada)).toBe(true);
-  expect(isResumePhrase("@Ada please", ada)).toBe(false);
-  expect(isResumePhrase("ok !!ada", ada)).toBe(false);
+  const ada = { name: "Ada", emoji: "🦊" };
+  expect(isResumePhrase("!!Ada please", ada, "!!ada")).toBe(true);
+  expect(isResumePhrase("@Ada please", ada, "!!ada")).toBe(false);
+  expect(isResumePhrase("ok !!ada", ada, "!!ada")).toBe(false);
 });
 
 test("the old !!claude trigger returns when it is the trigger", () => {
-  const legacy = { name: "Maude", emoji: "🤖", trigger: "!!claude" };
-  expect(isResumePhrase("  !!Claude can you also check X", legacy)).toBe(true);
-  expect(isResumePhrase("!!claudeX", legacy)).toBe(false);
+  expect(isResumePhrase("  !!Claude can you also check X", MAUDE, "!!claude")).toBe(true);
+  expect(isResumePhrase("!!claudeX", MAUDE, "!!claude")).toBe(false);
 });
 
 test("regex metacharacters in a trigger are literal", () => {
-  const odd = { name: "Dot", emoji: "🔵", trigger: "a.b(c)+" };
-  expect(isResumePhrase("a.b(c)+ go", odd)).toBe(true);
-  expect(isResumePhrase("axb(c)+ go", odd)).toBe(false);
-  expect(isResumePhrase("abcc go", odd)).toBe(false);
+  const odd = { name: "Dot", emoji: "🔵" };
+  expect(isResumePhrase("a.b(c)+ go", odd, "a.b(c)+")).toBe(true);
+  expect(isResumePhrase("axb(c)+ go", odd, "a.b(c)+")).toBe(false);
+  expect(isResumePhrase("abcc go", odd, "a.b(c)+")).toBe(false);
 });
 
 test("stripTrigger drops the trigger and the punctuation that closed it", () => {

@@ -9,6 +9,11 @@ import {
     nothing else retires a review whose board went offline mid-run. */
 export const PEER_REVIEW_STALE_MS = 2 * 60 * 60 * 1000;
 
+/** A sent nudge stays visible for this long with no board-to-board response
+    before the chip self-expires to "no-response" in the UI. A parked review
+    stays live this long too: a park can wait a day on its reviewer. */
+export const NUDGE_NO_RESPONSE_MS = 48 * 60 * 60_000;
+
 export function reviewPresenceRecipients(input: {
   orgMembers: readonly string[];
   self: string;
@@ -75,8 +80,10 @@ export function isFreshPeerReview(
   s: { status: string; updatedAt: number; receivedAt?: number },
   now: number
 ): boolean {
+  const age = now - (s.receivedAt ?? s.updatedAt);
+  if (s.status === 'parked') return age <= NUDGE_NO_RESPONSE_MS;
   if (s.status !== 'queued' && s.status !== 'reviewing') return false;
-  return now - (s.receivedAt ?? s.updatedAt) <= PEER_REVIEW_STALE_MS;
+  return age <= PEER_REVIEW_STALE_MS;
 }
 
 export function activePeerReviewer(

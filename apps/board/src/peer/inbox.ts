@@ -32,7 +32,7 @@ export interface MaterializeDeps {
   resolveSentNudge(
     mrUrl: string,
     resolution: {
-      result: NudgeResult | 'confirmed';
+      result: NudgeResult | 'confirmed' | 'parked';
       reason?: string;
       declined?: true;
       declineNote?: string;
@@ -44,7 +44,7 @@ export interface MaterializeDeps {
   finishSentNudge(
     mrUrl: string,
     finish: {
-      result: 'done' | 'failed';
+      result: 'done' | 'failed' | 'stopped';
       outcome?: string;
       reason?: string;
       at: number;
@@ -78,18 +78,31 @@ export function materializeEnvelope(
     if (p.status === 'queued' || p.status === 'reviewing') {
       deps.resolveSentNudge(p.mrUrl, { result: 'confirmed', at: now }, e.from);
     }
+    // A park holds the ask at the reviewer's gate until the resumed pane
+    // reports reviewing again.
+    if (p.status === 'parked') {
+      deps.resolveSentNudge(p.mrUrl, { result: 'parked', at: now }, e.from);
+    }
     // The review ended: keep the ask on the row with its result, so the
     // asker can read it and dismiss or retry. A report echoing its ask's id
     // finishes only that ask; one without falls back to the report's own
     // updatedAt, so a redelivered pre-nudge report cannot finish an ask sent
     // after it.
-    if (p.status === 'done' || p.status === 'error') {
+    const finished =
+      p.status === 'done'
+        ? 'done'
+        : p.status === 'error'
+          ? 'failed'
+          : p.status === 'stopped'
+            ? 'stopped'
+            : null;
+    if (finished) {
       deps.finishSentNudge(
         p.mrUrl,
         {
-          result: p.status === 'done' ? 'done' : 'failed',
+          result: finished,
           ...(p.status === 'done' && p.outcome ? { outcome: p.outcome } : {}),
-          ...(p.status === 'error' && p.reason ? { reason: p.reason } : {}),
+          ...(p.status !== 'done' && p.reason ? { reason: p.reason } : {}),
           at: now,
         },
         p.updatedAt,
