@@ -100,3 +100,28 @@ export async function runLaunchFlow(
   deps.reload();
   return result;
 }
+
+/** A question about one review finding (`POST /review/finding-question`),
+    typed into the review agent's own pane from the review sheet. A refusal
+    names the route's reason (the gate moved on, the review pane is not
+    running), so the click never does nothing visible. */
+export const FINDING_QUESTION = {
+  path: '/review/finding-question',
+  verbing: 'Asking in the review pane',
+  started: 'Question asked in the review pane',
+  noun: 'question',
+  failureMessage: (result: ActionResult, mr: BoardMR): string =>
+    `Question failed for !${mr.iid} (${result.status})${result.text ? `: ${result.text}` : ''}`,
+} as const;
+
+/** The `/review/finding-question` body beyond the flow's own `mrUrl`/`iid`.
+    `tabId` is the review lane's herdr tab, the focus fallback when the pane
+    cannot be raised by id. */
+export function findingQuestionFields(
+  gateId: string,
+  findingId: string,
+  question: string,
+  tabId?: string
+): Record<string, unknown> {
+  return { gateId, findingId, question, ...(tabId ? { tabId } : {}) };
+}

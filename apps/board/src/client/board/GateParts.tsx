@@ -66,6 +66,8 @@ export function CardTitle({
   );
 }
 
+export const CARD_BODY_MS = 280;
+
 /** The card's body, folding away with the head's tick. Clips only while it
     eases: open, a popover inside it must be free to spill out. */
 export function CardBody({
@@ -89,7 +91,10 @@ export function CardBody({
               transitionEnd: { overflow: 'visible' },
             }}
             exit={{ height: 0, opacity: 0, overflow: 'hidden' }}
-            transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
+            transition={{
+              duration: CARD_BODY_MS / 1000,
+              ease: [0.4, 0, 0.2, 1],
+            }}
           >
             {children}
           </m.div>

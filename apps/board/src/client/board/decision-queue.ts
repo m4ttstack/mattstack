@@ -265,42 +265,76 @@ export function stepForward(
     MRs while its cache re-ingests, and a failed poll looks the same), so a
     merely-missing active gate stays active until the data says otherwise.
     `heldId` outranks even answer evidence: the lost-answer face is showing
-    the winning answer and must survive the refresh that reports it. */
+    the winning answer and must survive the refresh that reports it.
+
+    A gate the agent re-raised is closed as superseded, never answered, so
+    it leaves entries with no answer evidence. `replacedBy` (old gate id to
+    the gate that superseded it) is that evidence: when the successor IS in
+    entries, the old id is swapped for it in place, in `order` and as the
+    active gate, so the pip, the "n of N" count and the open sheet all move
+    onto the new gate without anything being marked answered. A mapping
+    whose successor is not in entries changes nothing, and a held gate is
+    never swapped. */
 export function reconcile(
   session: QueueSession,
   entries: QueueEntry[],
   heldId: string | null = null,
-  answeredIds?: ReadonlySet<string>
+  answeredIds?: ReadonlySet<string>,
+  replacedBy?: Readonly<Record<string, string>>
 ): QueueSession {
-  const seen = new Set(session.order);
+  const present = new Set(entries.map(e => e.gate.gateId));
+  const successorOf = (id: string): string | null => {
+    if (!replacedBy || present.has(id) || id === heldId) return null;
+    if (session.answered.includes(id)) return null;
+    const visited = new Set([id]);
+    let cur = replacedBy[id];
+    while (cur !== undefined && !present.has(cur) && !visited.has(cur)) {
+      visited.add(cur);
+      cur = replacedBy[cur];
+    }
+    return cur !== undefined && present.has(cur) ? cur : null;
+  };
+
+  let base = session.order;
+  let activeId = session.activeId;
+  if (replacedBy && base.some(id => successorOf(id) !== null)) {
+    const swapped: string[] = [];
+    for (const id of base) {
+      const to = successorOf(id) ?? id;
+      if (!swapped.includes(to)) swapped.push(to);
+    }
+    base = swapped;
+    if (activeId !== null) activeId = successorOf(activeId) ?? activeId;
+  }
+
+  const seen = new Set(base);
   const appended = entries.map(e => e.gate.gateId).filter(id => !seen.has(id));
-  const order = appended.length
-    ? [...session.order, ...appended]
-    : session.order;
+  const order = appended.length ? [...base, ...appended] : base;
+  const current: QueueSession =
+    order === session.order && activeId === session.activeId
+      ? session
+      : { ...session, order, activeId };
 
   if (
-    session.activeId !== null &&
-    !entryFor(entries, session.activeId) &&
-    (heldId === null || heldId !== session.activeId) &&
-    answeredIds?.has(session.activeId)
+    current.activeId !== null &&
+    !entryFor(entries, current.activeId) &&
+    (heldId === null || heldId !== current.activeId) &&
+    answeredIds?.has(current.activeId)
   ) {
-    const next = {
-      ...session,
-      order,
-      ...markAnswered(session, session.activeId),
-    };
+    const next = { ...current, ...markAnswered(current, current.activeId) };
     return {
       ...next,
-      activeId: advanceOrWrap(next, entries, session.activeId),
+      activeId: advanceOrWrap(next, entries, current.activeId),
     };
   }
 
-  return order === session.order ? session : { ...session, order };
+  return current;
 }
 
 export function useDecisionQueue(
   entries: QueueEntry[],
-  answeredIds?: ReadonlySet<string>
+  answeredIds?: ReadonlySet<string>,
+  replacedBy?: Readonly<Record<string, string>>
 ): DecisionQueue {
   const [open, setOpen] = useState(false);
   const [session, setSession] = useState<QueueSession>(CLOSED_SESSION);
@@ -320,8 +354,8 @@ export function useDecisionQueue(
 
   useEffect(() => {
     if (!open) return;
-    setSession(s => reconcile(s, entries, heldId, answeredIds));
-  }, [open, entries, heldId, answeredIds]);
+    setSession(s => reconcile(s, entries, heldId, answeredIds, replacedBy));
+  }, [open, entries, heldId, answeredIds, replacedBy]);
 
   const openAtStart = useCallback(() => {
     const order = entries.map(e => e.gate.gateId);

@@ -13,7 +13,11 @@ import {
   resolveAnswerOutcome,
   withoutPreset,
 } from '@mattstack/gate-kit';
-import { gateItems, useGateDraft } from '@mattstack/gate-kit/react';
+import {
+  gateItems,
+  useGateDraft,
+  type GateDraft,
+} from '@mattstack/gate-kit/react';
 import type { GateRow } from '../../gates/store.ts';
 import { gateOrigin } from '../../gates/wait-meta.ts';
 import { Disclosure, DisclosureHead } from './Disclosure.tsx';
@@ -79,18 +83,27 @@ function AnsweredChip({
     texts seeded from the localStorage draft, the submit + CAS-loss flow,
     and the origin-focus call. The decision queue's sheets are the only
     hosts that mount it (a row's chip only opens the queue), and each reads
-    `lost` for its own rail (the answered chip on a CAS loss). */
+    `lost` for its own rail (the answered chip on a CAS loss). `seed` is
+    the draft to start from when the gate has none of its own (a re-raised
+    review gate carries the one left on the gate it superseded); it is read
+    once, on the first render. */
 function useGateForm(
   gate: GateRow,
   onAnswered?: () => void,
-  { readOnly = false }: { readOnly?: boolean } = {}
+  {
+    readOnly = false,
+    seed,
+  }: { readOnly?: boolean; seed?: () => GateDraft | null } = {}
 ) {
   const actionable = gate.status === 'open' || gate.status === 'parked';
   const {
-    initial: draft,
+    initial: own,
     save: saveDraft,
     clear: clearDraft,
   } = useGateDraft(gate.gateId, actionable);
+  const [draft] = useState<GateDraft | null>(
+    () => own ?? (actionable && seed ? seed() : null)
+  );
   const preset = useMemo(
     () =>
       actionable && !readOnly

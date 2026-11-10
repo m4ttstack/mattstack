@@ -96,8 +96,19 @@ function sameRow(a: FacilityGateRow, b: FacilityGateRow): boolean {
  * `reconcileGatesOnBoot` in ingest.ts) and by individual `gate/**` bus frames
  * relayed through `ingestRelayFrame` (low-latency deltas).
  */
+/** How many replaced rows the cache keeps per subject+kind, newest first:
+    enough for a client that missed a few re-raises to follow the chain to
+    the live gate, without keeping every round forever. */
+export const REPLACED_KEPT = 5;
+
 export class GateCache {
   private readonly byKey = new Map<string, FacilityGateRow>();
+  /** Per subject+kind, the rows the current one replaced, oldest first and
+      at most REPLACED_KEPT, kept out of `rows()` so only `supersededBy` and
+      `replacements` read them. A review agent that re-raises its gate
+      supersedes the old one, and the sheet compares the two gates' findings
+      to mark what changed. */
+  private readonly replaced = new Map<string, FacilityGateRow[]>();
 
   /** Increases on every write that changes a row, so a caller can tell a
       no-op resync from one that found something. */
@@ -110,8 +121,17 @@ export class GateCache {
   applyRow(row: FacilityGateRow): void {
     const key = cacheKey(row.subject, row.kind);
     const existing = this.byKey.get(key);
-    if (existing && existing.id !== row.id && existing.openedAt > row.openedAt)
+    if (
+      existing &&
+      existing.id !== row.id &&
+      existing.openedAt > row.openedAt
+    ) {
+      // An older round: kept only when a later gate superseded it (a
+      // reconcile listing the chain), so a client can still follow it.
+      if (row.status === 'closed' && row.supersededBy)
+        this.keepReplaced(key, row);
       return;
+    }
     if (
       existing &&
       existing.id === row.id &&
@@ -119,8 +139,62 @@ export class GateCache {
     )
       return;
     if (existing && sameRow(existing, row)) return;
+    if (existing && existing.id !== row.id) this.keepReplaced(key, existing);
     this.byKey.set(key, row);
     this.revision++;
+  }
+
+  /** Adds a replaced row, or updates the kept one with its id (never
+      regressing status), keeping the newest REPLACED_KEPT by openedAt. */
+  private keepReplaced(key: string, row: FacilityGateRow): void {
+    const kept = this.replaced.get(key) ?? [];
+    const prior = kept.find(r => r.id === row.id);
+    if (
+      prior &&
+      (STATUS_RANK[prior.status] > STATUS_RANK[row.status] ||
+        sameRow(prior, row))
+    )
+      return;
+    const next = [...kept.filter(r => r.id !== row.id), row]
+      .sort((a, b) => a.openedAt - b.openedAt)
+      .slice(-REPLACED_KEPT);
+    // A row too old to keep changes nothing, and every resync offers it again.
+    if (!next.includes(row)) return;
+    this.replaced.set(key, next);
+    this.revision++;
+  }
+
+  private *replacedRows(): Iterable<FacilityGateRow> {
+    for (const kept of this.replaced.values()) yield* kept;
+  }
+
+  /** The closed row that `gateId` superseded, while the cache still holds
+      it: the last REPLACED_KEPT per subject+kind are kept, and nothing
+      survives a board restart unless a reconcile lists it. */
+  supersededBy(gateId: string): FacilityGateRow | undefined {
+    for (const row of this.replacedRows())
+      if (row.status === 'closed' && row.supersededBy === gateId) return row;
+    return undefined;
+  }
+
+  /** Every superseded gate the cache still holds, old id to the newest gate
+      in its chain: what a client with a gate open needs to follow a
+      re-raised gate onto its successor, since the old gate is closed and
+      never answered. A client that missed a re-raise in between still lands
+      on the live gate in one step. */
+  replacements(): Record<string, string> {
+    const next = new Map<string, string>();
+    for (const row of this.replacedRows())
+      if (row.status === 'closed' && row.supersededBy)
+        next.set(row.id, row.supersededBy);
+    const out: Record<string, string> = {};
+    for (const [from, to] of next) {
+      let last = to;
+      for (let hops = 0; next.has(last) && hops < next.size; hops++)
+        last = next.get(last)!;
+      out[from] = last;
+    }
+    return out;
   }
 
   /** `gateList`'s result is authoritative for every subject+kind it names; a
@@ -219,7 +293,23 @@ export class GateCache {
     for (const row of this.byKey.values()) {
       if (row.id === id) return row;
     }
+    for (const row of this.replacedRows()) {
+      if (row.id === id) return row;
+    }
     return undefined;
+  }
+
+  /** Writes a patched row back where it lives: a current row through
+      applyRow, a replaced one in place (the supersede rule's closed frame
+      arrives after the new gate's opened frame). */
+  private writePatch(row: FacilityGateRow): void {
+    const key = cacheKey(row.subject, row.kind);
+    if (this.byKey.get(key)?.id === row.id) {
+      this.applyRow(row);
+      return;
+    }
+    if (this.replaced.get(key)?.some(r => r.id === row.id))
+      this.keepReplaced(key, row);
   }
 
   private patchExisting(
@@ -234,7 +324,7 @@ export class GateCache {
     if (kind === 'answered') {
       const { answers, by } = payload;
       if (!isRecord(answers)) return;
-      this.applyRow({
+      this.writePatch({
         ...existing,
         status: 'answered',
         answer: {
@@ -247,25 +337,29 @@ export class GateCache {
           typeof payload.paneId === 'string' ? payload.paneId : existing.pane,
       });
     } else if (kind === 'parked') {
-      this.applyRow({ ...existing, status: 'parked', parkedAt: Date.now() });
+      this.writePatch({ ...existing, status: 'parked', parkedAt: Date.now() });
     } else if (kind === 'closed') {
-      this.applyRow({
+      this.writePatch({
         ...existing,
         status: 'closed',
         closedAt: Date.now(),
         closedReason: isClosedReason(payload.reason)
           ? payload.reason
           : existing.closedReason,
+        supersededBy:
+          typeof payload.supersededBy === 'string'
+            ? payload.supersededBy
+            : existing.supersededBy,
       });
     } else if (kind === 'escalated') {
-      this.applyRow({
+      this.writePatch({
         ...existing,
         escalatedAt: existing.escalatedAt ?? Date.now(),
         owner:
           typeof payload.owner === 'string' ? payload.owner : existing.owner,
       });
     } else {
-      this.applyRow({ ...existing, released: true });
+      this.writePatch({ ...existing, released: true });
     }
   }
 }

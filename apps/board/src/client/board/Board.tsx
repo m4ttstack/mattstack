@@ -136,6 +136,7 @@ import {
   useOptimisticLifecycle,
 } from './hooks.ts';
 import { assignMemberLooks } from './invadr-colors.ts';
+import { FINDING_QUESTION, findingQuestionFields } from './launch-flow.ts';
 import { MemberInvadr, MemberLooksProvider } from './MemberInvadr.tsx';
 import { mrRef, onGitHub } from './MrLinks.tsx';
 import { NEED_LABEL, NEED_ORDER, needOf } from './needs-me.ts';
@@ -755,6 +756,32 @@ export function Board() {
     reload: load,
     failureMessage: resumeRespondFailureMessage,
   });
+
+  const questionAction = useLaunchAction({
+    axis: null,
+    ...FINDING_QUESTION,
+    optimistic: optimisticLifecycle,
+    addToast,
+    startToast,
+    reload: load,
+  });
+  // Resolves whether the review pane took the question, so the sheet can
+  // say so under the finding.
+  const askQuestion = useCallback(
+    async (
+      mr: BoardMRWithReview,
+      gateId: string,
+      findingId: string,
+      question: string
+    ) => {
+      const result = await questionAction(
+        mr,
+        findingQuestionFields(gateId, findingId, question, mr.review?.tabId)
+      );
+      return Boolean(result?.ok);
+    },
+    [questionAction]
+  );
 
   // Each flow's payload lives here once: the row menu, the bulk menu, the
   // status line's verbs and the decision queue all launch through it.
@@ -1556,7 +1583,12 @@ export function Board() {
       if (gate.status === 'answered') ids.add(gate.gateId);
     return ids;
   }, [data]);
-  const queue = useDecisionQueue(queueEntries, answeredGateIds);
+  const gateReplacements = data?.gateReplacements;
+  const queue = useDecisionQueue(
+    queueEntries,
+    answeredGateIds,
+    gateReplacements
+  );
   const activeGateId = queue.active?.gate.gateId ?? null;
   const retireActiveGate = () => {
     if (activeGateId === null) return;
@@ -2314,6 +2346,7 @@ export function Board() {
               onContinue={retireActiveGate}
               onLostChange={lost => queue.hold(lost ? activeGateId : null)}
               self={seat}
+              onAskQuestion={askQuestion}
               readOnly={gateReadOnlyReason(
                 queue.active.gate,
                 queue.active.mr,
