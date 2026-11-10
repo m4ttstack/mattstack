@@ -1247,13 +1247,16 @@ body {
 .tui-status-more-line + .tui-status-more-line {
   border-top: 1px solid var(--border-soft);
 }
-/* A line with an action is one button: its verb, in the lane's colour,
-   shows only under the pointer or keyboard focus. */
-button.tui-status-more-line {
+/* A line with an action shows its verb, in the lane's colour, under the
+   pointer or keyboard focus. A look or tidy-up runs from anywhere on the line
+   (data-action="line"); starting an agent takes a click on the verb itself
+   (data-action="launch"). */
+.tui-status-more-line[data-action='line'] {
   cursor: pointer;
 }
-button.tui-status-more-line:hover,
-button.tui-status-more-line:focus-visible {
+.tui-status-more-line[data-action]:hover,
+.tui-status-more-line[data-action]:focus-visible,
+.tui-status-more-line[data-action]:focus-within {
   background: var(--surface-wash-bg-55);
   outline: none;
 }
@@ -1275,27 +1278,39 @@ button.tui-status-more-line:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  margin: 0;
   padding: 2px 6px 2px 8px;
+  border: 0;
   border-radius: var(--radius-px5);
+  background: none;
+  font: inherit;
   font-size: 0.76rem;
   font-weight: 600;
   color: var(--verb, var(--text-2));
   opacity: 0;
   transition: opacity 120ms ease;
 }
-button.tui-status-more-line:hover .tui-status-more-verb,
-button.tui-status-more-line:focus-visible .tui-status-more-verb {
+button.tui-status-more-verb {
+  cursor: pointer;
+}
+.tui-status-more-line[data-action]:hover .tui-status-more-verb,
+.tui-status-more-line[data-action]:focus-visible .tui-status-more-verb,
+.tui-status-more-line[data-action]:focus-within .tui-status-more-verb {
   opacity: 1;
 }
-.tui-status-more-verb:hover {
+.tui-status-more-verb:hover,
+button.tui-status-more-verb:focus-visible {
   background: color-mix(
     in srgb,
     var(--verb-wash, var(--muted)) 14%,
     transparent
   );
+  outline: none;
 }
-/* A press anywhere on the line presses its action. */
-button.tui-status-more-line:active .tui-status-more-verb {
+/* A press on a line-wide action presses its verb; a launch presses only
+   when the verb itself is pressed. */
+.tui-status-more-line[data-action='line']:active .tui-status-more-verb,
+button.tui-status-more-verb:active {
   background: color-mix(
     in srgb,
     var(--verb-wash, var(--muted)) 26%,

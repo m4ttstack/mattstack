@@ -35,8 +35,33 @@ const busy = storyMr({
   drafts: [{ kind: 'reply' }],
 } as unknown as Partial<BoardMRWithReview>);
 
+/** Nothing running on the MR, so the lines that start an agent may: their
+    action runs only from a click on the action itself. */
+const quiet = storyMr({
+  title: 'WEB-431 Retry flaky uploads with backoff',
+  behindTarget: null,
+  threadSummary: { awaiting: 2, replied: 0, resolved: 1 },
+  review: { status: 'done', updatedAt: NOW - 600_000 },
+  doctor: { status: 'error', message: 'the pane exited' },
+  drafts: [{ kind: 'reply' }],
+} as unknown as Partial<BoardMRWithReview>);
+
+export const QuietLaunches: Story = {
+  name: 'Nothing running: launches from the action',
+  render: () => (
+    <div style={{ minHeight: 360 }}>
+      <RowView mrs={[quiet]} now={NOW} showAuthor={false} ctx={storyCtx} />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    await userEvent.click(
+      within(canvasElement).getByRole('button', { name: /more/ })
+    );
+  },
+};
+
 export const Today: Story = {
-  name: 'Today: +3 more open',
+  name: 'Busy: +3 more open',
   render: () => (
     <div style={{ minHeight: 360 }}>
       <RowView mrs={[busy]} now={NOW} showAuthor={false} ctx={storyCtx} />

@@ -9,7 +9,7 @@ import { cleanTitle } from './format.ts';
 import { RowSpotlight } from './RowSpotlight.tsx';
 import { useLingering } from './use-lingering.ts';
 import { AgentGlyph, ChevronGlyph, CloudSpinner, Sun } from './icons.tsx';
-import type { Candidate, RowStatus, Verb, VerbKind } from './row-status.ts';
+import type { Candidate, RowStatus, Verb } from './row-status.ts';
 import {
   liveSyncLines,
   parseSyncLine,
@@ -17,34 +17,20 @@ import {
   subscribeSyncLines,
   takeAutoOpen,
 } from './sync-lines.ts';
+import {
+  heldOrder,
+  laneOf,
+  moreAction,
+  moreKey,
+} from './more-actions.ts';
 import { syncSteps, type SyncView } from './sync-steps.ts';
 import { SyncSteps } from './SyncSteps.tsx';
-
-type Lane = 'review' | 'respond' | 'doctor';
 
 const NO_PACK_TIP =
   'No pack selected. Launched the generic skill. Set a pack on the tab, or join a team that has one.';
 
 /** How long an armed merge waits for its second click. */
 export const MERGE_ARM_MS = 4000;
-
-/** The lane an agent verb launches, re-runs or jumps into. The color of the
-    verb is the lane, so a reader knows which agent a click starts before
-    reading the word; `resume`, `redo` and `focus` name theirs on the verb. */
-const AGENT_LANE: Partial<Record<VerbKind, Lane>> = {
-  'launch-review': 'review',
-  're-review': 'review',
-  'launch-respond': 'respond',
-  'restart-respond': 'respond',
-  'resume-respond': 'respond',
-  'call-doctor': 'doctor',
-};
-
-function laneOf(verb: Verb): Lane | undefined {
-  if (verb.kind === 'resume' || verb.kind === 'redo' || verb.kind === 'focus')
-    return verb.domain;
-  return AGENT_LANE[verb.kind];
-}
 
 /** The primary verb holds the line's right end at rest; the secondaries
     appear under the pointer to its LEFT, so it never moves. */
@@ -293,10 +279,17 @@ function MoreStatuses({
 }) {
   const [open, setOpen] = useState(false);
   const list = useRef<HTMLDivElement>(null);
+  // A poll can re-rank the statuses; while the list is open it keeps the
+  // order it opened with, so a line cannot swap under the pointer.
+  const [order, setOrder] = useState<string[] | null>(null);
+  const toggle = (next: boolean) => {
+    setOrder(next ? more.map(moreKey) : null);
+    setOpen(next);
+  };
   return (
     <Popover
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={toggle}
       // The list, not its first action, takes focus: a ringed "focus" on
       // every open reads as the thing to press.
       initialFocus={list}
@@ -324,12 +317,24 @@ function MoreStatuses({
         onClick={e => e.stopPropagation()}
         onContextMenu={e => e.stopPropagation()}
       >
-        {more.map((l, i) => {
+        {heldOrder(more, order).map(l => {
+          const key = moreKey(l);
           const detail = l.detail ? clauseOf(l.detail) : null;
-          // Merge needs the row line's two-click arm, so it never fires
-          // from here.
-          const verb = l.verbs.find(v => v.kind !== 'merge');
-          const lane = verb ? laneOf(verb) : undefined;
+          const action = moreAction(l, mr);
+          const run = (e: { stopPropagation(): void }) => {
+            e.stopPropagation();
+            toggle(false);
+            if (action) runVerb(action.verb, mr, ctx);
+          };
+          const pill = action && (
+            <>
+              {action.lane && <AgentGlyph />}
+              {action.verb.label}
+              <span className="tui-status-more-chevron" aria-hidden>
+                <ChevronGlyph />
+              </span>
+            </>
+          );
           const body = (
             <span className="tui-status-more-stack">
               {l.source && (
@@ -351,34 +356,48 @@ function MoreStatuses({
               </span>
             </span>
           );
-          // The whole line is the action; its verb shows under the pointer.
-          return verb ? (
+          if (!action)
+            return (
+              <div key={key} className="tui-status-more-line" data-tone={l.tone}>
+                {body}
+              </div>
+            );
+          // Starting an agent takes a click on the action itself; a look or a
+          // tidy-up runs from anywhere on the line.
+          if (action.launches)
+            return (
+              <div
+                key={key}
+                className="tui-status-more-line"
+                data-tone={l.tone}
+                data-lane={action.lane}
+                data-action="launch"
+              >
+                {body}
+                <button
+                  type="button"
+                  className="tui-status-more-verb"
+                  data-verb={action.verb.kind}
+                  onClick={run}
+                >
+                  {pill}
+                </button>
+              </div>
+            );
+          return (
             <button
-              key={i}
+              key={key}
               type="button"
               className="tui-status-more-line"
               data-tone={l.tone}
-              data-lane={lane}
-              data-verb={verb.kind}
-              onClick={e => {
-                e.stopPropagation();
-                setOpen(false);
-                runVerb(verb, mr, ctx);
-              }}
+              data-lane={action.lane}
+              data-verb={action.verb.kind}
+              data-action="line"
+              onClick={run}
             >
               {body}
-              <span className="tui-status-more-verb">
-                {lane && <AgentGlyph />}
-                {verb.label}
-                <span className="tui-status-more-chevron" aria-hidden>
-                  <ChevronGlyph />
-                </span>
-              </span>
+              <span className="tui-status-more-verb">{pill}</span>
             </button>
-          ) : (
-            <div key={i} className="tui-status-more-line" data-tone={l.tone}>
-              {body}
-            </div>
           );
         })}
       </div>
