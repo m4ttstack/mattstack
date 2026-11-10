@@ -177,7 +177,7 @@ test('a script that exits non-zero fails the item and reports the exit code and 
 test('Confirm shows the item running at once and the report follows when the runner finishes', async ($, on) => {
   const { clock, sent } = await seeded($, on, [todo({})], {
     script: async function* () {
-      await clock.sleep(60_000)
+      await clock.sleep(500)
       return yield* exits([{ stream: 'stdout', text: 'late\n' }])
     },
   })
@@ -190,7 +190,7 @@ test('Confirm shows the item running at once and the report follows when the run
   expect(await state($)).toMatch(/^#1 \[running\]/)
   expect(sent).toEqual([])
   await clock.sleeping()
-  await clock.advance(60_000)
+  await clock.advance(500)
   expect(await state($)).toMatch(/^#1 \[done\]/)
   expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 0.\n```\nlate\n```'])
   await pane.unmount()
@@ -468,7 +468,7 @@ test('the spinner advances every 100 ms while an item runs and rests when none d
 
 test('a second Confirm during a slow herdr probe starts the run once', async ($, on) => {
   const fake = herdrFake()
-  const { clock } = await seeded($, on, [todo({})], { env: { HERDR_SOCKET_PATH: '/s' }, probeHold: 5000, run: argv => fake.run(argv.at(-1) ?? '') ?? {} })
+  const { clock } = await seeded($, on, [todo({})], { env: { HERDR_SOCKET_PATH: '/s' }, probeHold: 1000, run: argv => fake.run(argv.at(-1) ?? '') ?? {} })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await confirming(pane)
 
@@ -477,7 +477,7 @@ test('a second Confirm during a slow herdr probe starts the run once', async ($,
   expect(await texts(pane)).toContain('⠋ Running ')
   await clock.sleeping()
   await pane.press({ key: 'confirm-1' }).catch(() => undefined)
-  await clock.advance(5000)
+  await clock.advance(1000)
 
   expect(fake.ran('herdr pane run')).toHaveLength(1)
   expect(fake.ran('herdr workspace create')).toHaveLength(1)
@@ -549,7 +549,7 @@ test('with the pane closed and nothing drawn, a finished run is still reported',
 
 test('Stop during the herdr probe cancels the run: the item is open again and nothing launches', async ($, on) => {
   const fake = herdrFake()
-  const { clock } = await seeded($, on, [todo({})], { env: { HERDR_SOCKET_PATH: '/s' }, probeHold: 5000, run: argv => fake.run(argv.at(-1) ?? '') ?? {} })
+  const { clock } = await seeded($, on, [todo({})], { env: { HERDR_SOCKET_PATH: '/s' }, probeHold: 1000, run: argv => fake.run(argv.at(-1) ?? '') ?? {} })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await confirming(pane)
   await pane.press({ key: 'confirm-1' })
@@ -557,7 +557,7 @@ test('Stop during the herdr probe cancels the run: the item is open again and no
   await clock.sleeping()
 
   await pane.press({ key: 'stop-1' })
-  await clock.advance(5000)
+  await clock.advance(1000)
 
   expect(await state($)).toMatch(/^#1 \[open\]/)
   expect(await texts(pane)).toContain('Stopped')
