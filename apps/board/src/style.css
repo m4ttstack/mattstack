@@ -1259,17 +1259,29 @@ button.tui-status-more-line:focus-visible {
 }
 .tui-status-more-line[data-lane='review'] {
   --verb: var(--text-accent);
+  --verb-wash: var(--fill-accent);
 }
 .tui-status-more-line[data-lane='respond'] {
   --verb: var(--text-ok-vivid);
+  --verb-wash: var(--fill-ok);
 }
 .tui-status-more-line[data-lane='doctor'] {
   --verb: var(--orange);
+  --verb-wash: var(--fill-warn);
 }
+/* A pill in the lane's wash, like a row verb under the pointer, so it reads
+   as the thing the click does. */
 .tui-status-more-verb {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  padding: 2px 6px 2px 8px;
+  border-radius: var(--radius-px5);
+  background: color-mix(
+    in srgb,
+    var(--verb-wash, var(--muted)) 12%,
+    transparent
+  );
   font-size: 0.76rem;
   font-weight: 600;
   color: var(--verb, var(--text-2));
