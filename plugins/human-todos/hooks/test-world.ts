@@ -11,7 +11,8 @@ export const SESSION = 'sess-1'
 export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__human-todos__' }: Options = {}) {
   const store = new Map<string, unknown>(Object.entries(entries))
   const registered: Registered[] = []
-  on('session.id', () => ({ value: SESSION }))
+  let sessionId = SESSION
+  on('session.id', () => ({ value: sessionId }))
   on('store.get', (_, e) => ({ value: store.get(e.key) }))
   on('store.set', (_, e) => {
     store.set(e.key, e.value)
@@ -27,9 +28,16 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
     return { value: { tool: `${prefix}${e.name}` } }
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.end', (_, e) => ({ sessionId: e.sessionId }))
   on('prompt.compose', () => ({ sections: [] }))
   mock.clock(on, { now })
-  return { store, registered }
+  return {
+    store,
+    registered,
+    setSession: (id: string) => {
+      sessionId = id
+    },
+  }
 }
 
 export const startSession = ($: Engine) => $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })

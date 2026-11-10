@@ -42,6 +42,11 @@ test('add, list and withdraw work the list', async ($, on) => {
   expect((await $.tool.call({ tool: LIST })).result).toBe('No to-dos.')
 
   expect((await $.tool.call({ tool: WITHDRAW, id: '9' })).result).toBe('No to-do #9.')
+
+  await $.tool.call({ tool: ADD, kind: 'task', title: 'x' })
+  await $.tool.call({ tool: ADD, kind: 'task', title: 'y' })
+  expect((await $.tool.call({ tool: WITHDRAW, id: '#2' })).result).toBe('Withdrew #2.')
+  expect((await $.tool.call({ tool: WITHDRAW, id: 3 as unknown as string })).result).toBe('Withdrew #3.')
 })
 
 test('the three tools are allowed without a prompt; other tools pass through', async ($, on) => {

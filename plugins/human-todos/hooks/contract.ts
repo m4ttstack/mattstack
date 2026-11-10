@@ -2,7 +2,7 @@ import type { On } from 'claude-code'
 
 import type { AddInput } from '../types'
 import { checkKind, describe } from './items'
-import { addTodo, listTodos, removeTodos, restoreList } from './store'
+import { addTodo, listTodos, removeTodos, resetList, restoreList } from './store'
 import { cleanup, openPane } from './wiring'
 
 export const TITLE = 'Human Todos'
@@ -73,6 +73,12 @@ export function registerContract(on: On): void {
     return started
   })
 
+  on('session.end', async ($, e, next) => {
+    const ended = await next(e)
+    if (e.reason === 'clear' || e.reason === 'resume') await resetList($)
+    return ended
+  })
+
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
     return {
@@ -100,7 +106,7 @@ export function registerContract(on: On): void {
   })
 
   on('tool.call', { tool: 'mcp__human-todos__withdraw' }, async ($, e) => {
-    const { id } = e as unknown as { id: string }
+    const id = String((e as unknown as { id: string | number }).id).replace(/^#/, '')
     const gone = await removeTodos($, t => t.id === id)
     if (gone.length === 0) return { result: `No to-do #${id}.` }
     await cleanup($, gone)

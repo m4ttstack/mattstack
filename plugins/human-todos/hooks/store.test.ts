@@ -81,3 +81,40 @@ test('session.start deletes lists untouched for more than 30 days', async ($, on
 
   expect([...store.keys()].sort()).toEqual(['list:fresh', 'unrelated'])
 })
+
+test('a new session id starts empty even after items existed, and the old list stays saved', async ($, on) => {
+  const { store, setSession } = world(on)
+  await startSession($)
+  await $.tool.call({ tool: ADD, kind: 'task', title: 'a' })
+  await $.tool.call({ tool: ADD, kind: 'task', title: 'b' })
+
+  setSession('sess-2')
+  await startSession($)
+  expect((await $.tool.call({ tool: LIST })).result).toBe('No to-dos.')
+  expect((await $.tool.call({ tool: ADD, kind: 'task', title: 'c' })).result).toMatch(/^Added #1 /)
+  expect((store.get('list:sess-1') as { todos: Todo[] }).todos).toHaveLength(2)
+
+  setSession('sess-1')
+  await startSession($)
+  expect((await $.tool.call({ tool: LIST })).result).toBe('#1 [open] a\n#2 [open] b')
+})
+
+test('/clear empties the list at once and leaves the old list saved', async ($, on) => {
+  const { store, setSession } = world(on)
+  await startSession($)
+  await $.tool.call({ tool: ADD, kind: 'task', title: 'a' })
+
+  await $.session.end({ reason: 'clear', sessionId: 'sess-1', resume: { id: 'sess-1' } })
+  setSession('sess-2')
+
+  expect((await $.tool.call({ tool: LIST })).result).toBe('No to-dos.')
+  expect((await $.tool.call({ tool: ADD, kind: 'task', title: 'b' })).result).toMatch(/^Added #1 /)
+  expect((store.get('list:sess-1') as { todos: Todo[] }).todos.map(t => t.title)).toEqual(['a'])
+  expect((store.get('list:sess-2') as { todos: Todo[] }).todos.map(t => t.title)).toEqual(['b'])
+})
+
+test('a saved entry with no numeric savedAt is swept', async ($, on) => {
+  const { store } = world(on, { entries: { 'list:bad': { todos: [], nextId: 1 } } })
+  await startSession($)
+  expect([...store.keys()]).not.toContain('list:bad')
+})

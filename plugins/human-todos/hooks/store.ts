@@ -58,6 +58,10 @@ export async function removeTodos($: EngineInterface, pick: (t: Todo) => boolean
   return removed
 }
 
+function isFresh(entry: SavedList | undefined, now: number): boolean {
+  return typeof entry?.savedAt === 'number' && now - entry.savedAt <= MAX_AGE_MS
+}
+
 function resume(t: Todo): Todo {
   if (t.status === 'confirming') return { ...t, status: 'open' }
   if (t.status === 'running' && t.runner === 'local') {
@@ -72,11 +76,17 @@ export async function restoreList($: EngineInterface): Promise<void> {
   for (const key of await $.store.keys()) {
     if (!key.startsWith(LIST_PREFIX)) continue
     const entry = (await $.store.get(key)) as SavedList | undefined
-    if (!entry || now - entry.savedAt > MAX_AGE_MS) await $.store.delete(key)
+    if (!isFresh(entry, now)) await $.store.delete(key)
   }
 
   const mine = (await $.store.get(`${LIST_PREFIX}${await $.session.id()}`)) as SavedList | undefined
-  if (!mine) return
+  if (!mine) return resetList($)
   await update($, todos, () => mine.todos.map(resume))
   await update($, nextId, () => mine.nextId)
+}
+
+export async function resetList($: EngineInterface): Promise<void> {
+  await update($, todos, () => [])
+  await update($, expanded, () => [])
+  await update($, nextId, () => 1)
 }
