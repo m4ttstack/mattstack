@@ -9,6 +9,10 @@ const PID_LINE = /^__human_todo_pid__(\d+)$/
 const FLUSH_MS = 1000
 // $.fs.write refuses 4 MiB, so the log keeps a rolling window well under it.
 const WINDOW = 1024 * 1024
+// Output grows past the window before it is cut, so a chatty script costs one slice per window, not one per piece.
+const SLACK = WINDOW
+// The live tail needs only the last few lines, so it reads no further back than this.
+const TAIL_SCAN = 64 * 1024
 const DROPPED = '[earlier output was dropped]\n'
 
 type Job = { pid?: number; isStopped: boolean; isGone: boolean }
@@ -81,23 +85,25 @@ export async function startLocal($: EngineInterface, todo: Todo): Promise<void> 
   let isWriteFailed = false
   const append = (text: string) => {
     output += text
-    if (output.length > WINDOW) {
+    if (output.length > WINDOW + SLACK) {
       output = output.slice(-WINDOW)
       isTrimmed = true
     }
     revision += 1
   }
+  const kept = () => (output.length > WINDOW ? output.slice(-WINDOW) : output)
+  const isCut = () => isTrimmed || output.length > WINDOW
   let queue: Promise<void> = Promise.resolve()
   const writeOut = async () => {
     if (job.isGone || revision === written) return
     written = revision
     try {
-      await $.fs.write(logPath, isTrimmed ? `${DROPPED}${output}` : output)
+      await $.fs.write(logPath, isCut() ? `${DROPPED}${kept()}` : output)
     } catch {
       if (!isWriteFailed) $.ui.toast(`Could not save the output of #${todo.id}`)
       isWriteFailed = true
     }
-    await patchTodo($, todo.id, { liveTail: clipLines(liveLines(output)) }).catch(() => undefined)
+    await patchTodo($, todo.id, { liveTail: clipLines(liveLines(output.slice(-TAIL_SCAN))) }).catch(() => undefined)
   }
   // Writes queue up so a late timer flush can never overwrite the final one.
   const flush = () => (queue = queue.then(writeOut))
@@ -145,7 +151,7 @@ export async function startLocal($: EngineInterface, todo: Todo): Promise<void> 
   jobs.delete(token)
   if (job.isGone) return
   await flush()
-  await report($, todo, job.isStopped ? { kind: 'stopped', outputTail: output } : { kind: 'ran', exitCode, outputTail: output })
+  await report($, todo, job.isStopped ? { kind: 'stopped', outputTail: kept() } : { kind: 'ran', exitCode, outputTail: kept() })
 }
 
 export async function stopLocal($: EngineInterface, todo: Todo): Promise<void> {

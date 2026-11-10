@@ -496,7 +496,7 @@ test('a log that cannot be written toasts once for the run and the run still rep
   expect(sent).toHaveLength(1)
 })
 
-test('output past 4 MiB rolls: the log stays under the write limit, the live tail keeps moving, no toast', async ($, on) => {
+test('output past 4 MiB rolls: the log keeps its last 1 MiB, under the write limit, the live tail keeps moving, no toast', async ($, on) => {
   const MIB = 1024 * 1024
   const big = out('abcdefghi\n'.repeat(200_000))
   const { run1, writes, item, toasts, clock } = await seeded($, on, [todo({})], {
@@ -520,7 +520,7 @@ test('output past 4 MiB rolls: the log stays under the write limit, the live tai
   await clock.advance(3000)
 
   expect(toasts).toEqual([])
-  expect(writes.every(w => w.text.length <= 4 * MIB)).toBe(true)
+  expect(writes.every(w => w.text.length <= MIB + '[earlier output was dropped]\n'.length)).toBe(true)
   expect(writes.at(-1)?.text.startsWith('[earlier output was dropped]\n')).toBe(true)
   expect(writes.at(-1)?.text.endsWith('the newest line\n')).toBe(true)
   expect(item('1')?.liveTail?.at(-1)).toBe('the newest line')
