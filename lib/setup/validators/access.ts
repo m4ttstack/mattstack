@@ -31,7 +31,13 @@ function rowFromVerdict(v: RepoAccessVerdict, ctx: { grantedBy: string; provider
     case "no-account":
       return { status: "needs-you", detail: `Connect your ${forge} account so rt can prove access`, action: { type: "connect", label: "Connect", integration: ctx.provider, fields: integrationDef(ctx.provider).fields } };
     case "denied":
-      return { status: "needs-you", detail: `Your ${forge} account cannot see this repo yet. Ask ${ctx.grantedBy} or your org admin for read access`, action: RECHECK_ACTION };
+      return {
+        status: "needs-you",
+        detail: v.invitation
+          ? `Your ${forge} account cannot see this repo yet. Accept the invitation at ${v.invitation}, or ask ${ctx.grantedBy} or your org admin for read access`
+          : `Your ${forge} account cannot see this repo yet. Ask ${ctx.grantedBy} or your org admin for read access`,
+        action: RECHECK_ACTION,
+      };
     default:
       return { status: "error", detail: v.detail, action: RECHECK_ACTION };
   }

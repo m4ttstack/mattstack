@@ -8,11 +8,23 @@
 import { gitUsable } from "../setup/home-git.ts";
 import type { Probes } from "../setup/probes.ts";
 import { forgeFromRemote, hostFromRemote } from "../setup/team-settings.ts";
+import { parseForgeRemote, splitOwnerRepo } from "./forge.ts";
 import { gitWithToken } from "./git-credential.ts";
 import { tokenOrNull, type ForgeTokenLookup } from "./forge-token.ts";
 import { withoutUrls } from "./redact.ts";
 
-export type RepoAccessVerdict = { kind: "ok" | "no-clt" | "no-account" | "denied" | "unreachable" | "indeterminate"; detail: string };
+export type RepoAccessVerdict = { kind: "ok" | "no-clt" | "no-account" | "denied" | "unreachable" | "indeterminate"; detail: string; invitation?: string };
+
+/** Both forges answer a repo this account cannot read as if it did not exist, so a new member's pending invite looks like a missing repo. */
+export const REPO_HIDDEN_PATTERN = /repository not found|repository '[^']*' not found|could not be found or you don't have permission/i;
+
+/** Only GitHub holds access back until an invitation is accepted. */
+export function invitationUrl(remote: string): string | undefined {
+  const parsed = parseForgeRemote(remote);
+  if (parsed?.provider !== "github") return undefined;
+  const { owner, repo } = splitOwnerRepo(parsed.path);
+  return `https://github.com/${owner}/${repo}/invitations`;
+}
 
 /** The user-facing name of a forge, from the provider rather than the host, so an unrecognized host never renders as the wrong one. Both the row copy and the join copy read it from here. */
 export function forgeLabel(provider: "github" | "gitlab" | undefined): string {
@@ -56,6 +68,11 @@ export async function probeTeamRepoAccess(p: Probes, remote: string, lookup: For
             ? `rt holds a token but will not send it to ${lookup.host}, a host you have not confirmed: run \`rt setup github connect --host ${lookup.host}\` (or gitlab) to confirm it first`
             : "rt offered its token and git still had none to send";
       return { kind: "indeterminate", detail: `couldn't determine access: ${why}` };
+    }
+    // First, because git echoes the url and AUTH_REFUSAL_PATTERN's bare 403 can match a repo's name.
+    if (REPO_HIDDEN_PATTERN.test(res.stderr)) {
+      const invitation = invitationUrl(remote);
+      return { kind: "denied", detail: "the forge hides this repo from this account", ...(invitation ? { invitation } : {}) };
     }
     if (AUTH_REFUSAL_PATTERN.test(res.stderr)) return { kind: "denied", detail: "the forge refused this account" };
   }

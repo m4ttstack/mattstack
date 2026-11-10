@@ -51,7 +51,7 @@ import type { RelayClient } from "./relay-client.ts";
 import { warn as warnLine, type ShownWarning } from "../ui/warn.ts";
 import * as out from "../ui/out.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
-import { forgeLabel, probeTeamRepoAccess, type RepoAccessVerdict } from "./repo-access.ts";
+import { forgeLabel, invitationUrl, probeTeamRepoAccess, REPO_HIDDEN_PATTERN, type RepoAccessVerdict } from "./repo-access.ts";
 import { forgeTokenLookupForRemote, mayOfferToken, mayOfferTokenToHost, tokenLookupRemoteForHost } from "./forge-token.ts";
 import { assertOnlyTeam } from "./one-team.ts";
 import { readTeamLocal, teamLocalPath, updateTeamLocal } from "./team-local.ts";
@@ -64,6 +64,8 @@ export interface JoinResult {
   peering: "applied" | "idle" | "unavailable";
   /** Present exactly when `peering` is "unavailable": what gets this machine's board peered. */
   peeringFix?: string;
+  /** Present when GitHub hid the team repo: the page where the joiner accepts their invitation. */
+  invitation?: string;
   message: string;
   intent: "written" | "not-written";
 }
@@ -100,13 +102,15 @@ function teamRefFrom(pointer: InvitePointer): JoinResult["team"] {
   return { slug: pointer.team, name: pointer.name, owner: pointer.owner };
 }
 
-function deniedResult(pointer: InvitePointer): JoinResult {
+function deniedResult(pointer: InvitePointer, invitation?: string): JoinResult {
+  const ask = `ask ${pointer.owner} to let you into ${pointer.name}, since you don't have access yet.`;
   return {
     team: teamRefFrom(pointer),
     teams: pointer.teams,
     access: "denied",
     peering: "idle",
-    message: `Ask ${pointer.owner} to let you into ${pointer.name}, since you don't have access yet.`,
+    ...(invitation ? { invitation } : {}),
+    message: invitation ? `Accept your GitHub invitation at ${invitation}, then try again. If you don't have one, ${ask}` : `A${ask.slice(1)}`,
     intent: "written",
   };
 }
@@ -251,7 +255,7 @@ function gitFailureMessage(kind: Exclude<GitFailureKind, "denied">, result: Exec
 
 function gitAccessResult(pointer: InvitePointer, result: ExecResult): JoinResult {
   const kind = classifyGitFailure(result);
-  if (kind === "denied") return deniedResult(pointer);
+  if (kind === "denied") return deniedResult(pointer, REPO_HIDDEN_PATTERN.test(`${result.stdout}\n${result.stderr}`) ? invitationUrl(pointer.remote) : undefined);
   return unreachableResult(teamRefFrom(pointer), gitFailureMessage(kind, result), "written", pointer.teams);
 }
 
@@ -266,7 +270,12 @@ function accessFromVerdict(v: RepoAccessVerdict, pointer: InvitePointer): { acce
     case "no-account":
       return { access: "no-account", message: `${joining} Connect your ${forge} account so rt can reach the team repo.` };
     case "denied":
-      return { access: "denied", message: `${joining} Your ${forge} account cannot see the team repo yet. Ask ${pointer.owner} or your org admin for read access.` };
+      return {
+        access: "denied",
+        message: v.invitation
+          ? `${joining} Your ${forge} account cannot see the team repo yet. Accept your invitation at ${v.invitation}. If you don't have one, ask ${pointer.owner} or your org admin for read access.`
+          : `${joining} Your ${forge} account cannot see the team repo yet. Ask ${pointer.owner} or your org admin for read access.`,
+      };
     case "unreachable":
       return { access: "unreachable", message: `${joining} rt could not reach the team repo: ${v.detail}. It checks again when you join.` };
     default:

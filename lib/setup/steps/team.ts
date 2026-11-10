@@ -108,7 +108,7 @@ export function outcomeFromJoin(result: JoinResult): StepOutcome {
     return { state: "done", detail: result.message };
   }
   if (result.access === "denied") {
-    return { state: "failed", detail: result.message, remedy: "Ask the owner to grant access, then Retry" };
+    return { state: "failed", detail: result.message, remedy: result.invitation ? "Accept the GitHub invitation or ask the owner for access, then Retry" : "Ask the owner to grant access, then Retry" };
   }
   return { state: "failed", detail: result.message, remedy: "Check your network, then Retry" };
 }
