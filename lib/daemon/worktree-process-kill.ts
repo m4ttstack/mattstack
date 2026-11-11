@@ -382,11 +382,21 @@ export async function killWorktreeProcesses(
     log.warn({ exitCode: lsof.exitCode, worktreePath }, "lsof failed; skipping worktree process kill");
     return none;
   }
+  const realpaths = new Map<string, string>();
   const cwds = new Map<number, string>();
-  for (const [pid, raw] of parseLsofAllCwds(lsof.stdout)) cwds.set(pid, safeRealpath(raw));
+  for (const [pid, raw] of parseLsofAllCwds(lsof.stdout)) {
+    let resolved = realpaths.get(raw);
+    if (resolved === undefined) {
+      resolved = safeRealpath(raw);
+      realpaths.set(raw, resolved);
+    }
+    cwds.set(pid, resolved);
+  }
 
   const ps = await run(["ps", "-A", "-o", "pid=,ppid=,comm=,args="], { timeoutMs: 5000 });
-  if (ps.exitCode !== 0 && !ps.stdout) {
+  // The plan spares by family, so a partial table could hide a session's
+  // ancestors or descendants: unlike lsof, any ps failure skips the kill.
+  if (ps.exitCode !== 0) {
     log.warn({ exitCode: ps.exitCode, worktreePath }, "ps failed; skipping worktree process kill");
     return none;
   }

@@ -473,6 +473,31 @@ describe("killWorktreeProcesses", () => {
     expect(result).toEqual({ terminated: [], stoppedSessions: [] });
   });
 
+  test("a non-zero ps -A exit with partial output signals nothing", async () => {
+    const A = tree();
+    const table = [row(700, 1, "node", "node vite")];
+    const h = harness({
+      table,
+      cwds: [[700, A]],
+      ps: { exitCode: 1, stdout: "700 1 node node vite\n" },
+    });
+    const result = await killWorktreeProcesses(A, h.options);
+    expect(h.signals).toEqual([]);
+    expect(result).toEqual({ terminated: [], stoppedSessions: [] });
+  });
+
+  test("callerPids reach the planner's protected pids", async () => {
+    const A = tree();
+    const table = [
+      row(641, 1, "rt", "rt worktree dispose"),
+      row(642, 641, "node", "node helper"),
+    ];
+    const h = harness({ table, cwds: [[641, A], [642, A]] });
+    const result = await killWorktreeProcesses(A, { ...h.options, callerPids: [641] });
+    expect(h.signals).toEqual([]);
+    expect(result).toEqual({ terminated: [], stoppedSessions: [] });
+  });
+
   test("identity is resolved before any signal", async () => {
     const A = tree();
     const identity: SessionIdentity = { sessionId: "s-1", handle: "haldir", rooms: ["dev"] };
