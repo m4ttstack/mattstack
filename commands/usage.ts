@@ -42,6 +42,7 @@ export async function usageSweepCommand(): Promise<void> {
   const result = await runSweep({
     dbPath: usageDbPath(),
     runsRoot: runsRoot(),
+    accountsPath: accountsPath(),
     configDirs: [join(probes.home, ".claude"), ...cswapConfigDirs(probes)],
     agents: listAgents({}).map(agentLink),
     machineId: () => stableMachineId(),

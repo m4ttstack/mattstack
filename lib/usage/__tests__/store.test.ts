@@ -30,12 +30,28 @@ test("opening creates every table", () => {
     "usage_sessions",
     "usage_files",
     "usage_meta",
+    "usage_accounts",
   ]) {
     expect(names).toContain(t);
   }
   expect((db.query("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(
     USAGE_SCHEMA_VERSION,
   );
+  db.close();
+});
+
+test("a v1 db opens and gains usage_accounts", () => {
+  const path = join(dir, "usage.db");
+  const v1 = new Database(path);
+  v1.exec("CREATE TABLE usage_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);");
+  v1.exec("INSERT INTO usage_meta (key, value) VALUES ('machine_id', 'm1'); PRAGMA user_version = 1;");
+  v1.close();
+  const db = openUsageDb(path);
+  expect(db.query("SELECT count(*) AS n FROM usage_accounts").get()).toEqual({ n: 0 });
+  expect(db.query("SELECT value FROM usage_meta WHERE key = 'machine_id'").get()).toEqual({
+    value: "m1",
+  });
+  expect((db.query("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(2);
   db.close();
 });
 
