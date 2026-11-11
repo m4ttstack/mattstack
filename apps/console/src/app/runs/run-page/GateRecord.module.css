@@ -51,9 +51,29 @@
   align-items: flex-start;
 }
 
-/* Lines a panel up under the answers: the question column and its gap. */
+/* Lines a panel up under the answers: the question column and its gap. A
+   height reveal slices each line as its edge passes, so the panel fades in
+   at full height instead. */
 .rowPanel.rowPanel {
   padding-inline: 230px 0;
+  animation: row-panel-in 160ms ease-out;
+}
+
+/* The panel opens at once, but the chevron keeps its turn. */
+.chevron {
+  --accordion-transition-duration: 200ms;
+}
+
+@keyframes row-panel-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rowPanel.rowPanel {
+    animation: none;
+  }
 }
 
 .ask {

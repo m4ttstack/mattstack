@@ -263,10 +263,12 @@ function Form({ record }: { record: FormRecord }) {
     <Accordion
       multiple
       defaultValue={record.escalation ? [SUMMARY_ITEM] : []}
+      transitionDuration={0}
       classNames={{
         item: classes.item,
         control: classes.row,
         label: classes.rowLabel,
+        chevron: classes.chevron,
         content: `${accordion.content} ${classes.rowPanel}`,
       }}
     >
