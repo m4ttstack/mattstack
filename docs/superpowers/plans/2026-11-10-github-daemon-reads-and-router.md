@@ -57,7 +57,7 @@ export interface PullRequestSummary {
   sourceBranch: string; targetBranch: string; author: string | null;
   webUrl: string | null; detailedMergeStatus: string | null; mergedAt: string | null;
 }
-export interface FetchSummariesOptions { state: SummaryState; author?: string; sourceBranch?: string; targetBranch?: string; search?: string; limit: number }
+export interface FetchSummariesOptions { state: SummaryState; author?: string; sourceBranch?: string; targetBranch?: string; search?: string; limit: number; sort?: 'updated_desc' }
 
 // errors.ts
 export class ForgeHttpError extends Error { readonly status: number; readonly statusText: string; readonly bodyText: string }
@@ -73,6 +73,7 @@ removePullRequestLabels(projectPath: string, mrIid: number, labels: string[]): P
 ```
 
 - `author: "me"` means the token's own user on both forges.
+- `sort` absent means the forge's default order. `mr:by-target` sends none today and must keep sending none.
 - Capabilities added, true on both: `canFetchProjectLabels`, `canFetchPipelineList`, `canFetchCommitParents`, `canFetchPipelineFailedJobs`, `canFetchPullRequestSummaries`, `canEditLabels`.
 - `GitHubProvider.restRequest(method, path, body?, op?, io?: { redirect?: 'manual' })`, same parameter order as GitLab's.
 
@@ -88,16 +89,16 @@ removePullRequestLabels(projectPath: string, mrIid: number, labels: string[]): P
 - Modify: `packages/glance/src/GitLabProvider.ts`
 - Test: `packages/glance/tests/gitlab-forge-reads.test.ts` (new)
 
-**Interfaces:** consumes Task 1. Produces the GitLab side of `fetchProjectLabels`, `fetchPipelineList`, `fetchPullRequestSummaries`, and a private `forgeHttpError(err: unknown): never` that turns a `GitbeakerRequestError` into `ForgeHttpError` (status, status text, response body text) and rethrows anything else.
+**Interfaces:** consumes Task 1. Produces the GitLab side of `fetchProjectLabels`, `fetchPipelineList`, `fetchPullRequestSummaries`, and a private `forgeHttpError(err: unknown): never` that turns a `GitbeakerRequestError` into `ForgeHttpError` and rethrows anything else. gitbeaker consumes the response body and keeps only its parsed message, so `bodyText` is that message (`404 Project Not Found`), not the raw JSON; this is the accepted wording change recorded in the spec's Decided item 5. A `GitbeakerRetryError` (gitbeaker gave up after retrying a 429 or 502) becomes a `ForgeHttpError` with the last response's status.
 
 The reference behaviour is today's daemon code: `listLabels`, `listPipelines` and `listMrsLive` in `lib/daemon/forge-reads.ts`, and `listMrsByTarget` in `lib/daemon/handlers/mr.ts`. Match their query parameters exactly:
 
 - Labels: `per_page=100`, optional `search`; stop at `maxRows` (default 1000) with `truncated: true`.
 - Pipelines: with `iid`, the MR's own pipelines; otherwise `order_by=id`, `sort=desc`, optional `ref`, `sha`; `per_page=limit`, one page.
-- Summaries: `order_by=updated_at`, `sort=desc`; `author: "me"` sends `scope=created_by_me`, any other author sends `scope=all` plus `author_username`, no author sends `scope=all`; `source_branch`, `target_branch`, `search` when set; fetch until `limit + 1` rows are in hand, return `limit` rows and `truncated` when more existed.
+- Summaries: `order_by=updated_at` and `sort=desc` only when `sort: 'updated_desc'` is passed, otherwise neither parameter; `author: "me" sends `scope=created_by_me`, any other author sends `scope=all` plus `author_username`, no author sends `scope=all`; `source_branch`, `target_branch`, `search` when set; fetch until `limit + 1` rows are in hand, return `limit` rows and `truncated` when more existed.
 - Row mapping equals `targetSummary` in `forge-reads.ts`.
 
-- [ ] **Step 1:** Write the tests with stubbed fetch: one per method asserting the request path and query above and the mapped rows; `fetchPullRequestSummaries` with 101 rows and `limit: 100` returns 100 rows and `truncated: true`, and with a short page and no `x-next-page` header stops; a 404 with body `{"message":"404 Project Not Found"}` rejects with `ForgeHttpError` whose `status` is 404, `statusText` is `Not Found` and `bodyText` contains `404 Project Not Found`.
+- [ ] **Step 1:** Write the tests with stubbed fetch: one per method asserting the request path and query above and the mapped rows; `fetchPullRequestSummaries` with 101 rows and `limit: 100` returns 100 rows and `truncated: true`, and with a short page and no `x-next-page` header stops; a 404 with body `{"message":"404 Project Not Found"}` rejects with `ForgeHttpError` whose `status` is 404, `statusText` is `Not Found` and `bodyText` equals `404 Project Not Found`; a summaries call without `sort` sends no `order_by` and no `sort`; a `GitbeakerRetryError` becomes `ForgeHttpError` (build one directly and pass it through the helper).
 - [ ] **Step 2:** Run `bun test tests/gitlab-forge-reads.test.ts`. Expected: FAIL, `not implemented`.
 - [ ] **Step 3:** Implement the three methods on `this.gb` (`ProjectLabels.all`, `Pipelines.all`, `MergeRequests.allPipelines`, `MergeRequests.all`) with explicit pagination options so gitbeaker never walks past the caps.
 - [ ] **Step 4:** Run the file, `bun run check-types`, `bun run check:node`. Expected: PASS.
@@ -171,8 +172,8 @@ The reference behaviour is today's daemon code: `listLabels`, `listPipelines` an
 - [ ] **Step 1:** Change the existing test that expects a `RateLimitedError` whose message matches `/^mergePullRequest merged o\/r#9 but .* was rate limited: /` to expect `ReadBackFailedError` with `writeApplied === true`, `cause instanceof RateLimitedError`, and a message containing `merged` and `source branch was not deleted`.
 - [ ] **Step 2:** Run `bun test tests/gh-fill-provider.test.ts`. Expected: FAIL on that case.
 - [ ] **Step 3:** Change the throw. Read `ReadBackFailedError`'s constructor in `src/errors.ts` first and pass the PR's iid as it requires.
-- [ ] **Step 4:** Add one live case per new read on each forge (labels, pipeline list, commit parents, failed jobs, summaries, label add then remove), asserting values, not shapes. Run the whole glance suite, `check-types`, `check:node`.
-- [ ] **Step 5:** Run the live suite once, against `m4ttheweric/glance-conformance` only. Record pass, fail and skip counts in the task report. A failure in a new case is fixed before the commit; a pre-existing failure is reported, not fixed.
+- [ ] **Step 4:** Add one live case per new read for GitHub only (labels, pipeline list, commit parents, failed jobs, summaries, label add then remove), asserting values, not shapes. The GitLab side is covered by the stubbed tests. Run the whole glance suite, `check-types`, `check:node`.
+- [ ] **Step 5:** Run the live suite once, GitHub only, against `m4ttheweric/glance-conformance` only, with the command `packages/glance/AGENTS.md` gives for the live suite. Record pass, fail and skip counts in the task report. A failure in a new case is fixed before the commit; a pre-existing failure is reported, not fixed.
 - [ ] **Step 6:** Bump to `0.29.0`, write the CHANGELOG entry (new reads, label edits, `restRequest` parameters on GitHub, the `ReadBackFailedError` change marked as a behaviour change), update the method list in the docs, run `bun run build`.
 - [ ] **Step 7:** Commit `glance: 0.29.0, a rate-limited post-merge read reports the merge as landed`.
 
@@ -185,8 +186,8 @@ Open PR 1 here. Per the repo's rule: wait for CodeRabbit and CI, address finding
 ### Task 7: The router
 
 **Files:**
-- Modify: `lib/daemon/freshness.ts`
-- Test: `lib/daemon/__tests__/freshness-forge-router.test.ts` (new); existing `freshness-*.test.ts` stay unchanged and green
+- Modify: `lib/daemon/freshness.ts`, and the GitLab-only callers that switch accessor: `lib/daemon/discussions-store.ts`, `lib/daemon/handlers/discussions.ts`, `lib/daemon/handlers/mr-upload.ts`, `lib/daemon/project-sync.ts`
+- Test: `lib/daemon/__tests__/freshness-forge-router.test.ts` (new), `lib/daemon/__tests__/project-sync-github-skip.test.ts` (new), `lib/daemon/__tests__/freshness-token-gate.test.ts` (its three github.com cases change, see Step 1); every other `freshness-*.test.ts` stays unchanged and green
 
 **Interfaces, produced:**
 
@@ -196,26 +197,27 @@ export type RepoContext =
   | { forge: "github"; provider: GitHubProvider; projectPath: string; projectId: null };
 
 getRepoContext(repoName: string, repoPath?: string, projectPathOverride?: string): Promise<RepoContext>;
-getGitLabContext(repoName: string, repoPath?: string, projectPathOverride?: string): Promise<Extract<RepoContext, { forge: "gitlab" }>>;
+getGitLabContext(what: string, repoName: string, repoPath?: string, projectPathOverride?: string): Promise<Extract<RepoContext, { forge: "gitlab" }>>;
 ```
 
-- `getGitLabContext` wraps the router and throws `unsupported: <verb area> needs a GitLab repo` text supplied by the caller when the repo is GitHub. Every existing caller that needs `projectId` or a `GitLabProvider` type (`discussions-store.ts`, `handlers/discussions.ts`, `mr-upload.ts`, `project-sync.ts`, `project-mrs.ts` where it needs GitLab-only calls) switches to it in this task, with no behaviour change on GitLab.
+- `getGitLabContext` wraps the router and throws `unsupported: <what> needs a GitLab repo` when the repo is GitHub (`what` is a short noun phrase such as `threads` or `upload`). Every existing caller that needs `projectId` or a `GitLabProvider` type (`discussions-store.ts`, `handlers/discussions.ts`, `mr-upload.ts`, `project-sync.ts`) switches to it in this task, with no behaviour change on GitLab. `project-mrs.ts` is interface-only and stays on `getRepoContext`; Task 8 gives it its GitHub behaviour.
+- The spec's `repositoryId` field is not added here. Its only reader is the thread store, which stays GitLab-only until Plan B adds the field with its first use.
 - GitHub providers live in a separate map inside the freshness core: `Map<repoName, { provider: GitHubProvider; token: string }>`. The token comes from `resolveGithubToken((await loadSecrets()).githubToken)`. A different resolved token drops the entry and builds a new provider. No token throws `missing GitHub token (run: rt setup github connect)`.
-- The forge pick uses `isGitLabRemote` and `isGitHubRemote` from `lib/enrich.ts`. The GitLab path is byte-for-byte today's code, including `gitlabHostRefusal`. A remote on neither forge reaches today's refusal without resolving a GitHub token.
+- The forge pick: a remote for which `isGitHubRemote` (`lib/enrich.ts`) is true takes the GitHub path; every other remote takes today's path untouched, including `gitlabHostRefusal`. Do not gate the GitLab path on `isGitLabRemote`: a confirmed self-managed host such as `git.acme.internal` works today and must keep working. A non-GitHub remote never resolves a GitHub token.
 - GitHub providers are built with the same `providerRequestHook()` so requests are logged at debug.
 - The `providers` map, `ensureProvider`, `ensureUserId` and the reconcile loop are not touched.
 - Project sync (`project-sync.ts`) checks the forge before it asks for a context and skips a GitHub repo, with one info log per repo per daemon start, so it no longer fails every cycle there. Add a test for the skip and the single log line.
 
-- [ ] **Step 1:** Write the tests through `createFreshness` with stubbed seams (follow `freshness-provider-rotation.test.ts` for the pattern): a github.com remote returns `forge: "github"`, `projectId: null`, the parsed `projectPath`, and a `GitHubProvider`; two calls return the same provider instance; a changed GitHub token returns a new instance; no GitHub token throws the message above; the GitLab token is never passed to a `GitHubProvider` and the GitHub token never to a `GitLabProvider` (assert on constructor arguments through the seam); a `bitbucket.org` remote throws today's refusal and the GitHub token resolver is not called; `getGitLabContext` on a GitHub repo throws; a gitlab.com remote returns exactly what it returns today.
+- [ ] **Step 1:** Write the tests in the style of `freshness-token-gate.test.ts` (a temp git repo with an origin, `spyOn` on `loadSecrets` and on `fetch`; no new seams). Cases: a github.com remote returns `forge: "github"`, `projectId: null`, the parsed `projectPath`, and a provider whose `providerName` is GitHub's; two calls return the same provider instance; a changed stored GitHub token returns a new instance; no GitHub token (with `RT_GH_TOKEN_FALLBACK=off`, which the test preload sets) throws the message above; token routing, asserted on the `fetch` spy after one read through each provider: every request to `api.github.com` carries the GitHub token and none carries the GitLab token, and every request to the GitLab host carries the GitLab token and none the GitHub one; a `bitbucket.org` remote throws today's refusal and no request carries either token; `getGitLabContext("threads", ...)` on a GitHub repo throws `unsupported: threads needs a GitLab repo`; a gitlab.com remote and a confirmed `git.acme.internal` remote return what they return today. In `freshness-token-gate.test.ts`, the three cases that expect `unsupported: github.com is not a configured GitLab host` from `getRepoContext` now expect a GitHub context (or the missing-token message); change only those three. `project-sync-github-skip.test.ts`: a GitHub repo is skipped, no context is requested, and two cycles log the skip once.
 - [ ] **Step 2:** Run `bun test lib/daemon/__tests__/freshness-forge-router.test.ts`. Expected: FAIL.
 - [ ] **Step 3:** Implement the router, the GitHub map and `getGitLabContext`; switch the GitLab-only callers.
-- [ ] **Step 4:** Run the new file and every `lib/daemon/__tests__/freshness-*.test.ts`. Run `bunx tsc --noEmit -p .` (or the repo's `check-types` script; confirm in `package.json`). Expected: PASS.
+- [ ] **Step 4:** Run the new file and every `lib/daemon/__tests__/freshness-*.test.ts`. Run `bun run typecheck` from the repo root. Expected: PASS.
 - [ ] **Step 5:** Commit `daemon: getRepoContext picks the forge per repo`.
 
 ### Task 8: MR verbs that use the interface
 
 **Files:**
-- Modify: `lib/daemon/handlers/mr.ts`, `lib/daemon/mr-writeback.ts` (or where `applyMRWriteback` lives; confirm)
+- Modify: `lib/daemon/handlers/mr.ts`, `lib/daemon/freshness.ts` (`applyMRWriteback` call sites only if the skip is easier there), `lib/daemon/handlers/project-mrs.ts`
 - Test: `lib/daemon/handlers/__tests__/mr-github.test.ts` (new); `mr-create.test.ts`, `mr-update.test.ts`, `mr-writeback.test.ts` unchanged and green
 
 **Interfaces:** consumes `RepoContext` (Task 7) and glance 0.29.0 (`addPullRequestLabels`, `removePullRequestLabels`). `MRHandlerOverrides.getContext` now returns `Promise<RepoContext>`-shaped values; tests pass `{ forge: "github", provider: stub, projectPath, projectId: null }`.
@@ -223,11 +225,12 @@ getGitLabContext(repoName: string, repoPath?: string, projectPathOverride?: stri
 On a GitHub context:
 
 - `mr:action`: `rebase` returns `{ok: false, error}` when `provider.capabilities.canRebase` is false, before any call. Other actions run as today.
-- `mr:create`, `mr:update`: a payload with `squash` returns an error before anything is written, saying GitHub picks squash at merge time. `addLabels` / `removeLabels` call the two glance methods; `labels` on create goes through `updatePullRequest({labels})` after the create. The result URL is the returned PR's `webUrl`.
+- `mr:create`, `mr:update`: a payload with `squash` returns an error before anything is written, saying GitHub picks squash at merge time. `addLabels` / `removeLabels` call the two glance methods; `labels` on create is passed to `createPullRequest`, which already applies it on GitHub, with no second write. The result URL is the `webUrl` of the PR the verb ends with: the one `updatePullRequest` or `createPullRequest` returned, or, for a labels-only update, one `fetchSingleMR` after the label calls.
 - `mr:get`: a null from `fetchSingleMR` returns `GitHub has no pull request #<n> in <path>, or the token cannot read it`. No `missingMrReason` call.
 - `fetchSingle` passes no user id on GitHub (`getCurrentUserId()` is GitLab's).
 - `mr:fetch-job-detail` and `mr:fetch-job-trace` call the interface as today; add one GitHub case each to the new test file.
 - Every `applyMRWriteback` call is skipped, with one `ctx.log.debug`, and the verb still returns its result.
+- `project-mrs:read` and `mr:by-branch` (`project-mrs.ts`): on GitHub, `mr:by-branch` calls `fetchPullRequestByBranch` and returns the PR without the store upsert; `project-mrs:read` returns the empty store read it returns for any repo with no synced rows. Add both cases to the new test file.
 
 On GitLab, labels and squash keep `putMergeRequest` and the hand-built URL: no change.
 
@@ -241,22 +244,23 @@ On GitLab, labels and squash keep `putMergeRequest` and the hand-built URL: no c
 
 **Files:**
 - Modify: `lib/daemon/forge-reads.ts`, `lib/daemon/handlers/mr.ts`
-- Test: `lib/daemon/__tests__/forge-reads.test.ts` (existing GitLab cases rewritten onto a stub provider with the same expected replies), `lib/daemon/handlers/__tests__/mr-lists-github.test.ts` (new), `lib/daemon/__tests__/mr-ci-verbs.test.ts`
+- Test: `lib/daemon/__tests__/forge-reads.test.ts` and `lib/daemon/__tests__/mr-ci-verbs.test.ts` (existing GitLab cases rewritten onto a stub provider with the same expected replies), `lib/daemon/handlers/__tests__/mr-lists-github.test.ts` (new)
 
 **Interfaces, produced in `forge-reads.ts`:**
 
 ```ts
 export function forgeFailure(err: unknown, forge: "gitlab" | "github"): string;
-// ForgeHttpError -> "GitLab returned 404 Not Found: <first 200 chars of body>" (or "GitHub returned ...");
+// ForgeHttpError -> "GitLab returned 404 Not Found: <first 200 chars of bodyText>" (or "GitHub returned ...");
 // RateLimitedError -> its message plus " (retry in <n>s)" when retryAfterMs is set; anything else -> String(err)
 ```
 
-- `listMrsLive`, `listLabels`, `listPipelines` and `listMrsByTarget` keep their names, limits, conflict check (`PIPELINE_IID_CONFLICT`) and reply shapes, and call `fetchPullRequestSummaries`, `fetchProjectLabels`, `fetchPipelineList`. `listMrsByTarget` asks for `limit: BY_TARGET_MAX_PAGES * BY_TARGET_PER_PAGE` and turns `truncated` into today's "more than 2000 MRs target ..." error. `listLabels` turns `truncated` into today's "more than 1000 labels matched; narrow the search".
-- `mr:live-by-branch` on GitHub calls `provider.fetchPullRequestsByBranches(projectPath, branches)` once (the batched fill) and maps a missing branch to `null`. On GitLab it keeps summaries plus `fetchSingle`.
+- `listMrsLive`, `listLabels`, `listPipelines` and `listMrsByTarget` keep their names, limits, conflict check (`PIPELINE_IID_CONFLICT`) and reply shapes, and call `fetchPullRequestSummaries`, `fetchProjectLabels`, `fetchPipelineList`. `listMrsLive` passes `sort: 'updated_desc'`; `listMrsByTarget` passes no `sort`, asks for `limit: BY_TARGET_MAX_PAGES * BY_TARGET_PER_PAGE` and turns `truncated` into today's "more than 2000 MRs target ..." error. `listLabels` turns `truncated` into today's "more than 1000 labels matched; narrow the search".
+- `mr:live-by-branch` on GitHub calls `provider.fetchPullRequestsByBranches(projectPath, branches)` once (the batched fill) and maps a missing branch to `null`. On GitLab it keeps summaries plus `fetchSingle`. The spec's section 3 table names summaries for this verb; the batched read returns the full `PullRequest` the verb's reply needs in one request, and the spec is amended to say so.
 - `mr:commit-parents` and `mr:pipeline-failed-jobs` call the interface methods on both forges.
-- All seven `typeof provider.restRequest` checks and the two `typeof provider.fetch...` checks are deleted. `RestProvider` stays only as `forgeGet`'s parameter type.
+- All seven `typeof provider.restRequest` checks and the three `typeof provider.fetch...` checks are deleted. `RestProvider` stays as the parameter type of `forgeGet`, `missingMrReason` and `putMergeRequest`, all reached only on a GitLab context (`forgeGet` also on GitHub after Task 10).
+- `gitlabFailure` and `redirectRefusal` take the forge and say `GitHub` on a GitHub context; their GitLab output is unchanged.
 
-- [ ] **Step 1:** Rewrite the GitLab cases in `forge-reads.test.ts` so the stub is a provider (methods returning rows or throwing `ForgeHttpError`) and every expected reply, `truncated` flag and error string is the one the file asserts today. Add: a `ForgeHttpError(404, "Not Found", <300 chars>)` yields `GitLab returned 404 Not Found: ` plus exactly the first 200 chars. Write `mr-lists-github.test.ts`: each of the seven verbs returns mapped data from a GitHub stub; `mr:live-by-branch` with 3 branches makes one `fetchPullRequestsByBranches` call; a `RateLimitedError` with `retryAfterMs: 60000` from the provider yields `{ok: false}` whose error contains `rate limit` and `retry in 60s`.
+- [ ] **Step 1:** Rewrite the GitLab cases in `forge-reads.test.ts`, and the roughly 33 cases in `mr-ci-verbs.test.ts` that stub `restRequest` for the moved verbs, so the stub is a provider (methods returning rows or throwing `ForgeHttpError`) and every expected reply, `truncated` flag and error string is the one the file asserts today. Add: a `ForgeHttpError(404, "Not Found", <300 chars>)` yields `GitLab returned 404 Not Found: ` plus exactly the first 200 chars. Write `mr-lists-github.test.ts`: each of the seven verbs returns mapped data from a GitHub stub; `mr:live-by-branch` with 3 branches makes one `fetchPullRequestsByBranches` call; a `RateLimitedError` with `retryAfterMs: 60000` from the provider yields `{ok: false}` whose error contains `rate limit` and `retry in 60s`.
 - [ ] **Step 2:** Run the three files. Expected: FAIL.
 - [ ] **Step 3:** Implement.
 - [ ] **Step 4:** Run the three files plus `lib/mcp/__tests__/forge-read-tools.test.ts` and `mr-read-tools.test.ts`. Expected: PASS.
@@ -282,7 +286,7 @@ export function forgeGet(provider: RestProvider, projectPath: string, input: For
 - The redirect refusal, the 256 KiB cap, `scrubTokens` and `scrubTokenText` are shared, unchanged.
 - The MCP tool `gitlab_get` keeps its name; its description says it reads the repo's own forge and that on GitHub the path must sit under the repo.
 
-- [ ] **Step 1:** Write the tests: one refusal per entry in `GITHUB_REFUSED_SEGMENTS` (loop over the constant, and assert its length is 17 so a deletion fails the test); `Actions/Secrets` and `actions%2Fsecrets` refused; `repos/o/r/../../user`, `%2e%2e`, `user`, `repos/other/repo/pulls` and `orgs/o/members` refused; `:repo/pulls` and `repos/O/R/pulls` (other case) accepted; each refused query key refused; a 302 returns the redirect refusal naming only the host; a body with `"token":"x"` comes back redacted; a `Link` header with `page=3; rel="next"` gives `nextPage: 3`.
+- [ ] **Step 1:** Write the tests: one refusal per entry in `GITHUB_REFUSED_SEGMENTS` (loop over the constant, and assert its length is 17 so a deletion fails the test); `:repo/Actions/Secrets` and `:repo/actions%2Fsecrets` refused by the segment check; `repos/o/r/../../user`, `%2e%2e`, `user`, `repos/other/repo/pulls` and `orgs/o/members` refused; `:repo/pulls` and `repos/O/R/pulls` (other case) accepted; each refused query key refused; a 302 returns the redirect refusal naming only the host; a body with `"token":"x"` comes back redacted; a `Link` header with `page=3; rel="next"` gives `nextPage: 3`.
 - [ ] **Step 2:** Run. Expected: FAIL.
 - [ ] **Step 3:** Implement the GitHub arm and pass `ctx.forge` from the handler.
 - [ ] **Step 4:** Run the new file, `forge-reads.test.ts`, `lib/mcp/__tests__/forge-read-tools.test.ts`. Expected: PASS.
@@ -303,10 +307,12 @@ export function forgeGet(provider: RestProvider, projectPath: string, input: For
 ```
 
 - Both verbs return `unsupported: this forge has no merge queue` when `capabilities.canEnqueue` is false.
-- In `github-merge.ts`, `realProvider()` is replaced by an adapter that implements the existing `GithubMergeProvider` seam over daemon verbs for the target's repo identity: `fetchMergeQueueStatus` and `enqueuePullRequest` call the two new verbs; `setAutoMerge` calls `mr:action` `setAutoMerge`; `mergePullRequest` calls `mr:action` `merge` and then `mr:get` with `refresh: true` to return the PR. `mergeOnGitHub`, `waitForQueue` and every result string are unchanged; the wait loop stays in the MCP server.
+- Add both verbs to `COMMAND_NAMES` in `commands.ts`.
+- `GithubTarget` gains `identity: string`, filled by `resolveGithubTarget` from the `identityForUrl` result it already has. `GithubMergeSeams.provider` becomes `(target: GithubTarget) => Promise<GithubMergeProvider | null>`.
+- In `github-merge.ts`, `realProvider()` is replaced by an adapter that implements the existing `GithubMergeProvider` seam over daemon verbs for `target.identity`: `fetchMergeQueueStatus` and `enqueuePullRequest` call the two new verbs; `setAutoMerge` calls `mr:action` `setAutoMerge`; `mergePullRequest` calls `mr:action` `merge` with the merge options as `args[0]`, then `mr:get` with `refresh: true` to return the PR. If the merge returned ok and the `mr:get` fails or returns no PR, the adapter throws `ReadBackFailedError` with `writeApplied: true`, so `mergeOnGitHub` reports `{requested: "merge", verified: false}` and never an error for a merge that landed. `mergeOnGitHub`, `waitForQueue` and every result string are unchanged; the wait loop stays in the MCP server.
 - `GitHubProvider` is no longer imported in `lib/mcp/`.
 
-- [ ] **Step 1:** Write `mr-merge-queue.test.ts`: status and enqueue map the provider's return; a provider with `canEnqueue: false` refuses with no call. In `github-merge.test.ts`, keep every existing case (they inject `seams.provider`) and add adapter cases with a fake daemon query: each adapter method sends the expected verb and payload; a daemon `{ok: false, error}` rejects with that error text; `mergePullRequest` returns the PR from `mr:get`.
+- [ ] **Step 1:** Write `mr-merge-queue.test.ts`: status and enqueue map the provider's return; a provider with `canEnqueue: false` refuses with no call. In `github-merge.test.ts`, keep every existing case (they inject `seams.provider`) and add adapter cases with a fake daemon query: each adapter method sends the expected verb and payload; a daemon `{ok: false, error}` from `mr:action` rejects with that error text; `mergePullRequest` returns the PR from `mr:get`; a merge that is ok followed by a failed `mr:get` makes `mergeOnGitHub` return `{requested: "merge", verified: false}`.
 - [ ] **Step 2:** Run both. Expected: FAIL.
 - [ ] **Step 3:** Implement the verbs and the adapter. Rebuild `packages/rt-client` as `.claude/rules/workspace-packages.md` says.
 - [ ] **Step 4:** Run both files and `lib/mcp/__tests__/mr-target.test.ts`. Expected: PASS.
@@ -315,19 +321,20 @@ export function forgeGet(provider: RestProvider, projectPath: string, input: For
 ### Task 12: Remaining daemon callers, tool refusals, docs
 
 **Files:**
-- Modify: `lib/daemon/file-diff.ts`, `lib/daemon/herd-lanes.ts`, `lib/mcp/mr-read-tools.ts`, `lib/mcp/mr-composite-tools.ts`, `lib/mcp/ci-tools.ts`, `lib/mcp/git-tools.ts`, `lib/mcp/tools.ts` (descriptions), `.claude/rules/mcp-and-gates.md`, `docs/architecture.md` if it names the GitLab-only provider
-- Test: `lib/daemon/__tests__/forge-file-diff.test.ts`, `lib/daemon/__tests__/herd-lanes.test.ts`, `lib/mcp/__tests__/mr-read-tools.test.ts`, `lib/mcp/__tests__/mr-composite-tools.test.ts`
+- Modify: `lib/daemon/file-diff.ts`, `lib/daemon/herd-lanes.ts`, `lib/mcp/mr-target.ts`, `lib/mcp/mr-read-tools.ts`, `lib/mcp/mr-composite-tools.ts`, `lib/mcp/ci-tools.ts`, `lib/mcp/tools.ts`, `.claude/rules/mcp-and-gates.md`, `docs/architecture.md` if it names the GitLab-only provider
+- Test: `lib/daemon/__tests__/forge-file-diff.test.ts`, `lib/daemon/__tests__/herd-lanes.test.ts`, `lib/mcp/__tests__/mr-target.test.ts`, `lib/mcp/__tests__/mr-read-tools.test.ts`, `lib/mcp/__tests__/mr-composite-tools.test.ts`, `lib/mcp/__tests__/tools.test.ts`
 
 - `file-diff.ts` and `herd-lanes.ts` take their provider from `getRepoContext` and stop calling `new GitHubProvider`. Behaviour and replies are unchanged.
-- A GitHub refusal in an MCP tool is removed only when every daemon verb that tool calls now works on GitHub. From the verb map: `mr_view`, `mr_list`, `mr_for_branch`, `mr_pipeline`, `mr_job_trace`, `pipeline_jobs`, `project_labels`, `pipeline_list`, `gitlab_get`, `mr_approve`, `mr_ready`, `mr_retry`, `mr_create`, `mr_update`, `mr_merge`, `mr_resolve_branch` lose it. `mr_rebase` keeps a refusal that comes from the daemon. Tools that call `discussions:*`, `mr:comment*`, `mr:note-update`, `mr:review-submit` or `mr:upload` keep theirs until Plan B and Plan C. For each tool, read its handler and confirm the verbs it calls before removing anything; report any tool whose verb set differs from this list.
+- A GitHub refusal in an MCP tool is removed only when every daemon verb that tool calls now works on GitHub. From the verb map: `mr_view`, `mr_list`, `mr_for_branch`, `mr_pipeline`, `mr_job_trace`, `project_labels`, `pipeline_list`, `gitlab_get`, `mr_approve`, `mr_ready`, `mr_retry`, `mr_create`, `mr_update`, `mr_merge`, `mr_resolve_branch` lose it. `mr_rebase` keeps a refusal that comes from the daemon. `pipeline_jobs` keeps its refusal: it walks GitLab REST paths through `forge:get`, which the GitHub guard refuses (RT-546 brings a GitHub version).
+- `resolveMrTarget` in `mr-target.ts` accepts a GitHub PR URL (`https://github.com/<owner>/<repo>/pull/<n>`) as `mrUrl`, resolving the repo identity the way `resolveGithubTarget` in `github-merge.ts` does, so every tool above works by URL as well as by `repoName` plus `iid`. `refuseGithubTarget` stays in place for the tools that still refuse. Tools that call `discussions:*`, `mr:comment*`, `mr:note-update`, `mr:review-submit` or `mr:upload` keep theirs until Plan B and Plan C. For each tool, read its handler and confirm the verbs it calls before removing anything; report any tool whose verb set differs from this list.
 - Tool descriptions drop "GitLab only" where the tool now covers both.
 - `ci_watch` and `ci_triage` stay as they are (RT-546).
 - `mcp-and-gates.md`: update the paragraphs on GitLab reads, `gitlab_get` and `mr_merge` to describe both forges and the GitHub guard list.
 
-- [ ] **Step 1:** Update the tests: the file-diff and herd-lanes tests inject a GitHub `RepoContext` and assert no provider is constructed in the module; for each tool losing its refusal, the test that asserted the refusal now asserts the daemon verb is called with the GitHub identity; for each tool keeping one, the refusal test stays.
-- [ ] **Step 2:** Run the four files. Expected: FAIL.
+- [ ] **Step 1:** Update the tests: the file-diff and herd-lanes tests inject a GitHub `RepoContext` and assert no provider is constructed in the module; `mr-target.test.ts` gains a GitHub PR URL case (identity and iid resolved) and a mismatch case (`repoName` naming another repo is refused); for each tool losing its refusal, the test that asserted the refusal (several are in `tools.test.ts`, including `mr_create`) now asserts the daemon verb is called with the GitHub identity; for each tool keeping one, including `mr_rebase` and `pipeline_jobs`, the refusal test stays.
+- [ ] **Step 2:** Run the six files. Expected: FAIL.
 - [ ] **Step 3:** Implement.
-- [ ] **Step 4:** Run the four files, then `bun run check` from the repo root for the static gates. Expected: PASS.
+- [ ] **Step 4:** Run the six files, then `bun run check` from the repo root for the static gates. Expected: PASS.
 - [ ] **Step 5:** Commit `mcp: forge tools stop refusing GitHub where the daemon now answers`.
 
 Open PR 2. Same merge rule as PR 1. After merge, the dev daemon runs this only once the main checkout syncs and the daemon restarts; do neither without Matt.

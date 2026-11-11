@@ -72,10 +72,13 @@ libraries (Octokit, gitbeaker) wherever they cover the call.
 4. One forge per team, host-aware lookup, Enterprise later (ruled
    2026-11-09).
 5. The GitLab side of the moved reads uses gitbeaker and translates its
-   errors back to today's `GitLab returned <status> <statusText>: <body>`
-   strings, pinned by tests. Success replies stay identical. Request
-   counts may differ by one on a last page (Matt, 2026-11-10). This is the
-   one stated exception to "same request counts".
+   errors back to `GitLab returned <status> <statusText>: <detail>`,
+   pinned by tests. gitbeaker keeps only GitLab's message text, so
+   `<detail>` is that message (`404 Project Not Found`) where today it is
+   the raw JSON body. Matt accepted that wording change on 2026-11-10.
+   Success replies stay identical. Request counts may differ by one on a
+   last page. These are the two stated exceptions to "GitLab behaviour
+   must not change".
 6. GitHub `mr_merge` moves behind the daemon (Matt, 2026-11-10).
 7. Comments, threads, reviews and evidence are in this spec, not later
    tickets (Matt, 2026-11-10).
@@ -102,9 +105,10 @@ libraries (Octokit, gitbeaker) wherever they cover the call.
   projectId: number | null }      // null on GitHub
 ```
 
-- **Forge pick:** from the origin remote, through the existing
-  `isGitLabRemote` / `isGitHubRemote` in `lib/enrich.ts`. A remote on
-  neither refuses as today.
+- **Forge pick:** a remote that `isGitHubRemote` (`lib/enrich.ts`)
+  recognises takes the GitHub path. Every other remote takes today's
+  path untouched, so a confirmed self-managed GitLab host keeps working
+  and anything else refuses as today.
 - **Token:** GitLab keeps `loadSecrets().gitlabToken` behind
   `gitlabHostRefusal` (the confirmed-host check). GitHub uses
   `resolveGithubToken(secrets.githubToken)`, which falls back to the `gh`
@@ -174,7 +178,8 @@ implementations must return what the daemon's current REST code returns.
 | `mr:action` | works for merge, approve, unapprove, setAutoMerge, cancelAutoMerge, retryPipeline, retryJob, toggleDraft, requestReReview; `rebase` refuses by `capabilities.canRebase` (GLANCE-45) |
 | `mr:create`, `mr:update` | work; label adds and removes go through the two new label methods; a call that passes `squash` refuses before anything is written ("GitHub picks squash at merge time") |
 | `mr:fetch-job-detail`, `mr:fetch-job-trace` | work through the interface |
-| `mr:list-live`, `mr:live-by-branch`, `mr:by-target` | work through `fetchPullRequestSummaries` |
+| `mr:list-live`, `mr:by-target` | work through `fetchPullRequestSummaries` |
+| `mr:live-by-branch` | works through the batched by-branches read, one request for up to 25 branches |
 | `project:labels`, `pipeline:list`, `mr:commit-parents`, `mr:pipeline-failed-jobs` | work through the new reads |
 | `forge:get` | works, see section 4 |
 | `forge:file-diff`, `project-mrs:read`, `mr:by-branch` | work (already interface-only) |
