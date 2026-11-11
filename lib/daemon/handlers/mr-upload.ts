@@ -70,7 +70,7 @@ export const MR_UPLOAD_GITHUB_REFUSAL = "unsupported: GitHub uploads a file only
 
 type CheckedAttachment = { realpath: string; filename: string; mime: string; bytes: Uint8Array };
 
-/** The version check (10 s), gh (180 s) and the read-back (20 s) stay inside the socket's 255 s idle limit and the MCP side's 240 s call timeout. */
+/** The version check (10 s), the read before the write (20 s), gh (180 s) and the read-back (20 s) total 230 s, inside the MCP side's 240 s call timeout and the socket's 255 s idle limit. */
 export const GH_ATTACH_TIMEOUT_MS = 180_000;
 export const READ_BACK_TIMEOUT_MS = 20_000;
 export const GH_MIN_VERSION = "2.99.0";
@@ -471,6 +471,17 @@ export function createMrUploadHandlers(
         return { ok: false, error: errorMessage(err) };
       }
 
+      const readBackMs = readBackTimeoutMsOpt ?? READ_BACK_TIMEOUT_MS;
+      const readBody = () => withDeadline(Promise.resolve().then(() => github.readBody(iid)), readBackMs, `reading PR #${iid} did not finish in ${readBackMs / 1000}s`);
+      let before: string;
+      try {
+        before = await readBody();
+      } catch (err) {
+        return { ok: false, error: `could not read PR #${iid} before the write: ${errorMessage(err)}` };
+      }
+      // gh's upload URLs are new on every upload, so a URL already in the body is an earlier upload, never this file's.
+      const earlier = new Set(destinations(before));
+
       const root = stagingRootFn();
       const made = mkdtempSync(join(root, STAGING_PREFIX));
       try {
@@ -491,17 +502,18 @@ export function createMrUploadHandlers(
         const urls: Record<string, string> = {};
         let readBackError: string | undefined;
         try {
-          const body = await withDeadline(Promise.resolve().then(() => github.readBody(iid)), readBackTimeoutMsOpt ?? READ_BACK_TIMEOUT_MS, `reading PR #${iid} back did not finish in ${(readBackTimeoutMsOpt ?? READ_BACK_TIMEOUT_MS) / 1000}s`);
+          const body = await readBody();
           const sent = destinations(description);
           const back = destinations(body);
-          if (sent.length !== back.length) {
+          // A body still equal to the one read before the write means gh never wrote: no URL, and nothing changed underneath.
+          if (body !== before && sent.length !== back.length) {
             readBackError = BODY_CHANGED;
-          } else {
+          } else if (body !== before) {
             const pathByRef = new Map(attachments.map((a) => [`./${a.name}`, a.path]));
             sent.forEach((dest, i) => {
               const path = pathByRef.get(dest);
               const hosted = back[i]!;
-              if (path !== undefined && hosted !== dest && hosted.startsWith("https://")) urls[path] = hosted;
+              if (path !== undefined && hosted !== dest && hosted.startsWith("https://") && !earlier.has(hosted)) urls[path] = hosted;
             });
           }
         } catch (err) {

@@ -167,7 +167,7 @@ describe("mr:describe-with-attachments", () => {
     const h = harness({ gh: { rewrite: { "1-board.png": 1, "2-shot.png": 2 } } });
     const res = await h.handlers["mr:describe-with-attachments"]({ repoName: REPO, iid: 7, description: DESC, attachments });
     expect(res).toEqual({ ok: true, data: { outcome: "ran", written: true, urls: { [board]: url(1), [shot]: url(2) } } });
-    expect(h.reads).toEqual([7]);
+    expect(h.reads).toEqual([7, 7]);
   });
 
   test("two files with the same basename get their own names and their own URLs", async () => {
@@ -201,6 +201,7 @@ describe("mr:describe-with-attachments", () => {
     expect(res.data.written).toBe(false);
     expect(res.data.urls).toEqual({});
     expect(res.data.uploadRejected).toBe(true);
+    expect(res.data.readBackError).toBeUndefined();
     expect(res.data.ghError).toContain("could not upload board.png: attaching files requires write access");
     expect(res.data.ghError).not.toContain("rt-gh-attach-");
   });
@@ -214,6 +215,29 @@ describe("mr:describe-with-attachments", () => {
     expect(res.data.urls).toEqual({});
     expect(res.data.uploadRejected ?? false).toBe(false);
     expect(res.data.ghError).toBe("HTTP 422: Validation Failed");
+    expect(res.data.readBackError).toBeUndefined();
+  });
+
+  test("a failed write over an earlier evidence section records no URL", async () => {
+    const { attachments } = twoFiles();
+    writeFileSync(server, DESC.replace("./1-board.png", "https://github.com/user-attachments/assets/old-1").replace("./2-shot.png", "https://github.com/user-attachments/assets/old-2"));
+    const h = harness({ gh: { stderr: "HTTP 422: Validation Failed", exit: 1 } });
+    const res = await h.handlers["mr:describe-with-attachments"]({ repoName: REPO, iid: 7, description: DESC, attachments });
+    if (!res.ok || res.data.outcome !== "ran") throw new Error(JSON.stringify(res));
+    expect(res.data.written).toBe(false);
+    expect(res.data.urls).toEqual({});
+    expect(res.data.readBackError).toBeUndefined();
+    expect(res.data.uploadRejected ?? false).toBe(false);
+  });
+
+  test("a PR that cannot be read before the write refuses before gh", async () => {
+    const { attachments } = twoFiles();
+    const h = harness({ githubContext: async () => ({ projectPath: "acme/web", readBody: async () => { throw new Error("GitHub said 502"); } }) });
+    const res = await h.handlers["mr:describe-with-attachments"]({ repoName: REPO, iid: 7, description: DESC, attachments });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toBe("could not read PR #7 before the write: GitHub said 502");
+    expect(ran()).toBe(false);
+    expect(stagedLeft()).toEqual([]);
   });
 
   test("a body edited after the write records no URL", async () => {
@@ -236,7 +260,7 @@ describe("mr:describe-with-attachments", () => {
     expect(res.data.ghError).toContain("was stopped");
     expect(res.data.written).toBe(false);
     expect(stagedLeft()).toEqual([]);
-    expect(h.reads).toEqual([7]);
+    expect(h.reads).toEqual([7, 7]);
   });
 
   test("the staging folder is removed after success and after a refusal from gh", async () => {
@@ -355,12 +379,15 @@ describe("mr:describe-with-attachments", () => {
     const h = harness({
       gh: { rewrite: { "1-board.png": 1, "2-shot.png": 2 } },
       readBackTimeoutMs: 100,
-      githubContext: async () => ({ projectPath: "acme/web", readBody: () => new Promise<string>(() => {}) }),
+      githubContext: async () => {
+        let calls = 0;
+        return { projectPath: "acme/web", readBody: () => (++calls === 1 ? Promise.resolve(OLD_BODY) : new Promise<string>(() => {})) };
+      },
     });
     const res = await h.handlers["mr:describe-with-attachments"]({ repoName: REPO, iid: 7, description: DESC, attachments });
     if (!res.ok || res.data.outcome !== "ran") throw new Error(JSON.stringify(res));
     expect(res.data.written).toBe(true);
     expect(res.data.urls).toEqual({});
-    expect(res.data.readBackError).toBeTruthy();
+    expect(res.data.readBackError).toBe("reading PR #7 did not finish in 0.1s");
   });
 });
