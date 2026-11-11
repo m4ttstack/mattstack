@@ -404,11 +404,22 @@ describe("killWorktreeProcesses", () => {
     lsof?: RunResult;
     ps?: RunResult;
     identity?: SessionIdentity | null;
+    /** Per-pid answers to the right-before-signal `lsof -a -p`; defaults to the snapshot cwd. */
+    recheck?: Record<number, RunResult>;
   }) {
     const log: string[] = [];
     const signals: [number, string | number][] = [];
     const identified: number[] = [];
     const run: NonNullable<KillWorktreeOptions["run"]> = async (argv) => {
+      if (argv[0] === "lsof" && argv[1] === "-a") {
+        const pid = Number(argv[3]);
+        expect(argv).toEqual(["lsof", "-a", "-p", String(pid), "-d", "cwd", "-Fn"]);
+        log.push(`recheck:${pid}`);
+        const fixed = args.recheck?.[pid];
+        if (fixed) return fixed;
+        const cwd = args.cwds.find(([p]) => p === pid)?.[1];
+        return cwd === undefined ? { exitCode: 1, stdout: "" } : ok(`p${pid}\nn${cwd}\n`);
+      }
       if (argv[0] === "lsof") {
         return args.lsof ?? ok(args.cwds.map(([pid, cwd]) => `p${pid}\nfcwd\nn${cwd}`).join("\n") + "\n");
       }
@@ -512,9 +523,49 @@ describe("killWorktreeProcesses", () => {
       identity,
     });
     const result = await killWorktreeProcesses(A, { ...h.options, stopSessionsInside: true });
-    expect(h.log.slice(0, 2)).toEqual(["identify:601", "signal:601"]);
+    expect(h.log.filter(e => !e.startsWith("recheck:"))).toEqual(["identify:601", "signal:601"]);
     expect(result.stoppedSessions[0]).toEqual({ pid: 601, label: "claude", cwd: A, identity });
     expect(result.terminated).toEqual([{ pid: 601, label: "claude" }]);
+  });
+
+  test("an agent whose recheck reports another tree is not signalled or reported stopped", async () => {
+    const A = tree();
+    const B = tree();
+    const h = harness({
+      table: [row(601, 1, "claude", "claude"), row(700, 1, "node", "node vite")],
+      cwds: [[601, A], [700, A]],
+      recheck: { 601: ok(`p601\nn${B}\n`) },
+    });
+    const result = await killWorktreeProcesses(A, { ...h.options, stopSessionsInside: true });
+    expect(h.signals).toEqual([[700, "SIGTERM"]]);
+    expect(result.stoppedSessions).toEqual([]);
+    expect(result.terminated.map(t => t.pid)).toEqual([700]);
+  });
+
+  test("an agent whose recheck still reports the tree is signalled after the recheck", async () => {
+    const A = tree();
+    const h = harness({
+      table: [row(601, 1, "claude", "claude")],
+      cwds: [[601, A]],
+      recheck: { 601: ok(`p601\nn${join(A, "sub")}\n`) },
+    });
+    const result = await killWorktreeProcesses(A, { ...h.options, stopSessionsInside: true });
+    expect(h.log).toEqual(["identify:601", "recheck:601", "signal:601"]);
+    expect(result.stoppedSessions.map(s => s.pid)).toEqual([601]);
+    expect(result.terminated.map(t => t.pid)).toEqual([601]);
+  });
+
+  test("a failing recheck does not signal the agent", async () => {
+    const A = tree();
+    const h = harness({
+      table: [row(601, 1, "claude", "claude")],
+      cwds: [[601, A]],
+      recheck: { 601: { exitCode: 1, stdout: "" } },
+    });
+    const result = await killWorktreeProcesses(A, { ...h.options, stopSessionsInside: true });
+    expect(h.signals).toEqual([]);
+    expect(result.stoppedSessions).toEqual([]);
+    expect(result.terminated).toEqual([]);
   });
 
   test("without stopSessionsInside an agent in A is never identified or signalled", async () => {

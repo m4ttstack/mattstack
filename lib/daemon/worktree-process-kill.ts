@@ -444,8 +444,24 @@ export async function killWorktreeProcesses(
     );
   }
 
+  // The snapshot is older than the awaits above: a session can have moved to
+  // another tree since, so each one's cwd is re-read right before its signal.
+  const stoppedPids = new Set(stoppedSessions.map(s => s.pid));
+  const stillInside = async (pid: number): Promise<boolean> => {
+    const reread = await run(["lsof", "-a", "-p", String(pid), "-d", "cwd", "-Fn"], { timeoutMs: 5000 });
+    const raw = reread.stdout.split("\n").find(line => line.startsWith("n"))?.slice(1);
+    if (raw === undefined) return false;
+    const resolved = raw === target || raw.startsWith(`${target}/`) ? safeRealpath(raw) : raw;
+    return attributeCwds(target, excludes, new Map([[pid, resolved]])).has(pid);
+  };
+
   const terminated: { pid: number; label: string }[] = [];
   for (const killTarget of plan.targets) {
+    if (stoppedPids.has(killTarget.pid) && !(await stillInside(killTarget.pid))) {
+      stoppedPids.delete(killTarget.pid);
+      log.info({ worktreePath, pid: killTarget.pid }, "session moved out of the worktree before the stop; spared");
+      continue;
+    }
     try {
       signal(killTarget.pid, "SIGTERM");
       terminated.push({ pid: killTarget.pid, label: scripts.get(killTarget.pid) ?? processLabel(killTarget) });
@@ -478,5 +494,5 @@ export async function killWorktreeProcesses(
     timer.unref?.();
   }
 
-  return { terminated, stoppedSessions };
+  return { terminated, stoppedSessions: stoppedSessions.filter(s => stoppedPids.has(s.pid)) };
 }
