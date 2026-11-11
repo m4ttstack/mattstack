@@ -341,7 +341,9 @@ method above through the router.
   attachments[]}`, GitHub only:
   1. Each attachment passes the same checks as a GitLab upload today:
      `checkUploadPath`, the redaction refusal, the evidence-record
-     refusal and the ticket-copy refusal.
+     refusal and the ticket-copy refusal. GitHub caps an image at
+     10 MB (a video at 100 MB), so an image over 10 MB is refused
+     before gh runs.
   2. The daemon writes the description to a temp file in which each new
      image is a relative reference, then runs
      `gh pr edit <n> --repo <o/r> --body-file <file> --attach <path>...`.
@@ -356,20 +358,21 @@ method above through the router.
   argument. A gh older than 2.99, or none, refuses with the command to
   update it. If gh rejects the token for upload, the verb says so and the
   description is still written with the images named as local files.
-- **Open for Plan C (from PR 1's review):** a failed `gh pr edit --attach`
-  has two outcomes. With no upload done the PR is unchanged; with some
-  uploads done gh can update the PR and still exit nonzero. The verb
-  always reads the PR body back after a nonzero exit and records
-  whatever hosted URLs are there, so a retry reuses them. Plan C verifies
-  both outcomes against gh's own code before it pins the fallback above.
+- **Partial failures (settled in Plan C from gh 2.103.3's source):** gh
+  checks every file, then uploads them in order and stops at the first
+  failure. It writes the PR body only when at least one upload landed,
+  with only those references rewritten, and still exits nonzero. Uploads
+  that land before a failed PR write are orphaned: the read-back finds no
+  URL for them, and the next attach uploads them again.
 - **`mr_upload`** has no PR to attach to, and gh uploads only as part of
   a PR or comment write, so on GitHub it refuses in every argument form
   and names `evidence_attach`. This is the ticket's own acceptance.
 - **Visibility:** an attachment is readable by whoever can read the repo,
   as a GitLab upload is. On a public repo that is everyone.
 - RT-547 says any hosting "must bring back the evidence boards gate".
-  This spec reads that as: the daemon's existing evidence refusals in
-  step 1 apply to GitHub attachments. Confirm in review.
+  Ruled in Plan C: on GitHub the skill's evidence-boards gate runs as on
+  GitLab, and the daemon's evidence refusals in step 1 apply to every
+  attachment.
 
 ## Delivery
 
