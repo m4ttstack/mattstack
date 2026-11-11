@@ -1250,9 +1250,9 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         // GitHub cadence, decided for RT-553: GitHub repos take the same
         // defaults as GitLab (at most 4 mr:get reads per 60 s tick, an open
         // run re-read at most once per 10 minutes, runs older than 7 days
-        // skipped). That caps the refresher at 240 PR reads an hour, a small
-        // share of GitHub's 5,000-request hourly budget, so it gets no
-        // GitHub-specific limit.
+        // skipped). That caps the refresher at 240 mr:get reads an hour, each
+        // one GraphQL fill plus at most a few follow-up requests, well inside
+        // GitHub's hourly limits, so it gets no GitHub-specific limit.
         const outcomeLog = loggerHandle.childLogger("run-outcome");
         const outcomeRefresher = createOutcomeRefresher({
           listRunsForOutcome: () => listRuns().flatMap((run) => {
