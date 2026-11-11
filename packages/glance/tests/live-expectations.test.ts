@@ -53,7 +53,6 @@ describe('expectation tables', () => {
       'fetchProject',
       'fetchProjectPipelines',
       'fetchUserEvents',
-      'fetchPullRequestSummaries',
       'addPullRequestLabels',
       'removePullRequestLabels',
     ];

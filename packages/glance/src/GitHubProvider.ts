@@ -40,6 +40,9 @@ import type {
   ProviderCapabilities,
   PullRequest,
   UpdatePullRequestInput,
+  FetchSummariesOptions,
+  PullRequestSummary,
+  SummaryState,
   UserRef,
   WatchEventsOptions
 } from './types.ts';
@@ -237,6 +240,83 @@ interface GHFillContextsResponse {
     string,
     { commits: { nodes: Array<{ commit: { statusCheckRollup: GHFillContextsPage | null } }> } } | null
   > | null;
+}
+
+interface GHSummaryNode {
+  number?: number;
+  title: string;
+  state: 'OPEN' | 'CLOSED' | 'MERGED';
+  merged: boolean;
+  isDraft: boolean;
+  headRefName: string;
+  baseRefName: string;
+  author: { login: string } | null;
+  url: string | null;
+  mergedAt: string | null;
+}
+
+interface GHSummaryConnection {
+  nodes: Array<GHSummaryNode | null>;
+  pageInfo: { hasNextPage: boolean; endCursor: string | null };
+}
+
+interface GHSummaryResponse {
+  repository?: { pullRequests: GHSummaryConnection } | null;
+  search?: GHSummaryConnection;
+}
+
+const SUMMARY_FIELDS = `number title state merged isDraft headRefName baseRefName url mergedAt author { login }`;
+
+const SUMMARY_LIST_QUERY = `query GlancePullRequestSummaries($owner: String!, $name: String!, $states: [PullRequestState!], $head: String, $base: String, $after: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(states: $states, headRefName: $head, baseRefName: $base, first: 100, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) {
+      nodes { ${SUMMARY_FIELDS} }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}`;
+
+const SUMMARY_SEARCH_QUERY = `query GlancePullRequestSummarySearch($q: String!, $after: String) {
+  search(query: $q, type: ISSUE, first: 100, after: $after) {
+    nodes { ... on PullRequest { ${SUMMARY_FIELDS} } }
+    pageInfo { hasNextPage endCursor }
+  }
+}`;
+
+const SUMMARY_STATES: Record<SummaryState, string[]> = {
+  opened: ['OPEN'],
+  closed: ['CLOSED'],
+  merged: ['MERGED'],
+  all: ['OPEN', 'CLOSED', 'MERGED']
+};
+
+const SUMMARY_SEARCH_STATE: Record<SummaryState, string> = {
+  opened: 'is:open',
+  closed: 'is:closed -is:merged',
+  merged: 'is:merged',
+  all: ''
+};
+
+/**
+ * A quote or backslash would end the phrase and let the rest of the value
+ * add qualifiers, so those are refused; whitespace is contained by quoting.
+ */
+function searchTerm(label: string, value: string, phrase = false): string {
+  if (/["\\\r\n]/.test(value)) {
+    throw new Error(`${label} cannot contain a quote, backslash or newline in a GitHub search`);
+  }
+  return phrase || /\s/.test(value) ? `"${value}"` : value;
+}
+
+function summarySearchString(owner: string, repo: string, o: FetchSummariesOptions): string {
+  const parts = [`repo:${owner}/${repo}`, 'is:pr', SUMMARY_SEARCH_STATE[o.state]];
+  if (o.author !== undefined) {
+    parts.push(`author:${o.author === 'me' ? '@me' : searchTerm('author', o.author)}`);
+  }
+  if (o.sourceBranch) parts.push(`head:${searchTerm('sourceBranch', o.sourceBranch)}`);
+  if (o.targetBranch) parts.push(`base:${searchTerm('targetBranch', o.targetBranch)}`);
+  if (o.search) parts.push(searchTerm('search', o.search, true));
+  return parts.filter(Boolean).join(' ');
 }
 
 /** One entry of a GraphQL response's `errors`, as `graphqlRead` reports it. */
@@ -595,7 +675,7 @@ export class GitHubProvider implements GitProvider {
     canFetchPipelineList: true,
     canFetchCommitParents: true,
     canFetchPipelineFailedJobs: true,
-    canFetchPullRequestSummaries: false,
+    canFetchPullRequestSummaries: true,
     canEditLabels: false
   };
 
@@ -2312,6 +2392,60 @@ export class GitHubProvider implements GitProvider {
       }
     });
     return out;
+  }
+
+  async fetchPullRequestSummaries(
+    projectPath: string,
+    options: FetchSummariesOptions
+  ): Promise<{ rows: PullRequestSummary[]; truncated: boolean }> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    const searching = options.author !== undefined || options.search !== undefined;
+    const q = searching ? summarySearchString(owner, repo, options) : '';
+    const rows: PullRequestSummary[] = [];
+    let after: string | null = null;
+    for (let page = 1; page <= FORGE_READ_MAX_PAGES; page++) {
+      const { data, errors }: { data: GHSummaryResponse; errors: GraphQLReadError[] } =
+        await this.graphqlRead<GHSummaryResponse>(
+        'fetchPullRequestSummaries',
+        searching ? SUMMARY_SEARCH_QUERY : SUMMARY_LIST_QUERY,
+        searching
+          ? { q, after }
+          : {
+              owner,
+              name: repo,
+              states: SUMMARY_STATES[options.state],
+              head: options.sourceBranch ?? null,
+              base: options.targetBranch ?? null,
+              after
+            }
+      );
+      // A partial page would pass as a complete list.
+      if (errors.length > 0) {
+        throw new Error(
+          `fetchPullRequestSummaries failed: GitHub GraphQL returned ${errors.map(e => e.message).join('; ')}`
+        );
+      }
+      const connection: GHSummaryConnection | null | undefined = searching ? data.search : data.repository?.pullRequests;
+      if (!connection) throw new Error('fetchPullRequestSummaries failed: GitHub GraphQL returned no data');
+      for (const n of connection.nodes) {
+        if (n == null || typeof n.number !== 'number') continue;
+        rows.push({
+          iid: n.number,
+          title: n.title,
+          state: n.merged || n.state === 'MERGED' ? 'merged' : n.state === 'CLOSED' ? 'closed' : 'opened',
+          draft: n.isDraft === true,
+          sourceBranch: n.headRefName,
+          targetBranch: n.baseRefName,
+          author: n.author?.login ?? null,
+          webUrl: n.url ?? null,
+          detailedMergeStatus: null,
+          mergedAt: n.mergedAt ?? null
+        });
+      }
+      if (rows.length > options.limit || !connection.pageInfo.hasNextPage) break;
+      after = connection.pageInfo.endCursor;
+    }
+    return { rows: rows.slice(0, options.limit), truncated: rows.length > options.limit };
   }
 
   /** Runs a REST read, turning a rate limit into `RateLimitedError` and a non-2xx into `ForgeHttpError`. */

@@ -347,4 +347,35 @@ describe('GraphQL 5xx retry', () => {
     await b.provider.fetchPipelineList!('o/r', { iid: 3, limit: 5 });
     expect(byTransport(b.requests)).toEqual({ graphql: 0, rest: 2 });
   });
+
+  test('fetchPullRequestSummaries: 50 rows is 1 GraphQL, 150 rows is 2, no REST', async () => {
+    const row = (n: number) => ({
+      number: n,
+      title: 't',
+      state: 'OPEN',
+      merged: false,
+      isDraft: false,
+      headRefName: 'h',
+      baseRefName: 'main',
+      author: null,
+      url: null,
+      mergedAt: null
+    });
+    const rows = (from: number, count: number) => Array.from({ length: count }, (_, i) => row(from + i));
+    const page = (nodes: unknown[], hasNextPage: boolean) => ({
+      repository: { pullRequests: { nodes, pageInfo: { hasNextPage, endCursor: 'c' } } }
+    });
+
+    stubForge({ graphql: () => page(rows(1, 50), false) });
+    const a = counted();
+    expect((await a.provider.fetchPullRequestSummaries!('o/r', { state: 'all', limit: 200 })).rows).toHaveLength(50);
+    expect(byTransport(a.requests)).toEqual({ graphql: 1, rest: 0 });
+
+    stubForge({
+      graphql: (_q, vars) => (vars.after ? page(rows(101, 50), false) : page(rows(1, 100), true))
+    });
+    const b = counted();
+    expect((await b.provider.fetchPullRequestSummaries!('o/r', { state: 'all', limit: 200 })).rows).toHaveLength(150);
+    expect(byTransport(b.requests)).toEqual({ graphql: 2, rest: 0 });
+  });
 });

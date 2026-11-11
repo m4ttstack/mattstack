@@ -154,11 +154,7 @@ export const GITHUB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   fetchPipelineFailedJobs: { support: 'supported' },
   fetchProjectLabels: { support: 'supported', capability: 'canFetchProjectLabels' },
   fetchPipelineList: { support: 'supported', capability: 'canFetchPipelineList' },
-  fetchPullRequestSummaries: {
-    support: 'absent',
-    capability: 'canFetchPullRequestSummaries',
-    note: 'Not implemented on GitHub yet.'
-  },
+  fetchPullRequestSummaries: { support: 'supported', capability: 'canFetchPullRequestSummaries' },
   addPullRequestLabels: {
     support: 'absent',
     capability: 'canEditLabels',
