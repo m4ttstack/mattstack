@@ -28,7 +28,7 @@ import { forgeFromRemote, readTeamSnapshot, readUserIntegrationOverrides, type S
 import { storedValue } from "../settings/presence.ts";
 import { setSetting } from "../settings/write.ts";
 import { forgeLogin, grantRead, membershipSteps, type ForgeAccess } from "./forge.ts";
-import { refuseUnconfirmedForgeHost, storedForgeToken } from "./stored-forge-token.ts";
+import { refuseUnconfirmedForge, refuseUnconfirmedForgeHost, storedForgeToken, storedTokenForForge } from "./stored-forge-token.ts";
 import { assertCurrentOrg, readTeamLocal } from "./team-local.ts";
 import { encodeCode, generateId, generateKey, seal } from "./invite-crypto.ts";
 import { readInviteRecords, upsertInviteRecord } from "./invite-records.ts";
@@ -324,9 +324,12 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
   }
   const remote = snapshot.remote;
   const forge = snapshot.integrations.forge ?? forgeFromRemote(remote) ?? undefined;
-  refuseUnconfirmedForgeHost(remote, readUserIntegrationOverrides({ read: seams.read, warn: seams.warn }).forgeHost);
+  const confirmedHost = readUserIntegrationOverrides({ read: seams.read, warn: seams.warn }).forgeHost;
+  refuseUnconfirmedForgeHost(remote, confirmedHost);
+  if (forge) refuseUnconfirmedForge(forge, confirmedHost);
   const token = await seams.forgeToken(p, remote);
-  const owner = (forge ? await seams.forgeLogin(p, forge.provider, forge.host, token) : null) ?? p.env.USER ?? "unknown";
+  const loginToken = forge ? await storedTokenForForge(p, forge, confirmedHost, seams.forgeToken) : null;
+  const owner = (forge ? await seams.forgeLogin(p, forge.provider, forge.host, loginToken) : null) ?? p.env.USER ?? "unknown";
 
   const title = seams.read<string>("board.title");
   const pointer: InvitePointer = {

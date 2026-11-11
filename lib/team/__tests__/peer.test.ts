@@ -6,7 +6,7 @@ import { switchboardUrl } from "../../../packages/rt-client/src/switchboard.ts";
 import { UserActionableError } from "../../errors.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import type { Probes } from "../../setup/probes.ts";
-import { peerOwnBoard, realPeerSeams, type PeerSeams } from "../peer.ts";
+import { peerOwnBoard, realBoardUsername, realPeerSeams, type PeerSeams } from "../peer.ts";
 import { teamLocalPath } from "../team-local.ts";
 import { stageSecret } from "../../setup/staging.ts";
 import { userSettingsPath } from "../../rt-paths.ts";
@@ -233,5 +233,20 @@ describe("realPeerSeams().boardUsername and the GitLab token", () => {
 
     expect(await realPeerSeams().boardUsername(p, "acme")).toBe("dev1");
     expect(seen.some((env) => env?.GITLAB_TOKEN === "glpat-secret")).toBe(true);
+  });
+});
+
+describe("realBoardUsername and a declared forge", () => {
+  test("a declared GitLab forge on an unconfirmed host is refused though the remote is gitlab.com", async () => {
+    const home = "/home/x";
+    const p = fakeProbes({ home, files: { [`${home}/.mattstack/orgs/acme/.git/config`]: `[remote "origin"]\n\turl = https://gitlab.com/acme/org.git\n` } });
+    stageSecret(p, "rt", "gitlabToken", "glpat-secret");
+    const read = <T,>(key: string): T | undefined => (key === "mattstack.integrations" ? ({ forge: { provider: "gitlab", host: "gitlab.evil.example" } } as T) : undefined);
+
+    const err = await rejection(realBoardUsername(p, "acme", read));
+
+    expect(err.code).toBe("forge-host-unconfirmed");
+    expect(err.message).toContain("gitlab.evil.example");
+    expect(p.calls.exec).toEqual([]);
   });
 });

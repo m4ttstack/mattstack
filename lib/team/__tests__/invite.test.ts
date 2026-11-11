@@ -606,7 +606,7 @@ describe("mintInvite", () => {
     const p = probesWithRemote(REMOTE);
     const seen: { login: unknown; grant: unknown } = { login: undefined, grant: undefined };
     const { seams } = baseSeams({
-      forgeToken: async (_p, remote) => (remote === REMOTE ? "ghp-secret" : null),
+      forgeToken: async (_p, remote) => (remote === REMOTE || remote === "https://github.com/mattstack/identity" ? "ghp-secret" : null),
       forgeLogin: async (_p, _provider, _host, token) => {
         seen.login = token;
         return "octocat";
@@ -696,8 +696,8 @@ describe("mintInvite: the GitLab token goes only to a confirmed host", () => {
   const UNCONFIRMED = "https://gitlab.evil.example/acme/widgets.git";
   const CONFIRMED = "https://gitlab.acme.internal/acme/widgets.git";
 
-  function gitlabSeams(remote: string, confirmedHost: string | null) {
-    const host = new URL(remote).host;
+  function gitlabSeams(remote: string, confirmedHost: string | null, declaredHost?: string) {
+    const host = declaredHost ?? new URL(remote).host;
     const touched: string[] = [];
     const { seams } = baseSeams({
       read: fakeRead({
@@ -747,8 +747,23 @@ describe("mintInvite: the GitLab token goes only to a confirmed host", () => {
 
     await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
-    expect(touched.slice(0, 2)).toEqual(["forgeToken", "forgeLogin:glpat-secret"]);
+    expect(touched).toContain("forgeLogin:glpat-secret");
   });
+
+  for (const remote of ["https://gitlab.com/acme/widgets.git", "git@github.com:acme/widgets.git"]) {
+    test(`a declared GitLab forge on an unconfirmed host is refused though the remote is ${remote}`, async () => {
+      const p = probesWithRemote(remote);
+      const { seams, touched } = gitlabSeams(remote, null, "gitlab.evil.example");
+      const relay = fakeRelayClient();
+
+      const err = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams).catch((e: unknown) => e);
+
+      expect((err as UserActionableError).code).toBe("forge-host-unconfirmed");
+      expect((err as UserActionableError).message).toContain("gitlab.evil.example");
+      expect(touched).toEqual([]);
+      expect(p.calls.exec).toEqual([]);
+    });
+  }
 });
 
 describe("mintInvite: forge membership follows the latch", () => {

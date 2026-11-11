@@ -1,3 +1,4 @@
+import { UserActionableError } from "../../lib/errors.ts";
 import * as teamActions from "../team.ts";
 import type { MembersSeams } from "../../lib/team/members.ts";
 import type { InviteResult, MintInviteOpts } from "../../lib/team/invite.ts";
@@ -283,6 +284,32 @@ describe("teamCreate connects the creator's board", () => {
       await teamCreate(["Acme", "--remote", "https://github.com/acme/repo.git"], {}, deps);
       expect(io.stdout()).toContain("Created the acme org");
       expect(io.stderr()).toContain("The org is ready, but rt could not connect your board");
+    } finally {
+      warnTest.reset();
+      io.restore();
+    }
+  });
+
+  test("a peer refusal that names its own fix keeps that fix as the next step", async () => {
+    const deps = baseDeps({
+      probes: register(200),
+      readLocalSecret: async (key) => (key === "switchboardAdminToken" ? "admin" : null),
+      peerSeams: {
+        boardUsername: async () => {
+          throw new UserActionableError("forge-host-unconfirmed", "rt will not send your GitLab token to gitlab.evil.example", {}, { next: "rt setup gitlab connect --host gitlab.evil.example" });
+        },
+        localStoreReady: async () => true,
+        writeLocalSecret: async () => {},
+      },
+    });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    warnTest.reset();
+    setWarningLog(() => {});
+    try {
+      await teamCreate(["Acme", "--remote", "https://github.com/acme/repo.git"], {}, deps);
+      expect(io.stderr()).toContain("rt setup gitlab connect --host gitlab.evil.example");
+      expect(io.stderr()).not.toContain("rt team peer");
     } finally {
       warnTest.reset();
       io.restore();
