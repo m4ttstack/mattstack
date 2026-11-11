@@ -21,7 +21,12 @@ import { findByPath, loadRegistry, saveRegistry, type TreeRecord } from "./regis
 import { hasFreshAttendantLease } from "./lease.ts";
 import { loadSyncConfig, matchRule } from "../sync-config.ts";
 import { deriveRepoIdentity } from "../settings/identity.ts";
-import { killWorktreeProcesses } from "../daemon/worktree-process-kill.ts";
+import {
+  killWorktreeProcesses,
+  type KillWorktreeOptions,
+  type WorktreeKillResult,
+} from "../daemon/worktree-process-kill.ts";
+import { sessionDisplayName } from "../daemon/session-identity.ts";
 import { RETENTION_MS, reapTrashDir, retentionAvailable, retireTree, stripTrashDir, writeDisposalManifest } from "./trash.ts";
 import type { RunningRunScan } from "../runs/store.ts";
 
@@ -135,6 +140,21 @@ export interface DisposeDeps {
       in lib/runs/store.ts. Required (not optional) so a new construction site
       can't forget it and silently fail open on a running-run tree. */
   findRunningRun: (worktree: string) => RunningRunScan;
+  /** Posts one line to a chat room; absent where no chat is wired. */
+  notify?: (post: { room: string; body: string }) => Promise<void>;
+  /** Test seam for the process kill; defaults to `killWorktreeProcesses`. */
+  killWorktree?: (path: string, opts: KillWorktreeOptions) => Promise<WorktreeKillResult>;
+}
+
+/** The chat line for an agent session that was stopped because its tree was disposed. */
+export function stoppedSessionNotice(args: {
+  name: string;
+  tree: string;
+  why: string;
+  trashPath: string | null;
+}): string {
+  const base = `rt stopped ${args.name}: it was still working inside worktree ${args.tree}, which was disposed after ${args.why}.`;
+  return args.trashPath ? `${base} The tree is in the trash at ${args.trashPath}.` : base;
 }
 
 export type DisposeOutcome =
@@ -171,7 +191,14 @@ function joinedMr(
 export async function disposeTree(
   deps: DisposeDeps,
   rec: TreeRecord,
-  opts: { force?: boolean; auto?: boolean; acceptDirty?: boolean; requireRetention?: boolean },
+  opts: {
+    force?: boolean;
+    auto?: boolean;
+    acceptDirty?: boolean;
+    requireRetention?: boolean;
+    /** Set only by the merge reactor: stop agent sessions still inside the tree and announce it. */
+    stopSessions?: { why: string };
+  },
 ): Promise<DisposeOutcome> {
   const { repoName, repoPath, emit, log } = deps;
   const force = opts.force === true;
@@ -247,8 +274,28 @@ export async function disposeTree(
 
   if (opts.requireRetention === true && !(await retentionAvailable(rec.path))) return refuse("no-trash");
 
+  let stoppedSessions: WorktreeKillResult["stoppedSessions"] = [];
   if (deps.killProcesses) {
-    const { terminated } = await killWorktreeProcesses(rec.path, { callerPids: deps.callerPids });
+    const killed = await (deps.killWorktree ?? killWorktreeProcesses)(rec.path, {
+      callerPids: deps.callerPids,
+      stopSessionsInside: opts.stopSessions !== undefined,
+    });
+    const { terminated } = killed;
+    stoppedSessions = killed.stoppedSessions;
+    for (const s of stoppedSessions) {
+      log.warn(
+        {
+          repo: repoName,
+          tree: rec.name,
+          pid: s.pid,
+          label: s.label,
+          ...(s.identity ? { sessionId: s.identity.sessionId } : {}),
+          ...(s.identity?.handle ? { handle: s.identity.handle } : {}),
+          ...(s.identity?.pane ? { pane: s.identity.pane } : {}),
+        },
+        `stopped agent session ${sessionDisplayName(s.pid, s.label, s.identity)} working inside ${rec.name}`,
+      );
+    }
     if (terminated.length > 0) {
       log.info(
         { repo: repoName, tree: rec.name, count: terminated.length },
@@ -277,6 +324,27 @@ export async function disposeTree(
     // worktree with its metadata lost. Refuse instead; the caller retries.
     if (existsSync(rec.path)) return refuse("remove-failed");
   }
+
+  const announceStopped = async (trashPath: string | null): Promise<void> => {
+    const why = opts.stopSessions?.why;
+    if (!why || !deps.notify) return;
+    for (const s of stoppedSessions) {
+      if (!s.identity) continue;
+      const body = stoppedSessionNotice({
+        name: sessionDisplayName(s.pid, s.label, s.identity),
+        tree: rec.name,
+        why,
+        trashPath,
+      });
+      for (const room of s.identity.rooms) {
+        try {
+          await deps.notify({ room, body });
+        } catch (err) {
+          log.warn({ repo: repoName, tree: rec.name, room, err }, "stopped-session notice failed");
+        }
+      }
+    }
+  };
 
   // The registration now points at a path that no longer exists, which is
   // exactly what prune collects.
@@ -331,6 +399,7 @@ export async function disposeTree(
         log,
       );
       void stripTrashDir(trashed.trashPath, log);
+      await announceStopped(trashed.trashPath);
       return {
         disposed: true,
         trash: { path: trashed.trashPath, keptUntil },
@@ -339,5 +408,6 @@ export async function disposeTree(
     void reapTrashDir(trashed.trashPath, log);
   }
 
+  await announceStopped(null);
   return { disposed: true };
 }

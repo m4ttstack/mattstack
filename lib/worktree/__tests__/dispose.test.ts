@@ -13,8 +13,10 @@ import {
   classifyDirtyAsync,
   disposeTree,
   STATUS_FAILED_BLOCKER,
+  stoppedSessionNotice,
   type DisposeDeps,
 } from "../dispose.ts";
+import type { KillWorktreeOptions, WorktreeKillResult } from "../../daemon/worktree-process-kill.ts";
 import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 
 const GIT_ID = "-c user.email=t@t -c user.name=t";
@@ -986,6 +988,84 @@ describe("disposeTree", () => {
     const result = await disposeTree(makeDeps({ killProcesses: true }), rec, {});
     expect(result).toMatchObject({ disposed: true });
     expect(existsSync(path)).toBe(false);
+  });
+
+  describe("stopped sessions", () => {
+    function setup(identity: unknown, notifyImpl?: (post: { room: string; body: string }) => Promise<void>) {
+      const path = addTree(repo, "tree-a", "feature-a");
+      const rec = register(repoName, ephemeral("tree-a", path, "feature-a"));
+      const killOpts: KillWorktreeOptions[] = [];
+      const posts: Array<{ room: string; body: string; treeExisted: boolean }> = [];
+      const warns: unknown[][] = [];
+      const deps = makeDeps({
+        killProcesses: true,
+        killWorktree: async (_p: string, opts: KillWorktreeOptions): Promise<WorktreeKillResult> => {
+          killOpts.push(opts);
+          return {
+            terminated: [],
+            stoppedSessions: [{ pid: 601, label: "claude", cwd: path, identity: identity as never }],
+          };
+        },
+        notify: async (post) => {
+          posts.push({ ...post, treeExisted: existsSync(path) });
+          if (notifyImpl) await notifyImpl(post);
+        },
+        log: { info: () => {}, warn: (...a: unknown[]) => { warns.push(a); } },
+      });
+      return { path, rec, deps, killOpts, posts, warns };
+    }
+    const ident = { sessionId: "s-1", handle: "rt-555", pane: "p7", rooms: ["mattstack", "herd-x"] };
+
+    test("stopSessions turns on the session stop, logs it and posts to each room after retire", async () => {
+      const { rec, deps, killOpts, posts, warns } = setup(ident);
+      const result = await disposeTree(deps, rec, { auto: true, stopSessions: { why: "PR #1087 merged" } });
+      expect(result).toMatchObject({ disposed: true });
+      expect(killOpts[0]?.stopSessionsInside).toBe(true);
+      expect(warns.length).toBe(1);
+      expect(warns[0]![0]).toMatchObject({ pid: 601, sessionId: "s-1", handle: "rt-555", pane: "p7", tree: "tree-a" });
+      expect(posts.map((p) => p.room)).toEqual(["mattstack", "herd-x"]);
+      const trashPath = result.disposed && result.trash ? result.trash.path : null;
+      for (const p of posts) {
+        expect(p.treeExisted).toBe(false);
+        expect(p.body).toContain("rt-555");
+        expect(p.body).toContain("tree-a");
+        expect(p.body).toContain("PR #1087 merged");
+        if (trashPath) expect(p.body).toContain(trashPath);
+      }
+    });
+
+    test("manual dispose keeps sessions spared and never notifies", async () => {
+      const { rec, deps, killOpts, posts } = setup(ident);
+      await disposeTree(deps, rec, {});
+      expect(killOpts[0]?.stopSessionsInside ?? false).toBe(false);
+      expect(posts.length).toBe(0);
+    });
+
+    test("a session with no identity is logged by pid and posted nowhere", async () => {
+      const { rec, deps, posts, warns } = setup(null);
+      const result = await disposeTree(deps, rec, { auto: true, stopSessions: { why: "PR #1087 merged" } });
+      expect(result).toMatchObject({ disposed: true });
+      expect(warns.length).toBe(1);
+      expect(String(warns[0]![1])).toContain("pid 601 (claude)");
+      expect(posts.length).toBe(0);
+    });
+
+    test("a throwing notify does not fail the dispose", async () => {
+      const { rec, deps, warns } = setup(ident, async () => { throw new Error("chat down"); });
+      const result = await disposeTree(deps, rec, { auto: true, stopSessions: { why: "PR #1087 merged" } });
+      expect(result).toMatchObject({ disposed: true });
+      expect(warns.some((w) => (w[0] as { err?: unknown }).err !== undefined)).toBe(true);
+    });
+  });
+
+  test("stoppedSessionNotice names session, tree, reason and trash", () => {
+    const args = { name: "rt-555", tree: "haldir", why: "PR #1087 merged", trashPath: "/t/haldir-1" };
+    expect(stoppedSessionNotice(args)).toBe(
+      "rt stopped rt-555: it was still working inside worktree haldir, which was disposed after PR #1087 merged. The tree is in the trash at /t/haldir-1.",
+    );
+    expect(stoppedSessionNotice({ ...args, trashPath: null })).toBe(
+      "rt stopped rt-555: it was still working inside worktree haldir, which was disposed after PR #1087 merged.",
+    );
   });
 
   test("a branchless record disposes and prunes the registry", async () => {
