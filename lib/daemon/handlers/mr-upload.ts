@@ -1,7 +1,7 @@
 /**
  * mr:upload: one multipart POST to GitLab's project uploads endpoint, behind
  * the path guard in ../upload-guard.ts. glance has no multipart support, so
- * the request is built here with the same token and base URL getRepoContext
+ * the request is built here with the same token and base URL getGitLabContext
  * gives every other GitLab verb, and it reports through providerRequestHook
  * like a provider call. The allowed roots are assembled per call: the target
  * repo's index path and worktree registry, the Claude Code temp root for this
@@ -17,7 +17,7 @@ import { Database } from "bun:sqlite";
 import { readdirSync, realpathSync, statSync, type BigIntStats } from "fs";
 import { isAbsolute, join, relative, sep } from "path";
 import { decodeRepo } from "../identity-decoder.ts";
-import { getRepoContext, providerRequestHook } from "../freshness.ts";
+import { getGitLabContext, providerRequestHook } from "../freshness.ts";
 import { loadSecrets } from "../../linear.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { findRun, listRunRepoDirs } from "../../runs/store.ts";
@@ -199,7 +199,7 @@ export function createMrUploadHandlers(
   ctx: Pick<HandlerContext, "repoIndex" | "log">,
   seams: MrUploadSeams = {},
 ): { "mr:upload": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:upload">> } & HandlerMap {
-  const repoContextFn = seams.repoContext ?? getRepoContext;
+  const repoContextFn = seams.repoContext ?? ((repoName: string, repoPath?: string) => getGitLabContext("upload", repoName, repoPath));
   const gitlabTokenFn = seams.gitlabToken ?? (async () => (await loadSecrets()).gitlabToken);
   const worktreePathsFn = seams.worktreePaths ?? ((repoName: string) => loadRegistry(repoName).map((t) => t.path));
   const tempRootsFn = seams.tempRoots ?? (() => claudeTempRoots(typeof process.getuid === "function" ? process.getuid() : null));

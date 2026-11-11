@@ -43,22 +43,18 @@ tool handlers and defines `gate_open`, `gate_record` and `gate_reconcile`
 over `lib/gates/`), the `mr_*` writes, `rt_verb`, the herd worker tools
 (`herd_gates`, `herd_ask`, `herd_answer`, `herd_report`) and five chat tools
 (`chat_post`, `chat_dm`, `chat_ack`, `chat_claim`, `chat_release`), and
-spreads in the rest: the GitLab composites (`mr-composite-tools.ts`:
-`mr_map`, `mr_posted_since`, `mr_resolve_branch`, `respond_post_execute`),
-run tracking (`run-tools.ts`, in-process over
-`runWriteVerb`, a caller's `runDb` confined to the runs root), GitLab reads
-(`mr-read-tools.ts`, `forge-read-tools.ts`: every one asks GitLab through
-the daemon on each call and none reads the open-MR cache, so an agent can
-read any MR its token can; `mr_map` also lists the MRs live and reads the
-daemon's synced MR list only for each row's `ciStatus`; `gitlab_get` is a GET-only passthrough whose
-daemon guard in `lib/daemon/forge-reads.ts` refuses the paths that return
-credentials (`REFUSED_SEGMENTS`, also with a format suffix, and a path
-percent-encoded more than once) and the query keys that carry credentials
-or impersonation, caps the body at 256 KiB counted in bytes, never follows a
-redirect (the token header would travel with it), and redacts
-every `token` / `*_token` value; those lists are widened, never narrowed,
-without a design review), CI (`ci-tools.ts`: `ci_watch`, which reads GitLab
-on every poll, and the `ci_lease_*` tools), the stack store read
+spreads in the rest: the composites (`mr-composite-tools.ts`:
+`mr_map`, `mr_posted_since`, `mr_resolve_branch`, `respond_post_execute`;
+only `mr_resolve_branch` works on GitHub), run tracking (`run-tools.ts`,
+in-process over `runWriteVerb`, a caller's `runDb` confined to the runs
+root), forge reads (`mr-read-tools.ts`, `forge-read-tools.ts`: every one
+asks the repo's own forge through the daemon on each call and none reads
+the open-MR cache, so an agent can read any MR its token can; all but
+`mr_threads` and `pipeline_jobs` work on GitHub too; `mr_map` also lists
+the MRs live and reads the daemon's synced MR list only for each row's
+`ciStatus`; `gitlab_get` is a GET-only passthrough, guarded as below), CI
+(`ci-tools.ts`: `ci_watch`, which reads GitLab on every poll, and the
+`ci_lease_*` tools), the stack store read
 (`stack-tool.ts`: `branch_stack` admits a tree only through
 `tree-guard.ts`), git writes
 (`git-tools.ts`), worktrees (`worktree-tools.ts`: provision, dispose,
@@ -67,6 +63,19 @@ stop-holders, and no general kill), the other herd tools
 (`whoami-tool.ts`, which reads only the server's env, this session's own
 chat session file and, through `pane:self`, the pane this session runs in
 now); every chat tool acts only as this session's own handle.
+`gitlab_get`'s daemon guard in `lib/daemon/forge-reads.ts` caps the body
+at 256 KiB counted in bytes, never follows a redirect (the token header
+would travel with it), refuses a path percent-encoded more than once, and
+redacts every `token` / `*_token` value. On GitLab it refuses the paths
+that return credentials (`REFUSED_SEGMENTS`, also with a format suffix)
+and the query keys that carry credentials or impersonation. On GitHub the
+path must sit under the repo (`:repo/...`), and a word in
+`GITHUB_REFUSED_SEGMENTS` is refused in any path segment, or as a
+segment's dot-suffixed prefix, even inside a file path such as
+`contents/src/hooks/x.ts`; `git/blobs` is refused for size, and the query
+keys in `GITHUB_REFUSED_QUERY_KEYS` are refused too. The GitHub list also
+covers secret scanning alerts and security advisories. Those lists are
+widened, never narrowed, without a design review.
 `skills_resolve` (`skills-resolve-tool.ts`) runs `rt skills resolve`'s code
 in process: it checks the id against `ID_RE` first, reads only under
 `~/.claude/plugins/cache` and `~/.claude/skills`, and writes nothing. It
@@ -103,8 +112,14 @@ retries, rebase, create, update, upload, merge). `mr_review_submit` posts a
 review the way GitLab's own submit does: pending comments, one publish with
 the summary and a reviewed state, then the approval; it refuses when the
 caller already has pending comments on the MR, because a publish would post
-those too. `mr_merge` is on the server for both forges (the forge still enforces approvals and
-pipeline rules); the skill's ship gate is the human check. `mr_upload` is
+those too. `mr_approve`, `mr_ready`, `mr_retry`, `mr_create`, `mr_update`
+and `mr_merge` work on both forges; the thread, comment, review, upload and
+rebase tools are GitLab only. `mr_merge` is on the server for both forges
+(the forge still enforces approvals and pipeline rules); on GitHub it goes
+through the daemon too (`mr:merge-queue-status`, `mr:enqueue`, `mr:action`,
+and `mr:get` to read the merge back), so only the daemon holds the token, and the tool keeps the merge queue wait
+on its own side, one `mr:merge-queue-status` read per poll. The skill's ship gate is the
+human check. `mr_upload` is
 the one tool that sends a local file off the machine, so its daemon guard
 (`lib/daemon/upload-guard.ts`) refuses anything outside the target repo's
 worktrees, the user's Claude Code temp root, rt's own evidence folder
@@ -115,8 +130,12 @@ user owns, never a symlink), a pipeline run's own evidence folder
 `rt.mcp.uploadRoots`, and anything whose bytes do not match its image or
 video extension; widen the roots through that setting, never by loosening
 the guard. Target resolution (`repoName` as identity, path or
-label, or `mrUrl`) lives in `lib/mcp/mr-target.ts`; the daemon verbs still
-take the serialized identity only.
+label, or `mrUrl`) lives in `lib/mcp/mr-target.ts`; for a tool that
+resolves its target through `resolveMrTarget` or `resolveRepoTarget` there, a
+GitHub PR URL names a target only when the tool passes `github: true`, and
+only a tool whose daemon verbs all answer on GitHub may (`evidence_attach`
+builds its own GitHub target). The daemon verbs still take the serialized
+identity only.
 
 Decision gates (`rt gate ask`, `rt gate wait`, the board's stage sheet) are
 the only way an unattended pane asks a human anything. The

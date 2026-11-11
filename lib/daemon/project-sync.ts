@@ -30,7 +30,7 @@
  */
 
 import type { PullRequest, ApprovalRuleLite, MRApprovalRules, GitLabProvider } from "@mattstack/glance";
-import { getRepoContext, getSelfUsername, resolveSelfUsername } from "./freshness.ts";
+import { getGitLabContext, getSelfUsername, isGitHubRepo, resolveSelfUsername } from "./freshness.ts";
 import { getProjectMRs, freshnessOf, type ProjectMRs, type ProjectMRStore } from "./project-mrs-store.ts";
 import { loadRepoTracking, grants } from "../repo-tracking.ts";
 import { lazyChildLogger } from "../daemon-logger.ts";
@@ -124,7 +124,7 @@ export interface ProjectSyncOverrides {
   mode?: "auto" | "deep";
   fetchProject?: (repoName: string) => Promise<{ projectPath: string; prs: PullRequest[] }>;
   fetchDelta?: (repoName: string, updatedAfter: string) => Promise<{ projectPath: string; prs: PullRequest[] }>;
-  /** The default reads' provider and project path; production resolves them via getRepoContext. */
+  /** The default reads' provider and project path; production resolves them via getGitLabContext. */
   repoContext?: (repoName: string) => Promise<{ provider: SyncProvider; projectPath: string }>;
   /** Exact target branches the default reads exclude; production expands the repo's rt.ignoredMrs globs. */
   excludedTargets?: (repoName: string) => Promise<string[]>;
@@ -145,6 +145,8 @@ export interface ProjectSyncOverrides {
    */
   selfUsername?: string | null;
   store?: ProjectMRs;
+  /** The GitHub skip notice's sink (test seam); production logs it at info. */
+  info?: (obj: object, msg: string) => void;
 }
 
 /** Pipeline states that mean "still running" — the set the delta top-up refreshes. */
@@ -224,7 +226,7 @@ export async function fetchDeltaFrom(
 
 /** The default reads syncImpl and the backfills share, each carrying the repo's excluded target branches. */
 function defaultReads(deps: ProjectSyncDeps, overrides: ProjectSyncOverrides) {
-  const context = overrides.repoContext ?? ((repo: string) => getRepoContext(repo, deps.repoIndex()[repo]));
+  const context = overrides.repoContext ?? ((repo: string) => getGitLabContext("project sync", repo, deps.repoIndex()[repo]));
   const excluded = overrides.excludedTargets ?? (async (repo: string) => {
     const globs = readIgnoredMrs(repo).targetBranches;
     if (globs.length === 0) return [];
@@ -263,6 +265,18 @@ function defaultReads(deps: ProjectSyncDeps, overrides: ProjectSyncOverrides) {
 }
 
 const syncInFlight = new Map<string, Promise<void>>();
+const githubSkipLogged = new Set<string>();
+
+/** True for a GitHub repo, which project sync does not cover yet; the first skip per repo per daemon start logs at info. */
+async function skipsGitHub(deps: ProjectSyncDeps, repoName: string, overrides: ProjectSyncOverrides): Promise<boolean> {
+  const repoPath = deps.repoIndex()[repoName];
+  if (!repoPath || !(await isGitHubRepo(repoPath))) return false;
+  if (!githubSkipLogged.has(repoName)) {
+    githubSkipLogged.add(repoName);
+    (overrides.info ?? ((obj, msg) => log.info(obj, msg)))({ repo: repoName }, "project sync skips GitHub repos for now");
+  }
+  return true;
+}
 
 export function syncProjectMRs(
   deps: ProjectSyncDeps,
@@ -271,7 +285,8 @@ export function syncProjectMRs(
 ): Promise<void> {
   const existing = syncInFlight.get(repoName);
   if (existing) return existing;
-  const run = syncImpl(deps, repoName, overrides)
+  const run = skipsGitHub(deps, repoName, overrides)
+    .then((skip) => (skip ? undefined : syncImpl(deps, repoName, overrides)))
     .then(
       () => { recordSyncSuccess(repoName); },
       (err: unknown) => {
@@ -619,7 +634,7 @@ export async function remeasureDivergedCounts(
     const picks = pickRemeasure(record, measured, DIVERGED_REMEASURE_CAP);
     if (picks.length === 0) return [];
     const fetchDiverged = overrides.fetchDiverged ?? (async (repo: string, projectPath: string, iid: number) => {
-      const { provider } = await getRepoContext(repo, deps.repoIndex()[repo]);
+      const { provider } = await getGitLabContext("project sync", repo, deps.repoIndex()[repo]);
       return provider.fetchDivergedCount(projectPath, iid);
     });
 

@@ -503,12 +503,12 @@ describe("mcpTools", () => {
       expect(calls).toEqual([]);
     });
 
-    test("a timed-out mr_create says the MR may still land and to check mr_map", async () => {
+    test("a timed-out mr_create says the MR may still land and to check mr_for_branch", async () => {
       fakeDaemon(() => ({ ok: false, error: "rt daemon unreachable at /x.sock: The operation timed out." }));
       const tool = mcpTools().find((t) => t.name === "mr_create")!;
       const res = await tool.handler({ repoName: "remote:x", sourceBranch: "feat", targetBranch: "main", title: "T" }, {} as NodeJS.ProcessEnv);
       expect(res.error).toContain("may still land");
-      expect(res.error).toContain("mr_map");
+      expect(res.error).toContain("mr_for_branch");
     });
 
     test("mr_create forwards labels and squash", async () => {
@@ -583,19 +583,12 @@ describe("mcpTools", () => {
         expect(calls).toEqual([]);
       });
 
-      test("a GitHub repo is refused with the gh moves and no call", async () => {
-        const calls = fakeDaemon(() => ({ ok: true, data: {} }));
-        const res = await create().handler({ ...base, repoName: "remote:github.com%2Facme%2Fapp" }, {} as NodeJS.ProcessEnv);
-        expect(res.ok).toBe(false);
-        expect(res.error).toBe("GitLab only: mr_create does not speak GitHub; gh pr create / gh pr view");
-        expect(calls).toEqual([]);
-      });
-
-      test("a GitHub mrUrl is refused before target resolution", async () => {
-        const calls = fakeDaemon(() => ({ ok: true, data: {} }));
-        const res = await create().handler({ ...base, repoName: undefined, mrUrl: "https://github.com/acme/app/pull/3" }, {} as NodeJS.ProcessEnv);
-        expect(res.error).toBe("GitLab only: mr_create does not speak GitHub; gh pr create / gh pr view");
-        expect(calls).toEqual([]);
+      test("a GitHub repo looks for the open PR, then creates one, with its identity", async () => {
+        const GH = "remote:github.com%2Facme%2Fapp";
+        const calls = fakeDaemon((cmd) => (cmd === "mr:live-by-branch" ? { ok: true, data: { byBranch: { feat: null } } } : { ok: true, data: { iid: 4, url: "https://github.com/acme/app/pull/4" } }));
+        const res = await create().handler({ ...base, repoName: GH }, {} as NodeJS.ProcessEnv);
+        expect(res).toEqual({ ok: true, body: { iid: 4, url: "https://github.com/acme/app/pull/4", existing: false } });
+        expect(calls.map((c) => [c.cmd, c.payload.repoName])).toEqual([["mr:live-by-branch", GH], ["mr:create", GH]]);
       });
     });
 
@@ -967,6 +960,20 @@ describe("mcpTools", () => {
       return calls;
     }
 
+    test("a GitHub mr_merge the daemon never answered, and that did not land, keeps its error and gets the landing hint", async () => {
+      setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fghapp", "/repos/ghapp");
+      const timedOut = "rt daemon unreachable at /x.sock: The operation timed out.";
+      const calls = fakeDaemon((cmd) => {
+        if (cmd === "mr:merge-queue-status") return { ok: true, data: { enabled: false, inQueue: false, merged: false, lastRemoval: null } };
+        if (cmd === "mr:get") return { ok: true, data: { mr: { iid: 12, state: "opened" }, fetchedAt: 1 } };
+        return { ok: false, error: timedOut };
+      });
+      const res = await mcpTools().find((t) => t.name === "mr_merge")!.handler({ repoName: "ghapp", iid: 12 }, {} as NodeJS.ProcessEnv);
+      expect(res.ok).toBe(false);
+      expect(res.error).toBe(`${timedOut}; the write may still land, so check the PR's state before retrying`);
+      expect(calls.map((c) => c.cmd)).toEqual(["mr:merge-queue-status", "mr:action", "mr:get"]);
+    });
+
     test("batch mr_upload refuses a label that resolves to a github.com repo, before the daemon", async () => {
       setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fghapp", "/repos/ghapp");
       const calls = fakeDaemon();
@@ -1037,6 +1044,70 @@ describe("mcpTools", () => {
       const res = await tool.handler({ mrUrl: "https://gitlab.example.com/acme/app/-/merge_requests/7", discussionId: "d1" }, {} as NodeJS.ProcessEnv);
       expect(res.error).toBe('"body" is required');
       expect(calls).toEqual([]);
+    });
+
+    describe("a GitHub PR URL", () => {
+      const GH = "remote:github.com%2Facme%2Fapp";
+      const PR = "https://github.com/acme/app/pull/3";
+
+      test("reaches the daemon verb of each tool whose verbs answer on GitHub, with the GitHub identity and number", async () => {
+        setKvValue(REPO_INDEX_NS, GH, "/repos/ghapp");
+        const calls = fakeDaemon((cmd) => (cmd === "mr:create" ? { ok: true, data: { iid: 4, url: "u" } } : cmd === "mr:update" ? { ok: true, data: { iid: 3, url: "u", applied: ["title"] } } : { ok: true }));
+        const run = (name: string, input: Record<string, unknown>) => mcpTools().find((t) => t.name === name)!.handler(input, {} as NodeJS.ProcessEnv);
+        expect((await run("mr_approve", { mrUrl: PR })).ok).toBe(true);
+        expect((await run("mr_ready", { mrUrl: PR })).ok).toBe(true);
+        expect((await run("mr_retry", { mrUrl: PR, jobId: 9 })).ok).toBe(true);
+        expect((await run("mr_update", { mrUrl: PR, title: "T" })).ok).toBe(true);
+        expect((await run("mr_create", { mrUrl: PR, sourceBranch: "feat", targetBranch: "main", title: "T" })).ok).toBe(true);
+        expect(calls.map((c) => c.payload)).toEqual([
+          { repoName: GH, iid: 3, action: "approve", args: [] },
+          { repoName: GH, iid: 3, action: "toggleDraft", args: [false] },
+          { repoName: GH, iid: 3, action: "retryJob", args: [9] },
+          { repoName: GH, iid: 3, title: "T" },
+          { repoName: GH, sourceBranch: "feat", targetBranch: "main", title: "T" },
+        ]);
+      });
+
+      test("a repoName naming another repo is refused with no daemon call", async () => {
+        setKvValue(REPO_INDEX_NS, GH, "/repos/ghapp");
+        setKvValue(REPO_INDEX_NS, APP, "/repos/app");
+        const calls = fakeDaemon();
+        const res = await mcpTools().find((t) => t.name === "mr_approve")!.handler({ repoName: APP, mrUrl: PR }, {} as NodeJS.ProcessEnv);
+        expect(res.error).toBe(`repoName resolves to ${APP} but mrUrl names ${GH}; pass one of them, or make them agree`);
+        expect(calls).toEqual([]);
+      });
+
+      test("tools whose verbs do not answer on GitHub keep refusing it, with no daemon call", async () => {
+        setKvValue(REPO_INDEX_NS, GH, "/repos/ghapp");
+        const calls = fakeDaemon();
+        const inputs: Record<string, Record<string, unknown>> = {
+          mr_reply_thread: { discussionId: "d1", body: "b" },
+          mr_update_note: { noteId: 1, body: "b" },
+          mr_comment_inline: { body: "b", path: "a.ts", line: 1 },
+          mr_comment: { body: "b" },
+          mr_review_submit: { outcome: "comment", summary: "s" },
+          mr_resolve_thread: { discussionId: "d1" },
+          mr_rebase: {},
+        };
+        for (const [name, input] of Object.entries(inputs)) {
+          const res = await mcpTools().find((t) => t.name === name)!.handler({ ...input, mrUrl: PR }, {} as NodeJS.ProcessEnv);
+          expect(res.ok, name).toBe(false);
+        }
+        const wait = await mcpTools().find((t) => t.name === "mr_rebase")!.handler({ mrUrl: PR, wait: true }, {} as NodeJS.ProcessEnv);
+        expect(wait.error).toBe("GitLab only: mr_rebase does not speak GitHub; no server-side rebase on GitHub");
+        expect(calls).toEqual([]);
+      });
+
+      test("descriptions say GitLab only exactly where the tool still is", () => {
+        const describe = (name: string) => mcpTools().find((t) => t.name === name)!.description;
+        for (const name of ["mr_approve", "mr_ready", "mr_retry", "mr_update", "mr_create", "mr_merge"]) {
+          expect(describe(name), name).not.toContain("GitLab only");
+          expect(describe(name), name).toContain("github.com/<owner>/<repo>/pull/<number>");
+        }
+        for (const name of ["mr_reply_thread", "mr_update_note", "mr_comment_inline", "mr_comment", "mr_review_submit", "mr_resolve_thread", "mr_rebase", "mr_upload"]) {
+          expect(describe(name), name).toStartWith("GitLab only.");
+        }
+      });
     });
 
     test("every MR-level write tool offers repoName, iid and mrUrl with none required; mr_create offers repoName and mrUrl", () => {

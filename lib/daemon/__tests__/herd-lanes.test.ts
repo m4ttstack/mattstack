@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { collisions, gitlabMerge, measureLane, parseNumstat, readGithubMerge, type GithubGet, type LaneDeps } from "../herd-lanes.ts";
+import { collisions, gitlabMerge, measureLane, parseNumstat, readGithubMerge, readMerge, type GithubGet, type LaneDeps, type MergeDeps } from "../herd-lanes.ts";
 
 describe("herd lanes", () => {
   test("parseNumstat totals insertions and deletions and keeps binary paths", () => {
@@ -96,5 +96,68 @@ describe("readGithubMerge", () => {
     expect(await readGithubMerge(pr({ state: "open" }), "o/r", "a")).toEqual({ forge: "github", state: "open", url: "https://github.com/o/r/pull/5", number: 5, mergedAt: null });
     expect((await readGithubMerge(pr({ state: "closed" }), "o/r", "a")).state).toBe("closed");
     expect(await readGithubMerge(pr({ state: "closed", merged_at: "2026-10-16T00:00:00Z" }), "o/r", "a")).toMatchObject({ state: "merged", mergedAt: "2026-10-16T00:00:00Z" });
+  });
+});
+
+describe("readMerge", () => {
+  const origin = (url: string | null): MergeDeps["git"] => async () => (url ? { stdout: `${url}\n`, exitCode: 0 } : { stdout: "", exitCode: 1 });
+
+  test("a GitHub worktree reads through the provider its repo context carries", async () => {
+    const asked: Array<{ repoName: string; repoPath: string }> = [];
+    const paths: string[] = [];
+    const deps: MergeDeps = {
+      git: origin("git@github.com:acme/radar.git"),
+      repoContext: async (repoName, repoPath) => {
+        asked.push({ repoName, repoPath });
+        const provider = {
+          restRequest: async (method: string, path: string) => {
+            paths.push(`${method} ${path}`);
+            return new Response(JSON.stringify([{ number: 5, state: "open", merged_at: null, html_url: "https://github.com/acme/radar/pull/5" }]), { status: 200 });
+          },
+        };
+        return { forge: "github", provider, projectPath: "acme/radar", projectId: null } as never;
+      },
+    };
+    expect(await readMerge(deps, "/w/a", "feat/x")).toEqual({ forge: "github", state: "open", url: "https://github.com/acme/radar/pull/5", number: 5, mergedAt: null });
+    expect(asked).toEqual([{ repoName: "remote:github.com%2Facme%2Fradar", repoPath: "/w/a" }]);
+    expect(paths).toEqual(["GET /repos/acme/radar/pulls?head=acme%3Afeat%2Fx&state=all&per_page=1"]);
+  });
+
+  test("a GitLab worktree lists the branch's newest MR through its repo context", async () => {
+    const filters: unknown[] = [];
+    const deps: MergeDeps = {
+      git: origin("https://gitlab.example.com/acme/radar.git"),
+      repoContext: async () => ({
+        forge: "gitlab",
+        provider: {
+          fetchPullRequestSummaries: async (_p: string, f: unknown) => {
+            filters.push(f);
+            return { rows: [{ iid: 7, state: "merged", webUrl: "https://gitlab.example.com/acme/radar/-/merge_requests/7", mergedAt: "2026-10-16T12:00:00Z" }], truncated: false };
+          },
+        },
+        projectPath: "acme/radar",
+        projectId: 1,
+      }) as never,
+    };
+    expect(await readMerge(deps, "/w/a", "feat/x")).toEqual({ forge: "gitlab", state: "merged", url: "https://gitlab.example.com/acme/radar/-/merge_requests/7", number: 7, mergedAt: "2026-10-16T12:00:00Z" });
+    expect(filters).toEqual([expect.objectContaining({ sourceBranch: "feat/x", state: "all", limit: 1 })]);
+  });
+
+  test("a repo context that cannot be built reads unknown with its reason", async () => {
+    const deps: MergeDeps = {
+      git: origin("https://github.com/acme/radar"),
+      repoContext: async () => { throw new Error("missing GitHub token (run: rt setup github connect)"); },
+    };
+    expect(await readMerge(deps, "/w/a", "feat/x")).toMatchObject({ forge: "github", state: "unknown", error: "missing GitHub token (run: rt setup github connect)" });
+  });
+
+  test("an origin on neither forge reads unknown before any context is asked for", async () => {
+    const deps: MergeDeps = { git: origin(null), repoContext: async () => { throw new Error("not asked"); } };
+    expect(await readMerge(deps, "/w/a", "feat/x")).toMatchObject({ forge: null, state: "unknown", error: "origin is on neither GitHub nor GitLab" });
+  });
+
+  test("the module builds no provider of its own", async () => {
+    const source = await Bun.file(new URL("../herd-lanes.ts", import.meta.url)).text();
+    expect(source).not.toContain("GitHubProvider");
   });
 });
