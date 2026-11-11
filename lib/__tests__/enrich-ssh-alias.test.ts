@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { forgeTokenFor, isGitHubRemote, isGitLabRemote, parseRemoteUrl, resolveSshAlias, setSshHostResolver } from "../enrich.ts";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
+import * as linearModule from "../linear.ts";
+import { forgeTokenFor, isGitHubRemote, isGitLabRemote, parseRemoteUrl, refreshAllMRs, resolveSshAlias, setSshHostResolver, type SshTarget } from "../enrich.ts";
 import { mayOfferGitLabToken } from "../team/forge-token.ts";
 
 const sshConfig: Record<string, string> = {
@@ -8,13 +9,14 @@ const sshConfig: Record<string, string> = {
   "work-gitlab": "gitlab.example.com",
   "lan-box": "10.0.0.7",
   "ops@by-user": "github.com",
+  "git@work-ported:2222": "github.com",
 };
 
 const calls: string[] = [];
 
 /** Stands in for `ssh -G`, which echoes an unconfigured alias back as its own hostname. */
-async function fakeSsh(alias: string, user: string | null): Promise<string | null> {
-  const key = user ? `${user}@${alias}` : alias;
+async function fakeSsh({ alias, user, port }: SshTarget): Promise<string | null> {
+  const key = `${user ? `${user}@` : ""}${alias}${port ? `:${port}` : ""}`;
   calls.push(key);
   return sshConfig[key] ?? sshConfig[alias] ?? alias;
 }
@@ -25,6 +27,7 @@ async function parsed(url: string) {
 }
 
 afterEach(() => {
+  mock.restore();
   setSshHostResolver(null);
   calls.length = 0;
 });
@@ -114,5 +117,34 @@ describe("ssh alias remotes", () => {
     expect(mayOfferGitLabToken("git@work-github:acme/widgets.git", "github.com")).toBe(false);
     expect(mayOfferGitLabToken("git@work-gitlab:team/app.git", null)).toBe(false);
     expect(mayOfferGitLabToken("git@work-gitlab:team/app.git", "gitlab.example.com")).toBe(true);
+  });
+
+  test("the remote's port goes to ssh and keeps its own cache entry", async () => {
+    setSshHostResolver(fakeSsh);
+    expect((await parsed("ssh://git@work-ported:2222/team/app.git"))?.host).toBe("https://github.com");
+    expect((await parsed("ssh://git@work-ported/team/app.git"))?.host).toBe("https://work-ported");
+    expect(calls).toEqual(["git@work-ported:2222", "git@work-ported"]);
+  });
+
+  test("a lookup still in flight when the resolver is reset never lands in the new cache", async () => {
+    let release: (host: string) => void = () => {};
+    const slow = (_target: SshTarget) => new Promise<string | null>((done) => { release = done; });
+    setSshHostResolver(slow);
+    const stale = resolveSshAlias("git@work-github:acme/widgets.git");
+    setSshHostResolver(slow);
+    release("github.com");
+    await stale;
+    expect(parseRemoteUrl("git@work-github:acme/widgets.git")?.host).toBe("https://work-github");
+  });
+
+  test("refreshAllMRs stops when its signal aborts during the alias lookup", async () => {
+    const loadSecrets = spyOn(linearModule, "loadSecrets");
+    const controller = new AbortController();
+    setSshHostResolver(async () => {
+      controller.abort();
+      return "github.com";
+    });
+    await refreshAllMRs([{ path: "/repo", branch: "feature/x" }], "git@work-github:acme/widgets.git", undefined, "acme", controller.signal);
+    expect(loadSecrets).not.toHaveBeenCalled();
   });
 });
