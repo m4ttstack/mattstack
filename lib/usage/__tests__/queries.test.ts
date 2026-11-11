@@ -461,7 +461,7 @@ test("a run's messages outside its stages split by when they fell", () => {
   stage("w", "plan", 1, start + 50);
   stage("w", "ship", 1, start + 5000);
   const outside = { runId: "w", mrKey: MR_A, attribution: "run" };
-  message({ runId: "w", mrKey: MR_A, input: 6, attribution: "session", ts: start - 100 });
+  message({ runId: "w", mrKey: MR_A, input: 6, attribution: "session", ts: start - DAY });
   message({ ...outside, input: 1, ts: start + 10 });
   message({ runId: "w", mrKey: MR_A, input: 2, stage: "plan", attempt: 1, attribution: "stage", ts: start + 60 });
   message({ ...outside, input: 3, ts: start + 2000 });
@@ -718,7 +718,27 @@ test("the MR list, a run's cost and trends leave out a run's session outside the
   const runCost = usageRun(dbPath, "w")!;
   expect(runCost.totals.input).toBe(2);
   expect(runCost.mrCost).toBeCloseTo(runCost.totals.cost, 9);
-  expect(usageTrends(dbPath, { days: 30, now: NOW }).totals.input).toBe(2);
+});
+
+test("trends count a run's session outside the run as other spend with no pipeline", () => {
+  seedLongSession();
+  const trends = usageTrends(dbPath, { days: 30, now: NOW });
+  expect(trends.totals.input).toBe(7);
+  expect(trends.byPipeline.map((p) => [p.pipeline, p.totals.input]).sort()).toEqual([
+    ["watch-ci", 2],
+    [null, 5],
+  ].sort());
+});
+
+test("a run's setup and wrap-up within ten minutes count toward its MR", () => {
+  const start = seedLongSession();
+  const sameSession = { runId: "w", mrKey: MR_A, attribution: "session" };
+  message({ ...sameSession, input: 16, ts: start - 5 * 60_000 });
+  message({ ...sameSession, input: 32, ts: start + 10_000 + 9 * 60_000 });
+  message({ ...sameSession, input: 64, ts: start + 10_000 + 11 * 60_000 });
+  const mr = usageMr(dbPath, MR_A)!;
+  expect(mr.totals.input).toBe(2 + 16 + 32);
+  expect(mr.outsideRuns.input).toBe(5 + 64);
 });
 
 test("a run with only its session outside it costs zero and keeps the MR's span to counted work", () => {

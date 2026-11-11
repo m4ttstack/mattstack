@@ -383,8 +383,14 @@ function stageKey(name: string | null, attempt: number | null, outside: UsageOut
 
 const IN_RUN_STAGES = "FROM usage_stages s WHERE s.machine_id = m.machine_id AND s.run_id = m.run_id";
 
+/** A run's setup and wrap-up land this close outside its window and still count toward it. */
+const RUN_EDGE_MS = 10 * 60_000;
+
 /** A message the attribution sweep pinned to a run only because it shares that run's session. */
-const OUTSIDE_RUN = "(m.attribution = 'session' AND m.run_id IS NOT NULL)";
+const OUTSIDE_RUN = `(m.attribution = 'session' AND m.run_id IS NOT NULL AND EXISTS (
+  SELECT 1 FROM usage_runs o WHERE o.machine_id = m.machine_id AND o.run_id = m.run_id
+    AND (m.ts < o.started_at - ${RUN_EDGE_MS}
+      OR (o.ended_at IS NOT NULL AND m.ts > o.ended_at + ${RUN_EDGE_MS}))))`;
 
 export const COUNTED = `NOT ${OUTSIDE_RUN}`;
 
@@ -579,7 +585,7 @@ export function usageTrends(
   return reading(dbPath, empty, (db) => {
     const since = q.now - q.days * DAY_MS;
     const params: Scope["params"] = {};
-    let filter = `m.attribution != 'none' AND m.ts >= $since AND m.ts < $until AND ${COUNTED}`;
+    let filter = "m.attribution != 'none' AND m.ts >= $since AND m.ts < $until";
     if (q.repo !== undefined) {
       filter += ` AND (CASE WHEN m.mr_key IS NULL THEN r.repo = $repo ELSE ${repoOfKey("$repo")} END)`;
       params.$repo = q.repo;
@@ -600,8 +606,8 @@ export function usageTrends(
             $until: nextWeek(week).getTime(),
           },
         },
-        [],
-      ) as MessageRow[];
+        [`${OUTSIDE_RUN} AS outside_run`],
+      ) as Array<MessageRow & { outside_run: number }>;
       if (rows.length === 0) continue;
 
       const row: UsageWeekRow = {
@@ -612,9 +618,9 @@ export function usageTrends(
       for (const message of rows) {
         const delta = totalsOf(message);
         add(row.totals, delta);
-        add(row.byKind[kindFor(message)], delta);
+        add(row.byKind[message.outside_run ? "other" : kindFor(message)], delta);
         add(totals, delta);
-        addTo(pipelines, message.pipeline, delta);
+        addTo(pipelines, message.outside_run ? null : message.pipeline, delta);
         addTo(models, message.model, delta);
       }
       weeks.push(row);

@@ -250,10 +250,12 @@ test("reads an agent-only session by its id", async () => {
 
 test("a run's own row leaves out its session outside the run, which reads on its own", async () => {
   seedRun();
-  message("weeks-before", T - 10_000, { runId: "r", attribution: "session" });
+  const weeksBefore = T - 14 * 86_400_000;
+  db.query("INSERT INTO usage_runs (machine_id, run_id, started_at) VALUES (?, 'r', ?)").run(M, T - 1000);
+  message("weeks-before", weeksBefore, { runId: "r", attribution: "session" });
   transcript([
-    user(T - 10_100, "unrelated design work"),
-    assistant(T - 10_000, "weeks-before", tool("x", "Read")),
+    user(weeksBefore - 100, "unrelated design work"),
+    assistant(weeksBefore, "weeks-before", tool("x", "Read")),
     user(T, "ship it"),
     assistant(T + 500, "in-stage", tool("a", "Bash")),
   ]);

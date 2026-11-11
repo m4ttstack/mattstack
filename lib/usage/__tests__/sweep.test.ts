@@ -624,9 +624,8 @@ describe("one MR, swept and read back", () => {
     transcript("s-doctor", DOCTOR_HEAD, line("m-doc", 70 * MINUTE, 256));
     return [mrAgent("s-r2"), mrAgent("s-doctor")];
   }
-  // m-setup (1) came before run-work started, so it shows as the run's session, never in a total.
-  const OUTPUT = 510;
-  const SETUP = 1;
+  // m-setup came 5 minutes before run-work started: setup that close counts toward the run.
+  const OUTPUT = 511;
 
   const byRun = (key: string) =>
     usageMr(dbPath, key)?.runs.map((r) => [r.runId, r.kind, r.round, r.totals.output]);
@@ -652,7 +651,7 @@ describe("one MR, swept and read back", () => {
     expect(result).toMatchObject({ conflicts: 1, skippedLines: 0 });
 
     const expected = [
-      ["run-work", "work", null, 14],
+      ["run-work", "work", null, 15],
       ["run-r1", "respond", 1, 16],
       ["run-r2", "respond", 2, 32],
       ["run-shared-a", "review", null, 64],
@@ -661,7 +660,7 @@ describe("one MR, swept and read back", () => {
     ];
     expect(byRun(MR_KEY)).toEqual(expected);
     expect(usageMr(dbPath, MR_KEY)?.totals.output).toBe(OUTPUT);
-    expect(usageMr(dbPath, MR_KEY)?.outsideRuns.output).toBe(SETUP);
+    expect(usageMr(dbPath, MR_KEY)?.outsideRuns.output).toBe(0);
     expect(rows().length).toBe(9);
 
     const list = usageMrs(dbPath, { now: FINISHED });
