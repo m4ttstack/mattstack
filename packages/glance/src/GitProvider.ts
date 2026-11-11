@@ -27,6 +27,8 @@ import type {
   PullRequest,
   PullRequestSummary,
   FetchSummariesOptions,
+  ReviewSubmission,
+  ReviewSubmitResult,
   UpdatePullRequestInput,
   UserEvent,
   UserRef,
@@ -653,6 +655,20 @@ export interface GitProvider {
 
   /** Delete a comment; `note.kind` resolves as in `updateComment`. GitHub cannot delete a review. */
   deleteComment(projectPath: string, mrIid: number, note: NoteRef): Promise<void>;
+
+  /**
+   * Post a whole review: a summary, diff comments, replies and resolves, with
+   * an outcome. Nothing posts when the caller already has a pending review
+   * (`pending-drafts`) or the forge refuses a comment's anchor (`bad-anchors`).
+   * On GitLab: pending comments published once, then approve and resolve; a
+   * failure before the publish deletes what it created.
+   * On GitHub: one review POST, then replies and resolves. Every reply must
+   * name a `gh-review-thread-<id>`, checked before any request. An approve
+   * GitHub refuses on the caller's own pull request posts as a comment with
+   * `approved: false` and `approveError`. A reply that fails is listed in
+   * `replyErrors` and its resolve is skipped.
+   */
+  submitReview(projectPath: string, mrIid: number, review: ReviewSubmission): Promise<ReviewSubmitResult>;
 
   // ── Pipeline mutations ──────────────────────────────────────────────────
 

@@ -129,6 +129,7 @@ function mockProvider(prs: PullRequest[]): GitProvider {
     replyToDiscussion: () => Promise.reject(new Error('not implemented')),
     updateComment: () => Promise.reject(new Error('not implemented')),
     deleteComment: () => Promise.reject(new Error('not implemented')),
+    submitReview: () => Promise.reject(new Error('not implemented')),
     retryPipeline: () => Promise.reject(new Error('not implemented')),
     retryJob: () => Promise.reject(new Error('not implemented')),
     fetchJobTrace: () => Promise.reject(new Error('not implemented')),

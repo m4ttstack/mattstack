@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
-import { ForgeHttpError, RateLimitedError } from '../src/errors.ts';
+import { ForgeHttpError, RateLimitedError, WriteOutcomeUnknownError } from '../src/errors.ts';
 import { jsonResponse, stubForge, useForgeStub, useInstantTimers } from './helpers/gh-fill-fixture.ts';
 
 useForgeStub();
@@ -67,6 +67,8 @@ describe('GitHub createComment', () => {
     const err = await provider({ writeTimeoutMs: 50 })
       .createComment('o/r', 7, 'hello')
       .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(WriteOutcomeUnknownError);
+    expect((err as WriteOutcomeUnknownError).reason).toBe('timed-out');
     expect((err as Error).message).toBe(
       'createComment timed out: GitHub may still have applied it; check the pull request before retrying'
     );
@@ -80,6 +82,8 @@ describe('GitHub createComment', () => {
       return Promise.reject(new TypeError('socket hang up'));
     }) as unknown as typeof fetch;
     const err = await provider().createComment('o/r', 7, 'hello').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(WriteOutcomeUnknownError);
+    expect((err as WriteOutcomeUnknownError).reason).toBe('no-answer');
     expect((err as Error).message).toContain('createComment got no answer from GitHub');
     expect((err as Error).message).toContain('GitHub may still have applied it; check the pull request before retrying');
     expect(requests).toBe(1);
@@ -244,6 +248,21 @@ describe('GitHub updateComment and deleteComment', () => {
       `GET ${REPO}/pulls/comments/5`,
       `GET ${REPO}/issues/comments/5`,
       `PATCH ${REPO}/issues/comments/5`
+    ]);
+  });
+
+  test('with no kind, delete falls back to the pull request comment on a 404', async () => {
+    const calls = forge((method, path) => {
+      if (method === 'GET' && path === `${REPO}/pulls/comments/5`) return jsonResponse({ message: 'Not Found' }, 404);
+      if (method === 'GET' && path === `${REPO}/issues/comments/5`)
+        return jsonResponse({ id: 5, issue_url: 'https://api.github.com/repos/o/r/issues/7' });
+      return new Response(null, { status: 204 });
+    });
+    await provider().deleteComment('o/r', 7, { id: 5 });
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      `GET ${REPO}/pulls/comments/5`,
+      `GET ${REPO}/issues/comments/5`,
+      `DELETE ${REPO}/issues/comments/5`
     ]);
   });
 

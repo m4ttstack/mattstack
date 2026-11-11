@@ -1,5 +1,5 @@
 import { RequestError } from '@octokit/request-error';
-import { ForgeHttpError } from './errors.ts';
+import { ForgeHttpError, WriteOutcomeUnknownError } from './errors.ts';
 import { bodyText, reasonPhrase, toRateLimitedError } from './githubClient.ts';
 import type { CommentAnchor } from './types.ts';
 
@@ -75,13 +75,19 @@ function errorEntryText(entry: unknown): string {
   return [e.field, e.code].filter((part) => typeof part === 'string').join(' ');
 }
 
+/** The one `ForgeHttpError` shape for a GitHub non-2xx; reads and writes differ only in `detail`. */
+export function githubHttpError(err: RequestError, detail: string): ForgeHttpError {
+  const statusText = reasonPhrase(err.status);
+  return new ForgeHttpError(`GitHub returned ${err.status} ${statusText}: ${detail}`, err.status, statusText, detail);
+}
+
 const CHECK_BEFORE_RETRYING = 'GitHub may still have applied it; check the pull request before retrying';
 
 /**
  * Runs one GitHub write under its own timeout. A rate limit becomes
  * `RateLimitedError` and a non-2xx `ForgeHttpError` with `githubErrorDetail`.
- * A timeout or a lost answer says the write may have landed: the client sends
- * writes with `retries: 0`, so nothing here ever sends it twice.
+ * A timeout or a lost answer becomes `WriteOutcomeUnknownError`: the client
+ * sends writes with `retries: 0`, so nothing here ever sends it twice.
  */
 export async function forgeWrite<T>(
   op: string,
@@ -93,23 +99,21 @@ export async function forgeWrite<T>(
     return await write(signal);
   } catch (err) {
     // Octokit reports an aborted fetch as a status 500 RequestError with no response.
-    if (signal.aborted) throw new Error(`${op} timed out: ${CHECK_BEFORE_RETRYING}`, { cause: err });
-    const limited = toRateLimitedError(err, op);
-    if (limited) throw limited;
-    if (err instanceof RequestError && err.response) {
-      const detail = githubErrorDetail(err);
-      const statusText = reasonPhrase(err.status);
-      throw new ForgeHttpError(
-        `GitHub returned ${err.status} ${statusText}: ${detail}`,
-        err.status,
-        statusText,
-        detail
-      );
-    }
-    if (err instanceof RequestError) {
-      throw new Error(`${op} got no answer from GitHub (${err.message}): ${CHECK_BEFORE_RETRYING}`, {
+    if (signal.aborted) {
+      throw new WriteOutcomeUnknownError(`${op} timed out: ${CHECK_BEFORE_RETRYING}`, {
+        operation: op,
+        reason: 'timed-out',
         cause: err
       });
+    }
+    const limited = toRateLimitedError(err, op);
+    if (limited) throw limited;
+    if (err instanceof RequestError && err.response) throw githubHttpError(err, githubErrorDetail(err));
+    if (err instanceof RequestError) {
+      throw new WriteOutcomeUnknownError(
+        `${op} got no answer from GitHub (${err.message}): ${CHECK_BEFORE_RETRYING}`,
+        { operation: op, reason: 'no-answer', cause: err }
+      );
     }
     throw err;
   }

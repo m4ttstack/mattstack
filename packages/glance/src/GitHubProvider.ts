@@ -38,6 +38,8 @@ import type {
   NotePosition,
   NoteRef,
   NoteWriteResult,
+  ReviewSubmission,
+  ReviewSubmitResult,
   Pipeline,
   PipelineJob,
   PullRequestFileDiff,
@@ -73,11 +75,13 @@ import {
 import type { OnRequestHook } from './instrumentation.ts';
 import {
   forgeWrite,
+  githubHttpError,
   githubLineAndSide,
   parseReviewThreadDiscussionId,
   resolveGitHubCommentKind,
   type GitHubCommentKind
 } from './githubNotes.ts';
+import { submitGitHubReview } from './githubReview.ts';
 import {
   buildContextsPageQuery,
   buildFillQuery,
@@ -2333,6 +2337,23 @@ export class GitHubProvider implements GitProvider {
     );
   }
 
+  async submitReview(projectPath: string, mrIid: number, review: ReviewSubmission): Promise<ReviewSubmitResult> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    return submitGitHubReview(
+      {
+        octokit: this.octokit,
+        owner,
+        repo,
+        pullNumber: mrIid,
+        reviewTimeoutMs: this.reviewTimeoutMs,
+        read: (op, fn) => this.forgeRead(op, fn),
+        reply: (discussionId, body) => this.replyToDiscussion(projectPath, mrIid, discussionId, body),
+        resolve: (discussionId) => this.resolveDiscussion(projectPath, mrIid, discussionId)
+      },
+      review
+    );
+  }
+
   private commentKind(op: string, projectPath: string, mrIid: number, id: number): Promise<GitHubCommentKind> {
     const { owner, repo } = this.splitOwnerRepo(projectPath);
     return resolveGitHubCommentKind({ id, projectPath, mrIid }, (kind) =>
@@ -2713,13 +2734,7 @@ export class GitHubProvider implements GitProvider {
           data && typeof data === 'object' && typeof data.message === 'string'
             ? data.message
             : bodyText(err);
-        const statusText = reasonPhrase(err.status);
-        throw new ForgeHttpError(
-          `GitHub returned ${err.status} ${statusText}: ${detail}`,
-          err.status,
-          statusText,
-          detail
-        );
+        throw githubHttpError(err, detail);
       }
       throw err;
     }

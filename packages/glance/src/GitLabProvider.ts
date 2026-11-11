@@ -33,6 +33,8 @@ import type {
   InlineCommentResult,
   NoteRef,
   NoteWriteResult,
+  ReviewSubmission,
+  ReviewSubmitResult,
   Pipeline,
   PipelineJob,
   PipelineListEntry,
@@ -51,7 +53,7 @@ import type {
 import { isTransitionalMergeStatus } from './types.ts';
 import { EmptyDiscussionError, ForgeHttpError, ReadBackFailedError } from './errors.ts';
 import { NoteMutator, type ReviewerState } from './NoteMutator.ts';
-import { buildTextPosition } from './gitlabReview.ts';
+import { buildTextPosition, submitGitLabReview } from './gitlabReview.ts';
 import { parseCodeownerSections } from './codeowners.ts';
 import { type ForgeLogger, noopLogger } from './logger.ts';
 import { MRDetailFetcher } from './MRDetailFetcher.ts';
@@ -2415,6 +2417,19 @@ export class GitLabProvider implements GitProvider {
 
   async deleteComment(projectPath: string, mrIid: number, note: NoteRef): Promise<void> {
     await this.notes.deleteNote(projectPath, mrIid, note.id);
+  }
+
+  async submitReview(projectPath: string, mrIid: number, review: ReviewSubmission): Promise<ReviewSubmitResult> {
+    return submitGitLabReview(
+      {
+        mutator: this.notes,
+        project: projectPath,
+        iid: mrIid,
+        approve: () => this.approvePullRequest(projectPath, mrIid),
+        resolve: (discussionId) => this.resolveDiscussion(projectPath, mrIid, discussionId),
+      },
+      review,
+    );
   }
 
   async fetchReviewerStates(projectPath: string, mrIid: number): Promise<ReviewerState[]> {

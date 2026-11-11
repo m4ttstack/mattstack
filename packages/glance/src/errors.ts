@@ -150,3 +150,20 @@ export class EmptyDiscussionError extends Error {
     this.discussionId = discussionId;
   }
 }
+
+/**
+ * A write whose outcome is unknown: it timed out, or GitHub's answer never
+ * arrived. The forge may still have applied it, so a caller must look before
+ * retrying rather than send it again.
+ */
+export class WriteOutcomeUnknownError extends Error {
+  readonly operation: string;
+  readonly reason: 'timed-out' | 'no-answer';
+
+  constructor(message: string, details: { operation: string; reason: 'timed-out' | 'no-answer'; cause?: unknown }) {
+    super(message, details.cause === undefined ? undefined : { cause: details.cause });
+    this.name = 'WriteOutcomeUnknownError';
+    this.operation = details.operation;
+    this.reason = details.reason;
+  }
+}

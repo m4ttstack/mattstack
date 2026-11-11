@@ -129,7 +129,13 @@ export type { RequestInfo, OnRequestHook } from './instrumentation.ts';
 // ── Errors ───────────────────────────────────────────────────────────────────
 // Exported as a value, not a type: the point of it is the `instanceof` check
 // that lets a caller tell a rejected write from a write it cannot read back.
-export { ReadBackFailedError, RateLimitedError, ForgeHttpError, EmptyDiscussionError } from './errors.ts';
+export {
+  ReadBackFailedError,
+  RateLimitedError,
+  ForgeHttpError,
+  EmptyDiscussionError,
+  WriteOutcomeUnknownError
+} from './errors.ts';
 
 // ── Providers ─────────────────────────────────────────────────────────────────
 export {
