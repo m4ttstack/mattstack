@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- GitLab behaviour must not change: same success replies and same error strings for every GitLab input. The one exception: request counts for the moved list reads may differ by one on a last page.
+- GitLab behaviour must not change: same success replies and same error strings for every GitLab input. Two exceptions, both in the spec's Decided item 5 and both only for the moved list reads (MR list, labels, pipeline list): the error detail after `GitLab returned <status> <statusText>: ` is GitLab's message text, not the raw JSON body, and request counts may differ by one on a last page.
 - glance uses Octokit for GitHub and gitbeaker for GitLab REST. No new raw `fetch`. Raw HTTP stays only where it is today: GitLab GraphQL, the `restRequest` passthrough, `MRDetailFetcher`, `NoteMutator`.
 - A token only ever goes to its own forge's host. The GitLab token keeps the confirmed-host check (`gitlabHostRefusal`).
 - No change to the daemon's sync cadence, coalescing or deep and delta rules. Project sync, live watch and the discussions poller keep skipping GitHub repos.
@@ -23,7 +23,7 @@
 - No em or en dashes in code, comments, docs or copy. A comment states a constraint the code cannot show.
 - One commit per task, message prefixed `glance:` or `daemon:` or `mcp:`, ending with a `Co-Authored-By:` line naming the model that wrote it.
 - Stage named files only. Never stage `packages/glance/harness_credentials.json`.
-- No live forge calls outside Task 6. Task 6 runs the live suite once, against `m4ttheweric/glance-conformance` only.
+- No live forge calls outside Task 6. Task 6 runs the live suite once, with the fixtures `packages/glance/harness_credentials.json` builds. The GitHub fixture must be `m4ttheweric/glance-conformance`; nothing may point at `m4ttheweric/gitq-test-sandbox`.
 - Never run a built rt binary or the daemon. Never touch the main checkout.
 - Refusal wording follows the `rt:ui-copy` skill.
 
@@ -33,7 +33,7 @@
 2. A GitHub read that hits a rate limit inside a daemon verb: the reply is `{ok: false, error}` naming the limit and when to retry, never a hang. (Task 9)
 3. A `forge:get` path that leaves the repo by encoding or case (`repos/o/r/../../user`, `%2e%2e`, `Actions/Secrets`): refused. (Task 10)
 4. The GitHub token changes or disappears while the daemon runs: the next call rebuilds the provider or says the token is missing; the old token is not reused. (Task 7)
-5. A GitLab listing with more rows than the limit, or an error status with a long body: `truncated` and the error string are byte-identical to today. (Task 2, Task 9)
+5. A GitLab listing with more rows than the limit, or an error status with a long message: `truncated` is what it is today, and the error string is `GitLab returned <status> <statusText>: ` plus the first 200 characters of GitLab's message text. (Task 2, Task 9)
 
 ---
 
@@ -43,7 +43,8 @@
 
 **Files:**
 - Modify: `packages/glance/src/types.ts`, `packages/glance/src/GitProvider.ts`, `packages/glance/src/errors.ts`, `packages/glance/src/index.ts`
-- Modify: `packages/glance/src/GitHubProvider.ts` (`restRequest` only), `packages/glance/src/GitLabProvider.ts` (capabilities only)
+- Modify: `packages/glance/src/GitHubProvider.ts` (`restRequest` and capabilities), `packages/glance/src/GitLabProvider.ts` (capabilities only)
+- Modify: `packages/glance/tests/live/expectations.ts` (both tables are `Record<keyof GitProvider, ...>`, so each new member needs an entry), and the four gitq mocks that build a full `capabilities` object: `apps/gitq/tests/forge-sync.test.ts`, `apps/gitq/tests/integration/network-failure.test.ts`, `apps/gitq/tests/integration/forge-sync-smoke.test.ts`, `apps/gitq/tests/integration/drift-reconciliation-smoke.test.ts`
 - Test: `packages/glance/tests/forge-reads-interface.test.ts` (new), `packages/glance/tests/gh-transport.test.ts`
 
 **Interfaces, produced:**
@@ -62,25 +63,26 @@ export interface FetchSummariesOptions { state: SummaryState; author?: string; s
 // errors.ts
 export class ForgeHttpError extends Error { readonly status: number; readonly statusText: string; readonly bodyText: string }
 
-// GitProvider
-fetchProjectLabels(projectPath: string, options?: { search?: string; maxRows?: number }): Promise<{ labels: ProjectLabel[]; truncated: boolean }>;
-fetchPipelineList(projectPath: string, options: { ref?: string; sha?: string; iid?: number; limit: number }): Promise<PipelineSummary[]>;
-fetchCommitParents(projectPath: string, sha: string): Promise<string[]>;
-fetchPipelineFailedJobs(projectPath: string, pipelineId: number): Promise<PipelineJob[]>;
-fetchPullRequestSummaries(projectPath: string, options: FetchSummariesOptions): Promise<{ rows: PullRequestSummary[]; truncated: boolean }>;
-addPullRequestLabels(projectPath: string, mrIid: number, labels: string[]): Promise<void>;
-removePullRequestLabels(projectPath: string, mrIid: number, labels: string[]): Promise<void>;
+// GitProvider: optional members guarded by a capability flag, the convention enqueuePullRequest? already follows
+fetchProjectLabels?(projectPath: string, options?: { search?: string; maxRows?: number }): Promise<{ labels: ProjectLabel[]; truncated: boolean }>;
+fetchPipelineList?(projectPath: string, options: { ref?: string; sha?: string; iid?: number; limit: number }): Promise<PipelineSummary[]>;
+fetchCommitParents?(projectPath: string, sha: string): Promise<string[]>;
+fetchPipelineFailedJobs?(projectPath: string, pipelineId: number): Promise<PipelineJob[]>;
+fetchPullRequestSummaries?(projectPath: string, options: FetchSummariesOptions): Promise<{ rows: PullRequestSummary[]; truncated: boolean }>;
+addPullRequestLabels?(projectPath: string, mrIid: number, labels: string[]): Promise<void>;
+removePullRequestLabels?(projectPath: string, mrIid: number, labels: string[]): Promise<void>;
 ```
 
 - `author: "me"` means the token's own user on both forges.
 - `sort` absent means the forge's default order. `mr:by-target` sends none today and must keep sending none.
-- Capabilities added, true on both: `canFetchProjectLabels`, `canFetchPipelineList`, `canFetchCommitParents`, `canFetchPipelineFailedJobs`, `canFetchPullRequestSummaries`, `canEditLabels`.
+- Capabilities added: `canFetchProjectLabels`, `canFetchPipelineList`, `canFetchCommitParents`, `canFetchPipelineFailedJobs`, `canFetchPullRequestSummaries`, `canEditLabels`. In this task a flag is `true` only where the method already exists (GitLab's `fetchCommitParents` and `fetchPipelineFailedJobs`) and `false` elsewhere. The task that implements a method on a provider flips that provider's flag to `true` and that provider's entry in `tests/live/expectations.ts` from absent to supported, and removes it from the `OPTIONAL` list in `tests/live-expectations.test.ts` once both providers have it. No stub methods are added: `live-expectations.test.ts` asserts an absent method is `undefined`.
+- The daemon calls these methods on the concrete `GitLabProvider` and `GitHubProvider` classes, where they are not optional once implemented.
 - `GitHubProvider.restRequest(method, path, body?, op?, io?: { redirect?: 'manual' })`, same parameter order as GitLab's.
 
-- [ ] **Step 1:** Write `forge-reads-interface.test.ts`: both providers expose each method as a function and each new capability as `true`; `ForgeHttpError` carries its three fields. In `gh-transport.test.ts`, add: `restRequest('GET', '/x', undefined, 'op', { redirect: 'manual' })` passes `redirect: 'manual'` to fetch and returns the 302 unfollowed.
+- [ ] **Step 1:** Write `forge-reads-interface.test.ts`: each provider's `capabilities` carries the six new flags as booleans, and for every flag that is `true` the matching method is a function and for every flag that is `false` it is `undefined` (this test then holds unchanged through Tasks 2 to 5); `ForgeHttpError` carries its three fields. In `gh-transport.test.ts`, add: `restRequest('GET', '/x', undefined, 'op', { redirect: 'manual' })` passes `redirect: 'manual'` to fetch and returns the 302 unfollowed.
 - [ ] **Step 2:** Run `bun test tests/forge-reads-interface.test.ts tests/gh-transport.test.ts`. Expected: FAIL, methods undefined.
-- [ ] **Step 3:** Add the types, the error class, the interface members (required, not optional) and the capability flags. Add method stubs that throw `not implemented` on each provider where the method does not exist yet, so the build stays green; Tasks 2 to 5 replace them. Extend GitHub's `restRequest`.
-- [ ] **Step 4:** Run the two files, then `bun run check-types`. Expected: PASS.
+- [ ] **Step 3:** Add the types, the error class, the optional interface members and the capability flags. Add the expectation entries and the six flags to the four gitq mocks (all `false` there). Extend GitHub's `restRequest`.
+- [ ] **Step 4:** Run the whole glance suite and `bun run check-types`; from the repo root run gitq's typecheck (`bun run gitq:check-types`, or the script `apps/gitq/package.json` names). Expected: PASS.
 - [ ] **Step 5:** Commit `glance: interface for labels, pipeline list and PR summaries`.
 
 ### Task 2: GitLab reads on gitbeaker
@@ -100,7 +102,7 @@ The reference behaviour is today's daemon code: `listLabels`, `listPipelines` an
 
 - [ ] **Step 1:** Write the tests with stubbed fetch: one per method asserting the request path and query above and the mapped rows; `fetchPullRequestSummaries` with 101 rows and `limit: 100` returns 100 rows and `truncated: true`, and with a short page and no `x-next-page` header stops; a 404 with body `{"message":"404 Project Not Found"}` rejects with `ForgeHttpError` whose `status` is 404, `statusText` is `Not Found` and `bodyText` equals `404 Project Not Found`; a summaries call without `sort` sends no `order_by` and no `sort`; a `GitbeakerRetryError` becomes `ForgeHttpError` (build one directly and pass it through the helper).
 - [ ] **Step 2:** Run `bun test tests/gitlab-forge-reads.test.ts`. Expected: FAIL, `not implemented`.
-- [ ] **Step 3:** Implement the three methods on `this.gb` (`ProjectLabels.all`, `Pipelines.all`, `MergeRequests.allPipelines`, `MergeRequests.all`) with explicit pagination options so gitbeaker never walks past the caps.
+- [ ] **Step 3:** Flip GitLab's three flags and expectation entries (Task 1 rule). Implement the three methods on `this.gb` (`ProjectLabels.all`, `Pipelines.all`, `MergeRequests.allPipelines`, `MergeRequests.all`) with explicit pagination options so gitbeaker never walks past the caps.
 - [ ] **Step 4:** Run the file, `bun run check-types`, `bun run check:node`. Expected: PASS.
 - [ ] **Step 5:** Commit `glance: GitLab labels, pipeline list and MR summaries on gitbeaker`.
 
@@ -120,7 +122,7 @@ The reference behaviour is today's daemon code: `listLabels`, `listPipelines` an
 
 - [ ] **Step 1:** Write `gh-forge-reads.test.ts` with `stubForge`/`useForgeStub` from `tests/helpers/gh-fill-fixture.ts`: mapping per method; `fetchPipelineList` with `iid` makes exactly 2 requests and without makes 1; a 403 with `x-ratelimit-remaining: 0` rejects with `RateLimitedError`; a 404 rejects with `ForgeHttpError` status 404. Add request-count cases to `gh-fill-cost.test.ts`: labels 1 request per 100, commit parents 1, failed jobs 1 per 100 jobs.
 - [ ] **Step 2:** Run both files. Expected: FAIL.
-- [ ] **Step 3:** Implement the four methods.
+- [ ] **Step 3:** Implement the four methods; flip GitHub's four flags and expectation entries, and drop `fetchCommitParents` and `fetchPipelineFailedJobs` from the `OPTIONAL` list.
 - [ ] **Step 4:** Run both files, `bun run check-types`, `bun run check:node`. Expected: PASS.
 - [ ] **Step 5:** Commit `glance: GitHub labels, workflow runs, commit parents and failed jobs`.
 
@@ -139,7 +141,7 @@ The reference behaviour is today's daemon code: `listLabels`, `listPipelines` an
 
 - [ ] **Step 1:** Write tests: each filter combination builds the expected query variables or search string; 101 nodes with `limit: 100` gives `truncated: true`; a merged PR maps to `state: 'merged'` with `mergedAt`; a GraphQL `RATE_LIMITED` error rejects with `RateLimitedError`. Cost cases: 50 rows is 1 GraphQL request, 150 rows is 2, and no REST request is made.
 - [ ] **Step 2:** Run. Expected: FAIL.
-- [ ] **Step 3:** Implement `fetchPullRequestSummaries`.
+- [ ] **Step 3:** Implement `fetchPullRequestSummaries`; flip GitHub's flag and expectation entry.
 - [ ] **Step 4:** Run the files and the type checks. Expected: PASS.
 - [ ] **Step 5:** Commit `glance: GitHub PR summaries without the fill`.
 
@@ -157,7 +159,7 @@ The reference behaviour is today's daemon code: `listLabels`, `listPipelines` an
 
 - [ ] **Step 1:** Write tests: the request per forge for one add and two removes; a label named `needs review/ui` is encoded in the GitHub DELETE path; a 404 on remove resolves; an empty list makes zero requests.
 - [ ] **Step 2:** Run. Expected: FAIL.
-- [ ] **Step 3:** Implement both methods on both providers.
+- [ ] **Step 3:** Implement both methods on both providers; flip `canEditLabels` and the expectation entries on both. After this task all six flags are `true` on both providers; add that assertion to `forge-reads-interface.test.ts`.
 - [ ] **Step 4:** Run the file and the type checks. Expected: PASS.
 - [ ] **Step 5:** Commit `glance: add and remove PR labels on both forges`.
 
@@ -172,8 +174,8 @@ The reference behaviour is today's daemon code: `listLabels`, `listPipelines` an
 - [ ] **Step 1:** Change the existing test that expects a `RateLimitedError` whose message matches `/^mergePullRequest merged o\/r#9 but .* was rate limited: /` to expect `ReadBackFailedError` with `writeApplied === true`, `cause instanceof RateLimitedError`, and a message containing `merged` and `source branch was not deleted`.
 - [ ] **Step 2:** Run `bun test tests/gh-fill-provider.test.ts`. Expected: FAIL on that case.
 - [ ] **Step 3:** Change the throw. Read `ReadBackFailedError`'s constructor in `src/errors.ts` first and pass the PR's iid as it requires.
-- [ ] **Step 4:** Add one live case per new read for GitHub only (labels, pipeline list, commit parents, failed jobs, summaries, label add then remove), asserting values, not shapes. The GitLab side is covered by the stubbed tests. Run the whole glance suite, `check-types`, `check:node`.
-- [ ] **Step 5:** Run the live suite once, GitHub only, against `m4ttheweric/glance-conformance` only, with the command `packages/glance/AGENTS.md` gives for the live suite. Record pass, fail and skip counts in the task report. A failure in a new case is fixed before the commit; a pre-existing failure is reported, not fixed.
+- [ ] **Step 4:** Add one live case per new method for each forge (labels, pipeline list, commit parents, failed jobs, summaries, label add then remove), asserting values, not shapes. The runner (`tests/live/runner.ts`) loops every fixture the credentials file builds and then calls `assertFullCoverage`, which fails a provider that ran with no pass, fail or skip for a method, so every new method needs a case or a recorded skip on both forges. Run the whole glance suite, `check-types`, `check:node`.
+- [ ] **Step 5:** Run the live suite once: `bun tests/live/runner.ts` from `packages/glance`. Before running, confirm the GitHub fixture in `harness_credentials.json` is `m4ttheweric/glance-conformance` and no fixture names `gitq-test-sandbox`; if the file is absent in this worktree, stop and report instead of creating one. Record pass, fail and skip counts in the task report. A failure in a new case is fixed before the commit; a pre-existing failure is reported, not fixed.
 - [ ] **Step 6:** Bump to `0.29.0`, write the CHANGELOG entry (new reads, label edits, `restRequest` parameters on GitHub, the `ReadBackFailedError` change marked as a behaviour change), update the method list in the docs, run `bun run build`.
 - [ ] **Step 7:** Commit `glance: 0.29.0, a rate-limited post-merge read reports the merge as landed`.
 
@@ -237,7 +239,7 @@ On GitLab, labels and squash keep `putMergeRequest` and the hand-built URL: no c
 - [ ] **Step 1:** Write `mr-github.test.ts` with a stub provider recording calls: `rebase` refuses with no provider call; `merge` calls `mergePullRequest` and returns `{ok: true}`; a merge that throws `ReadBackFailedError` with `writeApplied` returns `{ok: true}`; `mr:update` with `addLabels: ["a"]`, `removeLabels: ["b"]` calls the two methods and returns the PR's `webUrl`; `mr:update` with `squash: true` returns an error and makes zero provider calls; `mr:get` on a miss returns the message above; the writeback spy is never called for any of them.
 - [ ] **Step 2:** Run. Expected: FAIL.
 - [ ] **Step 3:** Implement the GitHub branches.
-- [ ] **Step 4:** Run the new file and the three existing ones. Expected: PASS.
+- [ ] **Step 4:** Run the new file, the three existing ones and `lib/daemon/__tests__/project-mrs-store.test.ts` plus any `project-mrs` handler test beside it. Expected: PASS.
 - [ ] **Step 5:** Commit `daemon: MR actions, create, update and get on GitHub`.
 
 ### Task 9: List, label and pipeline verbs through glance
@@ -257,6 +259,7 @@ export function forgeFailure(err: unknown, forge: "gitlab" | "github"): string;
 - `listMrsLive`, `listLabels`, `listPipelines` and `listMrsByTarget` keep their names, limits, conflict check (`PIPELINE_IID_CONFLICT`) and reply shapes, and call `fetchPullRequestSummaries`, `fetchProjectLabels`, `fetchPipelineList`. `listMrsLive` passes `sort: 'updated_desc'`; `listMrsByTarget` passes no `sort`, asks for `limit: BY_TARGET_MAX_PAGES * BY_TARGET_PER_PAGE` and turns `truncated` into today's "more than 2000 MRs target ..." error. `listLabels` turns `truncated` into today's "more than 1000 labels matched; narrow the search".
 - `mr:live-by-branch` on GitHub calls `provider.fetchPullRequestsByBranches(projectPath, branches)` once (the batched fill) and maps a missing branch to `null`. On GitLab it keeps summaries plus `fetchSingle`. The spec's section 3 table names summaries for this verb; the batched read returns the full `PullRequest` the verb's reply needs in one request, and the spec is amended to say so.
 - `mr:commit-parents` and `mr:pipeline-failed-jobs` call the interface methods on both forges.
+- `forge:get`'s `typeof provider.restRequest` check is replaced in this task by a `ctx.forge !== "gitlab"` refusal with the same message, so no commit lets a GitHub repo through the GitLab guard list; Task 10 removes that refusal.
 - All seven `typeof provider.restRequest` checks and the three `typeof provider.fetch...` checks are deleted. `RestProvider` stays as the parameter type of `forgeGet`, `missingMrReason` and `putMergeRequest`, all reached only on a GitLab context (`forgeGet` also on GitHub after Task 10).
 - `gitlabFailure` and `redirectRefusal` take the forge and say `GitHub` on a GitHub context; their GitLab output is unchanged.
 
@@ -321,12 +324,12 @@ export function forgeGet(provider: RestProvider, projectPath: string, input: For
 ### Task 12: Remaining daemon callers, tool refusals, docs
 
 **Files:**
-- Modify: `lib/daemon/file-diff.ts`, `lib/daemon/herd-lanes.ts`, `lib/mcp/mr-target.ts`, `lib/mcp/mr-read-tools.ts`, `lib/mcp/mr-composite-tools.ts`, `lib/mcp/ci-tools.ts`, `lib/mcp/tools.ts`, `.claude/rules/mcp-and-gates.md`, `docs/architecture.md` if it names the GitLab-only provider
+- Modify: `lib/daemon/file-diff.ts`, `lib/daemon/herd-lanes.ts`, `lib/mcp/mr-target.ts`, `lib/mcp/mr-read-tools.ts`, `lib/mcp/mr-composite-tools.ts`, `lib/mcp/tools.ts`, `.claude/rules/mcp-and-gates.md`, `docs/architecture.md` if it names the GitLab-only provider
 - Test: `lib/daemon/__tests__/forge-file-diff.test.ts`, `lib/daemon/__tests__/herd-lanes.test.ts`, `lib/mcp/__tests__/mr-target.test.ts`, `lib/mcp/__tests__/mr-read-tools.test.ts`, `lib/mcp/__tests__/mr-composite-tools.test.ts`, `lib/mcp/__tests__/tools.test.ts`
 
 - `file-diff.ts` and `herd-lanes.ts` take their provider from `getRepoContext` and stop calling `new GitHubProvider`. Behaviour and replies are unchanged.
-- A GitHub refusal in an MCP tool is removed only when every daemon verb that tool calls now works on GitHub. From the verb map: `mr_view`, `mr_list`, `mr_for_branch`, `mr_pipeline`, `mr_job_trace`, `project_labels`, `pipeline_list`, `gitlab_get`, `mr_approve`, `mr_ready`, `mr_retry`, `mr_create`, `mr_update`, `mr_merge`, `mr_resolve_branch` lose it. `mr_rebase` keeps a refusal that comes from the daemon. `pipeline_jobs` keeps its refusal: it walks GitLab REST paths through `forge:get`, which the GitHub guard refuses (RT-546 brings a GitHub version).
-- `resolveMrTarget` in `mr-target.ts` accepts a GitHub PR URL (`https://github.com/<owner>/<repo>/pull/<n>`) as `mrUrl`, resolving the repo identity the way `resolveGithubTarget` in `github-merge.ts` does, so every tool above works by URL as well as by `repoName` plus `iid`. `refuseGithubTarget` stays in place for the tools that still refuse. Tools that call `discussions:*`, `mr:comment*`, `mr:note-update`, `mr:review-submit` or `mr:upload` keep theirs until Plan B and Plan C. For each tool, read its handler and confirm the verbs it calls before removing anything; report any tool whose verb set differs from this list.
+- A GitHub refusal in an MCP tool is removed only when every daemon verb that tool calls now works on GitHub. From the verb map: `mr_view`, `mr_list`, `mr_for_branch`, `mr_pipeline`, `mr_job_trace`, `project_labels`, `pipeline_list`, `gitlab_get`, `mr_approve`, `mr_ready`, `mr_retry`, `mr_create`, `mr_update`, `mr_merge`, `mr_resolve_branch` lose it. `mr_rebase` keeps its MCP-level refusal as it is. `pipeline_jobs` keeps its refusal: it walks GitLab REST paths through `forge:get`, which the GitHub guard refuses (RT-546 brings a GitHub version).
+- `resolveMrTarget` in `mr-target.ts` accepts a GitHub PR URL (`https://github.com/<owner>/<repo>/pull/<n>`) as `mrUrl`, resolving the repo identity the way `resolveGithubTarget` in `github-merge.ts` does, so every tool above works by URL as well as by `repoName` plus `iid`. `refuseGithubTarget` stays in place for the tools that still refuse. `parseMrUrl` stays GitLab-only and keeps returning null for a PR URL: `isGithubPrUrl`, `readPipelineSubject`, `ci_watch`, `ci_triage` and `pipeline_jobs` detect GitHub that way. The PR URL is handled in the target resolution step, not in `parseMrUrl`. Tools that call `discussions:*`, `mr:comment*`, `mr:note-update`, `mr:review-submit` or `mr:upload` keep theirs until Plan B and Plan C. For each tool, read its handler and confirm the verbs it calls before removing anything; report any tool whose verb set differs from this list.
 - Tool descriptions drop "GitLab only" where the tool now covers both.
 - `ci_watch` and `ci_triage` stay as they are (RT-546).
 - `mcp-and-gates.md`: update the paragraphs on GitLab reads, `gitlab_get` and `mr_merge` to describe both forges and the GitHub guard list.

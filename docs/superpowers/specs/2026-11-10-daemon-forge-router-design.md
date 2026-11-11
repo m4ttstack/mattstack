@@ -146,7 +146,7 @@ implementations must return what the daemon's current REST code returns.
 | `fetchPipelineList(projectPath, {ref?, sha?, iid?, limit?})` | gitbeaker `Pipelines.all` / MR pipelines | `GET /repos/{o}/{r}/actions/runs` with `branch`, `head_sha`; `iid` resolves the PR head sha first |
 | `fetchCommitParents(projectPath, sha)` | exists (gitbeaker) | `GET /repos/{o}/{r}/commits/{sha}`, `parents[].sha` |
 | `fetchPipelineFailedJobs(projectPath, pipelineId)` | exists (gitbeaker) | `GET /repos/{o}/{r}/actions/runs/{id}/jobs?filter=latest`, failed conclusions |
-| `fetchPullRequestSummaries(projectPath, {state, author?, sourceBranch?, targetBranch?, search?, limit})` | gitbeaker `MergeRequests.all` | one GraphQL `pullRequests` (or `search` when `author` or `search` is set), no fill |
+| `fetchPullRequestSummaries(projectPath, {state, author?, sourceBranch?, targetBranch?, search?, limit, sort?})` | gitbeaker `MergeRequests.all` | one GraphQL `pullRequests` (or `search` when `author` or `search` is set), no fill |
 
 - A GitHub "pipeline" in the list is one workflow run. Its id is the run
   id, which is numeric, so `PipelineListRow.id` and `pipelineId` keep
@@ -155,8 +155,8 @@ implementations must return what the daemon's current REST code returns.
   `MrTargetSummary` needs (iid, title, state, draft, branches, author,
   url, mergedAt, and GitLab's `detailedMergeStatus`, null on GitHub). It
   carries no `readiness`: that comes from the fill, which a listing does
-  not run, and GitLab replies gain no field. It backs `mr:list-live`,
-  `mr:live-by-branch` and `mr:by-target`. It does not run the batched
+  not run, and GitLab replies gain no field. It backs `mr:list-live`
+  and `mr:by-target`. It does not run the batched
   fill: a listing is one request per 100 rows.
 - A truncated walk is an error or a `truncated: true`, exactly as each
   daemon verb reports it today.
@@ -164,7 +164,9 @@ implementations must return what the daemon's current REST code returns.
   model, and gets a request-count test.
 - `GitHubProvider.restRequest` gains the `op` and `io: {redirect}`
   parameters GitLab's has.
-- `capabilities` gains a flag per new read, true on both.
+- The new methods are optional interface members guarded by a
+  capability flag each, the convention `enqueuePullRequest` follows; all
+  flags are true on both providers when PR 1 lands.
 - `addPullRequestLabels` and `removePullRequestLabels` join the
   interface. GitLab's `add_labels` / `remove_labels` are deltas, and
   GitHub's `updatePullRequest({labels})` replaces the whole set, so the
