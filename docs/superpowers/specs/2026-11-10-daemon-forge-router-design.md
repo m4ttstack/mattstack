@@ -231,7 +231,9 @@ design review. This section is that review for the GitHub arm.
   `deploy_keys` (alias), `installations`, `tokens`, `runners`,
   `registration-token`, `remove-token`, `environments`, `codespaces`,
   `dependabot`, `actions/oidc`, `autolinks`, `invitations`,
-  `private-vulnerability-reporting`. Log and artifact downloads answer
+  `private-vulnerability-reporting`, `secret-scanning`,
+  `organization-secrets`, `organization-variables`,
+  `security-advisories`. Log and artifact downloads answer
   with a redirect to a signed URL and so are refused by the redirect rule.
 - Refused query keys: `access_token`, `client_secret`, `token`.
 - The 256 KiB cap, the `token` / `*_token` redaction and the

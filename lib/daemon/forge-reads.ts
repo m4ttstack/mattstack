@@ -168,7 +168,7 @@ export function checkForgePath(path: unknown, projectPath: string): { ok: true; 
 export const GITHUB_REFUSED_SEGMENTS: readonly string[] = [
   "secrets", "variables", "hooks", "keys", "deploy_keys", "installations", "tokens", "runners", "registration-token",
   "remove-token", "environments", "codespaces", "dependabot", "actions/oidc", "autolinks", "invitations",
-  "private-vulnerability-reporting",
+  "private-vulnerability-reporting", "secret-scanning", "organization-secrets", "organization-variables", "security-advisories",
 ];
 export const GITHUB_REFUSED_QUERY_KEYS: readonly string[] = ["access_token", "client_secret", "token"];
 /** glance buffers a whole response before the cap runs, and a blob can be 100 MB. */

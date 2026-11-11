@@ -31,13 +31,22 @@ const get = (provider: RestProvider, input: Parameters<typeof forgeGet>[2]) => f
 const credentialRefusal = (seg: string) => ({ ok: false as const, error: `"path" names ${seg}, which can return credentials; gitlab_get refuses it` });
 
 describe("checkGithubForgePath", () => {
-  test("the refused segments are the spec's 17, verbatim", () => {
-    expect(GITHUB_REFUSED_SEGMENTS).toHaveLength(17);
+  test("the refused segments are the spec's list, verbatim", () => {
+    expect(GITHUB_REFUSED_SEGMENTS).toHaveLength(21);
     expect([...GITHUB_REFUSED_SEGMENTS]).toEqual([
       "secrets", "variables", "hooks", "keys", "deploy_keys", "installations", "tokens", "runners", "registration-token",
       "remove-token", "environments", "codespaces", "dependabot", "actions/oidc", "autolinks", "invitations",
-      "private-vulnerability-reporting",
+      "private-vulnerability-reporting", "secret-scanning", "organization-secrets", "organization-variables",
+      "security-advisories",
     ]);
+  });
+
+  test("refuses secret scanning alerts, organization secrets and variables, and security advisories", () => {
+    expect(check(":repo/secret-scanning/alerts")).toEqual(credentialRefusal("secret-scanning"));
+    expect(check(":repo/secret-scanning/alerts/1")).toEqual(credentialRefusal("secret-scanning"));
+    expect(check(":repo/actions/organization-secrets")).toEqual(credentialRefusal("organization-secrets"));
+    expect(check(":repo/actions/organization-variables")).toEqual(credentialRefusal("organization-variables"));
+    expect(check(":repo/security-advisories")).toEqual(credentialRefusal("security-advisories"));
   });
 
   test("refuses every refused segment under the repo, in any case", () => {
