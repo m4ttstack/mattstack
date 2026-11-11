@@ -27,6 +27,7 @@ import type {
   JobDetail,
   EnqueuePullRequestInput,
   MergePullRequestInput,
+  MergePullRequestResult,
   MergeQueueEntry,
   MergeQueueStatus,
   MRDetail,
@@ -34,9 +35,15 @@ import type {
   NoteAuthor,
   NotePosition,
   Pipeline,
+  PipelineJob,
+  PipelineListEntry,
+  ProjectLabel,
   ProviderCapabilities,
   PullRequest,
   UpdatePullRequestInput,
+  FetchSummariesOptions,
+  PullRequestSummary,
+  SummaryState,
   UserRef,
   WatchEventsOptions
 } from './types.ts';
@@ -47,7 +54,7 @@ import {
   type GitHubEvent
 } from './GitHubEventsPoller.ts';
 import { startWatcherLoop, type LoopTick } from './EventsWatcher.ts';
-import { RateLimitedError } from './errors.ts';
+import { ForgeHttpError, RateLimitedError } from './errors.ts';
 import {
   bodyText,
   createGitHubClient,
@@ -63,6 +70,8 @@ import {
   buildContextsPageQuery,
   buildFillQuery,
   FILL_BATCH_SIZE,
+  checkStatusFromParts,
+  jobDuration,
   rolesFromViewer,
   toPullRequestFromNode,
   type GHFillContext,
@@ -234,6 +243,87 @@ interface GHFillContextsResponse {
   > | null;
 }
 
+interface GHSummaryNode {
+  number?: number;
+  title: string;
+  state: 'OPEN' | 'CLOSED' | 'MERGED';
+  merged: boolean;
+  isDraft: boolean;
+  headRefName: string;
+  baseRefName: string;
+  author: { login: string } | null;
+  url: string | null;
+  mergedAt: string | null;
+}
+
+interface GHSummaryConnection {
+  nodes: Array<GHSummaryNode | null>;
+  issueCount?: number;
+  pageInfo: { hasNextPage: boolean; endCursor: string | null };
+}
+
+interface GHSummaryResponse {
+  repository?: { pullRequests: GHSummaryConnection } | null;
+  search?: GHSummaryConnection;
+}
+
+const SUMMARY_FIELDS = `number title state merged isDraft headRefName baseRefName url mergedAt author { login }`;
+
+const SUMMARY_LIST_QUERY = `query GlancePullRequestSummaries($owner: String!, $name: String!, $states: [PullRequestState!], $head: String, $base: String, $after: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(states: $states, headRefName: $head, baseRefName: $base, first: 100, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) {
+      nodes { ${SUMMARY_FIELDS} }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}`;
+
+const SUMMARY_SEARCH_QUERY = `query GlancePullRequestSummarySearch($q: String!, $after: String) {
+  search(query: $q, type: ISSUE, first: 100, after: $after) {
+    issueCount
+    nodes { ... on PullRequest { ${SUMMARY_FIELDS} } }
+    pageInfo { hasNextPage endCursor }
+  }
+}`;
+
+const SUMMARY_STATES: Record<SummaryState, string[]> = {
+  opened: ['OPEN'],
+  closed: ['CLOSED'],
+  merged: ['MERGED'],
+  all: ['OPEN', 'CLOSED', 'MERGED']
+};
+
+const SUMMARY_SEARCH_STATE: Record<SummaryState, string> = {
+  opened: 'is:open',
+  closed: 'is:closed -is:merged',
+  merged: 'is:merged',
+  all: ''
+};
+
+/**
+ * A quote or backslash would end the phrase and let the rest of the value
+ * add qualifiers, so those are refused; whitespace is contained by quoting.
+ */
+function searchTerm(label: string, value: string, phrase = false): string {
+  if (/["\\\r\n]/.test(value)) {
+    throw new Error(`${label} cannot contain a quote, backslash or newline in a GitHub search`);
+  }
+  return phrase || /\s/.test(value) ? `"${value}"` : value;
+}
+
+function summarySearchString(owner: string, repo: string, o: FetchSummariesOptions): string {
+  const parts = [`repo:${owner}/${repo}`, 'is:pr', SUMMARY_SEARCH_STATE[o.state]];
+  if (o.author) {
+    parts.push(`author:${o.author === 'me' ? '@me' : searchTerm('author', o.author)}`);
+  }
+  if (o.sourceBranch) parts.push(`head:${searchTerm('sourceBranch', o.sourceBranch)}`);
+  if (o.targetBranch) parts.push(`base:${searchTerm('targetBranch', o.targetBranch)}`);
+  if (o.search) parts.push(searchTerm('search', o.search, true));
+  // Without it GitHub ranks by relevance, so the limit would keep the wrong rows.
+  parts.push('sort:updated-desc');
+  return parts.filter(Boolean).join(' ');
+}
+
 /** One entry of a GraphQL response's `errors`, as `graphqlRead` reports it. */
 interface GraphQLReadError {
   message: string;
@@ -348,6 +438,9 @@ const THREAD_PAGE_SIZE = 100;
  * limit.
  */
 const THREAD_MAX_PAGES = 10;
+
+/** Page cap for the label and job listings, 100 rows a page. */
+const FORGE_READ_MAX_PAGES = 20;
 
 /**
  * GitHub requires a reason on every review dismissal and posts it to the pull
@@ -582,7 +675,13 @@ export class GitHubProvider implements GitProvider {
     canFetchGroupProjects: false,
     canFetchProject: false,
     canFetchProjectPipelines: false,
-    canFetchUserEvents: false
+    canFetchUserEvents: false,
+    canFetchProjectLabels: true,
+    canFetchPipelineList: true,
+    canFetchCommitParents: true,
+    canFetchPipelineFailedJobs: true,
+    canFetchPullRequestSummaries: true,
+    canEditLabels: true
   };
 
   // ── GitProvider interface ─────────────────────────────────────────────────
@@ -1438,9 +1537,11 @@ export class GitHubProvider implements GitProvider {
   async restRequest(
     method: string,
     path: string,
-    body?: unknown
+    body?: unknown,
+    _op?: string,
+    io?: { redirect?: 'manual' }
   ): Promise<Response> {
-    return this.api(method, path, body);
+    return this.api(method, path, body, io);
   }
 
   watchMR(
@@ -1579,16 +1680,16 @@ export class GitHubProvider implements GitProvider {
 
   /**
    * When `shouldRemoveSourceBranch` is set, the branch deletion happens as a
-   * second call after the merge PUT has already succeeded. If that deletion
-   * fails, this method rejects even though the merge itself went through.
-   * A caller must not read a rejection from this method as "the merge
-   * failed"; it can mean "merged, but the source branch is still there."
+   * second call after the merge PUT has already succeeded and been read
+   * back. If that cleanup fails, the merge still resolves, with the reason
+   * in `sourceBranchNotDeleted`: a rejection here would read as "the merge
+   * failed", and a caller retrying on it would re-issue a merge that landed.
    */
   async mergePullRequest(
     projectPath: string,
     mrIid: number,
     input?: MergePullRequestInput
-  ): Promise<PullRequest> {
+  ): Promise<MergePullRequestResult> {
     const body: Record<string, unknown> = {};
     const mergeMethod =
       input?.mergeMethod ?? (input?.squash ? 'squash' : undefined);
@@ -1611,56 +1712,60 @@ export class GitHubProvider implements GitProvider {
       throw err;
     }
     const pr = await this.fetchSingleMRAfterMutation(projectPath, mrIid, 'Merged');
-    if (input?.shouldRemoveSourceBranch) {
-      // `pr.sourceBranch` is `head.ref`, a branch name with no repository
-      // attached. For a same-repo PR that name lives in `projectPath`, but
-      // for a fork PR it lives in the fork, and deleting against
-      // `projectPath` would either 404 (branch never existed there, so the
-      // delete silently does nothing while reporting success) or, worse,
-      // delete an unrelated same-named branch in the base repo. The raw PR
-      // (not the mapped `PullRequest`, which carries no head-repo field)
-      // has to be read to find out which repository actually owns the ref.
-      let raw: GHPullRequest | null = null;
-      try {
-        const res = await this.octokit.request(`GET /repos/${projectPath}/pulls/${mrIid}`);
-        raw = res.data as GHPullRequest;
-      } catch (err) {
-        // A failed read is not a deleted fork: saying so would send the
-        // caller looking for the wrong problem.
-        if (err instanceof RateLimitedError) {
-          throw new RateLimitedError(
-            `mergePullRequest merged ${projectPath}#${mrIid} but reading the PR to find its head repository was rate limited: ${err.message}`,
-            {
-              kind: err.kind,
-              resetAt: err.resetAt,
-              retryAfterMs: err.retryAfterMs,
-              operation: err.operation,
-              cause: err
-            }
-          );
-        }
-        if (!(err instanceof RequestError && err.status === 404)) {
-          const reason =
-            err instanceof RequestError && err.response
-              ? `${err.status} ${bodyText(err)}`
-              : err instanceof Error
-                ? err.message
-                : String(err);
-          throw new Error(
-            `mergePullRequest merged but could not delete source branch "${pr.sourceBranch}": reading the PR failed: ${reason}`
-          );
-        }
-      }
-      const headRepo = raw?.head?.repo?.full_name;
-      if (!headRepo) {
-        throw new Error(
-          `mergePullRequest merged but could not delete source branch "${pr.sourceBranch}": ` +
-            'the head repository is unknown (fork likely deleted), so deletion cannot be targeted safely.'
+    if (!input?.shouldRemoveSourceBranch) return pr;
+    const notDeleted = await this.removeMergedSourceBranch(projectPath, mrIid, pr.sourceBranch);
+    return notDeleted === null ? pr : { ...pr, sourceBranchNotDeleted: notDeleted };
+  }
+
+  /**
+   * Deletes a merged PR's source branch from the repository that owns it.
+   * Resolves null once the branch is gone, or the one-sentence reason it is
+   * still there. Never throws: the merge in front of it already landed.
+   */
+  private async removeMergedSourceBranch(
+    projectPath: string,
+    mrIid: number,
+    branch: string
+  ): Promise<string | null> {
+    const notDeleted = (why: string) => `The source branch "${branch}" was not deleted: ${why}`;
+    // `branch` is `head.ref`, a branch name with no repository
+    // attached. For a same-repo PR that name lives in `projectPath`, but
+    // for a fork PR it lives in the fork, and deleting against
+    // `projectPath` would either 404 (branch never existed there, so the
+    // delete silently does nothing while reporting success) or, worse,
+    // delete an unrelated same-named branch in the base repo. The raw PR
+    // (not the mapped `PullRequest`, which carries no head-repo field)
+    // has to be read to find out which repository actually owns the ref.
+    let raw: GHPullRequest | null = null;
+    try {
+      const res = await this.octokit.request(`GET /repos/${projectPath}/pulls/${mrIid}`);
+      raw = res.data as GHPullRequest;
+    } catch (err) {
+      // A failed read is not a deleted fork: saying so would send the
+      // caller looking for the wrong problem.
+      if (err instanceof RateLimitedError) {
+        return notDeleted(
+          `reading the PR to find its head repository was rate limited${err.resetAt ? ` until ${err.resetAt}` : ''}`
         );
       }
-      await this.deleteMergedSourceBranch(headRepo, pr.sourceBranch);
+      if (!(err instanceof RequestError && err.status === 404)) {
+        const reason =
+          err instanceof RequestError && err.response
+            ? `${err.status} ${bodyText(err)}`
+            : err instanceof Error
+              ? err.message
+              : String(err);
+        return notDeleted(`reading the PR to find its head repository failed: ${reason}`);
+      }
     }
-    return pr;
+    const headRepo = raw?.head?.repo?.full_name;
+    if (!headRepo) {
+      return notDeleted(
+        'its head repository is unknown (the fork was likely deleted), so the delete could not be targeted safely'
+      );
+    }
+    const refused = await this.deleteMergedSourceBranch(headRepo, branch);
+    return refused === null ? null : notDeleted(refused);
   }
 
   /**
@@ -1722,23 +1827,26 @@ export class GitHubProvider implements GitProvider {
    * `repoPath` is the repository that owns `branch`, which for a fork PR is
    * the fork, not the base repository the PR was opened against. The caller
    * resolves that from `head.repo.full_name` before calling in.
+   *
+   * Resolves null once the ref is gone, or why it may still be there.
    */
   private async deleteMergedSourceBranch(
     repoPath: string,
     branch: string
-  ): Promise<void> {
+  ): Promise<string | null> {
     try {
       await this.octokit.request(
         `DELETE /repos/${repoPath}/git/refs/heads/${encodeURIComponent(branch)}`
       );
-      return; // Fast path: successful delete.
+      return null;
     } catch (deleteErr) {
       if (!(deleteErr instanceof RequestError && deleteErr.response)) {
-        throw deleteErr;
+        const reason = deleteErr instanceof Error ? deleteErr.message : String(deleteErr);
+        return `the delete request failed before GitHub answered: ${reason}`;
       }
 
       // Verify whether the ref still exists. If it is gone, the caller's
-      // requested end state is satisfied. If it still exists, throw with the
+      // requested end state is satisfied. If it still exists, report the
       // deletion failure details below. GitHub reuses 422 for both
       // "reference does not exist" and a protection-refused delete, so the
       // status code alone cannot distinguish them.
@@ -1746,32 +1854,25 @@ export class GitHubProvider implements GitProvider {
         await this.octokit.request(
           `GET /repos/${repoPath}/git/ref/heads/${encodeURIComponent(branch)}`
         );
-        // No throw means the ref still exists: fall through to the throw below.
+        // No throw means the ref still exists: fall through to the report below.
       } catch (checkErr) {
         if (
           checkErr instanceof RequestError &&
           checkErr.response &&
           checkErr.status === 404
         ) {
-          return; // Confirmed gone: the requested end state is satisfied.
+          return null; // Confirmed gone: the requested end state is satisfied.
         }
         // Cannot verify the end state: either a non-404 HTTP response (ref
         // still there, or an unrelated error on the check) or a transport
         // failure on the check itself (no `.response`, e.g. a dropped
-        // connection). Both fall through to the deletion-failure throw
+        // connection). Both fall through to the deletion-failure report
         // below, deliberately, including the transport case. The merge
         // above already succeeded; an unverifiable branch deletion is a
-        // deletion failure, not a merge failure, so it must not propagate
-        // as a raw thrown error the way a merge-PUT transport failure does.
-        // This is a deliberate behavior change from the pre-Octokit code,
-        // which rethrew a response-less fetch failure on the verification
-        // GET untouched, letting it escape mergePullRequest as a hard
-        // failure instead of reaching this message.
+        // deletion failure, not a merge failure.
       }
 
-      throw new Error(
-        `mergePullRequest merged but could not delete source branch "${branch}": ${deleteErr.status} ${bodyText(deleteErr)}`
-      );
+      return `GitHub refused the delete with ${deleteErr.status} ${bodyText(deleteErr)}`;
     }
   }
 
@@ -2177,6 +2278,249 @@ export class GitHubProvider implements GitProvider {
     }
   }
 
+  async fetchProjectLabels(
+    projectPath: string,
+    options: { search?: string; maxRows?: number } = {}
+  ): Promise<{ labels: ProjectLabel[]; truncated: boolean }> {
+    const maxRows = options.maxRows ?? 1000;
+    const needle = options.search?.toLowerCase();
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    const labels: ProjectLabel[] = [];
+    let truncated = false;
+    await this.forgeRead('fetchProjectLabels', async () => {
+      let page = 0;
+      for await (const res of this.octokit.paginate.iterator(
+        'GET /repos/{owner}/{repo}/labels',
+        { owner, repo, per_page: 100 }
+      )) {
+        for (const l of res.data) {
+          if (needle && !l.name.toLowerCase().includes(needle)) continue;
+          if (labels.length === maxRows) {
+            truncated = true;
+            return;
+          }
+          labels.push({
+            name: l.name,
+            description: l.description ?? null,
+            color: l.color ? `#${l.color}` : null
+          });
+        }
+        if (++page === FORGE_READ_MAX_PAGES) {
+          truncated = true;
+          return;
+        }
+      }
+    });
+    return { labels, truncated };
+  }
+
+  async addPullRequestLabels(projectPath: string, mrIid: number, labels: string[]): Promise<void> {
+    if (labels.length === 0) return;
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    await this.forgeRead('addPullRequestLabels', () =>
+      this.octokit.request('POST /repos/{owner}/{repo}/issues/{issue_number}/labels', {
+        owner,
+        repo,
+        issue_number: mrIid,
+        labels,
+        request: { retries: 0 }
+      })
+    );
+  }
+
+  async removePullRequestLabels(projectPath: string, mrIid: number, labels: string[]): Promise<void> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    for (const name of labels) {
+      try {
+        await this.forgeRead('removePullRequestLabels', () =>
+          this.octokit.request('DELETE /repos/{owner}/{repo}/issues/{issue_number}/labels/{name}', {
+            owner,
+            repo,
+            issue_number: mrIid,
+            name,
+            request: { retries: 0 }
+          })
+        );
+      } catch (err) {
+        // A missing PR or repository is also a 404, so only this message means the goal state already holds.
+        if (err instanceof ForgeHttpError && err.status === 404 && err.bodyText === 'Label does not exist') continue;
+        throw err;
+      }
+    }
+  }
+
+  async fetchPipelineList(
+    projectPath: string,
+    options: { ref?: string; sha?: string; iid?: number; limit: number }
+  ): Promise<PipelineListEntry[]> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    return this.forgeRead('fetchPipelineList', async () => {
+      let headSha = options.sha;
+      if (options.iid !== undefined) {
+        const pr = await this.octokit.request('GET /repos/{owner}/{repo}/pulls/{pull_number}', {
+          owner,
+          repo,
+          pull_number: options.iid
+        });
+        headSha = pr.data.head.sha;
+      }
+      const res = await this.octokit.request('GET /repos/{owner}/{repo}/actions/runs', {
+        owner,
+        repo,
+        per_page: options.limit,
+        ...(options.iid === undefined && options.ref ? { branch: options.ref } : {}),
+        ...(headSha ? { head_sha: headSha } : {})
+      });
+      return res.data.workflow_runs.map(r => ({
+        id: r.id,
+        status: checkStatusFromParts(
+          r.status?.toUpperCase() ?? '',
+          r.conclusion ? r.conclusion.toUpperCase() : null
+        ),
+        ref: r.head_branch ?? null,
+        sha: r.head_sha ?? null,
+        source: r.event ?? null,
+        webUrl: r.html_url ?? null,
+        createdAt: r.created_at ?? null
+      }));
+    });
+  }
+
+  async fetchCommitParents(projectPath: string, sha: string): Promise<string[]> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    return this.forgeRead('fetchCommitParents', async () => {
+      const res = await this.octokit.request('GET /repos/{owner}/{repo}/commits/{ref}', {
+        owner,
+        repo,
+        ref: sha
+      });
+      return res.data.parents.map(p => p.sha);
+    });
+  }
+
+  async fetchPipelineFailedJobs(projectPath: string, pipelineId: number): Promise<PipelineJob[]> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    const failed = new Set(['failure', 'timed_out', 'cancelled']);
+    const out: PipelineJob[] = [];
+    await this.forgeRead('fetchPipelineFailedJobs', async () => {
+      // An explicit page walk keeps this read independent of paginate.iterator
+      // parsing the next page out of `response.url`.
+      for (let page = 1; page <= FORGE_READ_MAX_PAGES; page++) {
+        const res = await this.octokit.request('GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs', {
+          owner,
+          repo,
+          run_id: pipelineId,
+          filter: 'latest',
+          per_page: 100,
+          page
+        });
+        for (const j of res.data.jobs) {
+          if (!j.conclusion || !failed.has(j.conclusion)) continue;
+          out.push({
+            // Same id the read model gives a check-run job: an Actions job id is its check-run id.
+            id: `github:check:${j.id}`,
+            name: j.name,
+            stage: 'checks',
+            status: checkStatusFromParts('COMPLETED', j.conclusion.toUpperCase()),
+            allowFailure: false,
+            duration: jobDuration(j.started_at, j.completed_at),
+            webUrl: j.html_url ?? null,
+            runId: String(j.run_id)
+          });
+        }
+        if (res.data.jobs.length < 100) return;
+      }
+      // A partial list would read as every failed job.
+      throw new Error(
+        `fetchPipelineFailedJobs failed: workflow run ${pipelineId} has more than ${FORGE_READ_MAX_PAGES * 100} jobs, past the ${FORGE_READ_MAX_PAGES}-page read cap`
+      );
+    });
+    return out;
+  }
+
+  async fetchPullRequestSummaries(
+    projectPath: string,
+    options: FetchSummariesOptions
+  ): Promise<{ rows: PullRequestSummary[]; truncated: boolean }> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    const searching = Boolean(options.author || options.search);
+    const q = searching ? summarySearchString(owner, repo, options) : '';
+    const rows: PullRequestSummary[] = [];
+    let after: string | null = null;
+    let more = false;
+    for (let page = 1; page <= FORGE_READ_MAX_PAGES; page++) {
+      const { data, errors }: { data: GHSummaryResponse; errors: GraphQLReadError[] } =
+        await this.graphqlRead<GHSummaryResponse>(
+        'fetchPullRequestSummaries',
+        searching ? SUMMARY_SEARCH_QUERY : SUMMARY_LIST_QUERY,
+        searching
+          ? { q, after }
+          : {
+              owner,
+              name: repo,
+              states: SUMMARY_STATES[options.state],
+              head: options.sourceBranch ?? null,
+              base: options.targetBranch ?? null,
+              after
+            }
+      );
+      // A partial page would pass as a complete list.
+      if (errors.length > 0) {
+        throw new Error(
+          `fetchPullRequestSummaries failed: GitHub GraphQL returned ${errors.map(e => e.message).join('; ')}`
+        );
+      }
+      const connection: GHSummaryConnection | null | undefined = searching ? data.search : data.repository?.pullRequests;
+      if (!connection) throw new Error('fetchPullRequestSummaries failed: GitHub GraphQL returned no data');
+      for (const n of connection.nodes) {
+        if (n == null || typeof n.number !== 'number') continue;
+        rows.push({
+          iid: n.number,
+          title: n.title,
+          state: n.merged || n.state === 'MERGED' ? 'merged' : n.state === 'CLOSED' ? 'closed' : 'opened',
+          draft: n.isDraft === true,
+          sourceBranch: n.headRefName,
+          targetBranch: n.baseRefName,
+          author: n.author?.login ?? null,
+          webUrl: n.url ?? null,
+          detailedMergeStatus: null,
+          mergedAt: n.mergedAt ?? null
+        });
+      }
+      // The search connection ends at 1000 nodes without a next page, so its count is the evidence.
+      more = connection.pageInfo.hasNextPage || (searching && (connection.issueCount ?? 0) > rows.length);
+      if (rows.length > options.limit || !connection.pageInfo.hasNextPage) break;
+      after = connection.pageInfo.endCursor;
+    }
+    // `more` still set here means the page cap or the search ceiling ended the walk.
+    return { rows: rows.slice(0, options.limit), truncated: rows.length > options.limit || more };
+  }
+
+  /** Runs a REST read, turning a rate limit into `RateLimitedError` and a non-2xx into `ForgeHttpError`. */
+  private async forgeRead<T>(op: string, read: () => Promise<T>): Promise<T> {
+    try {
+      return await read();
+    } catch (err) {
+      const limited = toRateLimitedError(err, op);
+      if (limited) throw limited;
+      if (err instanceof RequestError && err.response) {
+        const data = err.response.data as { message?: unknown } | string | undefined;
+        const detail =
+          data && typeof data === 'object' && typeof data.message === 'string'
+            ? data.message
+            : bodyText(err);
+        const statusText = reasonPhrase(err.status);
+        throw new ForgeHttpError(
+          `GitHub returned ${err.status} ${statusText}: ${detail}`,
+          err.status,
+          statusText,
+          detail
+        );
+      }
+      throw err;
+    }
+  }
+
   async fetchJobTrace(projectPath: string, jobId: number): Promise<string> {
     // GitHub Actions: download job logs
     // GET /repos/{owner}/{repo}/actions/jobs/{job_id}/logs
@@ -2289,7 +2633,8 @@ export class GitHubProvider implements GitProvider {
   private async api(
     method: string,
     path: string,
-    body?: unknown
+    body?: unknown,
+    io?: { redirect?: 'manual' }
   ): Promise<Response> {
     // Octokit's endpoint parser rewrites `:word` into a route placeholder
     // before the string is ever handed to fetch, and a placeholder with no
@@ -2324,7 +2669,8 @@ export class GitHubProvider implements GitProvider {
     }
     try {
       const res = await this.octokit.request(`${method} ${safePath}`, {
-        ...(body !== undefined ? { data: body } : {})
+        ...(body !== undefined ? { data: body } : {}),
+        ...(io?.redirect ? { request: { redirect: io.redirect } } : {})
       });
       return toResponse(res.status, res.headers, res.data);
     } catch (caught) {

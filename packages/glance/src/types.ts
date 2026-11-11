@@ -624,6 +624,12 @@ export interface MergePullRequestInput {
   sha?: string;
 }
 
+/** What `mergePullRequest` resolves with: the merged PR, plus any cleanup it could not finish. */
+export type MergePullRequestResult = PullRequest & {
+  /** Set only when the merge landed and the source branch could not be deleted: why, in one sentence. */
+  sourceBranchNotDeleted?: string;
+};
+
 /**
  * Reports which mutation operations a provider supports.
  *
@@ -664,6 +670,18 @@ export interface ProviderCapabilities {
   canFetchProjectPipelines: boolean;
   /** Can read a user's activity feed with `fetchUserEvents`. */
   canFetchUserEvents: boolean;
+  /** Can list a project's labels with `fetchProjectLabels`. */
+  canFetchProjectLabels: boolean;
+  /** Can list a project's pipelines by ref, sha or MR with `fetchPipelineList`. */
+  canFetchPipelineList: boolean;
+  /** Can read a commit's parent shas with `fetchCommitParents`. */
+  canFetchCommitParents: boolean;
+  /** Can read a pipeline's failed jobs with `fetchPipelineFailedJobs`. */
+  canFetchPipelineFailedJobs: boolean;
+  /** Can list pull request summaries with `fetchPullRequestSummaries`. */
+  canFetchPullRequestSummaries: boolean;
+  /** Can add and remove pull request labels with `addPullRequestLabels` and `removePullRequestLabels`. */
+  canEditLabels: boolean;
 }
 
 // ── Metric-grade reads ────────────────────────────────────────────────────────
@@ -728,6 +746,56 @@ export interface PipelineSummary {
   createdAt: string | null;
   /** The user the caller filtered by, or null for an unfiltered listing. */
   username: string | null;
+}
+
+/** One label defined on a project. */
+export interface ProjectLabel {
+  name: string;
+  description: string | null;
+  color: string | null;
+}
+
+/**
+ * One pipeline as a pipeline listing reads it. Not `PipelineSummary`, which is
+ * the per-user count row `fetchProjectPipelines` returns.
+ */
+export interface PipelineListEntry {
+  id: number;
+  status: string;
+  ref: string | null;
+  sha: string | null;
+  source: string | null;
+  webUrl: string | null;
+  createdAt: string | null;
+}
+
+export type SummaryState = 'opened' | 'merged' | 'closed' | 'all';
+
+/** One pull request as a list view reads it: scalar fields only. */
+export interface PullRequestSummary {
+  iid: number;
+  title: string;
+  /** `locked` is GitLab's own state for an MR locked mid-merge; GitHub never returns it. */
+  state: 'opened' | 'merged' | 'closed' | 'locked';
+  draft: boolean;
+  sourceBranch: string;
+  targetBranch: string;
+  author: string | null;
+  webUrl: string | null;
+  detailedMergeStatus: string | null;
+  mergedAt: string | null;
+}
+
+export interface FetchSummariesOptions {
+  state: SummaryState;
+  /** `"me"` means the token's own user on both forges. */
+  author?: string;
+  sourceBranch?: string;
+  targetBranch?: string;
+  search?: string;
+  limit: number;
+  /** Absent means the forge's default order. GitHub always orders by last update, whatever this says. */
+  sort?: 'updated_desc';
 }
 
 /** One entry of a user's activity feed. */

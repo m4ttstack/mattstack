@@ -11,6 +11,8 @@
 import {
   runCiConformance,
   runGitLabMutationConformance,
+  runLabelEditConformance,
+  runListReadConformance,
   runMergeConformance,
   runMetricsReadConformance,
   runReadConformance,
@@ -36,7 +38,11 @@ for (const fixture of fixtures) {
   try {
     await runReadConformance(fixture, report);
     await runMetricsReadConformance(fixture, report);
+    await runListReadConformance(fixture, report);
     await runUnsupportedConformance(fixture, report);
+    // Before the write cycle, so it labels a pull request that existed
+    // before this run rather than one a later cycle opens and merges.
+    await runLabelEditConformance(fixture, report);
     await runWriteConformance(fixture, report);
     // Ahead of the merge cycle, which merges into the default branch: this
     // one only ever touches branches it created, so running it first keeps
