@@ -313,7 +313,7 @@ export function createMrUploadHandlers(
       projectPath,
       readBody: async (iid: number) => {
         const pr = await provider.fetchSingleMR(projectPath, iid, null);
-        if (!pr) throw new Error(`PR #${iid} could not be read back`);
+        if (!pr) throw new Error(`PR #${iid} could not be read`);
         return pr.description ?? "";
       },
     };
@@ -437,6 +437,7 @@ export function createMrUploadHandlers(
       const PATH = process.env.PATH ?? "";
       const HOME = process.env.HOME ?? homedir();
       const versionRun = await runCapture([gh, "--version"], { env: { PATH, HOME }, timeoutMs: GH_VERSION_TIMEOUT_MS, signal });
+      if (versionRun.timedOut) return { ok: false, error: `gh --version did not finish in ${GH_VERSION_TIMEOUT_MS / 1000}s and was stopped` };
       const versionLine = versionRun.stdout.split("\n")[0]!.trim();
       const version = parseGhVersion(versionLine);
       if (!version || !versionAtLeast(version, GH_MIN_VERSION)) {
@@ -448,19 +449,24 @@ export function createMrUploadHandlers(
       if (!token) return { ok: false, error: "missing GitHub token (run: rt setup github connect)" };
 
       const refused: Array<{ path: string; error: string }> = [];
-      const checked: CheckedAttachment[] = [];
+      const checked: Array<DescribeAttachment & { bytes: Uint8Array }> = [];
       for (const a of attachments) {
         const result = checkAttachment(repoName, repoPath, a.path, runId);
         if (!result.ok) {
           refused.push({ path: a.path, error: result.error });
           continue;
         }
-        const { bytes, mime } = result.checked;
+        const { bytes, mime, realpath } = result.checked;
+        // The guard types a file by its resolved name, so a .png link to an .mp4 would be staged as a .png holding video bytes.
+        if (extname(a.name).toLowerCase() !== extname(realpath).toLowerCase()) {
+          refused.push({ path: a.path, error: `attachment ${a.name} must keep the extension of ${realpath}` });
+          continue;
+        }
         if (mime.startsWith("image/") && bytes.length > GITHUB_IMAGE_MAX_BYTES) {
           refused.push({ path: a.path, error: `file is ${(bytes.length / (1024 * 1024)).toFixed(1)} MB; the upload cap is 10 MB for an image on GitHub` });
           continue;
         }
-        checked.push(result.checked);
+        checked.push({ ...a, bytes });
       }
       if (refused.length > 0) return { ok: true, data: { outcome: "refused", refused } };
 
@@ -483,15 +489,31 @@ export function createMrUploadHandlers(
       const earlier = new Set(destinations(before));
 
       const root = stagingRootFn();
-      const made = mkdtempSync(join(root, STAGING_PREFIX));
+      let made: string;
+      try {
+        made = mkdtempSync(join(root, STAGING_PREFIX));
+      } catch (err) {
+        return { ok: false, error: `could not make a staging folder: ${(err as NodeJS.ErrnoException).code ?? "unknown error"}` };
+      }
       try {
         // gh matches a body reference to an --attach file by absolute path, so every path below uses this one resolved spelling (/private/var, never /var).
         const dir = realpathSync(made);
-        const staged = attachments.map((a) => join(dir, a.name));
-        // wx: gh uploads exactly the bytes that passed the checks, never a file something else put at that name.
-        checked.forEach((c, i) => writeFileSync(staged[i]!, c.bytes, { flag: "wx", mode: 0o600 }));
+        const scrub = (text: string): string => {
+          for (const spelling of new Set([dir, made])) {
+            for (const c of checked) text = text.split(`${spelling}/${c.name}`).join(basename(c.path));
+            text = text.split(`${spelling}/`).join("").split(spelling).join("");
+          }
+          return text;
+        };
+        const staged = checked.map((c) => join(dir, c.name));
         const bodyFile = join(dir, "body.md");
-        writeFileSync(bodyFile, description, { flag: "wx", mode: 0o600 });
+        try {
+          // wx: gh uploads exactly the bytes that passed the checks, never a file something else put at that name.
+          checked.forEach((c, i) => writeFileSync(staged[i]!, c.bytes, { flag: "wx", mode: 0o600 }));
+          writeFileSync(bodyFile, description, { flag: "wx", mode: 0o600 });
+        } catch (err) {
+          return { ok: false, error: `could not stage the attachments: ${scrub(errorMessage(err))}` };
+        }
 
         const timeoutMs = ghTimeoutMsOpt ?? GH_ATTACH_TIMEOUT_MS;
         const run = await runCapture(
@@ -500,6 +522,7 @@ export function createMrUploadHandlers(
         );
 
         const urls: Record<string, string> = {};
+        const hostedNames = new Set<string>();
         let readBackError: string | undefined;
         try {
           const body = await readBody();
@@ -509,26 +532,28 @@ export function createMrUploadHandlers(
           if (body !== before && sent.length !== back.length) {
             readBackError = BODY_CHANGED;
           } else if (body !== before) {
-            const pathByRef = new Map(attachments.map((a) => [`./${a.name}`, a.path]));
+            const byRef = new Map(checked.map((c) => [`./${c.name}`, c]));
             sent.forEach((dest, i) => {
-              const path = pathByRef.get(dest);
+              const c = byRef.get(dest);
               const hosted = back[i]!;
-              if (path !== undefined && hosted !== dest && hosted.startsWith("https://") && !earlier.has(hosted)) urls[path] = hosted;
+              if (c !== undefined && hosted !== dest && hosted.startsWith("https://") && !earlier.has(hosted)) {
+                urls[c.path] = hosted;
+                hostedNames.add(c.name);
+              }
             });
           }
         } catch (err) {
           readBackError = errorMessage(err);
         }
 
-        const found = Object.keys(urls).length > 0;
-        const data: Extract<DescribeWithAttachmentsResult, { outcome: "ran" }> = { outcome: "ran", written: run.exitCode === 0 || found, urls };
-        if (run.exitCode !== 0 || run.timedOut) {
-          let detail = run.stderr;
-          for (const spelling of new Set([dir, made])) {
-            for (const a of attachments) detail = detail.split(`${spelling}/${a.name}`).join(basename(a.path));
-            detail = detail.split(`${spelling}/`).join("").split(spelling).join("");
-          }
-          detail = detail.trim().slice(0, GH_ERROR_MAX_CHARS);
+        const found = hostedNames.size > 0;
+        const exitedClean = run.exitCode === 0 && !run.timedOut;
+        if (exitedClean && readBackError === undefined && hostedNames.size < checked.length) {
+          readBackError = `the PR body came back without a hosted URL for ${checked.length - hostedNames.size} of ${checked.length} images, so those were not recorded`;
+        }
+        const data: Extract<DescribeWithAttachmentsResult, { outcome: "ran" }> = { outcome: "ran", written: exitedClean || found, urls };
+        if (!exitedClean) {
+          const detail = scrub(run.stderr).trim().slice(0, GH_ERROR_MAX_CHARS);
           data.ghError = run.timedOut
             ? `gh pr edit did not finish in ${timeoutMs / 1000}s and was stopped`
             : detail || `gh pr edit exited with code ${run.exitCode}`;

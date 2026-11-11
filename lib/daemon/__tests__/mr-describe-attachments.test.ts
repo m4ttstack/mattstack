@@ -6,7 +6,7 @@
  * gh here is a shell script each test writes; nothing reaches a forge.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { bucketFor } from "../../evidence/refusal-buckets.ts";
@@ -28,6 +28,7 @@ type GhScript = {
   /** Each name's `./<name>` destination in the server body becomes url(n). */
   rewrite?: Record<string, number>;
   appendRef?: boolean;
+  appendText?: boolean;
   sleep?: boolean;
 };
 
@@ -88,6 +89,7 @@ describe("mr:describe-with-attachments", () => {
     ];
     if (s.sleep) lines.push("exec sleep 5");
     if (s.rewrite) lines.push(`sed ${seds} "$body" > "$LOG/server.md"`);
+    if (s.appendText) lines.push(`printf '%s\n' 'a plain line with no link' >> "$LOG/server.md"`);
     if (s.appendRef) lines.push(`printf '%s\\n' '- Extra: ![x](https://example.com/x.png)' >> "$LOG/server.md"`);
     if (s.stderr) lines.push(`printf '%s\\n' "${s.stderr}" >&2`);
     lines.push(`exit ${s.exit ?? 0}`);
@@ -250,6 +252,59 @@ describe("mr:describe-with-attachments", () => {
     expect(res.data.readBackError).toBe("the PR body changed after the write, so the image URLs were not recorded");
   });
 
+  test("an exit 0 whose read-back equals the body before the write says why no URL was recorded", async () => {
+    const { attachments } = twoFiles();
+    const h = harness({ gh: {} });
+    const res = await h.handlers["mr:describe-with-attachments"]({ repoName: REPO, iid: 7, description: DESC, attachments });
+    expect(res).toEqual({ ok: true, data: { outcome: "ran", written: true, urls: {}, readBackError: "the PR body came back without a hosted URL for 2 of 2 images, so those were not recorded" } });
+  });
+
+  test("an exit 0 that left one ./<name> in place records the other and says one is missing", async () => {
+    const { board, attachments } = twoFiles();
+    const h = harness({ gh: { rewrite: { "1-board.png": 1 } } });
+    const res = await h.handlers["mr:describe-with-attachments"]({ repoName: REPO, iid: 7, description: DESC, attachments });
+    expect(res).toEqual({ ok: true, data: { outcome: "ran", written: true, urls: { [board]: url(1) }, readBackError: "the PR body came back without a hosted URL for 1 of 2 images, so those were not recorded" } });
+  });
+
+  test("a URL already in the body before the write is never recorded, even when the body changed", async () => {
+    const { attachments } = twoFiles();
+    writeFileSync(server, DESC.replace("./1-board.png", "https://github.com/user-attachments/assets/old-1").replace("./2-shot.png", "https://github.com/user-attachments/assets/old-2"));
+    const h = harness({ gh: { appendText: true, stderr: "HTTP 422: Validation Failed", exit: 1 } });
+    const res = await h.handlers["mr:describe-with-attachments"]({ repoName: REPO, iid: 7, description: DESC, attachments });
+    if (!res.ok || res.data.outcome !== "ran") throw new Error(JSON.stringify(res));
+    expect(res.data.urls).toEqual({});
+    expect(res.data.written).toBe(false);
+  });
+
+  test("a .png link to an .mp4 is refused as a change of extension, and gh never runs", async () => {
+    const clip = join(repoPath, "clip.mp4");
+    writeFileSync(clip, Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from("ftypmp42"), Buffer.alloc(16)]));
+    const link = join(repoPath, "shot.png");
+    symlinkSync(clip, link);
+    const h = harness();
+    const res = await h.handlers["mr:describe-with-attachments"]({ repoName: REPO, iid: 7, description: "![s](./1-shot.png)", attachments: [{ path: link, name: "1-shot.png" }] });
+    expect(res).toEqual({ ok: true, data: { outcome: "refused", refused: [{ path: link, error: `attachment 1-shot.png must keep the extension of ${clip}` }] } });
+    expect(ran()).toBe(false);
+  });
+
+  test("a staging write that fails is ok:false with no staging path, and the folder is removed", async () => {
+    let deep = stage;
+    while (realpathSync(stage).length + (deep.length - stage.length) < 900) deep = join(deep, "d".repeat(200));
+    mkdirSync(deep, { recursive: true });
+    const board = png(repoPath, "board.png");
+    const name = `1-${"a".repeat(122)}.png`;
+    const h = harness({ stagingRoot: () => deep });
+    const res = await h.handlers["mr:describe-with-attachments"]({ repoName: REPO, iid: 7, description: `![b](./${name})`, attachments: [{ path: board, name }] });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error).toStartWith("could not stage the attachments: ");
+      expect(res.error).not.toContain("rt-gh-attach-");
+      expect(res.error).not.toContain("ddd");
+    }
+    expect(readdirSync(deep).filter((e) => e.startsWith("rt-gh-attach-"))).toEqual([]);
+    expect(ran()).toBe(false);
+  });
+
   test("gh past the deadline is stopped and the staging folder removed", async () => {
     const { attachments } = twoFiles();
     const h = harness({ gh: { sleep: true }, ghTimeoutMs: 200 });
@@ -363,7 +418,7 @@ describe("mr:describe-with-attachments", () => {
     await refusedWith({ attachments: many, description: many.map((a) => `![x](./${a.name})`).join(" ") }, "1 to 50");
     await refusedWith({ attachments: [{ path: "board.png", name: "1-board.png" }], description: "![x](./1-board.png)" }, "absolute");
     await refusedWith({ attachments: [{ path: board, name: "../x.png" }], description: "![x](./../x.png)" }, "../x.png");
-    await refusedWith({ attachments: [{ path: board, name: "a.txt" }], description: "![x](./a.txt)" }, "a.txt");
+    await refusedWith({ attachments: [{ path: board, name: "a.txt" }], description: "![x](./a.txt)" }, "attachment a.txt must end in one of");
     await refusedWith({ attachments: [{ path: board, name: "1-A.png" }, { path: board, name: "1-a.png" }], description: "![x](./1-A.png) ![y](./1-a.png)" }, "unique");
     await refusedWith({ attachments: [{ path: board, name: "1-shot.jpg" }], description: "![x](./1-shot.jpg)" }, `attachment 1-shot.jpg must keep the extension of ${board}`);
     await refusedWith({ description: "![x](./1-board.png) only" }, "2-shot.png");
