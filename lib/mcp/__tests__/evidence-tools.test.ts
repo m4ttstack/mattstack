@@ -1363,6 +1363,97 @@ describe("evidence_attach on GitHub", () => {
     expect(body.description).toBeUndefined();
   });
 
+  test("an old skill's description on a GitHub PR refuses before any upload", async () => {
+    const { evidence } = boardRecord();
+    const stored = serializeUploads({});
+    const { deps, calls, fields } = makeDeps({ fields: { evidence, "evidence-uploads": stored } });
+    const body = await attach(deps, { description: "## What\n\nAdds a badge.\n" });
+    expect(calls).toHaveLength(0);
+    expect(describes(calls)).toHaveLength(0);
+    expect(calls.some((c) => c.cmd === "mr:update")).toBe(false);
+    expect(fields.get("evidence-uploads")).toBe(stored);
+    expect(body.descriptionWritten).toBe(false);
+    expect(body.writeErrors).toEqual(["evidence_attach takes no description on a GitHub PR; this skill predates the installed rt, so update the mattstack plugin (claude plugin update mattstack@mattstack) and attach again"]);
+  });
+
+  test("with linkRefused, an ok:false second call still remembers the linked files", async () => {
+    const { one, two, evidence } = twoWaived();
+    const respond: Responder = (cmd, p, nth) => {
+      if (cmd !== DESCRIBE) return undefined;
+      if (nth === 1) return okRes({ outcome: "refused", refused: [{ path: one, error: recordRefusal(one) }] });
+      return (p.attachments as Array<{ path: string }>).some((a) => a.path === two) ? errRes("HTTP 502 Bad Gateway") : undefined;
+    };
+    const { deps, calls, fields } = makeDeps({ fields: { evidence }, respond });
+    const body = await attach(deps, { linkRefused: true });
+    expect(describes(calls)).toHaveLength(2);
+    expect(body.descriptionWritten).toBe(false);
+    expect(body.writeErrors).toEqual(["HTTP 502 Bad Gateway"]);
+    const remembered = parseUploads(fields.get("evidence-uploads")!);
+    expect(remembered[realpathSync(one)]).toEqual({ linked: true, at: 1_700_000_000_000 });
+    expect(remembered[realpathSync(two)]).toBeUndefined();
+  });
+
+  test("a file name with a bracket keeps the stored markdown and the section well formed", async () => {
+    const dir = evidenceDir("retry-badge");
+    const before = put("c1.png", "before", dir);
+    const after = put("c2.png", "after", dir);
+    const board = put("bad]na[me.png", "board", dir);
+    const evidence = v2([{ id: "retry-badge", label: "Retry badge", before: { path: before, annotated: board, caption: "pair" }, after: { path: after, annotated: board, caption: "pair" } }]);
+    const { deps, calls, fields } = makeDeps({ fields: { evidence } });
+    const body = await attach(deps);
+    const url = `${GH_ASSETS}1-bad-na-me.png`;
+    expect(sent(describes(calls)[0]!)).toEqual([{ path: board, name: "1-bad-na-me.png" }]);
+    expect(body.uploaded).toEqual([{ path: board, url, markdown: `![badname.png](${url})`, reused: false }]);
+    expect(parseUploads(fields.get("evidence-uploads")!)[realpathSync(board)]).toMatchObject({ url, markdown: `![badname.png](${url})` });
+    expect(body.section).toContain(`- Before and after: ![before and after](${url})`);
+
+    const again = await attach(deps);
+    expect(again.section).toContain(`- Before and after: ![before and after](${url})`);
+  });
+
+  test("a second attach after two same-basename boards reuses each URL for its own file", async () => {
+    const a = boardRecord(evidenceDir("case-a"));
+    const b = boardRecord(evidenceDir("case-b"));
+    const evidence = v2([...JSON.parse(a.evidence).cases.map((c: { id: string }) => ({ ...c, id: "case-a" })), ...JSON.parse(b.evidence).cases.map((c: { id: string }) => ({ ...c, id: "case-b", label: "Other" }))]);
+    const { deps, calls } = makeDeps({ fields: { evidence } });
+    await attach(deps);
+    expect(sent(describes(calls)[0]!)).toEqual([{ path: a.board, name: "1-badge.png" }, { path: b.board, name: "2-badge.png" }]);
+    const before = calls.length;
+    const body = await attach(deps);
+    expect(describes(calls.slice(before))).toHaveLength(0);
+    expect(body.uploaded).toEqual([
+      { path: a.board, url: `${GH_ASSETS}1-badge.png`, markdown: `![badge.png](${GH_ASSETS}1-badge.png)`, reused: true },
+      { path: b.board, url: `${GH_ASSETS}2-badge.png`, markdown: `![badge.png](${GH_ASSETS}2-badge.png)`, reused: true },
+    ]);
+    expect(body.section).toContain(`**Retry badge**\n\n- Before and after: ![before and after](${GH_ASSETS}1-badge.png)`);
+    expect(body.section).toContain(`**Other**\n\n- Before and after: ![before and after](${GH_ASSETS}2-badge.png)`);
+  });
+
+  test("a failed restore after a blocked partial write says to read the PR body", async () => {
+    const { one, two, evidence } = twoWaived();
+    const restoreError = "HTTP 500 Internal Server Error";
+    const inner = partial({})(one);
+    const respond: Responder = (cmd, p, nth) => (cmd === "mr:update" ? errRes(restoreError) : inner(cmd, p, nth));
+    const { deps, calls } = makeDeps({ fields: { evidence }, live: "## What\n\nAdds a badge.\n", respond });
+    const body = await attach(deps);
+    expect(body.refused.other!.map((r) => r.path)).toEqual([two]);
+    expect(body.notWritten).toBe("refused");
+    expect(calls.filter((c) => c.cmd === "mr:update")).toHaveLength(1);
+    expect(body.writeErrors).toEqual([`gh left the PR body with 1 images unshown and putting it back failed: ${restoreError}; read the PR body before retrying`]);
+  });
+
+  test("a PR read or write that fails says PR description, and GitLab keeps MR", async () => {
+    const { evidence } = boardRecord();
+    const readFails: Responder = (cmd) => (cmd === "mr:get" ? errRes("HTTP 502") : undefined);
+    expect((await attach(makeDeps({ fields: { evidence }, respond: readFails }).deps)).writeErrors).toEqual(["reading the PR description failed: HTTP 502"]);
+    const gitlab = await tool(makeDeps({ fields: { evidence }, respond: readFails }).deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env);
+    expect((gitlab.body as AttachBody).writeErrors).toEqual(["reading the MR description failed: HTTP 502"]);
+
+    const respond: Responder = (cmd) => (cmd === DESCRIBE ? okRes({ outcome: "ran", written: false, urls: {}, ghError: "HTTP 422", uploadRejected: true }) : cmd === "mr:update" ? errRes("request timed out") : undefined);
+    const body = await attach(makeDeps({ fields: { evidence }, respond }).deps);
+    expect(body.writeErrors).toEqual(["request timed out; the write may still land, so read the PR description before retrying"]);
+  });
+
   test("progress ticks while the describe call runs", async () => {
     const { evidence } = boardRecord();
     let ticks = 0;

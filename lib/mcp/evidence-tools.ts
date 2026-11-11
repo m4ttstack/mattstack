@@ -513,6 +513,8 @@ function attachRecord(value: string | undefined): EvidenceRecord {
   return readEvidence(value ?? null);
 }
 
+/** The skill before the boards gate passed the PR body here; it must not reach an upload. */
+const STALE_SKILL_DESCRIPTION = "evidence_attach takes no description on a GitHub PR; this skill predates the installed rt, so update the mattstack plugin (claude plugin update mattstack@mattstack) and attach again";
 const HOME_IN_SECTION = "the section names a path in your home directory (a caption, label, waiver, ticket or appendix carries it), so the description was not written; take the path out of the evidence record and call again";
 
 function homesOf(deps: EvidenceToolDeps): string[] {
@@ -584,9 +586,12 @@ async function rememberUploads(
   return res.ok ? { merged } : { merged, error: `remembering the uploads in evidence-uploads failed: ${res.error ?? "run_field_set failed"}` };
 }
 
-async function readDescription(deps: EvidenceToolDeps, identity: string, iid: number): Promise<{ ok: true; live: string; webUrl: string | null } | { ok: false; error: string }> {
+type Forge = Target["forge"];
+const prOrMr = (forge: Forge) => (forge === "github" ? "PR" : "MR");
+
+async function readDescription(deps: EvidenceToolDeps, forge: Forge, identity: string, iid: number): Promise<{ ok: true; live: string; webUrl: string | null } | { ok: false; error: string }> {
   const got = await deps.command<Commands["mr:get"]["data"]>("mr:get", { repoName: identity, iid, refresh: true }, { timeoutMs: READ_TIMEOUT_MS });
-  if (!got.ok || !got.data) return { ok: false, error: `reading the MR description failed: ${got.error ?? "mr:get failed"}` };
+  if (!got.ok || !got.data) return { ok: false, error: `reading the ${prOrMr(forge)} description failed: ${got.error ?? "mr:get failed"}` };
   return { ok: true, live: got.data.mr.description ?? "", webUrl: got.data.mr.webUrl };
 }
 
@@ -595,7 +600,7 @@ async function putDescription(deps: EvidenceToolDeps, identity: string, iid: num
   return put.ok ? { ok: true } : { ok: false, error: put.error ?? "mr:update failed" };
 }
 
-const writeHint = (e: string) => (isTimeoutError(e) ? `${e}; the write may still land, so read the MR description before retrying` : e);
+const writeHint = (forge: Forge, e: string) => (isTimeoutError(e) ? `${e}; the write may still land, so read the ${prOrMr(forge)} description before retrying` : e);
 
 const cancelledError = (files: string[]) =>
   `cancelled: ${files.length} file(s) never uploaded (${files.join(", ")}), so the description was not written; the uploads that finished are remembered, so calling again resumes`;
@@ -691,8 +696,12 @@ async function githubAttach(a: AttachState): Promise<ToolResult> {
     writeErrors.push(HOME_IN_SECTION);
     return done(first, { notWritten: "refused" });
   }
+  if (a.description !== undefined) {
+    writeErrors.push(STALE_SKILL_DESCRIPTION);
+    return done(first, { notWritten: "refused" });
+  }
 
-  const got = await readDescription(deps, identity, iid);
+  const got = await readDescription(deps, "github", identity, iid);
   if (!got.ok) {
     writeErrors.push(got.error);
     return done(first);
@@ -705,7 +714,7 @@ async function githubAttach(a: AttachState): Promise<ToolResult> {
     const extra = { uploadRefused: o.uploadRefused, readBackError: o.readBackError };
     if (next === live && !o.overwrite) return done(section, { notWritten: "unchanged", ...extra });
     const put = await putDescription(deps, identity, iid, next);
-    if (!put.ok) writeErrors.push(writeHint(put.error));
+    if (!put.ok) writeErrors.push(writeHint("github", put.error));
     return done(section, { descriptionWritten: put.ok, ...extra });
   };
 
@@ -728,6 +737,7 @@ async function githubAttach(a: AttachState): Promise<ToolResult> {
       runId: a.runId,
     }, a.progress);
     if (!res.ok || !res.data) {
+      await remember();
       const e = res.error ?? "mr:describe-with-attachments failed";
       writeErrors.push(isTimeoutError(e) ? `${e}; gh may still have written the PR body, so read it before retrying` : e);
       return done(section);
@@ -761,7 +771,7 @@ async function githubAttach(a: AttachState): Promise<ToolResult> {
   for (const path of sending) {
     const url = ran.urls[path];
     if (typeof url !== "string") continue;
-    const markdown = `![${basename(path)}](${url})`;
+    const markdown = `![${basename(path).replace(/[[\]]/g, "")}](${url})`;
     uploaded.push({ path, url, markdown, reused: false });
     shown.set(path, markdown);
     const sha = a.shas.get(path);
@@ -926,7 +936,7 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
     notWritten = "no-mr";
     if (description !== undefined) descriptionOut = splice(description, section);
   } else {
-    const got = await readDescription(deps, target.identity, target.iid);
+    const got = await readDescription(deps, "gitlab", target.identity, target.iid);
     if (!got.ok) {
       writeErrors.push(got.error);
     } else {
@@ -936,7 +946,7 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
       else {
         const put = await putDescription(deps, target.identity, target.iid, next);
         if (put.ok) descriptionWritten = true;
-        else writeErrors.push(writeHint(put.error));
+        else writeErrors.push(writeHint("gitlab", put.error));
       }
     }
   }

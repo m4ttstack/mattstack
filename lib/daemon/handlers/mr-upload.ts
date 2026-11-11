@@ -13,9 +13,9 @@
  * ticket-image redactions are unconfirmed is refused too
  * (../redaction-record-check.ts).
  *
- * mr:describe-with-attachments is GitHub's counterpart: GitHub has no upload
- * API, so each file passes the same checks and then goes up with the PR's
- * description through `gh pr edit --attach`. The daemon is the only process
+ * mr:describe-with-attachments is GitHub's counterpart: GitHub uploads a file
+ * only as part of a PR write, so each file passes the same checks and then
+ * goes up with the PR's description through `gh pr edit --attach`. The daemon is the only process
  * that holds the GitHub token, and gh gets it only as GH_TOKEN in its
  * environment, never in argv.
  */
@@ -289,6 +289,20 @@ function runIdOfPath(real: string, root: string): string | null {
   return id && folder === "evidence" && rest.length > 0 ? id : null;
 }
 
+type PrBodyReader = {
+  fetchSingleMR(projectPath: string, iid: number, currentUserNumericId: null, onWarning: (w: { message: string }) => void): Promise<{ description?: string | null } | null>;
+};
+
+/** A rate-limited or rejected page comes back as null with a warning, so the warning is what tells it apart from a missing PR. */
+export async function readPrBody(provider: PrBodyReader, projectPath: string, iid: number): Promise<string> {
+  let warning: string | undefined;
+  const pr = await provider.fetchSingleMR(projectPath, iid, null, (w) => {
+    warning = w.message;
+  });
+  if (!pr) throw new Error(warning === undefined ? `PR #${iid} could not be read` : `PR #${iid} could not be read: ${warning}`);
+  return pr.description ?? "";
+}
+
 export function createMrUploadHandlers(
   ctx: Pick<HandlerContext, "repoIndex" | "log">,
   seams: MrUploadSeams = {},
@@ -311,11 +325,7 @@ export function createMrUploadHandlers(
     const { provider, projectPath } = repoCtx;
     return {
       projectPath,
-      readBody: async (iid: number) => {
-        const pr = await provider.fetchSingleMR(projectPath, iid, null);
-        if (!pr) throw new Error(`PR #${iid} could not be read`);
-        return pr.description ?? "";
-      },
+      readBody: (iid: number) => readPrBody(provider, projectPath, iid),
     };
   });
   const ghTimeoutMsOpt = seams.ghTimeoutMs;

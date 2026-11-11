@@ -1244,7 +1244,8 @@ export interface Commands {
   };
 
   /** Writes a GitHub PR's description and uploads its images with it
-      (`gh pr edit --body-file --attach`; GitHub has no upload API). Every
+      (`gh pr edit --body-file --attach`; GitHub uploads a file only as part
+      of a PR write). Every
       `name` must appear in the description as `](./<name>)`. Each file goes
       through mr:upload's checks first; any refusal is `outcome: "refused"`
       and nothing runs. `urls` is keyed by each attachment's `path` as sent.

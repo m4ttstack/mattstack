@@ -13,7 +13,7 @@ import { bucketFor } from "../../evidence/refusal-buckets.ts";
 import { runStart } from "../../runs/start.ts";
 import { fieldSet, openRunDb } from "../../runs/write.ts";
 import { closeStateDb } from "../../state/index.ts";
-import { createMrUploadHandlers, type MrUploadSeams } from "../handlers/mr-upload.ts";
+import { createMrUploadHandlers, readPrBody, type MrUploadSeams } from "../handlers/mr-upload.ts";
 
 const REPO = "remote:github.com%2Facme%2Fweb";
 const TOKEN = "ghs_secret_token_123";
@@ -287,7 +287,8 @@ describe("mr:describe-with-attachments", () => {
     expect(ran()).toBe(false);
   });
 
-  test("a staging write that fails is ok:false with no staging path, and the folder is removed", async () => {
+  // The write fails only past macOS's 1024-byte path limit.
+  test.skipIf(process.platform !== "darwin")("a staging write that fails is ok:false with no staging path, and the folder is removed", async () => {
     let deep = stage;
     while (realpathSync(stage).length + (deep.length - stage.length) < 900) deep = join(deep, "d".repeat(200));
     mkdirSync(deep, { recursive: true });
@@ -444,5 +445,16 @@ describe("mr:describe-with-attachments", () => {
     expect(res.data.written).toBe(true);
     expect(res.data.urls).toEqual({});
     expect(res.data.readBackError).toBe("reading PR #7 did not finish in 0.1s");
+  });
+});
+
+describe("readPrBody", () => {
+  test("a PR read that comes back empty names the warning when there is one", async () => {
+    const warned = { fetchSingleMR: async (_p: string, _i: number, _u: null, onWarning: (w: { message: string }) => void) => { onWarning({ message: "HTTP 403: API rate limit exceeded" }); return null; } };
+    const silent = { fetchSingleMR: async () => null };
+    const found = { fetchSingleMR: async () => ({ description: "body" }) };
+    await expect(readPrBody(warned, "acme/web", 7)).rejects.toThrow(new Error("PR #7 could not be read: HTTP 403: API rate limit exceeded"));
+    await expect(readPrBody(silent, "acme/web", 7)).rejects.toThrow(new Error("PR #7 could not be read"));
+    expect(await readPrBody(found, "acme/web", 7)).toBe("body");
   });
 });
