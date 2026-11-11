@@ -249,7 +249,7 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
     },
     {
       name: "mr_job_trace",
-      description: `Part of one CI job's plain-text trace, ANSI escapes stripped, capped at 64 KiB. One mode per call: tailLines (the last N lines; the default, N=${TRACE_TAIL_LINES}), headLines (the first N), fromLine with lineCount (a range, 1-based, lineCount default ${TRACE_TAIL_LINES}), or grep with contextLines (lines containing the text, case-insensitive plain text, each prefixed with its line number, groups separated by --; contextLines default 2). Returns trace, truncated (true when the trace holds more than was returned, and always true for grep results, which never claim to be the whole trace) and totalLines, so a range can be chosen from a tail. ${JOB_ID_NOTE}. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
+      description: `Part of one CI job's plain-text trace, ANSI escapes stripped, capped at 64 KiB. One mode per call: tailLines (the last N lines; the default, N=${TRACE_TAIL_LINES}), headLines (the first N), fromLine with lineCount (a range, 1-based, lineCount default ${TRACE_TAIL_LINES}), or grep with contextLines (lines containing the text, case-insensitive plain text, each prefixed with its line number, groups separated by --; contextLines default 2). Returns trace, truncated (true when the trace holds more than was returned, and always true for grep results, which never claim to be the whole trace) and totalLines, so a range can be chosen from a tail. ${JOB_ID_NOTE}. On GitHub only GitHub Actions jobs have a trace; for a check another app reported, open its webUrl. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: {
