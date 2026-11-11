@@ -43,7 +43,7 @@ test('the header shows the title and Close, which closes the pane and lets the b
   for (const surface of SURFACES) {
     await $.command.run({ command: 'todos', args: '' })
     const pane = await $.ui.mount({ ...PANE, surface })
-    expect((await texts(pane))[0]).toBe('Human Todos')
+    expect((await texts(pane)).find(row => row.trim() !== '')).toBe('Human Todos')
     const band = await $.ui.mount({ ...BAND, surface })
     expect(await band.find({ key: 'open-pane' })).toBeUndefined()
 
@@ -179,8 +179,7 @@ test('finished items draw a mark and a dimmed title, then Clear finished removes
   const rows = await texts(pane)
   expect(rows).toContain(' (exit 2)')
   expect(rows.filter(r => r.includes('(exit'))).toHaveLength(1)
-  const spacer = rows.indexOf(' ')
-  expect(spacer).toBeGreaterThan(rows.indexOf('Zero'))
+  expect(rows[rows.indexOf('Zero') + 1]).toBe(' ')
   expect(await buttons(pane)).toContain('clear')
 
   await pane.press({ key: 'clear' })
@@ -303,5 +302,53 @@ test('with nothing left to do, a blank row separates the notice from the finishe
   const rows = await texts(pane)
   const notice = rows.indexOf('Nothing for you right now.')
   expect(rows.slice(notice, notice + 3)).toEqual(['Nothing for you right now.', ' ', '✓ '])
+  await pane.unmount()
+})
+
+const three = [todo({ id: '1', title: 'One' }), todo({ id: '2', title: 'Two' }), todo({ id: '3', title: 'Three' })]
+const END = "You've reached the end of the list."
+const hintTexts = async (ui: Parameters<typeof texts>[0]) => (await texts(ui)).map(t => t.trim()).filter(t => /^[↑↓] \d+ more$/.test(t))
+
+test('a list that fits the pane draws no end line and no hints', async ($, on) => {
+  await seeded($, on, three)
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await texts(pane)).not.toContain(END)
+  expect(await hintTexts(pane)).toEqual([])
+  await pane.unmount()
+})
+
+test('a list taller than the pane ends with the end line and pins hints counting the to-dos out of view', async ($, on) => {
+  await seeded($, on, three)
+  const at = (offset: number) => ({ ...PANE.props, scroll: { offset, bodyRows: 8 } })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal', props: at(0) })
+  expect(await texts(pane)).toContain(END)
+  expect(await hintTexts(pane)).toEqual(['↓ 2 more'])
+  const below = await pane.find({ key: 'more-below' })
+  expect(below?.props.position).toBe('absolute')
+  expect(below?.props.top).toBe(7)
+
+  await pane.redraw(at(6))
+  expect(await hintTexts(pane)).toEqual(['↑ 1 more'])
+  expect((await pane.find({ key: 'more-above' }))?.props.top).toBe(6)
+
+  await pane.redraw(at(9))
+  expect(await hintTexts(pane)).toEqual(['↑ 2 more'])
+  await pane.unmount()
+})
+
+test('off the terminal an overflowing list keeps its end line but draws no hints', async ($, on) => {
+  await seeded($, on, three)
+  const pane = await $.ui.mount({ ...PANE, surface: 'desktop', props: { ...PANE.props, scroll: { offset: 0, bodyRows: 8 } } })
+  expect(await texts(pane)).toContain(END)
+  expect(await hintTexts(pane)).toEqual([])
+  await pane.unmount()
+})
+
+test('a long title wraps at word breaks, one row per Text', async ($, on) => {
+  await seeded($, on, [todo({ title: 'Store the token for the replay workspace before the pilot runs' })])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const rows = await texts(pane)
+  const first = rows.findIndex(r => r.startsWith('○ Store'))
+  expect(rows.slice(first, first + 2)).toEqual(['○ Store the token for the replay', 'workspace before the pilot runs'])
   await pane.unmount()
 })
