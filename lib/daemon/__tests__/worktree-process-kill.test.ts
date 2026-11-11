@@ -341,6 +341,11 @@ describe("planWorktreeKill", () => {
     expect(pids(plan(table, [[730, A], [731, A]]))).toEqual([]);
   });
 
+  test("a herdr server in A with no agent is spared", () => {
+    const table = [row(500, 1, "herdr", "/Users/x/.local/bin/herdr server")];
+    expect(pids(plan(table, [[500, A]]))).toEqual([]);
+  });
+
   test("a protected caller's own descendants are spared with no agent above", () => {
     const table = [
       row(640, 1, "zsh", "zsh"),

@@ -33,7 +33,7 @@ const DEFAULT_AI_AGENT_NAMES = new Set([
   "claude", "codex", "gemini", "aider", "cursor-agent", "copilot",
 ]);
 /** Multiplexers, remote shells, and editors: never workload, always the user's. */
-const SPARED_BINS = new Set(["tmux", "screen", "ssh", "mosh", "vim", "nvim", "emacs", "less", "man"]);
+const SPARED_BINS = new Set(["tmux", "herdr", "screen", "ssh", "mosh", "vim", "nvim", "emacs", "less", "man"]);
 
 export interface KillCandidate {
   pid: number;
@@ -385,6 +385,13 @@ export async function killWorktreeProcesses(
   const realpaths = new Map<string, string>();
   const cwds = new Map<number, string>();
   for (const [pid, raw] of parseLsofAllCwds(lsof.stdout)) {
+    // lsof reports kernel-resolved paths, so only a cwd that already sits at
+    // or under the target needs resolving; realpath on every other cwd on
+    // the machine would block the event loop on a dead mount.
+    if (raw !== target && !raw.startsWith(`${target}/`)) {
+      cwds.set(pid, raw);
+      continue;
+    }
     let resolved = realpaths.get(raw);
     if (resolved === undefined) {
       resolved = safeRealpath(raw);
@@ -432,7 +439,7 @@ export async function killWorktreeProcesses(
   const unlabeled = plan.targets.filter(t => !scripts.has(t.pid));
   if (unlabeled.length > 0) {
     log.warn(
-      { worktreePath, targets: unlabeled.map(t => ({ pid: t.pid, comm: t.command })) },
+      { worktreePath, targets: unlabeled.map(t => ({ pid: t.pid, comm: processLabel(t) })) },
       "worktree process kill: SIGTERM targets",
     );
   }
