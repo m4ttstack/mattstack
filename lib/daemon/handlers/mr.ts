@@ -45,7 +45,7 @@ import { ReadBackFailedError } from "@mattstack/glance";
 import type { HandlerContext, HandlerMap, CommandResult } from "./types.ts";
 import type { MrListState, MrTargetSummary } from "../../../packages/rt-client/src/commands.ts";
 import { decodeRepo } from "../identity-decoder.ts";
-import { createFileDiffContextResolver, createFileDiffReader, type FileDiffContext } from "../file-diff.ts";
+import { createFileDiffReader, fileDiffContextOf, type FileDiffContext } from "../file-diff.ts";
 import { LIST_MAX_LIMIT, PIPELINE_MAX_LIMIT, forgeFailure, forgeGet, listLabels, listMrsLive, listPipelines, missingMrReason, type Forge, type SummariesProvider } from "../forge-reads.ts";
 
 type ActionName =
@@ -161,9 +161,8 @@ export function createMRHandlers(
     ?? ((provider: any, projectPath: string, iid: number, github?: boolean) =>
         provider.fetchSingleMR(projectPath, iid, github ? null : getCurrentUserId()));
   const retryDelayMs = overrides.retryDelayMs ?? RETRY_WRITEBACK_DELAY_MS;
-  const resolveFileDiffContext = createFileDiffContextResolver();
   const fileDiffContext = overrides.fileDiffContext
-    ?? ((repoName: string) => resolveFileDiffContext(ctx.repoIndex()[repoName], () => contextFor(repoName)));
+    ?? (async (repoName: string) => fileDiffContextOf(await contextFor(repoName)));
   const readFileDiff = createFileDiffReader();
 
   function contextFor(repoName: string): Promise<HandlerRepoContext> {

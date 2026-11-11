@@ -8,7 +8,7 @@ import { DAEMON_UNREACHABLE_PREFIX, rtCommand, type Commands } from "../../packa
 import { parseIdentity } from "../settings/identity.ts";
 import { isRepoRegistered } from "../repo-index.ts";
 import { abortableSleep } from "./ci-tools.ts";
-import { registeredIdentityForUrl, resolveMrTarget, resolveRepoTarget, type TargetInput } from "./mr-target.ts";
+import { parsePrUrl, registeredIdentityForUrl, resolveMrTarget, type TargetInput } from "./mr-target.ts";
 import { err, MR_WRITE_TIMEOUT_MS, ok, type ToolResult } from "./shared.ts";
 
 export const MERGE_WAIT_DEFAULT_SECONDS = 1500;
@@ -17,7 +17,6 @@ export const MERGE_WAIT_MAX_SECONDS = 1500;
 const MERGE_WAIT_POLL_MS = 20_000;
 
 const GITHUB_ID_PREFIX = "github.com/";
-const PR_URL_RE = /^https:\/\/github\.com\/([^/?#]+\/[^/?#]+)\/pull\/(\d+)(?:[/?#].*)?$/;
 
 export type GithubTarget = { projectPath: string; iid: number; identity: string };
 
@@ -85,7 +84,7 @@ export async function resolveGithubTarget(
   seams: { identityForUrl?: typeof registeredIdentityForUrl; isRegistered?: typeof isRepoRegistered } = {},
 ): Promise<GithubTarget | { error: string } | null> {
   const { identityForUrl = registeredIdentityForUrl, isRegistered = isRepoRegistered } = seams;
-  const url = typeof input.mrUrl === "string" ? PR_URL_RE.exec(input.mrUrl.trim()) : null;
+  const url = typeof input.mrUrl === "string" ? parsePrUrl(input.mrUrl) : null;
   if (!url) {
     const target = await resolveMrTarget(input);
     const projectPath = target.ok ? githubProject(target.identity) : null;
@@ -94,17 +93,9 @@ export async function resolveGithubTarget(
     return { projectPath, iid: target.iid, identity: target.identity };
   }
 
-  const projectPath = url[1]!;
-  const iid = Number(url[2]);
-  if (input.iid !== undefined && input.iid !== iid) return { error: `iid ${String(input.iid)} does not match mrUrl's pull request ${iid}` };
-  const found = await identityForUrl("github.com", projectPath);
-  if ("error" in found) return { error: found.error };
-  if (input.repoName !== undefined) {
-    const named = await resolveRepoTarget({ repoName: input.repoName });
-    if (!named.ok) return { error: named.error };
-    if (named.identity !== found.identity) return { error: `repoName resolves to ${named.identity} but mrUrl names ${found.identity}; pass one of them, or make them agree` };
-  }
-  return { projectPath, iid, identity: found.identity };
+  const target = await resolveMrTarget(input, { github: true, identityForUrl });
+  if (!target.ok) return { error: target.error };
+  return { projectPath: url.projectPath, iid: target.iid, identity: target.identity };
 }
 
 type DaemonCommand = typeof rtCommand;

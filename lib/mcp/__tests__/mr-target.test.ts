@@ -12,7 +12,7 @@ import { dirname, join } from "path";
 import { REPO_INDEX_NS } from "../../repo-index.ts";
 import { machineSettingsPath } from "../../rt-paths.ts";
 import { closeStateDb, setKvValue } from "../../state/index.ts";
-import { parseMrUrl, resolveMrTarget, resolveRepoTarget } from "../mr-target.ts";
+import { MR_URL_SHAPE, parseMrUrl, parsePrUrl, resolveMrTarget, resolveRepoTarget } from "../mr-target.ts";
 
 const APP = "remote:gitlab.example.com%2Facme%2Fapp";
 const SUB = "remote:gitlab.example.com%2Facme%2Fplatform%2Fapp";
@@ -33,6 +33,24 @@ describe("parseMrUrl", () => {
     expect(parseMrUrl("https://gitlab.example.com/acme/app/-/merge_requests/")).toBeNull();
     expect(parseMrUrl("https://gitlab.example.com/acme/app/-/issues/7")).toBeNull();
     expect(parseMrUrl("not a url")).toBeNull();
+  });
+
+  test("a GitHub pull request URL is not an MR URL", () => {
+    expect(parseMrUrl("https://github.com/acme/app/pull/12")).toBeNull();
+  });
+});
+
+describe("parsePrUrl", () => {
+  test("plain and suffixed pull request URLs", () => {
+    expect(parsePrUrl("https://github.com/acme/app/pull/12")).toEqual({ projectPath: "acme/app", iid: 12 });
+    expect(parsePrUrl("  https://github.com/acme/app/pull/12/files?x=1#y  ")).toEqual({ projectPath: "acme/app", iid: 12 });
+  });
+
+  test("refuses a GitLab MR URL, an issue, another host and a missing number", () => {
+    expect(parsePrUrl(URL_APP)).toBeNull();
+    expect(parsePrUrl("https://github.com/acme/app/issues/12")).toBeNull();
+    expect(parsePrUrl("https://gitlab.example.com/acme/app/pull/12")).toBeNull();
+    expect(parsePrUrl("https://github.com/acme/app/pull/")).toBeNull();
   });
 });
 
@@ -212,5 +230,47 @@ describe("resolveRepoTarget", () => {
 
   test("neither is refused", async () => {
     expect(await resolveRepoTarget({})).toEqual({ ok: false, error: 'pass "repoName" or "mrUrl"' });
+  });
+});
+
+describe("a GitHub pull request URL", () => {
+  withTempHome();
+  const GH = "remote:github.com%2Facme%2Fapp";
+  const PR = "https://github.com/acme/app/pull/12";
+
+  test("names the registered repo and the PR number, for a tool whose verbs answer on GitHub", async () => {
+    setKvValue(REPO_INDEX_NS, GH, "/repos/ghapp");
+    expect(await resolveMrTarget({ mrUrl: PR }, { github: true })).toEqual({ ok: true, identity: GH, iid: 12 });
+    expect(await resolveMrTarget({ mrUrl: `${PR}/files?x=1` }, { github: true })).toEqual({ ok: true, identity: GH, iid: 12 });
+    expect(await resolveRepoTarget({ mrUrl: PR }, { github: true })).toEqual({ ok: true, identity: GH, iid: 12 });
+    expect(await resolveMrTarget({ repoName: GH, iid: 12, mrUrl: PR }, { github: true })).toEqual({ ok: true, identity: GH, iid: 12 });
+  });
+
+  test("a repoName naming another repo is refused", async () => {
+    const APP_ID = "remote:gitlab.example.com%2Facme%2Fapp";
+    setKvValue(REPO_INDEX_NS, GH, "/repos/ghapp");
+    setKvValue(REPO_INDEX_NS, APP_ID, "/repos/app");
+    expect(await resolveMrTarget({ repoName: APP_ID, mrUrl: PR }, { github: true })).toEqual({
+      ok: false,
+      error: `repoName resolves to ${APP_ID} but mrUrl names ${GH}; pass one of them, or make them agree`,
+    });
+  });
+
+  test("an iid that disagrees with the URL is refused", async () => {
+    setKvValue(REPO_INDEX_NS, GH, "/repos/ghapp");
+    expect(await resolveMrTarget({ mrUrl: PR, iid: 13 }, { github: true })).toEqual({ ok: false, error: "iid 13 does not match mrUrl's pull request 12" });
+  });
+
+  test("a repo rt has not registered is refused, never guessed", async () => {
+    expect(await resolveMrTarget({ mrUrl: PR }, { github: true })).toEqual({
+      ok: false,
+      error: `mrUrl names github.com/acme/app (${GH}), which is not registered with rt; run rt repos register in its checkout first`,
+    });
+  });
+
+  test("a tool that does not take GitHub keeps the MR URL shape refusal", async () => {
+    setKvValue(REPO_INDEX_NS, GH, "/repos/ghapp");
+    expect(await resolveMrTarget({ mrUrl: PR })).toEqual({ ok: false, error: MR_URL_SHAPE });
+    expect(await resolveRepoTarget({ mrUrl: PR })).toEqual({ ok: false, error: MR_URL_SHAPE });
   });
 });

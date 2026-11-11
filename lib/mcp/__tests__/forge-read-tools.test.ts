@@ -1,4 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { REPO_INDEX_NS } from "../../repo-index.ts";
+import { closeStateDb, setKvValue } from "../../state/index.ts";
 import { forgeReadToolDefs } from "../forge-read-tools.ts";
 
 const ID = "remote:gitlab.com%2Facme%2Facme-dev";
@@ -67,5 +72,44 @@ describe("forge read tools", () => {
     const { tool } = fake({ "forge:get": new Error('"path" names variables, which can return credentials; gitlab_get refuses it') });
     const res = await tool("gitlab_get").handler({ repoName: ID, path: "projects/:id/variables" }, {} as NodeJS.ProcessEnv);
     expect(res.error).toContain("gitlab_get refuses it");
+  });
+});
+
+describe("forge read tools on GitHub", () => {
+  const GH = "remote:github.com%2Facme%2Fapp";
+  const PR = "https://github.com/acme/app/pull/3";
+  const origHome = process.env.HOME;
+  let home: string;
+  beforeEach(() => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), "rt-forge-read-gh-")));
+    process.env.HOME = home;
+    closeStateDb();
+    setKvValue(REPO_INDEX_NS, GH, "/repos/ghapp");
+  });
+  afterEach(() => {
+    process.env.HOME = origHome;
+    closeStateDb();
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  test("a PR URL names the GitHub repo for each tool's daemon verb", async () => {
+    const { calls, tool } = fake({ "project:labels": { labels: [] }, "pipeline:list": { pipelines: [] }, "forge:get": { status: 200, body: [], truncated: false, nextPage: null, totalPages: null } });
+    expect((await tool("project_labels").handler({ mrUrl: PR }, {} as NodeJS.ProcessEnv)).ok).toBe(true);
+    expect((await tool("pipeline_list").handler({ mrUrl: PR, ref: "feat" }, {} as NodeJS.ProcessEnv)).ok).toBe(true);
+    expect((await tool("gitlab_get").handler({ mrUrl: PR, path: ":repo/pulls/3/commits" }, {} as NodeJS.ProcessEnv)).ok).toBe(true);
+    expect(calls).toEqual([
+      { name: "project:labels", payload: { repoName: GH } },
+      { name: "pipeline:list", payload: { repoName: GH, ref: "feat" } },
+      { name: "forge:get", payload: { repoName: GH, path: ":repo/pulls/3/commits" } },
+    ]);
+  });
+
+  test("descriptions no longer say GitLab only, and gitlab_get's path names :repo", () => {
+    const { tool } = fake({});
+    for (const name of ["project_labels", "pipeline_list", "gitlab_get"]) {
+      expect(tool(name).description, name).not.toContain("GitLab only");
+      expect(tool(name).description, name).toContain("github.com/<owner>/<repo>/pull/<number>");
+    }
+    expect((tool("gitlab_get").inputSchema as any).properties.path.description).toContain(":repo");
   });
 });

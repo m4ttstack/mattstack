@@ -1,5 +1,5 @@
 /**
- * GitLab reads with no MR at their centre: labels, pipelines, and a GET-only
+ * Forge reads with no MR at their centre: labels, pipelines, and a GET-only
  * passthrough for facts no purpose-built tool returns. The daemon refuses the
  * credential-bearing paths; this layer only shapes input.
  */
@@ -7,7 +7,7 @@ import { rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands } from "../../packages/rt-client/src/index.ts";
 import { explainError } from "../explain-error.ts";
 import { resolveRepoTarget } from "./mr-target.ts";
-import { checkOptional, checkPositiveInts, err, ok, REPO_TARGET_PROPS, REPO_TARGET_RULE, type McpToolDef } from "./shared.ts";
+import { checkOptional, checkPositiveInts, err, ok, REPO_PR_URL_NOTE, REPO_TARGET_PROPS, REPO_TARGET_RULE, type McpToolDef } from "./shared.ts";
 
 export interface ForgeReadDeps { command: typeof rtCommand }
 const TIMEOUT_MS = 30_000;
@@ -16,13 +16,13 @@ export function forgeReadToolDefs(deps: ForgeReadDeps = { command: rtCommand }):
   return [
     {
       name: "project_labels",
-      description: `GitLab only. The project's labels (name, description, color); search narrows by name. Use it to check a label's exact spelling before applying it. ${REPO_TARGET_RULE}`,
+      description: `The project's labels (name, description, color); search narrows by name. Use it to check a label's exact spelling before applying it. ${REPO_TARGET_RULE} ${REPO_PR_URL_NOTE}`,
       inputSchema: { type: "object", properties: { ...REPO_TARGET_PROPS, search: { type: "string" } }, additionalProperties: false },
       shellForms: ["glab label list"],
       async handler(input) {
         const bad = checkOptional(input, [{ name: "search", type: "string" }]);
         if (bad) return err(bad);
-        const target = await resolveRepoTarget(input);
+        const target = await resolveRepoTarget(input, { github: true });
         if (!target.ok) return err(target.error);
         const payload: Commands["project:labels"]["payload"] = { repoName: target.identity };
         const search = (input.search as string | undefined)?.trim();
@@ -33,14 +33,14 @@ export function forgeReadToolDefs(deps: ForgeReadDeps = { command: rtCommand }):
     },
     {
       name: "pipeline_list",
-      description: `GitLab only. Pipelines newest first, each with id, status, ref, sha, source, webUrl and createdAt: for a branch (ref), a commit (sha), or an MR (iid, which lists that MR's own pipelines; iid cannot be combined with ref or sha). Works for a branch with no MR. limit defaults to 20, maximum 100. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (an MR's https URL in a project registered with rt). mrUrl only names the repo; its iid is not used, so mrUrl combines with ref or sha, and an MR's pipelines need iid. Given both repoName and mrUrl, they must agree.`,
+      description: `Pipelines newest first, each with id, status, ref, sha, source, webUrl and createdAt: for a branch (ref), a commit (sha), or an MR (iid, which lists that MR's own pipelines, and on GitHub only the runs on the PR's current head; iid cannot be combined with ref or sha). Works for a branch with no MR. limit defaults to 20, maximum 100. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (an MR's https URL in a project registered with rt). mrUrl only names the repo; its iid is not used, so mrUrl combines with ref or sha, and an MR's pipelines need iid. Given both repoName and mrUrl, they must agree. ${REPO_PR_URL_NOTE}`,
       inputSchema: { type: "object", properties: { ...REPO_TARGET_PROPS, ref: { type: "string" }, sha: { type: "string" }, iid: { type: "number" }, limit: { type: "number" } }, additionalProperties: false },
       shellForms: ["glab ci list"],
       async handler(input) {
         const bad = checkOptional(input, [{ name: "ref", type: "string" }, { name: "sha", type: "string" }]) ?? checkPositiveInts(input, ["iid", "limit"]);
         if (bad) return err(bad);
         if (input.iid !== undefined && (typeof input.ref === "string" && input.ref.trim() || typeof input.sha === "string" && input.sha.trim())) return err('"iid" lists one MR\'s own pipelines and cannot be combined with "ref" or "sha"');
-        const target = await resolveRepoTarget(input);
+        const target = await resolveRepoTarget(input, { github: true });
         if (!target.ok) return err(target.error);
         const payload: Commands["pipeline:list"]["payload"] = { repoName: target.identity };
         for (const name of ["ref", "sha"] as const) {
@@ -55,12 +55,12 @@ export function forgeReadToolDefs(deps: ForgeReadDeps = { command: rtCommand }):
     },
     {
       name: "gitlab_get",
-      description: `One read-only GET against the repo's own forge REST API (GitLab or GitHub), for a fact no other tool returns (an MR's commits or changes, a job's artifacts listing, an issue, a merged MR search). path is relative to the API root; pass query values in query, never in path. On GitLab, :id stands for the target project, e.g. projects/:id/merge_requests/12/commits. On GitHub, the path must sit under the repo, and :repo stands for repos/<owner>/<repo>, e.g. :repo/pulls/12/commits. Returns {status, body, truncated, nextPage, totalPages} (totalPages is null on GitHub): body is parsed JSON, cut to text at 256 KiB (truncated: true), so page with page and perPage (maximum 100). The forge decides access and its refusal comes back as its own text. Refused: paths that can return credentials (on GitLab variables, triggers, deploy_tokens, access_tokens, runners, hooks, secure_files, integrations, services, pipeline_schedules, terraform, application; on GitHub secrets, variables, hooks, keys, tokens, runners, environments and similar), GitHub git/blobs paths, the query keys sudo, private_token, access_token, job_token and bearer_token on GitLab and access_token, client_secret and token on GitHub. Any token value in a returned body is redacted, and a redirect is never followed (a 3xx answer is refused, naming only the host it points to). Prefer the purpose-built tool when one covers the read. ${REPO_TARGET_RULE}`,
+      description: `One read-only GET against the repo's own forge REST API (GitLab or GitHub), for a fact no other tool returns (an MR's commits or changes, a job's artifacts listing, an issue, a merged MR search). path is relative to the API root; pass query values in query, never in path. On GitLab, :id stands for the target project, e.g. projects/:id/merge_requests/12/commits. On GitHub, the path must sit under the repo, and :repo stands for repos/<owner>/<repo>, e.g. :repo/pulls/12/commits. Returns {status, body, truncated, nextPage, totalPages} (totalPages is null on GitHub): body is parsed JSON, cut to text at 256 KiB (truncated: true), so page with page and perPage (maximum 100). The forge decides access and its refusal comes back as its own text. Refused: paths that can return credentials (on GitLab variables, triggers, deploy_tokens, access_tokens, runners, hooks, secure_files, integrations, services, pipeline_schedules, terraform, application; on GitHub secrets, variables, hooks, keys, tokens, runners, environments and similar), GitHub git/blobs paths, the query keys sudo, private_token, access_token, job_token and bearer_token on GitLab and access_token, client_secret and token on GitHub. Any token value in a returned body is redacted, and a redirect is never followed (a 3xx answer is refused, naming only the host it points to). Prefer the purpose-built tool when one covers the read. ${REPO_TARGET_RULE} ${REPO_PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: {
           ...REPO_TARGET_PROPS,
-          path: { type: "string", description: "API path relative to the API root; :id is the target project." },
+          path: { type: "string", description: "API path relative to the API root; on GitLab :id is the target project, on GitHub :repo is repos/<owner>/<repo>." },
           query: { type: "object", description: "Query parameters as string, number or boolean values." },
           page: { type: "number" },
           perPage: { type: "number" },
@@ -74,14 +74,14 @@ export function forgeReadToolDefs(deps: ForgeReadDeps = { command: rtCommand }):
         if (input.query !== undefined && (typeof input.query !== "object" || input.query === null || Array.isArray(input.query))) return err('"query" must be an object');
         const bad = checkPositiveInts(input, ["page", "perPage"]);
         if (bad) return err(bad);
-        const target = await resolveRepoTarget(input);
+        const target = await resolveRepoTarget(input, { github: true });
         if (!target.ok) return err(target.error);
         const payload: Commands["forge:get"]["payload"] = { repoName: target.identity, path: input.path };
         if (input.query !== undefined) payload.query = input.query as Record<string, string | number | boolean>;
         if (typeof input.page === "number") payload.page = input.page;
         if (typeof input.perPage === "number") payload.perPage = input.perPage;
         const r = await deps.command<Commands["forge:get"]["data"]>("forge:get", { ...payload }, { timeoutMs: TIMEOUT_MS });
-        return r.ok && r.data ? ok(r.data) : err(explainError(r.error ?? "GitLab read failed"));
+        return r.ok && r.data ? ok(r.data) : err(explainError(r.error ?? "forge read failed"));
       },
     },
   ];
