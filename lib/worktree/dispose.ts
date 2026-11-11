@@ -223,7 +223,8 @@ export async function disposeTree(
   // All three callers hold the tree lock, but their record was collected
   // before it: a re-read here catches a dispose-then-recreate race at the
   // same path (RT-40) and acts on the lock-scoped truth from here down.
-  const fresh = findByPath(loadRegistry(repoName), rec.path);
+  const registry = loadRegistry(repoName);
+  const fresh = findByPath(registry, rec.path);
   if (
     !fresh ||
     fresh.kind !== rec.kind ||
@@ -285,6 +286,7 @@ export async function disposeTree(
   if (deps.killProcesses) {
     const killed = await (deps.killWorktree ?? killWorktreeProcesses)(rec.path, {
       callerPids: deps.callerPids,
+      excludePaths: registry.filter((t) => t.path !== rec.path).map((t) => t.path),
       stopSessionsInside: opts.stopSessions !== undefined,
     });
     const { terminated } = killed;

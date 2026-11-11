@@ -1016,6 +1016,16 @@ describe("disposeTree", () => {
     }
     const ident = { sessionId: "s-1", handle: "remy.k3f9", name: "Remy", pane: "p7", rooms: ["mattstack", "herd-x"] };
 
+    test("registered trees other than the disposed one go to the kill as excludePaths", async () => {
+      const { rec, deps, killOpts, path } = setup(ident);
+      const nested = join(path, "nested-tree");
+      const other = addTree(repo, "tree-b", "feature-b");
+      register(repoName, ephemeral("nested", nested, "feature-n"));
+      register(repoName, ephemeral("tree-b", other, "feature-b"));
+      await disposeTree(deps, rec, { auto: true, stopSessions: { why: "PR #1087 merged" } });
+      expect(killOpts[0]?.excludePaths).toEqual([nested, other]);
+    });
+
     test("stopSessions turns on the session stop, logs it and posts to each room after retire", async () => {
       const { rec, deps, killOpts, posts, warns } = setup(ident);
       const result = await disposeTree(deps, rec, { auto: true, stopSessions: { why: "PR #1087 merged" } });
