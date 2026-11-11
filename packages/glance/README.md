@@ -53,7 +53,7 @@ const provider = createProvider('gitlab', 'https://gitlab.com', token, {
 | `fetchPullRequestsByBranches(path, branches)` | Batch-fetch MRs by source branches *(optional, not all providers)* |
 | `createPullRequest(input)` | Create a new MR |
 | `updatePullRequest(path, iid, input)` | Update an existing MR (title, description, draft status, etc.) |
-| `mergePullRequest(path, iid, input?)` | Merge an MR |
+| `mergePullRequest(path, iid, input?)` | Merge an MR. Resolves with a `MergePullRequestResult` once the merge landed; a failed source-branch cleanup is in `sourceBranchNotDeleted`, never thrown |
 | `rebasePullRequest(path, iid)` | Rebase an MR onto its target branch |
 | `approvePullRequest(path, iid)` | Approve an MR |
 | `unapprovePullRequest(path, iid)` | Remove your approval |
@@ -70,7 +70,14 @@ const provider = createProvider('gitlab', 'https://gitlab.com', token, {
 | `fetchMRDiscussions(repoId, iid)` | Fetch MR discussions and notes |
 | `fetchBranchProtectionRules(path)` | Fetch branch protection rules |
 | `deleteBranch(path, branch)` | Delete a branch |
-| `restRequest(method, path, body?)` | Raw authenticated REST API pass-through |
+| `fetchProjectLabels?(path, options?)` | A project's labels, with `search` and `maxRows`; `truncated` says the cap cut the list (`canFetchProjectLabels`) |
+| `fetchPipelineList?(path, options)` | Pipelines (GitHub workflow runs) newest first, by `ref`, `sha` or MR `iid`, as `PipelineListEntry` rows (`canFetchPipelineList`) |
+| `fetchCommitParents?(path, sha)` | A commit's parent shas (`canFetchCommitParents`) |
+| `fetchPipelineFailedJobs?(path, pipelineId)` | A pipeline's failed jobs; on GitLab, plus those of the child pipelines its bridges trigger (`canFetchPipelineFailedJobs`) |
+| `fetchPullRequestSummaries?(path, options)` | Scalar `PullRequestSummary` rows by state, author, branch or search, without the dashboard fill (`canFetchPullRequestSummaries`) |
+| `addPullRequestLabels?(path, iid, labels)` | Add labels, leaving the others in place (`canEditLabels`) |
+| `removePullRequestLabels?(path, iid, labels)` | Remove labels, leaving the others in place (`canEditLabels`) |
+| `restRequest(method, path, body?, op?, io?)` | Raw authenticated REST API pass-through; `io.redirect: 'manual'` returns a redirect instead of following it. GitHub accepts `op` for parameter-order parity and ignores it |
 
 Provider capabilities are exposed via `provider.capabilities` — check flags like `canMerge`, `canRebase`, `canAutoMerge`, `canResolveDiscussions`, etc. before calling provider-specific methods.
 
@@ -330,11 +337,17 @@ import type {
   ProviderCapabilities,
   ProviderSlug,
   BranchProtectionRule,
+  ProjectLabel,
+  PipelineListEntry,
+  PullRequestSummary,
+  FetchSummariesOptions,
+  SummaryState,
 
   // Mutations
   CreatePullRequestInput,
   UpdatePullRequestInput,
   MergePullRequestInput,
+  MergePullRequestResult,
   MergeMethod,
   CreatedNote,
 
@@ -434,6 +447,12 @@ try {
 | `resetAt` | ISO time the limit lifts, or `null` |
 | `retryAfterMs` | How long GitHub asked callers to wait, or `null` |
 | `operation` | The request that hit the limit |
+
+One exception: when `mergePullRequest` lands the merge and only the
+head-repository read for `shouldRemoveSourceBranch` is rate limited, it does
+not throw. It resolves with `sourceBranchNotDeleted` saying the read was rate
+limited and, when GitHub said, when the limit resets. A caller that retries on
+`RateLimitedError` would otherwise re-issue a merge that already landed.
 
 ## License
 

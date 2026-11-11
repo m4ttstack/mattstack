@@ -6,6 +6,7 @@ import type {
   JobDetail,
   EnqueuePullRequestInput,
   MergePullRequestInput,
+  MergePullRequestResult,
   MergeQueueEntry,
   MergeQueueStatus,
   MergeRequestIndexRow,
@@ -13,10 +14,14 @@ import type {
   MRDetail,
   Pipeline,
   PipelineJob,
+  PipelineListEntry,
   PipelineSummary,
+  ProjectLabel,
   ProjectRef,
   ProviderCapabilities,
   PullRequest,
+  PullRequestSummary,
+  FetchSummariesOptions,
   UpdatePullRequestInput,
   UserEvent,
   UserRef,
@@ -500,8 +505,13 @@ export interface GitProvider {
    * Merge (accept) a pull request / merge request.
    * All input fields are optional — omitting them defers to the project's
    * configured defaults (merge method, squash policy, delete-source-branch).
+   *
+   * Resolves once the merge landed. A failed source-branch cleanup is
+   * reported in `sourceBranchNotDeleted`, never thrown. A rejection means
+   * the merge failed, or landed but could not be read back
+   * (`ReadBackFailedError` with `writeApplied: true`).
    */
-  mergePullRequest(projectPath: string, mrIid: number, input?: MergePullRequestInput): Promise<PullRequest>;
+  mergePullRequest(projectPath: string, mrIid: number, input?: MergePullRequestInput): Promise<MergePullRequestResult>;
 
   /**
    * Approve a pull request / merge request.
@@ -609,7 +619,55 @@ export interface GitProvider {
    */
   fetchJobTrace(projectPath: string, jobId: number): Promise<string>;
 
-  /** The commit's parent shas. GitLab only. */
+  /**
+   * A project's labels, optionally filtered by `search`, capped at `maxRows`.
+   * `truncated` is true when the cap cut the list short.
+   * GitLab applies `search` server-side; GitHub keeps names containing it, case-insensitively, client-side.
+   * Check `capabilities.canFetchProjectLabels` before calling.
+   */
+  fetchProjectLabels?(
+    projectPath: string,
+    options?: { search?: string; maxRows?: number },
+  ): Promise<{ labels: ProjectLabel[]; truncated: boolean }>;
+
+  /**
+   * A project's pipelines, newest first, filtered by ref, sha or MR iid.
+   * On both forges `iid` overrides `ref` and `sha`. GitLab lists every pipeline
+   * the MR has run; GitHub lists only the runs on the PR's current head sha.
+   * Check `capabilities.canFetchPipelineList` before calling.
+   */
+  fetchPipelineList?(
+    projectPath: string,
+    options: { ref?: string; sha?: string; iid?: number; limit: number },
+  ): Promise<PipelineListEntry[]>;
+
+  /**
+   * Pull request rows without the dashboard resolvers.
+   * On GitHub, `author` or `search` reads the search index instead, which can
+   * lag a just-created PR and stops at 1000 results (reported as `truncated`).
+   * Check `capabilities.canFetchPullRequestSummaries` before calling.
+   */
+  fetchPullRequestSummaries?(
+    projectPath: string,
+    options: FetchSummariesOptions,
+  ): Promise<{ rows: PullRequestSummary[]; truncated: boolean }>;
+
+  /**
+   * Add labels to a pull request, leaving the others in place.
+   * Check `capabilities.canEditLabels` before calling.
+   */
+  addPullRequestLabels?(projectPath: string, mrIid: number, labels: string[]): Promise<void>;
+
+  /**
+   * Remove labels from a pull request, leaving the others in place.
+   * Check `capabilities.canEditLabels` before calling.
+   */
+  removePullRequestLabels?(projectPath: string, mrIid: number, labels: string[]): Promise<void>;
+
+  /**
+   * The commit's parent shas.
+   * Check `capabilities.canFetchCommitParents` before calling.
+   */
   fetchCommitParents?(projectPath: string, sha: string): Promise<string[]>;
 
   /**
@@ -618,7 +676,11 @@ export interface GitProvider {
    * (a child's failure never appears among the parent's own jobs). Rows under a
    * bridge that cannot fail the parent come back allowFailure. All or nothing:
    * one failed listing anywhere in the tree throws, so a partial result never
-   * reads as clean. GitLab only.
+   * reads as clean. On GitHub, a workflow run's own failed jobs (it has no
+   * downstream pipelines), counting cancelled and timed-out jobs too, where
+   * GitLab returns only failed ones; `allowFailure` is always false on GitHub,
+   * since its REST jobs carry no required flag. Check
+   * `capabilities.canFetchPipelineFailedJobs` before calling.
    */
   fetchPipelineFailedJobs?(projectPath: string, pipelineId: number): Promise<PipelineJob[]>;
 
@@ -681,7 +743,13 @@ export interface GitProvider {
    * headers, and body are all carried through; `url` is the one field the
    * Response constructor cannot set, so it cannot be restored.
    */
-  restRequest(method: string, path: string, body?: unknown): Promise<Response>;
+  restRequest(
+    method: string,
+    path: string,
+    body?: unknown,
+    op?: string,
+    io?: { redirect?: 'manual' },
+  ): Promise<Response>;
 
   /**
    * Subscribe to real-time updates for a single MR/PR.

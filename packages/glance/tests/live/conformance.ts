@@ -2112,14 +2112,9 @@ export async function runMergeConformance(
   const marker = `conformance-merge-${Date.now().toString(36)}`;
   let prIid: number | null = null;
   let merged = false;
-  // Set when mergePullRequest throws its own "merged but could not delete"
-  // error: the DELETE now happens inside that call, after the merge PUT has
-  // already succeeded, so a deletion failure surfaces through the same catch
-  // as a genuine merge failure. Treating it as one would cost this run both
-  // downstream proofs (MAT-25 and the source-branch deletion) to a problem
-  // that is neither: the merge already landed, only the cleanup after it
-  // failed. Only one live run is budgeted for this work, so losing both
-  // proofs to an unrelated deletion failure is not acceptable.
+  // Set from the merge result's `sourceBranchNotDeleted`: the merge landed
+  // and only the cleanup after it failed, so the source-branch check below
+  // reports that reason instead of a bare "branch still exists".
   let deletionError: string | null = null;
 
   try {
@@ -2148,11 +2143,12 @@ export async function runMergeConformance(
     await check(report, fixture, 'mergePullRequest', 'merges and reports merged state', async () => {
       try {
         await waitForMergeReadiness(fixture, iid);
-        await provider.mergePullRequest(projectPath, iid, {
+        const result = await provider.mergePullRequest(projectPath, iid, {
           commitMessage: `${marker} merge-commit-message`,
           squashCommitMessage: `${marker} squash-commit-message`,
           shouldRemoveSourceBranch: true
         });
+        deletionError = result.sourceBranchNotDeleted ?? null;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         // Both providers document HTTP 405 on this endpoint as "the merge
@@ -2170,16 +2166,7 @@ export async function runMergeConformance(
             `merge blocked by an unmet precondition (HTTP 405)${detail ? `: ${detail}` : `. Provider said: ${message}`}`
           );
         }
-        // Recognize the deletion-failure shape specifically (see the
-        // deletionError comment above): the merge succeeded, so this is not
-        // the "merge itself did not complete" case the block below guards
-        // against. Stash the message for the source-branch check to report
-        // instead of re-deriving it, and let the merge be treated as done.
-        if (/mergePullRequest merged but could not delete source branch/.test(message)) {
-          deletionError = message;
-        } else {
-          throw err;
-        }
+        throw err;
       }
       merged = true;
       const after = await pollUntil(`merged state of ${iid}`, async () => {
@@ -2993,4 +2980,319 @@ export async function runCiConformance(
       err instanceof Error ? err.message : String(err)
     );
   }
+}
+
+/** A raw forge read the provider under test did not shape, used as ground truth. */
+async function rawJson<T>(fixture: ProviderFixture, path: string): Promise<T> {
+  const res = await fixture.provider.restRequest('GET', path);
+  if (!res.ok) throw new Error(`ground-truth read ${path} failed: HTTP ${res.status}`);
+  return (await res.json()) as T;
+}
+
+/** The project prefix of a raw REST path: `/repos/o/r` or `/projects/<encoded>`. */
+function rawProjectPath(fixture: ProviderFixture): string {
+  return fixture.name === 'github'
+    ? `/repos/${fixture.projectPath}`
+    : `/projects/${encodeURIComponent(fixture.projectPath)}`;
+}
+
+function required<T>(fn: T | undefined, fixture: ProviderFixture, method: ProviderMethod): T {
+  const capability = expectationFor(fixture.name, method).capability;
+  if (capability) {
+    assert(
+      fixture.provider.capabilities[capability] === true,
+      `capabilities.${capability} should be true`
+    );
+  }
+  assert(fn !== undefined, `${method} is declared supported but is not defined`);
+  return fn;
+}
+
+const sameMembers = (a: readonly unknown[], b: readonly unknown[]): boolean =>
+  a.length === b.length && [...a].map(String).sort().join('\n') === [...b].map(String).sort().join('\n');
+
+interface RawOpenPr {
+  iid: number;
+  sourceBranch: string;
+}
+
+async function rawOpenPrs(fixture: ProviderFixture): Promise<RawOpenPr[]> {
+  const base = rawProjectPath(fixture);
+  if (fixture.name === 'github') {
+    const prs = await rawJson<Array<{ number: number; head: { ref: string } }>>(
+      fixture,
+      `${base}/pulls?state=open&per_page=100`
+    );
+    return prs.map(p => ({ iid: p.number, sourceBranch: p.head.ref }));
+  }
+  const mrs = await rawJson<Array<{ iid: number; source_branch: string }>>(
+    fixture,
+    `${base}/merge_requests?state=opened&per_page=100`
+  );
+  return mrs.map(m => ({ iid: m.iid, sourceBranch: m.source_branch }));
+}
+
+async function rawPrLabels(fixture: ProviderFixture, iid: number): Promise<string[]> {
+  const base = rawProjectPath(fixture);
+  if (fixture.name === 'github') {
+    const labels = await rawJson<Array<{ name: string }>>(fixture, `${base}/issues/${iid}/labels?per_page=100`);
+    return labels.map(l => l.name);
+  }
+  const mr = await rawJson<{ labels: string[] }>(fixture, `${base}/merge_requests/${iid}`);
+  return mr.labels;
+}
+
+/**
+ * The forge-neutral list reads: labels, pipeline list, commit parents, failed
+ * jobs and pull request summaries. Read-only, so reads-runner.ts runs it too.
+ * Each result is compared against a raw REST read of the same data, so a
+ * provider that returned the right shape with the wrong rows still fails.
+ */
+export async function runListReadConformance(
+  fixture: ProviderFixture,
+  report: Reporter
+): Promise<void> {
+  const { provider, projectPath, defaultBranch } = fixture;
+  const base = rawProjectPath(fixture);
+
+  await check(report, fixture, 'fetchProjectLabels', 'lists the same label names the forge API does', async () => {
+    const fetchLabels = required(provider.fetchProjectLabels?.bind(provider), fixture, 'fetchProjectLabels');
+    const raw = await rawJson<Array<{ name: string }>>(fixture, `${base}/labels?per_page=100`);
+    if (raw.length === 0) throw new Inconclusive('the fixture project has no labels');
+    assert(raw.length < 100, 'the fixture has 100 or more labels; one raw page no longer covers them');
+    const { labels, truncated } = await fetchLabels(projectPath);
+    assert(!truncated, 'truncated was true for a list under the cap');
+    const names = labels.map(l => l.name);
+    assert(
+      sameMembers(names, raw.map(l => l.name)),
+      `expected [${raw.map(l => l.name).join(', ')}], got [${names.join(', ')}]`
+    );
+  });
+
+  await check(report, fixture, 'fetchProjectLabels', 'search and maxRows narrow the list', async () => {
+    const fetchLabels = required(provider.fetchProjectLabels?.bind(provider), fixture, 'fetchProjectLabels');
+    const all = (await fetchLabels(projectPath)).labels;
+    const first = all[0];
+    if (all.length < 2 || !first) throw new Inconclusive(`the fixture has ${all.length} label(s); narrowing needs two`);
+    const target = first.name;
+    const searched = (await fetchLabels(projectPath, { search: target })).labels.map(l => l.name);
+    assert(searched.includes(target), `search "${target}" did not return it: [${searched.join(', ')}]`);
+    assert(
+      searched.every(n => all.some(l => l.name === n)),
+      `search returned names outside the project list: [${searched.join(', ')}]`
+    );
+    const capped = await fetchLabels(projectPath, { maxRows: 1 });
+    assert(capped.labels.length === 1, `maxRows 1 returned ${capped.labels.length} rows`);
+    assert(capped.truncated, `maxRows 1 over ${all.length} labels should report truncated`);
+  });
+
+  await check(report, fixture, 'fetchPipelineList', 'the newest default-branch pipelines match the forge API, in order', async () => {
+    const list = required(provider.fetchPipelineList?.bind(provider), fixture, 'fetchPipelineList');
+    const raw =
+      fixture.name === 'github'
+        ? (
+            await rawJson<{ workflow_runs: Array<{ id: number; head_sha: string }> }>(
+              fixture,
+              `${base}/actions/runs?branch=${encodeURIComponent(defaultBranch)}&per_page=5`
+            )
+          ).workflow_runs.map(r => ({ id: r.id, sha: r.head_sha, status: null as string | null }))
+        : (
+            await rawJson<Array<{ id: number; sha: string; status: string }>>(
+              fixture,
+              `${base}/pipelines?ref=${encodeURIComponent(defaultBranch)}&per_page=5&order_by=id&sort=desc`
+            )
+          ).map(p => ({ id: p.id, sha: p.sha, status: p.status as string | null }));
+    if (raw.length === 0) throw new Inconclusive(`no pipelines on ${defaultBranch}`);
+    const rows = await list(projectPath, { ref: defaultBranch, limit: 5 });
+    assert(
+      rows.map(r => r.id).join(',') === raw.map(r => r.id).join(','),
+      `expected ids [${raw.map(r => r.id).join(', ')}], got [${rows.map(r => r.id).join(', ')}]`
+    );
+    for (const [i, row] of rows.entries()) {
+      const want = raw[i];
+      assert(want !== undefined, `pipeline ${row.id} has no ground-truth row`);
+      assert(row.sha === want.sha, `pipeline ${row.id}: expected sha ${want.sha}, got ${row.sha}`);
+      assert(row.ref === defaultBranch, `pipeline ${row.id}: expected ref ${defaultBranch}, got ${row.ref}`);
+      if (want.status !== null) {
+        assert(row.status === want.status, `pipeline ${row.id}: expected status ${want.status}, got ${row.status}`);
+      }
+    }
+  });
+
+  await check(report, fixture, 'fetchPipelineList', 'a sha filter returns only that commit\'s pipelines', async () => {
+    const list = required(provider.fetchPipelineList?.bind(provider), fixture, 'fetchPipelineList');
+    const newest = (await list(projectPath, { ref: defaultBranch, limit: 1 }))[0];
+    const sha = newest?.sha;
+    if (!newest || !sha) throw new Inconclusive(`no pipeline with a sha on ${defaultBranch}`);
+    const rows = await list(projectPath, { sha, limit: 20 });
+    assert(rows.some(r => r.id === newest.id), `pipeline ${newest.id} missing from its own sha's list`);
+    assert(
+      rows.every(r => r.sha === sha),
+      `rows for other shas: [${rows.filter(r => r.sha !== sha).map(r => r.sha).join(', ')}]`
+    );
+  });
+
+  await check(report, fixture, 'fetchCommitParents', 'returns the default branch head\'s parents', async () => {
+    const parents = required(provider.fetchCommitParents?.bind(provider), fixture, 'fetchCommitParents');
+    const branch = encodeURIComponent(defaultBranch);
+    const head =
+      fixture.name === 'github'
+        ? await rawJson<{ sha: string; parents: Array<{ sha: string }> }>(fixture, `${base}/commits/${branch}`).then(
+            c => ({ sha: c.sha, parents: c.parents.map(p => p.sha) })
+          )
+        : await rawJson<{ id: string; parent_ids: string[] }>(fixture, `${base}/repository/commits/${branch}`).then(
+            c => ({ sha: c.id, parents: c.parent_ids })
+          );
+    if (head.parents.length === 0) throw new Inconclusive(`${defaultBranch} head is a root commit`);
+    const got = await parents(projectPath, head.sha);
+    assert(
+      got.join(',') === head.parents.join(','),
+      `expected [${head.parents.join(', ')}], got [${got.join(', ')}]`
+    );
+  });
+
+  await check(report, fixture, 'fetchPipelineFailedJobs', 'returns every failed job of a failed pipeline', async () => {
+    const failedJobs = required(provider.fetchPipelineFailedJobs?.bind(provider), fixture, 'fetchPipelineFailedJobs');
+    let pipelineId: number | undefined;
+    let expectedIds: string[];
+    if (fixture.name === 'github') {
+      const runs = await rawJson<{ workflow_runs: Array<{ id: number }> }>(
+        fixture,
+        `${base}/actions/runs?status=failure&per_page=1`
+      );
+      pipelineId = runs.workflow_runs[0]?.id;
+      if (pipelineId === undefined) throw new Inconclusive('no failed workflow run in the fixture');
+      const { jobs } = await rawJson<{ jobs: Array<{ id: number; conclusion: string | null }> }>(
+        fixture,
+        `${base}/actions/runs/${pipelineId}/jobs?filter=latest&per_page=100`
+      );
+      expectedIds = jobs
+        .filter(j => j.conclusion === 'failure' || j.conclusion === 'timed_out' || j.conclusion === 'cancelled')
+        .map(j => `github:check:${j.id}`);
+    } else {
+      const pipes = await rawJson<Array<{ id: number }>>(fixture, `${base}/pipelines?status=failed&per_page=1`);
+      pipelineId = pipes[0]?.id;
+      if (pipelineId === undefined) throw new Inconclusive('no failed pipeline in the fixture');
+      const jobs = await rawJson<Array<{ id: number }>>(
+        fixture,
+        `${base}/pipelines/${pipelineId}/jobs?scope[]=failed&per_page=100`
+      );
+      expectedIds = jobs.map(j => `gitlab:job:${j.id}`);
+    }
+    if (expectedIds.length === 0) {
+      throw new Inconclusive(`failed pipeline ${pipelineId} lists no failed jobs of its own`);
+    }
+    const got = (await failedJobs(projectPath, pipelineId)).map(j => j.id);
+    const missing = expectedIds.filter(id => !got.includes(id));
+    assert(missing.length === 0, `pipeline ${pipelineId}: failed jobs missing from the result: [${missing.join(', ')}]`);
+    // GitLab adds the failed jobs of child pipelines; GitHub has none to add.
+    if (fixture.name === 'github') {
+      assert(sameMembers(got, expectedIds), `pipeline ${pipelineId}: expected [${expectedIds.join(', ')}], got [${got.join(', ')}]`);
+    }
+  });
+
+  await check(report, fixture, 'fetchPullRequestSummaries', 'open rows match the forge\'s open list', async () => {
+    const summaries = required(provider.fetchPullRequestSummaries?.bind(provider), fixture, 'fetchPullRequestSummaries');
+    const raw = await rawOpenPrs(fixture);
+    if (raw.length === 0) throw new Inconclusive('no open pull requests in the fixture');
+    assert(raw.length < 100, 'the fixture has 100 or more open pull requests; one raw page no longer covers them');
+    const { rows, truncated } = await summaries(projectPath, { state: 'opened', limit: 100 });
+    assert(!truncated, 'truncated was true for a list under the limit');
+    assert(
+      sameMembers(rows.map(r => r.iid), raw.map(r => r.iid)),
+      `expected iids [${raw.map(r => r.iid).join(', ')}], got [${rows.map(r => r.iid).join(', ')}]`
+    );
+    for (const row of rows) {
+      const want = raw.find(r => r.iid === row.iid);
+      assert(row.state === 'opened', `#${row.iid}: expected state opened, got ${row.state}`);
+      assert(
+        row.sourceBranch === want?.sourceBranch,
+        `#${row.iid}: expected source branch ${want?.sourceBranch}, got ${row.sourceBranch}`
+      );
+    }
+  });
+
+  await check(report, fixture, 'fetchPullRequestSummaries', 'a source branch filter returns that branch\'s pull request', async () => {
+    const summaries = required(provider.fetchPullRequestSummaries?.bind(provider), fixture, 'fetchPullRequestSummaries');
+    const target = (await rawOpenPrs(fixture))[0];
+    if (!target) throw new Inconclusive('no open pull requests in the fixture');
+    const { rows } = await summaries(projectPath, { state: 'opened', sourceBranch: target.sourceBranch, limit: 20 });
+    assert(rows.some(r => r.iid === target.iid), `#${target.iid} missing for branch ${target.sourceBranch}`);
+    assert(
+      rows.every(r => r.sourceBranch === target.sourceBranch),
+      `rows for other branches: [${rows.map(r => r.sourceBranch).join(', ')}]`
+    );
+  });
+
+  await check(report, fixture, 'fetchPullRequestSummaries', 'merged rows are merged and carry mergedAt, up to the limit', async () => {
+    const summaries = required(provider.fetchPullRequestSummaries?.bind(provider), fixture, 'fetchPullRequestSummaries');
+    const { rows } = await summaries(projectPath, { state: 'merged', limit: 3 });
+    if (rows.length === 0) throw new Inconclusive('no merged pull requests in the fixture');
+    assert(rows.length <= 3, `limit 3 returned ${rows.length} rows`);
+    for (const row of rows) {
+      assert(row.state === 'merged', `#${row.iid}: expected state merged, got ${row.state}`);
+      assert(row.mergedAt !== null, `#${row.iid}: merged with a null mergedAt`);
+    }
+  });
+}
+
+/**
+ * Adds a project label to a pull request that does not carry it, then removes
+ * it. Writes to an existing open pull request and creates nothing; the
+ * removal always runs, so the fixture ends with the label set it started with.
+ */
+export async function runLabelEditConformance(
+  fixture: ProviderFixture,
+  report: Reporter
+): Promise<void> {
+  const { provider, projectPath } = fixture;
+
+  let target: { iid: number; label: string; before: string[] } | null = null;
+  let skipReason = '';
+  try {
+    const fetchLabels = required(provider.fetchProjectLabels?.bind(provider), fixture, 'fetchProjectLabels');
+    const open = (await rawOpenPrs(fixture)).sort((a, b) => a.iid - b.iid)[0];
+    const projectLabels = (await fetchLabels(projectPath)).labels.map(l => l.name);
+    if (!open) {
+      skipReason = 'no open pull request in the fixture to label';
+    } else if (projectLabels.length === 0) {
+      skipReason = 'the fixture project has no labels';
+    } else {
+      const before = await rawPrLabels(fixture, open.iid);
+      const label = projectLabels.find(n => !before.includes(n) && !n.includes(','));
+      if (label === undefined) skipReason = `#${open.iid} already carries every project label`;
+      else target = { iid: open.iid, label, before };
+    }
+  } catch (err) {
+    skipReason = `could not pick a pull request and label: ${err instanceof Error ? err.message : String(err)}`;
+  }
+
+  if (!target) {
+    report.skip(fixture.name, 'addPullRequestLabels', 'adds a label the pull request lacked', skipReason);
+    report.skip(fixture.name, 'removePullRequestLabels', 'removes it, restoring the label set', skipReason);
+    return;
+  }
+  const { iid, label, before } = target;
+
+  let added = false;
+  await check(report, fixture, 'addPullRequestLabels', `adds "${label}" to #${iid}, keeping its others`, async () => {
+    const add = required(provider.addPullRequestLabels?.bind(provider), fixture, 'addPullRequestLabels');
+    await add(projectPath, iid, [label]);
+    added = true;
+    const after = await rawPrLabels(fixture, iid);
+    assert(after.includes(label), `"${label}" not on #${iid} after the add: [${after.join(', ')}]`);
+    assert(
+      sameMembers(after, [...before, label]),
+      `expected [${[...before, label].join(', ')}], got [${after.join(', ')}]`
+    );
+  });
+
+  await check(report, fixture, 'removePullRequestLabels', `removes "${label}" from #${iid}, restoring its label set`, async () => {
+    const remove = required(provider.removePullRequestLabels?.bind(provider), fixture, 'removePullRequestLabels');
+    await remove(projectPath, iid, [label]);
+    const after = await rawPrLabels(fixture, iid);
+    assert(!after.includes(label), `"${label}" still on #${iid} after the remove`);
+    assert(sameMembers(after, before), `expected [${before.join(', ')}], got [${after.join(', ')}]`);
+    if (!added) throw new Inconclusive('the add failed, so the removal had nothing to remove');
+  });
 }

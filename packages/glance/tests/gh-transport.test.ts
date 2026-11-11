@@ -122,6 +122,22 @@ describe('GitHubProvider transport (real Octokit, fetch stubbed)', () => {
     expect(res.status).toBe(404);
   });
 
+  test('restRequest with redirect manual passes it to fetch and returns the 302 unfollowed', async () => {
+    const inits: Array<RequestInit | undefined> = [];
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      inits.push(init);
+      return new Response(null, { status: 302, headers: { location: 'https://blob.example/x' } });
+    }) as typeof fetch;
+
+    const provider = new GitHubProvider('https://github.com', 'tok');
+    const res = await provider.restRequest('GET', '/x', undefined, 'op', { redirect: 'manual' });
+
+    expect(inits).toHaveLength(1);
+    expect(inits[0]?.redirect).toBe('manual');
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://blob.example/x');
+  });
+
   test('restRequest carries a non-Link header (etag) through, not just Link', async () => {
     // Before Octokit, restRequest returned the genuine fetch Response, so a
     // caller could read content-type, etag, location, x-ratelimit-remaining,

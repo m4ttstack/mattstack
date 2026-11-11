@@ -149,7 +149,8 @@ export async function mergeOnGitHub(
       ...(options.squash !== undefined && { squash: options.squash }),
       ...(options.removeSourceBranch !== undefined && { shouldRemoveSourceBranch: options.removeSourceBranch }),
     });
-    return pr.state === "merged" ? ok({ merged: true }) : ok({ requested: "merge", verified: false, state: pr.state });
+    const cleanup = pr.sourceBranchNotDeleted === undefined ? {} : { sourceBranchNotDeleted: pr.sourceBranchNotDeleted };
+    return pr.state === "merged" ? ok({ merged: true, ...cleanup }) : ok({ requested: "merge", verified: false, state: pr.state, ...cleanup });
   } catch (e) {
     if (e instanceof ReadBackFailedError && e.writeApplied) return ok({ requested: "merge", verified: false });
     return err(e instanceof Error ? e.message : String(e));

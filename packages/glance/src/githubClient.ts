@@ -399,10 +399,10 @@ export function ghError(
 }
 
 /**
- * Exported so `deleteMergedSourceBranch` in GitHubProvider.ts can build its
- * "merged but could not delete source branch" message with the same body
- * text `ghError` would use, without going through `ghError` itself: that
- * message's prefix is not `${op} failed:`, so `ghError`'s shape does not fit.
+ * Exported so GitHubProvider.ts can build its `sourceBranchNotDeleted`
+ * reasons with the same body text `ghError` would use, without going through
+ * `ghError` itself: a reason is not an `${op} failed:` message, so
+ * `ghError`'s shape does not fit.
  */
 export function bodyText(err: RequestError): string {
   const data = err.response?.data;

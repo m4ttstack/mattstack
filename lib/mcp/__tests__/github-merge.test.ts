@@ -68,6 +68,13 @@ describe("mergeOnGitHub", () => {
     expect((await mergeOnGitHub(TARGET, {}, { provider })).body).toEqual({ requested: "merge", verified: false, state: "opened" });
   });
 
+  test("a merge that left its source branch behind says why", async () => {
+    const sourceBranchNotDeleted = "The source branch was not deleted: GitHub refused the delete with 422.";
+    const mergePullRequest = (async () => ({ state: "merged", sourceBranchNotDeleted })) as unknown as GithubMergeProvider["mergePullRequest"];
+    const { provider } = github({ enabled: false, inQueue: false }, { mergePullRequest });
+    expect((await mergeOnGitHub(TARGET, { removeSourceBranch: true }, { provider })).body).toEqual({ merged: true, sourceBranchNotDeleted });
+  });
+
   test("a merge whose read-back failed is unverified, not failed", async () => {
     const mergePullRequest = (async () => {
       throw Object.assign(Object.create(ReadBackFailedError.prototype), { writeApplied: true });

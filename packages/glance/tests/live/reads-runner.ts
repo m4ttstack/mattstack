@@ -7,7 +7,7 @@
  * Run: bun tests/live/reads-runner.ts
  */
 
-import { runMetricsReadConformance, runReadConformance } from './conformance.ts';
+import { runListReadConformance, runMetricsReadConformance, runReadConformance } from './conformance.ts';
 import { buildFixtures } from './fixture.ts';
 import { Reporter } from './report.ts';
 
@@ -23,6 +23,7 @@ for (const fixture of fixtures) {
   console.log(`\n=== ${fixture.name} (${fixture.projectPath}) ===\n`);
   await runReadConformance(fixture, report);
   await runMetricsReadConformance(fixture, report);
+  await runListReadConformance(fixture, report);
 }
 
 console.log(`\n${report.render()}`);

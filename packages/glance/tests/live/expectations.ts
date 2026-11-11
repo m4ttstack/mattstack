@@ -150,14 +150,13 @@ export const GITHUB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
     capability: 'canFetchUserEvents',
     note: 'Not implemented on GitHub yet; the user events feed would stand in for GitLab user events.'
   },
-  fetchCommitParents: {
-    support: 'absent',
-    note: 'GitLab only. GitHub commits are addressed directly, with no synthetic merge-commit sha whose parents need unwinding.'
-  },
-  fetchPipelineFailedJobs: {
-    support: 'absent',
-    note: 'GitLab only. GitHub check runs are already fetched per PR with no separate failed-jobs read.'
-  }
+  fetchCommitParents: { support: 'supported', capability: 'canFetchCommitParents' },
+  fetchPipelineFailedJobs: { support: 'supported', capability: 'canFetchPipelineFailedJobs' },
+  fetchProjectLabels: { support: 'supported', capability: 'canFetchProjectLabels' },
+  fetchPipelineList: { support: 'supported', capability: 'canFetchPipelineList' },
+  fetchPullRequestSummaries: { support: 'supported', capability: 'canFetchPullRequestSummaries' },
+  addPullRequestLabels: { support: 'supported', capability: 'canEditLabels' },
+  removePullRequestLabels: { support: 'supported', capability: 'canEditLabels' }
 };
 
 export const GITLAB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
@@ -223,8 +222,13 @@ export const GITLAB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   fetchProject: { support: 'supported', capability: 'canFetchProject' },
   fetchProjectPipelines: { support: 'supported', capability: 'canFetchProjectPipelines' },
   fetchUserEvents: { support: 'supported', capability: 'canFetchUserEvents' },
-  fetchCommitParents: { support: 'supported' },
-  fetchPipelineFailedJobs: { support: 'supported' }
+  fetchCommitParents: { support: 'supported', capability: 'canFetchCommitParents' },
+  fetchPipelineFailedJobs: { support: 'supported', capability: 'canFetchPipelineFailedJobs' },
+  fetchProjectLabels: { support: 'supported', capability: 'canFetchProjectLabels' },
+  fetchPipelineList: { support: 'supported', capability: 'canFetchPipelineList' },
+  fetchPullRequestSummaries: { support: 'supported', capability: 'canFetchPullRequestSummaries' },
+  addPullRequestLabels: { support: 'supported', capability: 'canEditLabels' },
+  removePullRequestLabels: { support: 'supported', capability: 'canEditLabels' }
 };
 
 export function expectationFor(

@@ -296,9 +296,14 @@ export function mapReviews(node: GHFillNode, rulesRequired: number | null): Revi
 }
 
 function checkRunStatus(c: Extract<GHFillContext, { __typename: 'CheckRun' }>): string {
-  switch (c.status) {
+  return checkStatusFromParts(c.status, c.conclusion);
+}
+
+/** The read model's status vocabulary for a check run or workflow run, in GraphQL's upper-case enums. */
+export function checkStatusFromParts(status: string, conclusion: string | null): string {
+  switch (status) {
     case 'COMPLETED':
-      switch (c.conclusion) {
+      switch (conclusion) {
         case 'SUCCESS':
         case 'NEUTRAL':
           return 'success';
@@ -335,7 +340,7 @@ function statusContextStatus(state: string): string {
   }
 }
 
-function jobDuration(start: string | null, end: string | null): number | null {
+export function jobDuration(start: string | null, end: string | null): number | null {
   if (!start || !end) return null;
   return Math.round((new Date(end).getTime() - new Date(start).getTime()) / 1000);
 }

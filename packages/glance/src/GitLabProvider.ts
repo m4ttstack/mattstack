@@ -22,17 +22,22 @@ import type {
   JobDetail,
   MergeabilityCheck,
   MergePullRequestInput,
+  MergePullRequestResult,
   MergeRequestIndexRow,
   MergeRequestMetrics,
   MetricsNote,
   MRApprovalRules,
   MRDetail,
+  FetchSummariesOptions,
   Pipeline,
   PipelineJob,
+  PipelineListEntry,
   PipelineSummary,
+  ProjectLabel,
   ProjectRef,
   ProviderCapabilities,
   PullRequest,
+  PullRequestSummary,
   Reviewer,
   UpdatePullRequestInput,
   UserEvent,
@@ -40,7 +45,7 @@ import type {
   WatchEventsOptions,
 } from './types.ts';
 import { isTransitionalMergeStatus } from './types.ts';
-import { ReadBackFailedError } from './errors.ts';
+import { ForgeHttpError, ReadBackFailedError } from './errors.ts';
 import { parseCodeownerSections } from './codeowners.ts';
 import { type ForgeLogger, noopLogger } from './logger.ts';
 import { MRDetailFetcher } from './MRDetailFetcher.ts';
@@ -319,6 +324,9 @@ interface AssignedResponse {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** gitbeaker retries only these, and its retry error carries no response to read a reason phrase from. */
+const RETRIED_STATUS_TEXT: Record<number, string> = { 429: 'Too Many Requests', 502: 'Bad Gateway' };
 
 /** Extract numeric ID from a GQL global ID like "gid://gitlab/MergeRequest/12345". */
 function numericId(gid: string): number {
@@ -967,6 +975,12 @@ export class GitLabProvider implements GitProvider {
     canFetchProject: true,
     canFetchProjectPipelines: true,
     canFetchUserEvents: true,
+    canFetchProjectLabels: true,
+    canFetchPipelineList: true,
+    canFetchCommitParents: true,
+    canFetchPipelineFailedJobs: true,
+    canFetchPullRequestSummaries: true,
+    canEditLabels: true,
   };
 
   // MARK: - GitProvider
@@ -1627,6 +1641,182 @@ export class GitLabProvider implements GitProvider {
     }
   }
 
+  async fetchProjectLabels(
+    projectPath: string,
+    options: { search?: string; maxRows?: number } = {},
+  ): Promise<{ labels: ProjectLabel[]; truncated: boolean }> {
+    const maxRows = options.maxRows ?? 1000;
+    const labels: ProjectLabel[] = [];
+    try {
+      for (let page = 1; ; page++) {
+        const { data, paginationInfo } = (await this.gb.ProjectLabels.all(projectPath, {
+          perPage: 100,
+          page,
+          showExpanded: true,
+          ...(options.search ? { search: options.search } : {}),
+        } as never)) as unknown as {
+          data: Array<{ name: string; description?: string | null; color?: string | null }>;
+          paginationInfo: { next: number | null };
+        };
+        if (!Array.isArray(data)) throw new Error("GitLab's label listing was not a JSON array");
+        for (const r of data) labels.push({ name: r.name, description: r.description ?? null, color: r.color ?? null });
+        // gitbeaker maps an absent and an empty x-next-page to null, so a full page keeps the walk going.
+        const more = data.length > 0 && (paginationInfo.next !== null || data.length === 100);
+        if (!more) return { labels: labels.slice(0, maxRows), truncated: labels.length > maxRows };
+        // An ambiguous full page (null next) needs one more page to prove rows exist past the cap.
+        if (labels.length > maxRows || (labels.length === maxRows && paginationInfo.next !== null)) {
+          return { labels: labels.slice(0, maxRows), truncated: true };
+        }
+      }
+    } catch (err) {
+      this.forgeHttpError(err);
+    }
+  }
+
+  async addPullRequestLabels(projectPath: string, mrIid: number, labels: string[]): Promise<void> {
+    if (labels.length === 0) return;
+    try {
+      await this.gb.MergeRequests.edit(projectPath, mrIid, { addLabels: labels.join(',') });
+    } catch (err) {
+      this.forgeHttpError(err);
+    }
+  }
+
+  async removePullRequestLabels(projectPath: string, mrIid: number, labels: string[]): Promise<void> {
+    if (labels.length === 0) return;
+    try {
+      await this.gb.MergeRequests.edit(projectPath, mrIid, { removeLabels: labels.join(',') });
+    } catch (err) {
+      this.forgeHttpError(err);
+    }
+  }
+
+  async fetchPipelineList(
+    projectPath: string,
+    options: { ref?: string; sha?: string; iid?: number; limit: number },
+  ): Promise<PipelineListEntry[]> {
+    // An explicit page makes gitbeaker return that page alone instead of walking the Link header.
+    const paging = { perPage: options.limit, page: 1 };
+    let rows: Array<{
+      id: number;
+      status: string;
+      ref?: string;
+      sha?: string;
+      source?: string;
+      web_url?: string;
+      created_at?: string;
+    }>;
+    try {
+      rows = (
+        options.iid !== undefined
+          ? await this.gb.MergeRequests.allPipelines(projectPath, options.iid, paging as never)
+          : await this.gb.Pipelines.all(projectPath, {
+              ...paging,
+              orderBy: 'id',
+              sort: 'desc',
+              ...(options.ref ? { ref: options.ref } : {}),
+              ...(options.sha ? { sha: options.sha } : {}),
+            } as never)
+      ) as unknown as typeof rows;
+    } catch (err) {
+      this.forgeHttpError(err);
+    }
+    if (!Array.isArray(rows)) throw new Error("GitLab's pipeline listing was not a JSON array");
+    return rows.map((r) => ({
+      id: r.id,
+      status: r.status,
+      ref: r.ref ?? null,
+      sha: r.sha ?? null,
+      source: r.source ?? null,
+      webUrl: r.web_url ?? null,
+      createdAt: r.created_at ?? null,
+    }));
+  }
+
+  async fetchPullRequestSummaries(
+    projectPath: string,
+    options: FetchSummariesOptions,
+  ): Promise<{ rows: PullRequestSummary[]; truncated: boolean }> {
+    const perPage = 100;
+    const rows: PullRequestSummary[] = [];
+    try {
+      for (let page = 1; ; page++) {
+        const { data, paginationInfo } = (await this.gb.MergeRequests.all({
+          projectId: projectPath,
+          state: options.state,
+          ...(options.sort === 'updated_desc' ? { orderBy: 'updated_at', sort: 'desc' } : {}),
+          ...(options.author === 'me'
+            ? { scope: 'created_by_me' }
+            : { scope: 'all', ...(options.author ? { authorUsername: options.author } : {}) }),
+          ...(options.sourceBranch ? { sourceBranch: options.sourceBranch } : {}),
+          ...(options.targetBranch ? { targetBranch: options.targetBranch } : {}),
+          ...(options.search ? { search: options.search } : {}),
+          perPage,
+          page,
+          showExpanded: true,
+        } as never)) as unknown as {
+          data: Array<{
+            iid: number;
+            title: string;
+            state: PullRequestSummary['state'];
+            draft?: boolean;
+            source_branch: string;
+            target_branch: string;
+            author?: { username?: string } | null;
+            web_url?: string | null;
+            detailed_merge_status?: string | null;
+            merged_at?: string | null;
+          }>;
+          paginationInfo: { next: number | null };
+        };
+        if (!Array.isArray(data)) throw new Error("GitLab's merge request listing was not a JSON array");
+        for (const r of data) {
+          rows.push({
+            iid: r.iid,
+            title: r.title,
+            state: r.state,
+            draft: r.draft === true,
+            sourceBranch: r.source_branch,
+            targetBranch: r.target_branch,
+            author: r.author?.username ?? null,
+            webUrl: r.web_url ?? null,
+            detailedMergeStatus: r.detailed_merge_status ?? null,
+            mergedAt: r.merged_at ?? null,
+          });
+        }
+        const more = data.length > 0 && (paginationInfo.next !== null || data.length === perPage);
+        if (rows.length > options.limit || !more) {
+          return { rows: rows.slice(0, options.limit), truncated: rows.length > options.limit };
+        }
+      }
+    } catch (err) {
+      this.forgeHttpError(err);
+    }
+  }
+
+  /**
+   * gitbeaker consumes the response body and keeps only its parsed message,
+   * so `bodyText` is that message, not the raw JSON.
+   */
+  private forgeHttpError(err: unknown): never {
+    if (err instanceof GitbeakerRequestError && err.cause?.response) {
+      const res = err.cause.response as Response;
+      const detail = err.cause.description ?? '';
+      throw new ForgeHttpError(`GitLab returned ${res.status} ${res.statusText}: ${detail}`, res.status, res.statusText, detail);
+    }
+    if (err instanceof GitbeakerRetryError) {
+      const status = Number(err.message.match(/status code: (\d{3})/)?.[1] ?? 0);
+      const statusText = RETRIED_STATUS_TEXT[status] ?? '';
+      throw new ForgeHttpError(
+        `GitLab returned ${status}${statusText ? ` ${statusText}` : ''}: ${err.message}`,
+        status,
+        statusText,
+        err.message,
+      );
+    }
+    throw err;
+  }
+
   async fetchPullRequestByBranch(
     projectPath: string,
     sourceBranch: string,
@@ -2055,7 +2245,7 @@ export class GitLabProvider implements GitProvider {
 
   // ── MR lifecycle mutations ──────────────────────────────────────────────
 
-  async mergePullRequest(projectPath: string, mrIid: number, input?: MergePullRequestInput): Promise<PullRequest> {
+  async mergePullRequest(projectPath: string, mrIid: number, input?: MergePullRequestInput): Promise<MergePullRequestResult> {
     const opts: Record<string, unknown> = {};
     if (input?.commitMessage != null) opts.mergeCommitMessage = input.commitMessage;
     if (input?.squashCommitMessage != null) opts.squashCommitMessage = input.squashCommitMessage;
