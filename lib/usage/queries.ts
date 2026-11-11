@@ -22,7 +22,7 @@ import type {
 import { BILLING_CLASS_SQL } from "./accounts.ts";
 import { kindOf } from "./mr-key.ts";
 import { costOf } from "./pricing.ts";
-import { openUsageDbReadonly } from "./store.ts";
+import { openUsageDb, openUsageDbReadonly, USAGE_SCHEMA_VERSION } from "./store.ts";
 
 const DAY_MS = 86_400_000;
 const KINDS: readonly UsageKind[] = ["work", "review", "respond", "doctor", "other"];
@@ -187,9 +187,19 @@ function hasSchema(db: Database): boolean {
   );
 }
 
+function needsMigration(db: Database): boolean {
+  const row = db.query("PRAGMA user_version").get() as { user_version: number };
+  return row.user_version < USAGE_SCHEMA_VERSION && hasSchema(db);
+}
+
 export function reading<T>(dbPath: string, empty: T, read: (db: Database) => T): T {
-  const db = openUsageDbReadonly(dbPath);
+  let db = openUsageDbReadonly(dbPath);
   if (!db) return empty;
+  if (needsMigration(db)) {
+    db.close();
+    openUsageDb(dbPath).close();
+    db = openUsageDbReadonly(dbPath)!;
+  }
   try {
     return hasSchema(db) ? read(db) : empty;
   } finally {

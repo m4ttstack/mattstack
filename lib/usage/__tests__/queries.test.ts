@@ -187,6 +187,16 @@ test("a run reports its own cost beside its MR's whole cost", () => {
   expect(run.mrCost).toBeCloseTo(50, 6);
 });
 
+test("a v1 store with no accounts table still reads", () => {
+  seedMixedMr();
+  db.exec("DROP TABLE usage_accounts; PRAGMA user_version = 1;");
+  db.close();
+  const { mrs } = usageMrs(dbPath, { now: NOW });
+  db = openUsageDb(dbPath);
+  expect(mrs).toHaveLength(1);
+  expect(mrs[0]!.totals.cost).toBeCloseTo(50, 6);
+});
+
 test("a run with no MR has no MR cost", () => {
   message({ runId: "loose", input: MILLION, ts: NOW - DAY });
   const run = usageRun(dbPath, "loose")!;
