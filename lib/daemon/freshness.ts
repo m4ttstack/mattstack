@@ -297,7 +297,8 @@ function createFreshnessCore() {
   let reconcileInFlight: Promise<void> | null = null;
 
   /** remote.origin.url, cached per repoPath for the process lifetime (remotes
-   *  rarely change). Async so it never blocks the event loop. */
+   *  rarely change). A failed or empty read is not cached, so an origin added
+   *  later is picked up. Async so it never blocks the event loop. */
   async function getRemoteUrl(repoPath: string): Promise<string | null> {
     const cached = remoteUrlCache.get(repoPath);
     if (cached !== undefined) return cached;
@@ -307,7 +308,7 @@ function createFreshnessCore() {
       stderr: "ignore",
     });
     const url = r.exitCode === 0 ? (r.stdout.trim() || null) : null;
-    remoteUrlCache.set(repoPath, url);
+    if (url !== null) remoteUrlCache.set(repoPath, url);
     return url;
   }
 

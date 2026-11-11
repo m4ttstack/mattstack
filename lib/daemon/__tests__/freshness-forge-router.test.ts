@@ -198,4 +198,16 @@ describe("getRepoContext picks the forge from the repo's remote", () => {
       ["https://git.acme.internal/api/v4/projects/acme%2Fwidgets", GITLAB_TOKEN],
     ]);
   });
+
+  test("an origin added after a failed lookup is picked up", async () => {
+    secrets = { githubToken: GITHUB_TOKEN };
+    const path = realpathSync(mkdtempSync(join(tmpdir(), "rt-forge-router-")));
+    execFileSync("git", ["init", "-q"], { cwd: path, stdio: "pipe" });
+    const name = `forge-router-repo-${++repoCounter}`;
+    await expect(getRepoContext(name, path)).rejects.toThrow();
+    execFileSync("git", ["remote", "add", "origin", "git@github.com:acme/late.git"], { cwd: path, stdio: "pipe" });
+    const ctx = await getRepoContext(name, path);
+    expect(ctx.forge).toBe("github");
+    expect(ctx.projectPath).toBe("acme/late");
+  });
 });
