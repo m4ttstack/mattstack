@@ -18,7 +18,7 @@ import { boardEnvValue, readBoardSwitchboardToken } from "./board-token.ts";
 import { forgeLogin } from "./forge.ts";
 import { teamRemote } from "./members.ts";
 import { scrub } from "./redact.ts";
-import { storedForgeToken } from "./stored-forge-token.ts";
+import { confirmedForgeHost, refuseUnconfirmedForgeHost, storedForgeToken } from "./stored-forge-token.ts";
 import { readTeamLocal } from "./team-local.ts";
 
 export interface PeerSeams {
@@ -52,6 +52,7 @@ async function realBoardUsername(p: Probes, slug: string): Promise<string | null
   const remote = teamRemote(p, slug);
   const forge = readTeamSnapshot(p, slug).integrations.forge ?? (remote ? forgeFromRemote(remote) : null);
   if (!forge) return null;
+  if (remote) refuseUnconfirmedForgeHost(remote, confirmedForgeHost(p));
   const token = remote ? await storedForgeToken(p, remote) : null;
   return forgeLogin(p, forge.provider, forge.host, token);
 }

@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { NoAgeKeyError } from "../../secrets/store.ts";
-import { forgeTokenLookup, forgeTokenLookupFromPresence, ghSessionToken, mayOfferGitLabToken, mayOfferToken, tokenOrNull, withholdFromUntrustedHost } from "../forge-token.ts";
+import { forgeTokenLookup, forgeTokenLookupFromPresence, ghSessionToken, gitlabHostRefusal, mayOfferGitLabToken, storedTokenRefusal, mayOfferToken, tokenOrNull, withholdFromUntrustedHost } from "../forge-token.ts";
 import { fakeProbes, ok } from "../../setup/__tests__/fakes.ts";
 import type { SecretPresence } from "../../setup/validators/accounts.ts";
 
@@ -136,5 +136,36 @@ describe("mayOfferToken", () => {
     const unreadable = { kind: "unreadable", reason: "sops exited 2" } as const;
     expect(withholdFromUntrustedHost(absent, "https://gitlab.evil.example/acme/team.git", null)).toEqual(absent);
     expect(withholdFromUntrustedHost(unreadable, "https://gitlab.evil.example/acme/team.git", null)).toEqual(unreadable);
+  });
+});
+
+describe("gitlabHostRefusal", () => {
+  test("an unconfirmed gitlab-shaped host is refused with the connect step", () => {
+    expect(gitlabHostRefusal("https://gitlab.evil.example/acme/team.git", null)).toBe(
+      "unsupported: gitlab.evil.example is not a configured GitLab host (run: rt setup gitlab connect --host gitlab.evil.example)",
+    );
+  });
+
+  test("github.com is refused without a connect step", () => {
+    expect(gitlabHostRefusal("https://github.com/acme/team.git", "github.com")).toBe("unsupported: github.com is not a configured GitLab host");
+  });
+
+  test("gitlab.com and the confirmed host pass", () => {
+    expect(gitlabHostRefusal("git@gitlab.com:acme/team.git", null)).toBeNull();
+    expect(gitlabHostRefusal("https://gitlab.acme.internal/acme/team.git", "gitlab.acme.internal")).toBeNull();
+  });
+});
+
+describe("storedTokenRefusal", () => {
+  test("a GitLab remote on an unconfirmed host is refused", () => {
+    expect(storedTokenRefusal("https://gitlab.evil.example/acme/team.git", null)).toContain("gitlab.evil.example is not a configured GitLab host");
+  });
+
+  test("a GitHub remote is the GitHub token's business, never refused here", () => {
+    expect(storedTokenRefusal("git@github.com:acme/team.git", null)).toBeNull();
+  });
+
+  test("a confirmed GitLab host passes", () => {
+    expect(storedTokenRefusal("https://gitlab.acme.internal/acme/team.git", "gitlab.acme.internal")).toBeNull();
   });
 });

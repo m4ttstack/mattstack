@@ -692,6 +692,65 @@ describe("mintInvite", () => {
 
 // ─── membership permission (MAT-387) ─────────────────────────────────────────
 
+describe("mintInvite: the GitLab token goes only to a confirmed host", () => {
+  const UNCONFIRMED = "https://gitlab.evil.example/acme/widgets.git";
+  const CONFIRMED = "https://gitlab.acme.internal/acme/widgets.git";
+
+  function gitlabSeams(remote: string, confirmedHost: string | null) {
+    const host = new URL(remote).host;
+    const touched: string[] = [];
+    const { seams } = baseSeams({
+      read: fakeRead({
+        "mattstack.integrations": { forge: { host, provider: "gitlab" } },
+        ...(confirmedHost ? { "rt.integrations": { forgeHost: confirmedHost } } : {}),
+      }),
+      forgeToken: async () => {
+        touched.push("forgeToken");
+        return "glpat-secret";
+      },
+      forgeLogin: async (_p, _provider, _host, token) => {
+        touched.push(`forgeLogin:${token}`);
+        return "octocat";
+      },
+      pullOrg: async () => {
+        touched.push("pullOrg");
+        return { dataBranch: null };
+      },
+      grantRead: async () => {
+        touched.push("grantRead");
+        return { access: "granted", manualSteps: [] };
+      },
+    });
+    return { seams, touched };
+  }
+
+  test("an unconfirmed gitlab-shaped host is refused before rt reads or sends the token", async () => {
+    const p = probesWithRemote(UNCONFIRMED);
+    const { seams, touched } = gitlabSeams(UNCONFIRMED, null);
+    const relay = fakeRelayClient();
+
+    const err = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(UserActionableError);
+    expect((err as UserActionableError).code).toBe("forge-host-unconfirmed");
+    expect((err as UserActionableError).message).toContain("gitlab.evil.example");
+    expect(touched).toEqual([]);
+    expect(relay.callOrder).toEqual([]);
+    expect(p.calls.fetch).toEqual([]);
+    expect(p.calls.exec).toEqual([]);
+  });
+
+  test("the confirmed host still gets the token", async () => {
+    const p = probesWithRemote(CONFIRMED);
+    const { seams, touched } = gitlabSeams(CONFIRMED, "gitlab.acme.internal");
+    const relay = fakeRelayClient();
+
+    await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
+
+    expect(touched.slice(0, 2)).toEqual(["forgeToken", "forgeLogin:glpat-secret"]);
+  });
+});
+
 describe("mintInvite: forge membership follows the latch", () => {
   test("the latch alone grants, on any org repo", async () => {
     const grantCalls: string[] = [];

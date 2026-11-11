@@ -39,8 +39,7 @@ import { existsSync } from "fs";
 import { loadSecrets } from "../linear.ts";
 import { parseRemoteUrl, isGitHubRemote, isGitLabRemote, toMRInfo } from "../enrich.ts";
 import { resolveGithubToken } from "../github-token.ts";
-import { mayOfferGitLabToken } from "../team/forge-token.ts";
-import { hostFromRemote, readUserIntegrationOverrides } from "../setup/team-settings.ts";
+import { gitlabHostRefusal } from "../team/forge-token.ts";
 import { checkAndNotify } from "../notifier.ts";
 import type { HandlerContext } from "./handlers/types.ts";
 import { lazyChildLogger } from "../daemon-logger.ts";
@@ -118,14 +117,6 @@ export function providerRequestHook(): { onRequest: (info: { op: string; transpo
  */
 function makeProvider(host: string, token: string): GitLabProvider {
   return new GitLabProvider(host, token, providerRequestHook());
-}
-
-/** Why the GitLab token may not go to this remote's host, or null when it may. */
-function gitlabHostRefusal(remoteUrl: string): string | null {
-  const host = hostFromRemote(remoteUrl);
-  if (host === null || mayOfferGitLabToken(remoteUrl, readUserIntegrationOverrides().forgeHost)) return null;
-  const refusal = `unsupported: ${host} is not a configured GitLab host`;
-  return host === "github.com" ? refusal : `${refusal} (run: rt setup gitlab connect --host ${host})`;
 }
 
 async function fetchProjectId(provider: GitLabProvider, projectPath: string): Promise<number> {
