@@ -341,3 +341,23 @@ export function forgeGet(provider: RestProvider, projectPath: string, input: For
 - [ ] **Step 5:** Commit `mcp: forge tools stop refusing GitHub where the daemon now answers`.
 
 Open PR 2. Same merge rule as PR 1. After merge, the dev daemon runs this only once the main checkout syncs and the daemon restarts; do neither without Matt.
+
+---
+
+## Carried into PR 2 from PR 1's execution
+
+Facts and rulings from Tasks 1 to 6 that the PR 2 tasks need. Where these differ from a task's text above, these win.
+
+- **Type name.** The pipeline-list row type is `PipelineListEntry`, not `PipelineSummary` (glance already exported a different `PipelineSummary`). `fetchPipelineList` returns `PipelineListEntry[]`.
+- **`ForgeHttpError`.** Constructor `(message, status, statusText, bodyText)`. `bodyText` is the forge's message text on both forges (the raw body only when the response has no message field). Its JSDoc in `packages/glance/src/errors.ts` names which methods throw it; GitHub `fetchPullRequestSummaries` throws a plain `Error` for GraphQL failures, and GitLab `fetchCommitParents` and `fetchPipelineFailedJobs` throw the legacy error.
+- **GitLab 429 and 502 (Task 9).** gitbeaker retries these up to 10 times in about a quarter of a second, then glance throws `ForgeHttpError` with status 429 or 502, statusText `Too Many Requests` or `Bad Gateway`, and gitbeaker's retry text as `bodyText`. Matt accepted this (spec Decided item 5). Pin `forgeFailure`'s GitLab 429 string to that text, not to GitLab's own message.
+- **Non-array GitLab bodies (Task 9).** glance throws a plain `Error` carrying the daemon's current "was not a JSON array" wording for each of the three reads; `forgeFailure` passes it through.
+- **Labels (Task 9).** Pass `maxRows: 1000` to `fetchProjectLabels` explicitly; the "more than 1000 labels matched" error depends on it. On GitHub the label search stops after 20 pages and then reports `truncated`.
+- **Summaries (Task 9).** `PullRequestSummary.state` can be `locked` on GitLab. On GitHub, results are always ordered by last update; with `author` or `search` the read uses the search index, which can lag a just-created PR and stops at 1000 results (reported as `truncated`). A quote, backslash or newline in `author` or `search` throws before any request on GitHub.
+- **Pipeline list (Task 9).** With `iid`, GitLab lists every pipeline the MR ran and GitHub only runs on the PR's current head sha. `PIPELINE_IID_CONFLICT` stays a daemon check; glance lets `iid` win.
+- **Failed jobs (Task 9).** GitHub includes cancelled and timed-out jobs, `allowFailure` is always false there, and job ids are `github:check:<id>`, usable with `fetchJobTrace`.
+- **Label edits (Task 8).** GitHub label writes wait out a rate limit inside Octokit's throttle (up to two retries) before failing, so a daemon label verb can hold a request that long. A GitHub remove of a label the PR lacks is a no-op only when GitHub answers `Label does not exist`; any other 404 throws.
+- **Merge result (Tasks 8 and 11).** `mergePullRequest` returns `MergePullRequestResult`. After a merge that landed, a failed source-branch cleanup does not throw: the result carries `sourceBranchNotDeleted` (a sentence). The daemon's `mr:action` merge reply and the MCP merge tool's result must pass that sentence on to the caller. Task 8's test "a merge that throws `ReadBackFailedError` with `writeApplied` returns `{ok: true}`" still holds for the verification read-back; add a case for the new field.
+- **Forge-less contexts (Tasks 8 and 9).** Existing handler tests pass contexts with no `forge` field; a missing `forge` reads as GitLab everywhere in the handlers.
+- **`OPTIONAL` list.** All seven methods exist on both providers and are out of the `OPTIONAL` list in `packages/glance/tests/live-expectations.test.ts`; all six capability flags are true on both.
+- **Live suite.** Do not run it in PR 2. A standing open PR on `m4ttheweric/glance-conformance` keeps the open-PR cases from skipping; never merge or close it.
