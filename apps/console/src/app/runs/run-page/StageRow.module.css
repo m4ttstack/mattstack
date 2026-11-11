@@ -81,9 +81,24 @@
   padding: 0;
 }
 
+/* A height reveal slices each line of the note as its edge passes, so the
+   note fades in at full height instead. */
 .outcomeNote.outcomeNote {
   max-width: 80ch;
   padding: 2px 0 4px 32px;
+  animation: outcome-note-in 160ms ease-out;
+}
+
+@keyframes outcome-note-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .outcomeNote.outcomeNote {
+    animation: none;
+  }
 }
 
 .verdict {
