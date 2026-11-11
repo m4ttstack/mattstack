@@ -620,6 +620,7 @@ describe('toRateLimitedError', () => {
         'GET /x'
       );
       expect(out?.retryAfterMs).toBe(5000);
+      expect(out?.resetAt).toBeNull();
     });
   });
 

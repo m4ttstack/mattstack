@@ -299,11 +299,10 @@ export function toRateLimitedError(
   const primaryExhausted =
     kind === 'primary' || headerValue(headers, 'x-ratelimit-remaining') === '0';
   const unhinted = !(Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0);
-  const secondaryWithoutHint = unhinted && !primaryExhausted;
-  const resetAt = secondaryWithoutHint ? null : primaryResetAt;
+  const resetAt = primaryExhausted ? primaryResetAt : null;
   const retryAfterMs = !unhinted
     ? retryAfterSeconds * 1000
-    : secondaryWithoutHint
+    : !primaryExhausted
       ? SECONDARY_LIMIT_DEFAULT_WAIT_MS
       : resetAt !== null
         ? Math.max(0, Date.parse(resetAt) - Date.now())
