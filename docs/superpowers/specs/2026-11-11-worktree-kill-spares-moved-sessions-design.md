@@ -92,7 +92,10 @@ its own tree from inside it, and the MCP tool sends no caller pid.
 - When an agent is stopped, its descendants (MCP servers, a dev server it
   started) are not signalled by rt; they exit with the agent or are left as
   orphans in the trashed directory, the same as today for an agent's
-  children. A later pass of the existing stale-orphan path handles leftovers.
+  children. Nothing in rt stops those leftovers after the dispose: the
+  stale-orphan stop only runs on registered trees before a dispose, and
+  afterwards the tree is unregistered and trashed, so they keep running from
+  the trashed directory until they exit or someone stops them.
 
 ## Design
 
