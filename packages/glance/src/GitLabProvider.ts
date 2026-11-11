@@ -976,7 +976,7 @@ export class GitLabProvider implements GitProvider {
     canFetchCommitParents: true,
     canFetchPipelineFailedJobs: true,
     canFetchPullRequestSummaries: true,
-    canEditLabels: false,
+    canEditLabels: true,
   };
 
   // MARK: - GitProvider
@@ -1663,6 +1663,24 @@ export class GitLabProvider implements GitProvider {
           return { labels: labels.slice(0, maxRows), truncated: true };
         }
       }
+    } catch (err) {
+      this.forgeHttpError(err);
+    }
+  }
+
+  async addPullRequestLabels(projectPath: string, mrIid: number, labels: string[]): Promise<void> {
+    if (labels.length === 0) return;
+    try {
+      await this.gb.MergeRequests.edit(projectPath, mrIid, { addLabels: labels.join(',') });
+    } catch (err) {
+      this.forgeHttpError(err);
+    }
+  }
+
+  async removePullRequestLabels(projectPath: string, mrIid: number, labels: string[]): Promise<void> {
+    if (labels.length === 0) return;
+    try {
+      await this.gb.MergeRequests.edit(projectPath, mrIid, { removeLabels: labels.join(',') });
     } catch (err) {
       this.forgeHttpError(err);
     }

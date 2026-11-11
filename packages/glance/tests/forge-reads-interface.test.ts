@@ -32,6 +32,12 @@ describe('forge reads interface', () => {
     }
   }
 
+  test('all six new flags are true on both providers', () => {
+    for (const provider of Object.values(providers)) {
+      for (const [flag] of GUARDS) expect(`${flag}:${provider.capabilities[flag]}`).toBe(`${flag}:true`);
+    }
+  });
+
   test('ForgeHttpError carries status, statusText and bodyText', () => {
     const err = new ForgeHttpError('GitLab returned 404 Not Found: nope', 404, 'Not Found', '{"message":"nope"}');
     expect(err).toBeInstanceOf(Error);

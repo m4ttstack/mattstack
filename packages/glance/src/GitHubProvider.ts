@@ -680,7 +680,7 @@ export class GitHubProvider implements GitProvider {
     canFetchCommitParents: true,
     canFetchPipelineFailedJobs: true,
     canFetchPullRequestSummaries: true,
-    canEditLabels: false
+    canEditLabels: true
   };
 
   // ── GitProvider interface ─────────────────────────────────────────────────
@@ -2311,6 +2311,41 @@ export class GitHubProvider implements GitProvider {
       }
     });
     return { labels, truncated };
+  }
+
+  async addPullRequestLabels(projectPath: string, mrIid: number, labels: string[]): Promise<void> {
+    if (labels.length === 0) return;
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    await this.forgeRead('addPullRequestLabels', () =>
+      this.octokit.request('POST /repos/{owner}/{repo}/issues/{issue_number}/labels', {
+        owner,
+        repo,
+        issue_number: mrIid,
+        labels,
+        request: { retries: 0 }
+      })
+    );
+  }
+
+  async removePullRequestLabels(projectPath: string, mrIid: number, labels: string[]): Promise<void> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    for (const name of labels) {
+      try {
+        await this.forgeRead('removePullRequestLabels', () =>
+          this.octokit.request('DELETE /repos/{owner}/{repo}/issues/{issue_number}/labels/{name}', {
+            owner,
+            repo,
+            issue_number: mrIid,
+            name,
+            request: { retries: 0 }
+          })
+        );
+      } catch (err) {
+        // GitHub answers 404 for a label the PR does not carry; the goal state already holds.
+        if (err instanceof ForgeHttpError && err.status === 404) continue;
+        throw err;
+      }
+    }
   }
 
   async fetchPipelineList(

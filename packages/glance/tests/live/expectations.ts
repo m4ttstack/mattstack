@@ -155,16 +155,8 @@ export const GITHUB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   fetchProjectLabels: { support: 'supported', capability: 'canFetchProjectLabels' },
   fetchPipelineList: { support: 'supported', capability: 'canFetchPipelineList' },
   fetchPullRequestSummaries: { support: 'supported', capability: 'canFetchPullRequestSummaries' },
-  addPullRequestLabels: {
-    support: 'absent',
-    capability: 'canEditLabels',
-    note: 'Not implemented on GitHub yet.'
-  },
-  removePullRequestLabels: {
-    support: 'absent',
-    capability: 'canEditLabels',
-    note: 'Not implemented on GitHub yet.'
-  }
+  addPullRequestLabels: { support: 'supported', capability: 'canEditLabels' },
+  removePullRequestLabels: { support: 'supported', capability: 'canEditLabels' }
 };
 
 export const GITLAB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
@@ -235,16 +227,8 @@ export const GITLAB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   fetchProjectLabels: { support: 'supported', capability: 'canFetchProjectLabels' },
   fetchPipelineList: { support: 'supported', capability: 'canFetchPipelineList' },
   fetchPullRequestSummaries: { support: 'supported', capability: 'canFetchPullRequestSummaries' },
-  addPullRequestLabels: {
-    support: 'absent',
-    capability: 'canEditLabels',
-    note: 'Not implemented on GitLab yet.'
-  },
-  removePullRequestLabels: {
-    support: 'absent',
-    capability: 'canEditLabels',
-    note: 'Not implemented on GitLab yet.'
-  }
+  addPullRequestLabels: { support: 'supported', capability: 'canEditLabels' },
+  removePullRequestLabels: { support: 'supported', capability: 'canEditLabels' }
 };
 
 export function expectationFor(
