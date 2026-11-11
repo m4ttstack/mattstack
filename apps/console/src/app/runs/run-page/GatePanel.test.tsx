@@ -1,6 +1,9 @@
 import '../../icons';
 
-import { renderWithProviders } from '@mattstack/app-kit/test-utils';
+import {
+  renderWithProviders,
+  stubVirtualLayout,
+} from '@mattstack/app-kit/test-utils';
 import type { GateRow } from '@mattstack/rt-client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
@@ -12,7 +15,7 @@ import {
   within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 const answerPost = vi.fn();
 const focusPost = vi.fn();
@@ -416,9 +419,16 @@ describe('GatePanel', () => {
   });
 
   it('keys the lead paragraph and draws a fenced block line by line', () => {
+    onTestFinished(
+      stubVirtualLayout({
+        rowHeight: 19,
+        viewportHeight: 240,
+        contentHeight: 38,
+      })
+    );
     renderPanel(
       gateRow({
-        context: 'Two ways.\n\n```\na.ts:42\nconst x = 1\n```',
+        context: 'Two ways.\n\n```\na.ts:42\nconst x = 1\nconst y = 2\n```',
       })
     );
     const context = screen.getByTestId('gate-findings');
@@ -426,15 +436,20 @@ describe('GatePanel', () => {
       'Two ways.'
     );
     const code = context.querySelector('[data-parity="code"]')!;
-    expect(
-      [...code.children].map(l => [
-        l.getAttribute('data-parity'),
-        l.textContent,
-      ])
-    ).toEqual([
-      ['path', 'a.ts:42'],
-      ['block', 'const x = 1'],
-    ]);
+    expect(code.querySelector('[data-parity="path"]')).toHaveTextContent(
+      'a.ts:42'
+    );
+    const rows = [
+      ...code.querySelectorAll<HTMLElement>(
+        '[data-parity="block"] [data-line]'
+      ),
+    ];
+    expect(rows.map(r => [r.getAttribute('data-line'), r.textContent])).toEqual(
+      [
+        ['42', '42const x = 1'],
+        ['43', '43const y = 2'],
+      ]
+    );
   });
 
   it('draws labelled context points as a label column', () => {
