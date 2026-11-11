@@ -22,11 +22,16 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function message(id: string, ts: number, o: { runId?: string; session?: string; stage?: string } = {}): void {
+function message(
+  id: string,
+  ts: number,
+  o: { runId?: string; session?: string; stage?: string; attribution?: string } = {},
+): void {
+  const attribution = o.attribution ?? (o.stage ? "stage" : o.runId ? "run" : "session");
   db.query(
     `INSERT INTO usage_messages (machine_id, message_id, session_id, ts, run_id, stage, attempt, attribution)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'session')`,
-  ).run(M, id, o.session ?? "s", ts, o.runId ?? null, o.stage ?? null, o.stage ? 1 : null);
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(M, id, o.session ?? "s", ts, o.runId ?? null, o.stage ?? null, o.stage ? 1 : null, attribution);
 }
 
 function stage(name: string, startedAt: number, endedAt: number): void {
