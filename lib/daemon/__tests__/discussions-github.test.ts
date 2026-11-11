@@ -205,6 +205,7 @@ describe("thread handlers on GitHub", () => {
       expect(res).toEqual({ ok: true, data: { discussionId: "gh-review-thread-900", noteId: 900, verified: true } });
       expect(s.diffReads).toHaveLength(1);
       expect(s.anchors).toEqual([{ path: "src/foo.ts", line: 13 }]);
+      expect("oldLine" in s.anchors[0]!).toBe(false);
       expect(s.deletes()).toBe(0);
     });
 

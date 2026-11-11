@@ -11,7 +11,7 @@
  *   mr:comment-inline    - post a new positioned (line-anchored) discussion
  *   mr:comment           - post a new top-level note (resolvable discussion or plain note)
  *   mr:note-update       - replace the body of an existing note
- *   mr:review-submit     - post one whole review: pending comments, one publish, approve, resolve (GitLab only)
+ *   mr:review-submit     - post one whole review with its comments, replies, approval and resolves
  *
  * All handlers take `{ repoName, iid }` and look up the cache entry whose
  * `mr.iid` matches. Writes go through `refreshDiscussions` in
@@ -25,31 +25,26 @@
 
 import {
   EmptyDiscussionError,
-  NoteMutator,
   type CommentAnchor,
   type GitHubProvider,
   type GitLabProvider,
   type GitProvider,
   type InlineCommentResult,
   type NoteRef,
-  type TextPosition,
+  type ReviewComment,
 } from "@mattstack/glance";
 import { decodeRepo } from "../identity-decoder.ts";
-import { getGitLabContext, getRepoContext, getSelfUsername, providerRequestHook } from "../freshness.ts";
-import { anchorComments, parseReviewSubmit, submitReview, type ReviewMutator } from "../review-submit.ts";
-import { loadSecrets } from "../../linear.ts";
-import { refreshDiscussions, type BroadcastFn } from "../discussions-store.ts";
+import { getRepoContext, getSelfUsername } from "../freshness.ts";
+import { anchorComments, parseReviewSubmit } from "../review-submit.ts";
+import { refreshDiscussions, type BroadcastFn, type RefreshResult } from "../discussions-store.ts";
 import { getDiscussionsFileStore } from "../discussions-file-store.ts";
 import { grants, loadRepoTracking } from "../../repo-tracking.ts";
 import { lazyChildLogger } from "../../daemon-logger.ts";
 import { checkAnchor } from "../diff-line-kind.ts";
 import type { HandlerContext, HandlerMap, CommandResult } from "./types.ts";
-import type { Commands, Discussion } from "../../../packages/rt-client/src/commands.ts";
+import type { Commands, Discussion, ReviewSubmitComment } from "../../../packages/rt-client/src/commands.ts";
 
 const log = lazyChildLogger("discussions");
-
-/** What mr:review-submit needs from NoteMutator; test seam. */
-export type ReviewSubmitMutator = ReviewMutator & Pick<NoteMutator, "fetchReviewerStates">;
 
 /** What the thread handlers use of a forge provider; test seam. */
 export type ThreadProvider = { baseURL: string }
@@ -71,44 +66,14 @@ export interface ThreadContext {
  */
 export interface DiscussionHandlerSeams {
   repoContext?: (repoName: string, repoPath?: string) => Promise<ThreadContext>;
-  gitlabToken?: () => Promise<string | undefined>;
   diffs?: (
     ctx: ThreadContext, iid: number,
     opts: { reqSignal?: AbortSignal; timeoutMs?: number },
   ) => Promise<{ diffs: MrDiffRow[]; truncated: boolean }>;
   warn?: (obj: object, msg: string) => void;
-  refresh?: (repoName: string, iid: number) => Promise<unknown>;
+  refresh?: (repoName: string, iid: number) => Promise<Pick<RefreshResult, "discussions" | "fetchedAt"> | undefined>;
   readCached?: (repoName: string, iid: number) => { discussions: Discussion[]; fetchedAt: number } | undefined;
-  reviewMutator?: (baseURL: string, token: string) => ReviewSubmitMutator;
-  reviewActions?: (repoName: string, repoPath?: string) => Promise<{
-    approve: (iid: number) => Promise<void>;
-    resolve: (iid: number, discussionId: string) => Promise<void>;
-  }>;
   selfUsername?: () => string | null;
-}
-
-function buildTextPosition(
-  payload: { path: string; line: number; oldPath?: string; oldLine?: number },
-  diffRefs: { base_sha: string; start_sha: string; head_sha: string },
-): TextPosition {
-  const old_path = payload.oldPath ?? payload.path;
-  if (typeof payload.oldLine === "number") {
-    return {
-      ...diffRefs,
-      position_type: "text",
-      new_path: payload.path,
-      new_line: payload.line,
-      old_path,
-      old_line: payload.oldLine,
-    };
-  }
-  return {
-    ...diffRefs,
-    position_type: "text",
-    new_path: payload.path,
-    new_line: payload.line,
-    old_path,
-  };
 }
 
 const ANCHOR_HINT = " (an unchanged line needs both line and oldLine; a removed line needs oldLine)";
@@ -188,9 +153,13 @@ function githubNoteKind(discussions: Discussion[], noteId: number): NoteRef["kin
   return kinds.size === 1 ? [...kinds][0] : undefined;
 }
 
-/** What `getGitLabContext("threads", ...)` throws for a GitHub repo. */
-function gitlabOnly(ctx: ThreadContext): void {
-  if (ctx.forge === "github") throw new Error("unsupported: threads needs a GitLab repo");
+/**
+ * GitHub takes one side per comment: a caller's old line goes LEFT, anything
+ * else goes RIGHT, so an old line the diff filled in never reaches it.
+ */
+function githubReviewComment(c: ReviewSubmitComment): ReviewComment {
+  const side = c.oldLine !== undefined ? { oldLine: c.oldLine } : { line: c.line };
+  return { body: c.body, path: c.path, ...side, ...(c.oldPath !== undefined ? { oldPath: c.oldPath } : {}) };
 }
 
 export function createDiscussionHandlers(
@@ -209,19 +178,10 @@ export function createDiscussionHandlers(
   & HandlerMap {
   const deps = { ctx, broadcast };
   const repoContextFn = seams.repoContext ?? ((repoName: string, repoPath?: string): Promise<ThreadContext> => getRepoContext(repoName, repoPath));
-  const gitlabTokenFn = seams.gitlabToken ?? (async () => (await loadSecrets()).gitlabToken);
   const diffsFn = seams.diffs ?? fetchMrDiffs;
   const warnFn = seams.warn ?? ((obj: object, msg: string) => log.warn(obj, msg));
   const refreshFn = seams.refresh ?? ((repoName: string, iid: number) => refreshDiscussions(deps, repoName, iid));
   const readCachedFn = seams.readCached ?? ((repoName: string, iid: number) => getDiscussionsFileStore().read(repoName, iid));
-  const reviewMutatorFn = seams.reviewMutator ?? ((baseURL: string, token: string) => new NoteMutator(baseURL, token, providerRequestHook()));
-  const reviewActionsFn = seams.reviewActions ?? (async (repoName: string, repoPath?: string) => {
-    const { provider, projectPath } = await getGitLabContext("threads", repoName, repoPath);
-    return {
-      approve: (iid: number) => provider.approvePullRequest(projectPath, iid),
-      resolve: (iid: number, discussionId: string) => provider.resolveDiscussion(projectPath, iid, discussionId),
-    };
-  });
   const selfUsernameFn = seams.selfUsername ?? getSelfUsername;
 
   return {
@@ -308,7 +268,8 @@ export function createDiscussionHandlers(
         } else {
           await repoCtx.provider.unresolveDiscussion(repoCtx.projectPath, iid, discussionId);
         }
-        const res = await refreshFn(repoName, iid) as { discussions: Discussion[]; fetchedAt: number };
+        const res = await refreshFn(repoName, iid);
+        if (!res) return { ok: false, error: "discussions refresh returned nothing" };
         return { ok: true, data: { discussions: res.discussions, fetchedAt: res.fetchedAt } };
       } catch (err) {
         return { ok: false, error: String(err) };
@@ -605,11 +566,6 @@ export function createDiscussionHandlers(
       const repoPath = ctx.repoIndex()[repoName];
       try {
         const repoCtx = await repoContextFn(repoName, repoPath);
-        gitlabOnly(repoCtx);
-        const token = await gitlabTokenFn();
-        if (!token) return { ok: false, error: "no gitlabToken in secrets" };
-        const mutator = reviewMutatorFn(repoCtx.provider.baseURL, token);
-        const actions = await reviewActionsFn(repoName, repoPath);
         const mrUrl = mrWebUrl(repoCtx, iid);
 
         let input = parsed.input;
@@ -633,24 +589,25 @@ export function createDiscussionHandlers(
           }
         }
 
-        const outcome = await submitReview({
-          mutator,
-          // NoteMutator addresses a project by path as well as by id; ReviewSubmitDeps still types it as a number.
-          projectId: repoCtx.projectPath as unknown as number,
-          iid,
-          position: buildTextPosition,
-          approve: () => actions.approve(iid),
-          resolve: (discussionId) => actions.resolve(iid, discussionId),
-        }, input);
+        const github = repoCtx.forge === "github";
+        const comments: ReviewComment[] = github ? parsed.input.comments.map(githubReviewComment) : input.comments;
+        const outcome = await repoCtx.provider.submitReview(repoCtx.projectPath, iid, { ...input, comments });
         if (!outcome.published) return { ok: true, data: { ...outcome, mrUrl } };
+        const { reviewId, reviewerState: reviewState, ...published } = outcome;
 
         // Everything below describes a review that already landed, so none of
         // it may answer ok:false: the caller would submit the review again.
+        if (github) {
+          await refreshFn(repoName, iid).catch((err) =>
+            log.warn({ err, repoName, iid }, "mr:review-submit: post-review discussions refresh failed"));
+          return { ok: true, data: { ...published, reviewerState: reviewState, summaryNoteId: reviewId, mrUrl } };
+        }
+
         const self = selfUsernameFn();
         const refreshed = await refreshFn(repoName, iid).catch((err) => {
           log.warn({ err, repoName, iid }, "mr:review-submit: post-review discussions refresh failed");
           return undefined;
-        }) as { discussions?: Discussion[] } | undefined;
+        });
         let summaryNoteId: number | null = null;
         for (const d of refreshed?.discussions ?? []) {
           for (const n of d.notes) {
@@ -659,12 +616,17 @@ export function createDiscussionHandlers(
             }
           }
         }
-        const states = await mutator.fetchReviewerStates(repoCtx.projectPath, iid).catch((err) => {
+        const { provider, projectPath } = repoCtx;
+        const readStates = async () => {
+          if (!provider.fetchReviewerStates) throw new Error("the GitLab provider cannot read reviewer states");
+          return provider.fetchReviewerStates(projectPath, iid);
+        };
+        const states = await readStates().catch((err) => {
           log.warn({ err, repoName, iid }, "mr:review-submit: reviewer state read failed");
           return [];
         });
         const reviewerState = self ? states.find((s) => s.username === self)?.state ?? null : null;
-        return { ok: true, data: { ...outcome, reviewerState, summaryNoteId, mrUrl } };
+        return { ok: true, data: { ...published, reviewerState, summaryNoteId, mrUrl } };
       } catch (err) {
         return { ok: false, error: String(err) };
       }
