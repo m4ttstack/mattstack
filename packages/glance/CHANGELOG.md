@@ -10,8 +10,8 @@
   `oldLine` or both), `replyToDiscussion`, `updateComment` and `deleteComment`.
   Edits and deletes take a `NoteRef`; on GitHub its `kind` (`general`, `diff`
   or `review`) names the endpoint, and with no kind the diff comment is tried
-  first, then the pull request comment. A comment that belongs to another pull
-  request is refused before any write. GitHub cannot delete a review.
+  first, then the pull request comment, and a comment that belongs to another
+  pull request is refused before any write. GitHub cannot delete a review.
 - `submitReview` posts a whole review on both providers: a summary, diff
   comments, replies and resolves, with outcome `comment`, `approve` or
   `request_changes`. GitLab publishes pending comments once, at most 100
@@ -32,17 +32,23 @@
   types `CommentAnchor`, `NoteKind`, `NoteRef`, `NoteWriteResult`,
   `InlineCommentResult`, `ReviewComment`, `ReviewReply`, `ReviewSubmission`,
   `ReviewSubmitResult` and `PullRequestFileDiff`.
-- Every GitHub write goes out once, with no retry, under an abort signal: 15 s
-  for a comment write and 60 s for the review POST, set by the new
-  `GitHubProvider` options `writeTimeoutMs` and `reviewTimeoutMs`. A timeout or
-  a lost answer throws `WriteOutcomeUnknownError`, whose message says GitHub
-  may still have applied the write and to check the pull request before
-  retrying.
+- The GitHub comment writes (`createComment`, `createInlineComment`,
+  `replyToDiscussion`, `updateComment`, `deleteComment`) and the review POST in
+  `submitReview` go out once, with no retry, under an abort signal: 15 s for a
+  comment write and 60 s for the review POST, set by the new `GitHubProvider`
+  options `writeTimeoutMs` and `reviewTimeoutMs`. On a comment write, a
+  timeout or a lost answer throws `WriteOutcomeUnknownError`, whose message
+  says GitHub may still have applied the write and to check the pull request
+  before retrying. `submitReview` instead throws a plain `Error` whose message
+  starts `publish failed and its outcome is unknown` and whose `cause` is the
+  `WriteOutcomeUnknownError`.
 - `NoteMutator` accepts a project path string as well as a numeric id, and
   `GitLabProvider.fetchReviewerStates` reads reviewer states.
 - GitHub `fetchMRDiscussions` accepts `github:<owner>/<repo>` as the
   repository id and then makes no `/repositories` call; the numeric
-  `github:<id>` form still works at the cost of that call.
+  `github:<id>` form still works at the cost of that call. The read now also
+  pages the `/reviews` list on every call, and the `/files` list when the pull
+  request has review comments.
 - `NoteAuthor.bot` is set on GitHub notes (true for a bot account, false
   otherwise) and absent on GitLab. A note by a deleted GitHub user now reads as
   the `ghost` author instead of throwing.
@@ -59,6 +65,7 @@
   (an outdated comment) now falls back to `original_line` for its line instead
   of reporting none.
 - GitHub notes on a renamed file carry the old path in `position.oldPath`.
+
 ## 0.29.0
 
 ### Minor Changes

@@ -465,11 +465,17 @@ limited and, when GitHub said, when the limit resets. A caller that retries on
 
 ### `WriteOutcomeUnknownError`
 
-Every `GitHubProvider` comment and review write goes out once, with no retry,
-under an abort signal: 15 s for a comment write (`writeTimeoutMs`) and 60 s for
-the review POST (`reviewTimeoutMs`). A timeout or a lost answer throws
+The `GitHubProvider` comment writes (`createComment`, `createInlineComment`,
+`replyToDiscussion`, `updateComment`, `deleteComment`) and the review POST in
+`submitReview` go out once, with no retry, under an abort signal: 15 s for a
+comment write (`writeTimeoutMs`) and 60 s for the review POST
+(`reviewTimeoutMs`). On a comment write, a timeout or a lost answer throws
 `WriteOutcomeUnknownError`, which means GitHub may still have applied the
 write. Look at the pull request before sending it again.
+
+`submitReview` throws a plain `Error` instead, whose message starts
+`publish failed and its outcome is unknown` and whose `cause` is the
+`WriteOutcomeUnknownError`. Check `cause` rather than the error itself.
 
 | Property | Description |
 |---|---|

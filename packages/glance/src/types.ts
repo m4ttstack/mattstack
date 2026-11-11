@@ -682,7 +682,7 @@ export interface ProviderCapabilities {
   canFetchPullRequestSummaries: boolean;
   /** Can add and remove pull request labels with `addPullRequestLabels` and `removePullRequestLabels`. */
   canEditLabels: boolean;
-  /** Can reply inside a general (non-diff) comment with `replyToComment`. */
+  /** Can reply inside a general (non-diff) comment with `replyToDiscussion`. */
   canReplyToGeneralComments: boolean;
   /** Can submit a review that requests changes. */
   canRequestChanges: boolean;
