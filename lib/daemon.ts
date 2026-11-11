@@ -1247,6 +1247,12 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         // Fills the run outcome cache (MR state, CI, a review's posted label)
         // so listRuns never waits on the forge. A tick that finds the last one
         // still running does nothing.
+        // GitHub cadence, decided for RT-553: GitHub repos take the same
+        // defaults as GitLab (at most 4 mr:get reads per 60 s tick, an open
+        // run re-read at most once per 10 minutes, runs older than 7 days
+        // skipped). That caps the refresher at 240 PR reads an hour, a small
+        // share of GitHub's 5,000-request hourly budget, so it gets no
+        // GitHub-specific limit.
         const outcomeLog = loggerHandle.childLogger("run-outcome");
         const outcomeRefresher = createOutcomeRefresher({
           listRunsForOutcome: () => listRuns().flatMap((run) => {
