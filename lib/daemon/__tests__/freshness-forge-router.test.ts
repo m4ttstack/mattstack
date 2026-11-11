@@ -67,6 +67,7 @@ describe("getRepoContext picks the forge from the repo's remote", () => {
     expect(ctx.projectPath).toBe("acme/widgets");
     expect(ctx.provider.providerName).toBe("github");
     expect(requests).toEqual([]);
+    expect(resolveGithubSpy).toHaveBeenCalled();
   });
 
   test("a project path override wins over the remote on GitHub", async () => {
@@ -159,6 +160,13 @@ describe("getRepoContext picks the forge from the repo's remote", () => {
     secrets = { githubToken: GITHUB_TOKEN };
     const repo = repoWithOrigin("git@github.com:acme/widgets.git");
     await expect(getGitLabContext("threads", repo.name, repo.path)).rejects.toThrow("unsupported: threads needs a GitLab repo");
+    expect(requests).toEqual([]);
+  });
+
+  test("getGitLabContext refuses a GitHub repo with no GitHub token before reading one", async () => {
+    const repo = repoWithOrigin("git@github.com:acme/widgets.git");
+    await expect(getGitLabContext("threads", repo.name, repo.path)).rejects.toThrow("unsupported: threads needs a GitLab repo");
+    expect(resolveGithubSpy).not.toHaveBeenCalled();
     expect(requests).toEqual([]);
   });
 

@@ -499,9 +499,8 @@ function createFreshnessCore() {
     repoPath?: string,
     projectPathOverride?: string,
   ): Promise<GitLabRepoContext> {
-    const ctx = await getRepoContext(repoName, repoPath, projectPathOverride);
-    if (ctx.forge !== "gitlab") throw new Error(`unsupported: ${what} needs a GitLab repo`);
-    return ctx;
+    if (repoPath && (await isGitHubRepo(repoPath))) throw new Error(`unsupported: ${what} needs a GitLab repo`);
+    return getGitLabRepoContext(repoName, repoPath, projectPathOverride);
   }
 
   /**
