@@ -15,7 +15,7 @@ import { fieldSet, openRunDb } from "../../runs/write.ts";
 import { setSetting } from "../../settings/write.ts";
 import { closeStateDb } from "../../state/index.ts";
 import { saveRegistry, type TreeRecord } from "../../worktree/registry.ts";
-import { createMrUploadHandlers, type MrUploadSeams } from "../handlers/mr-upload.ts";
+import { createMrUploadHandlers, MR_UPLOAD_GITHUB_REFUSAL, type MrUploadSeams } from "../handlers/mr-upload.ts";
 
 const REPO = "remote:gitlab.example.com%2Facme%2Fapp";
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 0x49, 0x48, 0x44, 0x52]);
@@ -33,6 +33,7 @@ function harness(overrides: Partial<MrUploadSeams> & { reply?: () => Promise<Res
     worktreePaths: () => [],
     uploadRoots: () => [],
     tempRoots: () => [],
+    isGitHub: async () => false,
     requestHook: () => ({ onRequest: (info) => hooks.push({ op: info.op, method: info.method, path: info.path, status: info.status }) }),
     fetchFn: (async (url: string | URL | Request, init?: RequestInit) => {
       const body = init?.body as FormData;
@@ -50,6 +51,15 @@ function harness(overrides: Partial<MrUploadSeams> & { reply?: () => Promise<Res
 }
 
 describe("mr:upload", () => {
+  test("mr:upload on a GitHub repo refuses with MR_UPLOAD_GITHUB_REFUSAL before any path check", async () => {
+    const repoPath = mkdtempSync(join(tmpdir(), "mr-upload-gh-"));
+    const h = harness({ repoPath, isGitHub: async () => true });
+    const res = await h.handlers["mr:upload"]({ repoName: REPO, path: "/etc/hosts" });
+    expect(res).toEqual({ ok: false, error: MR_UPLOAD_GITHUB_REFUSAL });
+    expect(h.calls).toEqual([]);
+    expect(h.hooks).toEqual([]);
+  });
+
   const origHome = process.env.HOME;
   let home: string;
   let repoPath: string;

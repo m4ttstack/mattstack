@@ -17,7 +17,7 @@ import { Database } from "bun:sqlite";
 import { readdirSync, realpathSync, statSync, type BigIntStats } from "fs";
 import { isAbsolute, join, relative, sep } from "path";
 import { decodeRepo } from "../identity-decoder.ts";
-import { getGitLabContext, providerRequestHook } from "../freshness.ts";
+import { getGitLabContext, isGitHubRepo, providerRequestHook } from "../freshness.ts";
 import { loadSecrets } from "../../linear.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { findRun, listRunRepoDirs } from "../../runs/store.ts";
@@ -46,7 +46,12 @@ export interface MrUploadSeams {
   runFields?: (dbPath: string, keys: readonly string[]) => Record<string, string | null>;
   ticketFiles?: Partial<TicketFileAccess>;
   workRoot?: () => string;
+  isGitHub?: (repoPath: string) => Promise<boolean>;
 }
+
+export const MR_UPLOAD_GITHUB_REFUSAL = "unsupported: GitHub uploads a file only as part of a PR write; use evidence_attach, which uploads images into the PR description";
+
+type CheckedAttachment = { realpath: string; filename: string; mime: string; bytes: Uint8Array };
 
 export type RunRecordScan = { runId: string; evidence: string | null; tickets?: string | null } | { runId: string; unreadable: string };
 
@@ -205,6 +210,7 @@ export function createMrUploadHandlers(
   const tempRootsFn = seams.tempRoots ?? (() => claudeTempRoots(typeof process.getuid === "function" ? process.getuid() : null));
   const fetchFn = seams.fetchFn ?? fetch;
   const workRootFn = seams.workRoot ?? workRoot;
+  const isGitHubFn = seams.isGitHub ?? isGitHubRepo;
   const hookFn = seams.requestHook ?? providerRequestHook;
   const runEvidenceFn = seams.runEvidence ?? ((runId: string): RunEvidenceLookup => {
     const detail = findRun(runId);
@@ -231,6 +237,30 @@ export function createMrUploadHandlers(
     return roots;
   });
 
+  function checkAttachment(repoName: string, repoPath: string, path: string, runId: unknown): { ok: true; checked: CheckedAttachment } | { ok: false; error: string } {
+    const roots = [repoPath, ...worktreePathsFn(repoName), ...tempRootsFn(), ...uploadRootsFn()];
+    const checked = checkUploadPath(path.trim(), roots);
+    if (!checked.ok) return { ok: false, error: checked.error };
+    const unconfirmed = redactionUploadRefusal({ realpath: checked.realpath, filename: checked.filename, bytes: checked.bytes, warn: (message, context) => ctx.log.warn(context, message) });
+    if (unconfirmed) return { ok: false, error: unconfirmed };
+    if (runId !== undefined && (typeof runId !== "string" || !runId.trim())) return { ok: false, error: "runId must be a non-empty string" };
+    const asked = typeof runId === "string" ? runId.trim() : undefined;
+    const runIds = new Set<string>();
+    if (asked) runIds.add(asked);
+    const owner = runIdOfPath(checked.realpath, workRootFn());
+    if (owner) runIds.add(owner);
+    const warn = (message: string, context: { err: unknown; path: string }) => ctx.log.warn(context, message);
+    for (const id of runIds) {
+      const refusal = evidenceUploadRefusal({ runId: id, realpath: checked.realpath, filename: checked.filename, run: runEvidenceFn(id), bytes: checked.bytes, warn });
+      if (!refusal) continue;
+      const byLocation = id === owner && id !== asked && !refusal.includes("ticket image");
+      return { ok: false, error: byLocation ? `${checked.filename} is in run ${id}'s evidence folder and not in run ${id}'s evidence record; ${RECORD_REMEDY}` : refusal };
+    }
+    const ticket = ticketCopyAnyRun(checked.realpath, checked.filename, checked.bytes, runRecordsFn(), seams.ticketFiles ?? {}, warn);
+    if (ticket) return { ok: false, error: ticket };
+    return { ok: true, checked };
+  }
+
   return {
     "mr:upload": async (payload, signal) => {
       const p = payload as { repoName?: unknown; path?: unknown; runId?: unknown } | undefined;
@@ -242,26 +272,10 @@ export function createMrUploadHandlers(
       const repoPath = ctx.repoIndex()[repoName];
       if (!repoPath) return { ok: false, error: "repo-unknown" };
 
-      const roots = [repoPath, ...worktreePathsFn(repoName), ...tempRootsFn(), ...uploadRootsFn()];
-      const checked = checkUploadPath(path.trim(), roots);
-      if (!checked.ok) return { ok: false, error: checked.error };
-      const unconfirmed = redactionUploadRefusal({ realpath: checked.realpath, filename: checked.filename, bytes: checked.bytes, warn: (message, context) => ctx.log.warn(context, message) });
-      if (unconfirmed) return { ok: false, error: unconfirmed };
-      if (p?.runId !== undefined && (typeof p.runId !== "string" || !p.runId.trim())) return { ok: false, error: "runId must be a non-empty string" };
-      const asked = typeof p?.runId === "string" ? p.runId.trim() : undefined;
-      const runIds = new Set<string>();
-      if (asked) runIds.add(asked);
-      const owner = runIdOfPath(checked.realpath, workRootFn());
-      if (owner) runIds.add(owner);
-      const warn = (message: string, context: { err: unknown; path: string }) => ctx.log.warn(context, message);
-      for (const runId of runIds) {
-        const refusal = evidenceUploadRefusal({ runId, realpath: checked.realpath, filename: checked.filename, run: runEvidenceFn(runId), bytes: checked.bytes, warn });
-        if (!refusal) continue;
-        const byLocation = runId === owner && runId !== asked && !refusal.includes("ticket image");
-        return { ok: false, error: byLocation ? `${checked.filename} is in run ${runId}'s evidence folder and not in run ${runId}'s evidence record; ${RECORD_REMEDY}` : refusal };
-      }
-      const ticket = ticketCopyAnyRun(checked.realpath, checked.filename, checked.bytes, runRecordsFn(), seams.ticketFiles ?? {}, warn);
-      if (ticket) return { ok: false, error: ticket };
+      if (await isGitHubFn(repoPath)) return { ok: false, error: MR_UPLOAD_GITHUB_REFUSAL };
+      const attachment = checkAttachment(repoName, repoPath, path, p?.runId);
+      if (!attachment.ok) return { ok: false, error: attachment.error };
+      const checked = attachment.checked;
 
       try {
         const repoCtx = await repoContextFn(repoName, repoPath);
