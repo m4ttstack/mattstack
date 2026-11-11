@@ -517,24 +517,21 @@ describe('GitHubProvider transport: listing approvals arrive through the fill', 
   });
 });
 
-describe('GitHubProvider transport: graphql() endpoint resolution (real octokit.graphql)', () => {
+describe('GitHubProvider transport: GraphQL endpoint resolution (real octokit.graphql)', () => {
   /**
-   * Task 8 moved `graphql()` onto `octokit.graphql`, which derives its own
-   * endpoint from the client's REST `baseUrl` rather than reading the
-   * `graphqlURL` this provider used to fetch directly. `@octokit/graphql`
-   * detects a `/api/v3` suffix (GHES) and rewrites it to `/api/graphql`
-   * itself (see `GHES_V3_SUFFIX_REGEX` in
+   * `octokit.graphql` derives its endpoint from the client's REST `baseUrl`.
+   * `@octokit/graphql` detects a `/api/v3` suffix (GHES) and rewrites it to
+   * `/api/graphql` itself (see `GHES_V3_SUFFIX_REGEX` in
    * `@octokit/graphql/dist-src/graphql.js`); for github.com's
-   * `https://api.github.com` base, which has no such suffix, it appends the
-   * default `/graphql`. Both must be proven by URL, not inferred, since no
-   * other fixture in this suite exercises a GHES host at all.
+   * `https://api.github.com` base it appends the default `/graphql`. Both
+   * must be proven by URL, since no other fixture exercises a GHES host.
    */
   test('github.com sends the GraphQL request to https://api.github.com/graphql', async () => {
     const urls = stubFetch(() => jsonResponse({ data: { ok: true } }));
 
     const provider = new GitHubProvider('https://github.com', 'tok');
     const data = await withInstantTimers(() =>
-      (provider as any).graphql('query { viewer { login } }', {})
+      (provider as any).graphqlOrThrow('probe', 'query { viewer { login } }', {})
     );
 
     expect(urls).toEqual(['https://api.github.com/graphql']);
@@ -546,7 +543,7 @@ describe('GitHubProvider transport: graphql() endpoint resolution (real octokit.
 
     const provider = new GitHubProvider('https://ghe.corp.example', 'tok');
     const data = await withInstantTimers(() =>
-      (provider as any).graphql('query { viewer { login } }', {})
+      (provider as any).graphqlOrThrow('probe', 'query { viewer { login } }', {})
     );
 
     expect(urls).toEqual(['https://ghe.corp.example/api/graphql']);
@@ -554,105 +551,14 @@ describe('GitHubProvider transport: graphql() endpoint resolution (real octokit.
   });
 });
 
-describe('GitHubProvider transport: graphql() swallows failures (MAT-133, phase 4)', () => {
+describe('GitHubProvider transport: a GraphQL rate limit is not retried', () => {
   /**
-   * MAT-133 is explicitly out of scope for this transport swap: `graphql()`
-   * has always swallowed transport, HTTP, and GraphQL-level errors alike,
-   * warning and returning null instead of throwing. Under the old bare
-   * `fetch` call these three outcomes were read off a parsed payload; under
-   * `octokit.graphql` they arrive as three different thrown shapes
-   * (`GraphqlResponseError`, `RequestError` with a `.response`, and anything
-   * else), so the catch block has to re-derive the same three log.warn calls
-   * explicitly. These tests pin that nothing here started throwing, and that
-   * the warn message strings and payload shapes are unchanged.
+   * `@octokit/plugin-throttling` treats a `RATE_LIMITED` GraphQL error or a
+   * secondary-rate-limit 403 as retryable, which would wait out the reset in
+   * real time before the caller saw anything. `createGitHubClient` declines
+   * both for a GraphQL request, so each fails after exactly one fetch.
    */
-  function makeLogSpy() {
-    const warnings: Array<{ message: string; payload: unknown }> = [];
-    return {
-      warnings,
-      logger: {
-        debug: () => {},
-        info: () => {},
-        warn: (message: string, payload?: unknown) =>
-          warnings.push({ message, payload }),
-        error: () => {}
-      }
-    };
-  }
-
-  test('an HTTP failure warns "GitHub GraphQL request failed" with the status and returns null', async () => {
-    stubFetch(() => jsonResponse({ message: 'Bad credentials' }, 401));
-    const { warnings, logger } = makeLogSpy();
-
-    const provider = new GitHubProvider('https://github.com', 'tok', { logger });
-    const data = await withInstantTimers(() =>
-      (provider as any).graphql('query { viewer { login } }', {})
-    );
-
-    expect(data).toBeNull();
-    expect(warnings).toEqual([
-      { message: 'GitHub GraphQL request failed', payload: { status: 401 } }
-    ]);
-  });
-
-  test('a 200 response carrying GraphQL errors warns "GitHub GraphQL returned errors" with the messages and returns null', async () => {
-    stubFetch(() =>
-      jsonResponse({
-        data: null,
-        errors: [{ message: 'Field "x" does not exist' }]
-      })
-    );
-    const { warnings, logger } = makeLogSpy();
-
-    const provider = new GitHubProvider('https://github.com', 'tok', { logger });
-    const data = await withInstantTimers(() =>
-      (provider as any).graphql('query { x }', {})
-    );
-
-    expect(data).toBeNull();
-    expect(warnings).toEqual([
-      {
-        message: 'GitHub GraphQL returned errors',
-        payload: { messages: ['Field "x" does not exist'] }
-      }
-    ]);
-  });
-
-  test('a transport-level failure warns "GitHub GraphQL request threw" with the message and returns null', async () => {
-    globalThis.fetch = (async () => {
-      throw new TypeError('fetch failed', { cause: new Error('ECONNREFUSED') });
-    }) as typeof fetch;
-    const { warnings, logger } = makeLogSpy();
-
-    const provider = new GitHubProvider('https://github.com', 'tok', { logger });
-    const data = await withInstantTimers(() =>
-      (provider as any).graphql('query { viewer { login } }', {})
-    );
-
-    expect(data).toBeNull();
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]?.message).toBe('GitHub GraphQL request threw');
-    // Octokit's fetch wrapper turns the thrown TypeError into a
-    // `RequestError` whose `.message` is built from `cause.message`
-    // ("ECONNREFUSED") rather than the original "fetch failed" -- a detail
-    // of how `@octokit/request` reports network failures, unrelated to this
-    // catch block, which still just forwards whatever `err.message` is.
-    expect((warnings[0]?.payload as { message: string }).message).toContain(
-      'ECONNREFUSED'
-    );
-  });
-
-  test('a 200 reporting a RATE_LIMITED GraphQL error swallows after exactly one fetch, not a real wait for x-ratelimit-reset', async () => {
-    // `@octokit/plugin-throttling` treats a GraphQL response whose `errors`
-    // array contains a `RATE_LIMITED` entry as a retryable rate limit (see
-    // `wrap-request.js`), which would otherwise retry through
-    // `createGitHubClient`'s REST retry budget (2 attempts) before this
-    // catch ever ran -- waiting out `x-ratelimit-reset` in real time each
-    // time. Before this fix that measured as 3 fetches and a real wait
-    // (collapsed here only by `withInstantTimers`); `createGitHubClient`'s
-    // `onRateLimit` now declines to retry a GraphQL request, so this must
-    // still resolve after exactly one fetch, with the exact same warn the
-    // old bare-fetch code emitted for any GraphQL-level error.
+  test('a 200 reporting a RATE_LIMITED GraphQL error fails after exactly one fetch', async () => {
     const resetInTwoHours = Math.floor(Date.now() / 1000) + 7200;
     const urls = stubFetch(() =>
       new Response(
@@ -672,29 +578,18 @@ describe('GitHubProvider transport: graphql() swallows failures (MAT-133, phase 
         }
       )
     );
-    const { warnings, logger } = makeLogSpy();
 
-    const provider = new GitHubProvider('https://github.com', 'tok', { logger });
-    const data = await withInstantTimers(() =>
-      (provider as any).graphql('query { viewer { login } }', {})
-    );
+    const provider = new GitHubProvider('https://github.com', 'tok');
+    await expect(
+      withInstantTimers(() =>
+        (provider as any).graphqlOrThrow('probe', 'query { viewer { login } }', {})
+      )
+    ).rejects.toThrow(/API rate limit exceeded for installation/);
 
     expect(urls).toHaveLength(1);
-    expect(data).toBeNull();
-    // `createGitHubClient`'s own "GitHub rate limit hit" log (pre-existing
-    // REST instrumentation) also fires once; the assertion here is on
-    // `graphql()`'s own MAT-133 warn, which must match the pre-Task-8 shape.
-    expect(warnings).toContainEqual({
-      message: 'GitHub GraphQL returned errors',
-      payload: { messages: ['API rate limit exceeded for installation.'] }
-    });
   });
 
-  test('a 403 secondary rate limit swallows after exactly one fetch, not a real 30-120s wait', async () => {
-    // Same shape as the RATE_LIMITED case above but on the HTTP-failure
-    // path: before this fix this measured as 3 fetches and a real wait of
-    // up to `retry-after` (or the 60s fallback) twice.
-    // `onSecondaryRateLimit` now declines for a GraphQL request too.
+  test('a 403 secondary rate limit fails after exactly one fetch, not a real 30-120s wait', async () => {
     const urls = stubFetch(() =>
       new Response(
         JSON.stringify({
@@ -706,50 +601,15 @@ describe('GitHubProvider transport: graphql() swallows failures (MAT-133, phase 
         }
       )
     );
-    const { warnings, logger } = makeLogSpy();
 
-    const provider = new GitHubProvider('https://github.com', 'tok', { logger });
-    const data = await withInstantTimers(() =>
-      (provider as any).graphql('query { viewer { login } }', {})
-    );
+    const provider = new GitHubProvider('https://github.com', 'tok');
+    await expect(
+      withInstantTimers(() =>
+        (provider as any).graphqlOrThrow('probe', 'query { viewer { login } }', {})
+      )
+    ).rejects.toThrow(/403/);
 
     expect(urls).toHaveLength(1);
-    expect(data).toBeNull();
-    expect(warnings).toContainEqual({
-      message: 'GitHub GraphQL request failed',
-      payload: { status: 403 }
-    });
-  });
-
-  test('an empty errors array is read as success, not a GraphQL error, matching the old payload.errors?.length check', async () => {
-    // `@octokit/graphql` throws `GraphqlResponseError` whenever the response
-    // body has an `errors` key at all (`if (response.data.errors)`, true
-    // even for `[]`), but the old bare-fetch code tested
-    // `payload.errors?.length`, so an empty array read as success.
-    stubFetch(() => jsonResponse({ data: { ok: true }, errors: [] }));
-    const { warnings, logger } = makeLogSpy();
-
-    const provider = new GitHubProvider('https://github.com', 'tok', { logger });
-    // A GraphQL POST is a write for throttling purposes, so this shares the
-    // same real-time backlog every other `graphql()` test in this suite
-    // hits -- see the "two review pages aggregate" test's comment above.
-    const data = await withInstantTimers(() =>
-      (provider as any).graphql('query { x }', {})
-    );
-
-    expect(data).toEqual({ ok: true });
-    expect(warnings).toEqual([]);
-  });
-
-  test('a 200 with no data key returns null, not undefined, matching the declared Promise<T | null>', async () => {
-    stubFetch(() => jsonResponse({}));
-    const provider = new GitHubProvider('https://github.com', 'tok');
-
-    const data = await withInstantTimers(() =>
-      (provider as any).graphql('query { x }', {})
-    );
-
-    expect(data).toBeNull();
   });
 });
 
@@ -764,8 +624,8 @@ describe('GitHubProvider transport: GraphQL detection matches pathname, not subs
    * "graphql", or a caller-supplied `restRequest` path. These tests pin
    * both directions: REST paths that merely contain "graphql" must still
    * get the REST rate-limit retry Octokit was adopted for, and both real
-   * GraphQL endpoints (github.com and GHES) must still be recognized so
-   * `graphql()`'s MAT-133 swallow still fires promptly for them.
+   * GraphQL endpoints (github.com and GHES) must still be recognized so a
+   * GraphQL rate limit still fails promptly on them.
    */
   function rateLimited403(): Response {
     return new Response(JSON.stringify({ message: 'API rate limit exceeded' }), {
@@ -818,30 +678,32 @@ describe('GitHubProvider transport: GraphQL detection matches pathname, not subs
     expect(res.status).toBe(403);
   });
 
-  test('the real GraphQL endpoint on github.com still swallows immediately under a rate limit (1 fetch)', async () => {
+  test('the real GraphQL endpoint on github.com still fails immediately under a rate limit (1 fetch)', async () => {
     const urls = stubFetch(() => rateLimited403());
     const provider = new GitHubProvider('https://github.com', 'tok');
 
-    const data = await withInstantTimers(() =>
-      (provider as any).graphql('query { viewer { login } }', {})
-    );
+    await expect(
+      withInstantTimers(() =>
+        (provider as any).graphqlOrThrow('probe', 'query { viewer { login } }', {})
+      )
+    ).rejects.toThrow(/403/);
 
     expect(urls).toHaveLength(1);
-    expect(data).toBeNull();
   });
 
-  test('the real GraphQL endpoint on a GHES host still swallows immediately under a rate limit (1 fetch)', async () => {
+  test('the real GraphQL endpoint on a GHES host still fails immediately under a rate limit (1 fetch)', async () => {
     // GHES's rewritten GraphQL URL is absolute (`.../api/graphql`), unlike
     // github.com's relative `/graphql` -- both forms must resolve to the
     // same pathname check.
     const urls = stubFetch(() => rateLimited403());
     const provider = new GitHubProvider('https://ghe.corp.example', 'tok');
 
-    const data = await withInstantTimers(() =>
-      (provider as any).graphql('query { viewer { login } }', {})
-    );
+    await expect(
+      withInstantTimers(() =>
+        (provider as any).graphqlOrThrow('probe', 'query { viewer { login } }', {})
+      )
+    ).rejects.toThrow(/403/);
 
     expect(urls).toHaveLength(1);
-    expect(data).toBeNull();
   });
 });

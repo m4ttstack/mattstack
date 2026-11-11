@@ -110,9 +110,10 @@ import type { components } from '@octokit/openapi-types';
 // tracking @octokit/core's own dependency on @octokit/request-error.
 import { RequestError } from '@octokit/request-error';
 // Same coupling as RequestError above, for @octokit/core's copy of
-// @octokit/graphql: `err instanceof GraphqlResponseError` in `graphql()`'s
-// catch only works while the two copies dedupe to one module instance, which
-// requires this package's @octokit/graphql range to track @octokit/core's.
+// @octokit/graphql: `err instanceof GraphqlResponseError` in the GraphQL
+// helpers' catches only works while the two copies dedupe to one module
+// instance, which requires this package's @octokit/graphql range to track
+// @octokit/core's.
 import { GraphqlResponseError } from '@octokit/graphql';
 import { ReadBackFailedError } from './errors.ts';
 
@@ -394,9 +395,12 @@ type GHSearchItem = Pick<
   };
 };
 
+/** `user` is null for a deleted account, which GitHub shows as ghost. */
+type GHNoteUser = (GHUser & { type?: string }) | null;
+
 type GHComment = Pick<ReviewCommentSchema, 'body' | 'created_at'> & {
   id: number;
-  user: GHUser;
+  user: GHNoteUser;
   // The remaining fields exist on `pull-request-review-comment` (diff-level
   // comments) but this type is also cast onto plain `issue-comment`
   // responses (PR-level comments), which lack them entirely -- optional here
@@ -404,9 +408,19 @@ type GHComment = Pick<ReviewCommentSchema, 'body' | 'created_at'> & {
   path?: string | null;
   line?: number | null;
   original_line?: number | null;
+  side?: 'LEFT' | 'RIGHT' | null;
   diff_hunk?: string | null;
   pull_request_review_id?: number | null;
   in_reply_to_id?: number | null;
+};
+
+type GHReviewSummary = {
+  id: number;
+  body: string | null;
+  state: string;
+  user: GHNoteUser;
+  // Absent only on a PENDING review, which the summary read skips.
+  submitted_at: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -989,27 +1003,18 @@ export class GitHubProvider implements GitProvider {
     repositoryId: string,
     mrIid: number
   ): Promise<MRDetail> {
-    const repoId = parseInt(repositoryId.split(':').pop() ?? '0', 10);
-    // We need the repo full_name. For now, look it up from the API.
-    const repoRes = await this.api('GET', `/repositories/${repoId}`);
-    if (!repoRes.ok) {
-      throw new Error(`Failed to fetch repo: ${repoRes.status}`);
-    }
-    const repo = (await repoRes.json()) as { full_name: string };
-    const { owner, repo: repoName } = this.splitOwnerRepo(repo.full_name);
+    const { owner, repo: repoName } = await this.discussionRepo(repositoryId);
+    const route = { owner, repo: repoName, pull_number: mrIid, per_page: 100 };
 
-    // Fetch review comments (diff-level) and issue comments (PR-level).
     // `paginate` needs the route template plus real route params (rather
     // than one path string) so it can follow the `Link` header itself.
-    const [reviewComments, issueComments] = await Promise.all([
-      this.octokit.paginate<GHComment>(
-        'GET /repos/{owner}/{repo}/pulls/{pull_number}/comments',
-        { owner, repo: repoName, pull_number: mrIid, per_page: 100 }
-      ),
+    const [reviewComments, issueComments, reviews] = await Promise.all([
+      this.octokit.paginate<GHComment>('GET /repos/{owner}/{repo}/pulls/{pull_number}/comments', route),
       this.octokit.paginate<GHComment>(
         'GET /repos/{owner}/{repo}/issues/{issue_number}/comments',
         { owner, repo: repoName, issue_number: mrIid, per_page: 100 }
-      )
+      ),
+      this.octokit.paginate<GHReviewSummary>('GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews', route)
     ]);
 
     // Resolution state lives only in GraphQL. A failure here degrades the
@@ -1017,19 +1022,29 @@ export class GitHubProvider implements GitProvider {
     // notes themselves came from REST and were returned long before resolved
     // state was available.
     let threads: Map<number, GHReviewThread> = new Map();
-    try {
-      threads = await this.fetchReviewThreadIndex(
-        'fetchMRDiscussions',
-        owner,
-        repoName,
-        mrIid
-      );
-    } catch (err) {
-      this.log.warn('fetchMRDiscussions: could not read review thread state', {
-        message: err instanceof Error ? err.message : String(err),
-        projectPath: `${owner}/${repoName}`,
-        mrIid
-      });
+    const oldPaths = new Map<string, string>();
+    if (reviewComments.length > 0) {
+      const [files] = await Promise.all([
+        this.octokit.paginate<{ filename: string; previous_filename?: string }>(
+          'GET /repos/{owner}/{repo}/pulls/{pull_number}/files',
+          route
+        ),
+        this.fetchReviewThreadIndex('fetchMRDiscussions', owner, repoName, mrIid).then(
+          index => {
+            threads = index;
+          },
+          err => {
+            this.log.warn('fetchMRDiscussions: could not read review thread state', {
+              message: err instanceof Error ? err.message : String(err),
+              projectPath: `${owner}/${repoName}`,
+              mrIid
+            });
+          }
+        )
+      ]);
+      for (const f of files) {
+        if (f.previous_filename) oldPaths.set(f.filename, f.previous_filename);
+      }
     }
 
     const discussions: Discussion[] = [];
@@ -1042,6 +1057,28 @@ export class GitHubProvider implements GitProvider {
         resolvable: null,
         resolved: null,
         notes: [toNote(c)]
+      });
+    }
+
+    for (const r of reviews) {
+      if (r.state === 'PENDING' || !r.body?.trim()) continue;
+      discussions.push({
+        id: `gh-review-${r.id}`,
+        resolvable: false,
+        resolved: null,
+        notes: [
+          {
+            id: r.id,
+            body: r.body,
+            author: toNoteAuthor(r.user),
+            createdAt: r.submitted_at,
+            system: false,
+            type: 'DiscussionNote',
+            resolvable: null,
+            resolved: null,
+            position: null
+          }
+        ]
       });
     }
 
@@ -1080,11 +1117,27 @@ export class GitHubProvider implements GitProvider {
         id: `gh-review-thread-${rootId}`,
         resolvable: true,
         resolved: thread ? thread.isResolved : null,
-        notes: comments.map(c => toNote(c, thread ? thread.isResolved : null))
+        notes: comments.map(c => toNote(c, thread ? thread.isResolved : null, oldPaths))
       });
     }
 
     return { mrIid, repositoryId, discussions };
+  }
+
+  /**
+   * `github:<owner>/<repo>` names the repo directly; the older
+   * `github:<digits>` form costs a `GET /repositories/{id}` per call.
+   */
+  private async discussionRepo(repositoryId: string): Promise<{ owner: string; repo: string }> {
+    const named = repositoryId.slice(repositoryId.indexOf(':') + 1);
+    if (named.includes('/')) return this.splitOwnerRepo(named);
+    const repoId = parseInt(repositoryId.split(':').pop() ?? '0', 10);
+    const repoRes = await this.api('GET', `/repositories/${repoId}`);
+    if (!repoRes.ok) {
+      throw new Error(`Failed to fetch repo: ${repoRes.status}`);
+    }
+    const repo = (await repoRes.json()) as { full_name: string };
+    return this.splitOwnerRepo(repo.full_name);
   }
 
   /**
@@ -2984,76 +3037,12 @@ export class GitHubProvider implements GitProvider {
   }
 
   /**
-   * Issue a GraphQL (v4) request. Returns null on transport, HTTP, or GraphQL
-   * errors: callers report "unknown" rather than substituting a value.
+   * Issue a GraphQL (v4) request that must succeed.
    *
-   * MAT-133 (phase 4): swallowing every failure category into a warn + null
-   * is intentional legacy behavior, not something this transport swap is
-   * fixing. Do not "harmonize" this with the throw-on-HTTP-failure pattern
-   * used everywhere else in this file -- that change is scoped to phase 4,
-   * and making it here would be indistinguishable from a transport
-   * regression.
-   *
-   * `octokit.graphql` derives its endpoint from the client's REST `baseUrl`:
-   * for github.com (`https://api.github.com`) it appends `/graphql`; for a
-   * GHES host (`.../api/v3`) `@octokit/graphql` detects the `/api/v3` suffix
-   * itself and rewrites it to `/api/graphql`, matching what
-   * `resolveGitHubUrls` computes separately. See
-   * `@octokit/graphql/dist-src/graphql.js`'s `GHES_V3_SUFFIX_REGEX`. Both
-   * hosts are covered by tests since no fixture otherwise exercises GHES.
-   *
-   * `createGitHubClient` also declines to retry a rate limit hit on this
-   * transport (see its `onRateLimit`/`onSecondaryRateLimit`): without that,
-   * a GraphQL response reporting `RATE_LIMITED` or a secondary rate limit
-   * would retry through the REST retry budget before this catch ever ran,
-   * turning an immediate null into a wait of minutes to hours -- exactly
-   * the kind of caller-visible delay this swallow exists to avoid.
-   */
-  private async graphql<T>(
-    query: string,
-    variables: Record<string, unknown>
-  ): Promise<T | null> {
-    try {
-      return (await this.octokit.graphql<T>(query, variables)) ?? null;
-    } catch (err) {
-      const messages = graphqlErrorMessages(err);
-      if (messages) {
-        this.log.warn('GitHub GraphQL returned errors', { messages });
-        return null;
-      }
-      if (err instanceof GraphqlResponseError) {
-        // `graphqlErrorMessages` returned null above, meaning `err.errors`
-        // was empty. `@octokit/graphql` throws whenever the response body
-        // has an `errors` key at all -- `if (response.data.errors)`, which
-        // is true even for `[]`, an empty array being truthy in JS -- but
-        // the old bare-fetch code tested `payload.errors?.length`, so an
-        // empty array read as success. Reproduce that by falling through to
-        // whatever data the response actually carried.
-        return (err.data as T | undefined) ?? null;
-      }
-      if (err instanceof RequestError && err.response) {
-        this.log.warn('GitHub GraphQL request failed', { status: err.status });
-        return null;
-      }
-      this.log.warn('GitHub GraphQL request threw', {
-        message: err instanceof Error ? err.message : String(err)
-      });
-      return null;
-    }
-  }
-
-  /**
-   * Issue a GraphQL (v4) request that must succeed. The mutation counterpart
-   * to `graphql()`.
-   *
-   * MAT-133. `graphql()` reports every failure as `null` so read callers can
-   * say "unknown" instead of substituting a value. A mutation has no such
-   * answer available: a `null` from `enablePullRequestAutoMerge` is
-   * indistinguishable from "auto-merge is off", which is the MAT-15 bug class
-   * where a silent no-op meant a draft MR was never actually published.
-   *
-   * `graphql()` no longer has a caller: every read goes through
-   * `graphqlRead`, which throws instead of swallowing.
+   * MAT-133. A mutation cannot report failure as `null`: a `null` from
+   * `enablePullRequestAutoMerge` is indistinguishable from "auto-merge is
+   * off", which is the MAT-15 bug class where a silent no-op meant a draft
+   * MR was never actually published.
    */
   private async graphqlOrThrow<T>(
     op: string,
@@ -3070,9 +3059,8 @@ export class GitHubProvider implements GitProvider {
       }
       if (err instanceof GraphqlResponseError) {
         // Empty `errors` array. `@octokit/graphql` throws on the key's mere
-        // presence and `[]` is truthy, but an empty array carries no error.
-        // `graphql()` reads that as success by falling through to the
-        // response's data, and so does this.
+        // presence and `[]` is truthy, but an empty array carries no error,
+        // so this falls through to the response's data.
         data = err.data as T | undefined;
       } else if (err instanceof RequestError && err.response) {
         throw ghError(op, err, 'statusText');
@@ -3089,8 +3077,8 @@ export class GitHubProvider implements GitProvider {
   /**
    * The read side's GraphQL call, for the fill and the branch lookup.
    *
-   * Unlike `graphql()` it never turns a failure into null, and unlike
-   * `graphqlOrThrow()` it keeps partial data: a response carrying both
+   * It never turns a failure into null, and unlike `graphqlOrThrow()` it
+   * keeps partial data: a response carrying both
    * `data` and `errors` returns both, so the fill can keep the PRs that
    * resolved. A response with errors and no data, an HTTP failure or a
    * transport failure throws; a rate limit throws `RateLimitedError`.
@@ -3718,14 +3706,21 @@ export class GitHubProvider implements GitProvider {
 // Note mapping
 // ---------------------------------------------------------------------------
 
-function toNote(c: GHComment, resolved: boolean | null = null): Note {
+function toNote(
+  c: GHComment,
+  resolved: boolean | null = null,
+  oldPaths: Map<string, string> = new Map()
+): Note {
+  // GitHub sends `line: null` on an outdated comment; `original_line` is
+  // the same side's line in the commit the comment was made on.
+  const line = c.line ?? c.original_line ?? null;
   const position: NotePosition | null = c.path
     ? {
         newPath: c.path,
-        oldPath: c.path,
-        newLine: c.line ?? null,
-        oldLine: c.original_line ?? null,
-        positionType: c.path ? 'text' : null
+        oldPath: oldPaths.get(c.path) ?? c.path,
+        newLine: c.side === 'LEFT' ? null : line,
+        oldLine: c.side === 'LEFT' ? line : null,
+        positionType: 'text'
       }
     : null;
 
@@ -3745,12 +3740,16 @@ function toNote(c: GHComment, resolved: boolean | null = null): Note {
   };
 }
 
-function toNoteAuthor(u: GHUser): NoteAuthor {
+function toNoteAuthor(u: GHNoteUser): NoteAuthor {
+  if (!u) {
+    return { id: 'github:user:ghost', username: 'ghost', name: 'ghost', avatarUrl: null, bot: false };
+  }
   return {
     id: `github:user:${u.id}`,
     username: u.login,
     name: u.name ?? u.login,
-    avatarUrl: u.avatar_url
+    avatarUrl: u.avatar_url,
+    bot: u.type === 'Bot'
   };
 }
 
@@ -3800,8 +3799,8 @@ function toResponse(
 }
 
 /**
- * Read GraphQL-level error messages off a thrown error, for `graphql()`'s
- * MAT-133 swallow. Two different shapes carry this same "the response was a
+ * Read GraphQL-level error messages off a thrown error, for
+ * `graphqlOrThrow()`. Two different shapes carry this same "the response was a
  * 200 with a GraphQL-level error" outcome:
  *
  * - `GraphqlResponseError`, thrown by `@octokit/graphql` itself whenever the

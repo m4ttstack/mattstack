@@ -60,14 +60,20 @@ interface ThreadPage {
 function providerWith(opts: {
   reviewComments: unknown[];
   issueComments?: unknown[];
+  reviews?: unknown[];
+  files?: unknown[];
   threads?: unknown[] | 'fail';
   pages?: ThreadPage[];
 }): {
   provider: GitHubProvider;
   graphqlCalls: Array<Record<string, unknown>>;
+  apiPaths: string[];
+  paginated: Array<{ route: string; params: Record<string, unknown> }>;
   warnings: Array<{ message: string; payload?: unknown }>;
 } {
   const graphqlCalls: Array<Record<string, unknown>> = [];
+  const apiPaths: string[] = [];
+  const paginated: Array<{ route: string; params: Record<string, unknown> }> = [];
   const warnings: Array<{ message: string; payload?: unknown }> = [];
   let pageIndex = 0;
 
@@ -80,17 +86,25 @@ function providerWith(opts: {
     }
   });
 
-  (provider as any).api = async () => ({
-    ok: true,
-    status: 200,
-    json: async () => ({ full_name: 'acme/repo' }),
-    text: async () => '{}',
+  (provider as any).api = async (_method: string, path: string) => {
+    apiPaths.push(path);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ full_name: 'acme/repo' }),
+      text: async () => '{}',
     headers: { get: () => null }
-  });
+    };
+  };
 
   (provider as any).octokit = {
-    paginate: async (route: string) =>
-      route.includes('/pulls/') ? opts.reviewComments : (opts.issueComments ?? []),
+    paginate: async (route: string, params: Record<string, unknown>) => {
+      paginated.push({ route, params });
+      if (route.endsWith('/pulls/{pull_number}/comments')) return opts.reviewComments;
+      if (route.endsWith('/pulls/{pull_number}/reviews')) return opts.reviews ?? [];
+      if (route.endsWith('/pulls/{pull_number}/files')) return opts.files ?? [];
+      return opts.issueComments ?? [];
+    },
     graphql: async (_query: string, variables: Record<string, unknown>) => {
       graphqlCalls.push(variables);
       if (opts.threads === 'fail') throw new Error('GraphQL is down');
@@ -123,7 +137,7 @@ function providerWith(opts: {
     }
   };
 
-  return { provider, graphqlCalls, warnings };
+  return { provider, graphqlCalls, apiPaths, paginated, warnings };
 }
 
 describe('fetchMRDiscussions: resolved state', () => {
@@ -266,6 +280,166 @@ describe('fetchMRDiscussions: resolved state', () => {
     expect(
       warnings.some(w => w.message.includes('review-thread page bound'))
     ).toBe(true);
+  });
+});
+
+function review(id: number, body: string, state = 'COMMENTED') {
+  return { id, body, state, user: USER, submitted_at: '2026-08-02T00:00:00Z' };
+}
+
+describe('fetchMRDiscussions: review summaries, sides, paths and authors', () => {
+  test('a review summary becomes a gh-review discussion between PR comments and threads', async () => {
+    const { provider } = providerWith({
+      reviewComments: [comment(10)],
+      issueComments: [{ ...comment(20), path: null, line: null }],
+      reviews: [review(30, 'Looks good overall')]
+    });
+
+    const detail = await provider.fetchMRDiscussions('github:acme/repo', 5);
+
+    expect(detail.discussions.map(d => d.id)).toEqual([
+      'gh-issue-comment-20',
+      'gh-review-30',
+      'gh-review-thread-10'
+    ]);
+    const d = detail.discussions[1]!;
+    expect(d.resolvable).toBe(false);
+    expect(d.resolved).toBe(null);
+    expect(d.notes).toEqual([
+      {
+        id: 30,
+        body: 'Looks good overall',
+        author: {
+          id: 'github:user:7',
+          username: 'ada',
+          name: 'Ada',
+          avatarUrl: 'https://x/a.png',
+          bot: false
+        },
+        createdAt: '2026-08-02T00:00:00Z',
+        system: false,
+        type: 'DiscussionNote',
+        resolvable: null,
+        resolved: null,
+        position: null
+      }
+    ]);
+  });
+
+  test('an empty-body review and a pending review are left out', async () => {
+    const { provider } = providerWith({
+      reviewComments: [],
+      reviews: [review(31, ''), review(32, '   '), review(33, 'draft text', 'PENDING')]
+    });
+
+    const detail = await provider.fetchMRDiscussions('github:acme/repo', 5);
+
+    expect(detail.discussions).toEqual([]);
+  });
+
+  test('a LEFT comment reports oldLine and no newLine', async () => {
+    const { provider } = providerWith({
+      reviewComments: [{ ...comment(40), side: 'LEFT', line: 7, original_line: 7 }]
+    });
+
+    const detail = await provider.fetchMRDiscussions('github:acme/repo', 5);
+    const pos = detail.discussions[0]!.notes[0]!.position;
+
+    expect(pos?.oldLine).toBe(7);
+    expect(pos?.newLine).toBe(null);
+  });
+
+  test('a RIGHT comment reports newLine and no oldLine', async () => {
+    const { provider } = providerWith({
+      reviewComments: [{ ...comment(41), side: 'RIGHT', line: 9, original_line: 8 }]
+    });
+
+    const detail = await provider.fetchMRDiscussions('github:acme/repo', 5);
+    const pos = detail.discussions[0]!.notes[0]!.position;
+
+    expect(pos?.newLine).toBe(9);
+    expect(pos?.oldLine).toBe(null);
+  });
+
+  test('an outdated comment falls back to original_line on its own side', async () => {
+    const { provider } = providerWith({
+      reviewComments: [
+        { ...comment(42), side: 'RIGHT', line: null, original_line: 12 },
+        { ...comment(43), side: 'LEFT', line: null, original_line: 12 }
+      ]
+    });
+
+    const detail = await provider.fetchMRDiscussions('github:acme/repo', 5);
+    const pos = (id: string) => detail.discussions.find(d => d.id === id)!.notes[0]!.position;
+
+    expect(pos('gh-review-thread-42')).toMatchObject({ newLine: 12, oldLine: null });
+    expect(pos('gh-review-thread-43')).toMatchObject({ newLine: null, oldLine: 12 });
+  });
+
+  test('a comment on a renamed file reports the old path', async () => {
+    const { provider } = providerWith({
+      reviewComments: [{ ...comment(44), path: 'src/b.ts' }, comment(45)],
+      files: [
+        { filename: 'src/b.ts', previous_filename: 'src/old-b.ts', status: 'renamed' },
+        { filename: 'src/a.ts', status: 'modified' }
+      ]
+    });
+
+    const detail = await provider.fetchMRDiscussions('github:acme/repo', 5);
+    const pos = (id: string) => detail.discussions.find(d => d.id === id)!.notes[0]!.position;
+
+    expect(pos('gh-review-thread-44')).toMatchObject({ newPath: 'src/b.ts', oldPath: 'src/old-b.ts' });
+    expect(pos('gh-review-thread-45')).toMatchObject({ newPath: 'src/a.ts', oldPath: 'src/a.ts' });
+  });
+
+  test('a bot author is marked bot: true', async () => {
+    const { provider } = providerWith({
+      reviewComments: [],
+      issueComments: [
+        { ...comment(46), path: null, user: { ...USER, login: 'ci[bot]', type: 'Bot' } }
+      ]
+    });
+
+    const detail = await provider.fetchMRDiscussions('github:acme/repo', 5);
+
+    expect(detail.discussions[0]!.notes[0]!.author.bot).toBe(true);
+  });
+
+  test('a deleted user maps to ghost instead of throwing', async () => {
+    const { provider } = providerWith({
+      reviewComments: [{ ...comment(47), user: null }],
+      reviews: [{ ...review(48, 'gone'), user: null }]
+    });
+
+    const detail = await provider.fetchMRDiscussions('github:acme/repo', 5);
+    const ghost = {
+      id: 'github:user:ghost',
+      username: 'ghost',
+      name: 'ghost',
+      avatarUrl: null,
+      bot: false
+    };
+
+    expect(detail.discussions.map(d => d.notes[0]!.author)).toEqual([ghost, ghost]);
+  });
+
+  test('the owner/repo form reads that repo with no /repositories request', async () => {
+    const { provider, apiPaths, paginated } = providerWith({ reviewComments: [comment(49)] });
+
+    const detail = await provider.fetchMRDiscussions('github:acme/widgets', 5);
+
+    expect(apiPaths).toEqual([]);
+    expect(paginated.every(p => p.params.owner === 'acme' && p.params.repo === 'widgets')).toBe(true);
+    expect(detail.repositoryId).toBe('github:acme/widgets');
+  });
+
+  test('the numeric form still resolves through /repositories', async () => {
+    const { provider, apiPaths, paginated } = providerWith({ reviewComments: [] });
+
+    await provider.fetchMRDiscussions('github:123', 5);
+
+    expect(apiPaths).toEqual(['/repositories/123']);
+    expect(paginated.every(p => p.params.owner === 'acme' && p.params.repo === 'repo')).toBe(true);
   });
 });
 
