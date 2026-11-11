@@ -119,10 +119,15 @@ async function listMrsByTarget(
   return { ok: false, error: `more than ${BY_TARGET_MAX_PAGES * BY_TARGET_PER_PAGE} MRs target ${targetBranch}; the listing stopped before the end` };
 }
 
+/** A context with no `forge` reads as GitLab. */
+type HandlerRepoContext = { forge?: "gitlab" | "github"; provider: any; projectPath: string; projectId?: number | null };
+
+const GITHUB_SQUASH_REFUSAL = "GitHub picks squash at merge time; leave out squash";
+
 export interface MRHandlerOverrides {
-  getContext?:  (repoName: string) => Promise<{ provider: any; projectPath: string }>;
+  getContext?:  (repoName: string) => Promise<HandlerRepoContext>;
   writeback?:   (repoName: string, projectPath: string, pr: PullRequest) => void;
-  fetchSingle?: (provider: any, projectPath: string, iid: number) => Promise<PullRequest | null>;
+  fetchSingle?: (provider: any, projectPath: string, iid: number, github?: boolean) => Promise<PullRequest | null>;
   retryDelayMs?: number;
   fileDiffContext?: (repoName: string) => Promise<FileDiffContext>;
 }
@@ -153,20 +158,29 @@ export function createMRHandlers(
   & HandlerMap {
   const getContext = overrides.getContext
     ?? ((repoName: string) => getRepoContext(repoName, ctx.repoIndex()[repoName]));
-  const writeback = overrides.writeback
+  const storeWriteback = overrides.writeback
     ?? ((repoName: string, projectPath: string, pr: PullRequest) =>
         applyMRWriteback({ ctx, broadcast }, repoName, projectPath, pr));
   const fetchSingle = overrides.fetchSingle
-    ?? ((provider: any, projectPath: string, iid: number) =>
-        provider.fetchSingleMR(projectPath, iid, getCurrentUserId()));
+    ?? ((provider: any, projectPath: string, iid: number, github?: boolean) =>
+        provider.fetchSingleMR(projectPath, iid, github ? null : getCurrentUserId()));
   const retryDelayMs = overrides.retryDelayMs ?? RETRY_WRITEBACK_DELAY_MS;
   const resolveFileDiffContext = createFileDiffContextResolver();
   const fileDiffContext = overrides.fileDiffContext
     ?? ((repoName: string) => resolveFileDiffContext(ctx.repoIndex()[repoName], () => contextFor(repoName)));
   const readFileDiff = createFileDiffReader();
 
-  function contextFor(repoName: string) {
+  function contextFor(repoName: string): Promise<HandlerRepoContext> {
     return getContext(repoName);
+  }
+
+  /** The stores are GitLab-shaped, so a GitHub PR is never written into them. */
+  function writebackFor(c: HandlerRepoContext, repoName: string, pr: PullRequest): void {
+    if (c.forge === "github") {
+      ctx.log.debug({ repo: repoName, iid: pr.iid }, "write-back skipped for a GitHub repo");
+      return;
+    }
+    storeWriteback(repoName, c.projectPath, pr);
   }
 
   /**
@@ -198,11 +212,22 @@ export function createMRHandlers(
       const repoName = decoded.repo;
 
       try {
-        const { provider, projectPath } = await contextFor(repoName);
+        const c = await contextFor(repoName);
+        const { provider, projectPath } = c;
+        const github = c.forge === "github";
+        if (github && action === "rebase" && !provider.capabilities?.canRebase) {
+          return { ok: false, error: "GitHub cannot rebase a pull request; rebase the branch with git and push" };
+        }
         let returnedPr: PullRequest | null = null;
+        let sourceBranchNotDeleted: string | undefined;
         try {
           switch (action) {
-            case "merge":            returnedPr = await provider.mergePullRequest(projectPath, iid, args[0]);          break;
+            case "merge": {
+              const merged = await provider.mergePullRequest(projectPath, iid, args[0]);
+              returnedPr = merged;
+              sourceBranchNotDeleted = merged?.sourceBranchNotDeleted;
+              break;
+            }
             case "rebase":           await provider.rebasePullRequest(projectPath, iid);                  break;
             case "approve":          await provider.approvePullRequest(projectPath, iid);                 break;
             case "unapprove":        await provider.unapprovePullRequest(projectPath, iid);               break;
@@ -230,10 +255,16 @@ export function createMRHandlers(
           ctx.log.warn({ err, repo: repoName, iid, action }, "action landed but its read-back failed; recovering via follow-up fetch");
         }
 
+        const done = sourceBranchNotDeleted ? { ok: true, sourceBranchNotDeleted } : { ok: true };
+        if (github) {
+          ctx.log.debug({ repo: repoName, iid, action }, "write-back skipped for a GitHub repo");
+          return done;
+        }
+
         const followUp = async () => {
           try {
             const pr = await fetchSingle(provider, projectPath, iid);
-            if (pr) writeback(repoName, projectPath, pr);
+            if (pr) storeWriteback(repoName, projectPath, pr);
           } catch (err) {
             ctx.log.warn({ err, repo: repoName, iid, action }, "write-back follow-up failed");
           }
@@ -243,7 +274,7 @@ export function createMRHandlers(
           // The mutation already succeeded; a failing write-back must not
           // misreport it as failed. Same never-fail contract as followUp.
           try {
-            writeback(repoName, projectPath, returnedPr);
+            storeWriteback(repoName, projectPath, returnedPr);
           } catch (err) {
             ctx.log.warn({ err, repo: repoName, iid, action }, "write-back failed");
           }
@@ -254,7 +285,7 @@ export function createMRHandlers(
         } else {
           await followUp();
         }
-        return { ok: true };
+        return done;
       } catch (err) {
         return { ok: false, error: String(err) };
       }
@@ -285,7 +316,9 @@ export function createMRHandlers(
       const squash = p && typeof p.squash === "boolean" ? p.squash : undefined;
 
       try {
-        const { provider, projectPath } = await contextFor(repoName);
+        const c = await contextFor(repoName);
+        const { provider, projectPath } = c;
+        if (c.forge === "github" && squash !== undefined) return { ok: false, error: GITHUB_SQUASH_REFUSAL };
         let iid: number;
         let url: string | null;
         try {
@@ -296,7 +329,7 @@ export function createMRHandlers(
             ...(labels && { labels }),
           });
           try {
-            writeback(repoName, projectPath, pr);
+            writebackFor(c, repoName, pr);
           } catch (err) {
             ctx.log.warn({ err, repo: repoName, iid: pr.iid }, "mr:create write-back failed");
           }
@@ -345,7 +378,10 @@ export function createMRHandlers(
       const repoName = decoded.repo;
 
       try {
-        const { provider, projectPath } = await contextFor(repoName);
+        const c = await contextFor(repoName);
+        const { provider, projectPath } = c;
+        const github = c.forge === "github";
+        if (github && putFields.includes("squash")) return { ok: false, error: GITHUB_SQUASH_REFUSAL };
         const applied: string[] = [];
         let returnedPr: PullRequest | null = null;
         if (editFields.length > 0) {
@@ -360,6 +396,37 @@ export function createMRHandlers(
           }
           applied.push(...editFields);
         }
+        if (github) {
+          const labelWrites: Array<[string, () => Promise<void>]> = [];
+          if (p && Array.isArray(p.addLabels) && p.addLabels.length > 0) {
+            const labels = trimmedLabels(p.addLabels);
+            labelWrites.push(["addLabels", () => provider.addPullRequestLabels(projectPath, iid, labels)]);
+          }
+          if (p && Array.isArray(p.removeLabels) && p.removeLabels.length > 0) {
+            const labels = trimmedLabels(p.removeLabels);
+            labelWrites.push(["removeLabels", () => provider.removePullRequestLabels(projectPath, iid, labels)]);
+          }
+          for (const [field, write] of labelWrites) {
+            try {
+              await write();
+            } catch (err) {
+              const landed = applied.length > 0 ? `${applied.join("/")} landed; ` : "";
+              const failed = putFields.slice(putFields.indexOf(field)).join("/");
+              return { ok: false, error: `${landed}${failed} did not: ${String(err)}; retrying with only the failed fields is safe` };
+            }
+            applied.push(field);
+          }
+          let pr = returnedPr;
+          if (!pr) {
+            try {
+              pr = await fetchSingle(provider, projectPath, iid, true);
+            } catch (err) {
+              ctx.log.warn({ err, repo: repoName, iid }, "mr:update read for the pull request URL failed");
+            }
+          }
+          ctx.log.debug({ repo: repoName, iid }, "write-back skipped for a GitHub repo");
+          return { ok: true, data: { iid, url: pr?.webUrl ?? `${provider.baseURL}/${projectPath}/pull/${iid}`, applied } };
+        }
         if (putFields.length > 0) {
           const res = await putMergeRequest(provider, projectPath, iid, put, "mr:update");
           if (!res.ok) {
@@ -371,10 +438,10 @@ export function createMRHandlers(
         // Same never-fail contract as mr:action's write-back: the edit is on the forge already.
         try {
           if (returnedPr) {
-            writeback(repoName, projectPath, returnedPr);
+            storeWriteback(repoName, projectPath, returnedPr);
           } else {
             const pr = await fetchSingle(provider, projectPath, iid);
-            if (pr) writeback(repoName, projectPath, pr);
+            if (pr) storeWriteback(repoName, projectPath, pr);
           }
         } catch (err) {
           ctx.log.warn({ err, repo: repoName, iid }, "mr:update write-back failed");
@@ -486,11 +553,14 @@ export function createMRHandlers(
       const decoded = decodeIndexedRepo(payload);
       if (!decoded.ok) return { ok: false, error: decoded.error };
       try {
-        const { provider, projectPath } = await contextFor(decoded.repo);
+        const c = await contextFor(decoded.repo);
+        const { provider, projectPath } = c;
         if (typeof provider.fetchSingleMR !== "function") return { ok: false, error: "unsupported: mr:get needs a GitLab repo" };
-        const mr = await fetchSingle(provider, projectPath, p.iid);
-        if (mr && p.refresh === true) writeback(decoded.repo, projectPath, mr);
+        const github = c.forge === "github";
+        const mr = await fetchSingle(provider, projectPath, p.iid, github);
+        if (mr && p.refresh === true) writebackFor(c, decoded.repo, mr);
         if (mr) return { ok: true, data: { mr, fetchedAt: Date.now() } };
+        if (github) return { ok: false, error: `GitHub has no pull request #${p.iid} in ${projectPath}, or the token cannot read it` };
         if (typeof provider.restRequest !== "function") return { ok: false, error: `GitLab returned no MR !${p.iid} in ${projectPath}` };
         return { ok: false, error: await missingMrReason(provider, projectPath, p.iid) };
       } catch (err) {

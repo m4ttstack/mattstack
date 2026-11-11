@@ -71,7 +71,8 @@ export interface ProjectMRsHandlerOverrides {
    * it through a captured outer variable, which would have silently no-opped
    * the upsert had the assignment ever been reordered out from under it).
    */
-  fetchByBranch?: (repoName: string, branch: string) => Promise<{ pr: PullRequest | null; projectPath: string }>;
+  fetchByBranch?: (repoName: string, branch: string) => Promise<{ pr: PullRequest | null; projectPath: string; github?: boolean }>;
+  getContext?: (repoName: string) => Promise<{ forge?: "gitlab" | "github"; provider: any; projectPath: string }>;
 }
 
 export function createProjectMRsHandlers(
@@ -238,12 +239,14 @@ export function createProjectMRsHandlers(
       // shares the same repo. Memoized as a promise (not awaited here) so
       // concurrent misses within the first chunk all share one resolve
       // instead of racing separate getRepoContext calls.
-      let repoCtxPromise: ReturnType<typeof getRepoContext> | null = null;
+      const getContext = overrides.getContext ?? ((repo: string) => getRepoContext(repo, ctx.repoIndex()[repo]));
+      let repoCtxPromise: ReturnType<typeof getContext> | null = null;
       const fetchByBranch = overrides.fetchByBranch ?? (async (repo: string, branch: string) => {
-        repoCtxPromise ??= getRepoContext(repo, ctx.repoIndex()[repo]);
+        repoCtxPromise ??= getContext(repo);
         const repoCtx = await repoCtxPromise;
+        // On GitHub a fork branch is found by scanning at most 500 open PRs, and a null cannot say whether that cap was hit.
         const pr = await repoCtx.provider.fetchPullRequestByBranch(repoCtx.projectPath, branch, "all");
-        return { pr, projectPath: repoCtx.projectPath };
+        return { pr, projectPath: repoCtx.projectPath, github: repoCtx.forge === "github" };
       });
 
       // Chunked 4-wide (mirrors project-sync.ts's pipeline top-up loop) so a
@@ -252,8 +255,11 @@ export function createProjectMRsHandlers(
         const chunk = misses.slice(i, i + BY_BRANCH_CONCURRENCY);
         await Promise.all(chunk.map(async (branch) => {
           try {
-            const { pr, projectPath } = await fetchByBranch(repoName, branch);
-            if (pr) {
+            const { pr, projectPath, github } = await fetchByBranch(repoName, branch);
+            if (pr && github) {
+              ctx.log.debug({ repo: repoName, branch }, "by-branch store upsert skipped for a GitHub repo");
+              byBranch[branch] = { pr, source: "forge" };
+            } else if (pr) {
               // Same scope/tagged gate upsertProject (lib/daemon/freshness.ts)
               // enforces for every other write path: a demand-scoped repo
               // must not pick up a stranger's MR here just because a client
