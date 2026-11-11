@@ -22,6 +22,8 @@ export type StepRow =
       /** Names this row to read what its session was doing. */
       activity: UsageActivityQuery;
       totals: UsageTotals;
+      /** The run's session outside the run: shown, but in no total. */
+      uncounted?: boolean;
     }
   | { type: 'elsewhere'; key: string; label: string };
 
@@ -30,6 +32,7 @@ const OUTSIDE_LABEL: Record<UsageOutside, string> = {
   between: 'Between stages',
   after: 'After the last stage',
   none: 'No stages recorded',
+  session: 'Same session, outside the run',
 };
 
 function stageLabel(stage: UsageStageRow): string {
@@ -85,53 +88,67 @@ function entryKey(entry: UsageMrEntry): string {
   return entry.runId ?? entry.sessionId ?? String(entry.firstActivity);
 }
 
+function stageRow(entry: UsageMrEntry, stage: UsageStageRow): StepRow {
+  return {
+    type: 'step',
+    key: `${entryKey(entry)}-${stage.name}-${stage.attempt}-${stage.outside}`,
+    label: stageLabel(stage),
+    note: outsideNote(stage),
+    level: 'child',
+    kind: entry.kind,
+    activity: stageActivity(entry, stage),
+    totals: stage.totals,
+    ...(stage.outside === 'session' ? { uncounted: true } : {}),
+  };
+}
+
 /** The MR's steps in order: each run as a heading row, a work run's stages
     under it, and under each round the review it answers, which ran on a
-    teammate's Mac. */
+    teammate's Mac. Any run's session outside the run closes its group. */
 export function stepRows(mr: UsageMrData): StepRow[] {
-  return mr.runs.flatMap(entry => {
-    const key = entryKey(entry);
-    const group: StepRow = {
-      type: 'step',
-      key,
-      label: groupLabel(entry),
-      level: 'group',
-      kind: entry.kind,
-      activity: entryActivity(entry),
-      totals: entry.totals,
-    };
-    if (entry.kind === 'respond') {
-      return [
-        group,
-        {
-          type: 'elsewhere',
-          key: `${key}-teammate`,
-          label: 'Teammate review',
-        },
-        {
-          type: 'step',
-          key: `${key}-response`,
-          label: 'Your response',
-          level: 'child',
-          kind: entry.kind,
-          activity: entryActivity(entry),
-          totals: entry.totals,
-        },
-      ];
-    }
-    if (entry.kind !== 'work') return [group];
+  return mr.runs.flatMap(entry => [
+    ...entryRows(entry),
+    ...entry.stages
+      .filter(stage => stage.outside === 'session')
+      .map(stage => stageRow(entry, stage)),
+  ]);
+}
+
+function entryRows(entry: UsageMrEntry): StepRow[] {
+  const key = entryKey(entry);
+  const group: StepRow = {
+    type: 'step',
+    key,
+    label: groupLabel(entry),
+    level: 'group',
+    kind: entry.kind,
+    activity: entryActivity(entry),
+    totals: entry.totals,
+  };
+  if (entry.kind === 'respond') {
     return [
       group,
-      ...entry.stages.map((stage): StepRow => ({
+      {
+        type: 'elsewhere',
+        key: `${key}-teammate`,
+        label: 'Teammate review',
+      },
+      {
         type: 'step',
-        key: `${key}-${stage.name}-${stage.attempt}-${stage.outside}`,
-        label: stageLabel(stage),
-        note: outsideNote(stage),
+        key: `${key}-response`,
+        label: 'Your response',
         level: 'child',
         kind: entry.kind,
-        activity: stageActivity(entry, stage),
-        totals: stage.totals,
-      })),
+        activity: entryActivity(entry),
+        totals: entry.totals,
+      },
     ];
-  });
+  }
+  if (entry.kind !== 'work') return [group];
+  return [
+    group,
+    ...entry.stages
+      .filter(stage => stage.outside !== 'session')
+      .map(stage => stageRow(entry, stage)),
+  ];
 }
