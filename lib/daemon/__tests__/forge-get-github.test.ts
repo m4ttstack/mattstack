@@ -3,7 +3,8 @@
  * GitHub's own refused segments and query keys, with the shared redirect
  * refusal, size cap and token redaction.
  */
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { GitHubProvider } from "@mattstack/glance";
 import {
   FORGE_GET_MAX_BYTES, GITHUB_REFUSED_QUERY_KEYS, GITHUB_REFUSED_SEGMENTS, checkGithubForgePath, forgeGet, type RestProvider,
 } from "../forge-reads.ts";
@@ -182,10 +183,130 @@ describe("forgeGet on GitHub", () => {
     expect(await get(at.provider, { path: ":repo/pulls" })).toMatchObject({ ok: true });
   });
 
-  test("GitHub's refusal is the error, naming GitHub", async () => {
-    const { provider, paths } = restFake([new Response('{"message":"API rate limit exceeded"}', { status: 403, statusText: "Forbidden" })]);
-    expect(await get(provider, { path: ":repo/pulls" })).toEqual({ ok: false, error: 'GitHub returned 403 Forbidden: {"message":"API rate limit exceeded"}' });
+  test("a 403 with no rate limit headers is GitHub's own refusal, naming GitHub", async () => {
+    const { provider, paths } = restFake([new Response('{"message":"Resource not accessible"}', { status: 403, statusText: "Forbidden" })]);
+    expect(await get(provider, { path: ":repo/pulls" })).toEqual({ ok: false, error: 'GitHub returned 403 Forbidden: {"message":"Resource not accessible"}' });
     expect(paths).toHaveLength(1);
+  });
+
+  test("a primary rate limit names the limit and the seconds until it resets", async () => {
+    const reset = Math.floor(Date.now() / 1000) + 300;
+    const { provider, paths } = restFake([new Response('{"message":"API rate limit exceeded"}', {
+      status: 403, statusText: "Forbidden", headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(reset) },
+    })]);
+    const r = await get(provider, { path: ":repo/pulls" });
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toMatch(/^GitHub rate limit hit on gitlab_get \(retry in (299|300|301)s\)$/);
+    expect(paths).toHaveLength(1);
+  });
+
+  test("a 429 or a secondary 403 takes the wait from retry-after", async () => {
+    const tooMany = restFake([new Response("{}", { status: 429, statusText: "Too Many Requests", headers: { "retry-after": "120" } })]);
+    expect(await get(tooMany.provider, { path: ":repo/pulls" })).toEqual({ ok: false, error: "GitHub rate limit hit on gitlab_get (retry in 120s)" });
+    const secondary = restFake([new Response('{"message":"You have exceeded a secondary rate limit"}', {
+      status: 403, statusText: "Forbidden", headers: { "retry-after": "90", "x-ratelimit-remaining": "4000", "x-ratelimit-reset": String(Math.floor(Date.now() / 1000) + 3000) },
+    })]);
+    expect(await get(secondary.provider, { path: ":repo/pulls" })).toEqual({ ok: false, error: "GitHub rate limit hit on gitlab_get (retry in 90s)" });
+  });
+
+  test("a reset already past waits 0s, and a limit with no usable time names no wait", async () => {
+    const past = restFake([new Response("{}", { status: 403, statusText: "Forbidden", headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1000" } })]);
+    expect(await get(past.provider, { path: ":repo/pulls" })).toEqual({ ok: false, error: "GitHub rate limit hit on gitlab_get (retry in 0s)" });
+    const bare = restFake([new Response("{}", { status: 403, statusText: "Forbidden", headers: { "x-ratelimit-remaining": "0" } })]);
+    expect(await get(bare.provider, { path: ":repo/pulls" })).toEqual({ ok: false, error: "GitHub rate limit hit on gitlab_get" });
+  });
+});
+
+describe("checkGithubForgePath fix round 1", () => {
+  test("refuses whitespace, which Octokit's route split would cut the path at", () => {
+    const space = { ok: false as const, error: '"path" must not contain whitespace; send a space in a file name as %20' };
+    for (const path of [":repo/actions/secrets x", ":repo/hooks x", ":repo/contents/a b.md", " :repo/pulls", ":repo/pulls ", ":repo/pulls x"]) {
+      expect(check(path), JSON.stringify(path)).toEqual(space);
+    }
+    expect(check(":repo/contents/a%20b.md")).toEqual({ ok: true, path: "/repos/o/r/contents/a%20b.md" });
+  });
+
+  test("refuses a refused word carrying a suffix, as on GitLab", () => {
+    expect(check(":repo/actions/secrets.json")).toEqual(credentialRefusal("secrets"));
+    expect(check(":repo/actions/secrets.")).toEqual(credentialRefusal("secrets"));
+    expect(check(":repo/contents/secrets.md")).toEqual(credentialRefusal("secrets"));
+    expect(check(":repo/actions/oidc.json/x")).toEqual(credentialRefusal("actions/oidc"));
+    expect(check(":repo/git/blobs.json/abc")).toMatchObject({ ok: false, error: expect.stringContaining("git/blobs") });
+    expect(check(":repo/actions.json/oidc")).toMatchObject({ ok: true });
+    expect(check(":repo/contents/README.md")).toMatchObject({ ok: true });
+    expect(check(":repo/contents/secrets-notes.md")).toMatchObject({ ok: true });
+  });
+
+  test("refuses a semicolon anywhere", () => {
+    const semi = { ok: false as const, error: '"path" must not contain ;' };
+    for (const path of [":repo/actions/secrets;x", ":repo/..;/..;/user", ":repo/x/..;", ":repo/pulls%3B"]) {
+      expect(check(path), path).toEqual(semi);
+    }
+  });
+
+  test("a repo whose owner or name is a refused word is refused as such, not as a credentials path", () => {
+    expect(checkGithubForgePath(":repo/pulls", "acme/keys")).toEqual({ ok: false, error: "gitlab_get cannot read a GitHub repo whose owner or name is keys" });
+    expect(checkGithubForgePath("repos/secrets/app/pulls", "secrets/app")).toEqual({ ok: false, error: "gitlab_get cannot read a GitHub repo whose owner or name is secrets" });
+    expect(checkGithubForgePath(":repo", "acme/hooks.io")).toEqual({ ok: false, error: "gitlab_get cannot read a GitHub repo whose owner or name is hooks.io" });
+    expect(checkGithubForgePath(":repo/oidc/x", "acme/actions")).toEqual(credentialRefusal("actions/oidc"));
+  });
+});
+
+describe("forgeGet through a real GitHubProvider", () => {
+  const realFetch = globalThis.fetch;
+  let sent: Array<{ url: string; redirect: unknown }> = [];
+  let reply: () => Response = () => new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
+
+  beforeEach(() => {
+    sent = [];
+    reply = () => new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      sent.push({ url: String(input instanceof Request ? input.url : input), redirect: init?.redirect });
+      return reply();
+    }) as typeof fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  const provider = () => new GitHubProvider("https://github.com", "test-token");
+
+  test("an accepted path reaches the wire under /repos/o/r, with redirects not followed", async () => {
+    const cases: Array<[string, string]> = [
+      [":repo/pulls", "/repos/o/r/pulls"],
+      [":repo/pulls/:ab", "/repos/o/r/pulls/%3Aab"],
+      [":repo/contents/a%20b.md", "/repos/o/r/contents/a%20b.md"],
+      [":repo/:ab../:ab../:ab../user", "/repos/o/r/%3Aab../%3Aab../%3Aab../user"],
+    ];
+    for (const [path, wire] of cases) {
+      sent = [];
+      expect(await forgeGet(provider(), PROJECT, { path }, "github"), path).toMatchObject({ ok: true });
+      expect(sent, path).toHaveLength(1);
+      expect(new URL(sent[0]!.url).pathname, path).toBe(wire);
+      expect(sent[0]!.redirect, path).toBe("manual");
+    }
+    sent = [];
+    expect(await forgeGet(provider(), PROJECT, { path: ":repo/pulls/" }, "github")).toMatchObject({ ok: true });
+    const trailing = new URL(sent[0]!.url).pathname;
+    expect(trailing === "/repos/o/r/pulls" || trailing === "/repos/o/r/pulls/").toBe(true);
+  });
+
+  test("a hostile path is refused and never reaches fetch", async () => {
+    for (const path of [
+      ":repo/actions/secrets x", ":repo/hooks x", ":repo/{x}../{x}../{x}../user", ":repo/:ab/../../user", ":repo/:ab%2F..%2F..%2Fuser",
+      ":repo/actions%2Fsecrets", "repos/o/r%2F..%2F..%2Fuser", ":repo/..;/..;/user", ":repo/actions/secrets.json",
+    ]) {
+      expect(await forgeGet(provider(), PROJECT, { path }, "github"), path).toMatchObject({ ok: false });
+    }
+    expect(sent).toEqual([]);
+  });
+
+  test("a 302 is refused naming only the host", async () => {
+    reply = () => new Response(null, { status: 302, headers: { location: "https://objects.example.net/logs/1?sig=secret" } });
+    expect(await forgeGet(provider(), PROJECT, { path: ":repo/actions/runs/1/logs" }, "github")).toEqual({
+      ok: false, error: "gitlab_get does not follow redirects: GitHub answered 302 redirecting to objects.example.net",
+    });
+    expect(sent).toHaveLength(1);
   });
 });
 

@@ -152,12 +152,14 @@ function plainApiPath(path: unknown, expand: (rest: string) => string): PlainPat
   return { ok: true, rest, decoded, segments };
 }
 
+/** GitLab routes an optional format suffix (variables.json) to the same endpoint, so a suffixed word counts as the word. */
+const namesWord = (segment: string | undefined, word: string): boolean => segment === word || (segment?.startsWith(`${word}.`) ?? false);
+
 export function checkForgePath(path: unknown, projectPath: string): { ok: true; path: string } | { ok: false; error: string } {
   const plain = plainApiPath(path, (rest) => rest.replace(/^api\/v4\//, ""));
   if (!plain.ok) return plain;
   const { rest, segments } = plain;
-  // GitLab routes an optional format suffix (variables.json) to the same endpoint.
-  const refused = REFUSED_SEGMENTS.find((seg) => segments.some((s) => s === seg || s.startsWith(`${seg}.`)));
+  const refused = REFUSED_SEGMENTS.find((seg) => segments.some((s) => namesWord(s, seg)));
   if (refused) return { ok: false, error: `"path" names ${refused}, which can return credentials; gitlab_get refuses it` };
   return { ok: true, path: `/${rest.replace(/(^|\/):id(?=\/|$)/g, `$1${encodeURIComponent(projectPath)}`)}` };
 }
@@ -172,10 +174,11 @@ export const GITHUB_REFUSED_QUERY_KEYS: readonly string[] = ["access_token", "cl
 /** glance buffers a whole response before the cap runs, and a blob can be 100 MB. */
 export const GITHUB_REFUSED_BLOBS = "git/blobs";
 
-/** An entry with a slash names consecutive segments. */
-const namesEntry = (segments: string[], entry: string): boolean => {
+/** Where an entry first appears, or -1; an entry with a slash names consecutive segments, the last one suffixed or not. */
+const entryAt = (segments: string[], entry: string): number => {
   const parts = entry.split("/");
-  return segments.some((_, i) => parts.every((p, j) => segments[i + j] === p));
+  const last = parts.length - 1;
+  return segments.findIndex((_, i) => parts.every((p, j) => (j === last ? namesWord(segments[i + j], p) : segments[i + j] === p)));
 };
 
 export function checkGithubForgePath(path: unknown, projectPath: string): { ok: true; path: string } | { ok: false; error: string } {
@@ -183,17 +186,24 @@ export function checkGithubForgePath(path: unknown, projectPath: string): { ok: 
   const plain = plainApiPath(path, (rest) => rest.replace(/^:repo(?=\/|$)/, () => repoRoot));
   if (!plain.ok) return plain;
   const { rest, decoded, segments } = plain;
+  // glance sends the route as "GET <path>" and Octokit drops everything after the first space.
+  if (/\s/.test(String(path))) return { ok: false, error: '"path" must not contain whitespace; send a space in a file name as %20' };
   // Octokit expands {name} in a route, to nothing when unset, after these checks ran.
   if (/[{}]/.test(decoded)) return { ok: false, error: '"path" must not contain { or }' };
   if (decoded.includes("\\")) return { ok: false, error: '"path" must be a plain API path; pass query values in "query"' };
+  if (decoded.includes(";")) return { ok: false, error: '"path" must not contain ;' };
   const lower = decoded.toLowerCase();
   const root = repoRoot.toLowerCase();
   if (lower !== root && !lower.startsWith(`${root}/`)) {
     return { ok: false, error: `"path" must sit under this repo on GitHub; start it with :repo/ (${repoRoot}/)` };
   }
-  const refused = GITHUB_REFUSED_SEGMENTS.find((entry) => namesEntry(segments, entry));
-  if (refused) return { ok: false, error: `"path" names ${refused}, which can return credentials; gitlab_get refuses it` };
-  if (namesEntry(segments, GITHUB_REFUSED_BLOBS)) {
+  const rootParts = repoRoot.split("/");
+  const hits = [...GITHUB_REFUSED_SEGMENTS, GITHUB_REFUSED_BLOBS].map((entry) => ({ entry, at: entryAt(segments, entry), length: entry.split("/").length }));
+  const inName = hits.find((h) => h.at >= 0 && h.at + h.length <= rootParts.length);
+  if (inName) return { ok: false, error: `gitlab_get cannot read a GitHub repo whose owner or name is ${rootParts.slice(inName.at, inName.at + inName.length).join("/")}` };
+  const refused = hits.find((h) => h.at >= 0 && h.entry !== GITHUB_REFUSED_BLOBS);
+  if (refused) return { ok: false, error: `"path" names ${refused.entry}, which can return credentials; gitlab_get refuses it` };
+  if (hits.some((h) => h.at >= 0)) {
     return { ok: false, error: `"path" names ${GITHUB_REFUSED_BLOBS}, and a blob can be too large to read through gitlab_get; read the file with :repo/contents/<path> instead` };
   }
   return { ok: true, path: `/${rest}` };
@@ -279,6 +289,25 @@ function linkNextPage(res: Response): number | null {
   }
 }
 
+const headerSeconds = (res: Response, name: string): number | null => {
+  const v = res.headers.get(name);
+  if (v === null || !v.trim()) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+/** glance hands a rate-limited 403 or 429 back as a Response that keeps GitHub's rate limit headers. */
+async function githubFailure(res: Response): Promise<string> {
+  const limited = (res.status === 403 || res.status === 429)
+    && (res.headers.get("x-ratelimit-remaining") === "0" || res.headers.get("retry-after") !== null);
+  if (!limited) return gitlabFailure(res, "github");
+  await res.body?.cancel().catch(() => {});
+  const after = headerSeconds(res, "retry-after");
+  const reset = headerSeconds(res, "x-ratelimit-reset");
+  const wait = after ?? (reset === null ? null : reset - Date.now() / 1000);
+  return wait === null ? "GitHub rate limit hit on gitlab_get" : `GitHub rate limit hit on gitlab_get (retry in ${Math.max(0, Math.ceil(wait))}s)`;
+}
+
 export type ForgeGetInput = { path: unknown; query?: Record<string, string | number | boolean>; page?: number; perPage?: number };
 
 export async function forgeGet(
@@ -302,7 +331,7 @@ export async function forgeGet(
   try {
     const res = await provider.restRequest("GET", `${checked.path}${qs ? `?${qs}` : ""}`, undefined, "forge:get", { redirect: "manual" });
     if (res.status >= 300 && res.status < 400) return { ok: false, error: redirectRefusal(res, forge) };
-    if (!res.ok) return { ok: false, error: await gitlabFailure(res, forge) };
+    if (!res.ok) return { ok: false, error: github ? await githubFailure(res) : await gitlabFailure(res) };
     const length = github ? headerNumber(res, "content-length") : null;
     if (length !== null && length > FORGE_GET_MAX_BYTES) {
       await res.body?.cancel().catch(() => {});
