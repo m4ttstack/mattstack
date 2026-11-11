@@ -3,7 +3,8 @@
 # Code config file changed since this session last looked (an account switch
 # rewrites it), run `rt usage record-account` so the account is recorded.
 # Every path exits 0 and prints nothing, since hook stdout is fed back to the
-# model; an rt too old for the verb exits 2 and is swallowed the same way.
+# model; an rt too old for the verb exits 2, is swallowed the same way and
+# leaves no stamp, so the next call tries again.
 set -u
 : "${HOME:=}"
 
@@ -32,6 +33,8 @@ RT="$(command -v rt 2>/dev/null || true)"
 [ -n "$RT" ] && [ -x "$RT" ] || RT="$HOME/.local/bin/rt"
 [ -x "$RT" ] || exit 0
 
-"$RT" usage record-account --session "$SESSION" >/dev/null 2>&1
-{ printf '%s' "$KEY" > "$STAMP"; } 2>/dev/null
+# Stamp only on success, so an rt upgraded mid-session records on the next call.
+if "$RT" usage record-account --session "$SESSION" >/dev/null 2>&1; then
+  { printf '%s' "$KEY" > "$STAMP"; } 2>/dev/null
+fi
 exit 0

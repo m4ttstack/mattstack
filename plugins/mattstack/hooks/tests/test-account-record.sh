@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Offline tests for account-record.sh.
 #
-# `rt` is a stub that appends its argv to a calls file. HOME and TMPDIR are
+# `rt` is a stub that appends its argv to a calls file and exits RT_STUB_EXIT (default 0). HOME and TMPDIR are
 # sandboxed, so the stamp, the config file and the rt lookup never touch the real ones.
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,7 +15,7 @@ cat > "$SANDBOX/bin/rt" <<'STUB'
 #!/usr/bin/env bash
 echo "$*" >> "$RT_STUB_CALLS"
 echo "noise"; echo "noise" >&2
-exit 2
+exit "${RT_STUB_EXIT:-0}"
 STUB
 chmod +x "$SANDBOX/bin/rt"
 
@@ -97,7 +97,11 @@ check "no rt: no stamp written" "0" "$(ls "$SANDBOX/tmp" | wc -l | tr -d ' ')"
 
 reset
 echo '{}' > "$SANDBOX/home/.claude.json"
-check "rt exit 2 and noise stays silent" "exit=0 out=" "$(run s6)"
+check "rt exit 2 and noise stays silent" "exit=0 out=" "$(run s6 RT_STUB_EXIT=2)"
+check "rt exit 2: no stamp written" "0" "$(ls "$SANDBOX/tmp" | wc -l | tr -d ' ')"
+run s6 >/dev/null
+check "rt exit 2: next call retries" "2" "$(calls)"
+check "rt exit 0 after a retry writes the stamp" "1" "$(ls "$SANDBOX/tmp" | wc -l | tr -d ' ')"
 
 [ "$fails" -eq 0 ] && echo "all account-record tests passed" || echo "$fails failure(s)"
 exit $((fails > 0))
