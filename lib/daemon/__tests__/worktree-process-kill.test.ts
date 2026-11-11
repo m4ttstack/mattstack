@@ -1,16 +1,20 @@
-import { mkdirSync, mkdtempSync, readFileSync, symlinkSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import type { SessionIdentity } from "../session-identity.ts";
 import {
   attributeCwds,
+  killWorktreeProcesses,
   nestedExcludes,
+  parseLsofAllCwds,
   planWorktreeKill,
   processLabel,
   safeRealpath,
   selectKillTargets,
   type KillCandidate,
   type KillPlanInput,
+  type KillWorktreeOptions,
 } from "../worktree-process-kill.ts";
 
 function row(pid: number, ppid: number, command: string, fullCommand: string): KillCandidate {
@@ -345,6 +349,155 @@ describe("planWorktreeKill", () => {
     ];
     const result = plan(table, [[640, A], [641, A], [642, A]], { protectedPids: [641] });
     expect(pids(result)).toEqual([]);
+  });
+});
+
+describe("planWorktreeKill with a protected ancestor", () => {
+  test("an agent root under a protected pid is not stopped even with stopSessionsInside", () => {
+    const A = "/w/haldir";
+    const result = planWorktreeKill({
+      target: A,
+      excludes: [],
+      table: [
+        row(641, 1, "rt", "rt worktree dispose"),
+        row(642, 641, "claude", "claude"),
+      ],
+      cwds: new Map([[641, A], [642, A]]),
+      protectedPids: [641],
+      stopSessionsInside: true,
+    });
+    expect(result.targets).toEqual([]);
+    expect(result.stoppedSessions).toEqual([]);
+  });
+});
+
+describe("parseLsofAllCwds", () => {
+  test("keeps every pid/cwd pair and ignores other fields", () => {
+    const out = "p10\nfcwd\nn/a/b\np11\nfcwd\nn/c\n";
+    expect([...parseLsofAllCwds(out)]).toEqual([[10, "/a/b"], [11, "/c"]]);
+  });
+});
+
+describe("killWorktreeProcesses", () => {
+  const made: string[] = [];
+  function tree(): string {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "wk-kill-")));
+    mkdirSync(join(dir, "sub"));
+    made.push(dir);
+    return dir;
+  }
+  afterAll(() => {
+    for (const dir of made) rmSync(dir, { recursive: true, force: true });
+  });
+
+  type RunResult = { exitCode: number; stdout: string };
+  const ok = (stdout: string): RunResult => ({ exitCode: 0, stdout });
+
+  function harness(args: {
+    table: KillCandidate[];
+    cwds: [number, string][];
+    lsof?: RunResult;
+    ps?: RunResult;
+    identity?: SessionIdentity | null;
+  }) {
+    const log: string[] = [];
+    const signals: [number, string | number][] = [];
+    const identified: number[] = [];
+    const run: NonNullable<KillWorktreeOptions["run"]> = async (argv) => {
+      if (argv[0] === "lsof") {
+        return args.lsof ?? ok(args.cwds.map(([pid, cwd]) => `p${pid}\nfcwd\nn${cwd}`).join("\n") + "\n");
+      }
+      if (argv[0] === "ps" && argv[1] === "-A") {
+        return args.ps ?? ok(args.table.map(r => `${r.pid} ${r.ppid} ${r.command} ${r.fullCommand}`).join("\n"));
+      }
+      if (argv[0] === "ps" && argv[1] === "eww") return ok("");
+      throw new Error(`unexpected spawn: ${argv.join(" ")}`);
+    };
+    const options: KillWorktreeOptions = {
+      run,
+      signal: (pid, sig) => {
+        log.push(`signal:${pid}`);
+        signals.push([pid, sig]);
+      },
+      selfPids: [99999],
+      identify: (pid) => {
+        log.push(`identify:${pid}`);
+        identified.push(pid);
+        return args.identity === undefined ? null : args.identity;
+      },
+    };
+    return { options, log, signals, identified };
+  }
+
+  test("incident replay signals only the workload", async () => {
+    const A = tree();
+    const B = tree();
+    const table = [
+      row(1, 0, "launchd", "/sbin/launchd"),
+      row(500, 1, "herdr", "/Users/x/.local/bin/herdr server"),
+      row(600, 500, "-zsh", "-zsh"),
+      row(601, 600, "claude", "/Users/x/.local/bin/claude --model opus"),
+      row(602, 601, ".bun", "/Users/x/.bun/bin/bun run mcp"),
+      row(603, 601, ".loc", "/Users/x/.local/bin/herdr mcp"),
+      row(700, 1, "node", "node vite"),
+    ];
+    const cwds: [number, string][] = [[600, A], [601, B], [602, A], [603, join(A, "sub")], [700, A]];
+    const h = harness({ table, cwds });
+    const result = await killWorktreeProcesses(A, { ...h.options, stopSessionsInside: true });
+    expect(h.signals).toEqual([[700, "SIGTERM"]]);
+    expect(result.stoppedSessions).toEqual([]);
+    expect(result.terminated.map(t => t.pid)).toEqual([700]);
+  });
+
+  test("lsof failing signals nothing", async () => {
+    const A = tree();
+    const h = harness({
+      table: [row(700, 1, "node", "node vite")],
+      cwds: [[700, A]],
+      lsof: { exitCode: 1, stdout: "" },
+    });
+    const result = await killWorktreeProcesses(A, h.options);
+    expect(h.signals).toEqual([]);
+    expect(result).toEqual({ terminated: [], stoppedSessions: [] });
+  });
+
+  test("ps -A failing signals nothing", async () => {
+    const A = tree();
+    const h = harness({
+      table: [row(700, 1, "node", "node vite")],
+      cwds: [[700, A]],
+      ps: { exitCode: 1, stdout: "" },
+    });
+    const result = await killWorktreeProcesses(A, h.options);
+    expect(h.signals).toEqual([]);
+    expect(result).toEqual({ terminated: [], stoppedSessions: [] });
+  });
+
+  test("identity is resolved before any signal", async () => {
+    const A = tree();
+    const identity: SessionIdentity = { sessionId: "s-1", handle: "haldir", rooms: ["dev"] };
+    const h = harness({
+      table: [row(601, 1, "claude", "claude")],
+      cwds: [[601, A]],
+      identity,
+    });
+    const result = await killWorktreeProcesses(A, { ...h.options, stopSessionsInside: true });
+    expect(h.log.slice(0, 2)).toEqual(["identify:601", "signal:601"]);
+    expect(result.stoppedSessions[0]).toEqual({ pid: 601, label: "claude", cwd: A, identity });
+    expect(result.terminated).toEqual([{ pid: 601, label: "claude" }]);
+  });
+
+  test("without stopSessionsInside an agent in A is never identified or signalled", async () => {
+    const A = tree();
+    const h = harness({
+      table: [row(601, 1, "claude", "claude")],
+      cwds: [[601, A]],
+      identity: { sessionId: "s-1", rooms: [] },
+    });
+    const result = await killWorktreeProcesses(A, h.options);
+    expect(h.identified).toEqual([]);
+    expect(h.signals).toEqual([]);
+    expect(result).toEqual({ terminated: [], stoppedSessions: [] });
   });
 });
 
