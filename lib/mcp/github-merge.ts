@@ -100,15 +100,15 @@ export async function resolveGithubTarget(
 
 type DaemonCommand = typeof rtCommand;
 
-async function daemonData<K extends keyof Commands>(command: DaemonCommand, cmd: K, payload: Commands[K]["payload"]): Promise<Commands[K]["data"] | undefined> {
-  const res = await command<Commands[K]["data"]>(cmd, payload as Record<string, unknown>, { timeoutMs: MR_WRITE_TIMEOUT_MS });
-  if (!res.ok) throw new Error(res.error ?? `${cmd} failed`);
-  return res.data;
+/** The daemon's catch prefixes the forge's text with `Error: `; the in-process path this replaced returned it bare. */
+function daemonError(error: string | undefined, cmd: string): Error {
+  return new Error((error ?? `${cmd} failed`).replace(/^Error: /, ""));
 }
 
-/** The daemon's mr:action catch prefixes the forge's text with `Error: `; the in-process path this replaced returned it bare. */
-function actionError(error: string | undefined): Error {
-  return new Error((error ?? "mr:action failed").replace(/^Error: /, ""));
+async function daemonData<K extends keyof Commands>(command: DaemonCommand, cmd: K, payload: Commands[K]["payload"]): Promise<Commands[K]["data"] | undefined> {
+  const res = await command<Commands[K]["data"]>(cmd, payload as Record<string, unknown>, { timeoutMs: MR_WRITE_TIMEOUT_MS });
+  if (!res.ok) throw daemonError(res.error, cmd);
+  return res.data;
 }
 
 /** The provider seam over daemon verbs for one repo. Its projectPath arguments are ignored: the daemon finds the repo from `identity`. */
@@ -126,20 +126,19 @@ export function daemonMergeProvider(identity: string, command: DaemonCommand = r
     },
     async setAutoMerge(_projectPath, iid) {
       const res = await command("mr:action", { repoName: identity, iid, action: "setAutoMerge", args: [] }, { timeoutMs: MR_WRITE_TIMEOUT_MS });
-      if (!res.ok) throw actionError(res.error);
+      if (!res.ok) throw daemonError(res.error, "mr:action");
     },
     async mergePullRequest(projectPath, iid, input) {
-      // mr:action's reply carries sourceBranchNotDeleted flat beside ok, not under data.
-      const merged = await command("mr:action", { repoName: identity, iid, action: "merge", args: [input ?? {}] }, { timeoutMs: MR_WRITE_TIMEOUT_MS });
+      const merged = await command<Commands["mr:action"]["data"]>("mr:action", { repoName: identity, iid, action: "merge", args: [input ?? {}] }, { timeoutMs: MR_WRITE_TIMEOUT_MS });
       // With no answer the daemon may still be merging, so whether the write landed is unknown: only a merged read-back overrides the error.
       const unanswered = !merged.ok && merged.error?.startsWith(DAEMON_UNREACHABLE_PREFIX) === true;
-      if (!merged.ok && !unanswered) throw actionError(merged.error);
+      if (!merged.ok && !unanswered) throw daemonError(merged.error, "mr:action");
       const back = await command<Commands["mr:get"]["data"]>("mr:get", { repoName: identity, iid, refresh: true }, { timeoutMs: MR_WRITE_TIMEOUT_MS });
       if (unanswered) {
         if (back.ok && back.data?.mr?.state === "merged") return back.data.mr;
         throw new Error(merged.error);
       }
-      const note = (merged as { sourceBranchNotDeleted?: unknown }).sourceBranchNotDeleted;
+      const note = merged.data?.sourceBranchNotDeleted;
       const cleanup = typeof note === "string" ? { sourceBranchNotDeleted: note } : {};
       if (!back.ok || !back.data?.mr) {
         throw new ReadBackFailedError(`Merged #${iid} but could not read it back: ${back.error ?? "mr:get returned no pull request"}`, { operation: "mergePullRequest", projectPath, iid, writeApplied: true });

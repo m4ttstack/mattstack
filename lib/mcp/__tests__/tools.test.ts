@@ -503,12 +503,12 @@ describe("mcpTools", () => {
       expect(calls).toEqual([]);
     });
 
-    test("a timed-out mr_create says the MR may still land and to check mr_map", async () => {
+    test("a timed-out mr_create says the MR may still land and to check mr_for_branch", async () => {
       fakeDaemon(() => ({ ok: false, error: "rt daemon unreachable at /x.sock: The operation timed out." }));
       const tool = mcpTools().find((t) => t.name === "mr_create")!;
       const res = await tool.handler({ repoName: "remote:x", sourceBranch: "feat", targetBranch: "main", title: "T" }, {} as NodeJS.ProcessEnv);
       expect(res.error).toContain("may still land");
-      expect(res.error).toContain("mr_map");
+      expect(res.error).toContain("mr_for_branch");
     });
 
     test("mr_create forwards labels and squash", async () => {

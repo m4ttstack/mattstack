@@ -1200,7 +1200,7 @@ export interface Commands {
   };
 
   /** Wire reply is `{ok:true}` on success (no `data`); a failure is `{ok:false,error}`.
-      A merge whose source branch could not be deleted also carries `sourceBranchNotDeleted` (why, in one sentence) beside `ok`. */
+      A merge whose source branch could not be deleted replies `{ok:true,data:{sourceBranchNotDeleted}}` (why, in one sentence). */
   "mr:action": { payload: { repoName: string; iid: number; action: MRActionName; args?: unknown[] }; data: { sourceBranchNotDeleted?: string } };
 
   /** Creates an MR (a draft unless `draft: false`) and writes it back so the
@@ -1242,11 +1242,11 @@ export interface Commands {
   "mr:fetch-job-detail": { payload: { repoName: string; iid: number; jobId: number; pipelineId?: number }; data: MrJobDetail };
   "mr:fetch-job-trace": { payload: { repoName: string; iid: number; jobId: number }; data: string };
 
-  /** GitLab providers only; the daemon refuses any other provider with `unsupported: mr:commit-parents needs a GitLab repo`. */
+  /** A commit's parent shas, read from the repo's own forge (GitLab or GitHub). */
   "mr:commit-parents": { payload: { repoName: string; iid: number; sha: string }; data: string[] };
-  /** GitLab providers only; the daemon refuses any other provider with `unsupported: mr:pipeline-failed-jobs needs a GitLab repo`. */
+  /** A pipeline's failed jobs (on GitHub, a workflow run's), read from the repo's own forge. */
   "mr:pipeline-failed-jobs": { payload: { repoName: string; iid: number; pipelineId: number }; data: PipelineJob[] };
-  /** GitLab providers only. Every MR whose target branch is targetBranch, fetched live and unscoped; state defaults to opened. */
+  /** Every MR whose target branch is targetBranch, fetched live and unscoped from GitLab or GitHub; state defaults to opened. */
   "mr:by-target": { payload: { repoName: string; targetBranch: string; state?: MrListState }; data: MrByTargetData };
   "mr:get": { payload: { repoName: string; iid: number; refresh?: boolean }; data: MrGetData };
   /** Refused as `unsupported: this forge has no merge queue` where the forge has none (GitLab). */

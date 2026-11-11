@@ -411,7 +411,7 @@ function createFreshnessCore() {
   async function resolveSelfUsername(repoName: string, repoPath: string): Promise<string | null> {
     if (selfUsername) return selfUsername;
     try {
-      await getRepoContext(repoName, repoPath);   // materializes a provider for ensureUserId
+      await getGitLabContext("self username", repoName, repoPath);   // materializes a provider for ensureUserId
       await ensureUserId();
       return selfUsername;
     } catch (err) {

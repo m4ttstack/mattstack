@@ -106,12 +106,27 @@ describe("mr:live-by-branch on GitHub", () => {
   test("a branch with no open pull request maps to null", async () => {
     const h = harness({
       fetchPullRequestsByBranches: async () => new Map([["a", prOf(1, "a")], ["gone", null]]),
-      fetchPullRequestSummaries: async () => ({ rows: [summary(1, { sourceBranch: "a" })], truncated: false }),
+      fetchPullRequestSummaries: async () => ({ rows: [], truncated: false }),
     });
     const r = await h.handlers["mr:live-by-branch"]({ repoName: REPO, branches: ["a", "gone"] });
     expect(r).toEqual({ ok: true, data: { byBranch: { a: prOf(1, "a"), gone: null } } });
-    expect(h.names()).toEqual(["fetchPullRequestsByBranches", "fetchPullRequestSummaries"]);
-    expect(h.calls[1]!.args).toEqual(["o/r", { state: "opened", limit: 2000 }]);
+    expect(h.calls).toEqual([
+      { name: "fetchPullRequestsByBranches", args: ["o/r", ["a", "gone"]] },
+      { name: "fetchPullRequestSummaries", args: ["o/r", { state: "opened", sourceBranch: "gone", limit: 1 }] },
+    ]);
+  });
+
+  test("each null branch takes one filtered read of open pull requests", async () => {
+    const h = harness({
+      fetchPullRequestsByBranches: async () => new Map([["x", null], ["y", null]]),
+      fetchPullRequestSummaries: async () => ({ rows: [], truncated: false }),
+    });
+    const r = await h.handlers["mr:live-by-branch"]({ repoName: REPO, branches: ["x", " y "] });
+    expect(r).toEqual({ ok: true, data: { byBranch: { x: null, " y ": null } } });
+    expect(h.calls.slice(1)).toEqual([
+      { name: "fetchPullRequestSummaries", args: ["o/r", { state: "opened", sourceBranch: "x", limit: 1 }] },
+      { name: "fetchPullRequestSummaries", args: ["o/r", { state: "opened", sourceBranch: "y", limit: 1 }] },
+    ]);
   });
 
   test("a branch whose pull request the batch could not fill is read on its own", async () => {
@@ -122,7 +137,11 @@ describe("mr:live-by-branch on GitHub", () => {
     });
     const r = await h.handlers["mr:live-by-branch"]({ repoName: REPO, branches: ["feat"] });
     expect(r).toEqual({ ok: true, data: { byBranch: { feat: prOf(9, "feat") } } });
-    expect(h.calls[2]).toEqual({ name: "fetchSingleMR", args: ["o/r", 9, null] });
+    expect(h.calls).toEqual([
+      { name: "fetchPullRequestsByBranches", args: ["o/r", ["feat"]] },
+      { name: "fetchPullRequestSummaries", args: ["o/r", { state: "opened", sourceBranch: "feat", limit: 1 }] },
+      { name: "fetchSingleMR", args: ["o/r", 9, null] },
+    ]);
   });
 
   test("an open pull request that still cannot be read is an error, never a null", async () => {
@@ -134,16 +153,8 @@ describe("mr:live-by-branch on GitHub", () => {
     expect(await h.handlers["mr:live-by-branch"]({ repoName: REPO, branches: ["feat"] })).toEqual({
       ok: false, error: "GitHub has pull request #9 open on feat in o/r but could not read it; try again",
     });
-  });
-
-  test("a branch missing from a cut listing of open pull requests is an error, never a null", async () => {
-    const h = harness({
-      fetchPullRequestsByBranches: async () => new Map([["feat", null]]),
-      fetchPullRequestSummaries: async () => ({ rows: [summary(1)], truncated: true }),
-    });
-    expect(await h.handlers["mr:live-by-branch"]({ repoName: REPO, branches: ["feat"] })).toEqual({
-      ok: false, error: "could not tell whether feat has an open pull request: o/r has more than 2000 open",
-    });
+    expect(h.names()).toEqual(["fetchPullRequestsByBranches", "fetchPullRequestSummaries", "fetchSingleMR"]);
+    expect(h.calls[1]!.args).toEqual(["o/r", { state: "opened", sourceBranch: "feat", limit: 1 }]);
   });
 });
 

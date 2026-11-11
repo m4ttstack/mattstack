@@ -526,7 +526,7 @@ export function mcpTools(): McpToolDef[] {
         if (input.squash !== undefined) payload.squash = input.squash as boolean;
         if (!returnExisting) {
           const res = await rtCommand<Commands["mr:create"]["data"]>("mr:create", payload, { timeoutMs: MR_WRITE_TIMEOUT_MS });
-          return withLandingHint(fromResponse(res), "mr_map for an open MR on the source branch");
+          return withLandingHint(fromResponse(res), "mr_for_branch for an open MR on the source branch");
         }
         const found = await findOpenMrForBranch({ command: rtCommand }, target.identity, payload.sourceBranch);
         if (!found.ok) return err(found.error);
@@ -537,7 +537,7 @@ export function mcpTools(): McpToolDef[] {
           const raced = await findOpenMrForBranch({ command: rtCommand }, target.identity, payload.sourceBranch);
           if (raced.ok && raced.mr) return existingMrResult(raced.mr);
         }
-        return withLandingHint(fromResponse(res), "mr_map for an open MR on the source branch");
+        return withLandingHint(fromResponse(res), "mr_for_branch for an open MR on the source branch");
       },
     },
     {

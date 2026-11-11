@@ -221,7 +221,7 @@ describe("mergeOnGitHub with wait", () => {
 });
 
 describe("daemonMergeProvider", () => {
-  type Reply = { ok: boolean; data?: unknown; error?: string; sourceBranchNotDeleted?: string };
+  type Reply = { ok: boolean; data?: unknown; error?: string };
   const MERGED_PR = { iid: 12, state: "merged", webUrl: "https://github.com/acme/app/pull/12" };
 
   /** Each daemon verb answers from its own queue of replies; the last one repeats. */
@@ -317,6 +317,12 @@ describe("daemonMergeProvider", () => {
     await expect(provider.fetchMergeQueueStatus(TARGET.projectPath, 12)).rejects.toThrow("unsupported: this forge has no merge queue");
   });
 
+  test("a refused queue read or enqueue drops the daemon's Error prefix", async () => {
+    const { provider } = daemon({ "mr:merge-queue-status": [{ ok: false, error: "Error: x" }], "mr:enqueue": [{ ok: false, error: "Error: x" }] });
+    expect(await provider.fetchMergeQueueStatus(TARGET.projectPath, 12).catch((e: Error) => e.message)).toBe("x");
+    expect(await provider.enqueuePullRequest(TARGET.projectPath, 12).catch((e: Error) => e.message)).toBe("x");
+  });
+
   test("mergeOnGitHub reports a merge through the daemon", async () => {
     const { seams } = daemon({
       "mr:merge-queue-status": [{ ok: true, data: { enabled: false, inQueue: false, merged: false, lastRemoval: null } }],
@@ -330,7 +336,7 @@ describe("daemonMergeProvider", () => {
     const sourceBranchNotDeleted = "The source branch was not deleted: GitHub refused the delete with 422.";
     const { seams } = daemon({
       "mr:merge-queue-status": [{ ok: true, data: { enabled: false, inQueue: false, merged: false, lastRemoval: null } }],
-      "mr:action": [{ ok: true, sourceBranchNotDeleted }],
+      "mr:action": [{ ok: true, data: { sourceBranchNotDeleted } }],
       "mr:get": [{ ok: true, data: { mr: MERGED_PR, fetchedAt: 1 } }],
     });
     expect((await mergeOnGitHub(TARGET, { removeSourceBranch: true }, seams)).body).toEqual({ merged: true, sourceBranchNotDeleted });

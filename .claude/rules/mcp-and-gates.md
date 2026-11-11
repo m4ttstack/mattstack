@@ -73,7 +73,8 @@ path must sit under the repo (`:repo/...`), and a word in
 `GITHUB_REFUSED_SEGMENTS` is refused in any path segment, or as a
 segment's dot-suffixed prefix, even inside a file path such as
 `contents/src/hooks/x.ts`; `git/blobs` is refused for size, and the query
-keys in `GITHUB_REFUSED_QUERY_KEYS` are refused too. Those lists are
+keys in `GITHUB_REFUSED_QUERY_KEYS` are refused too. The GitHub list also
+covers secret scanning alerts and security advisories. Those lists are
 widened, never narrowed, without a design review.
 `skills_resolve` (`skills-resolve-tool.ts`) runs `rt skills resolve`'s code
 in process: it checks the id against `ID_RE` first, reads only under
@@ -115,8 +116,8 @@ those too. `mr_approve`, `mr_ready`, `mr_retry`, `mr_create`, `mr_update`
 and `mr_merge` work on both forges; the thread, comment, review, upload and
 rebase tools are GitLab only. `mr_merge` is on the server for both forges
 (the forge still enforces approvals and pipeline rules); on GitHub it goes
-through the daemon too (`mr:merge-queue-status`, `mr:enqueue`, `mr:action`),
-so only the daemon holds the token, and the tool keeps the merge queue wait
+through the daemon too (`mr:merge-queue-status`, `mr:enqueue`, `mr:action`,
+and `mr:get` to read the merge back), so only the daemon holds the token, and the tool keeps the merge queue wait
 on its own side, one `mr:merge-queue-status` read per poll. The skill's ship gate is the
 human check. `mr_upload` is
 the one tool that sends a local file off the machine, so its daemon guard
@@ -129,10 +130,12 @@ user owns, never a symlink), a pipeline run's own evidence folder
 `rt.mcp.uploadRoots`, and anything whose bytes do not match its image or
 video extension; widen the roots through that setting, never by loosening
 the guard. Target resolution (`repoName` as identity, path or
-label, or `mrUrl`) lives in `lib/mcp/mr-target.ts`; a GitHub PR URL names a
-target only for a tool that passes `github: true`, and only a tool whose
-daemon verbs all answer on GitHub may. The daemon verbs still take the
-serialized identity only.
+label, or `mrUrl`) lives in `lib/mcp/mr-target.ts`; for a tool that
+resolves its target through `resolveMrTarget` or `resolveRepoTarget` there, a
+GitHub PR URL names a target only when the tool passes `github: true`, and
+only a tool whose daemon verbs all answer on GitHub may (`evidence_attach`
+builds its own GitHub target). The daemon verbs still take the serialized
+identity only.
 
 Decision gates (`rt gate ask`, `rt gate wait`, the board's stage sheet) are
 the only way an unattended pane asks a human anything. The

@@ -17,7 +17,7 @@
  * `discussions-store.ts`, which also emits new-comment notifications.
  *
  * `repoName` is opaque here — it flows straight into `grants()`, the
- * discussions table, and `getRepoContext`. It becomes the serialized repo
+ * discussions table, and `getGitLabContext`. It becomes the serialized repo
  * identity once every caller sends one; this module makes no assumption
  * about its shape.
  */

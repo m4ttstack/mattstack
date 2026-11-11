@@ -7,7 +7,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { ReadBackFailedError } from "@mattstack/glance";
+import { RateLimitedError, ReadBackFailedError } from "@mattstack/glance";
 import { createMRHandlers } from "../mr.ts";
 import { createProjectMRsHandlers } from "../project-mrs.ts";
 import { createProjectMRs } from "../../project-mrs-store.ts";
@@ -81,7 +81,7 @@ describe("mr:action on GitHub", () => {
     const note = 'The source branch "b7" was not deleted: it is protected';
     const h = harness({ mergePullRequest: async () => prOf(7, { state: "merged", sourceBranchNotDeleted: note }) });
     const res = await h.handlers["mr:action"]({ repoName: REPO, iid: 7, action: "merge", args: [{ shouldRemoveSourceBranch: true }] });
-    expect(res).toEqual({ ok: true, sourceBranchNotDeleted: note });
+    expect(res).toEqual({ ok: true, data: { sourceBranchNotDeleted: note } });
     expect(h.writebacks).toEqual([]);
   });
 
@@ -153,7 +153,31 @@ describe("mr:get on GitHub", () => {
     const h = harness({ fetchSingleMR: async () => null });
     const res = await h.handlers["mr:get"]({ repoName: REPO, iid: 7 });
     expect(res).toEqual({ ok: false, error: "GitHub has no pull request #7 in o/r, or the token cannot read it" });
-    expect(h.calls).toEqual([{ name: "fetchSingleMR", args: ["o/r", 7, null] }]);
+    expect(h.calls).toEqual([{ name: "fetchSingleMR", args: ["o/r", 7, null, expect.any(Function)] }]);
+  });
+
+  test("a miss whose read failed carries GitHub's reason", async () => {
+    const h = harness({
+      fetchSingleMR: async (_pp: string, _iid: number, _user: unknown, onWarning: (w: unknown) => void) => {
+        onWarning({ kind: "request-failed", source: "fill", status: 502, target: "o/r#7", message: "GitHub could not read o/r#7 (Bad Gateway); it is missing from this result." });
+        return null;
+      },
+    });
+    expect(await h.handlers["mr:get"]({ repoName: REPO, iid: 7 })).toEqual({
+      ok: false,
+      error: "GitHub has no pull request #7 in o/r, or the token cannot read it (GitHub said: 502 GitHub could not read o/r#7 (Bad Gateway); it is missing from this result.)",
+    });
+  });
+
+  test("a long reason is cut to 200 characters", async () => {
+    const h = harness({
+      fetchSingleMR: async (_pp: string, _iid: number, _user: unknown, onWarning: (w: unknown) => void) => {
+        onWarning({ kind: "request-failed", source: "fill", target: "o/r#7", message: "x".repeat(500) });
+        return null;
+      },
+    });
+    const res = await h.handlers["mr:get"]({ repoName: REPO, iid: 7 }) as any;
+    expect(res.error).toBe(`GitHub has no pull request #7 in o/r, or the token cannot read it (GitHub said: ${"x".repeat(200)})`);
   });
 
   test("a refresh read returns the PR and writes nothing back", async () => {
@@ -179,6 +203,30 @@ describe("job detail and trace on GitHub", () => {
     expect(res).toEqual({ ok: true, data: "trace text" as any });
     expect(h.calls).toEqual([{ name: "fetchJobTrace", args: ["o/r", 42] }]);
   });
+});
+
+describe("a GitHub rate limit in an MR verb", () => {
+  const throwLimited = async () => {
+    throw new RateLimitedError("GitHub secondary rate limit hit on POST /graphql", { kind: "secondary", resetAt: null, retryAfterMs: 60000, operation: "POST /graphql" });
+  };
+  const cases: Array<[string, string, Record<string, unknown>]> = [
+    ["mr:action", "approvePullRequest", { iid: 7, action: "approve" }],
+    ["mr:create", "createPullRequest", { sourceBranch: "feat", targetBranch: "main", title: "T" }],
+    ["mr:update", "updatePullRequest", { iid: 7, title: "T" }],
+    ["mr:update", "addPullRequestLabels", { iid: 7, addLabels: ["a"] }],
+    ["mr:fetch-job-detail", "fetchJobDetail", { iid: 7, jobId: 42 }],
+    ["mr:fetch-job-trace", "fetchJobTrace", { iid: 7, jobId: 42 }],
+    ["mr:get", "fetchSingleMR", { iid: 7 }],
+  ];
+  for (const [verb, method, payload] of cases) {
+    test(`${verb} (${method}) answers with an error naming the limit and the wait`, async () => {
+      const h = harness({ [method]: throwLimited });
+      const res = await (h.handlers as any)[verb]({ repoName: REPO, ...payload });
+      expect(res.ok).toBe(false);
+      expect(res.error).toContain("rate limit");
+      expect(res.error).toContain("retry in 60s");
+    });
+  }
 });
 
 describe("project-mrs on GitHub", () => {
@@ -207,6 +255,39 @@ describe("project-mrs on GitHub", () => {
     });
     const res = await h["mr:by-branch"]({ repoName: REPO, branches: ["gone"] }) as any;
     expect(res).toEqual({ ok: true, data: { byBranch: { gone: null }, syncedAt: 0 } });
+  });
+
+  const byBranchWith = (over: Record<string, unknown>) =>
+    createProjectMRsHandlers({ repoIndex: () => ({ [REPO]: "/tmp/repo" }), log }, () => {}, { store: tmpStore(), tracking, ...over });
+
+  test("mr:by-branch fails the call on a GitHub rate limit, naming the retry time", async () => {
+    const limited = new RateLimitedError("GitHub secondary rate limit hit on GET /repos/o/r/pulls", { kind: "secondary", resetAt: null, retryAfterMs: 60000, operation: "GET /repos/o/r/pulls" });
+    const provider = { fetchPullRequestByBranch: async () => { throw limited; } };
+    const h = byBranchWith({ getContext: async () => ({ forge: "github", provider, projectPath: "o/r", projectId: null }) });
+    const res = await h["mr:by-branch"]({ repoName: REPO, branches: ["feat", "other"] }) as any;
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("rate limit");
+    expect(res.error).toContain("retry in 60s");
+  });
+
+  test("mr:by-branch fails the call when a GitHub read throws", async () => {
+    const provider = { fetchPullRequestByBranch: async () => { throw new Error("socket hang up"); } };
+    const h = byBranchWith({ getContext: async () => ({ forge: "github", provider, projectPath: "o/r", projectId: null }) });
+    expect(await h["mr:by-branch"]({ repoName: REPO, branches: ["feat"] })).toEqual({ ok: false, error: "Error: socket hang up" });
+  });
+
+  test("mr:by-branch fails the call when a GitHub repo has no context", async () => {
+    const h = byBranchWith({
+      getContext: async () => { throw new Error("missing GitHub token (run: rt setup github connect)"); },
+      isGitHub: async () => true,
+    });
+    expect(await h["mr:by-branch"]({ repoName: REPO, branches: ["feat"] }))
+      .toEqual({ ok: false, error: "Error: missing GitHub token (run: rt setup github connect)" });
+  });
+
+  test("mr:by-branch keeps a branch null when a repo off GitHub has no context", async () => {
+    const h = byBranchWith({ getContext: async () => { throw new Error("missing gitlabToken"); }, isGitHub: async () => false });
+    expect(await h["mr:by-branch"]({ repoName: REPO, branches: ["feat"] })).toEqual({ ok: true, data: { byBranch: { feat: null }, syncedAt: 0 } });
   });
 
   test("project-mrs:read returns the empty store read for a repo with no synced rows", async () => {
