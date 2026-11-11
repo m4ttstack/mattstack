@@ -38,7 +38,8 @@ which is why the log labels read `.loc` and `.bun`.
   process").
 - Workload still running in A that no live session owns (dev servers,
   watchers, test runners) is stopped exactly as today.
-- When the merge reactor disposes A (its PR merged or closed), an agent
+- When the merge reactor disposes A (its PR merged; a closed PR only marks
+  the tree disposable and never reaches this path), an agent
   session whose own cwd is still inside A is stopped deliberately and named
   in the daemon log and in its own chat rooms (decided: "Stop it and name
   it", limited to the merge reactor).
@@ -176,7 +177,9 @@ and imports stores, never chat handlers.
 
 - `disposeTree` opts gain `stopSessions?: { why: string }`. Only the merge
   reactor passes it, with `why` naming the PR and its state (for example
-  `PR #1087 merged`, from the cache entry's iid and state it already holds).
+  `PR #1087 merged` on GitHub, `MR !42 merged` on GitLab; the iid comes
+  from the branch's entry in the reactor's bare-branch-scoped cache map, the
+  same lookup `disposeTree`'s `joinedMr` does).
   Its presence sets `stopSessionsInside: true` on the kill; its `why` goes
   into the chat line.
 - `DisposeDeps` gains `notify?: (post: { room: string; body: string }) => Promise<void>`
