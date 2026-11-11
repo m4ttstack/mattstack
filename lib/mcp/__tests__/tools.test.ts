@@ -967,6 +967,20 @@ describe("mcpTools", () => {
       return calls;
     }
 
+    test("a GitHub mr_merge the daemon never answered, and that did not land, keeps its error and gets the landing hint", async () => {
+      setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fghapp", "/repos/ghapp");
+      const timedOut = "rt daemon unreachable at /x.sock: The operation timed out.";
+      const calls = fakeDaemon((cmd) => {
+        if (cmd === "mr:merge-queue-status") return { ok: true, data: { enabled: false, inQueue: false, merged: false, lastRemoval: null } };
+        if (cmd === "mr:get") return { ok: true, data: { mr: { iid: 12, state: "opened" }, fetchedAt: 1 } };
+        return { ok: false, error: timedOut };
+      });
+      const res = await mcpTools().find((t) => t.name === "mr_merge")!.handler({ repoName: "ghapp", iid: 12 }, {} as NodeJS.ProcessEnv);
+      expect(res.ok).toBe(false);
+      expect(res.error).toBe(`${timedOut}; the write may still land, so check the PR's state before retrying`);
+      expect(calls.map((c) => c.cmd)).toEqual(["mr:merge-queue-status", "mr:action", "mr:get"]);
+    });
+
     test("batch mr_upload refuses a label that resolves to a github.com repo, before the daemon", async () => {
       setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fghapp", "/repos/ghapp");
       const calls = fakeDaemon();

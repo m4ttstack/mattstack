@@ -4,7 +4,7 @@
  * a merge queue so callers never have to know. The queue wait loop stays here.
  */
 import { ReadBackFailedError, type GitProvider, type MergeQueueStatus } from "@mattstack/glance";
-import { rtCommand, type Commands } from "../../packages/rt-client/src/index.ts";
+import { DAEMON_UNREACHABLE_PREFIX, rtCommand, type Commands } from "../../packages/rt-client/src/index.ts";
 import { parseIdentity } from "../settings/identity.ts";
 import { isRepoRegistered } from "../repo-index.ts";
 import { abortableSleep } from "./ci-tools.ts";
@@ -115,6 +115,11 @@ async function daemonData<K extends keyof Commands>(command: DaemonCommand, cmd:
   return res.data;
 }
 
+/** The daemon's mr:action catch prefixes the forge's text with `Error: `; the in-process path this replaced returned it bare. */
+function actionError(error: string | undefined): Error {
+  return new Error((error ?? "mr:action failed").replace(/^Error: /, ""));
+}
+
 /** The provider seam over daemon verbs for one repo. Its projectPath arguments are ignored: the daemon finds the repo from `identity`. */
 export function daemonMergeProvider(identity: string, command: DaemonCommand = rtCommand): GithubMergeProvider {
   return {
@@ -129,15 +134,22 @@ export function daemonMergeProvider(identity: string, command: DaemonCommand = r
       return entry as { position: number; state: string };
     },
     async setAutoMerge(_projectPath, iid) {
-      await daemonData(command, "mr:action", { repoName: identity, iid, action: "setAutoMerge", args: [] });
+      const res = await command("mr:action", { repoName: identity, iid, action: "setAutoMerge", args: [] }, { timeoutMs: MR_WRITE_TIMEOUT_MS });
+      if (!res.ok) throw actionError(res.error);
     },
     async mergePullRequest(projectPath, iid, input) {
       // mr:action's reply carries sourceBranchNotDeleted flat beside ok, not under data.
       const merged = await command("mr:action", { repoName: identity, iid, action: "merge", args: [input ?? {}] }, { timeoutMs: MR_WRITE_TIMEOUT_MS });
-      if (!merged.ok) throw new Error(merged.error ?? "mr:action failed");
+      // With no answer the daemon may still be merging, so whether the write landed is unknown: only a merged read-back overrides the error.
+      const unanswered = !merged.ok && merged.error?.startsWith(DAEMON_UNREACHABLE_PREFIX) === true;
+      if (!merged.ok && !unanswered) throw actionError(merged.error);
+      const back = await command<Commands["mr:get"]["data"]>("mr:get", { repoName: identity, iid, refresh: true }, { timeoutMs: MR_WRITE_TIMEOUT_MS });
+      if (unanswered) {
+        if (back.ok && back.data?.mr?.state === "merged") return back.data.mr;
+        throw new Error(merged.error);
+      }
       const note = (merged as { sourceBranchNotDeleted?: unknown }).sourceBranchNotDeleted;
       const cleanup = typeof note === "string" ? { sourceBranchNotDeleted: note } : {};
-      const back = await command<Commands["mr:get"]["data"]>("mr:get", { repoName: identity, iid, refresh: true }, { timeoutMs: MR_WRITE_TIMEOUT_MS });
       if (!back.ok || !back.data?.mr) {
         throw new ReadBackFailedError(`Merged #${iid} but could not read it back: ${back.error ?? "mr:get returned no pull request"}`, { operation: "mergePullRequest", projectPath, iid, writeApplied: true });
       }

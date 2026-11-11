@@ -791,14 +791,14 @@ export function mcpTools(): McpToolDef[] {
         const github = await resolveGithubTarget(input);
         if (github && "error" in github) return err(github.error);
         if (github) {
-          return mergeOnGitHub(github, {
+          return withLandingHint(await mergeOnGitHub(github, {
             ...(typeof input.squash === "boolean" && { squash: input.squash }),
             ...(typeof input.removeSourceBranch === "boolean" && { removeSourceBranch: input.removeSourceBranch }),
             ...(typeof input.whenPipelineSucceeds === "boolean" && { whenPipelineSucceeds: input.whenPipelineSucceeds }),
             ...(input.wait === true && { wait: true }),
             ...(input.requeue === true && { requeue: true }),
             ...(maxWait !== undefined && { maxWaitSeconds: maxWait }),
-          }, { ...(signal && { signal }), ...(progress && { progress }) });
+          }, { ...(signal && { signal }), ...(progress && { progress }) }), "the PR's state");
         }
         const target = await resolveMrTarget(input);
         if (!target.ok) return err(target.error);
