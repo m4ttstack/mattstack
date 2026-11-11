@@ -169,8 +169,9 @@ identifySession(pid) => { sessionId: string; handle?: string; pane?: string; roo
 `presenceForSession` gives handle and pane; `listRooms(handle)` gives the
 open rooms. Each step failing or coming back empty returns what it has
 (null when there is no session id); the display name then falls back to
-`pid <n> (<label>)`. Any thrown error is caught, logged at warn, and treated
-as null. It lives in a new file under `lib/daemon/` next to the kill module
+`pid <n> (<label>)`. A thrown error is caught and logged at warn, and the
+resolver returns what it had gathered before it (null only when there is no
+session id yet). It lives in a new file under `lib/daemon/` next to the kill module
 and imports stores, never chat handlers.
 
 ### 3. Reporting (`lib/worktree/dispose.ts`)

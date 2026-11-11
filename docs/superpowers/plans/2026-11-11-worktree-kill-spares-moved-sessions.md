@@ -17,7 +17,7 @@
 - Never run rt, the daemon or a built binary; never dispose or provision a real worktree.
 - Write only under `lib/worktree/`, `lib/daemon/worktree-process-kill.ts`, a new `lib/daemon/session-identity.ts`, `lib/daemon/reconciler/reactor.ts`, `lib/daemon/worktree-reconciler.ts`, their `__tests__`, and the wiring-only edit in `lib/daemon.ts` (stay clear of the run-outcome refresher area).
 - No em or en dashes anywhere. Comments only state a constraint the code cannot show.
-- Exports `agentSessionPids`, `selectKillTargets`, `isUserOrAgentProcess`, `attributeCwds`, `safeRealpath`, `nestedExcludes` keep their signatures and behaviour (used by `lib/notifier.ts` and `tree-holders.ts`).
+- Exports `agentSessionPids`, `selectKillTargets`, `isUserOrAgentProcess`, `attributeCwds`, `safeRealpath`, `nestedExcludes` keep their signatures and behaviour (used by `lib/notifier.ts` and `tree-holders.ts`). The one deliberate change is that a leading `-` (login shell) is stripped from process names: `tree-holders.ts` already strips it before calling `isUserOrAgentProcess`, and `notifier.ts` only matches agent names, so neither caller sees a difference.
 - Agent names: the existing `DEFAULT_AI_AGENT_NAMES`. Escalation: SIGKILL after `ESCALATE_AFTER_MS` (5000).
 - Stage named files only; commit after each task.
 
@@ -28,6 +28,8 @@
 3. A ppid cycle or a ppid pointing at a pid missing from the table must not loop or throw. Test in Task 1.
 4. `ps -A` succeeding but lsof failing (or the reverse) signals nothing. Test in Task 3.
 5. A stopped agent with no Claude registry entry or no chat presence is still logged (by pid and label) and the dispose still completes. Tests in Tasks 2 and 4.
+
+Also pinned on the new planner because Task 3 takes `selectKillTargets` off the kill path: an editor helper inside an `.app` bundle, a spared binary (vim, tmux), and a protected caller pid's own descendants with no agent above them all stay untouched. Tests in Task 1.
 
 ---
 
@@ -46,7 +48,7 @@
   - `function processLabel(proc: ProcRow): string` (argv0 basename with a leading `-` stripped; falls back to `command`)
 
 - [ ] **Step 1: Write the failing tests** in a new `describe("planWorktreeKill", ...)`, with `A = "/w/haldir"`, `B = "/w/shelob"`, `excludes: []`, `protectedPids: []` unless stated. Helper `plan(table, cwds, opts)` builds the input.
-  - `"incident replay: a moved session's shell and children in A are spared, workload is not"`: rows `1 launchd`, `500 0 herdr "/Users/x/.local/bin/herdr server"` (ppid 1), `600 500 -zsh "-zsh"`, `601 600 claude "/Users/x/.local/bin/claude --model opus"`, `602 601 .bun "/Users/x/.bun/bin/bun run mcp"`, `603 601 .loc "/Users/x/.local/bin/herdr mcp"`, `700 1 node "node vite"`; cwds `600->A, 601->B, 602->A, 603->A/sub, 700->A`. Expect target pids `[700]` and `stoppedSessions` `[]`, for both `stopSessionsInside: true` and `false`.
+  - `"incident replay: a moved session's shell and children in A are spared, workload is not"`: rows `1 0 launchd "/sbin/launchd"`, `500 1 herdr "/Users/x/.local/bin/herdr server"`, `600 500 -zsh "-zsh"`, `601 600 claude "/Users/x/.local/bin/claude --model opus"`, `602 601 .bun "/Users/x/.bun/bin/bun run mcp"`, `603 601 .loc "/Users/x/.local/bin/herdr mcp"`, `700 1 node "node vite"`; cwds `600->A, 601->B, 602->A, 603->A/sub, 700->A`. Expect target pids `[700]` and `stoppedSessions` `[]`, for both `stopSessionsInside: true` and `false`.
   - `"a login shell with no agent is spared"`: rows `600 1 -zsh "-zsh"`, cwd A. Targets `[]`.
   - `"protected pid 1 does not spare unrelated workload"`: rows `700 1 node "node vite"`, cwd A, `protectedPids: [1, 999]`. Targets `[700]`.
   - `"an agent inside A is stopped only with stopSessionsInside"`: rows `600 1 -zsh "-zsh"`, `601 600 claude "claude"`, `602 601 bun "bun run mcp"`; cwds all A. With true: targets `[601]`, `stoppedSessions` `[{ pid: 601, label: "claude", cwd: A }]`. With false: targets `[]`, `stoppedSessions` `[]`.
@@ -55,11 +57,14 @@
   - `"an agent with unknown cwd counts as outside"`: rows `601 1 claude "claude"` (no cwd entry), `602 601 node "node vite"` (cwd A); true. Targets `[]`.
   - `"a ppid cycle or a missing parent does not loop"`: rows `800 801 node "node a"`, `801 800 node "node b"`, `802 4242 node "node c"`; cwds all A. Targets `[800, 801, 802]` (sorted).
   - `"nested excluded tree owns its processes"`: rows `700 1 node "node vite"` (cwd `A/nested`), `excludes: ["/w/haldir/nested"]`. Targets `[]`.
+  - `"an .app bundle helper in A is spared"`: rows `720 1 "Code Helper" "/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper.app/Contents/MacOS/Code Helper --type=utility"`, cwd A. Targets `[]`.
+  - `"spared binaries in A are spared"`: rows `730 1 vim "vim README.md"`, `731 1 tmux "tmux new"`, cwds A. Targets `[]`.
+  - `"a protected caller's own descendants are spared with no agent above"`: rows `640 1 zsh "zsh"`, `641 640 rt "rt worktree dispose"`, `642 641 node "node helper"`; cwds all A; `protectedPids: [641]`. Targets `[]`.
   - `"labels use argv0, not the truncated comm"`: `processLabel({ pid: 1, ppid: 0, command: ".loc", fullCommand: "/Users/x/.local/bin/claude --x" })` is `"claude"`; for `"-zsh"` it is `"zsh"`.
 
 - [ ] **Step 2: Run** `bun test lib/daemon/__tests__/worktree-process-kill.test.ts`. Expected: the new tests FAIL (`planWorktreeKill` not exported); existing tests pass.
 
-- [ ] **Step 3: Implement** `planWorktreeKill` and `processLabel` per spec section 1. Make the private `processNames` strip a leading `-` from each name (this also fixes `isUserOrAgentProcess` and `agentSessionPids` for login shells; their existing tests must still pass). Build parent and child maps from `table`; ancestor walks stop at pid 0/1 and at a pid already visited; descendant walks use a visited set. Drop 0 and 1 from `protectedPids` before use. Workload attribution reuses `attributeCwds(target, excludes, cwds)`; a root is inside A when `attributeCwds` would attribute its cwd. Return targets sorted by pid.
+- [ ] **Step 3: Implement** `planWorktreeKill` and `processLabel` per spec section 1. Make the private `processNames` strip a leading `-` from each name (this also fixes `isUserOrAgentProcess` and `agentSessionPids` for login shells; their existing tests must still pass). Build parent and child maps from `table`; ancestor walks stop at pid 0/1 and at a pid already visited; descendant walks use a visited set. Drop 0 and 1 from `protectedPids` before use. Workload attribution reuses `attributeCwds(target, excludes, cwds)`; a root is inside A when `attributeCwds` would attribute its cwd. The final workload filter (shells, spared binaries, `.app/Contents/`) uses the same predicates `selectKillTargets` uses today; factor them into one private helper both call. Return targets sorted by pid.
 
 - [ ] **Step 4: Run** the same command. Expected: all PASS.
 
@@ -115,7 +120,7 @@ git commit -m "worktree-kill: resolve a stopped session's chat identity (RT-555)
   - `interface StoppedSession extends StoppedSessionPlan { identity: SessionIdentity | null }`
   - `WorktreeKillResult` becomes `{ terminated: { pid: number; label: string }[]; stoppedSessions: StoppedSession[] }`
 
-- [ ] **Step 1: Write the failing tests** in `describe("killWorktreeProcesses", ...)`, using a temp dir from `mkdtempSync` as the tree path (so `safeRealpath` resolves) and a fake `run` that answers by argv: lsof (`-d cwd -Fpn`) with `p<pid>\nn<cwd>` lines, `ps -A -o pid=,ppid=,comm=,args=` with rows, `ps eww ...` with empty output. `signal` records `[pid, sig]` into an array; `selfPids: [99999]`.
+- [ ] **Step 1: Write the failing tests** in `describe("killWorktreeProcesses", ...)`, using `realpathSync(mkdtempSync(...))` as the tree path (macOS `/var` resolves to `/private/var`), with the incident's `A/sub` created as a real subdirectory, and a fake `run` that answers by argv: lsof (`-d cwd -Fpn`) with `p<pid>\nn<cwd>` lines, `ps -A -o pid=,ppid=,comm=,args=` with rows, `ps eww ...` with empty output. `signal` records `[pid, sig]` into an array; `selfPids: [99999]`.
   - `"incident replay signals only the workload"`: the Task 1 incident rows with A = the temp dir and B another temp dir. Expect recorded signals `[[700, "SIGTERM"]]`, `stoppedSessions` `[]`.
   - `"lsof failing signals nothing"`: lsof answers `{ exitCode: 1, stdout: "" }`. Expect no signals, `{ terminated: [], stoppedSessions: [] }`.
   - `"ps -A failing signals nothing"`: same for ps.
@@ -157,7 +162,7 @@ git commit -m "worktree-kill: gather the full table, identify before signalling 
 
 - [ ] **Step 2: Run** `bun test lib/worktree/__tests__/dispose.test.ts`. Expected: new tests FAIL.
 
-- [ ] **Step 3: Implement.** Call `(deps.killWorktree ?? killWorktreeProcesses)(rec.path, { callerPids: deps.callerPids, stopSessionsInside: opts.stopSessions !== undefined })`. Log each stopped session at warn (`stopped agent session <name> working inside <tree>`) right after the kill. After a successful retire, for each stopped session with rooms, `await deps.notify(...)` per room inside try/catch (warn with `{ err, room }`). Keep the existing "worktree processes terminated" info line.
+- [ ] **Step 3: Implement.** Call `(deps.killWorktree ?? killWorktreeProcesses)(rec.path, { callerPids: deps.callerPids, stopSessionsInside: opts.stopSessions !== undefined })`. Log each stopped session at warn (`stopped agent session <name> working inside <tree>`) right after the kill. After the retire step, whenever the dispose proceeds (retained or not), for each stopped session with rooms, passing the outcome's `trash.path` or `null` when it has no `trash`, `await deps.notify(...)` per room inside try/catch (warn with `{ err, room }`). Keep the existing "worktree processes terminated" info line.
 
 - [ ] **Step 4: Run** the same command. Expected: PASS.
 
@@ -178,9 +183,9 @@ git commit -m "dispose: stop and announce agents left in a merged tree (RT-555)"
 - Consumes: `DisposeDeps.notify`, `DisposeDeps.killWorktree`, `stopSessions` (Task 4); `changeNoun`, `changeMarker` from `lib/repo-label.ts`.
 - Produces: `ReactorDeps.notify?` and `ReactorDeps.killWorktree?` (same types as on `DisposeDeps`); `ReconcilerDeps.notify?` (same type).
 
-- [ ] **Step 1: Write the failing tests** using the file's existing `detect(...)` helper with a merged MR (iid 83) and `liveCwds` empty, passing a `killWorktree` fake that records its opts and returns `{ terminated: [], stoppedSessions: [] }`:
+- [ ] **Step 1: Write the failing tests** inside the existing `describe` whose `detect(entries, extra)` helper accepts extra `ReactorDeps` (the "held trees say why (RT-267)" block, around line 278). Each test first calls `setSetting("rt.worktreeApp", { enabled: true, killProcesses: true }, "machine")` (the file's `beforeEach` sets it false, so without this the kill is never reached; the stale-orphan test near line 351 does the same), registers a tree on the branch with the file's `ephemeralTree(...)`, and runs `detect` with a merged MR (iid 83) and `liveCwds` empty, passing a `killWorktree` fake that records its opts and returns `{ terminated: [], stoppedSessions: [] }`:
   - `"a merged-MR dispose stops sessions with the change named"`: expect the fake saw `stopSessionsInside: true`. For the test repo identity, the `why` is `` `${changeNoun(id)} ${changeMarker(id)}83 merged` `` (assert through a stopped session whose notify body contains it: have the fake return one stopped session with rooms `["r"]` and a `notify` fake record bodies).
-  - `"a closed MR never reaches the session stop"`: closed state; the fake kill is never called with `stopSessionsInside: true`.
+  - `"a closed MR never reaches the session stop"`: same setup with the MR closed (witnessed: first pass `opened`, second `closed`); the fake kill is never called with `stopSessionsInside: true`, and the test also asserts the merged control case above did call it, so it cannot pass vacuously.
 
 - [ ] **Step 2: Run** `bun test lib/daemon/reconciler/__tests__/reactor.test.ts`. Expected: new tests FAIL.
 
@@ -203,8 +208,8 @@ git commit -m "reactor: merged-MR dispose stops sessions left inside (RT-555)"
 - Consumes: `ReconcilerDeps.notify` (Task 5); `SYSTEM_HANDLE` from `lib/daemon/handlers/herd.ts`; `routedHandlers` (declared near line 391, built later).
 
 - [ ] **Step 1: Implement.** Add to the call:
-  `notify: async ({ room, body }) => { const post = routedHandlers?.["chat:post"]; if (!post) { log.warn({ room }, "worktree notice dropped: chat not ready"); return; } const res = await post({ room, handle: SYSTEM_HANDLE, body }); if (!res.ok) log.warn({ room, error: res.error }, "worktree notice post failed"); }`
-  Import `SYSTEM_HANDLE` if `lib/daemon.ts` does not already.
+  `notify: async ({ room, body }) => { const post = routedHandlers?.["chat:post"]; if (!post) { log.warn({ room }, "worktree notice dropped: chat not ready"); return; } const res = (await post({ room, handle: SYSTEM_HANDLE, body })) as CommandResult<"chat:post">; if (!res.ok) log.warn({ room, error: res.error }, "worktree notice post failed"); }`
+  Import `SYSTEM_HANDLE` if `lib/daemon.ts` does not already; the `CommandResult<...>` cast follows the pattern of the nearby `mr:get` call (`Handler` returns `Promise<unknown>`).
 
 - [ ] **Step 2: Run gates** from the worktree root: `bun run typecheck` (expected: exit 0), `bun run purity` (expected: exit 0), and once more every touched test file:
   `bun test lib/daemon/__tests__/worktree-process-kill.test.ts lib/daemon/__tests__/session-identity.test.ts lib/worktree/__tests__/dispose.test.ts lib/daemon/reconciler/__tests__/reactor.test.ts lib/daemon/__tests__/worktree-reconciler.test.ts` (expected: all pass). Also `bun test lib/__tests__/no-raw-output.test.ts` since new lib files were added.
