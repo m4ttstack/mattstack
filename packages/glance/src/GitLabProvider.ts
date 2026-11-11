@@ -1655,9 +1655,13 @@ export class GitLabProvider implements GitProvider {
           paginationInfo: { next: number | null };
         };
         for (const r of data) labels.push({ name: r.name, description: r.description ?? null, color: r.color ?? null });
-        const more = paginationInfo.next !== null;
+        // gitbeaker maps an absent and an empty x-next-page to null, so a full page keeps the walk going.
+        const more = data.length > 0 && (paginationInfo.next !== null || data.length === 100);
         if (!more) return { labels: labels.slice(0, maxRows), truncated: labels.length > maxRows };
-        if (labels.length >= maxRows) return { labels: labels.slice(0, maxRows), truncated: true };
+        // An ambiguous full page (null next) needs one more page to prove rows exist past the cap.
+        if (labels.length > maxRows || (labels.length === maxRows && paginationInfo.next !== null)) {
+          return { labels: labels.slice(0, maxRows), truncated: true };
+        }
       }
     } catch (err) {
       this.forgeHttpError(err);
@@ -1755,7 +1759,7 @@ export class GitLabProvider implements GitProvider {
             mergedAt: r.merged_at ?? null,
           });
         }
-        const more = paginationInfo.next !== null;
+        const more = data.length > 0 && (paginationInfo.next !== null || data.length === perPage);
         if (rows.length > options.limit || !more) {
           return { rows: rows.slice(0, options.limit), truncated: rows.length > options.limit };
         }

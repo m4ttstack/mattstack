@@ -89,9 +89,39 @@ describe('fetchProjectLabels', () => {
 
   test('exactly maxRows with no next page is not truncated', async () => {
     const page = Array.from({ length: 100 }, (_, i) => ({ name: `l${i}` }));
-    stubFetch([{ body: page, headers: { 'x-next-page': '' } }]);
+    stubFetch([{ body: page, headers: { 'x-next-page': '' } }, { body: [] }]);
     const res = await provider().fetchProjectLabels!('g/p', { maxRows: 100 });
+    expect(res.labels).toHaveLength(100);
     expect(res.truncated).toBe(false);
+  });
+});
+
+describe('absent x-next-page', () => {
+  test('labels: a full page with no header fetches the next page', async () => {
+    const page = Array.from({ length: 100 }, (_, i) => ({ name: `l${i}` }));
+    const urls = stubFetch([{ body: page }, { body: [{ name: 'last' }] }]);
+    const res = await provider().fetchProjectLabels!('g/p');
+    expect(urls).toHaveLength(2);
+    expect(urls[1]!.searchParams.get('page')).toBe('2');
+    expect(res.labels).toHaveLength(101);
+  });
+
+  test('summaries: a full page with no header fetches the next page', async () => {
+    const page = Array.from({ length: 100 }, (_, i) => mrRow(i + 1));
+    const urls = stubFetch([{ body: page }, { body: [mrRow(101)] }]);
+    const res = await provider().fetchPullRequestSummaries!('g/p', { state: 'opened', limit: 100 });
+    expect(urls).toHaveLength(2);
+    expect(res.rows).toHaveLength(100);
+    expect(res.truncated).toBe(true);
+  });
+
+  test('an empty page with a next header stops', async () => {
+    const urls = stubFetch([{ body: [], headers: { 'x-next-page': '2' } }]);
+    const summaries = await provider().fetchPullRequestSummaries!('g/p', { state: 'opened', limit: 5 });
+    const labels = await provider().fetchProjectLabels!('g/p');
+    expect(urls).toHaveLength(2);
+    expect(summaries).toEqual({ rows: [], truncated: false });
+    expect(labels).toEqual({ labels: [], truncated: false });
   });
 });
 
