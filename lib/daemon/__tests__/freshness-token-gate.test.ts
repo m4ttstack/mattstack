@@ -39,24 +39,24 @@ afterEach(() => {
 });
 
 describe("getRepoContext only offers the GitLab token to a GitLab host", () => {
-  test("a github.com origin is refused and no request leaves", async () => {
+  test("a github.com origin with only a GitLab token asks for a GitHub token and no request leaves", async () => {
     stub("glpat-secret");
     const repo = repoWithOrigin("git@github.com:acme/widgets.git");
-    await expect(getRepoContext(repo.name, repo.path)).rejects.toThrow("unsupported: github.com is not a configured GitLab host");
+    await expect(getRepoContext(repo.name, repo.path)).rejects.toThrow("missing GitHub token (run: rt setup github connect)");
     expect(requests).toEqual([]);
   });
 
-  test("a github.com origin stays refused when github.com is the confirmed host", async () => {
+  test("a github.com origin never takes the GitLab token, even when github.com is the confirmed host", async () => {
     stub("glpat-secret", "github.com");
     const repo = repoWithOrigin("https://github.com/acme/widgets.git");
-    await expect(getRepoContext(repo.name, repo.path)).rejects.toThrow("unsupported: github.com");
+    await expect(getRepoContext(repo.name, repo.path)).rejects.toThrow("missing GitHub token (run: rt setup github connect)");
     expect(requests).toEqual([]);
   });
 
-  test("a github.com origin with no GitLab token gets the same refusal, not a request to add one", async () => {
+  test("a github.com origin with no tokens asks for a GitHub token, not a GitLab one", async () => {
     stub(undefined);
     const repo = repoWithOrigin("git@github.com:acme/widgets.git");
-    await expect(getRepoContext(repo.name, repo.path)).rejects.toThrow("unsupported: github.com is not a configured GitLab host");
+    await expect(getRepoContext(repo.name, repo.path)).rejects.toThrow("missing GitHub token (run: rt setup github connect)");
     expect(requests).toEqual([]);
   });
 
