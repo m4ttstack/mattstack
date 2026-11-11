@@ -12,7 +12,7 @@
  *
  * On every refresh this module:
  *   1. Captures the previously-stored note IDs for the MR.
- *   2. Fetches the current discussions snapshot from GitLab.
+ *   2. Fetches the current discussions snapshot from the repo's forge.
  *   3. Writes the snapshot to the discussions file store.
  *   4. Broadcasts `discussions:update`.
  *   5. If any new non-system notes appeared from someone other than the
@@ -23,7 +23,7 @@
  */
 
 import type { Discussion, Note } from "@mattstack/glance";
-import { getGitLabContext, getCurrentUserId } from "./freshness.ts";
+import { getCurrentUserId, getRepoContext, getSelfUserId, repositoryIdFor, type RepoContext } from "./freshness.ts";
 import { getDiscussionsFileStore, type DiscussionsFileStore } from "./discussions-file-store.ts";
 import { getProjectMRs, type ProjectMRs } from "./project-mrs-store.ts";
 import type { HandlerContext } from "./handlers/types.ts";
@@ -59,7 +59,12 @@ export interface MRMeta {
 }
 
 const BOT_USERNAME = /^(?:project|group)_\d+_bot_/;
-const isBot = (n: Note) => BOT_USERNAME.test(n.author.username ?? "");
+const isBot = (n: Note) => n.author.bot === true || BOT_USERNAME.test(n.author.username ?? "");
+
+type Forge = RepoContext["forge"];
+
+/** How each forge writes a merge request's number: `!5` on GitLab, `#5` on GitHub. */
+const iidRef = (forge: Forge, iid: number) => `${forge === "github" ? "#" : "!"}${iid}`;
 
 /**
  * MR metadata for notifications and terminal-state checks: branch entry
@@ -72,11 +77,12 @@ export function resolveMRMeta(
   repoName: string,
   iid: number,
   projectStore: ProjectMRs = getProjectMRs(),
+  forge: Forge = "gitlab",
 ): MRMeta | null {
   for (const entry of Object.values(ctx.cache.entries)) {
     if (entry.repoName === repoName && entry.mr?.iid === iid) {
       return {
-        title:           entry.mr.title ?? `!${iid}`,
+        title:           entry.mr.title ?? iidRef(forge, iid),
         webUrl:          entry.mr.webUrl ?? null,
         authorNumericId: numericUserId(entry.mr.author?.id),
         terminal:        MR_TERMINAL_STATES.has(entry.mr.status),
@@ -86,7 +92,7 @@ export function resolveMRMeta(
   const rec = projectStore.read(repoName)?.mrs[iid];
   if (rec) {
     return {
-      title:           rec.pr.title ?? `!${iid}`,
+      title:           rec.pr.title ?? iidRef(forge, iid),
       webUrl:          rec.pr.webUrl ?? null,
       authorNumericId: numericUserId(rec.pr.author?.id),
       terminal:        MR_TERMINAL_STATES.has(rec.pr.state),
@@ -100,6 +106,7 @@ export interface RefreshOverrides {
   fileStore?:        DiscussionsFileStore;
   projectStore?:     ProjectMRs;
   currentUserId?:    number | null;
+  forge?:            Forge;
   /** Test seam: the real emitter queues to disk and pokes the tray socket. */
   notify?:           (category: string, title: string, message: string, url?: string) => void;
 }
@@ -177,21 +184,21 @@ export async function refreshDiscussions(
   overrides: RefreshOverrides = {},
 ): Promise<RefreshResult> {
   const fileStore = overrides.fileStore ?? getDiscussionsFileStore();
+  const repoCtx = overrides.fetchDiscussions
+    ? null
+    : await getRepoContext(repoName, deps.ctx.repoIndex()[repoName]);
+  const forge: Forge = overrides.forge ?? repoCtx?.forge ?? "gitlab";
   // Null for an MR the syncs have not picked up yet (opened seconds ago); its
   // discussions are still fetched and stored.
-  const meta = resolveMRMeta(deps.ctx, repoName, iid, overrides.projectStore);
+  const meta = resolveMRMeta(deps.ctx, repoName, iid, overrides.projectStore, forge);
 
   const prevEntry = fileStore.read(repoName, iid);
   const isFirstFetch = prevEntry === undefined;
   const prevIds = collectNoteIds(prevEntry?.discussions);
 
-  const fetchDiscussions = overrides.fetchDiscussions ?? (async (repo: string, mrIid: number) => {
-    const repoPath = deps.ctx.repoIndex()[repo];
-    const repoCtx = await getGitLabContext("threads", repo, repoPath);
-    const detail = await repoCtx.provider.fetchMRDiscussions(`gitlab:${repoCtx.projectId}`, mrIid);
-    return detail.discussions;
-  });
-  const discussions = await fetchDiscussions(repoName, iid);
+  const discussions = repoCtx
+    ? (await repoCtx.provider.fetchMRDiscussions(repositoryIdFor(repoCtx), iid)).discussions
+    : await overrides.fetchDiscussions!(repoName, iid);
 
   const fetchedAt = Date.now();
   fileStore.write(repoName, iid, { discussions, fetchedAt });
@@ -203,7 +210,9 @@ export async function refreshDiscussions(
     fetchedAt,
   });
 
-  const currentUserId = overrides.currentUserId !== undefined ? overrides.currentUserId : getCurrentUserId();
+  const currentUserId = overrides.currentUserId !== undefined
+    ? overrides.currentUserId
+    : repoCtx ? await getSelfUserId(repoCtx) : getCurrentUserId();
   // Without meta, authorship is unknown, so only threads I posted in qualify.
   const isMrAuthor = currentUserId !== null && meta?.authorNumericId === currentUserId;
   const newNotes = isFirstFetch
@@ -211,7 +220,7 @@ export async function refreshDiscussions(
     : collectNewNotes(prevIds, discussions, currentUserId, isMrAuthor);
 
   if (newNotes.length > 0) {
-    const mrTitle = meta?.title ?? `!${iid}`;
+    const mrTitle = meta?.title ?? iidRef(forge, iid);
     const webUrl  = meta?.webUrl ?? null;
 
     deps.broadcast("discussions:new-comments", {
@@ -232,7 +241,7 @@ export async function refreshDiscussions(
     const extra = newNotes.length > 1 ? ` (+${newNotes.length - 1} more)` : "";
     (overrides.notify ?? notifyEnabled)(
       "new_comment",
-      `New comment on !${iid}`,
+      `New comment on ${iidRef(forge, iid)}`,
       `@${first.authorUser}: ${preview}${extra}`,
       webUrl ?? undefined,
     );
