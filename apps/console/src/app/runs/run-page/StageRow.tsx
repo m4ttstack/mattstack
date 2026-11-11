@@ -91,6 +91,7 @@ function RedirectOutcome({ text }: { text: string }) {
         item: classes.outcomeItem,
         control: classes.outcomeControl,
         label: classes.outcomeLabel,
+        chevron: classes.outcomeChevron,
         content: classes.outcomeNote,
       }}
       data-row="Redirected"

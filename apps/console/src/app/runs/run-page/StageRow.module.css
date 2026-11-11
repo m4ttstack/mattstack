@@ -89,6 +89,11 @@
   animation: outcome-note-in 160ms ease-out;
 }
 
+/* The note opens at once, but the chevron keeps its turn. */
+.outcomeChevron {
+  --accordion-transition-duration: 200ms;
+}
+
 @keyframes outcome-note-in {
   from {
     opacity: 0;
