@@ -5,9 +5,12 @@ import { describe, expect, test } from "bun:test";
 import {
   attributeCwds,
   nestedExcludes,
+  planWorktreeKill,
+  processLabel,
   safeRealpath,
   selectKillTargets,
   type KillCandidate,
+  type KillPlanInput,
 } from "../worktree-process-kill.ts";
 
 function row(pid: number, ppid: number, command: string, fullCommand: string): KillCandidate {
@@ -203,5 +206,151 @@ describe("nestedExcludes", () => {
     const attributed = attributeCwds("/repo", excludes, cwdMap);
 
     expect([...attributed.keys()].sort()).toEqual([1, 2]);
+  });
+});
+
+describe("planWorktreeKill", () => {
+  const A = "/w/haldir";
+  const B = "/w/shelob";
+
+  function plan(
+    table: KillCandidate[],
+    cwdEntries: [number, string][],
+    opts: Partial<KillPlanInput> = {},
+  ) {
+    return planWorktreeKill({
+      target: A,
+      excludes: [],
+      table,
+      cwds: new Map(cwdEntries),
+      protectedPids: [],
+      stopSessionsInside: false,
+      ...opts,
+    });
+  }
+  const pids = (r: { targets: KillCandidate[] }) => r.targets.map(t => t.pid);
+
+  test("incident replay: a moved session's shell and children in A are spared, workload is not", () => {
+    const table = [
+      row(1, 0, "launchd", "/sbin/launchd"),
+      row(500, 1, "herdr", "/Users/x/.local/bin/herdr server"),
+      row(600, 500, "-zsh", "-zsh"),
+      row(601, 600, "claude", "/Users/x/.local/bin/claude --model opus"),
+      row(602, 601, ".bun", "/Users/x/.bun/bin/bun run mcp"),
+      row(603, 601, ".loc", "/Users/x/.local/bin/herdr mcp"),
+      row(700, 1, "node", "node vite"),
+    ];
+    const cwds: [number, string][] = [[600, A], [601, B], [602, A], [603, `${A}/sub`], [700, A]];
+    for (const stopSessionsInside of [true, false]) {
+      const result = plan(table, cwds, { stopSessionsInside });
+      expect(pids(result)).toEqual([700]);
+      expect(result.stoppedSessions).toEqual([]);
+    }
+  });
+
+  test("a login shell with no agent is spared", () => {
+    expect(pids(plan([row(600, 1, "-zsh", "-zsh")], [[600, A]]))).toEqual([]);
+  });
+
+  test("protected pid 1 does not spare unrelated workload", () => {
+    const result = plan([row(700, 1, "node", "node vite")], [[700, A]], { protectedPids: [1, 999] });
+    expect(pids(result)).toEqual([700]);
+  });
+
+  test("an agent inside A is stopped only with stopSessionsInside", () => {
+    const table = [
+      row(600, 1, "-zsh", "-zsh"),
+      row(601, 600, "claude", "claude"),
+      row(602, 601, "bun", "bun run mcp"),
+    ];
+    const cwds: [number, string][] = [[600, A], [601, A], [602, A]];
+
+    const stopping = plan(table, cwds, { stopSessionsInside: true });
+    expect(pids(stopping)).toEqual([601]);
+    expect(stopping.stoppedSessions).toEqual([{ pid: 601, label: "claude", cwd: A }]);
+
+    const sparing = plan(table, cwds, { stopSessionsInside: false });
+    expect(pids(sparing)).toEqual([]);
+    expect(sparing.stoppedSessions).toEqual([]);
+  });
+
+  test("an agent above a protected caller pid is spared with its family", () => {
+    const table = [
+      row(601, 1, "claude", "claude"),
+      row(650, 601, "zsh", "zsh -c rt"),
+      row(651, 650, "rt", "rt worktree dispose"),
+    ];
+    const result = plan(table, [[601, A], [650, A], [651, A]], {
+      protectedPids: [651],
+      stopSessionsInside: true,
+    });
+    expect(pids(result)).toEqual([]);
+    expect(result.stoppedSessions).toEqual([]);
+  });
+
+  test("spare wins: an agent in A under a moved session is not stopped", () => {
+    const table = [
+      row(601, 1, "claude", "claude"),
+      row(610, 601, "codex", "codex"),
+      row(611, 610, "node", "node x"),
+    ];
+    const result = plan(table, [[601, B], [610, A], [611, A]], { stopSessionsInside: true });
+    expect(pids(result)).toEqual([]);
+    expect(result.stoppedSessions).toEqual([]);
+  });
+
+  test("an agent with unknown cwd counts as outside", () => {
+    const table = [row(601, 1, "claude", "claude"), row(602, 601, "node", "node vite")];
+    const result = plan(table, [[602, A]], { stopSessionsInside: true });
+    expect(pids(result)).toEqual([]);
+  });
+
+  test("a ppid cycle or a missing parent does not loop", () => {
+    const table = [
+      row(800, 801, "node", "node a"),
+      row(801, 800, "node", "node b"),
+      row(802, 4242, "node", "node c"),
+    ];
+    const result = plan(table, [[800, A], [801, A], [802, A]]);
+    expect(pids(result)).toEqual([800, 801, 802]);
+  });
+
+  test("nested excluded tree owns its processes", () => {
+    const result = plan([row(700, 1, "node", "node vite")], [[700, `${A}/nested`]], {
+      excludes: [`${A}/nested`],
+    });
+    expect(pids(result)).toEqual([]);
+  });
+
+  test("an .app bundle helper in A is spared", () => {
+    const helper = row(
+      720,
+      1,
+      "Code Helper",
+      "/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper.app/Contents/MacOS/Code Helper --type=utility",
+    );
+    expect(pids(plan([helper], [[720, A]]))).toEqual([]);
+  });
+
+  test("spared binaries in A are spared", () => {
+    const table = [row(730, 1, "vim", "vim README.md"), row(731, 1, "tmux", "tmux new")];
+    expect(pids(plan(table, [[730, A], [731, A]]))).toEqual([]);
+  });
+
+  test("a protected caller's own descendants are spared with no agent above", () => {
+    const table = [
+      row(640, 1, "zsh", "zsh"),
+      row(641, 640, "rt", "rt worktree dispose"),
+      row(642, 641, "node", "node helper"),
+    ];
+    const result = plan(table, [[640, A], [641, A], [642, A]], { protectedPids: [641] });
+    expect(pids(result)).toEqual([]);
+  });
+});
+
+describe("processLabel", () => {
+  test("labels use argv0, not the truncated comm", () => {
+    expect(processLabel(row(1, 0, ".loc", "/Users/x/.local/bin/claude --x"))).toBe("claude");
+    expect(processLabel(row(1, 0, "-zsh", "-zsh"))).toBe("zsh");
   });
 });

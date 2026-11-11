@@ -36,6 +36,8 @@ export interface KillCandidate {
   fullCommand: string;
 }
 
+export type ProcRow = KillCandidate;
+
 export interface KillTargetOptions {
   /** Extra binary names to protect, in addition to the built-in AI agents. */
   aiAgentNames?: string[];
@@ -56,15 +58,37 @@ export function safeRealpath(p: string): string {
   }
 }
 
-/** The names a process answers to: comm, argv0 basename, and — when argv0 is
- *  an interpreter — the basename of the script it runs. */
+function stripLoginDash(name: string): string {
+  return name.startsWith("-") ? name.slice(1) : name;
+}
+
+/** The names a process answers to: comm, argv0 basename, and (when argv0 is
+ *  an interpreter) the basename of the script it runs. A login shell's
+ *  leading `-` is stripped from each. */
 function processNames(proc: KillCandidate): string[] {
   const argv = proc.fullCommand.split(" ");
-  const names = [proc.command, basename(argv[0] ?? "")];
+  const names = [stripLoginDash(proc.command), stripLoginDash(basename(argv[0] ?? ""))];
   if (INTERPRETER_BINS.has(names[1]!) && argv[1]) {
-    names.push(basename(argv[1]));
+    names.push(stripLoginDash(basename(argv[1])));
   }
   return names;
+}
+
+/** argv0 basename; comm is truncated to 16 characters on macOS. */
+export function processLabel(proc: ProcRow): string {
+  const argv0 = stripLoginDash(basename(proc.fullCommand.split(" ")[0] ?? ""));
+  return argv0 || stripLoginDash(proc.command);
+}
+
+/** Never workload: an .app bundle process, a shell, or a multiplexer/editor. */
+function isSparedFromWorkload(proc: KillCandidate): boolean {
+  if (proc.fullCommand.includes(".app/Contents/")) return true;
+  const argv0 = stripLoginDash(basename(proc.fullCommand.split(" ")[0] ?? ""));
+  const comm = stripLoginDash(proc.command);
+  return (
+    SHELL_BINS.has(comm) || SHELL_BINS.has(argv0) ||
+    SPARED_BINS.has(comm) || SPARED_BINS.has(argv0)
+  );
 }
 
 /** An agent session, shell, multiplexer or editor: the user's, never workload. */
@@ -119,10 +143,7 @@ export function selectKillTargets(
 
   return rows.filter(proc => {
     if (protectedPids.has(proc.pid)) return false;
-    if (proc.fullCommand.includes(".app/Contents/")) return false;
-    if (SHELL_BINS.has(proc.command) || SHELL_BINS.has(basename(proc.fullCommand.split(" ")[0] ?? ""))) return false;
-    if (SPARED_BINS.has(proc.command) || SPARED_BINS.has(basename(proc.fullCommand.split(" ")[0] ?? ""))) return false;
-    return true;
+    return !isSparedFromWorkload(proc);
   });
 }
 
@@ -146,6 +167,116 @@ export function attributeCwds(
     attributed.set(pid, cwd);
   }
   return attributed;
+}
+
+export interface StoppedSessionPlan {
+  pid: number;
+  label: string;
+  cwd: string;
+}
+
+export interface KillPlanInput {
+  /** Realpath'd tree being disposed. */
+  target: string;
+  /** Realpath'd trees nested under target, owned by someone else. */
+  excludes: string[];
+  /** Every process on the machine. */
+  table: ProcRow[];
+  /** Every process's realpath'd cwd. */
+  cwds: Map<number, string>;
+  /** The daemon, its parent and the calling CLI. */
+  protectedPids: number[];
+  /** True only for the merge reactor's dispose: agents inside target are stopped. */
+  stopSessionsInside: boolean;
+}
+
+/**
+ * Decides who dies when `target` is disposed, over the full process table.
+ * An agent anywhere is a session root; its family (ancestors below pid 1 and
+ * every descendant) lives unless the root sits inside target and the caller
+ * asked for sessions inside to be stopped. Pure: no ps, lsof or signals.
+ */
+export function planWorktreeKill(input: KillPlanInput): {
+  targets: KillCandidate[];
+  stoppedSessions: StoppedSessionPlan[];
+} {
+  const { target, excludes, table, cwds, stopSessionsInside } = input;
+  const byPid = new Map<number, ProcRow>();
+  const children = new Map<number, number[]>();
+  for (const proc of table) {
+    byPid.set(proc.pid, proc);
+    const siblings = children.get(proc.ppid) ?? [];
+    siblings.push(proc.pid);
+    children.set(proc.ppid, siblings);
+  }
+
+  const ancestorsOf = (pid: number): number[] => {
+    const found: number[] = [];
+    const seen = new Set<number>([pid]);
+    let cur = byPid.get(pid)?.ppid;
+    while (cur !== undefined && cur > 1 && !seen.has(cur)) {
+      const proc = byPid.get(cur);
+      if (!proc) break;
+      seen.add(cur);
+      found.push(cur);
+      cur = proc.ppid;
+    }
+    return found;
+  };
+
+  const descendantsOf = (pid: number): number[] => {
+    const found: number[] = [];
+    const seen = new Set<number>([pid]);
+    const queue = [...(children.get(pid) ?? [])];
+    while (queue.length > 0) {
+      const next = queue.pop()!;
+      if (seen.has(next)) continue;
+      seen.add(next);
+      found.push(next);
+      queue.push(...(children.get(next) ?? []));
+    }
+    return found;
+  };
+
+  const familyOf = (pid: number): number[] => [pid, ...ancestorsOf(pid), ...descendantsOf(pid)];
+
+  const attributed = attributeCwds(target, excludes, cwds);
+  const roots = table.filter(p => processNames(p).some(n => DEFAULT_AI_AGENT_NAMES.has(n)));
+  const rootSet = new Set(roots.map(r => r.pid));
+  const protectedRoots = input.protectedPids.filter(pid => pid > 1);
+
+  const spared = new Set<number>();
+  for (const root of roots) {
+    if (!attributed.has(root.pid) || !stopSessionsInside) {
+      for (const pid of familyOf(root.pid)) spared.add(pid);
+    }
+  }
+  for (const pid of protectedRoots) {
+    spared.add(pid);
+    for (const d of descendantsOf(pid)) spared.add(d);
+    for (const a of ancestorsOf(pid)) {
+      if (rootSet.has(a)) for (const f of familyOf(a)) spared.add(f);
+    }
+  }
+
+  const stoppedRoots = roots.filter(r => attributed.has(r.pid) && !spared.has(r.pid));
+  const stoppedFamily = new Set<number>();
+  for (const root of stoppedRoots) for (const pid of familyOf(root.pid)) stoppedFamily.add(pid);
+
+  const targets = new Map<number, KillCandidate>();
+  for (const root of stoppedRoots) targets.set(root.pid, root);
+  for (const pid of attributed.keys()) {
+    const proc = byPid.get(pid);
+    if (!proc || spared.has(pid) || stoppedFamily.has(pid) || isSparedFromWorkload(proc)) continue;
+    targets.set(pid, proc);
+  }
+
+  return {
+    targets: [...targets.values()].sort((a, b) => a.pid - b.pid),
+    stoppedSessions: stoppedRoots
+      .map(r => ({ pid: r.pid, label: processLabel(r), cwd: attributed.get(r.pid)! }))
+      .sort((a, b) => a.pid - b.pid),
+  };
 }
 
 function isAlive(pid: number): boolean {
