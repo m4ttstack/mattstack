@@ -21,8 +21,10 @@ import type {
 import { parseUpdatedAfter, requireProjectPath, warningTarget } from './GitProvider.ts';
 import type {
   BranchProtectionRule,
+  CommentAnchor,
   CreatePullRequestInput,
   Discussion,
+  InlineCommentResult,
   InvalidationBatch,
   JobDetail,
   EnqueuePullRequestInput,
@@ -34,6 +36,8 @@ import type {
   Note,
   NoteAuthor,
   NotePosition,
+  NoteRef,
+  NoteWriteResult,
   Pipeline,
   PipelineJob,
   PullRequestFileDiff,
@@ -67,6 +71,13 @@ import {
   type GlanceOctokit
 } from './githubClient.ts';
 import type { OnRequestHook } from './instrumentation.ts';
+import {
+  forgeWrite,
+  githubLineAndSide,
+  parseReviewThreadDiscussionId,
+  resolveGitHubCommentKind,
+  type GitHubCommentKind
+} from './githubNotes.ts';
 import {
   buildContextsPageQuery,
   buildFillQuery,
@@ -616,6 +627,8 @@ export class GitHubProvider implements GitProvider {
   private readonly log: ForgeLogger;
   private readonly octokit: GlanceOctokit;
   private readonly now: () => number;
+  private readonly writeTimeoutMs: number;
+  private readonly reviewTimeoutMs: number;
   private readonly rulesCache = new Map<string, { required: number | null; at: number }>();
 
   /**
@@ -624,13 +637,23 @@ export class GitHubProvider implements GitProvider {
    * @param token — A GitHub PAT (classic or fine-grained) with `repo` scope.
    * @param options.logger — Optional logger; defaults to noop.
    * @param options.now Clock for the ruleset cache; defaults to `Date.now`.
+   * @param options.writeTimeoutMs Abort bound for each comment write; defaults to 15 s.
+   * @param options.reviewTimeoutMs Abort bound for the review POST; defaults to 60 s.
    */
   constructor(
     baseURL: string,
     token: string,
-    options: { logger?: ForgeLogger; onRequest?: OnRequestHook; now?: () => number } = {}
+    options: {
+      logger?: ForgeLogger;
+      onRequest?: OnRequestHook;
+      now?: () => number;
+      writeTimeoutMs?: number;
+      reviewTimeoutMs?: number;
+    } = {}
   ) {
     this.now = options.now ?? Date.now;
+    this.writeTimeoutMs = options.writeTimeoutMs ?? 15_000;
+    this.reviewTimeoutMs = options.reviewTimeoutMs ?? 60_000;
     this.baseURL = baseURL.replace(/\/$/, '');
     this.token = token;
     this.log = options.logger ?? noopLogger;
@@ -2179,6 +2202,159 @@ export class GitHubProvider implements GitProvider {
     await this.setThreadResolved('unresolveDiscussion', projectPath, mrIid, discussionId, false);
   }
 
+  // ── Comment writes ──────────────────────────────────────────────────────
+
+  async createComment(
+    projectPath: string,
+    mrIid: number,
+    body: string,
+    _options?: { resolvable?: boolean }
+  ): Promise<NoteWriteResult> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    const { data } = await forgeWrite('createComment', this.writeTimeoutMs, (signal) =>
+      this.octokit.request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+        owner,
+        repo,
+        issue_number: mrIid,
+        body,
+        request: { retries: 0, signal }
+      })
+    );
+    const noteId = Number(data.id);
+    return { noteId, discussionId: `gh-issue-comment-${noteId}`, resolvable: false, url: data.html_url };
+  }
+
+  async createInlineComment(
+    projectPath: string,
+    mrIid: number,
+    body: string,
+    anchor: CommentAnchor
+  ): Promise<InlineCommentResult> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    const { line, side } = githubLineAndSide(anchor);
+    const pr = await this.forgeRead('createInlineComment', () =>
+      this.octokit.request('GET /repos/{owner}/{repo}/pulls/{pull_number}', { owner, repo, pull_number: mrIid })
+    );
+    const { data } = await forgeWrite('createInlineComment', this.writeTimeoutMs, (signal) =>
+      this.octokit.request('POST /repos/{owner}/{repo}/pulls/{pull_number}/comments', {
+        owner,
+        repo,
+        pull_number: mrIid,
+        body,
+        commit_id: pr.data.head.sha,
+        path: anchor.path,
+        line,
+        side,
+        request: { retries: 0, signal }
+      })
+    );
+    const noteId = Number(data.id);
+    return {
+      noteId,
+      discussionId: `gh-review-thread-${noteId}`,
+      resolvable: true,
+      url: data.html_url,
+      anchored: true,
+      noteType: 'DiffNote'
+    };
+  }
+
+  async replyToDiscussion(
+    projectPath: string,
+    mrIid: number,
+    discussionId: string,
+    body: string
+  ): Promise<NoteWriteResult> {
+    const root = parseReviewThreadDiscussionId(discussionId);
+    if (root == null) {
+      throw new Error(
+        `replyToDiscussion: ${discussionId} is a pull request comment with no thread on GitHub; post a new comment instead`
+      );
+    }
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    const { data } = await forgeWrite('replyToDiscussion', this.writeTimeoutMs, (signal) =>
+      this.octokit.request('POST /repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies', {
+        owner,
+        repo,
+        pull_number: mrIid,
+        comment_id: root,
+        body,
+        request: { retries: 0, signal }
+      })
+    );
+    return { noteId: Number(data.id), discussionId, resolvable: true, url: data.html_url };
+  }
+
+  async updateComment(projectPath: string, mrIid: number, note: NoteRef, body: string): Promise<void> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    if (note.kind === 'review') {
+      await forgeWrite('updateComment', this.writeTimeoutMs, (signal) =>
+        this.octokit.request('PUT /repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}', {
+          owner,
+          repo,
+          pull_number: mrIid,
+          review_id: note.id,
+          body,
+          request: { retries: 0, signal }
+        })
+      );
+      return;
+    }
+    const kind = note.kind ?? (await this.commentKind('updateComment', projectPath, mrIid, note.id));
+    const params = { owner, repo, comment_id: note.id, body };
+    await forgeWrite<unknown>('updateComment', this.writeTimeoutMs, (signal) =>
+      kind === 'diff'
+        ? this.octokit.request('PATCH /repos/{owner}/{repo}/pulls/comments/{comment_id}', {
+            ...params,
+            request: { retries: 0, signal }
+          })
+        : this.octokit.request('PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}', {
+            ...params,
+            request: { retries: 0, signal }
+          })
+    );
+  }
+
+  async deleteComment(projectPath: string, mrIid: number, note: NoteRef): Promise<void> {
+    if (note.kind === 'review') throw new Error('GitHub cannot delete a submitted review');
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    const kind = note.kind ?? (await this.commentKind('deleteComment', projectPath, mrIid, note.id));
+    const params = { owner, repo, comment_id: note.id };
+    await forgeWrite<unknown>('deleteComment', this.writeTimeoutMs, (signal) =>
+      kind === 'diff'
+        ? this.octokit.request('DELETE /repos/{owner}/{repo}/pulls/comments/{comment_id}', {
+            ...params,
+            request: { retries: 0, signal }
+          })
+        : this.octokit.request('DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}', {
+            ...params,
+            request: { retries: 0, signal }
+          })
+    );
+  }
+
+  private commentKind(op: string, projectPath: string, mrIid: number, id: number): Promise<GitHubCommentKind> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    return resolveGitHubCommentKind({ id, projectPath, mrIid }, (kind) =>
+      this.forgeRead(op, async () => {
+        if (kind === 'diff') {
+          const res = await this.octokit.request('GET /repos/{owner}/{repo}/pulls/comments/{comment_id}', {
+            owner,
+            repo,
+            comment_id: id
+          });
+          return res.data.pull_request_url;
+        }
+        const res = await this.octokit.request('GET /repos/{owner}/{repo}/issues/comments/{comment_id}', {
+          owner,
+          repo,
+          comment_id: id
+        });
+        return res.data.issue_url;
+      })
+    );
+  }
+
   /**
    * Move one review thread between resolved and unresolved.
    *
@@ -2420,7 +2596,7 @@ export class GitHubProvider implements GitProvider {
         newPath: f.filename,
         ...(f.previous_filename ? { oldPath: f.previous_filename } : {}),
         diff: f.patch ?? '',
-        ...(f.patch === undefined ? { tooLarge: true } : {})
+        ...(f.patch == null ? { tooLarge: true } : {})
       }));
       return { diffs, truncated: res.data.length >= 100 };
     });
@@ -3561,22 +3737,6 @@ function toNoteAuthor(u: GHUser): NoteAuthor {
     name: u.name ?? u.login,
     avatarUrl: u.avatar_url
   };
-}
-
-/**
- * The root comment id inside a `gh-review-thread-<id>` discussion id, or null
- * for any other shape.
- *
- * Null for `gh-issue-comment-<id>` is the useful case: those are PR-level
- * comments with no thread behind them, and the caller turns the null into an
- * explanation rather than sending a comment id to a mutation that wants a
- * thread.
- */
-function parseReviewThreadDiscussionId(discussionId: string): number | null {
-  const match = /^gh-review-thread-(\d+)$/.exec(discussionId);
-  if (!match) return null;
-  const id = Number(match[1]);
-  return Number.isSafeInteger(id) ? id : null;
 }
 
 // Statuses the HTTP spec defines as never carrying a body. Octokit's fetch

@@ -1,5 +1,6 @@
 import type {
   BranchProtectionRule,
+  CommentAnchor,
   CreatePullRequestInput,
   Discussion,
   InvalidationBatch,
@@ -12,6 +13,9 @@ import type {
   MergeRequestIndexRow,
   MergeRequestMetrics,
   MRDetail,
+  InlineCommentResult,
+  NoteRef,
+  NoteWriteResult,
   Pipeline,
   PipelineJob,
   PullRequestFileDiff,
@@ -596,6 +600,59 @@ export interface GitProvider {
    * Check `capabilities.canResolveDiscussions` before calling.
    */
   unresolveDiscussion(projectPath: string, mrIid: number, discussionId: string): Promise<void>;
+
+  // ── Comment writes ──────────────────────────────────────────────────────
+
+  /**
+   * Post a new top-level comment.
+   * On GitLab: a resolvable discussion, or a plain note when
+   * `resolvable: false`.
+   * On GitHub: a pull request comment, never resolvable whatever the option.
+   */
+  createComment(
+    projectPath: string,
+    mrIid: number,
+    body: string,
+    options?: { resolvable?: boolean }
+  ): Promise<NoteWriteResult>;
+
+  /**
+   * Post a comment on a diff line.
+   * On GitLab: one positioned discussion; GitLab can silently drop the
+   * position, which comes back as `anchored: false` with no retry.
+   * On GitHub: a review comment at the head commit, on side `RIGHT` at
+   * `anchor.line`, or side `LEFT` at `anchor.oldLine` when `line` is absent.
+   */
+  createInlineComment(
+    projectPath: string,
+    mrIid: number,
+    body: string,
+    anchor: CommentAnchor
+  ): Promise<InlineCommentResult>;
+
+  /**
+   * Reply inside an existing thread.
+   * On GitHub only `gh-review-thread-<id>` threads take replies; any other
+   * id is refused before a request. Check
+   * `capabilities.canReplyToGeneralComments`.
+   */
+  replyToDiscussion(
+    projectPath: string,
+    mrIid: number,
+    discussionId: string,
+    body: string
+  ): Promise<NoteWriteResult>;
+
+  /**
+   * Replace a comment's body.
+   * On GitHub, `note.kind` picks the endpoint; with no kind the diff comment
+   * is tried first and the pull request comment on a 404, and a comment that
+   * belongs to another pull request is refused before any write.
+   */
+  updateComment(projectPath: string, mrIid: number, note: NoteRef, body: string): Promise<void>;
+
+  /** Delete a comment; `note.kind` resolves as in `updateComment`. GitHub cannot delete a review. */
+  deleteComment(projectPath: string, mrIid: number, note: NoteRef): Promise<void>;
 
   // ── Pipeline mutations ──────────────────────────────────────────────────
 

@@ -83,7 +83,7 @@ export interface ReviewerState {
   state: string;
 }
 
-/** A number builds the id URL it always has; a path is encoded into one segment. */
+/** GitLab reads a project path only as one URL-encoded segment. */
 function projectSegment(project: number | string): string {
   return typeof project === 'number' ? String(project) : encodeURIComponent(project);
 }

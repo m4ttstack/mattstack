@@ -52,7 +52,7 @@ describe('fetchPullRequestDiffs', () => {
     }
   });
 
-  test('an aborted signal rejects', async () => {
+  test('an aborted signal rejects with the abort', async () => {
     stubForge({ rest: () => jsonResponse([file(1)]) });
     const stub = globalThis.fetch;
     globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
@@ -61,9 +61,10 @@ describe('fetchPullRequestDiffs', () => {
     }) as typeof fetch;
     const controller = new AbortController();
     controller.abort();
-    await expect(
-      provider().fetchPullRequestDiffs!('o/r', 7, { signal: controller.signal })
-    ).rejects.toBeDefined();
+    const err = await provider()
+      .fetchPullRequestDiffs!('o/r', 7, { signal: controller.signal })
+      .catch((e: unknown) => e);
+    expect((err as Error).name).toBe('AbortError');
   });
 
   test('a non-2xx goes through the forge read error', async () => {
