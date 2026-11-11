@@ -80,7 +80,10 @@ export class RateLimitedError extends Error {
   /** ISO time the limit lifts, when GitHub said; null when it did not. */
   readonly resetAt: string | null;
 
-  /** How long GitHub asked callers to wait; null when it did not say. */
+  /**
+   * How long to wait before retrying: GitHub's `Retry-After` when sent, 60s
+   * for a secondary limit with quota left and no header; otherwise null.
+   */
   readonly retryAfterMs: number | null;
 
   /** The request that hit the limit, e.g. `"GET /repos/a/b/pulls/1"`. */

@@ -1610,65 +1610,57 @@ export class GitHubProvider implements GitProvider {
       }
       throw err;
     }
-    let step = 'reading the merged PR back';
-    try {
-      const pr = await this.fetchSingleMRAfterMutation(projectPath, mrIid, 'Merged');
-      if (input?.shouldRemoveSourceBranch) {
-        // `pr.sourceBranch` is `head.ref`, a branch name with no repository
-        // attached. For a same-repo PR that name lives in `projectPath`, but
-        // for a fork PR it lives in the fork, and deleting against
-        // `projectPath` would either 404 (branch never existed there, so the
-        // delete silently does nothing while reporting success) or, worse,
-        // delete an unrelated same-named branch in the base repo. The raw PR
-        // (not the mapped `PullRequest`, which carries no head-repo field)
-        // has to be read to find out which repository actually owns the ref.
-        step = 'reading the PR to find its head repository';
-        let raw: GHPullRequest | null = null;
-        try {
-          const res = await this.octokit.request(`GET /repos/${projectPath}/pulls/${mrIid}`);
-          raw = res.data as GHPullRequest;
-        } catch (err) {
-          // A failed read is not a deleted fork: saying so would send the
-          // caller looking for the wrong problem.
-          if (err instanceof RateLimitedError) throw err;
-          if (!(err instanceof RequestError && err.status === 404)) {
-            const reason =
-              err instanceof RequestError && err.response
-                ? `${err.status} ${bodyText(err)}`
-                : err instanceof Error
-                  ? err.message
-                  : String(err);
-            throw new Error(
-              `mergePullRequest merged but could not delete source branch "${pr.sourceBranch}": reading the PR failed: ${reason}`
-            );
-          }
-        }
-        const headRepo = raw?.head?.repo?.full_name;
-        if (!headRepo) {
-          throw new Error(
-            `mergePullRequest merged but could not delete source branch "${pr.sourceBranch}": ` +
-              'the head repository is unknown (fork likely deleted), so deletion cannot be targeted safely.'
+    const pr = await this.fetchSingleMRAfterMutation(projectPath, mrIid, 'Merged');
+    if (input?.shouldRemoveSourceBranch) {
+      // `pr.sourceBranch` is `head.ref`, a branch name with no repository
+      // attached. For a same-repo PR that name lives in `projectPath`, but
+      // for a fork PR it lives in the fork, and deleting against
+      // `projectPath` would either 404 (branch never existed there, so the
+      // delete silently does nothing while reporting success) or, worse,
+      // delete an unrelated same-named branch in the base repo. The raw PR
+      // (not the mapped `PullRequest`, which carries no head-repo field)
+      // has to be read to find out which repository actually owns the ref.
+      let raw: GHPullRequest | null = null;
+      try {
+        const res = await this.octokit.request(`GET /repos/${projectPath}/pulls/${mrIid}`);
+        raw = res.data as GHPullRequest;
+      } catch (err) {
+        // A failed read is not a deleted fork: saying so would send the
+        // caller looking for the wrong problem.
+        if (err instanceof RateLimitedError) {
+          throw new RateLimitedError(
+            `mergePullRequest merged ${projectPath}#${mrIid} but reading the PR to find its head repository was rate limited: ${err.message}`,
+            {
+              kind: err.kind,
+              resetAt: err.resetAt,
+              retryAfterMs: err.retryAfterMs,
+              operation: err.operation,
+              cause: err
+            }
           );
         }
-        step = 'deleting the source branch';
-        await this.deleteMergedSourceBranch(headRepo, pr.sourceBranch);
+        if (!(err instanceof RequestError && err.status === 404)) {
+          const reason =
+            err instanceof RequestError && err.response
+              ? `${err.status} ${bodyText(err)}`
+              : err instanceof Error
+                ? err.message
+                : String(err);
+          throw new Error(
+            `mergePullRequest merged but could not delete source branch "${pr.sourceBranch}": reading the PR failed: ${reason}`
+          );
+        }
       }
-      return pr;
-    } catch (err) {
-      if (err instanceof RateLimitedError) {
-        throw new RateLimitedError(
-          `mergePullRequest merged ${projectPath}#${mrIid} but ${step} was rate limited: ${err.message}`,
-          {
-            kind: err.kind,
-            resetAt: err.resetAt,
-            retryAfterMs: err.retryAfterMs,
-            operation: err.operation,
-            cause: err
-          }
+      const headRepo = raw?.head?.repo?.full_name;
+      if (!headRepo) {
+        throw new Error(
+          `mergePullRequest merged but could not delete source branch "${pr.sourceBranch}": ` +
+            'the head repository is unknown (fork likely deleted), so deletion cannot be targeted safely.'
         );
       }
-      throw err;
+      await this.deleteMergedSourceBranch(headRepo, pr.sourceBranch);
     }
+    return pr;
   }
 
   /**

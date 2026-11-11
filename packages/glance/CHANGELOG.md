@@ -29,7 +29,11 @@
   (twice at most), and a 429 with no rate-limit headers counts as a limit
   too. `RateLimitedError` is a new export. The `rate-limited` warning kind
   stays in the union, unused.
-- A secondary limit with no `Retry-After` and quota left reports `resetAt: null` and `retryAfterMs: 60000`, not the hour-long primary window. `mergePullRequest` rethrows a rate limit hit after the merge landed as a `RateLimitedError` whose message says it merged, with the original as `cause`.
+- A secondary limit with no `Retry-After` and quota left reports
+  `resetAt: null` and `retryAfterMs: 60000`, not the hour-long primary
+  window. When `mergePullRequest` lands the merge but the head-repository
+  read for branch removal is rate limited, it rethrows a `RateLimitedError`
+  whose message says it merged, with the original as `cause`.
 - Behavior change: a rate-limited `validateToken` now throws that
   `RateLimitedError` (`GitHub <primary|secondary> rate limit hit on GET
   /user`, plus `; resets at <time>` when GitHub says) instead of `GitHub
