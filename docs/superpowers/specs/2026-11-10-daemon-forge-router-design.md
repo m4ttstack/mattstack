@@ -242,7 +242,7 @@ design review. This section is that review for the GitHub arm.
 
 ### 5. Carried from the read model
 
-- **Post-merge rate limit reads as a failed merge.** After a merge that
+- **A merge that landed never fails over branch cleanup.** After a merge that
   landed, no source-branch cleanup failure throws (a rate-limited or
   forbidden head-repository read, an unknown head repository, a failed
   delete). `mergePullRequest` resolves with the merged PR and a
