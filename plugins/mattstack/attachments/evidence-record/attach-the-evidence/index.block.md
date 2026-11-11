@@ -11,7 +11,9 @@ cleared board (Gate evidence-boards). The domain supplies `heading`, `before` an
 heading, else `## Evidence`, always the full line with its `##`.
 `mrUrl` is the run's MR or PR URL. Attach held is the verb's hold path;
 Attach failed fails it, quoting the reason; Taken writes nothing, and a later attach sends the
-refused files.
+refused files. Attached with `uploadRefused` set wrote the section with
+the images named, not shown: tell the human so, quoting `uploadRefused`,
+before the verb moves on.
 
 ```mermaid
 flowchart TB
