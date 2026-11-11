@@ -12,6 +12,9 @@ import type { WorktreeKillResult } from "../../worktree-process-kill.ts";
 import { detectTransitions, __test__, type ReactorDeps } from "../reactor.ts";
 import type { RunningRunScan } from "../../../runs/store.ts";
 
+/** Default seam: no test here may reach the real process kill. */
+const noKill = async (): Promise<WorktreeKillResult> => ({ terminated: [], stoppedSessions: [] });
+
 const GIT_ID = "-c user.email=t@t -c user.name=t";
 
 function sh(cmd: string, cwd?: string): void {
@@ -80,6 +83,7 @@ describe("terminal-state catch-up (missed edges)", () => {
       emit: () => {},
       log: fakeLog(),
       findRunningRun: () => ({ kind: "none" as const }),
+      killWorktree: noKill,
       ...(liveCwds ? { liveCwds } : { liveCwds: async () => new Set<string>() }),
     });
   }
@@ -171,6 +175,7 @@ describe("R049: fired-ledger GC", () => {
       emit: () => {},
       log: fakeLog(),
       findRunningRun,
+      killWorktree: noKill,
     });
   }
 
@@ -286,6 +291,7 @@ describe("held trees say why (RT-267)", () => {
       log: fakeLog(),
       findRunningRun: () => ({ kind: "none" as const }),
       liveCwds: async () => new Set<string>(),
+      killWorktree: noKill,
       ...extra,
     });
   }

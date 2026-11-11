@@ -52,6 +52,7 @@ import {
   type CreateBackoffMap,
 } from "./reconciler/replenish.ts";
 import type { RunningRunScan } from "../runs/store.ts";
+import type { ReactorDeps } from "./reconciler/reactor.ts";
 
 export type { ReconcileDeps } from "./reconciler/reconcile.ts";
 export type { ReactorDeps } from "./reconciler/reactor.ts";
@@ -71,6 +72,8 @@ export interface ReconcilerDeps {
   jobTreeHold?: (rec: TreeRecord) => string | null;
   /** Posts a notice into a chat room when the merge reactor stops an agent session left in a merged tree. */
   notify?: (post: { room: string; body: string }) => Promise<void>;
+  /** Test seam threaded into every dispose call; unset, dispose uses the real kill. */
+  killWorktree?: ReactorDeps["killWorktree"];
   /** Test seam: overrides RECONCILER_PASS_DEADLINE_MS for the pass latch. */
   passDeadlineMs?: number;
 }
@@ -263,6 +266,7 @@ export function createWorktreeReconciler(deps: ReconcilerDeps): {
           findRunningRun: deps.findRunningRunByWorktree,
           ...(deps.jobTreeHold ? { jobTreeHold: deps.jobTreeHold } : {}),
           ...(deps.notify ? { notify: deps.notify } : {}),
+          ...(deps.killWorktree ? { killWorktree: deps.killWorktree } : {}),
         }),
       );
     } catch (err) {
@@ -302,6 +306,7 @@ export function createWorktreeReconciler(deps: ReconcilerDeps): {
       killProcesses: appConfig.killProcesses,
       findRunningRun: deps.findRunningRunByWorktree,
       ...(deps.jobTreeHold ? { jobTreeHold: deps.jobTreeHold } : {}),
+      ...(deps.killWorktree ? { killWorktree: deps.killWorktree } : {}),
     };
     try {
       await sweepStaleClaims(sweepDeps, await loadWorktreeRepoConfig(repoName, repoPath));

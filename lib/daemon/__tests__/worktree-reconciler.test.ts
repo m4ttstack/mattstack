@@ -21,6 +21,7 @@ import {
   listWorktreesAsync,
 } from "../../worktree/git-async.ts";
 import { createTree } from "../../worktree/create.ts";
+import type { WorktreeKillResult } from "../worktree-process-kill.ts";
 import type { WorktreeAppConfig } from "../../worktree/config.ts";
 import { RETENTION_MS } from "../../worktree/trash.ts";
 import { reconcileRepoRegistry, createWorktreeReconciler, withCreateLock, __test__ } from "../worktree-reconciler.ts";
@@ -93,6 +94,9 @@ async function declareWorktrees(repoPath: string, repoName: string, declared: un
   writeMachineStore({ ...store, repos });
 }
 
+/** Default seam: no test here may reach the real process kill. */
+const noKill = async (): Promise<WorktreeKillResult> => ({ terminated: [], stoppedSessions: [] });
+
 function fakeLog(): Logger {
   return { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as unknown as Logger;
 }
@@ -128,6 +132,7 @@ async function reconcilerHarnessWithLegacyRegistry(
   ]);
 
   const reconciler = createWorktreeReconciler({
+    killWorktree: noKill,
     cache: { entries: {} },
     repoIndex: () => ({ [identity]: repoPath }),
     emit: () => {},
@@ -456,6 +461,7 @@ describe("createWorktreeReconciler", () => {
     const untouchedRepo = makeRepo();
 
     const reconciler = createWorktreeReconciler({
+    killWorktree: noKill,
       cache: { entries: {} },
       repoIndex: () => ({ [repoName]: repo, untouched: untouchedRepo }),
       emit: () => {},
@@ -489,6 +495,7 @@ describe("createWorktreeReconciler", () => {
     );
 
     const reconciler = createWorktreeReconciler({
+    killWorktree: noKill,
       cache: { entries: {} },
       repoIndex: () => ({ [repoName]: repo }),
       emit: () => {},
@@ -505,6 +512,7 @@ describe("createWorktreeReconciler", () => {
     await declareWorktrees(repo, repoName, {});
 
     const reconciler = createWorktreeReconciler({
+    killWorktree: noKill,
       cache: { entries: {} },
       repoIndex: () => ({ [repoName]: repo }),
       emit: () => {},
@@ -542,6 +550,7 @@ describe("createWorktreeReconciler", () => {
     }
 
     const reconciler = createWorktreeReconciler({
+    killWorktree: noKill,
       cache: { entries: {} },
       repoIndex: () => ({ [repoName]: repo }),
       emit: () => {},
@@ -571,6 +580,7 @@ describe("createWorktreeReconciler", () => {
     ]);
 
     const reconciler = createWorktreeReconciler({
+    killWorktree: noKill,
       cache: { entries: {} },
       repoIndex: () => ({ [repoName]: repo }),
       emit: () => {},
@@ -611,6 +621,7 @@ describe("createWorktreeReconciler", () => {
     const beforeSha = await headSha(repo);
     const events: Array<{ type: string; data: any }> = [];
     const reconciler = createWorktreeReconciler({
+    killWorktree: noKill,
       cache: { entries: {} },
       repoIndex: () => ({ [disabledRepoName]: repo }),
       emit: (type: string, data: unknown) => events.push({ type, data }),
@@ -647,6 +658,7 @@ describe("createWorktreeReconciler", () => {
     await declareWorktrees(dormantRepo, dormantRepoName, { onDeck: 2, root: join(dormantRepo, ".worktrees") });
 
     const reconciler = createWorktreeReconciler({
+    killWorktree: noKill,
       cache: { entries: {} },
       repoIndex: () => ({ [dormantRepoName]: dormantRepo }),
       emit: () => {},
@@ -754,6 +766,7 @@ describe("merge reactor (detectTransitions)", () => {
       emit: (type: string, data: unknown) => events.push({ type, data }),
       log,
       findRunningRun: () => ({ kind: "none" }),
+      killWorktree: noKill,
     });
   }
 
@@ -1002,6 +1015,7 @@ describe("merge reactor (detectTransitions)", () => {
         emit: (type: string, data: unknown) => events.push({ type, data }),
         log,
         findRunningRun: () => ({ kind: "none" }),
+        killWorktree: noKill,
       });
 
     await pass("opened", fakeLog());
@@ -1098,6 +1112,7 @@ describe("merge reactor (detectTransitions)", () => {
 
     const cache = { entries: mrCache("feat-golf", "opened") as Record<string, any> };
     const reconciler = createWorktreeReconciler({
+    killWorktree: noKill,
       cache,
       repoIndex: () => ({ [repoName]: repo }),
       emit: (type: string, data: unknown) => events.push({ type, data }),
@@ -1756,6 +1771,7 @@ describe("detached trigger / latency", () => {
 
     const events: Array<{ type: string; data: any }> = [];
     const reconciler = createWorktreeReconciler({
+    killWorktree: noKill,
       cache: { entries: {} },
       repoIndex: () => ({ [repoName]: repo }),
       emit: (type: string, data: unknown) => events.push({ type, data }),
@@ -1804,6 +1820,7 @@ describe("detached trigger / latency", () => {
 
     let repoIndexCalls = 0;
     const reconciler = createWorktreeReconciler({
+    killWorktree: noKill,
       cache: { entries: {} },
       repoIndex: () => { repoIndexCalls++; return { [repoName]: repo }; },
       emit: () => {},
