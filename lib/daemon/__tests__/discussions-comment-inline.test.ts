@@ -9,7 +9,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import type { CreatedDiscussion, TextPosition } from "@mattstack/glance";
 import { closeStateDb } from "../../state/index.ts";
-import { createDiscussionHandlers, type DiscussionHandlerSeams } from "../handlers/discussions.ts";
+import { createDiscussionHandlers, type DiscussionHandlerSeams, type ThreadProvider } from "../handlers/discussions.ts";
 import { fakeStore } from "./fake-cache-store.ts";
 
 const fakeCtx = { repoIndex: () => ({}), cache: fakeStore({}) };
@@ -42,7 +42,7 @@ function makeSeams(
 ): DiscussionHandlerSeams {
   return {
     diffs: diffs ?? (async () => ({ diffs: [], truncated: true })),
-    repoContext: async () => ({ provider: { baseURL: "https://gitlab.example.com" }, projectPath: "g/repo-tools", projectId: 99 }),
+    repoContext: async () => ({ provider: { baseURL: "https://gitlab.example.com" } as ThreadProvider, projectPath: "g/repo-tools" }),
     gitlabToken: async () => "tok",
     mutator,
     refresh: refresh ?? (async () => undefined),
@@ -479,7 +479,7 @@ describe("mr:comment-inline", () => {
       const { mutator } = recorder();
       const controller = new AbortController();
       let seen: { reqSignal?: AbortSignal; timeoutMs?: number } | undefined;
-      const spy: DiscussionHandlerSeams["diffs"] = async (_b, _p, _i, _t, opts) => {
+      const spy: DiscussionHandlerSeams["diffs"] = async (_ctx, _i, opts) => {
         seen = opts;
         return { diffs: [{ newPath: "src/foo.ts", diff: DIFF }], truncated: false };
       };

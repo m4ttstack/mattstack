@@ -1176,7 +1176,8 @@ export interface Commands {
   "discussions:refresh": { payload: { repoName: string; iid: number }; data: DiscussionsWriteData };
   "discussions:resolve": { payload: { repoName: string; iid: number; discussionId: string; resolved?: boolean }; data: DiscussionsWriteData };
   /** `noteId` is the posted reply. A refresh failure after the post still
-      answers ok, with the cached discussions, so a caller never re-posts. */
+      answers ok, with the cached discussions, so a caller never re-posts.
+      On GitHub only a `gh-review-thread-<id>` thread takes replies. */
   "discussions:reply": { payload: { repoName: string; iid: number; discussionId: string; body: string }; data: DiscussionsWriteData & { noteId: number } };
   "discussions:diffs": { payload: { repoName: string; iid: number }; data: DiscussionsDiffsData };
 
@@ -1194,15 +1195,15 @@ export interface Commands {
 
   /** Top-level MR note. `resolvable` (default true) opens a discussion a
       human can resolve; false posts a plain note and `discussionId` is null.
-      `resolvable` in the reply is what GitLab reports. Posts once, never
-      retries. */
+      `resolvable` in the reply is what the forge reports, so a GitHub pull
+      request comment is never resolvable. Posts once, never retries. */
   "mr:comment": {
     payload: { repoName: string; iid: number; body: string; resolvable?: boolean };
     data: { noteId: number; discussionId: string | null; resolvable: boolean; url: string; mrUrl: string };
   };
 
-  /** Replaces the body of an existing MR note. GitLab decides who may edit;
-      its refusal comes back as the error text. */
+  /** Replaces the body of an existing MR note. The forge decides who may
+      edit; its refusal comes back as the error text. */
   "mr:note-update": {
     payload: { repoName: string; iid: number; noteId: number; body: string };
     data: { noteId: number };

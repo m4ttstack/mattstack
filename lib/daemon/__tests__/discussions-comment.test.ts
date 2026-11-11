@@ -6,25 +6,26 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import type { CreatedDiscussion, CreatedNote } from "@mattstack/glance";
+import { EmptyDiscussionError, type NoteWriteResult } from "@mattstack/glance";
 import { closeStateDb } from "../../state/index.ts";
-import { createDiscussionHandlers, type CommentMutator, type DiscussionHandlerSeams } from "../handlers/discussions.ts";
+import { createDiscussionHandlers, type DiscussionHandlerSeams, type ThreadProvider } from "../handlers/discussions.ts";
 import { fakeStore } from "./fake-cache-store.ts";
 
 const fakeCtx = { repoIndex: () => ({}), cache: fakeStore({}) };
 const IDENTITY = "remote:gitlab.com%2Fg%2Fsub%2Frepo-tools";
 const MR_URL = "https://gitlab.example.com/g/sub/repo-tools/-/merge_requests/7";
 
-function note(id: number, resolvable: boolean | null): CreatedNote {
-  return { id, resolvable, type: null } as unknown as CreatedNote;
+function written(noteId: number, discussionId: string | null, resolvable: boolean): NoteWriteResult {
+  return { noteId, discussionId, resolvable, url: `${MR_URL}#note_${noteId}` };
 }
 
-function makeSeams(mutator: Partial<CommentMutator>, refresh?: DiscussionHandlerSeams["refresh"]): DiscussionHandlerSeams {
-  const unexpected = async (): Promise<never> => { throw new Error("unexpected mutator call"); };
+function makeSeams(provider: Partial<ThreadProvider>, refresh?: DiscussionHandlerSeams["refresh"]): DiscussionHandlerSeams {
+  const unexpected = async (): Promise<never> => { throw new Error("unexpected provider call"); };
   return {
-    repoContext: async () => ({ provider: { baseURL: "https://gitlab.example.com" }, projectPath: "g/sub/repo-tools", projectId: 99 }),
-    gitlabToken: async () => "tok",
-    commentMutator: () => ({ createDiscussion: unexpected, createNote: unexpected, ...mutator }) as CommentMutator,
+    repoContext: async () => ({
+      provider: { baseURL: "https://gitlab.example.com", createComment: unexpected, replyToDiscussion: unexpected, ...provider } as ThreadProvider,
+      projectPath: "g/sub/repo-tools",
+    }),
     refresh: refresh ?? (async () => undefined),
   };
 }
@@ -47,10 +48,10 @@ describe("mr:comment", () => {
   test("default posts a resolvable discussion and returns the note and MR urls", async () => {
     let args: unknown[] = [];
     const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams({
-      createDiscussion: async (...a) => { args = a; return { id: "d1", notes: [note(101, true)] } as CreatedDiscussion; },
+      createComment: async (...a) => { args = a; return written(101, "d1", true); },
     }));
     const res = await h["mr:comment"]({ repoName: IDENTITY, iid: 7, body: "summary" });
-    expect(args).toEqual([99, 7, "summary"]);
+    expect(args).toEqual(["g/sub/repo-tools", 7, "summary", { resolvable: true }]);
     expect(res).toEqual({
       ok: true,
       data: { noteId: 101, discussionId: "d1", resolvable: true, url: `${MR_URL}#note_101`, mrUrl: MR_URL },
@@ -60,10 +61,10 @@ describe("mr:comment", () => {
   test("resolvable:false posts a plain note with a null discussionId", async () => {
     let args: unknown[] = [];
     const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams({
-      createNote: async (...a) => { args = a; return note(202, false); },
+      createComment: async (...a) => { args = a; return written(202, null, false); },
     }));
     const res = await h["mr:comment"]({ repoName: IDENTITY, iid: 7, body: "summary", resolvable: false });
-    expect(args).toEqual([99, 7, "summary"]);
+    expect(args).toEqual(["g/sub/repo-tools", 7, "summary", { resolvable: false }]);
     expect(res).toEqual({
       ok: true,
       data: { noteId: 202, discussionId: null, resolvable: false, url: `${MR_URL}#note_202`, mrUrl: MR_URL },
@@ -72,7 +73,7 @@ describe("mr:comment", () => {
 
   test("resolvable reports what GitLab returned, not what was asked", async () => {
     const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams({
-      createDiscussion: async () => ({ id: "d1", notes: [note(101, false)] }) as CreatedDiscussion,
+      createComment: async () => written(101, "d1", false),
     }));
     const res = await h["mr:comment"]({ repoName: IDENTITY, iid: 7, body: "x" });
     expect(res.ok && res.data.resolvable).toBe(false);
@@ -104,7 +105,7 @@ describe("mr:comment", () => {
 
   test("a discussion created with no notes names the discussion it created", async () => {
     const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams({
-      createDiscussion: async () => ({ id: "d9", notes: [] }) as unknown as CreatedDiscussion,
+      createComment: async () => { throw new EmptyDiscussionError("d9"); },
     }));
     const res = await h["mr:comment"]({ repoName: IDENTITY, iid: 7, body: "x" });
     expect(res.ok).toBe(false);
@@ -113,7 +114,7 @@ describe("mr:comment", () => {
 
   test("a refresh throw after the post still returns ok", async () => {
     const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(
-      { createDiscussion: async () => ({ id: "d1", notes: [note(101, true)] }) as CreatedDiscussion },
+      { createComment: async () => written(101, "d1", true) },
       async () => { throw new Error("refresh boom"); },
     ));
     const res = await h["mr:comment"]({ repoName: IDENTITY, iid: 7, body: "x" });
@@ -123,7 +124,7 @@ describe("mr:comment", () => {
   test("the refresh completes before the handler resolves", async () => {
     let refreshFinished = false;
     const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(
-      { createDiscussion: async () => ({ id: "d1", notes: [note(101, true)] }) as CreatedDiscussion },
+      { createComment: async () => written(101, "d1", true) },
       async () => { await new Promise((r) => setTimeout(r, 10)); refreshFinished = true; },
     ));
     await h["mr:comment"]({ repoName: IDENTITY, iid: 7, body: "x" });
@@ -150,18 +151,18 @@ describe("discussions:reply", () => {
     let args: unknown[] = [];
     const list = [{ id: "d1", resolvable: true, resolved: false, notes: [] }];
     const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(
-      { createNote: async (...a) => { args = a; return note(301, true); } },
+      { replyToDiscussion: async (...a) => { args = a; return written(301, "d1", true); } },
       async () => ({ discussions: list, fetchedAt: 5 }),
     ));
     const res = await h["discussions:reply"]({ repoName: IDENTITY, iid: 7, discussionId: "d1", body: "reply" });
-    expect(args).toEqual([99, 7, "reply", "d1"]);
+    expect(args).toEqual(["g/sub/repo-tools", 7, "d1", "reply"]);
     expect(res).toEqual({ ok: true, data: { discussions: list, fetchedAt: 5, noteId: 301 } });
   });
 
   test("a refresh failure after the reply landed is still ok with the cached list, so the caller never posts it twice", async () => {
     const cachedList = [{ id: "d1", resolvable: true, resolved: false, notes: [] }];
     const h = createDiscussionHandlers(fakeCtx, () => {}, {
-      ...makeSeams({ createNote: async () => note(302, true) }, async () => { throw new Error("gitlab 502"); }),
+      ...makeSeams({ replyToDiscussion: async () => written(302, "d1", true) }, async () => { throw new Error("gitlab 502"); }),
       readCached: () => ({ discussions: cachedList, fetchedAt: 11 }),
     });
     const res = await h["discussions:reply"]({ repoName: IDENTITY, iid: 7, discussionId: "d1", body: "reply" });
@@ -170,7 +171,7 @@ describe("discussions:reply", () => {
 
   test("an unreadable cache after a failed refresh still answers ok with an empty list", async () => {
     const h = createDiscussionHandlers(fakeCtx, () => {}, {
-      ...makeSeams({ createNote: async () => note(303, true) }, async () => { throw new Error("gitlab 502"); }),
+      ...makeSeams({ replyToDiscussion: async () => written(303, "d1", true) }, async () => { throw new Error("gitlab 502"); }),
       readCached: () => { throw new Error("database is locked"); },
     });
     const res = await h["discussions:reply"]({ repoName: IDENTITY, iid: 7, discussionId: "d1", body: "reply" });
@@ -178,7 +179,7 @@ describe("discussions:reply", () => {
   });
 
   test("a failed post is ok:false", async () => {
-    const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams({ createNote: async () => { throw new Error("403"); } }));
+    const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams({ replyToDiscussion: async () => { throw new Error("403"); } }));
     const res = await h["discussions:reply"]({ repoName: IDENTITY, iid: 7, discussionId: "d1", body: "reply" });
     expect(res.ok).toBe(false);
   });

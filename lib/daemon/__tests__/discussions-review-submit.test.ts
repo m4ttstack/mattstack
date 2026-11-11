@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { closeStateDb } from "../../state/index.ts";
-import { createDiscussionHandlers, type DiscussionHandlerSeams } from "../handlers/discussions.ts";
+import { createDiscussionHandlers, type DiscussionHandlerSeams, type ThreadProvider } from "../handlers/discussions.ts";
 import type { ReviewMutator } from "../review-submit.ts";
 import { fakeStore } from "./fake-cache-store.ts";
 
@@ -27,7 +27,7 @@ function seams(over: Partial<DiscussionHandlerSeams> = {}, calls: string[] = [])
     fetchReviewerStates: async () => [{ username: "pat", state: "approved" }],
   };
   return {
-    repoContext: async () => ({ provider: { baseURL: "https://gitlab.example.com" }, projectPath: "g/sub/repo-tools", projectId: 99 }),
+    repoContext: async () => ({ provider: { baseURL: "https://gitlab.example.com" } as ThreadProvider, projectPath: "g/sub/repo-tools" }),
     gitlabToken: async () => "tok",
     reviewMutator: () => mutator,
     reviewActions: async () => ({
