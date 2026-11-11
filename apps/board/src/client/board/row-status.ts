@@ -113,8 +113,12 @@ export function statusReasons(mr: BoardMR): string {
   if (b.pipelineFailing) reasons.push('pipeline is failing');
   if (b.pipelineRunning) reasons.push('pipeline still running');
   if (b.awaitingApprovals) {
-    const { filled, required } = approvalSlots(mr);
-    reasons.push(`awaiting approvals (${filled}/${required})`);
+    const slots = approvalSlots(mr);
+    reasons.push(
+      slots
+        ? `awaiting approvals (${slots.filled}/${slots.required})`
+        : 'awaiting approvals'
+    );
   }
   if (b.hasUnresolvedDiscussions)
     reasons.push(`unresolved discussions (${mr.unresolvedThreads})`);
@@ -160,9 +164,14 @@ export function reviewGroupHue(label: string): PillHue | undefined {
     approvals have got refines the untouched state rather than replacing it. */
 export function statusPhrase(mr: BoardMR): { text: string; hue: PillHue } {
   const { label } = statusBucket(mr);
-  const { filled, required } = approvalSlots(mr);
-  if (label === 'needs review' && required > 0 && filled > 0)
-    return { text: `${filled}/${required} approved`, hue: 'cyan' };
+  const slots = approvalSlots(mr);
+  if (
+    label === 'needs review' &&
+    slots &&
+    slots.required > 0 &&
+    slots.filled > 0
+  )
+    return { text: `${slots.filled}/${slots.required} approved`, hue: 'cyan' };
   return { text: label, hue: PILL_HUE[label] ?? 'amber' };
 }
 
@@ -947,9 +956,9 @@ const CI_RUNNING: Candidate = {
 };
 
 function approvalsDetail(mr: BoardMRWithReview): string | undefined {
-  const { filled, required } = approvalSlots(mr);
-  return filled > 0 && required > 0
-    ? `${filled} of ${required} approvals`
+  const slots = approvalSlots(mr);
+  return slots && slots.filled > 0 && slots.required > 0
+    ? `${slots.filled} of ${slots.required} approvals`
     : undefined;
 }
 
@@ -963,7 +972,7 @@ function approvalsSoFar(mr: BoardMRWithReview, people: People): string {
   if (names.length) return `${names.join(', ')} approved`;
   return (
     approvalsDetail(mr) ??
-    (mr.reviews.required > 0 ? 'no approvals yet' : 'no review yet')
+    ((mr.reviews.required ?? 0) > 0 ? 'no approvals yet' : 'no review yet')
   );
 }
 

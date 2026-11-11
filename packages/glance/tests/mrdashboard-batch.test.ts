@@ -18,9 +18,9 @@
  * be pinned without driving `createRealtimeWatcher`'s timers.
  *
  * A second round of review caught the same defect one layer up: the first
- * fix computed `degraded` only for iids missing from `prs`, which matched
- * `reviews`/`detail` (both drop the PR) but not `checks`/`threads` (both
- * keep the PR present with one field degraded). `fakeProviderWithPresent-
+ * fix computed `degraded` only for iids missing from `prs`, which matched a
+ * warning that drops the PR (`fill` today) but not one that keeps the PR
+ * present with one field degraded (`contexts` today). `fakeProviderWithPresent-
  * DegradedPR` and the tests built on it exercise exactly that case, which
  * `fakeProvider` (drops PR 2 entirely) cannot.
  */
@@ -96,39 +96,29 @@ function stubPR(iid: number, overrides: Partial<PullRequest> = {}): PullRequest 
 // target from the one function every real producer reads it from is what
 // makes that specific failure mode impossible here going forward.
 
-function reviewsWarning(projectPath: string, iid: number): FetchPullRequestsWarning {
+function fillWarning(projectPath: string, iid: number): FetchPullRequestsWarning {
   return {
     kind: 'request-failed',
-    source: 'reviews',
+    source: 'fill',
     status: 403,
     target: warningTarget(projectPath, iid),
-    message: `GitHub returned HTTP 403 fetching reviews for ${projectPath}#${iid}; its approval count could not be verified, so it is missing from this result.`
+    message: `GitHub could not read ${warningTarget(projectPath, iid)} (fillPullRequests failed: 403 Forbidden); it is missing from this result.`
   };
 }
 
-function checksWarning(projectPath: string, iid: number): FetchPullRequestsWarning {
+function contextsWarning(projectPath: string, iid: number): FetchPullRequestsWarning {
   return {
     kind: 'request-failed',
-    source: 'checks',
-    status: 403,
+    source: 'contexts',
     target: warningTarget(projectPath, iid),
-    message: `GitHub check runs for ${projectPath}#${iid} (commit sha${iid}) could not be fetched (API rate limit exceeded); this PR's pipeline reads as "no checks" but that could not be verified.`
-  };
-}
-
-function threadsWarning(projectPath: string, iid: number): FetchPullRequestsWarning {
-  return {
-    kind: 'request-failed',
-    source: 'threads',
-    target: warningTarget(projectPath, iid),
-    message: `GitHub thread-count query failed for ${projectPath}#${iid} (GraphQL: something went wrong); its unresolved-discussion count is unknown, not zero.`
+    message: `GitHub could not read more checks for ${warningTarget(projectPath, iid)} (fillPullRequests.contexts failed: 502 Bad Gateway); its checks read as still running.`
   };
 }
 
 /**
  * A provider whose `fetchPullRequests({ iids })` answers PR 1 and reports
- * PR 2 through `onWarning`, exactly like the real `GitHubProvider` now does
- * for a rate-limited reviews page (see gh-fetch-prs.test.ts). Only
+ * PR 2 through `onWarning`, exactly like the real `GitHubProvider` does for
+ * a PR whose fill failed (see gh-fetch-prs.test.ts). Only
  * `fetchPullRequests` and `watchMR` are exercised by the code under test;
  * the rest of `GitProvider` is cast away rather than implemented, since
  * `createDashboardGroup` never calls it in this scenario.
@@ -141,7 +131,7 @@ function fakeProvider(projectPath: string): GitProvider {
     async fetchPullRequests(options?: FetchPullRequestsOptions) {
       const iids = options?.iids ?? [];
       if (iids.includes(2)) {
-        options?.onWarning?.(reviewsWarning(projectPath, 2));
+        options?.onWarning?.(fillWarning(projectPath, 2));
       }
       return iids.filter(iid => iid !== 2).map(iid => stubPR(iid));
     },
@@ -154,10 +144,9 @@ function fakeProvider(projectPath: string): GitProvider {
 /**
  * A provider whose `fetchPullRequests({ iids })` answers every requested PR
  * -- unlike `fakeProvider` above, none are dropped -- but reports `warning`
- * for PR 2 anyway. This is what the real `GitHubProvider` does for a failed
- * `checks` or `threads` fetch: that PR stays in the result with one field
- * degraded to its existing "unknown" value, rather than being excluded like
- * a `reviews` failure. `fetchDashboardBatch`'s round-2 fix skipped exactly
+ * for PR 2 anyway. This is what the real `GitHubProvider` does for an
+ * unread `contexts` page: that PR stays in the result with its pipeline
+ * pending, rather than being excluded like a `fill` failure. `fetchDashboardBatch`'s round-2 fix skipped exactly
  * this case (`if (prs.has(iid)) continue;` before ever checking for a
  * warning), so this fake is what a round-3 test needs that `fakeProvider`
  * above cannot exercise.
@@ -213,7 +202,7 @@ describe('fetchDashboardBatch: splits a batched fetch into "got it" and "missing
     expect(prs.has(2)).toBe(false);
 
     expect(degraded.size).toBe(1);
-    expect(degraded.get(2)).toMatchObject({ source: 'reviews', status: 403 });
+    expect(degraded.get(2)).toMatchObject({ source: 'fill', status: 403 });
   });
 
   test('a quiet fetch reports no degradation at all', async () => {
@@ -225,23 +214,13 @@ describe('fetchDashboardBatch: splits a batched fetch into "got it" and "missing
     expect(degraded.size).toBe(0);
   });
 
-  test('a checks failure keeps the PR in `prs` AND still reaches `degraded`', async () => {
+  test('a contexts failure keeps the PR in `prs` AND still reaches `degraded`', async () => {
     // The bug a prior review round missed: `degraded` used to be computed
     // only for iids missing from `prs` (`if (prs.has(iid)) continue;`). A
-    // `checks` failure never drops the PR, so that early return skipped the
+    // checks failure never drops the PR, so that early return skipped the
     // warning lookup for it every time, making the warning unreachable no
     // matter what `GitHubProvider` reported.
-    const warning = checksWarning('acme/repo', 2);
-    const provider = fakeProviderWithPresentDegradedPR('acme/repo', warning);
-
-    const { prs, degraded } = await fetchDashboardBatch(provider, 'acme/repo', [1, 2]);
-
-    expect(prs.has(2)).toBe(true);
-    expect(degraded.get(2)).toEqual(warning);
-  });
-
-  test('a threads failure keeps the PR in `prs` AND still reaches `degraded`', async () => {
-    const warning = threadsWarning('acme/repo', 2);
+    const warning = contextsWarning('acme/repo', 2);
     const provider = fakeProviderWithPresentDegradedPR('acme/repo', warning);
 
     const { prs, degraded } = await fetchDashboardBatch(provider, 'acme/repo', [1, 2]);
@@ -282,7 +261,7 @@ describe('DashboardGroup: one failing MR degrades its own row, not the whole ref
 
       expect(rowWarnings.length).toBe(1);
       expect(rowWarnings[0]?.iid).toBe(2);
-      expect(rowWarnings[0]?.warning.source).toBe('reviews');
+      expect(rowWarnings[0]?.warning.source).toBe('fill');
     } finally {
       group.dispose();
     }
@@ -325,7 +304,7 @@ describe('DashboardGroup: one failing MR degrades its own row, not the whole ref
     }
   });
 
-  test('onWarning fires for a checks-sourced warning even though the row stays present', async () => {
+  test('onWarning fires for a contexts-sourced warning even though the row stays present', async () => {
     // The dashboard-facing assertion for the same bug the two
     // `fetchDashboardBatch` tests above pin at the lower level: a consumer
     // built only on `DashboardGroup` (the actual public surface, not the
@@ -334,7 +313,7 @@ describe('DashboardGroup: one failing MR degrades its own row, not the whole ref
     // a checks failure never drops the PR -- and nothing at all from
     // `onWarning`, which is indistinguishable from "PR 2 genuinely has no
     // checks configured."
-    const warning = checksWarning('acme/repo', 2);
+    const warning = contextsWarning('acme/repo', 2);
     const provider = fakeProviderWithPresentDegradedPR('acme/repo', warning);
     const group = createDashboard({
       provider,
@@ -355,45 +334,13 @@ describe('DashboardGroup: one failing MR degrades its own row, not the whole ref
     try {
       expect(updates.length).toBeGreaterThan(0);
       const last = updates.at(-1)!;
-      // Present, unlike the reviews case above: this is the whole point of
-      // a `checks` failure -- it degrades one field, it does not drop the row.
+      // Present, unlike the fill case above: this is the whole point of a
+      // `contexts` failure -- it degrades one field, it does not drop the row.
       expect(last.has(2)).toBe(true);
 
       expect(rowWarnings.length).toBe(1);
       expect(rowWarnings[0]?.iid).toBe(2);
-      expect(rowWarnings[0]?.warning.source).toBe('checks');
-    } finally {
-      group.dispose();
-    }
-  });
-
-  test('onWarning fires for a threads-sourced warning even though the row stays present', async () => {
-    const warning = threadsWarning('acme/repo', 2);
-    const provider = fakeProviderWithPresentDegradedPR('acme/repo', warning);
-    const group = createDashboard({
-      provider,
-      projectPath: 'acme/repo',
-      mrIid: [1, 2],
-      userId: null
-    }) as DashboardGroup;
-
-    const updates: Map<number, unknown>[] = [];
-    const rowWarnings: Array<{ iid: number; warning: FetchPullRequestsWarning }> = [];
-    group.onWarning?.((iid, w) => rowWarnings.push({ iid, warning: w }));
-    group.subscribe(mrs => updates.push(new Map(mrs)));
-
-    for (let i = 0; i < 5 && updates.length === 0; i++) {
-      await new Promise(resolve => setTimeout(resolve, 0));
-    }
-
-    try {
-      expect(updates.length).toBeGreaterThan(0);
-      const last = updates.at(-1)!;
-      expect(last.has(2)).toBe(true);
-
-      expect(rowWarnings.length).toBe(1);
-      expect(rowWarnings[0]?.iid).toBe(2);
-      expect(rowWarnings[0]?.warning.source).toBe('threads');
+      expect(rowWarnings[0]?.warning.source).toBe('contexts');
     } finally {
       group.dispose();
     }

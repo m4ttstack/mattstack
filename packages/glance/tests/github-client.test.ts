@@ -6,13 +6,18 @@
  * them by pattern to tell a transient failure from a permanent one, so a
  * reworded message silently disables a check rather than failing it.
  */
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { RequestError } from '@octokit/request-error';
 import {
   createGitHubClient,
   ghError,
-  resolveGitHubUrls
+  RATE_LIMIT_RETRY_DEADLINE_S,
+  resolveGitHubUrls,
+  toRateLimitedError
 } from '../src/githubClient.ts';
+import { RateLimitedError } from '../src/errors.ts';
+import { GitHubProvider } from '../src/GitHubProvider.ts';
+import type { FetchPullRequestsWarning } from '../src/GitProvider.ts';
 import { noopLogger } from '../src/logger.ts';
 import type { RequestInfo } from '../src/instrumentation.ts';
 
@@ -296,5 +301,354 @@ describe('createGitHubClient throttle id', () => {
     } finally {
       globalThis.fetch = realFetch;
     }
+  });
+});
+
+describe('rate limits fail fast', () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  function limited(
+    status: number,
+    headers: Record<string, string>,
+    message = 'API rate limit exceeded'
+  ): Response {
+    return new Response(JSON.stringify({ message }), {
+      status,
+      headers: { 'content-type': 'application/json', ...headers }
+    });
+  }
+
+  function stub(responses: Array<() => Response>): { calls: number } {
+    const state = { calls: 0 };
+    globalThis.fetch = (async () => {
+      const respond = responses[Math.min(state.calls, responses.length - 1)]!;
+      state.calls++;
+      return respond();
+    }) as unknown as typeof fetch;
+    return state;
+  }
+
+  function client(token: string) {
+    return createGitHubClient({
+      baseURL: 'https://github.com',
+      token,
+      log: noopLogger
+    });
+  }
+
+  const inAnHour = () => String(Math.floor(Date.now() / 1000) + 3600);
+
+  test('the deadline is 30 seconds', () => {
+    expect(RATE_LIMIT_RETRY_DEADLINE_S).toBe(30);
+  });
+
+  test('a primary limit past the deadline fails after one request', async () => {
+    const reset = inAnHour();
+    const state = stub([
+      () => limited(403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': reset })
+    ]);
+
+    const err = await withInstantTimers(() =>
+      client('tok-primary').request('GET /repos/a/b/pulls/1').catch(e => e)
+    );
+
+    expect(state.calls).toBe(1);
+    expect(err).toBeInstanceOf(RateLimitedError);
+    expect(err.kind).toBe('primary');
+    expect(err.resetAt).toBe(new Date(Number(reset) * 1000).toISOString());
+    expect(err.retryAfterMs).toBeGreaterThan(0);
+  });
+
+  test('a short Retry-After is honoured and retried', async () => {
+    const state = stub([
+      () =>
+        limited(
+          429,
+          { 'retry-after': '1' },
+          'You have exceeded a secondary rate limit. Please wait.'
+        ),
+      () =>
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        })
+    ]);
+
+    const res = await withInstantTimers(() =>
+      client('tok-short').request('GET /repos/a/b/pulls/1')
+    );
+
+    expect(state.calls).toBe(2);
+    expect(res.status).toBe(200);
+  });
+
+  test('a secondary limit past the deadline fails fast', async () => {
+    const state = stub([
+      () =>
+        limited(
+          429,
+          { 'retry-after': '120' },
+          'You have exceeded a secondary rate limit. Please wait.'
+        )
+    ]);
+
+    const err = await withInstantTimers(() =>
+      client('tok-secondary').request('GET /repos/a/b/pulls/1').catch(e => e)
+    );
+
+    expect(state.calls).toBe(1);
+    expect(err).toBeInstanceOf(RateLimitedError);
+    expect(err.kind).toBe('secondary');
+    expect(err.retryAfterMs).toBe(120_000);
+  });
+
+  test('a 429 with Retry-After and no secondary-limit message also fails fast', async () => {
+    const state = stub([() => limited(429, { 'retry-after': '120' }, 'Too Many Requests')]);
+
+    const err = await withInstantTimers(() =>
+      client('tok-bare429').request('GET /repos/a/b/pulls/1').catch(e => e)
+    );
+
+    expect(state.calls).toBe(1);
+    expect(err).toBeInstanceOf(RateLimitedError);
+    expect(err.kind).toBe('secondary');
+  });
+
+  test('a bare 429 with no rate-limit headers is still a RateLimitedError, sent once', async () => {
+    const state = stub([() => limited(429, {}, 'Too Many Requests')]);
+
+    const err = await withInstantTimers(() =>
+      client('tok-bare429-noheaders').request('GET /repos/a/b/pulls/1').catch(e => e)
+    );
+
+    expect(state.calls).toBe(1);
+    expect(err).toBeInstanceOf(RateLimitedError);
+    expect(err.kind).toBe('secondary');
+    expect(err.retryAfterMs).toBe(60_000);
+  });
+
+  test('a plain 403 is not a rate limit and stays a RequestError', async () => {
+    stub([() => limited(403, {}, 'Resource not accessible')]);
+
+    const err = await withInstantTimers(() =>
+      client('tok-403').request('GET /repos/a/b/pulls/1').catch(e => e)
+    );
+
+    expect(err).toBeInstanceOf(RequestError);
+    expect(err.status).toBe(403);
+  });
+
+  test('a throttled write keeps its RequestError and waits out the limit twice', async () => {
+    const state = stub([
+      () => limited(403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': inAnHour() })
+    ]);
+
+    const err = await withInstantTimers(() =>
+      client('tok-write').request('POST /repos/a/b/issues', { title: 't' }).catch(e => e)
+    );
+
+    expect(err).toBeInstanceOf(RequestError);
+    expect(state.calls).toBe(3);
+  });
+
+  test('a write hitting a secondary limit with no Retry-After still retries twice', async () => {
+    const state = stub([
+      () => limited(403, {}, 'You have exceeded a secondary rate limit. Please wait.')
+    ]);
+
+    const err = await withInstantTimers(() =>
+      client('tok-write-secondary')
+        .request('POST /repos/a/b/issues', { title: 't' })
+        .catch(e => e)
+    );
+
+    expect(err).toBeInstanceOf(RequestError);
+    expect(state.calls).toBe(3);
+  });
+
+  test('a rate-limited single-PR read throws RateLimitedError with resetAt', async () => {
+    const reset = inAnHour();
+    stub([
+      () => limited(403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': reset })
+    ]);
+    const warnings: FetchPullRequestsWarning[] = [];
+
+    const provider = new GitHubProvider('https://github.com', 'tok-warn');
+    const err = await withInstantTimers(() =>
+      provider.fetchSingleMR('a/b', 1, null, w => warnings.push(w)).catch(e => e)
+    );
+
+    expect(err).toBeInstanceOf(RateLimitedError);
+    expect(err.kind).toBe('primary');
+    expect(err.resetAt).toBe(new Date(Number(reset) * 1000).toISOString());
+    expect(warnings).toEqual([]);
+  });
+
+  test('a rate-limited iids read throws rather than returning a short list', async () => {
+    stub([
+      () => limited(403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': inAnHour() })
+    ]);
+
+    const provider = new GitHubProvider('https://github.com', 'tok-iids-limited');
+    const err = await withInstantTimers(() =>
+      provider.fetchPullRequests({ projectPath: 'a/b', iids: [1] }).catch(e => e)
+    );
+
+    expect(err).toBeInstanceOf(RateLimitedError);
+  });
+
+  test('a rate-limited fill on a search path throws RateLimitedError with resetAt', async () => {
+    const reset = inAnHour();
+    stub([
+      () =>
+        new Response(
+          JSON.stringify({
+            items: [
+              {
+                number: 1,
+                state: 'open',
+                updated_at: '2026-07-10T00:00:00Z',
+                repository_url: 'https://api.github.com/repos/a/b',
+                pull_request: { merged_at: null }
+              }
+            ]
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        ),
+      () => limited(403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': reset })
+    ]);
+    const warnings: FetchPullRequestsWarning[] = [];
+
+    const provider = new GitHubProvider('https://github.com', 'tok-listwarn');
+    const err = await withInstantTimers(() =>
+      provider
+        .fetchPullRequests({
+          projectPath: 'a/b',
+          authorUsernames: ['alice'],
+          onWarning: w => warnings.push(w)
+        })
+        .catch(e => e)
+    );
+
+    expect(err).toBeInstanceOf(RateLimitedError);
+    expect(err.resetAt).toBe(new Date(Number(reset) * 1000).toISOString());
+    expect(warnings).toEqual([]);
+  });
+
+  test('a rate-limited list read throws RateLimitedError', async () => {
+    stub([
+      () => limited(403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': inAnHour() })
+    ]);
+
+    const provider = new GitHubProvider('https://github.com', 'tok-list');
+    const err = await withInstantTimers(() =>
+      provider.fetchPullRequests({ projectPath: 'a/b' }).catch(e => e)
+    );
+
+    expect(err).toBeInstanceOf(RateLimitedError);
+  });
+});
+
+describe('toRateLimitedError', () => {
+  const info = { method: 'GET' as const, url: 'https://api.github.com/x', headers: {} };
+
+  function requestError(status: number, headers: Record<string, string>, message = 'Oops') {
+    return new RequestError(message, status, {
+      request: info,
+      response: { status, url: info.url, headers, data: { message }, retryCount: 0 }
+    });
+  }
+
+  test('reads a primary limit off a 403 with no remaining quota', () => {
+    const out = toRateLimitedError(
+      requestError(403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '2000000000' }),
+      'GET /x'
+    );
+    expect(out).toBeInstanceOf(RateLimitedError);
+    expect(out?.kind).toBe('primary');
+    expect(out?.resetAt).toBe(new Date(2_000_000_000_000).toISOString());
+    expect(out?.operation).toBe('GET /x');
+  });
+
+  test('reads a secondary limit off a 429 with Retry-After', () => {
+    const out = toRateLimitedError(requestError(429, { 'retry-after': '7' }), 'GET /x');
+    expect(out?.kind).toBe('secondary');
+    expect(out?.retryAfterMs).toBe(7000);
+  });
+
+  describe('a secondary limit', () => {
+    const hourOut = String(Math.floor(Date.now() / 1000) + 3600);
+    const message = 'You have exceeded a secondary rate limit. Please wait.';
+
+    test('with quota left and no Retry-After waits a minute and names no reset', () => {
+      const out = toRateLimitedError(
+        requestError(
+          403,
+          { 'x-ratelimit-remaining': '4000', 'x-ratelimit-reset': hourOut },
+          message
+        ),
+        'GET /x'
+      );
+      expect(out?.kind).toBe('secondary');
+      expect(out?.resetAt).toBeNull();
+      expect(out?.retryAfterMs).toBe(60_000);
+    });
+
+    test('with no quota left keeps the primary reset', () => {
+      const out = toRateLimitedError(
+        requestError(
+          403,
+          { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': hourOut },
+          message
+        ),
+        'GET /x'
+      );
+      expect(out?.resetAt).toBe(new Date(Number(hourOut) * 1000).toISOString());
+      expect(out?.retryAfterMs).toBeGreaterThan(3_000_000);
+    });
+
+    test('with Retry-After waits what GitHub said', () => {
+      const out = toRateLimitedError(
+        requestError(
+          403,
+          { 'x-ratelimit-remaining': '4000', 'x-ratelimit-reset': hourOut, 'retry-after': '5' },
+          message
+        ),
+        'GET /x'
+      );
+      expect(out?.retryAfterMs).toBe(5000);
+      expect(out?.resetAt).toBeNull();
+    });
+  });
+
+  test('reads a GraphQL RATE_LIMITED error', () => {
+    const err = Object.assign(new Error('GraphQL Rate Limit Exceeded'), {
+      response: {
+        headers: { 'x-ratelimit-reset': '2000000000' },
+        data: { errors: [{ type: 'RATE_LIMITED', message: 'API rate limit exceeded' }] }
+      }
+    });
+    const out = toRateLimitedError(err, 'graphql');
+    expect(out?.kind).toBe('primary');
+    expect(out?.resetAt).toBe(new Date(2_000_000_000_000).toISOString());
+  });
+
+  test('reads a GraphqlResponseError-shaped RATE_LIMITED error', () => {
+    const err = Object.assign(new Error('Request failed due to following response errors'), {
+      errors: [{ type: 'RATE_LIMITED', message: 'API rate limit exceeded' }],
+      headers: {}
+    });
+    expect(toRateLimitedError(err, 'graphql')?.kind).toBe('primary');
+  });
+
+  test('returns null for anything else', () => {
+    expect(toRateLimitedError(requestError(403, {}), 'GET /x')).toBeNull();
+    expect(toRateLimitedError(requestError(404, {}), 'GET /x')).toBeNull();
+    expect(toRateLimitedError(new Error('boom'), 'GET /x')).toBeNull();
+    expect(toRateLimitedError('nope', 'GET /x')).toBeNull();
+    expect(toRateLimitedError(null, 'GET /x')).toBeNull();
   });
 });

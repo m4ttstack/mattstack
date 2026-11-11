@@ -83,6 +83,36 @@ describe('fetchJobTrace', () => {
 });
 
 describe('retryPipeline', () => {
+  test('retryPipeline reruns failed jobs', async () => {
+    const provider = new GitHubProvider('https://github.com', 'tok');
+    const routes: string[] = [];
+    (provider as any).octokit = {
+      request: stubOctokitRequest((route) => {
+        routes.push(route);
+        return { data: {} };
+      })
+    };
+
+    await provider.retryPipeline('o/r', 42);
+
+    expect(routes).toEqual(['POST /repos/o/r/actions/runs/42/rerun-failed-jobs']);
+  });
+
+  test('a 404 says only an Actions run can be retried', async () => {
+    const provider = new GitHubProvider('https://github.com', 'tok');
+    (provider as any).octokit = {
+      request: stubOctokitThrows(fakeRequestError(404, { message: 'Not Found' }))
+    };
+
+    const err = await provider.retryPipeline('acme/repo', 1).then(
+      () => null,
+      (e: unknown) => e as Error
+    );
+    expect(err?.message).toBe(
+      'retryPipeline failed: 404 Not Found — {"message":"Not Found"} (only a GitHub Actions run can be retried; a commit status from external CI has no retry)'
+    );
+  });
+
   test('a 403 surfaces the statusText-shaped message', async () => {
     const provider = new GitHubProvider('https://github.com', 'tok');
     (provider as any).octokit = {

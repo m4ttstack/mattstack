@@ -13,6 +13,9 @@
 import { describe, expect, test } from 'bun:test';
 import { GitLabProvider, MR_DASHBOARD_FRAGMENT, MR_LIST_FRAGMENT } from '../src/GitLabProvider.ts';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
+import { ghNode, stubForge, useForgeStub } from './helpers/gh-fill-fixture.ts';
+
+useForgeStub();
 
 function gitlabNode(over: Record<string, unknown> = {}) {
   const user = { id: 'gid://gitlab/User/1', username: 'ada', name: 'Ada', avatarUrl: null };
@@ -74,28 +77,24 @@ describe('GitLab PullRequest.mergedAt', () => {
 });
 
 describe('GitHub PullRequest.mergedAt', () => {
-  test('maps merged_at in toPullRequest', () => {
-    const p = new GitHubProvider('https://github.com', 't');
-    const user = { id: 3, login: 'ada', avatar_url: null, name: 'Ada' };
-    const raw = {
-      number: 7,
-      id: 700,
-      node_id: 'PR_700',
-      title: 'Add feature',
-      body: null,
-      merged_at: '2026-08-02T10:00:00Z',
-      html_url: 'https://github.com/o/r/pull/7',
-      created_at: '2026-08-01T00:00:00Z',
-      updated_at: '2026-08-03T00:00:00Z',
-      state: 'closed',
-      draft: false,
-      head: { sha: 'abc', ref: 'feat', repo: { full_name: 'o/r' } },
-      base: { ref: 'main', repo: { full_name: 'o/r', default_branch: 'main', id: 9 } },
-      user,
-      assignees: [],
-      requested_reviewers: [],
-    };
-    const pr = (p as any).toPullRequest(raw, ['author'], [], [], null);
-    expect(pr.mergedAt).toBe('2026-08-02T10:00:00Z');
+  test('maps mergedAt from the fill', async () => {
+    stubForge({
+      fill: () => ({ 7: ghNode({ number: 7, state: 'MERGED', mergedAt: '2026-08-02T10:00:00Z' }) })
+    });
+    const p = new GitHubProvider('https://github.com', 'tok-merged-at');
+
+    const pr = await p.fetchSingleMR('o/r', 7, null);
+
+    expect(pr!.mergedAt).toBe('2026-08-02T10:00:00Z');
+    expect(pr!.state).toBe('merged');
+  });
+
+  test('an open filled PR has a null mergedAt', async () => {
+    stubForge({ fill: () => ({ 7: ghNode({ number: 7 }) }) });
+    const p = new GitHubProvider('https://github.com', 'tok-merged-at-open');
+
+    const pr = await p.fetchSingleMR('o/r', 7, null);
+
+    expect(pr!.mergedAt).toBeNull();
   });
 });

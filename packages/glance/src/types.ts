@@ -82,6 +82,8 @@ export interface PipelineJob {
   webUrl: string | null;
   /** If this job triggered a child/downstream pipeline, its details are here. */
   downstreamPipeline?: Pipeline | null;
+  /** GitHub workflow run this job belongs to; null for commit statuses. Absent on GitLab. */
+  runId?: string | null;
 }
 
 export interface Pipeline {
@@ -98,6 +100,8 @@ export interface Pipeline {
   createdAt: string | null;
   webUrl: string | null;
   jobs: PipelineJob[];
+  /** GitHub workflow run ids on the head commit, each once. Absent on GitLab. */
+  runIds?: string[];
 }
 
 /**
@@ -147,6 +151,12 @@ export const TRANSITIONAL_MERGE_STATUSES: readonly string[] = Object.freeze([
 export function isTransitionalMergeStatus(status: string | null | undefined): boolean {
   return status != null && TRANSITIONAL_MERGE_STATUSES.includes(status);
 }
+
+export type ReadinessState = 'ready' | 'blocked' | 'checking' | 'draft' | 'merged' | 'closed';
+export type ReadinessReason =
+  | 'conflicts' | 'behind' | 'checks-failing' | 'checks-running'
+  | 'approvals' | 'changes-requested' | 'threads' | 'merge-error' | 'other';
+export interface Readiness { state: ReadinessState; reasons: ReadinessReason[] }
 
 export interface PullRequest {
   /** Scoped provider ID, e.g. "gitlab:12345". */
@@ -258,14 +268,16 @@ export interface PullRequest {
 
   // ── Squash / approval counts ──────────────────────────────────────────
 
-  /** Total number of required approvals (complements approvalsLeft). GitLab only. */
-  approvalsRequired: number;
+  /** Total number of required approvals (complements approvalsLeft). Null when the forge cannot report it. */
+  approvalsRequired: number | null;
   /** Whether the MR is configured to squash commits on merge. */
   squash: boolean;
   /** True if the project's merge method forces squash regardless of per-MR setting. */
   squashOnMerge: boolean;
   /** Zero-based position in the merge train queue. Null if not in a merge train. */
   mergeTrainIndex: number | null;
+  /** Forge-neutral merge readiness. Absent on PRs built by SDKs before this release. */
+  readiness?: Readiness;
 }
 
 // ── MR Dashboard props ────────────────────────────────────────────────────────
@@ -339,7 +351,7 @@ export interface MRDashboardProps {
 
   // ── Reviews & Approvals ─────────────────────────────────────────────────
   reviews: {
-    required: number;
+    required: number | null;
     given: number;
     remaining: number;
     isApproved: boolean;
@@ -367,6 +379,8 @@ export interface MRDashboardProps {
    * The MR may become mergeable momentarily — show a spinner rather than a hard BLOCKED state.
    */
   isCheckingMergeability: boolean;
+  /** The PullRequest's forge-neutral verdict, or null when the provider supplied none. */
+  readiness: Readiness | null;
 
   // ── In-progress spinners ────────────────────────────────────────────────
   isMerging: boolean;

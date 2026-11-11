@@ -40,29 +40,36 @@ export type MRState = 'opened' | 'merged' | 'closed';
 export interface FetchPullRequestsWarning {
   /**
    * `page-cap`: a bounded scan stopped with matches still outstanding.
-   * `request-failed`: a non-ok response. For `search`/`list`/`detail`/
-   * `reviews`, whatever it would have returned is missing from the result
-   * entirely. For `checks`/`threads`, the PR itself is still in the result;
-   * only that one field (`pipeline`/`unresolvedThreadCount`) reads as its
-   * existing "unknown" value instead of a measured one -- neither feeds an
-   * approval count, so dropping the whole PR over either would be a bigger
-   * degradation than the failure itself warrants.
+   * `request-failed`: a non-ok response. For `search`/`list`/`fill`,
+   * whatever it would have returned is missing from the result entirely.
+   * For `contexts`, the PR stays, with a `pending` pipeline and `checking`
+   * readiness, since an unread check may be failing; a failed or canceled
+   * pipeline already seen stays as it is.
+   * `rate-limited`: reserved for a provider that reports a rate limit
+   * without throwing. `GitHubProvider` throws `RateLimitedError` from every
+   * read instead, so a short list never reads as complete.
    */
-  kind: 'page-cap' | 'request-failed';
+  kind: 'page-cap' | 'request-failed' | 'rate-limited';
   /**
-   * Which leg of the fetch: the search API, a repository listing, a per-MR
-   * detail fetch, a per-MR reviews fetch (the approvals a failed page here
-   * would otherwise under-report), a per-MR checks fetch, or a batched
-   * thread-count query.
+   * Which leg of the fetch: the search API, a repository listing, GitHub's
+   * batched GraphQL fill, or a follow-up page of one PR's checks past the
+   * fill's first 100. `GitHubProvider` no longer emits `detail`, `reviews`,
+   * `checks` or `threads`: the fill replaced those per-PR reads.
    */
-  source: 'search' | 'list' | 'detail' | 'reviews' | 'checks' | 'threads';
+  source: 'search' | 'list' | 'detail' | 'reviews' | 'checks' | 'threads' | 'fill' | 'contexts';
   /** Human-readable summary, always populated. */
   message: string;
   /** The HTTP status, when `kind` is `request-failed`. */
   status?: number;
   /**
+   * When `kind` is `rate-limited`: the ISO time the limit lifts, if GitHub
+   * said. The read behind this warning was refused, not truncated.
+   */
+  resetAt?: string;
+  /**
    * What the warning is about: a search query, a project path, or (for
-   * `detail`/`reviews`/`checks`/`threads`, every single-PR source) exactly
+   * `detail`/`reviews`/`checks`/`threads`/`fill`/`contexts`, every single-PR
+   * source) exactly
    * `owner/repo#number` -- build it with `warningTarget`, not by hand.
    *
    * One PR per warning even for a thread-count batch that covers many at
@@ -138,7 +145,8 @@ export interface FetchPullRequestsOptions {
   updatedAfter?: string;
   /** Project mode: fetch the list-weight fragment (no CI stages/jobs trees). ~10x cheaper
       per page on large projects and immune to GitLab's resolver timeouts on job trees;
-      per-MR job detail stays available via fetchSingleMR. */
+      per-MR job detail stays available via fetchSingleMR. GitHub drops only `body`:
+      one fill reads the checks too. */
   listWeight?: boolean;
 
   /**
@@ -150,21 +158,21 @@ export interface FetchPullRequestsOptions {
   excludeTargetBranches?: string[];
 
   /**
-   * Called once per way the result fell short: a page cap reached with matches
-   * outstanding, a search page that failed, or a per-PR fetch that failed and
-   * either dropped that PR from the result or left one of its fields at its
-   * "unknown" value. A quiet fetch made no such compromise.
+   * Called once per way the result fell short: a page cap reached with
+   * matches outstanding, a search or listing page that failed, a batched
+   * fill that could not read a PR (that PR is dropped from the result), or a
+   * follow-up page of one PR's checks that could not be read (the PR stays,
+   * with a `pending` pipeline). A quiet fetch made no such compromise.
    *
    * Invoked synchronously during the fetch; a callback that throws is ignored,
    * never surfaced as a fetch failure.
    *
-   * GitHub emits these for its search/listing page caps (`search`, `list`) and
-   * for the per-PR fetches it assembles a `PullRequest` from: `detail` and
-   * `reviews` (either one failing drops the PR from the result), `checks` and
-   * `threads` (the PR stays, with `pipeline` / `unresolvedThreadCount` at
-   * `null`). Rate limiting reaches a caller this way. GitLab paginates its
-   * project mode to exhaustion and raises transport failures as exceptions, so
-   * it has nothing to report and never calls this.
+   * GitHub emits `search` and `list` for its page caps, `fill` for a PR its
+   * batched read could not resolve, and `contexts` for a checks page past the
+   * first 100. A rate limit throws `RateLimitedError` instead of reaching this
+   * callback. GitLab paginates its project mode to exhaustion and raises
+   * transport failures as exceptions, so it has nothing to report and never
+   * calls this.
    */
   onWarning?: (warning: FetchPullRequestsWarning) => void;
 }
@@ -332,11 +340,12 @@ export interface GitProvider {
    * | `state`       | all modes                     | all modes                 |
    * | `updatedAfter`| `projectPath`-alone mode only | all modes                 |
    * | `listWeight`  | `projectPath`-alone mode only | all modes                 |
-   * | `onWarning`   | never fires (see below)       | page caps + failed detail/reviews/checks/threads |
+   * | `onWarning`   | never fires (see below)       | page caps, failed searches and fills, unread checks pages |
    *
    * GitLab returns full dashboard fields from every mode and paginates its
    * project mode to exhaustion, so it has no truncation to report; GitHub
-   * assembles a PR from several endpoints under bounded page walks, so it does.
+   * reads discovery under bounded page walks and each PR through a batched
+   * GraphQL fill, so it can, and a rate limit throws `RateLimitedError`.
    */
   fetchPullRequests(options?: FetchPullRequestsOptions): Promise<PullRequest[]>;
 

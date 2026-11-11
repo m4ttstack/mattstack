@@ -83,6 +83,14 @@ describe('isApproved narrows to genuine approval', () => {
     expect(props.reviews.isApproved).toBe(false);
   });
 
+  test('unknown required count with nobody approved is not approved', () => {
+    const props = getMRDashboardProps(
+      stubPR({ approved: true, approvalsRequired: null, approvedBy: [] })
+    );
+    expect(props.reviews.isApproved).toBe(false);
+    expect(props.reviews.required).toBeNull();
+  });
+
   test('genuine approval with rules is approved', () => {
     const props = getMRDashboardProps(
       stubPR({ approved: true, approvalsRequired: 1, approvedBy: [user(2, 'reviewer1')] })

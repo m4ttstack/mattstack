@@ -197,9 +197,10 @@ Pre-computed, UI-ready props — no conditional logic needed in the component la
 | `behindTarget` | `number \| null` — commits behind the target branch, `null` when the fetch path did not ask. Informational, not a blocker |
 | `status` | `'mergeable' \| 'blocked' \| 'draft' \| 'merged' \| 'closed'` |
 | `statusDetail` | Specific blocker reason (e.g., `'CI_MUST_PASS'`, `'NEED_REBASE'`) |
-| `isReady` | `true` when `detailedMergeStatus === 'mergeable'` |
+| `isReady` | `true` when the forge says the MR can merge (GitLab `detailedMergeStatus === 'mergeable'`, GitHub `readiness.state === 'ready'`), or while it is still checking and nothing visible blocks it |
+| `readiness` | `{ state, reasons } \| null`: the forge-neutral verdict. `state` is `'ready' \| 'blocked' \| 'checking' \| 'draft' \| 'merged' \| 'closed'`; `reasons` names what blocks (`'conflicts'`, `'behind'`, `'checks-failing'`, `'checks-running'`, `'approvals'`, `'changes-requested'`, `'threads'`, `'merge-error'`, `'other'`). `'checking'` means the forge has not decided yet, never a block. `null` for a `PullRequest` built before this field existed |
 | `pipeline` | Pipeline status breakdown: passing, failing, running counts, `hasWarnings`, individual `jobs` |
-| `reviews` | Reviewer state: required, given, remaining, approvedBy, per-reviewer breakdown |
+| `reviews` | Reviewer state: required, given, remaining, approvedBy, per-reviewer breakdown. `required` is `number \| null`: `null` means the forge did not say how many approvals are required, never zero |
 | `mergeButton` | `{ visible, disabled, loading, label }` |
 | `rebaseButton` | `{ visible, loading, label }` — `visible` tracks GitLab's `shouldBeRebased` |
 | `autoMergeButton` | `{ visible, isActive, strategy, setBy, label, cancelLabel }` |
@@ -404,6 +405,35 @@ It extends `Error`, so a caller that does not branch on it behaves exactly as
 before. A *failed draft transition* is a different case and still throws a
 plain `Error`: there the read worked and the MR genuinely is not in the
 requested state.
+
+### `RateLimitedError`
+
+Every `GitHubProvider` read throws `RateLimitedError` when GitHub's primary or
+secondary rate limit refuses it and waiting would outlast a poll, list reads
+included, so a short list never reads as complete. A GitHub read fills up to
+25 pull requests per batched GraphQL request.
+
+```ts
+import { RateLimitedError } from '@mattstack/glance';
+
+try {
+  await provider.fetchPullRequests();
+} catch (err) {
+  if (err instanceof RateLimitedError) {
+    // err.kind is 'primary' or 'secondary'; err.resetAt and err.retryAfterMs
+    // say when to try again, or null when GitHub did not.
+  } else {
+    throw err;
+  }
+}
+```
+
+| Property | Description |
+|---|---|
+| `kind` | `'primary'` (hourly quota) or `'secondary'` (burst limit); they reset on different clocks |
+| `resetAt` | ISO time the limit lifts, or `null` |
+| `retryAfterMs` | How long GitHub asked callers to wait, or `null` |
+| `operation` | The request that hit the limit |
 
 ## License
 

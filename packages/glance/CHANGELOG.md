@@ -1,9 +1,82 @@
 # @mattstack/glance
 
-## Unreleased
+## 0.28.0
 
 ### Minor Changes
 
+- `PullRequest.readiness` (`{ state, reasons }`), a forge-neutral merge
+  verdict: `ready`, `blocked`, `checking`, `draft`, `merged` or `closed`, with
+  the reasons a block names. GitLab derives it from `detailedMergeStatus`;
+  GitHub derives it from `mergeStateStatus`, required checks, review decision
+  and unresolved threads, and an unsettled `UNKNOWN` reads `checking`, never
+  `blocked`. New exports `gitlabReadiness`, `Readiness`, `ReadinessState` and
+  `ReadinessReason`.
+- Typed break: `PullRequest.approvalsRequired` and `MRDashboardProps.reviews.required`
+  are now `number | null`. `null` means the forge did not say how many
+  approvals are required; GitHub reads the count from branch protection and
+  rulesets and never invents a number. A caller that did arithmetic on the
+  old `number` must handle `null`.
+- Typed break: `MRDashboardProps.readiness` is a new required prop
+  (`Readiness | null`). A caller that builds `MRDashboardProps` by hand must
+  supply it.
+- `getMRDashboardProps` reads `readiness` for an open PR, so `isReady`,
+  `isCheckingMergeability` and `status` follow it on GitHub. GitLab output is
+  unchanged.
+- Behavior change: every `GitHubProvider` read throws `RateLimitedError`
+  (`kind`, `resetAt`, `retryAfterMs`, `operation`) when a rate limit refuses
+  it, list reads included, instead of waiting out the window or returning a
+  short list. A REST limit whose wait fits in 30 seconds is still waited out
+  (twice at most), and a 429 with no rate-limit headers counts as a limit
+  too. `RateLimitedError` is a new export. The `rate-limited` warning kind
+  stays in the union, unused.
+- A secondary limit with quota left reports `resetAt: null`, not the
+  hour-long primary window, and waits `Retry-After` or, without one, 60s. When `mergePullRequest` lands the merge but the head-repository
+  read for branch removal is rate limited, it rethrows a `RateLimitedError`
+  whose message says it merged, with the original as `cause`.
+- Behavior change: a rate-limited `validateToken` now throws that
+  `RateLimitedError` (`GitHub <primary|secondary> rate limit hit on GET
+  /user`, plus `; resets at <time>` when GitHub says) instead of `GitHub
+  token validation failed: 403 Forbidden`.
+- Behavior change: GitHub reads cost one batched GraphQL request per 25 pull
+  requests, plus one cached REST rulesets read (10 minutes) per base branch
+  that has an open PR with a non-null `reviewDecision`. A project listing now
+  carries `diffStats`, `listWeight` drops only `body` (list-weight rows now
+  carry `pipeline`, `conflicts` and `shouldBeRebased`), and the involvement
+  search now also returns PRs you reviewed (role `reviewer`), excluding your
+  own.
+- Behavior change: a GitHub GraphQL read answered 5xx is retried like a REST
+  `GET`, so one 502 no longer fails a whole batch of 25. GraphQL mutations and
+  REST writes are still sent once.
+- Behavior change, GitHub review fields: `reviewers` lists past reviewers
+  as well as pending requests, each with a `reviewState` (a reply to a
+  review thread keeps the approval or change request it followed, and a
+  pending re-request reads `UNREVIEWED`). `approved` follows
+  `reviewDecision`, so a repo with no review requirement reads approved.
+  `approvalsLeft` is required minus approvals (0 when the count is
+  unknown); it used to be 1 when changes were requested and 0 otherwise.
+- Behavior change, GitHub pipelines: `status` comes from required checks
+  only, or from every check when none are required; a canceled check reads
+  `canceled` instead of `pending`; commit statuses from external CI are
+  included as jobs beside check runs; `allowFailure` is `!isRequired`; and a
+  job's `webUrl` is the check's `detailsUrl`. `Pipeline.id` is
+  `github:run:<id>`, the first run with a failed counted check or else the
+  newest run (it was `github:checks:<url>`, which stays only when no Actions run
+  exists). New `Pipeline.runIds` (every run on the head commit) and
+  `PipelineJob.runId`.
+- Behavior change: `retryPipeline` on GitHub calls `rerun-failed-jobs`
+  instead of `rerun`, so only failed jobs run again, as on GitLab; a request
+  GitHub refuses (a run still in progress, or with no failed jobs) throws,
+  and a 404 says commit statuses from external CI have no retry.
+- Behavior change: `requestReReview` on GitHub with no usernames re-requests
+  everyone in `reviewers`, past reviewers included, skipping bots and
+  deleted accounts, which GitHub refuses.
+- Typed break: `FetchPullRequestsWarning` widens: `kind` adds
+  `rate-limited`, `source` adds `fill` and `contexts`, and a `resetAt` field
+  is new. An exhaustive `switch` over `kind` or `source` stops compiling.
+  `GitHubProvider` no longer emits the `detail`, `reviews`, `checks` or
+  `threads` sources: the fill replaced those per-PR reads.
+- Behavior change: the GitHub throttle id is hashed without `node:crypto`, so
+  glance no longer imports it.
 - `GitProvider.enqueuePullRequest(projectPath, iid, { expectedHeadSha? })` adds a
   pull request to its branch's merge queue and returns its position and state.
   GitHub only; check `capabilities.canEnqueue`.

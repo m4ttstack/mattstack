@@ -940,24 +940,31 @@ export async function runWriteConformance(
         'unapprovePullRequest',
         'the same identity can revoke',
         async () => {
+          const approverUsername = (await fixture.approver!.validateToken()).username;
           await fixture.approver!.unapprovePullRequest(projectPath, iid);
           // Same reasoning as requestReReview's check below: pollUntil
-          // resolves only once its predicate already found approved ===
-          // false, so a follow-up assert on that same condition could never
+          // resolves only once its predicate already found the approval
+          // gone, so a follow-up assert on that same condition could never
           // fire, and this success path has never run live before, so a
           // failure here is exactly where phase 4's real bug would recur.
           // Catching the timeout and re-reading gets the actual
           // approved/approvedBy state into the failure message instead of
           // pollUntil's generic "timed out" text.
+          //
+          // The approver leaving `approvedBy` is the claim, not `approved`:
+          // on a repo that requires no reviews GitHub's verdict reads
+          // approved with nobody having approved.
           try {
             await pollUntil(`unapproved state of ${iid}`, async () => {
               const fresh = await provider.fetchSingleMR(projectPath, iid, null);
-              return fresh?.approved === false ? fresh : null;
+              return fresh && !fresh.approvedBy.some(u => u.username === approverUsername)
+                ? fresh
+                : null;
             });
           } catch {
             const fresh = await provider.fetchSingleMR(projectPath, iid, null).catch(() => null);
             throw new Error(
-              `expected approved to become false, got ${fresh?.approved} ` +
+              `expected "${approverUsername}" to leave approvedBy, got approved=${fresh?.approved} ` +
                 `(approvedBy: ${JSON.stringify(fresh?.approvedBy.map(u => u.username) ?? [])})`
             );
           }
@@ -2517,6 +2524,62 @@ async function retryJobTimings(
   }
 }
 
+/**
+ * Waits for a GitHub workflow run to settle. A rerun, of one job or of the
+ * failed jobs, is refused with 403 while the run is still in progress, and a
+ * job can finish before its run does (MAT-128). A run that never settles is
+ * the fixture failing to settle, so it reports Inconclusive, not a failure of
+ * the call this wait protects.
+ */
+async function awaitRunCompleted(
+  fixture: ProviderFixture,
+  runId: number,
+  before: string,
+  timeoutMs = 30_000
+): Promise<void> {
+  const { provider, projectPath } = fixture;
+  try {
+    await pollUntil(
+      `workflow run ${runId} reaching "completed" before ${before}`,
+      async () => {
+        const res = await provider.restRequest('GET', `/repos/${projectPath}/actions/runs/${runId}`);
+        if (!res.ok) return null;
+        const run = (await res.json()) as { status?: string };
+        return run.status === 'completed' ? true : null;
+      },
+      { timeoutMs, intervalMs: 2_000 }
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Inconclusive(
+      `workflow run ${runId} never reached "completed" before ${before} could be called: ${message}`
+    );
+  }
+}
+
+/**
+ * The failed `controllable` job of a run's latest attempt. A rerun gives the
+ * rerun jobs new ids, so a job id read before one points at a superseded
+ * attempt.
+ */
+async function latestFailedControllableJob(
+  fixture: ProviderFixture,
+  runId: number
+): Promise<number | null> {
+  const res = await fixture.provider.restRequest(
+    'GET',
+    `/repos/${fixture.projectPath}/actions/runs/${runId}/jobs`
+  );
+  if (!res.ok) return null;
+  const { jobs } = (await res.json()) as {
+    jobs: Array<{ id: number; name: string; status: string; conclusion: string | null }>;
+  };
+  return (
+    jobs.find(j => j.name === 'controllable' && j.status === 'completed' && j.conclusion === 'failure')
+      ?.id ?? null
+  );
+}
+
 export async function runCiConformance(
   fixture: ProviderFixture,
   report: Reporter
@@ -2611,7 +2674,10 @@ export async function runCiConformance(
     });
   }
 
-  await check(report, fixture, 'retryPipeline', 'accepts a retry request', async () => {
+  // GitHub's retry re-runs only the failed jobs of a run and refuses a run
+  // with none, which the settled probe usually is, so its check runs below
+  // against the run `withFailedGitHubJob` provides.
+  if (fixture.name !== 'github') await check(report, fixture, 'retryPipeline', 'accepts a retry request', async () => {
     try {
       await provider.retryPipeline(projectPath, probe.pipelineId);
     } catch (err) {
@@ -2800,6 +2866,19 @@ export async function runCiConformance(
         }
       );
 
+      // Set once `retryPipeline` has re-run the run's failed jobs, which
+      // supersedes `failed.jobId` with a job of the new attempt.
+      let pipelineRetried = false;
+
+      // Before `retryJob`, as on the GitLab side, and behind the same
+      // run-completed wait: `rerun-failed-jobs` is refused while the run is
+      // still in progress.
+      await check(report, fixture, 'retryPipeline', 'accepts a retry request', async () => {
+        await awaitRunCompleted(fixture, failed.pipelineId, 'retryPipeline');
+        await provider.retryPipeline(projectPath, failed.pipelineId);
+        pipelineRetried = true;
+      });
+
       await check(report, fixture, 'retryJob', 'accepts a retry of the failed job', async () => {
         // MAT-128 is now root-caused, not hypothesized: three live runs, read
         // against the timing instrumentation below, all agree on what
@@ -2828,25 +2907,27 @@ export async function runCiConformance(
         // that is this fixture failing to settle, not a retryJob defect, so
         // it is reported Inconclusive below rather than blamed on the call
         // this precondition exists to protect.
-        try {
-          await pollUntil(
-            `workflow run ${failed.pipelineId} reaching "completed" before retryJob`,
-            async () => {
-              const res = await provider.restRequest(
-                'GET',
-                `/repos/${projectPath}/actions/runs/${failed.pipelineId}`
-              );
-              if (!res.ok) return null;
-              const run = (await res.json()) as { status?: string };
-              return run.status === 'completed' ? true : null;
-            },
+        //
+        // After `retryPipeline` the run is a whole new attempt, which takes
+        // longer than a job-versus-run gap, so it gets a longer bound.
+        await awaitRunCompleted(
+          fixture,
+          failed.pipelineId,
+          'retryJob',
+          pipelineRetried ? 120_000 : 30_000
+        );
+        let retryJobId = failed.jobId;
+        if (pipelineRetried) {
+          const latest = await pollUntil(
+            `a failed controllable job in the latest attempt of run ${failed.pipelineId}`,
+            () => latestFailedControllableJob(fixture, failed.pipelineId),
             { timeoutMs: 30_000, intervalMs: 2_000 }
-          );
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          throw new Inconclusive(
-            `workflow run ${failed.pipelineId} never reached "completed" before retryJob could be called: ${message}`
-          );
+          ).catch(err => {
+            throw new Inconclusive(
+              `no failed job in the attempt retryPipeline started: ${err instanceof Error ? err.message : String(err)}`
+            );
+          });
+          retryJobId = latest;
         }
 
         // Everything below is the pre-existing MAT-128 diagnostic, kept
@@ -2858,14 +2939,14 @@ export async function runCiConformance(
         // concurrently to avoid costing two), which the log below says
         // explicitly so "called at" is never mistaken for an unperturbed
         // reading of when this check reached the retry call.
-        const timings = await retryJobTimings(fixture, failed);
+        const timings = await retryJobTimings(fixture, { ...failed, jobId: retryJobId });
         const calledAt = new Date().toISOString();
         console.log(
           `  retryJob timing: job completed ${timings.jobCompletedAt ?? 'unknown'}, ` +
             `run status "${timings.runStatus ?? 'unknown'}" last updated ${timings.runUpdatedAt ?? 'unknown'}, ` +
             `called at ${calledAt} (after one round trip added by this diagnostic)`
         );
-        await provider.retryJob(projectPath, failed.jobId);
+        await provider.retryJob(projectPath, retryJobId);
 
         // Everything above this line exists to keep the retry call itself
         // unperturbed for MAT-128's measurement, so the effect check belongs

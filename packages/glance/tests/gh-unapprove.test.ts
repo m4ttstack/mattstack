@@ -3,8 +3,8 @@
  * MAT-134: unapprove on GitHub is a review dismissal.
  *
  * The subtlety is which review to dismiss. GitHub keeps every review ever
- * submitted, and only the newest per user counts toward `approved` (see
- * `toPullRequest`). Dismissing the first APPROVED one found would revive an
+ * submitted, and only the newest per user counts toward `approved`.
+ * Dismissing the first APPROVED one found would revive an
  * approval the user already replaced.
  *
  * The transport is stubbed; nothing here touches a network.

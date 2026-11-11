@@ -18,6 +18,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { RequestError } from '@octokit/request-error';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
 import type { FetchPullRequestsWarning } from '../src/GitProvider.ts';
+import { ghNode } from './helpers/gh-fill-fixture.ts';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -413,199 +414,87 @@ describe('GitHubProvider transport (real Octokit, fetch stubbed)', () => {
 });
 
 /**
- * Real `octokit.paginate` following a real `Link: rel="next"` header, unlike
- * every other GitHub reviews test in this suite: those stub `octokit.request`
- * (or `octokit.paginate` wholesale), so none of them exercise multi-page
- * aggregation, and none of them would notice if `fetchReviews` regressed to a
- * pre-interpolated path or dropped `per_page` -- both would leave every
- * path-stubbed unit test green while silently breaking pagination against
- * real GitHub. Only driving `fetch` itself, as this file does, can catch that.
+ * The repository listing's approvals over the real transport. Reviews no
+ * longer page through REST: the listing names the PRs and one GraphQL fill
+ * carries every PR's reviews, so what this pins is that approvals arrive
+ * complete from that one POST, and that a failed fill drops the PR rather
+ * than presenting it with a partial approval count.
  */
-describe('GitHubProvider transport: reviews pagination (real octokit.paginate)', () => {
-  const PULL_URL = 'https://api.github.com/repos/acme/repo/pulls/5';
-  const REVIEWS_PAGE1_URL = `${PULL_URL}/reviews?per_page=100`;
-  const REVIEWS_PAGE2_URL = `${REVIEWS_PAGE1_URL}&page=2`;
+describe('GitHubProvider transport: listing approvals arrive through the fill', () => {
+  const LIST_URL = 'https://api.github.com/repos/acme/repo/pulls?state=open';
+  const GRAPHQL_URL = 'https://api.github.com/graphql';
 
-  /** Minimal PR fixture: only the fields `withRoles` and `toPullRequest` read. */
-  function reviewsPR() {
+  function approval(login: string, databaseId: number) {
     return {
-      id: 50,
-      node_id: 'PR_node_5',
-      number: 5,
-      title: 'PR 5',
-      body: null,
-      state: 'open',
-      draft: false,
-      merged_at: null,
-      html_url: 'https://github.com/acme/repo/pull/5',
-      created_at: '2026-07-01T00:00:00Z',
-      updated_at: '2026-07-10T00:00:00Z',
-      head: { sha: 'sha5', ref: 'feature/5' },
-      base: { ref: 'main', repo: { id: 1, full_name: 'acme/repo' } },
-      user: { id: 999, login: 'octocat', avatar_url: null },
-      assignees: [],
-      requested_reviewers: [],
-      labels: []
-    };
-  }
-
-  function review(id: number, login: string, submittedAt: string) {
-    return {
-      id,
-      user: { id, login, avatar_url: null },
       state: 'APPROVED',
-      submitted_at: submittedAt
+      submittedAt: '2026-07-01T00:00:00Z',
+      author: { __typename: 'User' as const, login, avatarUrl: null, databaseId, name: null }
     };
   }
 
-  /**
-   * Answers `/user`, the GraphQL thread-count batch, and the single PR
-   * detail GET identically for both tests below, and delegates anything
-   * to do with the reviews pages to `onReviews`, so each test only has to
-   * describe the one thing it's varying.
-   */
-  function stubAroundReviews(
-    onReviews: (url: string) => Response | undefined
-  ): string[] {
-    return stubFetch(url => {
-      if (url === 'https://api.github.com/user') {
-        return jsonResponse({ id: 1, login: 'me', avatar_url: null });
+  function listing() {
+    return jsonResponse([
+      {
+        number: 5,
+        state: 'open',
+        merged_at: null,
+        updated_at: '2026-07-10T00:00:00Z',
+        base: { ref: 'main', repo: { id: 1, full_name: 'acme/repo', default_branch: 'main' } }
       }
-      if (url === 'https://api.github.com/graphql') {
-        return jsonResponse({ data: { nodes: [] } });
-      }
-      if (url === PULL_URL) {
-        return jsonResponse(reviewsPR());
-      }
-      const answer = onReviews(url);
-      if (answer) return answer;
-      throw new Error(`unexpected URL in test: ${url}`);
-    });
+    ]);
   }
 
-  test('two review pages aggregate to both reviewers, not just page one', async () => {
-    // The parity this migration must not break: page one (bob) and page two
-    // (carol) both succeed, so `approvedBy` must carry both. Asserting the
-    // exact URLs fetch received also pins the route template and
-    // `per_page=100` -- either regressing would leave this failing even
-    // though it would look identical to every path-stubbed unit test.
-    const urls = stubAroundReviews(url => {
-      if (url === REVIEWS_PAGE1_URL) {
-        return new Response(
-          JSON.stringify([review(1, 'bob', '2026-07-01T00:00:00Z')]),
-          {
-            status: 200,
-            headers: {
-              'content-type': 'application/json',
-              Link: `<${REVIEWS_PAGE2_URL}>; rel="next"`
+  test('two approvers both count, read from one fill POST', async () => {
+    const reviews = { nodes: [approval('bob', 1), approval('carol', 2)] };
+    const urls = stubFetch(url => {
+      if (url.startsWith(LIST_URL)) return listing();
+      if (url === GRAPHQL_URL) {
+        return jsonResponse({
+          data: {
+            repository: {
+              p5: ghNode({ number: 5, latestReviews: reviews, latestOpinionatedReviews: reviews })
             }
           }
-        );
+        });
       }
-      if (url === REVIEWS_PAGE2_URL) {
-        return jsonResponse([review(2, 'carol', '2026-07-02T00:00:00Z')]);
-      }
-      return undefined;
+      return jsonResponse({ message: 'Not Found' }, 404);
     });
 
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    // A GraphQL request is a POST, so `@octokit/plugin-throttling`'s
-    // `isWrite` (`options.method !== "GET" && !== "HEAD"`) is already true
-    // for it and routes it into the SAME process-wide "write" Bottleneck
-    // group (`minTime: 1000`, keyed by the shared default id "no-id") that
-    // the write tests above already exercise -- see
-    // `@octokit/plugin-throttling/dist-src/wrap-request.js`. (The plugin
-    // also has a separate `isGraphQL` flag there, but that only gates a
-    // GraphQL-specific rate-limit check later in the same function; it is
-    // not what puts GraphQL in the write group -- `isWrite` alone already
-    // does. Proof: a GHES host posts to `/api/graphql`, which the plugin's
-    // `isGraphQL` check, `pathname.startsWith('/graphql')`, does not match,
-    // yet GHES shows this same 1s pacing.) Task 8 moved `graphql()` onto
-    // `octokit.graphql`, so this test's single GraphQL call (for thread
-    // counts) now queues behind that shared group too. The group's internal
-    // "next allowed dispatch" clock already ran ahead of real time from the
-    // earlier `withInstantTimers`-collapsed write tests, so without
-    // collapsing timers here too, this test pays that backlog back in real
-    // wall-clock time and blows past the default 5s timeout.
+    const provider = new GitHubProvider('https://github.com', 'tok-transport-approvals');
     const prs = await withInstantTimers(() =>
-      provider.fetchPullRequests({
-        iids: [5],
-        projectPath: 'acme/repo',
-        listWeight: true
-      })
+      provider.fetchPullRequests({ projectPath: 'acme/repo', listWeight: true })
     );
 
-    expect(prs[0]?.approvedBy.map(u => u.username).sort()).toEqual([
-      'bob',
-      'carol'
-    ]);
-    expect(urls).toContain(REVIEWS_PAGE1_URL);
-    expect(urls).toContain(REVIEWS_PAGE2_URL);
+    expect(prs[0]?.approvedBy.map(u => u.username).sort()).toEqual(['bob', 'carol']);
+    expect(urls.filter(u => u === GRAPHQL_URL)).toHaveLength(1);
+    expect(urls.some(u => u.includes('/reviews'))).toBe(false);
   });
 
-  test('a failed second reviews page drops the PR and reports why, not a truncated approval count', async () => {
-    // The actual defect scenario, constructed for real rather than by
-    // stubbing `octokit.paginate` to reject outright: page one succeeds
-    // with bob's approval and a genuine `rel="next"` Link header, then page
-    // two fails. The old `fetchAllPages` did `if (!res.ok) break` here and
-    // returned page one alone -- a PR reading "approved by bob" with
-    // carol's approval on page two silently dropped and no error raised
-    // anywhere. `octokit.paginate` still rejects on the failed page (proven
-    // here through a stubbed `fetch`, never a stubbed `paginate`, so the
-    // real Link-following is what surfaces the failure) -- that part of the
-    // fix from the phase this ticket follows stands. What changed is what
-    // happens to that rejection one level up: `enrich` now catches it,
-    // reports it through `onWarning`, and drops PR 5 from the result
-    // instead of letting the rejection fail the whole `fetchPullRequests`
-    // call (MAT-143). Rejecting the entire call was itself a form of the
-    // same defect one level up: with only PR 5 requested here, "the whole
-    // call fails" and "one row of a larger batch silently fails" are the
-    // same bug, just at different batch sizes.
-    stubAroundReviews(url => {
-      if (url === REVIEWS_PAGE1_URL) {
-        return new Response(
-          JSON.stringify([review(1, 'bob', '2026-07-01T00:00:00Z')]),
-          {
-            status: 200,
-            headers: {
-              'content-type': 'application/json',
-              Link: `<${REVIEWS_PAGE2_URL}>; rel="next"`
-            }
-          }
-        );
-      }
-      if (url === REVIEWS_PAGE2_URL) {
-        // A plain 403 with no rate-limit-shaped message or headers: this is
-        // in the retry plugin's `doNotRetry` list and matches neither of the
-        // throttling plugin's retry triggers, so the failure surfaces on
-        // the first attempt with no real backoff to collapse.
-        return jsonResponse({ message: 'page two unavailable' }, 403);
-      }
-      return undefined;
+  test('a failed fill drops the PR and reports why, not a partial approval count', async () => {
+    stubFetch(url => {
+      if (url.startsWith(LIST_URL)) return listing();
+      // A plain 403 with no rate-limit-shaped message or headers: in the
+      // retry plugin's `doNotRetry` list, so it surfaces on the first attempt.
+      if (url === GRAPHQL_URL) return jsonResponse({ message: 'fill unavailable' }, 403);
+      return jsonResponse({ message: 'Not Found' }, 404);
     });
 
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = new GitHubProvider('https://github.com', 'tok-transport-fill-fails');
     const warnings: FetchPullRequestsWarning[] = [];
 
-    // Same shared write-group backlog as the test above applies to this
-    // test's own GraphQL thread-count call.
     const prs = await withInstantTimers(() =>
       provider.fetchPullRequests({
-        iids: [5],
         projectPath: 'acme/repo',
         listWeight: true,
         onWarning: w => warnings.push(w)
       })
     );
 
-    // Not present at all -- never assembled with only bob's page-one
-    // approval, which is the truncated-count outcome this whole ticket
-    // exists to prevent.
     expect(prs).toEqual([]);
     expect(warnings.length).toBe(1);
     expect(warnings[0]).toMatchObject({
       kind: 'request-failed',
-      source: 'reviews',
+      source: 'fill',
       status: 403,
       target: 'acme/repo#5'
     });
@@ -868,7 +757,9 @@ describe('GitHubProvider transport: GraphQL detection matches pathname, not subs
       headers: {
         'content-type': 'application/json',
         'x-ratelimit-remaining': '0',
-        'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 60)
+        // Inside the 30s retry deadline: a reset further out fails fast
+        // instead of retrying, which is not what these tests pin.
+        'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 5)
       }
     });
   }

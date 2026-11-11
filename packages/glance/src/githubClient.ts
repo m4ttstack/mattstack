@@ -5,7 +5,6 @@
  * throttling, pagination that silently truncated on a failed page, and no
  * request instrumentation at all on the GitHub side.
  */
-import { createHash } from 'node:crypto';
 import { Octokit } from '@octokit/core';
 import { paginateRest } from '@octokit/plugin-paginate-rest';
 import { retry } from '@octokit/plugin-retry';
@@ -13,8 +12,25 @@ import { throttling } from '@octokit/plugin-throttling';
 import { RequestError } from '@octokit/request-error';
 import { safeEmit, type OnRequestHook } from './instrumentation.ts';
 import type { ForgeLogger } from './logger.ts';
+import { RateLimitedError } from './errors.ts';
+import { headerValue } from './headers.ts';
 
 const GlanceOctokitBase = Octokit.plugin(paginateRest, retry, throttling);
+
+/**
+ * The longest a REST read waits out a rate limit before failing with
+ * `RateLimitedError`. Past it, the wait is the daemon's to schedule: sleeping
+ * inside a poll held the whole loop until the quota window reset.
+ */
+export const RATE_LIMIT_RETRY_DEADLINE_S = 30;
+
+const MAX_RATE_LIMIT_RETRIES = 2;
+
+/**
+ * The `request` option key a GraphQL query sets to keep the retry plugin's
+ * 5xx retries. Only `graphqlRead` may set it: it never sends a mutation.
+ */
+export const GRAPHQL_READ_MARKER = 'glanceGraphQLRead';
 
 export type GlanceOctokit = InstanceType<typeof GlanceOctokitBase>;
 
@@ -23,7 +39,7 @@ export type GlanceOctokit = InstanceType<typeof GlanceOctokitBase>;
  * not beneath the REST root, so the two cannot be derived from one prefix.
  *
  * `graphqlURL` is no longer read anywhere in `src/` -- `GitHubProvider`'s
- * `graphql()` now calls `octokit.graphql`, which derives the same value
+ * GraphQL helpers call `octokit.graphql`, which derives the same value
  * itself from the REST `apiBase` (see `@octokit/graphql`'s
  * `GHES_V3_SUFFIX_REGEX`). It stays here, and its own test in
  * `github-client.test.ts` stays with it, as a standalone spec of the split
@@ -81,18 +97,16 @@ export function createGitHubClient(opts: {
           retryCount
         });
         if (isGraphQLRequest(options)) {
-          // `graphql()`'s documented contract (MAT-133, owned by phase 4)
-          // is to swallow this outcome and return null immediately, the
-          // same way it swallows an HTTP failure or a GraphQL-level error.
-          // Retrying would wait out `x-ratelimit-reset` in real time --
-          // up to roughly two hours for a primary rate limit, twice, since
-          // the retry plugin's cap is 2 -- before returning the exact same
-          // null, which helps no caller and only delays it.
+          // A GraphQL read throws `RateLimitedError` at once so the daemon
+          // schedules the wait; a mutation fails with the limit for its
+          // caller to retry. Retrying here would wait out
+          // `x-ratelimit-reset` in real time, up to roughly two hours for a
+          // primary rate limit, twice, before failing the same way.
           return false;
         }
         // Two attempts absorb a quota window boundary. Retrying indefinitely
         // would turn a quota exhaustion into a hang with no upper bound.
-        return retryCount < 2;
+        return shouldRetry(options, retryAfter, retryCount);
       },
       onSecondaryRateLimit: (retryAfter, options, _octokit, retryCount) => {
         opts.log.warn('GitHub secondary rate limit hit', {
@@ -102,13 +116,23 @@ export function createGitHubClient(opts: {
           retryCount
         });
         if (isGraphQLRequest(options)) {
-          // Same reasoning as `onRateLimit` above: `graphql()` swallows this
-          // by design, so waiting out `retry-after` (or the 60s fallback),
-          // up to twice, serves nobody.
+          // Same reasoning as `onRateLimit` above: waiting out
+          // `retry-after` (or the 60s fallback), up to twice, would hold the
+          // caller past the deadline reads have.
           return false;
         }
-        return retryCount < 2;
+        return shouldRetry(options, retryAfter, retryCount);
       }
+    },
+    retry: {
+      // The retry plugin backs off 429s on its own 1s, 4s, 9s ladder and
+      // ignores Retry-After, which spends ~14s on a limit the throttling
+      // handlers above already judged past the deadline. A 429 is always a
+      // rate limit: the throttling handlers take the ones GitHub labels
+      // (secondary-limit text, or `x-ratelimit-remaining: 0`), and
+      // `toRateLimitedError` turns every other 429 on a read into a
+      // `RateLimitedError`, so none is left to this ladder.
+      doNotRetry: [400, 401, 403, 404, 410, 422, 429, 451]
     }
   });
 
@@ -120,7 +144,11 @@ export function createGitHubClient(opts: {
   // request that surfaces as failed and must be retried by the caller, so
   // only the idempotent verbs (GET, HEAD) keep automatic retry; everything
   // else is forced to retries: 0 here, centrally, so no call site has to
-  // remember to opt out.
+  // remember to opt out. A GraphQL query is a POST but writes nothing, so
+  // one carrying `GRAPHQL_READ_MARKER` keeps the 5xx retries: without them
+  // one 502 fails a whole fill batch, and the daemon caches "no PR" for
+  // every branch in it. The marker is explicit rather than inferred from
+  // the query text, so a mutation can never be mistaken for a read.
   octokit.hook.before('request', options => {
     // endpoint.merge does not normalize case, so a caller that passes a
     // lowercase method (e.g. restRequest('get', ...)) would otherwise
@@ -128,7 +156,9 @@ export function createGitHubClient(opts: {
     // Every in-repo call site already uses uppercase; this is defensive
     // for restRequest's external, undocumented-case contract.
     const method = options.method?.toUpperCase();
-    if (method && method !== 'GET' && method !== 'HEAD') {
+    const markedRead =
+      options.request?.[GRAPHQL_READ_MARKER] === true && isGraphQLRequest(options);
+    if (method && method !== 'GET' && method !== 'HEAD' && !markedRead) {
       options.request = { ...options.request, retries: 0 };
     }
   });
@@ -168,7 +198,120 @@ export function createGitHubClient(opts: {
     });
   }
 
+  // Registered after the plugins and the instrumentation hook so it is the
+  // outermost error hook: the throttling and retry plugins read the raw
+  // RequestError (status, headers) to decide whether to wait, and the
+  // instrumentation hook above reports its status. Only what survives all of
+  // them is converted. REST reads only: a rejected write keeps its
+  // RequestError so `ghError` still shapes its message, and a GraphQL error
+  // reaches `graphqlRead` unconverted, since a rate limit there can arrive
+  // in a 200 body this hook never sees as an error; it converts for itself.
+  octokit.hook.error('request', (error, options) => {
+    const method = options.method?.toUpperCase();
+    if ((method === 'GET' || method === 'HEAD') && !isGraphQLRequest(options)) {
+      const limited = toRateLimitedError(error, `${method} ${options.url}`);
+      if (limited) throw limited;
+    }
+    throw error;
+  });
+
   return octokit;
+}
+
+/**
+ * The 30s deadline binds reads only, which is what a poll waits on. A write
+ * keeps waiting out the reset (twice at most): a mutation the caller asked
+ * for is worth the wait, and its failure is not recoverable by polling later.
+ */
+function shouldRetry(
+  options: { method?: string },
+  retryAfterSeconds: number,
+  retryCount: number
+): boolean {
+  if (retryCount >= MAX_RATE_LIMIT_RETRIES) return false;
+  const method = options.method?.toUpperCase();
+  const isRead = method === 'GET' || method === 'HEAD';
+  return !isRead || retryAfterSeconds <= RATE_LIMIT_RETRY_DEADLINE_S;
+}
+
+function hasGraphQLRateLimit(err: object): boolean {
+  const e = err as {
+    errors?: unknown;
+    data?: { errors?: unknown };
+    response?: { data?: { errors?: unknown } };
+  };
+  return [e.errors, e.data?.errors, e.response?.data?.errors].some(
+    list =>
+      Array.isArray(list) &&
+      list.some(item => (item as { type?: unknown } | null)?.type === 'RATE_LIMITED')
+  );
+}
+
+const SECONDARY_LIMIT_DEFAULT_WAIT_MS = 60_000;
+
+/**
+ * Recognise a GitHub rate limit in a thrown error, or return null.
+ *
+ * REST: a 403 or 429 is a primary limit when it names `x-ratelimit-remaining:
+ * 0`, and a secondary limit when its message says so, when it carries
+ * `retry-after`, or when it is a bare 429. GraphQL: a `RATE_LIMITED` entry in
+ * the errors, which GitHub returns with a 200, so there is no status to read.
+ *
+ * The wait is `retry-after` when present. Otherwise a primary limit waits for
+ * its reset, and a secondary limit with quota left waits one minute with
+ * `resetAt` null: the primary window says nothing about a secondary limit.
+ */
+export function toRateLimitedError(
+  err: unknown,
+  operation: string
+): RateLimitedError | null {
+  if (err instanceof RateLimitedError) return err;
+  if (!err || typeof err !== 'object') return null;
+
+  const e = err as {
+    status?: unknown;
+    message?: unknown;
+    headers?: unknown;
+    response?: { status?: unknown; headers?: unknown; data?: { message?: unknown } };
+  };
+  const headers = e.response?.headers ?? e.headers;
+
+  let kind: 'primary' | 'secondary' | null = null;
+  if (hasGraphQLRateLimit(err)) {
+    kind = 'primary';
+  } else {
+    const status = e.status ?? e.response?.status;
+    if (status !== 403 && status !== 429) return null;
+    const text = `${e.message ?? ''} ${e.response?.data?.message ?? ''}`;
+    if (/\b(secondary|abuse) rate limit/i.test(text)) kind = 'secondary';
+    else if (headerValue(headers, 'x-ratelimit-remaining') === '0') kind = 'primary';
+    else if (headerValue(headers, 'retry-after') !== null) kind = 'secondary';
+    else if (status === 429) kind = 'secondary';
+  }
+  if (kind === null) return null;
+
+  const resetSeconds = Number(headerValue(headers, 'x-ratelimit-reset'));
+  const primaryResetAt =
+    Number.isFinite(resetSeconds) && resetSeconds > 0
+      ? new Date(resetSeconds * 1000).toISOString()
+      : null;
+  const retryAfterSeconds = Number(headerValue(headers, 'retry-after'));
+  const primaryExhausted =
+    kind === 'primary' || headerValue(headers, 'x-ratelimit-remaining') === '0';
+  const unhinted = !(Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0);
+  const resetAt = primaryExhausted ? primaryResetAt : null;
+  const retryAfterMs = !unhinted
+    ? retryAfterSeconds * 1000
+    : !primaryExhausted
+      ? SECONDARY_LIMIT_DEFAULT_WAIT_MS
+      : resetAt !== null
+        ? Math.max(0, Date.parse(resetAt) - Date.now())
+        : null;
+
+  return new RateLimitedError(
+    `GitHub ${kind} rate limit hit on ${operation}${resetAt ? `; resets at ${resetAt}` : ''}`,
+    { kind, resetAt, retryAfterMs, operation, cause: err }
+  );
 }
 
 /**
@@ -195,12 +338,18 @@ function isGraphQLRequest(options: { url?: string }): boolean {
 
 /**
  * A non-secret discriminator for the throttle group key -- see the
- * `throttle.id` comment above. Any stable hash works here; a short prefix of
- * a fast, non-cryptographic-strength digest is enough, since this only needs
- * to distinguish tokens from each other, not resist attack.
+ * `throttle.id` comment above. It only needs to distinguish tokens from each
+ * other, not resist attack, so a 64-bit FNV-1a in pure JS is enough. It must
+ * stay free of Node built-ins: the glance root bundle is also loaded in
+ * browsers.
  */
-function hashToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex').slice(0, 16);
+export function hashToken(token: string): string {
+  const mask = (1n << 64n) - 1n;
+  let hash = 0xcbf29ce484222325n;
+  for (const byte of new TextEncoder().encode(token)) {
+    hash = ((hash ^ BigInt(byte)) * 0x100000001b3n) & mask;
+  }
+  return hash.toString(16).padStart(16, '0');
 }
 
 function emit(

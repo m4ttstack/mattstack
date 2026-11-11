@@ -6,84 +6,38 @@
  * option field: state (single and multi), iids, authorUsernames, projectPath,
  * updatedAfter, listWeight.
  *
- * `currentUser`, `searchPRs`, `fetchPR`, `listRepoPRs`, and `fetchCheckRuns`
- * call `octokit.request` directly; `fetchReviews` calls `octokit.paginate`.
- * `(provider as any).api` and `.graphql` are monkey-patched as before, and
- * `toOctokitRequestStub`/`toOctokitPaginateStub` adapt the same Response-shaped
- * stub function onto both seams so every existing path-based assertion keeps
- * its meaning.
+ * Discovery (the `/pulls` listing and `/search/issues`) stays REST and every
+ * PR's data comes from the batched GraphQL fill, so the stub answers both
+ * through the real Octokit transport (`stubForge`): REST by path, the fill
+ * by the PR numbers each query aliases.
  */
 import { describe, expect, test } from 'bun:test';
-import { RequestError } from '@octokit/request-error';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
 import type { FetchPullRequestsWarning } from '../src/GitProvider.ts';
 import { warningTarget } from '../src/GitProvider.ts';
 import { fetchDashboardBatch } from '../src/MRDashboard.ts';
+import type { GHFillNode } from '../src/githubFill.ts';
+import {
+  ghNode,
+  jsonResponse,
+  stubForge,
+  useForgeStub,
+  useInstantTimers
+} from './helpers/gh-fill-fixture.ts';
+
+useForgeStub();
+useInstantTimers();
 
 const API = 'https://api.github.com';
 
-function jsonResponse(body: unknown, ok = true, status?: number): Response {
-  return {
-    ok,
-    status: status ?? (ok ? 200 : 500),
-    json: async () => body,
-    text: async () => JSON.stringify(body),
-    headers: { get: () => null }
-  } as unknown as Response;
-}
+let tokens = 0;
 
 /**
- * Adapts an `api()`-shaped stub (method, path) => Response into an
- * `octokit.request(route)` stub, so one fake transport body answers both
- * seams identically: `RequestError` on a non-ok status, `{status, headers,
- * data}` on success, exactly as the real client does.
+ * A fresh token per provider: GraphQL POSTs and searches share throttling
+ * groups keyed by token, and a token other tests used carries their backlog.
  */
-function toOctokitRequestStub(
-  apiFn: (method: string, path: string, body?: unknown) => Promise<Response>
-) {
-  return async (route: string, params?: { data?: unknown }) => {
-    const spaceIdx = route.indexOf(' ');
-    const method = route.slice(0, spaceIdx);
-    const path = route.slice(spaceIdx + 1);
-    const res = await apiFn(method, path, params?.data);
-    if (!res.ok) {
-      throw new RequestError(await res.text(), res.status, {
-        request: { method, url: `${API}${path}`, headers: {} },
-        response: { status: res.status, url: '', headers: {}, data: await res.json() }
-      });
-    }
-    return { status: res.status, headers: {}, data: await res.json() };
-  };
-}
-
-/**
- * Adapts the same `api()`-shaped stub onto `octokit.paginate(route, params)`:
- * fills the route template's `{owner}`/`{repo}`/etc placeholders from
- * `params`, appends `per_page`, and returns the body array directly (what
- * `paginate` resolves to), instead of the `{status, headers, data}` shape
- * `octokit.request` resolves to.
- */
-function toOctokitPaginateStub(
-  apiFn: (method: string, path: string, body?: unknown) => Promise<Response>
-) {
-  return async (route: string, params?: Record<string, unknown>) => {
-    const spaceIdx = route.indexOf(' ');
-    const method = route.slice(0, spaceIdx);
-    let path = route
-      .slice(spaceIdx + 1)
-      .replace(/\{(\w+)\}/g, (_, key: string) => String(params?.[key] ?? ''));
-    if (params?.per_page !== undefined) {
-      path += `${path.includes('?') ? '&' : '?'}per_page=${params.per_page}`;
-    }
-    const res = await apiFn(method, path);
-    if (!res.ok) {
-      throw new RequestError(await res.text(), res.status, {
-        request: { method, url: `${API}${path}`, headers: {} },
-        response: { status: res.status, url: '', headers: {}, data: await res.json() }
-      });
-    }
-    return await res.json();
-  };
+function provider(): GitHubProvider {
+  return new GitHubProvider('https://github.com', `tok-fetch-prs-${++tokens}`);
 }
 
 type FakePR = ReturnType<typeof ghPR>;
@@ -102,23 +56,23 @@ function ghPR(
   }> = {}
 ) {
   return {
-    id: number * 10,
-    node_id: `PR_node_${number}`,
     number,
-    title: `PR ${number}`,
-    body: null,
     state: over.state ?? 'open',
-    draft: false,
     merged_at: over.merged_at ?? null,
-    html_url: `https://github.com/acme/repo/pull/${number}`,
-    created_at: '2026-07-01T00:00:00Z',
     updated_at: over.updated_at ?? '2026-07-10T00:00:00Z',
-    head: { sha: `sha${number}`, ref: `feature/${number}` },
-    base: over.base ?? { ref: 'main', repo: { id: 1, full_name: 'acme/repo', default_branch: 'main' } },
-    user: { id: 999, login: over.login ?? 'octocat', avatar_url: null },
-    assignees: [],
-    requested_reviewers: [],
-    labels: []
+    login: over.login ?? 'octocat',
+    base: over.base ?? { ref: 'main', repo: { id: 1, full_name: 'acme/repo', default_branch: 'main' } }
+  };
+}
+
+/** The `/pulls` listing entry for `pr`: only what discovery reads. */
+function listed(pr: FakePR) {
+  return {
+    number: pr.number,
+    state: pr.state,
+    merged_at: pr.merged_at,
+    updated_at: pr.updated_at,
+    base: pr.base
   };
 }
 
@@ -132,79 +86,92 @@ function searchItem(pr: FakePR) {
   };
 }
 
+/** The fill node GitHub would answer for `pr`. */
+function nodeOf(pr: FakePR): GHFillNode {
+  return ghNode({
+    number: pr.number,
+    databaseId: pr.number * 10,
+    url: `https://github.com/acme/repo/pull/${pr.number}`,
+    state: pr.merged_at ? 'MERGED' : pr.state === 'open' ? 'OPEN' : 'CLOSED',
+    mergedAt: pr.merged_at,
+    updatedAt: pr.updated_at,
+    baseRefName: pr.base.ref,
+    baseRepository: {
+      databaseId: pr.base.repo.id,
+      nameWithOwner: pr.base.repo.full_name,
+      defaultBranchRef: pr.base.repo.default_branch ? { name: pr.base.repo.default_branch } : null
+    },
+    author: { __typename: 'User', login: pr.login, avatarUrl: null, databaseId: 999, name: null }
+  });
+}
+
+/** `/repos/...` and `/search/...` paths, the way the assertions read them. */
+function pathsOf(urls: string[]): string[] {
+  return urls.filter((u) => u.startsWith(API) && !u.endsWith('/graphql')).map((u) => u.slice(API.length));
+}
+
 /**
- * Route the provider's REST calls at `prs`. Search returns every PR on page 1
- * regardless of qualifiers, so the client-side filtering is what the state
- * assertions actually exercise.
+ * Route discovery at `prs` and the fill at their nodes. Search returns every
+ * PR on page 1 regardless of qualifiers, so the client-side filtering is what
+ * the state assertions actually exercise.
  */
-function install(provider: GitHubProvider, prs: FakePR[]): string[] {
-  const calls: string[] = [];
-  const apiFn = async (_method: string, path: string) => {
-    calls.push(path);
-    if (path.startsWith('/user')) {
-      return jsonResponse({ id: 999, login: 'octocat', avatar_url: null });
+function install(
+  prs: FakePR[],
+  over: { searchPage?: (page: number) => unknown[]; listPage?: (page: number) => unknown[] } = {}
+): { calls: string[]; filled: number[][] } {
+  const filled: number[][] = [];
+  const pageOf = (url: string) => Number(new URL(url).searchParams.get('page') ?? '1');
+  const { urls } = stubForge({
+    rest: (url) => {
+      if (url.includes('/search/issues')) {
+        const page = pageOf(url);
+        return jsonResponse({
+          items: over.searchPage ? over.searchPage(page) : page === 1 ? prs.map(searchItem) : []
+        });
+      }
+      if (/\/repos\/[^/]+\/[^/]+\/pulls\?/.test(url)) {
+        const page = pageOf(url);
+        return jsonResponse(over.listPage ? over.listPage(page) : page === 1 ? prs.map(listed) : []);
+      }
+      return undefined;
+    },
+    fill: (numbers) => {
+      filled.push(numbers);
+      const out: Record<number, GHFillNode | null> = {};
+      for (const n of numbers) {
+        const pr = prs.find((p) => p.number === n);
+        if (pr) out[n] = nodeOf(pr);
+      }
+      return out;
     }
-    if (path.startsWith('/search/issues')) {
-      const page = Number(
-        new URLSearchParams(path.split('?')[1] ?? '').get('page') ?? '1'
-      );
-      return jsonResponse({ items: page === 1 ? prs.map(searchItem) : [] });
-    }
-    const single = path.match(/^\/repos\/([^?]+)\/pulls\/(\d+)$/);
-    if (single) {
-      const pr = prs.find((p) => p.number === Number(single[2]));
-      return pr ? jsonResponse(pr) : jsonResponse({}, false, 404);
-    }
-    if (path.includes('/reviews?')) return jsonResponse([]);
-    if (path.includes('/check-runs')) return jsonResponse({ check_runs: [] });
-    if (/^\/repos\/[^/]+\/[^/]+\/pulls\?/.test(path)) {
-      const page = Number(
-        new URLSearchParams(path.split('?')[1] ?? '').get('page') ?? '1'
-      );
-      return jsonResponse(page === 1 ? prs : []);
-    }
-    throw new Error(`unexpected path: ${path}`);
-  };
-  (provider as any).api = apiFn;
-  (provider as any).octokit = {
-    request: toOctokitRequestStub(apiFn),
-    paginate: toOctokitPaginateStub(apiFn)
-  };
-  (provider as any).graphql = async () => ({ nodes: [] });
-  return calls;
+  });
+  return { calls: urls, filled };
 }
 
 function searchQueries(calls: string[]): string[] {
-  return calls
+  return pathsOf(calls)
     .filter((c) => c.startsWith('/search/issues'))
     .map((c) => decodeURIComponent(c));
 }
 
-/** The `/repos/{path}/pulls/{n}` detail GETs, one entry per request made. */
-function detailCalls(calls: string[]): string[] {
-  return calls.filter((c) => /^\/repos\/[^/]+\/[^/]+\/pulls\/\d+$/.test(c));
-}
-
 describe('GitHubProvider.fetchPullRequests: state', () => {
   test('no options: open PRs only, is:open on every search', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    const calls = install(provider, [ghPR(1)]);
+    const { calls } = install([ghPR(1)]);
 
-    const prs = await provider.fetchPullRequests();
+    const prs = await provider().fetchPullRequests();
 
     expect(prs.map((p) => p.iid)).toEqual([1]);
     const queries = searchQueries(calls);
-    expect(queries.length).toBe(3);
+    expect(queries.length).toBe(4);
     expect(queries.every((q) => q.includes('is:open is:pr'))).toBe(true);
   });
 
   test("state 'merged' searches is:closed and drops closed-unmerged PRs", async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
     const merged = ghPR(2, { state: 'closed', merged_at: '2026-07-09T00:00:00Z' });
     const closed = ghPR(3, { state: 'closed' });
-    const calls = install(provider, [merged, closed]);
+    const { calls } = install([merged, closed]);
 
-    const prs = await provider.fetchPullRequests({ state: 'merged' });
+    const prs = await provider().fetchPullRequests({ state: 'merged' });
 
     expect(prs.map((p) => p.iid)).toEqual([2]);
     expect(prs[0]?.state).toBe('merged');
@@ -212,13 +179,12 @@ describe('GitHubProvider.fetchPullRequests: state', () => {
   });
 
   test("state ['opened','merged'] runs one search per qualifier, never an unqualified one", async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
     const open = ghPR(1);
     const merged = ghPR(2, { state: 'closed', merged_at: '2026-07-09T00:00:00Z' });
     const closed = ghPR(3, { state: 'closed' });
-    const calls = install(provider, [open, merged, closed]);
+    const { calls } = install([open, merged, closed]);
 
-    const prs = await provider.fetchPullRequests({ state: ['opened', 'merged'] });
+    const prs = await provider().fetchPullRequests({ state: ['opened', 'merged'] });
 
     expect(prs.map((p) => p.iid).sort()).toEqual([1, 2]);
     expect(prs.find((p) => p.iid === 2)?.state).toBe('merged');
@@ -227,68 +193,63 @@ describe('GitHubProvider.fetchPullRequests: state', () => {
     // searches. Dropping the qualifier instead (what this used to do) matches
     // every PR the user ever authored, all time.
     const queries = searchQueries(calls);
-    expect(queries.length).toBe(6);
-    expect(queries.filter((q) => q.includes('is:open is:pr')).length).toBe(3);
-    expect(queries.filter((q) => q.includes('is:closed is:pr')).length).toBe(3);
+    expect(queries.length).toBe(8);
+    expect(queries.filter((q) => q.includes('is:open is:pr')).length).toBe(4);
+    expect(queries.filter((q) => q.includes('is:closed is:pr')).length).toBe(4);
     expect(queries.every((q) => q.includes('is:open') || q.includes('is:closed'))).toBe(true);
-    for (const involvement of ['author:@me', 'review-requested:@me', 'assignee:@me']) {
+    for (const involvement of [' author:@me', 'review-requested:@me', 'reviewed-by:@me -author:@me', 'assignee:@me']) {
       expect(queries.filter((q) => q.includes(involvement)).length).toBe(2);
     }
   });
 
   test('a closed-unmerged PR is excluded from a merged-only request', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    install(provider, [ghPR(3, { state: 'closed' })]);
+    install([ghPR(3, { state: 'closed' })]);
 
-    expect(await provider.fetchPullRequests({ state: 'merged' })).toEqual([]);
+    expect(await provider().fetchPullRequests({ state: 'merged' })).toEqual([]);
     expect(
-      (await provider.fetchPullRequests({ state: 'closed' })).map((p) => p.iid)
+      (await provider().fetchPullRequests({ state: 'closed' })).map((p) => p.iid)
     ).toEqual([3]);
   });
 });
 
 describe('GitHubProvider.fetchPullRequests: repository modes', () => {
-  test('iids + projectPath fetches those PRs by number and skips search', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    const calls = install(provider, [ghPR(1), ghPR(7)]);
+  test('iids + projectPath fills those PRs by number and skips search', async () => {
+    const { calls, filled } = install([ghPR(7)]);
 
-    const prs = await provider.fetchPullRequests({
+    const prs = await provider().fetchPullRequests({
       iids: [7],
       projectPath: 'acme/repo'
     });
 
     expect(prs.map((p) => p.iid)).toEqual([7]);
-    expect(searchQueries(calls)).toEqual([]);
-    expect(calls).toContain('/repos/acme/repo/pulls/7');
+    expect(calls.some((u) => u.includes('/search/'))).toBe(false);
+    expect(filled).toEqual([[7]]);
   });
 
   test('an empty iids list asks for nothing, not for the whole repository', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    const calls = install(provider, [ghPR(1)]);
+    const { calls } = install([ghPR(1)]);
 
-    const prs = await provider.fetchPullRequests({
+    const prs = await provider().fetchPullRequests({
       iids: [],
       projectPath: 'acme/repo'
     });
 
     expect(prs).toEqual([]);
-    expect(searchQueries(calls)).toEqual([]);
+    expect(calls).toEqual([]);
   });
 
   test('iids without projectPath throws instead of silently ignoring it', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    install(provider, [ghPR(1)]);
+    install([ghPR(1)]);
 
-    await expect(provider.fetchPullRequests({ iids: [1] })).rejects.toThrow(
+    await expect(provider().fetchPullRequests({ iids: [1] })).rejects.toThrow(
       /`iids` requires `projectPath`/
     );
   });
 
   test('authorUsernames + projectPath searches once per author', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    const calls = install(provider, [ghPR(1)]);
+    const { calls } = install([ghPR(1)]);
 
-    const prs = await provider.fetchPullRequests({
+    const prs = await provider().fetchPullRequests({
       authorUsernames: ['ada', 'grace'],
       projectPath: 'acme/repo'
     });
@@ -302,51 +263,47 @@ describe('GitHubProvider.fetchPullRequests: repository modes', () => {
   });
 
   test('authorUsernames without projectPath throws', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    install(provider, [ghPR(1)]);
+    install([ghPR(1)]);
 
     await expect(
-      provider.fetchPullRequests({ authorUsernames: ['ada'] })
+      provider().fetchPullRequests({ authorUsernames: ['ada'] })
     ).rejects.toThrow(/`authorUsernames` requires `projectPath`/);
   });
 
   test('projectPath alone lists the repository instead of searching', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    const calls = install(provider, [ghPR(1), ghPR(2)]);
+    const { calls } = install([ghPR(1), ghPR(2)]);
 
-    const prs = await provider.fetchPullRequests({ projectPath: 'acme/repo' });
+    const prs = await provider().fetchPullRequests({ projectPath: 'acme/repo' });
 
     expect(prs.map((p) => p.iid)).toEqual([1, 2]);
     expect(searchQueries(calls)).toEqual([]);
-    const listCall = calls.find((c) => c.startsWith('/repos/acme/repo/pulls?'));
+    const listCall = pathsOf(calls).find((c) => c.startsWith('/repos/acme/repo/pulls?'));
     expect(listCall).toContain('state=open');
     expect(listCall).toContain('per_page=100');
   });
 
   test('projectPath with multiple states lists state=all', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    const calls = install(provider, [
+    const { calls } = install([
       ghPR(1),
       ghPR(2, { state: 'closed', merged_at: '2026-07-09T00:00:00Z' })
     ]);
 
-    const prs = await provider.fetchPullRequests({
+    const prs = await provider().fetchPullRequests({
       projectPath: 'acme/repo',
       state: ['opened', 'merged']
     });
 
     expect(prs.map((p) => p.iid)).toEqual([1, 2]);
-    expect(calls.find((c) => c.startsWith('/repos/acme/repo/pulls?'))).toContain(
+    expect(pathsOf(calls).find((c) => c.startsWith('/repos/acme/repo/pulls?'))).toContain(
       'state=all'
     );
   });
 
   test('excludeTargetBranches drops PRs into the listed base branches', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
     const deploy = { ref: 'deployments/qa', repo: { id: 1, full_name: 'acme/repo', default_branch: 'main' } };
-    install(provider, [ghPR(1), ghPR(2, { base: deploy })]);
+    install([ghPR(1), ghPR(2, { base: deploy })]);
 
-    const prs = await provider.fetchPullRequests({
+    const prs = await provider().fetchPullRequests({
       projectPath: 'acme/repo',
       excludeTargetBranches: ['deployments/qa']
     });
@@ -355,11 +312,10 @@ describe('GitHubProvider.fetchPullRequests: repository modes', () => {
   });
 
   test('excludeTargetBranches applies to the author mode too', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
     const deploy = { ref: 'deployments/qa', repo: { id: 1, full_name: 'acme/repo', default_branch: 'main' } };
-    install(provider, [ghPR(1), ghPR(2, { base: deploy })]);
+    install([ghPR(1), ghPR(2, { base: deploy })]);
 
-    const prs = await provider.fetchPullRequests({
+    const prs = await provider().fetchPullRequests({
       projectPath: 'acme/repo',
       authorUsernames: ['octocat'],
       excludeTargetBranches: ['deployments/qa']
@@ -371,12 +327,11 @@ describe('GitHubProvider.fetchPullRequests: repository modes', () => {
 
 describe('GitHubProvider.fetchPullRequests: updatedAfter and listWeight', () => {
   test('updatedAfter drops older PRs and narrows the search', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
     const fresh = ghPR(1, { updated_at: '2026-07-20T00:00:00Z' });
     const stale = ghPR(2, { updated_at: '2026-06-01T00:00:00Z' });
-    const calls = install(provider, [fresh, stale]);
+    const { calls } = install([fresh, stale]);
 
-    const prs = await provider.fetchPullRequests({
+    const prs = await provider().fetchPullRequests({
       updatedAfter: '2026-07-15T00:00:00Z'
     });
 
@@ -384,217 +339,165 @@ describe('GitHubProvider.fetchPullRequests: updatedAfter and listWeight', () => 
     expect(searchQueries(calls).every((q) => q.includes('updated:>=2026-07-15'))).toBe(true);
   });
 
-  test('a non-ISO updatedAfter is rejected rather than ignored', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    install(provider, [ghPR(1)]);
+  test('updatedAfter stops the listing at the first full page that ends before the cutoff', async () => {
+    // Every page is full, so only the early stop ends the walk before the cap.
+    const updated = (page: number) => (page === 1 ? '2026-07-20T00:00:00Z' : '2026-06-01T00:00:00Z');
+    const { calls, filled } = install([], {
+      listPage: (page) =>
+        Array.from({ length: 100 }, (_, i) =>
+          listed(ghPR(page * 1000 + i, { updated_at: updated(page) }))
+        )
+    });
 
-    await expect(provider.fetchPullRequests({ updatedAfter: 'last tuesday' })).rejects.toThrow(
+    await provider().fetchPullRequests({
+      projectPath: 'acme/repo',
+      updatedAfter: '2026-07-15T00:00:00Z'
+    });
+
+    const pages = pathsOf(calls).filter((c) => c.startsWith('/repos/acme/repo/pulls?'));
+    expect(pages.length).toBe(2);
+    expect(filled.flat()).toHaveLength(100);
+  });
+
+  test('a non-ISO updatedAfter is rejected rather than ignored', async () => {
+    install([ghPR(1)]);
+
+    await expect(provider().fetchPullRequests({ updatedAfter: 'last tuesday' })).rejects.toThrow(
       /updatedAfter must be an ISO-8601 instant/
     );
   });
 
-  test('listWeight skips the per-PR check-run fetch', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    const calls = install(provider, [ghPR(1)]);
+  test('listWeight keeps the checks and drops only the body', async () => {
+    let query = '';
+    stubForge({
+      rest: (url) => (url.includes('/search/issues') ? jsonResponse({ items: [searchItem(ghPR(1))] }) : undefined),
+      fill: (_numbers, q) => {
+        query = q;
+        return { 1: nodeOf(ghPR(1)) };
+      }
+    });
 
-    const prs = await provider.fetchPullRequests({ listWeight: true });
+    const prs = await provider().fetchPullRequests({ listWeight: true });
 
-    expect(prs[0]?.pipeline).toBeNull();
-    expect(calls.some((c) => c.includes('/check-runs'))).toBe(false);
+    expect(prs[0]?.pipeline).not.toBeNull();
+    expect(query).not.toMatch(/\bbody\b/);
   });
 
-  test('without listWeight the check runs are fetched', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    const calls = install(provider, [ghPR(1)]);
+  test('without listWeight the fill reads the body too', async () => {
+    let query = '';
+    stubForge({
+      rest: (url) => (url.includes('/search/issues') ? jsonResponse({ items: [searchItem(ghPR(1))] }) : undefined),
+      fill: (_numbers, q) => {
+        query = q;
+        return { 1: nodeOf(ghPR(1)) };
+      }
+    });
 
-    await provider.fetchPullRequests();
+    const prs = await provider().fetchPullRequests();
 
-    expect(calls.some((c) => c.includes('/check-runs'))).toBe(true);
+    expect(prs[0]?.description).toBe('Body');
+    expect(query).toMatch(/\bbody\b/);
   });
 });
 
 describe('GitHubProvider.fetchPullRequests: request cost', () => {
-  test('a PR that three involvement searches match costs one detail fetch', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    // `install` answers every search with every PR, so all three involvement
-    // searches match all three PRs: 9 hits, 3 unique.
-    const calls = install(provider, [ghPR(1), ghPR(2), ghPR(3)]);
+  test('a PR that every involvement search matches is filled once', async () => {
+    // `install` answers every search with every PR, so all four involvement
+    // searches match all three PRs: 12 hits, 3 unique.
+    const { filled } = install([ghPR(1), ghPR(2), ghPR(3)]);
 
-    const prs = await provider.fetchPullRequests();
+    const prs = await provider().fetchPullRequests();
 
     expect(prs.map((p) => p.iid).sort()).toEqual([1, 2, 3]);
-    expect(detailCalls(calls).length).toBe(3);
-    expect(new Set(detailCalls(calls)).size).toBe(3);
+    expect(filled).toEqual([[1, 2, 3]]);
   });
 
   test('roles still accumulate across the searches the dedupe collapsed', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    install(provider, [ghPR(1)]);
+    install([ghPR(1)]);
 
-    const prs = await provider.fetchPullRequests();
+    const prs = await provider().fetchPullRequests();
 
     expect(prs[0]?.roles.sort()).toEqual(['assignee', 'author', 'reviewer']);
   });
 
-  test('a mixed-state request still fetches each unique PR once', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
+  test('a mixed-state request still fills each unique PR once', async () => {
     const open = ghPR(1);
     const merged = ghPR(2, { state: 'closed', merged_at: '2026-07-09T00:00:00Z' });
-    const calls = install(provider, [open, merged]);
+    const { calls, filled } = install([open, merged]);
 
-    await provider.fetchPullRequests({ state: ['opened', 'merged'] });
+    await provider().fetchPullRequests({ state: ['opened', 'merged'] });
 
-    // 6 searches over 2 matching PRs, and 2 detail GETs.
-    expect(searchQueries(calls).length).toBe(6);
-    expect(detailCalls(calls).length).toBe(2);
+    // 8 searches over 2 matching PRs, and one fill naming each once.
+    expect(searchQueries(calls).length).toBe(8);
+    expect(filled).toEqual([[1, 2]]);
   });
 
-  test('authorUsernames dedupes across authors before fetching details', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    const calls = install(provider, [ghPR(1), ghPR(2)]);
+  test('authorUsernames dedupes across authors before the fill', async () => {
+    const { calls, filled } = install([ghPR(1), ghPR(2)]);
 
-    const prs = await provider.fetchPullRequests({
+    const prs = await provider().fetchPullRequests({
       authorUsernames: ['ada', 'grace', 'linus'],
       projectPath: 'acme/repo'
     });
 
     expect(prs.map((p) => p.iid)).toEqual([1, 2]);
     expect(searchQueries(calls).length).toBe(3);
-    expect(detailCalls(calls).length).toBe(2);
-  });
-
-  test('detail fetches stay under the concurrency bound', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    const prs = Array.from({ length: 40 }, (_, i) => ghPR(i + 1));
-    install(provider, prs);
-
-    let inFlight = 0;
-    let peak = 0;
-    const inner = (provider as any).octokit.request;
-    (provider as any).octokit.request = async (route: string, params?: unknown) => {
-      const path = route.slice(route.indexOf(' ') + 1);
-      const isDetail = /^\/repos\/[^/]+\/[^/]+\/pulls\/\d+$/.test(path);
-      if (!isDetail) return inner(route, params);
-      inFlight++;
-      peak = Math.max(peak, inFlight);
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      try {
-        return await inner(route, params);
-      } finally {
-        inFlight--;
-      }
-    };
-
-    const result = await provider.fetchPullRequests();
-
-    expect(result.length).toBe(40);
-    expect(peak).toBeGreaterThan(1);
-    expect(peak).toBeLessThanOrEqual(8);
+    expect(filled).toEqual([[1, 2]]);
   });
 });
 
-/**
- * A transport whose searches never run out: every page is a full 100 items
- * cycling `prs`, so only the page cap stops the walk.
- */
-function installFullSearchPages(provider: GitHubProvider, prs: FakePR[]): string[] {
-  const calls: string[] = [];
-  const apiFn = async (_method: string, path: string) => {
-    calls.push(path);
-    if (path.startsWith('/user')) {
-      return jsonResponse({ id: 999, login: 'octocat', avatar_url: null });
-    }
-    if (path.startsWith('/search/issues')) {
-      return jsonResponse({
-        items: Array.from({ length: 100 }, (_, i) => searchItem(prs[i % prs.length]!))
-      });
-    }
-    const single = path.match(/^\/repos\/([^?]+)\/pulls\/(\d+)$/);
-    if (single) {
-      const pr = prs.find((p) => p.number === Number(single[2]));
-      return pr ? jsonResponse(pr) : jsonResponse({}, false, 404);
-    }
-    if (path.includes('/reviews?')) return jsonResponse([]);
-    if (path.includes('/check-runs')) return jsonResponse({ check_runs: [] });
-    throw new Error(`unexpected path: ${path}`);
-  };
-  (provider as any).api = apiFn;
-  (provider as any).octokit = {
-    request: toOctokitRequestStub(apiFn),
-    paginate: toOctokitPaginateStub(apiFn)
-  };
-  (provider as any).graphql = async () => ({ nodes: [] });
-  return calls;
+/** Searches that never run out: every page is a full 100 items cycling `prs`. */
+function installFullSearchPages(prs: FakePR[]): { calls: string[] } {
+  return install(prs, {
+    searchPage: () => Array.from({ length: 100 }, (_, i) => searchItem(prs[i % prs.length]!))
+  });
 }
 
 describe('GitHubProvider.fetchPullRequests: truncation and failures are observable', () => {
   test('the search page cap reaches the caller, not just the logger', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    const calls = installFullSearchPages(provider, [ghPR(1), ghPR(2)]);
+    const { calls } = installFullSearchPages([ghPR(1), ghPR(2)]);
     const warnings: FetchPullRequestsWarning[] = [];
 
-    const prs = await provider.fetchPullRequests({
+    const prs = await provider().fetchPullRequests({
       onWarning: (w) => warnings.push(w)
     });
 
-    // 3 involvement searches, 5 pages each, and the same 2 PRs throughout.
-    expect(searchQueries(calls).length).toBe(15);
+    // 4 involvement searches, 5 pages each, and the same 2 PRs throughout.
+    expect(searchQueries(calls).length).toBe(20);
     expect(prs.map((p) => p.iid)).toEqual([1, 2]);
 
     const capped = warnings.filter((w) => w.kind === 'page-cap');
-    expect(capped.length).toBe(3);
+    expect(capped.length).toBe(4);
     expect(capped[0]?.source).toBe('search');
     expect(capped[0]?.message).toContain('5-page cap');
   });
 
   test('a quiet fetch means nothing was truncated', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    install(provider, [ghPR(1)]);
+    install([ghPR(1)]);
     const warnings: FetchPullRequestsWarning[] = [];
 
-    await provider.fetchPullRequests({ onWarning: (w) => warnings.push(w) });
+    await provider().fetchPullRequests({ onWarning: (w) => warnings.push(w) });
 
     expect(warnings).toEqual([]);
   });
 
   test('the repository listing page cap reaches the caller', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    const calls: string[] = [];
-    const apiFn = async (_method: string, path: string) => {
-      calls.push(path);
-      if (path.startsWith('/user')) {
-        return jsonResponse({ id: 999, login: 'octocat', avatar_url: null });
-      }
-      if (/^\/repos\/acme\/repo\/pulls\?/.test(path)) {
-        const page = Number(
-          new URLSearchParams(path.split('?')[1] ?? '').get('page') ?? '1'
-        );
-        // One open PR per page and 99 closed ones: the walk continues because
-        // the page is full, not because the caller wanted more.
-        return jsonResponse([
-          ghPR(page * 1000),
-          ...Array.from({ length: 99 }, (_, i) =>
-            ghPR(page * 1000 + i + 1, { state: 'closed' })
-          )
-        ]);
-      }
-      if (path.includes('/reviews?')) return jsonResponse([]);
-      if (path.includes('/check-runs')) return jsonResponse({ check_runs: [] });
-      throw new Error(`unexpected path: ${path}`);
-    };
-    (provider as any).api = apiFn;
-    (provider as any).octokit = {
-    request: toOctokitRequestStub(apiFn),
-    paginate: toOctokitPaginateStub(apiFn)
-  };
-    (provider as any).graphql = async () => ({ nodes: [] });
+    // One open PR per page and 99 closed ones: the walk continues because
+    // the page is full, not because the caller wanted more.
+    const pagePRs = (page: number) => [
+      ghPR(page * 1000),
+      ...Array.from({ length: 99 }, (_, i) => ghPR(page * 1000 + i + 1, { state: 'closed' }))
+    ];
+    const open = Array.from({ length: 20 }, (_, i) => ghPR((i + 1) * 1000));
+    const { calls } = install(open, { listPage: (page) => pagePRs(page).map(listed) });
     const warnings: FetchPullRequestsWarning[] = [];
 
-    const prs = await provider.fetchPullRequests({
+    const prs = await provider().fetchPullRequests({
       projectPath: 'acme/repo',
       onWarning: (w) => warnings.push(w)
     });
 
+    expect(pathsOf(calls).filter((c) => c.startsWith('/repos/acme/repo/pulls?')).length).toBe(20);
     expect(prs.length).toBe(20);
     expect(warnings.length).toBe(1);
     expect(warnings[0]?.kind).toBe('page-cap');
@@ -602,28 +505,21 @@ describe('GitHubProvider.fetchPullRequests: truncation and failures are observab
     expect(warnings[0]?.target).toBe('acme/repo');
   });
 
-  test('a rate-limited detail fetch is reported instead of vanishing', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    install(provider, [ghPR(1), ghPR(2)]);
-    const inner = (provider as any).octokit.request;
-    (provider as any).octokit.request = async (route: string, params?: unknown) => {
-      const path = route.slice(route.indexOf(' ') + 1);
-      if (path === '/repos/acme/repo/pulls/2') {
-        throw new RequestError('API rate limit exceeded', 403, {
-          request: { method: 'GET', url: `${API}${path}`, headers: {} },
-          response: {
-            status: 403,
-            url: '',
-            headers: {},
-            data: { message: 'API rate limit exceeded' }
-          }
-        });
-      }
-      return inner(route, params);
-    };
+  test('a PR whose fill failed is reported instead of vanishing, and the others stay', async () => {
+    stubForge({
+      rest: (url) =>
+        url.includes('/search/issues')
+          ? jsonResponse({ items: [searchItem(ghPR(1)), searchItem(ghPR(2))] })
+          : undefined,
+      graphql: () =>
+        jsonResponse({
+          data: { repository: { p1: nodeOf(ghPR(1)), p2: null } },
+          errors: [{ type: 'INTERNAL', path: ['repository', 'p2'], message: 'Something went wrong' }]
+        })
+    });
     const warnings: FetchPullRequestsWarning[] = [];
 
-    const prs = await provider.fetchPullRequests({
+    const prs = await provider().fetchPullRequests({
       onWarning: (w) => warnings.push(w)
     });
 
@@ -631,158 +527,68 @@ describe('GitHubProvider.fetchPullRequests: truncation and failures are observab
     expect(warnings.length).toBe(1);
     expect(warnings[0]).toMatchObject({
       kind: 'request-failed',
-      source: 'detail',
-      status: 403,
-      target: 'acme/repo#2'
-    });
-  });
-
-  test('a rate-limited reviews fetch drops just that PR, not the whole batch (MAT-143)', async () => {
-    // Before MAT-143, `enrich` had no `onWarning` and no per-PR catch: a
-    // rejected reviews page for PR 2 propagated straight out of
-    // `fetchPullRequests`, failing PR 1 too even though PR 1's own fetch
-    // never had a problem. Approvals are computed from reviews, so the
-    // alternative -- swallowing the rejection and assembling PR 2 from
-    // whatever reviews page one returned -- would silently under-report its
-    // approval count instead. Dropping PR 2 (reported through `onWarning`)
-    // is the one outcome that neither fails PR 1 nor shows PR 2 with a
-    // count that cannot be trusted.
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    install(provider, [ghPR(1), ghPR(2)]);
-    const inner = (provider as any).octokit.paginate;
-    (provider as any).octokit.paginate = async (route: string, params?: any) => {
-      if (params?.pull_number === 2) {
-        throw new RequestError('API rate limit exceeded', 403, {
-          request: { method: 'GET', url: `${API}/x`, headers: {} },
-          response: {
-            status: 403,
-            url: '',
-            headers: {},
-            data: { message: 'API rate limit exceeded' }
-          }
-        });
-      }
-      return inner(route, params);
-    };
-    const warnings: FetchPullRequestsWarning[] = [];
-
-    const prs = await provider.fetchPullRequests({
-      onWarning: (w) => warnings.push(w)
-    });
-
-    expect(prs.map((p) => p.iid)).toEqual([1]);
-    expect(warnings.length).toBe(1);
-    expect(warnings[0]).toMatchObject({
-      kind: 'request-failed',
-      source: 'reviews',
-      status: 403,
-      target: 'acme/repo#2'
-    });
-  });
-
-  test('a rate-limited check-runs fetch degrades pipeline to null, but keeps the PR (MAT-143)', async () => {
-    // Checks are supplementary, unlike reviews: no approval count reads
-    // from them. Before this fix, `fetchCheckRuns` caught every failure to
-    // `[]` with no `onWarning` call at all, so a PR whose checks could not
-    // be read looked identical to a PR with none configured -- both mapped
-    // to `pipeline: null` and nothing distinguished them. The PR itself
-    // must stay in the result (unlike a reviews failure) since dropping it
-    // over a lower-stakes field would be a bigger degradation than the
-    // failure warrants; what's new is that the failure is now visible.
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    install(provider, [ghPR(1), ghPR(2)]);
-    const inner = (provider as any).octokit.request;
-    (provider as any).octokit.request = async (route: string, params?: unknown) => {
-      const path = route.slice(route.indexOf(' ') + 1);
-      if (path === '/repos/acme/repo/commits/sha2/check-runs?per_page=100') {
-        throw new RequestError('API rate limit exceeded', 403, {
-          request: { method: 'GET', url: `${API}${path}`, headers: {} },
-          response: {
-            status: 403,
-            url: '',
-            headers: {},
-            data: { message: 'API rate limit exceeded' }
-          }
-        });
-      }
-      return inner(route, params);
-    };
-    const warnings: FetchPullRequestsWarning[] = [];
-
-    const prs = await provider.fetchPullRequests({
-      onWarning: (w) => warnings.push(w)
-    });
-
-    expect(prs.map((p) => p.iid).sort()).toEqual([1, 2]);
-    expect(prs.find((p) => p.iid === 2)?.pipeline).toBeNull();
-    expect(warnings.length).toBe(1);
-    // `target` must be `warningTarget('acme/repo', 2)` -- i.e.
-    // `owner/repo#number` -- not the commit sha this check-runs call is
-    // actually keyed by on GitHub's side. An earlier version of this
-    // warning used `owner/repo@sha` here, which read as more precise but
-    // could never match `fetchDashboardBatch`'s lookup (MRDashboard.ts),
-    // so a real checks failure never reached `DashboardGroup.onWarning`
-    // despite this exact test passing the whole time. Asserting against
-    // `warningTarget` itself, not a hand-written string, is what would
-    // have caught that: a regression back to `@sha` fails here now,
-    // instead of only failing a dashboard-layer test this file doesn't run.
-    expect(warnings[0]).toMatchObject({
-      kind: 'request-failed',
-      source: 'checks',
-      status: 403,
+      source: 'fill',
       target: warningTarget('acme/repo', 2)
     });
   });
 
-  test('a failed thread-count batch degrades those PRs to unknown, without failing the fetch (MAT-143)', async () => {
-    // `fetchUnresolvedThreadCounts` is awaited before `enrich`'s per-PR pool
-    // even starts, so before this fix a single GraphQL failure here
-    // rejected the whole `fetchPullRequests` call -- blanking every PR
-    // passed in, not just the ones whose count query happened to fail
-    // alongside them. `null` already means "unknown" in this map (a
-    // truncated per-PR page reports the same), so degrading to it here
-    // reuses that vocabulary instead of failing PRs that had nothing wrong
-    // with their own reviews or checks.
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    install(provider, [ghPR(1), ghPR(2)]);
-    (provider as any).graphql = async () => {
-      throw new Error('GraphQL: something went wrong');
-    };
+  test('a whole failed fill batch warns once per PR, with the status', async () => {
+    stubForge({
+      rest: (url) =>
+        url.includes('/search/issues')
+          ? jsonResponse({ items: [searchItem(ghPR(1)), searchItem(ghPR(2))] })
+          : undefined,
+      graphql: () => jsonResponse({ message: 'Bad Gateway' }, 502)
+    });
     const warnings: FetchPullRequestsWarning[] = [];
 
-    const prs = await provider.fetchPullRequests({
+    const prs = await provider().fetchPullRequests({
+      onWarning: (w) => warnings.push(w)
+    });
+
+    expect(prs).toEqual([]);
+    expect(warnings.map((w) => [w.source, w.status, w.target])).toEqual([
+      ['fill', 502, 'acme/repo#1'],
+      ['fill', 502, 'acme/repo#2']
+    ]);
+  });
+
+  test('an unread checks page keeps the PR, pending, and says so', async () => {
+    const node2 = nodeOf(ghPR(2));
+    node2.commits.nodes[0]!.commit.statusCheckRollup!.contexts.pageInfo = {
+      hasNextPage: true,
+      endCursor: 'CUR'
+    };
+    stubForge({
+      rest: (url) =>
+        url.includes('/search/issues')
+          ? jsonResponse({ items: [searchItem(ghPR(1)), searchItem(ghPR(2))] })
+          : undefined,
+      graphql: (query) => (query.includes('after:') ? jsonResponse({ message: 'Bad Gateway' }, 502) : undefined),
+      fill: () => ({ 1: nodeOf(ghPR(1)), 2: node2 })
+    });
+    const warnings: FetchPullRequestsWarning[] = [];
+
+    const prs = await provider().fetchPullRequests({
       onWarning: (w) => warnings.push(w)
     });
 
     expect(prs.map((p) => p.iid).sort()).toEqual([1, 2]);
-    expect(prs.every((p) => p.unresolvedThreadCount === null)).toBe(true);
-    // One warning per affected PR, not one warning naming the whole batch:
-    // `fetchDashboardBatch` (MRDashboard.ts) keys warnings by a single-PR
-    // `owner/repo#number` target, the same shape `detail`/`reviews`/`checks`
-    // already use, so a joined target could never be attributed to a row.
-    expect(warnings.length).toBe(2);
-    expect(warnings.every((w) => w.source === 'threads')).toBe(true);
-    expect(warnings.map((w) => w.target).sort()).toEqual([
-      'acme/repo#1',
-      'acme/repo#2'
-    ]);
+    expect(prs.find((p) => p.iid === 2)?.pipeline?.status).toBe('pending');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatchObject({
+      kind: 'request-failed',
+      source: 'contexts',
+      target: warningTarget('acme/repo', 2)
+    });
   });
 
   test('a PR GitHub says is gone is not reported as a failure', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    // Search matches PR 9, which the detail endpoint 404s for.
-    install(provider, [ghPR(1)]);
-    const inner = (provider as any).octokit.request;
-    (provider as any).octokit.request = async (route: string, params?: unknown) => {
-      const path = route.slice(route.indexOf(' ') + 1);
-      if (path.startsWith('/search/issues')) {
-        return { status: 200, headers: {}, data: { items: [searchItem(ghPR(9))] } };
-      }
-      return inner(route, params);
-    };
+    // Search matches PR 9, which the fill answers with a null alias.
+    install([ghPR(1)], { searchPage: (page) => (page === 1 ? [searchItem(ghPR(9))] : []) });
     const warnings: FetchPullRequestsWarning[] = [];
 
-    const prs = await provider.fetchPullRequests({
+    const prs = await provider().fetchPullRequests({
       onWarning: (w) => warnings.push(w)
     });
 
@@ -791,10 +597,9 @@ describe('GitHubProvider.fetchPullRequests: truncation and failures are observab
   });
 
   test('an onWarning that throws does not fail the fetch', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    installFullSearchPages(provider, [ghPR(1)]);
+    installFullSearchPages([ghPR(1)]);
 
-    const prs = await provider.fetchPullRequests({
+    const prs = await provider().fetchPullRequests({
       onWarning: () => {
         throw new Error('consumer bug');
       }
@@ -819,79 +624,65 @@ describe('GitHubProvider.fetchPullRequests: truncation and failures are observab
  * standing in for either side's actual `target`.
  */
 describe('fetchDashboardBatch against the real GitHubProvider, not a fake (MAT-143 review round 4)', () => {
-  test('a real checks failure lands in `degraded`, keyed by the target GitHubProvider actually emits', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    install(provider, [ghPR(1), ghPR(2)]);
-    const inner = (provider as any).octokit.request;
-    (provider as any).octokit.request = async (route: string, params?: unknown) => {
-      const path = route.slice(route.indexOf(' ') + 1);
-      if (path === '/repos/acme/repo/commits/sha2/check-runs?per_page=100') {
-        throw new RequestError('API rate limit exceeded', 403, {
-          request: { method: 'GET', url: `${API}${path}`, headers: {} },
-          response: {
-            status: 403,
-            url: '',
-            headers: {},
-            data: { message: 'API rate limit exceeded' }
+  /** PR 2 has more than 100 checks, so its second page is a separate request. */
+  function moreChecks(n: number) {
+    return ghNode({
+      number: n,
+      commits: {
+        nodes: [
+          {
+            commit: {
+              oid: 'abc123',
+              statusCheckRollup: {
+                state: 'SUCCESS',
+                contexts: {
+                  totalCount: 101,
+                  pageInfo: { hasNextPage: true, endCursor: 'CUR' },
+                  nodes: []
+                }
+              }
+            }
           }
-        });
+        ]
       }
-      return inner(route, params);
-    };
+    });
+  }
 
-    const { prs, degraded } = await fetchDashboardBatch(provider, 'acme/repo', [1, 2]);
+  test('a real contexts failure lands in `degraded`, keyed by the target GitHubProvider actually emits', async () => {
+    stubForge({
+      graphql: (query) =>
+        query.includes('after:') ? jsonResponse({ message: 'Bad Gateway' }, 502) : undefined,
+      fill: () => ({ 1: ghNode({ number: 1 }), 2: moreChecks(2) })
+    });
 
-    // Present, not dropped: a checks failure degrades `pipeline` to `null`,
-    // it does not exclude the PR the way a reviews failure does.
+    const { prs, degraded } = await fetchDashboardBatch(provider(), 'acme/repo', [1, 2]);
+
+    // Present, not dropped: an unread checks page leaves the pipeline
+    // pending, it does not exclude the PR the way a failed fill does.
     expect(prs.has(2)).toBe(true);
-    expect(degraded.get(2)?.source).toBe('checks');
+    expect(degraded.get(2)?.source).toBe('contexts');
+    expect(degraded.has(1)).toBe(false);
   });
 
-  test('a real threads failure lands in `degraded` for every affected PR', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    install(provider, [ghPR(1), ghPR(2)]);
-    (provider as any).graphql = async () => {
-      throw new Error('GraphQL: something went wrong');
-    };
+  test('a real fill failure drops the PR from `prs` but still lands in `degraded`', async () => {
+    stubForge({
+      graphql: () =>
+        jsonResponse({
+          data: { repository: { p1: ghNode({ number: 1 }), p2: null } },
+          errors: [{ type: 'INTERNAL', path: ['repository', 'p2'], message: 'Something went wrong' }]
+        })
+    });
 
-    const { prs, degraded } = await fetchDashboardBatch(provider, 'acme/repo', [1, 2]);
-
-    expect(prs.has(1)).toBe(true);
-    expect(prs.has(2)).toBe(true);
-    expect(degraded.get(1)?.source).toBe('threads');
-    expect(degraded.get(2)?.source).toBe('threads');
-  });
-
-  test('a real reviews failure drops the PR from `prs` but still lands in `degraded`', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
-    install(provider, [ghPR(1), ghPR(2)]);
-    const inner = (provider as any).octokit.paginate;
-    (provider as any).octokit.paginate = async (route: string, params?: any) => {
-      if (params?.pull_number === 2) {
-        throw new RequestError('API rate limit exceeded', 403, {
-          request: { method: 'GET', url: `${API}/x`, headers: {} },
-          response: {
-            status: 403,
-            url: '',
-            headers: {},
-            data: { message: 'API rate limit exceeded' }
-          }
-        });
-      }
-      return inner(route, params);
-    };
-
-    const { prs, degraded } = await fetchDashboardBatch(provider, 'acme/repo', [1, 2]);
+    const { prs, degraded } = await fetchDashboardBatch(provider(), 'acme/repo', [1, 2]);
 
     expect(prs.has(1)).toBe(true);
     expect(prs.has(2)).toBe(false);
-    expect(degraded.get(2)?.source).toBe('reviews');
+    expect(degraded.get(2)?.source).toBe('fill');
   });
 });
 
 describe('GitHubProvider.fetchPullRequests: isStacked', () => {
-  test('isStacked derives from base.ref vs default_branch', async () => {
-    const provider = new GitHubProvider('https://github.com', 'tok');
+  test('isStacked derives from the base branch vs the default branch', async () => {
     const stacked = ghPR(7, {
       base: {
         ref: 'feat-parent',
@@ -902,9 +693,9 @@ describe('GitHubProvider.fetchPullRequests: isStacked', () => {
     const missingDefaultBranch = ghPR(9, {
       base: { ref: 'feat-x', repo: { id: 1, full_name: 'acme/repo' } }
     });
-    install(provider, [stacked, plain, missingDefaultBranch]);
+    install([stacked, plain, missingDefaultBranch]);
 
-    const prs = await provider.fetchPullRequests({});
+    const prs = await provider().fetchPullRequests({});
 
     expect(prs.find((p) => p.iid === 7)?.isStacked).toBe(true);
     expect(prs.find((p) => p.iid === 8)?.isStacked).toBe(false);

@@ -12,6 +12,7 @@ import type {
   MRState,
 } from './GitProvider.ts';
 import { parseUpdatedAfter, requireProjectPath } from './GitProvider.ts';
+import { gitlabReadiness } from './readiness.ts';
 import type {
   BranchProtectionRule,
   CreatePullRequestInput,
@@ -467,7 +468,7 @@ function toMR(
 
   const rootRef = gql.targetProject?.repository?.rootRef ?? null;
 
-  return {
+  const pr: PullRequest = {
     id: `gitlab:mr:${numericId(gql.id)}`,
     iid: parseInt(gql.iid, 10),
     repositoryId: `gitlab:${gql.projectId}`,
@@ -527,6 +528,8 @@ function toMR(
     squashOnMerge: gql.squashOnMerge ?? false,
     mergeTrainIndex: gql.mergeTrainIndex ?? null,
   };
+  pr.readiness = gitlabReadiness(pr);
+  return pr;
 }
 
 // ---------------------------------------------------------------------------

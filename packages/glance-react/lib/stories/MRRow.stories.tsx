@@ -76,3 +76,41 @@ export const LoadingRow: StoryObj<typeof MRRow> = {
 export const LoadingList: Story = {
   args: { loading: true, loadingCount: 4 },
 };
+
+const githubReviews = mocks.pipelineBlocked.reviews;
+
+/** GitHub requires a review but its count is unreadable: the verdict alone, no made-up fraction. */
+export const GitHubReviewRequiredCountUnknown: StoryObj<typeof MRRow> = {
+  name: 'GitHub, review required, count unknown',
+  render: args => <MRRow {...args} />,
+  args: {
+    mr: {
+      ...mocks.pipelineBlocked,
+      reviews: {
+        ...githubReviews,
+        required: null,
+        given: 0,
+        remaining: 0,
+        isApproved: false,
+        approvedBy: [],
+      },
+    },
+  },
+};
+
+export const GitHubOneOfTwo: StoryObj<typeof MRRow> = {
+  name: 'GitHub, 1 of 2',
+  render: args => <MRRow {...args} />,
+  args: {
+    mr: {
+      ...mocks.pipelineBlocked,
+      reviews: {
+        ...githubReviews,
+        required: 2,
+        given: 1,
+        remaining: 1,
+        isApproved: false,
+      },
+    },
+  },
+};

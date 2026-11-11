@@ -162,6 +162,7 @@ export const mergeable: MRDashboardProps = {
   reviews: baseReviews(reviewers, 2, 2),
   status: 'mergeable',
   statusDetail: 'mergeable',
+  readiness: null,
   isReady: true,
   isCheckingMergeability: false,
   isMerging: false,

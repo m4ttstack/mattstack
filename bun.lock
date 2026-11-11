@@ -383,7 +383,7 @@
     },
     "packages/glance": {
       "name": "@mattstack/glance",
-      "version": "0.27.0",
+      "version": "0.28.0",
       "dependencies": {
         "@gitbeaker/rest": "^43.8.0",
         "@octokit/core": "^7.0.7",
