@@ -33,6 +33,7 @@ function cell(byBilling: Record<UsageBilling, UsageTotals>) {
   return {
     metered: getByTestId('cost-metered').textContent,
     plan: queryByTestId('cost-plan')?.textContent ?? null,
+    unknown: queryByTestId('cost-unknown')?.textContent ?? null,
   };
 }
 
@@ -41,10 +42,31 @@ describe('CostCell', () => {
     expect(cell(split(4.6, 1480, 0))).toEqual({
       metered: '$4.60',
       plan: '$1,480 on plan',
+      unknown: null,
     });
   });
 
   it('leaves the plan line out when nothing ran on a plan', () => {
-    expect(cell(split(4.6, 0, 0))).toEqual({ metered: '$4.60', plan: null });
+    expect(cell(split(4.6, 0, 0))).toEqual({
+      metered: '$4.60',
+      plan: null,
+      unknown: null,
+    });
+  });
+
+  it('shows cost with no account beside plan usage', () => {
+    expect(cell(split(0, 1480, 32.5))).toEqual({
+      metered: '$0.00',
+      plan: '$1,480 on plan',
+      unknown: '$32.50 unknown',
+    });
+  });
+
+  it('shows cost from before accounts were recorded as unknown, not free', () => {
+    expect(cell(split(0, 0, 32.5))).toEqual({
+      metered: '$0.00',
+      plan: null,
+      unknown: '$32.50 unknown',
+    });
   });
 });

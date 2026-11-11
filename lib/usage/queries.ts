@@ -258,7 +258,7 @@ export function usageMrs(
 ): UsageMrsData {
   const empty: UsageMrsData = {
     mrs: [],
-    summary: { mrCount: 0, totals: emptyTotals(), medianCost: 0 },
+    summary: { mrCount: 0, totals: emptyTotals(), byBilling: byBillingOf(), medianCost: 0 },
   };
   return reading(dbPath, empty, (db) => {
     const params: Scope["params"] = {};
@@ -311,10 +311,14 @@ export function usageMrs(
     mrs.sort((a, b) => b.lastActivity - a.lastActivity);
 
     const totals = emptyTotals();
-    for (const mr of mrs) add(totals, mr.totals);
+    const byBilling = byBillingOf();
+    for (const mr of mrs) {
+      add(totals, mr.totals);
+      for (const billing of BILLINGS) add(byBilling[billing], mr.byBilling[billing]);
+    }
     return {
       mrs,
-      summary: { mrCount: mrs.length, totals, medianCost: median(mrs.map((m) => m.totals.cost)) },
+      summary: { mrCount: mrs.length, totals, byBilling, medianCost: median(mrs.map((m) => m.totals.cost)) },
     };
   });
 }

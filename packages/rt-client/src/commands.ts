@@ -525,7 +525,7 @@ export interface UsageMrRow {
 
 export interface UsageMrsData {
   mrs: UsageMrRow[];
-  summary: { mrCount: number; totals: UsageTotals; medianCost: number };
+  summary: { mrCount: number; totals: UsageTotals; byBilling: Record<UsageBilling, UsageTotals>; medianCost: number };
 }
 
 /**

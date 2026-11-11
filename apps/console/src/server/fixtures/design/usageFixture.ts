@@ -439,6 +439,7 @@ export function usageFixture(): UsageFixture {
       summary: {
         mrCount: rows.length,
         totals: sum(rows.map(r => r.totals)),
+        byBilling: sumBilling(rows.map(r => r.byBilling)),
         medianCost,
       },
     },
@@ -481,7 +482,15 @@ export function usageFixture(): UsageFixture {
 
 export function emptyUsageFixture(): UsageFixture {
   return {
-    mrs: { mrs: [], summary: { mrCount: 0, totals: ZERO, medianCost: 0 } },
+    mrs: {
+      mrs: [],
+      summary: {
+        mrCount: 0,
+        totals: ZERO,
+        byBilling: unknownBilling(ZERO),
+        medianCost: 0,
+      },
+    },
     mr: () => null,
     trends: {
       weeks: [],

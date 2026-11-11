@@ -32,7 +32,7 @@ const SORT_COLUMNS: Array<{ sort: MrSort; label: string }> = [
   { sort: 'date', label: 'Last active' },
   { sort: 'output', label: 'Output' },
   { sort: 'cacheRead', label: 'Cache read' },
-  { sort: 'cost', label: 'Est. cost' },
+  { sort: 'cost', label: 'Metered' },
 ];
 
 function SortHeader({
@@ -78,11 +78,18 @@ export function CostCell({
       <Text fz="sm" fw={500} lh="normal" data-testid="cost-metered">
         {usd(byBilling.metered.cost)}
       </Text>
-      {byBilling.plan.cost > 0 ? (
-        <Text fz="sm" c="dimmed" lh="normal" data-testid="cost-plan">
-          {`${usd(byBilling.plan.cost)} on plan`}
-        </Text>
-      ) : null}
+      <div className={classes.costRest}>
+        {byBilling.plan.cost > 0 ? (
+          <Text span fz="sm" c="dimmed" lh="normal" data-testid="cost-plan">
+            {`${usd(byBilling.plan.cost)} on plan`}
+          </Text>
+        ) : null}
+        {byBilling.unknown.cost > 0 ? (
+          <Text span fz="sm" c="dimmed" lh="normal" data-testid="cost-unknown">
+            {`${usd(byBilling.unknown.cost)} unknown`}
+          </Text>
+        ) : null}
+      </div>
     </div>
   );
 }

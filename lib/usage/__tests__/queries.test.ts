@@ -858,6 +858,16 @@ test("the MR list and trends carry byBilling", () => {
   expect(sumOf(trends.byBilling).cost).toBeCloseTo(trends.totals.cost, 9);
 });
 
+test("the MR list summary splits its totals by billing", () => {
+  const start = seedAccountSwitch();
+  run("r2", { mrKey: MR_B, startedAt: start });
+  message({ session: "s-2", runId: "r2", mrKey: MR_B, input: 32, output: 32, ts: start + 500 });
+  const { summary } = usageMrs(dbPath, { now: NOW });
+  expect(inputs(summary.byBilling)).toEqual([6, 24, 1 + 32]);
+  expect(sumOf(summary.byBilling).input).toBe(summary.totals.input);
+  expect(sumOf(summary.byBilling).cost).toBeCloseTo(summary.totals.cost, 9);
+});
+
 test("byBilling counts a run's session outside the run wherever totals do", () => {
   const start = seedLongSession();
   account("s-1", start - 6 * DAY, { account: "acct-max", orgType: "claude_max" });

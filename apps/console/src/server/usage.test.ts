@@ -224,7 +224,12 @@ describe('usage api', () => {
     };
     expect(await body('/api/usage/mrs')).toEqual({
       mrs: [],
-      summary: { mrCount: 0, totals: zero, medianCost: 0 },
+      summary: {
+        mrCount: 0,
+        totals: zero,
+        byBilling: { metered: zero, plan: zero, unknown: zero },
+        medianCost: 0,
+      },
     });
     expect(await body('/api/usage/mr?mrKey=x')).toBeNull();
     expect(await body('/api/usage/trends?days=30')).toEqual({

@@ -218,12 +218,7 @@ export function UsagePage() {
   const responseCost = rows.reduce((sum, r) => sum + r.costByKind.respond, 0);
   const mrStats: UsageStat[] = summary
     ? [
-        {
-          key: 'cost',
-          value: usd(summary.totals.cost),
-          label: 'estimated cost',
-          tone: 'gray',
-        },
+        ...billingStats(summary.byBilling, 'gray'),
         {
           key: 'mrs',
           value: summary.mrCount,

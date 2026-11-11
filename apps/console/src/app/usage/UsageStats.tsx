@@ -16,20 +16,19 @@ export interface UsageStat {
 
 /** Plan usage costs nothing extra, so metered spend is the headline figure. */
 export function billingStats(
-  byBilling: Record<UsageBilling, UsageTotals>
+  byBilling: Record<UsageBilling, UsageTotals>,
+  tone?: HeroTone
 ): UsageStat[] {
+  const stat = (key: UsageBilling, label: string): UsageStat => ({
+    key,
+    value: usd(byBilling[key].cost),
+    label,
+    ...(tone ? { tone } : {}),
+  });
   return [
-    { key: 'metered', value: usd(byBilling.metered.cost), label: 'metered' },
-    { key: 'plan', value: usd(byBilling.plan.cost), label: 'on plan' },
-    ...(byBilling.unknown.cost > 0
-      ? [
-          {
-            key: 'unknown',
-            value: usd(byBilling.unknown.cost),
-            label: 'unknown',
-          },
-        ]
-      : []),
+    stat('metered', 'metered'),
+    stat('plan', 'on plan'),
+    ...(byBilling.unknown.cost > 0 ? [stat('unknown', 'unknown')] : []),
   ];
 }
 
