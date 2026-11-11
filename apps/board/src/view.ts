@@ -426,8 +426,9 @@ export function flattenStack<M extends BoardMR>(
 export function approvalSlots(mr: BoardMR): {
   filled: number;
   required: number;
-} {
+} | null {
   const { required, remaining } = mr.reviews;
+  if (required === null) return null;
   return { filled: Math.max(required - remaining, 0), required };
 }
 
@@ -671,7 +672,9 @@ function anyReviewerActed(mr: BoardMR): boolean {
     shows no review activity at all, so it never hides an approval count. */
 function quietReviewCounts(mr: BoardMR): boolean {
   return (
-    !!mr.quietReview && !anyReviewerActed(mr) && approvalSlots(mr).filled === 0
+    !!mr.quietReview &&
+    !anyReviewerActed(mr) &&
+    (approvalSlots(mr)?.filled ?? 0) === 0
   );
 }
 
@@ -687,7 +690,7 @@ export function statusBucket(mr: BoardMR): { label: string; order: number } {
   if (hasChangesRequested(mr)) return { label: 'changes requested', order: 1 };
   if (mr.reviews.isApproved) return { label: 'approved', order: 4 };
   // A rule no assigned reviewer covers (a codeowner section) can still be owed.
-  if (allReviewersApproved(mr) && approvalSlots(mr).filled > 0)
+  if (allReviewersApproved(mr) && (approvalSlots(mr)?.filled ?? 0) > 0)
     return { label: 'needs review', order: 0 };
   if (mr.reviewerComments > 0) return { label: 'commented', order: 2 };
   // Reviewed and all threads resolved, just not formally approved — further along

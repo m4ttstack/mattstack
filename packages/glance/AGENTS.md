@@ -57,9 +57,9 @@ Manual and per package; follow `packages/glance/docs/releasing.md`.
 `check-types` and `build` (glance-react), so a publish that skips scripts
 ships unchecked output. There is no release workflow; turbo runs the
 typecheck, lint and test gates from rt's root (`bun run check`) instead.
-In-repo consumers link the workspace package; external consumers (gitq
-today) pin glance by version, so a behaviour change needs a bump before
-they can see it.
+In-repo consumers link the workspace package, gitq included (`workspace:*`);
+only an npm-installed `@mattstack/gitq` resolves glance by version, so a
+behaviour change needs a bump and a publish before that install sees it.
 
 ## Invariants from recent releases
 

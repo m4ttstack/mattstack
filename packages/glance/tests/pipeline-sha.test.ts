@@ -9,6 +9,9 @@
 import { describe, expect, test } from 'bun:test';
 import { GitLabProvider, MR_DASHBOARD_FRAGMENT, MR_LIST_FRAGMENT } from '../src/GitLabProvider.ts';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
+import { ghNode, stubForge, useForgeStub } from './helpers/gh-fill-fixture.ts';
+
+useForgeStub();
 
 function gitlabNode(over: Record<string, unknown> = {}) {
   const user = { id: 'gid://gitlab/User/1', username: 'ada', name: 'Ada', avatarUrl: null };
@@ -127,66 +130,28 @@ describe('GitLab head pipeline sha, ref and event type', () => {
 });
 
 describe('GitHub pipeline sha and ref', () => {
-  test('pipeline sha is the checks head sha and ref is the PR head ref', async () => {
-    const p = new GitHubProvider('https://github.com', 't');
-    const user = { id: 3, login: 'ada', avatar_url: null, name: 'Ada' };
-    const raw = {
-      number: 7,
-      id: 700,
-      node_id: 'PR_700',
-      title: 'Add feature',
-      body: null,
-      merged_at: null,
-      html_url: 'https://github.com/o/r/pull/7',
-      created_at: '2026-08-01T00:00:00Z',
-      updated_at: '2026-08-03T00:00:00Z',
-      state: 'open',
-      draft: false,
-      head: { sha: 'def456', ref: 'feat', repo: { full_name: 'o/r' } },
-      base: { ref: 'main', repo: { full_name: 'o/r', default_branch: 'main', id: 9 } },
-      user,
-      assignees: [],
-      requested_reviewers: [],
-    };
-    const checkRuns = [
-      {
-        id: 1,
-        name: 'build',
-        status: 'completed',
-        conclusion: 'success',
-        started_at: '2026-08-01T00:00:00Z',
-        completed_at: '2026-08-01T00:05:00Z',
-        html_url: 'https://github.com/o/r/runs/1',
-        head_sha: 'def456',
-      },
-    ];
-    const pr = (p as any).toPullRequest(raw, ['author'], [], checkRuns, null);
-    expect(pr.pipeline).toMatchObject({ sha: 'def456', ref: 'feat', mergeRequestEventType: null });
+  test('a filled PR carries the head sha and head ref on its pipeline', async () => {
+    stubForge({
+      fill: () => ({ 7: ghNode({ number: 7, headRefOid: 'def456', headRefName: 'feat' }) })
+    });
+    const p = new GitHubProvider('https://github.com', 'tok-pipeline-sha');
+
+    const pr = await p.fetchSingleMR('o/r', 7, null);
+
+    expect(pr!.pipeline).toMatchObject({ sha: 'def456', ref: 'feat', mergeRequestEventType: null });
   });
 
-  test('no check runs still carries a null pipeline', async () => {
-    const p = new GitHubProvider('https://github.com', 't');
-    const user = { id: 3, login: 'ada', avatar_url: null, name: 'Ada' };
-    const raw = {
-      number: 7,
-      id: 700,
-      node_id: 'PR_700',
-      title: 'Add feature',
-      body: null,
-      merged_at: null,
-      html_url: 'https://github.com/o/r/pull/7',
-      created_at: '2026-08-01T00:00:00Z',
-      updated_at: '2026-08-03T00:00:00Z',
-      state: 'open',
-      draft: false,
-      head: { sha: 'def456', ref: 'feat', repo: { full_name: 'o/r' } },
-      base: { ref: 'main', repo: { full_name: 'o/r', default_branch: 'main', id: 9 } },
-      user,
-      assignees: [],
-      requested_reviewers: [],
-    };
-    const pr = (p as any).toPullRequest(raw, ['author'], [], [], null);
-    expect(pr.pipeline).toBeNull();
+  test('a filled PR with no checks carries a null pipeline', async () => {
+    stubForge({
+      fill: () => ({
+        7: ghNode({ number: 7, commits: { nodes: [{ commit: { oid: 'def456', statusCheckRollup: null } }] } })
+      })
+    });
+    const p = new GitHubProvider('https://github.com', 'tok-pipeline-none');
+
+    const pr = await p.fetchSingleMR('o/r', 7, null);
+
+    expect(pr!.pipeline).toBeNull();
   });
 });
 

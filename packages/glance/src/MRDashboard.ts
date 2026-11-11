@@ -8,6 +8,7 @@ import type {
   UserRef
 } from './types.ts';
 import { isTransitionalMergeStatus } from './types.ts';
+import { blockerReasons } from './readiness.ts';
 import type { FetchPullRequestsWarning, GitProvider } from './GitProvider.ts';
 import { repoIdProvider, warningTarget } from './GitProvider.ts';
 import {
@@ -81,37 +82,19 @@ export function getMRDashboardProps(
   ).length;
 
   // ── Blockers ──────────────────────────────────────────────────────────────
+  // The rules (rebase, threads, approvals, merge error) live in
+  // `blockerReasons`, shared with `gitlabReadiness`; see there for why.
+  const reasons = blockerReasons(mr);
   const isDraft = mr.draft;
-  const hasConflicts = mr.conflicts;
-  // `shouldBeRebased` alone, deliberately. It is GitLab's authoritative answer
-  // to "does this project's merge method require a rebase before merge", and it
-  // rides the GraphQL payload every fetch path shares, so it cannot vary with
-  // the method a consumer happened to call. The old
-  // `|| (mr.divergedCommitsCount ?? 0) > 0` disjunct read a field only two
-  // paths populate and folded its null into "not behind", so one MR read true
-  // on a single-MR refresh and false on the next bulk poll; a consumer
-  // notifying on the false -> true edge re-fired forever (MAT-164). Behind-ness
-  // is reported separately as `behindTarget`, which keeps its null.
-  const needsRebase = mr.shouldBeRebased;
-  const pipelineFailing = mr.pipeline?.status === 'failed';
-  const pipelineRunning =
-    mr.pipeline?.status === 'running' || mr.pipeline?.status === 'pending';
-  const awaitingApprovals = !mr.approved;
-  // Open threads only block where the project requires resolution, which
-  // GitLab reports as the DISCUSSIONS_NOT_RESOLVED check (INACTIVE when the
-  // setting is off). Without a decided check, fall back to the count; an
-  // unknown count (null) is not a blocker, since we cannot claim threads are
-  // outstanding any more than we can claim they are all resolved.
-  const discussionCheck = (mr.mergeabilityChecks ?? []).find(
-    (c) => c.identifier === 'DISCUSSIONS_NOT_RESOLVED'
-  )?.status;
-  const hasUnresolvedDiscussions =
-    discussionCheck === 'FAILED' ||
-    (discussionCheck !== 'INACTIVE' &&
-      discussionCheck !== 'SUCCESS' &&
-      (mr.unresolvedThreadCount ?? 0) > 0);
-  const hasMergeError = mr.mergeError != null;
+  const hasConflicts = reasons.includes('conflicts');
+  const needsRebase = reasons.includes('behind');
+  const pipelineFailing = reasons.includes('checks-failing');
+  const pipelineRunning = reasons.includes('checks-running');
+  const awaitingApprovals = reasons.includes('approvals');
+  const hasUnresolvedDiscussions = reasons.includes('threads');
+  const hasMergeError = reasons.includes('merge-error');
 
+  // A running pipeline is deliberately not a blocker here.
   const anyBlocker =
     isDraft ||
     hasConflicts ||
@@ -130,9 +113,24 @@ export function getMRDashboardProps(
   // both are answering "has GitLab decided yet?" about the same strings, and
   // it includes 'preparing' because GitLab emits that ahead of 'unchecked' on
   // a just-created MR, the earliest part of this same window.
-  const isCheckingMergeability = isTransitionalMergeStatus(mr.detailedMergeStatus);
-  const isReady = mr.detailedMergeStatus === 'mergeable'
-    || (isCheckingMergeability && !isDraft && !hasConflicts && !pipelineFailing);
+  const readiness = mr.readiness ?? null;
+  // draft, merged and closed are decided by `status` below and carry no
+  // merge-check signal, so they keep the legacy reading; that keeps GitLab
+  // output identical for a transitional-status draft, which readiness maps
+  // to 'draft' but the legacy rule reads as still checking.
+  const settled =
+    readiness !== null &&
+    (readiness.state === 'ready' ||
+      readiness.state === 'blocked' ||
+      readiness.state === 'checking');
+  const isCheckingMergeability = settled
+    ? readiness.state === 'checking'
+    : isTransitionalMergeStatus(mr.detailedMergeStatus);
+  const isReady = settled
+    ? readiness.state === 'ready' ||
+      (isCheckingMergeability && !isDraft && !hasConflicts && !pipelineFailing)
+    : mr.detailedMergeStatus === 'mergeable' ||
+      (isCheckingMergeability && !isDraft && !hasConflicts && !pipelineFailing);
   let status: MRDashboardProps['status'];
   if (mr.state === 'merged') status = 'merged';
   else if (mr.state === 'closed') status = 'closed';
@@ -149,7 +147,8 @@ export function getMRDashboardProps(
   // anyone has looked at them. An approval nobody gave is not an approval.
   // Mergeability keeps reading the raw flag via blockers.awaitingApprovals.
   const genuinelyApproved =
-    mr.approved && !(mr.approvalsRequired === 0 && mr.approvedBy.length === 0);
+    mr.approved &&
+    !((mr.approvalsRequired ?? 0) === 0 && mr.approvedBy.length === 0);
 
   return {
     // Identity
@@ -214,6 +213,7 @@ export function getMRDashboardProps(
     statusDetail: mr.detailedMergeStatus ?? '',
     isReady,
     isCheckingMergeability,
+    readiness,
 
     // Spinner states
     isMerging,
@@ -362,12 +362,10 @@ export interface DashboardGroup {
    *
    * Fires in two different situations, both worth the same signal to a
    * consumer: the MR can be missing from `subscribe`'s Map entirely (a
-   * `reviews`/`detail` failure drops it rather than showing wrong data), or
-   * it can be present with one field silently at its "unknown" value
-   * because its `checks`/`threads` fetch failed -- `pipeline: null` on the
-   * `PullRequest`, which reads as "no CI"; `unresolvedThreadCount: null`,
-   * which `getMRDashboardProps`'s `?? 0` folds into "no unresolved
-   * discussions" for the rendered props, not merely "count unknown."
+   * failed `fill` read drops it rather than showing wrong data), or it can
+   * be present with its pipeline at a placeholder (a failed `contexts` page
+   * leaves `pending` for checks nobody read, which is not the same as
+   * checks that are running).
    * `subscribe`'s Map has no room to say either on its own -- a missing,
    * stale, or falsely-clean entry all look identical to one nothing ever
    * went wrong with -- which is exactly why this fires for both rather
@@ -616,13 +614,13 @@ function createBranchDashboard(
  *
  * `degraded` is keyed by every iid a warning named, present in `prs` or
  * not -- it is not, despite an earlier version of this function assuming
- * so, the same set as "missing from `prs`". A `reviews`/`detail` failure
- * drops the PR entirely (missing from `prs`, present in `degraded`); a
- * `checks`/`threads` failure keeps the PR (present in `prs` with that one
- * field at its "unknown" value, ALSO present in `degraded`). Skipping the
- * lookup whenever `prs.has(iid)` -- the earlier version's mistake -- made
- * every `checks`/`threads` warning unreachable: `DashboardGroup.onWarning`
- * never fired for either, because the PR they are about is never missing.
+ * so, the same set as "missing from `prs`". A `fill` failure drops the PR
+ * entirely (missing from `prs`, present in `degraded`); a `contexts`
+ * failure keeps the PR (present in `prs` with a placeholder pipeline, ALSO
+ * present in `degraded`). Skipping the lookup whenever `prs.has(iid)` --
+ * the earlier version's mistake -- made every warning about a kept PR
+ * unreachable: `DashboardGroup.onWarning` never fired for one, because the
+ * PR it is about is never missing.
  * Both are "this row is not what it looks like," which is what a consumer
  * needs to know regardless of whether the row is absent or just incomplete.
  */
@@ -702,8 +700,8 @@ function createDashboardGroup(
    * nothing said why." `fetchPullRequests` now excludes just the PR it
    * could not verify instead of rejecting for it, so the row-level case no
    * longer reaches here as an exception at all; `fetchDashboardBatch`
-   * reports it (and a `checks`/`threads` failure, which keeps the PR
-   * present rather than excluding it) through `degraded`, forwarded to
+   * reports it (and a `contexts` failure, which keeps the PR present
+   * rather than excluding it) through `degraded`, forwarded to
    * `warningListener` below.
    */
   const batchFetch = async (): Promise<Map<number, PullRequest> | null> => {

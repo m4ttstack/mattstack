@@ -64,3 +64,46 @@ export class ReadBackFailedError extends Error {
     this.writeApplied = details.writeApplied;
   }
 }
+
+/**
+ * GitHub refused a read because a rate limit is exhausted, and waiting it out
+ * is longer than a poll can afford.
+ *
+ * Raised instead of letting the throttling plugin sleep until the window
+ * resets, which stalled a daemon poll for up to an hour. `kind` separates the
+ * hourly quota (`primary`) from the burst limit (`secondary`): they reset on
+ * different clocks, so a caller deciding when to retry needs to know which.
+ */
+export class RateLimitedError extends Error {
+  readonly kind: 'primary' | 'secondary';
+
+  /** ISO time the limit lifts, when GitHub said; null when it did not. */
+  readonly resetAt: string | null;
+
+  /**
+   * How long to wait before retrying: GitHub's `Retry-After` when sent, 60s
+   * for a secondary limit with quota left and no header; otherwise null.
+   */
+  readonly retryAfterMs: number | null;
+
+  /** The request that hit the limit, e.g. `"GET /repos/a/b/pulls/1"`. */
+  readonly operation: string;
+
+  constructor(
+    message: string,
+    details: {
+      kind: 'primary' | 'secondary';
+      resetAt: string | null;
+      retryAfterMs: number | null;
+      operation: string;
+      cause?: unknown;
+    },
+  ) {
+    super(message, details.cause === undefined ? undefined : { cause: details.cause });
+    this.name = 'RateLimitedError';
+    this.kind = details.kind;
+    this.resetAt = details.resetAt;
+    this.retryAfterMs = details.retryAfterMs;
+    this.operation = details.operation;
+  }
+}

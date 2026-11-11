@@ -5,18 +5,26 @@
  * GitLab answers this in one GraphQL query with a `sourceBranches` array
  * filter. GitHub's schema has no such filter, so the batch is built from one
  * aliased `pullRequests(headRefName:)` field per branch, chunked at
- * BRANCH_BATCH_SIZE per request, and each hit is then resolved through the
- * same `fetchSingleMR` detail path `fetchPullRequestByBranch` uses -- these
- * tests pin the alias/chunk mechanics, the state mapping, and the fact that
- * misses cost no detail request.
+ * BRANCH_BATCH_SIZE per request, and the hits are then read through the same
+ * GraphQL fill `fetchSingleMR` uses. These tests pin the alias/chunk
+ * mechanics, the state mapping, and the fact that misses cost no fill.
  *
- * No network: `octokit.graphql` is replaced outright and `fetchSingleMR` is
- * stubbed, so a detail call is observable as a recorded call rather than a
- * fixture.
+ * No network: `fetch` is stubbed (`stubForge`), so the lookup and the fill
+ * are both observable as recorded requests.
  */
 import { describe, expect, test } from 'bun:test';
 import { GraphqlResponseError } from '@octokit/graphql';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
+import {
+  ghNode,
+  jsonResponse,
+  stubForge,
+  useForgeStub,
+  useInstantTimers
+} from './helpers/gh-fill-fixture.ts';
+
+useForgeStub();
+useInstantTimers();
 
 interface GraphqlCall {
   query: string;
@@ -24,44 +32,46 @@ interface GraphqlCall {
 }
 
 /**
- * A provider whose GraphQL transport answers from `answer` and records every
- * call. `answer` receives the alias->branch mapping already decoded from the
- * variables, so a test says "branch X has PR 7" rather than "alias b2 does".
+ * Answers the branch lookup from `prNumberFor` and the fill with a node per
+ * number, recording both. `prNumberFor` receives the branch already decoded
+ * from the variables, so a test says "branch X has PR 7" rather than
+ * "alias b2 does".
  */
-function stubGraphql(
-  provider: GitHubProvider,
-  prNumberFor: (branch: string) => number | undefined
-): GraphqlCall[] {
+function stubBranches(prNumberFor: (branch: string) => number | undefined): {
+  calls: GraphqlCall[];
+  filled: number[];
+} {
   const calls: GraphqlCall[] = [];
-  (provider as any).octokit = {
-    graphql: async (query: string, variables: Record<string, unknown>) => {
+  const filled: number[] = [];
+  stubForge({
+    graphql: (query, variables) => {
+      if (!query.includes('GlancePullRequestsByBranches')) return undefined;
       calls.push({ query, variables });
       const repository: Record<string, { nodes: Array<{ number: number }> }> = {};
       for (const [key, value] of Object.entries(variables)) {
         if (!/^h\d+$/.test(key)) continue;
         const number = prNumberFor(value as string);
-        repository[`b${key.slice(1)}`] = {
-          nodes: number == null ? [] : [{ number }]
-        };
+        repository[`b${key.slice(1)}`] = { nodes: number == null ? [] : [{ number }] };
       }
       return { repository };
+    },
+    fill: (numbers) => {
+      filled.push(...numbers);
+      return Object.fromEntries(numbers.map((n) => [n, ghNode({ number: n })]));
     }
-  };
-  return calls;
+  });
+  return { calls, filled };
 }
 
-/** Records every `fetchSingleMR` call and answers with a marker PR. */
-function stubDetail(provider: GitHubProvider): Array<[string, number]> {
-  const calls: Array<[string, number]> = [];
-  (provider as any).fetchSingleMR = async (projectPath: string, mrIid: number) => {
-    calls.push([projectPath, mrIid]);
-    return { iid: mrIid } as any;
-  };
-  return calls;
-}
+let providers = 0;
 
+/**
+ * A fresh token per provider: GraphQL POSTs share a throttling group keyed by
+ * token with a real 1s spacing, and a token other files used carries their
+ * backlog.
+ */
 function newProvider(): GitHubProvider {
-  return new GitHubProvider('https://github.com', 'tok');
+  return new GitHubProvider('https://github.com', `tok-branches-${++providers}`);
 }
 
 /** Every alias variable in a call, in alias order. */
@@ -75,10 +85,9 @@ function branchesOf(call: GraphqlCall): string[] {
 describe('GitHubProvider.fetchPullRequestsByBranches', () => {
   test('every input branch is a key; misses are null and cost no detail request', async () => {
     const provider = newProvider();
-    const graphqlCalls = stubGraphql(provider, (branch) =>
+    const { calls: graphqlCalls, filled } = stubBranches((branch) =>
       branch === 'feature/has-a-pr' ? 7 : undefined
     );
-    const detailCalls = stubDetail(provider);
 
     const map = await provider.fetchPullRequestsByBranches!(
       'acme/repo',
@@ -87,20 +96,19 @@ describe('GitHubProvider.fetchPullRequestsByBranches', () => {
     );
 
     expect([...map.keys()]).toEqual(['feature/has-a-pr', 'feature/no-pr', 'main']);
-    expect(map.get('feature/has-a-pr')).toEqual({ iid: 7 } as any);
+    expect(map.get('feature/has-a-pr')?.iid).toBe(7);
     expect(map.get('feature/no-pr')).toBeNull();
     expect(map.get('main')).toBeNull();
 
-    // The hit went through the same detail path fetchPullRequestByBranch
-    // uses, and the two misses issued nothing.
-    expect(detailCalls).toEqual([['acme/repo', 7]]);
+    // The hit went through the same fill fetchPullRequestByBranch reads
+    // from, and the two misses issued nothing.
+    expect(filled).toEqual([7]);
     expect(graphqlCalls.length).toBe(1);
   });
 
   test('branch names travel as GraphQL variables, never interpolated into the query', async () => {
     const provider = newProvider();
-    const graphqlCalls = stubGraphql(provider, () => undefined);
-    stubDetail(provider);
+    const { calls: graphqlCalls } = stubBranches(() => undefined);
 
     // A branch name that is neither a valid GraphQL identifier nor safe to
     // splice into query text.
@@ -117,8 +125,7 @@ describe('GitHubProvider.fetchPullRequestsByBranches', () => {
 
   test("state 'opened' sends states: [OPEN]", async () => {
     const provider = newProvider();
-    const calls = stubGraphql(provider, () => undefined);
-    stubDetail(provider);
+    const { calls } = stubBranches(() => undefined);
 
     await provider.fetchPullRequestsByBranches!('acme/repo', ['b'], 'opened');
 
@@ -129,8 +136,7 @@ describe('GitHubProvider.fetchPullRequestsByBranches', () => {
 
   test("state 'merged' sends [MERGED]", async () => {
     const provider = newProvider();
-    const calls = stubGraphql(provider, () => undefined);
-    stubDetail(provider);
+    const { calls } = stubBranches(() => undefined);
 
     await provider.fetchPullRequestsByBranches!('acme/repo', ['b'], 'merged');
 
@@ -143,8 +149,7 @@ describe('GitHubProvider.fetchPullRequestsByBranches', () => {
     // on a 'closed' lookup. The batch path has to answer the same question
     // its sibling does.
     const provider = newProvider();
-    const calls = stubGraphql(provider, () => undefined);
-    stubDetail(provider);
+    const { calls } = stubBranches(() => undefined);
 
     await provider.fetchPullRequestsByBranches!('acme/repo', ['b'], 'closed');
 
@@ -153,8 +158,7 @@ describe('GitHubProvider.fetchPullRequestsByBranches', () => {
 
   test("state 'all' omits the filter entirely", async () => {
     const provider = newProvider();
-    const calls = stubGraphql(provider, () => undefined);
-    stubDetail(provider);
+    const { calls } = stubBranches(() => undefined);
 
     await provider.fetchPullRequestsByBranches!('acme/repo', ['b'], 'all');
 
@@ -168,8 +172,7 @@ describe('GitHubProvider.fetchPullRequestsByBranches', () => {
     // either forge, so a caller naming no state must not get a wider answer
     // here than it would there.
     const provider = newProvider();
-    const calls = stubGraphql(provider, () => undefined);
-    stubDetail(provider);
+    const { calls } = stubBranches(() => undefined);
 
     await provider.fetchPullRequestsByBranches!('acme/repo', ['b']);
 
@@ -194,47 +197,47 @@ describe('GitHubProvider.fetchPullRequestsByBranches', () => {
       { number: 20, created: 2, updated: 2 }
     ];
     const provider = newProvider();
-    const detailCalls = stubDetail(provider);
+    const filled: number[] = [];
 
     let orderedBy: string | undefined;
-    (provider as any).octokit = {
+    stubForge({
       // REST: created-descending, GitHub's own default sort for this route.
-      request: async () => ({
-        status: 200,
-        headers: {},
-        data: [...prs]
-          .sort((a, b) => b.created - a.created)
-          .map((p) => ({ number: p.number, head: { ref: 'feature/reused' } }))
-      }),
+      rest: () =>
+        jsonResponse(
+          [...prs]
+            .sort((a, b) => b.created - a.created)
+            .map((p) => ({ number: p.number, head: { ref: 'feature/reused' } }))
+        ),
       // GraphQL: honours whatever `orderBy` field the query actually asked
       // for, so this test fails on the ordering rather than on a string
       // match against the query text.
-      graphql: async (query: string) => {
+      graphql: (query) => {
+        if (!query.includes('GlancePullRequestsByBranches')) return undefined;
         orderedBy = /field:\s*(\w+)/.exec(query)?.[1];
         const sorted = [...prs].sort((a, b) =>
           orderedBy === 'UPDATED_AT' ? b.updated - a.updated : b.created - a.created
         );
         return { repository: { b0: { nodes: [{ number: sorted[0]!.number }] } } };
+      },
+      fill: (numbers) => {
+        filled.push(...numbers);
+        return Object.fromEntries(numbers.map((n) => [n, ghNode({ number: n })]));
       }
-    };
+    });
 
     const single = await provider.fetchPullRequestByBranch('acme/repo', 'feature/reused');
     const batch = await provider.fetchPullRequestsByBranches!('acme/repo', ['feature/reused']);
 
     expect(orderedBy).toBe('CREATED_AT');
-    expect(single).toEqual({ iid: 20 } as any);
-    expect(batch.get('feature/reused')).toEqual(single as any);
-    expect(detailCalls).toEqual([
-      ['acme/repo', 20],
-      ['acme/repo', 20]
-    ]);
+    expect(single?.iid).toBe(20);
+    expect(batch.get('feature/reused')).toEqual(single!);
+    expect(filled).toEqual([20, 20]);
   });
 
   test('60 branches chunk into exactly 2 GraphQL requests of 50 and 10', async () => {
     const provider = newProvider();
     const branches = Array.from({ length: 60 }, (_, i) => `feature/b-${i}`);
-    const calls = stubGraphql(provider, () => undefined);
-    const detailCalls = stubDetail(provider);
+    const { calls, filled } = stubBranches(() => undefined);
 
     const map = await provider.fetchPullRequestsByBranches!('acme/repo', branches, 'all');
 
@@ -243,32 +246,30 @@ describe('GitHubProvider.fetchPullRequestsByBranches', () => {
     expect(branchesOf(calls[1]!)).toEqual(branches.slice(50));
     expect(map.size).toBe(60);
     expect([...map.values()].every((v) => v === null)).toBe(true);
-    expect(detailCalls).toEqual([]);
+    expect(filled).toEqual([]);
   });
 
   test('hits from a later chunk still resolve, keyed by their own branch', async () => {
     const provider = newProvider();
     const branches = Array.from({ length: 60 }, (_, i) => `feature/b-${i}`);
-    stubGraphql(provider, (branch) => (branch === 'feature/b-55' ? 555 : undefined));
-    const detailCalls = stubDetail(provider);
+    const { filled } = stubBranches((branch) => (branch === 'feature/b-55' ? 555 : undefined));
 
     const map = await provider.fetchPullRequestsByBranches!('acme/repo', branches, 'all');
 
-    expect(detailCalls).toEqual([['acme/repo', 555]]);
-    expect(map.get('feature/b-55')).toEqual({ iid: 555 } as any);
+    expect(filled).toEqual([555]);
+    expect(map.get('feature/b-55')?.iid).toBe(555);
     expect(map.get('feature/b-54')).toBeNull();
   });
 
   test('an empty branches array returns an empty Map with zero requests', async () => {
     const provider = newProvider();
-    const calls = stubGraphql(provider, () => 1);
-    const detailCalls = stubDetail(provider);
+    const { calls, filled } = stubBranches(() => 1);
 
     const map = await provider.fetchPullRequestsByBranches!('acme/repo', [], 'all');
 
     expect(map.size).toBe(0);
     expect(calls).toEqual([]);
-    expect(detailCalls).toEqual([]);
+    expect(filled).toEqual([]);
   });
 
   test('a GraphQL error propagates rather than degrading the whole call to nulls', async () => {
@@ -282,7 +283,6 @@ describe('GitHubProvider.fetchPullRequestsByBranches', () => {
         );
       }
     };
-    stubDetail(provider);
 
     await expect(
       provider.fetchPullRequestsByBranches!('acme/repo', ['b'], 'all')
@@ -296,7 +296,6 @@ describe('GitHubProvider.fetchPullRequestsByBranches', () => {
         throw new Error('socket hang up');
       }
     };
-    stubDetail(provider);
 
     await expect(
       provider.fetchPullRequestsByBranches!('acme/repo', ['b'], 'all')
@@ -306,7 +305,6 @@ describe('GitHubProvider.fetchPullRequestsByBranches', () => {
   test('a missing repository throws rather than reporting every branch as a miss', async () => {
     const provider = newProvider();
     (provider as any).octokit = { graphql: async () => ({ repository: null }) };
-    stubDetail(provider);
 
     await expect(
       provider.fetchPullRequestsByBranches!('acme/repo', ['b'], 'all')

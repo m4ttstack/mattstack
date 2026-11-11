@@ -6,6 +6,7 @@ import { ALL_TURN } from '../turn.ts';
 import {
   activeOff,
   ageText,
+  approvalSlots,
   arrangeGroups,
   behindToken,
   dataAgeLabel,
@@ -1650,5 +1651,23 @@ describe('freshnessBanner', () => {
     expect(
       freshnessBanner({ fetchError: null, dataSyncedAt: at(14, 28), now })!.text
     ).toBe('⚠ board data is 1h 43m old (as of 14:28)... rt sync is behind');
+  });
+});
+
+describe('approvalSlots', () => {
+  test('pairs filled and required slots for a known count', () => {
+    expect(
+      approvalSlots(
+        mr({ reviews: { required: 2, given: 1, remaining: 1 } as never })
+      )
+    ).toEqual({ filled: 1, required: 2 });
+  });
+
+  test('returns null for an unknown count', () => {
+    expect(
+      approvalSlots(
+        mr({ reviews: { required: null, given: 0, remaining: 0 } as never })
+      )
+    ).toBeNull();
   });
 });

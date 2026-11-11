@@ -17,6 +17,7 @@ import {
   PipelineRunningIcon,
   SpinnerIcon,
 } from './icons';
+import { approvalLabel, isApprovalCountUnknown } from './approval-label';
 import { ReviewerList } from './ReviewerList';
 
 // ── Status dot config ──────────────────────────────────────────────────────────
@@ -164,8 +165,9 @@ function PipelineIcon({
 }
 
 function ReviewFraction({ reviews }: { reviews: MRDashboardProps['reviews'] }) {
+  const countUnknown = isApprovalCountUnknown(reviews);
   const totalReviewers = reviews.given + reviews.remaining;
-  if (totalReviewers === 0) return null;
+  if (totalReviewers === 0 && !countUnknown) return null;
 
   const openBg = reviews.isApproved
     ? 'data-[state=open]:bg-positive/15'
@@ -179,11 +181,7 @@ function ReviewFraction({ reviews }: { reviews: MRDashboardProps['reviews'] }) {
         'data-[state=open]:px-1.5 data-[state=open]:py-0.5 data-[state=open]:rounded-md',
         openBg
       )}
-      title={
-        reviews.isApproved
-          ? `Approved by ${reviews.given}/${totalReviewers} reviewers`
-          : `${reviews.given}/${totalReviewers} approvals — ${reviews.remaining} remaining`
-      }
+      title={approvalLabel(reviews)}
     >
       <EyeIcon
         className={cn(
@@ -192,7 +190,7 @@ function ReviewFraction({ reviews }: { reviews: MRDashboardProps['reviews'] }) {
         )}
       />
       <span className={cn(reviews.isApproved ? 'text-positive' : '')}>
-        {reviews.given}/{totalReviewers}
+        {countUnknown ? approvalLabel(reviews) : `${reviews.given}/${totalReviewers}`}
       </span>
     </button>
   );

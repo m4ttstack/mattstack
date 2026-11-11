@@ -49,16 +49,16 @@ function gitlabRecording(): { provider: GitLabProvider; calls: Array<Record<stri
   return { provider: new GitLabProvider('https://gitlab.com', 'tok'), calls };
 }
 
-/** A GitHub provider whose REST/GraphQL calls return nothing; returns the paths seen. */
+/** A GitHub provider whose REST calls return nothing; returns the paths seen. */
 function githubRecording(): { provider: GitHubProvider; calls: string[] } {
   const provider = new GitHubProvider('https://github.com', 'tok');
   const calls: string[] = [];
   const answer = (path: string) => (path.startsWith('/search/issues') ? { items: [] } : {});
-  // validateToken/currentUser/fetchPR/listRepoPRs/searchPRs/fetchCheckRuns go
-  // through octokit.request, fetchReviews through octokit.paginate, and only
-  // fetchMRDiscussions' repo lookup still goes through api(). All three stubs
+  // Discovery (listRepoPRs, searchPRs) goes through octokit.request and only
+  // fetchMRDiscussions' repo lookup still goes through api(). Both stubs
   // record into the same `calls` array so the path-based assertions below
-  // don't care which transport carried a given call.
+  // don't care which transport carried a given call. No case here reaches
+  // the GraphQL fill: each one throws or asks for nothing first.
   (provider as any).octokit = {
     request: async (route: string) => {
       const path = route.slice(route.indexOf(' ') + 1);
@@ -77,7 +77,6 @@ function githubRecording(): { provider: GitHubProvider; calls: string[] } {
       headers: { get: () => null },
     } as unknown as Response;
   };
-  (provider as any).graphql = async () => ({ nodes: [] });
   return { provider, calls };
 }
 
