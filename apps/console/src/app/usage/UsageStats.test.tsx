@@ -44,6 +44,13 @@ describe('billingStats', () => {
     expect(text('label')).toEqual(['metered', 'on plan']);
   });
 
+  it('holds the metered and plan slots at zero while the split loads', () => {
+    expect(billingStats(undefined).map(s => [s.value, s.label])).toEqual([
+      ['$0.00', 'metered'],
+      ['$0.00', 'on plan'],
+    ]);
+  });
+
   it('adds unknown only when some cost has no account', () => {
     expect(pairs(split(0, 0, 3.2))).toEqual([
       ['$0.00', 'metered'],

@@ -14,21 +14,23 @@ export interface UsageStat {
   tone?: HeroTone;
 }
 
-/** Plan usage costs nothing extra, so metered spend is the headline figure. */
+/** Plan usage costs nothing extra, so metered spend is the headline figure.
+ *  With no split yet, the metered and plan slots read zero so the card keeps its shape. */
 export function billingStats(
-  byBilling: Record<UsageBilling, UsageTotals>,
+  byBilling: Record<UsageBilling, UsageTotals> | undefined,
   tone?: HeroTone
 ): UsageStat[] {
+  const cost = (key: UsageBilling) => byBilling?.[key].cost ?? 0;
   const stat = (key: UsageBilling, label: string): UsageStat => ({
     key,
-    value: usd(byBilling[key].cost),
+    value: usd(cost(key)),
     label,
     ...(tone ? { tone } : {}),
   });
   return [
     stat('metered', 'metered'),
     stat('plan', 'on plan'),
-    ...(byBilling.unknown.cost > 0 ? [stat('unknown', 'unknown')] : []),
+    ...(cost('unknown') > 0 ? [stat('unknown', 'unknown')] : []),
   ];
 }
 

@@ -241,7 +241,7 @@ export function UsagePage() {
     : [];
   const trendCost = trends.data?.totals.cost ?? 0;
   const trendStats: UsageStat[] = [
-    ...(trends.data ? billingStats(trends.data.byBilling) : []),
+    ...billingStats(trends.data?.byBilling),
     {
       key: 'average',
       value: usd(averageWeek(trendCost, url.range, weeks)),
