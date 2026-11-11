@@ -298,6 +298,7 @@ export async function disposeTree(
           label: s.label,
           ...(s.identity ? { sessionId: s.identity.sessionId } : {}),
           ...(s.identity?.handle ? { handle: s.identity.handle } : {}),
+          ...(s.identity?.name ? { name: s.identity.name } : {}),
           ...(s.identity?.pane ? { pane: s.identity.pane } : {}),
         },
         `stopped agent session ${sessionDisplayName(s.pid, s.label, s.identity)} working inside ${rec.name}`,

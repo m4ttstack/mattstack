@@ -1014,7 +1014,7 @@ describe("disposeTree", () => {
       });
       return { path, rec, deps, killOpts, posts, warns };
     }
-    const ident = { sessionId: "s-1", handle: "rt-555", pane: "p7", rooms: ["mattstack", "herd-x"] };
+    const ident = { sessionId: "s-1", handle: "remy.k3f9", name: "Remy", pane: "p7", rooms: ["mattstack", "herd-x"] };
 
     test("stopSessions turns on the session stop, logs it and posts to each room after retire", async () => {
       const { rec, deps, killOpts, posts, warns } = setup(ident);
@@ -1022,13 +1022,16 @@ describe("disposeTree", () => {
       expect(result).toMatchObject({ disposed: true });
       expect(killOpts[0]?.stopSessionsInside).toBe(true);
       expect(warns.length).toBe(1);
-      expect(warns[0]![0]).toMatchObject({ pid: 601, sessionId: "s-1", handle: "rt-555", pane: "p7", tree: "tree-a" });
+      expect(warns[0]![0]).toMatchObject({ pid: 601, sessionId: "s-1", handle: "remy.k3f9", name: "Remy", pane: "p7", tree: "tree-a" });
+      expect(String(warns[0]![1])).toContain("Remy");
+      expect(String(warns[0]![1])).not.toContain("remy.k3f9");
       expect(posts.map((p) => p.room)).toEqual(["mattstack", "herd-x"]);
       const trashPath = result.disposed && result.trash ? result.trash.path : null;
       expect(trashPath).not.toBeNull();
       for (const p of posts) {
         expect(p.treeExisted).toBe(false);
-        expect(p.body).toContain("rt-555");
+        expect(p.body).toContain("Remy");
+        expect(p.body).not.toContain("remy.k3f9");
         expect(p.body).toContain("tree-a");
         expect(p.body).toContain("PR #1087 merged");
         expect(p.body).toContain(trashPath!);
