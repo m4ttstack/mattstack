@@ -1,25 +1,48 @@
 /**
- * Agent-facing GitLab reads. Every function here asks GitLab through the
- * provider's restRequest and returns GitLab's own refusal text; none reads
- * or writes the daemon's project-MRs store.
+ * Agent-facing forge reads, returning the forge's own refusal text; none
+ * reads or writes the daemon's project-MRs store. The list, label and
+ * pipeline reads go through glance; forgeGet and missingMrReason ask GitLab
+ * through the provider's restRequest.
  */
 
+import { ForgeHttpError, RateLimitedError, type GitProvider } from "@mattstack/glance";
 import type { ForgeGetData, MrListLiveFilters, MrTargetSummary, PipelineListRow, ProjectLabel } from "../../packages/rt-client/src/commands.ts";
 
 export type RestProvider = {
   restRequest: (method: string, path: string, body?: unknown, op?: string, io?: { redirect?: "manual" }) => Promise<Response>;
 };
 
+export type Forge = "gitlab" | "github";
+
+const forgeName = (forge: Forge): string => (forge === "github" ? "GitHub" : "GitLab");
+
 export function projectApi(projectPath: string): string {
   return `/projects/${encodeURIComponent(projectPath)}`;
 }
 
 const ERROR_BODY_MAX_BYTES = 1024;
+const ERROR_DETAIL_MAX_CHARS = 200;
 
-export async function gitlabFailure(res: Response): Promise<string> {
+export async function gitlabFailure(res: Response, forge: Forge = "gitlab"): Promise<string> {
   const { bytes } = await readCapped(res, ERROR_BODY_MAX_BYTES).catch(() => ({ bytes: new Uint8Array(0) }));
-  const detail = new TextDecoder().decode(bytes).slice(0, 200);
-  return `GitLab returned ${res.status} ${res.statusText}${detail ? `: ${detail}` : ""}`;
+  const detail = new TextDecoder().decode(bytes).slice(0, ERROR_DETAIL_MAX_CHARS);
+  return `${forgeName(forge)} returned ${res.status} ${res.statusText}${detail ? `: ${detail}` : ""}`;
+}
+
+/** glance throws these as plain Errors, and the daemon has always replied with the bare sentence. */
+const NOT_AN_ARRAY = /^GitLab's [a-z ]+ listing was not a JSON array$/;
+
+/** The reply text for an error a glance read threw. */
+export function forgeFailure(err: unknown, forge: Forge): string {
+  if (err instanceof ForgeHttpError) {
+    const detail = err.bodyText.slice(0, ERROR_DETAIL_MAX_CHARS);
+    return `${forgeName(forge)} returned ${err.status} ${err.statusText}${detail ? `: ${detail}` : ""}`;
+  }
+  if (err instanceof RateLimitedError) {
+    return err.retryAfterMs === null ? err.message : `${err.message} (retry in ${Math.ceil(err.retryAfterMs / 1000)}s)`;
+  }
+  if (err instanceof Error && NOT_AN_ARRAY.test(err.message)) return err.message;
+  return String(err);
 }
 
 /** glance's fetchSingleMR answers null for a refusal, a missing MR and a failed
@@ -34,133 +57,67 @@ export async function missingMrReason(provider: RestProvider, projectPath: strin
   }
 }
 
-export interface RestMrRow {
-  iid: number;
-  title: string;
-  state: string;
-  draft?: boolean;
-  source_branch: string;
-  target_branch: string;
-  author?: { username?: string } | null;
-  web_url?: string | null;
-  detailed_merge_status?: string | null;
-  merged_at?: string | null;
-}
-
-export function targetSummary(row: RestMrRow): MrTargetSummary {
-  return {
-    iid: row.iid,
-    title: row.title,
-    state: row.state,
-    draft: row.draft === true,
-    sourceBranch: row.source_branch,
-    targetBranch: row.target_branch,
-    author: row.author?.username ?? null,
-    webUrl: row.web_url ?? null,
-    detailedMergeStatus: row.detailed_merge_status ?? null,
-    mergedAt: row.merged_at ?? null,
-  };
-}
+type ReadsOf<K extends keyof GitProvider> = { [P in K]-?: NonNullable<GitProvider[P]> };
+export type SummariesProvider = ReadsOf<"fetchPullRequestSummaries">;
 
 export const LIST_DEFAULT_LIMIT = 50;
 export const LIST_MAX_LIMIT = 200;
-const LIST_PER_PAGE = 100;
 
 export async function listMrsLive(
-  provider: RestProvider,
+  provider: SummariesProvider,
   projectPath: string,
   filters: MrListLiveFilters,
+  forge: Forge = "gitlab",
 ): Promise<{ ok: true; mrs: MrTargetSummary[]; truncated: boolean } | { ok: false; error: string }> {
-  const limit = filters.limit ?? LIST_DEFAULT_LIMIT;
-  const query = new URLSearchParams({ state: filters.state ?? "opened", order_by: "updated_at", sort: "desc" });
-  if (filters.author === "me") query.set("scope", "created_by_me");
-  else {
-    query.set("scope", "all");
-    if (filters.author) query.set("author_username", filters.author);
-  }
-  if (filters.sourceBranch) query.set("source_branch", filters.sourceBranch);
-  if (filters.targetBranch) query.set("target_branch", filters.targetBranch);
-  if (filters.search) query.set("search", filters.search);
-  query.set("per_page", String(LIST_PER_PAGE));
-  const mrs: MrTargetSummary[] = [];
   try {
-    for (let page = 1; mrs.length <= limit; page++) {
-      query.set("page", String(page));
-      const res = await provider.restRequest("GET", `${projectApi(projectPath)}/merge_requests?${query}`, undefined, "mr:list-live");
-      if (!res.ok) return { ok: false, error: await gitlabFailure(res) };
-      const rows = (await res.json()) as unknown;
-      if (!Array.isArray(rows)) return { ok: false, error: "GitLab's merge request listing was not a JSON array" };
-      mrs.push(...(rows as RestMrRow[]).map(targetSummary));
-      // GitLab can omit pagination headers, so an absent header ends the walk only on a short page.
-      const next = res.headers.get("x-next-page");
-      if (rows.length === 0 || (next === null ? rows.length < LIST_PER_PAGE : next === "")) return { ok: true, mrs: mrs.slice(0, limit), truncated: mrs.length > limit };
-    }
+    const { rows, truncated } = await provider.fetchPullRequestSummaries(projectPath, {
+      state: filters.state ?? "opened",
+      sort: "updated_desc",
+      author: filters.author,
+      sourceBranch: filters.sourceBranch,
+      targetBranch: filters.targetBranch,
+      search: filters.search,
+      limit: filters.limit ?? LIST_DEFAULT_LIMIT,
+    });
+    return { ok: true, mrs: rows, truncated };
   } catch (err) {
-    return { ok: false, error: String(err) };
+    return { ok: false, error: forgeFailure(err, forge) };
   }
-  return { ok: true, mrs: mrs.slice(0, limit), truncated: true };
 }
 
-const LABEL_MAX_PAGES = 10;
+const LABEL_MAX_ROWS = 1000;
 export const PIPELINE_DEFAULT_LIMIT = 20;
 export const PIPELINE_MAX_LIMIT = 100;
 export const PIPELINE_IID_CONFLICT = '"iid" lists one MR\'s own pipelines and cannot be combined with "ref" or "sha"';
 
 export async function listLabels(
-  provider: RestProvider,
+  provider: ReadsOf<"fetchProjectLabels">,
   projectPath: string,
   search?: string,
+  forge: Forge = "gitlab",
 ): Promise<{ ok: true; labels: ProjectLabel[] } | { ok: false; error: string }> {
-  const labels: ProjectLabel[] = [];
   try {
-    for (let page = 1; page <= LABEL_MAX_PAGES; page++) {
-      const query = new URLSearchParams({ per_page: "100", page: String(page) });
-      if (search) query.set("search", search);
-      const res = await provider.restRequest("GET", `${projectApi(projectPath)}/labels?${query}`, undefined, "project:labels");
-      if (!res.ok) return { ok: false, error: await gitlabFailure(res) };
-      const rows = (await res.json()) as unknown;
-      if (!Array.isArray(rows)) return { ok: false, error: "GitLab's label listing was not a JSON array" };
-      for (const r of rows as Array<{ name: string; description?: string | null; color?: string | null }>) {
-        labels.push({ name: r.name, description: r.description ?? null, color: r.color ?? null });
-      }
-      const next = res.headers.get("x-next-page");
-      if (next === null ? rows.length < 100 : next === "") return { ok: true, labels };
-    }
+    const { labels, truncated } = await provider.fetchProjectLabels(projectPath, { search, maxRows: LABEL_MAX_ROWS });
+    if (truncated) return { ok: false, error: `more than ${LABEL_MAX_ROWS} labels matched; narrow the search` };
+    return { ok: true, labels };
   } catch (err) {
-    return { ok: false, error: String(err) };
+    return { ok: false, error: forgeFailure(err, forge) };
   }
-  return { ok: false, error: `more than ${LABEL_MAX_PAGES * 100} labels matched; narrow the search` };
 }
 
+/** glance lets `iid` win over `ref` and `sha`; the daemon refuses the mix instead. */
 export async function listPipelines(
-  provider: RestProvider,
+  provider: ReadsOf<"fetchPipelineList">,
   projectPath: string,
   f: { ref?: string; sha?: string; iid?: number; limit?: number },
+  forge: Forge = "gitlab",
 ): Promise<{ ok: true; pipelines: PipelineListRow[] } | { ok: false; error: string }> {
   if (f.iid !== undefined && (f.ref || f.sha)) return { ok: false, error: PIPELINE_IID_CONFLICT };
-  const query = new URLSearchParams({ per_page: String(f.limit ?? PIPELINE_DEFAULT_LIMIT) });
-  let path: string;
-  if (f.iid !== undefined) path = `${projectApi(projectPath)}/merge_requests/${f.iid}/pipelines`;
-  else {
-    path = `${projectApi(projectPath)}/pipelines`;
-    query.set("order_by", "id");
-    query.set("sort", "desc");
-    if (f.ref) query.set("ref", f.ref);
-    if (f.sha) query.set("sha", f.sha);
-  }
   try {
-    const res = await provider.restRequest("GET", `${path}?${query}`, undefined, "pipeline:list");
-    if (!res.ok) return { ok: false, error: await gitlabFailure(res) };
-    const rows = (await res.json()) as unknown;
-    if (!Array.isArray(rows)) return { ok: false, error: "GitLab's pipeline listing was not a JSON array" };
-    return {
-      ok: true,
-      pipelines: (rows as Array<{ id: number; status: string; ref?: string; sha?: string; source?: string; web_url?: string; created_at?: string }>).map((r) => ({
-        id: r.id, status: r.status, ref: r.ref ?? null, sha: r.sha ?? null, source: r.source ?? null, webUrl: r.web_url ?? null, createdAt: r.created_at ?? null,
-      })),
-    };
+    const pipelines = await provider.fetchPipelineList(projectPath, { ref: f.ref, sha: f.sha, iid: f.iid, limit: f.limit ?? PIPELINE_DEFAULT_LIMIT });
+    return { ok: true, pipelines };
   } catch (err) {
-    return { ok: false, error: String(err) };
+    return { ok: false, error: forgeFailure(err, forge) };
   }
 }
 
@@ -247,8 +204,8 @@ export async function readCapped(res: Response, max = FORGE_GET_MAX_BYTES): Prom
 }
 
 /** Names the host only: the full Location can carry a signed token. */
-function redirectRefusal(res: Response): string {
-  const prefix = `gitlab_get does not follow redirects: GitLab answered ${res.status}`;
+function redirectRefusal(res: Response, forge: Forge = "gitlab"): string {
+  const prefix = `gitlab_get does not follow redirects: ${forgeName(forge)} answered ${res.status}`;
   const location = res.headers.get("location");
   if (!location) return `${prefix} with no Location header`;
   try {

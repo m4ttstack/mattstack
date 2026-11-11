@@ -9,14 +9,14 @@
  *   mr:update            - edit title/description (glance) and labels/squash (REST), glance first
  *   mr:fetch-job-detail  — unified detail fetch (returns trace or bridge)
  *   mr:fetch-job-trace   — raw job trace text
- *   mr:commit-parents        - a commit's parent shas (GitLab providers only)
- *   mr:pipeline-failed-jobs  - a pipeline's failed jobs (GitLab providers only)
- *   mr:by-target             - every MR targeting a branch, live and unscoped (GitLab providers only)
- *   mr:get                   - one MR by iid, read from GitLab; `refresh` also writes it into the stores (GitLab providers only)
- *   mr:list-live             - a project's MRs filtered by author, branch, state or text (GitLab providers only)
- *   mr:live-by-branch        - the open MR for each named source branch (GitLab providers only)
- *   project:labels           - a project's labels, optionally searched (GitLab providers only)
- *   pipeline:list            - pipelines for a branch, a commit or an MR (GitLab providers only)
+ *   mr:commit-parents        - a commit's parent shas (GitLab or GitHub)
+ *   mr:pipeline-failed-jobs  - a pipeline's failed jobs (GitLab or GitHub)
+ *   mr:by-target             - every MR targeting a branch, live and unscoped (GitLab or GitHub)
+ *   mr:get                   - one MR by iid, read from the forge; `refresh` also writes it into the stores (GitLab or GitHub)
+ *   mr:list-live             - a project's MRs filtered by author, branch, state or text (GitLab or GitHub)
+ *   mr:live-by-branch        - the open MR for each named source branch (GitLab or GitHub)
+ *   project:labels           - a project's labels, optionally searched (GitLab or GitHub)
+ *   pipeline:list            - pipelines for a branch, a commit or an MR (GitLab or GitHub)
  *   forge:get                - one guarded GET against GitLab's REST API (GitLab providers only)
  *   forge:file-diff          - one file's diff in an MR or PR, from the repo's own forge (GitLab or GitHub)
  *
@@ -44,7 +44,7 @@ import type { HandlerContext, HandlerMap, CommandResult } from "./types.ts";
 import type { MrListState, MrTargetSummary } from "../../../packages/rt-client/src/commands.ts";
 import { decodeRepo } from "../identity-decoder.ts";
 import { createFileDiffContextResolver, createFileDiffReader, type FileDiffContext } from "../file-diff.ts";
-import { LIST_MAX_LIMIT, PIPELINE_MAX_LIMIT, forgeGet, listLabels, listMrsLive, listPipelines, missingMrReason, targetSummary, type RestMrRow } from "../forge-reads.ts";
+import { LIST_MAX_LIMIT, PIPELINE_MAX_LIMIT, forgeFailure, forgeGet, listLabels, listMrsLive, listPipelines, missingMrReason, type Forge, type SummariesProvider } from "../forge-reads.ts";
 
 type ActionName =
   | "merge" | "rebase" | "approve" | "unapprove"
@@ -89,38 +89,29 @@ async function putMergeRequest(
 const MR_LIST_STATES: readonly MrListState[] = ["opened", "merged", "closed", "all"];
 const BY_TARGET_PER_PAGE = 100;
 const BY_TARGET_MAX_PAGES = 20;
+const BY_TARGET_LIMIT = BY_TARGET_MAX_PAGES * BY_TARGET_PER_PAGE;
 
-/** A partial walk must never pass for the whole answer, so every failure, and running past the page cap, is an error. */
+/** A partial listing must never pass for the whole answer, so every failure, and running past the cap, is an error. */
 async function listMrsByTarget(
-  provider: { restRequest: (method: string, path: string, body?: unknown, op?: string) => Promise<Response> },
+  provider: SummariesProvider,
   projectPath: string,
   targetBranch: string,
   state: MrListState,
+  forge: Forge,
 ): Promise<{ ok: true; mrs: MrTargetSummary[] } | { ok: false; error: string }> {
-  const mrs: MrTargetSummary[] = [];
   try {
-    for (let page = 1; page <= BY_TARGET_MAX_PAGES; page++) {
-      const query = new URLSearchParams({ target_branch: targetBranch, state, per_page: String(BY_TARGET_PER_PAGE), page: String(page) });
-      const res = await provider.restRequest("GET", `/projects/${encodeURIComponent(projectPath)}/merge_requests?${query}`, undefined, "mr:by-target");
-      if (!res.ok) {
-        const detail = (await res.text().catch(() => "")).slice(0, 200);
-        return { ok: false, error: `GitLab returned ${res.status} ${res.statusText}${detail ? `: ${detail}` : ""}` };
-      }
-      const rows = (await res.json()) as unknown;
-      if (!Array.isArray(rows)) return { ok: false, error: "GitLab's merge request listing was not a JSON array" };
-      mrs.push(...(rows as RestMrRow[]).map(targetSummary));
-      // GitLab can omit pagination headers, so an absent header ends the walk only on a short page.
-      const next = res.headers.get("x-next-page");
-      if (next === null ? rows.length < BY_TARGET_PER_PAGE : next === "") return { ok: true, mrs };
-    }
+    const { rows, truncated } = await provider.fetchPullRequestSummaries(projectPath, { state, targetBranch, limit: BY_TARGET_LIMIT });
+    if (truncated) return { ok: false, error: `more than ${BY_TARGET_LIMIT} MRs target ${targetBranch}; the listing stopped before the end` };
+    return { ok: true, mrs: rows };
   } catch (err) {
-    return { ok: false, error: String(err) };
+    return { ok: false, error: forgeFailure(err, forge) };
   }
-  return { ok: false, error: `more than ${BY_TARGET_MAX_PAGES * BY_TARGET_PER_PAGE} MRs target ${targetBranch}; the listing stopped before the end` };
 }
 
 /** A context with no `forge` reads as GitLab. */
 type HandlerRepoContext = { forge?: "gitlab" | "github"; provider: any; projectPath: string; projectId?: number | null };
+
+const forgeOf = (c: HandlerRepoContext): Forge => (c.forge === "github" ? "github" : "gitlab");
 
 const GITHUB_SQUASH_REFUSAL = "GitHub picks squash at merge time; leave out squash";
 
@@ -181,6 +172,30 @@ export function createMRHandlers(
       return;
     }
     storeWriteback(repoName, c.projectPath, pr);
+  }
+
+  /** The batch maps a pull request it found but could not fill to null too, so a null is checked against the open list before it reads as "no PR". */
+  async function liveByBranchOnGitHub(provider: any, projectPath: string, branches: string[]): Promise<CommandResult<"mr:live-by-branch">> {
+    const found: Map<string, PullRequest | null> = await provider.fetchPullRequestsByBranches(projectPath, branches.map((b) => b.trim()));
+    const byBranch: Record<string, PullRequest | null> = {};
+    const unfilled: string[] = [];
+    for (const branch of branches) {
+      byBranch[branch] = found.get(branch.trim()) ?? null;
+      if (!byBranch[branch]) unfilled.push(branch);
+    }
+    if (unfilled.length === 0) return { ok: true, data: { byBranch } };
+    const open = await provider.fetchPullRequestSummaries(projectPath, { state: "opened", limit: BY_TARGET_LIMIT });
+    for (const branch of unfilled) {
+      const hit = (open.rows as MrTargetSummary[]).find((r) => r.sourceBranch === branch.trim());
+      if (!hit) {
+        if (open.truncated) return { ok: false, error: `could not tell whether ${branch} has an open pull request: ${projectPath} has more than ${BY_TARGET_LIMIT} open` };
+        continue;
+      }
+      const pr = await fetchSingle(provider, projectPath, hit.iid, true);
+      if (!pr) return { ok: false, error: `GitHub has pull request #${hit.iid} open on ${branch} in ${projectPath} but could not read it; try again` };
+      byBranch[branch] = pr;
+    }
+    return { ok: true, data: { byBranch } };
   }
 
   /**
@@ -503,12 +518,13 @@ export function createMRHandlers(
       if (!/^[0-9a-f]{7,40}$/i.test(p.sha)) return { ok: false, error: '"sha" must be 7 to 40 hex characters' };
       const decoded = decodeIndexedRepo(payload);
       if (!decoded.ok) return { ok: false, error: decoded.error };
+      let forge: Forge = "gitlab";
       try {
-        const { provider, projectPath } = await contextFor(decoded.repo);
-        if (typeof provider.fetchCommitParents !== "function") return { ok: false, error: "unsupported: mr:commit-parents needs a GitLab repo" };
-        return { ok: true, data: await provider.fetchCommitParents(projectPath, p.sha) };
+        const c = await contextFor(decoded.repo);
+        forge = forgeOf(c);
+        return { ok: true, data: await c.provider.fetchCommitParents(c.projectPath, p.sha) };
       } catch (err) {
-        return { ok: false, error: String(err) };
+        return { ok: false, error: forgeFailure(err, forge) };
       }
     },
 
@@ -520,12 +536,13 @@ export function createMRHandlers(
       if (!(Number.isInteger(p.pipelineId) && p.pipelineId > 0)) return { ok: false, error: '"pipelineId" must be a positive integer' };
       const decoded = decodeIndexedRepo(payload);
       if (!decoded.ok) return { ok: false, error: decoded.error };
+      let forge: Forge = "gitlab";
       try {
-        const { provider, projectPath } = await contextFor(decoded.repo);
-        if (typeof provider.fetchPipelineFailedJobs !== "function") return { ok: false, error: "unsupported: mr:pipeline-failed-jobs needs a GitLab repo" };
-        return { ok: true, data: await provider.fetchPipelineFailedJobs(projectPath, p.pipelineId) };
+        const c = await contextFor(decoded.repo);
+        forge = forgeOf(c);
+        return { ok: true, data: await c.provider.fetchPipelineFailedJobs(c.projectPath, p.pipelineId) };
       } catch (err) {
-        return { ok: false, error: String(err) };
+        return { ok: false, error: forgeFailure(err, forge) };
       }
     },
 
@@ -537,9 +554,8 @@ export function createMRHandlers(
       const decoded = decodeIndexedRepo(payload);
       if (!decoded.ok) return { ok: false, error: decoded.error };
       try {
-        const { provider, projectPath } = await contextFor(decoded.repo);
-        if (typeof provider.restRequest !== "function") return { ok: false, error: "unsupported: mr:by-target needs a GitLab repo" };
-        const listed = await listMrsByTarget(provider, projectPath, p.targetBranch.trim(), state as MrListState);
+        const c = await contextFor(decoded.repo);
+        const listed = await listMrsByTarget(c.provider, c.projectPath, p.targetBranch.trim(), state as MrListState, forgeOf(c));
         return listed.ok ? { ok: true, data: { mrs: listed.mrs } } : { ok: false, error: listed.error };
       } catch (err) {
         return { ok: false, error: String(err) };
@@ -555,13 +571,11 @@ export function createMRHandlers(
       try {
         const c = await contextFor(decoded.repo);
         const { provider, projectPath } = c;
-        if (typeof provider.fetchSingleMR !== "function") return { ok: false, error: "unsupported: mr:get needs a GitLab repo" };
         const github = c.forge === "github";
         const mr = await fetchSingle(provider, projectPath, p.iid, github);
         if (mr && p.refresh === true) writebackFor(c, decoded.repo, mr);
         if (mr) return { ok: true, data: { mr, fetchedAt: Date.now() } };
         if (github) return { ok: false, error: `GitHub has no pull request #${p.iid} in ${projectPath}, or the token cannot read it` };
-        if (typeof provider.restRequest !== "function") return { ok: false, error: `GitLab returned no MR !${p.iid} in ${projectPath}` };
         return { ok: false, error: await missingMrReason(provider, projectPath, p.iid) };
       } catch (err) {
         return { ok: false, error: String(err) };
@@ -581,13 +595,12 @@ export function createMRHandlers(
       const decoded = decodeIndexedRepo(payload);
       if (!decoded.ok) return { ok: false, error: decoded.error };
       try {
-        const { provider, projectPath } = await contextFor(decoded.repo);
-        if (typeof provider.restRequest !== "function") return { ok: false, error: "unsupported: mr:list-live needs a GitLab repo" };
+        const c = await contextFor(decoded.repo);
         const text = (name: string) => (typeof p[name] === "string" && (p[name] as string).trim() ? (p[name] as string).trim() : undefined);
-        const listed = await listMrsLive(provider, projectPath, {
+        const listed = await listMrsLive(c.provider, c.projectPath, {
           author: text("author"), sourceBranch: text("sourceBranch"), targetBranch: text("targetBranch"), search: text("search"),
           state: state as MrListState, limit: p.limit as number | undefined,
-        });
+        }, forgeOf(c));
         return listed.ok ? { ok: true, data: { mrs: listed.mrs, truncated: listed.truncated } } : { ok: false, error: listed.error };
       } catch (err) {
         return { ok: false, error: String(err) };
@@ -602,11 +615,12 @@ export function createMRHandlers(
       }
       const decoded = decodeIndexedRepo(payload);
       if (!decoded.ok) return { ok: false, error: decoded.error };
+      let forge: Forge = "gitlab";
       try {
-        const { provider, projectPath } = await contextFor(decoded.repo);
-        if (typeof provider.restRequest !== "function" || typeof provider.fetchSingleMR !== "function") {
-          return { ok: false, error: "unsupported: mr:live-by-branch needs a GitLab repo" };
-        }
+        const c = await contextFor(decoded.repo);
+        const { provider, projectPath } = c;
+        forge = forgeOf(c);
+        if (forge === "github") return await liveByBranchOnGitHub(provider, projectPath, branches as string[]);
         const byBranch: Record<string, PullRequest | null> = {};
         for (const branch of branches as string[]) {
           const listed = await listMrsLive(provider, projectPath, { sourceBranch: branch.trim(), state: "opened", limit: 1 });
@@ -622,7 +636,7 @@ export function createMRHandlers(
         }
         return { ok: true, data: { byBranch } };
       } catch (err) {
-        return { ok: false, error: String(err) };
+        return { ok: false, error: forgeFailure(err, forge) };
       }
     },
 
@@ -632,9 +646,8 @@ export function createMRHandlers(
       const decoded = decodeIndexedRepo(payload);
       if (!decoded.ok) return { ok: false, error: decoded.error };
       try {
-        const { provider, projectPath } = await contextFor(decoded.repo);
-        if (typeof provider.restRequest !== "function") return { ok: false, error: "unsupported: project:labels needs a GitLab repo" };
-        const listed = await listLabels(provider, projectPath, p?.search?.trim() || undefined);
+        const c = await contextFor(decoded.repo);
+        const listed = await listLabels(c.provider, c.projectPath, p?.search?.trim() || undefined, forgeOf(c));
         return listed.ok ? { ok: true, data: { labels: listed.labels } } : { ok: false, error: listed.error };
       } catch (err) {
         return { ok: false, error: String(err) };
@@ -653,11 +666,10 @@ export function createMRHandlers(
       const decoded = decodeIndexedRepo(payload);
       if (!decoded.ok) return { ok: false, error: decoded.error };
       try {
-        const { provider, projectPath } = await contextFor(decoded.repo);
-        if (typeof provider.restRequest !== "function") return { ok: false, error: "unsupported: pipeline:list needs a GitLab repo" };
-        const listed = await listPipelines(provider, projectPath, {
+        const c = await contextFor(decoded.repo);
+        const listed = await listPipelines(c.provider, c.projectPath, {
           ref: p.ref as string | undefined, sha: p.sha as string | undefined, iid: p.iid as number | undefined, limit: p.limit as number | undefined,
-        });
+        }, forgeOf(c));
         return listed.ok ? { ok: true, data: { pipelines: listed.pipelines } } : { ok: false, error: listed.error };
       } catch (err) {
         return { ok: false, error: String(err) };
@@ -679,8 +691,9 @@ export function createMRHandlers(
       const decoded = decodeIndexedRepo(payload);
       if (!decoded.ok) return { ok: false, error: decoded.error };
       try {
-        const { provider, projectPath } = await contextFor(decoded.repo);
-        if (typeof provider.restRequest !== "function") return { ok: false, error: "unsupported: forge:get needs a GitLab repo" };
+        const c = await contextFor(decoded.repo);
+        const { provider, projectPath } = c;
+        if (c.forge === "github") return { ok: false, error: "unsupported: forge:get needs a GitLab repo" };
         return await forgeGet(provider, projectPath, {
           path: p.path, query: p.query as Record<string, string | number | boolean> | undefined, page: p.page as number | undefined, perPage: p.perPage as number | undefined,
         });

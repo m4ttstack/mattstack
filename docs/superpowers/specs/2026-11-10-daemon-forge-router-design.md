@@ -185,7 +185,7 @@ implementations must return what the daemon's current REST code returns.
 | `mr:create`, `mr:update` | work; label adds and removes go through the two new label methods; a call that passes `squash` refuses before anything is written ("GitHub picks squash at merge time") |
 | `mr:fetch-job-detail`, `mr:fetch-job-trace` | work through the interface |
 | `mr:list-live`, `mr:by-target` | work through `fetchPullRequestSummaries` |
-| `mr:live-by-branch` | works through the batched by-branches read, one request for up to 25 branches |
+| `mr:live-by-branch` | works through the batched by-branches read, one request for up to 25 branches; when a branch comes back null, one `fetchPullRequestSummaries` read of open PRs confirms it, and a branch with an open PR is read with `fetchSingleMR` or the call fails naming it, never "no PR" |
 | `project:labels`, `pipeline:list`, `mr:commit-parents`, `mr:pipeline-failed-jobs` | work through the new reads |
 | `forge:get` | works, see section 4 |
 | `forge:file-diff`, `project-mrs:read`, `mr:by-branch` | work (already interface-only) |
