@@ -1,5 +1,36 @@
 # @mattstack/glance
 
+## 0.29.0
+
+### Minor Changes
+
+- New forge-neutral reads on both providers, each optional on `GitProvider`:
+  `fetchProjectLabels` (`search`, `maxRows`, a `truncated` flag),
+  `fetchPipelineList` (pipelines on GitLab, workflow runs on GitHub, by `ref`,
+  `sha` or MR `iid`, as the new `PipelineListEntry` row) and
+  `fetchPullRequestSummaries` (scalar `PullRequestSummary` rows by state,
+  author, branch or search, without the dashboard fill, with `truncated` set
+  when the page cap or GitHub's search ceiling ended the walk). New capability
+  flags `canFetchProjectLabels`, `canFetchPipelineList` and
+  `canFetchPullRequestSummaries`; new type exports `ProjectLabel`,
+  `PipelineListEntry`, `PullRequestSummary`, `FetchSummariesOptions` and
+  `SummaryState`.
+- `fetchCommitParents` and `fetchPipelineFailedJobs` now work on GitHub too
+  (`canFetchCommitParents`, `canFetchPipelineFailedJobs`). A GitHub failed job
+  carries the same `github:check:<id>` id the read model gives it.
+- Label edits: `addPullRequestLabels` and `removePullRequestLabels` change only
+  the named labels and leave the rest in place (`canEditLabels`). Removing a
+  label the PR does not carry is a no-op on both forges.
+- `GitHubProvider.restRequest` takes the same `op` and `io` parameters as
+  GitLab's; `io.redirect: 'manual'` returns a redirect instead of following it.
+- Every new GitHub read throws `RateLimitedError` on a rate limit.
+- Behavior change: when `mergePullRequest` lands the merge but the
+  head-repository read for `shouldRemoveSourceBranch` is rate limited, it now
+  throws `ReadBackFailedError` (`writeApplied: true`, the `RateLimitedError` as
+  `cause`, a message saying the PR merged and the source branch was not
+  deleted) instead of a `RateLimitedError`, so a caller that retries on rate
+  limits does not re-issue a merge that already landed.
+
 ## 0.28.0
 
 ### Minor Changes

@@ -889,7 +889,7 @@ describe('GitHubProvider re-request and merge cleanup', () => {
     );
   });
 
-  test('a rate-limited head repository read after a merge throws RateLimitedError', async () => {
+  test('a rate-limited head repository read after a merge is not a RateLimitedError, so a retry cannot re-merge', async () => {
     stubForge({
       fill: fillAll,
       rest: (url, method) => {
@@ -899,9 +899,15 @@ describe('GitHubProvider re-request and merge cleanup', () => {
       }
     });
 
-    await expect(
-      provider().mergePullRequest('o/r', 9, { shouldRemoveSourceBranch: true })
-    ).rejects.toBeInstanceOf(RateLimitedError);
+    const err = await provider()
+      .mergePullRequest('o/r', 9, { shouldRemoveSourceBranch: true })
+      .then(
+        () => null,
+        (e: unknown) => e
+      );
+
+    expect(err).toBeInstanceOf(ReadBackFailedError);
+    expect(err).not.toBeInstanceOf(RateLimitedError);
   });
 
   test('a rate limit after a landed merge says it merged and keeps the original as cause', async () => {
@@ -918,14 +924,17 @@ describe('GitHubProvider re-request and merge cleanup', () => {
       .mergePullRequest('o/r', 9, { shouldRemoveSourceBranch: true })
       .then(
         () => null,
-        (e: unknown) => e as RateLimitedError
+        (e: unknown) => e as ReadBackFailedError
       );
 
-    expect(err).toBeInstanceOf(RateLimitedError);
-    expect(err?.message).toMatch(/^mergePullRequest merged o\/r#9 but .* was rate limited: /);
+    expect(err).toBeInstanceOf(ReadBackFailedError);
+    expect(err?.writeApplied).toBe(true);
+    expect(err?.operation).toBe('mergePullRequest');
+    expect(err?.projectPath).toBe('o/r');
+    expect(err?.iid).toBe(9);
     expect(err?.cause).toBeInstanceOf(RateLimitedError);
-    expect(err?.kind).toBe((err?.cause as RateLimitedError).kind);
-    expect(err?.retryAfterMs).toBe((err?.cause as RateLimitedError).retryAfterMs);
+    expect(err?.message).toContain('merged');
+    expect(err?.message).toContain('source branch was not deleted');
   });
 
   test('a failed head repository read after a merge says so, not "head repository unknown"', async () => {

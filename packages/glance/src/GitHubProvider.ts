@@ -1727,14 +1727,16 @@ export class GitHubProvider implements GitProvider {
       } catch (err) {
         // A failed read is not a deleted fork: saying so would send the
         // caller looking for the wrong problem.
+        // Not rethrown as RateLimitedError: a caller retrying on that would
+        // re-issue a merge that already landed.
         if (err instanceof RateLimitedError) {
-          throw new RateLimitedError(
-            `mergePullRequest merged ${projectPath}#${mrIid} but reading the PR to find its head repository was rate limited: ${err.message}`,
+          throw new ReadBackFailedError(
+            `mergePullRequest merged ${projectPath}#${mrIid} but the source branch was not deleted: reading the PR to find its head repository was rate limited: ${err.message}`,
             {
-              kind: err.kind,
-              resetAt: err.resetAt,
-              retryAfterMs: err.retryAfterMs,
-              operation: err.operation,
+              operation: 'mergePullRequest',
+              projectPath,
+              iid: mrIid,
+              writeApplied: true,
               cause: err
             }
           );

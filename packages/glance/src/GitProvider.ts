@@ -653,7 +653,10 @@ export interface GitProvider {
    */
   removePullRequestLabels?(projectPath: string, mrIid: number, labels: string[]): Promise<void>;
 
-  /** The commit's parent shas. GitLab only. */
+  /**
+   * The commit's parent shas.
+   * Check `capabilities.canFetchCommitParents` before calling.
+   */
   fetchCommitParents?(projectPath: string, sha: string): Promise<string[]>;
 
   /**
@@ -662,7 +665,9 @@ export interface GitProvider {
    * (a child's failure never appears among the parent's own jobs). Rows under a
    * bridge that cannot fail the parent come back allowFailure. All or nothing:
    * one failed listing anywhere in the tree throws, so a partial result never
-   * reads as clean. GitLab only.
+   * reads as clean. On GitHub, a workflow run's own failed jobs (it has no
+   * downstream pipelines). Check `capabilities.canFetchPipelineFailedJobs`
+   * before calling.
    */
   fetchPipelineFailedJobs?(projectPath: string, pipelineId: number): Promise<PipelineJob[]>;
 
