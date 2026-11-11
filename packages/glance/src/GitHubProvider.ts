@@ -34,6 +34,9 @@ import type {
   NoteAuthor,
   NotePosition,
   Pipeline,
+  PipelineJob,
+  PipelineListEntry,
+  ProjectLabel,
   ProviderCapabilities,
   PullRequest,
   UpdatePullRequestInput,
@@ -47,7 +50,7 @@ import {
   type GitHubEvent
 } from './GitHubEventsPoller.ts';
 import { startWatcherLoop, type LoopTick } from './EventsWatcher.ts';
-import { RateLimitedError } from './errors.ts';
+import { ForgeHttpError, RateLimitedError } from './errors.ts';
 import {
   bodyText,
   createGitHubClient,
@@ -63,6 +66,8 @@ import {
   buildContextsPageQuery,
   buildFillQuery,
   FILL_BATCH_SIZE,
+  checkStatusFromParts,
+  jobDuration,
   rolesFromViewer,
   toPullRequestFromNode,
   type GHFillContext,
@@ -349,6 +354,9 @@ const THREAD_PAGE_SIZE = 100;
  */
 const THREAD_MAX_PAGES = 10;
 
+/** Page cap for the label and job listings, 100 rows a page. */
+const FORGE_READ_MAX_PAGES = 20;
+
 /**
  * GitHub requires a reason on every review dismissal and posts it to the pull
  * request timeline. GitLab's unapprove takes no message, so
@@ -583,10 +591,10 @@ export class GitHubProvider implements GitProvider {
     canFetchProject: false,
     canFetchProjectPipelines: false,
     canFetchUserEvents: false,
-    canFetchProjectLabels: false,
-    canFetchPipelineList: false,
-    canFetchCommitParents: false,
-    canFetchPipelineFailedJobs: false,
+    canFetchProjectLabels: true,
+    canFetchPipelineList: true,
+    canFetchCommitParents: true,
+    canFetchPipelineFailedJobs: true,
     canFetchPullRequestSummaries: false,
     canEditLabels: false
   };
@@ -2180,6 +2188,152 @@ export class GitHubProvider implements GitProvider {
         // two committed specs documents; ghError's statusText style reproduces
         // its exact shape.
         throw ghError('retryJob', err, 'statusText');
+      }
+      throw err;
+    }
+  }
+
+  async fetchProjectLabels(
+    projectPath: string,
+    options: { search?: string; maxRows?: number } = {}
+  ): Promise<{ labels: ProjectLabel[]; truncated: boolean }> {
+    const maxRows = options.maxRows ?? 1000;
+    const needle = options.search?.toLowerCase();
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    const labels: ProjectLabel[] = [];
+    let truncated = false;
+    await this.forgeRead('fetchProjectLabels', async () => {
+      let page = 0;
+      for await (const res of this.octokit.paginate.iterator(
+        'GET /repos/{owner}/{repo}/labels',
+        { owner, repo, per_page: 100 }
+      )) {
+        for (const l of res.data) {
+          if (needle && !l.name.toLowerCase().includes(needle)) continue;
+          if (labels.length === maxRows) {
+            truncated = true;
+            return;
+          }
+          labels.push({
+            name: l.name,
+            description: l.description ?? null,
+            color: l.color ? `#${l.color}` : null
+          });
+        }
+        if (++page === FORGE_READ_MAX_PAGES) {
+          truncated = true;
+          return;
+        }
+      }
+    });
+    return { labels, truncated };
+  }
+
+  async fetchPipelineList(
+    projectPath: string,
+    options: { ref?: string; sha?: string; iid?: number; limit: number }
+  ): Promise<PipelineListEntry[]> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    return this.forgeRead('fetchPipelineList', async () => {
+      let headSha = options.sha;
+      if (options.iid !== undefined) {
+        const pr = await this.octokit.request('GET /repos/{owner}/{repo}/pulls/{pull_number}', {
+          owner,
+          repo,
+          pull_number: options.iid
+        });
+        headSha = pr.data.head.sha;
+      }
+      const res = await this.octokit.request('GET /repos/{owner}/{repo}/actions/runs', {
+        owner,
+        repo,
+        per_page: options.limit,
+        ...(options.iid === undefined && options.ref ? { branch: options.ref } : {}),
+        ...(headSha ? { head_sha: headSha } : {})
+      });
+      return res.data.workflow_runs.map(r => ({
+        id: r.id,
+        status: checkStatusFromParts(
+          r.status?.toUpperCase() ?? '',
+          r.conclusion ? r.conclusion.toUpperCase() : null
+        ),
+        ref: r.head_branch ?? null,
+        sha: r.head_sha ?? null,
+        source: r.event ?? null,
+        webUrl: r.html_url ?? null,
+        createdAt: r.created_at ?? null
+      }));
+    });
+  }
+
+  async fetchCommitParents(projectPath: string, sha: string): Promise<string[]> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    return this.forgeRead('fetchCommitParents', async () => {
+      const res = await this.octokit.request('GET /repos/{owner}/{repo}/commits/{ref}', {
+        owner,
+        repo,
+        ref: sha
+      });
+      return res.data.parents.map(p => p.sha);
+    });
+  }
+
+  async fetchPipelineFailedJobs(projectPath: string, pipelineId: number): Promise<PipelineJob[]> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    const failed = new Set(['failure', 'timed_out', 'cancelled']);
+    const out: PipelineJob[] = [];
+    await this.forgeRead('fetchPipelineFailedJobs', async () => {
+      // paginate.iterator derives the next URL from the response URL for this
+      // envelope shape, so the walk is explicit like the PR listing's.
+      for (let page = 1; page <= FORGE_READ_MAX_PAGES; page++) {
+        const res = await this.octokit.request('GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs', {
+          owner,
+          repo,
+          run_id: pipelineId,
+          filter: 'latest',
+          per_page: 100,
+          page
+        });
+        for (const j of res.data.jobs) {
+          if (!j.conclusion || !failed.has(j.conclusion)) continue;
+          out.push({
+            // Same id the read model gives a check-run job: an Actions job id is its check-run id.
+            id: `github:check:${j.id}`,
+            name: j.name,
+            stage: 'checks',
+            status: checkStatusFromParts('COMPLETED', j.conclusion.toUpperCase()),
+            allowFailure: false,
+            duration: jobDuration(j.started_at, j.completed_at),
+            webUrl: j.html_url ?? null,
+            runId: String(j.run_id)
+          });
+        }
+        if (res.data.jobs.length < 100) return;
+      }
+    });
+    return out;
+  }
+
+  /** Runs a REST read, turning a rate limit into `RateLimitedError` and a non-2xx into `ForgeHttpError`. */
+  private async forgeRead<T>(op: string, read: () => Promise<T>): Promise<T> {
+    try {
+      return await read();
+    } catch (err) {
+      const limited = toRateLimitedError(err, op);
+      if (limited) throw limited;
+      if (err instanceof RequestError && err.response) {
+        const data = err.response.data as { message?: unknown } | string | undefined;
+        const detail =
+          data && typeof data === 'object' && typeof data.message === 'string'
+            ? data.message
+            : bodyText(err);
+        const statusText = reasonPhrase(err.status);
+        throw new ForgeHttpError(
+          `GitHub returned ${err.status} ${statusText}: ${detail}`,
+          err.status,
+          statusText,
+          bodyText(err)
+        );
       }
       throw err;
     }

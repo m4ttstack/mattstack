@@ -273,4 +273,78 @@ describe('GraphQL 5xx retry', () => {
     await expect(provider.setAutoMerge('o/r', 1)).rejects.toThrow(/^setAutoMerge failed: 502/);
     expect(sentGraphQL(urls)).toBe(1);
   });
+
+  test('fetchProjectLabels: 1 request per 100 labels', async () => {
+    const page = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ name: `l${i}`, description: null, color: 'fff' }));
+    stubForge({
+      rest: (url) => {
+        if ((new URL(url).searchParams.get('page') ?? '1') === '1') {
+          return jsonResponse(page(100), 200, {
+            link: '<https://api.github.com/repos/o/r/labels?per_page=100&page=2>; rel="next"'
+          });
+        }
+        return jsonResponse(page(30));
+      }
+    });
+    const { provider, requests } = counted();
+
+    const out = await provider.fetchProjectLabels!('o/r');
+
+    expect(out.labels).toHaveLength(130);
+    expect(byTransport(requests)).toEqual({ graphql: 0, rest: 2 });
+  });
+
+  test('fetchCommitParents: 1 request', async () => {
+    stubForge({ rest: () => jsonResponse({ parents: [{ sha: 'p1' }] }) });
+    const { provider, requests } = counted();
+
+    await provider.fetchCommitParents!('o/r', 'c');
+
+    expect(byTransport(requests)).toEqual({ graphql: 0, rest: 1 });
+  });
+
+  test('fetchPipelineFailedJobs: 1 request per 100 jobs', async () => {
+    const jobs = (from: number, n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        id: from + i,
+        run_id: 77,
+        name: 'j',
+        status: 'completed',
+        conclusion: 'failure',
+        started_at: null,
+        completed_at: null,
+        html_url: null
+      }));
+    stubForge({
+      rest: (url) => {
+        if ((new URL(url).searchParams.get('page') ?? '1') === '1') {
+          return jsonResponse({ total_count: 150, jobs: jobs(1, 100) }, 200, {
+            link: '<https://api.github.com/repos/o/r/actions/runs/77/jobs?per_page=100&page=2>; rel="next"'
+          });
+        }
+        return jsonResponse({ total_count: 150, jobs: jobs(101, 50) });
+      }
+    });
+    const { provider, requests } = counted();
+
+    const out = await provider.fetchPipelineFailedJobs!('o/r', 77);
+
+    expect(out).toHaveLength(150);
+    expect(byTransport(requests)).toEqual({ graphql: 0, rest: 2 });
+  });
+
+  test('fetchPipelineList: 1 request, 2 with iid', async () => {
+    stubForge({
+      rest: (url) =>
+        url.includes('/pulls/') ? jsonResponse({ head: { sha: 's' } }) : jsonResponse({ workflow_runs: [] })
+    });
+    const a = counted();
+    await a.provider.fetchPipelineList!('o/r', { limit: 5 });
+    expect(byTransport(a.requests)).toEqual({ graphql: 0, rest: 1 });
+
+    const b = counted();
+    await b.provider.fetchPipelineList!('o/r', { iid: 3, limit: 5 });
+    expect(byTransport(b.requests)).toEqual({ graphql: 0, rest: 2 });
+  });
 });
