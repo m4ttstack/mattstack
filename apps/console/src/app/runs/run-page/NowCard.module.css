@@ -5,3 +5,8 @@
 .fields {
   width: 100%;
 }
+
+/* With no gate below, the last field row needs no rule under it. */
+.fields:last-child > :last-child {
+  border-bottom: 0;
+}

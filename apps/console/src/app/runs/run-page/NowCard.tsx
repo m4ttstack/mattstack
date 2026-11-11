@@ -60,7 +60,7 @@ export function NowCard({
     >
       <Stack gap={10} className={classes.body}>
         {fields.length > 0 ? (
-          <Stack gap={6} className={classes.fields}>
+          <Stack gap={0} className={classes.fields}>
             <FieldRows fields={fields} pathHref={pathHref} />
           </Stack>
         ) : null}

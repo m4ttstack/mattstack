@@ -1,16 +1,21 @@
+/* Matches a gate record's row: its question column, gap and rule. */
 .row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
   width: 100%;
+  padding-block: 10px;
+  border-bottom: 1px solid var(--tk-border-soft);
 }
 
 .label {
-  flex: 0 0 110px;
-  width: 110px;
+  flex: 0 0 214px;
+  width: 214px;
 }
 
 .value {
   flex: 1;
   min-width: 0;
-  max-width: 80ch;
   display: flex;
 }
 
@@ -19,10 +24,38 @@
   min-width: 0;
 }
 
-/* The Now card shows a field's gist; the stage pane has the whole of it. */
-.value p {
+/* The Now card shows a field's gist until its row is opened. */
+.row:not([data-open]) .value p {
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.row[data-toggles] {
+  cursor: pointer;
+}
+
+.toggle {
+  align-self: center;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 21px;
+  border-radius: 4px;
+  color: var(--tk-text-3);
+}
+
+.toggle:hover {
+  background: var(--tk-wash);
+}
+
+.chevron {
+  transition: transform 200ms ease;
+}
+
+.chevron[data-open] {
+  transform: rotate(180deg);
 }
