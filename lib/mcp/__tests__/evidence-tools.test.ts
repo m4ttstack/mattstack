@@ -11,7 +11,7 @@ import { valueSha256 } from "../../runs/write.ts";
 import { spliceSection } from "../../evidence/section.ts";
 import { setSetting } from "../../settings/write.ts";
 import { parseUploads, serializeUploads, sha256Of } from "../../evidence/uploads-field.ts";
-import { evidenceToolDefs, MR_UPLOAD_TIMEOUT_MS, realEvidenceToolDeps, uploadEach, type EvidenceToolDeps } from "../evidence-tools.ts";
+import { attachmentName, evidenceToolDefs, GITHUB_UPLOAD_REFUSED_NOTE, MR_DESCRIBE_TIMEOUT_MS, MR_UPLOAD_TIMEOUT_MS, realEvidenceToolDeps, uploadEach, type EvidenceToolDeps } from "../evidence-tools.ts";
 import { err, ok, type ToolResult } from "../shared.ts";
 import type { TreeGuardDeps } from "../tree-guard.ts";
 
@@ -19,6 +19,9 @@ const RUN_ID = "20261016-120000-abcd-1";
 const IDENT = "remote:gitlab.com%2Facme%2Fweb";
 const MR_URL = "https://gitlab.com/acme/web/-/merge_requests/7";
 const HEADING = "## Verification Evidence";
+const GH_PR = "https://github.com/acme/web/pull/12";
+const GH_IDENT = "remote:github.com%2Facme%2Fweb";
+const GH_ASSETS = "https://github.com/user-attachments/assets/";
 
 let base: string;
 let home: string;
@@ -78,6 +81,7 @@ function makeDeps(o: { fields?: Record<string, string>; respond?: Responder; fie
   const runCalls: Array<{ name: string; input: Record<string, unknown> }> = [];
   const perPath = new Map<string, number>();
   const state = { live: o.live ?? "" };
+  const resolveCalls: Array<{ input: Record<string, unknown>; opts: { github?: boolean } | undefined }> = [];
   const command = (async (cmd: string, payload: Record<string, unknown>) => {
     calls.push({ cmd, payload });
     const key = `${cmd}\0${String(payload.path ?? "")}`;
@@ -89,7 +93,20 @@ function makeDeps(o: { fields?: Record<string, string>; respond?: Responder; fie
       const name = basename(String(payload.path));
       return okRes({ url: `https://gitlab.com/acme/web/uploads/h${nth}/${name}`, markdown: `![${name}](/uploads/h${nth}/${name})` });
     }
-    if (cmd === "mr:get") return okRes({ mr: { iid: payload.iid, description: state.live, webUrl: MR_URL }, fetchedAt: 0 });
+    if (cmd === "mr:get") {
+      const webUrl = String(payload.repoName).startsWith("remote:github.com") ? `https://github.com/acme/web/pull/${String(payload.iid)}` : MR_URL;
+      return okRes({ mr: { iid: payload.iid, description: state.live, webUrl }, fetchedAt: 0 });
+    }
+    if (cmd === "mr:describe-with-attachments") {
+      let body = String(payload.description);
+      const urls: Record<string, string> = {};
+      for (const a of payload.attachments as Array<{ path: string; name: string }>) {
+        urls[a.path] = `${GH_ASSETS}${a.name}`;
+        body = body.split(`./${a.name}`).join(urls[a.path]);
+      }
+      state.live = body;
+      return okRes({ outcome: "ran", written: true, urls });
+    }
     if (cmd === "mr:update") {
       state.live = String(payload.description);
       return okRes({ iid: payload.iid, url: MR_URL, applied: ["description"] });
@@ -115,12 +132,18 @@ function makeDeps(o: { fields?: Record<string, string>; respond?: Responder; fie
       return ok({ ok: true, run: { id: RUN_ID, repo: "web" }, stages: [], fields: [...fields].map(([key, value]) => ({ key, value })), decisions: [] });
     },
     guard: o.guard ?? noGuard,
-    async resolveRepo(input) {
+    async resolveRepo(input, opts) {
+      resolveCalls.push({ input: { ...input }, opts });
       if (typeof input.mrUrl === "string") {
+        const pr = opts?.github ? /^https:\/\/github\.com\/acme\/(\w+)\/pull\/(\d+)$/.exec(input.mrUrl) : null;
+        if (pr) return { ok: true, identity: `remote:github.com%2Facme%2F${pr[1]}`, iid: Number(pr[2]) };
         const m = /^https:\/\/gitlab\.com\/acme\/(\w+)\/-\/merge_requests\/(\d+)$/.exec(input.mrUrl);
         return m ? { ok: true, identity: `remote:gitlab.com%2Facme%2F${m[1]}`, iid: Number(m[2]) } : { ok: false, error: "mrUrl must look like an MR URL" };
       }
-      if (typeof input.repoName === "string") return { ok: true, identity: IDENT, iid: typeof input.iid === "number" ? input.iid : undefined };
+      if (typeof input.repoName === "string") {
+        const gh = /^(?:remote:)?github\.com(?:\/|%2f)acme(?:\/|%2f)(\w+?)(?:\.git)?\/?$/i.exec(input.repoName.trim());
+        return { ok: true, identity: gh ? `remote:github.com%2Facme%2F${gh[1]}` : IDENT, iid: typeof input.iid === "number" ? input.iid : undefined };
+      }
       return { ok: false, error: 'pass "repoName" or "mrUrl"' };
     },
     home: () => home,
@@ -135,7 +158,7 @@ function makeDeps(o: { fields?: Record<string, string>; respond?: Responder; fie
       return o.fold ?? false;
     },
   };
-  return { deps, calls, runCalls, fields, state, foldAsked };
+  return { deps, calls, runCalls, fields, state, foldAsked, resolveCalls };
 }
 
 const tool = (deps: EvidenceToolDeps, name: string) => evidenceToolDefs(deps).find((t) => t.name === name)!;
@@ -153,6 +176,15 @@ describe("tool defs", () => {
     expect(record.description).toContain("a standalone import board keeps it");
     expect(attach.description).toContain("attach gate's proceed");
     expect(MR_UPLOAD_TIMEOUT_MS).toBe(120_000);
+    expect(MR_DESCRIBE_TIMEOUT_MS).toBe(240_000);
+    expect(attach.description).toContain("one gh write through the daemon (gh 2.99 or newer)");
+  });
+
+  test("attachmentName numbers the file and keeps only safe characters, cut to 100 with its extension", () => {
+    expect(attachmentName(0, "/x/badge.png")).toBe("1-badge.png");
+    expect(attachmentName(2, "/x/a b(1).png")).toBe("3-a-b-1-.png");
+    const long = attachmentName(0, `/x/${"n".repeat(150)}.webp`);
+    expect(long).toBe(`1-${"n".repeat(95)}.webp`);
   });
 });
 
@@ -628,7 +660,7 @@ function twoWaived() {
 type AttachBody = {
   forge: string; mr: string | null; uploaded: Array<{ path: string; url: string; markdown: string; reused: boolean }>;
   refused: Record<string, Array<{ path: string; error: string }>>; timedOutTwice: string[]; linked: Array<{ path: string; error: string }>; section: string;
-  description?: string; descriptionWritten: boolean; notWritten?: string; writeErrors?: string[];
+  description?: string; descriptionWritten: boolean; notWritten?: string; writeErrors?: string[]; uploadRefused?: string; readBackError?: string;
 };
 
 describe("evidence_attach", () => {
@@ -1021,28 +1053,6 @@ describe("evidence_attach", () => {
     expect(body.section).not.toContain(two);
   });
 
-  test("an http github.com mrUrl is still GitHub, with its PR number", async () => {
-    const { evidence } = boardRecord();
-    const { deps } = makeDeps({ fields: { evidence } });
-    const res = await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: "http://github.com/acme/web/pull/3" }, env);
-    expect((res.body as AttachBody).mr).toBe("http://github.com/acme/web/pull/3");
-    expect(JSON.stringify(res.body)).toContain("gh pr edit 3");
-  });
-
-  test("a github.com target uploads nothing, names the local files without their paths and names the gh move", async () => {
-    const { board, evidence } = boardRecord();
-    const { deps, calls } = makeDeps({ fields: { evidence } });
-    const res = await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: "https://github.com/acme/web/pull/12" }, env);
-    expect(res.ok).toBe(true);
-    const body = res.body as AttachBody;
-    expect(calls.length).toBe(0);
-    expect(body.forge).toBe("github");
-    expect(body.notWritten).toBe("github");
-    expect(body.section).toContain("- Before and after: badge.png (attached separately)");
-    expect(body.section).not.toContain(board);
-    expect(JSON.stringify(res.body)).toContain("gh pr edit 12");
-  });
-
   test("fold reads the setting for the GitLab repo and folds the written section", async () => {
     const { evidence } = boardRecord();
     const { deps, state, foldAsked } = makeDeps({ fields: { evidence }, live: "## Verification Evidence\n\nold\n", fold: true });
@@ -1056,10 +1066,10 @@ describe("evidence_attach", () => {
   test("fold reads the setting for the GitHub repo from the PR url and folds the section", async () => {
     const { evidence } = boardRecord();
     const { deps, foldAsked } = makeDeps({ fields: { evidence }, fold: true });
-    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: "https://github.com/acme/web/pull/12" }, env)).body as AttachBody;
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: GH_PR }, env)).body as AttachBody;
     expect(foldAsked).toEqual(["github.com/acme/web"]);
     expect(body.section).toContain("<details>");
-    expect(body.section).toContain("badge.png (attached separately)");
+    expect(body.section).toContain(`${GH_ASSETS}1-badge.png`);
   });
 
   test("fold normalizes every GitHub repoName shape to the clone's identity", async () => {
@@ -1129,18 +1139,6 @@ describe("evidence_attach", () => {
     expect(body.writeErrors?.join(" ")).toContain("home directory");
   });
 
-  test("on GitHub a section naming the home directory comes back with the reason and no spliced description", async () => {
-    const { evidence: base } = boardRecord();
-    const rec = JSON.parse(base);
-    rec.cases[0].waiver = `see ${join(home, "notes.txt")}`;
-    const { deps } = makeDeps({ fields: { evidence: JSON.stringify(rec) } });
-    const res = await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: "https://github.com/acme/web/pull/12", description: "body" }, env);
-    const body = res.body as AttachBody & { writeErrors?: string[]; description?: string; next?: string };
-    expect(body.writeErrors?.join(" ")).toContain("home directory");
-    expect(body.description).toBeUndefined();
-    expect(body.next).toBeUndefined();
-  });
-
   test("a plan:text record uploads nothing and prints only the transcript line", async () => {
     const { deps, calls } = makeDeps({ fields: { evidence: JSON.stringify({ plan: "text", transcript: "/t.txt" }) } });
     const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, repoName: "web" }, env)).body as AttachBody;
@@ -1164,6 +1162,218 @@ describe("evidence_attach", () => {
     const { deps, state } = makeDeps({ fields: { evidence } });
     await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env);
     expect(state.live).not.toMatch(/mattstack|evidence_attach|<!--/);
+  });
+});
+
+describe("evidence_attach on GitHub", () => {
+  const DESCRIBE = "mr:describe-with-attachments";
+  const describes = (calls: Call[]) => calls.filter((c) => c.cmd === DESCRIBE);
+  const sent = (c: Call) => (c.payload.attachments as Array<{ path: string; name: string }>);
+  const attach = (deps: EvidenceToolDeps, extra: Record<string, unknown> = {}, progress?: () => void) =>
+    tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: GH_PR, ...extra }, env, undefined, progress).then((r) => r.body as AttachBody);
+  const GH_MISSING = "gh is not installed; attaching images on GitHub needs gh 2.99 or newer (run: brew install gh)";
+  const recordRefusal = (p: string) => `${p} is not in run ${RUN_ID}'s evidence record`;
+
+  test("a GitHub PR attaches each new file in one describe call and remembers its URL", async () => {
+    const { board, evidence } = boardRecord();
+    const { deps, calls, fields, state, resolveCalls } = makeDeps({ fields: { evidence } });
+    const body = await attach(deps);
+    const url = `${GH_ASSETS}1-badge.png`;
+    expect(describes(calls)).toHaveLength(1);
+    expect(describes(calls)[0]!.payload).toMatchObject({ repoName: GH_IDENT, iid: 12, attachments: [{ path: board, name: "1-badge.png" }], runId: RUN_ID });
+    expect(String(describes(calls)[0]!.payload.description)).toContain("](./1-badge.png)");
+    expect(uploads(calls)).toHaveLength(0);
+    expect(body.forge).toBe("github");
+    expect(body.mr).toBe(GH_PR);
+    expect(body.descriptionWritten).toBe(true);
+    expect(body.notWritten).toBeUndefined();
+    expect(body.uploaded).toEqual([{ path: board, url, markdown: `![badge.png](${url})`, reused: false }]);
+    expect(body.section).toContain(`- Before and after: ![before and after](${url})`);
+    expect(state.live).toContain(url);
+    expect(parseUploads(fields.get("evidence-uploads")!)[realpathSync(board)]).toMatchObject({ project: GH_IDENT, url, sha256: sha256Of(board) });
+    expect(resolveCalls.length).toBeGreaterThan(0);
+    expect(resolveCalls.every((r) => r.opts?.github === true)).toBe(true);
+  });
+
+  test("a second GitHub attach reuses the stored URL and attaches nothing", async () => {
+    const { evidence } = boardRecord();
+    const { deps, calls } = makeDeps({ fields: { evidence } });
+    await attach(deps);
+    const before = calls.length;
+    const body = await attach(deps);
+    expect(describes(calls.slice(before))).toHaveLength(0);
+    expect(body.section).toContain(`${GH_ASSETS}1-badge.png`);
+    expect(body.uploaded.every((u) => u.reused)).toBe(true);
+  });
+
+  test("a refused file blocks the GitHub write unless linkRefused, and linkRefused sends the rest", async () => {
+    const { one, two, evidence } = twoWaived();
+    const respond: Responder = (cmd, p) =>
+      cmd === DESCRIBE && (p.attachments as Array<{ path: string }>).some((a) => a.path === one)
+        ? okRes({ outcome: "refused", refused: [{ path: one, error: recordRefusal(one) }] })
+        : undefined;
+
+    const blocked = makeDeps({ fields: { evidence }, respond });
+    const body = await attach(blocked.deps);
+    expect(body.notWritten).toBe("refused");
+    expect(body.descriptionWritten).toBe(false);
+    expect(body.refused.record).toEqual([{ path: one, error: recordRefusal(one) }]);
+    expect(body.section).not.toContain("one.png");
+    expect(describes(blocked.calls)).toHaveLength(1);
+    expect(blocked.calls.some((c) => c.cmd === "mr:update")).toBe(false);
+
+    const linked = makeDeps({ fields: { evidence }, respond });
+    const taken = await attach(linked.deps, { linkRefused: true });
+    expect(describes(linked.calls)).toHaveLength(2);
+    expect(sent(describes(linked.calls)[1]!)).toEqual([{ path: two, name: "2-two.png" }]);
+    expect(String(describes(linked.calls)[1]!.payload.description)).toContain("one.png (attached separately)");
+    expect(taken.section).toContain("- Before: one.png (attached separately)");
+    expect(taken.descriptionWritten).toBe(true);
+    const remembered = parseUploads(linked.fields.get("evidence-uploads")!);
+    expect(remembered[realpathSync(one)]).toEqual({ linked: true, at: 1_700_000_000_000 });
+    expect(remembered[realpathSync(two)]).toMatchObject({ url: `${GH_ASSETS}2-two.png` });
+  });
+
+  test("a rejected upload still writes the description with the files named and the note", async () => {
+    const { evidence } = boardRecord();
+    const ghError = "HTTP 422: upload not allowed for this token";
+    const respond: Responder = (cmd) => (cmd === DESCRIBE ? okRes({ outcome: "ran", written: false, urls: {}, ghError, uploadRejected: true }) : undefined);
+    const { deps, calls, fields } = makeDeps({ fields: { evidence }, respond });
+    const body = await attach(deps, { appendix: "### Log\n\nline" });
+    const update = calls.find((c) => c.cmd === "mr:update")!;
+    const written = String(update.payload.description);
+    expect(written).toContain("badge.png (attached separately)");
+    expect(written).toContain(GITHUB_UPLOAD_REFUSED_NOTE);
+    expect(written.indexOf(GITHUB_UPLOAD_REFUSED_NOTE)).toBeLessThan(written.indexOf("### Log"));
+    expect(body.descriptionWritten).toBe(true);
+    expect(body.uploadRefused).toBe(ghError);
+    expect(fields.get("evidence-uploads")).toBeUndefined();
+  });
+
+  const partial = (box: { live?: (s: string) => void }) => (one: string): Responder => (cmd, p) => {
+    if (cmd !== DESCRIBE) return undefined;
+    box.live?.(String(p.description).split("./1-one.png").join(`${GH_ASSETS}1-one.png`));
+    return okRes({ outcome: "ran", written: true, urls: { [one]: `${GH_ASSETS}1-one.png` }, ghError: "HTTP 502 Bad Gateway" });
+  };
+
+  test("a partial gh failure blocks like a failed upload and puts the PR body back", async () => {
+    const { one, two, evidence } = twoWaived();
+    const live = "## What\n\nAdds a badge.\n";
+    const box: { live?: (s: string) => void } = {};
+    const { deps, calls, fields, state } = makeDeps({ fields: { evidence }, live, respond: partial(box)(one) });
+    box.live = (s) => { state.live = s; };
+    const body = await attach(deps);
+    expect(parseUploads(fields.get("evidence-uploads")!)[realpathSync(one)]).toMatchObject({ url: `${GH_ASSETS}1-one.png` });
+    expect(body.uploaded.map((u) => u.path)).toEqual([one]);
+    expect(body.refused.other!.map((r) => r.path)).toEqual([two]);
+    expect(body.refused.other![0]!.error).toContain("calling again resumes");
+    expect(body.notWritten).toBe("refused");
+    expect(body.descriptionWritten).toBe(false);
+    const updates = calls.filter((c) => c.cmd === "mr:update");
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.payload.description).toBe(live);
+    expect(state.live).toBe(live);
+  });
+
+  test("with linkRefused, a partial gh failure writes the body with the unsent file named", async () => {
+    const { one, two, evidence } = twoWaived();
+    const { deps, calls, fields } = makeDeps({ fields: { evidence }, respond: partial({})(one) });
+    const body = await attach(deps, { linkRefused: true });
+    const written = String(calls.find((c) => c.cmd === "mr:update")!.payload.description);
+    expect(written).toContain(`${GH_ASSETS}1-one.png`);
+    expect(written).toContain("two.png (attached separately)");
+    expect(parseUploads(fields.get("evidence-uploads")!)[realpathSync(two)]).toEqual({ linked: true, at: 1_700_000_000_000 });
+    expect(body.descriptionWritten).toBe(true);
+  });
+
+  test("a written PR body whose URLs could not be read back is still written and remembers nothing", async () => {
+    const { board, evidence } = boardRecord();
+    const readBackError = "the PR body changed after the write, so the image URLs were not recorded";
+    const respond: Responder = (cmd, _p, nth) => (cmd === DESCRIBE && nth === 1 ? okRes({ outcome: "ran", written: true, urls: {}, readBackError }) : undefined);
+    const { deps, calls, fields } = makeDeps({ fields: { evidence }, respond });
+    const body = await attach(deps);
+    expect(body.descriptionWritten).toBe(true);
+    expect(body.readBackError).toBe(readBackError);
+    expect(body.uploaded.some((u) => u.path === board)).toBe(false);
+    expect(fields.get("evidence-uploads")).toBeUndefined();
+    expect(calls.some((c) => c.cmd === "mr:update")).toBe(false);
+
+    const before = calls.length;
+    await attach(deps);
+    expect(sent(describes(calls.slice(before))[0]!)).toEqual([{ path: board, name: "1-badge.png" }]);
+  });
+
+  test("gh missing is a write error and writes nothing", async () => {
+    const { evidence } = boardRecord();
+    const respond: Responder = (cmd) => (cmd === DESCRIBE ? errRes(GH_MISSING) : undefined);
+    const { deps, calls, fields } = makeDeps({ fields: { evidence }, respond });
+    const body = await attach(deps);
+    expect(body.writeErrors).toEqual([GH_MISSING]);
+    expect(body.descriptionWritten).toBe(false);
+    expect(calls.some((c) => c.cmd === "mr:update")).toBe(false);
+    expect(fields.get("evidence-uploads")).toBeUndefined();
+  });
+
+  test("a describe call that times out says to read the PR body before retrying", async () => {
+    const { evidence } = boardRecord();
+    const respond: Responder = (cmd) => (cmd === DESCRIBE ? errRes("rt daemon unreachable: The operation timed out.") : undefined);
+    const { deps } = makeDeps({ fields: { evidence }, respond });
+    const body = await attach(deps);
+    expect(body.writeErrors).toHaveLength(1);
+    expect(body.writeErrors![0]).toStartWith("rt daemon unreachable: The operation timed out.");
+    expect(body.writeErrors![0]).toEndWith("read it before retrying");
+  });
+
+  test("two boards with the same basename get two names and keep their own URLs", async () => {
+    const a = boardRecord(evidenceDir("case-a"));
+    const b = boardRecord(evidenceDir("case-b"));
+    const evidence = v2([...JSON.parse(a.evidence).cases.map((c: { id: string }) => ({ ...c, id: "case-a" })), ...JSON.parse(b.evidence).cases.map((c: { id: string }) => ({ ...c, id: "case-b", label: "Other" }))]);
+    const { deps, calls, fields } = makeDeps({ fields: { evidence } });
+    const body = await attach(deps);
+    expect(sent(describes(calls)[0]!)).toEqual([{ path: a.board, name: "1-badge.png" }, { path: b.board, name: "2-badge.png" }]);
+    const remembered = parseUploads(fields.get("evidence-uploads")!);
+    expect(remembered[realpathSync(a.board)]).toMatchObject({ url: `${GH_ASSETS}1-badge.png` });
+    expect(remembered[realpathSync(b.board)]).toMatchObject({ url: `${GH_ASSETS}2-badge.png` });
+    expect(body.uploaded.map((u) => u.url)).toEqual([`${GH_ASSETS}1-badge.png`, `${GH_ASSETS}2-badge.png`]);
+  });
+
+  test("a GitHub repo with no PR yet returns the spliced description and calls no daemon verb", async () => {
+    const { evidence } = boardRecord();
+    const { deps, calls } = makeDeps({ fields: { evidence } });
+    const draft = "## What\n\nAdds a badge.\n";
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, repoName: "github.com/acme/web", description: draft }, env)).body as AttachBody;
+    expect(calls).toHaveLength(0);
+    expect(body.forge).toBe("github");
+    expect(body.notWritten).toBe("no-mr");
+    expect(body.mr).toBeNull();
+    expect(body.section).toContain("- Before and after: badge.png (attached separately)");
+    expect(body.description).toBe(spliceSection(draft, HEADING, body.section));
+  });
+
+  test("a GitHub section naming the home directory is refused before any daemon call", async () => {
+    const { evidence: base } = boardRecord();
+    const rec = JSON.parse(base);
+    rec.cases[0].waiver = `see ${join(home, "notes.txt")}`;
+    const { deps, calls } = makeDeps({ fields: { evidence: JSON.stringify(rec) } });
+    const body = await attach(deps, { description: "body" });
+    expect(calls).toHaveLength(0);
+    expect(body.notWritten).toBe("refused");
+    expect(body.descriptionWritten).toBe(false);
+    expect(body.writeErrors?.join(" ")).toContain("home directory");
+    expect(body.description).toBeUndefined();
+  });
+
+  test("progress ticks while the describe call runs", async () => {
+    const { evidence } = boardRecord();
+    let ticks = 0;
+    let seen = -1;
+    const respond: Responder = (cmd) => {
+      if (cmd === DESCRIBE) seen = ticks;
+      return undefined;
+    };
+    const { deps } = makeDeps({ fields: { evidence }, respond });
+    await attach(deps, {}, () => { ticks++; });
+    expect(seen).toBeGreaterThanOrEqual(1);
   });
 });
 
