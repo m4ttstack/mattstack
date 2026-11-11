@@ -250,21 +250,9 @@ export const GITLAB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   fetchUserEvents: { support: 'supported', capability: 'canFetchUserEvents' },
   fetchCommitParents: { support: 'supported' },
   fetchPipelineFailedJobs: { support: 'supported' },
-  fetchProjectLabels: {
-    support: 'absent',
-    capability: 'canFetchProjectLabels',
-    note: 'Not implemented on GitLab yet.'
-  },
-  fetchPipelineList: {
-    support: 'absent',
-    capability: 'canFetchPipelineList',
-    note: 'Not implemented on GitLab yet.'
-  },
-  fetchPullRequestSummaries: {
-    support: 'absent',
-    capability: 'canFetchPullRequestSummaries',
-    note: 'Not implemented on GitLab yet.'
-  },
+  fetchProjectLabels: { support: 'supported', capability: 'canFetchProjectLabels' },
+  fetchPipelineList: { support: 'supported', capability: 'canFetchPipelineList' },
+  fetchPullRequestSummaries: { support: 'supported', capability: 'canFetchPullRequestSummaries' },
   addPullRequestLabels: {
     support: 'absent',
     capability: 'canEditLabels',
