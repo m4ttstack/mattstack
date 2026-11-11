@@ -1,8 +1,8 @@
 /**
  * Agent-facing forge reads, returning the forge's own refusal text; none
  * reads or writes the daemon's project-MRs store. The list, label and
- * pipeline reads go through glance; forgeGet and missingMrReason ask GitLab
- * through the provider's restRequest.
+ * pipeline reads go through glance; forgeGet asks the repo's own forge and
+ * missingMrReason asks GitLab, both through the provider's restRequest.
  */
 
 import { ForgeHttpError, RateLimitedError, type GitProvider } from "@mattstack/glance";
@@ -129,13 +129,16 @@ export const REFUSED_SEGMENTS: readonly string[] = [
 export const FORGE_GET_MAX_BYTES = 256 * 1024;
 const CONTROL = /[\u0000-\u001f\u007f]/;
 
-export function checkForgePath(path: unknown, projectPath: string): { ok: true; path: string } | { ok: false; error: string } {
+type PlainPath = { ok: true; rest: string; decoded: string; segments: string[] } | { ok: false; error: string };
+
+/** The checks both forges share; `expand` rewrites the raw path's prefix before it is decoded. */
+function plainApiPath(path: unknown, expand: (rest: string) => string): PlainPath {
   if (typeof path !== "string" || !path.trim()) return { ok: false, error: '"path" is required' };
   let rest = path.trim();
   if (CONTROL.test(rest) || rest.includes("?") || rest.includes("#") || rest.includes("://") || rest.includes("\\")) {
     return { ok: false, error: '"path" must be a plain API path; pass query values in "query"' };
   }
-  rest = rest.replace(/^\/+/, "").replace(/^api\/v4\//, "");
+  rest = expand(rest.replace(/^\/+/, ""));
   let decoded: string;
   try {
     decoded = decodeURIComponent(rest);
@@ -146,10 +149,54 @@ export function checkForgePath(path: unknown, projectPath: string): { ok: true; 
   if (decoded.includes("%")) return { ok: false, error: '"path" must not be percent-encoded more than once' };
   const segments = decoded.split("/").map((s) => s.toLowerCase());
   if (segments.some((s) => s === "." || s === "..")) return { ok: false, error: '"path" must not contain dot segments' };
+  return { ok: true, rest, decoded, segments };
+}
+
+export function checkForgePath(path: unknown, projectPath: string): { ok: true; path: string } | { ok: false; error: string } {
+  const plain = plainApiPath(path, (rest) => rest.replace(/^api\/v4\//, ""));
+  if (!plain.ok) return plain;
+  const { rest, segments } = plain;
   // GitLab routes an optional format suffix (variables.json) to the same endpoint.
   const refused = REFUSED_SEGMENTS.find((seg) => segments.some((s) => s === seg || s.startsWith(`${seg}.`)));
   if (refused) return { ok: false, error: `"path" names ${refused}, which can return credentials; gitlab_get refuses it` };
   return { ok: true, path: `/${rest.replace(/(^|\/):id(?=\/|$)/g, `$1${encodeURIComponent(projectPath)}`)}` };
+}
+
+/** A GET of any of these under a repo returns secret values redaction cannot recognise. */
+export const GITHUB_REFUSED_SEGMENTS: readonly string[] = [
+  "secrets", "variables", "hooks", "keys", "deploy_keys", "installations", "tokens", "runners", "registration-token",
+  "remove-token", "environments", "codespaces", "dependabot", "actions/oidc", "autolinks", "invitations",
+  "private-vulnerability-reporting",
+];
+export const GITHUB_REFUSED_QUERY_KEYS: readonly string[] = ["access_token", "client_secret", "token"];
+/** glance buffers a whole response before the cap runs, and a blob can be 100 MB. */
+export const GITHUB_REFUSED_BLOBS = "git/blobs";
+
+/** An entry with a slash names consecutive segments. */
+const namesEntry = (segments: string[], entry: string): boolean => {
+  const parts = entry.split("/");
+  return segments.some((_, i) => parts.every((p, j) => segments[i + j] === p));
+};
+
+export function checkGithubForgePath(path: unknown, projectPath: string): { ok: true; path: string } | { ok: false; error: string } {
+  const repoRoot = `repos/${projectPath}`;
+  const plain = plainApiPath(path, (rest) => rest.replace(/^:repo(?=\/|$)/, () => repoRoot));
+  if (!plain.ok) return plain;
+  const { rest, decoded, segments } = plain;
+  // Octokit expands {name} in a route, to nothing when unset, after these checks ran.
+  if (/[{}]/.test(decoded)) return { ok: false, error: '"path" must not contain { or }' };
+  if (decoded.includes("\\")) return { ok: false, error: '"path" must be a plain API path; pass query values in "query"' };
+  const lower = decoded.toLowerCase();
+  const root = repoRoot.toLowerCase();
+  if (lower !== root && !lower.startsWith(`${root}/`)) {
+    return { ok: false, error: `"path" must sit under this repo on GitHub; start it with :repo/ (${repoRoot}/)` };
+  }
+  const refused = GITHUB_REFUSED_SEGMENTS.find((entry) => namesEntry(segments, entry));
+  if (refused) return { ok: false, error: `"path" names ${refused}, which can return credentials; gitlab_get refuses it` };
+  if (namesEntry(segments, GITHUB_REFUSED_BLOBS)) {
+    return { ok: false, error: `"path" names ${GITHUB_REFUSED_BLOBS}, and a blob can be too large to read through gitlab_get; read the file with :repo/contents/<path> instead` };
+  }
+  return { ok: true, path: `/${rest}` };
 }
 
 const TOKEN_KEY = /(^|_)token$/i;
@@ -220,16 +267,33 @@ const REFUSED_QUERY_KEYS = ["sudo", "private_token", "access_token", "job_token"
 /** Rack reads `[sudo]`, `sudo]` and `sudo[]` as the plain `sudo` parameter. */
 const rackKey = (k: string): string => (k.match(/^[[\]]*([^[\]]*)/)?.[1] ?? k).toLowerCase();
 
+/** GitHub pages through the Link header; its next URL carries the page number. */
+function linkNextPage(res: Response): number | null {
+  const next = res.headers.get("link")?.match(/<([^>]*)>\s*;\s*rel="next"/i)?.[1];
+  if (!next) return null;
+  try {
+    const n = Number(new URL(next).searchParams.get("page"));
+    return Number.isInteger(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+export type ForgeGetInput = { path: unknown; query?: Record<string, string | number | boolean>; page?: number; perPage?: number };
+
 export async function forgeGet(
   provider: RestProvider,
   projectPath: string,
-  input: { path: unknown; query?: Record<string, string | number | boolean>; page?: number; perPage?: number },
+  input: ForgeGetInput,
+  forge: Forge = "gitlab",
 ): Promise<{ ok: true; data: ForgeGetData } | { ok: false; error: string }> {
-  const checked = checkForgePath(input.path, projectPath);
+  const github = forge === "github";
+  const checked = github ? checkGithubForgePath(input.path, projectPath) : checkForgePath(input.path, projectPath);
   if (!checked.ok) return checked;
   const query = new URLSearchParams();
   for (const [k, v] of Object.entries(input.query ?? {})) {
-    if (REFUSED_QUERY_KEYS.includes(rackKey(k))) return { ok: false, error: `"query.${k}" can carry credentials or impersonation; gitlab_get refuses it` };
+    if (github && GITHUB_REFUSED_QUERY_KEYS.includes(rackKey(k))) return { ok: false, error: `"query.${k}" can carry credentials; gitlab_get refuses it` };
+    if (!github && REFUSED_QUERY_KEYS.includes(rackKey(k))) return { ok: false, error: `"query.${k}" can carry credentials or impersonation; gitlab_get refuses it` };
     query.set(k, String(v));
   }
   if (input.page !== undefined) query.set("page", String(input.page));
@@ -237,15 +301,23 @@ export async function forgeGet(
   const qs = query.toString();
   try {
     const res = await provider.restRequest("GET", `${checked.path}${qs ? `?${qs}` : ""}`, undefined, "forge:get", { redirect: "manual" });
-    if (res.status >= 300 && res.status < 400) return { ok: false, error: redirectRefusal(res) };
-    if (!res.ok) return { ok: false, error: await gitlabFailure(res) };
+    if (res.status >= 300 && res.status < 400) return { ok: false, error: redirectRefusal(res, forge) };
+    if (!res.ok) return { ok: false, error: await gitlabFailure(res, forge) };
+    const length = github ? headerNumber(res, "content-length") : null;
+    if (length !== null && length > FORGE_GET_MAX_BYTES) {
+      await res.body?.cancel().catch(() => {});
+      return { ok: false, error: `GitHub's answer is ${length} bytes, over gitlab_get's 256 KiB cap; ask for less with perPage or a narrower path` };
+    }
     const { bytes, truncated } = await readCapped(res);
     const text = new TextDecoder().decode(bytes);
     let body: unknown = truncated ? scrubTokenText(text) : text;
     if (!truncated) {
       try { body = scrubTokens(JSON.parse(text)); } catch { /* not JSON: the text is the body */ }
     }
-    return { ok: true, data: { status: res.status, body, truncated, nextPage: headerNumber(res, "x-next-page"), totalPages: headerNumber(res, "x-total-pages") } };
+    const paging = github
+      ? { nextPage: linkNextPage(res), totalPages: null }
+      : { nextPage: headerNumber(res, "x-next-page"), totalPages: headerNumber(res, "x-total-pages") };
+    return { ok: true, data: { status: res.status, body, truncated, ...paging } };
   } catch (err) {
     return { ok: false, error: String(err) };
   }

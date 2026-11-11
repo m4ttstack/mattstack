@@ -17,7 +17,7 @@
  *   mr:live-by-branch        - the open MR for each named source branch (GitLab or GitHub)
  *   project:labels           - a project's labels, optionally searched (GitLab or GitHub)
  *   pipeline:list            - pipelines for a branch, a commit or an MR (GitLab or GitHub)
- *   forge:get                - one guarded GET against GitLab's REST API (GitLab providers only)
+ *   forge:get                - one guarded GET against the repo's own forge REST API (GitLab, or GitHub under the repo)
  *   forge:file-diff          - one file's diff in an MR or PR, from the repo's own forge (GitLab or GitHub)
  *
  * Every handler routes by `{ repoName, iid }`. If no provider can be built
@@ -692,11 +692,9 @@ export function createMRHandlers(
       if (!decoded.ok) return { ok: false, error: decoded.error };
       try {
         const c = await contextFor(decoded.repo);
-        const { provider, projectPath } = c;
-        if (c.forge === "github") return { ok: false, error: "unsupported: forge:get needs a GitLab repo" };
-        return await forgeGet(provider, projectPath, {
+        return await forgeGet(c.provider, c.projectPath, {
           path: p.path, query: p.query as Record<string, string | number | boolean> | undefined, page: p.page as number | undefined, perPage: p.perPage as number | undefined,
-        });
+        }, forgeOf(c));
       } catch (err) {
         return { ok: false, error: String(err) };
       }
