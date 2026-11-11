@@ -64,6 +64,26 @@ export function hardWrap(text: string, width: number): string[] {
   return rows
 }
 
+export function wrapWords(text: string, width: number): string[] {
+  const rows: string[] = []
+  for (const line of text.split('\n')) {
+    let row = ''
+    for (const word of line.split(' ').filter(w => w !== '')) {
+      const joined = row === '' ? word : `${row} ${word}`
+      if (joined.length <= width) {
+        row = joined
+        continue
+      }
+      if (row !== '') rows.push(row)
+      const pieces = hardWrap(word, width)
+      row = pieces.pop() ?? ''
+      rows.push(...pieces)
+    }
+    rows.push(row)
+  }
+  return rows
+}
+
 // The plugin's whole store is capped, so a long line (a progress meter, minified output) must not reach it whole.
 export function clipLine(line: string): string {
   return line.length > LINE_MAX ? `${line.slice(0, LINE_MAX - 1)}…` : line

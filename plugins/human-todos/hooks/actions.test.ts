@@ -116,7 +116,7 @@ test('a confirming item draws Confirm (primary) and Cancel, and the band counts 
     const pane = await $.ui.mount({ ...PANE, surface })
     expect(await buttons(pane)).toEqual(['close', 'run-1', 'copy-1', 'done-1', 'skip-1', 'confirm-2', 'cancel-2'])
     expect((await pane.find({ key: 'confirm-2' }))?.props.variant).toBe('primary')
-    expect((await texts(pane)).filter(row => row === 'Are you sure you want to run this script?')).toHaveLength(1)
+    expect((await texts(pane)).join(' ').split('Are you sure you want to run this script?')).toHaveLength(2)
     expect((await pane.find({ key: 'cancel-2' }))?.props.variant).toBeUndefined()
     await pane.unmount()
   }
