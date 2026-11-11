@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { createMRHandlers } from "../handlers/mr.ts";
 import type { ForgeFileDiffData } from "../../../packages/rt-client/src/commands.ts";
-import { createFileDiffContextResolver, LISTING_MAX_BYTES, type FileDiffContext } from "../file-diff.ts";
+import { LISTING_MAX_BYTES, type FileDiffContext } from "../file-diff.ts";
 import { fakeStore } from "./fake-cache-store.ts";
 
 const GL_REPO = "remote:gitlab.example.com%2Facme%2Fradar";
@@ -270,62 +270,57 @@ describe("forge:file-diff listing", () => {
 });
 
 describe("the forge a repo's diff is read from", () => {
-  const gitlab = async () => ({
-    provider: { restRequest: async (_m: string, p: string) => json({ asked: p }) },
-    projectPath: "acme/radar",
-  });
-
-  function resolver(origin: string | undefined, token: string | null = "ghs_fake") {
-    const originReads: string[] = [];
-    const resolve = createFileDiffContextResolver({
-      originUrl: async (repoPath) => {
-        originReads.push(repoPath);
-        return origin;
+  /** A repo context whose provider answers from a route table and records each request. */
+  function contextHandlers(forge: "gitlab" | "github" | undefined, routes: Record<string, () => Response>) {
+    const asked: string[] = [];
+    const provider = {
+      restRequest: async (method: string, path: string) => {
+        asked.push(`${method} ${path}`);
+        const route = routes[path];
+        return route ? route() : new Response(JSON.stringify({ message: "404 Not Found" }), { status: 404 });
       },
-      githubToken: async () => token,
-      githubRest: (host, t) => async (p) => json({ host, token: t, p }),
+    };
+    const h = createMRHandlers(fakeCtx(), () => {}, {
+      getContext: async () => ({ ...(forge && { forge }), provider, projectPath: "acme/radar", projectId: forge === "github" ? null : 1 }),
     });
-    return { resolve, originReads };
+    return { h, asked };
   }
 
-  test("a GitHub origin reads through GitHub with rt's GitHub token", async () => {
-    const { resolve } = resolver("git@github.com:acme/radar.git");
-    const ctx = await resolve("/tmp/gh", () => { throw new Error("a GitHub repo must not ask for a GitLab context"); });
-    expect(ctx.forge).toBe("github");
-    expect(ctx.projectPath).toBe("acme/radar");
-    expect(await (await ctx.rest("/repos/acme/radar/pulls/1")).json()).toEqual({ host: "https://github.com", token: "ghs_fake", p: "/repos/acme/radar/pulls/1" });
+  test("a GitHub repo reads through the provider its repo context carries", async () => {
+    const { h, asked } = contextHandlers("github", {
+      [GH_PR]: ghPr,
+      [ghFiles(1)]: () => json([{ filename: "src/a.ts", status: "modified", patch: "@@ -1 +1 @@\n-a\n+b" }]),
+    });
+    const res = await h["forge:file-diff"]!({ repoName: GH_REPO, iid: 58, path: "src/a.ts" });
+    expect(res.ok).toBe(true);
+    expect((res as { data: ForgeFileDiffData }).data).toMatchObject({ forge: "github", headSha: "head58", file: { newPath: "src/a.ts" } });
+    expect(asked).toEqual([`GET ${GH_PR}`, `GET ${ghFiles(1)}`]);
   });
 
-  test("a GitLab origin, or none, uses the daemon's GitLab context", async () => {
-    for (const origin of ["https://gitlab.example.com/acme/radar.git", undefined]) {
-      const ctx = await resolver(origin).resolve("/tmp/gl", gitlab);
-      expect(ctx.forge).toBe("gitlab");
-      expect(ctx.projectPath).toBe("acme/radar");
-      expect(await (await ctx.rest("/projects/x")).json()).toEqual({ asked: "/projects/x" });
+  test("a GitLab repo, or a context with no forge, reads through GitLab", async () => {
+    for (const forge of ["gitlab", undefined] as const) {
+      const { h, asked } = contextHandlers(forge, {
+        [GL_MR]: glMr,
+        [glDiffs(1)]: () => json([glRow("src/a.ts")], { "x-next-page": "" }),
+      });
+      const res = await h["forge:file-diff"]!({ repoName: GL_REPO, iid: 812, path: "src/a.ts" });
+      expect((res as { data: ForgeFileDiffData }).data).toMatchObject({ forge: "gitlab", headSha: "head812" });
+      expect(asked).toEqual([`GET ${GL_MR}`, `GET ${glDiffs(1)}`]);
     }
   });
 
-  test("a GitHub origin with no token says how to get one", async () => {
-    const { resolve } = resolver("https://github.com/acme/radar", null);
-    await expect(resolve("/tmp/gh", gitlab)).rejects.toThrow("no GitHub token (run: gh auth login)");
-  });
-
-  test("a checkout's origin is read once", async () => {
-    const { resolve, originReads } = resolver("git@github.com:acme/radar.git");
-    await resolve("/tmp/gh", gitlab);
-    await resolve("/tmp/gh", gitlab);
-    expect(originReads).toEqual(["/tmp/gh"]);
-  });
-
-  test("an origin that could not be read is asked again, so a GitHub checkout is not pinned to GitLab", async () => {
-    const answers: Array<string | undefined> = [undefined, "git@github.com:acme/radar.git"];
-    const resolve = createFileDiffContextResolver({
-      originUrl: async () => answers.shift(),
-      githubToken: async () => "ghs_fake",
-      githubRest: () => async () => json({}),
+  test("a repo context that cannot be built is the call's error", async () => {
+    const h = createMRHandlers(fakeCtx(), () => {}, {
+      getContext: async () => { throw new Error("missing GitHub token (run: rt setup github connect)"); },
     });
-    expect((await resolve("/tmp/gh", gitlab)).forge).toBe("gitlab");
-    expect((await resolve("/tmp/gh", gitlab)).forge).toBe("github");
+    expect(await h["forge:file-diff"]!({ repoName: GH_REPO, iid: 58, path: "a.ts" })).toEqual({
+      ok: false, error: "Error: missing GitHub token (run: rt setup github connect)",
+    });
+  });
+
+  test("the module builds no provider of its own", async () => {
+    const source = await Bun.file(new URL("../file-diff.ts", import.meta.url)).text();
+    expect(source).not.toContain("GitHubProvider");
   });
 });
 

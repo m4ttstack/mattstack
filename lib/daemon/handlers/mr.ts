@@ -9,15 +9,17 @@
  *   mr:update            - edit title/description (glance) and labels/squash (REST), glance first
  *   mr:fetch-job-detail  — unified detail fetch (returns trace or bridge)
  *   mr:fetch-job-trace   — raw job trace text
- *   mr:commit-parents        - a commit's parent shas (GitLab providers only)
- *   mr:pipeline-failed-jobs  - a pipeline's failed jobs (GitLab providers only)
- *   mr:by-target             - every MR targeting a branch, live and unscoped (GitLab providers only)
- *   mr:get                   - one MR by iid, read from GitLab; `refresh` also writes it into the stores (GitLab providers only)
- *   mr:list-live             - a project's MRs filtered by author, branch, state or text (GitLab providers only)
- *   mr:live-by-branch        - the open MR for each named source branch (GitLab providers only)
- *   project:labels           - a project's labels, optionally searched (GitLab providers only)
- *   pipeline:list            - pipelines for a branch, a commit or an MR (GitLab providers only)
- *   forge:get                - one guarded GET against GitLab's REST API (GitLab providers only)
+ *   mr:commit-parents        - a commit's parent shas (GitLab or GitHub)
+ *   mr:pipeline-failed-jobs  - a pipeline's failed jobs (GitLab or GitHub)
+ *   mr:by-target             - every MR targeting a branch, live and unscoped (GitLab or GitHub)
+ *   mr:get                   - one MR by iid, read from the forge; `refresh` also writes it into the stores (GitLab or GitHub)
+ *   mr:merge-queue-status    - whether a PR's target branch has a merge queue and the PR is in it (GitHub)
+ *   mr:enqueue               - add a PR to its target branch's merge queue (GitHub)
+ *   mr:list-live             - a project's MRs filtered by author, branch, state or text (GitLab or GitHub)
+ *   mr:live-by-branch        - the open MR for each named source branch (GitLab or GitHub)
+ *   project:labels           - a project's labels, optionally searched (GitLab or GitHub)
+ *   pipeline:list            - pipelines for a branch, a commit or an MR (GitLab or GitHub)
+ *   forge:get                - one guarded GET against the repo's own forge REST API (GitLab, or GitHub under the repo)
  *   forge:file-diff          - one file's diff in an MR or PR, from the repo's own forge (GitLab or GitHub)
  *
  * Every handler routes by `{ repoName, iid }`. If no provider can be built
@@ -43,8 +45,8 @@ import { ReadBackFailedError } from "@mattstack/glance";
 import type { HandlerContext, HandlerMap, CommandResult } from "./types.ts";
 import type { MrListState, MrTargetSummary } from "../../../packages/rt-client/src/commands.ts";
 import { decodeRepo } from "../identity-decoder.ts";
-import { createFileDiffContextResolver, createFileDiffReader, type FileDiffContext } from "../file-diff.ts";
-import { LIST_MAX_LIMIT, PIPELINE_MAX_LIMIT, forgeGet, listLabels, listMrsLive, listPipelines, missingMrReason, targetSummary, type RestMrRow } from "../forge-reads.ts";
+import { createFileDiffReader, fileDiffContextOf, type FileDiffContext } from "../file-diff.ts";
+import { LIST_MAX_LIMIT, PIPELINE_MAX_LIMIT, forgeFailure, forgeGet, listLabels, listMrsLive, listPipelines, missingMrReason, type Forge, type SummariesProvider } from "../forge-reads.ts";
 
 type ActionName =
   | "merge" | "rebase" | "approve" | "unapprove"
@@ -89,48 +91,53 @@ async function putMergeRequest(
 const MR_LIST_STATES: readonly MrListState[] = ["opened", "merged", "closed", "all"];
 const BY_TARGET_PER_PAGE = 100;
 const BY_TARGET_MAX_PAGES = 20;
+const BY_TARGET_LIMIT = BY_TARGET_MAX_PAGES * BY_TARGET_PER_PAGE;
 
-/** A partial walk must never pass for the whole answer, so every failure, and running past the page cap, is an error. */
+/** A partial listing must never pass for the whole answer, so every failure, and running past the cap, is an error. */
 async function listMrsByTarget(
-  provider: { restRequest: (method: string, path: string, body?: unknown, op?: string) => Promise<Response> },
+  provider: SummariesProvider,
   projectPath: string,
   targetBranch: string,
   state: MrListState,
+  forge: Forge,
 ): Promise<{ ok: true; mrs: MrTargetSummary[] } | { ok: false; error: string }> {
-  const mrs: MrTargetSummary[] = [];
   try {
-    for (let page = 1; page <= BY_TARGET_MAX_PAGES; page++) {
-      const query = new URLSearchParams({ target_branch: targetBranch, state, per_page: String(BY_TARGET_PER_PAGE), page: String(page) });
-      const res = await provider.restRequest("GET", `/projects/${encodeURIComponent(projectPath)}/merge_requests?${query}`, undefined, "mr:by-target");
-      if (!res.ok) {
-        const detail = (await res.text().catch(() => "")).slice(0, 200);
-        return { ok: false, error: `GitLab returned ${res.status} ${res.statusText}${detail ? `: ${detail}` : ""}` };
-      }
-      const rows = (await res.json()) as unknown;
-      if (!Array.isArray(rows)) return { ok: false, error: "GitLab's merge request listing was not a JSON array" };
-      mrs.push(...(rows as RestMrRow[]).map(targetSummary));
-      // GitLab can omit pagination headers, so an absent header ends the walk only on a short page.
-      const next = res.headers.get("x-next-page");
-      if (next === null ? rows.length < BY_TARGET_PER_PAGE : next === "") return { ok: true, mrs };
-    }
+    const { rows, truncated } = await provider.fetchPullRequestSummaries(projectPath, { state, targetBranch, limit: BY_TARGET_LIMIT });
+    if (truncated) return { ok: false, error: `more than ${BY_TARGET_LIMIT} MRs target ${targetBranch}; the listing stopped before the end` };
+    return { ok: true, mrs: rows };
   } catch (err) {
-    return { ok: false, error: String(err) };
+    return { ok: false, error: forgeFailure(err, forge) };
   }
-  return { ok: false, error: `more than ${BY_TARGET_MAX_PAGES * BY_TARGET_PER_PAGE} MRs target ${targetBranch}; the listing stopped before the end` };
 }
 
+/** A context with no `forge` reads as GitLab. */
+type HandlerRepoContext = { forge?: "gitlab" | "github"; provider: any; projectPath: string; projectId?: number | null };
+
+const forgeOf = (c: HandlerRepoContext): Forge => (c.forge === "github" ? "github" : "gitlab");
+
+/** GitLab's reply stays String(err), byte for byte; GitHub's names a rate limit's wait. */
+const failureText = (err: unknown, forge: Forge): string => (forge === "github" ? forgeFailure(err, "github") : String(err));
+
+const GITHUB_REASON_MAX_CHARS = 200;
+
+type FillWarning = { status?: number; message: string };
+
+const GITHUB_SQUASH_REFUSAL = "GitHub picks squash at merge time; leave out squash";
+const NO_MERGE_QUEUE = "unsupported: this forge has no merge queue";
+
 export interface MRHandlerOverrides {
-  getContext?:  (repoName: string) => Promise<{ provider: any; projectPath: string }>;
+  getContext?:  (repoName: string) => Promise<HandlerRepoContext>;
   writeback?:   (repoName: string, projectPath: string, pr: PullRequest) => void;
-  fetchSingle?: (provider: any, projectPath: string, iid: number) => Promise<PullRequest | null>;
+  fetchSingle?: (provider: any, projectPath: string, iid: number, github?: boolean, onWarning?: (w: FillWarning) => void) => Promise<PullRequest | null>;
   retryDelayMs?: number;
   fileDiffContext?: (repoName: string) => Promise<FileDiffContext>;
 }
 
-// "mr:action" keeps its pre-existing flat `{ok:true}` wire reply (no `data`)
-// verbatim, so it stays on the loose `Promise<any>` escape hatch (same trick
-// as endpoint.ts/repos.ts); the two job-detail verbs already envelope as
-// {ok,data} and get the standard CommandResult carve-out.
+// "mr:action" keeps its pre-existing `{ok:true}` wire reply verbatim, with
+// `data` only for a merge that left its source branch, so it stays on the
+// loose `Promise<any>` escape hatch (same trick as endpoint.ts/repos.ts); the
+// two job-detail verbs already envelope as {ok,data} and get the standard
+// CommandResult carve-out.
 export function createMRHandlers(
   ctx: Pick<HandlerContext, "repoIndex" | "cache" | "log">,
   broadcast: (type: string, data: any) => void,
@@ -144,6 +151,8 @@ export function createMRHandlers(
   & { "mr:pipeline-failed-jobs": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:pipeline-failed-jobs">> }
   & { "mr:by-target": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:by-target">> }
   & { "mr:get": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:get">> }
+  & { "mr:merge-queue-status": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:merge-queue-status">> }
+  & { "mr:enqueue": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:enqueue">> }
   & { "mr:list-live": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:list-live">> }
   & { "mr:live-by-branch": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:live-by-branch">> }
   & { "project:labels": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"project:labels">> }
@@ -153,20 +162,50 @@ export function createMRHandlers(
   & HandlerMap {
   const getContext = overrides.getContext
     ?? ((repoName: string) => getRepoContext(repoName, ctx.repoIndex()[repoName]));
-  const writeback = overrides.writeback
+  const storeWriteback = overrides.writeback
     ?? ((repoName: string, projectPath: string, pr: PullRequest) =>
         applyMRWriteback({ ctx, broadcast }, repoName, projectPath, pr));
   const fetchSingle = overrides.fetchSingle
-    ?? ((provider: any, projectPath: string, iid: number) =>
-        provider.fetchSingleMR(projectPath, iid, getCurrentUserId()));
+    ?? ((provider: any, projectPath: string, iid: number, github?: boolean, onWarning?: (w: FillWarning) => void) =>
+        (github && onWarning
+          ? provider.fetchSingleMR(projectPath, iid, null, onWarning)
+          : provider.fetchSingleMR(projectPath, iid, github ? null : getCurrentUserId())));
   const retryDelayMs = overrides.retryDelayMs ?? RETRY_WRITEBACK_DELAY_MS;
-  const resolveFileDiffContext = createFileDiffContextResolver();
   const fileDiffContext = overrides.fileDiffContext
-    ?? ((repoName: string) => resolveFileDiffContext(ctx.repoIndex()[repoName], () => contextFor(repoName)));
+    ?? (async (repoName: string) => fileDiffContextOf(await contextFor(repoName)));
   const readFileDiff = createFileDiffReader();
 
-  function contextFor(repoName: string) {
+  function contextFor(repoName: string): Promise<HandlerRepoContext> {
     return getContext(repoName);
+  }
+
+  /** The stores are GitLab-shaped, so a GitHub PR is never written into them. */
+  function writebackFor(c: HandlerRepoContext, repoName: string, pr: PullRequest): void {
+    if (c.forge === "github") {
+      ctx.log.debug({ repo: repoName, iid: pr.iid }, "write-back skipped for a GitHub repo");
+      return;
+    }
+    storeWriteback(repoName, c.projectPath, pr);
+  }
+
+  /** The batch maps a pull request it found but could not fill to null too, so each null is checked against the open pull requests on that branch before it reads as "no PR". */
+  async function liveByBranchOnGitHub(provider: any, projectPath: string, branches: string[]): Promise<CommandResult<"mr:live-by-branch">> {
+    const found: Map<string, PullRequest | null> = await provider.fetchPullRequestsByBranches(projectPath, branches.map((b) => b.trim()));
+    const byBranch: Record<string, PullRequest | null> = {};
+    const unfilled: string[] = [];
+    for (const branch of branches) {
+      byBranch[branch] = found.get(branch.trim()) ?? null;
+      if (!byBranch[branch]) unfilled.push(branch);
+    }
+    for (const branch of unfilled) {
+      const open = await provider.fetchPullRequestSummaries(projectPath, { state: "opened", sourceBranch: branch.trim(), limit: 1 });
+      const hit = (open.rows as MrTargetSummary[])[0];
+      if (!hit) continue;
+      const pr = await fetchSingle(provider, projectPath, hit.iid, true);
+      if (!pr) return { ok: false, error: `GitHub has pull request #${hit.iid} open on ${branch} in ${projectPath} but could not read it; try again` };
+      byBranch[branch] = pr;
+    }
+    return { ok: true, data: { byBranch } };
   }
 
   /**
@@ -197,12 +236,25 @@ export function createMRHandlers(
       if (!decoded.ok) return { ok: false, error: decoded.error };
       const repoName = decoded.repo;
 
+      let forge: Forge = "gitlab";
       try {
-        const { provider, projectPath } = await contextFor(repoName);
+        const c = await contextFor(repoName);
+        const { provider, projectPath } = c;
+        forge = forgeOf(c);
+        const github = forge === "github";
+        if (github && action === "rebase" && !provider.capabilities?.canRebase) {
+          return { ok: false, error: "GitHub cannot rebase a pull request; rebase the branch with git and push" };
+        }
         let returnedPr: PullRequest | null = null;
+        let sourceBranchNotDeleted: string | undefined;
         try {
           switch (action) {
-            case "merge":            returnedPr = await provider.mergePullRequest(projectPath, iid, args[0]);          break;
+            case "merge": {
+              const merged = await provider.mergePullRequest(projectPath, iid, args[0]);
+              returnedPr = merged;
+              sourceBranchNotDeleted = merged?.sourceBranchNotDeleted;
+              break;
+            }
             case "rebase":           await provider.rebasePullRequest(projectPath, iid);                  break;
             case "approve":          await provider.approvePullRequest(projectPath, iid);                 break;
             case "unapprove":        await provider.unapprovePullRequest(projectPath, iid);               break;
@@ -230,10 +282,16 @@ export function createMRHandlers(
           ctx.log.warn({ err, repo: repoName, iid, action }, "action landed but its read-back failed; recovering via follow-up fetch");
         }
 
+        const done = sourceBranchNotDeleted ? { ok: true, data: { sourceBranchNotDeleted } } : { ok: true };
+        if (github) {
+          ctx.log.debug({ repo: repoName, iid, action }, "write-back skipped for a GitHub repo");
+          return done;
+        }
+
         const followUp = async () => {
           try {
             const pr = await fetchSingle(provider, projectPath, iid);
-            if (pr) writeback(repoName, projectPath, pr);
+            if (pr) storeWriteback(repoName, projectPath, pr);
           } catch (err) {
             ctx.log.warn({ err, repo: repoName, iid, action }, "write-back follow-up failed");
           }
@@ -243,7 +301,7 @@ export function createMRHandlers(
           // The mutation already succeeded; a failing write-back must not
           // misreport it as failed. Same never-fail contract as followUp.
           try {
-            writeback(repoName, projectPath, returnedPr);
+            storeWriteback(repoName, projectPath, returnedPr);
           } catch (err) {
             ctx.log.warn({ err, repo: repoName, iid, action }, "write-back failed");
           }
@@ -254,9 +312,9 @@ export function createMRHandlers(
         } else {
           await followUp();
         }
-        return { ok: true };
+        return done;
       } catch (err) {
-        return { ok: false, error: String(err) };
+        return { ok: false, error: failureText(err, forge) };
       }
     },
 
@@ -284,8 +342,12 @@ export function createMRHandlers(
       const labels = p && Array.isArray(p.labels) && p.labels.length > 0 ? trimmedLabels(p.labels) : undefined;
       const squash = p && typeof p.squash === "boolean" ? p.squash : undefined;
 
+      let forge: Forge = "gitlab";
       try {
-        const { provider, projectPath } = await contextFor(repoName);
+        const c = await contextFor(repoName);
+        const { provider, projectPath } = c;
+        forge = forgeOf(c);
+        if (forge === "github" && squash !== undefined) return { ok: false, error: GITHUB_SQUASH_REFUSAL };
         let iid: number;
         let url: string | null;
         try {
@@ -296,7 +358,7 @@ export function createMRHandlers(
             ...(labels && { labels }),
           });
           try {
-            writeback(repoName, projectPath, pr);
+            writebackFor(c, repoName, pr);
           } catch (err) {
             ctx.log.warn({ err, repo: repoName, iid: pr.iid }, "mr:create write-back failed");
           }
@@ -316,7 +378,7 @@ export function createMRHandlers(
         ctx.log.warn({ repo: repoName, iid, error: set.error }, "mr:create landed but its squash write failed");
         return { ok: true, data: { iid, url, squashApplied: false, squashError: set.error } };
       } catch (err) {
-        return { ok: false, error: String(err) };
+        return { ok: false, error: failureText(err, forge) };
       }
     },
 
@@ -344,8 +406,13 @@ export function createMRHandlers(
       if (!decoded.ok) return { ok: false, error: decoded.error };
       const repoName = decoded.repo;
 
+      let forge: Forge = "gitlab";
       try {
-        const { provider, projectPath } = await contextFor(repoName);
+        const c = await contextFor(repoName);
+        const { provider, projectPath } = c;
+        forge = forgeOf(c);
+        const github = forge === "github";
+        if (github && putFields.includes("squash")) return { ok: false, error: GITHUB_SQUASH_REFUSAL };
         const applied: string[] = [];
         let returnedPr: PullRequest | null = null;
         if (editFields.length > 0) {
@@ -354,11 +421,42 @@ export function createMRHandlers(
           } catch (err) {
             if (!(err instanceof ReadBackFailedError && err.writeApplied)) {
               const rest = putFields.length > 0 ? `; ${putFields.join("/")} not attempted` : "";
-              return { ok: false, error: `${editFields.join("/")} did not land: ${String(err)}${rest}` };
+              return { ok: false, error: `${editFields.join("/")} did not land: ${failureText(err, forge)}${rest}` };
             }
             ctx.log.warn({ err, repo: repoName, iid }, "mr:update landed but its read-back failed");
           }
           applied.push(...editFields);
+        }
+        if (github) {
+          const labelWrites: Array<[string, () => Promise<void>]> = [];
+          if (p && Array.isArray(p.addLabels) && p.addLabels.length > 0) {
+            const labels = trimmedLabels(p.addLabels);
+            labelWrites.push(["addLabels", () => provider.addPullRequestLabels(projectPath, iid, labels)]);
+          }
+          if (p && Array.isArray(p.removeLabels) && p.removeLabels.length > 0) {
+            const labels = trimmedLabels(p.removeLabels);
+            labelWrites.push(["removeLabels", () => provider.removePullRequestLabels(projectPath, iid, labels)]);
+          }
+          for (const [field, write] of labelWrites) {
+            try {
+              await write();
+            } catch (err) {
+              const landed = applied.length > 0 ? `${applied.join("/")} landed; ` : "";
+              const failed = putFields.slice(putFields.indexOf(field)).join("/");
+              return { ok: false, error: `${landed}${failed} did not: ${forgeFailure(err, "github")}; retrying with only the failed fields is safe` };
+            }
+            applied.push(field);
+          }
+          let pr = returnedPr;
+          if (!pr) {
+            try {
+              pr = await fetchSingle(provider, projectPath, iid, true);
+            } catch (err) {
+              ctx.log.warn({ err, repo: repoName, iid }, "mr:update read for the pull request URL failed");
+            }
+          }
+          ctx.log.debug({ repo: repoName, iid }, "write-back skipped for a GitHub repo");
+          return { ok: true, data: { iid, url: pr?.webUrl ?? `${provider.baseURL}/${projectPath}/pull/${iid}`, applied } };
         }
         if (putFields.length > 0) {
           const res = await putMergeRequest(provider, projectPath, iid, put, "mr:update");
@@ -371,17 +469,17 @@ export function createMRHandlers(
         // Same never-fail contract as mr:action's write-back: the edit is on the forge already.
         try {
           if (returnedPr) {
-            writeback(repoName, projectPath, returnedPr);
+            storeWriteback(repoName, projectPath, returnedPr);
           } else {
             const pr = await fetchSingle(provider, projectPath, iid);
-            if (pr) writeback(repoName, projectPath, pr);
+            if (pr) storeWriteback(repoName, projectPath, pr);
           }
         } catch (err) {
           ctx.log.warn({ err, repo: repoName, iid }, "mr:update write-back failed");
         }
         return { ok: true, data: { iid, url: `${provider.baseURL}/${projectPath}/-/merge_requests/${iid}`, applied } };
       } catch (err) {
-        return { ok: false, error: String(err) };
+        return { ok: false, error: failureText(err, forge) };
       }
     },
 
@@ -398,12 +496,14 @@ export function createMRHandlers(
       if (!decoded.ok) return { ok: false, error: decoded.error };
       const repoName = decoded.repo;
 
+      let forge: Forge = "gitlab";
       try {
-        const { provider, projectPath } = await contextFor(repoName);
-        const detail = await provider.fetchJobDetail(projectPath, jobId, pipelineId);
+        const c = await contextFor(repoName);
+        forge = forgeOf(c);
+        const detail = await c.provider.fetchJobDetail(c.projectPath, jobId, pipelineId);
         return { ok: true, data: detail };
       } catch (err) {
-        return { ok: false, error: String(err) };
+        return { ok: false, error: failureText(err, forge) };
       }
     },
 
@@ -419,12 +519,14 @@ export function createMRHandlers(
       if (!decoded.ok) return { ok: false, error: decoded.error };
       const repoName = decoded.repo;
 
+      let forge: Forge = "gitlab";
       try {
-        const { provider, projectPath } = await contextFor(repoName);
-        const trace = await provider.fetchJobTrace(projectPath, jobId);
+        const c = await contextFor(repoName);
+        forge = forgeOf(c);
+        const trace = await c.provider.fetchJobTrace(c.projectPath, jobId);
         return { ok: true, data: trace };
       } catch (err) {
-        return { ok: false, error: String(err) };
+        return { ok: false, error: failureText(err, forge) };
       }
     },
 
@@ -436,12 +538,13 @@ export function createMRHandlers(
       if (!/^[0-9a-f]{7,40}$/i.test(p.sha)) return { ok: false, error: '"sha" must be 7 to 40 hex characters' };
       const decoded = decodeIndexedRepo(payload);
       if (!decoded.ok) return { ok: false, error: decoded.error };
+      let forge: Forge = "gitlab";
       try {
-        const { provider, projectPath } = await contextFor(decoded.repo);
-        if (typeof provider.fetchCommitParents !== "function") return { ok: false, error: "unsupported: mr:commit-parents needs a GitLab repo" };
-        return { ok: true, data: await provider.fetchCommitParents(projectPath, p.sha) };
+        const c = await contextFor(decoded.repo);
+        forge = forgeOf(c);
+        return { ok: true, data: await c.provider.fetchCommitParents(c.projectPath, p.sha) };
       } catch (err) {
-        return { ok: false, error: String(err) };
+        return { ok: false, error: forgeFailure(err, forge) };
       }
     },
 
@@ -453,12 +556,13 @@ export function createMRHandlers(
       if (!(Number.isInteger(p.pipelineId) && p.pipelineId > 0)) return { ok: false, error: '"pipelineId" must be a positive integer' };
       const decoded = decodeIndexedRepo(payload);
       if (!decoded.ok) return { ok: false, error: decoded.error };
+      let forge: Forge = "gitlab";
       try {
-        const { provider, projectPath } = await contextFor(decoded.repo);
-        if (typeof provider.fetchPipelineFailedJobs !== "function") return { ok: false, error: "unsupported: mr:pipeline-failed-jobs needs a GitLab repo" };
-        return { ok: true, data: await provider.fetchPipelineFailedJobs(projectPath, p.pipelineId) };
+        const c = await contextFor(decoded.repo);
+        forge = forgeOf(c);
+        return { ok: true, data: await c.provider.fetchPipelineFailedJobs(c.projectPath, p.pipelineId) };
       } catch (err) {
-        return { ok: false, error: String(err) };
+        return { ok: false, error: forgeFailure(err, forge) };
       }
     },
 
@@ -470,9 +574,8 @@ export function createMRHandlers(
       const decoded = decodeIndexedRepo(payload);
       if (!decoded.ok) return { ok: false, error: decoded.error };
       try {
-        const { provider, projectPath } = await contextFor(decoded.repo);
-        if (typeof provider.restRequest !== "function") return { ok: false, error: "unsupported: mr:by-target needs a GitLab repo" };
-        const listed = await listMrsByTarget(provider, projectPath, p.targetBranch.trim(), state as MrListState);
+        const c = await contextFor(decoded.repo);
+        const listed = await listMrsByTarget(c.provider, c.projectPath, p.targetBranch.trim(), state as MrListState, forgeOf(c));
         return listed.ok ? { ok: true, data: { mrs: listed.mrs } } : { ok: false, error: listed.error };
       } catch (err) {
         return { ok: false, error: String(err) };
@@ -485,16 +588,63 @@ export function createMRHandlers(
       if (!(Number.isInteger(p.iid) && p.iid > 0)) return { ok: false, error: '"iid" must be a positive integer' };
       const decoded = decodeIndexedRepo(payload);
       if (!decoded.ok) return { ok: false, error: decoded.error };
+      let forge: Forge = "gitlab";
       try {
-        const { provider, projectPath } = await contextFor(decoded.repo);
-        if (typeof provider.fetchSingleMR !== "function") return { ok: false, error: "unsupported: mr:get needs a GitLab repo" };
-        const mr = await fetchSingle(provider, projectPath, p.iid);
-        if (mr && p.refresh === true) writeback(decoded.repo, projectPath, mr);
+        const c = await contextFor(decoded.repo);
+        const { provider, projectPath } = c;
+        forge = forgeOf(c);
+        const github = forge === "github";
+        let warning: FillWarning | undefined;
+        const mr = github
+          ? await fetchSingle(provider, projectPath, p.iid, true, (w) => { warning = w; })
+          : await fetchSingle(provider, projectPath, p.iid, false);
+        if (mr && p.refresh === true) writebackFor(c, decoded.repo, mr);
         if (mr) return { ok: true, data: { mr, fetchedAt: Date.now() } };
-        if (typeof provider.restRequest !== "function") return { ok: false, error: `GitLab returned no MR !${p.iid} in ${projectPath}` };
+        if (github) {
+          const miss = `GitHub has no pull request #${p.iid} in ${projectPath}, or the token cannot read it`;
+          if (!warning) return { ok: false, error: miss };
+          const reason = `${warning.status ?? ""} ${warning.message}`.trim().slice(0, GITHUB_REASON_MAX_CHARS);
+          return { ok: false, error: `${miss} (GitHub said: ${reason})` };
+        }
         return { ok: false, error: await missingMrReason(provider, projectPath, p.iid) };
       } catch (err) {
-        return { ok: false, error: String(err) };
+        return { ok: false, error: failureText(err, forge) };
+      }
+    },
+
+    "mr:merge-queue-status": async (payload) => {
+      const p = payload as { iid?: unknown } | undefined;
+      if (typeof p?.iid !== "number") return { ok: false, error: "missing repoName/iid" };
+      if (!(Number.isInteger(p.iid) && p.iid > 0)) return { ok: false, error: '"iid" must be a positive integer' };
+      const decoded = decodeIndexedRepo(payload);
+      if (!decoded.ok) return { ok: false, error: decoded.error };
+      let forge: Forge = "gitlab";
+      try {
+        const c = await contextFor(decoded.repo);
+        forge = forgeOf(c);
+        if (!c.provider.capabilities?.canEnqueue) return { ok: false, error: NO_MERGE_QUEUE };
+        return { ok: true, data: await c.provider.fetchMergeQueueStatus(c.projectPath, p.iid) };
+      } catch (err) {
+        return { ok: false, error: forgeFailure(err, forge) };
+      }
+    },
+
+    "mr:enqueue": async (payload) => {
+      const p = payload as { iid?: unknown; expectedHeadSha?: unknown } | undefined;
+      if (typeof p?.iid !== "number") return { ok: false, error: "missing repoName/iid" };
+      if (!(Number.isInteger(p.iid) && p.iid > 0)) return { ok: false, error: '"iid" must be a positive integer' };
+      if (p.expectedHeadSha !== undefined && typeof p.expectedHeadSha !== "string") return { ok: false, error: '"expectedHeadSha" must be a string' };
+      const decoded = decodeIndexedRepo(payload);
+      if (!decoded.ok) return { ok: false, error: decoded.error };
+      let forge: Forge = "gitlab";
+      try {
+        const c = await contextFor(decoded.repo);
+        forge = forgeOf(c);
+        if (!c.provider.capabilities?.canEnqueue) return { ok: false, error: NO_MERGE_QUEUE };
+        const entry = await c.provider.enqueuePullRequest(c.projectPath, p.iid, p.expectedHeadSha === undefined ? {} : { expectedHeadSha: p.expectedHeadSha });
+        return { ok: true, data: { position: entry.position, state: entry.state } };
+      } catch (err) {
+        return { ok: false, error: forgeFailure(err, forge) };
       }
     },
 
@@ -511,13 +661,12 @@ export function createMRHandlers(
       const decoded = decodeIndexedRepo(payload);
       if (!decoded.ok) return { ok: false, error: decoded.error };
       try {
-        const { provider, projectPath } = await contextFor(decoded.repo);
-        if (typeof provider.restRequest !== "function") return { ok: false, error: "unsupported: mr:list-live needs a GitLab repo" };
+        const c = await contextFor(decoded.repo);
         const text = (name: string) => (typeof p[name] === "string" && (p[name] as string).trim() ? (p[name] as string).trim() : undefined);
-        const listed = await listMrsLive(provider, projectPath, {
+        const listed = await listMrsLive(c.provider, c.projectPath, {
           author: text("author"), sourceBranch: text("sourceBranch"), targetBranch: text("targetBranch"), search: text("search"),
           state: state as MrListState, limit: p.limit as number | undefined,
-        });
+        }, forgeOf(c));
         return listed.ok ? { ok: true, data: { mrs: listed.mrs, truncated: listed.truncated } } : { ok: false, error: listed.error };
       } catch (err) {
         return { ok: false, error: String(err) };
@@ -532,11 +681,12 @@ export function createMRHandlers(
       }
       const decoded = decodeIndexedRepo(payload);
       if (!decoded.ok) return { ok: false, error: decoded.error };
+      let forge: Forge = "gitlab";
       try {
-        const { provider, projectPath } = await contextFor(decoded.repo);
-        if (typeof provider.restRequest !== "function" || typeof provider.fetchSingleMR !== "function") {
-          return { ok: false, error: "unsupported: mr:live-by-branch needs a GitLab repo" };
-        }
+        const c = await contextFor(decoded.repo);
+        const { provider, projectPath } = c;
+        forge = forgeOf(c);
+        if (forge === "github") return await liveByBranchOnGitHub(provider, projectPath, branches as string[]);
         const byBranch: Record<string, PullRequest | null> = {};
         for (const branch of branches as string[]) {
           const listed = await listMrsLive(provider, projectPath, { sourceBranch: branch.trim(), state: "opened", limit: 1 });
@@ -552,7 +702,7 @@ export function createMRHandlers(
         }
         return { ok: true, data: { byBranch } };
       } catch (err) {
-        return { ok: false, error: String(err) };
+        return { ok: false, error: forgeFailure(err, forge) };
       }
     },
 
@@ -562,9 +712,8 @@ export function createMRHandlers(
       const decoded = decodeIndexedRepo(payload);
       if (!decoded.ok) return { ok: false, error: decoded.error };
       try {
-        const { provider, projectPath } = await contextFor(decoded.repo);
-        if (typeof provider.restRequest !== "function") return { ok: false, error: "unsupported: project:labels needs a GitLab repo" };
-        const listed = await listLabels(provider, projectPath, p?.search?.trim() || undefined);
+        const c = await contextFor(decoded.repo);
+        const listed = await listLabels(c.provider, c.projectPath, p?.search?.trim() || undefined, forgeOf(c));
         return listed.ok ? { ok: true, data: { labels: listed.labels } } : { ok: false, error: listed.error };
       } catch (err) {
         return { ok: false, error: String(err) };
@@ -583,11 +732,10 @@ export function createMRHandlers(
       const decoded = decodeIndexedRepo(payload);
       if (!decoded.ok) return { ok: false, error: decoded.error };
       try {
-        const { provider, projectPath } = await contextFor(decoded.repo);
-        if (typeof provider.restRequest !== "function") return { ok: false, error: "unsupported: pipeline:list needs a GitLab repo" };
-        const listed = await listPipelines(provider, projectPath, {
+        const c = await contextFor(decoded.repo);
+        const listed = await listPipelines(c.provider, c.projectPath, {
           ref: p.ref as string | undefined, sha: p.sha as string | undefined, iid: p.iid as number | undefined, limit: p.limit as number | undefined,
-        });
+        }, forgeOf(c));
         return listed.ok ? { ok: true, data: { pipelines: listed.pipelines } } : { ok: false, error: listed.error };
       } catch (err) {
         return { ok: false, error: String(err) };
@@ -609,11 +757,10 @@ export function createMRHandlers(
       const decoded = decodeIndexedRepo(payload);
       if (!decoded.ok) return { ok: false, error: decoded.error };
       try {
-        const { provider, projectPath } = await contextFor(decoded.repo);
-        if (typeof provider.restRequest !== "function") return { ok: false, error: "unsupported: forge:get needs a GitLab repo" };
-        return await forgeGet(provider, projectPath, {
+        const c = await contextFor(decoded.repo);
+        return await forgeGet(c.provider, c.projectPath, {
           path: p.path, query: p.query as Record<string, string | number | boolean> | undefined, page: p.page as number | undefined, perPage: p.perPage as number | undefined,
-        });
+        }, forgeOf(c));
       } catch (err) {
         return { ok: false, error: String(err) };
       }

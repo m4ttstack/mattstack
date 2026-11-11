@@ -22,7 +22,8 @@ import { loadRepoTracking, grants, type RepoTracking } from "../../repo-tracking
 import { getProjectMRs, freshnessOf, type ProjectMRs } from "../project-mrs-store.ts";
 import { syncProjectMRs, backfillAuthors, backfillSections } from "../project-sync.ts";
 import { readSyncHealth } from "../project-sync-health.ts";
-import { getRepoContext } from "../freshness.ts";
+import { getRepoContext, isGitHubRepo } from "../freshness.ts";
+import { forgeFailure } from "../forge-reads.ts";
 import type { HandlerContext } from "./types.ts";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 
@@ -71,7 +72,14 @@ export interface ProjectMRsHandlerOverrides {
    * it through a captured outer variable, which would have silently no-opped
    * the upsert had the assignment ever been reordered out from under it).
    */
-  fetchByBranch?: (repoName: string, branch: string) => Promise<{ pr: PullRequest | null; projectPath: string }>;
+  fetchByBranch?: (repoName: string, branch: string) => Promise<{ pr: PullRequest | null; projectPath: string; github?: boolean }>;
+  getContext?: (repoName: string) => Promise<{ forge?: "gitlab" | "github"; provider: any; projectPath: string }>;
+  isGitHub?: (repoName: string) => Promise<boolean>;
+}
+
+/** On GitHub a failed read must not pass for "no PR", so it fails the whole call. */
+class GitHubReadFailure {
+  constructor(readonly cause: unknown) {}
 }
 
 export function createProjectMRsHandlers(
@@ -238,13 +246,32 @@ export function createProjectMRsHandlers(
       // shares the same repo. Memoized as a promise (not awaited here) so
       // concurrent misses within the first chunk all share one resolve
       // instead of racing separate getRepoContext calls.
-      let repoCtxPromise: ReturnType<typeof getRepoContext> | null = null;
-      const fetchByBranch = overrides.fetchByBranch ?? (async (repo: string, branch: string) => {
-        repoCtxPromise ??= getRepoContext(repo, ctx.repoIndex()[repo]);
-        const repoCtx = await repoCtxPromise;
-        const pr = await repoCtx.provider.fetchPullRequestByBranch(repoCtx.projectPath, branch, "all");
-        return { pr, projectPath: repoCtx.projectPath };
+      const getContext = overrides.getContext ?? ((repo: string) => getRepoContext(repo, ctx.repoIndex()[repo]));
+      let repoCtxPromise: ReturnType<typeof getContext> | null = null;
+      const isGitHub = overrides.isGitHub ?? (async (repo: string) => {
+        const path = ctx.repoIndex()[repo];
+        return path ? isGitHubRepo(path) : false;
       });
+      let onGitHubPromise: Promise<boolean> | null = null;
+      const fetchByBranch = overrides.fetchByBranch ?? (async (repo: string, branch: string) => {
+        repoCtxPromise ??= getContext(repo);
+        let repoCtx: Awaited<typeof repoCtxPromise>;
+        try {
+          repoCtx = await repoCtxPromise;
+        } catch (err) {
+          onGitHubPromise ??= isGitHub(repo).catch(() => false);
+          throw (await onGitHubPromise) ? new GitHubReadFailure(err) : err;
+        }
+        const github = repoCtx.forge === "github";
+        try {
+          // On GitHub a fork branch is found by scanning at most 500 pull requests of any state, and a null cannot say whether that cap was hit.
+          const pr = await repoCtx.provider.fetchPullRequestByBranch(repoCtx.projectPath, branch, "all");
+          return { pr, projectPath: repoCtx.projectPath, github };
+        } catch (err) {
+          throw github ? new GitHubReadFailure(err) : err;
+        }
+      });
+      let githubFailure: string | null = null;
 
       // Chunked 4-wide (mirrors project-sync.ts's pipeline top-up loop) so a
       // large batch can't burst the forge with one fetch per branch.
@@ -252,8 +279,11 @@ export function createProjectMRsHandlers(
         const chunk = misses.slice(i, i + BY_BRANCH_CONCURRENCY);
         await Promise.all(chunk.map(async (branch) => {
           try {
-            const { pr, projectPath } = await fetchByBranch(repoName, branch);
-            if (pr) {
+            const { pr, projectPath, github } = await fetchByBranch(repoName, branch);
+            if (pr && github) {
+              ctx.log.debug({ repo: repoName, branch }, "by-branch store upsert skipped for a GitHub repo");
+              byBranch[branch] = { pr, source: "forge" };
+            } else if (pr) {
               // Same scope/tagged gate upsertProject (lib/daemon/freshness.ts)
               // enforces for every other write path: a demand-scoped repo
               // must not pick up a stranger's MR here just because a client
@@ -271,10 +301,15 @@ export function createProjectMRsHandlers(
               byBranch[branch] = null;
             }
           } catch (err) {
+            if (err instanceof GitHubReadFailure) {
+              githubFailure ??= forgeFailure(err.cause, "github");
+              return;
+            }
             ctx.log.warn({ err, repo: repoName, branch }, "by-branch forge fetch failed");
             byBranch[branch] = null;
           }
         }));
+        if (githubFailure) return { ok: false, error: githubFailure };
       }
 
       const record = store().read(repoName);

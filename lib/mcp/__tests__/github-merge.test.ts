@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { ReadBackFailedError } from "@mattstack/glance";
-import { mergeOnGitHub, resolveGithubTarget, type GithubMergeProvider } from "../github-merge.ts";
+import { daemonMergeProvider, mergeOnGitHub, resolveGithubTarget, type GithubMergeProvider } from "../github-merge.ts";
 
-const TARGET = { projectPath: "acme/app", iid: 12 };
+const TARGET = { projectPath: "acme/app", iid: 12, identity: "remote:github.com%2Facme%2Fapp" };
 
 type Status = { enabled: boolean; inQueue: boolean; merged?: boolean; lastRemoval?: { at: string; reason: string } | null };
 const full = (s: Status) => ({ merged: false, lastRemoval: null, ...s });
@@ -217,6 +217,143 @@ describe("mergeOnGitHub with wait", () => {
     const { seams, calls } = polling({ enabled: false, inQueue: false }, []);
     expect((await mergeOnGitHub(TARGET, { wait: true }, seams)).body).toEqual({ merged: true });
     expect(calls).toEqual(["merge {}"]);
+  });
+});
+
+describe("daemonMergeProvider", () => {
+  type Reply = { ok: boolean; data?: unknown; error?: string };
+  const MERGED_PR = { iid: 12, state: "merged", webUrl: "https://github.com/acme/app/pull/12" };
+
+  /** Each daemon verb answers from its own queue of replies; the last one repeats. */
+  function daemon(replies: Record<string, Reply[]>) {
+    const sent: Array<{ cmd: string; payload: Record<string, unknown> }> = [];
+    const used: Record<string, number> = {};
+    const command = async (cmd: string, payload: Record<string, unknown>) => {
+      sent.push({ cmd, payload });
+      const queue = replies[cmd] ?? [{ ok: false, error: `unexpected ${cmd}` }];
+      const i = used[cmd] = (used[cmd] ?? -1) + 1;
+      return queue[Math.min(i, queue.length - 1)]!;
+    };
+    const provider = daemonMergeProvider(TARGET.identity, command as Parameters<typeof daemonMergeProvider>[1]);
+    return { provider, sent, seams: { provider: async () => provider } };
+  }
+
+  test("fetchMergeQueueStatus asks mr:merge-queue-status", async () => {
+    const status = { enabled: true, inQueue: false, merged: false, lastRemoval: null };
+    const { provider, sent } = daemon({ "mr:merge-queue-status": [{ ok: true, data: status }] });
+    expect(await provider.fetchMergeQueueStatus(TARGET.projectPath, 12)).toEqual(status);
+    expect(sent).toEqual([{ cmd: "mr:merge-queue-status", payload: { repoName: TARGET.identity, iid: 12 } }]);
+  });
+
+  test("enqueuePullRequest asks mr:enqueue, with the expected head when given", async () => {
+    const { provider, sent } = daemon({ "mr:enqueue": [{ ok: true, data: { position: 2, state: "QUEUED" } }] });
+    expect(await provider.enqueuePullRequest(TARGET.projectPath, 12)).toEqual({ position: 2, state: "QUEUED" });
+    await provider.enqueuePullRequest(TARGET.projectPath, 12, { expectedHeadSha: "abc123" });
+    expect(sent).toEqual([
+      { cmd: "mr:enqueue", payload: { repoName: TARGET.identity, iid: 12 } },
+      { cmd: "mr:enqueue", payload: { repoName: TARGET.identity, iid: 12, expectedHeadSha: "abc123" } },
+    ]);
+  });
+
+  test("setAutoMerge sends the setAutoMerge action", async () => {
+    const { provider, sent } = daemon({ "mr:action": [{ ok: true }] });
+    await provider.setAutoMerge(TARGET.projectPath, 12);
+    expect(sent).toEqual([{ cmd: "mr:action", payload: { repoName: TARGET.identity, iid: 12, action: "setAutoMerge", args: [] } }]);
+  });
+
+  test("mergePullRequest sends the merge options, then reads the PR back fresh", async () => {
+    const { provider, sent } = daemon({ "mr:action": [{ ok: true }], "mr:get": [{ ok: true, data: { mr: MERGED_PR, fetchedAt: 1 } }] });
+    expect(await provider.mergePullRequest(TARGET.projectPath, 12, { squash: true })).toEqual(MERGED_PR as never);
+    expect(sent).toEqual([
+      { cmd: "mr:action", payload: { repoName: TARGET.identity, iid: 12, action: "merge", args: [{ squash: true }] } },
+      { cmd: "mr:get", payload: { repoName: TARGET.identity, iid: 12, refresh: true } },
+    ]);
+  });
+
+  test("a refused mr:action rejects with the forge's text, without the daemon's Error prefix, and reads nothing back", async () => {
+    const { provider, sent } = daemon({ "mr:action": [{ ok: false, error: "Error: mergePullRequest failed: 405 Pull Request is not mergeable" }] });
+    const merge = await provider.mergePullRequest(TARGET.projectPath, 12).catch((e: Error) => e.message);
+    const auto = await provider.setAutoMerge(TARGET.projectPath, 12).catch((e: Error) => e.message);
+    expect(merge).toBe("mergePullRequest failed: 405 Pull Request is not mergeable");
+    expect(auto).toBe("mergePullRequest failed: 405 Pull Request is not mergeable");
+    expect(sent.map((s) => s.cmd)).toEqual(["mr:action", "mr:action"]);
+  });
+
+  test("mergeOnGitHub returns a refused merge's text as it did before the daemon", async () => {
+    const { seams, sent } = daemon({
+      "mr:merge-queue-status": [{ ok: true, data: { enabled: false, inQueue: false, merged: false, lastRemoval: null } }],
+      "mr:action": [{ ok: false, error: "Error: mergePullRequest failed: 405 Pull Request is not mergeable" }],
+    });
+    expect((await mergeOnGitHub(TARGET, {}, seams)).error).toBe("mergePullRequest failed: 405 Pull Request is not mergeable");
+    expect(sent.map((s) => s.cmd)).toEqual(["mr:merge-queue-status", "mr:action"]);
+  });
+
+  const TIMED_OUT = "rt daemon unreachable at /x.sock: The operation timed out.";
+
+  test("a merge the daemon never answered is read back, and reads as merged when it landed", async () => {
+    const { seams, sent } = daemon({
+      "mr:merge-queue-status": [{ ok: true, data: { enabled: false, inQueue: false, merged: false, lastRemoval: null } }],
+      "mr:action": [{ ok: false, error: TIMED_OUT }],
+      "mr:get": [{ ok: true, data: { mr: MERGED_PR, fetchedAt: 1 } }],
+    });
+    expect((await mergeOnGitHub(TARGET, {}, seams)).body).toEqual({ merged: true });
+    expect(sent.at(-1)).toEqual({ cmd: "mr:get", payload: { repoName: TARGET.identity, iid: 12, refresh: true } });
+  });
+
+  test("a merge the daemon never answered keeps its own error when the read-back shows no merge", async () => {
+    for (const get of [{ ok: true, data: { mr: { ...MERGED_PR, state: "opened" }, fetchedAt: 1 } }, { ok: false, error: TIMED_OUT }]) {
+      const { seams, sent } = daemon({
+        "mr:merge-queue-status": [{ ok: true, data: { enabled: false, inQueue: false, merged: false, lastRemoval: null } }],
+        "mr:action": [{ ok: false, error: TIMED_OUT }],
+        "mr:get": [get],
+      });
+      expect((await mergeOnGitHub(TARGET, {}, seams)).error).toBe(TIMED_OUT);
+      expect(sent.map((s) => s.cmd)).toEqual(["mr:merge-queue-status", "mr:action", "mr:get"]);
+    }
+  });
+
+  test("a refused queue read rejects with the daemon's error text", async () => {
+    const { provider } = daemon({ "mr:merge-queue-status": [{ ok: false, error: "unsupported: this forge has no merge queue" }] });
+    await expect(provider.fetchMergeQueueStatus(TARGET.projectPath, 12)).rejects.toThrow("unsupported: this forge has no merge queue");
+  });
+
+  test("a refused queue read or enqueue drops the daemon's Error prefix", async () => {
+    const { provider } = daemon({ "mr:merge-queue-status": [{ ok: false, error: "Error: x" }], "mr:enqueue": [{ ok: false, error: "Error: x" }] });
+    expect(await provider.fetchMergeQueueStatus(TARGET.projectPath, 12).catch((e: Error) => e.message)).toBe("x");
+    expect(await provider.enqueuePullRequest(TARGET.projectPath, 12).catch((e: Error) => e.message)).toBe("x");
+  });
+
+  test("mergeOnGitHub reports a merge through the daemon", async () => {
+    const { seams } = daemon({
+      "mr:merge-queue-status": [{ ok: true, data: { enabled: false, inQueue: false, merged: false, lastRemoval: null } }],
+      "mr:action": [{ ok: true }],
+      "mr:get": [{ ok: true, data: { mr: MERGED_PR, fetchedAt: 1 } }],
+    });
+    expect((await mergeOnGitHub(TARGET, {}, seams)).body).toEqual({ merged: true });
+  });
+
+  test("a merge that left its source branch behind says why, through the daemon", async () => {
+    const sourceBranchNotDeleted = "The source branch was not deleted: GitHub refused the delete with 422.";
+    const { seams } = daemon({
+      "mr:merge-queue-status": [{ ok: true, data: { enabled: false, inQueue: false, merged: false, lastRemoval: null } }],
+      "mr:action": [{ ok: true, data: { sourceBranchNotDeleted } }],
+      "mr:get": [{ ok: true, data: { mr: MERGED_PR, fetchedAt: 1 } }],
+    });
+    expect((await mergeOnGitHub(TARGET, { removeSourceBranch: true }, seams)).body).toEqual({ merged: true, sourceBranchNotDeleted });
+  });
+
+  test("a merge that landed but could not be read back is unverified, not failed", async () => {
+    for (const get of [{ ok: false, error: "rt daemon unreachable" }, { ok: true }]) {
+      const { provider, seams } = daemon({
+        "mr:merge-queue-status": [{ ok: true, data: { enabled: false, inQueue: false, merged: false, lastRemoval: null } }],
+        "mr:action": [{ ok: true }],
+        "mr:get": [get],
+      });
+      expect((await mergeOnGitHub(TARGET, {}, seams)).body).toEqual({ requested: "merge", verified: false });
+      const thrown = await provider.mergePullRequest(TARGET.projectPath, 12).catch((e: unknown) => e);
+      expect(thrown).toBeInstanceOf(ReadBackFailedError);
+      expect((thrown as ReadBackFailedError).writeApplied).toBe(true);
+    }
   });
 });
 

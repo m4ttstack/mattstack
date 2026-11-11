@@ -17,14 +17,14 @@
  * `discussions-store.ts`, which also emits new-comment notifications.
  *
  * `repoName` is opaque here — it flows straight into `grants()`, the
- * discussions table, and `getRepoContext`. It becomes the serialized repo
+ * discussions table, and `getGitLabContext`. It becomes the serialized repo
  * identity once every caller sends one; this module makes no assumption
  * about its shape.
  */
 
 import { NoteMutator, type TextPosition, type CreatedDiscussion } from "@mattstack/glance";
 import { decodeRepo } from "../identity-decoder.ts";
-import { getRepoContext, getSelfUsername, providerRequestHook } from "../freshness.ts";
+import { getGitLabContext, getSelfUsername, providerRequestHook } from "../freshness.ts";
 import { anchorComments, parseReviewSubmit, submitReview, type ReviewMutator } from "../review-submit.ts";
 import { loadSecrets } from "../../linear.ts";
 import { refreshDiscussions, type BroadcastFn } from "../discussions-store.ts";
@@ -165,7 +165,7 @@ export function createDiscussionHandlers(
   & { "mr:review-submit": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:review-submit">> }
   & HandlerMap {
   const deps = { ctx, broadcast };
-  const repoContextFn = seams.repoContext ?? getRepoContext;
+  const repoContextFn = seams.repoContext ?? ((repoName: string, repoPath?: string) => getGitLabContext("threads", repoName, repoPath));
   const gitlabTokenFn = seams.gitlabToken ?? (async () => (await loadSecrets()).gitlabToken);
   const mutatorFn = seams.mutator ?? ((baseURL: string, token: string) => new NoteMutator(baseURL, token, providerRequestHook()));
   const commentMutatorFn = seams.commentMutator ?? ((baseURL: string, token: string) => new NoteMutator(baseURL, token, providerRequestHook()));
@@ -176,7 +176,7 @@ export function createDiscussionHandlers(
   const readCachedFn = seams.readCached ?? ((repoName: string, iid: number) => getDiscussionsFileStore().read(repoName, iid));
   const reviewMutatorFn = seams.reviewMutator ?? ((baseURL: string, token: string) => new NoteMutator(baseURL, token, providerRequestHook()));
   const reviewActionsFn = seams.reviewActions ?? (async (repoName: string, repoPath?: string) => {
-    const { provider, projectPath } = await getRepoContext(repoName, repoPath);
+    const { provider, projectPath } = await getGitLabContext("threads", repoName, repoPath);
     return {
       approve: (iid: number) => provider.approvePullRequest(projectPath, iid),
       resolve: (iid: number, discussionId: string) => provider.resolveDiscussion(projectPath, iid, discussionId),
@@ -262,7 +262,7 @@ export function createDiscussionHandlers(
 
       const repoPath = ctx.repoIndex()[repoName];
       try {
-        const repoCtx = await getRepoContext(repoName, repoPath);
+        const repoCtx = await getGitLabContext("threads", repoName, repoPath);
         if (resolved) {
           await repoCtx.provider.resolveDiscussion(repoCtx.projectPath, iid, discussionId);
         } else {
@@ -289,7 +289,7 @@ export function createDiscussionHandlers(
 
       const repoPath = ctx.repoIndex()[repoName];
       try {
-        const repoCtx = await getRepoContext(repoName, repoPath);
+        const repoCtx = await getGitLabContext("threads", repoName, repoPath);
         const secrets = await loadSecrets();
         if (!secrets.gitlabToken) return { ok: false, error: "no gitlabToken in secrets" };
 

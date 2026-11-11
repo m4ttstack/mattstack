@@ -4,11 +4,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { GitHubProvider } from "@mattstack/glance";
 import type { ForgeFileDiff, ForgeFileDiffData } from "../../packages/rt-client/src/commands.ts";
-import { forgeTokenFor, isGitHubRemote, parseRemoteUrl } from "../enrich.ts";
-import { loadSecrets } from "../linear.ts";
-import { runGit } from "../worktree/git-async.ts";
 import { gitlabFailure, projectApi, readCapped } from "./forge-reads.ts";
 
 /** How to GET from a repo's forge: a provider-relative path in, the raw response out. */
@@ -226,65 +222,18 @@ export function createFileDiffReader(opts: { now?: () => number } = {}) {
   };
 }
 
-type GitlabContext = () => Promise<{ provider: { restRequest: (method: string, path: string, body?: unknown, op?: string) => Promise<Response> }; projectPath: string }>;
-
-export interface FileDiffContextDeps {
-  /** The checkout's origin URL, or undefined when it has none. */
-  originUrl: (repoPath: string) => Promise<string | undefined>;
-  /** The token rt calls GitHub with for this remote, or null. */
-  githubToken: (remoteUrl: string) => Promise<string | null>;
-  githubRest: (host: string, token: string) => (path: string) => Promise<Response>;
+/** A repo context as getRepoContext builds it; a context with no forge is GitLab's. */
+export interface FileDiffRepoContext {
+  forge?: "gitlab" | "github";
+  provider: { restRequest: (method: string, path: string, body?: unknown, op?: string) => Promise<Response> };
+  projectPath: string;
 }
 
-const realContextDeps: FileDiffContextDeps = {
-  originUrl: async (repoPath) => {
-    const r = await runGit(repoPath, ["config", "--get", "remote.origin.url"]);
-    return r.exitCode === 0 ? r.stdout.trim() || undefined : undefined;
-  },
-  githubToken: async (remoteUrl) => (await forgeTokenFor(remoteUrl, await loadSecrets()))?.token ?? null,
-  githubRest: (host, token) => {
-    const provider = new GitHubProvider(host, token);
-    return (p) => provider.restRequest("GET", p);
-  },
-};
-
-/**
- * Picks the repo's forge from its origin remote: a GitHub remote gets a
- * glance GitHubProvider with the token rt uses for GitHub (the gh session
- * when no githubToken is stored); anything else is the daemon's GitLab
- * context. A checkout's origin is read once per path.
- */
-export function createFileDiffContextResolver(deps: FileDiffContextDeps = realContextDeps) {
-  const origins = new Map<string, Promise<string | undefined>>();
-  const originOf = (repoPath: string) => {
-    let p = origins.get(repoPath);
-    if (!p) {
-      // Only a found origin is kept: a failed read asks again next time.
-      p = deps.originUrl(repoPath).then(
-        (url) => {
-          if (url === undefined) origins.delete(repoPath);
-          return url;
-        },
-        (err: unknown) => {
-          origins.delete(repoPath);
-          throw err;
-        },
-      );
-      origins.set(repoPath, p);
-    }
-    return p;
-  };
-
-  return async function fileDiffContext(repoPath: string | undefined, gitlabContext: GitlabContext): Promise<FileDiffContext> {
-    const remoteUrl = repoPath ? await originOf(repoPath) : undefined;
-    if (isGitHubRemote(remoteUrl)) {
-      const remote = parseRemoteUrl(remoteUrl!);
-      if (!remote) throw new Error("could not parse the origin URL");
-      const token = await deps.githubToken(remoteUrl!);
-      if (!token) throw new Error("no GitHub token (run: gh auth login)");
-      return { forge: "github", projectPath: remote.projectPath, rest: deps.githubRest(remote.host, token) };
-    }
-    const { provider, projectPath } = await gitlabContext();
-    return { forge: "gitlab", projectPath, rest: (p) => provider.restRequest("GET", p, undefined, "forge:file-diff") };
+/** The GETs this read makes, through the provider the repo's own context carries. */
+export function fileDiffContextOf(repo: FileDiffRepoContext): FileDiffContext {
+  return {
+    forge: repo.forge === "github" ? "github" : "gitlab",
+    projectPath: repo.projectPath,
+    rest: (p) => repo.provider.restRequest("GET", p, undefined, "forge:file-diff"),
   };
 }

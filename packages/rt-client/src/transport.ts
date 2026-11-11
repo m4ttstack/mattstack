@@ -77,6 +77,9 @@ function assertSockNotForbidden(cmd: string, sockPath: string): void {
   }
 }
 
+/** Starts every error rtCommand returns when the daemon gave no answer (unreachable, or timed out). */
+export const DAEMON_UNREACHABLE_PREFIX = "rt daemon unreachable at ";
+
 export async function rtCommand<T = unknown>(
   cmd: string,
   payload: Record<string, unknown>,
@@ -109,6 +112,6 @@ export async function rtCommand<T = unknown>(
     return { ok: false, error: `${cmd} failed: HTTP ${res.status}${text ? ` ${text.slice(0, 200)}` : ""}` };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: `rt daemon unreachable at ${sockPath}: ${msg}` };
+    return { ok: false, error: `${DAEMON_UNREACHABLE_PREFIX}${sockPath}: ${msg}` };
   }
 }

@@ -185,7 +185,7 @@ implementations must return what the daemon's current REST code returns.
 | `mr:create`, `mr:update` | work; label adds and removes go through the two new label methods; a call that passes `squash` refuses before anything is written ("GitHub picks squash at merge time") |
 | `mr:fetch-job-detail`, `mr:fetch-job-trace` | work through the interface |
 | `mr:list-live`, `mr:by-target` | work through `fetchPullRequestSummaries` |
-| `mr:live-by-branch` | works through the batched by-branches read, one request for up to 25 branches |
+| `mr:live-by-branch` | works through one batched read, one request for up to 25 branches; a branch it returns null for is confirmed with one read of open pull requests filtered by that branch, and a pull request that exists but cannot be read is an error, never "no PR" |
 | `project:labels`, `pipeline:list`, `mr:commit-parents`, `mr:pipeline-failed-jobs` | work through the new reads |
 | `forge:get` | works, see section 4 |
 | `forge:file-diff`, `project-mrs:read`, `mr:by-branch` | work (already interface-only) |
@@ -231,7 +231,9 @@ design review. This section is that review for the GitHub arm.
   `deploy_keys` (alias), `installations`, `tokens`, `runners`,
   `registration-token`, `remove-token`, `environments`, `codespaces`,
   `dependabot`, `actions/oidc`, `autolinks`, `invitations`,
-  `private-vulnerability-reporting`. Log and artifact downloads answer
+  `private-vulnerability-reporting`, `secret-scanning`,
+  `organization-secrets`, `organization-variables`,
+  `security-advisories`. Log and artifact downloads answer
   with a redirect to a signed URL and so are refused by the redirect rule.
 - Refused query keys: `access_token`, `client_secret`, `token`.
 - The 256 KiB cap, the `token` / `*_token` redaction and the

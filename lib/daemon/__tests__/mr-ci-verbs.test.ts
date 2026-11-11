@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { ForgeHttpError } from "@mattstack/glance";
 import { createMRHandlers } from "../handlers/mr.ts";
 import { fakeStore } from "./fake-cache-store.ts";
 
@@ -17,13 +18,6 @@ describe("mr:commit-parents", () => {
     const provider = { fetchCommitParents: async (_p: string, sha: string) => (sha === "abc1234" ? ["t", "h"] : []) };
     const h = handlers(provider);
     expect(await h["mr:commit-parents"]!({ repoName: REPO, iid: 4, sha: "abc1234" })).toEqual({ ok: true, data: ["t", "h"] });
-  });
-
-  test("refuses a provider without the method", async () => {
-    const h = handlers({});
-    const r = await h["mr:commit-parents"]!({ repoName: REPO, iid: 4, sha: "abc1234" });
-    expect(r).toMatchObject({ ok: false });
-    expect(String((r as { ok: false; error: string }).error)).toContain("unsupported");
   });
 
   test("validates sha", async () => {
@@ -57,13 +51,6 @@ describe("mr:pipeline-failed-jobs", () => {
     expect(await h["mr:pipeline-failed-jobs"]!({ repoName: REPO, iid: 4, pipelineId: 9 })).toEqual({ ok: true, data: [job] });
   });
 
-  test("refuses a provider without the method", async () => {
-    const h = handlers({});
-    const r = await h["mr:pipeline-failed-jobs"]!({ repoName: REPO, iid: 4, pipelineId: 9 });
-    expect(r).toMatchObject({ ok: false });
-    expect(String((r as { ok: false; error: string }).error)).toContain("unsupported");
-  });
-
   test("validates pipelineId", async () => {
     const r = await handlers({})["mr:pipeline-failed-jobs"]!({ repoName: REPO, iid: 4 });
     expect(r).toMatchObject({ ok: false });
@@ -87,31 +74,31 @@ describe("mr:pipeline-failed-jobs", () => {
 
 describe("mr:by-target", () => {
   const row = (iid: number, author: string, extra: Record<string, unknown> = {}) => ({
-    iid, title: `t${iid}`, state: "opened", draft: false, source_branch: `child-${iid}`, target_branch: "feat",
-    author: { username: author }, web_url: `https://gitlab.com/grp/proj/-/merge_requests/${iid}`, detailed_merge_status: "mergeable", ...extra,
+    iid, title: `t${iid}`, state: "opened", draft: false, sourceBranch: `child-${iid}`, targetBranch: "feat",
+    author, webUrl: `https://gitlab.com/grp/proj/-/merge_requests/${iid}`, detailedMergeStatus: "mergeable", mergedAt: null, ...extra,
   });
-  const page = (rows: unknown[], nextPage = "") => new Response(JSON.stringify(rows), { status: 200, headers: { "x-next-page": nextPage } });
 
-  function restProvider(respond: (path: string) => Response | Promise<Response>) {
-    const paths: string[] = [];
-    const provider = { restRequest: async (_method: string, path: string) => { paths.push(path); return respond(path); } };
-    return { provider, paths };
+  function summariesProvider(answer: (options: Record<string, unknown>) => unknown) {
+    const calls: Array<Record<string, unknown>> = [];
+    const provider = {
+      fetchPullRequestSummaries: async (_p: string, options: Record<string, unknown>) => {
+        calls.push(options);
+        const next = answer(options);
+        if (next instanceof Error) throw next;
+        return next;
+      },
+    };
+    return { provider, calls };
   }
 
   test("an empty forge answer is an empty list", async () => {
-    const { provider, paths } = restProvider(() => page([]));
+    const { provider, calls } = summariesProvider(() => ({ rows: [], truncated: false }));
     expect(await handlers(provider)["mr:by-target"]!({ repoName: REPO, targetBranch: "feat" })).toEqual({ ok: true, data: { mrs: [] } });
-    expect(paths).toHaveLength(1);
-    expect(paths[0]).toStartWith("/projects/grp%2Fproj/merge_requests?");
-    const query = new URLSearchParams(paths[0]!.split("?")[1]);
-    expect(query.get("target_branch")).toBe("feat");
-    expect(query.get("state")).toBe("opened");
-    expect(query.has("author_username")).toBe(false);
-    expect(query.has("scope")).toBe(false);
+    expect(calls).toEqual([{ state: "opened", targetBranch: "feat", limit: 2000 }]);
   });
 
   test("returns every author's MR targeting the branch, summarized", async () => {
-    const { provider } = restProvider(() => page([row(7, "bob", { draft: true })]));
+    const { provider } = summariesProvider(() => ({ rows: [row(7, "bob", { draft: true })], truncated: false }));
     const r = await handlers(provider)["mr:by-target"]!({ repoName: REPO, targetBranch: "feat" });
     expect(r).toEqual({ ok: true, data: { mrs: [{
       iid: 7, title: "t7", state: "opened", draft: true, sourceBranch: "child-7", targetBranch: "feat",
@@ -119,80 +106,70 @@ describe("mr:by-target", () => {
     }] } });
   });
 
-  test("follows x-next-page until the last page", async () => {
-    const { provider, paths } = restProvider((path) => {
-      const n = new URLSearchParams(path.split("?")[1]).get("page");
-      return n === "1" ? page([row(1, "a")], "2") : page([row(2, "b")]);
-    });
+  test("returns every row glance read across pages, in one call", async () => {
+    const { provider, calls } = summariesProvider(() => ({ rows: [row(1, "a"), row(2, "b")], truncated: false }));
     const r = await handlers(provider)["mr:by-target"]!({ repoName: REPO, targetBranch: "feat" });
     expect((r as any).data.mrs.map((m: any) => m.iid)).toEqual([1, 2]);
-    expect(paths).toHaveLength(2);
+    expect(calls).toHaveLength(1);
   });
 
-  test("keeps walking past a full page that carries no x-next-page header", async () => {
-    const full = Array.from({ length: 100 }, (_, i) => row(i + 1, "a"));
-    const { provider, paths } = restProvider((path) => {
-      const n = new URLSearchParams(path.split("?")[1]).get("page");
-      return n === "1" ? new Response(JSON.stringify(full), { status: 200 }) : new Response(JSON.stringify([row(101, "b")]), { status: 200 });
-    });
+  test("a listing past one full page comes back whole", async () => {
+    const rows = Array.from({ length: 101 }, (_, i) => row(i + 1, "a"));
+    const { provider, calls } = summariesProvider(() => ({ rows, truncated: false }));
     const r = await handlers(provider)["mr:by-target"]!({ repoName: REPO, targetBranch: "feat" });
     expect((r as any).data.mrs).toHaveLength(101);
-    expect(paths).toHaveLength(2);
+    expect(calls).toHaveLength(1);
   });
 
-  test("stops at a short page even with no x-next-page header", async () => {
-    const { provider, paths } = restProvider(() => new Response(JSON.stringify([row(1, "a")]), { status: 200 }));
+  test("a short listing is the whole answer", async () => {
+    const { provider, calls } = summariesProvider(() => ({ rows: [row(1, "a")], truncated: false }));
     const r = await handlers(provider)["mr:by-target"]!({ repoName: REPO, targetBranch: "feat" });
     expect((r as any).data.mrs).toHaveLength(1);
-    expect(paths).toHaveLength(1);
+    expect(calls).toHaveLength(1);
   });
 
   test("passes a state through and refuses an unknown one", async () => {
-    const { provider, paths } = restProvider(() => page([]));
+    const { provider, calls } = summariesProvider(() => ({ rows: [], truncated: false }));
     const h = handlers(provider);
     await h["mr:by-target"]!({ repoName: REPO, targetBranch: "feat", state: "all" });
-    expect(new URLSearchParams(paths[0]!.split("?")[1]).get("state")).toBe("all");
+    expect(calls[0]!.state).toBe("all");
     expect(await h["mr:by-target"]!({ repoName: REPO, targetBranch: "feat", state: "draft" })).toEqual({ ok: false, error: '"state" must be one of opened, merged, closed, all' });
   });
 
   test("a forge error is an error, never an empty list", async () => {
-    const { provider } = restProvider(() => new Response("boom", { status: 502, statusText: "Bad Gateway" }));
+    const { provider } = summariesProvider(() => new ForgeHttpError("GitLab returned 502 Bad Gateway: boom", 502, "Bad Gateway", "boom"));
     const r = await handlers(provider)["mr:by-target"]!({ repoName: REPO, targetBranch: "feat" });
     expect(r).toEqual({ ok: false, error: "GitLab returned 502 Bad Gateway: boom" });
   });
 
   test("a thrown request is an error", async () => {
-    const { provider } = restProvider(() => { throw new Error("ECONNRESET"); });
+    const { provider } = summariesProvider(() => new Error("ECONNRESET"));
     const r = await handlers(provider)["mr:by-target"]!({ repoName: REPO, targetBranch: "feat" });
     expect(r).toMatchObject({ ok: false });
     expect(String((r as { ok: false; error: string }).error)).toContain("ECONNRESET");
   });
 
   test("a body that is not an array is an error", async () => {
-    const { provider } = restProvider(() => new Response(JSON.stringify({ message: "x" }), { status: 200 }));
+    const { provider } = summariesProvider(() => new Error("GitLab's merge request listing was not a JSON array"));
     const r = await handlers(provider)["mr:by-target"]!({ repoName: REPO, targetBranch: "feat" });
     expect(r).toEqual({ ok: false, error: "GitLab's merge request listing was not a JSON array" });
   });
 
-  test("refuses to call a listing complete past the page cap", async () => {
-    const { provider, paths } = restProvider((path) => {
-      const n = Number(new URLSearchParams(path.split("?")[1]).get("page"));
-      return page([row(n, "a")], String(n + 1));
-    });
+  test("refuses to call a listing complete past the cap", async () => {
+    const { provider, calls } = summariesProvider(() => ({ rows: [row(1, "a")], truncated: true }));
     const r = await handlers(provider)["mr:by-target"]!({ repoName: REPO, targetBranch: "feat" });
-    expect(r).toMatchObject({ ok: false });
-    expect(String((r as { ok: false; error: string }).error)).toContain("more than");
-    expect(paths.length).toBeGreaterThan(1);
+    expect(r).toEqual({ ok: false, error: "more than 2000 MRs target feat; the listing stopped before the end" });
+    expect(calls[0]!.limit).toBe(2000);
   });
 
   test("validates targetBranch and the repo before any request", async () => {
-    const { provider, paths } = restProvider(() => page([]));
+    const { provider, calls } = summariesProvider(() => ({ rows: [], truncated: false }));
     const h = handlers(provider);
     for (const targetBranch of [undefined, "", "  ", 3]) {
       expect(await h["mr:by-target"]!({ repoName: REPO, targetBranch })).toEqual({ ok: false, error: "missing repoName/targetBranch" });
     }
     expect(await h["mr:by-target"]!({ repoName: "proj", targetBranch: "feat" })).toEqual({ ok: false, error: "repo-unknown" });
-    expect(paths).toEqual([]);
+    expect(calls).toEqual([]);
   });
 });
 
@@ -232,20 +209,15 @@ describe("mr:get", () => {
     expect(await h["mr:get"]!({ repoName: REPO, iid: 7, refresh: true })).toMatchObject({ ok: true, data: { mr } });
     expect(written).toEqual([[REPO, "grp/proj", mr]]);
   });
-
-  test("refuses a provider without fetchSingleMR", async () => {
-    const r = await handlers({})["mr:get"]!({ repoName: REPO, iid: 7 });
-    expect(String((r as { error: string }).error)).toContain("unsupported");
-  });
 });
 
 describe("mr:list-live", () => {
   test("passes filters through and validates them", async () => {
-    const seen: string[] = [];
-    const provider = { restRequest: async (_m: string, path: string) => { seen.push(path); return new Response("[]", { status: 200, headers: { "x-next-page": "" } }); } };
+    const seen: Array<Record<string, unknown>> = [];
+    const provider = { fetchPullRequestSummaries: async (_p: string, options: Record<string, unknown>) => { seen.push(options); return { rows: [], truncated: false }; } };
     const h = handlers(provider);
     expect(await h["mr:list-live"]!({ repoName: REPO, search: "refund" })).toEqual({ ok: true, data: { mrs: [], truncated: false } });
-    expect(seen[0]).toContain("search=refund");
+    expect(seen[0]!.search).toBe("refund");
     expect(await h["mr:list-live"]!({ repoName: REPO, state: "weird" })).toMatchObject({ ok: false });
     expect(await h["mr:list-live"]!({ repoName: REPO, limit: 201 })).toEqual({ ok: false, error: '"limit" must be an integer from 1 to 200' });
     expect(await h["mr:list-live"]!({ repoName: REPO, author: 5 })).toEqual({ ok: false, error: '"author" must be a string' });
@@ -253,46 +225,49 @@ describe("mr:list-live", () => {
 });
 
 describe("mr:live-by-branch", () => {
-  const listing = (rows: unknown[]) => new Response(JSON.stringify(rows), { status: 200, headers: { "x-next-page": "" } });
+  const none = { rows: [], truncated: false };
 
   test("finds the open MR for a branch by any author and fetches it in full", async () => {
-    const paths: string[] = [];
+    const seen: Array<Record<string, unknown>> = [];
     const provider = {
-      restRequest: async (_m: string, path: string) => {
-        paths.push(path);
-        return listing(path.includes("source_branch=feat") ? [{ iid: 9, title: "t", state: "opened", source_branch: "feat", target_branch: "main" }] : []);
+      fetchPullRequestSummaries: async (_p: string, options: Record<string, unknown>) => {
+        seen.push(options);
+        return options.sourceBranch === "feat"
+          ? { rows: [{ iid: 9, title: "t", state: "opened", draft: false, sourceBranch: "feat", targetBranch: "main", author: null, webUrl: null, detailedMergeStatus: null, mergedAt: null }], truncated: false }
+          : none;
       },
       fetchSingleMR: async (_p: string, iid: number) => ({ iid, sourceBranch: "feat" }),
     };
     const r = await handlers(provider)["mr:live-by-branch"]!({ repoName: REPO, branches: ["feat", "none"] });
     expect(r).toMatchObject({ ok: true, data: { byBranch: { feat: { iid: 9, sourceBranch: "feat" } } } });
     expect((r as { data: { byBranch: Record<string, unknown> } }).data.byBranch.none).toBeNull();
-    expect(paths[0]).toContain("state=opened");
-    expect(paths[0]).toContain("source_branch=feat");
+    expect(seen[0]).toMatchObject({ state: "opened", sourceBranch: "feat" });
   });
 
   test("a GitLab refusal fails the whole call, never a null", async () => {
-    const provider = { restRequest: async () => new Response("no", { status: 403, statusText: "Forbidden" }), fetchSingleMR: async () => null };
+    const provider = {
+      fetchPullRequestSummaries: async () => { throw new ForgeHttpError("GitLab returned 403 Forbidden: no", 403, "Forbidden", "no"); },
+      fetchSingleMR: async () => null,
+    };
     expect(await handlers(provider)["mr:live-by-branch"]!({ repoName: REPO, branches: ["feat"] })).toEqual({ ok: false, error: "GitLab returned 403 Forbidden: no" });
   });
 
   test("validates branches", async () => {
-    const h = handlers({ restRequest: async () => listing([]), fetchSingleMR: async () => null });
+    const h = handlers({ fetchPullRequestSummaries: async () => none, fetchSingleMR: async () => null });
     expect(await h["mr:live-by-branch"]!({ repoName: REPO, branches: [] })).toEqual({ ok: false, error: '"branches" must name at least one branch' });
     expect(await h["mr:live-by-branch"]!({ repoName: REPO, branches: ["a", 3] })).toEqual({ ok: false, error: '"branches" must name at least one branch' });
   });
 });
 
 describe("project:labels and pipeline:list", () => {
-  const empty = () => new Response("[]", { status: 200, headers: { "x-next-page": "" } });
   test("project:labels returns the listing and validates search", async () => {
-    const h = handlers({ restRequest: async () => empty() });
+    const h = handlers({ fetchProjectLabels: async () => ({ labels: [], truncated: false }) });
     expect(await h["project:labels"]!({ repoName: REPO, search: "preview" })).toEqual({ ok: true, data: { labels: [] } });
     expect(await h["project:labels"]!({ repoName: REPO, search: 3 })).toEqual({ ok: false, error: '"search" must be a string' });
     expect(await h["project:labels"]!({ repoName: "proj" })).toEqual({ ok: false, error: "repo-unknown" });
   });
   test("pipeline:list returns the listing and validates iid and limit", async () => {
-    const h = handlers({ restRequest: async () => empty() });
+    const h = handlers({ fetchPipelineList: async () => [] });
     expect(await h["pipeline:list"]!({ repoName: REPO, ref: "feat" })).toEqual({ ok: true, data: { pipelines: [] } });
     expect(await h["pipeline:list"]!({ repoName: REPO, iid: 0 })).toEqual({ ok: false, error: '"iid" must be a positive integer' });
     expect(await h["pipeline:list"]!({ repoName: REPO, limit: 101 })).toEqual({ ok: false, error: '"limit" must be an integer from 1 to 100' });

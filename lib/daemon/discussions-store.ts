@@ -23,7 +23,7 @@
  */
 
 import type { Discussion, Note } from "@mattstack/glance";
-import { getRepoContext, getCurrentUserId } from "./freshness.ts";
+import { getGitLabContext, getCurrentUserId } from "./freshness.ts";
 import { getDiscussionsFileStore, type DiscussionsFileStore } from "./discussions-file-store.ts";
 import { getProjectMRs, type ProjectMRs } from "./project-mrs-store.ts";
 import type { HandlerContext } from "./handlers/types.ts";
@@ -187,7 +187,7 @@ export async function refreshDiscussions(
 
   const fetchDiscussions = overrides.fetchDiscussions ?? (async (repo: string, mrIid: number) => {
     const repoPath = deps.ctx.repoIndex()[repo];
-    const repoCtx = await getRepoContext(repo, repoPath);
+    const repoCtx = await getGitLabContext("threads", repo, repoPath);
     const detail = await repoCtx.provider.fetchMRDiscussions(`gitlab:${repoCtx.projectId}`, mrIid);
     return detail.discussions;
   });

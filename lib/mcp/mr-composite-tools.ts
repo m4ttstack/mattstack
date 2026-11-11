@@ -1,7 +1,7 @@
 /**
- * GitLab composite tools: each answers in one call what a skill otherwise
- * strings together from several reads. None of them speaks GitHub; each
- * refuses a github.com identity before any daemon call.
+ * Composite tools: each answers in one call what a skill otherwise strings
+ * together from several reads. Only mr_resolve_branch speaks GitHub; the
+ * rest refuse a github.com identity before any daemon call.
  */
 import { readProjectMRs, rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands, Discussion, GateRow } from "../../packages/rt-client/src/index.ts";
@@ -13,7 +13,7 @@ import { statusPorcelainAsync } from "../worktree/git-async.ts";
 import { gitPush, realGitRunner, type GitRunner } from "./git-tools.ts";
 import { resolveMrTarget, resolveRepoTarget, type MrTarget, type TargetInput } from "./mr-target.ts";
 import { runToolDefs } from "./run-tools.ts";
-import { checkRequired, err, MR_TARGET_PROPS, MR_WRITE_TIMEOUT_MS, ok, REPO_NAME_RULE, REPO_TARGET_PROPS, REPO_TARGET_RULE, type McpToolDef, type ToolResult } from "./shared.ts";
+import { checkRequired, err, MR_TARGET_PROPS, MR_WRITE_TIMEOUT_MS, ok, PR_URL_NOTE, REPO_NAME_RULE, REPO_TARGET_PROPS, REPO_TARGET_RULE, type McpToolDef, type ToolResult } from "./shared.ts";
 import { checkRegisteredTree, realTreeGuardDeps, type TreeGuardDeps } from "./tree-guard.ts";
 
 export interface MrCompositeDeps {
@@ -1001,16 +1001,12 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
     },
     {
       name: "mr_resolve_branch",
-      description: `GitLab only. An MR to its branch and the registered trees on it, for checkout: one MR read and one worktree list, nothing provisioned. Works on opened, merged and closed MRs. Returns {iid, state, title, author (username), sourceBranch, targetBranch, webUrl, trees: [{name, path}]}, where trees holds the registered worktrees whose branch equals sourceBranch exactly: usually none or one, more only for a duplicate branch. Call worktree_provision to make a tree when trees is empty. ${REPO_NAME_RULE}`,
+      description: `An MR to its branch and the registered trees on it, for checkout: one MR read and one worktree list, nothing provisioned. Works on opened, merged and closed MRs. Returns {iid, state, title, author (username), sourceBranch, targetBranch, webUrl, trees: [{name, path}]}, where trees holds the registered worktrees whose branch equals sourceBranch exactly: usually none or one, more only for a duplicate branch. Call worktree_provision to make a tree when trees is empty. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: { type: "object", properties: { ...MR_TARGET_PROPS }, additionalProperties: false },
       shellForms: { none: "a branch-to-tree lookup has no glab verb; glab mr view hits the glab catch-all on mr_view" },
       async handler(input) {
-        const early = refuseGithubTarget(input, "mr_resolve_branch", "gh pr view <n> --json headRefName");
-        if (early) return err(early);
-        const target = await resolveMrTarget(input);
+        const target = await resolveMrTarget(input, { github: true });
         if (!target.ok) return err(target.error);
-        const refused = githubRefusal(target.identity, "mr_resolve_branch", "gh pr view <n> --json headRefName");
-        if (refused) return err(refused);
 
         const mr = await deps.command<Commands["mr:get"]["data"]>("mr:get", { repoName: target.identity, iid: target.iid }, { timeoutMs: READ_TIMEOUT_MS });
         if (!mr.ok || !mr.data) return err(explainError(mr.error ?? "MR read failed"));

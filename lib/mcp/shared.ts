@@ -99,6 +99,11 @@ export const REPO_NAME_RULE = "Name the target with repoName (the repo's seriali
 /** For a tool whose target is a project, not an MR: mrUrl's iid never reaches the handler. */
 export const REPO_TARGET_RULE = "Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (an MR's https URL in a project registered with rt; it only names the repo, and its iid is not used). Given both, they must agree.";
 
+/** For a tool that opts in to GitHub pull request URLs in target resolution. */
+export const PR_URL_NOTE = "On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.";
+
+export const REPO_PR_URL_NOTE = "On GitHub, mrUrl may be a PR's https://github.com/<owner>/<repo>/pull/<number> URL, which only names the repo; its repo must be registered with rt too.";
+
 export const MR_TARGET_PROPS = {
   repoName: { type: "string", description: "Serialized identity, absolute checkout or worktree path, or a label matching exactly one registered repo." },
   iid: { type: "number", description: "The MR's iid; omit when mrUrl is given, which supplies it." },

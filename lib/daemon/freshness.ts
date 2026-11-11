@@ -33,11 +33,12 @@
  * so no existing caller's behavior changes.
  */
 
-import { GitLabProvider, type InvalidationKey, type MRApprovalRules, type PullRequest } from "@mattstack/glance";
+import { GitHubProvider, GitLabProvider, type InvalidationKey, type MRApprovalRules, type PullRequest } from "@mattstack/glance";
 import { loadRepoTracking, grants, type RepoGrants, type RepoTracking } from "../repo-tracking.ts";
 import { existsSync } from "fs";
 import { loadSecrets } from "../linear.ts";
-import { parseRemoteUrl, isGitLabRemote, toMRInfo } from "../enrich.ts";
+import { parseRemoteUrl, isGitHubRemote, isGitLabRemote, toMRInfo } from "../enrich.ts";
+import { resolveGithubToken } from "../github-token.ts";
 import { mayOfferGitLabToken } from "../team/forge-token.ts";
 import { hostFromRemote, readUserIntegrationOverrides } from "../setup/team-settings.ts";
 import { checkAndNotify } from "../notifier.ts";
@@ -70,6 +71,12 @@ export interface FreshnessEnv {
 // lib/state/db.ts).
 
 export { createCursorStore, type CursorStore };
+
+export type RepoContext =
+  | { forge: "gitlab"; provider: GitLabProvider; projectPath: string; projectId: number }
+  | { forge: "github"; provider: GitHubProvider; projectPath: string; projectId: null };
+
+export type GitLabRepoContext = Extract<RepoContext, { forge: "gitlab" }>;
 
 // ─── Per-repo live watcher state ─────────────────────────────────────────────
 
@@ -262,6 +269,7 @@ export interface MappingOverrides {
 function createFreshnessCore() {
   const watches   = new Map<string, RepoWatch>();
   const providers = new Map<string, { provider: GitLabProvider; token: string }>();
+  const githubProviders = new Map<string, { provider: GitHubProvider; token: string }>();
   let   userId: number | null = null;
   let   userIdResolved = false;
   let   selfUsername: string | null = null;
@@ -289,7 +297,8 @@ function createFreshnessCore() {
   let reconcileInFlight: Promise<void> | null = null;
 
   /** remote.origin.url, cached per repoPath for the process lifetime (remotes
-   *  rarely change). Async so it never blocks the event loop. */
+   *  rarely change). A failed or empty read is not cached, so an origin added
+   *  later is picked up. Async so it never blocks the event loop. */
   async function getRemoteUrl(repoPath: string): Promise<string | null> {
     const cached = remoteUrlCache.get(repoPath);
     if (cached !== undefined) return cached;
@@ -299,7 +308,7 @@ function createFreshnessCore() {
       stderr: "ignore",
     });
     const url = r.exitCode === 0 ? (r.stdout.trim() || null) : null;
-    remoteUrlCache.set(repoPath, url);
+    if (url !== null) remoteUrlCache.set(repoPath, url);
     return url;
   }
 
@@ -403,7 +412,7 @@ function createFreshnessCore() {
   async function resolveSelfUsername(repoName: string, repoPath: string): Promise<string | null> {
     if (selfUsername) return selfUsername;
     try {
-      await getRepoContext(repoName, repoPath);   // materializes a provider for ensureUserId
+      await getGitLabContext("self username", repoName, repoPath);   // materializes a provider for ensureUserId
       await ensureUserId();
       return selfUsername;
     } catch (err) {
@@ -441,6 +450,60 @@ function createFreshnessCore() {
     return out;
   }
 
+  async function isGitHubRepo(repoPath: string): Promise<boolean> {
+    return isGitHubRemote((await getRemoteUrl(repoPath)) ?? undefined);
+  }
+
+  async function getGitHubContext(
+    repoName: string,
+    remoteUrl: string,
+    projectPathOverride?: string,
+  ): Promise<Extract<RepoContext, { forge: "github" }>> {
+    const resolved = await resolveGithubToken((await loadSecrets()).githubToken);
+    if (!resolved) {
+      githubProviders.delete(repoName);
+      throw new Error("missing GitHub token (run: rt setup github connect)");
+    }
+    const remote = parseRemoteUrl(remoteUrl);
+    if (!remote) {
+      throw new Error(`could not parse remote URL "${redactCredentials(remoteUrl)}"`);
+    }
+    let entry = githubProviders.get(repoName);
+    if (!entry || entry.token !== resolved.token) {
+      entry = { provider: new GitHubProvider(remote.host, resolved.token, providerRequestHook()), token: resolved.token };
+      githubProviders.set(repoName, entry);
+    }
+    return { forge: "github", provider: entry.provider, projectPath: projectPathOverride ?? remote.projectPath, projectId: null };
+  }
+
+  /**
+   * Routes a repo to its forge by its origin remote: a github.com remote gets
+   * a GitHub context, anything else takes the GitLab path below, which keeps
+   * the confirmed-host check so the GitLab token never leaves for a host
+   * nobody confirmed.
+   */
+  async function getRepoContext(
+    repoName: string,
+    repoPath?: string,
+    projectPathOverride?: string,
+  ): Promise<RepoContext> {
+    if (repoPath) {
+      const remoteUrl = await getRemoteUrl(repoPath);
+      if (remoteUrl && isGitHubRemote(remoteUrl)) return getGitHubContext(repoName, remoteUrl, projectPathOverride);
+    }
+    return getGitLabRepoContext(repoName, repoPath, projectPathOverride);
+  }
+
+  async function getGitLabContext(
+    what: string,
+    repoName: string,
+    repoPath?: string,
+    projectPathOverride?: string,
+  ): Promise<GitLabRepoContext> {
+    if (repoPath && (await isGitHubRepo(repoPath))) throw new Error(`unsupported: ${what} needs a GitLab repo`);
+    return getGitLabRepoContext(repoName, repoPath, projectPathOverride);
+  }
+
   /**
    * Provider + project identifiers for a repo. Tries the live-watch fast path
    * first; if no watch exists and `repoPath` is provided, builds an ephemeral
@@ -456,11 +519,11 @@ function createFreshnessCore() {
    * surface the message so the UI can show which step failed
    * (missing token, unparseable remote, REST 404, …).
    */
-  async function getRepoContext(
+  async function getGitLabRepoContext(
     repoName: string,
     repoPath?: string,
     projectPathOverride?: string,
-  ): Promise<{ provider: GitLabProvider; projectPath: string; projectId: number }> {
+  ): Promise<GitLabRepoContext> {
     // A cached provider's token may have rotated since it was built; poll-mode
     // repos and already-cached forge-handler providers never pass back through
     // ensureProvider, so this is the only place that catches a stale token for
@@ -483,11 +546,11 @@ function createFreshnessCore() {
     // If they did, fall through to the ephemeral path so we use the canonical path.
     if (watch && provider && !projectPathOverride) {
       if (watch.projectId !== null) {
-        return { provider, projectPath: watch.projectPath, projectId: watch.projectId };
+        return { forge: "gitlab", provider, projectPath: watch.projectPath, projectId: watch.projectId };
       }
       const id = await fetchProjectId(provider, watch.projectPath);
       watch.projectId = id;
-      return { provider, projectPath: watch.projectPath, projectId: id };
+      return { forge: "gitlab", provider, projectPath: watch.projectPath, projectId: id };
     }
 
     // Provider not yet built — construct from git remote.
@@ -531,12 +594,12 @@ function createFreshnessCore() {
     // Reuse cached projectId only when the path matches.
     const cached = ephemeralCtx.get(repoName);
     if (cached && cached.projectPath === projectPath && cached.projectId !== null) {
-      return { provider, projectPath, projectId: cached.projectId };
+      return { forge: "gitlab", provider, projectPath, projectId: cached.projectId };
     }
 
     const projectId = await fetchProjectId(provider, projectPath);
     ephemeralCtx.set(repoName, { projectPath, projectId });
-    return { provider, projectPath, projectId };
+    return { forge: "gitlab", provider, projectPath, projectId };
   }
 
   /**
@@ -906,6 +969,7 @@ function createFreshnessCore() {
   function disposeFreshness(): void {
     for (const repoName of [...watches.keys()]) stopWatch(repoName);
     providers.clear();
+    githubProviders.clear();
     userId = null;
     userIdResolved = false;
   }
@@ -917,6 +981,8 @@ function createFreshnessCore() {
     getAggregatedConnection,
     getFreshnessSnapshot,
     getRepoContext,
+    getGitLabContext,
+    isGitHubRepo,
     getCurrentUserId,
     applyInvalidationBatch,
     initFreshness,
@@ -1009,8 +1075,22 @@ export function getRepoContext(
   repoName: string,
   repoPath?: string,
   projectPathOverride?: string,
-): Promise<{ provider: GitLabProvider; projectPath: string; projectId: number }> {
+): Promise<RepoContext> {
   return getDefaultCore().getRepoContext(repoName, repoPath, projectPathOverride);
+}
+
+/** The router for a caller that only works on GitLab; a GitHub repo throws `unsupported: <what> needs a GitLab repo`. */
+export function getGitLabContext(
+  what: string,
+  repoName: string,
+  repoPath?: string,
+  projectPathOverride?: string,
+): Promise<GitLabRepoContext> {
+  return getDefaultCore().getGitLabContext(what, repoName, repoPath, projectPathOverride);
+}
+
+export function isGitHubRepo(repoPath: string): Promise<boolean> {
+  return getDefaultCore().isGitHubRepo(repoPath);
 }
 
 export function getCurrentUserId(): number | null {

@@ -10,6 +10,9 @@
  * git observed it (often the ssh form), which the https form built from a
  * URL never matches, so when that form names no registered repo the
  * registered checkouts' own origin remotes are the tie back to the URL.
+ * A GitHub pull request URL names a target only for a tool that opts in
+ * with `github: true`, because its daemon verbs answer on GitHub; every
+ * other tool keeps refusing one by shape.
  */
 import { getRemoteUrl } from "../pickers.ts";
 import { tryResolveRepoArg } from "../repo-arg.ts";
@@ -17,6 +20,12 @@ import { isRepoRegistered, loadRepoIndex } from "../repo-index.ts";
 import { identityFromRemote, normalizeRemote, parseIdentity, serializeIdentity } from "../settings/identity.ts";
 
 export type TargetInput = { repoName?: unknown; iid?: unknown; mrUrl?: unknown };
+
+export type TargetOptions = {
+  /** The tool's daemon verbs answer on GitHub, so a GitHub pull request URL may name its target. */
+  github?: boolean;
+  identityForUrl?: typeof registeredIdentityForUrl;
+};
 
 export type RepoTarget =
   | { ok: true; identity: string; iid: number | undefined }
@@ -36,6 +45,17 @@ export function parseMrUrl(url: string): { host: string; projectPath: string; ii
   const iid = Number(m[3]);
   if (!Number.isInteger(iid) || iid <= 0) return null;
   return { host: m[1]!, projectPath: m[2]!, iid };
+}
+
+const PR_URL_RE = /^https:\/\/github\.com\/([^/?#]+\/[^/?#]+)\/pull\/(\d+)(?:[/?#].*)?$/;
+
+/** Kept apart from parseMrUrl, which callers rely on to return null for a GitHub pull request. */
+export function parsePrUrl(url: string): { projectPath: string; iid: number } | null {
+  const m = PR_URL_RE.exec(url.trim());
+  if (!m) return null;
+  const iid = Number(m[2]);
+  if (!Number.isInteger(iid) || iid <= 0) return null;
+  return { projectPath: m[1]!, iid };
 }
 
 function isPositiveInt(v: unknown): v is number {
@@ -65,7 +85,7 @@ export async function registeredIdentityForUrl(host: string, projectPath: string
   return { identity: matches[0]! };
 }
 
-export async function resolveRepoTarget(input: TargetInput): Promise<RepoTarget> {
+export async function resolveRepoTarget(input: TargetInput, opts: TargetOptions = {}): Promise<RepoTarget> {
   if (input.repoName !== undefined && typeof input.repoName !== "string") return { ok: false, error: '"repoName" must be a string' };
   if (input.iid !== undefined && !isPositiveInt(input.iid)) return { ok: false, error: '"iid" must be a positive integer' };
   if (input.mrUrl !== undefined && typeof input.mrUrl !== "string") return { ok: false, error: '"mrUrl" must be a string' };
@@ -73,13 +93,14 @@ export async function resolveRepoTarget(input: TargetInput): Promise<RepoTarget>
   const mrUrl = typeof input.mrUrl === "string" ? input.mrUrl.trim() : "";
   if (!repoName && !mrUrl) return { ok: false, error: 'pass "repoName" or "mrUrl"' };
 
-  let fromUrl: { identity: string; iid: number } | undefined;
+  let fromUrl: { identity: string; iid: number; noun: string } | undefined;
   if (mrUrl) {
-    const parsed = parseMrUrl(mrUrl);
+    const pr = opts.github ? parsePrUrl(mrUrl) : null;
+    const parsed = pr ? { host: "github.com", ...pr } : parseMrUrl(mrUrl);
     if (!parsed) return { ok: false, error: MR_URL_SHAPE };
-    const found = await registeredIdentityForUrl(parsed.host, parsed.projectPath);
+    const found = await (opts.identityForUrl ?? registeredIdentityForUrl)(parsed.host, parsed.projectPath);
     if ("error" in found) return { ok: false, error: found.error };
-    fromUrl = { identity: found.identity, iid: parsed.iid };
+    fromUrl = { identity: found.identity, iid: parsed.iid, noun: pr ? "pull request" : "merge request" };
   }
 
   let fromName: string | undefined;
@@ -101,15 +122,15 @@ export async function resolveRepoTarget(input: TargetInput): Promise<RepoTarget>
     return { ok: false, error: `repoName resolves to ${fromName} but mrUrl names ${fromUrl.identity}; pass one of them, or make them agree` };
   }
   if (fromUrl && input.iid !== undefined && input.iid !== fromUrl.iid) {
-    return { ok: false, error: `iid ${input.iid} does not match mrUrl's merge request ${fromUrl.iid}` };
+    return { ok: false, error: `iid ${input.iid} does not match mrUrl's ${fromUrl.noun} ${fromUrl.iid}` };
   }
   const identity = fromName ?? fromUrl!.identity;
   const iid = isPositiveInt(input.iid) ? input.iid : fromUrl?.iid;
   return { ok: true, identity, iid };
 }
 
-export async function resolveMrTarget(input: TargetInput): Promise<MrTarget> {
-  const res = await resolveRepoTarget(input);
+export async function resolveMrTarget(input: TargetInput, opts: TargetOptions = {}): Promise<MrTarget> {
+  const res = await resolveRepoTarget(input, opts);
   if (!res.ok) return res;
   if (res.iid === undefined) return { ok: false, error: 'pass "iid" or "mrUrl"' };
   return { ok: true, identity: res.identity, iid: res.iid };

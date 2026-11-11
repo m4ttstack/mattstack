@@ -1,29 +1,26 @@
 /**
- * mr_merge's GitHub path. It calls GitHub from the MCP server because the
- * daemon's provider context is GitLab-only, and it asks GitHub whether the PR
- * goes through a merge queue so callers never have to know.
+ * mr_merge's GitHub path. Every forge call goes through daemon verbs, so only
+ * the daemon holds the token, and it asks GitHub whether the PR goes through
+ * a merge queue so callers never have to know. The queue wait loop stays here.
  */
-import { GitHubProvider, ReadBackFailedError, type MergeQueueStatus } from "@mattstack/glance";
-import { resolveGithubToken } from "../github-token.ts";
-import { loadSecrets } from "../linear.ts";
+import { ReadBackFailedError, type GitProvider, type MergeQueueStatus } from "@mattstack/glance";
+import { DAEMON_UNREACHABLE_PREFIX, rtCommand, type Commands } from "../../packages/rt-client/src/index.ts";
 import { parseIdentity } from "../settings/identity.ts";
 import { isRepoRegistered } from "../repo-index.ts";
 import { abortableSleep } from "./ci-tools.ts";
-import { registeredIdentityForUrl, resolveMrTarget, resolveRepoTarget, type TargetInput } from "./mr-target.ts";
-import { err, ok, type ToolResult } from "./shared.ts";
+import { parsePrUrl, registeredIdentityForUrl, resolveMrTarget, type TargetInput } from "./mr-target.ts";
+import { err, MR_WRITE_TIMEOUT_MS, ok, type ToolResult } from "./shared.ts";
 
 export const MERGE_WAIT_DEFAULT_SECONDS = 1500;
 // Below Claude Code's 1800 s MCP idle timeout, for a client that sends no progress token.
 export const MERGE_WAIT_MAX_SECONDS = 1500;
 const MERGE_WAIT_POLL_MS = 20_000;
 
-const GITHUB_HOST = "https://github.com";
 const GITHUB_ID_PREFIX = "github.com/";
-const PR_URL_RE = /^https:\/\/github\.com\/([^/?#]+\/[^/?#]+)\/pull\/(\d+)(?:[/?#].*)?$/;
 
-export type GithubTarget = { projectPath: string; iid: number };
+export type GithubTarget = { projectPath: string; iid: number; identity: string };
 
-export type GithubMergeProvider = Pick<GitHubProvider, "enqueuePullRequest" | "fetchMergeQueueStatus" | "mergePullRequest" | "setAutoMerge">;
+export type GithubMergeProvider = Required<Pick<GitProvider, "enqueuePullRequest" | "fetchMergeQueueStatus" | "mergePullRequest" | "setAutoMerge">>;
 
 export interface GithubMergeOptions {
   squash?: boolean;
@@ -37,7 +34,7 @@ export interface GithubMergeOptions {
 }
 
 export interface GithubMergeSeams {
-  provider?: () => Promise<GithubMergeProvider | null>;
+  provider?: (target: GithubTarget) => Promise<GithubMergeProvider | null>;
   now?: () => number;
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   signal?: AbortSignal;
@@ -87,31 +84,68 @@ export async function resolveGithubTarget(
   seams: { identityForUrl?: typeof registeredIdentityForUrl; isRegistered?: typeof isRepoRegistered } = {},
 ): Promise<GithubTarget | { error: string } | null> {
   const { identityForUrl = registeredIdentityForUrl, isRegistered = isRepoRegistered } = seams;
-  const url = typeof input.mrUrl === "string" ? PR_URL_RE.exec(input.mrUrl.trim()) : null;
+  const url = typeof input.mrUrl === "string" ? parsePrUrl(input.mrUrl) : null;
   if (!url) {
     const target = await resolveMrTarget(input);
     const projectPath = target.ok ? githubProject(target.identity) : null;
     if (!target.ok || !projectPath) return null;
     if (!isRegistered(target.identity)) return { error: `${target.identity} is not registered with rt; run rt repos register in its checkout first` };
-    return { projectPath, iid: target.iid };
+    return { projectPath, iid: target.iid, identity: target.identity };
   }
 
-  const projectPath = url[1]!;
-  const iid = Number(url[2]);
-  if (input.iid !== undefined && input.iid !== iid) return { error: `iid ${String(input.iid)} does not match mrUrl's pull request ${iid}` };
-  const found = await identityForUrl("github.com", projectPath);
-  if ("error" in found) return { error: found.error };
-  if (input.repoName !== undefined) {
-    const named = await resolveRepoTarget({ repoName: input.repoName });
-    if (!named.ok) return { error: named.error };
-    if (named.identity !== found.identity) return { error: `repoName resolves to ${named.identity} but mrUrl names ${found.identity}; pass one of them, or make them agree` };
-  }
-  return { projectPath, iid };
+  const target = await resolveMrTarget(input, { github: true, identityForUrl });
+  if (!target.ok) return { error: target.error };
+  return { projectPath: url.projectPath, iid: target.iid, identity: target.identity };
 }
 
-async function realProvider(): Promise<GithubMergeProvider | null> {
-  const resolved = await resolveGithubToken((await loadSecrets()).githubToken);
-  return resolved ? new GitHubProvider(GITHUB_HOST, resolved.token) : null;
+type DaemonCommand = typeof rtCommand;
+
+/** The daemon's catch prefixes the forge's text with `Error: `; the in-process path this replaced returned it bare. */
+function daemonError(error: string | undefined, cmd: string): Error {
+  return new Error((error ?? `${cmd} failed`).replace(/^Error: /, ""));
+}
+
+async function daemonData<K extends keyof Commands>(command: DaemonCommand, cmd: K, payload: Commands[K]["payload"]): Promise<Commands[K]["data"] | undefined> {
+  const res = await command<Commands[K]["data"]>(cmd, payload as Record<string, unknown>, { timeoutMs: MR_WRITE_TIMEOUT_MS });
+  if (!res.ok) throw daemonError(res.error, cmd);
+  return res.data;
+}
+
+/** The provider seam over daemon verbs for one repo. Its projectPath arguments are ignored: the daemon finds the repo from `identity`. */
+export function daemonMergeProvider(identity: string, command: DaemonCommand = rtCommand): GithubMergeProvider {
+  return {
+    async fetchMergeQueueStatus(_projectPath, iid) {
+      const status = await daemonData(command, "mr:merge-queue-status", { repoName: identity, iid });
+      if (!status) throw new Error("mr:merge-queue-status returned no status");
+      return status;
+    },
+    async enqueuePullRequest(_projectPath, iid, input) {
+      const entry = await daemonData(command, "mr:enqueue", { repoName: identity, iid, ...(input?.expectedHeadSha !== undefined && { expectedHeadSha: input.expectedHeadSha }) });
+      if (!entry) throw new Error("mr:enqueue returned no queue entry");
+      return entry as { position: number; state: string };
+    },
+    async setAutoMerge(_projectPath, iid) {
+      const res = await command("mr:action", { repoName: identity, iid, action: "setAutoMerge", args: [] }, { timeoutMs: MR_WRITE_TIMEOUT_MS });
+      if (!res.ok) throw daemonError(res.error, "mr:action");
+    },
+    async mergePullRequest(projectPath, iid, input) {
+      const merged = await command<Commands["mr:action"]["data"]>("mr:action", { repoName: identity, iid, action: "merge", args: [input ?? {}] }, { timeoutMs: MR_WRITE_TIMEOUT_MS });
+      // With no answer the daemon may still be merging, so whether the write landed is unknown: only a merged read-back overrides the error.
+      const unanswered = !merged.ok && merged.error?.startsWith(DAEMON_UNREACHABLE_PREFIX) === true;
+      if (!merged.ok && !unanswered) throw daemonError(merged.error, "mr:action");
+      const back = await command<Commands["mr:get"]["data"]>("mr:get", { repoName: identity, iid, refresh: true }, { timeoutMs: MR_WRITE_TIMEOUT_MS });
+      if (unanswered) {
+        if (back.ok && back.data?.mr?.state === "merged") return back.data.mr;
+        throw new Error(merged.error);
+      }
+      const note = merged.data?.sourceBranchNotDeleted;
+      const cleanup = typeof note === "string" ? { sourceBranchNotDeleted: note } : {};
+      if (!back.ok || !back.data?.mr) {
+        throw new ReadBackFailedError(`Merged #${iid} but could not read it back: ${back.error ?? "mr:get returned no pull request"}`, { operation: "mergePullRequest", projectPath, iid, writeApplied: true });
+      }
+      return { ...back.data.mr, ...cleanup };
+    },
+  };
 }
 
 export async function mergeOnGitHub(
@@ -123,7 +157,7 @@ export async function mergeOnGitHub(
   const clock = { now: seams.now ?? Date.now, sleep: seams.sleep ?? abortableSleep, signal: seams.signal, progress: seams.progress };
   const maxWait = options.maxWaitSeconds ?? MERGE_WAIT_DEFAULT_SECONDS;
   try {
-    const github = await (seams.provider ?? realProvider)();
+    const github = await (seams.provider ?? (async (t: GithubTarget) => daemonMergeProvider(t.identity)))(target);
     if (!github) return err("no GitHub token (run: gh auth login)");
     const queue = await github.fetchMergeQueueStatus(projectPath, iid);
     if (queue.merged || queue.lastRemoval?.reason === "merged") return ok({ merged: true });

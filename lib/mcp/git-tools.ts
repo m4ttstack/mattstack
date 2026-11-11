@@ -504,8 +504,8 @@ function ghPrs(stdout: string): SweepMr[] | null {
   }
 }
 
-// The daemon's MR reads are GitLab only, so a GitHub repo asks gh, which
-// names the signed-in user as @me the way GitLab's author: me does.
+// A GitHub repo asks gh, which names the signed-in user as @me the way
+// GitLab's author: me does.
 export async function realAuthoredOpenMrs(identity: string, io: SweepIo = realSweepIo()): Promise<AuthoredMrs> {
   const checkout = io.checkout(identity);
   if (!checkout) return { ok: false, error: `${identity} has no registered checkout` };

@@ -1,4 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { REPO_INDEX_NS } from "../../repo-index.ts";
+import { closeStateDb, setKvValue } from "../../state/index.ts";
 import type { Discussion } from "../../../packages/rt-client/src/index.ts";
 import { EXISTING_MR, findOpenMrForBranch, githubRefusal, mrCompositeToolDefs, refuseGithubTarget, normalizeBody, postedMatch, selfUsername, waitForRebase, REBASE_DEFAULT_WAIT_S, REBASE_MAX_WAIT_S, REBASE_POLL_MS, type MrCompositeDeps } from "../mr-composite-tools.ts";
 
@@ -283,20 +288,50 @@ describe("mr_resolve_branch", () => {
     expect(res).toMatchObject({ ok: true, body: { state: "merged", trees: [{ name: "a" }] } });
   });
 
-  test("a GitHub identity is refused naming the gh move, before any command", async () => {
-    const { deps, calls } = fake(answers());
+  test("a GitHub identity reads the PR and the trees on its branch", async () => {
+    const { deps, calls } = fake(answers({ "mr:get": { mr: mr({ iid: 3, webUrl: "https://github.com/acme/app/pull/3" }), fetchedAt: 5 } }));
     const res = await tool(deps, "mr_resolve_branch").handler({ repoName: GH, iid: 3 }, ENV);
-    expect(res.ok).toBe(false);
-    expect(res.error).toBe("GitLab only: mr_resolve_branch does not speak GitHub; gh pr view <n> --json headRefName");
-    expect(calls).toEqual([]);
+    expect(res).toMatchObject({ ok: true, body: { iid: 3, sourceBranch: "feat-x", webUrl: "https://github.com/acme/app/pull/3", trees: [{ name: "a" }] } });
+    expect(calls).toEqual([
+      { name: "mr:get", payload: { repoName: GH, iid: 3 } },
+      { name: "worktree:list", payload: { repoName: GH } },
+    ]);
   });
 
-  test("a GitHub mrUrl is refused naming the gh move, before any command", async () => {
-    const { deps, calls } = fake(answers());
-    const res = await tool(deps, "mr_resolve_branch").handler({ mrUrl: "https://github.com/acme/app/pull/3" }, ENV);
-    expect(res.ok).toBe(false);
-    expect(res.error).toBe("GitLab only: mr_resolve_branch does not speak GitHub; gh pr view <n> --json headRefName");
-    expect(calls).toEqual([]);
+  describe("with a registered GitHub repo", () => {
+    const origHome = process.env.HOME;
+    let home: string;
+    beforeEach(() => {
+      home = realpathSync(mkdtempSync(join(tmpdir(), "rt-mr-composite-gh-")));
+      process.env.HOME = home;
+      closeStateDb();
+      setKvValue(REPO_INDEX_NS, GH, "/repos/ghapp");
+    });
+    afterEach(() => {
+      process.env.HOME = origHome;
+      closeStateDb();
+      rmSync(home, { recursive: true, force: true });
+    });
+
+    test("a GitHub PR URL names the repo and the PR", async () => {
+      const { deps, calls } = fake(answers());
+      const res = await tool(deps, "mr_resolve_branch").handler({ mrUrl: "https://github.com/acme/app/pull/3" }, ENV);
+      expect(res.ok).toBe(true);
+      expect(calls[0]).toEqual({ name: "mr:get", payload: { repoName: GH, iid: 3 } });
+    });
+
+    test("mr_map and mr_posted_since keep refusing a GitHub PR URL, before any command", async () => {
+      const { deps, calls } = fake(answers());
+      expect((await tool(deps, "mr_map").handler({ mrUrl: "https://github.com/acme/app/pull/3" }, ENV)).error).toStartWith("GitLab only: mr_map does not speak GitHub");
+      expect((await tool(deps, "mr_posted_since").handler({ mrUrl: "https://github.com/acme/app/pull/3", since: SINCE, threads: [{ discussionId: "d1" }] }, ENV)).error).toStartWith("GitLab only: mr_posted_since does not speak GitHub");
+      expect(calls).toEqual([]);
+    });
+  });
+
+  test("its description no longer says GitLab only, and names the PR URL form", () => {
+    const d = tool(fake().deps, "mr_resolve_branch").description;
+    expect(d).not.toContain("GitLab only");
+    expect(d).toContain("github.com/<owner>/<repo>/pull/<number>");
   });
 
   test("an mr:get error passes through verbatim and skips the worktree read", async () => {
@@ -314,11 +349,9 @@ describe("mr_resolve_branch", () => {
     expect(res.error).toContain("daemon down");
   });
 
-  test("the description starts GitLab only and names the target rule", () => {
+  test("the description names the target rule", () => {
     const { deps } = fake();
-    const t = tool(deps, "mr_resolve_branch");
-    expect(t.description).toStartWith("GitLab only.");
-    expect(t.description).toContain("Name the target with repoName");
+    expect(tool(deps, "mr_resolve_branch").description).toContain("Name the target with repoName");
   });
 });
 

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { FORGE_GET_MAX_BYTES, REFUSED_SEGMENTS, checkForgePath, forgeGet, gitlabFailure, listLabels, listMrsLive, listPipelines, missingMrReason, projectApi, type RestProvider } from "../forge-reads.ts";
+import { ForgeHttpError, RateLimitedError } from "@mattstack/glance";
+import { FORGE_GET_MAX_BYTES, REFUSED_SEGMENTS, checkForgePath, forgeFailure, forgeGet, gitlabFailure, listLabels, listMrsLive, listPipelines, missingMrReason, projectApi, type RestProvider } from "../forge-reads.ts";
 
 export function restFake(responses: Array<Response | Error>): { provider: RestProvider; paths: string[] } {
   const paths: string[] = [];
@@ -24,6 +25,11 @@ describe("forge-reads basics", () => {
   test("gitlabFailure carries status, status text and a body excerpt", async () => {
     const res = new Response('{"message":"403 Forbidden"}', { status: 403, statusText: "Forbidden" });
     expect(await gitlabFailure(res)).toBe('GitLab returned 403 Forbidden: {"message":"403 Forbidden"}');
+  });
+
+  test("gitlabFailure names GitHub for a GitHub response", async () => {
+    const res = new Response("Not Found", { status: 404, statusText: "Not Found" });
+    expect(await gitlabFailure(res, "github")).toBe("GitHub returned 404 Not Found: Not Found");
   });
 
   test("gitlabFailure stops reading an endless error body after a small bound", async () => {
@@ -58,101 +64,162 @@ describe("forge-reads basics", () => {
   });
 });
 
-const row = (iid: number) => ({
-  iid, title: `t${iid}`, state: "opened", draft: false, source_branch: `b${iid}`, target_branch: "main",
-  author: { username: "alice" }, web_url: `https://gitlab.com/grp/proj/-/merge_requests/${iid}`, detailed_merge_status: "mergeable",
+const summary = (iid: number, over: Record<string, unknown> = {}) => ({
+  iid, title: `t${iid}`, state: "opened", draft: false, sourceBranch: `b${iid}`, targetBranch: "main",
+  author: "alice", webUrl: `https://gitlab.com/grp/proj/-/merge_requests/${iid}`, detailedMergeStatus: "mergeable", mergedAt: null, ...over,
 });
-const page = (rows: unknown[], next: string) => new Response(JSON.stringify(rows), { status: 200, headers: { "x-next-page": next } });
+
+/** A provider whose reads answer from `answers` in order: a value, or an error to throw. */
+function readsFake(answers: Record<string, unknown[]>) {
+  const calls: Array<{ name: string; args: unknown[] }> = [];
+  const provider: Record<string, (...args: unknown[]) => Promise<unknown>> = {};
+  for (const [name, queue] of Object.entries(answers)) {
+    provider[name] = async (...args: unknown[]) => {
+      calls.push({ name, args });
+      if (queue.length === 0) throw new Error(`no fake answer for ${name}`);
+      const next = queue.shift();
+      if (next instanceof Error) throw next;
+      return next;
+    };
+  }
+  return { provider: provider as any, calls };
+}
+
+const http = (status: number, statusText: string, bodyText: string, forge = "GitLab") =>
+  new ForgeHttpError(`${forge} returned ${status} ${statusText}: ${bodyText}`, status, statusText, bodyText);
+
+describe("forgeFailure", () => {
+  test("a forge refusal keeps the first 200 characters of the forge's message", () => {
+    const long = `${"m".repeat(200)}${"z".repeat(100)}`;
+    expect(forgeFailure(http(404, "Not Found", long), "gitlab")).toBe(`GitLab returned 404 Not Found: ${"m".repeat(200)}`);
+  });
+
+  test("an empty message leaves no trailing colon", () => {
+    expect(forgeFailure(http(404, "Not Found", ""), "gitlab")).toBe("GitLab returned 404 Not Found");
+  });
+
+  test("a GitLab 429 gitbeaker gave up retrying carries gitbeaker's retry text", () => {
+    const retry = "Could not successfully complete this request after 10 retries, last status code: 429. Check the applicable rate limits for this endpoint.";
+    expect(forgeFailure(http(429, "Too Many Requests", retry), "gitlab")).toBe(`GitLab returned 429 Too Many Requests: ${retry}`);
+  });
+
+  test("names GitHub on a GitHub read", () => {
+    expect(forgeFailure(http(403, "Forbidden", "Resource not accessible by integration", "GitHub"), "github")).toBe("GitHub returned 403 Forbidden: Resource not accessible by integration");
+  });
+
+  test("a rate limit names the limit and when to retry", () => {
+    const limited = new RateLimitedError("GitHub secondary rate limit hit on GET /repos/o/r/labels", { kind: "secondary", resetAt: null, retryAfterMs: 60000, operation: "GET /repos/o/r/labels" });
+    expect(forgeFailure(limited, "github")).toBe("GitHub secondary rate limit hit on GET /repos/o/r/labels (retry in 60s)");
+    const reset = new RateLimitedError("GitHub primary rate limit hit on x; resets at 2026-11-11T10:00:00Z", { kind: "primary", resetAt: "2026-11-11T10:00:00Z", retryAfterMs: null, operation: "x" });
+    expect(forgeFailure(reset, "github")).toBe("GitHub primary rate limit hit on x; resets at 2026-11-11T10:00:00Z");
+  });
+
+  test("a listing that was not an array is the bare sentence; anything else is its string form", () => {
+    expect(forgeFailure(new Error("GitLab's label listing was not a JSON array"), "gitlab")).toBe("GitLab's label listing was not a JSON array");
+    expect(forgeFailure(new Error("ECONNRESET"), "gitlab")).toBe("Error: ECONNRESET");
+  });
+});
 
 describe("listMrsLive", () => {
   test("sends every filter and orders by last update", async () => {
-    const { provider, paths } = restFake([page([row(1)], "")]);
+    const { provider, calls } = readsFake({ fetchPullRequestSummaries: [{ rows: [summary(1)], truncated: false }] });
     const r = await listMrsLive(provider, "grp/proj", { author: "bob", sourceBranch: "feat", targetBranch: "main", state: "merged", search: "refund" });
     expect(r).toMatchObject({ ok: true, truncated: false });
-    const query = new URLSearchParams(paths[0]!.split("?")[1]);
-    expect(Object.fromEntries(query)).toEqual({
-      state: "merged", order_by: "updated_at", sort: "desc", scope: "all", author_username: "bob",
-      source_branch: "feat", target_branch: "main", search: "refund", per_page: "100", page: "1",
-    });
+    expect(calls).toEqual([{ name: "fetchPullRequestSummaries", args: ["grp/proj", {
+      state: "merged", sort: "updated_desc", author: "bob", sourceBranch: "feat", targetBranch: "main", search: "refund", limit: 50,
+    }] }]);
   });
 
   test("carries each MR's merged_at as mergedAt, null when GitLab has none", async () => {
-    const { provider } = restFake([page([{ ...row(1), state: "merged", merged_at: "2026-10-16T12:00:00Z" }, row(2)], "")]);
+    const { provider } = readsFake({ fetchPullRequestSummaries: [{ rows: [summary(1, { state: "merged", mergedAt: "2026-10-16T12:00:00Z" }), summary(2)], truncated: false }] });
     const r = await listMrsLive(provider, "grp/proj", {});
     expect(r.ok && r.mrs.map((mr) => mr.mergedAt)).toEqual(["2026-10-16T12:00:00Z", null]);
   });
 
   test("author me asks GitLab for the token user's own MRs", async () => {
-    const { provider, paths } = restFake([page([], "")]);
+    const { provider, calls } = readsFake({ fetchPullRequestSummaries: [{ rows: [], truncated: false }] });
     await listMrsLive(provider, "grp/proj", { author: "me" });
-    const query = new URLSearchParams(paths[0]!.split("?")[1]);
-    expect(query.get("scope")).toBe("created_by_me");
-    expect(query.has("author_username")).toBe(false);
+    expect((calls[0]!.args[1] as { author?: string }).author).toBe("me");
   });
 
   test("an unfiltered call past the limit returns exactly limit rows and truncated", async () => {
-    const hundred = Array.from({ length: 100 }, (_, i) => row(i + 1));
-    const { provider } = restFake([page(hundred, "2")]);
+    const fifty = Array.from({ length: 50 }, (_, i) => summary(i + 1));
+    const { provider, calls } = readsFake({ fetchPullRequestSummaries: [{ rows: fifty, truncated: true }] });
     const r = await listMrsLive(provider, "grp/proj", { limit: 50 });
     expect(r.ok && r.mrs.length).toBe(50);
     expect(r.ok && r.truncated).toBe(true);
+    expect((calls[0]!.args[1] as { limit: number }).limit).toBe(50);
   });
 
-  test("walks pages until the limit is covered", async () => {
-    const hundred = Array.from({ length: 100 }, (_, i) => row(i + 1));
-    const { provider, paths } = restFake([page(hundred, "2"), page([row(101)], "")]);
+  test("asks for the whole limit in one read", async () => {
+    const rows = Array.from({ length: 101 }, (_, i) => summary(i + 1));
+    const { provider, calls } = readsFake({ fetchPullRequestSummaries: [{ rows, truncated: false }] });
     const r = await listMrsLive(provider, "grp/proj", { limit: 150 });
     expect(r.ok && r.mrs.length).toBe(101);
     expect(r.ok && r.truncated).toBe(false);
-    expect(paths.length).toBe(2);
+    expect(calls.length).toBe(1);
+    expect((calls[0]!.args[1] as { limit: number }).limit).toBe(150);
   });
 
-  test("an empty page ends the walk even when GitLab names a next page", async () => {
-    const { provider, paths } = restFake([page([], "2")]);
+  test("an empty listing is an empty, complete answer", async () => {
+    const { provider, calls } = readsFake({ fetchPullRequestSummaries: [{ rows: [], truncated: false }] });
     const r = await listMrsLive(provider, "grp/proj", {});
     expect(r).toEqual({ ok: true, mrs: [], truncated: false });
-    expect(paths.length).toBe(1);
+    expect(calls.length).toBe(1);
   });
 
   test("a GitLab refusal is the error", async () => {
-    const { provider } = restFake([new Response("nope", { status: 401, statusText: "Unauthorized" })]);
+    const { provider } = readsFake({ fetchPullRequestSummaries: [http(401, "Unauthorized", "nope")] });
     expect(await listMrsLive(provider, "grp/proj", {})).toEqual({ ok: false, error: "GitLab returned 401 Unauthorized: nope" });
+  });
+
+  test("a listing that was not an array is the error", async () => {
+    const { provider } = readsFake({ fetchPullRequestSummaries: [new Error("GitLab's merge request listing was not a JSON array")] });
+    expect(await listMrsLive(provider, "grp/proj", {})).toEqual({ ok: false, error: "GitLab's merge request listing was not a JSON array" });
   });
 });
 
 describe("listLabels", () => {
   test("returns name, description and color, passing search", async () => {
-    const { provider, paths } = restFake([page([{ name: "preview-acme", description: null, color: "#fff", id: 3 }], "")]);
+    const { provider, calls } = readsFake({ fetchProjectLabels: [{ labels: [{ name: "preview-acme", description: null, color: "#fff" }], truncated: false }] });
     expect(await listLabels(provider, "grp/proj", "preview")).toEqual({ ok: true, labels: [{ name: "preview-acme", description: null, color: "#fff" }] });
-    expect(paths[0]).toBe("/projects/grp%2Fproj/labels?per_page=100&page=1&search=preview");
+    expect(calls).toEqual([{ name: "fetchProjectLabels", args: ["grp/proj", { search: "preview", maxRows: 1000 }] }]);
   });
   test("a refusal is the error", async () => {
-    const { provider } = restFake([new Response("", { status: 404, statusText: "Not Found" })]);
+    const { provider } = readsFake({ fetchProjectLabels: [http(404, "Not Found", "")] });
     expect(await listLabels(provider, "grp/proj")).toEqual({ ok: false, error: "GitLab returned 404 Not Found" });
+  });
+  test("more labels than the cap is an error, never a short list", async () => {
+    const { provider } = readsFake({ fetchProjectLabels: [{ labels: [{ name: "a", description: null, color: null }], truncated: true }] });
+    expect(await listLabels(provider, "grp/proj")).toEqual({ ok: false, error: "more than 1000 labels matched; narrow the search" });
   });
 });
 
 describe("listPipelines", () => {
-  const p = { id: 5, status: "failed", ref: "feat", sha: "abc", source: "push", web_url: "https://x/5", created_at: "2026-09-30T00:00:00Z" };
+  const p = { id: 5, status: "failed", ref: "feat", sha: "abc", source: "push", webUrl: "https://x/5", createdAt: "2026-09-30T00:00:00Z" };
   test("lists a branch's pipelines newest first, with no MR needed", async () => {
-    const { provider, paths } = restFake([page([p], "")]);
+    const { provider, calls } = readsFake({ fetchPipelineList: [[p]] });
     expect(await listPipelines(provider, "grp/proj", { ref: "feat" })).toEqual({
       ok: true, pipelines: [{ id: 5, status: "failed", ref: "feat", sha: "abc", source: "push", webUrl: "https://x/5", createdAt: "2026-09-30T00:00:00Z" }],
     });
-    expect(paths[0]).toBe("/projects/grp%2Fproj/pipelines?per_page=20&order_by=id&sort=desc&ref=feat");
+    expect(calls).toEqual([{ name: "fetchPipelineList", args: ["grp/proj", { ref: "feat", limit: 20 }] }]);
   });
   test("an MR iid together with ref or sha is refused, nothing fetched", async () => {
     for (const extra of [{ ref: "feat" }, { sha: "abc" }]) {
-      const { provider, paths } = restFake([page([p], "")]);
+      const { provider, calls } = readsFake({ fetchPipelineList: [[p]] });
       const r = await listPipelines(provider, "grp/proj", { iid: 12, ...extra });
       expect(r).toEqual({ ok: false, error: '"iid" lists one MR\'s own pipelines and cannot be combined with "ref" or "sha"' });
-      expect(paths).toEqual([]);
+      expect(calls).toEqual([]);
     }
   });
   test("an MR iid reads that MR's pipelines", async () => {
-    const { provider, paths } = restFake([page([p], "")]);
+    const { provider, calls } = readsFake({ fetchPipelineList: [[p]] });
     await listPipelines(provider, "grp/proj", { iid: 12, limit: 5 });
-    expect(paths[0]).toBe("/projects/grp%2Fproj/merge_requests/12/pipelines?per_page=5");
+    expect(calls).toEqual([{ name: "fetchPipelineList", args: ["grp/proj", { iid: 12, limit: 5 }] }]);
+  });
+  test("a refusal is the error", async () => {
+    const { provider } = readsFake({ fetchPipelineList: [http(403, "Forbidden", "403 Forbidden")] });
+    expect(await listPipelines(provider, "grp/proj", { ref: "feat" })).toEqual({ ok: false, error: "GitLab returned 403 Forbidden: 403 Forbidden" });
   });
 });
 

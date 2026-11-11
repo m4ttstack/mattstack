@@ -2,13 +2,11 @@
  * herd:lanes reads: per-worktree drift against the default ref, cross-job
  * file collisions, and the merge state of a job's branch on its forge.
  */
-import { GitHubProvider } from "@mattstack/glance";
 import type { HerdLaneRow, MrTargetSummary } from "../../packages/rt-client/src/commands.ts";
-import { forgeTokenFor, isGitHubRemote, isGitLabRemote, parseRemoteUrl } from "../enrich.ts";
-import { loadSecrets } from "../linear.ts";
+import { isGitHubRemote, isGitLabRemote, parseRemoteUrl } from "../enrich.ts";
 import { identityFromRemote, serializeIdentity } from "../settings/identity.ts";
 import { remoteDefaultRef, runGit } from "../worktree/git-async.ts";
-import { getRepoContext } from "./freshness.ts";
+import { getRepoContext, type RepoContext } from "./freshness.ts";
 import { listMrsLive } from "./forge-reads.ts";
 import { redactCredentials } from "./redact-credentials.ts";
 
@@ -104,24 +102,22 @@ export async function readGithubMerge(get: GithubGet, projectPath: string, branc
   }
 }
 
-async function readMerge(worktree: string, branch: string): Promise<Merge> {
-  const url = await originUrl(realLaneDeps, worktree);
+export interface MergeDeps {
+  git: LaneDeps["git"];
+  repoContext: (repoName: string, repoPath: string) => Promise<RepoContext>;
+}
+
+export async function readMerge(deps: MergeDeps, worktree: string, branch: string): Promise<Merge> {
+  const url = await originUrl(deps, worktree);
   const forge = forgeOf(url);
   try {
     if (!url || !forge) return unknownMerge(null, "origin is on neither GitHub nor GitLab");
-    const remote = parseRemoteUrl(url);
-    if (!remote) return unknownMerge(forge, "could not parse the origin URL");
-    // forgeTokenFor falls back to the gh session for a GitHub remote.
-    const picked = await forgeTokenFor(url, await loadSecrets());
-    if (forge === "github") {
-      if (!picked?.token) return unknownMerge(forge, "no GitHub token (run: gh auth login)");
-      const provider = new GitHubProvider(remote.host, picked.token);
-      return await readGithubMerge((path) => provider.restRequest("GET", path), remote.projectPath, branch);
-    }
+    if (!parseRemoteUrl(url)) return unknownMerge(forge, "could not parse the origin URL");
     const identity = identityFromRemote(url);
     if (!identity) return unknownMerge(forge, "could not derive the repo identity from the origin URL");
-    const ctx = await getRepoContext(serializeIdentity(identity), worktree);
-    const listed = await listMrsLive(ctx.provider, ctx.projectPath, { sourceBranch: branch, state: "all", limit: 1 });
+    const ctx = await deps.repoContext(serializeIdentity(identity), worktree);
+    if (ctx.forge === "github") return await readGithubMerge((path) => ctx.provider.restRequest("GET", path), ctx.projectPath, branch);
+    const listed = await listMrsLive(ctx.provider, ctx.projectPath, { sourceBranch: branch, state: "all", limit: 1 }, ctx.forge);
     if (!listed.ok) return unknownMerge(forge, listed.error);
     return gitlabMerge(listed.mrs[0]);
   } catch (err) {
@@ -129,8 +125,10 @@ async function readMerge(worktree: string, branch: string): Promise<Merge> {
   }
 }
 
+const git: LaneDeps["git"] = (cwd, args) => runGit(cwd, args);
+
 export const realLaneDeps: LaneDeps = {
-  git: (cwd, args) => runGit(cwd, args),
+  git,
   defaultRef: remoteDefaultRef,
-  merge: readMerge,
+  merge: (worktree, branch) => readMerge({ git, repoContext: getRepoContext }, worktree, branch),
 };

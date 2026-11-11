@@ -1,4 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { REPO_INDEX_NS } from "../../repo-index.ts";
+import { closeStateDb, setKvValue } from "../../state/index.ts";
 import { LATCH_MARKER, LATCH_MARKER_SPENT } from "../../../packages/rt-client/src/index.ts";
 import { filterHumanThreads, isBotUsername, mrReadToolDefs, tailTrace, type MrReadDeps } from "../mr-read-tools.ts";
 
@@ -397,5 +402,71 @@ describe("pipeline_jobs", () => {
     const r = await t.handler({ repoName: ID, iid: 2, pipelineId: 55 }, env);
     expect(r.ok).toBe(false);
     expect(r.error).toContain("55");
+  });
+});
+
+describe("on GitHub", () => {
+  const GH = "remote:github.com%2Facme%2Fapp";
+  const PR = "https://github.com/acme/app/pull/3";
+  const ghPr = { ...pr(3, "opened"), webUrl: PR, pipeline: { status: "success", id: "github:run:44", jobs: [] } };
+  const origHome = process.env.HOME;
+  let home: string;
+  beforeEach(() => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), "rt-mr-read-gh-")));
+    process.env.HOME = home;
+    closeStateDb();
+    setKvValue(REPO_INDEX_NS, GH, "/repos/ghapp");
+  });
+  afterEach(() => {
+    process.env.HOME = origHome;
+    closeStateDb();
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  test("a PR URL reaches each read tool's daemon verb with the GitHub identity and number", async () => {
+    const { deps, calls } = fake({
+      "mr:get": { mr: ghPr, fetchedAt: 5 },
+      "mr:list-live": { mrs: [], truncated: false },
+      "mr:live-by-branch": { byBranch: { b: null } },
+      "mr:fetch-job-detail": { type: "trace" },
+      "mr:fetch-job-trace": "line one",
+    });
+    expect((await tool(deps, "mr_view").handler({ mrUrl: PR }, {} as NodeJS.ProcessEnv)).ok).toBe(true);
+    expect((await tool(deps, "mr_list").handler({ mrUrl: PR }, {} as NodeJS.ProcessEnv)).ok).toBe(true);
+    expect((await tool(deps, "mr_for_branch").handler({ mrUrl: PR, branches: ["b"] }, {} as NodeJS.ProcessEnv)).ok).toBe(true);
+    expect((await tool(deps, "mr_pipeline").handler({ mrUrl: PR, jobId: 9 }, {} as NodeJS.ProcessEnv)).ok).toBe(true);
+    expect((await tool(deps, "mr_job_trace").handler({ mrUrl: PR, jobId: 9 }, {} as NodeJS.ProcessEnv)).ok).toBe(true);
+    expect(calls).toEqual([
+      { name: "mr:get", payload: { repoName: GH, iid: 3 } },
+      { name: "mr:list-live", payload: { repoName: GH } },
+      { name: "mr:live-by-branch", payload: { repoName: GH, branches: ["b"] } },
+      { name: "mr:get", payload: { repoName: GH, iid: 3 } },
+      { name: "mr:fetch-job-detail", payload: { repoName: GH, iid: 3, jobId: 9, pipelineId: 44 } },
+      { name: "mr:fetch-job-trace", payload: { repoName: GH, iid: 3, jobId: 9 } },
+    ]);
+  });
+
+  test("mr_threads keeps refusing a PR URL, with no daemon call", async () => {
+    const { deps, calls } = fake({ "discussions:refresh": { discussions: [], fetchedAt: 5 } });
+    const res = await tool(deps, "mr_threads").handler({ mrUrl: PR }, {} as NodeJS.ProcessEnv);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("merge_requests");
+    expect(calls).toEqual([]);
+  });
+
+  test("pipeline_jobs keeps its unsupported_forge answer for a PR URL", async () => {
+    const { deps, calls } = fake({ "mr:get": { mr: ghPr, fetchedAt: 5 } });
+    expect(await tool(deps, "pipeline_jobs").handler({ mrUrl: PR }, {} as NodeJS.ProcessEnv)).toMatchObject({ ok: true, body: { state: "unsupported_forge", forge: "github" } });
+    expect(calls).toEqual([]);
+  });
+
+  test("descriptions say GitLab only exactly where the tool still is", () => {
+    const defs = mrReadToolDefs();
+    for (const name of ["mr_view", "mr_list", "mr_for_branch", "mr_pipeline", "mr_job_trace"]) {
+      const d = defs.find((t) => t.name === name)!.description;
+      expect(d, name).not.toContain("GitLab only");
+      expect(d, name).toContain("github.com/<owner>/<repo>/pull/<number>");
+    }
+    for (const name of ["mr_threads", "pipeline_jobs"]) expect(defs.find((t) => t.name === name)!.description, name).toStartWith("GitLab only.");
   });
 });
