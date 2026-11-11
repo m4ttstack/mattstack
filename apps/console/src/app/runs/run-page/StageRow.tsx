@@ -85,6 +85,7 @@ function RedirectOutcome({ text }: { text: string }) {
     <Accordion
       chevronPosition="left"
       chevron={<Accordion.Chevron size={12} />}
+      transitionDuration={0}
       classNames={{
         root: classes.outcome,
         item: classes.outcomeItem,
