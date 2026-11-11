@@ -1,4 +1,4 @@
-# Daemon forge router (RT-540)
+# GitHub through the daemon (RT-540, RT-541, RT-547, GLANCE-47, GLANCE-48)
 
 Status: draft for review, 2026-11-10. Project: GitHub parity (P-RT-28).
 
@@ -17,8 +17,9 @@ use it.
 ## Goals
 
 - The daemon picks GitLab or GitHub per repo, from the repo's remote.
-- Every verb in the table below works on a GitHub repo, or refuses in plain
-  words that name the ticket that will bring it.
+- Every MCP forge tool works on a GitHub repo: reads, writes, comments,
+  threads, whole reviews and evidence. The few verbs that still refuse say
+  why in plain words.
 - A token only ever goes to its own forge's host.
 - One long-lived provider per repo and token, so glance's caches hold
   across the daemon's 5-minute loop.
@@ -27,9 +28,10 @@ use it.
 
 - GitHub Enterprise (RT-550). The lookup is keyed by host so it can be
   added without reshaping this code.
-- Project sync on GitHub (RT-542), discussions and comment writes (RT-541,
-  GLANCE-48), live refresh (RT-544), CI watch and triage (RT-546), evidence
-  upload (RT-547), the board (BOARD-59 and later).
+- Project sync on GitHub (RT-542), live refresh (RT-544), CI watch and
+  triage (RT-546), per-forge notification identity beyond what new-comment
+  alerts need (RT-543), the board (BOARD-59 and later), and moving the
+  skills off their `gh` steps (SKILLS-105, 106, 107).
 - Renaming MCP tools or rewording their GitLab-only descriptions beyond
   what stops being true here (RT-549 decides the wording).
 
@@ -75,6 +77,17 @@ libraries (Octokit, gitbeaker) wherever they cover the call.
    counts may differ by one on a last page (Matt, 2026-11-10). This is the
    one stated exception to "same request counts".
 6. GitHub `mr_merge` moves behind the daemon (Matt, 2026-11-10).
+7. Comments, threads, reviews and evidence are in this spec, not later
+   tickets (Matt, 2026-11-10).
+8. Comment and review writes are methods on `GitProvider` (ruled with the
+   read model, 2026-11-10).
+9. Evidence images on GitHub upload through GitHub's own CLI,
+   `gh ... --attach` (gh 2.99+), run by the daemon. GitHub has no REST or
+   GraphQL upload endpoint, so this is the one forge call that does not go
+   through glance (Matt, 2026-11-10). Checked live on 2026-11-10: with rt's
+   stored device-sign-in token in `GH_TOKEN`, `gh pr comment --attach`
+   uploaded an image and rewrote the body's local reference to a
+   `github.com/user-attachments/assets/...` URL.
 
 ## Design
 
@@ -105,9 +118,11 @@ libraries (Octokit, gitbeaker) wherever they cover the call.
   makes glance's 10-minute rulesets cache hold between daemon calls.
 - **Missing token:** GitHub refuses with
   `missing GitHub token (run: rt setup github connect)`.
-- **`projectId`:** GitHub has none, so no `GET /projects/:path` is made.
-  Callers that need a number (`NoteMutator`, upload, the discussions
-  store) check `forge` first and refuse.
+- **`projectId`:** GitHub has none, so no `GET /projects/:path` is made
+  and `projectId` is null. The context also carries
+  `repositoryId: string`, the form `fetchMRDiscussions` takes:
+  `gitlab:<projectId>` or `github:<repo id>`. On GitHub the repo id is
+  read once per repo, on first need, and cached.
 - A GitLab-typed accessor (`getGitLabContext`) wraps the router for the
   callers below that stay GitLab-only, so their types do not loosen.
 
@@ -163,8 +178,8 @@ implementations must return what the daemon's current REST code returns.
 | `project:labels`, `pipeline:list`, `mr:commit-parents`, `mr:pipeline-failed-jobs` | work through the new reads |
 | `forge:get` | works, see section 4 |
 | `forge:file-diff`, `project-mrs:read`, `mr:by-branch` | work (already interface-only) |
-| `discussions:*`, `mr:comment*`, `mr:note-update`, `mr:review-submit` | refuse: "not on GitHub yet (RT-541)" |
-| `mr:upload` | refuses: "GitHub has no PR upload API (RT-547)" |
+| `discussions:*`, `mr:comment*`, `mr:note-update`, `mr:review-submit` | work, see section 7 |
+| `mr:upload` | refuses and names `evidence_attach`, see section 8 |
 | project sync, live watch | skip GitHub repos with one info log per repo per daemon start (RT-542, RT-544) |
 
 - **Merge on GitHub.** `lib/mcp/github-merge.ts` builds its own
@@ -228,13 +243,124 @@ design review. This section is that review for the GitHub arm.
   in project sync, which GitHub does not reach until RT-542. They move to
   that ticket.
 
+### 6. Comment and review writes in glance (GLANCE-48, GLANCE-47)
+
+New `GitProvider` methods. The GitLab side wraps today's `NoteMutator`
+calls unchanged (same endpoints, same errors, same timeouts or lack of
+them; RT-382 owns GitLab write timeouts). The GitHub side uses Octokit
+with `retries: 0` and a timeout on every write, so a slow forge can never
+turn one comment into two.
+
+| Method | GitLab | GitHub |
+|---|---|---|
+| `createComment(projectPath, iid, body, {resolvable?})` | `createNote` / `createDiscussion` | `POST issues/{n}/comments`; never resolvable |
+| `createInlineComment(projectPath, iid, body, anchor)` | `fetchDiffRefs` + `createPositionedDiscussion` | `POST pulls/{n}/comments` with the head `commit_id`, `path`, `line`, `side` |
+| `replyToDiscussion(projectPath, iid, discussionId, body)` | `createNote` with the discussion id | `POST pulls/{n}/comments/{root}/replies`, from `gh-review-thread-<root>` |
+| `updateComment(projectPath, iid, note, body)` | `updateNote` | `PATCH pulls/comments/{id}` or `issues/comments/{id}` |
+| `deleteComment(projectPath, iid, note)` | `deleteNote` | `DELETE` on the matching comment |
+| `submitReview(projectPath, iid, review)` | the draft-note flow, moved from `review-submit.ts` | one `POST pulls/{n}/reviews`, then replies |
+
+- **Anchor:** `{path, line, oldPath?, oldLine?}`. On GitHub a comment with
+  only an old line goes on side `LEFT` at that line; otherwise `RIGHT`.
+- **Note reference:** `{id, kind?: "general" | "diff"}`. GitHub keeps
+  PR-level and diff comments in two id spaces. When `kind` is absent,
+  GitHub tries the diff comment first and the PR-level comment on a 404.
+- **Results** are forge-neutral: `{noteId, discussionId | null,
+  resolvable, url}`, with `url` built by the provider.
+- **Replying to a PR-level comment on GitHub** refuses: those have no
+  thread. The message says to post a new comment.
+- **`submitReview`** takes `{outcome: "comment" | "approve" |
+  "request_changes", summary, comments[], replies[]}`.
+  - GitHub: the summary, verdict and inline comments land as one review
+    in one request, so there is nothing to roll back. Replies and
+    resolves follow one by one, and each failure is reported per reply.
+  - GitHub allows one pending review per user per PR. If the caller
+    already has one, the method refuses with the same `pending-drafts`
+    result GitLab gives, since submitting would publish it too.
+  - A comment GitHub rejects for its position fails the whole review
+    before anything posts; the result is `bad-anchors`.
+  - GitLab keeps its exact step order, rollback and results.
+- **Thread reads (GLANCE-47):** `fetchMRDiscussions` on GitHub also
+  returns each review's summary text as a non-resolvable discussion
+  (`gh-review-<id>`), and reports the right side, old line and old path
+  for comments on removed lines and renamed files. Bot authors are marked
+  on the note. The dead private `graphql()` is removed.
+- `capabilities` gains `canReplyToGeneralComments` (false on GitHub) and
+  `canRequestChanges` (true on both).
+
+### 7. Daemon thread verbs on GitHub (RT-541)
+
+The handlers in `lib/daemon/handlers/discussions.ts` stop building
+`NoteMutator` and stop reading `gitlabToken`. Each calls the provider
+method above through the router.
+
+| Verb | On GitHub |
+|---|---|
+| `discussions:read`, `discussions:refresh` | `fetchMRDiscussions` with the context's `repositoryId` |
+| `discussions:resolve` | works today in glance; PR-level comments refuse |
+| `discussions:diffs` | a glance read of the PR's changed files, returning the same `MrDiffRow` shape |
+| `discussions:reply` | `replyToDiscussion` |
+| `mr:comment` | `createComment`; the reply says `resolvable: false` |
+| `mr:comment-inline` | the same `checkAnchor` step, then `createInlineComment`; GitLab's degrade-and-retry stays GitLab-only |
+| `mr:note-update` | `updateComment`; `kind` comes from the thread store when the note is known |
+| `mr:review-submit` | `submitReview`; `review-submit.ts` keeps payload parsing and anchoring |
+
+- Reply shapes do not change. `noteId` stays a number on both forges.
+- `mr:review-submit` keeps its two outcomes (`comment`, `approve`).
+  Exposing `request_changes` to agents is a tool change for SKILLS-105.
+- **New-comment notifications:** the poller's own-note filter compares
+  author ids of the form `<forge>:user:<n>`, using the signed-in user for
+  that repo's forge. The GitHub user id is read once per token and
+  cached. The bot filter uses the note's bot mark on GitHub and keeps the
+  username pattern on GitLab.
+- The poller already sweeps only repos granted the "discussions" cache,
+  so GitHub request volume follows the same rule as GitLab's. A thread
+  read on GitHub costs two paged REST lists and one GraphQL call per PR;
+  the plan measures it before the poller is turned on for GitHub.
+
+### 8. Evidence on GitHub (RT-547)
+
+- **`evidence_attach`** on a GitHub PR writes the evidence section into
+  the PR description and uploads the images in one step. A new daemon
+  verb, `mr:describe-with-attachments` `{repoName, iid, description,
+  attachments[]}`, GitHub only:
+  1. Each attachment passes the same checks as a GitLab upload today:
+     `checkUploadPath`, the redaction refusal, the evidence-record
+     refusal and the ticket-copy refusal.
+  2. The daemon writes the description to a temp file in which each new
+     image is a relative reference, then runs
+     `gh pr edit <n> --repo <o/r> --body-file <file> --attach <path>...`.
+     gh uploads the files and rewrites the references.
+  3. It reads the PR body back and returns the hosted URL for each
+     attachment, so `evidence_attach` can record them in the run's
+     `evidence-uploads` field and reuse them next time. A reused image is
+     written as its URL and is not attached again.
+- **Running gh:** the app's bundled gh when present, else the one found
+  on `ghSearchPath()`. The environment is `PATH`, `HOME`, `GH_TOKEN` (from
+  `resolveGithubToken`) and `GH_PROMPT_DISABLED`; the token is never an
+  argument. A gh older than 2.99, or none, refuses with the command to
+  update it. If gh rejects the token for upload, the verb says so and the
+  description is still written with the images named as local files.
+- **`mr_upload`** has no PR to attach to, and gh uploads only as part of
+  a PR or comment write, so on GitHub it refuses in every argument form
+  and names `evidence_attach`. This is the ticket's own acceptance.
+- **Visibility:** an attachment is readable by whoever can read the repo,
+  as a GitLab upload is. On a public repo that is everyone.
+- RT-547 says any hosting "must bring back the evidence boards gate".
+  This spec reads that as: the daemon's existing evidence refusals in
+  step 1 apply to GitHub attachments. Confirm in review.
+
 ## Delivery
 
-Two PRs, glance first:
+Four PRs, in order:
 
-1. `glance: forge-neutral labels, pipeline list and PR summaries` (0.29.0),
-   with the `ReadBackFailedError` change.
-2. `daemon: pick the forge per repo` (RT-540), consuming it.
+1. `glance: forge-neutral labels, pipeline list and PR summaries`
+   (0.29.0), with the `ReadBackFailedError` change.
+2. `daemon: pick the forge per repo` (RT-540), with the merge move.
+3. `glance: comment and review writes, thread fidelity` (0.30.0,
+   GLANCE-48, GLANCE-47), then `daemon: threads and reviews on GitHub`
+   (RT-541) in the same PR or the next, as the plan sizes it.
+4. `daemon: evidence on GitHub PRs` (RT-547).
 
 ## Testing
 
@@ -249,6 +375,17 @@ Two PRs, glance first:
   and green.
 - `forge:get`: the GitLab guard tests are mirrored for GitHub, one per
   refused segment and query key, plus the path-scope and redirect cases.
+
+- Writes: each new glance write has a stubbed test on both forges, a
+  no-retry test on GitHub, and a GitLab test pinning today's request
+  sequence. `submitReview` on GitLab keeps `review-submit.ts`'s existing
+  tests, moved with the code.
+- Threads: daemon tests per verb in section 7 with a GitHub-shaped
+  provider; a notification test with a GitHub author, a bot and the
+  user's own note.
+- Evidence: the daemon verb is tested with a fake gh on a temp `PATH`
+  (argv, env without the token in argv, version refusal, read-back). One
+  live attach against glance-conformance in the live run.
 
 ## Left to the builder
 
