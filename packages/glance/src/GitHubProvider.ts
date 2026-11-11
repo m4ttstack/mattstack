@@ -582,7 +582,13 @@ export class GitHubProvider implements GitProvider {
     canFetchGroupProjects: false,
     canFetchProject: false,
     canFetchProjectPipelines: false,
-    canFetchUserEvents: false
+    canFetchUserEvents: false,
+    canFetchProjectLabels: false,
+    canFetchPipelineList: false,
+    canFetchCommitParents: false,
+    canFetchPipelineFailedJobs: false,
+    canFetchPullRequestSummaries: false,
+    canEditLabels: false
   };
 
   // ── GitProvider interface ─────────────────────────────────────────────────
@@ -1438,9 +1444,11 @@ export class GitHubProvider implements GitProvider {
   async restRequest(
     method: string,
     path: string,
-    body?: unknown
+    body?: unknown,
+    _op?: string,
+    io?: { redirect?: 'manual' }
   ): Promise<Response> {
-    return this.api(method, path, body);
+    return this.api(method, path, body, io);
   }
 
   watchMR(
@@ -2289,7 +2297,8 @@ export class GitHubProvider implements GitProvider {
   private async api(
     method: string,
     path: string,
-    body?: unknown
+    body?: unknown,
+    io?: { redirect?: 'manual' }
   ): Promise<Response> {
     // Octokit's endpoint parser rewrites `:word` into a route placeholder
     // before the string is ever handed to fetch, and a placeholder with no
@@ -2324,7 +2333,8 @@ export class GitHubProvider implements GitProvider {
     }
     try {
       const res = await this.octokit.request(`${method} ${safePath}`, {
-        ...(body !== undefined ? { data: body } : {})
+        ...(body !== undefined ? { data: body } : {}),
+        ...(io?.redirect ? { request: { redirect: io.redirect } } : {})
       });
       return toResponse(res.status, res.headers, res.data);
     } catch (caught) {

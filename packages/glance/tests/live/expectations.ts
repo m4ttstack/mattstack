@@ -157,6 +157,31 @@ export const GITHUB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   fetchPipelineFailedJobs: {
     support: 'absent',
     note: 'GitLab only. GitHub check runs are already fetched per PR with no separate failed-jobs read.'
+  },
+  fetchProjectLabels: {
+    support: 'absent',
+    capability: 'canFetchProjectLabels',
+    note: 'Not implemented on GitHub yet.'
+  },
+  fetchPipelineList: {
+    support: 'absent',
+    capability: 'canFetchPipelineList',
+    note: 'Not implemented on GitHub yet.'
+  },
+  fetchPullRequestSummaries: {
+    support: 'absent',
+    capability: 'canFetchPullRequestSummaries',
+    note: 'Not implemented on GitHub yet.'
+  },
+  addPullRequestLabels: {
+    support: 'absent',
+    capability: 'canEditLabels',
+    note: 'Not implemented on GitHub yet.'
+  },
+  removePullRequestLabels: {
+    support: 'absent',
+    capability: 'canEditLabels',
+    note: 'Not implemented on GitHub yet.'
   }
 };
 
@@ -224,7 +249,32 @@ export const GITLAB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   fetchProjectPipelines: { support: 'supported', capability: 'canFetchProjectPipelines' },
   fetchUserEvents: { support: 'supported', capability: 'canFetchUserEvents' },
   fetchCommitParents: { support: 'supported' },
-  fetchPipelineFailedJobs: { support: 'supported' }
+  fetchPipelineFailedJobs: { support: 'supported' },
+  fetchProjectLabels: {
+    support: 'absent',
+    capability: 'canFetchProjectLabels',
+    note: 'Not implemented on GitLab yet.'
+  },
+  fetchPipelineList: {
+    support: 'absent',
+    capability: 'canFetchPipelineList',
+    note: 'Not implemented on GitLab yet.'
+  },
+  fetchPullRequestSummaries: {
+    support: 'absent',
+    capability: 'canFetchPullRequestSummaries',
+    note: 'Not implemented on GitLab yet.'
+  },
+  addPullRequestLabels: {
+    support: 'absent',
+    capability: 'canEditLabels',
+    note: 'Not implemented on GitLab yet.'
+  },
+  removePullRequestLabels: {
+    support: 'absent',
+    capability: 'canEditLabels',
+    note: 'Not implemented on GitLab yet.'
+  }
 };
 
 export function expectationFor(

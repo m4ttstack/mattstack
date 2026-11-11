@@ -71,6 +71,11 @@ export type {
   ProjectRef,
   PipelineSummary,
   UserEvent,
+  ProjectLabel,
+  PipelineListEntry,
+  SummaryState,
+  PullRequestSummary,
+  FetchSummariesOptions,
 } from './types.ts';
 export { getReviewDisplayState, getReviewerSummaries } from './types.ts';
 // Exported because mergePullRequest's 405 message now names a
@@ -113,7 +118,7 @@ export type { RequestInfo, OnRequestHook } from './instrumentation.ts';
 // ── Errors ───────────────────────────────────────────────────────────────────
 // Exported as a value, not a type: the point of it is the `instanceof` check
 // that lets a caller tell a rejected write from a write it cannot read back.
-export { ReadBackFailedError, RateLimitedError } from './errors.ts';
+export { ReadBackFailedError, RateLimitedError, ForgeHttpError } from './errors.ts';
 
 // ── Providers ─────────────────────────────────────────────────────────────────
 export {

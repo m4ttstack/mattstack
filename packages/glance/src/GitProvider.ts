@@ -13,10 +13,14 @@ import type {
   MRDetail,
   Pipeline,
   PipelineJob,
+  PipelineListEntry,
   PipelineSummary,
+  ProjectLabel,
   ProjectRef,
   ProviderCapabilities,
   PullRequest,
+  PullRequestSummary,
+  FetchSummariesOptions,
   UpdatePullRequestInput,
   UserEvent,
   UserRef,
@@ -609,6 +613,46 @@ export interface GitProvider {
    */
   fetchJobTrace(projectPath: string, jobId: number): Promise<string>;
 
+  /**
+   * A project's labels, optionally filtered by `search`, capped at `maxRows`.
+   * `truncated` is true when the cap cut the list short.
+   * Check `capabilities.canFetchProjectLabels` before calling.
+   */
+  fetchProjectLabels?(
+    projectPath: string,
+    options?: { search?: string; maxRows?: number },
+  ): Promise<{ labels: ProjectLabel[]; truncated: boolean }>;
+
+  /**
+   * A project's pipelines, newest first, filtered by ref, sha or MR iid.
+   * Check `capabilities.canFetchPipelineList` before calling.
+   */
+  fetchPipelineList?(
+    projectPath: string,
+    options: { ref?: string; sha?: string; iid?: number; limit: number },
+  ): Promise<PipelineListEntry[]>;
+
+  /**
+   * Pull request rows without the dashboard resolvers.
+   * Check `capabilities.canFetchPullRequestSummaries` before calling.
+   */
+  fetchPullRequestSummaries?(
+    projectPath: string,
+    options: FetchSummariesOptions,
+  ): Promise<{ rows: PullRequestSummary[]; truncated: boolean }>;
+
+  /**
+   * Add labels to a pull request, leaving the others in place.
+   * Check `capabilities.canEditLabels` before calling.
+   */
+  addPullRequestLabels?(projectPath: string, mrIid: number, labels: string[]): Promise<void>;
+
+  /**
+   * Remove labels from a pull request, leaving the others in place.
+   * Check `capabilities.canEditLabels` before calling.
+   */
+  removePullRequestLabels?(projectPath: string, mrIid: number, labels: string[]): Promise<void>;
+
   /** The commit's parent shas. GitLab only. */
   fetchCommitParents?(projectPath: string, sha: string): Promise<string[]>;
 
@@ -681,7 +725,13 @@ export interface GitProvider {
    * headers, and body are all carried through; `url` is the one field the
    * Response constructor cannot set, so it cannot be restored.
    */
-  restRequest(method: string, path: string, body?: unknown): Promise<Response>;
+  restRequest(
+    method: string,
+    path: string,
+    body?: unknown,
+    op?: string,
+    io?: { redirect?: 'manual' },
+  ): Promise<Response>;
 
   /**
    * Subscribe to real-time updates for a single MR/PR.

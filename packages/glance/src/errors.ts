@@ -107,3 +107,21 @@ export class RateLimitedError extends Error {
     this.operation = details.operation;
   }
 }
+
+/**
+ * A forge answered a read with a non-2xx status. Carries the parts a caller
+ * branches on, so it never has to parse them back out of the message.
+ */
+export class ForgeHttpError extends Error {
+  readonly status: number;
+  readonly statusText: string;
+  readonly bodyText: string;
+
+  constructor(message: string, status: number, statusText: string, bodyText: string) {
+    super(message);
+    this.name = 'ForgeHttpError';
+    this.status = status;
+    this.statusText = statusText;
+    this.bodyText = bodyText;
+  }
+}
