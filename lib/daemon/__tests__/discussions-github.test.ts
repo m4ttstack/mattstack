@@ -7,7 +7,7 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { GitHubProvider, type NoteWriteResult } from "@mattstack/glance";
+import { GitHubProvider, type CommentAnchor, type InlineCommentResult, type NoteWriteResult } from "@mattstack/glance";
 import { closeStateDb } from "../../state/index.ts";
 import {
   createDiscussionHandlers,
@@ -30,6 +30,8 @@ function githubContext(provider: Partial<ThreadProvider>): ThreadContext {
     provider: {
       baseURL: "https://github.com",
       createComment: unexpected,
+      createInlineComment: unexpected,
+      deleteComment: unexpected,
       replyToDiscussion: unexpected,
       updateComment: unexpected,
       resolveDiscussion: unexpected,
@@ -126,11 +128,15 @@ describe("thread handlers on GitHub", () => {
       thread("gh-review-thread-30", [30]),
     ];
 
-    async function editAndCapture(noteId: number, readCached: DiscussionHandlerSeams["readCached"] = () => ({ discussions: cached, fetchedAt: 1 })) {
+    async function editAndCapture(
+      noteId: number,
+      readCached: DiscussionHandlerSeams["readCached"] = () => ({ discussions: cached, fetchedAt: 1 }),
+      warnings: string[] = [],
+    ) {
       let args: unknown[] = [];
       const h = createDiscussionHandlers(fakeCtx, () => {}, seams(
         { updateComment: async (...a) => { args = a; } },
-        { readCached, warn: () => {} },
+        { readCached, warn: (_o, msg) => { warnings.push(msg); } },
       ));
       const res = await h["mr:note-update"]({ repoName: IDENTITY, iid: 7, noteId, body: "edited" });
       expect(res).toEqual({ ok: true, data: { noteId } });
@@ -161,8 +167,98 @@ describe("thread handlers on GitHub", () => {
       expect(await editAndCapture(6, () => undefined)).toEqual(["o/r", 7, { id: 6 }, "edited"]);
     });
 
-    test("an unreadable cache sends no kind", async () => {
-      expect(await editAndCapture(6, () => { throw new Error("database is locked"); })).toEqual(["o/r", 7, { id: 6 }, "edited"]);
+    test("an unreadable cache sends no kind and warns", async () => {
+      const warnings: string[] = [];
+      expect(await editAndCapture(6, () => { throw new Error("database is locked"); }, warnings)).toEqual(["o/r", 7, { id: 6 }, "edited"]);
+      expect(warnings).toEqual(["mr:note-update: cached discussions unreadable, editing with no note kind"]);
+    });
+  });
+
+  describe("inline comments", () => {
+    const DIFF = ["@@ -10,4 +10,5 @@", " keep", "-gone", "+fresh", "+extra", " tail", " end"].join("\n");
+
+    function inlineProvider(rows: Array<{ newPath: string; oldPath?: string; diff: string }>) {
+      const anchors: CommentAnchor[] = [];
+      const diffReads: unknown[][] = [];
+      let deletes = 0;
+      const provider: Partial<ThreadProvider> = {
+        fetchPullRequestDiffs: async (...a) => { diffReads.push(a); return { diffs: rows, truncated: false }; },
+        createInlineComment: async (projectPath, iid, body, anchor): Promise<InlineCommentResult> => {
+          expect([projectPath, iid, body]).toEqual(["o/r", 7, "nice catch"]);
+          anchors.push(anchor);
+          return {
+            noteId: 900, discussionId: "gh-review-thread-900", resolvable: true,
+            url: `${PR_URL}#discussion_r900`, anchored: true, noteType: "DiffNote",
+          };
+        },
+        deleteComment: async () => { deletes++; },
+      };
+      return { provider, anchors, diffReads, deletes: () => deletes };
+    }
+
+    const payload = (over: Record<string, unknown>) => ({ repoName: IDENTITY, iid: 7, body: "nice catch", path: "src/foo.ts", ...over });
+
+    test("an unchanged context line goes on the RIGHT side with no old line", async () => {
+      const s = inlineProvider([{ newPath: "src/foo.ts", diff: DIFF }]);
+      const h = createDiscussionHandlers(fakeCtx, () => {}, seams(s.provider));
+      const res = await h["mr:comment-inline"](payload({ line: 13 }));
+      expect(res).toEqual({ ok: true, data: { discussionId: "gh-review-thread-900", noteId: 900, verified: true } });
+      expect(s.diffReads).toHaveLength(1);
+      expect(s.anchors).toEqual([{ path: "src/foo.ts", line: 13 }]);
+      expect(s.deletes()).toBe(0);
+    });
+
+    test("a renamed file keeps the diff row's old path", async () => {
+      const s = inlineProvider([{ newPath: "src/foo.ts", oldPath: "src/bar.ts", diff: DIFF }]);
+      const h = createDiscussionHandlers(fakeCtx, () => {}, seams(s.provider));
+      await h["mr:comment-inline"](payload({ line: 13 }));
+      expect(s.anchors).toEqual([{ path: "src/foo.ts", line: 13, oldPath: "src/bar.ts" }]);
+    });
+
+    test("a caller's oldLine goes on the LEFT side without reading the diff", async () => {
+      const s = inlineProvider([]);
+      const h = createDiscussionHandlers(fakeCtx, () => {}, seams(s.provider));
+      const res = await h["mr:comment-inline"](payload({ line: 41, oldLine: 7, oldPath: "src/old.ts" }));
+      expect(res).toEqual({ ok: true, data: { discussionId: "gh-review-thread-900", noteId: 900, verified: true } });
+      expect(s.diffReads).toEqual([]);
+      expect(s.anchors).toEqual([{ path: "src/foo.ts", oldLine: 7, oldPath: "src/old.ts" }]);
+      expect(s.deletes()).toBe(0);
+    });
+
+    test("a line outside the diff is refused naming GitHub, with nothing posted", async () => {
+      const s = inlineProvider([{ newPath: "src/foo.ts", diff: DIFF }]);
+      const h = createDiscussionHandlers(fakeCtx, () => {}, seams(s.provider));
+      const res = await h["mr:comment-inline"](payload({ line: 41 }));
+      expect(res).toEqual({
+        ok: false,
+        error: "line 41 of src/foo.ts is not in this MR's diff, so GitHub cannot anchor a comment there; lines in the diff near it: 14, 13, 12",
+      });
+      expect(s.anchors).toEqual([]);
+      expect(s.deletes()).toBe(0);
+    });
+
+    test("a file with no diff is refused naming GitHub", async () => {
+      const s = inlineProvider([{ newPath: "other.ts", diff: DIFF }]);
+      const h = createDiscussionHandlers(fakeCtx, () => {}, seams(s.provider));
+      const res = await h["mr:comment-inline"](payload({ line: 42 }));
+      expect(res).toEqual({
+        ok: false,
+        error: "line 42 of src/foo.ts is not in this MR's diff, so GitHub cannot anchor a comment there; this file has no diff in this MR",
+      });
+      expect(s.anchors).toEqual([]);
+    });
+
+    test("a failed post is reported once, with no delete and no retry", async () => {
+      let posts = 0;
+      let deletes = 0;
+      const h = createDiscussionHandlers(fakeCtx, () => {}, seams({
+        fetchPullRequestDiffs: async () => ({ diffs: [{ newPath: "src/foo.ts", diff: DIFF }], truncated: false }),
+        createInlineComment: async () => { posts++; throw new Error("422 Unprocessable Entity"); },
+        deleteComment: async () => { deletes++; },
+      }));
+      const res = await h["mr:comment-inline"](payload({ line: 11 }));
+      expect(res).toEqual({ ok: false, error: "Error: 422 Unprocessable Entity" });
+      expect([posts, deletes]).toEqual([1, 0]);
     });
   });
 

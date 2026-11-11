@@ -13,6 +13,8 @@ import { fakeStore } from "./fake-cache-store.ts";
 const fakeCtx = { repoIndex: () => ({}), cache: fakeStore({}) };
 const IDENTITY = "remote:gitlab.com%2Fg%2Fsub%2Frepo-tools";
 
+let cacheReads = 0;
+
 function makeSeams(provider: Partial<ThreadProvider>, refresh?: DiscussionHandlerSeams["refresh"]): DiscussionHandlerSeams {
   const unexpected = async (): Promise<never> => { throw new Error("unexpected provider call"); };
   return {
@@ -21,7 +23,7 @@ function makeSeams(provider: Partial<ThreadProvider>, refresh?: DiscussionHandle
       projectPath: "g/sub/repo-tools",
     }),
     refresh: refresh ?? (async () => undefined),
-    readCached: () => { throw new Error("a GitLab edit never reads the cached threads"); },
+    readCached: () => { cacheReads++; return undefined; },
   };
 }
 
@@ -31,6 +33,7 @@ describe("mr:note-update", () => {
 
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), "rt-note-update-"));
+    cacheReads = 0;
     process.env.HOME = home;
     closeStateDb();
   });
@@ -51,6 +54,7 @@ describe("mr:note-update", () => {
     expect(args).toEqual(["g/sub/repo-tools", 7, { id: 55 }, "edited"]);
     expect(refreshed).toEqual([[IDENTITY, 7]]);
     expect(res).toEqual({ ok: true, data: { noteId: 55 } });
+    expect(cacheReads).toBe(0);
   });
 
   test("GitLab's refusal text passes through as is", async () => {

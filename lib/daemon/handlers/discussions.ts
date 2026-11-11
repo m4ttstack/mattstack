@@ -8,7 +8,7 @@
  *   discussions:resolve  - toggle resolved state on a thread
  *   discussions:reply    - post a note into an existing thread
  *   discussions:diffs    - read the MR's file diffs
- *   mr:comment-inline    - post a new positioned (line-anchored) discussion (GitLab only)
+ *   mr:comment-inline    - post a new positioned (line-anchored) discussion
  *   mr:comment           - post a new top-level note (resolvable discussion or plain note)
  *   mr:note-update       - replace the body of an existing note
  *   mr:review-submit     - post one whole review: pending comments, one publish, approve, resolve (GitLab only)
@@ -26,10 +26,11 @@
 import {
   EmptyDiscussionError,
   NoteMutator,
-  type CreatedDiscussion,
+  type CommentAnchor,
   type GitHubProvider,
   type GitLabProvider,
   type GitProvider,
+  type InlineCommentResult,
   type NoteRef,
   type TextPosition,
 } from "@mattstack/glance";
@@ -46,9 +47,6 @@ import type { HandlerContext, HandlerMap, CommandResult } from "./types.ts";
 import type { Commands, Discussion } from "../../../packages/rt-client/src/commands.ts";
 
 const log = lazyChildLogger("discussions");
-
-/** The subset of NoteMutator the inline-comment repair flow needs; test seam. */
-export type CommentInlineMutator = Pick<NoteMutator, "fetchDiffRefs" | "createPositionedDiscussion" | "deleteNote">;
 
 /** What mr:review-submit needs from NoteMutator; test seam. */
 export type ReviewSubmitMutator = ReviewMutator & Pick<NoteMutator, "fetchReviewerStates">;
@@ -74,7 +72,6 @@ export interface ThreadContext {
 export interface DiscussionHandlerSeams {
   repoContext?: (repoName: string, repoPath?: string) => Promise<ThreadContext>;
   gitlabToken?: () => Promise<string | undefined>;
-  mutator?: (baseURL: string, token: string) => CommentInlineMutator;
   diffs?: (
     ctx: ThreadContext, iid: number,
     opts: { reqSignal?: AbortSignal; timeoutMs?: number },
@@ -213,7 +210,6 @@ export function createDiscussionHandlers(
   const deps = { ctx, broadcast };
   const repoContextFn = seams.repoContext ?? ((repoName: string, repoPath?: string): Promise<ThreadContext> => getRepoContext(repoName, repoPath));
   const gitlabTokenFn = seams.gitlabToken ?? (async () => (await loadSecrets()).gitlabToken);
-  const mutatorFn = seams.mutator ?? ((baseURL: string, token: string) => new NoteMutator(baseURL, token, providerRequestHook()));
   const diffsFn = seams.diffs ?? fetchMrDiffs;
   const warnFn = seams.warn ?? ((obj: object, msg: string) => log.warn(obj, msg));
   const refreshFn = seams.refresh ?? ((repoName: string, iid: number) => refreshDiscussions(deps, repoName, iid));
@@ -407,14 +403,12 @@ export function createDiscussionHandlers(
       }
       const repoName = decoded.repo;
       const position = { path, line, oldPath: p?.oldPath, oldLine: p?.oldLine };
+      const callerOldLine = p?.oldLine;
 
       const repoPath = ctx.repoIndex()[repoName];
       try {
         const repoCtx = await repoContextFn(repoName, repoPath);
-        gitlabOnly(repoCtx);
-        const token = await gitlabTokenFn();
-        if (!token) return { ok: false, error: "no gitlabToken in secrets" };
-        const mutator = mutatorFn(repoCtx.provider.baseURL, token);
+        const forgeName = repoCtx.forge === "github" ? "GitHub" : "GitLab";
 
         if (position.oldLine === undefined) {
           let page: Awaited<ReturnType<typeof diffsFn>> | undefined;
@@ -429,7 +423,7 @@ export function createDiscussionHandlers(
           }
           if (page) {
             const anchor = checkAnchor(page, path, line);
-            const refusal = `line ${line} of ${path} is not in this MR's diff, so GitLab cannot anchor a comment there`;
+            const refusal = `line ${line} of ${path} is not in this MR's diff, so ${forgeName} cannot anchor a comment there`;
             if (anchor.kind === "no-file") return { ok: false, error: `${refusal}; this file has no diff in this MR` };
             if (anchor.kind === "outside") {
               const hint = anchor.nearest.length > 0
@@ -442,10 +436,16 @@ export function createDiscussionHandlers(
           }
         }
 
-        const postOnce = async () => {
-          const diffRefs = await mutator.fetchDiffRefs(repoCtx.projectPath, iid);
-          return mutator.createPositionedDiscussion(repoCtx.projectPath, iid, body, buildTextPosition(position, diffRefs));
-        };
+        // GitHub takes one side: a caller's old line goes LEFT, anything else
+        // goes RIGHT, so an old line the diff filled in is dropped there.
+        const github = repoCtx.forge === "github";
+        const commentAnchor: CommentAnchor = github && callerOldLine !== undefined
+          ? { path, oldLine: callerOldLine }
+          : { path, line };
+        if (position.oldPath !== undefined) commentAnchor.oldPath = position.oldPath;
+        if (!github && position.oldLine !== undefined) commentAnchor.oldLine = position.oldLine;
+
+        const postOnce = () => repoCtx.provider.createInlineComment(repoCtx.projectPath, iid, body, commentAnchor);
 
         // Awaited (not fire-and-forget): a caller reading discussions right
         // after this resolves must see its own just-posted comment. A refresh
@@ -458,50 +458,53 @@ export function createDiscussionHandlers(
         };
 
         if (signal?.aborted) return { ok: false, error: "request aborted before the comment was posted" };
-        const first = await postOnce();
-        const firstNote = first.notes[0];
-        if (!firstNote) return { ok: false, error: "GitLab created a discussion with no notes" };
+        let first: InlineCommentResult;
+        try {
+          first = await postOnce();
+        } catch (err) {
+          if (err instanceof EmptyDiscussionError) return { ok: false, error: "GitLab created a discussion with no notes" };
+          throw err;
+        }
 
-        if (firstNote.type === "DiffNote") {
-          return succeed(first.id, firstNote.id);
+        if (github || first.anchored) {
+          return succeed(first.discussionId, first.noteId);
         }
 
         // The first note landed as a general note (GitLab silently dropped the
         // position). It must be deleted before the retry: leaving it would
         // strand a duplicate, unpositioned copy of the comment on the MR.
         try {
-          await mutator.deleteNote(repoCtx.projectPath, iid, firstNote.id);
+          await repoCtx.provider.deleteComment(repoCtx.projectPath, iid, { id: first.noteId });
         } catch (err) {
-          return { ok: false, error: `could not delete stray note ${firstNote.id}: ${String(err)}` };
+          return { ok: false, error: `could not delete stray note ${first.noteId}: ${String(err)}` };
         }
 
-        let second: CreatedDiscussion;
+        let second: InlineCommentResult;
         try {
           second = await postOnce();
         } catch (err) {
+          if (err instanceof EmptyDiscussionError) return { ok: false, error: "GitLab created a retry discussion with no notes" };
           return {
             ok: false,
-            error: `first attempt degraded (note ${firstNote.id} type ${firstNote.type}, deleted); `
+            error: `first attempt degraded (note ${first.noteId} type ${first.noteType}, deleted); `
               + `retry failed: ${withAnchorHint(err)}`,
           };
         }
-        const secondNote = second.notes[0];
-        if (!secondNote) return { ok: false, error: "GitLab created a retry discussion with no notes" };
 
-        if (secondNote.type === "DiffNote") {
-          return succeed(second.id, secondNote.id);
+        if (second.anchored) {
+          return succeed(second.discussionId, second.noteId);
         }
 
         try {
-          await mutator.deleteNote(repoCtx.projectPath, iid, secondNote.id);
+          await repoCtx.provider.deleteComment(repoCtx.projectPath, iid, { id: second.noteId });
         } catch (err) {
-          return { ok: false, error: `could not delete stray note ${secondNote.id}: ${String(err)}` };
+          return { ok: false, error: `could not delete stray note ${second.noteId}: ${String(err)}` };
         }
 
         return {
           ok: false,
-          error: `GitLab dropped the position twice (note ${firstNote.id} type ${firstNote.type}, `
-            + `note ${secondNote.id} type ${secondNote.type}); both general notes were deleted`,
+          error: `GitLab dropped the position twice (note ${first.noteId} type ${first.noteType}, `
+            + `note ${second.noteId} type ${second.noteType}); both general notes were deleted`,
         };
       } catch (err) {
         return { ok: false, error: withAnchorHint(err) };
