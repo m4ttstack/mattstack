@@ -312,7 +312,7 @@ function searchTerm(label: string, value: string, phrase = false): string {
 
 function summarySearchString(owner: string, repo: string, o: FetchSummariesOptions): string {
   const parts = [`repo:${owner}/${repo}`, 'is:pr', SUMMARY_SEARCH_STATE[o.state]];
-  if (o.author !== undefined) {
+  if (o.author) {
     parts.push(`author:${o.author === 'me' ? '@me' : searchTerm('author', o.author)}`);
   }
   if (o.sourceBranch) parts.push(`head:${searchTerm('sourceBranch', o.sourceBranch)}`);
@@ -2343,8 +2343,8 @@ export class GitHubProvider implements GitProvider {
           })
         );
       } catch (err) {
-        // GitHub answers 404 for a label the PR does not carry; the goal state already holds.
-        if (err instanceof ForgeHttpError && err.status === 404) continue;
+        // A missing PR or repository is also a 404, so only this message means the goal state already holds.
+        if (err instanceof ForgeHttpError && err.status === 404 && err.bodyText === 'Label does not exist') continue;
         throw err;
       }
     }
@@ -2404,8 +2404,8 @@ export class GitHubProvider implements GitProvider {
     const failed = new Set(['failure', 'timed_out', 'cancelled']);
     const out: PipelineJob[] = [];
     await this.forgeRead('fetchPipelineFailedJobs', async () => {
-      // paginate.iterator derives the next URL from the response URL for this
-      // envelope shape, so the walk is explicit like the PR listing's.
+      // An explicit page walk keeps this read independent of paginate.iterator
+      // parsing the next page out of `response.url`.
       for (let page = 1; page <= FORGE_READ_MAX_PAGES; page++) {
         const res = await this.octokit.request('GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs', {
           owner,
@@ -2431,6 +2431,10 @@ export class GitHubProvider implements GitProvider {
         }
         if (res.data.jobs.length < 100) return;
       }
+      // A partial list would read as every failed job.
+      throw new Error(
+        `fetchPipelineFailedJobs failed: workflow run ${pipelineId} has more than ${FORGE_READ_MAX_PAGES * 100} jobs, past the ${FORGE_READ_MAX_PAGES}-page read cap`
+      );
     });
     return out;
   }
@@ -2440,7 +2444,7 @@ export class GitHubProvider implements GitProvider {
     options: FetchSummariesOptions
   ): Promise<{ rows: PullRequestSummary[]; truncated: boolean }> {
     const { owner, repo } = this.splitOwnerRepo(projectPath);
-    const searching = options.author !== undefined || options.search !== undefined;
+    const searching = Boolean(options.author || options.search);
     const q = searching ? summarySearchString(owner, repo, options) : '';
     const rows: PullRequestSummary[] = [];
     let after: string | null = null;
@@ -2511,7 +2515,7 @@ export class GitHubProvider implements GitProvider {
           `GitHub returned ${err.status} ${statusText}: ${detail}`,
           err.status,
           statusText,
-          bodyText(err)
+          detail
         );
       }
       throw err;

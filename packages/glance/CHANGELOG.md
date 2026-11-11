@@ -21,8 +21,9 @@
 - Label edits: `addPullRequestLabels` and `removePullRequestLabels` change only
   the named labels and leave the rest in place (`canEditLabels`). Removing a
   label the PR does not carry is a no-op on both forges.
-- `GitHubProvider.restRequest` takes the same `op` and `io` parameters as
-  GitLab's; `io.redirect: 'manual'` returns a redirect instead of following it.
+- `GitHubProvider.restRequest` takes `op` and `io` in the same positions as
+  GitLab's. `op` is accepted for parameter-order parity and ignored on GitHub;
+  `io.redirect: 'manual'` returns a redirect instead of following it.
 - Every new GitHub read throws `RateLimitedError` on a rate limit.
 - Behavior change: when `mergePullRequest` lands the merge but the
   head-repository read for `shouldRemoveSourceBranch` is rate limited, it now

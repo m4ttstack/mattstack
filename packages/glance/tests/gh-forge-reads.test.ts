@@ -87,6 +87,22 @@ describe('fetchProjectLabels', () => {
     expect((err as ForgeHttpError).status).toBe(404);
     expect((err as ForgeHttpError).message).toBe('GitHub returned 404 Not Found: Not Found');
   });
+
+  test("bodyText is GitHub's message, not the JSON body", async () => {
+    stubForge({});
+    const err = (await provider().fetchProjectLabels!('o/r').catch((e: unknown) => e)) as ForgeHttpError;
+    expect(err.bodyText).toBe('Not Found');
+  });
+
+  test('bodyText is the raw body when it carries no message', async () => {
+    stubForge({
+      rest: () => new Response('upstream broke', { status: 400, headers: { 'content-type': 'text/plain' } })
+    });
+    const err = (await provider().fetchProjectLabels!('o/r').catch((e: unknown) => e)) as ForgeHttpError;
+    expect(err).toBeInstanceOf(ForgeHttpError);
+    expect(err.bodyText).toBe('upstream broke');
+    expect(err.message).toBe('GitHub returned 400 Bad Request: upstream broke');
+  });
 });
 
 describe('fetchPipelineList', () => {
@@ -210,6 +226,40 @@ describe('fetchPipelineFailedJobs', () => {
     });
     expect(urls[0]).toContain('/repos/o/r/actions/runs/77/jobs');
     expect(new URL(urls[0]!).searchParams.get('filter')).toBe('latest');
+  });
+
+  test('a run with more jobs than the page cap throws instead of returning a partial list', async () => {
+    const { urls } = stubForge({
+      rest: (url) => {
+        const page = Number(new URL(url).searchParams.get('page'));
+        return jsonResponse({
+          total_count: 2100,
+          jobs: Array.from({ length: 100 }, (_, i) => job(page * 1000 + i, 'failure'))
+        });
+      }
+    });
+    const err = await provider().fetchPipelineFailedJobs!('o/r', 77).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(ForgeHttpError);
+    expect((err as Error).message).toBe(
+      'fetchPipelineFailedJobs failed: workflow run 77 has more than 2000 jobs, past the 20-page read cap'
+    );
+    expect(urls).toHaveLength(20);
+  });
+
+  test('a short 20th page ends the walk without an error', async () => {
+    const { urls } = stubForge({
+      rest: (url) => {
+        const page = Number(new URL(url).searchParams.get('page'));
+        const size = page < 20 ? 100 : 5;
+        return jsonResponse({
+          total_count: 1905,
+          jobs: Array.from({ length: size }, (_, i) => job(page * 1000 + i, page === 20 ? 'failure' : 'success'))
+        });
+      }
+    });
+    expect(await provider().fetchPipelineFailedJobs!('o/r', 77)).toHaveLength(5);
+    expect(urls).toHaveLength(20);
   });
 
   test('a rate limit rejects with RateLimitedError', async () => {

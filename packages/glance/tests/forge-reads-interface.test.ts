@@ -39,11 +39,11 @@ describe('forge reads interface', () => {
   });
 
   test('ForgeHttpError carries status, statusText and bodyText', () => {
-    const err = new ForgeHttpError('GitLab returned 404 Not Found: nope', 404, 'Not Found', '{"message":"nope"}');
+    const err = new ForgeHttpError('GitLab returned 404 Not Found: nope', 404, 'Not Found', 'nope');
     expect(err).toBeInstanceOf(Error);
     expect(err.status).toBe(404);
     expect(err.statusText).toBe('Not Found');
-    expect(err.bodyText).toBe('{"message":"nope"}');
+    expect(err.bodyText).toBe('nope');
     expect(err.message).toBe('GitLab returned 404 Not Found: nope');
   });
 });

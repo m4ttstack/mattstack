@@ -616,6 +616,7 @@ export interface GitProvider {
   /**
    * A project's labels, optionally filtered by `search`, capped at `maxRows`.
    * `truncated` is true when the cap cut the list short.
+   * GitLab applies `search` server-side; GitHub keeps names containing it, case-insensitively, client-side.
    * Check `capabilities.canFetchProjectLabels` before calling.
    */
   fetchProjectLabels?(
@@ -625,6 +626,8 @@ export interface GitProvider {
 
   /**
    * A project's pipelines, newest first, filtered by ref, sha or MR iid.
+   * On both forges `iid` overrides `ref` and `sha`. GitLab lists every pipeline
+   * the MR has run; GitHub lists only the runs on the PR's current head sha.
    * Check `capabilities.canFetchPipelineList` before calling.
    */
   fetchPipelineList?(
@@ -634,6 +637,8 @@ export interface GitProvider {
 
   /**
    * Pull request rows without the dashboard resolvers.
+   * On GitHub, `author` or `search` reads the search index instead, which can
+   * lag a just-created PR and stops at 1000 results (reported as `truncated`).
    * Check `capabilities.canFetchPullRequestSummaries` before calling.
    */
   fetchPullRequestSummaries?(
@@ -666,8 +671,10 @@ export interface GitProvider {
    * bridge that cannot fail the parent come back allowFailure. All or nothing:
    * one failed listing anywhere in the tree throws, so a partial result never
    * reads as clean. On GitHub, a workflow run's own failed jobs (it has no
-   * downstream pipelines). Check `capabilities.canFetchPipelineFailedJobs`
-   * before calling.
+   * downstream pipelines), counting cancelled and timed-out jobs too, where
+   * GitLab returns only failed ones; `allowFailure` is always false on GitHub,
+   * since its REST jobs carry no required flag. Check
+   * `capabilities.canFetchPipelineFailedJobs` before calling.
    */
   fetchPipelineFailedJobs?(projectPath: string, pipelineId: number): Promise<PipelineJob[]>;
 

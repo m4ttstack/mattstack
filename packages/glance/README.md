@@ -72,12 +72,12 @@ const provider = createProvider('gitlab', 'https://gitlab.com', token, {
 | `deleteBranch(path, branch)` | Delete a branch |
 | `fetchProjectLabels?(path, options?)` | A project's labels, with `search` and `maxRows`; `truncated` says the cap cut the list (`canFetchProjectLabels`) |
 | `fetchPipelineList?(path, options)` | Pipelines (GitHub workflow runs) newest first, by `ref`, `sha` or MR `iid`, as `PipelineListEntry` rows (`canFetchPipelineList`) |
-| `fetchCommitParents?(path, sha)` | A commit's parent shas |
-| `fetchPipelineFailedJobs?(path, pipelineId)` | A pipeline's failed jobs; on GitLab, plus those of the child pipelines its bridges trigger |
+| `fetchCommitParents?(path, sha)` | A commit's parent shas (`canFetchCommitParents`) |
+| `fetchPipelineFailedJobs?(path, pipelineId)` | A pipeline's failed jobs; on GitLab, plus those of the child pipelines its bridges trigger (`canFetchPipelineFailedJobs`) |
 | `fetchPullRequestSummaries?(path, options)` | Scalar `PullRequestSummary` rows by state, author, branch or search, without the dashboard fill (`canFetchPullRequestSummaries`) |
 | `addPullRequestLabels?(path, iid, labels)` | Add labels, leaving the others in place (`canEditLabels`) |
 | `removePullRequestLabels?(path, iid, labels)` | Remove labels, leaving the others in place (`canEditLabels`) |
-| `restRequest(method, path, body?, op?, io?)` | Raw authenticated REST API pass-through; `io.redirect: 'manual'` returns a redirect instead of following it |
+| `restRequest(method, path, body?, op?, io?)` | Raw authenticated REST API pass-through; `io.redirect: 'manual'` returns a redirect instead of following it. GitHub accepts `op` for parameter-order parity and ignores it |
 
 Provider capabilities are exposed via `provider.capabilities` — check flags like `canMerge`, `canRebase`, `canAutoMerge`, `canResolveDiscussions`, etc. before calling provider-specific methods.
 

@@ -123,6 +123,14 @@ describe('fetchPullRequestSummaries', () => {
     expect(out.truncated).toBe(false);
   });
 
+  test('an empty author or search is absent: the list connection, no bare qualifier', async () => {
+    const calls = capture(() => listPage([node(1)]));
+    await provider().fetchPullRequestSummaries!('o/r', { state: 'opened', author: '', search: '', limit: 10 });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.query).toContain('pullRequests(');
+    expect(calls[0]!.vars.q).toBeUndefined();
+  });
+
   test('author "me" searches with @me and the state qualifier', async () => {
     const calls = capture(() => searchPage([node(1)]));
     await provider().fetchPullRequestSummaries!('o/r', {

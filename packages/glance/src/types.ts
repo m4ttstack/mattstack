@@ -769,7 +769,8 @@ export type SummaryState = 'opened' | 'merged' | 'closed' | 'all';
 export interface PullRequestSummary {
   iid: number;
   title: string;
-  state: 'opened' | 'merged' | 'closed';
+  /** `locked` is GitLab's own state for an MR locked mid-merge; GitHub never returns it. */
+  state: 'opened' | 'merged' | 'closed' | 'locked';
   draft: boolean;
   sourceBranch: string;
   targetBranch: string;
@@ -787,7 +788,7 @@ export interface FetchSummariesOptions {
   targetBranch?: string;
   search?: string;
   limit: number;
-  /** Absent means the forge's default order. */
+  /** Absent means the forge's default order. GitHub always orders by last update, whatever this says. */
   sort?: 'updated_desc';
 }
 

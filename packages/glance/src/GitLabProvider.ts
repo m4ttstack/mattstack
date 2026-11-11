@@ -324,6 +324,9 @@ interface AssignedResponse {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** gitbeaker retries only these, and its retry error carries no response to read a reason phrase from. */
+const RETRIED_STATUS_TEXT: Record<number, string> = { 429: 'Too Many Requests', 502: 'Bad Gateway' };
+
 /** Extract numeric ID from a GQL global ID like "gid://gitlab/MergeRequest/12345". */
 function numericId(gid: string): number {
   const parts = gid.split('/');
@@ -1654,6 +1657,7 @@ export class GitLabProvider implements GitProvider {
           data: Array<{ name: string; description?: string | null; color?: string | null }>;
           paginationInfo: { next: number | null };
         };
+        if (!Array.isArray(data)) throw new Error("GitLab's label listing was not a JSON array");
         for (const r of data) labels.push({ name: r.name, description: r.description ?? null, color: r.color ?? null });
         // gitbeaker maps an absent and an empty x-next-page to null, so a full page keeps the walk going.
         const more = data.length > 0 && (paginationInfo.next !== null || data.length === 100);
@@ -1716,6 +1720,7 @@ export class GitLabProvider implements GitProvider {
     } catch (err) {
       this.forgeHttpError(err);
     }
+    if (!Array.isArray(rows)) throw new Error("GitLab's pipeline listing was not a JSON array");
     return rows.map((r) => ({
       id: r.id,
       status: r.status,
@@ -1763,6 +1768,7 @@ export class GitLabProvider implements GitProvider {
           }>;
           paginationInfo: { next: number | null };
         };
+        if (!Array.isArray(data)) throw new Error("GitLab's merge request listing was not a JSON array");
         for (const r of data) {
           rows.push({
             iid: r.iid,
@@ -1799,7 +1805,13 @@ export class GitLabProvider implements GitProvider {
     }
     if (err instanceof GitbeakerRetryError) {
       const status = Number(err.message.match(/status code: (\d{3})/)?.[1] ?? 0);
-      throw new ForgeHttpError(`GitLab returned ${status}: ${err.message}`, status, '', err.message);
+      const statusText = RETRIED_STATUS_TEXT[status] ?? '';
+      throw new ForgeHttpError(
+        `GitLab returned ${status}${statusText ? ` ${statusText}` : ''}: ${err.message}`,
+        status,
+        statusText,
+        err.message,
+      );
     }
     throw err;
   }

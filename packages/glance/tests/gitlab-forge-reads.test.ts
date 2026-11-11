@@ -300,10 +300,56 @@ describe('error mapping', () => {
     }
     expect(thrown).toBeInstanceOf(ForgeHttpError);
     expect((thrown as ForgeHttpError).status).toBe(429);
+    expect((thrown as ForgeHttpError).statusText).toBe('Too Many Requests');
+    expect((thrown as ForgeHttpError).message).toBe(`GitLab returned 429 Too Many Requests: ${retry.message}`);
+  });
+
+  test('a retried 502 gets its reason phrase; an unknown status keeps 0 and no phrase', () => {
+    const thrownBy = (message: string): ForgeHttpError => {
+      try {
+        helperOf(provider())(new GitbeakerRetryError(message));
+      } catch (e) {
+        return e as ForgeHttpError;
+      }
+      throw new Error('helper returned');
+    };
+    const bad = thrownBy('Could not successfully complete this request after 10 retries, last status code: 502. Verify the status of the endpoint.');
+    expect(bad.status).toBe(502);
+    expect(bad.statusText).toBe('Bad Gateway');
+    const odd = thrownBy('Could not successfully complete this request');
+    expect(odd.status).toBe(0);
+    expect(odd.statusText).toBe('');
   });
 
   test('anything else is rethrown unchanged', () => {
     const boom = new TypeError('boom');
     expect(() => helperOf(provider())(boom)).toThrow(boom);
+  });
+});
+
+describe('a response body that is not a JSON array', () => {
+  const notArray = { body: { message: 'unexpected' } };
+
+  test('labels: a plain Error in the daemon wording', async () => {
+    stubFetch([notArray]);
+    const err = await provider().fetchProjectLabels!('g/p').catch((e: unknown) => e);
+    expect(err).not.toBeInstanceOf(TypeError);
+    expect((err as Error).message).toBe("GitLab's label listing was not a JSON array");
+  });
+
+  test('pipeline list, by ref and by iid: a plain Error in the daemon wording', async () => {
+    stubFetch([notArray]);
+    for (const options of [{ limit: 1 }, { iid: 1, limit: 1 }]) {
+      const err = await provider().fetchPipelineList!('g/p', options).catch((e: unknown) => e);
+      expect(err).not.toBeInstanceOf(TypeError);
+      expect((err as Error).message).toBe("GitLab's pipeline listing was not a JSON array");
+    }
+  });
+
+  test('MR summaries: a plain Error in the daemon wording', async () => {
+    stubFetch([notArray]);
+    const err = await provider().fetchPullRequestSummaries!('g/p', { state: 'opened', limit: 1 }).catch((e: unknown) => e);
+    expect(err).not.toBeInstanceOf(TypeError);
+    expect((err as Error).message).toBe("GitLab's merge request listing was not a JSON array");
   });
 });

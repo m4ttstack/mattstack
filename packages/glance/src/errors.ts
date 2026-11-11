@@ -109,12 +109,26 @@ export class RateLimitedError extends Error {
 }
 
 /**
- * A forge answered a read with a non-2xx status. Carries the parts a caller
+ * A forge answered a request with a non-2xx status. Carries the parts a caller
  * branches on, so it never has to parse them back out of the message.
+ *
+ * Thrown by `fetchProjectLabels`, `fetchPipelineList`, `addPullRequestLabels`
+ * and `removePullRequestLabels` on both forges, by GitLab's
+ * `fetchPullRequestSummaries`, and by GitHub's `fetchCommitParents` and
+ * `fetchPipelineFailedJobs`. GitHub's `fetchPullRequestSummaries` throws a
+ * plain `Error` on a GraphQL or HTTP failure, and GitLab's
+ * `fetchCommitParents` and `fetchPipelineFailedJobs` throw the legacy
+ * `"<method> failed: ..."` `Error`.
  */
 export class ForgeHttpError extends Error {
   readonly status: number;
   readonly statusText: string;
+  /**
+   * The forge's error message text (GitHub's `message`, GitLab's `message` or
+   * `error`), or the raw response body when it has no message field. After
+   * gitbeaker gives up retrying a GitLab 429 or 502, it is gitbeaker's retry
+   * message, since no response reaches glance.
+   */
   readonly bodyText: string;
 
   constructor(message: string, status: number, statusText: string, bodyText: string) {

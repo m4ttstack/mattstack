@@ -49,6 +49,14 @@ describe('GitHub label edits', () => {
     expect(calls).toHaveLength(2);
   });
 
+  test('a 404 Not Found on remove (a missing PR or repository) is a ForgeHttpError', async () => {
+    const calls = stub(() => jsonResponse({ message: 'Not Found' }, 404));
+    const err = await github().removePullRequestLabels!('o/r', 9999, ['bug', 'docs']).catch((e) => e);
+    expect(err).toBeInstanceOf(ForgeHttpError);
+    expect((err as ForgeHttpError).status).toBe(404);
+    expect(calls).toHaveLength(1);
+  });
+
   test('a non-404 failure on remove is a ForgeHttpError', async () => {
     stub(() => jsonResponse({ message: 'Forbidden' }, 403));
     const err = await github().removePullRequestLabels!('o/r', 7, ['bug']).catch((e) => e);
