@@ -1,7 +1,7 @@
 import { ForgeHttpError, WriteOutcomeUnknownError } from './errors.ts';
 import type { GlanceOctokit } from './githubClient.ts';
 import { forgeWrite, githubLineAndSide, parseReviewThreadDiscussionId } from './githubNotes.ts';
-import { pendingPreview } from './gitlabReview.ts';
+import { pendingPreview } from './reviewPreview.ts';
 import type { ReviewSubmission, ReviewSubmitResult } from './types.ts';
 
 export interface GitHubReviewDeps {

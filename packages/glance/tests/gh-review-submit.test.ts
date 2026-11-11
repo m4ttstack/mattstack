@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
+import type { WriteOutcomeUnknownError } from '../src/errors.ts';
 import type { ReviewSubmission } from '../src/types.ts';
 import { jsonResponse, stubForge, useForgeStub, useInstantTimers } from './helpers/gh-fill-fixture.ts';
 
@@ -135,7 +136,7 @@ describe('GitHub submitReview', () => {
   });
 
   test("the token's own pending review returns pending-drafts with zero writes", async () => {
-    const calls = forge((method, path) => {
+    const calls = forge((_method, path) => {
       if (path === `${REPO}/pulls/7/reviews`)
         return jsonResponse([
           { id: 54, state: 'APPROVED', body: '' },
@@ -239,7 +240,7 @@ describe('GitHub submitReview', () => {
 
   test('a POST that outlives reviewTimeoutMs throws the unknown-outcome message after one POST', async () => {
     let postCount = 0;
-    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
       const method = String(init?.method ?? 'GET').toUpperCase();
       if (method === 'GET') return Promise.resolve(jsonResponse([]));
       postCount++;
@@ -253,6 +254,24 @@ describe('GitHub submitReview', () => {
     expect((err as Error).message).toBe(
       'publish failed and its outcome is unknown: the review request timed out; look at the pull request before retrying'
     );
+    expect(postCount).toBe(1);
+  });
+
+  test('a POST whose answer is lost throws the unknown-outcome message after one POST', async () => {
+    let postCount = 0;
+    globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
+      const method = String(init?.method ?? 'GET').toUpperCase();
+      if (method === 'GET') return Promise.resolve(jsonResponse([]));
+      postCount++;
+      return Promise.reject(new TypeError('socket hang up'));
+    }) as typeof fetch;
+    const err = await provider()
+      .submitReview('o/r', 7, REVIEW)
+      .catch((e: unknown) => e);
+    expect((err as Error).message).toBe(
+      'publish failed and its outcome is unknown: the review request got no answer from GitHub (socket hang up); look at the pull request before retrying'
+    );
+    expect(((err as Error).cause as WriteOutcomeUnknownError).reason).toBe('no-answer');
     expect(postCount).toBe(1);
   });
 

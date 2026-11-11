@@ -195,9 +195,7 @@ type GHPullRequest = Pick<
 
 type GHReview = Pick<components['schemas']['pull-request-review'], 'state'> & {
   id: number;
-  // Schema allows `user: null` for reviews from since-deleted accounts;
-  // `paginate<GHReview>`'s results have never carried that case here.
-  user: GHUser;
+  user: GHNoteUser;
   // Schema marks this optional (absent on PENDING reviews); the
   // /pulls/{number}/reviews page this file reads has never omitted it.
   submitted_at: string;
@@ -414,10 +412,8 @@ type GHComment = Pick<ReviewCommentSchema, 'body' | 'created_at'> & {
   in_reply_to_id?: number | null;
 };
 
-type GHReviewSummary = {
+type GHReviewSummary = Pick<components['schemas']['pull-request-review'], 'state' | 'body'> & {
   id: number;
-  body: string | null;
-  state: string;
   user: GHNoteUser;
   // Absent only on a PENDING review, which the summary read skips.
   submitted_at: string;
@@ -1025,7 +1021,7 @@ export class GitHubProvider implements GitProvider {
     const oldPaths = new Map<string, string>();
     if (reviewComments.length > 0) {
       const [files] = await Promise.all([
-        this.octokit.paginate<{ filename: string; previous_filename?: string }>(
+        this.octokit.paginate<Pick<components['schemas']['diff-entry'], 'filename' | 'previous_filename'>>(
           'GET /repos/{owner}/{repo}/pulls/{pull_number}/files',
           route
         ),

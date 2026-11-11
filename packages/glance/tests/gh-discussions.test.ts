@@ -93,7 +93,7 @@ function providerWith(opts: {
       status: 200,
       json: async () => ({ full_name: 'acme/repo' }),
       text: async () => '{}',
-    headers: { get: () => null }
+      headers: { get: () => null }
     };
   };
 

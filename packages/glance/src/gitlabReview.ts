@@ -1,4 +1,5 @@
 import type { DiffRefs, NoteMutator, TextPosition } from './NoteMutator.ts';
+import { pendingPreview } from './reviewPreview.ts';
 import type { CommentAnchor, ReviewSubmission, ReviewSubmitResult } from './types.ts';
 
 export function buildTextPosition(anchor: CommentAnchor, refs: DiffRefs): TextPosition {
@@ -33,16 +34,6 @@ export interface GitLabReviewDeps {
 
 /** Must not exceed listDraftNotes' page size: the pending check and the rollback each read one page. */
 const MAX_ITEMS = 100;
-const PENDING_PREVIEW = 5;
-
-/** First non-blank line of each of the first five texts, each cut to 120 characters. */
-export function pendingPreview(texts: string[]): string[] {
-  return texts.slice(0, PENDING_PREVIEW).map(firstLine);
-}
-
-function firstLine(text: string): string {
-  return (text.split('\n').find((l) => l.trim()) ?? '').trim().slice(0, 120);
-}
 
 /** Statuses GitLab answers before it acts on a request. */
 const REFUSED_BEFORE_ACTING = new Set([400, 401, 403, 404, 422]);
