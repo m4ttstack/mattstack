@@ -144,6 +144,8 @@ export interface DisposeDeps {
   notify?: (post: { room: string; body: string }) => Promise<void>;
   /** Test seam for the process kill; defaults to `killWorktreeProcesses`. */
   killWorktree?: (path: string, opts: KillWorktreeOptions) => Promise<WorktreeKillResult>;
+  /** Test seam for the trash rename; defaults to `retireTree`. */
+  retireTree?: typeof retireTree;
 }
 
 /** The chat line for an agent session that was stopped because its tree was disposed. */
@@ -152,7 +154,12 @@ export function stoppedSessionNotice(args: {
   tree: string;
   why: string;
   trashPath: string | null;
+  /** Set when the dispose refused after the session was already stopped. */
+  refusal?: string;
 }): string {
+  if (args.refusal) {
+    return `rt stopped ${args.name}: it was still working inside worktree ${args.tree}, which rt was disposing after ${args.why}. The dispose did not finish (${args.refusal}), so the tree is still in place.`;
+  }
   const base = `rt stopped ${args.name}: it was still working inside worktree ${args.tree}, which was disposed after ${args.why}.`;
   return args.trashPath ? `${base} The tree is in the trash at ${args.trashPath}.` : base;
 }
@@ -304,37 +311,16 @@ export async function disposeTree(
     }
   }
 
-  // Captured before the rename below: once the tree is retired, rec.path is
-  // no longer a working git checkout and this call would fail.
-  const headBeforeRetire = await headSha(rec.path);
-
-  // One atomic rename, not a recursive unlink: see trash.ts. Everything below
-  // is fast, so the verb returns in seconds however large the tree was.
-  const trashed = await retireTree(rec.path, rec.name, repoPath, { requireRetention: opts.requireRetention === true });
-  if (!trashed.ok) {
-    log.warn(
-      { repo: repoName, tree: rec.name, path: rec.path, err: trashed.err },
-      "worktree trash rename failed during dispose",
-    );
-    if (trashed.noRetention) return refuse("no-trash");
-    // A directory that is already gone is the expected failure and disposal
-    // continues (the registry row is the thing left to clean up). A tree still
-    // at rec.path means the rename genuinely failed — held directory,
-    // permissions — and pruning the registry there would orphan a real
-    // worktree with its metadata lost. Refuse instead; the caller retries.
-    if (existsSync(rec.path)) return refuse("remove-failed");
-  }
-
-  const announceStopped = async (trashPath: string | null): Promise<void> => {
-    const why = opts.stopSessions?.why;
-    if (!why || !deps.notify) return;
+  const announceStopped = async (trashPath: string | null, refusal?: string): Promise<void> => {
+    if (!opts.stopSessions || !deps.notify) return;
     for (const s of stoppedSessions) {
       if (!s.identity) continue;
       const body = stoppedSessionNotice({
         name: sessionDisplayName(s.pid, s.label, s.identity),
         tree: rec.name,
-        why,
+        why: opts.stopSessions.why,
         trashPath,
+        ...(refusal ? { refusal } : {}),
       });
       for (const room of s.identity.rooms) {
         try {
@@ -345,6 +331,33 @@ export async function disposeTree(
       }
     }
   };
+
+  // Captured before the rename below: once the tree is retired, rec.path is
+  // no longer a working git checkout and this call would fail.
+  const headBeforeRetire = await headSha(rec.path);
+
+  // One atomic rename, not a recursive unlink: see trash.ts. Everything below
+  // is fast, so the verb returns in seconds however large the tree was.
+  const trashed = await (deps.retireTree ?? retireTree)(rec.path, rec.name, repoPath, { requireRetention: opts.requireRetention === true });
+  if (!trashed.ok) {
+    log.warn(
+      { repo: repoName, tree: rec.name, path: rec.path, err: trashed.err },
+      "worktree trash rename failed during dispose",
+    );
+    if (trashed.noRetention) {
+      await announceStopped(null, "no-trash");
+      return refuse("no-trash");
+    }
+    // A directory that is already gone is the expected failure and disposal
+    // continues (the registry row is the thing left to clean up). A tree still
+    // at rec.path means the rename genuinely failed — held directory,
+    // permissions — and pruning the registry there would orphan a real
+    // worktree with its metadata lost. Refuse instead; the caller retries.
+    if (existsSync(rec.path)) {
+      await announceStopped(null, "remove-failed");
+      return refuse("remove-failed");
+    }
+  }
 
   // The registration now points at a path that no longer exists, which is
   // exactly what prune collects.

@@ -1025,12 +1025,13 @@ describe("disposeTree", () => {
       expect(warns[0]![0]).toMatchObject({ pid: 601, sessionId: "s-1", handle: "rt-555", pane: "p7", tree: "tree-a" });
       expect(posts.map((p) => p.room)).toEqual(["mattstack", "herd-x"]);
       const trashPath = result.disposed && result.trash ? result.trash.path : null;
+      expect(trashPath).not.toBeNull();
       for (const p of posts) {
         expect(p.treeExisted).toBe(false);
         expect(p.body).toContain("rt-555");
         expect(p.body).toContain("tree-a");
         expect(p.body).toContain("PR #1087 merged");
-        if (trashPath) expect(p.body).toContain(trashPath);
+        expect(p.body).toContain(trashPath!);
       }
     });
 
@@ -1050,12 +1051,30 @@ describe("disposeTree", () => {
       expect(posts.length).toBe(0);
     });
 
+    test("a retire that refuses still announces the stopped session, refusal-aware", async () => {
+      const { path, rec, deps, posts } = setup(ident);
+      deps.retireTree = async () => ({ ok: false, err: new Error("held") }) as never;
+      const result = await disposeTree(deps, rec, { auto: true, stopSessions: { why: "PR #1087 merged" } });
+      expect(result).toEqual({ disposed: false, refusal: "remove-failed" });
+      expect(existsSync(path)).toBe(true);
+      expect(posts.map((p) => p.room)).toEqual(["mattstack", "herd-x"]);
+      for (const p of posts) expect(p.body).toContain("did not finish (remove-failed)");
+    });
+
     test("a throwing notify does not fail the dispose", async () => {
       const { rec, deps, warns } = setup(ident, async () => { throw new Error("chat down"); });
       const result = await disposeTree(deps, rec, { auto: true, stopSessions: { why: "PR #1087 merged" } });
       expect(result).toMatchObject({ disposed: true });
       expect(warns.some((w) => (w[0] as { err?: unknown }).err !== undefined)).toBe(true);
     });
+  });
+
+  test("stoppedSessionNotice with a refusal says the dispose did not finish", () => {
+    expect(
+      stoppedSessionNotice({ name: "rt-555", tree: "haldir", why: "PR #1087 merged", trashPath: "/t/x", refusal: "remove-failed" }),
+    ).toBe(
+      "rt stopped rt-555: it was still working inside worktree haldir, which rt was disposing after PR #1087 merged. The dispose did not finish (remove-failed), so the tree is still in place.",
+    );
   });
 
   test("stoppedSessionNotice names session, tree, reason and trash", () => {
