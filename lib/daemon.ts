@@ -140,6 +140,7 @@ import { createEscapeInjector, createPaneStatusProbe, readVisibleScreen } from "
 import { createReconciler, onReconcilerRoster, type Reconciler } from "./daemon/reconciler.ts";
 import { snapshotPanes, type LivePane } from "./daemon/pane-resolve-live.ts";
 import type { CommandResult } from "./daemon/handlers/types.ts";
+import { SYSTEM_HANDLE } from "./daemon/handlers/herd.ts";
 import { deliverToInbox } from "./daemon/inbox.ts";
 import { resolveLiveInbox, resolveAllLiveInboxes } from "./claude-registry.ts";
 import {
@@ -1199,6 +1200,15 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           log,
           findRunningRunByWorktree,
           jobTreeHold: (rec) => herdJobTreeHold(herdStore, rec),
+          notify: async ({ room, body }) => {
+            const post = routedHandlers?.["chat:post"];
+            if (!post) {
+              log.warn({ room }, "worktree notice dropped: chat not ready");
+              return;
+            }
+            const res = (await post({ room, handle: SYSTEM_HANDLE, body })) as CommandResult<"chat:post">;
+            if (!res.ok) log.warn({ room, error: res.error }, "worktree notice post failed");
+          },
         });
 
         refreshCache = createCacheRefresher({
