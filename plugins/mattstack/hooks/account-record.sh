@@ -15,7 +15,8 @@ CONFIG="$HOME/.claude.json"
 [ -z "${CLAUDE_CONFIG_DIR:-}" ] || CONFIG="$CLAUDE_CONFIG_DIR/.claude.json"
 
 if [ -e "$CONFIG" ]; then
-  MTIME="$(stat -f %m "$CONFIG" 2>/dev/null || stat -c %Y "$CONFIG" 2>/dev/null)" || MTIME=""
+  # Size joins mtime: a rewrite inside the same second still changes the key. GNU first, since `stat -f` succeeds there with filesystem data.
+  MTIME="$(stat -c '%Y:%s' "$CONFIG" 2>/dev/null || stat -f '%m:%z' "$CONFIG" 2>/dev/null)" || MTIME=""
   [ -n "$MTIME" ] || MTIME=missing
 else
   MTIME=missing

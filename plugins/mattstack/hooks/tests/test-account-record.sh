@@ -50,6 +50,15 @@ run s1 >/dev/null
 check "touched config calls again" "2" "$(calls)"
 
 reset
+printf '{}' > "$SANDBOX/home/.claude.json"
+touch -t 203001010000 "$SANDBOX/home/.claude.json"
+run s7 >/dev/null
+printf '{"a":1}' > "$SANDBOX/home/.claude.json"
+touch -t 203001010000 "$SANDBOX/home/.claude.json"
+run s7 >/dev/null
+check "same mtime, different size calls again" "2" "$(calls)"
+
+reset
 check "missing config, no api key: exit" "exit=0 out=" "$(run s2)"
 check "missing config, no api key: no call" "0" "$(calls)"
 check "missing config, api key: exit" "exit=0 out=" "$(run s2 ANTHROPIC_API_KEY=x)"
