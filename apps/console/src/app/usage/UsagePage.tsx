@@ -32,7 +32,7 @@ import { KindLegend, ShareBar } from './KindBar';
 import { UsageMrList } from './UsageMrList';
 import classes from './UsagePage.module.css';
 import { UsageRepoSelect } from './UsageRepoSelect';
-import { UsageStats, type UsageStat } from './UsageStats';
+import { billingStats, UsageStats, type UsageStat } from './UsageStats';
 import {
   useUsageEnrichment,
   useUsageMrs,
@@ -246,7 +246,7 @@ export function UsagePage() {
     : [];
   const trendCost = trends.data?.totals.cost ?? 0;
   const trendStats: UsageStat[] = [
-    { key: 'cost', value: usd(trendCost), label: 'estimated cost' },
+    ...(trends.data ? billingStats(trends.data.byBilling) : []),
     {
       key: 'average',
       value: usd(averageWeek(trendCost, url.range, weeks)),

@@ -1,5 +1,5 @@
 .table {
-  --columns: minmax(0, 1fr) 300px 76px 76px 84px 84px 16px;
+  --columns: minmax(0, 1fr) 300px 76px 76px 84px 110px 16px;
 
   display: flex;
   flex: 0 1 auto;
@@ -97,6 +97,11 @@
 .barLink {
   display: block;
   padding-block: 8px;
+}
+
+.cost {
+  text-align: right;
+  white-space: nowrap;
 }
 
 .chevron {

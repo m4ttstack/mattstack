@@ -1,5 +1,6 @@
 /** `CONSOLE_FIXTURE=design` data for the usage reads: invented `acme/widgets` MRs. */
 import type {
+  UsageAccount,
   UsageBilling,
   UsageKind,
   UsageModelRow,
@@ -38,6 +39,17 @@ const unknownBilling = (
   plan: ZERO,
   unknown: totals,
 });
+const BILLINGS: UsageBilling[] = ['metered', 'plan', 'unknown'];
+const WORK_ACCOUNT: UsageAccount = {
+  account: 'acct-work',
+  label: 'work@example.com',
+  billing: 'metered',
+};
+const PERSONAL_ACCOUNT: UsageAccount = {
+  account: 'acct-personal',
+  label: 'personal@example.com',
+  billing: 'plan',
+};
 const KINDS: UsageKind[] = ['work', 'review', 'respond', 'doctor', 'other'];
 const round = (n: number) => Math.round(n * 1e6) / 1e6;
 
@@ -54,6 +66,56 @@ function sum(rows: UsageTotals[]): UsageTotals {
     }),
     ZERO
   );
+}
+
+function minus(a: UsageTotals, b: UsageTotals): UsageTotals {
+  return {
+    input: a.input - b.input,
+    output: a.output - b.output,
+    cacheRead: a.cacheRead - b.cacheRead,
+    cacheWrite: a.cacheWrite - b.cacheWrite,
+    messages: a.messages - b.messages,
+    cost: round(a.cost - b.cost),
+    unpricedTokens: a.unpricedTokens - b.unpricedTokens,
+  };
+}
+
+function share(t: UsageTotals, f: number): UsageTotals {
+  return {
+    input: Math.round(t.input * f),
+    output: Math.round(t.output * f),
+    cacheRead: Math.round(t.cacheRead * f),
+    cacheWrite: Math.round(t.cacheWrite * f),
+    messages: Math.round(t.messages * f),
+    cost: round(t.cost * f),
+    unpricedTokens: Math.round(t.unpricedTokens * f),
+  };
+}
+
+/** The last class takes the remainder, so the split adds up to `totals` exactly. */
+function splitBilling(
+  totals: UsageTotals,
+  shares: Partial<Record<UsageBilling, number>>
+): Record<UsageBilling, UsageTotals> {
+  const classes = BILLINGS.filter(b => shares[b] !== undefined);
+  const out = { metered: ZERO, plan: ZERO, unknown: ZERO };
+  let left = totals;
+  classes.forEach((b, i) => {
+    const part = i === classes.length - 1 ? left : share(totals, shares[b]!);
+    out[b] = part;
+    left = minus(left, part);
+  });
+  return out;
+}
+
+function sumBilling(
+  rows: Array<Record<UsageBilling, UsageTotals>>
+): Record<UsageBilling, UsageTotals> {
+  return {
+    metered: sum(rows.map(r => r.metered)),
+    plan: sum(rows.map(r => r.plan)),
+    unknown: sum(rows.map(r => r.unknown)),
+  };
 }
 
 const tot = (
@@ -102,6 +164,9 @@ interface EntrySpec {
   stages: Array<
     [string | null, number | null, string | null, UsageTotals, UsageOutside?]
   >;
+  /** First-seen order. The shares split the cost across their classes. */
+  accounts: UsageAccount[];
+  shares: Partial<Record<UsageBilling, number>>;
 }
 
 function entry(s: EntrySpec): UsageMrEntry {
@@ -152,8 +217,8 @@ function entry(s: EntrySpec): UsageMrEntry {
     firstActivity: s.start,
     lastActivity: s.start + s.hours * HOUR,
     totals,
-    byBilling: unknownBilling(totals),
-    accounts: [],
+    byBilling: splitBilling(totals, s.shares),
+    accounts: s.accounts,
     byModel: seenModels(s.main, s.subagent),
     main: s.main,
     subagent: s.subagent,
@@ -187,7 +252,7 @@ function mrData(
     firstActivity: Math.min(...entries.map(e => e.firstActivity)),
     lastActivity: Math.max(...entries.map(e => e.lastActivity)),
     totals,
-    byBilling: unknownBilling(totals),
+    byBilling: sumBilling(entries.map(e => e.byBilling)),
     costByKind,
     byModel: seenModels(main, subagent),
     main,
@@ -234,6 +299,8 @@ export function usageFixture(): UsageFixture {
         status: 'done',
         start: WEEK + 9 * HOUR,
         hours: 3,
+        accounts: [PERSONAL_ACCOUNT, WORK_ACCOUNT],
+        shares: { plan: 0.7, metered: 0.3 },
         main: tot(1200, 48000, 5_200_000, 310_000, 14.8),
         subagent: tot(400, 15000, 1_100_000, 90_000, 1.9),
         stages: [
@@ -259,6 +326,8 @@ export function usageFixture(): UsageFixture {
           status: 'done',
           start: WEEK + n * DAY + 10 * HOUR,
           hours: 1,
+          accounts: [n === 3 ? PERSONAL_ACCOUNT : WORK_ACCOUNT],
+          shares: n === 3 ? { plan: 1 } : { metered: 1 },
           main: tot(300 * n, 9000, 1_400_000, 80_000, 3.1 + n * 0.4),
           subagent: tot(0, 0, 0, 0, 0),
           stages: [
@@ -280,6 +349,8 @@ export function usageFixture(): UsageFixture {
         status: null,
         start: WEEK + 4 * DAY + 14 * HOUR,
         hours: 1,
+        accounts: [],
+        shares: { unknown: 1 },
         main: tot(200, 6000, 900_000, 50_000, 2.2),
         subagent: tot(0, 0, 0, 0, 0),
         stages: [[null, null, null, tot(200, 6000, 900_000, 50_000, 2.2)]],
@@ -302,6 +373,8 @@ export function usageFixture(): UsageFixture {
         status: 'done',
         start: WEEK + 4 * DAY + 16 * HOUR,
         hours: 1,
+        accounts: [PERSONAL_ACCOUNT],
+        shares: { plan: 1 },
         main: tot(500, 12000, 2_000_000, 120_000, 4.6),
         subagent: tot(0, 0, 0, 0, 0),
         stages: [
@@ -373,7 +446,14 @@ export function usageFixture(): UsageFixture {
     trends: {
       weeks,
       totals: sum(weeks.map(w => w.totals)),
-      byBilling: unknownBilling(sum(weeks.map(w => w.totals))),
+      byBilling: sumBilling([
+        sumBilling(all.map(d => d.byBilling)),
+        splitBilling(sum(earlierWeeks.map(w => w.totals)), {
+          metered: 0.4,
+          plan: 0.5,
+          unknown: 0.1,
+        }),
+      ]),
       byPipeline: [
         { pipeline: 'feature', totals: kindOverWeeks('work') },
         { pipeline: 'receive-review', totals: kindOverWeeks('respond') },

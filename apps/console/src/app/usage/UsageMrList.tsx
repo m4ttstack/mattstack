@@ -2,7 +2,11 @@ import { Paper, Text, VirtualList } from '@mattstack/app-kit/core';
 import { useElementSize } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 import { Link } from '@mattstack/app-kit/router';
-import type { UsageMrRow } from '@mattstack/rt-client';
+import type {
+  UsageBilling,
+  UsageMrRow,
+  UsageTotals,
+} from '@mattstack/rt-client';
 
 import {
   compact,
@@ -20,8 +24,8 @@ import classes from './UsageMrList.module.css';
 import type { EnrichmentOf } from './useUsage';
 
 /** The list only windows rows of a known height: `.row` holds it. */
-const ROW_HEIGHT = 56;
-const HEAD_HEIGHT = 36;
+const ROW_HEIGHT = 64;
+const HEAD_HEIGHT = 40;
 const MIN_ROWS_SHOWN = 3;
 
 const SORT_COLUMNS: Array<{ sort: MrSort; label: string }> = [
@@ -60,6 +64,25 @@ function SortHeader({
         ) : null}
         {label}
       </button>
+    </div>
+  );
+}
+
+export function CostCell({
+  byBilling,
+}: {
+  byBilling: Record<UsageBilling, UsageTotals>;
+}) {
+  return (
+    <div role="cell" className={classes.cost}>
+      <Text fz="sm" fw={500} lh="normal" data-testid="cost-metered">
+        {usd(byBilling.metered.cost)}
+      </Text>
+      {byBilling.plan.cost > 0 ? (
+        <Text fz="sm" c="dimmed" lh="normal" data-testid="cost-plan">
+          {`${usd(byBilling.plan.cost)} on plan`}
+        </Text>
+      ) : null}
     </div>
   );
 }
@@ -120,9 +143,7 @@ function MrRow({
       <Text role="cell" fz="sm" c="dimmed" ta="right">
         {compact(row.totals.cacheRead)}
       </Text>
-      <Text role="cell" fz="sm" fw={500} ta="right">
-        {usd(row.totals.cost)}
-      </Text>
+      <CostCell byBilling={row.byBilling} />
       <div role="cell" className={classes.chevron}>
         <Icon name="chevronRight" size={16} />
       </div>
