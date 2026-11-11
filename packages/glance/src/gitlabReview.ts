@@ -31,6 +31,8 @@ export interface GitLabReviewDeps {
   resolve(discussionId: string): Promise<void>;
 }
 
+/** Must not exceed listDraftNotes' page size: the pending check and the rollback each read one page. */
+const MAX_ITEMS = 100;
 const PENDING_PREVIEW = 5;
 
 /** First non-blank line of each of the first five texts, each cut to 120 characters. */
@@ -70,6 +72,10 @@ function leftover({ left, firstError }: Rollback): string {
  */
 export async function submitGitLabReview(deps: GitLabReviewDeps, review: ReviewSubmission): Promise<ReviewSubmitResult> {
   const { mutator, project, iid } = deps;
+  const items = review.comments.length + review.replies.length;
+  if (items > MAX_ITEMS) {
+    throw new Error(`review not posted: ${items} comments and replies exceed the limit of ${MAX_ITEMS}`);
+  }
 
   const before = await mutator.listDraftNotes(project, iid);
   if (before.length > 0) {

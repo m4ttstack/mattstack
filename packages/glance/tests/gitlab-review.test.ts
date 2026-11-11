@@ -375,6 +375,20 @@ describe('submitGitLabReview', () => {
     expect(out.published && out.resolveErrors).toEqual([{ discussionId: 'd2', error: 'Error: gone' }]);
   });
 
+  test('more than 100 comments and replies is refused before any request; 100 is not', async () => {
+    const comments = Array.from({ length: 60 }, (_, i) => ({ body: `c${i}`, path: 'a.ts', line: i + 1 }));
+    const replies = (n: number) => Array.from({ length: n }, (_, i) => ({ discussionId: `d${i}`, resolve: true }));
+    const over = fake();
+    await expect(
+      submitGitLabReview(over.deps, { outcome: 'comment', summary: 'sum', comments, replies: replies(41) })
+    ).rejects.toThrow('review not posted: 101 comments and replies exceed the limit of 100');
+    expect(over.log).toEqual([]);
+    const at = fake();
+    const out = await submitGitLabReview(at.deps, { outcome: 'comment', summary: 'sum', comments, replies: replies(40) });
+    expect(out.published).toBe(true);
+    expect(at.log[0]).toBe('list');
+  });
+
   test('a summary-only review skips diff refs and publishes', async () => {
     const f = fake();
     await submitGitLabReview(f.deps, { outcome: 'comment', summary: 'sum', comments: [], replies: [] });

@@ -661,7 +661,8 @@ export interface GitProvider {
    * an outcome. Nothing posts when the caller already has a pending review
    * (`pending-drafts`) or the forge refuses a comment's anchor (`bad-anchors`).
    * On GitLab: pending comments published once, then approve and resolve; a
-   * failure before the publish deletes what it created.
+   * failure before the publish deletes what it created. At most 100 comments
+   * and replies together; more is refused before any request.
    * On GitHub: one review POST, then replies and resolves. Every reply must
    * name a `gh-review-thread-<id>`, checked before any request. An approve
    * GitHub refuses on the caller's own pull request posts as a comment with
