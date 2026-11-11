@@ -139,3 +139,14 @@ export class ForgeHttpError extends Error {
     this.bodyText = bodyText;
   }
 }
+
+/** GitLab created a discussion but returned it with no notes, so there is no note to report. */
+export class EmptyDiscussionError extends Error {
+  readonly discussionId: string;
+
+  constructor(discussionId: string, message = `GitLab created discussion ${discussionId} with no notes`) {
+    super(message);
+    this.name = 'EmptyDiscussionError';
+    this.discussionId = discussionId;
+  }
+}

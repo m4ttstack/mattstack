@@ -156,7 +156,8 @@ export const GITHUB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   fetchPipelineList: { support: 'supported', capability: 'canFetchPipelineList' },
   fetchPullRequestSummaries: { support: 'supported', capability: 'canFetchPullRequestSummaries' },
   addPullRequestLabels: { support: 'supported', capability: 'canEditLabels' },
-  removePullRequestLabels: { support: 'supported', capability: 'canEditLabels' }
+  removePullRequestLabels: { support: 'supported', capability: 'canEditLabels' },
+  fetchPullRequestDiffs: { support: 'supported', capability: 'canFetchPullRequestDiffs' }
 };
 
 export const GITLAB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
@@ -228,7 +229,12 @@ export const GITLAB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   fetchPipelineList: { support: 'supported', capability: 'canFetchPipelineList' },
   fetchPullRequestSummaries: { support: 'supported', capability: 'canFetchPullRequestSummaries' },
   addPullRequestLabels: { support: 'supported', capability: 'canEditLabels' },
-  removePullRequestLabels: { support: 'supported', capability: 'canEditLabels' }
+  removePullRequestLabels: { support: 'supported', capability: 'canEditLabels' },
+  fetchPullRequestDiffs: {
+    support: 'absent',
+    capability: 'canFetchPullRequestDiffs',
+    note: 'The daemon reads the GitLab diffs through restRequest, so glance does not implement the read.'
+  }
 };
 
 export function expectationFor(

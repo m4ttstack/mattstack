@@ -36,6 +36,7 @@ import type {
   NotePosition,
   Pipeline,
   PipelineJob,
+  PullRequestFileDiff,
   PipelineListEntry,
   ProjectLabel,
   ProviderCapabilities,
@@ -681,7 +682,10 @@ export class GitHubProvider implements GitProvider {
     canFetchCommitParents: true,
     canFetchPipelineFailedJobs: true,
     canFetchPullRequestSummaries: true,
-    canEditLabels: true
+    canEditLabels: true,
+    canReplyToGeneralComments: false,
+    canRequestChanges: true,
+    canFetchPullRequestDiffs: true
   };
 
   // ── GitProvider interface ─────────────────────────────────────────────────
@@ -2395,6 +2399,30 @@ export class GitHubProvider implements GitProvider {
         ref: sha
       });
       return res.data.parents.map(p => p.sha);
+    });
+  }
+
+  async fetchPullRequestDiffs(
+    projectPath: string,
+    mrIid: number,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<{ diffs: PullRequestFileDiff[]; truncated: boolean }> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    return this.forgeRead('fetchPullRequestDiffs', async () => {
+      const res = await this.octokit.request('GET /repos/{owner}/{repo}/pulls/{pull_number}/files', {
+        owner,
+        repo,
+        pull_number: mrIid,
+        per_page: 100,
+        request: { signal: options.signal }
+      });
+      const diffs = res.data.map((f): PullRequestFileDiff => ({
+        newPath: f.filename,
+        ...(f.previous_filename ? { oldPath: f.previous_filename } : {}),
+        diff: f.patch ?? '',
+        ...(f.patch === undefined ? { tooLarge: true } : {})
+      }));
+      return { diffs, truncated: res.data.length >= 100 };
     });
   }
 

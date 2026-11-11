@@ -1,7 +1,7 @@
 /**
  * REST API helpers for GitLab note mutations.
  *
- * Uses numeric projectId + mrIid so callers don't need the project full path.
+ * A project is a numeric id or a path; a path is sent URL-encoded.
  * Mirrors the GitLab REST API:
  *   POST   /api/v4/projects/:id/merge_requests/:mrIid/notes
  *   POST   /api/v4/projects/:id/merge_requests/:mrIid/discussions/:discussionId/notes
@@ -83,6 +83,11 @@ export interface ReviewerState {
   state: string;
 }
 
+/** A number builds the id URL it always has; a path is encoded into one segment. */
+function projectSegment(project: number | string): string {
+  return typeof project === 'number' ? String(project) : encodeURIComponent(project);
+}
+
 /** Above GitLab's own request limit, so a publish GitLab is still running is never abandoned. */
 const PUBLISH_TIMEOUT_MS = 90_000;
 /** Every other request a review submit makes (drafts, reviewer states, diff refs). */
@@ -107,14 +112,14 @@ export class NoteMutator {
    * If `discussionId` is provided the note is posted as a reply to that thread.
    */
   async createNote(
-    projectId: number,
+    project: number | string,
     mrIid: number,
     body: string,
     discussionId?: string,
   ): Promise<CreatedNote> {
     const path = discussionId
-      ? `/api/v4/projects/${projectId}/merge_requests/${mrIid}/discussions/${discussionId}/notes`
-      : `/api/v4/projects/${projectId}/merge_requests/${mrIid}/notes`;
+      ? `/api/v4/projects/${projectSegment(project)}/merge_requests/${mrIid}/discussions/${discussionId}/notes`
+      : `/api/v4/projects/${projectSegment(project)}/merge_requests/${mrIid}/notes`;
     const url = `${this.baseURL}${path}`;
     const started = performance.now();
 
@@ -153,11 +158,11 @@ export class NoteMutator {
    * get one from /notes.
    */
   async createDiscussion(
-    projectId: number,
+    project: number | string,
     mrIid: number,
     body: string,
   ): Promise<CreatedDiscussion> {
-    const path = `/api/v4/projects/${projectId}/merge_requests/${mrIid}/discussions`;
+    const path = `/api/v4/projects/${projectSegment(project)}/merge_requests/${mrIid}/discussions`;
     const url = `${this.baseURL}${path}`;
     const started = performance.now();
 
@@ -196,12 +201,12 @@ export class NoteMutator {
    * note) when the nesting isn't JSON.
    */
   async createPositionedDiscussion(
-    projectId: number,
+    project: number | string,
     mrIid: number,
     body: string,
     position: TextPosition,
   ): Promise<CreatedDiscussion> {
-    const path = `/api/v4/projects/${projectId}/merge_requests/${mrIid}/discussions`;
+    const path = `/api/v4/projects/${projectSegment(project)}/merge_requests/${mrIid}/discussions`;
     const url = `${this.baseURL}${path}`;
     const started = performance.now();
 
@@ -238,8 +243,8 @@ export class NoteMutator {
    * discussion (see `createPositionedDiscussion`). GitLab omits `diff_refs`
    * until the MR has a diff to anchor against.
    */
-  async fetchDiffRefs(projectId: number, mrIid: number): Promise<DiffRefs> {
-    const path = `/api/v4/projects/${projectId}/merge_requests/${mrIid}`;
+  async fetchDiffRefs(project: number | string, mrIid: number): Promise<DiffRefs> {
+    const path = `/api/v4/projects/${projectSegment(project)}/merge_requests/${mrIid}`;
     const url = `${this.baseURL}${path}`;
     const started = performance.now();
 
@@ -268,7 +273,7 @@ export class NoteMutator {
     const data = (await res.json()) as { diff_refs: DiffRefs | null };
     if (!data.diff_refs) {
       throw new Error(
-        `fetchDiffRefs: merge request !${mrIid} in project ${projectId} has no diff_refs yet`,
+        `fetchDiffRefs: merge request !${mrIid} in project ${project} has no diff_refs yet`,
       );
     }
     return data.diff_refs;
@@ -276,12 +281,12 @@ export class NoteMutator {
 
   /** Edit the body of an existing note. */
   async updateNote(
-    projectId: number,
+    project: number | string,
     mrIid: number,
     noteId: number,
     body: string,
   ): Promise<void> {
-    const path = `/api/v4/projects/${projectId}/merge_requests/${mrIid}/notes/${noteId}`;
+    const path = `/api/v4/projects/${projectSegment(project)}/merge_requests/${mrIid}/notes/${noteId}`;
     const url = `${this.baseURL}${path}`;
     const started = performance.now();
     const res = await fetch(url, {
@@ -311,8 +316,8 @@ export class NoteMutator {
   }
 
   /** Permanently delete a note. */
-  async deleteNote(projectId: number, mrIid: number, noteId: number): Promise<void> {
-    const path = `/api/v4/projects/${projectId}/merge_requests/${mrIid}/notes/${noteId}`;
+  async deleteNote(project: number | string, mrIid: number, noteId: number): Promise<void> {
+    const path = `/api/v4/projects/${projectSegment(project)}/merge_requests/${mrIid}/notes/${noteId}`;
     const url = `${this.baseURL}${path}`;
     const started = performance.now();
     const res = await fetch(url, {
@@ -378,7 +383,7 @@ export class NoteMutator {
    * caller must check it.
    */
   async createDraftNote(
-    projectId: number,
+    project: number | string,
     mrIid: number,
     body: string,
     opts: { position?: TextPosition; inReplyToDiscussionId?: string; resolveDiscussion?: boolean } = {},
@@ -386,7 +391,7 @@ export class NoteMutator {
     const res = await this.draftRequest(
       'createDraftNote',
       'POST',
-      `/api/v4/projects/${projectId}/merge_requests/${mrIid}/draft_notes`,
+      `/api/v4/projects/${projectSegment(project)}/merge_requests/${mrIid}/draft_notes`,
       {
         note: body,
         ...(opts.position ? { position: opts.position } : {}),
@@ -399,20 +404,20 @@ export class NoteMutator {
   }
 
   /** The token user's own pending comments on the MR; nobody else's are visible. */
-  async listDraftNotes(projectId: number, mrIid: number): Promise<DraftNote[]> {
+  async listDraftNotes(project: number | string, mrIid: number): Promise<DraftNote[]> {
     const res = await this.draftRequest(
       'listDraftNotes',
       'GET',
-      `/api/v4/projects/${projectId}/merge_requests/${mrIid}/draft_notes?per_page=100`,
+      `/api/v4/projects/${projectSegment(project)}/merge_requests/${mrIid}/draft_notes?per_page=100`,
     );
     return (await res.json()) as DraftNote[];
   }
 
-  async deleteDraftNote(projectId: number, mrIid: number, draftId: number): Promise<void> {
+  async deleteDraftNote(project: number | string, mrIid: number, draftId: number): Promise<void> {
     await this.draftRequest(
       'deleteDraftNote',
       'DELETE',
-      `/api/v4/projects/${projectId}/merge_requests/${mrIid}/draft_notes/${draftId}`,
+      `/api/v4/projects/${projectSegment(project)}/merge_requests/${mrIid}/draft_notes/${draftId}`,
     );
   }
 
@@ -422,24 +427,24 @@ export class NoteMutator {
    * state. Works with no pending comments.
    */
   async publishDraftNotes(
-    projectId: number,
+    project: number | string,
     mrIid: number,
     opts: { note: string; reviewerState: 'reviewed' | 'requested_changes'; timeoutMs?: number },
   ): Promise<void> {
     await this.draftRequest(
       'publishDraftNotes',
       'POST',
-      `/api/v4/projects/${projectId}/merge_requests/${mrIid}/draft_notes/bulk_publish`,
+      `/api/v4/projects/${projectSegment(project)}/merge_requests/${mrIid}/draft_notes/bulk_publish`,
       { note: opts.note, reviewer_state: opts.reviewerState },
       opts.timeoutMs ?? PUBLISH_TIMEOUT_MS,
     );
   }
 
-  async fetchReviewerStates(projectId: number, mrIid: number): Promise<ReviewerState[]> {
+  async fetchReviewerStates(project: number | string, mrIid: number): Promise<ReviewerState[]> {
     const res = await this.draftRequest(
       'fetchReviewerStates',
       'GET',
-      `/api/v4/projects/${projectId}/merge_requests/${mrIid}/reviewers`,
+      `/api/v4/projects/${projectSegment(project)}/merge_requests/${mrIid}/reviewers`,
     );
     const rows = (await res.json()) as Array<{ user: { username: string }; state: string }>;
     return rows.map(r => ({ username: r.user.username, state: r.state }));
@@ -454,12 +459,12 @@ export class NoteMutator {
    * from the FormData body, and setting the header by hand strips it.
    */
   async uploadFile(
-    projectId: number,
+    project: number | string,
     filename: string,
     bytes: Uint8Array,
     contentType = "application/octet-stream",
   ): Promise<UploadedFile> {
-    const path = `/api/v4/projects/${projectId}/uploads`;
+    const path = `/api/v4/projects/${projectSegment(project)}/uploads`;
     const url = `${this.baseURL}${path}`;
     const started = performance.now();
 

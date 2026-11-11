@@ -14,6 +14,7 @@ import type {
   MRDetail,
   Pipeline,
   PipelineJob,
+  PullRequestFileDiff,
   PipelineListEntry,
   PipelineSummary,
   ProjectLabel,
@@ -683,6 +684,19 @@ export interface GitProvider {
    * `capabilities.canFetchPipelineFailedJobs` before calling.
    */
   fetchPipelineFailedJobs?(projectPath: string, pipelineId: number): Promise<PipelineJob[]>;
+
+  /**
+   * A pull request's per-file diffs, one page of up to 100 files; `truncated`
+   * is set when 100 came back, as GitLab's reads do. A file with no patch
+   * (binary, or too large for GitHub to inline) comes back with an empty
+   * `diff` and `tooLarge: true`. Check `capabilities.canFetchPullRequestDiffs`
+   * before calling.
+   */
+  fetchPullRequestDiffs?(
+    projectPath: string,
+    mrIid: number,
+    options?: { signal?: AbortSignal }
+  ): Promise<{ diffs: PullRequestFileDiff[]; truncated: boolean }>;
 
   /**
    * Fetch the child/downstream pipeline for a trigger bridge job.

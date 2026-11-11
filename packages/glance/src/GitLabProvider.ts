@@ -981,6 +981,9 @@ export class GitLabProvider implements GitProvider {
     canFetchPipelineFailedJobs: true,
     canFetchPullRequestSummaries: true,
     canEditLabels: true,
+    canReplyToGeneralComments: true,
+    canRequestChanges: true,
+    canFetchPullRequestDiffs: false,
   };
 
   // MARK: - GitProvider
