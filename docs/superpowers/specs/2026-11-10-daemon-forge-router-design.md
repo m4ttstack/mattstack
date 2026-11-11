@@ -242,12 +242,14 @@ design review. This section is that review for the GitHub arm.
 
 ### 5. Carried from the read model
 
-- **Post-merge rate limit reads as a failed merge.** When the merge
-  landed but the head-repository read was rate limited, glance throws
-  `ReadBackFailedError` with `writeApplied: true` and the
-  `RateLimitedError` as `cause`. `mr:action` and `mr_merge` already treat
-  that as landed. The source branch is not deleted in that case; the
-  error message says so.
+- **Post-merge rate limit reads as a failed merge.** After a merge that
+  landed, no source-branch cleanup failure throws (a rate-limited or
+  forbidden head-repository read, an unknown head repository, a failed
+  delete). `mergePullRequest` resolves with the merged PR and a
+  `sourceBranchNotDeleted` sentence, and `mr:action` and `mr_merge` pass
+  that sentence on to the caller. A failed verification read-back is
+  separate and still throws `ReadBackFailedError` with
+  `writeApplied: true`, which both already treat as landed.
 - **Long-lived providers:** section 1.
 - **Not here:** batching the pipeline top-up, keeping the cache when a
   whole fill batch fails, and aliasing contexts pages across PRs all sit
@@ -352,6 +354,12 @@ method above through the router.
   argument. A gh older than 2.99, or none, refuses with the command to
   update it. If gh rejects the token for upload, the verb says so and the
   description is still written with the images named as local files.
+- **Open for Plan C (from PR 1's review):** a failed `gh pr edit --attach`
+  has two outcomes. With no upload done the PR is unchanged; with some
+  uploads done gh can update the PR and still exit nonzero. The verb
+  always reads the PR body back after a nonzero exit and records
+  whatever hosted URLs are there, so a retry reuses them. Plan C verifies
+  both outcomes against gh's own code before it pins the fallback above.
 - **`mr_upload`** has no PR to attach to, and gh uploads only as part of
   a PR or comment write, so on GitHub it refuses in every argument form
   and names `evidence_attach`. This is the ticket's own acceptance.
