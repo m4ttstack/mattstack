@@ -7,6 +7,8 @@ import type { Logger } from "pino";
 import { setSetting } from "../../../settings/write.ts";
 import { closeStateDb } from "../../../state/index.ts";
 import { loadRegistry, saveRegistry, type TreeRecord } from "../../../worktree/registry.ts";
+import { changeMarker, changeNoun } from "../../../repo-label.ts";
+import type { WorktreeKillResult } from "../../worktree-process-kill.ts";
 import { detectTransitions, __test__, type ReactorDeps } from "../reactor.ts";
 import type { RunningRunScan } from "../../../runs/store.ts";
 
@@ -441,6 +443,55 @@ describe("held trees say why (RT-267)", () => {
     await detect(merged);
     expect(find(rec.path)?.state).toBe("disposable");
     expect(find(rec.path)?.heldReason).toBeUndefined();
+  });
+
+  describe("merged-MR dispose stops sessions left inside (RT-555)", () => {
+    const session = {
+      pid: 4321,
+      label: "claude",
+      cwd: "/x",
+      identity: { sessionId: "s1", rooms: ["r"] },
+    };
+
+    function recorder() {
+      const kills: { path: string; stopSessionsInside?: boolean }[] = [];
+      const bodies: { room: string; body: string }[] = [];
+      const killWorktree = async (path: string, opts: { stopSessionsInside?: boolean }): Promise<WorktreeKillResult> => {
+        kills.push({ path, stopSessionsInside: opts.stopSessionsInside });
+        return { terminated: [], stoppedSessions: opts.stopSessionsInside ? [session] : [] };
+      };
+      const notify = async (post: { room: string; body: string }) => {
+        bodies.push(post);
+      };
+      return { kills, bodies, killWorktree, notify };
+    }
+
+    test("a merged-MR dispose stops sessions with the change named", async () => {
+      setSetting("rt.worktreeApp", { enabled: true, killProcesses: true }, "machine");
+      const rec = ephemeralTree(repo, repoName, "zulu", "feat-zulu");
+      const r = recorder();
+
+      await detect({ "feat-zulu": { repoName, mr: { iid: 83, state: "merged" } } }, { killWorktree: r.killWorktree, notify: r.notify });
+
+      expect(r.kills.find((k) => k.path === rec.path)?.stopSessionsInside).toBe(true);
+      expect(r.bodies).toHaveLength(1);
+      expect(r.bodies[0]!.room).toBe("r");
+      expect(r.bodies[0]!.body).toContain(`${changeNoun(repoName)} ${changeMarker(repoName)}83 merged`);
+    });
+
+    test("a closed MR never reaches the session stop", async () => {
+      setSetting("rt.worktreeApp", { enabled: true, killProcesses: true }, "machine");
+      const closedTree = ephemeralTree(repo, repoName, "alpha2", "feat-closed");
+      const mergedTree = ephemeralTree(repo, repoName, "bravo2", "feat-control");
+      const r = recorder();
+
+      await detect({ "feat-closed": { repoName, mr: { iid: 94, state: "opened" } } }, { killWorktree: r.killWorktree, notify: r.notify });
+      await detect({ "feat-closed": { repoName, mr: { iid: 94, state: "closed" } } }, { killWorktree: r.killWorktree, notify: r.notify });
+      expect(r.kills.filter((k) => k.path === closedTree.path)).toEqual([]);
+
+      await detect({ "feat-control": { repoName, mr: { iid: 95, state: "merged" } } }, { killWorktree: r.killWorktree, notify: r.notify });
+      expect(r.kills.find((k) => k.path === mergedTree.path)?.stopSessionsInside).toBe(true);
+    });
   });
 
   test("a merged tree rebased before merge disposes instead of refusing as unpushed", async () => {

@@ -69,6 +69,8 @@ export interface ReconcilerDeps {
   /** Releases ended herd job trees to the reactor and the stale sweep; wired
       from herd-store via job-release.ts. Unwired, job trees are never released. */
   jobTreeHold?: (rec: TreeRecord) => string | null;
+  /** Posts a notice into a chat room when the merge reactor stops an agent session left in a merged tree. */
+  notify?: (post: { room: string; body: string }) => Promise<void>;
   /** Test seam: overrides RECONCILER_PASS_DEADLINE_MS for the pass latch. */
   passDeadlineMs?: number;
 }
@@ -260,6 +262,7 @@ export function createWorktreeReconciler(deps: ReconcilerDeps): {
           log: deps.log,
           findRunningRun: deps.findRunningRunByWorktree,
           ...(deps.jobTreeHold ? { jobTreeHold: deps.jobTreeHold } : {}),
+          ...(deps.notify ? { notify: deps.notify } : {}),
         }),
       );
     } catch (err) {
