@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- GitLab behaviour must not change: same success replies and same error strings for every GitLab input. Two exceptions, both in the spec's Decided item 5 and both only for the moved list reads (MR list, labels, pipeline list): the error detail after `GitLab returned <status> <statusText>: ` is GitLab's message text, not the raw JSON body, and request counts may differ by one on a last page.
+- GitLab behaviour must not change: same success replies and same error strings for every GitLab input. Three exceptions, all in the spec's Decided item 5 and all only for the moved list reads (MR list, labels, pipeline list): the error detail after `GitLab returned <status> <statusText>: ` is GitLab's message text, not the raw JSON body; request counts may differ by one on a last page; and a 429 or 502 is retried by gitbeaker (up to 10 requests in about a quarter of a second) and reports gitbeaker's retry text as the detail.
 - glance uses Octokit for GitHub and gitbeaker for GitLab REST. No new raw `fetch`. Raw HTTP stays only where it is today: GitLab GraphQL, the `restRequest` passthrough, `MRDetailFetcher`, `NoteMutator`.
 - A token only ever goes to its own forge's host. The GitLab token keeps the confirmed-host check (`gitlabHostRefusal`).
 - No change to the daemon's sync cadence, coalescing or deep and delta rules. Project sync, live watch and the discussions poller keep skipping GitHub repos.

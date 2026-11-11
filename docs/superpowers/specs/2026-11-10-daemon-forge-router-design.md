@@ -77,8 +77,12 @@ libraries (Octokit, gitbeaker) wherever they cover the call.
    `<detail>` is that message (`404 Project Not Found`) where today it is
    the raw JSON body. Matt accepted that wording change on 2026-11-10.
    Success replies stay identical. Request counts may differ by one on a
-   last page. These are the two stated exceptions to "GitLab behaviour
-   must not change".
+   last page. On a 429 or 502, gitbeaker retries up to 10 times within
+   about a quarter of a second, as it does for every other GitLab call
+   glance makes, and `<detail>` is then gitbeaker's retry text. GitLab's
+   limits use fixed windows, so the extra requests do not lengthen a
+   block. Matt accepted that on 2026-11-10. These are the three stated
+   exceptions to "GitLab behaviour must not change".
 6. GitHub `mr_merge` moves behind the daemon (Matt, 2026-11-10).
 7. Comments, threads, reviews and evidence are in this spec, not later
    tickets (Matt, 2026-11-10).
