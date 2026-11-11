@@ -179,12 +179,13 @@ describe('StagePane', () => {
     expect(screen.getByText('Spec review')).toBeInTheDocument();
   });
 
-  it('shows a decision as its answered form: every option, the pick and the note', () => {
+  it('shows a decision as its answered form: every option, the pick and the note', async () => {
     pane();
     const pick = screen
       .getByText('Backend gap-fill + component work')
       .closest('[data-picked]');
     expect(pick).not.toBeNull();
+    await userEvent.click(pick!.closest('button')!);
     for (const text of [
       'Panel component only, mock the data',
       'Spike first, then decide',

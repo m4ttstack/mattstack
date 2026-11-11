@@ -511,7 +511,9 @@ describe('RunDetail: live work run', () => {
       expect(el).not.toBeNull();
       return el!;
     });
-    expect(await within(plan).findByText('Stub the data')).toBeInTheDocument();
+    expect(
+      await within(plan).findByText('Which approach?')
+    ).toBeInTheDocument();
     await waitFor(() =>
       expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
     );
@@ -550,7 +552,9 @@ describe('RunDetail: live work run', () => {
       expect(el).not.toBeNull();
       return el!;
     });
-    expect(await within(plan).findByText('Stub the data')).toBeInTheDocument();
+    expect(
+      await within(plan).findByText('Which approach?')
+    ).toBeInTheDocument();
     await userEvent.keyboard('{Shift}');
     expect(
       plan.querySelector('[data-gate-id="g-approach"]')
