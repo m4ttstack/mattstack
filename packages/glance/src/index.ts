@@ -38,6 +38,7 @@ export type {
   UpdatePullRequestInput,
   EnqueuePullRequestInput,
   MergePullRequestInput,
+  MergePullRequestResult,
   MergeQueueEntry,
   MergeQueueStatus,
   MergeMethod,

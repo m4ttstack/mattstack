@@ -624,6 +624,12 @@ export interface MergePullRequestInput {
   sha?: string;
 }
 
+/** What `mergePullRequest` resolves with: the merged PR, plus any cleanup it could not finish. */
+export type MergePullRequestResult = PullRequest & {
+  /** Set only when the merge landed and the source branch could not be deleted: why, in one sentence. */
+  sourceBranchNotDeleted?: string;
+};
+
 /**
  * Reports which mutation operations a provider supports.
  *

@@ -25,12 +25,12 @@
   GitLab's. `op` is accepted for parameter-order parity and ignored on GitHub;
   `io.redirect: 'manual'` returns a redirect instead of following it.
 - Every new GitHub read throws `RateLimitedError` on a rate limit.
-- Behavior change: when `mergePullRequest` lands the merge but the
-  head-repository read for `shouldRemoveSourceBranch` is rate limited, it now
-  throws `ReadBackFailedError` (`writeApplied: true`, the `RateLimitedError` as
-  `cause`, a message saying the PR merged and the source branch was not
-  deleted) instead of a `RateLimitedError`, so a caller that retries on rate
-  limits does not re-issue a merge that already landed.
+- Behavior change: after a merge that landed, a failed source-branch cleanup
+  no longer throws; `mergePullRequest` resolves with `sourceBranchNotDeleted`,
+  one sentence saying why the branch is still there (a rate-limited or failed
+  head-repository read, an unknown head repository, or a refused delete). The
+  return type is the new `MergePullRequestResult`, a `PullRequest` plus that
+  optional field. GitLab never sets it.
 
 ## 0.28.0
 

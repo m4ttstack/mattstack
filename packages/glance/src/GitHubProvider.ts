@@ -27,6 +27,7 @@ import type {
   JobDetail,
   EnqueuePullRequestInput,
   MergePullRequestInput,
+  MergePullRequestResult,
   MergeQueueEntry,
   MergeQueueStatus,
   MRDetail,
@@ -1679,16 +1680,16 @@ export class GitHubProvider implements GitProvider {
 
   /**
    * When `shouldRemoveSourceBranch` is set, the branch deletion happens as a
-   * second call after the merge PUT has already succeeded. If that deletion
-   * fails, this method rejects even though the merge itself went through.
-   * A caller must not read a rejection from this method as "the merge
-   * failed"; it can mean "merged, but the source branch is still there."
+   * second call after the merge PUT has already succeeded and been read
+   * back. If that cleanup fails, the merge still resolves, with the reason
+   * in `sourceBranchNotDeleted`: a rejection here would read as "the merge
+   * failed", and a caller retrying on it would re-issue a merge that landed.
    */
   async mergePullRequest(
     projectPath: string,
     mrIid: number,
     input?: MergePullRequestInput
-  ): Promise<PullRequest> {
+  ): Promise<MergePullRequestResult> {
     const body: Record<string, unknown> = {};
     const mergeMethod =
       input?.mergeMethod ?? (input?.squash ? 'squash' : undefined);
@@ -1711,58 +1712,60 @@ export class GitHubProvider implements GitProvider {
       throw err;
     }
     const pr = await this.fetchSingleMRAfterMutation(projectPath, mrIid, 'Merged');
-    if (input?.shouldRemoveSourceBranch) {
-      // `pr.sourceBranch` is `head.ref`, a branch name with no repository
-      // attached. For a same-repo PR that name lives in `projectPath`, but
-      // for a fork PR it lives in the fork, and deleting against
-      // `projectPath` would either 404 (branch never existed there, so the
-      // delete silently does nothing while reporting success) or, worse,
-      // delete an unrelated same-named branch in the base repo. The raw PR
-      // (not the mapped `PullRequest`, which carries no head-repo field)
-      // has to be read to find out which repository actually owns the ref.
-      let raw: GHPullRequest | null = null;
-      try {
-        const res = await this.octokit.request(`GET /repos/${projectPath}/pulls/${mrIid}`);
-        raw = res.data as GHPullRequest;
-      } catch (err) {
-        // A failed read is not a deleted fork: saying so would send the
-        // caller looking for the wrong problem.
-        // Not rethrown as RateLimitedError: a caller retrying on that would
-        // re-issue a merge that already landed.
-        if (err instanceof RateLimitedError) {
-          throw new ReadBackFailedError(
-            `mergePullRequest merged ${projectPath}#${mrIid} but the source branch was not deleted: reading the PR to find its head repository was rate limited: ${err.message}`,
-            {
-              operation: 'mergePullRequest',
-              projectPath,
-              iid: mrIid,
-              writeApplied: true,
-              cause: err
-            }
-          );
-        }
-        if (!(err instanceof RequestError && err.status === 404)) {
-          const reason =
-            err instanceof RequestError && err.response
-              ? `${err.status} ${bodyText(err)}`
-              : err instanceof Error
-                ? err.message
-                : String(err);
-          throw new Error(
-            `mergePullRequest merged but could not delete source branch "${pr.sourceBranch}": reading the PR failed: ${reason}`
-          );
-        }
-      }
-      const headRepo = raw?.head?.repo?.full_name;
-      if (!headRepo) {
-        throw new Error(
-          `mergePullRequest merged but could not delete source branch "${pr.sourceBranch}": ` +
-            'the head repository is unknown (fork likely deleted), so deletion cannot be targeted safely.'
+    if (!input?.shouldRemoveSourceBranch) return pr;
+    const notDeleted = await this.removeMergedSourceBranch(projectPath, mrIid, pr.sourceBranch);
+    return notDeleted === null ? pr : { ...pr, sourceBranchNotDeleted: notDeleted };
+  }
+
+  /**
+   * Deletes a merged PR's source branch from the repository that owns it.
+   * Resolves null once the branch is gone, or the one-sentence reason it is
+   * still there. Never throws: the merge in front of it already landed.
+   */
+  private async removeMergedSourceBranch(
+    projectPath: string,
+    mrIid: number,
+    branch: string
+  ): Promise<string | null> {
+    const notDeleted = (why: string) => `The source branch "${branch}" was not deleted: ${why}`;
+    // `branch` is `head.ref`, a branch name with no repository
+    // attached. For a same-repo PR that name lives in `projectPath`, but
+    // for a fork PR it lives in the fork, and deleting against
+    // `projectPath` would either 404 (branch never existed there, so the
+    // delete silently does nothing while reporting success) or, worse,
+    // delete an unrelated same-named branch in the base repo. The raw PR
+    // (not the mapped `PullRequest`, which carries no head-repo field)
+    // has to be read to find out which repository actually owns the ref.
+    let raw: GHPullRequest | null = null;
+    try {
+      const res = await this.octokit.request(`GET /repos/${projectPath}/pulls/${mrIid}`);
+      raw = res.data as GHPullRequest;
+    } catch (err) {
+      // A failed read is not a deleted fork: saying so would send the
+      // caller looking for the wrong problem.
+      if (err instanceof RateLimitedError) {
+        return notDeleted(
+          `reading the PR to find its head repository was rate limited${err.resetAt ? ` until ${err.resetAt}` : ''}`
         );
       }
-      await this.deleteMergedSourceBranch(headRepo, pr.sourceBranch);
+      if (!(err instanceof RequestError && err.status === 404)) {
+        const reason =
+          err instanceof RequestError && err.response
+            ? `${err.status} ${bodyText(err)}`
+            : err instanceof Error
+              ? err.message
+              : String(err);
+        return notDeleted(`reading the PR to find its head repository failed: ${reason}`);
+      }
     }
-    return pr;
+    const headRepo = raw?.head?.repo?.full_name;
+    if (!headRepo) {
+      return notDeleted(
+        'its head repository is unknown (the fork was likely deleted), so the delete could not be targeted safely'
+      );
+    }
+    const refused = await this.deleteMergedSourceBranch(headRepo, branch);
+    return refused === null ? null : notDeleted(refused);
   }
 
   /**
@@ -1824,23 +1827,26 @@ export class GitHubProvider implements GitProvider {
    * `repoPath` is the repository that owns `branch`, which for a fork PR is
    * the fork, not the base repository the PR was opened against. The caller
    * resolves that from `head.repo.full_name` before calling in.
+   *
+   * Resolves null once the ref is gone, or why it may still be there.
    */
   private async deleteMergedSourceBranch(
     repoPath: string,
     branch: string
-  ): Promise<void> {
+  ): Promise<string | null> {
     try {
       await this.octokit.request(
         `DELETE /repos/${repoPath}/git/refs/heads/${encodeURIComponent(branch)}`
       );
-      return; // Fast path: successful delete.
+      return null;
     } catch (deleteErr) {
       if (!(deleteErr instanceof RequestError && deleteErr.response)) {
-        throw deleteErr;
+        const reason = deleteErr instanceof Error ? deleteErr.message : String(deleteErr);
+        return `the delete request failed before GitHub answered: ${reason}`;
       }
 
       // Verify whether the ref still exists. If it is gone, the caller's
-      // requested end state is satisfied. If it still exists, throw with the
+      // requested end state is satisfied. If it still exists, report the
       // deletion failure details below. GitHub reuses 422 for both
       // "reference does not exist" and a protection-refused delete, so the
       // status code alone cannot distinguish them.
@@ -1848,32 +1854,25 @@ export class GitHubProvider implements GitProvider {
         await this.octokit.request(
           `GET /repos/${repoPath}/git/ref/heads/${encodeURIComponent(branch)}`
         );
-        // No throw means the ref still exists: fall through to the throw below.
+        // No throw means the ref still exists: fall through to the report below.
       } catch (checkErr) {
         if (
           checkErr instanceof RequestError &&
           checkErr.response &&
           checkErr.status === 404
         ) {
-          return; // Confirmed gone: the requested end state is satisfied.
+          return null; // Confirmed gone: the requested end state is satisfied.
         }
         // Cannot verify the end state: either a non-404 HTTP response (ref
         // still there, or an unrelated error on the check) or a transport
         // failure on the check itself (no `.response`, e.g. a dropped
-        // connection). Both fall through to the deletion-failure throw
+        // connection). Both fall through to the deletion-failure report
         // below, deliberately, including the transport case. The merge
         // above already succeeded; an unverifiable branch deletion is a
-        // deletion failure, not a merge failure, so it must not propagate
-        // as a raw thrown error the way a merge-PUT transport failure does.
-        // This is a deliberate behavior change from the pre-Octokit code,
-        // which rethrew a response-less fetch failure on the verification
-        // GET untouched, letting it escape mergePullRequest as a hard
-        // failure instead of reaching this message.
+        // deletion failure, not a merge failure.
       }
 
-      throw new Error(
-        `mergePullRequest merged but could not delete source branch "${branch}": ${deleteErr.status} ${bodyText(deleteErr)}`
-      );
+      return `GitHub refused the delete with ${deleteErr.status} ${bodyText(deleteErr)}`;
     }
   }
 

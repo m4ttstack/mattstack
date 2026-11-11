@@ -375,7 +375,7 @@ describe('GitHubProvider shouldRemoveSourceBranch (MAT-127)', () => {
     expect(calls.some(c => c.method === 'GET' && c.path.includes('git/ref/heads/'))).toBe(true);
   });
 
-  test('a real deletion failure throws rather than reporting a silent no-op', async () => {
+  test('a real deletion failure is reported rather than a silent no-op', async () => {
     const provider = new GitHubProvider('https://github.com', 'tok');
     stubGitHub(provider);
     const api = (provider as any).api;
@@ -392,12 +392,14 @@ describe('GitHubProvider shouldRemoveSourceBranch (MAT-127)', () => {
       return api(method, path, body);
     });
 
-    await expect(
-      provider.mergePullRequest('acme/repo', 1, { shouldRemoveSourceBranch: true })
-    ).rejects.toThrow(/could not delete source branch/);
+    const pr = await provider.mergePullRequest('acme/repo', 1, { shouldRemoveSourceBranch: true });
+
+    expect(pr.sourceBranchNotDeleted).toBe(
+      'The source branch "feature-branch" was not deleted: GitHub refused the delete with 403 {"message":"Protected branch"}'
+    );
   });
 
-  test('DELETE fails with 409 while the ref still exists, must throw and name the branch', async () => {
+  test('DELETE fails with 409 while the ref still exists, must report it and name the branch', async () => {
     const provider = new GitHubProvider('https://github.com', 'tok');
     const calls = stubGitHub(provider, 'main-protected');
     const api = (provider as any).api;
@@ -430,10 +432,10 @@ describe('GitHubProvider shouldRemoveSourceBranch (MAT-127)', () => {
     // DELETE failure (409, "Reference cannot be deleted"), so a mix-up that
     // read the verification GET's status/body instead would fail here even
     // though the GET never throws in this fixture.
-    await expect(
-      provider.mergePullRequest('acme/repo', 1, { shouldRemoveSourceBranch: true })
-    ).rejects.toThrow(
-      'mergePullRequest merged but could not delete source branch "main-protected": 409 {"message":"Reference cannot be deleted"}'
+    const pr = await provider.mergePullRequest('acme/repo', 1, { shouldRemoveSourceBranch: true });
+
+    expect(pr.sourceBranchNotDeleted).toBe(
+      'The source branch "main-protected" was not deleted: GitHub refused the delete with 409 {"message":"Reference cannot be deleted"}'
     );
   });
 
@@ -476,7 +478,23 @@ describe('GitHubProvider shouldRemoveSourceBranch (MAT-127)', () => {
     expect(calls.some(c => c.method === 'GET' && c.path.includes('git/ref/heads/'))).toBe(true);
   });
 
-  test('DELETE fails and the existence check itself fails, must throw', async () => {
+  test('a DELETE that never got an answer is reported, not thrown', async () => {
+    const provider = new GitHubProvider('https://github.com', 'tok');
+    stubGitHub(provider);
+    const api = (provider as any).api;
+    overrideApi(provider, async (method: string, path: string, body?: unknown) => {
+      if (method === 'DELETE') throw new TypeError('fetch failed');
+      return api(method, path, body);
+    });
+
+    const pr = await provider.mergePullRequest('acme/repo', 1, { shouldRemoveSourceBranch: true });
+
+    expect(pr.sourceBranchNotDeleted).toBe(
+      'The source branch "feature-branch" was not deleted: the delete request failed before GitHub answered: fetch failed'
+    );
+  });
+
+  test('DELETE fails and the existence check itself fails, must report it', async () => {
     const provider = new GitHubProvider('https://github.com', 'tok');
     const calls = stubGitHub(provider);
     const api = (provider as any).api;
@@ -505,12 +523,14 @@ describe('GitHubProvider shouldRemoveSourceBranch (MAT-127)', () => {
       return api(method, path, body);
     });
 
-    await expect(
-      provider.mergePullRequest('acme/repo', 1, { shouldRemoveSourceBranch: true })
-    ).rejects.toThrow(/could not delete source branch/);
+    const pr = await provider.mergePullRequest('acme/repo', 1, { shouldRemoveSourceBranch: true });
+
+    expect(pr.sourceBranchNotDeleted).toBe(
+      'The source branch "feature-branch" was not deleted: GitHub refused the delete with 500 {"message":"Server error"}'
+    );
   });
 
-  test('DELETE returns 422 (ambiguous) while the ref is still present, must throw', async () => {
+  test('DELETE returns 422 (ambiguous) while the ref is still present, must report it', async () => {
     const provider = new GitHubProvider('https://github.com', 'tok');
     const calls = stubGitHub(provider, 'release/v1.2.3');
     const api = (provider as any).api;
@@ -545,10 +565,10 @@ describe('GitHubProvider shouldRemoveSourceBranch (MAT-127)', () => {
     // DELETE failure (422, "Reference cannot be deleted"), so a mix-up that
     // read the verification GET's status/body instead would fail here even
     // though the GET never throws in this fixture.
-    await expect(
-      provider.mergePullRequest('acme/repo', 1, { shouldRemoveSourceBranch: true })
-    ).rejects.toThrow(
-      'mergePullRequest merged but could not delete source branch "release/v1.2.3": 422 {"message":"Reference cannot be deleted"}'
+    const pr = await provider.mergePullRequest('acme/repo', 1, { shouldRemoveSourceBranch: true });
+
+    expect(pr.sourceBranchNotDeleted).toBe(
+      'The source branch "release/v1.2.3" was not deleted: GitHub refused the delete with 422 {"message":"Reference cannot be deleted"}'
     );
 
     // Assert that the existence check was performed, so a future revert to
@@ -589,12 +609,13 @@ describe('GitHubProvider shouldRemoveSourceBranch targets the head repository (f
     ).toBe(false);
   });
 
-  test('a PR whose head.repo is null throws rather than guessing', async () => {
+  test('a PR whose head.repo is null deletes nothing and says why rather than guessing', async () => {
     const provider = new GitHubProvider('https://github.com', 'tok');
-    stubGitHub(provider, 'feature/x', null);
+    const calls = stubGitHub(provider, 'feature/x', null);
 
-    await expect(
-      provider.mergePullRequest('acme/repo', 1, { shouldRemoveSourceBranch: true })
-    ).rejects.toThrow(/head repository is unknown/);
+    const pr = await provider.mergePullRequest('acme/repo', 1, { shouldRemoveSourceBranch: true });
+
+    expect(pr.sourceBranchNotDeleted).toContain('head repository is unknown');
+    expect(calls.some(c => c.method === 'DELETE')).toBe(false);
   });
 });

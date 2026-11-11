@@ -22,6 +22,7 @@ import type {
   JobDetail,
   MergeabilityCheck,
   MergePullRequestInput,
+  MergePullRequestResult,
   MergeRequestIndexRow,
   MergeRequestMetrics,
   MetricsNote,
@@ -2244,7 +2245,7 @@ export class GitLabProvider implements GitProvider {
 
   // ── MR lifecycle mutations ──────────────────────────────────────────────
 
-  async mergePullRequest(projectPath: string, mrIid: number, input?: MergePullRequestInput): Promise<PullRequest> {
+  async mergePullRequest(projectPath: string, mrIid: number, input?: MergePullRequestInput): Promise<MergePullRequestResult> {
     const opts: Record<string, unknown> = {};
     if (input?.commitMessage != null) opts.mergeCommitMessage = input.commitMessage;
     if (input?.squashCommitMessage != null) opts.squashCommitMessage = input.squashCommitMessage;

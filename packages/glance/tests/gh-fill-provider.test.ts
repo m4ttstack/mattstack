@@ -888,15 +888,123 @@ describe('GitHubProvider re-request and merge cleanup', () => {
       /^requestReReview: failed to fetch PR: 502/
     );
   });
+});
 
-  test('a rate-limited head repository read after a merge is not a RateLimitedError, so a retry cannot re-merge', async () => {
-    stubForge({
-      fill: fillAll,
-      rest: (url, method) => {
-        if (method === 'PUT') return jsonResponse({ merged: true, sha: 'm1' });
-        if (method === 'GET' && /\/pulls\/9$/.test(url)) return rateLimited();
-        return undefined;
+const mergedFill = (numbers: number[]) =>
+  Object.fromEntries(
+    numbers.map((n) => [n, nodeFor(n, { state: 'MERGED', mergedAt: '2026-01-03T00:00:00Z' })])
+  );
+
+interface MergeScenario {
+  headRead?: () => Response;
+  del?: () => Response;
+  refCheck?: () => Response;
+}
+
+/** A merge PUT that lands, then whatever the cleanup requests are told to answer. */
+function landedMerge(scenario: MergeScenario = {}): { calls: string[] } {
+  const calls: string[] = [];
+  stubForge({
+    fill: mergedFill,
+    rest: (url, method) => {
+      const path = new URL(url).pathname;
+      calls.push(`${method} ${path}`);
+      if (method === 'PUT') return jsonResponse({ merged: true, sha: 'm1' });
+      if (method === 'GET' && /\/pulls\/9$/.test(path)) {
+        return (
+          scenario.headRead?.() ??
+          jsonResponse({ number: 9, head: { ref: 'feature', repo: { full_name: 'o/r' } } })
+        );
       }
+      if (method === 'DELETE') return scenario.del?.() ?? new Response(null, { status: 204 });
+      if (method === 'GET' && path.includes('/git/ref/heads/')) {
+        return scenario.refCheck?.() ?? jsonResponse({ message: 'Not Found' }, 404);
+      }
+      return undefined;
+    }
+  });
+  return { calls };
+}
+
+describe('GitHubProvider mergePullRequest after the merge landed', () => {
+  test('a rate-limited head repository read resolves with the leftover branch and its reset time', async () => {
+    const reset = Math.floor(Date.now() / 1000) + 3600;
+    const { calls } = landedMerge({
+      headRead: () =>
+        jsonResponse({ message: 'API rate limit exceeded' }, 403, {
+          'x-ratelimit-remaining': '0',
+          'x-ratelimit-reset': String(reset)
+        })
+    });
+
+    const pr = await provider().mergePullRequest('o/r', 9, { shouldRemoveSourceBranch: true });
+
+    expect(pr.state).toBe('merged');
+    expect(pr.sourceBranchNotDeleted).toContain('rate limit');
+    expect(pr.sourceBranchNotDeleted).toContain('"feature"');
+    expect(pr.sourceBranchNotDeleted).toContain(new Date(reset * 1000).toISOString());
+    expect(calls.some((c) => c.startsWith('DELETE'))).toBe(false);
+  });
+
+  test('a forbidden head repository read resolves with the leftover branch', async () => {
+    landedMerge({ headRead: () => jsonResponse({ message: 'Forbidden' }, 403) });
+
+    const pr = await provider().mergePullRequest('o/r', 9, { shouldRemoveSourceBranch: true });
+
+    expect(pr.state).toBe('merged');
+    expect(pr.sourceBranchNotDeleted).toMatch(
+      /^The source branch "feature" was not deleted: reading the PR to find its head repository failed: 403/
+    );
+  });
+
+  test('an unknown head repository resolves with the leftover branch', async () => {
+    landedMerge({ headRead: () => jsonResponse({ number: 9, head: { ref: 'feature', repo: null } }) });
+
+    const pr = await provider().mergePullRequest('o/r', 9, { shouldRemoveSourceBranch: true });
+
+    expect(pr.state).toBe('merged');
+    expect(pr.sourceBranchNotDeleted).toContain('head repository is unknown');
+  });
+
+  test('a refused branch delete resolves with the leftover branch', async () => {
+    landedMerge({
+      del: () => jsonResponse({ message: 'Reference cannot be deleted' }, 422),
+      refCheck: () => jsonResponse({ ref: 'refs/heads/feature' })
+    });
+
+    const pr = await provider().mergePullRequest('o/r', 9, { shouldRemoveSourceBranch: true });
+
+    expect(pr.state).toBe('merged');
+    expect(pr.sourceBranchNotDeleted).toBe(
+      'The source branch "feature" was not deleted: GitHub refused the delete with 422 {"message":"Reference cannot be deleted"}'
+    );
+  });
+
+  test('a deleted branch leaves the field unset', async () => {
+    const { calls } = landedMerge();
+
+    const pr = await provider().mergePullRequest('o/r', 9, { shouldRemoveSourceBranch: true });
+
+    expect(pr.state).toBe('merged');
+    expect(calls).toContain('DELETE /repos/o/r/git/refs/heads/feature');
+    expect(pr.sourceBranchNotDeleted).toBeUndefined();
+    expect('sourceBranchNotDeleted' in pr).toBe(false);
+  });
+
+  test('no deletion asked for leaves the field unset and reads no head repository', async () => {
+    const { calls } = landedMerge();
+
+    const pr = await provider().mergePullRequest('o/r', 9);
+
+    expect(pr.state).toBe('merged');
+    expect(pr.sourceBranchNotDeleted).toBeUndefined();
+    expect(calls).toEqual(['PUT /repos/o/r/pulls/9/merge']);
+  });
+
+  test('a rate-limited merge PUT still rejects, as the write error it always was', async () => {
+    stubForge({
+      fill: mergedFill,
+      rest: (_url, method) => (method === 'PUT' ? rateLimited() : undefined)
     });
 
     const err = await provider()
@@ -906,58 +1014,7 @@ describe('GitHubProvider re-request and merge cleanup', () => {
         (e: unknown) => e
       );
 
-    expect(err).toBeInstanceOf(ReadBackFailedError);
     expect(err).not.toBeInstanceOf(RateLimitedError);
-  });
-
-  test('a rate limit after a landed merge says it merged and keeps the original as cause', async () => {
-    stubForge({
-      fill: fillAll,
-      rest: (url, method) => {
-        if (method === 'PUT') return jsonResponse({ merged: true, sha: 'm1' });
-        if (method === 'GET' && /\/pulls\/9$/.test(url)) return rateLimited();
-        return undefined;
-      }
-    });
-
-    const err = await provider()
-      .mergePullRequest('o/r', 9, { shouldRemoveSourceBranch: true })
-      .then(
-        () => null,
-        (e: unknown) => e as ReadBackFailedError
-      );
-
-    expect(err).toBeInstanceOf(ReadBackFailedError);
-    expect(err?.writeApplied).toBe(true);
-    expect(err?.operation).toBe('mergePullRequest');
-    expect(err?.projectPath).toBe('o/r');
-    expect(err?.iid).toBe(9);
-    expect(err?.cause).toBeInstanceOf(RateLimitedError);
-    expect(err?.message).toContain('merged');
-    expect(err?.message).toContain('source branch was not deleted');
-  });
-
-  test('a failed head repository read after a merge says so, not "head repository unknown"', async () => {
-    stubForge({
-      fill: fillAll,
-      rest: (url, method) => {
-        if (method === 'PUT') return jsonResponse({ merged: true, sha: 'm1' });
-        if (method === 'GET' && /\/pulls\/9$/.test(url)) {
-          return jsonResponse({ message: 'Forbidden' }, 403);
-        }
-        return undefined;
-      }
-    });
-
-    const err = await provider()
-      .mergePullRequest('o/r', 9, { shouldRemoveSourceBranch: true })
-      .then(
-        () => null,
-        (e: unknown) => e as Error
-      );
-
-    expect(err?.message).toMatch(
-      /^mergePullRequest merged but could not delete source branch "feature": reading the PR failed: 403/
-    );
+    expect((err as Error).message).toBe('mergePullRequest failed: 403 {"message":"API rate limit exceeded"}');
   });
 });

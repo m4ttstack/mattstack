@@ -6,6 +6,7 @@ import type {
   JobDetail,
   EnqueuePullRequestInput,
   MergePullRequestInput,
+  MergePullRequestResult,
   MergeQueueEntry,
   MergeQueueStatus,
   MergeRequestIndexRow,
@@ -504,8 +505,13 @@ export interface GitProvider {
    * Merge (accept) a pull request / merge request.
    * All input fields are optional — omitting them defers to the project's
    * configured defaults (merge method, squash policy, delete-source-branch).
+   *
+   * Resolves once the merge landed. A failed source-branch cleanup is
+   * reported in `sourceBranchNotDeleted`, never thrown. A rejection means
+   * the merge failed, or landed but could not be read back
+   * (`ReadBackFailedError` with `writeApplied: true`).
    */
-  mergePullRequest(projectPath: string, mrIid: number, input?: MergePullRequestInput): Promise<PullRequest>;
+  mergePullRequest(projectPath: string, mrIid: number, input?: MergePullRequestInput): Promise<MergePullRequestResult>;
 
   /**
    * Approve a pull request / merge request.

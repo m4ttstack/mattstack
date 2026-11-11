@@ -53,7 +53,7 @@ const provider = createProvider('gitlab', 'https://gitlab.com', token, {
 | `fetchPullRequestsByBranches(path, branches)` | Batch-fetch MRs by source branches *(optional, not all providers)* |
 | `createPullRequest(input)` | Create a new MR |
 | `updatePullRequest(path, iid, input)` | Update an existing MR (title, description, draft status, etc.) |
-| `mergePullRequest(path, iid, input?)` | Merge an MR |
+| `mergePullRequest(path, iid, input?)` | Merge an MR. Resolves with a `MergePullRequestResult` once the merge landed; a failed source-branch cleanup is in `sourceBranchNotDeleted`, never thrown |
 | `rebasePullRequest(path, iid)` | Rebase an MR onto its target branch |
 | `approvePullRequest(path, iid)` | Approve an MR |
 | `unapprovePullRequest(path, iid)` | Remove your approval |
@@ -347,6 +347,7 @@ import type {
   CreatePullRequestInput,
   UpdatePullRequestInput,
   MergePullRequestInput,
+  MergePullRequestResult,
   MergeMethod,
   CreatedNote,
 
@@ -448,11 +449,10 @@ try {
 | `operation` | The request that hit the limit |
 
 One exception: when `mergePullRequest` lands the merge and only the
-head-repository read for `shouldRemoveSourceBranch` is rate limited, it throws
-`ReadBackFailedError` with `writeApplied: true` and the `RateLimitedError` as
-`cause`, because the PR merged and only the source branch was not deleted. A
-caller that retries on `RateLimitedError` would otherwise re-issue a merge that
-already landed.
+head-repository read for `shouldRemoveSourceBranch` is rate limited, it does
+not throw. It resolves with `sourceBranchNotDeleted` saying the read was rate
+limited and, when GitHub said, when the limit resets. A caller that retries on
+`RateLimitedError` would otherwise re-issue a merge that already landed.
 
 ## License
 
