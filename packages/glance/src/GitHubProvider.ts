@@ -257,6 +257,7 @@ interface GHSummaryNode {
 
 interface GHSummaryConnection {
   nodes: Array<GHSummaryNode | null>;
+  issueCount?: number;
   pageInfo: { hasNextPage: boolean; endCursor: string | null };
 }
 
@@ -278,6 +279,7 @@ const SUMMARY_LIST_QUERY = `query GlancePullRequestSummaries($owner: String!, $n
 
 const SUMMARY_SEARCH_QUERY = `query GlancePullRequestSummarySearch($q: String!, $after: String) {
   search(query: $q, type: ISSUE, first: 100, after: $after) {
+    issueCount
     nodes { ... on PullRequest { ${SUMMARY_FIELDS} } }
     pageInfo { hasNextPage endCursor }
   }
@@ -316,6 +318,8 @@ function summarySearchString(owner: string, repo: string, o: FetchSummariesOptio
   if (o.sourceBranch) parts.push(`head:${searchTerm('sourceBranch', o.sourceBranch)}`);
   if (o.targetBranch) parts.push(`base:${searchTerm('targetBranch', o.targetBranch)}`);
   if (o.search) parts.push(searchTerm('search', o.search, true));
+  // Without it GitHub ranks by relevance, so the limit would keep the wrong rows.
+  parts.push('sort:updated-desc');
   return parts.filter(Boolean).join(' ');
 }
 
@@ -2403,6 +2407,7 @@ export class GitHubProvider implements GitProvider {
     const q = searching ? summarySearchString(owner, repo, options) : '';
     const rows: PullRequestSummary[] = [];
     let after: string | null = null;
+    let more = false;
     for (let page = 1; page <= FORGE_READ_MAX_PAGES; page++) {
       const { data, errors }: { data: GHSummaryResponse; errors: GraphQLReadError[] } =
         await this.graphqlRead<GHSummaryResponse>(
@@ -2442,10 +2447,13 @@ export class GitHubProvider implements GitProvider {
           mergedAt: n.mergedAt ?? null
         });
       }
+      // The search connection ends at 1000 nodes without a next page, so its count is the evidence.
+      more = connection.pageInfo.hasNextPage || (searching && (connection.issueCount ?? 0) > rows.length);
       if (rows.length > options.limit || !connection.pageInfo.hasNextPage) break;
       after = connection.pageInfo.endCursor;
     }
-    return { rows: rows.slice(0, options.limit), truncated: rows.length > options.limit };
+    // `more` still set here means the page cap or the search ceiling ended the walk.
+    return { rows: rows.slice(0, options.limit), truncated: rows.length > options.limit || more };
   }
 
   /** Runs a REST read, turning a rate limit into `RateLimitedError` and a non-2xx into `ForgeHttpError`. */

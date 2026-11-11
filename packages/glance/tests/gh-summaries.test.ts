@@ -133,7 +133,7 @@ describe('fetchPullRequestSummaries', () => {
       limit: 10
     });
     expect(calls[0]!.query).toContain('search(');
-    expect(calls[0]!.vars.q).toBe('repo:o/r is:pr is:open author:@me head:feat/1 base:main');
+    expect(calls[0]!.vars.q).toBe('repo:o/r is:pr is:open author:@me head:feat/1 base:main sort:updated-desc');
   });
 
   test('state qualifiers for closed, merged and all', async () => {
@@ -142,16 +142,16 @@ describe('fetchPullRequestSummaries', () => {
       await provider().fetchPullRequestSummaries!('o/r', { state, author: 'octo', limit: 5 });
     }
     expect(calls.map((c) => c.vars.q)).toEqual([
-      'repo:o/r is:pr is:closed -is:merged author:octo',
-      'repo:o/r is:pr is:merged author:octo',
-      'repo:o/r is:pr author:octo'
+      'repo:o/r is:pr is:closed -is:merged author:octo sort:updated-desc',
+      'repo:o/r is:pr is:merged author:octo sort:updated-desc',
+      'repo:o/r is:pr author:octo sort:updated-desc'
     ]);
   });
 
   test('search text is a quoted phrase', async () => {
     const calls = capture(() => searchPage([]));
     await provider().fetchPullRequestSummaries!('o/r', { state: 'all', search: 'fix login', limit: 5 });
-    expect(calls[0]!.vars.q).toBe('repo:o/r is:pr "fix login"');
+    expect(calls[0]!.vars.q).toBe('repo:o/r is:pr "fix login" sort:updated-desc');
   });
 
   test('a value with whitespace cannot add qualifiers', async () => {
@@ -162,7 +162,7 @@ describe('fetchPullRequestSummaries', () => {
       search: 'x is:closed',
       limit: 5
     });
-    expect(calls[0]!.vars.q).toBe('repo:o/r is:pr author:"bob label:secret" "x is:closed"');
+    expect(calls[0]!.vars.q).toBe('repo:o/r is:pr author:"bob label:secret" "x is:closed" sort:updated-desc');
   });
 
   test('a value with a quote or backslash is rejected before any request', async () => {
@@ -194,6 +194,35 @@ describe('fetchPullRequestSummaries', () => {
     expect(calls[1]!.vars.after).toBe('c1');
     expect(out.rows).toHaveLength(120);
     expect(out.truncated).toBe(true);
+  });
+
+  test('the page cap reached with more pages left is truncated', async () => {
+    const calls = capture(() => listPage(nodes(1, 100), true));
+    const out = await provider().fetchPullRequestSummaries!('o/r', { state: 'all', limit: 2000 });
+    expect(calls).toHaveLength(20);
+    expect(out.rows).toHaveLength(2000);
+    expect(out.truncated).toBe(true);
+  });
+
+  test('search stopping at its 1000 ceiling with a larger issueCount is truncated', async () => {
+    const calls = capture((_q, vars) => {
+      const page = Number(String(vars.after ?? 'c0').slice(1));
+      return { search: { issueCount: 1500, nodes: nodes(page * 100 + 1, 100), pageInfo: { hasNextPage: page < 9, endCursor: `c${page + 1}` } } };
+    });
+    const out = await provider().fetchPullRequestSummaries!('o/r', {
+      state: 'all',
+      author: 'octo',
+      limit: 2000
+    });
+    expect(calls).toHaveLength(10);
+    expect(out.rows).toHaveLength(1000);
+    expect(out.truncated).toBe(true);
+  });
+
+  test('search whose issueCount equals the rows returned is complete', async () => {
+    capture(() => ({ search: { issueCount: 3, nodes: nodes(1, 3), pageInfo: { hasNextPage: false, endCursor: null } } }));
+    const out = await provider().fetchPullRequestSummaries!('o/r', { state: 'all', author: 'octo', limit: 50 });
+    expect(out.truncated).toBe(false);
   });
 
   test('a GraphQL RATE_LIMITED error rejects with RateLimitedError', async () => {
