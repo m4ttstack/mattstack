@@ -5,7 +5,7 @@
  * plus one function, never a change to the transport itself.
  */
 import type { EvidenceAddress, EvidenceImageKey, EvidenceTextKey } from "./evidence.ts";
-import type { PullRequest, MRDetail, Pipeline, PipelineJob } from "@mattstack/glance";
+import type { PullRequest, MRDetail, MergeQueueStatus, Pipeline, PipelineJob } from "@mattstack/glance";
 
 export type Discussion = MRDetail["discussions"][number];
 
@@ -1199,8 +1199,9 @@ export interface Commands {
     data: ReviewSubmitData;
   };
 
-  /** Wire reply is `{ok:true}` on success (no `data`); a failure is `{ok:false,error}`. */
-  "mr:action": { payload: { repoName: string; iid: number; action: MRActionName; args?: unknown[] }; data: Record<string, never> };
+  /** Wire reply is `{ok:true}` on success (no `data`); a failure is `{ok:false,error}`.
+      A merge whose source branch could not be deleted also carries `sourceBranchNotDeleted` (why, in one sentence) beside `ok`. */
+  "mr:action": { payload: { repoName: string; iid: number; action: MRActionName; args?: unknown[] }; data: { sourceBranchNotDeleted?: string } };
 
   /** Creates an MR (a draft unless `draft: false`) and writes it back so the
       board sees it before the next sweep. Never retries. `url` is null when
@@ -1248,6 +1249,10 @@ export interface Commands {
   /** GitLab providers only. Every MR whose target branch is targetBranch, fetched live and unscoped; state defaults to opened. */
   "mr:by-target": { payload: { repoName: string; targetBranch: string; state?: MrListState }; data: MrByTargetData };
   "mr:get": { payload: { repoName: string; iid: number; refresh?: boolean }; data: MrGetData };
+  /** Refused as `unsupported: this forge has no merge queue` where the forge has none (GitLab). */
+  "mr:merge-queue-status": { payload: { repoName: string; iid: number }; data: MergeQueueStatus };
+  /** Adds the PR to its target branch's merge queue; `expectedHeadSha` refuses it if the branch has moved. Refused like mr:merge-queue-status. */
+  "mr:enqueue": { payload: { repoName: string; iid: number; expectedHeadSha?: string }; data: { position: number | null; state: string } };
   "mr:list-live": { payload: { repoName: string } & MrListLiveFilters; data: MrListLiveData };
   "mr:live-by-branch": { payload: { repoName: string; branches: string[] }; data: MrLiveByBranchData };
   "project:labels": { payload: { repoName: string; search?: string }; data: { labels: ProjectLabel[] } };
@@ -1542,6 +1547,8 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "mr:pipeline-failed-jobs",
   "mr:by-target",
   "mr:get",
+  "mr:merge-queue-status",
+  "mr:enqueue",
   "mr:list-live",
   "mr:live-by-branch",
   "project:labels",

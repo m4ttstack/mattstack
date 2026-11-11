@@ -13,6 +13,8 @@
  *   mr:pipeline-failed-jobs  - a pipeline's failed jobs (GitLab or GitHub)
  *   mr:by-target             - every MR targeting a branch, live and unscoped (GitLab or GitHub)
  *   mr:get                   - one MR by iid, read from the forge; `refresh` also writes it into the stores (GitLab or GitHub)
+ *   mr:merge-queue-status    - whether a PR's target branch has a merge queue and the PR is in it (GitHub)
+ *   mr:enqueue               - add a PR to its target branch's merge queue (GitHub)
  *   mr:list-live             - a project's MRs filtered by author, branch, state or text (GitLab or GitHub)
  *   mr:live-by-branch        - the open MR for each named source branch (GitLab or GitHub)
  *   project:labels           - a project's labels, optionally searched (GitLab or GitHub)
@@ -114,6 +116,7 @@ type HandlerRepoContext = { forge?: "gitlab" | "github"; provider: any; projectP
 const forgeOf = (c: HandlerRepoContext): Forge => (c.forge === "github" ? "github" : "gitlab");
 
 const GITHUB_SQUASH_REFUSAL = "GitHub picks squash at merge time; leave out squash";
+const NO_MERGE_QUEUE = "unsupported: this forge has no merge queue";
 
 export interface MRHandlerOverrides {
   getContext?:  (repoName: string) => Promise<HandlerRepoContext>;
@@ -140,6 +143,8 @@ export function createMRHandlers(
   & { "mr:pipeline-failed-jobs": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:pipeline-failed-jobs">> }
   & { "mr:by-target": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:by-target">> }
   & { "mr:get": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:get">> }
+  & { "mr:merge-queue-status": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:merge-queue-status">> }
+  & { "mr:enqueue": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:enqueue">> }
   & { "mr:list-live": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:list-live">> }
   & { "mr:live-by-branch": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:live-by-branch">> }
   & { "project:labels": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"project:labels">> }
@@ -579,6 +584,42 @@ export function createMRHandlers(
         return { ok: false, error: await missingMrReason(provider, projectPath, p.iid) };
       } catch (err) {
         return { ok: false, error: String(err) };
+      }
+    },
+
+    "mr:merge-queue-status": async (payload) => {
+      const p = payload as { iid?: unknown } | undefined;
+      if (typeof p?.iid !== "number") return { ok: false, error: "missing repoName/iid" };
+      if (!(Number.isInteger(p.iid) && p.iid > 0)) return { ok: false, error: '"iid" must be a positive integer' };
+      const decoded = decodeIndexedRepo(payload);
+      if (!decoded.ok) return { ok: false, error: decoded.error };
+      let forge: Forge = "gitlab";
+      try {
+        const c = await contextFor(decoded.repo);
+        forge = forgeOf(c);
+        if (!c.provider.capabilities?.canEnqueue) return { ok: false, error: NO_MERGE_QUEUE };
+        return { ok: true, data: await c.provider.fetchMergeQueueStatus(c.projectPath, p.iid) };
+      } catch (err) {
+        return { ok: false, error: forgeFailure(err, forge) };
+      }
+    },
+
+    "mr:enqueue": async (payload) => {
+      const p = payload as { iid?: unknown; expectedHeadSha?: unknown } | undefined;
+      if (typeof p?.iid !== "number") return { ok: false, error: "missing repoName/iid" };
+      if (!(Number.isInteger(p.iid) && p.iid > 0)) return { ok: false, error: '"iid" must be a positive integer' };
+      if (p.expectedHeadSha !== undefined && typeof p.expectedHeadSha !== "string") return { ok: false, error: '"expectedHeadSha" must be a string' };
+      const decoded = decodeIndexedRepo(payload);
+      if (!decoded.ok) return { ok: false, error: decoded.error };
+      let forge: Forge = "gitlab";
+      try {
+        const c = await contextFor(decoded.repo);
+        forge = forgeOf(c);
+        if (!c.provider.capabilities?.canEnqueue) return { ok: false, error: NO_MERGE_QUEUE };
+        const entry = await c.provider.enqueuePullRequest(c.projectPath, p.iid, p.expectedHeadSha === undefined ? {} : { expectedHeadSha: p.expectedHeadSha });
+        return { ok: true, data: { position: entry.position, state: entry.state } };
+      } catch (err) {
+        return { ok: false, error: forgeFailure(err, forge) };
       }
     },
 
