@@ -1,7 +1,7 @@
 /**
  * MR read tools. Each asks the daemon for a live read from the repo's forge;
  * none reads the daemon's open-MR cache, so any MR the token can see is
- * readable. mr_threads and pipeline_jobs still read GitLab only.
+ * readable. pipeline_jobs still reads GitLab only.
  */
 import { latchKindOf, rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands, Discussion } from "../../packages/rt-client/src/index.ts";
@@ -177,14 +177,14 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
     },
     {
       name: "mr_threads",
-      description: `GitLab only. The MR's discussion threads, fetched from GitLab on every call. ${REPO_NAME_RULE}`,
+      description: `The MR's discussion threads, fetched from its forge on every call. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: { type: "object", properties: { ...MR_TARGET_PROPS, refresh: { type: "boolean", description: "Accepted and ignored; every read is live." }, filter: { type: "string", enum: ["unresolved-human"], description: "unresolved-human keeps unresolved threads started by a person, drops system notes and mattstack re-review latch threads, and adds dropped counts." } }, additionalProperties: false },
       shellForms: { none: "discussions have no glab verb; a glab api call hits the glab catch-all on mr_view" },
       async handler(input) {
         const bad = checkOptional(input, [{ name: "refresh", type: "boolean" }, { name: "filter", type: "string" }]);
         if (bad) return err(bad);
         if (input.filter !== undefined && input.filter !== "unresolved-human") return err('"filter" must be unresolved-human');
-        const target = await resolveMrTarget(input);
+        const target = await resolveMrTarget(input, { github: true });
         if (!target.ok) return err(target.error);
         const r = await deps.command<Commands["discussions:refresh"]["data"]>("discussions:refresh", { repoName: target.identity, iid: target.iid }, { timeoutMs: READ_TIMEOUT_MS });
         if (!r.ok || !r.data) return err(explainError(r.error ?? "thread read failed"));
