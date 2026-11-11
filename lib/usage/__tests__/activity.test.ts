@@ -248,6 +248,21 @@ test("reads an agent-only session by its id", async () => {
   expect(texts(await usageActivity(dbPath, { sessionId: "agent" }))).toEqual(["fix the pipeline"]);
 });
 
+test("a run's own row leaves out its session outside the run, which reads on its own", async () => {
+  seedRun();
+  message("weeks-before", T - 10_000, { runId: "r", attribution: "session" });
+  transcript([
+    user(T - 10_100, "unrelated design work"),
+    assistant(T - 10_000, "weeks-before", tool("x", "Read")),
+    user(T, "ship it"),
+    assistant(T + 500, "in-stage", tool("a", "Bash")),
+  ]);
+  expect(texts(await usageActivity(dbPath, { runId: "r" }))).toEqual(["ship it"]);
+  expect(texts(await usageActivity(dbPath, { runId: "r", outside: "session" }))).toEqual([
+    "unrelated design work",
+  ]);
+});
+
 test("reads nothing for a row with no messages", async () => {
   expect(await usageActivity(dbPath, { runId: "missing" })).toBeNull();
 });

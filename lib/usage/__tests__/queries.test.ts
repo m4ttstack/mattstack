@@ -721,6 +721,19 @@ test("the MR list, a run's cost and trends leave out a run's session outside the
   expect(usageTrends(dbPath, { days: 30, now: NOW }).totals.input).toBe(2);
 });
 
+test("a run with only its session outside it costs zero and keeps the MR's span to counted work", () => {
+  const start = seedLongSession();
+  run("idle", { mrKey: MR_A, startedAt: start + 5 * DAY, pipeline: "watch-ci" });
+  endRun("idle", start + 5 * DAY + 1000);
+  message({ runId: "idle", mrKey: MR_A, input: 8, attribution: "session", ts: start + 6 * DAY });
+  const idle = usageRun(dbPath, "idle")!;
+  expect(idle.totals.input).toBe(0);
+  expect(idle.mrCost).toBeCloseTo(usageRun(dbPath, "w")!.totals.cost, 9);
+  const mr = usageMr(dbPath, MR_A)!;
+  expect([mr.firstActivity, mr.lastActivity]).toEqual([start + 200, start + 200]);
+  expect(mr.outsideRuns.input).toBe(13);
+});
+
 test("an agent-only session still counts in full", () => {
   agentLink("s-doc", "doc-1", "doctor", MR_A);
   message({ session: "s-doc", mrKey: MR_A, input: 3, attribution: "session" });

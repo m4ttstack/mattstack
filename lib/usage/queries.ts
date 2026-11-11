@@ -303,11 +303,17 @@ export function usageRun(dbPath: string, runId: string): UsageRunData | null {
     const rows = selectMessages(db, { where: `m.run_id = $runId AND ${COUNTED}`, params: { $runId: runId } }, [
       "m.mr_key",
     ]) as MessageRow[];
-    if (rows.length === 0) return null;
     const totals = emptyTotals();
     for (const row of rows) add(totals, totalsOf(row));
 
-    const mrKey = rows.find((row) => row.mr_key !== null)?.mr_key ?? null;
+    let mrKey = rows.find((row) => row.mr_key !== null)?.mr_key ?? null;
+    if (rows.length === 0) {
+      const any = db
+        .query("SELECT mr_key FROM usage_messages WHERE run_id = ? ORDER BY mr_key IS NULL LIMIT 1")
+        .get(runId) as { mr_key: string | null } | null;
+      if (!any) return null;
+      mrKey = any.mr_key;
+    }
     if (mrKey === null) return { runId, mrKey, totals, mrCost: null };
     const onMr = selectMessages(
       db,
@@ -380,7 +386,7 @@ const IN_RUN_STAGES = "FROM usage_stages s WHERE s.machine_id = m.machine_id AND
 /** A message the attribution sweep pinned to a run only because it shares that run's session. */
 const OUTSIDE_RUN = "(m.attribution = 'session' AND m.run_id IS NOT NULL)";
 
-const COUNTED = `NOT ${OUTSIDE_RUN}`;
+export const COUNTED = `NOT ${OUTSIDE_RUN}`;
 
 export const OUTSIDE_CASE = `CASE
   WHEN m.stage IS NOT NULL OR m.run_id IS NULL THEN NULL
@@ -529,6 +535,8 @@ export function usageMr(dbPath: string, mrKey: string): UsageMrData | null {
       if (row.is_subagent) stage.subagentCost += delta.cost;
     }
 
+    const counted = [...entries.values()].filter((e) => Number.isFinite(e.firstActivity));
+    const spanOf = counted.length > 0 ? counted : [...entries.values()];
     for (const entry of entries.values()) {
       if (Number.isFinite(entry.firstActivity)) continue;
       entry.firstActivity = entry.first.started_at ?? entry.first.first_ts;
@@ -537,8 +545,8 @@ export function usageMr(dbPath: string, mrKey: string): UsageMrData | null {
     const startOf = (e: EntryFold) => e.first.started_at ?? e.firstActivity;
     const ordered = [...entries.values()].sort((a, b) => startOf(a) - startOf(b));
     const rounds = numberRounds(ordered);
-    const first = Math.min(...ordered.map((e) => e.firstActivity));
-    const last = Math.max(...ordered.map((e) => e.lastActivity));
+    const first = Math.min(...spanOf.map((e) => e.firstActivity));
+    const last = Math.max(...spanOf.map((e) => e.lastActivity));
     return {
       ...splitsOf(splits),
       mrKey,
