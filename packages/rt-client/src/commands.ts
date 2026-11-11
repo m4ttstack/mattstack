@@ -501,6 +501,14 @@ export interface UsageModelRow { model: string | null; totals: UsageTotals }
 
 export interface UsageSplits { byModel: UsageModelRow[]; main: UsageTotals; subagent: UsageTotals }
 
+/**
+ * `metered` bills per token, `plan` rides a subscription, `unknown` has no account recorded.
+ * A `byBilling` split always adds up to the `totals` beside it.
+ */
+export type UsageBilling = "metered" | "plan" | "unknown";
+
+export interface UsageAccount { account: string; label: string | null; billing: UsageBilling }
+
 export interface UsageMrRow {
   mrKey: string;
   url: string | null;
@@ -509,6 +517,7 @@ export interface UsageMrRow {
   firstActivity: number;
   lastActivity: number;
   totals: UsageTotals;
+  byBilling: Record<UsageBilling, UsageTotals>;
   costByKind: Record<UsageKind, number>;
   runCount: number;
   roundCount: number;
@@ -554,6 +563,9 @@ export interface UsageMrEntry extends UsageSplits {
   firstActivity: number;
   lastActivity: number;
   totals: UsageTotals;
+  byBilling: Record<UsageBilling, UsageTotals>;
+  /** In the order the entry first ran on each; empty when none was recorded. */
+  accounts: UsageAccount[];
   stages: UsageStageRow[];
 }
 
@@ -565,6 +577,7 @@ export interface UsageMrData extends UsageSplits {
   firstActivity: number;
   lastActivity: number;
   totals: UsageTotals;
+  byBilling: Record<UsageBilling, UsageTotals>;
   costByKind: Record<UsageKind, number>;
   /** The runs' sessions outside the runs themselves, which none of the totals above count. */
   outsideRuns: UsageTotals;
@@ -609,6 +622,7 @@ export interface UsageTrendsData {
   /** Weeks with no messages are left out. */
   weeks: UsageWeekRow[];
   totals: UsageTotals;
+  byBilling: Record<UsageBilling, UsageTotals>;
   byPipeline: UsagePipelineRow[];
   byModel: UsageModelRow[];
 }

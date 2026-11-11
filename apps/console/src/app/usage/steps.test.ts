@@ -34,6 +34,8 @@ function entry(
     firstActivity: 1,
     lastActivity: 2,
     totals: totals(1),
+    byBilling: { metered: totals(0), plan: totals(0), unknown: totals(1) },
+    accounts: [],
     byModel: [],
     main: totals(1),
     subagent: totals(0),

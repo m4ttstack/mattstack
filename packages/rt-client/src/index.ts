@@ -157,6 +157,8 @@ export type {
   UsageTotals,
   UsageModelRow,
   UsageSplits,
+  UsageBilling,
+  UsageAccount,
   UsageMrRow,
   UsageMrsData,
   UsageStageRow,

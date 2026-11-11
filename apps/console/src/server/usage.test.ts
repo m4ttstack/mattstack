@@ -230,6 +230,7 @@ describe('usage api', () => {
     expect(await body('/api/usage/trends?days=30')).toEqual({
       weeks: [],
       totals: zero,
+      byBilling: { metered: zero, plan: zero, unknown: zero },
       byPipeline: [],
       byModel: [],
     });

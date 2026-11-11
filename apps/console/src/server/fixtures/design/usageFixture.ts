@@ -1,5 +1,6 @@
 /** `CONSOLE_FIXTURE=design` data for the usage reads: invented `acme/widgets` MRs. */
 import type {
+  UsageBilling,
   UsageKind,
   UsageModelRow,
   UsageMrData,
@@ -29,6 +30,14 @@ const ZERO: UsageTotals = {
   cost: 0,
   unpricedTokens: 0,
 };
+
+const unknownBilling = (
+  totals: UsageTotals
+): Record<UsageBilling, UsageTotals> => ({
+  metered: ZERO,
+  plan: ZERO,
+  unknown: totals,
+});
 const KINDS: UsageKind[] = ['work', 'review', 'respond', 'doctor', 'other'];
 const round = (n: number) => Math.round(n * 1e6) / 1e6;
 
@@ -143,6 +152,8 @@ function entry(s: EntrySpec): UsageMrEntry {
     firstActivity: s.start,
     lastActivity: s.start + s.hours * HOUR,
     totals,
+    byBilling: unknownBilling(totals),
+    accounts: [],
     byModel: seenModels(s.main, s.subagent),
     main: s.main,
     subagent: s.subagent,
@@ -167,6 +178,7 @@ function mrData(
   ) as Record<UsageKind, number>;
   const main = sum(entries.map(e => e.main));
   const subagent = sum(entries.map(e => e.subagent));
+  const totals = sum(entries.map(e => e.totals));
   return {
     mrKey,
     url,
@@ -174,7 +186,8 @@ function mrData(
     branch,
     firstActivity: Math.min(...entries.map(e => e.firstActivity)),
     lastActivity: Math.max(...entries.map(e => e.lastActivity)),
-    totals: sum(entries.map(e => e.totals)),
+    totals,
+    byBilling: unknownBilling(totals),
     costByKind,
     byModel: seenModels(main, subagent),
     main,
@@ -306,6 +319,7 @@ export function usageFixture(): UsageFixture {
     firstActivity: d.firstActivity,
     lastActivity: d.lastActivity,
     totals: d.totals,
+    byBilling: d.byBilling,
     costByKind: d.costByKind,
     runCount: d.runs.filter(r => r.runId !== null).length,
     roundCount: d.runs.filter(r => r.kind === 'respond').length,
@@ -359,6 +373,7 @@ export function usageFixture(): UsageFixture {
     trends: {
       weeks,
       totals: sum(weeks.map(w => w.totals)),
+      byBilling: unknownBilling(sum(weeks.map(w => w.totals))),
       byPipeline: [
         { pipeline: 'feature', totals: kindOverWeeks('work') },
         { pipeline: 'receive-review', totals: kindOverWeeks('respond') },
@@ -388,7 +403,13 @@ export function emptyUsageFixture(): UsageFixture {
   return {
     mrs: { mrs: [], summary: { mrCount: 0, totals: ZERO, medianCost: 0 } },
     mr: () => null,
-    trends: { weeks: [], totals: ZERO, byPipeline: [], byModel: [] },
+    trends: {
+      weeks: [],
+      totals: ZERO,
+      byBilling: unknownBilling(ZERO),
+      byPipeline: [],
+      byModel: [],
+    },
     status: {
       lastSweepAt: null,
       lastSweepMs: null,
