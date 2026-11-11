@@ -1,5 +1,6 @@
 import { homedir } from "os";
 import { join } from "path";
+import { flagValue } from "../lib/cli-args.ts";
 import { logCliEvent } from "../lib/cli-logger.ts";
 import { cswapConfigDirs } from "../lib/cswap.ts";
 import { stableMachineId } from "../lib/home/machine-id.ts";
@@ -60,11 +61,21 @@ export interface RecordAccountDeps {
   exit: (code: number) => void;
 }
 
-export async function usageRecordAccountCommand(
-  args: { session: string },
+export async function usageRecordAccountCommand(args: string[]): Promise<void> {
+  let session: string | undefined;
+  try {
+    session = flagValue(args, "--session");
+  } catch {
+    session = undefined;
+  }
+  return recordAccountWith(session);
+}
+
+export async function recordAccountWith(
+  session: string | undefined,
   deps: Partial<RecordAccountDeps> = {},
 ): Promise<void> {
-  if (!args.session) {
+  if (!session) {
     out.fail(usageFailure("Which session?", "rt usage record-account --session <id>"));
     (deps.exit ?? process.exit)(2);
     return;
@@ -79,7 +90,7 @@ export async function usageRecordAccountCommand(
     if (!record) return;
     recordAccount({
       path: deps.path ?? accountsPath(),
-      session: args.session,
+      session,
       ts: (deps.now ?? Date.now)(),
       record,
     });
