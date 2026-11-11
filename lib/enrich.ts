@@ -45,6 +45,8 @@ import {
 } from "./linear.ts";
 import type { PickSegment } from "./ui/protocol.ts";
 import { childEnv } from "./subprocess.ts";
+import { spawnSync } from "child_process";
+import { testRunSignal } from "../packages/rt-client/src/test-isolation.ts";
 
 /** Best-effort serialized identity for a remote URL; undefined with no remote. */
 function identityForRemote(remoteUrl: string | undefined): string | undefined {
@@ -55,13 +57,53 @@ function identityForRemote(remoteUrl: string | undefined): string | undefined {
 
 // ─── Remote URL parser ───────────────────────────────────────────────────────
 
+/** The real hostname ssh would connect to for `alias`, or null when ssh cannot say. */
+export type SshHostResolver = (alias: string) => string | null;
+
+const SSH_TIMEOUT_MS = 2000;
+
+function sshConfigHostname(alias: string): string | null {
+  // ssh reads ~/.ssh/config through the passwd entry, not HOME, so test HOME isolation would not keep it off the real file.
+  if (testRunSignal(process.env, Bun.main) !== null) return null;
+  const res = spawnSync("ssh", ["-G", alias], { encoding: "utf8", timeout: SSH_TIMEOUT_MS, env: childEnv() });
+  if (res.status !== 0) return null;
+  return /^hostname (\S+)$/m.exec(res.stdout ?? "")?.[1] ?? null;
+}
+
+let sshHostResolver: SshHostResolver = sshConfigHostname;
+const sshHostCache = new Map<string, string | null>();
+
+/** Tests swap in a fake ssh; null restores the real one. */
+export function setSshHostResolver(resolver: SshHostResolver | null): void {
+  sshHostResolver = resolver ?? sshConfigHostname;
+  sshHostCache.clear();
+}
+
+function isForgeHost(host: string): boolean {
+  return host === "github.com" || /gitlab\./i.test(host);
+}
+
+/**
+ * The forge host behind an ssh alias (`git@work-github:o/r`), read only from
+ * the user's own ssh config. The answer is kept only when it names a forge,
+ * because the host decides which forge token a repo is offered.
+ */
+function resolveSshAlias(trimmed: string, host: string): string {
+  if (/^(?!(?:git\+)?ssh:\/\/)[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) return host;
+  const bare = host.replace(/:\d+$/, "");
+  if (isForgeHost(bare) || !/^[a-z0-9][a-z0-9._-]*$/i.test(bare)) return host;
+  if (!sshHostCache.has(bare)) sshHostCache.set(bare, sshHostResolver(bare)?.toLowerCase() ?? null);
+  const real = sshHostCache.get(bare);
+  return real && isForgeHost(real) ? real : host;
+}
+
 export function parseRemoteUrl(url: string): { host: string; projectPath: string } | null {
   const trimmed = url.trim();
   if (/^file:/i.test(trimmed)) return null;
   const normalized = normalizeRemote(trimmed);
   if (!normalized) return null;
   const slash = normalized.indexOf("/");
-  const host = normalized.slice(0, slash);
+  const host = resolveSshAlias(trimmed, normalized.slice(0, slash));
   // A port on an ssh remote belongs to sshd, so it would point the API at the wrong service.
   const webHost = /^https?:\/\//i.test(trimmed) ? host : host.replace(/:\d+$/, "");
   // normalizeRemote strips `.git` before trailing slashes, so a `.git/` remote keeps its suffix.
