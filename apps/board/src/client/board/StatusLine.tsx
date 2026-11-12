@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 
 import { Badge, ICONS, Popover, SideDrawer, Tooltip } from '@mattstack/tui-kit';
+import { cancelRebase } from '../api.ts';
 import type { BoardMRWithReview, RowContext } from '../types.ts';
 import { clauseOf } from './clause.ts';
 import { cleanTitle } from './format.ts';
@@ -275,6 +276,9 @@ function SyncLogWord({
                   />
                 }
                 {...(handoff ? { handoff } : {})}
+                {...(url && mr.doctor?.status === 'forge-rebasing'
+                  ? { onCancel: () => cancelRebase(url) }
+                  : {})}
               />
             </SideDrawer>
           </div>,
@@ -460,9 +464,12 @@ export function StatusLine({
     ? line.verbs
     : line.verbs.filter(verb => verb.kind !== 'merge');
   const hot = line.tone === 'bad' || line.tone === 'warn';
-  const syncing = mr.doctor?.status === 'syncing';
+  const syncing =
+    mr.doctor?.status === 'syncing' || mr.doctor?.status === 'forge-rebasing';
   const syncLines = useSyncLog(mr, line.syncLog, syncing);
-  const view = line.syncLog ? syncSteps(syncLines, syncing) : null;
+  const view = line.syncLog
+    ? syncSteps(syncLines, syncing, mr.doctor?.forge)
+    : null;
   const handoff =
     view?.outcome === 'paused' && DOCTOR_AT_WORK.has(mr.doctor?.status ?? '')
       ? { onFocus: () => ctx.onFocusPane(mr, 'doctor') }

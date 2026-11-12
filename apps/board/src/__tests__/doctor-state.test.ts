@@ -8,6 +8,7 @@ import {
   doctorFilePath,
   doctorResumeDispatchFields,
   failOrphanedSyncs,
+  NO_SYNC_CARRY,
   parseDoctorRequestBody,
   planStandDown,
   readDoctorStates,
@@ -300,6 +301,83 @@ describe('failOrphanedSyncs', () => {
     failOrphanedSyncs(new Set(['u/2']), 2, db);
     expect(readDoctorStates(db).get('u/2')?.status).toBe('syncing');
   });
+
+  test('failOrphanedSyncs fails a forge-rebasing row', () => {
+    writeDoctorState(
+      doctorFilePath('u/4'),
+      {
+        mrUrl: 'u/4',
+        iid: 1,
+        status: 'forge-rebasing',
+        forge: { forge: 'gitlab', state: 'running' },
+      },
+      1,
+      db
+    );
+    failOrphanedSyncs(new Set(), 2, db);
+    expect(readDoctorStates(db).get('u/4')).toMatchObject({
+      status: 'sync-stopped',
+      message: 'the board restarted during the rebase; run rebase again',
+      forge: {
+        forge: 'gitlab',
+        state: 'failed',
+        detail: 'the board restarted during the rebase; run rebase again',
+      },
+    });
+  });
+
+  test('a cut-off sync keeps a forge step that already settled', () => {
+    writeDoctorState(
+      doctorFilePath('u/7'),
+      {
+        mrUrl: 'u/7',
+        iid: 1,
+        status: 'syncing',
+        forge: { forge: 'github', state: 'failed', detail: 'no clear answer' },
+      },
+      1,
+      db
+    );
+    failOrphanedSyncs(new Set(), 2, db);
+    expect(readDoctorStates(db).get('u/7')?.forge).toEqual({
+      forge: 'github',
+      state: 'failed',
+      detail: 'no clear answer',
+    });
+  });
+
+  test('a forge wait a request is running is left alone', () => {
+    writeDoctorState(
+      doctorFilePath('u/5'),
+      { mrUrl: 'u/5', iid: 1, status: 'forge-rebasing' },
+      1,
+      db
+    );
+    failOrphanedSyncs(new Set(['u/5']), 2, db);
+    expect(readDoctorStates(db).get('u/5')?.status).toBe('forge-rebasing');
+  });
+});
+
+test('a launch with NO_SYNC_CARRY drops an earlier forge step', () => {
+  const path = doctorFilePath('u/6');
+  writeDoctorState(
+    path,
+    {
+      mrUrl: 'u/6',
+      iid: 1,
+      status: 'sync-stopped',
+      forge: { forge: 'gitlab', state: 'failed', detail: 'x' },
+    },
+    1,
+    db
+  );
+  const next = writeDoctorState(
+    path,
+    { status: 'queued', ...NO_SYNC_CARRY },
+    2,
+    db
+  );
+  expect(next.forge).toBeUndefined();
 });
 
 test('dispatchPrompt carries the paused tree', async () => {

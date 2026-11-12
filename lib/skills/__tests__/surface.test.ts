@@ -145,7 +145,7 @@ describe("compileBlockSkill with internalRoster", () => {
     const skillFile = result.files[0];
     if (!skillFile || !("content" in skillFile)) throw new Error("expected files[0] to have content");
 
-    expect(skillFile.content).toContain("skill (acme:qa-gates@0.3.0) when this flow needs it");
+    expect(skillFile.content).toContain("invoke the `acme:qa-gates` skill when this flow needs it");
     expect(skillFile.content).not.toContain("Domain rules for qa-gates.");
     expect(result.warnings).not.toContain("note: acme:qa-gates is surface-internal; inlined");
   });

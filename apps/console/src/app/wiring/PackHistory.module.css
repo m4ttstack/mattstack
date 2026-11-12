@@ -197,3 +197,27 @@
   font-weight: 500;
   color: var(--tk-text-warn);
 }
+
+/* A run of commits that only moved version stamps, folded: quieter than a
+   commit, so the real changes around it carry the list. */
+.row.fold {
+  padding-block: 7px;
+}
+
+.foldHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--tk-text-3);
+}
+
+.foldLabel {
+  flex: 1;
+  min-width: 0;
+}
+
+.foldToggle {
+  font-weight: 500;
+  color: var(--tk-text-accent-small);
+}

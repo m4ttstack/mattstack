@@ -25,6 +25,7 @@ const payload = (
     {
       pack: 'acme',
       recordedSha: '4c1d9e2b7a',
+      recordedVersion: null,
       currentSha: '4c1d9e2b7a51',
       drifted: false,
     },
@@ -53,6 +54,7 @@ describe('inputsSummary', () => {
         {
           pack: 'acme',
           recordedSha: 'abc1234',
+          recordedVersion: null,
           currentSha: 'f',
           drifted: true,
         },
@@ -66,6 +68,7 @@ describe('inputsSummary', () => {
         {
           pack: 'acme',
           recordedSha: 'abc1234',
+          recordedVersion: null,
           currentSha: null,
           drifted: null,
         },
@@ -74,6 +77,21 @@ describe('inputsSummary', () => {
     expect(inputsSummary(missing).pack).toBe(
       'acme pack abc1234 · pack not found here'
     );
+  });
+
+  it('names a pack recorded by version alone, with no state', () => {
+    const versioned = payload({
+      packVersions: [
+        {
+          pack: 'acme',
+          recordedSha: null,
+          recordedVersion: '0.4.11',
+          currentSha: null,
+          drifted: null,
+        },
+      ],
+    });
+    expect(inputsSummary(versioned).pack).toBe('acme pack 0.4.11');
   });
 
   it('covers a run from before pack versions and singular counts', () => {
@@ -227,6 +245,7 @@ describe('packState', () => {
   const pack = (over: Partial<PackVersionRow> = {}): PackVersionRow => ({
     pack: 'acme',
     recordedSha: '4c1d9e2b7a',
+    recordedVersion: null,
     currentSha: '4c1d9e2b7a51',
     drifted: false,
     ...over,
@@ -248,5 +267,18 @@ describe('packState', () => {
       label: 'pack not found here',
       tone: 'quiet',
     });
+  });
+
+  it('has no state for a pack recorded by version alone', () => {
+    expect(
+      packState(
+        pack({
+          recordedSha: null,
+          recordedVersion: '0.4.11',
+          currentSha: null,
+          drifted: null,
+        })
+      )
+    ).toBeNull();
   });
 });

@@ -1,13 +1,14 @@
-import { existsSync, lstatSync, readdirSync, readFileSync } from "fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "fs";
 import { posix } from "path";
 import { UserActionableError } from "../errors.ts";
-import { findPluginVersionDirs, type PluginFs } from "./installed-plugins.ts";
+import { compareVersions, findPluginVersionDirs, type PluginFs } from "./installed-plugins.ts";
 import { ID_RE, spellFrom, type PointerMap, type Target } from "./pointers.ts";
-import { MAP_FILE } from "./unit-maps.ts";
+import { isIdSafeVersion, MAP_FILE } from "./unit-maps.ts";
 
-export type ResolveFs = PluginFs & { readFile(p: string): string | null; isSymlink(p: string): boolean };
+/** `realPath` is null for a path that does not exist. */
+export type ResolveFs = PluginFs & { readFile(p: string): string | null; isSymlink(p: string): boolean; realPath(p: string): string | null };
 export type ResolveDeps = { fs: ResolveFs; home: string };
-export type ResolveResult = { id: string; folder: string; covers: string[]; keys: Record<string, string> };
+export type ResolveResult = { id: string; folder: string; covers: string[]; keys: Record<string, string>; pinned: boolean; warning?: string };
 
 export const realResolveFs: ResolveFs = {
   exists: existsSync,
@@ -32,12 +33,20 @@ export const realResolveFs: ResolveFs = {
       return false;
     }
   },
+  realPath(p) {
+    try {
+      return realpathSync(p);
+    } catch {
+      return null;
+    }
+  },
 };
 
-const PLUGIN_ID_RE = /^([^@]+)@([^:]+):(.+)$/;
+const PLUGIN_ID_RE = /^([^@:]+)(?:@([^:]+))?:(.+)$/;
 const SKILLS_PREFIX = "skills:";
 const SKILL_NAME_RE = /^[a-z0-9][a-z0-9:-]*$/;
 const RELINK = "rt setup update";
+const UNPINNED_WARNING = "No skill folder was passed, so this run is not pinned to the version it loaded.";
 const RELINK_WHY = "The link may point at an older copy of the skill; relinking points it at the copy installed now.";
 
 function refuse(code: string, message: string, why?: string, next?: string): UserActionableError {
@@ -94,25 +103,71 @@ function marketplaceOf(versionDir: string): string {
   return posix.basename(posix.dirname(posix.dirname(versionDir)));
 }
 
+function pluginCache(home: string): string {
+  return `${home}/.claude/plugins/cache`;
+}
+
+/** True for a `dir` written as inside the plugin cache whose `..` takes it out. */
+export function dirClimbsOutOfCache(dir: string, home: string): boolean {
+  const cache = pluginCache(home);
+  return posix.isAbsolute(dir) && dir.startsWith(`${cache}/`) && !within(cache, posix.normalize(dir));
+}
+
+/**
+ * The version folder `dir` sits in, read from `<cache>/<market>/<plugin>/<version>/`.
+ * A path is only looked up on disk once its text sits inside the cache, so
+ * nothing outside it is touched.
+ */
+function versionOfDir(id: string, plugin: string, dir: string, deps: ResolveDeps): string | null {
+  if (!posix.isAbsolute(dir)) return null;
+  const cache = pluginCache(deps.home);
+  const text = posix.normalize(dir);
+  if (!within(cache, text)) return null;
+  // The written path, not its normalized text: the OS follows a link before the `..` after it.
+  const real = deps.fs.realPath(dir);
+  const [base, path] = real === null ? [cache, text] : [deps.fs.realPath(cache) ?? cache, real];
+  if (!within(base, path)) return null;
+  const [, named, version] = path.slice(base.length + 1).split("/");
+  if (!named || !version) return null;
+  if (named !== plugin) {
+    throw refuse("skills-resolve-wrong-folder", `The skill folder passed for ${id} belongs to ${named}, not ${plugin}.`, `${dir} is in ${named}'s plugin folder.`);
+  }
+  return version;
+}
+
+function manyMarketplaces(plugin: string, what: string, copies: { dir: string; market: string }[]): UserActionableError {
+  const uninstalls = copies.map((c) => `claude plugin uninstall ${plugin}@${c.market}`).join("; ");
+  return refuse(
+    "skills-resolve-many-marketplaces",
+    `${what} is installed from more than one marketplace.`,
+    `Copies: ${copies.map((c) => c.dir).join(", ")}. Keep one and uninstall each of the others with its command: ${uninstalls}.`,
+    "claude plugin list",
+  );
+}
+
+function highestInstalled(id: string, plugin: string, deps: ResolveDeps): string {
+  const cache = pluginCache(deps.home);
+  const held = deps.fs
+    .readDir(cache)
+    .filter((m) => !m.startsWith("temp_git_"))
+    .map((market) => ({ market, dir: `${cache}/${market}/${plugin}`, versions: deps.fs.readDir(`${cache}/${market}/${plugin}`).filter(isIdSafeVersion) }))
+    .filter((h) => h.versions.length > 0);
+  if (held.length === 0) throw refuse("skills-resolve-not-installed", `${plugin} is not installed, so ${id} cannot resolve.`, `No version of ${plugin} is installed.`, "/reload-plugins");
+  if (held.length > 1) throw manyMarketplaces(plugin, plugin, held);
+  return held[0]!.versions.reduce((best, v) => (compareVersions(v, best) > 0 ? v : best));
+}
+
 function pluginUnit(id: string, plugin: string, version: string, unit: string, deps: ResolveDeps): Unit {
   const { fs, home } = deps;
   const roots = findPluginVersionDirs(fs, home, plugin, version);
   if (roots.length === 0) {
-    const cache = `${home}/.claude/plugins/cache`;
+    const cache = pluginCache(home);
     const found = [...new Set(fs.readDir(cache).filter((m) => !m.startsWith("temp_git_")).flatMap((m) => fs.readDir(`${cache}/${m}/${plugin}`)))].sort();
     // An installed copy stamped with an older id is a stale build, which a reload cannot fix.
     const why = found.length > 0 ? `The installed versions are ${found.join(", ")}. ${ownerWhy(plugin)}` : `No version of ${plugin} is installed.`;
     throw refuse("skills-resolve-not-installed", `${plugin} ${version} is not installed, so ${id} cannot resolve.`, why, "/reload-plugins");
   }
-  if (roots.length > 1) {
-    const uninstalls = roots.map((r) => `claude plugin uninstall ${plugin}@${marketplaceOf(r)}`).join("; ");
-    throw refuse(
-      "skills-resolve-many-marketplaces",
-      `${plugin} ${version} is installed from more than one marketplace.`,
-      `Copies: ${roots.join(", ")}. Keep one and uninstall each of the others with its command: ${uninstalls}.`,
-      "claude plugin list",
-    );
-  }
+  if (roots.length > 1) throw manyMarketplaces(plugin, `${plugin} ${version}`, roots.map((dir) => ({ dir, market: marketplaceOf(dir) })));
   const root = roots[0]!;
   const fix = `claude plugin update ${plugin}@${marketplaceOf(root)}`;
   const owner = ownerWhy(plugin);
@@ -162,17 +217,28 @@ function targetPath(id: string, key: string, unit: Unit, target: Target, deps: R
   return path;
 }
 
-/** Paths are joined as text: a `../` stays as written, and a skill link is never followed to its target. */
-export function resolvePointers(id: string, deps: ResolveDeps): ResolveResult {
+/**
+ * Paths are joined as text: a `../` stays as written, and a skill link is
+ * never followed to its target. A `<plugin>:<unit>` id takes its version from
+ * the plugin version folder `dir` sits in, so a run keeps reading the version
+ * it loaded after a newer one installs.
+ */
+export function resolvePointers(id: string, deps: ResolveDeps, dir?: string): ResolveResult {
   if (!ID_RE.test(id)) {
-    throw refuse("skills-resolve-bad-id", `${JSON.stringify(id)} is not a skill id.`, "A skill id is <plugin>@<version>:<unit> or skills:<name>.");
+    throw refuse("skills-resolve-bad-id", `${JSON.stringify(id)} is not a skill id.`, "A skill id is <plugin>:<unit>, <plugin>@<version>:<unit> or skills:<name>.");
   }
   let unit: Unit;
+  let pinned = true;
   if (id.startsWith(SKILLS_PREFIX)) {
     unit = skillsUnit(id, id.slice(SKILLS_PREFIX.length), deps);
   } else {
-    const [, plugin, version, leaf] = PLUGIN_ID_RE.exec(id)!;
-    unit = pluginUnit(id, plugin!, version!, leaf!, deps);
+    const [, plugin, stamped, leaf] = PLUGIN_ID_RE.exec(id)!;
+    let version = stamped ?? (dir === undefined ? null : versionOfDir(id, plugin!, dir, deps));
+    if (version === null) {
+      pinned = false;
+      version = highestInstalled(id, plugin!, deps);
+    }
+    unit = pluginUnit(id, plugin!, version, leaf!, deps);
   }
   const keys: Record<string, string> = {};
   for (const [key, target] of Object.entries(unit.map.keys)) keys[key] = targetPath(id, key, unit, target, deps);
@@ -181,5 +247,5 @@ export function resolvePointers(id: string, deps: ResolveDeps): ResolveResult {
       throw refuse("skills-resolve-missing-file", `The file behind @${key} is missing.`, `${path} does not exist in this copy of ${id}. ${unit.why}`, unit.fix);
     }
   }
-  return { id, folder: unit.folder, covers: unit.map.covers, keys };
+  return { id, folder: unit.folder, covers: unit.map.covers, keys, pinned, ...(pinned ? {} : { warning: UNPINNED_WARNING }) };
 }

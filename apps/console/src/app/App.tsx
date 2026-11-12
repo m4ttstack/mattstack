@@ -19,6 +19,8 @@ import { RunsRailEntry } from './runs/RunsRailEntry';
 import { explainHref } from './settings/explainParam';
 import { SettingsEmbed } from './settings/SettingsEmbed';
 import { SettingsPage } from './settings/SettingsPage';
+import { TeamPage } from './team/TeamPage';
+import { TeamRailEntry } from './team/TeamRailEntry';
 import { UsageMrPage } from './usage/UsageMrPage';
 import { UsagePage } from './usage/UsagePage';
 import { PACKS_HREF } from './wiring/attentionFilter';
@@ -28,11 +30,12 @@ import { WiringRailEntry } from './wiring/WiringRailEntry';
 const queryClient = createQueryClient();
 
 type ConsoleSection =
-  'runs' | 'slack' | 'search' | 'usage' | 'packs' | 'settings';
+  'runs' | 'slack' | 'team' | 'search' | 'usage' | 'packs' | 'settings';
 
 const SECTION_LABEL: Record<ConsoleSection, string> = {
   runs: 'Runs',
   slack: 'Slack chats',
+  team: 'Team',
   search: 'Search',
   usage: 'Usage',
   packs: 'Packs',
@@ -41,6 +44,7 @@ const SECTION_LABEL: Record<ConsoleSection, string> = {
 
 function chromeSection(route: AppRoute): ConsoleSection | null {
   if (route.name === 'slack-gates') return 'slack';
+  if (route.name === 'team') return 'team';
   if (route.name === 'search') return 'search';
   if (route.name === 'usage' || route.name === 'usage-mr') return 'usage';
   if (route.name === 'packs' || route.name === 'old-wiring') return 'packs';
@@ -88,6 +92,8 @@ function RouteContent({ route }: { route: AppRoute }) {
       return <GateRedirect id={route.id} />;
     case 'slack-gates':
       return <SlackGates />;
+    case 'team':
+      return <TeamPage />;
     case 'search':
       return <RunSearch />;
     case 'usage':
@@ -141,6 +147,7 @@ export function App() {
         <MattstackShell.Rail>
           <RunsRailEntry active={section === 'runs'} />
           <SlackRailEntry active={section === 'slack'} />
+          <TeamRailEntry active={section === 'team'} />
           <RailLink
             icon="search"
             label="Search"

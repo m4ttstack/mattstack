@@ -53,6 +53,7 @@ export const RESPOND_IN_FLIGHT: ReadonlySet<string> = new Set([
 ]);
 export const DOCTOR_IN_FLIGHT: ReadonlySet<string> = new Set([
   'queued',
+  'forge-rebasing',
   'syncing',
   'diagnosing',
   'rebasing',

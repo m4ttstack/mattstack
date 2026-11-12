@@ -34,7 +34,7 @@ test('an own MR shows the short top level, flyouts last', async () => {
     '---',
     '# agent actions',
     'respond to John',
-    'rebase locally',
+    'rebase',
     '---',
     'request review from…',
     '---',
@@ -57,7 +57,6 @@ test('a flyout opens with its rows in it', async () => {
     [...panel!.querySelectorAll('[role="menuitem"]')].map(el => el.textContent)
   ).toEqual([
     'merge',
-    'rebase on target',
     'set auto-merge',
     'mark as draft',
     'open in gitlab',
@@ -360,7 +359,6 @@ test('a GitHub own MR offers open in github and no GitLab-only rows', async () =
   const all = await allItemLabels();
   for (const label of [
     'merge',
-    'rebase on target',
     'set auto-merge',
     'mark as draft',
     'open in gitlab',

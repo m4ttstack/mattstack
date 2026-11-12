@@ -69,7 +69,7 @@ describe("run_start", () => {
     expect(res.ok).toBe(true);
     expect(res.body).toEqual({ ok: true, runId: "x", runDb: "/db" });
     expect(calls[0]!.verb).toBe("run-start");
-    expect(calls[0]!.args).toEqual(["--repo", "r", "--work-type", "w", "--pipeline", "p", "--pack-dirs", "/real/pack", "--ticket", "T-1", "--spawned-by", "board"]);
+    expect(calls[0]!.args).toEqual(["--repo", "r", "--work-type", "w", "--pipeline", "p", "--pack-dirs", "/real/pack", "--skill-dir", "/real/pack/skills/work", "--ticket", "T-1", "--spawned-by", "board"]);
   });
   test("refuses a quoted flag string without calling write", async () => {
     const { deps, calls } = fakeDeps();
@@ -115,6 +115,13 @@ describe("run_start", () => {
       expect(res.error).toContain("--pack-dirs");
       expect(calls).toEqual([]);
     });
+    test("refuses an attempted --skill-dir override", async () => {
+      const { deps, calls } = fakeDeps();
+      const res = await tool(deps, "run_start").handler({ flags: "--repo r --work-type w --pipeline p --skill-dir /evil/skills/work", skillDir: "/link/pack/skills/work" }, {} as NodeJS.ProcessEnv);
+      expect(res.ok).toBe(false);
+      expect(res.error).toContain("--skill-dir");
+      expect(calls).toEqual([]);
+    });
     test("refuses --ticket and --spawned-by named inside the flags string itself", async () => {
       const { deps, calls } = fakeDeps();
       const ticket = await tool(deps, "run_start").handler({ flags: "--repo r --work-type w --pipeline p --ticket T-1", skillDir: "/link/pack/skills/work" }, {} as NodeJS.ProcessEnv);
@@ -133,7 +140,7 @@ describe("run_start", () => {
       expect(calls[0]!.args).toEqual([
         "--repo", "r", "--work-type", "w", "--pipeline", "p",
         "--run-id", "abc", "--mattstack-sha", "sha1", "--mattstack-dirty", "1", "--pack-sha", "name=val",
-        "--pack-dirs", "/real/pack",
+        "--pack-dirs", "/real/pack", "--skill-dir", "/real/pack/skills/work",
       ]);
     });
   });
@@ -368,14 +375,14 @@ describe("run_enter", () => {
     expect(res).toEqual({ ok: true, body: { ok: true, mode: "started" } });
     expect(calls[0]!.op).toEqual({
       op: "enter",
-      args: ["--repo", "r", "--work-type", "w", "--pipeline", "p", "--pack-dirs", "/real/pack", "--ticket", "T-1", "--spawned-by", "board"],
+      args: ["--repo", "r", "--work-type", "w", "--pipeline", "p", "--pack-dirs", "/real/pack", "--skill-dir", "/real/pack/skills/work", "--ticket", "T-1", "--spawned-by", "board"],
       packRoot: "/real/pack", stage: "plan", pipeline: "feature", handedRunDb: HANDED, resume: "id-1", fresh: true,
     });
   });
   test("only the inputs given reach the op", async () => {
     const { deps, calls } = fakeEngine();
     await tool(deps, "run_enter").handler({ flags: FLAGS, skillDir: SKILL }, RUNS_ROOT_ENV);
-    expect(calls[0]!.op).toEqual({ op: "enter", args: ["--repo", "r", "--work-type", "w", "--pipeline", "p", "--pack-dirs", "/real/pack"], packRoot: "/real/pack" });
+    expect(calls[0]!.op).toEqual({ op: "enter", args: ["--repo", "r", "--work-type", "w", "--pipeline", "p", "--pack-dirs", "/real/pack", "--skill-dir", "/real/pack/skills/work"], packRoot: "/real/pack" });
   });
   test("refuses bad input without calling the engine", async () => {
     const { deps, calls } = fakeEngine();

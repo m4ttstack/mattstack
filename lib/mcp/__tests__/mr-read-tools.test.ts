@@ -444,6 +444,22 @@ describe("on GitHub", () => {
     expect(calls).toEqual([{ name: "discussions:refresh", payload: { repoName: GH, iid: 3 } }]);
   });
 
+  test("mr_list by PR URL and targetBranch asks for the branch's children and keeps full", async () => {
+    const whole = fake({ "mr:list-live": { mrs: [], truncated: false } });
+    expect(await tool(whole.deps, "mr_list").handler({ mrUrl: PR, targetBranch: "feat" }, {} as NodeJS.ProcessEnv))
+      .toEqual({ ok: true, body: { mrs: [], truncated: false, targetBranch: "feat", full: true } });
+    expect(whole.calls).toEqual([{ name: "mr:list-live", payload: { repoName: GH, targetBranch: "feat" } }]);
+    const cut = fake({ "mr:list-live": { mrs: [{ iid: 4 }], truncated: true } });
+    expect((await tool(cut.deps, "mr_list").handler({ mrUrl: PR, targetBranch: "feat" }, {} as NodeJS.ProcessEnv)).body)
+      .toEqual({ mrs: [{ iid: 4 }], truncated: true, targetBranch: "feat", full: false });
+  });
+
+  test("mr_list by PR URL and targetBranch passes a GitHub refusal through, never an empty list", async () => {
+    const { deps } = fake({ "mr:list-live": new Error("GitHub returned 502 Bad Gateway: boom") });
+    expect(await tool(deps, "mr_list").handler({ mrUrl: PR, targetBranch: "feat" }, {} as NodeJS.ProcessEnv))
+      .toMatchObject({ ok: false, error: "GitHub returned 502 Bad Gateway: boom" });
+  });
+
   describe("pipeline_jobs", () => {
     const SHA = "d".repeat(40);
     const RUN_URL = "https://github.com/acme/app/actions/runs/555";

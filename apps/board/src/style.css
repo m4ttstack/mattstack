@@ -897,6 +897,19 @@ body {
   align-items: center;
   min-height: 26px;
 }
+/* "GitHub rebase" is the longest label; the other steps keep the narrow
+   column when no forge step leads. */
+.tui-syncsteps[data-forge] .tui-syncsteps-step {
+  grid-template-columns: 14px 96px minmax(0, 1fr) auto;
+}
+.tui-syncsteps-cancel {
+  grid-column: 4;
+}
+.tui-syncsteps-action:disabled {
+  color: var(--text-3);
+  cursor: default;
+  text-decoration: none;
+}
 .tui-syncsteps-glyph {
   display: inline-flex;
   justify-content: center;
@@ -989,6 +1002,9 @@ body {
 .tui-syncsteps-note[data-tone='bad'] {
   background: color-mix(in srgb, var(--text-bad) 7%, transparent);
   color: var(--text-bad-small);
+}
+.tui-syncsteps-note[data-tone='quiet'] {
+  color: var(--text-3);
 }
 .tui-syncsteps-note[data-tone='work'] {
   background: color-mix(in srgb, var(--text-purple) 6%, transparent);

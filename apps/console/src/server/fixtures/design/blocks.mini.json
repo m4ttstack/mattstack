@@ -28,7 +28,7 @@
       "relPath": "attachments/pipeline/mini/index.block.md",
       "lines": [11, 24],
       "summary": "Runs the step, then asks for a decision.",
-      "text": "# mini\n\nRuns the step, then asks for a decision.\n\n```mermaid\nflowchart TB\n  start([Trigger: the step opens])\n  run_step\n  ask_gate\n  finish(((Finished))):::done\n  start --> run_step --> ask_gate --> finish\n```\n\n<!-- part: prop:mini.rules binding=widgets:mini-rules/fast version=0.1.0 path=attachments/mini-rules/fast.md lines=1-2 -->\nFollow the fast widget rules.\nRun ${CLAUDE_SKILL_DIR}/../../attachments/mini/parts/rules/lint.sh first.",
+      "text": "# mini\n\nRuns the step, then asks for a decision.\n\n```mermaid\nflowchart TB\n  start([Trigger: the step opens])\n  run_step\n  ask_gate\n  finish(((Finished))):::done\n  start --> run_step --> ask_gate --> finish\n```\n\n<!-- part: prop:mini.rules binding=widgets:mini-rules/fast path=attachments/mini-rules/fast.md lines=1-2 -->\nFollow the fast widget rules.\nRun ${CLAUDE_SKILL_DIR}/../../attachments/mini/parts/rules/lint.sh first.",
       "segments": [
         {
           "layer": "default",
@@ -159,7 +159,7 @@
       "relPath": "attachments/pipeline/mini/gate.block.md",
       "lines": [11, 15],
       "summary": "Ask the human whether to continue, using the tiering rules.",
-      "text": "## Ask the gate\n\nAsk the human whether to continue, using the tiering rules.\n\n<!-- part: prop:mini/gate.tiering binding=mattstack:model-tiering version=1.0.0 path=skills/model-tiering/SKILL.md lines=8-8 -->\nFor tiering, invoke the `mattstack:model-tiering` skill (mattstack:model-tiering@1.0.0) when this flow needs it.",
+      "text": "## Ask the gate\n\nAsk the human whether to continue, using the tiering rules.\n\n<!-- part: prop:mini/gate.tiering binding=mattstack:model-tiering path=skills/model-tiering/SKILL.md lines=8-8 -->\nFor tiering, invoke the `mattstack:model-tiering` skill when this flow needs it.",
       "segments": [
         {
           "layer": "default",
@@ -171,7 +171,7 @@
           "layer": "default",
           "color": "mattstack",
           "prop": "tiering",
-          "text": "For tiering, invoke the `mattstack:model-tiering` skill (mattstack:model-tiering@1.0.0) when this flow needs it."
+          "text": "For tiering, invoke the `mattstack:model-tiering` skill when this flow needs it."
         }
       ],
       "props": [
@@ -212,7 +212,7 @@
       "relPath": "attachments/pipeline/mini/notes.block.md",
       "lines": [9, 13],
       "summary": "Keep notes short.",
-      "text": "## Notes\n\nKeep notes short.\n\n<!-- part: prop:mini/notes.style binding=mattstack:style-floor version=1.0.0 path=attachments/style-floor/SKILL.md lines=8-8 -->\nWrite short sentences.",
+      "text": "## Notes\n\nKeep notes short.\n\n<!-- part: prop:mini/notes.style binding=mattstack:style-floor path=attachments/style-floor/SKILL.md lines=8-8 -->\nWrite short sentences.",
       "segments": [
         {
           "layer": "default",

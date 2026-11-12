@@ -24,21 +24,21 @@ policy text
 name: "stage-implement"
 description: "stage-implement"
 metadata:
-  compiled: "mattstack@1.0.0"
+  compiled: "mattstack"
 ---
 
 <!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->
 
-<!-- part: block:stage-implement source=mattstack:stage-implement version=1.0.0 path=attachments/pipeline/stage-implement/index.block.md lines=11-11 -->
+<!-- part: block:stage-implement source=mattstack:stage-implement path=attachments/pipeline/stage-implement/index.block.md lines=11-11 -->
 You consume \`approach\`. You must produce \`commits\`.
 "
 ,
   "attachments/stage-implement/compiled.json": 
 "{
-  "id": "acme@0.1.0:stage-implement",
+  "id": "acme:stage-implement",
   "dir": "attachments/stage-implement",
   "covers": [
-    "acme@0.1.0:stage-implement"
+    "acme:stage-implement"
   ],
   "keys": {}
 }
@@ -49,19 +49,19 @@ You consume \`approach\`. You must produce \`commits\`.
 name: "stage-plan"
 description: "stage-plan"
 metadata:
-  compiled: "mattstack@1.0.0 + acme:plan-policy@0.1.0"
+  compiled: "mattstack + acme:plan-policy"
 ---
 
 <!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->
 
-Pointers here are \`@keys\`. Resolve them once per run: if you already hold a \`skills_resolve\` map that covers \`acme@0.1.0:stage-plan\`, use it; otherwise call \`skills_resolve {id: "acme@0.1.0:stage-plan"}\` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
+Pointers here are \`@keys\`. Resolve them once per run: if you already hold a \`skills_resolve\` map that covers \`acme:stage-plan\` and whose folder sits in the same plugin version folder as the loaded skill's own directory, use it; otherwise call \`skills_resolve {id: "acme:stage-plan", dir: "<the loaded skill's own directory>"}\` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
 
-<!-- part: block:stage-plan source=mattstack:stage-plan version=1.0.0 path=attachments/pipeline/stage-plan/index.block.md lines=16-17 -->
+<!-- part: block:stage-plan source=mattstack:stage-plan path=attachments/pipeline/stage-plan/index.block.md lines=16-17 -->
 You consume \`ticket\`. You must produce \`approach\`.
-<!-- part: prop:stage-plan.rules binding=acme:plan-policy version=0.1.0 path=attachments/plan-policy/SKILL.md lines=8-10 -->
+<!-- part: prop:stage-plan.rules binding=acme:plan-policy path=attachments/plan-policy/SKILL.md lines=8-10 -->
 policy text
 
-<!-- part: include:gitlab-note source=mattstack:gitlab-note version=1.0.0 path=attachments/gitlab-note/SKILL.md lines=6-8 -->
+<!-- part: include:gitlab-note source=mattstack:gitlab-note path=attachments/gitlab-note/SKILL.md lines=6-8 -->
 note body
 
 See @stage-plan/parts/include-gitlab-note/scripts/note.sh for the note script.
@@ -69,10 +69,10 @@ See @stage-plan/parts/include-gitlab-note/scripts/note.sh for the note script.
 ,
   "attachments/stage-plan/compiled.json": 
 "{
-  "id": "acme@0.1.0:stage-plan",
+  "id": "acme:stage-plan",
   "dir": "attachments/stage-plan",
   "covers": [
-    "acme@0.1.0:stage-plan"
+    "acme:stage-plan"
   ],
   "keys": {
     "stage-plan/parts/include-gitlab-note/scripts/note.sh": "attachments/stage-plan/parts/include-gitlab-note/scripts/note.sh"
@@ -90,23 +90,46 @@ echo note
 name: "stage-ship"
 description: "stage-ship"
 metadata:
-  compiled: "mattstack@1.0.0"
+  compiled: "mattstack"
 ---
 
 <!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->
 
-<!-- part: block:stage-ship source=mattstack:stage-ship version=1.0.0 path=attachments/pipeline/stage-ship/index.block.md lines=11-11 -->
+<!-- part: block:stage-ship source=mattstack:stage-ship path=attachments/pipeline/stage-ship/index.block.md lines=11-11 -->
 You consume \`commits\`, \`ticket\`. You must produce \`mr\`.
 "
 ,
   "attachments/stage-ship/compiled.json": 
 "{
-  "id": "acme@0.1.0:stage-ship",
+  "id": "acme:stage-ship",
   "dir": "attachments/stage-ship",
   "covers": [
-    "acme@0.1.0:stage-ship"
+    "acme:stage-ship"
   ],
   "keys": {}
+}
+"
+,
+  "pack/compiled.lock.json": 
+"{
+  "bases": {},
+  "mattstackDirty": {},
+  "mattstackSha": {},
+  "targets": {
+    "attachments/stage-implement": {
+      "mattstack": "1.0.0"
+    },
+    "attachments/stage-plan": {
+      "acme": "0.1.0",
+      "mattstack": "1.0.0"
+    },
+    "attachments/stage-ship": {
+      "mattstack": "1.0.0"
+    },
+    "skills/work": {
+      "mattstack": "1.0.0"
+    }
+  }
 }
 "
 ,
@@ -155,7 +178,7 @@ You consume \`commits\`, \`ticket\`. You must produce \`mr\`.
 "
 ,
   "pack/requires.json": 
-"{"minEngine":"0.32.28"}
+"{"minEngine":"0.32.60"}
 "
 ,
   "pack/stubs.jsonc": 
@@ -171,14 +194,14 @@ You consume \`commits\`, \`ticket\`. You must produce \`mr\`.
 name: "work"
 description: "Run a unit of work"
 metadata:
-  compiled: "mattstack@1.0.0"
+  compiled: "mattstack"
 ---
 
 <!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->
 
-Pointers here are \`@keys\`. Resolve them once per run: if you already hold a \`skills_resolve\` map that covers \`acme@0.1.0:work\`, use it; otherwise call \`skills_resolve {id: "acme@0.1.0:work"}\` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
+Pointers here are \`@keys\`. Resolve them once per run: if you already hold a \`skills_resolve\` map that covers \`acme:work\` and whose folder sits in the same plugin version folder as the loaded skill's own directory, use it; otherwise call \`skills_resolve {id: "acme:work", dir: "<the loaded skill's own directory>"}\` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
 
-<!-- part: block:work source=mattstack:work version=1.0.0 path=attachments/pipeline/work/index.block.md lines=7-11 -->
+<!-- part: block:work source=mattstack:work path=attachments/pipeline/work/index.block.md lines=7-11 -->
 The work type is \`feature\`. Continue.
 
 \`\`\`json
@@ -222,23 +245,23 @@ The work type is \`feature\`. Continue.
 }
 \`\`\`
 
-<!-- part: block:work source=mattstack:work version=1.0.0 path=attachments/pipeline/work/index.block.md lines=11-11 -->
+<!-- part: block:work source=mattstack:work path=attachments/pipeline/work/index.block.md lines=11-11 -->
 Start: "$RT_PIPELINE_STATE" run-start \`\`\`json
 {
-  "feature": "--repo my-repo --work-type feature --pipeline feature --mattstack-sha 1.0.0 --mattstack-dirty 0 --pack-sha acme=0.1.0"
+  "feature": "--repo my-repo --work-type feature --pipeline feature"
 }
 \`\`\`
 "
 ,
   "skills/work/compiled.json": 
 "{
-  "id": "acme@0.1.0:work",
+  "id": "acme:work",
   "dir": "skills/work",
   "covers": [
-    "acme@0.1.0:work",
-    "acme@0.1.0:stage-plan",
-    "acme@0.1.0:stage-implement",
-    "acme@0.1.0:stage-ship"
+    "acme:work",
+    "acme:stage-plan",
+    "acme:stage-implement",
+    "acme:stage-ship"
   ],
   "keys": {
     "stage-implement/SKILL.md": "attachments/stage-implement/SKILL.md",
