@@ -68,7 +68,13 @@ function StepLine({
           className={classes.stepOpen}
           onClick={() => onOpen(row)}
         >
-          <Text span fz="md" fw={group ? 500 : 400} lh="normal">
+          <Text
+            span
+            fz="md"
+            fw={group ? 500 : 400}
+            c={row.uncounted ? 'dimmed' : undefined}
+            lh="normal"
+          >
             {row.label}
           </Text>
         </UnstyledButton>
@@ -87,14 +93,24 @@ function StepLine({
       <Table.Td ta="right" c="dimmed">
         {compact(row.totals.cacheRead)}
       </Table.Td>
-      <Table.Td ta="right" fw={500}>
+      <Table.Td
+        ta="right"
+        fw={row.uncounted ? 400 : 500}
+        c={row.uncounted ? 'dimmed' : undefined}
+      >
         {usd(row.totals.cost)}
       </Table.Td>
       <Table.Td className={classes.barCell}>
-        <ShareBar
-          kind={row.kind}
-          share={whole > 0 ? row.totals.cost / whole : 0}
-        />
+        {row.uncounted ? (
+          <Text fz="sm" c="dimmed" lh="normal">
+            not counted
+          </Text>
+        ) : (
+          <ShareBar
+            kind={row.kind}
+            share={whole > 0 ? row.totals.cost / whole : 0}
+          />
+        )}
       </Table.Td>
     </Table.Tr>
   );

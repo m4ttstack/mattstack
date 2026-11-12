@@ -12,8 +12,10 @@ interface Rate {
   cacheReadMult: number;
 }
 
-// USD per million tokens, confirmed 2026-11-04 against platform.claude.com/docs/en/about-claude/pricing.
+// USD per million tokens, confirmed 2026-11-04 against platform.claude.com/docs/en/about-claude/pricing;
+// claude-fable-5-2 added 2026-11-11 from the claude-api skill's model table (cached 2026-11-03).
 const RATES: Record<string, Rate> = {
+  "claude-fable-5-2": { input: 8, output: 40, cacheReadMult: 0.025 },
   "claude-fable-5-1": { input: 10, output: 50, cacheReadMult: 0.025 },
   "claude-fable-5": { input: 10, output: 50, cacheReadMult: 0.1 },
   "claude-opus-5-5": { input: 4, output: 20, cacheReadMult: 0.05 },
@@ -35,7 +37,7 @@ const HAIKU_5_5_LONG: Rate = { input: 0.5, output: 2.5, cacheReadMult: 0.1 };
 const HAIKU_5_5_THRESHOLD = 100_000;
 
 // Fast mode doubles every rate, cache rates included (they stack on the fast input price).
-const FAST_MODELS = new Set(["claude-opus-5-5", "claude-opus-5", "claude-opus-4-8"]);
+const FAST_MODELS = new Set(["claude-fable-5-2", "claude-opus-5-5", "claude-opus-5", "claude-opus-4-8"]);
 
 export function costOf(model: string, tokens: TokenTotals, speed: string | null): number | null {
   const id = model.replace(/-\d{8}$/, "");

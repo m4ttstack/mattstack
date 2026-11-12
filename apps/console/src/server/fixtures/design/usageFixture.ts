@@ -6,6 +6,7 @@ import type {
   UsageMrEntry,
   UsageMrRow,
   UsageMrsData,
+  UsageOutside,
   UsageStageRow,
   UsageStatusData,
   UsageTotals,
@@ -89,7 +90,9 @@ interface EntrySpec {
   hours: number;
   main: UsageTotals;
   subagent: UsageTotals;
-  stages: Array<[string | null, number | null, string | null, UsageTotals]>;
+  stages: Array<
+    [string | null, number | null, string | null, UsageTotals, UsageOutside?]
+  >;
 }
 
 function entry(s: EntrySpec): UsageMrEntry {
@@ -98,12 +101,12 @@ function entry(s: EntrySpec): UsageMrEntry {
     (s.hours * HOUR) / s.stages.filter(([name]) => name !== null).length;
   let at = s.start;
   const stages: UsageStageRow[] = s.stages.map(
-    ([name, attempt, status, totals]) => {
+    ([name, attempt, status, totals, outside]) => {
       if (name === null)
         return {
           name,
           attempt,
-          outside: 'after',
+          outside: outside ?? 'after',
           status,
           startedAt: null,
           endedAt: null,
@@ -176,6 +179,11 @@ function mrData(
     byModel: seenModels(main, subagent),
     main,
     subagent,
+    outsideRuns: sum(
+      entries.flatMap(e =>
+        e.stages.filter(st => st.outside === 'session').map(st => st.totals)
+      )
+    ),
     runs: entries,
   };
 }
@@ -219,6 +227,13 @@ export function usageFixture(): UsageFixture {
           ['plan', 1, 'done', tot(300, 9000, 800_000, 60_000, 2.4)],
           ['implement', 1, 'done', tot(1000, 50000, 5_000_000, 330_000, 13.6)],
           [null, null, null, tot(300, 4000, 500_000, 10_000, 0.7)],
+          [
+            null,
+            null,
+            null,
+            tot(2600, 210_000, 31_000_000, 900_000, 48.2),
+            'session',
+          ],
         ],
       }),
       ...[1, 2, 3].map(n =>

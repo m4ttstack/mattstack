@@ -150,6 +150,42 @@ describe('stepRows', () => {
     ).toEqual(['Your review', 'Doctor', 'ship']);
   });
 
+  it('shows a run’s session outside the run under any run, marked not counted', () => {
+    const session = {
+      ...STAGE,
+      name: null,
+      attempt: null,
+      outside: 'session' as const,
+      status: null,
+      totals: totals(1500),
+    };
+    const rows = stepRows(
+      mr([
+        entry('other', { pipeline: 'watch-ci', stages: [session] }),
+        entry('work', {
+          stages: [{ ...STAGE, name: 'build' }, session],
+        }),
+      ])
+    );
+    expect(
+      rows.map(row => [
+        row.label,
+        row.type === 'step' ? (row.uncounted ?? false) : null,
+      ])
+    ).toEqual([
+      ['watch-ci', false],
+      ['Same session, outside the run', true],
+      ['Work run', false],
+      ['build', false],
+      ['Same session, outside the run', true],
+    ]);
+    const outside = rows[1]!;
+    expect(outside.type === 'step' && outside.activity).toEqual({
+      runId: 'run-other',
+      outside: 'session',
+    });
+  });
+
   it('gives two run-less sessions their own keys', () => {
     const rows = stepRows(
       mr([

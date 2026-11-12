@@ -22,11 +22,16 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function message(id: string, ts: number, o: { runId?: string; session?: string; stage?: string } = {}): void {
+function message(
+  id: string,
+  ts: number,
+  o: { runId?: string; session?: string; stage?: string; attribution?: string } = {},
+): void {
+  const attribution = o.attribution ?? (o.stage ? "stage" : o.runId ? "run" : "session");
   db.query(
     `INSERT INTO usage_messages (machine_id, message_id, session_id, ts, run_id, stage, attempt, attribution)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'session')`,
-  ).run(M, id, o.session ?? "s", ts, o.runId ?? null, o.stage ?? null, o.stage ? 1 : null);
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(M, id, o.session ?? "s", ts, o.runId ?? null, o.stage ?? null, o.stage ? 1 : null, attribution);
 }
 
 function stage(name: string, startedAt: number, endedAt: number): void {
@@ -241,6 +246,23 @@ test("reads an agent-only session by its id", async () => {
   message("agent-1", T, { session: "agent" });
   transcript([user(T - 10, "fix the pipeline"), assistant(T, "agent-1")], "agent");
   expect(texts(await usageActivity(dbPath, { sessionId: "agent" }))).toEqual(["fix the pipeline"]);
+});
+
+test("a run's own row leaves out its session outside the run, which reads on its own", async () => {
+  seedRun();
+  const weeksBefore = T - 14 * 86_400_000;
+  db.query("INSERT INTO usage_runs (machine_id, run_id, started_at) VALUES (?, 'r', ?)").run(M, T - 1000);
+  message("weeks-before", weeksBefore, { runId: "r", attribution: "session" });
+  transcript([
+    user(weeksBefore - 100, "unrelated design work"),
+    assistant(weeksBefore, "weeks-before", tool("x", "Read")),
+    user(T, "ship it"),
+    assistant(T + 500, "in-stage", tool("a", "Bash")),
+  ]);
+  expect(texts(await usageActivity(dbPath, { runId: "r" }))).toEqual(["ship it"]);
+  expect(texts(await usageActivity(dbPath, { runId: "r", outside: "session" }))).toEqual([
+    "unrelated design work",
+  ]);
 });
 
 test("reads nothing for a row with no messages", async () => {

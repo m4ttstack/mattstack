@@ -624,6 +624,7 @@ describe("one MR, swept and read back", () => {
     transcript("s-doctor", DOCTOR_HEAD, line("m-doc", 70 * MINUTE, 256));
     return [mrAgent("s-r2"), mrAgent("s-doctor")];
   }
+  // m-setup came 5 minutes before run-work started: setup that close counts toward the run.
   const OUTPUT = 511;
 
   const byRun = (key: string) =>
@@ -659,6 +660,7 @@ describe("one MR, swept and read back", () => {
     ];
     expect(byRun(MR_KEY)).toEqual(expected);
     expect(usageMr(dbPath, MR_KEY)?.totals.output).toBe(OUTPUT);
+    expect(usageMr(dbPath, MR_KEY)?.outsideRuns.output).toBe(0);
     expect(rows().length).toBe(9);
 
     const list = usageMrs(dbPath, { now: FINISHED });

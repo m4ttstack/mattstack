@@ -427,7 +427,7 @@ test("rounds read in order when setup messages land on a later run", () => {
     ["r-1", 1],
     ["r-2", 2],
   ]);
-  expect(mr?.firstActivity).toBe(NOW - 3 * DAY);
+  expect(mr?.firstActivity).toBe(NOW - 2 * DAY);
 });
 
 test("usageMr lists runs in time order with their stages", () => {
@@ -438,7 +438,7 @@ test("usageMr lists runs in time order with their stages", () => {
   message({ runId: "first", mrKey: MR_A, input: 10, stage: "build", attempt: 1, attribution: "stage", ts: NOW - 2 * DAY });
   message({ runId: "first", mrKey: MR_A, input: 20, stage: "build", attempt: 2, attribution: "stage", ts: NOW - 2 * DAY + 6000 });
   message({ runId: "first", mrKey: MR_A, input: 4, attribution: "run", ts: NOW - 2 * DAY + 100 });
-  message({ runId: "first", mrKey: MR_A, input: 3, attribution: "session", ts: NOW - 2 * DAY + 200 });
+  message({ runId: "first", mrKey: MR_A, input: 3, attribution: "run", ts: NOW - 2 * DAY + 200 });
   message({ runId: "second", mrKey: MR_A, input: 1, ts: NOW - DAY });
   const mr = usageMr(dbPath, MR_A)!;
   expect(mr.mrKey).toBe(MR_A);
@@ -458,11 +458,12 @@ test("usageMr lists runs in time order with their stages", () => {
 test("a run's messages outside its stages split by when they fell", () => {
   const start = NOW - 2 * DAY;
   run("w", { mrKey: MR_A, startedAt: start });
-  stage("w", "plan", 1, start);
+  stage("w", "plan", 1, start + 50);
   stage("w", "ship", 1, start + 5000);
-  const outside = { runId: "w", mrKey: MR_A, attribution: "session" };
-  message({ ...outside, input: 1, ts: start - 100 });
-  message({ runId: "w", mrKey: MR_A, input: 2, stage: "plan", attempt: 1, attribution: "stage", ts: start + 10 });
+  const outside = { runId: "w", mrKey: MR_A, attribution: "run" };
+  message({ runId: "w", mrKey: MR_A, input: 6, attribution: "session", ts: start - DAY });
+  message({ ...outside, input: 1, ts: start + 10 });
+  message({ runId: "w", mrKey: MR_A, input: 2, stage: "plan", attempt: 1, attribution: "stage", ts: start + 60 });
   message({ ...outside, input: 3, ts: start + 2000 });
   message({ ...outside, input: 4, ts: start + 9000 });
   message({ ...outside, input: 5, ts: start + 9500 });
@@ -473,8 +474,9 @@ test("a run's messages outside its stages split by when they fell", () => {
     ["ship", null, 0],
     [null, "between", 3],
     [null, "after", 9],
+    [null, "session", 6],
   ]);
-  const after = rows.at(-1)!;
+  const after = rows.find((s) => s.outside === "after")!;
   expect([after.firstActivity, after.lastActivity]).toEqual([start + 9000, start + 9500]);
 });
 
@@ -673,4 +675,89 @@ test("status reports the sweep, rows and gaps", () => {
     unpricedModels: ["claude-future-9", "claude-future-9-20270101"],
     sessionsMissingTranscript: 2,
   });
+});
+
+function endRun(id: string, endedAt: number): void {
+  db.query("UPDATE usage_runs SET ended_at = ? WHERE machine_id = ? AND run_id = ?").run(endedAt, M, id);
+}
+
+function seedLongSession(): number {
+  const start = NOW - 2 * DAY;
+  run("w", { mrKey: MR_A, startedAt: start, pipeline: "watch-ci", workType: "watch-ci" });
+  endRun("w", start + 10_000);
+  stage("w", "watch-ci", 1, start + 100);
+  const sameSession = { runId: "w", mrKey: MR_A, attribution: "session" };
+  message({ ...sameSession, input: 1, ts: start - 5 * DAY });
+  message({ runId: "w", mrKey: MR_A, input: 2, stage: "watch-ci", attempt: 1, attribution: "stage", ts: start + 200 });
+  message({ ...sameSession, input: 4, ts: start + DAY });
+  return start;
+}
+
+test("a run's session outside the run's start and end stays off the MR's totals", () => {
+  const start = seedLongSession();
+  const mr = usageMr(dbPath, MR_A)!;
+  expect(mr.totals.input).toBe(2);
+  expect(mr.main.input).toBe(2);
+  expect(mr.byModel.reduce((sum, m) => sum + m.totals.input, 0)).toBe(2);
+  expect(mr.costByKind.other).toBeCloseTo(mr.totals.cost, 9);
+  expect(mr.outsideRuns.input).toBe(5);
+  expect([mr.firstActivity, mr.lastActivity]).toEqual([start + 200, start + 200]);
+  const entry = mr.runs[0]!;
+  expect(entry.totals.input).toBe(2);
+  expect([entry.firstActivity, entry.lastActivity]).toEqual([start + 200, start + 200]);
+  expect(entry.stages.map((s) => [s.name, s.outside, s.totals.input])).toEqual([
+    ["watch-ci", null, 2],
+    [null, "session", 5],
+  ]);
+});
+
+test("the MR list, a run's cost and trends leave out a run's session outside the run", () => {
+  seedLongSession();
+  const [row] = usageMrs(dbPath, { now: NOW }).mrs;
+  expect(row!.totals.input).toBe(2);
+  const runCost = usageRun(dbPath, "w")!;
+  expect(runCost.totals.input).toBe(2);
+  expect(runCost.mrCost).toBeCloseTo(runCost.totals.cost, 9);
+});
+
+test("trends count a run's session outside the run as other spend with no pipeline", () => {
+  seedLongSession();
+  const trends = usageTrends(dbPath, { days: 30, now: NOW });
+  expect(trends.totals.input).toBe(7);
+  expect(trends.byPipeline.map((p) => [p.pipeline, p.totals.input]).sort()).toEqual([
+    ["watch-ci", 2],
+    [null, 5],
+  ].sort());
+});
+
+test("a run's setup and wrap-up within ten minutes count toward its MR", () => {
+  const start = seedLongSession();
+  const sameSession = { runId: "w", mrKey: MR_A, attribution: "session" };
+  message({ ...sameSession, input: 16, ts: start - 5 * 60_000 });
+  message({ ...sameSession, input: 32, ts: start + 10_000 + 9 * 60_000 });
+  message({ ...sameSession, input: 64, ts: start + 10_000 + 11 * 60_000 });
+  const mr = usageMr(dbPath, MR_A)!;
+  expect(mr.totals.input).toBe(2 + 16 + 32);
+  expect(mr.outsideRuns.input).toBe(5 + 64);
+});
+
+test("a run with only its session outside it costs zero and keeps the MR's span to counted work", () => {
+  const start = seedLongSession();
+  run("idle", { mrKey: MR_A, startedAt: start + 5 * DAY, pipeline: "watch-ci" });
+  endRun("idle", start + 5 * DAY + 1000);
+  message({ runId: "idle", mrKey: MR_A, input: 8, attribution: "session", ts: start + 6 * DAY });
+  const idle = usageRun(dbPath, "idle")!;
+  expect(idle.totals.input).toBe(0);
+  expect(idle.mrCost).toBeCloseTo(usageRun(dbPath, "w")!.totals.cost, 9);
+  const mr = usageMr(dbPath, MR_A)!;
+  expect([mr.firstActivity, mr.lastActivity]).toEqual([start + 200, start + 200]);
+  expect(mr.outsideRuns.input).toBe(13);
+});
+
+test("an agent-only session still counts in full", () => {
+  agentLink("s-doc", "doc-1", "doctor", MR_A);
+  message({ session: "s-doc", mrKey: MR_A, input: 3, attribution: "session" });
+  const mr = usageMr(dbPath, MR_A)!;
+  expect(mr.totals.input).toBe(3);
+  expect(mr.outsideRuns.input).toBe(0);
 });

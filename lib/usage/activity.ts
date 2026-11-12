@@ -1,6 +1,6 @@
 import { createReadStream, existsSync } from "fs";
 import type { UsageActivityData, UsageActivityQuery } from "../../packages/rt-client/src/commands.ts";
-import { OUTSIDE_CASE, reading } from "./queries.ts";
+import { COUNTED, OUTSIDE_CASE, reading } from "./queries.ts";
 
 const MAX_PROMPTS = 40;
 const MAX_AGENTS = 40;
@@ -39,6 +39,8 @@ function scopeOf(q: UsageActivityQuery): Scope {
   } else if (q.outside) {
     clauses.push(`${OUTSIDE_CASE} = $outside`);
     params.$outside = q.outside;
+  } else {
+    clauses.push(COUNTED);
   }
   return { where: clauses.join(" AND "), params };
 }
