@@ -3291,6 +3291,10 @@ const httpServer = Bun.serve({
           });
         }
         let pausedTree: string | undefined;
+        // The rebase chain's lock stays held through its doctor hand-off;
+        // the row has no tabId until the launch settles, so dedup cannot
+        // stop a second doctor in that window.
+        let handOff = false;
         if (parsed.mode === 'rebase') {
           if (LOCAL_SYNCS.has(parsed.mrUrl))
             return new Response('a sync is already running on this MR', {
@@ -3373,132 +3377,151 @@ const httpServer = Bun.serve({
                 stopped: `paused in ${end.tree}; no doctor on this tab`,
               });
             pausedTree = end.tree;
+            handOff = true;
           } finally {
             endLive();
-            LOCAL_SYNCS.delete(parsed.mrUrl);
+            if (!handOff) LOCAL_SYNCS.delete(parsed.mrUrl);
             REBASE_ABORTS.delete(parsed.mrUrl);
           }
         }
-        const triage = loadTriageConfig();
-        // Token validation happens here, OUTSIDE the lock, since it's a
-        // network round-trip and the lock must never sit open for that long.
-        const identityRead = readMemory();
-        const identityBefore = identityRead.identity;
-        const identity =
-          config.forge.kind === 'github'
-            ? null
-            : await resolveDispatchIdentity(identityRead, async () =>
-                (await gitlab()).validateToken()
-              );
-        // Only touch state/auto-dispatch.json when the identity actually
-        // refreshed (a cache hit leaves identityRead.identity's reference
-        // unchanged). bin/triage.ts serializes every access to this file
-        // behind the same lock, so a slow pass and this manual launch never
-        // clobber the SAME attempt budgets / lastHandledPipelineId /
-        // budgetEscalatedDay in either direction; writeRefreshedIdentity
-        // re-reads the CURRENT file under the lock rather than writing back
-        // this stale pre-network-call snapshot, so a pass that wrote OTHER
-        // fields during the round-trip is never reverted. A pass already
-        // holding the lock just means this request's own identity refresh is
-        // not persisted; it still applies to fixClasses below, and the next
-        // request re-resolves it.
-        if (identityRead.identity !== identityBefore) {
-          const lockToken = tryClaimCron(Date.now());
-          if (lockToken !== false) {
-            try {
-              writeRefreshedIdentity(identityRead.identity);
-            } finally {
-              releaseCron(lockToken);
+        let launched: Promise<void> | undefined;
+        try {
+          const triage = loadTriageConfig();
+          // Token validation happens here, OUTSIDE the lock, since it's a
+          // network round-trip and the lock must never sit open for that long.
+          const identityRead = readMemory();
+          const identityBefore = identityRead.identity;
+          const identity =
+            config.forge.kind === 'github'
+              ? null
+              : await resolveDispatchIdentity(identityRead, async () =>
+                  (await gitlab()).validateToken()
+                );
+          // Only touch state/auto-dispatch.json when the identity actually
+          // refreshed (a cache hit leaves identityRead.identity's reference
+          // unchanged). bin/triage.ts serializes every access to this file
+          // behind the same lock, so a slow pass and this manual launch never
+          // clobber the SAME attempt budgets / lastHandledPipelineId /
+          // budgetEscalatedDay in either direction; writeRefreshedIdentity
+          // re-reads the CURRENT file under the lock rather than writing back
+          // this stale pre-network-call snapshot, so a pass that wrote OTHER
+          // fields during the round-trip is never reverted. A pass already
+          // holding the lock just means this request's own identity refresh is
+          // not persisted; it still applies to fixClasses below, and the next
+          // request re-resolves it.
+          if (identityRead.identity !== identityBefore) {
+            const lockToken = tryClaimCron(Date.now());
+            if (lockToken !== false) {
+              try {
+                writeRefreshedIdentity(identityRead.identity);
+              } finally {
+                releaseCron(lockToken);
+              }
             }
           }
-        }
-        // mode "rebase" is a scoped doctor: checkout tier (whose base
-        // playbook is exactly worktree + rebase) with an EMPTY fix-class
-        // allowlist, so CI triage and code fixes stay out of scope, plus a
-        // note pinning the job to the rebase alone.
-        const manual = manualDoctorFields(triage, mr.author.username, identity);
-        const tier = parsed.mode === 'rebase' ? undefined : manual.tier;
-        const fixClasses = parsed.mode === 'rebase' ? [] : manual.fixClasses;
-        const launchNote =
-          parsed.mode === 'rebase'
-            ? [
-                'rebase-only: resolve the paused rebase and push; skip CI triage and any other fixes',
-                note,
-              ]
-                .filter(Boolean)
-                .join('. ')
-            : note;
-        writeDoctorState(statePath, {
-          mrUrl: parsed.mrUrl,
-          iid: parsed.iid,
-          status: 'queued',
-          origin: 'manual',
-          tier,
-          fixClasses,
-          boardTabId: boardTabId ?? '',
-          noPack: !launchPack(boardTabId),
-          ...(parsed.mode === 'rebase' ? {} : NO_SYNC_CARRY),
-        });
-        void launchDoctor({
-          mrUrl: parsed.mrUrl,
-          iid: parsed.iid,
-          cwd,
-          repo,
-          workspaceLabel: config.doctorsWorkspace,
-          statePath,
-          skill: doctorSkill,
-          pack: launchPack(boardTabId),
-          author,
-          ...loadAgentSettings(),
-          note: launchNote,
-          tier,
-          fixClasses,
-          draftBin: manual.draftBin,
-          pausedTree,
-        })
-          .then(result => {
-            void clearHandoffsAfterLaunch(parsed.mrUrl);
-            if (result.focusedExisting) return;
-            // Race guard: the row may have closed out (operator stand-down)
-            // while this launch was in flight -- readDoctorStates() here is
-            // a fresh read, not the `existing` this handler captured before
-            // dispatching. A terminal row is never resurrected to 'queued'.
-            // Only nudge the fresh pane when it's actually a stand-down
-            // (readMemory, not the doctor row's message string) -- a terminal
-            // row for some other reason gets left alone rather than handed a
-            // misleading "operator stood down" message.
-            const fresh = readDoctorStates().get(parsed.mrUrl);
-            if (fresh && !DOCTOR_IN_FLIGHT.has(fresh.status)) {
-              if (result.paneId && readMemory().mrs[parsed.mrUrl]?.standDown) {
-                void sendPaneText(result.paneId, STAND_DOWN_PANE_MESSAGE).catch(
-                  err =>
+          // mode "rebase" is a scoped doctor: checkout tier (whose base
+          // playbook is exactly worktree + rebase) with an EMPTY fix-class
+          // allowlist, so CI triage and code fixes stay out of scope, plus a
+          // note pinning the job to the rebase alone.
+          const manual = manualDoctorFields(
+            triage,
+            mr.author.username,
+            identity
+          );
+          const tier = parsed.mode === 'rebase' ? undefined : manual.tier;
+          const fixClasses = parsed.mode === 'rebase' ? [] : manual.fixClasses;
+          const launchNote =
+            parsed.mode === 'rebase'
+              ? [
+                  'rebase-only: resolve the paused rebase and push; skip CI triage and any other fixes',
+                  note,
+                ]
+                  .filter(Boolean)
+                  .join('. ')
+              : note;
+          writeDoctorState(statePath, {
+            mrUrl: parsed.mrUrl,
+            iid: parsed.iid,
+            status: 'queued',
+            origin: 'manual',
+            tier,
+            fixClasses,
+            boardTabId: boardTabId ?? '',
+            noPack: !launchPack(boardTabId),
+            ...(parsed.mode === 'rebase' ? {} : NO_SYNC_CARRY),
+          });
+          launched = launchDoctor({
+            mrUrl: parsed.mrUrl,
+            iid: parsed.iid,
+            cwd,
+            repo,
+            workspaceLabel: config.doctorsWorkspace,
+            statePath,
+            skill: doctorSkill,
+            pack: launchPack(boardTabId),
+            author,
+            ...loadAgentSettings(),
+            note: launchNote,
+            tier,
+            fixClasses,
+            draftBin: manual.draftBin,
+            pausedTree,
+          })
+            .then(result => {
+              void clearHandoffsAfterLaunch(parsed.mrUrl);
+              if (result.focusedExisting) return;
+              // Race guard: the row may have closed out (operator stand-down)
+              // while this launch was in flight -- readDoctorStates() here is
+              // a fresh read, not the `existing` this handler captured before
+              // dispatching. A terminal row is never resurrected to 'queued'.
+              // Only nudge the fresh pane when it's actually a stand-down
+              // (readMemory, not the doctor row's message string) -- a terminal
+              // row for some other reason gets left alone rather than handed a
+              // misleading "operator stood down" message.
+              const fresh = readDoctorStates().get(parsed.mrUrl);
+              if (fresh && !DOCTOR_IN_FLIGHT.has(fresh.status)) {
+                if (
+                  result.paneId &&
+                  readMemory().mrs[parsed.mrUrl]?.standDown
+                ) {
+                  void sendPaneText(
+                    result.paneId,
+                    STAND_DOWN_PANE_MESSAGE
+                  ).catch(err =>
                     console.error(
                       `stand-down pane nudge (post-launch) failed: ${err instanceof Error ? err.message : err}`
                     )
-                );
+                  );
+                }
+                return;
               }
-              return;
-            }
-            writeDoctorState(statePath, {
-              status: 'queued',
-              tabId: result.tabId,
-              workspaceId: result.workspaceId,
-              agentId: result.agentId,
-              paneId: result.paneId,
+              writeDoctorState(statePath, {
+                status: 'queued',
+                tabId: result.tabId,
+                workspaceId: result.workspaceId,
+                agentId: result.agentId,
+                paneId: result.paneId,
+              });
+            })
+            .catch(err => {
+              console.error(
+                `doctor launch failed: ${err instanceof Error ? err.message : err}`
+              );
+              writeDoctorState(statePath, {
+                status: 'error',
+                message: launchErrorMessage('doctor', err),
+              });
             });
-          })
-          .catch(err => {
-            console.error(
-              `doctor launch failed: ${err instanceof Error ? err.message : err}`
-            );
-            writeDoctorState(statePath, {
-              status: 'error',
-              message: launchErrorMessage('doctor', err),
-            });
+          return new Response(JSON.stringify({ ok: true }), {
+            headers: { 'content-type': 'application/json' },
           });
-        return new Response(JSON.stringify({ ok: true }), {
-          headers: { 'content-type': 'application/json' },
-        });
+        } finally {
+          if (handOff) {
+            const release = () => LOCAL_SYNCS.delete(parsed.mrUrl);
+            if (launched) void launched.finally(release);
+            else release();
+          }
+        }
       }
       case '/rebase/cancel': {
         // Ends a rebase chain while it waits on the forge. A forge rebase
