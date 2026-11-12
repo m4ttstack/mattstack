@@ -218,10 +218,11 @@ and `ci_watch` count it.
 - a blocking no-log row (`allowFailure: false`) classifies as `real, or
   no licensed fix`, with the error naming the check and that it has no
   Actions log;
-- an optional no-log row (`allowFailure: true`) is not a blocking
-  failure. It is left out of the classification and never takes `real,
-  or no licensed fix`; the error or status message names it as an
-  optional check that is also red.
+- a no-log row that is not blocking (`allowFailure: true` while some row
+  has `allowFailure: false`) is not a blocking failure. It is left out of
+  the classification and never takes `real, or no licensed fix`; the
+  status message the run writes next, whichever that is (`fixing`,
+  `done` or `error`), names it as an optional check that is also red.
 
 `mr_job_trace {mrUrl, jobId} per failed job` means per failed job with a
 log: a no-log row gets no trace call, so a mixed red traces only the rows
