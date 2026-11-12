@@ -167,13 +167,15 @@ Per PR, the GraphQL selection is:
 number isDraft updatedAt baseRefName
 reviewRequests(first: 100) { totalCount nodes { asCodeOwner requestedReviewer {
   __typename ... on User { login } ... on Team { combinedSlug } } } }
-latestReviews(first: 20) { totalCount nodes { state author { login }
+latestOpinionatedReviews(first: 20) { totalCount nodes { state author { login }
   onBehalfOf(first: 5) { totalCount nodes { combinedSlug } } } }
 ```
 
-`latestReviews` (which includes `COMMENTED`) rather than
-`latestOpinionatedReviews`, so a team member's comment review still carries
-the team's rule.
+`latestOpinionatedReviews`, not `latestReviews`: a member who approves on a
+team's behalf and later leaves a comment-only review has a latest review of
+`COMMENTED`, which would read as the team not having approved while GitHub
+still counts the approval. A team whose only review is a comment is not
+seen here; the daemon's sticky tags cover that case.
 
 - **iids mode**: aliased `p<n>: pullRequest(number: n)`, 50 PRs per
   request. Drafts are kept (the caller named them).
@@ -194,7 +196,7 @@ case-insensitive, so lowercasing keeps the rules and the owner list
 
 - A review request with `asCodeOwner: true` gives `{ type: 'CODE_OWNER',
   section: owner, approved: false }`.
-- A latest review whose `onBehalfOf` names a team gives that team's rule,
+- A latest opinionated review whose `onBehalfOf` names a team gives that team's rule,
   `approved: true` when the review state is `APPROVED`, otherwise false.
 - Several entries for one owner merge into one rule, approved if any is.
 - Rules are sorted by section, so every producer stores the same order.
@@ -207,7 +209,7 @@ Unknown, never guessed:
 - A codeowner request whose `requestedReviewer` comes back null (a reviewer
   the token cannot see) gives the same.
 - A capped connection that overflowed (`totalCount` above the nodes read on
-  `reviewRequests`, `latestReviews` or any `onBehalfOf`) gives the same, so
+  `reviewRequests`, `latestOpinionatedReviews` or any `onBehalfOf`) gives the same, so
   a truncated list never reads as complete.
 - A PR the iids mode cannot find (`NOT_FOUND`) is left out of the result,
   as GitLab leaves out an iid it does not return.
@@ -291,7 +293,9 @@ Written under `packages/glance/tests/live/`, never run here:
 - Behind count: a PR branched before a later default-branch commit reports
   `behindBy >= 1`; a fresh PR off the tip reports 0.
 - Codeowner sections and rules: read the fixture's CODEOWNERS; when it has
-  none, the rules assertions skip with a message saying so.
+  none, the rules assertions skip with a message saying so. When it has a
+  team owner, a member approving and then leaving a comment-only review
+  still reads `approved: true`.
 
 ### Version
 
@@ -327,7 +331,10 @@ and the one `bun.lock` line; the README's SDK section lists the new reads.
   deep sweep's `replaceAll` therefore writes stored tags for PRs whose rule
   has gone, and keeps those PRs in `byIid` from the store as it does for
   other matches. Tags leave with the PR when it merges or closes (the
-  opened-only sweep prunes it) or when no demand names the section.
+  opened-only sweep prunes it), when no demand names the section, or when
+  the PR falls outside the sync window: the deep carries a stored tag over
+  only for a PR whose `updatedAt` is inside `windowDays`, so it still drops
+  an old tagged stranger as GitLab's deep does.
   GitLab's sweeps are unchanged.
 - Unknown rules: an entry with `unknownReason` keeps the PR's stored tag in
   every sweep. The deep sweep's `replaceAll` carries the stored tag over for
@@ -362,9 +369,10 @@ declared a codeowner tab for the repo.
 
 Assumes fewer than 100 terminal and 50 open PRs change per 5 minutes; each
 further 100 terminal or 50 open PRs costs one more request that cycle.
-Forced syncs (a board's manual refresh) run the same delta, sections delta
-included, so each adds its own 1 to 3 requests on top of the hourly
-figures; the PR body says so.
+Forced syncs (a board's manual refresh) run the same delta but not the
+behind-count re-measure. Against today, each adds one GraphQL rules read
+when the repo has section demand (the index replaces the closed listing one
+for one) and saves that sync's terminal fills; the PR body says so.
 
 Total added per repo per hour: with section demand, +24 new requests less
 the 0 to 12 terminal fills the index removes, so +12 to +24; without it,
