@@ -345,8 +345,8 @@ differences:
   found and could not fill, so a null is not trusted on its own:
   - a PR comes back: write it;
   - null, and the entry already holds a PR: re-read that PR with
-    `fetchSingleMR` and its `onWarning` hook; write what comes back, and
-    on a failed fill write nothing;
+    `fetchSingleMR` and its `onWarning` hook; write the PR it returns, and
+    on a failed fill or a null write nothing;
   - null, and the entry holds no PR: write null as today, since it changes
     nothing a person sees (the gap-fill rule still applies).
 - A teammate's push resolves through the project store and `fetchSingleMR`
