@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "child_process";
-import { readFileSync, rmSync } from "fs";
-import { join } from "path";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { dirname, join } from "path";
 import { LOCK_REL, readLock } from "../../lib/skills/compiled-lock.ts";
 import { captureSkills, seedTwoVerbPack, setTwoVerbPackVersion } from "../../lib/skills/__tests__/helpers.ts";
 import { childEnv } from "../../lib/subprocess.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as out from "../../lib/ui/out.ts";
+import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
 import { compileBlocks, compileFailure, misplacedFailure, skillsCompile, staleEngineFailure } from "../skills.ts";
 
 test("a compile lists each verb, with its warnings under it", () => {
@@ -124,5 +126,54 @@ describe("the compiled lock", () => {
     expect(lock.targets["skills/alpha"]).toEqual({ acme: "0.4.12", mattstack: "1.0.0" });
     expect(lock.targets["skills/beta"]).toEqual({ acme: "0.4.11", mattstack: "1.0.0" });
     expect(readFileSync(join(packDir, "skills", "beta", "SKILL.md"), "utf8")).not.toContain("version=");
+  });
+
+  const put = (path: string, text: string) => {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, text);
+  };
+
+  function seedOrgBasePack(): { packDir: string; baseDir: string; flags: string[] } {
+    const mattstackDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-org-base-")));
+    made.push(mattstackDir);
+    put(join(mattstackDir, "plugins", "mattstack", ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.0.0" }));
+    const orgRoot = join(mattstackDir, "orgs", "acme");
+    put(join(orgRoot, ".git", "config"), "");
+    put(join(orgRoot, "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT }));
+    const baseDir = join(orgRoot, "mattstack", "org", "packs", "acme-base");
+    put(join(baseDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "acme-base", version: "0.1.0" }));
+    put(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true }));
+    put(join(baseDir, "attachments", "dev-servers", "SKILL.md"), "---\nname: dev-servers\ndescription: Servers\n---\nServers.\n");
+    const packDir = join(orgRoot, "mattstack", "teams", "widgets", "plugin");
+    put(join(packDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "0.4.11" }));
+    put(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ extends: "acme-base" }));
+    return { packDir, baseDir, flags: ["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir] };
+  }
+
+  const setBaseVersion = (baseDir: string, version: string) =>
+    put(join(baseDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "acme-base", version }));
+
+  test("an org base bump changes only the lock", async () => {
+    const { packDir, baseDir, flags } = seedOrgBasePack();
+    inRepo(packDir, "init", "-q");
+    await compile(flags);
+    expect(readLock(packDir).bases).toEqual({ "acme-base": "0.1.0" });
+    expect(JSON.parse(readFileSync(join(packDir, "attachments", "dev-servers", "compiled.json"), "utf8"))).not.toHaveProperty("version");
+    inRepo(packDir, "add", "-A");
+    inRepo(packDir, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "compile");
+
+    setBaseVersion(baseDir, "0.2.0");
+    await compile(flags);
+    expect(inRepo(packDir, "status", "--porcelain").split("\n").filter(Boolean)).toEqual([` M ${LOCK_REL}`]);
+    expect(readLock(packDir).bases).toEqual({ "acme-base": "0.2.0" });
+  });
+
+  test("a compile that emits no base copy keeps the base version", async () => {
+    const { packDir, baseDir, flags } = seedOrgBasePack();
+    await compile(flags);
+    rmSync(join(baseDir, "attachments"), { recursive: true });
+    setBaseVersion(baseDir, "0.2.0");
+    await compile(flags);
+    expect(readLock(packDir).bases).toEqual({ "acme-base": "0.1.0" });
   });
 });

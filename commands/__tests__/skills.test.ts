@@ -1116,7 +1116,7 @@ describe("base pack attachments", () => {
 
     expect(readFileSync(join(packDir, "attachments", "board-review", "SKILL.md"), "utf8")).toBe(BOARD_REVIEW_MD.replace("{{pack.name}}", "widgets"));
     expect(JSON.parse(readFileSync(join(packDir, "attachments", "board-review", "compiled.json"), "utf8"))).toEqual({
-      base: "acme-base", version: null, files: ["SKILL.md"], id: "widgets@0.1.0:board-review", dir: "attachments/board-review", covers: ["widgets@0.1.0:board-review"], keys: {},
+      base: "acme-base", files: ["SKILL.md"], id: "widgets@0.1.0:board-review", dir: "attachments/board-review", covers: ["widgets@0.1.0:board-review"], keys: {},
     });
     expect(boardBindings()["board:review"]).toEqual({ review: "widgets:board-review" });
     expect(boardBindings()["mattstack:watch-ci"]!.domain).toBe("acme-base:watch-ci-domain");
@@ -1212,7 +1212,7 @@ describe("base pack attachments", () => {
     expect(readFileSync(kit(packDir, "scripts", "run.sh")).equals(readFileSync(join(baseDir, "attachments", "review-kit", "scripts", "run.sh")))).toBe(true);
     expect(statSync(kit(packDir, "scripts", "run.sh")).mode & 0o111).not.toBe(0);
     expect(JSON.parse(readFileSync(kit(packDir, "compiled.json"), "utf8"))).toMatchObject({
-      base: "acme-base", version: null, files: ["SKILL.md", "references/guide.md", "scripts/run.sh"], id: "widgets@0.1.0:review-kit", dir: "attachments/review-kit",
+      base: "acme-base", files: ["SKILL.md", "references/guide.md", "scripts/run.sh"], id: "widgets@0.1.0:review-kit", dir: "attachments/review-kit",
     });
   });
 
@@ -1491,7 +1491,7 @@ describe("base pack attachments", () => {
 
     expect((await compile()).errors).toEqual([]);
     expect(readFileSync(team("self-review", "SKILL.md"), "utf8")).toBe(`---\nname: self-review\n---\n${openingLine("widgets@0.1.0:self-review")}\n\nRead @watch-ci/SKILL.md.\n`);
-    expect(JSON.parse(readFileSync(team("self-review", "compiled.json"), "utf8"))).toMatchObject({ base: "acme-base", version: null, files: ["SKILL.md"], id: "widgets@0.1.0:self-review", dir: "attachments/review/self-review" });
+    expect(JSON.parse(readFileSync(team("self-review", "compiled.json"), "utf8"))).toMatchObject({ base: "acme-base", files: ["SKILL.md"], id: "widgets@0.1.0:self-review", dir: "attachments/review/self-review" });
     expect(existsSync(team("compiled.json"))).toBe(false);
     expect(io.lines().join("\n")).toContain("Copied review/self-review");
 

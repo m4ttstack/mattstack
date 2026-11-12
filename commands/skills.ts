@@ -1284,8 +1284,9 @@ function lockTarget(packDir: string, name: string, isPublic: boolean): string {
 }
 
 /** The lock entries of the targets this compile wrote; mattstack compiled from a git tree keeps its sha beside its plain version. */
-function compiledLockOf(resolved: Resolved, outcomes: { target: CompileTarget; outcome: CompileOutcome }[]): CompiledLock {
+function compiledLockOf(resolved: Resolved, outcomes: { target: CompileTarget; outcome: CompileOutcome }[], base: BaseAttachmentPlan): CompiledLock {
   const lock: CompiledLock = { targets: {}, bases: {}, mattstackSha: {}, mattstackDirty: {} };
+  if (base.base?.version && (base.emits.length > 0 || base.doors.length > 0)) lock.bases[base.base.name] = base.base.version;
   const mattstack = resolved.pluginRoots.byName.mattstack;
   const fromGitTree = mattstack !== undefined && resolved.mattstackSha !== "" && resolved.mattstackSha !== mattstack.version;
   for (const { target, outcome } of outcomes) {
@@ -1418,7 +1419,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     const floor = floorWrite(resolved, readIfPresent, true, resolved.teamContext?.sawMarker === true || keptRaise, outcomes.length > 0 || emits.length > 0);
     writes.written.push(...floor.written);
     writes.removed.push(...floor.removed);
-    const lock = lockWrite(resolved.packDir, mergeLock(readLock(resolved.packDir, readIfPresent), compiledLockOf(resolved, outcomes)), readIfPresent, true);
+    const lock = lockWrite(resolved.packDir, mergeLock(readLock(resolved.packDir, readIfPresent), compiledLockOf(resolved, outcomes, plan)), readIfPresent, true);
     writes.written.push(...lock.written);
     if (verbFilter === null) {
       const manifest = pipelinesWrite(resolved, readIfPresent, true);
