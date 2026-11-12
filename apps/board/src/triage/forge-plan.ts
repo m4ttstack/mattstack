@@ -35,9 +35,9 @@ export function triageForgePlan(
 
 export function unparsedRedLines(mrs: OwnMrFacts[]): string[] {
   return mrs
-    .filter((mr) => mr.pipelineState === 'failed' && mr.pipelineId === null)
+    .filter(mr => mr.pipelineState === 'failed' && mr.pipelineId === null)
     .map(
-      (mr) =>
+      mr =>
         `triage: ${mr.mrUrl} has no workflow run id (commit statuses only), auto-doctor skips it`
     );
 }
