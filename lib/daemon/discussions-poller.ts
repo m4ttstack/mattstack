@@ -19,6 +19,10 @@
  * - Sweeps are serialized (one at a time) and skipped if a previous sweep
  *   is still running, so a slow forge or a large MR count can't pile up
  *   overlapping fetches.
+ * - Each MR's refresh gets `REFRESH_DEADLINE_MS`. A refresh past it is
+ *   logged and left behind (refreshDiscussions takes no abort signal, so its
+ *   fetch still finishes in the background), and the sweep moves on; the
+ *   next tick refreshes that MR again from scratch.
  * - GitHub repos granting "discussions" are swept too. A live GitHub repo's
  *   events watcher routes `notes` events to the discussions refresh for PRs
  *   whose discussions are already cached, typically within about a minute;
@@ -41,6 +45,7 @@ import { MR_TERMINAL_STATES } from "../enrich.ts";
 const log = lazyChildLogger("discussions");
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
+const REFRESH_DEADLINE_MS = 60 * 1000;
 
 export interface PollerEnv {
   ctx:       HandlerContext;
@@ -105,6 +110,65 @@ export interface DiscussionsPoller {
   stop(): void;
 }
 
+type SweepTarget = { repoName: string; iid: number };
+
+export interface SweeperDeps {
+  targets:     () => SweepTarget[];
+  refresh:     (repoName: string, iid: number) => Promise<unknown>;
+  deadlineMs?: number;
+  log?:        { warn: (obj: unknown, msg: string) => void };
+}
+
+const DEADLINE_PASSED = Symbol("deadline-passed");
+
+async function withinDeadline<T>(work: Promise<T>, ms: number): Promise<T | typeof DEADLINE_PASSED> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<typeof DEADLINE_PASSED>((resolve) => {
+    timer = setTimeout(() => resolve(DEADLINE_PASSED), ms);
+  });
+  try {
+    return await Promise.race([work, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * One sweep at a time: a tick that lands while a sweep is still running is
+ * skipped, so a slow forge can't stack overlapping sweeps.
+ */
+export function createSweeper(deps: SweeperDeps): { sweep(): Promise<void> } {
+  const deadlineMs = deps.deadlineMs ?? REFRESH_DEADLINE_MS;
+  const logger = deps.log ?? log;
+  let sweeping = false;
+
+  async function sweep(): Promise<void> {
+    if (sweeping) return;
+    sweeping = true;
+    try {
+      for (const { repoName, iid } of deps.targets()) {
+        try {
+          const work = deps.refresh(repoName, iid);
+          // A refresh left behind at its deadline may still reject later.
+          work.catch(() => {});
+          const outcome = await withinDeadline(work, deadlineMs);
+          if (outcome === DEADLINE_PASSED) {
+            logger.warn({ repoName, iid, deadlineMs }, `${repoName}#${iid} refresh passed its ${deadlineMs}ms deadline`);
+          }
+        } catch (err) {
+          // Expected for a repo context that can't be resolved yet, or a
+          // transient fetch failure; keep going.
+          logger.warn({ err }, `${repoName}#${iid} refresh failed`);
+        }
+      }
+    } finally {
+      sweeping = false;
+    }
+  }
+
+  return { sweep };
+}
+
 /**
  * R031: `timer`/`sweeping` used to be bare module-scope `let`s. Wraps them in
  * a closure so a second createDiscussionsPoller(env) can coexist without
@@ -113,28 +177,10 @@ export interface DiscussionsPoller {
 export function createDiscussionsPoller(env: PollerEnv): DiscussionsPoller {
   let timer: ReturnType<typeof setInterval> | null = null;
   let bootTimer: ReturnType<typeof setTimeout> | null = null;
-  let sweeping = false;
-
-  async function sweep(): Promise<void> {
-    if (sweeping) return;
-    sweeping = true;
-    try {
-      const tracking = loadRepoTracking();
-      const targets = collectSweepTargets(env.ctx.cache.entries, tracking, getProjectMRs(), getDiscussionsFileStore());
-
-      for (const { repoName, iid } of targets) {
-        try {
-          await refreshDiscussions({ ctx: env.ctx, broadcast: env.broadcast }, repoName, iid);
-        } catch (err) {
-          // Expected for a repo context that can't be resolved yet, or a
-          // transient fetch failure — keep going.
-          log.warn({ err }, `${repoName}#${iid} refresh failed`);
-        }
-      }
-    } finally {
-      sweeping = false;
-    }
-  }
+  const { sweep } = createSweeper({
+    targets: () => collectSweepTargets(env.ctx.cache.entries, loadRepoTracking(), getProjectMRs(), getDiscussionsFileStore()),
+    refresh: (repoName, iid) => refreshDiscussions({ ctx: env.ctx, broadcast: env.broadcast }, repoName, iid),
+  });
 
   function start(): void {
     if (timer) return;
