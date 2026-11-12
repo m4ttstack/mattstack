@@ -330,8 +330,16 @@ async function rulesCases(
       return entry.rules.find(r => r.section !== null && teams.includes(r.section)) ?? null;
     };
 
-    const before = await pollUntil(`team rule on #${pr.iid}`, teamRule, { timeoutMs: 30_000, intervalMs: 3_000 }).catch(() => null);
-    if (!before) throw new Inconclusive('the PR touches no path a team owns');
+    let before: { approved: boolean } | null = null;
+    for (let attempt = 0; attempt < 10 && !before; attempt++) {
+      if (attempt > 0) await Bun.sleep(3_000);
+      before = await teamRule();
+    }
+    if (!before) {
+      throw new Inconclusive(
+        'the PR adds a file at the repo root and no @org/team owner in CODEOWNERS covers it; add a root pattern owned by a team'
+      );
+    }
     assert(before.approved === false, 'the team rule read approved before any approval');
 
     if (!fixture.approver) throw new Inconclusive('no second identity to approve with');
@@ -349,7 +357,10 @@ async function rulesCases(
         return rule?.approved ? rule : null;
       },
       { timeoutMs: 60_000, intervalMs: 3_000 }
-    );
+    ).catch(err => {
+      const cause = err instanceof Error ? err.message : String(err);
+      throw new Error(`the team rule never read approved; the approver must be a member of the owning team (${cause})`);
+    });
     assert(after.approved === true, 'the team rule did not read approved after approve then comment');
   });
 }
