@@ -535,9 +535,9 @@ const ROWS: readonly SettingDef[] = [
     key: "board.gitlabHost",
     type: "string",
     scopes: ["team"],
-    defaultNote: "Required: the team's GitLab host.",
+    defaultNote: "Required on a GitLab team.",
     merge: "replace",
-    description: "GitLab host the board polls for MRs, shared by the whole team.",
+    description: "The team's GitLab host, for a team on GitLab, shared by the whole team.",
   },
   {
     key: "board.projects",
@@ -545,7 +545,7 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["team"],
     defaultNote: "Required: the projects the board tracks.",
     merge: "replace",
-    description: "GitLab projects the board tracks, shared by the whole team.",
+    description: "Repos the board tracks, as paths on the team's forge (group/project or owner/repo), shared by the whole team.",
   },
   {
     key: "board.title",
