@@ -233,7 +233,7 @@ git commit -m "board: no codeowner demand or section scope on GitHub (BOARD-59)"
 - [ ] **Step 2: Write the failing server test** `server-github-team.test.ts`, copying `boot()` from `server-own-mr.test.ts` (temp HOME, org store, fake rt daemon) with these changes: the org store has `mattstack.integrations: {forge: {provider: 'github', host: 'github.test'}}`, `board.projects: ['o/r']`, no `board.gitlabHost`, roster `alice`, `bob`; the seat is `alice`; the env keeps `GITLAB_TOKEN` set, so no refusal depends on a missing token; the fake daemon answers `project-mrs:read` with two opened GitHub PRs (`provider: 'github'`, `repositoryId: 'github:9'`, `webUrl: 'https://github.test/o/r/pull/<n>'`, alice's #7 and bob's #20) and the gate list with one open `review-post` gate on `mr:https://github.test/o/r/pull/20`. Tests:
   - `a GitHub team boots the real board, not the setup page`: `/healthz` does not report `configured: false`.
   - `/data.json lists the GitHub PRs with their gate`: both rows, `provider` `github`, the gate on #20.
-  - `merge, draft and held-draft post refuse a GitHub PR`: POST `/mr/action` (`action: 'merge'`, #7), `/draft` (#7, `draft: true`) and `/drafts` (`action: 'post'` on a held draft seeded with `writeDraft` for #7) each answer 400 with body `Not available on GitHub yet`, and the fake daemon saw no write verb.
+  - `merge, draft and held-draft post refuse a GitHub PR`: POST `/mr/action` (`action: 'merge'`, #7), `/draft` (#7, `draft: true`) and `/drafts` (`action: 'post'` on a held draft seeded with `writeDraft` for #7) each answer 400 with body `Not available on GitHub yet`, the fake daemon saw no write verb, and the copied fake GitLab server saw no request.
   - `dismissing a held draft still works on a GitHub team`: POST `/drafts` with `action: 'dismiss'` on a held draft for #7 answers ok with `dismissed: true`.
 
   In `server-own-mr.test.ts` (a GitLab team with a fake GitLab), add a row to the fake daemon's read with `provider: 'github'` and a GitLab-shaped URL (`onGitHub` reads `provider` first), owned by the seat, and a test `a GitHub row on a GitLab board is refused after the row lookup`: POST `/mr/action` (`action: 'merge'`) on it answers 400 `Not available on GitHub yet` and `gitlabSeen` does not grow. Keep every existing assertion in that file unchanged (count-based ones included).
@@ -374,7 +374,7 @@ git commit -m "board: a GitHub fixture team (BOARD-59)"
 ## Final verification (before the PR)
 
 - `cd apps/board && bun test` (the whole board suite) and `bun run typecheck`
-- From the worktree root: `bun run purity` and `bun test packages/rt-client/src/settings/__tests__/registry-console-ready.test.ts packages/rt-client/test/dist-freshness.test.ts`
+- From the worktree root: `bun run purity` and `bun test packages/rt-client/src/settings/__tests__/registry-console-ready.test.ts packages/rt-client/src/settings/__tests__/registry.test.ts packages/rt-client/test/dist-freshness.test.ts`
 - Final whole-branch review on `opus` at `xhigh`.
 
 ## The PR
