@@ -79,7 +79,7 @@ export function githubFetchDelta(
   const adapter: DeltaProvider = {
     fetchPullRequests: (opts) => strict(projectPath, (onWarning) => provider.fetchPullRequests({ ...opts, onWarning })),
     fetchMergeRequestIndex: async (opts) => {
-      const rows = await provider.fetchMergeRequestIndex({ projectPaths: opts.projectPaths, updatedAfter: opts.updatedAfter, states: opts.states });
+      const rows = await provider.fetchMergeRequestIndex({ projectPaths: opts.projectPaths, updatedAfter: opts.updatedAfter, states: opts.states, excludeTargetBranches: opts.excludeTargetBranches });
       return rows.map((row) => ({ ...row, authorUsername: scopeSpelling(row.authorUsername, scopeAuthors) }));
     },
     fetchSingleMR: (_pp: string, iid: number) => githubFetchSingle(ctx, iid),

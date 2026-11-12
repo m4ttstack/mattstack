@@ -177,7 +177,7 @@ describe("githubFetchDelta", () => {
     await githubFetchDelta(ctx, UA, storeWith([pr(5)]));
     expect(listCalls).toHaveLength(1);
     expect(listCalls[0]).toMatchObject({ projectPath: "o/r", state: "opened", updatedAfter: UA, listWeight: true });
-    expect(indexCalls).toEqual([{ projectPaths: ["o/r"], updatedAfter: UA, states: ["merged", "closed"] }]);
+    expect(indexCalls).toEqual([{ projectPaths: ["o/r"], updatedAfter: UA, states: ["merged", "closed"], excludeTargetBranches: [] }]);
     expect(singleCalls).toEqual([]);
   });
 
