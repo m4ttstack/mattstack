@@ -1300,6 +1300,8 @@ describe('buildBoard reviewers by forge', () => {
     );
     expect(mr!.reviews.reviewers.map(r => r.username)).toEqual(['tobrandt']);
     expect(mr!.reviews.totalAssigned).toBe(1);
+    expect(mr!.reviews.haveActed).toBe(0);
+    expect(mr!.reviews.haveNotStarted).toBe(1);
   });
 
   test('a GitLab PR keeps its reviewers as served', () => {

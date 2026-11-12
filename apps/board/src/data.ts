@@ -229,6 +229,20 @@ export function buildBoard(
         ...props.reviews,
         reviewers: humans,
         totalAssigned: humans.length,
+        haveActed: humans.filter(
+          r =>
+            r.reviewState === 'APPROVED' ||
+            r.reviewState === 'REVIEWED' ||
+            r.reviewState === 'REQUESTED_CHANGES'
+        ).length,
+        havePending: humans.filter(r => r.reviewState === 'REVIEW_STARTED')
+          .length,
+        haveNotStarted: humans.filter(
+          r =>
+            r.reviewState === 'UNREVIEWED' ||
+            r.reviewState === 'UNAPPROVED' ||
+            r.reviewState === null
+        ).length,
       };
     }
     out.push({

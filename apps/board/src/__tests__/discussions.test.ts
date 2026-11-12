@@ -443,7 +443,9 @@ describe('GitHub bots', () => {
   });
 
   test('isBotAuthor honors the bot flag', () => {
-    expect(isBotAuthor({ username: 'helper', bot: true }, new Set())).toBe(true);
+    expect(isBotAuthor({ username: 'helper', bot: true }, new Set())).toBe(
+      true
+    );
     expect(isBotAuthor({ username: 'helper' }, new Set())).toBe(false);
   });
 
