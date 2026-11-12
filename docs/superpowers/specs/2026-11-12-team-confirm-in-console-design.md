@@ -40,12 +40,13 @@ not a banner ever reached the admin.
 ## Design
 
 **CLI.** `rt team status --json` gains
-`invites: [{ handle, teams, expiresAt, state: "invited" | "replied" }]`,
+`invites: [{ handle, teams, expiresAt, state: "invited" | "replied" | "expired" }]`,
 filled only on a Mac holding invite records for the team (the inviter's).
 `replied` comes from a live switchboard read (the same `readReply` +
 `openReply` the sweep uses), never from the daemon's `invite-replies` kv, so
-the list does not depend on which daemon ran the sweep. An expired invite is
-left out. The human output adds a "waiting to join" row naming the replied
+the list does not depend on which daemon ran the sweep. A reply on an expired
+invite still reads `replied`, since `members sync` adds it regardless; an
+expired invite with no reply reads `expired`. (My call: sync ignores expiry.) The human output adds a "waiting to join" row naming the replied
 handles. The envelope's existing keys stay as they are.
 
 **Confirm.** `rt team members sync --team <slug> --json`, unchanged. It adds
