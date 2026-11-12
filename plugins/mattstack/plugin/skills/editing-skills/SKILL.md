@@ -488,8 +488,9 @@ cached copy under `<config>/plugins/cache/<marketplace>/<plugin>/<version>/`.
 Proof the fix landed: in the installed pack copy
 (`<config>/plugins/cache/<marketplace>/<pack>/<version>/`), the
 `pack/compiled.lock.json` entry for the compiled verb names the new
-mattstack version and the verb's file contains no `{{`. `check` alone proves the pack matches the installed
-mattstack, whichever version that is.
+mattstack version and the verb's file contains no `{{`. `check` alone
+proves the pack matches the installed mattstack, whichever version that
+is.
 
 ### End the turn; the reload runs in place
 
