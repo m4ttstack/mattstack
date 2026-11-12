@@ -724,3 +724,27 @@ test('a GitHub board asks about PRs and posts PRs to slack', async () => {
   await settle();
   expect(document.body.textContent).toContain('posted 2 PRs to slack');
 });
+
+test('a posted held note on a GitHub row toasts its #ref', async () => {
+  servedData = githubBoard([
+    ghMr(204, {
+      drafts: [
+        { kind: 'ci-note', body: 'the cache key changed', createdAt: 1 },
+      ],
+    }),
+  ]);
+  await renderBoard();
+  const press = async (label: string) => {
+    const b = [...document.querySelectorAll('button')].find(
+      x => x.textContent?.trim() === label
+    );
+    if (!b) throw new Error(`no button "${label}"`);
+    await React.act(async () => b.click());
+    await settle();
+  };
+  await press('read');
+  await press('post');
+  await press('confirm post');
+  expect(document.body.textContent).toContain('held note posted to #204');
+  expect(document.body.textContent).not.toContain('!204');
+});

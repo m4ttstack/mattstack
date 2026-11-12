@@ -611,7 +611,7 @@ export function Board() {
       setDraftModal(null);
       addToast(
         outcome === 'posted'
-          ? `held note posted to !${mr.iid}`
+          ? `held note posted to ${mrRef(mr)}`
           : `held note dismissed on ${mrRef(mr)}`
       );
     },

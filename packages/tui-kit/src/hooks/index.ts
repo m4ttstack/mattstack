@@ -86,8 +86,9 @@ function useBodyScrollLock(): void {
 /** One transient toast: a fresh id per addToast() call and the text to show.
     `state` marks a toast that tracks work: `pending` draws a spinner until the
     work settles, then `done` a check or `failed` a cross; a pending toast
-    settled with `note` becomes plain. A plain toast has none. `icon` is path data for the kit `Icon`, drawn ahead of the text so a
-    toast can echo the control that triggered it. */
+    settled with `note` becomes plain. A plain toast has none. `icon` is path
+    data for the kit `Icon`, drawn ahead of the text so a toast can echo the
+    control that triggered it. */
 interface Toast {
   id: number;
   text: string;
