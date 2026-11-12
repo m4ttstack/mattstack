@@ -5,14 +5,15 @@ export type PipelineState = 'passed' | 'running' | 'failed' | 'none';
 export interface OwnMrFacts {
   mrUrl: string;
   iid: number;
-  /** Numeric pipeline id, parsed from glance's scoped "gitlab:pipeline:N". */
+  /** Numeric pipeline id, parsed from glance's scoped id ("gitlab:pipeline:N", "github:run:N"). */
   pipelineId: number | null;
   pipelineState: PipelineState;
   needsRebase: boolean;
   /** Merge conflicts; only the handoff recheck reads it, edges do not. */
   hasConflicts?: boolean;
-  /** MR author's GitLab username. fetchOwnMrs already scopes this list to the
-      token identity, so today this is always that identity -- carried onto
+  /** MR author's forge username. fetchOwnMrs already scopes this list to
+      the forge username triage owns PRs as (the GitLab token's user, or on
+      GitHub the team record's), so today this is always that identity -- carried onto
       the edge anyway so the mechanical-lint fix class (MAT-351) can re-verify
       the author gate at the point it composes --fix-classes, instead of
       trusting the upstream filter implicitly. */

@@ -9,6 +9,7 @@ import {
   type MRDetail,
 } from '@mattstack/glance';
 import {
+  activeTeam,
   listOrgs,
   readDiscussions,
   readProjectMRs,
@@ -75,7 +76,7 @@ import {
   loadTriageConfig,
 } from '../src/triage/config.ts';
 import type { OwnMrFacts } from '../src/triage/edge.ts';
-import { triageForgeSkip } from '../src/triage/forge-skip.ts';
+import { triageForgePlan, unparsedRedLines } from '../src/triage/forge-plan.ts';
 import {
   latchInScope,
   runLatchPass,
@@ -172,7 +173,8 @@ try {
 
   const repoForMrUrl = makeRepoForMrUrl(boardConfig);
 
-  // The GitLab token's user, cached so steady-state runs are pure socket
+  // The forge username triage owns PRs as (the GitLab token's user, or on
+  // GitHub the team record's), cached on GitLab so steady-state runs are pure socket
   // reads. An MR is triage's only when this user AND the seat authored it
   // (triageOwns), so a seatless board runs no auto-doctor and no respond ask.
   // Throw rather than process.exit(1) on a resolution failure: an exit here
@@ -190,9 +192,15 @@ try {
       throw new Error('triage: no gitlab token available for identity');
     return resolved;
   };
-  const forgeSkip = peerMode ? null : triageForgeSkip(boardConfig);
-  if (forgeSkip) console.log(forgeSkip);
-  if (!peerMode && !forgeSkip) username = await resolveUsername();
+  const plan = peerMode
+    ? null
+    : triageForgePlan(boardConfig, () => activeTeam().username);
+  if (plan) {
+    for (const line of plan.lines) console.log(line);
+    if (plan.identity === 'gitlab-token') username = await resolveUsername();
+    else if (plan.identity) username = plan.identity.recorded;
+  }
+  const asksAndLatch = peerMode || (plan !== null && plan.asksAndLatch);
 
   // SCOPE (review fix 1): triage's MR scope is deliberately the BOARD's
   // visibility scope -- buildBoard applies the member, own-draft, stale-window,
@@ -244,7 +252,7 @@ try {
     }));
   };
 
-  if (!peerMode && !forgeSkip) {
+  if (plan && plan.identity !== null) {
     const result = await runTriage({
       triage,
       doctorCwd: boardConfig.doctorCwd || boardConfig.reviewCwd,
@@ -253,7 +261,11 @@ try {
       repoForMr: repoForMrUrl,
       // Same resolved identity fetchOwnMrs just filtered by (MAT-351 re-check).
       identity: username,
-      fetchOwnMrs,
+      fetchOwnMrs: async () => {
+        const mrs = await fetchOwnMrs();
+        for (const line of unparsedRedLines(mrs)) console.log(line);
+        return mrs;
+      },
       readDoctorStates,
       launchDoctor,
       pack: launchPack ?? undefined,
@@ -287,7 +299,7 @@ try {
         boardMaterializeDeps(line => console.error(line))
       );
     let ownUrls = new Set<string>();
-    let nudgeReady = !forgeSkip;
+    let nudgeReady = asksAndLatch;
     const markHandled: AskActionDeps['markNudgeHandled'] = (
       id,
       r,
@@ -364,8 +376,8 @@ try {
   // can do. Both passes bank cooldown and budget counters into the same
   // memory, and this one runs whether or not a switchboard is configured, so
   // the persist below sits outside that block.
-  const latchToken = forgeSkip ? null : await loadGitLabToken();
-  if (!peerMode && !forgeSkip && latchToken && username && reReview.enabled) {
+  const latchToken = asksAndLatch ? await loadGitLabToken() : null;
+  if (!peerMode && asksAndLatch && latchToken && username && reReview.enabled) {
     try {
       const latchResult = await runLatchPass({
         readReviewStates,

@@ -37,7 +37,7 @@ import {
 import { decide } from './policy.ts';
 import { chainOf } from './stack.ts';
 
-/** Numeric tail of a glance scoped id ("gitlab:pipeline:12345" → 12345). */
+/** Numeric tail of a glance scoped id ("gitlab:pipeline:12345" or "github:run:12345" → 12345). */
 export function numericPipelineId(scoped: string): number | null {
   const tail = scoped.split(':').pop() ?? '';
   const n = Number(tail);
@@ -68,8 +68,9 @@ export function enabledFixClassNames(fc: FixClasses): string[] {
     whole pipeline to the token identity's own MRs, but this is the explicit
     re-check at the point the flag string is actually built, so a future
     change to that upstream filter can never silently widen who gets a
-    branch-mutating auto-fix. `identity` is the resolved GitLab token
-    username (never a hardcoded username, never config.defaultMember --
+    branch-mutating auto-fix. `identity` is the forge username
+    triage owns PRs as (the GitLab token's user, or on GitHub the team
+    record's) (never a hardcoded username, never config.defaultMember --
     see the 2026-08-08 ruling in .local-dev/2026-08-08-ci-triage-design.md
     §6 on why this pipeline's own-MR identity never comes from config). */
 export function composeFixClasses(
@@ -168,7 +169,8 @@ export interface TriageRunDeps {
       for this MR, threaded to launchDoctor as `repo` -- never a bare GitLab
       project path. */
   repoForMr(mrUrl: string): string;
-  /** Resolved GitLab token username this pipeline is dispatching as (see
+  /** The forge username triage owns PRs as (the GitLab token's user, or on
+      GitHub the team record's), this pipeline is dispatching as (see
       bin/triage.ts). Never config.defaultMember (2026-08-08 ruling). Used
       only to re-verify the mechanical-lint author gate (MAT-351); null
       before the identity has ever been resolved. */
