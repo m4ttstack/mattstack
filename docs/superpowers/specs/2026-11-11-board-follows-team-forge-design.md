@@ -138,8 +138,10 @@ export type BoardForge = { kind: 'gitlab' | 'github'; host: string };
    the setup page answers.
 
 `board.gitlabHost` wins (my call). `mattstack.integrations.forge` is
-written by `rt team create` from the org repo's own remote
-(`lib/team/create.ts`), so it records where the org repo lives, which can
+written by `rt team create` into the org store, from the org repo's own
+remote (`lib/team/create.ts`, alongside `board.gitlabHost` when that
+remote is GitLab), and reaches a team through the resolver's org layer.
+So it records where the org repo lives, which can
 differ from where a GitLab team's code lives. A team whose org repo is on
 GitHub but whose board tracks GitLab projects keeps working only if the
 explicit GitLab host wins. `lib/skills/init.ts` reads the two keys in the
@@ -171,22 +173,33 @@ Both follow rt:ui-copy.
 
 ### 2. URL parsing
 
-`projectPathFromWebUrl(webUrl, forge)` replaces the `gitlabHost` argument
-with the forge value:
+`projectPathFromWebUrl(webUrl, config)` replaces the `gitlabHost` argument
+with the config's forge value and project list
+(`Pick<BoardConfig, 'forge' | 'projects'>`):
 
-- GitLab: today's logic, byte for byte, against `forge.host`.
+- GitLab: today's logic, byte for byte, against `forge.host`. The project
+  list is not consulted.
 - GitHub: the URL must start with `forge.host`; the rest must match
-  `<owner>/<repo>/pull/<n>` (with optional trailing path, query or hash),
-  and the function returns `<owner>/<repo>`. Anything else returns null.
+  `<owner>/<repo>/pull/<n>` (with optional trailing path, query or hash).
+  When `<owner>/<repo>` matches a `board.projects` entry ignoring case,
+  the function returns that entry's spelling; otherwise it returns the
+  URL's own spelling. Anything else returns null.
 
-GitHub repo paths and logins are case-insensitive, and the API returns
-their canonical spelling, which a hand-typed setting may not match. So on
-a GitHub team `buildBoard` compares the parsed path against
-`board.projects`, and the PR author against the roster, ignoring case, and
-returns the `board.projects` spelling as the row's project (my call).
-GitLab keeps its exact matches.
+GitHub repo paths are case-insensitive and the API returns the canonical
+spelling, while the daemon keys a store by the checkout remote's spelling
+(section 3). Returning the configured spelling from the one parser gives
+every caller (`buildBoard`'s project filter, the `config.rtRepos`
+lookups, `resolveLaunchRepo`, `repoSlugForMr`, `makeRepoForMrUrl`,
+`codeownerSlackOn`) the same spelling, the one the identity is built
+from, so `buildBoard` keeps its exact `projects.has(path)` check (my
+call).
 
-Every caller passes `config.forge`: `data.ts` (`buildBoard`),
+Author usernames are matched exactly on both forges, as on GitLab today:
+roster entries must use the forge's spelling. The board does not fold or
+rewrite usernames, because the views, the draft check and the thread
+summaries all compare against the API's spelling (my call).
+
+Every caller passes the config (forge and projects): `data.ts` (`buildBoard`),
 `manifest-bindings.ts`, `run-owner-io.ts`, `peer/launch-ask.ts`,
 `bin/triage.ts`, and the server call sites listed in the Agent notes.
 
@@ -248,7 +261,8 @@ call).
 
 | Path | On GitHub | Turned back on by |
 |---|---|---|
-| `/mr/action` (merge, rebase, set and cancel auto-merge, retry) | refuses with the one sentence | BOARD-63 |
+| `/mr/action` (merge, rebase, set and cancel auto-merge) | refuses with the one sentence | BOARD-63 |
+| `/mr/refresh` (row refresh) | hidden in the menu; the route still answers, but the daemon's `mr:get` skips its project-store write-back for GitHub repos (`lib/daemon/handlers/mr.ts`), so a refresh would change nothing on the board | the daemon writing GitHub re-reads back to the store (RT-542 lane) |
 | `/draft` (mark ready, mark as draft) | refuses | BOARD-63 |
 | `/drafts` post (held doctor note) | refuses; dismiss still works | BOARD-63 |
 | Roster display names (`fetchUser`) | skipped; roster names show | BOARD-63 |
@@ -257,10 +271,12 @@ call).
 | `bin/triage.ts` non-peer pass (auto-doctor, respond ask, latch) | skipped with one info line per run, as a seatless board runs none | BOARD-64, BOARD-65 |
 | Codeowner `approval_state` read (`forge:get`) | skipped; rows carry no owner rules | BOARD-66 |
 
-The refusal sentence follows rt:ui-copy. Each route checks the forge
-before its token check, so a GitHub team never sees "gitlab token not
-configured". The server checks the row's forge (its `provider`, else its
-URL) as well as the team forge, so a GitHub row is refused even if one
+The refusal sentence follows rt:ui-copy. Each route checks the team
+forge first, before its token check, so a GitHub team never sees "gitlab
+token not configured". The row's forge (its `provider`, else its URL) is
+known only after the body is parsed and the row is looked up, so that
+check sits right after the lookup, leaving GitLab's error order byte for
+byte. Together they refuse a GitHub row even if one
 ever appears on a GitLab board.
 
 Thread reply and resolve (`thread-write.ts`) already go through
@@ -275,9 +291,11 @@ the URL):
 
 - The right-click menu's forge section leaves out merge, rebase, set and
   cancel auto-merge, mark ready and mark as draft, in both the row menu and
-  the bulk menu, and auto-merge never leads the top section. "open in
-  github" and "refresh from github" stay, with forge-aware labels; the
-  section heading names the forge.
+  the bulk menu, and auto-merge never leads the top section. Row refresh
+  is left out too (section 4). "open in github" stays with a forge-aware
+  label, and the section heading names the forge. The board-wide refresh
+  button is not a row action and stays: it forces a daemon project sync,
+  which RT-542 covers.
 - `DraftModal`'s post control is not offered; dismiss stays.
 - Forge words follow the row: `CommentsDrawer`'s "open in gitlab" links,
   `action-runner.ts`'s "refreshing ... from gitlab" toast, and
@@ -323,10 +341,13 @@ skipped.
 - **URL parsing:** GitHub URLs with and without trailing path, query and
   hash; a GitHub URL on a GitLab team and the reverse return null; every
   existing GitLab case still passes unchanged.
-- **`buildBoard`:** keeps GitHub rows, matches project and author ignoring
-  case on GitHub (exact on GitLab), still drops rows outside
-  `board.projects`, and handles `behindTarget: null` and absent
-  `codeownerSections`.
+- **`buildBoard`:** keeps GitHub rows, keeps a GitHub row whose URL
+  spelling differs in case from its `board.projects` entry, still drops
+  rows outside `board.projects`, matches authors exactly, and handles
+  `behindTarget: null` and absent `codeownerSections`.
+- **Canonical spelling:** on GitHub the parser returns the configured
+  spelling for a case-different URL, and `daemonRepoField` and
+  `resolveLaunchRepo` then give the identity built from that spelling.
 - **Demand:** `boardDemand` sends no `codeownerSections` on a GitHub team
   and the same declaration as today on GitLab; the section scope fields
   read as absent on GitHub.
@@ -334,14 +355,15 @@ skipped.
   `remote:github.com%2F<owner>%2F<repo>` on GitHub and the same values as
   today on GitLab.
 - **The door:** `gitlabOnly` throws on GitHub; each route in section 4
-  refuses a GitHub MR with the sentence before any token check; nothing
+  refuses on a GitHub team before its token check, and refuses a GitHub
+  row on a GitLab team right after the row lookup; nothing
   constructs `GitLabProvider`, `NoteMutator` or `MRDetailFetcher` on a
   GitHub team (stubbed constructors that fail the test if called).
 - **Triage:** on a GitHub team the non-peer pass runs no forge call and
   logs one line.
 - **Client:** row-actions tests that a GitHub row's menu and the bulk menu
-  hold none of the hidden items and keep open and refresh with GitHub
-  labels; GitLab menus unchanged.
+  hold none of the hidden items (row refresh included) and keep "open in
+  github"; GitLab menus unchanged.
 - **Gates:** a GitHub `mr:` subject attaches to its row; `run-mr.ts`
   resolves a run recording a GitHub PR.
 - **Fixture:** a second fixture team, `apps/board/tests/fixture-github/`,
@@ -385,5 +407,9 @@ main at 5f3c4051d (`apps/board/src/server.ts`): 618-623 (`gitlab()`), 637
 `bin/triage.ts:170-180,226-229,260,340-390`, `src/unconfigured.ts:26-27`.
 Client: `src/client/board/row-actions.ts:600-725` (the `gitlab` section),
 `ActionMenu.tsx:28,39,427`, `DraftModal.tsx`, `CommentsDrawer.tsx:105,610`,
-`action-runner.ts:256`, `ReviewDraftCard.tsx:288`, `mr-ref.ts:10-13`.
+`action-runner.ts:256`, `ReviewDraftCard.tsx:288`, and
+`apps/board/src/mr-ref.ts:10-13` (outside `client/board/`).
+`src/triage/projects.ts:35` calls `daemonRepoField` and needs no change
+once `rtRepos` derives from `forge.host`. `/mr/refresh` is
+`server.ts:3654-3697`.
 
