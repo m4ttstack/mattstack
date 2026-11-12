@@ -99,6 +99,25 @@ export interface FetchPullRequestsWarning {
    * on every call site independently getting the string literal right.
    */
   target?: string;
+  /**
+   * The source branch a by-branch read was resolving, set on every warning
+   * `fetchPullRequestByBranch` or `fetchPullRequestsByBranches` reports, so a
+   * batch caller can attribute it.
+   */
+  branch?: string;
+}
+
+/** Options for `fetchPullRequestByBranch` and `fetchPullRequestsByBranches`. */
+export interface ByBranchReadOptions {
+  /**
+   * Called when the answer may be incomplete: a failed list request, a
+   * fallback scan that hit its cap, a found PR whose fill failed, or a
+   * warning the fill reported for a PR it kept. Each warning carries
+   * `branch`. The result is unchanged (a failed read still resolves to
+   * null), and a throw from this callback is ignored. Providers whose
+   * `canReportIncompleteBranchReads` is not true never call it.
+   */
+  onWarning?: (warning: FetchPullRequestsWarning) => void;
 }
 
 /**
@@ -369,25 +388,34 @@ export interface GitProvider {
 
   /**
    * Fetch a single MR/PR by its source branch within a project.
-   * Returns null if no matching MR/PR exists for that branch.
+   * Returns null if no matching MR/PR exists for that branch, and also when
+   * the read could not tell: on GitHub a failed list request, a fallback
+   * scan that ended at its 500-PR cap, or a found PR whose fill failed.
+   * `options.onWarning` tells those apart from a confirmed miss where
+   * `capabilities.canReportIncompleteBranchReads` is true.
    * @param state - Filter by state. Defaults to `'opened'`. Pass `'all'` to include merged/closed.
    */
   fetchPullRequestByBranch(
     projectPath: string,
     sourceBranch: string,
     state?: MRState | 'all',
+    options?: ByBranchReadOptions,
   ): Promise<PullRequest | null>;
 
   /**
    * Batch-fetch MRs by source branches in a single operation.
-   * Returns a Map<branch, PullRequest | null>. Branches with no open MR map to null.
-   * Optional — providers that don't implement this fall back to
+   * Returns a Map<branch, PullRequest | null>. Branches with no open MR map to null,
+   * as does a branch whose PR was found but could not be filled; on GitHub
+   * `options.onWarning` reports that case, and any warning the fill raised
+   * for a PR it kept, with `branch` set.
+   * Optional: providers that don't implement this fall back to
    * sequential fetchPullRequestByBranch calls.
    */
   fetchPullRequestsByBranches?(
     projectPath: string,
     branches: string[],
     state?: MRState | 'all',
+    options?: ByBranchReadOptions,
   ): Promise<Map<string, PullRequest | null>>;
 
   /**
@@ -513,10 +541,12 @@ export interface GitProvider {
    * All input fields are optional — omitting them defers to the project's
    * configured defaults (merge method, squash policy, delete-source-branch).
    *
-   * Resolves once the merge landed. A failed source-branch cleanup is
-   * reported in `sourceBranchNotDeleted`, never thrown. A rejection means
-   * the merge failed, or landed but could not be read back
-   * (`ReadBackFailedError` with `writeApplied: true`).
+   * Resolves once the merge landed, or, on a merge-queue base, once the PR
+   * is queued (see below). A failed source-branch cleanup is reported in
+   * `sourceBranchNotDeleted`, never thrown. A rejection means the merge
+   * failed, or its write was applied but the PR could not be read back
+   * (`ReadBackFailedError` with `writeApplied: true`): a landed merge, or
+   * on a merge-queue base a queued PR that has not merged.
    *
    * On GitHub the merge method, when not given, is the repository's default
    * for the viewer (else the first allowed of merge, squash, rebase), and a

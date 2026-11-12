@@ -638,7 +638,7 @@ export interface MergePullRequestInput {
 export type MergePullRequestResult = PullRequest & {
   /** Set only when the merge landed and the source branch could not be deleted: why, in one sentence. */
   sourceBranchNotDeleted?: string;
-  /** Set only when the PR went through a merge queue: its entry there. The PR has not merged yet. */
+  /** Set only when the PR went through a merge queue: its entry there. The PR had not merged when it was queued; check `state`. */
   queued?: MergeQueueEntry;
 };
 
@@ -705,6 +705,12 @@ export interface ProviderCapabilities {
   canFetchPullRequestDiffs: boolean;
   /** Pull requests carry `sourceProjectPath`, the repository their source branch lives in. */
   canReportSourceProject?: boolean;
+  /**
+   * `fetchPullRequestByBranch` and `fetchPullRequestsByBranches` report a
+   * failed, capped or unfilled read through `options.onWarning`, so a null
+   * can be told apart from "no PR on this branch".
+   */
+  canReportIncompleteBranchReads?: boolean;
 }
 
 // ── Metric-grade reads ────────────────────────────────────────────────────────

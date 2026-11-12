@@ -15,6 +15,7 @@
 import type {
   FetchPullRequestsOptions,
   FetchPullRequestsWarning,
+  ByBranchReadOptions,
   GitProvider,
   MRState
 } from './GitProvider.ts';
@@ -404,6 +405,38 @@ function isWorkflowRunError(e: GraphQLReadError): boolean {
   return path.length >= 2 && path[path.length - 2] === 'checkSuite' && path[path.length - 1] === 'workflowRun';
 }
 
+/**
+ * Forwards a by-branch read's warnings with `branch` set. A throw from the
+ * caller's listener is swallowed so it cannot change the read's result.
+ */
+function branchWarner(
+  onWarning: ByBranchReadOptions['onWarning'],
+  branch: string
+): ((warning: FetchPullRequestsWarning) => void) | undefined {
+  if (!onWarning) return undefined;
+  return warning => {
+    try {
+      onWarning({ ...warning, branch });
+    } catch {
+      // A broken observer must never fail a read.
+    }
+  };
+}
+
+function listFailedWarning(
+  projectPath: string,
+  branch: string,
+  status: number
+): FetchPullRequestsWarning {
+  return {
+    kind: 'request-failed',
+    source: 'list',
+    status,
+    target: projectPath,
+    message: `GitHub could not list PRs in ${projectPath} (HTTP ${status}); whether branch ${branch} has a PR is unknown.`
+  };
+}
+
 function fillErrorFor(
   errors: GraphQLReadError[],
   n: number,
@@ -734,6 +767,7 @@ export class GitHubProvider implements GitProvider {
     canRebase: true,
     canAutoMerge: true,
     canReportSourceProject: true,
+    canReportIncompleteBranchReads: true,
     canEnqueue: true,
     canResolveDiscussions: true,
     canRetryPipeline: true,
@@ -1292,9 +1326,11 @@ export class GitHubProvider implements GitProvider {
   async fetchPullRequestByBranch(
     projectPath: string,
     sourceBranch: string,
-    state: MRState | 'all' = 'opened'
+    state: MRState | 'all' = 'opened',
+    options?: ByBranchReadOptions
   ): Promise<PullRequest | null> {
     const ghState = mapStateToGitHubQueryParam(state);
+    const emit = branchWarner(options?.onWarning, sourceBranch);
 
     // Fast path: GitHub's `head` filter requires `<owner>:<branch>`, and we
     // only know the BASE repo's owner here -- this matches same-repo
@@ -1325,12 +1361,13 @@ export class GitHubProvider implements GitProvider {
           sourceBranch,
           status: err.status
         });
+        emit?.(listFailedWarning(projectPath, sourceBranch, err.status));
         return null;
       }
       throw err;
     }
     if (prs[0]) {
-      return this.fetchSingleMR(projectPath, prs[0].number, null);
+      return this.fetchSingleMR(projectPath, prs[0].number, null, emit);
     }
 
     // Fallback: list PRs in the target state and match by head.ref
@@ -1356,13 +1393,14 @@ export class GitHubProvider implements GitProvider {
             sourceBranch,
             status: err.status
           });
+          emit?.(listFailedWarning(projectPath, sourceBranch, err.status));
           return null;
         }
         throw err;
       }
       const match = list.find((pr) => pr.head.ref === sourceBranch);
       if (match) {
-        return this.fetchSingleMR(projectPath, match.number, null);
+        return this.fetchSingleMR(projectPath, match.number, null, emit);
       }
       if (list.length < 100) {
         // Short page: this was the last page, nothing left to scan.
@@ -1372,6 +1410,12 @@ export class GitHubProvider implements GitProvider {
         this.log.warn('fetchPullRequestByBranch: fallback scan hit page limit', {
           projectPath,
           sourceBranch
+        });
+        emit?.({
+          kind: 'page-cap',
+          source: 'list',
+          target: projectPath,
+          message: `GitHub listed ${maxPages * 100} PRs in ${projectPath} without finding branch ${sourceBranch}; a PR on it may sit past the scan cap.`
         });
       }
     }
@@ -1392,8 +1436,11 @@ export class GitHubProvider implements GitProvider {
    * thinner batch-shaped one. Misses map to `null` without a further
    * request. Every input branch is a key of the returned Map, and an empty
    * `branches` issues no requests at all. A hit whose fill failed also maps
-   * to `null`, as it did when each hit went through `fetchSingleMR`; a rate
-   * limit on either request throws `RateLimitedError`.
+   * to `null`, as it did when each hit went through `fetchSingleMR`, and
+   * fires a `fill` warning through `options.onWarning` with `branch` set; a
+   * warning the fill raises for a PR it kept is forwarded the same way, once
+   * per branch on that PR. A rate limit on either request throws
+   * `RateLimitedError`.
    *
    * Three lookup semantics, each chosen to agree with a sibling rather than
    * on its own merits, because a caller's whole reason to use this method is
@@ -1410,8 +1457,8 @@ export class GitHubProvider implements GitProvider {
    *    the default sort `fetchPullRequestByBranch`'s REST call takes its
    *    first result from.
    *
-   * Unlike `fetchPullRequestByBranch` -- which reports an HTTP failure as
-   * `null`, indistinguishable from "this branch has no PR" -- a failed lookup
+   * Unlike `fetchPullRequestByBranch`, which resolves an HTTP failure to
+   * `null` and reports it only through `options.onWarning`, a failed lookup
    * here throws (MAT-133, via `graphqlRead`). One query carries up to 50
    * branches, so swallowing it would report 50 branches as PR-less on the
    * strength of one 502.
@@ -1423,7 +1470,8 @@ export class GitHubProvider implements GitProvider {
   async fetchPullRequestsByBranches(
     projectPath: string,
     branches: string[],
-    state?: MRState | 'all'
+    state?: MRState | 'all',
+    options?: ByBranchReadOptions
   ): Promise<Map<string, PullRequest | null>> {
     const result = new Map<string, PullRequest | null>();
     if (branches.length === 0) return result;
@@ -1498,9 +1546,22 @@ export class GitHubProvider implements GitProvider {
       });
     }
 
+    const onWarning = options?.onWarning;
+    const branchesByTarget = new Map<string, string[]>();
+    for (const [branch, number] of numbers) {
+      const target = warningTarget(projectPath, number);
+      branchesByTarget.set(target, [...(branchesByTarget.get(target) ?? []), branch]);
+    }
     const filled = await this.fillPullRequests(projectPath, [...new Set(numbers.values())], {
       listWeight: false,
-      roles: new Map()
+      roles: new Map(),
+      onWarning: onWarning
+        ? warning => {
+            for (const branch of branchesByTarget.get(warning.target ?? '') ?? []) {
+              branchWarner(onWarning, branch)?.(warning);
+            }
+          }
+        : undefined
     });
     for (const branch of branches) {
       const number = numbers.get(branch);

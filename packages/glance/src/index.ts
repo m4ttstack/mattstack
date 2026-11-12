@@ -106,6 +106,7 @@ export type {
   GitProvider,
   FetchPullRequestsOptions,
   FetchPullRequestsWarning,
+  ByBranchReadOptions,
   FetchMergeRequestIndexOptions,
   FetchMergeRequestMetricsOptions,
   FetchGroupProjectsOptions,

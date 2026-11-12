@@ -2,6 +2,7 @@ import { Gitlab, GitbeakerRequestError, GitbeakerRetryError } from '@gitbeaker/r
 import type { CreateMergeRequestOptions, EditMergeRequestOptions } from '@gitbeaker/rest';
 import type {
   GitProvider,
+  ByBranchReadOptions,
   FetchPullRequestsOptions,
   FetchMergeRequestIndexOptions,
   FetchMergeRequestMetricsOptions,
@@ -975,6 +976,7 @@ export class GitLabProvider implements GitProvider {
     canRebase: true,
     canAutoMerge: true,
     canReportSourceProject: false,
+    canReportIncompleteBranchReads: false,
     canEnqueue: false,
     canResolveDiscussions: true,
     canRetryPipeline: true,
@@ -1835,6 +1837,7 @@ export class GitLabProvider implements GitProvider {
     projectPath: string,
     sourceBranch: string,
     state: MRState | 'all' = 'opened',
+    _options?: ByBranchReadOptions,
   ): Promise<PullRequest | null> {
     let mrs: Array<{ iid: number }>;
     try {
@@ -1861,6 +1864,7 @@ export class GitLabProvider implements GitProvider {
     projectPath: string,
     branches: string[],
     state: 'opened' | 'merged' | 'closed' | 'all' = 'opened',
+    _options?: ByBranchReadOptions,
   ): Promise<Map<string, PullRequest | null>> {
     // Single GraphQL query using sourceBranches array filter
     const MR_BY_BRANCHES_QUERY = `
