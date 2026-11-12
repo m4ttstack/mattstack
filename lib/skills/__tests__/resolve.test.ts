@@ -341,6 +341,14 @@ describe("resolvePointers: versionless ids", () => {
     expect(r.warning).toBe(UNPINNED);
   });
 
+  test("a .. after a link applies to the link's target, as the OS reads it", () => {
+    const link = `${ROOT}/0.4.11/skills/linked`;
+    const fs = fakeFs({ ...acmeFiles("0.4.11"), ...acmeFiles("0.4.12"), [`${ROOT}/0.4.12/skills/extra/SKILL.md`]: "" }, { [link]: `${ROOT}/0.4.12/skills/extra` });
+    const r = resolvePointers("acme:work", { fs, home: HOME }, `${link}/../work`);
+    expect(r.folder).toBe(`${ROOT}/0.4.12/skills/work`);
+    expect(r.pinned).toBe(true);
+  });
+
   test("a link inside the cache that leads into another plugin's folder is refused", () => {
     const link = `${ROOT}/0.4.11/skills/linked`;
     const other = `${CACHE}/acme/acme-base/0.1.0/skills/work`;

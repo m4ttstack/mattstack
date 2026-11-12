@@ -123,7 +123,8 @@ function versionOfDir(id: string, plugin: string, dir: string, deps: ResolveDeps
   const cache = pluginCache(deps.home);
   const text = posix.normalize(dir);
   if (!within(cache, text)) return null;
-  const real = deps.fs.realPath(text);
+  // The written path, not its normalized text: the OS follows a link before the `..` after it.
+  const real = deps.fs.realPath(dir);
   const [base, path] = real === null ? [cache, text] : [deps.fs.realPath(cache) ?? cache, real];
   if (!within(base, path)) return null;
   const [, named, version] = path.slice(base.length + 1).split("/");
