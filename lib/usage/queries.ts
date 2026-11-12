@@ -242,7 +242,7 @@ export function usageMrs(
   };
   return reading(dbPath, empty, (db) => {
     const params: Scope["params"] = {};
-    let where = "m.mr_key IS NOT NULL";
+    let where = `m.mr_key IS NOT NULL AND ${COUNTED}`;
     if (q.repo !== undefined) {
       where += ` AND ${repoOfKey("$repo")}`;
       params.$repo = q.repo;
@@ -300,16 +300,26 @@ export function usageMrs(
 
 export function usageRun(dbPath: string, runId: string): UsageRunData | null {
   return reading<UsageRunData | null>(dbPath, null, (db) => {
-    const rows = selectMessages(db, { where: "m.run_id = $runId", params: { $runId: runId } }, [
+    const rows = selectMessages(db, { where: `m.run_id = $runId AND ${COUNTED}`, params: { $runId: runId } }, [
       "m.mr_key",
     ]) as MessageRow[];
-    if (rows.length === 0) return null;
     const totals = emptyTotals();
     for (const row of rows) add(totals, totalsOf(row));
 
-    const mrKey = rows.find((row) => row.mr_key !== null)?.mr_key ?? null;
+    let mrKey = rows.find((row) => row.mr_key !== null)?.mr_key ?? null;
+    if (rows.length === 0) {
+      const any = db
+        .query("SELECT mr_key FROM usage_messages WHERE run_id = ? ORDER BY mr_key IS NULL LIMIT 1")
+        .get(runId) as { mr_key: string | null } | null;
+      if (!any) return null;
+      mrKey = any.mr_key;
+    }
     if (mrKey === null) return { runId, mrKey, totals, mrCost: null };
-    const onMr = selectMessages(db, { where: "m.mr_key = $mrKey", params: { $mrKey: mrKey } }, []) as MessageRow[];
+    const onMr = selectMessages(
+      db,
+      { where: `m.mr_key = $mrKey AND ${COUNTED}`, params: { $mrKey: mrKey } },
+      [],
+    ) as MessageRow[];
     const mrCost = onMr.reduce((sum, row) => sum + totalsOf(row).cost, 0);
     return { runId, mrKey, totals, mrCost };
   });
@@ -373,8 +383,20 @@ function stageKey(name: string | null, attempt: number | null, outside: UsageOut
 
 const IN_RUN_STAGES = "FROM usage_stages s WHERE s.machine_id = m.machine_id AND s.run_id = m.run_id";
 
+/** A run's setup and wrap-up land this close outside its window and still count toward it. */
+const RUN_EDGE_MS = 10 * 60_000;
+
+/** A message the attribution sweep pinned to a run only because it shares that run's session. */
+const OUTSIDE_RUN = `(m.attribution = 'session' AND m.run_id IS NOT NULL AND EXISTS (
+  SELECT 1 FROM usage_runs o WHERE o.machine_id = m.machine_id AND o.run_id = m.run_id
+    AND (m.ts < o.started_at - ${RUN_EDGE_MS}
+      OR (o.ended_at IS NOT NULL AND m.ts > o.ended_at + ${RUN_EDGE_MS}))))`;
+
+export const COUNTED = `NOT ${OUTSIDE_RUN}`;
+
 export const OUTSIDE_CASE = `CASE
   WHEN m.stage IS NOT NULL OR m.run_id IS NULL THEN NULL
+  WHEN ${OUTSIDE_RUN} THEN 'session'
   WHEN NOT EXISTS (SELECT 1 ${IN_RUN_STAGES}) THEN 'none'
   WHEN m.ts < (SELECT MIN(s.started_at) ${IN_RUN_STAGES}) THEN 'before'
   WHEN m.ts > (SELECT MAX(s.ended_at) ${IN_RUN_STAGES}) THEN 'after'
@@ -382,7 +404,7 @@ export const OUTSIDE_CASE = `CASE
 
 const OUTSIDE_STAGES = `${OUTSIDE_CASE} AS outside`;
 
-const OUTSIDE_ORDER: Record<UsageOutside, number> = { before: 0, between: 1, after: 2, none: 3 };
+const OUTSIDE_ORDER: Record<UsageOutside, number> = { before: 0, between: 1, after: 2, none: 3, session: 4 };
 
 function stageRows(db: Database, entry: EntryFold): UsageStageRow[] {
   const { machine_id, run_id } = entry.first;
@@ -469,12 +491,12 @@ export function usageMr(dbPath: string, mrKey: string): UsageMrData | null {
 
     const splits = emptySplits();
     const costByKind = byKindOf(() => 0);
+    const outsideRuns = emptyTotals();
     const entries = new Map<string, EntryFold>();
     const pick: RunPick = { latest: null, latestWithUrl: null };
     for (const row of rows) {
       const delta = totalsOf(row);
-      foldSplits(splits, row, delta);
-      costByKind[kindFor(row)] += delta.cost;
+      const counted = row.outside !== "session";
       pickRun(pick, row);
 
       const key = `${runIdentity(row)}\0${row.agent_session}`;
@@ -484,14 +506,20 @@ export function usageMr(dbPath: string, mrKey: string): UsageMrData | null {
           first: row,
           splits: emptySplits(),
           stages: new Map(),
-          firstActivity: row.first_ts,
-          lastActivity: row.last_ts,
+          firstActivity: Infinity,
+          lastActivity: -Infinity,
         };
         entries.set(key, entry);
       }
-      foldSplits(entry.splits, row, delta);
-      entry.firstActivity = Math.min(entry.firstActivity, row.first_ts);
-      entry.lastActivity = Math.max(entry.lastActivity, row.last_ts);
+      if (counted) {
+        foldSplits(splits, row, delta);
+        costByKind[kindFor(row)] += delta.cost;
+        foldSplits(entry.splits, row, delta);
+        entry.firstActivity = Math.min(entry.firstActivity, row.first_ts);
+        entry.lastActivity = Math.max(entry.lastActivity, row.last_ts);
+      } else {
+        add(outsideRuns, delta);
+      }
 
       const stageId = stageKey(row.stage, row.attempt, row.outside);
       let stage = entry.stages.get(stageId);
@@ -513,11 +541,18 @@ export function usageMr(dbPath: string, mrKey: string): UsageMrData | null {
       if (row.is_subagent) stage.subagentCost += delta.cost;
     }
 
+    const counted = [...entries.values()].filter((e) => Number.isFinite(e.firstActivity));
+    const spanOf = counted.length > 0 ? counted : [...entries.values()];
+    for (const entry of entries.values()) {
+      if (Number.isFinite(entry.firstActivity)) continue;
+      entry.firstActivity = entry.first.started_at ?? entry.first.first_ts;
+      entry.lastActivity = entry.first.ended_at ?? entry.firstActivity;
+    }
     const startOf = (e: EntryFold) => e.first.started_at ?? e.firstActivity;
     const ordered = [...entries.values()].sort((a, b) => startOf(a) - startOf(b));
     const rounds = numberRounds(ordered);
-    const first = Math.min(...ordered.map((e) => e.firstActivity));
-    const last = Math.max(...ordered.map((e) => e.lastActivity));
+    const first = Math.min(...spanOf.map((e) => e.firstActivity));
+    const last = Math.max(...spanOf.map((e) => e.lastActivity));
     return {
       ...splitsOf(splits),
       mrKey,
@@ -525,6 +560,7 @@ export function usageMr(dbPath: string, mrKey: string): UsageMrData | null {
       firstActivity: first,
       lastActivity: last,
       costByKind,
+      outsideRuns,
       runs: ordered.map((e) => entryRow(db, e, rounds.get(e) ?? null)),
     };
   });
@@ -570,8 +606,8 @@ export function usageTrends(
             $until: nextWeek(week).getTime(),
           },
         },
-        [],
-      ) as MessageRow[];
+        [`${OUTSIDE_RUN} AS outside_run`],
+      ) as Array<MessageRow & { outside_run: number }>;
       if (rows.length === 0) continue;
 
       const row: UsageWeekRow = {
@@ -582,9 +618,9 @@ export function usageTrends(
       for (const message of rows) {
         const delta = totalsOf(message);
         add(row.totals, delta);
-        add(row.byKind[kindFor(message)], delta);
+        add(row.byKind[message.outside_run ? "other" : kindFor(message)], delta);
         add(totals, delta);
-        addTo(pipelines, message.pipeline, delta);
+        addTo(pipelines, message.outside_run ? null : message.pipeline, delta);
         addTo(models, message.model, delta);
       }
       weeks.push(row);
