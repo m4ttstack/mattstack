@@ -227,13 +227,14 @@ one-off with no props.
 
 ### Forge
 
-Two clusters share this name: adapters for a CI forge (GitLab today, with
-the seam left open for GitHub), and worktree/branch operations against a
+Two clusters share this name: a legacy adapter for a CI forge, and
+worktree/branch operations against a
 code forge (GitHub or GitLab). Both are engines, reached only through a
 binding or a pack's compile, never directly.
 
-- **mattstack:ci-forge-gitlab** -- GitLab implementation of the watch-ci
-  stage's `forge` prop: pipeline tree-walking, job listing, triage refs.
+- **mattstack:ci-forge-gitlab** -- legacy fill for the watch-ci stage's
+  `forge` prop. CI watch and triage now go through the `ci_watch` and
+  `ci_triage` tools on both GitLab and GitHub.
 - **checkout** -- get a local worktree for someone else's branch, given a
   branch name, an MR/PR link or number, or a ticket id, without starting
   work on it.
