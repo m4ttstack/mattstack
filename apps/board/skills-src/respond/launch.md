@@ -407,8 +407,9 @@ chain. A thread already carries this run's reply when it holds either:
 
 On GitHub a PR-level row (`gh-issue-comment-<n>` or `gh-review-<n>`) is
 posted when a `gh-issue-comment` entry by this account, dated after the
-answered gate's `answeredAt`, carries the reply text, since its reply
-is a new PR comment and not a note in the row's own chain.
+answered gate's `answeredAt`, carries that row's marker line
+(`<!-- mattstack-reply-to: <the row's id> -->`) and the reply text, never the
+reply text alone, since its reply is a new PR comment and not a note in the row's own chain.
 
 Such a thread is posted: it counts toward `--posted`, it is never offered
 at a fresh Gate 2, and its reply is never posted again, whatever

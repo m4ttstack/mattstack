@@ -115,11 +115,13 @@ Approach 1, with the four calls below made through the shepherd
    PR comment.** For a `gh-issue-comment-<n>` or `gh-review-<n>` row, the
    reply posts with `mr_comment {mrUrl, body, resolvable: false}`, its body
    opening with the comment's first line as a Markdown quote and the
-   author's `@username`, then the reply. It is never resolved, so its Gate
+   author's `@username`, then the reply, and ending with a hidden marker
+   line `<!-- mattstack-reply-to: <the row's id> -->` that names the row. It is never resolved, so its Gate
    2 question offers `post:` alone (as an Overview comment does on
    GitLab). This applies in receive-review and board respond. The posted
    check for such a row looks for a PR-level comment (a `gh-issue-comment`
-   entry) carrying the reply text, since the reply is not in the original
+   entry) carrying that row's marker and the reply text, never the text
+   alone, since the reply is not in the original
    comment's note chain. Shepherd's call; the PR body names it as a
    behaviour change.
 4. **Board doctor stops at entry on GitHub.** On a `github.com` mrUrl the

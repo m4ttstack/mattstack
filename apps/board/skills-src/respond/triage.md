@@ -234,8 +234,8 @@ On GitHub, before judging, drop two kinds of PR-level row
 (`gh-issue-comment-<n>` or `gh-review-<n>`) from the read: a row whose
 note is by the account this run posts as is out of scope, never
 adjudicated or replied to; and a row that a later PR-level comment by
-this account quotes (its first line as a Markdown quote, per the
-PR-level reply shape) is already answered. Rows dropped this way count
+this account answers is already answered: that comment's marker line
+(per the PR-level reply shape) names the row's id. Rows dropped this way count
 as no thread for `Unresolved human threads = 0?`.
 
 With `--person <username>`, keep only that person's feedback:
@@ -246,8 +246,11 @@ With `--person <username>`, keep only that person's feedback:
   and has not left an Overview comment of their own after it.
 
 On GitHub any `gh-issue-comment-<n>` or `gh-review-<n>` row is an Overview
-comment (a `gh-issue-comment` row carries `resolvable: null`), so it
-counts for `--person` by the same test.
+comment (a `gh-issue-comment` row carries `resolvable: null`), but it is
+not tested by the author-reply rule above: it is still open when no
+PR-level comment by this account carries its marker line (per the PR-level
+reply shape), decided per comment, so an author reply to one comment never
+drops another.
 
 Every other thread and comment on the MR is out of scope, however much it
 seems to need an answer. An Overview comment's row is keyed by its
@@ -262,7 +265,9 @@ On GitHub an Overview comment is a `gh-issue-comment-<n>` or
 `gh-review-<n>` row, and `mr_reply_thread` refuses those ids. Its reply
 posts as a new PR comment with `mr_comment {mrUrl, body, resolvable:
 false}`: the body is `> <the comment's first line>`, a blank line,
-`@<author>`, then the reply. It cannot be resolved either, so its Gate 2
+`@<author>`, the reply, a blank line, then the marker line
+`<!-- mattstack-reply-to: <the row's id> -->` (for example
+`<!-- mattstack-reply-to: gh-issue-comment-12 -->`), last. It cannot be resolved either, so its Gate 2
 question offers `post:` alone.
 
 Judge each thread on its merits and pick one verdict:

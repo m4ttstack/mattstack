@@ -12,6 +12,8 @@ note whose text is the reply due, or any note by the account this run
 posts as dated after the run's `started_at`) is posted: it never posts
 again. A PR-level row (`gh-issue-comment-<n>` or `gh-review-<n>`) is
 posted when a `gh-issue-comment` entry by this account dated after the
-run's `started_at` carries the reply text. With no result (an error, or a
+run's `started_at` carries that row's marker line
+(`<!-- mattstack-reply-to: <the row's id> -->`) and the reply text; the reply
+text alone never counts. With no result (an error, or a
 thread whose notes did not come back), nothing posts: set `hold` to
 `held`, report the error verbatim, and leave the run open.

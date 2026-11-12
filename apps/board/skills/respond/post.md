@@ -242,8 +242,10 @@ error` and the fixed threads are held. `<root>` is the
   answer. On GitHub a PR-level row (`gh-issue-comment-<n>` or
   `gh-review-<n>`) posts as a new PR comment with `mr_comment {mrUrl,
 body, resolvable: false}`: the body is `> <the comment's first line>`, a
-  blank line, `@<author>`, then the reply; `mr_reply_thread` refuses those
-  ids. `resolve:` runs after the reply when both are picked. An empty
+  blank line, `@<author>`, the reply, a blank line, then the marker line
+  `<!-- mattstack-reply-to: <the row's id> -->` (for example
+  `<!-- mattstack-reply-to: gh-issue-comment-12 -->`), last; `mr_reply_thread`
+  refuses those ids. `resolve:` runs after the reply when both are picked. An empty
   array leaves the thread untouched. A held thread posts and resolves
   nothing. A thread marked posted already never posts its reply again,
   though its `resolve:` pick still runs. When Gate 2 offered a `gate-1:
@@ -416,7 +418,8 @@ forge CLI or the API.
 
 `mr_comment` refused. Correct what the error names: `mrUrl` the MR's
 https URL, `body` the non-empty reply text (the quote of the comment's
-first line, a blank line, `@<author>`, then the reply), `resolvable`
+first line, a blank line, `@<author>`, the reply, a blank line, then the
+`<!-- mattstack-reply-to: <the row's id> -->` marker line), `resolvable`
 false. An error that names no input has nothing to correct: post again
 unchanged, once, and the off-script gate follows. An error is never a
 reason to post with the forge CLI or the API.
