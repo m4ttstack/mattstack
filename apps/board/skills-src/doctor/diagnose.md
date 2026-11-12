@@ -225,18 +225,18 @@ there is no poll:
 ### Fix what the mr_rebase error names
 
 `mr_rebase` refused. Correct what the error names (`mrUrl` the MR's https
-URL) and go back through the lease check before rebasing again, once: the
-lease may have moved while you fixed the call. An error that names no
-input has nothing to correct: rebase again unchanged, once, and the
-off-script escalation follows.
+URL, `wait` true on GitHub) and go back through the lease check before
+rebasing again, once: the lease may have moved while you fixed the call.
+An error that names no input has nothing to correct: rebase again
+unchanged, once, and the off-script escalation follows.
 
 On GitHub, an error saying GitHub will not rebase the PR never reaches
 this box: `mr_rebase result (GitHub)?` takes it to the exit. Read the
 error by meaning, not by one exact string: merge conflicts (the one string
 measured live is `PullRequest::RebaseConflictError`), a branch already up
 to date with its base, or a fork that does not allow edits from
-maintainers. Only an error that names a wrong input, or no reason at all,
-comes here.
+maintainers. Every other error comes here: correct a wrong input, or
+retry unchanged when it names none.
 
 ### End the turn: waiting on the rebase poll
 
