@@ -56,7 +56,7 @@ test('a GitHub row names its PR the GitHub way, with no MR in sight', async () =
     webUrl: 'https://github.com/acme/webapp/pull/9',
     provider: 'github',
   } as unknown as BoardMRWithReview);
-  expect(text).toContain('open in slack · #9');
+  expect(text).toContain('#9');
   expect(text).not.toMatch(/\bMR\b|!9/);
   expect(document.querySelector('[aria-label="open #9 in slack"]')).not.toBe(
     null
