@@ -249,7 +249,7 @@ test('call doctor goes to the broken MR and the toast says who was skipped', asy
     105,
   ]);
   expect(document.body.textContent).toContain(
-    "doctor called on !105 · 1 didn't need it"
+    "doctor called on !105; 1 didn't need it"
   );
 });
 

@@ -136,7 +136,7 @@ test('bulk merge names the reason when one MR is refused', async () => {
   );
   await runMany({ kind: 'mr', action: 'merge' }, [1, 2].map(mr), deps);
   expect(events.filter(e => e.startsWith('toast'))).toEqual([
-    "toast merge accepted on !1 · couldn't merge !2 (merge conflicts)",
+    "toast merge accepted on !1; couldn't merge !2 (merge conflicts)",
   ]);
 });
 
@@ -263,7 +263,7 @@ test('runMany speaks once: what it did, what failed, then what it skipped', asyn
     1
   );
   expect(events.filter(e => e.startsWith('toast'))).toEqual([
-    "toast rebase started on !1, !2 · couldn't rebase !3 (409) · 1 didn't need it",
+    "toast rebase started on !1, !2; couldn't rebase !3 (409); 1 didn't need it",
   ]);
   expect(events.at(-1)).toBe('reload true');
 });
@@ -357,7 +357,7 @@ test('runBulk asks the picked person only on the MRs they can take', async () =>
     `post /nudge {"mrUrl":"${mr(1).webUrl}","iid":1,"reviewer":"kim","kind":"review"}`,
     `post /nudge {"mrUrl":"${mr(3).webUrl}","iid":3,"reviewer":"kim","kind":"review"}`,
   ]);
-  expect(events).toContain("toast asked kim on !1, !3 · 1 didn't need it");
+  expect(events).toContain("toast asked kim on !1, !3; 1 didn't need it");
 });
 
 test('runBulk says how many checked MRs did not need the action', async () => {
@@ -371,7 +371,7 @@ test('runBulk says how many checked MRs did not need the action', async () => {
     {},
     deps
   );
-  expect(events).toContain("toast doctor called on !7 · 3 didn't need it");
+  expect(events).toContain("toast doctor called on !7; 3 didn't need it");
 });
 
 test('runBulk does nothing for an ask without a pick or a one-row request', () => {
@@ -490,7 +490,7 @@ test('a bulk review skips MRs a peer is reviewing and names them', async () => {
   );
   expect(events).toEqual([
     'launch review !1 {"quiet":true}',
-    'toast review started on !1 · skipped !2, mira is reviewing',
+    'toast review started on !1; skipped !2, mira is reviewing',
     'reload false',
   ]);
 });
@@ -544,7 +544,7 @@ test("presence skips stay out of the didn't-need-it count", async () => {
     deps
   );
   expect(events[1]).toBe(
-    "toast review started on !1 · 1 didn't need it · skipped !2, mira is reviewing"
+    "toast review started on !1; 1 didn't need it; skipped !2, mira is reviewing"
   );
 });
 
@@ -582,7 +582,7 @@ test('a bulk doctor skips MRs a live work run owns and names them', async () => 
   );
   expect(events).toEqual([
     'launch doctor !1 {"quiet":true}',
-    "toast doctor called on !1 · skipped !2, Pip's run is active · skipped !3, a work run is active",
+    "toast doctor called on !1; skipped !2, Pip's run is active; skipped !3, a work run is active",
     'reload false',
   ]);
 });
@@ -602,7 +602,7 @@ test('a bulk rebase skips MRs a live work run owns too', async () => {
   );
   expect(events).toEqual([
     'launch rebase !1 {"quiet":true}',
-    "toast rebase ran on !1 · skipped !2, Pip's run is active",
+    "toast rebase ran on !1; skipped !2, Pip's run is active",
     'reload false',
   ]);
 });
@@ -621,7 +621,7 @@ test('a bulk rebase launches only the targets and says how many it skipped', asy
   expect(events).toEqual([
     'launch rebase !1 {"quiet":true}',
     'launch rebase !3 {"quiet":true}',
-    "toast rebase ran on !1, !3 · 1 didn't need it",
+    "toast rebase ran on !1, !3; 1 didn't need it",
     'reload false',
   ]);
 });
@@ -649,7 +649,7 @@ test('a bulk rebase counts a stopped reply as failed and names its reason', asyn
     );
   await runMany({ kind: 'launch', flow: 'rebase' }, [mr(1), mr(2)], deps);
   expect(events).toEqual([
-    "toast rebase ran on !1 · couldn't launch rebase for !2 (tree is dirty)",
+    "toast rebase ran on !1; couldn't launch rebase for !2 (tree is dirty)",
     'reload false',
   ]);
 });
@@ -676,7 +676,7 @@ test('a bulk review counts a refused reply as failed and names its reason', asyn
   await runMany({ kind: 'launch', flow: 'review' }, [mr(1), mr(2)], deps);
   expect(events).toEqual([
     expect.stringMatching(
-      /^toast .* on !1 · couldn't launch review for !2 \(the acme plugin is turned off\)$/
+      /^toast .* on !1; couldn't launch review for !2 \(the acme plugin is turned off\)$/
     ),
     'reload false',
   ]);

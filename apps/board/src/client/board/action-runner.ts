@@ -446,7 +446,7 @@ export async function runMany(
   // here empty; an empty run has nothing to reload, but its skip notes
   // still have to be said.
   if (targets.length === 0) {
-    if (skipNotes.length) deps.addToast(skipNotes.join(' · '));
+    if (skipNotes.length) deps.addToast(skipNotes.join('; '));
     return;
   }
   const plan = bulkPlan(req, deps.people ?? NO_PEOPLE);
@@ -477,7 +477,7 @@ export async function runMany(
   }
   if (skipped > 0) parts.push(`${skipped} didn't need it`);
   parts.push(...skipNotes);
-  deps.addToast(parts.join(' · '));
+  deps.addToast(parts.join('; '));
   deps.reload(plan.fresh);
 }
 
