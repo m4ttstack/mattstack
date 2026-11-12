@@ -634,7 +634,9 @@ describe("mcpTools", () => {
       expect(d).not.toContain("in GitLab first");
       expect(d).toContain("pending drafts on GitLab, a pending review on GitHub");
       expect(d).toContain("resolveErrors (the threads a reply could not resolve)");
-      expect(d).toContain("replyErrors (present when a reply failed to post; its resolve is skipped)");
+      expect(d).toContain("replyErrors (GitHub only: the review is up but those replies did not post and their threads stay unresolved; post each with mr_reply_thread, never by calling this again)");
+      expect(d).not.toContain("unless all of it can");
+      expect(d).toContain("A refused review posts nothing:");
     });
 
     test("schema requires outcome and summary and limits outcome to comment or approve", () => {
