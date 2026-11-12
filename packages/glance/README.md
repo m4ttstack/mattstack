@@ -27,7 +27,7 @@ Two built-in providers implement the `GitProvider` interface:
 | Provider | Class | Capabilities |
 |---|---|---|
 | GitLab | `GitLabProvider` | Full: merge, rebase, approve, auto-merge, retry pipeline, re-review, resolve discussions |
-| GitHub | `GitHubProvider` | Core: merge, approve, rebase |
+| GitHub | `GitHubProvider` | Core: merge (with merge queue), approve, rebase, auto-merge, polling `watchMR` |
 
 ```ts
 import { createProvider } from '@mattstack/glance';

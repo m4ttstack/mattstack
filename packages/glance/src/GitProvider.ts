@@ -884,8 +884,8 @@ export interface GitProvider {
    *
    * On both providers a successful body streams: it is not read before the
    * Response resolves, so a caller can cancel `res.body`'s reader after the
-   * bytes it wants and the rest is never downloaded. `Content-Length` is
-   * carried through. A non-2xx body is already read in full on GitHub.
+   * bytes it wants and the rest is not read further. `Content-Length` is
+   * carried through. A 4xx/5xx body is read in full on GitHub.
    */
   restRequest(
     method: string,
