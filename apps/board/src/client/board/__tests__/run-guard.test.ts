@@ -10,7 +10,7 @@ const mr = (activeRun?: ActiveRun) =>
 describe('activeRunConfirmFor', () => {
   test('a manual doctor on an MR a live run owns asks first', () => {
     expect(activeRunConfirmFor('doctor', {}, mr(RUN))).toEqual(RUN);
-    expect(activeRunConfirmFor('rebase-local', {}, mr(RUN))).toEqual(RUN);
+    expect(activeRunConfirmFor('rebase', {}, mr(RUN))).toEqual(RUN);
   });
 
   test('no live run, no question', () => {

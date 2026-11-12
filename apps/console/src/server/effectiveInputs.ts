@@ -15,11 +15,14 @@ import {
 } from './fixtures/design/runsFixture';
 import { runGit as liveRunGit, type RunGit } from './git-bin';
 import { runRt as liveRunRt, type RunRt } from './rt-bin';
-import { resolveStageDoc } from './stageDoc';
+import { resolveStageDoc, VERSION_REF } from './stageDoc';
 
+/** A pack the run recorded by its sha, or, when no commit could be found at
+    run start, by its version alone (`recordedSha` null, never drifted). */
 export interface PackVersionRow {
   pack: string;
-  recordedSha: string;
+  recordedSha: string | null;
+  recordedVersion: string | null;
   /** Null when the pack could not be resolved to a directory here. */
   currentSha: string | null;
   /** Null exactly when currentSha is null — unknowable, not "no". */
@@ -87,17 +90,31 @@ function parseJsonPayload(stdout: string): unknown {
   }
 }
 
-export function parsePackCommits(
-  s: string | null
-): { pack: string; sha: string }[] {
+export type PackCommit =
+  { pack: string; sha: string } | { pack: string; version: string };
+
+export function parsePackCommits(s: string | null): PackCommit[] {
   if (!s) return [];
-  const rows: { pack: string; sha: string }[] = [];
+  const rows: PackCommit[] = [];
   for (const token of s.split(/[\s,]+/)) {
     if (!token) continue;
-    const match = /^([^=]+)=([0-9a-f]+)$/i.exec(token);
-    if (match) rows.push({ pack: match[1], sha: match[2] });
+    const match = /^([^=]+)=(.+)$/.exec(token);
+    if (!match) continue;
+    const [, pack, ref] = match;
+    if (/^[0-9a-f]+$/i.test(ref)) rows.push({ pack, sha: ref });
+    else if (VERSION_REF.test(ref)) rows.push({ pack, version: ref });
   }
   return rows;
+}
+
+function versionRow(pack: string, version: string): PackVersionRow {
+  return {
+    pack,
+    recordedSha: null,
+    recordedVersion: version,
+    currentSha: null,
+    drifted: null,
+  };
 }
 
 /** Never throws: a resolver that cannot explain the key leaves the row
@@ -167,10 +184,8 @@ export function mountEffectiveInputs(
     }
   }
 
-  async function packVersionRow(commit: {
-    pack: string;
-    sha: string;
-  }): Promise<PackVersionRow> {
+  async function packVersionRow(commit: PackCommit): Promise<PackVersionRow> {
+    if ('version' in commit) return versionRow(commit.pack, commit.version);
     let currentSha: string | null = null;
     let packDir: string | null = null;
     try {
@@ -208,6 +223,7 @@ export function mountEffectiveInputs(
     return {
       pack: commit.pack,
       recordedSha: commit.sha,
+      recordedVersion: null,
       currentSha,
       drifted,
       commitsSince,

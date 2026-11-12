@@ -160,6 +160,11 @@ export const RunningFocus: Story = {
   },
 };
 
+/** Behind its target: the one "rebase" item, forge first, then a local sync. */
+export const BehindTarget: Story = {
+  render: () => menu(mr({ behindTarget: 3 })),
+};
+
 /** A response from before respond took a person: the labels stay unchanged. */
 export const LegacyNoPerson: Story = {
   render: () =>

@@ -50,7 +50,7 @@ function ctx(over: Partial<PlaceholderContext> = {}): PlaceholderContext {
       { name: "stage-provision", engine: "stage-provision", stage: "provision", dir: "${CLAUDE_SKILL_DIR}/../../attachments/stage-provision", consumes: ["ticket", "repo"], produces: ["branch", "worktree"] },
       { name: "stage-plan", engine: "stage-plan", stage: "plan", dir: "${CLAUDE_SKILL_DIR}/../../attachments/stage-plan", consumes: ["ticket"], produces: ["approach"] },
     ] },
-    repoKey: "my-repo", mattstackSha: "abc1234", mattstackDirty: 0, packSha: "acme=abc1234",
+    repoKey: "my-repo",
     stageDir: null, stageMeta: null, compiledFrom: "mattstack@1.0.0 + acme:plan-policy@0.4.0",
     verbSides: { work: "skills", checkout: "skills", "stage-plan": "attachments", "receive-review": "attachments" },
     side: "skills",
@@ -71,6 +71,13 @@ function inline(f: AttachmentSource, c: PlaceholderContext = ctx(), packPaths: s
   return inlineFillText("prop:x.domain", "domain", f, c, { packPaths, references: [], verbPaths: [] });
 }
 
+describe("seams", () => {
+  test("a prop seam carries no version", () => {
+    const seam = inline({ ...fill, body: "fill body" }).split("\n")[0]!;
+    expect(seam).toMatch(/^<!-- part: prop:\S+ binding=\S+ path=\S+ lines=\d+-\d+ -->$/);
+  });
+});
+
 describe("team markers in inlined fills", () => {
   const baseFill: AttachmentSource = { ...fill, binding: "acme-base:flow", plugin: "acme-base", bodyStartLine: 11, body: "Team {{team.linear-team}}" };
   const team = (params: Record<string, string> = {}, sections: Record<string, string> = {}) =>
@@ -79,7 +86,7 @@ describe("team markers in inlined fills", () => {
   test("inlining resolves team markers in a base fill", () => {
     const body = inline(baseFill, ctx({ team: team({ "linear-team": "Widgets" }) }));
     expect(body).toBe([
-      "<!-- part: prop:x.domain binding=acme-base:flow version=0.4.0 path=attachments/plan-policy/SKILL.md lines=11-11 -->",
+      "<!-- part: prop:x.domain binding=acme-base:flow path=attachments/plan-policy/SKILL.md lines=11-11 -->",
       "Team Widgets",
     ].join("\n"));
   });
@@ -119,9 +126,9 @@ describe("team markers in inlined fills", () => {
     const withSection = { ...baseFill, body: "before\n{{team.section:rules}}\nafter" };
     const body = inline(withSection, ctx({ team: team({}, { rules: "r1\nr2\n" }) }));
     expect(body).toBe([
-      "<!-- part: prop:x.domain binding=acme-base:flow version=0.4.0 path=attachments/plan-policy/SKILL.md lines=11-13 -->",
+      "<!-- part: prop:x.domain binding=acme-base:flow path=attachments/plan-policy/SKILL.md lines=11-13 -->",
       "before",
-      "<!-- part: section:rules source=widgets:pack/sections/rules.md version=0.4.0 path=pack/sections/rules.md lines=1-2 -->",
+      "<!-- part: section:rules source=widgets:pack/sections/rules.md path=pack/sections/rules.md lines=1-2 -->",
       "r1\nr2",
       "after",
     ].join("\n"));
@@ -131,7 +138,7 @@ describe("team markers in inlined fills", () => {
 describe("substituteLine", () => {
   test("an inlined value carries a source-coordinate marker", () => {
     expect(inline(fill)).toBe([
-      "<!-- part: prop:x.domain binding=acme:plan-policy version=0.4.0 path=attachments/plan-policy/SKILL.md lines=11-13 -->",
+      "<!-- part: prop:x.domain binding=acme:plan-policy path=attachments/plan-policy/SKILL.md lines=11-13 -->",
       "line one\nline two\nline three",
     ].join("\n"));
   });
@@ -163,9 +170,9 @@ describe("substituteLine", () => {
     expect(body).toContain("shape at ${CLAUDE_SKILL_DIR}/references/adjudicator.md");
   });
 
-  test("a registered public fill's reference line names it and its version", () => {
+  test("a registered public fill's reference line names it, with no version", () => {
     const pub = { ...fill, registered: true };
-    expect(fillReference("domain", pub)).toBe("For domain, invoke the `acme:plan-policy` skill (acme:plan-policy@0.4.0) when this flow needs it.");
+    expect(fillReference("domain", pub)).toBe("For domain, invoke the `acme:plan-policy` skill when this flow needs it.");
   });
 
   test("an include's own file references are rewritten under parts/include-<name>", () => {
@@ -177,7 +184,7 @@ describe("substituteLine", () => {
   test("include inlines with an include marker using source=", () => {
     const { body } = substitute("{{include:review-core-body}}", ctx(), "review");
     expect(body).toBe(
-      "<!-- part: include:review-core-body source=mattstack:review-core-body version=1.0.0 path=attachments/review-core-body/SKILL.md lines=6-7 -->\ncore A\ncore B",
+      "<!-- part: include:review-core-body source=mattstack:review-core-body path=attachments/review-core-body/SKILL.md lines=6-7 -->\ncore A\ncore B",
     );
   });
 
@@ -210,36 +217,23 @@ describe("substituteLine", () => {
     });
   });
 
-  test("run-start.flags is keyed by work type and carries the baked mattstack and pack facts", () => {
+  test("run-start.flags is keyed by work type", () => {
     const body = substitute("{{run-start.flags}}", ctx(), "work").body;
     const json = JSON.parse(body.replace(/^```json\n/, "").replace(/\n```$/, ""));
-    expect(json.feature).toBe("--repo my-repo --work-type feature --pipeline feature --mattstack-sha abc1234 --mattstack-dirty 0 --pack-sha acme=abc1234");
+    expect(json.feature).toBe("--repo my-repo --work-type feature --pipeline feature");
   });
 
-  test("run-start.flags omits --mattstack-sha when no sha is known", () => {
-    const body = substitute("{{run-start.flags}}", ctx({ mattstackSha: "" }), "work").body;
-    const json = JSON.parse(body.replace(/^```json\n/, "").replace(/\n```$/, ""));
-    expect(json.feature).toBe("--repo my-repo --work-type feature --pipeline feature --mattstack-dirty 0 --pack-sha acme=abc1234");
-  });
-
-  test("run-start.flags omits --pack-sha when no pack sha is known", () => {
-    const body = substitute("{{run-start.flags}}", ctx({ packSha: "" }), "work").body;
-    const json = JSON.parse(body.replace(/^```json\n/, "").replace(/\n```$/, ""));
-    expect(json.feature).toBe("--repo my-repo --work-type feature --pipeline feature --mattstack-sha abc1234 --mattstack-dirty 0");
+  test("run-start flags bake no shas", () => {
+    const body = substitute("{{run-start.flags}}\n\n{{run-start.flags:review}}", ctx(), "work").body;
+    expect(body).not.toContain("--mattstack-sha");
+    expect(body).not.toContain("--mattstack-dirty");
+    expect(body).not.toContain("--pack-sha");
   });
 
   test("run-start.flags:<verb> renders one line for a standalone verb, keyed by that verb", () => {
     const body = substitute("{{run-start.flags:review}}", ctx(), "work").body;
     const json = JSON.parse(body.replace(/^```json\n/, "").replace(/\n```$/, ""));
-    expect(json).toEqual({
-      review: "--repo my-repo --work-type review --pipeline review --mattstack-sha abc1234 --mattstack-dirty 0 --pack-sha acme=abc1234",
-    });
-  });
-
-  test("run-start.flags:<verb> still omits --mattstack-sha and --pack-sha when unknown", () => {
-    const body = substitute("{{run-start.flags:ship}}", ctx({ mattstackSha: "", packSha: "" }), "work").body;
-    const json = JSON.parse(body.replace(/^```json\n/, "").replace(/\n```$/, ""));
-    expect(json.ship).toBe("--repo my-repo --work-type ship --pipeline ship --mattstack-dirty 0");
+    expect(json).toEqual({ review: "--repo my-repo --work-type review --pipeline review" });
   });
 
   test("run-start.flags:<verb> rejects an arg that is not a bare verb name", () => {
@@ -344,13 +338,13 @@ describe("a work verb's pipeline", () => {
   test("run-start.flags:<verb> records the verb's pipeline", () => {
     const body = substitute("{{run-start.flags:work}}", workCtx("accessibility"), "work-a11y").body;
     const json = JSON.parse(body.replace(/^```json\n/, "").replace(/\n```$/, ""));
-    expect(json.work).toBe("--repo my-repo --work-type work --pipeline accessibility --mattstack-sha abc1234 --mattstack-dirty 0 --pack-sha acme=abc1234");
+    expect(json.work).toBe("--repo my-repo --work-type work --pipeline accessibility");
   });
 
   test("run-start.flags:<verb> with no pipeline is unchanged", () => {
     const body = substitute("{{run-start.flags:work}}", workCtx(null), "work").body;
     const json = JSON.parse(body.replace(/^```json\n/, "").replace(/\n```$/, ""));
-    expect(json.work).toBe("--repo my-repo --work-type work --pipeline work --mattstack-sha abc1234 --mattstack-dirty 0 --pack-sha acme=abc1234");
+    expect(json.work).toBe("--repo my-repo --work-type work --pipeline work");
   });
 
   test("run-list.pipelines adds the old work pipeline only for the default pipeline", () => {

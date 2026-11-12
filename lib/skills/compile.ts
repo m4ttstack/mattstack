@@ -380,9 +380,6 @@ export type CompileSkillOpts = {
   includes?: Record<string, AttachmentSource>;
   pipelines?: Record<string, StageEntry[]>;
   repoKey?: string;
-  mattstackSha?: string;
-  mattstackDirty?: 0 | 1;
-  packSha?: string;
   stageDir?: string | null;
   stageAllowedTools?: string[];
   emittedSiblingDirs?: string[];
@@ -418,9 +415,6 @@ export function placeholderContext(
     partsPrefix: opts.stageDir ? `${opts.stageDir}/parts` : `${CLAUDE_SKILL_DIR_TOKEN}/parts`,
     pipelines: opts.pipelines ?? {},
     repoKey: opts.repoKey ?? "",
-    mattstackSha: opts.mattstackSha ?? "",
-    mattstackDirty: opts.mattstackDirty ?? 0,
-    packSha: opts.packSha ?? "",
     stageDir: opts.stageDir ?? null,
     stageMeta: step.stageMeta,
     compiledFrom,

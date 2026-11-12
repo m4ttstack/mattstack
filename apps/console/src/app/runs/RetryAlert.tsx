@@ -14,6 +14,8 @@ export interface RetryAlertProps extends DataAttributes {
   retryLabel?: string;
   /** The retry is running. */
   busy?: boolean;
+  /** Something else holds what the retry would change. */
+  disabled?: boolean;
 }
 
 /** Something could not be read or written, with the one button that tries
@@ -25,6 +27,7 @@ export function RetryAlert({
   onRetry,
   retryLabel = 'Retry',
   busy,
+  disabled,
   ...data
 }: RetryAlertProps) {
   return (
@@ -47,6 +50,7 @@ export function RetryAlert({
       <Button
         variant="default"
         loading={busy}
+        disabled={disabled}
         onClick={onRetry}
         className={classes.retry}
         data-parity={`btn ${retryLabel}`}

@@ -137,7 +137,7 @@ function propText(b: Block, name: string, src: SourcedTree, at: Heading, st: Sta
       headedBinding = null;
     }
     if (mode === "reference") {
-      push(fill, `${SEAM_START}${key} binding=${fill.binding} version=${fill.version} ${spanOf(fill)} -->\n${fillReference(name, fill)}`);
+      push(fill, `${SEAM_START}${key} binding=${fill.binding} ${spanOf(fill)} -->\n${fillReference(name, fill)}`);
       continue;
     }
     const headed: HeadedInclude[] = [];
@@ -355,7 +355,7 @@ function renderBlock(b: Block, src: SourcedTree, parent: Heading, dropTitle: boo
   const own: Heading = titled ? { title: b.title, level: headingLevel(parent.level) } : parent;
   const textEnd = b.textStartLine + (b.text === "" ? 0 : b.text.split("\n").length) - 1;
   const seam = (from: number) =>
-    `${SEAM_START}block:${b.id} source=${src.plugin}:${src.tree.root.id} version=${src.version} path=${b.relPath} lines=${from}-${Math.max(from, textEnd)} -->`;
+    `${SEAM_START}block:${b.id} source=${src.plugin}:${src.tree.root.id} path=${b.relPath} lines=${from}-${Math.max(from, textEnd)} -->`;
   const body = renderText(b, src, own, st, seam);
 
   if (!titled) chunks.push(body === "" ? seam(b.textStartLine) : `${seam(b.textStartLine)}\n${body}`);

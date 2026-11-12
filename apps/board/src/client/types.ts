@@ -95,6 +95,7 @@ export interface RespondInfo {
 }
 export type DoctorStatus =
   | 'queued'
+  | 'forge-rebasing'
   | 'syncing'
   | 'diagnosing'
   | 'rebasing'
@@ -104,6 +105,12 @@ export type DoctorStatus =
   | 'error'
   | 'sync-stopped'
   | 'synced';
+/** The forge's own rebase, as the server's doctor row carries it. */
+export interface ForgeStep {
+  forge: 'gitlab' | 'github';
+  state: 'running' | 'done' | 'failed' | 'skipped';
+  detail?: string;
+}
 export interface DoctorInfo {
   status: DoctorStatus;
   /** The rt agent running the doctor, matched against a gone pane. */
@@ -126,6 +133,8 @@ export interface DoctorInfo {
   syncLog?: string[];
   /** The pipeline the MR showed when the sync pushed. */
   pipelineAtSync?: string;
+  /** The forge's own rebase, the first step of a one-click rebase. */
+  forge?: ForgeStep;
 }
 export interface DraftInfo {
   kind: string;
