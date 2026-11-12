@@ -189,7 +189,10 @@ export async function mergeOnGitHub(
     });
     const cleanup = pr.sourceBranchNotDeleted === undefined ? {} : { sourceBranchNotDeleted: pr.sourceBranchNotDeleted };
     if (pr.state === "merged") return ok({ merged: true, ...cleanup });
-    if (pr.queued) return ok({ queued: true, position: pr.queued.position, state: pr.queued.state });
+    if (pr.queued) {
+      if (options.wait) return await waitForQueue(github, target, queue.lastRemoval?.at, maxWait, clock);
+      return ok({ queued: true, position: pr.queued.position, state: pr.queued.state });
+    }
     return ok({ requested: "merge", verified: false, state: pr.state, ...cleanup });
   } catch (e) {
     if (e instanceof MergeReadBackFailedError && e.queued) return ok({ queued: true, position: e.queued.position, state: e.queued.state });

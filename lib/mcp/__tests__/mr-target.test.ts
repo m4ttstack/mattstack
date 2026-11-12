@@ -290,6 +290,12 @@ describe("sourceInRepo", () => {
     expect(sourceInRepo(GH_ID, {})).toBe(false);
   });
 
+  test("the base repo is the one the PR's own URL names, so a checkout whose origin predates a rename still matches", () => {
+    const pr = { sourceProjectPath: "acme/renamed", webUrl: "https://github.com/acme/renamed/pull/4" };
+    expect(sourceInRepo(GH_ID, pr)).toBe(true);
+    expect(sourceInRepo(GH_ID, { ...pr, sourceProjectPath: "someone/renamed" })).toBe(false);
+  });
+
   test("GitLab reports no source project, so its MRs match as before", () => {
     expect(sourceInRepo(GL_ID, {})).toBe(true);
   });

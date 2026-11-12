@@ -92,13 +92,13 @@ export interface MrByTargetData {
   mrs: MrTargetSummary[];
 }
 
-/** One MR fetched from GitLab on demand: any author, any state. Never from the open-MR cache. */
 /** A follow-up write GitHub's create needed that did not apply; the PR exists without it. */
 export interface MrCreateFailedStep {
   step: "reviewers" | "assignees" | "labels";
   message: string;
 }
 
+/** One MR fetched from GitLab on demand: any author, any state. Never from the open-MR cache. */
 export interface MrGetData {
   mr: PullRequest;
   fetchedAt: number;

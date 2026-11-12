@@ -8,7 +8,8 @@
  * mr:by-branch ... batch branch → MR resolution for the same repo, same grant.
  * Store-first (any stored state), forge-fallthrough on a miss with a
  * write-back upsert so the next call for that branch is a store hit. A
- * per-branch forge failure resolves to null rather than failing the batch.
+ * per-branch forge failure resolves to null rather than failing the batch,
+ * except on GitHub, where a failed or incomplete read fails the whole call.
  *
  * `payload.repoName` is opaque here — the store, grants, and sync it drives
  * all key on whatever string arrives. It becomes the serialized repo identity

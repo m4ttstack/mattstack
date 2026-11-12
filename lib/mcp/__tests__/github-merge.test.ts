@@ -81,6 +81,15 @@ describe("mergeOnGitHub", () => {
     expect((await mergeOnGitHub(TARGET, {}, { provider })).body).toEqual({ queued: true, position: 2, state: "QUEUED" });
   });
 
+  test("a merge GitHub queued after the status read said no queue still waits when asked", async () => {
+    let reads = 0;
+    const fetchMergeQueueStatus = async () => full(reads++ === 0 ? { enabled: false, inQueue: false } : { enabled: true, inQueue: false, merged: true });
+    const mergePullRequest = (async () => ({ state: "opened", queued: { position: 1, state: "QUEUED" } })) as unknown as GithubMergeProvider["mergePullRequest"];
+    const { provider } = github({ enabled: false, inQueue: false }, { mergePullRequest, fetchMergeQueueStatus });
+    const res = await mergeOnGitHub(TARGET, { wait: true }, { provider, sleep: async () => {}, now: () => 0 });
+    expect(res.body).toEqual({ merged: true });
+  });
+
   test("a merge whose read-back failed is unverified, not failed", async () => {
     const mergePullRequest = (async () => {
       throw Object.assign(Object.create(ReadBackFailedError.prototype), { writeApplied: true });
