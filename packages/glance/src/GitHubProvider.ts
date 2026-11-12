@@ -1749,7 +1749,7 @@ export class GitHubProvider implements GitProvider {
     _op?: string,
     io?: { redirect?: 'manual' }
   ): Promise<Response> {
-    return this.api(method, path, body, io);
+    return this.api(method, path, body, { ...io, stream: true });
   }
 
   /**
@@ -3152,7 +3152,7 @@ export class GitHubProvider implements GitProvider {
     method: string,
     path: string,
     body?: unknown,
-    io?: { redirect?: 'manual' }
+    io?: { redirect?: 'manual'; stream?: boolean }
   ): Promise<Response> {
     // Octokit's endpoint parser rewrites `:word` into a route placeholder
     // before the string is ever handed to fetch, and a placeholder with no
@@ -3188,7 +3188,17 @@ export class GitHubProvider implements GitProvider {
     try {
       const res = await this.octokit.request(`${method} ${safePath}`, {
         ...(body !== undefined ? { data: body } : {}),
-        ...(io?.redirect ? { request: { redirect: io.redirect } } : {})
+        ...(io?.redirect || io?.stream
+          ? {
+              request: {
+                ...(io.redirect ? { redirect: io.redirect } : {}),
+                // Octokit then hands back `fetchResponse.body` unread, so a
+                // caller can cancel after the bytes it wants. Error bodies
+                // are still parsed: Octokit reads them before throwing.
+                ...(io.stream ? { parseSuccessResponseBody: false } : {})
+              }
+            }
+          : {})
       });
       return toResponse(res.status, res.headers, res.data);
     } catch (caught) {
@@ -4020,7 +4030,7 @@ function toResponse(
   const body =
     NULL_BODY_STATUSES.has(status) || data === undefined || data === null
       ? null
-      : typeof data === 'string'
+      : typeof data === 'string' || data instanceof ReadableStream
         ? data
         : JSON.stringify(data);
   // Octokit hands back the whole header map (lowercase keys, string values)

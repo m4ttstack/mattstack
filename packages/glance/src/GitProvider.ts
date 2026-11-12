@@ -421,6 +421,11 @@ export interface GitProvider {
   /**
    * Create a new merge request / pull request.
    * Returns the created PullRequest.
+   *
+   * Can reject with `ReadBackFailedError` (`writeApplied: true`): the PR
+   * exists but could not be read back. On GitHub it can also reject with
+   * `PartialCreateError`: the PR exists but a reviewers, assignees or labels
+   * step failed; `failedSteps` and `pullRequest` say which.
    */
   createPullRequest(input: CreatePullRequestInput): Promise<PullRequest>;
 
@@ -876,6 +881,11 @@ export interface GitProvider {
    * from `fetch`, so `res.url` is always empty there. Status, statusText,
    * headers, and body are all carried through; `url` is the one field the
    * Response constructor cannot set, so it cannot be restored.
+   *
+   * On both providers a successful body streams: it is not read before the
+   * Response resolves, so a caller can cancel `res.body`'s reader after the
+   * bytes it wants and the rest is never downloaded. `Content-Length` is
+   * carried through. A non-2xx body is already read in full on GitHub.
    */
   restRequest(
     method: string,
