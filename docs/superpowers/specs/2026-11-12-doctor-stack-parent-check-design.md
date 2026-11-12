@@ -147,8 +147,7 @@ The check sits after the license diamond so an unlicensed run, which
 ends anyway, spends no read. It sits before the lease check so a stack
 parent never claims or touches the lease for a rebase it will not run.
 
-Re-entries after an escalation (added in the follow-up round, agreed with
-skills-watch-ci): a gate can be held for hours and a child can open
+Re-entries after an escalation: a gate can be held for hours and a child can open
 meanwhile, so every return toward the rebase after an escalation answer
 runs the check again. The lease check's iterate and `mr_rebase`'s
 iterate re-enter at the check node, whose pass edge goes on to the lease
@@ -194,7 +193,9 @@ mr_rebase error names"). It also removes the GitHub entry stop: the
 the matching outcome edge in SKILL.md, plus SKILL.md's lease and API tier
 notes. This lane touches only the nodes above the lease check in
 `diagnose.md`, one new prose bullet there, and the Fix classes line in
-SKILL.md. This lane will probably push first; skills-watch-ci rebases
+SKILL.md, plus the three escalation re-entry edges (the lease check's
+take and iterate, and the one `Off-script rounds = 2 (mr_rebase)?` edge
+back toward the lease check), which skills-watch-ci agreed to. This lane will probably push first; skills-watch-ci rebases
 onto it, regenerates `apps/board/skills/doctor/` and re-bumps the plugin
 if its own change needs a bump.
 
