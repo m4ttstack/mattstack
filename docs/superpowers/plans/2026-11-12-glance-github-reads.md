@@ -21,6 +21,7 @@
 - Stage named files only. One commit per task.
 - Before every commit touching `packages/glance`, from `packages/glance`: `bun test`, `bun run check-types`, `bun run check:node`, `bun run build`, `bun run check-types:live`; and from the worktree root `bun run purity`. All must pass.
 - Daemon tasks run tests from the worktree root (bunfig preload): `bun test lib/daemon/__tests__/project-sync.test.ts lib/daemon/__tests__/project-sync-github.test.ts lib/daemon/__tests__/project-sync-github-sync.test.ts`, then `bun run typecheck`. Run `bun run build` in `packages/glance` first so the daemon resolves the new types from `dist/`.
+- Every new glance test file starts with `useForgeStub()` and `useInstantTimers()` (from `tests/helpers/gh-fill-fixture.ts`): GraphQL throttling spaces requests a second apart, and the stub must reset between tests.
 - Costs the spec states must not move: rules 50 PRs per GraphQL request, compares 25 per request, index 100 rows per REST page, re-measure one batched request per cycle on GitHub (cap 25). If code needs a different number, stop and ask.
 
 ## Review Focus
@@ -41,6 +42,7 @@
 - Modify: `packages/glance/src/GitLabProvider.ts` (three lines in `capabilities`)
 - Modify: `packages/glance/src/GitHubProvider.ts` (three new flags, all `false` for now)
 - Modify: `packages/glance/tests/live/expectations.ts` (four entries per provider)
+- Modify: `packages/glance/tests/live-expectations.test.ts` (add the four methods to its hardcoded `OPTIONAL` list, or its "only optional interface methods may be declared absent" test fails)
 - Test: `packages/glance/tests/github-reads-capabilities.test.ts` (new)
 
 **Interfaces:**
@@ -105,8 +107,9 @@
 - [ ] **Step 1: Write the failing tests** (`rulesFromNode` directly, then the provider via `stubForge({ graphql })`):
   - A codeowner request for team `org/platform` and one for user `Alice` gives `[{type:'CODE_OWNER',section:'@alice',approved:false},{type:'CODE_OWNER',section:'@org/platform',approved:false}]`; a request with `asCodeOwner: false` adds nothing.
   - An `APPROVED` review with `onBehalfOf` `org/platform` plus a pending request for it gives one `@org/platform` rule, `approved: true`. A `CHANGES_REQUESTED` review on behalf of a team gives `approved: false`.
-  - `reviewRequests.totalCount: 101` with 100 nodes gives `unknownReason`; so does an `onBehalfOf.totalCount` above its nodes, and a codeowner request with `requestedReviewer: null`.
-  - iids mode with 60 numbers sends 2 requests (50 + 10). An error with `path: ['repository','p7','reviewRequests','nodes',0,'requestedReviewer']` gives `{iid:7, rules:[], unknownReason}` while `p8` maps normally; a `NOT_FOUND` error on `p9` leaves 9 out.
+  - `reviewRequests.totalCount: 101` with 100 nodes gives `unknownReason`; so do a `latestOpinionatedReviews.totalCount` above its nodes, an `onBehalfOf.totalCount` above its nodes, and a codeowner request with `requestedReviewer: null`.
+  - An `APPROVED` review with an empty `onBehalfOf` (a user owner's approval) adds no rule.
+  - iids mode with 60 numbers sends 2 requests (50 + 10), and keeps a draft PR. An error with `path: ['repository','p7','reviewRequests','nodes',0,'requestedReviewer']` gives `{iid:7, rules:[], unknownReason}` while `p8` maps normally; a `NOT_FOUND` error on `p9` leaves 9 out.
   - updatedAfter mode: drafts left out; `excludeTargetBranches: ['release']` drops a `baseRefName: 'release'` node; the walk stops at the first node older than `updatedAfter` without requesting the next page; `pageSize: 80` sends `first: 50`; `pageSize: 0` and `1.5` throw; an error path `['repository','pullRequests','nodes',2,...]` marks that node unknown; a null node with errors throws.
   - Both `updatedAfter` and `iids` throws `/mutually exclusive/`. A rate-limited response throws `RateLimitedError`.
 - [ ] **Step 2: Run** `bun test tests/gh-approval-rules.test.ts`. Expected: FAIL.
@@ -139,8 +142,9 @@
 **Files:**
 - Modify: `packages/glance/src/GitHubProvider.ts` (method, flip `canFetchMergeRequestIndex` to `true`)
 - Modify: `packages/glance/tests/metrics-reads-capabilities.test.ts` (GitHub index now present)
+- Modify: `packages/glance/tests/live-expectations.test.ts` (its "expectationFor selects the right table" assertion that GitHub's `fetchMergeRequestIndex` is `absent` flips to `supported`)
 - Modify: `packages/glance/tests/live/expectations.ts` (`fetchMergeRequestIndex` supported, note: projectPaths only, groupPath throws)
-- Modify: `packages/glance/tests/live/conformance.ts` (the "group mode" check counts as not applicable on a provider whose expectation note says groupPath is GitLab-only: skip it with `Inconclusive` naming why)
+- Modify: `packages/glance/tests/live/conformance.ts`: `runMetricsReadConformance` today returns early only when every metric read is absent. Change it so each check whose method the fixture's expectations declare `absent` is skipped (the absence check already records it), instead of calling an undefined method; and the "group mode" index check throws `Inconclusive('groupPath is GitLab-only')` on GitHub.
 - Test: `packages/glance/tests/gh-merge-request-index.test.ts` (new)
 
 **Interfaces:**
@@ -152,25 +156,26 @@
   - Page 1 of 100 rows all inside the window, page 2 whose 40th row is older than `updatedAfter`: 2 requests, rows after the cutoff excluded, `onPage` called with 100 then the kept total.
   - `excludeTargetBranches: ['main']` drops `base.ref: 'main'` rows.
   - `groupPath` throws `/GitLab-only/`; neither or both throws; a bad `updatedAfter` throws.
-  - A 101st full page throws naming `o/r` (stub 101 full in-window pages).
-  - An aborted `signal` rejects with the signal's reason and the stub sees no retry.
+  - After 100 full pages whose last rows are all inside the window, the walk throws naming `o/r` without requesting page 101 (stub 100 full in-window pages; assert 100 requests).
+  - `states: ['merged']` sends `state=closed` and drops rows with `merged_at: null`.
+  - A pre-aborted `signal` rejects with the signal's reason and the stub sees no request; `onPage: () => controller.abort(new Error('stop'))` after page 1 rejects with that error and page 2 is never requested.
 - [ ] **Step 2: Run** `bun test tests/gh-merge-request-index.test.ts tests/metrics-reads-capabilities.test.ts`. Expected: FAIL.
-- [ ] **Step 3: Implement** a private walk (not `listRepoPRs`, whose 20-page cap warns instead of throwing), passing `request: { signal }` to Octokit. Method doc states GitHub's retry as `githubClient.ts` actually does it (GET 5xx retry plugin; rate limits throw `RateLimitedError`).
+- [ ] **Step 3: Implement** a private walk (not `listRepoPRs`, whose 20-page cap warns instead of throwing), passing `request: { signal }` to Octokit, checking `signal.aborted` before each page, and rethrowing `signal.reason` when a request fails while the signal is aborted (Octokit wraps a custom abort reason as a retryable 500). Method doc states GitHub's retry as `githubClient.ts` actually does it (GET 5xx retry plugin; rate limits throw `RateLimitedError`).
 - [ ] **Step 4: Run** the tests and the glance gate list. Expected: PASS.
 - [ ] **Step 5: Commit** `glance: GitHub fetchMergeRequestIndex`.
 
 ### Task 6: Live conformance cases and README
 
 **Files:**
-- Create: `packages/glance/tests/live/githubReadsConformance.ts`
-- Modify: the live runner that calls `runGitHubGapsConformance` (`packages/glance/tests/live/runner.ts`) to also call the new runner for the GitHub fixture; no pacing change
+- Create: `packages/glance/tests/live/parityReadsConformance.ts`
+- Modify: `packages/glance/tests/live/runner.ts` to call the new runner for every fixture (GitLab and GitHub), so `report.assertFullCoverage(fixture.name, ALL_METHODS)` sees all four new methods on both; no pacing change
 - Modify: `packages/glance/README.md` (SDK section lists the four reads with their flags)
 
 **Interfaces:**
 - Consumes: `check`, `assert`, `Inconclusive`, `createBranch`, `commitFile`, `runPrefix` from `conformance.ts`; `ProviderFixture`; `Reporter`.
-- Produces: `runGitHubReadsConformance(fixture: ProviderFixture, report: Reporter): Promise<void>`.
+- Produces: `runParityReadsConformance(fixture: ProviderFixture, report: Reporter): Promise<void>`.
 
-- [ ] **Step 1: Write the cases** (never run here):
+- [ ] **Step 1: Write the cases** (never run here). Any method the fixture's expectations declare `absent` gets an absence check (`typeof provider.x === 'undefined'`), as `runMetricsReadConformance` does. GitLab, read-only: `fetchCodeownerSections` returns an array or null; `fetchApprovalRules({ projectPath, updatedAfter })` returns well-formed entries (`Inconclusive` when none); `fetchDivergedCount` on an open MR returns a number or null (`Inconclusive` when the fixture has no open MR); `fetchDivergedCounts` is absent. GitHub:
   - Index: a PR this run merges into its own throwaway branch appears as a `merged` row inside `updatedAfter` with its source branch.
   - Behind count: a PR whose branch was cut before a commit this run adds to its base reports `>= 1` through both `fetchDivergedCounts` and `fetchDivergedCount`; a PR cut from the tip reports 0. Records the elapsed time of a 25-PR batch when the fixture has 25 open PRs, else `Inconclusive`.
   - Codeowner sections and rules: `fetchCodeownerSections`; when null, rules assertions throw `Inconclusive('fixture has no CODEOWNERS')`. With a team owner: a PR touching an owned path gets an unapproved `@org/team` rule; after the approver identity approves and then leaves a comment-only review, the rule reads `approved: true`.
@@ -186,7 +191,7 @@
 
 **Interfaces:**
 - Produces in `project-sync-github.ts`: `GitHubSyncProvider = Pick<GitHubProvider, 'fetchPullRequests' | 'fetchSingleMR' | 'fetchMergeRequestIndex' | 'fetchApprovalRules' | 'fetchCodeownerSections' | 'fetchDivergedCounts'>`; `githubFetchRules(ctx: GitHubSyncContext, opts: { updatedAfter?: string; iids?: number[] }): Promise<MRApprovalRules[]>`; `githubFetchKnownSections(ctx: GitHubSyncContext): Promise<string[] | null>`.
-- Produces in `project-sync.ts`: `export function sweepTags(rules: MRApprovalRules[], demanded: string[], stored: (iid: number) => string[] | undefined, opts: { sticky: boolean }): { tags: Map<number, string[]>; unknown: MRApprovalRules[] }`. For a known entry: `sectionsMatching(rules, demanded)`, unioned when `sticky` with `stored(iid)` filtered to `demanded`, sorted. For an `unknownReason` entry: `stored(iid)` filtered to `demanded`, sorted, and the entry goes in `unknown`.
+- Produces in `project-sync.ts`: `export function sweepTags(rules: MRApprovalRules[], demanded: string[], stored: (iid: number) => string[] | undefined, opts: { sticky: boolean }): { tags: Map<number, string[]>; unknown: MRApprovalRules[] }`. For a known entry: `sectionsMatching(rules, demanded)`, unioned when `sticky` with `stored(iid)` filtered to `demanded`, sorted. For an `unknownReason` entry: `stored(iid)` filtered to `demanded`, sorted, and the entry goes in `unknown`. (Writing the stored demanded tags back is the same as leaving the PR out of `freshTags` except for a stored section no demand names any more, which every sweep drops anyway.)
 
 - [ ] **Step 1: Write the failing tests:**
   - `sweepTags`: sticky keeps a stored `@org/a` when fresh rules are empty and `@org/a` is demanded; sticky drops a stored `@org/b` no longer demanded; non-sticky returns fresh only; an unknown entry returns its stored demanded tags and lands in `unknown`.
@@ -194,7 +199,8 @@
   - GitHub sections delta: fresh `[]` for a stored-tagged PR records no tag change (`tagChangedIids` empty); a newly tagged stranger is hydrated through `fetchSingle` and tagged.
   - GitHub `backfillSections` runs (no notice), tags matches, and records `knownSections`.
   - GitLab deep with the same inputs is not sticky: the fresh `[]` untags (existing behaviour pinned).
-  - One `warn` per sweep with `unknown` count when any entry is unknown (spy through the module's logger seam the existing tests use, or assert via `overrides.info` pattern if that is the seam).
+  - One warn per sweep when any entry is unknown: `ProjectSyncOverrides.info` is replaced by `warn?: (obj: object, msg: string) => void` (default `log.warn`); the test passes a spy and asserts exactly one call per sweep whose object carries `unknown: <count>` and `reason: <first unknownReason>`.
+  - Existing tests in `project-sync-github-sync.test.ts` that pin the old behaviour: rewrite "a scoped GitHub deep lists once, adds your login and skips sections" to "a scoped GitHub deep lists once, adds your login and sweeps sections" (its `fetchRules` override returns rules instead of throwing); delete "backfillSections on GitHub reads nothing and logs once" (the notice is gone; the new backfill test replaces it).
 - [ ] **Step 2: Run** the daemon test command from Global Constraints. Expected: FAIL.
 - [ ] **Step 3: Implement.** `githubReads` wires `fetchRules`/`fetchKnownSections` through the existing `context`; the three sweeps call `sweepTags` with `sticky: forge === 'github'` and `stored` reading `record.mrs[iid]?.codeownerSections` (backfill reads the current store). The deep builds `tags` and `matched` from `sweepTags`' non-empty entries, so a sticky PR is kept in `byIid` from the store exactly as other matches are.
 - [ ] **Step 4: Run** the daemon test command and `bun run typecheck`. Expected: PASS.
@@ -215,6 +221,7 @@
   - `githubFetchDelta`: the index adapter calls `fetchMergeRequestIndex` with `{ projectPaths: ['o/r'], updatedAfter, states: ['merged','closed'] }` and `fetchPullRequests` is called once (opened only), so one delta cycle makes one listing plus one index call and no terminal fill (rewrite "one delta cycle costs two list reads" accordingly); a row authored `bob` with scope author `Bob` comes back as `Bob`; a never-stored reuse row is filled through `fetchSingleMR`.
   - `remeasureDivergedCounts` with `forge: 'github'` and 30 open stored PRs: `fetchDivergedBatch` called once with 25 iids (oldest-measured first, as `pickRemeasure` orders); returned counts land via `setDivergedCounts`; an iid missing from the map is counted failed and re-picked first next run; a null value marks measured without writing; a rejected batch counts all 25 failed and does not throw. GitLab with the same store still calls `fetchDiverged` per iid with cap 10.
   - `needsRebase` on a stored PR is unchanged after a GitHub re-measure.
+  - Existing tests that pin the old behaviour: in `project-sync-github-sync.test.ts`, rewrite "remeasureDivergedCounts makes no read on GitHub" into the batched GitHub test above; in `project-sync-github.test.ts`, rewrite "a warning on the terminal listing fails the delta" to "a failed index read fails the delta" (the index rejects), and rewrite "terminal rows follow fetchDeltaFrom's reuse rule" so its fake serves terminal rows through `fetchMergeRequestIndex` and expects never-stored PR 8 to be filled through `fetchSingleMR`.
 - [ ] **Step 2: Run** the daemon test command. Expected: FAIL.
 - [ ] **Step 3: Implement.** Remove the GitHub early return. The default `fetchDivergedBatch` resolves the GitHub context the way `githubReads` does and calls `fetchDivergedCounts`. `lib/daemon/cache-refresh.ts` stays unchanged.
 - [ ] **Step 4: Run** the daemon test command and `bun run typecheck`. Expected: PASS.
@@ -228,4 +235,5 @@
 - [ ] **Step 1:** `git fetch origin main` and read `git show origin/main:packages/glance/package.json`; if PR #1110 (or anything touching `packages/glance/src/GitLabProvider.ts`) merged, merge `origin/main` in and re-run every gate.
 - [ ] **Step 2:** Set the version one minor past main's (from 0.31.0 that is 0.32.0), the matching `bun.lock` line, and a CHANGELOG entry listing the four reads, the new flags, `unknownReason`, and GitHub's `canFetchMergeRequestIndex` flip.
 - [ ] **Step 3:** Run the full glance gate list, `bun run purity`, the daemon test command and `bun run typecheck`. Expected: all PASS.
-- [ ] **Step 4: Commit** `glance 0.32.0: GitHub codeowner rules, behind counts and merged-PR index (GLANCE-54)` (version per Step 2).
+- [ ] **Step 4: Draft the PR body** at `.superpowers/pr-body.md` (not committed): the spec's "Cost per repo per hour" table and total (+12 to +24 with section demand, 0 to +12 without), the forced-sync note, the sticky-tag caveat (a tag from a request someone removed by hand stays until the PR closes; a PR converted to draft drops its tags, as on GitLab), and the two items unverified until the live run (`refs/pull/<n>/head` as a compare head; 25 compares per request).
+- [ ] **Step 5: Commit** `glance 0.32.0: GitHub codeowner rules, behind counts and merged-PR index (GLANCE-54)` (version per Step 2).

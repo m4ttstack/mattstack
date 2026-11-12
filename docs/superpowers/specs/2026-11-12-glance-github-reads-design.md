@@ -334,7 +334,9 @@ and the one `bun.lock` line; the README's SDK section lists the new reads.
   opened-only sweep prunes it), when no demand names the section, or when
   the PR falls outside the sync window: the deep carries a stored tag over
   only for a PR whose `updatedAt` is inside `windowDays`, so it still drops
-  an old tagged stranger as GitLab's deep does.
+  an old tagged stranger as GitLab's deep does. A PR converted to draft
+  also drops its tags at the next deep, since the rules read leaves drafts
+  out, matching GitLab's `draft: false`.
   GitLab's sweeps are unchanged.
 - Unknown rules: an entry with `unknownReason` keeps the PR's stored tag in
   every sweep. The deep sweep's `replaceAll` carries the stored tag over for
