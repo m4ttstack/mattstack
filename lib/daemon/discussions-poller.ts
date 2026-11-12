@@ -17,12 +17,13 @@
  *   Merged / closed MRs rarely receive new comments and aren't worth the
  *   round trip.
  * - Sweeps are serialized (one at a time) and skipped if a previous sweep
- *   is still running, so a slow forge or a large MR count can't pile up
- *   overlapping fetches.
+ *   is still running, so a large MR count can't stack overlapping sweeps.
  * - Each MR's refresh gets `REFRESH_DEADLINE_MS`. A refresh past it is
- *   logged and left behind (refreshDiscussions takes no abort signal, so its
- *   fetch still finishes in the background), and the sweep moves on; the
- *   next tick refreshes that MR again from scratch.
+ *   logged and left behind, and the sweep moves on; the next tick refreshes
+ *   that MR again from scratch. refreshDiscussions takes no abort signal, so
+ *   a left-behind fetch keeps running until the forge answers or the
+ *   provider's own request timeout ends it: a forge slower than the deadline
+ *   can have that MR's old fetch and its next one in flight together.
  * - GitHub repos granting "discussions" are swept too. A live GitHub repo's
  *   events watcher routes `notes` events to the discussions refresh for PRs
  *   whose discussions are already cached, typically within about a minute;
@@ -148,11 +149,14 @@ export function createSweeper(deps: SweeperDeps): { sweep(): Promise<void> } {
     try {
       for (const { repoName, iid } of deps.targets()) {
         try {
+          let leftBehind = false;
           const work = deps.refresh(repoName, iid);
-          // A refresh left behind at its deadline may still reject later.
-          work.catch(() => {});
+          work.catch((err: unknown) => {
+            if (leftBehind) logger.warn({ err, repoName, iid }, `${repoName}#${iid} refresh failed after its deadline`);
+          });
           const outcome = await withinDeadline(work, deadlineMs);
           if (outcome === DEADLINE_PASSED) {
+            leftBehind = true;
             logger.warn({ repoName, iid, deadlineMs }, `${repoName}#${iid} refresh passed its ${deadlineMs}ms deadline`);
           }
         } catch (err) {
@@ -170,9 +174,8 @@ export function createSweeper(deps: SweeperDeps): { sweep(): Promise<void> } {
 }
 
 /**
- * R031: `timer`/`sweeping` used to be bare module-scope `let`s. Wraps them in
- * a closure so a second createDiscussionsPoller(env) can coexist without
- * sharing a timer handle or in-flight-sweep flag with the first.
+ * Each poller owns its timers and sweeper, so two pollers never share a
+ * timer handle or an in-flight-sweep flag.
  */
 export function createDiscussionsPoller(env: PollerEnv): DiscussionsPoller {
   let timer: ReturnType<typeof setInterval> | null = null;

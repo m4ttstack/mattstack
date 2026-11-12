@@ -88,4 +88,25 @@ describe("discussions poller refresh deadline", () => {
     expect(refreshed).toEqual([1, 2]);
     expect(warnings.map((w) => w.msg)).toEqual(["r#1 refresh failed"]);
   });
+
+  test("a refresh that fails after its deadline still logs why", async () => {
+    let fail!: (err: Error) => void;
+    const { warnings, log } = recordingLog();
+    const sweeper = createSweeper({
+      targets: () => [{ repoName: "r", iid: 3 }],
+      refresh: () => new Promise<void>((_resolve, reject) => { fail = reject; }),
+      deadlineMs: 10,
+      log,
+    });
+
+    await sweeper.sweep();
+    fail(new Error("late boom"));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(warnings.map((w) => w.msg)).toEqual([
+      "r#3 refresh passed its 10ms deadline",
+      "r#3 refresh failed after its deadline",
+    ]);
+    expect((warnings[1]!.obj as { err: Error }).err.message).toBe("late boom");
+  });
 });
