@@ -544,7 +544,8 @@ export interface GitProvider {
   /**
    * Reads the CODEOWNERS section names for a project, or null when it has no
    * CODEOWNERS file. Gated on `capabilities.canFetchCodeownerSections`.
-   * GitHub's sections are the owners, lowercased with an `@` prefix.
+   * GitHub's sections are the owners, lowercased with an `@` prefix; email
+   * owners are dropped because a review request cannot name one.
    */
   fetchCodeownerSections?(options: { projectPath: string }): Promise<string[] | null>;
 

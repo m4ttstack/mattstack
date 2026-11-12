@@ -30,3 +30,25 @@ export function channelFromCodeownerSection(section: string): string | null {
   const last = matches.at(-1);
   return last ? last[1]!.toLowerCase() : null;
 }
+
+/** Where GitHub looks for CODEOWNERS, highest precedence first. */
+export const GITHUB_CODEOWNERS_PATHS = ['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS'] as const;
+
+/**
+ * The owners a GitHub CODEOWNERS file names: `@login` and `@org/team`
+ * tokens after each rule's pattern, lowercased because GitHub matches
+ * owners case-insensitively, deduped and sorted. Email owners are dropped
+ * because a review request can never name one, so they cannot join a PR's
+ * review requests. Trailing `# comments` are ignored.
+ */
+export function parseGitHubCodeowners(text: string): string[] {
+  const owners = new Set<string>();
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/(^|\s)#.*$/, '').trim();
+    if (line.length === 0) continue;
+    for (const token of line.split(/\s+/).slice(1)) {
+      if (token.startsWith('@')) owners.add(token.toLowerCase());
+    }
+  }
+  return [...owners].sort();
+}

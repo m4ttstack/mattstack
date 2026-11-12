@@ -118,6 +118,7 @@ import type { components } from '@octokit/openapi-types';
 // every migrated `instanceof RequestError` check here goes false, and each
 // catch rethrows the raw error instead of translating it. Keep this range
 // tracking @octokit/core's own dependency on @octokit/request-error.
+import { GITHUB_CODEOWNERS_PATHS, parseGitHubCodeowners } from './codeowners.ts';
 import { RequestError } from '@octokit/request-error';
 // Same coupling as RequestError above, for @octokit/core's copy of
 // @octokit/graphql: `err instanceof GraphqlResponseError` in the GraphQL
@@ -824,7 +825,7 @@ export class GitHubProvider implements GitProvider {
     canRequestChanges: true,
     canFetchPullRequestDiffs: true,
     canFetchApprovalRules: false,
-    canFetchCodeownerSections: false,
+    canFetchCodeownerSections: true,
     canFetchDivergedCount: false
   };
 
@@ -3314,6 +3315,46 @@ export class GitHubProvider implements GitProvider {
     if (toRemove.length) {
       await this.fireAndThrow(`${op} (remove)`, `DELETE ${route}`, { [bodyKey]: toRemove });
     }
+  }
+
+  /**
+   * The owners named by the default branch's CODEOWNERS file (lowercased
+   * `@login` and `@org/team`, sorted), or null when no file exists at any
+   * documented location. The first of `.github/`, root and `docs/` that
+   * exists wins, as on GitHub. Email owners are dropped: a review request
+   * never names one, so they could not join the PR's review requests. A
+   * present file whose text GitHub withholds or truncates throws rather than
+   * reading as empty, because empty means "no owners" to consumers.
+   */
+  async fetchCodeownerSections(options: { projectPath: string }): Promise<string[] | null> {
+    const { owner, repo } = this.splitOwnerRepo(options.projectPath);
+    const aliases = ['gh', 'root', 'docs'] as const;
+    const fields = aliases
+      .map((alias, i) => `${alias}: object(expression: "HEAD:${GITHUB_CODEOWNERS_PATHS[i]}") { ... on Blob { text isTruncated } }`)
+      .join('\n    ');
+    type Blob = { text: string | null; isTruncated: boolean } | null;
+    const data = await this.graphqlOrThrow<{ repository: Record<(typeof aliases)[number], Blob> | null }>(
+      'fetchCodeownerSections',
+      `query($owner: String!, $repo: String!) {
+  repository(owner: $owner, name: $repo) {
+    ${fields}
+  }
+}`,
+      { owner, repo }
+    );
+    if (!data.repository) {
+      throw new Error(`fetchCodeownerSections: ${options.projectPath} is not readable`);
+    }
+    for (const [i, alias] of aliases.entries()) {
+      const blob = data.repository[alias];
+      if (!blob) continue;
+      const path = GITHUB_CODEOWNERS_PATHS[i];
+      if (blob.text === null || blob.isTruncated) {
+        throw new Error(`fetchCodeownerSections: ${path} exists in ${options.projectPath} but GitHub returned no complete text for it`);
+      }
+      return parseGitHubCodeowners(blob.text);
+    }
+    return null;
   }
 
   /**
