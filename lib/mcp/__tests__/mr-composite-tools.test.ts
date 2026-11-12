@@ -583,6 +583,7 @@ describe("mr_map", () => {
     expect(t.description).toContain("200");
     expect(t.description).toContain("Name the target with repoName");
     expect(Object.keys((t.inputSchema as any).properties).sort()).toEqual(["author", "mrUrl", "repo", "repoName"]);
+    expect((t.inputSchema as any).properties.author.description).toBe('A forge username (a GitHub login), or "me" for the token\'s own user. Omit for every author.');
   });
 });
 

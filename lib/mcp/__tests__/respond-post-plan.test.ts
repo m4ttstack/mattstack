@@ -489,14 +489,10 @@ describe("run-level refusals", () => {
     expect(refusal(s)).toBe(`the run's mr field is not an MR URL: ${http}`);
   });
 
-  test("a GitHub PR refuses with the gh reply and resolve move", () => {
+  test("a GitHub PR mr field plans normally", () => {
     const s = happy();
     setField(s, field("mr", "https://github.com/acme/app/pull/3", 50));
-    const e = refusal(s);
-    expect(e).toStartWith("GitLab only: respond_post_execute does not speak GitHub; ");
-    expect(e).toMatch(/gh/);
-    expect(e).toMatch(/reply/);
-    expect(e).toMatch(/resolve/);
+    expect(accepted(s).mrUrl).toBe("https://github.com/acme/app/pull/3");
   });
 
   test("a failed snapshot refuses", () => {

@@ -1,7 +1,6 @@
 /**
  * Composite tools: each answers in one call what a skill otherwise strings
- * together from several reads. mr_resolve_branch, mr_posted_since and mr_map
- * speak GitHub; the rest refuse a github.com identity before any daemon call.
+ * together from several reads. Every one speaks GitLab and GitHub.
  */
 import { readProjectMRs, rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands, Discussion, GateRow } from "../../packages/rt-client/src/index.ts";
@@ -29,6 +28,8 @@ export interface MrCompositeDeps {
 
 let runTools: McpToolDef[] | undefined;
 
+const resolveMrOnEitherForge = (input: TargetInput) => resolveMrTarget(input, { github: true });
+
 export const realMrCompositeDeps: MrCompositeDeps = {
   command: rtCommand,
   readMrCache: readProjectMRs,
@@ -42,7 +43,7 @@ export const realMrCompositeDeps: MrCompositeDeps = {
   guard: realTreeGuardDeps,
   status: statusPorcelainAsync,
   sleep: (ms) => Bun.sleep(ms),
-  resolveMr: resolveMrTarget,
+  resolveMr: resolveMrOnEitherForge,
 };
 
 const READ_TIMEOUT_MS = 30_000;
@@ -313,7 +314,6 @@ export type GateSource = { gate: string | null; source: { context?: unknown; que
 type SourceThread = { threadId: string; questionId: string; card: Record<string, unknown> | null };
 type PostEntry = { post: boolean; resolve: boolean; text?: string; note?: string };
 
-export const RESPOND_POST_GH_MOVE = "reply to and resolve the threads with gh";
 const GATE_CONTRACT = "gate@1";
 const PLAN_VERBS = ["reply", "fix", "skip"] as const;
 const POST_VERBS = ["post", "resolve"] as const;
@@ -555,8 +555,6 @@ function readPostEntries(selection: Record<string, unknown>, offered: SourceThre
 function readMrUrl(fields: SnapshotField[]): string {
   const mr = fields.find((f) => f.key === "mr")?.value;
   if (typeof mr !== "string" || !mr.trim()) return refuse("the run has no mr field, so there is no MR to post to");
-  const gh = refuseGithubTarget({ mrUrl: mr }, "respond_post_execute", RESPOND_POST_GH_MOVE);
-  if (gh) refuse(gh);
   try {
     const u = new URL(mr.trim());
     if (u.protocol !== "https:") throw new Error("not https");
@@ -728,7 +726,7 @@ async function readThreads(deps: MrCompositeDeps, t: Target): Promise<ThreadsRea
 
 const gitOutput = (r: { code: number; stdout: string; stderr: string }) => (r.code === 0 ? JSON.stringify(r.stdout.trim()) : `exit ${r.code}: ${JSON.stringify(r.stderr.trim() || r.stdout.trim())}`);
 
-type ExpectedBranch = { branch: string; mismatch: string | null; notOpen: string | null };
+type ExpectedBranch = { branch: string; mismatch: string | null; notOpen: string | null; fork: string | null };
 
 /** The branch a fix reply claims: the run's branch field, which must also be the MR's source branch, or the MR's source branch when the run has none. */
 async function expectedBranch(deps: MrCompositeDeps, t: Target, fromRun: string | null): Promise<({ ok: true } & ExpectedBranch) | { ok: false; error: string }> {
@@ -736,11 +734,12 @@ async function expectedBranch(deps: MrCompositeDeps, t: Target, fromRun: string 
   if (!r.ok || !r.data) return { ok: false, error: explainError(r.error ?? "MR read failed") };
   const { sourceBranch: source, state } = r.data.mr;
   const notOpen = state === "opened" ? null : `MR !${t.iid} is ${state}, so a fix push would not reach it`;
-  if (fromRun === null) return { ok: true, branch: source, mismatch: null, notOpen };
-  return { ok: true, branch: fromRun, mismatch: source === fromRun ? null : `the run's branch is ${fromRun} but the MR's source branch is ${source}`, notOpen };
+  const fork = sourceInRepo(t.identity, r.data.mr) ? null : "the PR's branch lives in another repository, so this tool will not push it";
+  if (fromRun === null) return { ok: true, branch: source, mismatch: null, notOpen, fork };
+  return { ok: true, branch: fromRun, mismatch: source === fromRun ? null : `the run's branch is ${fromRun} but the MR's source branch is ${source}`, notOpen, fork };
 }
 
-/** Acts only on the recorded decisions planRespondPost checked. A doubt found from the run, the registry or the tree refuses before GitLab is read; a failed GitLab read, and any step that fails after it, holds the threads instead. */
+/** Acts only on the recorded decisions planRespondPost checked. A doubt found from the run, the registry or the tree refuses before the forge is read; a failed forge read, and any step that fails after it, holds the threads instead. */
 export async function executeRespondPost(
   deps: MrCompositeDeps,
   input: { runDb: string; tree: string; stage: string },
@@ -752,9 +751,6 @@ export async function executeRespondPost(
   if (!snap.ok) return err(snap.error ?? "run_snapshot failed");
   const snapshot = snap.body as RunSnapshot;
   const fields = isRecord(snapshot) && Array.isArray(snapshot.fields) ? snapshot.fields : [];
-  const mrField = fields.find((f) => f.key === "mr")?.value;
-  const gh = refuseGithubTarget({ mrUrl: mrField }, "respond_post_execute", RESPOND_POST_GH_MOVE);
-  if (gh) return err(gh);
 
   const gates: { plan: GateRow | null; post: GateRow | null } = { plan: null, post: null };
   for (const [scope, slot] of [["respond-plan", "plan"], ["respond-post", "post"]] as const) {
@@ -770,10 +766,8 @@ export async function executeRespondPost(
   if (!planned.ok) return err(planned.error);
   const plan = planned.plan;
 
-  const resolved = await (deps.resolveMr ?? resolveMrTarget)({ mrUrl: plan.mrUrl });
+  const resolved = await (deps.resolveMr ?? resolveMrOnEitherForge)({ mrUrl: plan.mrUrl });
   if (!resolved.ok) return err(resolved.error);
-  const ghIdentity = githubRefusal(resolved.identity, "respond_post_execute", RESPOND_POST_GH_MOVE);
-  if (ghIdentity) return err(ghIdentity);
   const target: Target = { identity: resolved.identity, iid: resolved.iid };
 
   const resume = plan.heldResume === null ? null : new Set(plan.heldResume);
@@ -818,7 +812,7 @@ export async function executeRespondPost(
     progress?.();
     if (!read.ok) return failRead(read.error);
     const missing = acting.filter((a) => !read.discussions.some((d) => d.id === a.threadId)).map((a) => a.threadId);
-    if (missing.length > 0) return failRead(`GitLab no longer returns thread ${missing.join(", ")}`);
+    if (missing.length > 0) return failRead(`${githubProjectOf(target.identity) ? "GitHub" : "GitLab"} no longer returns thread ${missing.join(", ")}`);
     let branch: ExpectedBranch | null = null;
     if (treePath !== null) {
       const b = await expectedBranch(deps, target, plan.branch);
@@ -834,7 +828,9 @@ export async function executeRespondPost(
         .threads.map((t) => [t.discussionId, t]),
     );
 
-    if (branch?.notOpen) {
+    if (branch?.fork) {
+      for (const a of fixRows) hold(a.threadId, "push", branch.fork);
+    } else if (branch?.notOpen) {
       for (const a of fixRows) hold(a.threadId, "mismatch", branch.notOpen);
     } else if (treePath !== null && branch !== null) {
       const want = branch.branch;
@@ -877,7 +873,7 @@ export async function executeRespondPost(
         continue;
       }
       const firstError = explainError(first.error ?? "reply failed");
-      // The error may have come after GitLab stored the note, so only a re-read that shows no reply makes a second post safe.
+      // The error may have come after the forge stored the note, so only a re-read that shows no reply makes a second post safe.
       const reread = await readThreads(deps, target);
       progress?.();
       if (!reread.ok) {
@@ -982,7 +978,7 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
     },
     {
       name: "respond_post_execute",
-      description: "GitLab only. Receive-review's post side in one call: it acts only on the respond-plan and respond-post decisions recorded on the run, which must carry the gate-source fields `gate_open {runDb}` writes, after checking each against its gate source and registry answer, and refuses before anything moves when one is missing, stale or does not match. It reads the threads once, so a reply already on GitLab counts as alreadyPosted and a resolved thread as alreadyResolved; it pushes the run's branch from `tree` (never forced) only when a fix row is picked, the MR is still opened, and HEAD, @{push} and @{u} all name that branch on origin; `tree` must be a checkout of the MR's repo and is checked only when a push is due; then it posts the replies and resolves the threads. Pushes, replies and resolves are each retried once, and a reply that errored is re-read first so it never posts twice. Threads it could not finish come back in held[] with the hold field set to held under `stage`, for the skill's off-script gates; the respond-post decision is re-recorded with those ids as `held`, and a later call acts only on them. Returns {mr, pushed, posted, alreadyPosted, resolved, alreadyResolved, held, recorded, hold, writeErrors?}, where writeErrors carries the text of a failed re-record or hold write. One caller per run at a time: nothing stops two panes running it on the same run at once. On GitHub it refuses; reply to and resolve the threads with gh.",
+      description: "Receive-review's post side in one call: it acts only on the respond-plan and respond-post decisions recorded on the run, which must carry the gate-source fields `gate_open {runDb}` writes, after checking each against its gate source and registry answer, and refuses before anything moves when one is missing, stale or does not match. It reads the threads once, so a reply already on the MR counts as alreadyPosted and a resolved thread as alreadyResolved; it pushes the run's branch from `tree` (never forced) only when a fix row is picked, the MR is still opened, and HEAD, @{push} and @{u} all name that branch on origin; `tree` must be a checkout of the MR's repo and is checked only when a push is due; then it posts the replies and resolves the threads. Pushes, replies and resolves are each retried once, and a reply that errored is re-read first so it never posts twice. Threads it could not finish come back in held[] with the hold field set to held under `stage`, for the skill's off-script gates; the respond-post decision is re-recorded with those ids as `held`, and a later call acts only on them. Returns {mr, pushed, posted, alreadyPosted, resolved, alreadyResolved, held, recorded, hold, writeErrors?}, where writeErrors carries the text of a failed re-record or hold write. One caller per run at a time: nothing stops two panes running it on the same run at once. On GitHub, a reply or resolve on a PR conversation comment (gh-issue-comment-<id>) or a review summary (gh-review-<id>) comes back in held with the forge's error, and so does every fix row on a PR whose branch lives in another repository (a fork), which it never pushes.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1033,7 +1029,7 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
         properties: {
           ...REPO_TARGET_PROPS,
           repo: { type: "string", description: "Legacy alias for repoName; pass one, not both." },
-          author: { type: "string", description: 'A GitLab username, or "me" for the token\'s own user. Omit for every author.' },
+          author: { type: "string", description: 'A forge username (a GitHub login), or "me" for the token\'s own user. Omit for every author.' },
         },
         additionalProperties: false,
       },
