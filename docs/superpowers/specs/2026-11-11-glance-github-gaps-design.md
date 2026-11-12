@@ -348,7 +348,7 @@ the read-back's `sourceBranch` and `sourceProjectPath` when the read-back
 succeeded (saving today's extra REST read), else from one REST read of the PR
 (`head.ref`, `head.repo.full_name`), as now. If the read-back failed it
 throws `MergeReadBackFailedError` (exported; extends `ReadBackFailedError`,
-`writeApplied: true`) carrying `sourceBranchNotDeleted?: string` with the
+`writeApplied: true`, or false in the already-queued case of section 3, so the flag is a constructor argument) carrying `sourceBranchNotDeleted?: string` with the
 result's meaning, and `queued?: MergeQueueEntry` on the queue path. So a
 landed merge always reports the branch outcome, on the result or on the
 error.
