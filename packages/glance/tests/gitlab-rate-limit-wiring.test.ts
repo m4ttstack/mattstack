@@ -114,6 +114,29 @@ describe('NoteMutator waits out a 429', () => {
     expect(calls).toHaveLength(2);
   });
 
+  test('a review publish waits for the reset only as long as its budget leaves GitLab a full request', async () => {
+    const calls = serve(limited('1'), () => new Response(null, { status: 204 }));
+    const err = await mutator()
+      .publishDraftNotes('g/p', 7, { note: 's', reviewerState: 'reviewed', timeoutMs: 61_000 })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RateLimitedError);
+    expect(calls).toHaveLength(1);
+  });
+
+  test('a review publish whose wait fits the budget is sent again after the reset', async () => {
+    const calls = serve(limited('0'), () => new Response(null, { status: 204 }));
+    await mutator().publishDraftNotes('g/p', 7, { note: 's', reviewerState: 'reviewed', timeoutMs: 61_000 });
+    expect(calls).toHaveLength(2);
+  });
+
+  test('a review publish with the default budget gives up on a reset past 30s', async () => {
+    const calls = serve(limited('40'));
+    await expect(mutator().publishDraftNotes('g/p', 7, { note: 's', reviewerState: 'reviewed' })).rejects.toBeInstanceOf(
+      RateLimitedError,
+    );
+    expect(calls).toHaveLength(1);
+  });
+
   test('a write is not retried on a 502', async () => {
     const calls = serve(() => new Response('bad gateway', { status: 502 }), ok(NOTE, 201));
     await expect(mutator().createNote('g/p', 7, 'hi')).rejects.toThrow(/^createNote failed: 502/);

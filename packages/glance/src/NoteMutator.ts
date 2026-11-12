@@ -89,7 +89,13 @@ function projectSegment(project: number | string): string {
   return typeof project === 'number' ? String(project) : encodeURIComponent(project);
 }
 
-/** Above GitLab's own request limit, so a publish GitLab is still running is never abandoned. */
+/** GitLab stops serving a request after this long. */
+const GITLAB_REQUEST_LIMIT_MS = 60_000;
+/**
+ * Above GitLab's own request limit, so a publish GitLab is still running is
+ * never abandoned. It also bounds the publish's 429 waits, which may use only
+ * what is left after reserving that limit for the send.
+ */
 const PUBLISH_TIMEOUT_MS = 90_000;
 /** Every other request a review submit makes (drafts, reviewer states, diff refs). */
 const DRAFT_TIMEOUT_MS = 15_000;
@@ -111,21 +117,27 @@ export class NoteMutator {
   /**
    * One request, sent again after GitLab's reset for as long as it answers
    * 429. Each attempt gets its own `timeoutMs`, so time spent waiting for the
-   * reset never counts against the next send.
+   * reset never counts against the next send; with `shareBudget`, `timeoutMs`
+   * instead bounds the waits and every send together, so a caller timing the
+   * whole call is never outlasted.
    */
   private async send(
     op: string,
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     path: string,
-    init: { headers: Record<string, string>; body?: string | FormData; timeoutMs?: number },
+    init: { headers: Record<string, string>; body?: string | FormData; timeoutMs?: number; shareBudget?: boolean },
   ): Promise<Response> {
+    const budgetEnd = init.shareBudget && init.timeoutMs !== undefined ? Date.now() + init.timeoutMs : undefined;
+    const limits =
+      budgetEnd !== undefined ? { maxWaitMs: Math.max(0, init.timeoutMs! - GITLAB_REQUEST_LIMIT_MS) } : {};
     return withGitLabRateLimit(`${method} ${path}`, method === 'GET' ? 'read' : 'write', async () => {
+      const timeoutMs = budgetEnd !== undefined ? Math.max(1, budgetEnd - Date.now()) : init.timeoutMs;
       const started = performance.now();
       const res = await fetch(`${this.baseURL}${path}`, {
         method,
         headers: init.headers,
         ...(init.body !== undefined ? { body: init.body } : {}),
-        ...(init.timeoutMs !== undefined ? { signal: AbortSignal.timeout(init.timeoutMs) } : {}),
+        ...(timeoutMs !== undefined ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
       });
       safeEmit(this.onRequest, {
         op: `noteMutator.${op}`,
@@ -137,7 +149,7 @@ export class NoteMutator {
       });
       throwIfGitLabRateLimited(res);
       return res;
-    });
+    }, limits);
   }
 
   /**
@@ -291,6 +303,7 @@ export class NoteMutator {
     path: string,
     body?: unknown,
     timeoutMs = DRAFT_TIMEOUT_MS,
+    shareBudget = false,
   ): Promise<Response> {
     const res = await this.send(op, method, path, {
       headers: {
@@ -299,6 +312,7 @@ export class NoteMutator {
       },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       timeoutMs,
+      shareBudget,
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -370,6 +384,7 @@ export class NoteMutator {
       `/api/v4/projects/${projectSegment(project)}/merge_requests/${mrIid}/draft_notes/bulk_publish`,
       { note: opts.note, reviewer_state: opts.reviewerState },
       opts.timeoutMs ?? PUBLISH_TIMEOUT_MS,
+      true,
     );
   }
 

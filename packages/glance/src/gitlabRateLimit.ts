@@ -62,6 +62,8 @@ export function gitlabRateLimitWaitMs(headers: Headers, nowMs: number): number |
 export interface GitLabRateLimitOptions {
   /** Caller cancellation; aborts a wait in progress. */
   signal?: AbortSignal;
+  /** Caps the total wait below the deadline for `kind`, for a caller whose own budget is tighter. */
+  maxWaitMs?: number;
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   now?: () => number;
 }
@@ -85,7 +87,10 @@ export async function withGitLabRateLimit<T>(
 ): Promise<T> {
   const now = opts.now ?? Date.now;
   const sleep = opts.sleep ?? abortableSleep;
-  const deadlineMs = (kind === 'read' ? GITLAB_READ_RATE_LIMIT_DEADLINE_S : GITLAB_WRITE_RATE_LIMIT_DEADLINE_S) * 1000;
+  const deadlineMs = Math.min(
+    (kind === 'read' ? GITLAB_READ_RATE_LIMIT_DEADLINE_S : GITLAB_WRITE_RATE_LIMIT_DEADLINE_S) * 1000,
+    opts.maxWaitMs ?? Number.POSITIVE_INFINITY,
+  );
   let waitedMs = 0;
   for (;;) {
     try {
