@@ -452,9 +452,10 @@ export interface MRDashboardProps {
    * - `'connected'`  — push subscription healthy, data is live
    * - `'disconnected'` — push lost, falling back to polling
    * - `'reconnecting'` — push lost + fetch errors, retrying with backoff
+   * - `'polling'`: data is fresh as of the last poll; no push channel
    * - `'idle'`         — not subscribed (e.g. from `getMRDashboardProps` directly)
    */
-  connection: 'connecting' | 'connected' | 'disconnected' | 'reconnecting' | 'idle';
+  connection: 'connecting' | 'connected' | 'disconnected' | 'reconnecting' | 'polling' | 'idle';
 }
 
 /**
