@@ -883,7 +883,7 @@ export function Board() {
       if (run) {
         setPendingRun({
           run,
-          iid: mr.iid,
+          mr,
           ring: () => ringWorker(mr),
           launch: () => void launch(flow, mr, opts),
         });
@@ -944,7 +944,7 @@ export function Board() {
       if (!run) return setPendingRedo(pending);
       setPendingRun({
         run,
-        iid: mr.iid,
+        mr,
         ring: () => ringWorker(mr),
         launch: pending.run,
       });

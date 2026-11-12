@@ -5,7 +5,7 @@
 import { mergeBlockedReason } from '@mattstack/glance';
 import type { BoardMR } from '../../data.ts';
 import type { MrAction } from '../../mr-action.ts';
-import { forgeWord, onGitHub } from '../../mr-ref.ts';
+import { forgeWord, mrRef, onGitHub } from '../../mr-ref.ts';
 import { hasStackDescendants, isOwnMr, stackParents } from '../../view.ts';
 import type { BoardMRWithReview, OrgTeam } from '../types.ts';
 import { askPickerModel, type AskPickerModel } from './ask-picker.ts';
@@ -968,7 +968,8 @@ function mergeBlock(checked: BoardMR[], allMrs: BoardMR[]): string | undefined {
   );
   for (const mr of checked) {
     const parent = parentByUrl.get(mr.webUrl);
-    if (parent) return `!${mr.iid} sits on !${parent.iid}, which is still open`;
+    if (parent)
+      return `${mrRef(mr)} sits on ${mrRef(parent)}, which is still open`;
   }
   return undefined;
 }
