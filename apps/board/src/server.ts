@@ -15,6 +15,7 @@ import {
 } from '@mattstack/glance';
 import type { MRDetail, PullRequest } from '@mattstack/glance';
 import {
+  activeTeam,
   chatSlackAvatarFile,
   chatSlackAvatars,
   chatSlackDm,
@@ -168,6 +169,7 @@ import {
   gitlabRebaseDeps,
   type ForgeRebaseResult,
 } from './forge-rebase.ts';
+import { createForgeSelf, launchIdentity } from './forge-self.ts';
 import {
   githubMrWrite,
   githubPostNote,
@@ -1824,11 +1826,15 @@ const remindReviewer = createReminder({
   now: Date.now,
 });
 
+const forgeSelf = createForgeSelf({
+  forge: () => config.forge.kind,
+  fixture: !!FIXTURE_DIR,
+  memoryUsername: () => readMemory().identity?.username ?? null,
+  teamUsername: () => activeTeam().username,
+});
+
 function actingSeat(): string | null {
-  return effectiveSeat(
-    config.defaultMember,
-    readMemory().identity?.username ?? null
-  );
+  return effectiveSeat(config.defaultMember, forgeSelf.get());
 }
 
 /** A respond or doctor gate is the MR author's to answer; a review gate
@@ -2457,7 +2463,7 @@ const httpServer = Bun.serve({
           JSON.stringify({
             title: config.title,
             defaultMember: config.defaultMember,
-            tokenUser: readMemory().identity?.username ?? null,
+            tokenUser: forgeSelf.get(),
             members: buildRoster(visible, visibleMrs, memberNames),
             ...slackMatchPayload(currentSlackMatch(snapshot.mrs)),
             allMembers: config.members.map(m => ({
@@ -3414,12 +3420,14 @@ const httpServer = Bun.serve({
           // network round-trip and the lock must never sit open for that long.
           const identityRead = readMemory();
           const identityBefore = identityRead.identity;
-          const identity =
-            config.forge.kind === 'github'
-              ? null
-              : await resolveDispatchIdentity(identityRead, async () =>
-                  (await gitlab()).validateToken()
-                );
+          const identity = await launchIdentity(
+            config.forge.kind,
+            () => forgeSelf.get(),
+            () =>
+              resolveDispatchIdentity(identityRead, async () =>
+                (await gitlab()).validateToken()
+              )
+          );
           // Only touch state/auto-dispatch.json when the identity actually
           // refreshed (a cache hit leaves identityRead.identity's reference
           // unchanged). bin/triage.ts serializes every access to this file
@@ -6289,6 +6297,7 @@ if (writer) {
 function reloadConfig(reason: string): void {
   try {
     Object.assign(config, loadConfig());
+    forgeSelf.reset();
     namesFetchedAt = 0; // re-resolve display names, including new members
     // Stale, not dropped: checking a member in/out lands here (the board
     // writes the store itself), and dropping the snapshot would stall every
