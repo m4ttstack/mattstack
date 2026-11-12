@@ -89,6 +89,7 @@ const RESPOND_ACTIVE = new Set<RespondStatus>([
 
 const DOCTOR_LABEL: Record<DoctorStatus, string> = {
   queued: 'doctor queued',
+  'forge-rebasing': 'rebasing…',
   syncing: 'syncing…',
   diagnosing: 'diagnosing…',
   rebasing: 'rebasing…',
@@ -105,6 +106,7 @@ const DOCTOR_LABEL: Record<DoctorStatus, string> = {
 
 const DOCTOR_ACTIVE = new Set<DoctorStatus>([
   'queued',
+  'forge-rebasing',
   'syncing',
   'diagnosing',
   'rebasing',
