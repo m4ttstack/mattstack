@@ -17,6 +17,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { RequestError } from '@octokit/request-error';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
+import { PartialCreateError } from '../src/errors.ts';
 import type { FetchPullRequestsWarning } from '../src/GitProvider.ts';
 import { ghNode } from './helpers/gh-fill-fixture.ts';
 
@@ -316,7 +317,7 @@ describe('GitHubProvider transport (real Octokit, fetch stubbed)', () => {
           targetBranch: 'main',
           reviewers: ['octocat']
         })
-      ).rejects.toThrow(/^createPullRequest reviewers for #7 failed: 422 /)
+      ).rejects.toThrow(/^Created PR #7 but could not apply reviewers: createPullRequest reviewers for #7 failed: 422 /)
     );
   });
 
@@ -345,10 +346,10 @@ describe('GitHubProvider transport (real Octokit, fetch stubbed)', () => {
     );
   });
 
-  test('a transport-level failure on a PR write sub-request propagates the original RequestError untouched', async () => {
+  test('a transport-level failure on a PR write sub-request keeps the original RequestError as the step cause', async () => {
     // Same shape as the restRequest and validateToken transport-failure
     // cases above: no `.response` means this never reached an HTTP outcome,
-    // so it must come out as the original `RequestError`, not translated
+    // so the failed step must carry the original `RequestError`, not translated
     // through `ghError` into a plain `Error` that has lost `.status` and
     // `.request`. The create POST succeeds; the assignees sub-request is
     // what drops the connection. The assignees POST is non-idempotent, so
@@ -386,8 +387,11 @@ describe('GitHubProvider transport (real Octokit, fetch stubbed)', () => {
       }
     });
 
-    expect(caught).toBeInstanceOf(RequestError);
-    expect((caught as RequestError).response).toBeUndefined();
+    expect(caught).toBeInstanceOf(PartialCreateError);
+    const step = (caught as PartialCreateError).failedSteps[0];
+    expect(step?.step).toBe('assignees');
+    expect(step?.cause).toBeInstanceOf(RequestError);
+    expect((step?.cause as RequestError).response).toBeUndefined();
   });
 
   test('every request carries the X-GitHub-Api-Version pin', async () => {

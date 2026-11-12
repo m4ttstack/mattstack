@@ -27,7 +27,7 @@ Two built-in providers implement the `GitProvider` interface:
 | Provider | Class | Capabilities |
 |---|---|---|
 | GitLab | `GitLabProvider` | Full: merge, rebase, approve, auto-merge, retry pipeline, re-review, resolve discussions |
-| GitHub | `GitHubProvider` | Core: merge, approve, rebase |
+| GitHub | `GitHubProvider` | Core: merge (with merge queue), approve, rebase, auto-merge, polling `watchMR` |
 
 ```ts
 import { createProvider } from '@mattstack/glance';
@@ -53,7 +53,7 @@ const provider = createProvider('gitlab', 'https://gitlab.com', token, {
 | `fetchPullRequestsByBranches(path, branches)` | Batch-fetch MRs by source branches *(optional, not all providers)* |
 | `createPullRequest(input)` | Create a new MR |
 | `updatePullRequest(path, iid, input)` | Update an existing MR (title, description, draft status, etc.) |
-| `mergePullRequest(path, iid, input?)` | Merge an MR. Resolves with a `MergePullRequestResult` once the merge landed; a failed source-branch cleanup is in `sourceBranchNotDeleted`, never thrown |
+| `mergePullRequest(path, iid, input?)` | Merge an MR. Resolves with a `MergePullRequestResult` once the merge landed, or, on a GitHub base branch with a merge queue, once the PR joined the queue: it is still open and `queued` carries its queue entry. A failed source-branch cleanup is in `sourceBranchNotDeleted`, never thrown |
 | `rebasePullRequest(path, iid)` | Rebase an MR onto its target branch |
 | `approvePullRequest(path, iid)` | Approve an MR |
 | `unapprovePullRequest(path, iid)` | Remove your approval |
@@ -84,7 +84,7 @@ const provider = createProvider('gitlab', 'https://gitlab.com', token, {
 | `addPullRequestLabels?(path, iid, labels)` | Add labels, leaving the others in place (`canEditLabels`) |
 | `removePullRequestLabels?(path, iid, labels)` | Remove labels, leaving the others in place (`canEditLabels`) |
 | `fetchPullRequestDiffs?(path, iid, options?)` | One page of up to 100 per-file diffs; a file with no inline patch has an empty `diff` and `tooLarge: true` (GitHub; `canFetchPullRequestDiffs`) |
-| `restRequest(method, path, body?, op?, io?)` | Raw authenticated REST API pass-through; `io.redirect: 'manual'` returns a redirect instead of following it. GitHub accepts `op` for parameter-order parity and ignores it |
+| `restRequest(method, path, body?, op?, io?)` | Raw authenticated REST API pass-through; `io.redirect: 'manual'` returns a redirect instead of following it. GitHub accepts `op` for parameter-order parity and ignores it; its response body streams, so a caller can stop reading early |
 
 Provider capabilities are exposed via `provider.capabilities` — check flags like `canMerge`, `canRebase`, `canAutoMerge`, `canResolveDiscussions`, etc. before calling provider-specific methods.
 
@@ -121,7 +121,7 @@ dashboard.subscribe((mr) => {
 
 // Monitor connection health
 dashboard.onStatusChange((status) => {
-  console.log(status.connection); // 'connecting' | 'connected' | 'disconnected' | 'reconnecting'
+  console.log(status.connection); // 'connecting' | 'connected' | 'disconnected' | 'reconnecting' | 'polling'
 });
 
 // When done, stop the subscription
@@ -220,7 +220,7 @@ Pre-computed, UI-ready props — no conditional logic needed in the component la
 | `autoMergeButton` | `{ visible, isActive, strategy, setBy, label, cancelLabel }` |
 | `blockers` | Flags: `isDraft`, `hasConflicts`, `needsRebase`, `pipelineFailing`, `pipelineRunning`, `awaitingApprovals`, `hasUnresolvedDiscussions`, `hasMergeError`, `any`. `needsRebase` means GitLab requires a rebase before merge, not that the target branch moved |
 | `isMerging`, `isRebasing`, `isLoading` | In-progress spinner states |
-| `connection` | `'connecting' \| 'connected' \| 'disconnected' \| 'reconnecting' \| 'idle'` |
+| `connection` | `'connecting' \| 'connected' \| 'disconnected' \| 'reconnecting' \| 'polling' \| 'idle'` |
 
 ### `MRDashboardActions`
 
@@ -263,6 +263,7 @@ Generic self-healing subscription + polling module used internally by `watchMR` 
 - Push-event debouncing (burst events → one refetch)
 - Immediate refetch on reconnect
 - Connection status reporting via `WatcherStatus`
+- Poll-only mode: omit `subscribe` and the watcher only polls, reporting `polling` (fresh as of the last poll) once a poll succeeds and `reconnecting` while polls fail
 
 ```ts
 import { createRealtimeWatcher } from '@mattstack/glance';

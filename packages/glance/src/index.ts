@@ -106,6 +106,7 @@ export type {
   GitProvider,
   FetchPullRequestsOptions,
   FetchPullRequestsWarning,
+  ByBranchReadOptions,
   FetchMergeRequestIndexOptions,
   FetchMergeRequestMetricsOptions,
   FetchGroupProjectsOptions,
@@ -131,11 +132,14 @@ export type { RequestInfo, OnRequestHook } from './instrumentation.ts';
 // that lets a caller tell a rejected write from a write it cannot read back.
 export {
   ReadBackFailedError,
+  MergeReadBackFailedError,
+  PartialCreateError,
   RateLimitedError,
   ForgeHttpError,
   EmptyDiscussionError,
   WriteOutcomeUnknownError
 } from './errors.ts';
+export type { CreateFollowUpStep, FailedCreateStep } from './errors.ts';
 
 // ── Providers ─────────────────────────────────────────────────────────────────
 export {

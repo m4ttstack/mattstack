@@ -15,6 +15,7 @@
 import type {
   FetchPullRequestsOptions,
   FetchPullRequestsWarning,
+  ByBranchReadOptions,
   GitProvider,
   MRState
 } from './GitProvider.ts';
@@ -28,6 +29,7 @@ import type {
   InvalidationBatch,
   JobDetail,
   EnqueuePullRequestInput,
+  MergeMethod,
   MergePullRequestInput,
   MergePullRequestResult,
   MergeQueueEntry,
@@ -61,7 +63,15 @@ import {
   type GitHubEvent
 } from './GitHubEventsPoller.ts';
 import { startWatcherLoop, type LoopTick } from './EventsWatcher.ts';
+import { createRealtimeWatcher, type RealtimeWatcherOptions } from './RealtimeWatcher.ts';
 import { ForgeHttpError, RateLimitedError } from './errors.ts';
+import {
+  MERGE_CONTEXT_QUERY,
+  pickMergeMethod,
+  toMergeContext,
+  type GHMergeContextResponse,
+  type GitHubMergeContext
+} from './githubMerge.ts';
 import {
   bodyText,
   createGitHubClient,
@@ -115,7 +125,13 @@ import { RequestError } from '@octokit/request-error';
 // instance, which requires this package's @octokit/graphql range to track
 // @octokit/core's.
 import { GraphqlResponseError } from '@octokit/graphql';
-import { ReadBackFailedError } from './errors.ts';
+import {
+  type CreateFollowUpStep,
+  type FailedCreateStep,
+  MergeReadBackFailedError,
+  PartialCreateError,
+  ReadBackFailedError
+} from './errors.ts';
 
 // ---------------------------------------------------------------------------
 // GitHub REST API response shapes (only fields we consume)
@@ -346,6 +362,38 @@ interface GraphQLReadError {
   path: Array<string | number> | null;
 }
 
+/** A single-PR read that returned its PR alongside errors is not trusted, matching `graphqlOrThrow`. */
+function throwOnGraphQLErrors(op: string, errors: GraphQLReadError[]): void {
+  if (errors.length > 0) {
+    throw new Error(`${op} failed: GitHub GraphQL returned ${errors.map(e => e.message).join('; ')}`);
+  }
+}
+
+/**
+ * A single-PR read that came back with no pull request. Only a bare null or
+ * `NOT_FOUND` errors mean the PR is missing; any other error (a SAML or
+ * permission refusal) nulls the repository too and must surface as itself.
+ */
+function missingPullRequestError(
+  op: string,
+  projectPath: string,
+  mrIid: number,
+  errors: GraphQLReadError[]
+): Error {
+  if (errors.every(e => e.type === 'NOT_FOUND')) {
+    return new Error(`${op} failed: GitHub returned no pull request for ${projectPath}!${mrIid}`);
+  }
+  return new Error(`${op} failed: GitHub GraphQL returned ${errors.map(e => e.message).join('; ')}`);
+}
+
+const QUEUE_REFUSED_FIELDS = [
+  'mergeMethod',
+  'squash',
+  'commitMessage',
+  'squashCommitMessage',
+  'shouldRemoveSourceBranch'
+] as const satisfies ReadonlyArray<keyof MergePullRequestInput>;
+
 /**
  * The error, if any, that means PR `n`'s read failed rather than found
  * nothing. GitHub answers an unknown number with a null alias plus a
@@ -356,11 +404,45 @@ interface GraphQLReadError {
  * rule: a token that cannot see it gets an error there and a null rule, and
  * that is an unknown count, not a failed read. A check's workflow run is
  * the same: a token without Actions read access errors there and gets a null
- * run, which is an unknown run id, not a failed read.
+ * run, which is an unknown run id, not a failed read. So is the head
+ * repository: a token that cannot see a private fork errors there, and the
+ * PR still reads with an unknown `sourceProjectPath`.
  */
 function isWorkflowRunError(e: GraphQLReadError): boolean {
   const path = e.path ?? [];
   return path.length >= 2 && path[path.length - 2] === 'checkSuite' && path[path.length - 1] === 'workflowRun';
+}
+
+/**
+ * Forwards a by-branch read's warnings with `branch` set. A throw from the
+ * caller's listener is swallowed so it cannot change the read's result.
+ */
+function branchWarner(
+  onWarning: ByBranchReadOptions['onWarning'],
+  branch: string
+): ((warning: FetchPullRequestsWarning) => void) | undefined {
+  if (!onWarning) return undefined;
+  return warning => {
+    try {
+      onWarning({ ...warning, branch });
+    } catch {
+      // A broken observer must never fail a read.
+    }
+  };
+}
+
+function listFailedWarning(
+  projectPath: string,
+  branch: string,
+  status: number
+): FetchPullRequestsWarning {
+  return {
+    kind: 'request-failed',
+    source: 'list',
+    status,
+    target: projectPath,
+    message: `GitHub could not list PRs in ${projectPath} (HTTP ${status}); whether branch ${branch} has a PR is unknown.`
+  };
 }
 
 function fillErrorFor(
@@ -375,11 +457,25 @@ function fillErrorFor(
     if (alias === `p${n}`) {
       if (rest[0] === 'baseRef' && rest[1] === 'branchProtectionRule') continue;
       if (isWorkflowRunError(e)) continue;
+      if (rest[0] === 'headRepository') continue;
       return e;
     }
     if (!resolved && alias === undefined) return e;
   }
   return null;
+}
+
+function headRepositoryHidden(errors: GraphQLReadError[], n: number): boolean {
+  return errors.some(e => {
+    const [, alias, field] = e.path ?? [];
+    return alias === `p${n}` && field === 'headRepository';
+  });
+}
+
+/** Errors on the merge context's head repository leave `headRepo` null, which refuses only the branch removal. */
+function isMergeContextHeadRepoError(e: GraphQLReadError): boolean {
+  const path = e.path ?? [];
+  return path.length >= 2 && path[path.length - 2] === 'pullRequest' && path[path.length - 1] === 'headRepository';
 }
 
 /** An item from `/search/issues`: issue-shaped, with a `pull_request` stub on PRs. */
@@ -436,6 +532,8 @@ const LIST_MAX_PAGES = 20;
  * REST call to one per branch per window.
  */
 const RULES_CACHE_MS = 600_000;
+
+const WATCH_MR_POLL_INTERVAL_MS = 60_000;
 
 /**
  * Branch aliases per batched `pullRequests(headRefName:)` query.
@@ -688,8 +786,10 @@ export class GitHubProvider implements GitProvider {
     canMerge: true,
     canApprove: true,
     canUnapprove: true,
-    canRebase: false,
+    canRebase: true,
     canAutoMerge: true,
+    canReportSourceProject: true,
+    canReportIncompleteBranchReads: true,
     canEnqueue: true,
     canResolveDiscussions: true,
     canRetryPipeline: true,
@@ -970,7 +1070,7 @@ export class GitHubProvider implements GitProvider {
   private async fetchSingleMRAfterMutation(
     projectPath: string,
     mrIid: number,
-    verb: 'Created' | 'Updated' | 'Merged'
+    verb: 'Created' | 'Updated' | 'Merged' | 'Queued'
   ): Promise<PullRequest> {
     const details = { operation: `fetchSingleMR after ${verb}`, projectPath, iid: mrIid, writeApplied: true };
     let warning: FetchPullRequestsWarning | undefined;
@@ -1248,9 +1348,11 @@ export class GitHubProvider implements GitProvider {
   async fetchPullRequestByBranch(
     projectPath: string,
     sourceBranch: string,
-    state: MRState | 'all' = 'opened'
+    state: MRState | 'all' = 'opened',
+    options?: ByBranchReadOptions
   ): Promise<PullRequest | null> {
     const ghState = mapStateToGitHubQueryParam(state);
+    const emit = branchWarner(options?.onWarning, sourceBranch);
 
     // Fast path: GitHub's `head` filter requires `<owner>:<branch>`, and we
     // only know the BASE repo's owner here -- this matches same-repo
@@ -1281,12 +1383,13 @@ export class GitHubProvider implements GitProvider {
           sourceBranch,
           status: err.status
         });
+        emit?.(listFailedWarning(projectPath, sourceBranch, err.status));
         return null;
       }
       throw err;
     }
     if (prs[0]) {
-      return this.fetchSingleMR(projectPath, prs[0].number, null);
+      return this.fetchSingleMR(projectPath, prs[0].number, null, emit);
     }
 
     // Fallback: list PRs in the target state and match by head.ref
@@ -1312,13 +1415,14 @@ export class GitHubProvider implements GitProvider {
             sourceBranch,
             status: err.status
           });
+          emit?.(listFailedWarning(projectPath, sourceBranch, err.status));
           return null;
         }
         throw err;
       }
       const match = list.find((pr) => pr.head.ref === sourceBranch);
       if (match) {
-        return this.fetchSingleMR(projectPath, match.number, null);
+        return this.fetchSingleMR(projectPath, match.number, null, emit);
       }
       if (list.length < 100) {
         // Short page: this was the last page, nothing left to scan.
@@ -1328,6 +1432,12 @@ export class GitHubProvider implements GitProvider {
         this.log.warn('fetchPullRequestByBranch: fallback scan hit page limit', {
           projectPath,
           sourceBranch
+        });
+        emit?.({
+          kind: 'page-cap',
+          source: 'list',
+          target: projectPath,
+          message: `GitHub listed ${maxPages * 100} PRs in ${projectPath} without finding branch ${sourceBranch}; a PR on it may sit past the scan cap.`
         });
       }
     }
@@ -1348,8 +1458,11 @@ export class GitHubProvider implements GitProvider {
    * thinner batch-shaped one. Misses map to `null` without a further
    * request. Every input branch is a key of the returned Map, and an empty
    * `branches` issues no requests at all. A hit whose fill failed also maps
-   * to `null`, as it did when each hit went through `fetchSingleMR`; a rate
-   * limit on either request throws `RateLimitedError`.
+   * to `null`, as it did when each hit went through `fetchSingleMR`, and
+   * fires a `fill` warning through `options.onWarning` with `branch` set; a
+   * warning the fill raises for a PR it kept is forwarded the same way, once
+   * per branch on that PR. A rate limit on either request throws
+   * `RateLimitedError`.
    *
    * Three lookup semantics, each chosen to agree with a sibling rather than
    * on its own merits, because a caller's whole reason to use this method is
@@ -1366,8 +1479,8 @@ export class GitHubProvider implements GitProvider {
    *    the default sort `fetchPullRequestByBranch`'s REST call takes its
    *    first result from.
    *
-   * Unlike `fetchPullRequestByBranch` -- which reports an HTTP failure as
-   * `null`, indistinguishable from "this branch has no PR" -- a failed lookup
+   * Unlike `fetchPullRequestByBranch`, which resolves an HTTP failure to
+   * `null` and reports it only through `options.onWarning`, a failed lookup
    * here throws (MAT-133, via `graphqlRead`). One query carries up to 50
    * branches, so swallowing it would report 50 branches as PR-less on the
    * strength of one 502.
@@ -1379,7 +1492,8 @@ export class GitHubProvider implements GitProvider {
   async fetchPullRequestsByBranches(
     projectPath: string,
     branches: string[],
-    state?: MRState | 'all'
+    state?: MRState | 'all',
+    options?: ByBranchReadOptions
   ): Promise<Map<string, PullRequest | null>> {
     const result = new Map<string, PullRequest | null>();
     if (branches.length === 0) return result;
@@ -1454,9 +1568,22 @@ export class GitHubProvider implements GitProvider {
       });
     }
 
+    const onWarning = options?.onWarning;
+    const branchesByTarget = new Map<string, string[]>();
+    for (const [branch, number] of numbers) {
+      const target = warningTarget(projectPath, number);
+      branchesByTarget.set(target, [...(branchesByTarget.get(target) ?? []), branch]);
+    }
     const filled = await this.fillPullRequests(projectPath, [...new Set(numbers.values())], {
       listWeight: false,
-      roles: new Map()
+      roles: new Map(),
+      onWarning: onWarning
+        ? warning => {
+            for (const branch of branchesByTarget.get(warning.target ?? '') ?? []) {
+              branchWarner(onWarning, branch)?.(warning);
+            }
+          }
+        : undefined
     });
     for (const branch of branches) {
       const number = numbers.get(branch);
@@ -1500,39 +1627,56 @@ export class GitHubProvider implements GitProvider {
       throw err;
     }
 
-    // GitHub doesn't support reviewers/assignees/labels on create -- add them
-    // separately. The PR above already exists by this point: a failure here
-    // is not "no PR was created," it is "PR #<n> exists without this one
-    // field applied." The op label below names both the sub-operation and
-    // the PR number so a caller (or a human reading the thrown message) can
-    // tell the two apart and find the PR that already exists, instead of
-    // retrying and hitting GitHub's own "a pull request already exists" 422.
+    // GitHub doesn't support reviewers/assignees/labels on create, so each is
+    // its own write against a PR that already exists. Every step is tried even
+    // after one fails, so the error lists everything still missing; the op
+    // label names the PR number so its message never reads as "no PR".
+    const steps: Array<{ step: CreateFollowUpStep; route: string; data: unknown }> = [];
     if (input.reviewers?.length) {
-      await this.fireAndThrow(
-        `createPullRequest reviewers for #${created.number}`,
-        `POST /repos/${input.projectPath}/pulls/${created.number}/requested_reviewers`,
-        { reviewers: input.reviewers }
-      );
+      steps.push({
+        step: 'reviewers',
+        route: `POST /repos/${input.projectPath}/pulls/${created.number}/requested_reviewers`,
+        data: { reviewers: input.reviewers }
+      });
     }
     if (input.assignees?.length) {
-      await this.fireAndThrow(
-        `createPullRequest assignees for #${created.number}`,
-        `POST /repos/${input.projectPath}/issues/${created.number}/assignees`,
-        { assignees: input.assignees }
-      );
+      steps.push({
+        step: 'assignees',
+        route: `POST /repos/${input.projectPath}/issues/${created.number}/assignees`,
+        data: { assignees: input.assignees }
+      });
     }
     if (input.labels?.length) {
-      await this.fireAndThrow(
-        `createPullRequest labels for #${created.number}`,
-        `POST /repos/${input.projectPath}/issues/${created.number}/labels`,
-        { labels: input.labels }
-      );
+      steps.push({
+        step: 'labels',
+        route: `POST /repos/${input.projectPath}/issues/${created.number}/labels`,
+        data: { labels: input.labels }
+      });
     }
 
-    return this.fetchSingleMRAfterMutation(
-      input.projectPath,
-      created.number,
-      'Created'
+    const failedSteps: FailedCreateStep[] = [];
+    for (const { step, route, data } of steps) {
+      try {
+        await this.fireAndThrow(`createPullRequest ${step} for #${created.number}`, route, data);
+      } catch (err) {
+        failedSteps.push({ step, message: err instanceof Error ? err.message : String(err), cause: err });
+      }
+    }
+
+    if (failedSteps.length === 0) {
+      return this.fetchSingleMRAfterMutation(input.projectPath, created.number, 'Created');
+    }
+
+    let pullRequest: PullRequest | null = null;
+    let cause: unknown = failedSteps[0]!.cause;
+    try {
+      pullRequest = await this.fetchSingleMRAfterMutation(input.projectPath, created.number, 'Created');
+    } catch (err) {
+      cause = err;
+    }
+    throw new PartialCreateError(
+      `Created PR #${created.number} but could not apply ${failedSteps.map(s => s.step).join(', ')}: ${failedSteps[0]!.message}`,
+      { projectPath: input.projectPath, iid: created.number, failedSteps, pullRequest, cause }
     );
   }
 
@@ -1621,21 +1765,46 @@ export class GitHubProvider implements GitProvider {
     _op?: string,
     io?: { redirect?: 'manual' }
   ): Promise<Response> {
-    return this.api(method, path, body, io);
+    return this.api(method, path, body, { ...io, stream: true });
   }
 
+  /**
+   * Poll-only: GitHub has no push channel. Each poll is one `fetchSingleMR`.
+   * A `fill` warning fails the poll so the watcher reports `reconnecting`; a
+   * `contexts` warning still delivers the PR with its pending pipeline.
+   */
   watchMR(
-    _projectPath: string,
-    _mrIid: number,
-    _currentUserNumericId: number | null,
-    _onUpdate: (pr: PullRequest) => void,
-    _options?: import('./RealtimeWatcher.ts').RealtimeWatcherOptions
+    projectPath: string,
+    mrIid: number,
+    currentUserNumericId: number | null,
+    onUpdate: (pr: PullRequest) => void,
+    options?: RealtimeWatcherOptions
   ): () => void {
-    throw new Error(
-      'watchMR is not supported by the GitHub REST API. ' +
-        'GitHub does not offer a WebSocket subscription equivalent. ' +
-        'Check provider capabilities before calling.'
-    );
+    return createRealtimeWatcher<PullRequest>({
+      fetch: async () => {
+        let fillWarning: FetchPullRequestsWarning | undefined;
+        // Thrown after the read returns: `warn()` swallows a throw from inside onWarning.
+        const pr = await this.fetchSingleMR(projectPath, mrIid, currentUserNumericId, w => {
+          if (w.source === 'fill') fillWarning = w;
+        });
+        if (fillWarning) {
+          throw new ReadBackFailedError(fillWarning.message, {
+            operation: 'watchMR',
+            projectPath,
+            iid: mrIid,
+            writeApplied: false
+          });
+        }
+        return pr;
+      },
+      onUpdate,
+      options: {
+        pollIntervalMs: options?.pollIntervalMs ?? WATCH_MR_POLL_INTERVAL_MS,
+        onStatusChange: options?.onStatusChange,
+        logger: options?.logger ?? this.log,
+        logContext: options?.logContext ?? `watchMR:${projectPath}!${mrIid}`
+      }
+    });
   }
 
   /**
@@ -1760,20 +1929,22 @@ export class GitHubProvider implements GitProvider {
 
   /**
    * When `shouldRemoveSourceBranch` is set, the branch deletion happens as a
-   * second call after the merge PUT has already succeeded and been read
-   * back. If that cleanup fails, the merge still resolves, with the reason
-   * in `sourceBranchNotDeleted`: a rejection here would read as "the merge
-   * failed", and a caller retrying on it would re-issue a merge that landed.
+   * second call after the merge PUT has already succeeded, whether or not the
+   * read-back did. If that cleanup fails, the merge still resolves, with the
+   * reason in `sourceBranchNotDeleted`: a rejection here would read as "the
+   * merge failed", and a caller retrying on it would re-issue a merge that
+   * landed. A failed read-back throws `MergeReadBackFailedError`, which
+   * carries the same branch outcome.
    */
   async mergePullRequest(
     projectPath: string,
     mrIid: number,
     input?: MergePullRequestInput
   ): Promise<MergePullRequestResult> {
-    const body: Record<string, unknown> = {};
-    const mergeMethod =
-      input?.mergeMethod ?? (input?.squash ? 'squash' : undefined);
-    if (mergeMethod) body.merge_method = mergeMethod;
+    const context = await this.mergeContext('mergePullRequest', projectPath, mrIid);
+    if (context.queueEnabled) return this.mergeThroughQueue(projectPath, mrIid, context, input);
+    const mergeMethod = pickMergeMethod('mergePullRequest', projectPath, context, input);
+    const body: Record<string, unknown> = { merge_method: mergeMethod };
     Object.assign(body, this.mergeCommitFields(input, mergeMethod));
     if (input?.sha != null) body.sha = input.sha;
 
@@ -1791,57 +1962,89 @@ export class GitHubProvider implements GitProvider {
       }
       throw err;
     }
-    const pr = await this.fetchSingleMRAfterMutation(projectPath, mrIid, 'Merged');
-    if (!input?.shouldRemoveSourceBranch) return pr;
-    const notDeleted = await this.removeMergedSourceBranch(projectPath, mrIid, pr.sourceBranch);
-    return notDeleted === null ? pr : { ...pr, sourceBranchNotDeleted: notDeleted };
+    let pr: PullRequest | undefined;
+    let readBackError: unknown;
+    try {
+      pr = await this.fetchSingleMRAfterMutation(projectPath, mrIid, 'Merged');
+    } catch (err) {
+      readBackError = err;
+    }
+    const notDeleted = input?.shouldRemoveSourceBranch
+      ? await this.removeMergedSourceBranch(context.headBranch, context.headRepo)
+      : null;
+    if (pr) return notDeleted === null ? pr : { ...pr, sourceBranchNotDeleted: notDeleted };
+    const original = readBackError instanceof ReadBackFailedError ? readBackError : undefined;
+    throw new MergeReadBackFailedError(
+      readBackError instanceof Error ? readBackError.message : String(readBackError),
+      {
+        operation: original?.operation ?? 'fetchSingleMR after Merged',
+        projectPath,
+        iid: mrIid,
+        writeApplied: true,
+        cause: original ? original.cause : readBackError,
+        ...(notDeleted === null ? {} : { sourceBranchNotDeleted: notDeleted })
+      }
+    );
+  }
+
+  /**
+   * The queue applies its own method, messages and branch cleanup, so any
+   * caller choice of those is refused rather than silently dropped. An
+   * already-queued PR gets no second write; a dropped one is enqueued again,
+   * as GitHub's own merge button does.
+   */
+  private async mergeThroughQueue(
+    projectPath: string,
+    mrIid: number,
+    context: GitHubMergeContext,
+    input: MergePullRequestInput | undefined
+  ): Promise<MergePullRequestResult> {
+    const given = QUEUE_REFUSED_FIELDS.filter(field => input?.[field] !== undefined);
+    if (given.length > 0) {
+      throw new Error(
+        `mergePullRequest failed: ${projectPath}!${mrIid} merges through a merge queue, which applies its own settings; remove ${given.join(', ')}`
+      );
+    }
+    const alreadyQueued = context.inQueue && context.queueEntry !== null;
+    if (alreadyQueued && input?.sha !== undefined && input.sha !== context.headSha) {
+      throw new Error(
+        `mergePullRequest failed: ${projectPath}!${mrIid} head is ${context.headSha}, not the expected ${input.sha}`
+      );
+    }
+    const queued: MergeQueueEntry = alreadyQueued
+      ? context.queueEntry!
+      : await this.enqueueByNodeId('mergePullRequest', projectPath, mrIid, context.nodeId, input?.sha ?? null);
+    let pr: PullRequest;
+    try {
+      pr = await this.fetchSingleMRAfterMutation(projectPath, mrIid, 'Queued');
+    } catch (err) {
+      const original = err instanceof ReadBackFailedError ? err : undefined;
+      throw new MergeReadBackFailedError(err instanceof Error ? err.message : String(err), {
+        operation: original?.operation ?? 'fetchSingleMR after Queued',
+        projectPath,
+        iid: mrIid,
+        writeApplied: !alreadyQueued,
+        cause: original ? original.cause : err,
+        queued
+      });
+    }
+    return { ...pr, queued };
   }
 
   /**
    * Deletes a merged PR's source branch from the repository that owns it.
    * Resolves null once the branch is gone, or the one-sentence reason it is
    * still there. Never throws: the merge in front of it already landed.
+   *
+   * `headRepo` comes from the merge context: for a fork PR the branch lives in
+   * the fork, and deleting against the base repository could remove an
+   * unrelated branch of the same name there.
    */
-  private async removeMergedSourceBranch(
-    projectPath: string,
-    mrIid: number,
-    branch: string
-  ): Promise<string | null> {
+  private async removeMergedSourceBranch(branch: string, headRepo: string | null): Promise<string | null> {
     const notDeleted = (why: string) => `The source branch "${branch}" was not deleted: ${why}`;
-    // `branch` is `head.ref`, a branch name with no repository
-    // attached. For a same-repo PR that name lives in `projectPath`, but
-    // for a fork PR it lives in the fork, and deleting against
-    // `projectPath` would either 404 (branch never existed there, so the
-    // delete silently does nothing while reporting success) or, worse,
-    // delete an unrelated same-named branch in the base repo. The raw PR
-    // (not the mapped `PullRequest`, which carries no head-repo field)
-    // has to be read to find out which repository actually owns the ref.
-    let raw: GHPullRequest | null = null;
-    try {
-      const res = await this.octokit.request(`GET /repos/${projectPath}/pulls/${mrIid}`);
-      raw = res.data as GHPullRequest;
-    } catch (err) {
-      // A failed read is not a deleted fork: saying so would send the
-      // caller looking for the wrong problem.
-      if (err instanceof RateLimitedError) {
-        return notDeleted(
-          `reading the PR to find its head repository was rate limited${err.resetAt ? ` until ${err.resetAt}` : ''}`
-        );
-      }
-      if (!(err instanceof RequestError && err.status === 404)) {
-        const reason =
-          err instanceof RequestError && err.response
-            ? `${err.status} ${bodyText(err)}`
-            : err instanceof Error
-              ? err.message
-              : String(err);
-        return notDeleted(`reading the PR to find its head repository failed: ${reason}`);
-      }
-    }
-    const headRepo = raw?.head?.repo?.full_name;
     if (!headRepo) {
       return notDeleted(
-        'its head repository is unknown (the fork was likely deleted), so the delete could not be targeted safely'
+        'its head repository is unknown (deleted, or not visible to this token), so the delete could not be targeted safely'
       );
     }
     const refused = await this.deleteMergedSourceBranch(headRepo, branch);
@@ -1860,7 +2063,7 @@ export class GitHubProvider implements GitProvider {
    */
   private mergeCommitFields(
     input: MergePullRequestInput | undefined,
-    mergeMethod: string | undefined
+    mergeMethod: MergeMethod
   ): { commit_title?: string; commit_message?: string } {
     // A squash with no squash-specific message still has the caller's intent in
     // commitMessage, and GitHub produces exactly one commit either way, so
@@ -1906,7 +2109,7 @@ export class GitHubProvider implements GitProvider {
    *
    * `repoPath` is the repository that owns `branch`, which for a fork PR is
    * the fork, not the base repository the PR was opened against. The caller
-   * resolves that from `head.repo.full_name` before calling in.
+   * takes it from the merge context's `headRepository`.
    *
    * Resolves null once the ref is gone, or why it may still be there.
    */
@@ -2058,23 +2261,61 @@ export class GitHubProvider implements GitProvider {
     }
   }
 
-  async rebasePullRequest(_projectPath: string, _mrIid: number): Promise<void> {
-    // TODO: GitHub has no native "rebase" API for pull requests.
-    // The closest equivalent is the update-branch API:
-    //   PUT /repos/{owner}/{repo}/pulls/{pull_number}/update-branch
-    // which updates the PR branch with the latest from the base branch,
-    // but it's a merge (not a rebase). True rebase requires pushing
-    // locally rebased commits.
-    throw new Error(
-      'rebasePullRequest is not supported by GitHub. ' +
-        'Check provider.capabilities.canRebase before calling.'
+  async rebasePullRequest(projectPath: string, mrIid: number): Promise<void> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    const { data: read, errors: readErrors } = await this.graphqlRead<{
+      repository?: { pullRequest?: { id: string; headRefOid: string } | null } | null;
+    }>(
+      'rebasePullRequest',
+      `
+      query GlanceRebaseRead($owner: String!, $repo: String!, $number: Int!) {
+        repository(owner: $owner, name: $repo) {
+          pullRequest(number: $number) { id headRefOid }
+        }
+      }
+    `,
+      { owner, repo, number: mrIid }
     );
+    const pr = read.repository?.pullRequest;
+    if (!pr) throw missingPullRequestError('rebasePullRequest', projectPath, mrIid, readErrors);
+    throwOnGraphQLErrors('rebasePullRequest', readErrors);
+
+    // expectedHeadOid makes GitHub refuse the rebase if the branch moved
+    // after the read, instead of rebasing a head the caller never saw.
+    await this.graphqlOrThrow<{
+      updatePullRequestBranch?: { pullRequest?: { headRefOid: string } | null } | null;
+    }>(
+      'rebasePullRequest',
+      `
+      mutation GlanceRebase($id: ID!, $expectedHeadOid: GitObjectID!) {
+        updatePullRequestBranch(
+          input: { pullRequestId: $id, expectedHeadOid: $expectedHeadOid, updateMethod: REBASE }
+        ) {
+          pullRequest { headRefOid }
+        }
+      }
+    `,
+      { id: pr.id, expectedHeadOid: pr.headRefOid }
+    );
+  }
+
+  private async mergeContext(op: string, projectPath: string, mrIid: number): Promise<GitHubMergeContext> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    const { data, errors } = await this.graphqlRead<GHMergeContextResponse>(op, MERGE_CONTEXT_QUERY, {
+      owner,
+      repo,
+      number: mrIid
+    });
+    const context = toMergeContext(data);
+    if (!context) throw missingPullRequestError(op, projectPath, mrIid, errors);
+    throwOnGraphQLErrors(op, errors.filter(e => !isMergeContextHeadRepoError(e)));
+    return context;
   }
 
   /**
    * The GraphQL node id for a pull request the caller named by number.
    *
-   * Both auto-merge mutations address a PR by node id and `GitProvider` only
+   * The node-id mutations address a PR by node id and `GitProvider` only
    * hands this provider `projectPath` and `mrIid`, so every call pays one
    * REST read for the translation.
    */
@@ -2117,10 +2358,15 @@ export class GitHubProvider implements GitProvider {
    * primary use case a consumer who just read `canAutoMerge: true` hits.
    */
   async setAutoMerge(projectPath: string, mrIid: number): Promise<void> {
-    const nodeId = await this.pullRequestNodeId('setAutoMerge', projectPath, mrIid);
+    const context = await this.mergeContext('setAutoMerge', projectPath, mrIid);
+    const variables: Record<string, unknown> = { id: context.nodeId };
+    // A merge queue applies its own method, so none is sent there.
+    if (!context.queueEnabled) {
+      variables.mergeMethod = pickMergeMethod('setAutoMerge', projectPath, context).toUpperCase();
+    }
     const mutation = `
-      mutation GlanceEnableAutoMerge($id: ID!) {
-        enablePullRequestAutoMerge(input: { pullRequestId: $id }) {
+      mutation GlanceEnableAutoMerge($id: ID!, $mergeMethod: PullRequestMergeMethod) {
+        enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: $mergeMethod }) {
           pullRequest { autoMergeRequest { enabledAt } }
         }
       }
@@ -2130,7 +2376,7 @@ export class GitHubProvider implements GitProvider {
       enablePullRequestAutoMerge?: {
         pullRequest?: { autoMergeRequest?: { enabledAt?: string | null } | null } | null;
       };
-    }>('setAutoMerge', mutation, { id: nodeId });
+    }>('setAutoMerge', mutation, variables);
 
     // Reading the end state back, not just the absence of an error: an
     // accepted mutation that enabled nothing is indistinguishable from a
@@ -2187,6 +2433,16 @@ export class GitHubProvider implements GitProvider {
     input: EnqueuePullRequestInput = {}
   ): Promise<MergeQueueEntry> {
     const nodeId = await this.pullRequestNodeId('enqueuePullRequest', projectPath, mrIid);
+    return this.enqueueByNodeId('enqueuePullRequest', projectPath, mrIid, nodeId, input.expectedHeadSha ?? null);
+  }
+
+  private async enqueueByNodeId(
+    op: string,
+    projectPath: string,
+    mrIid: number,
+    nodeId: string,
+    expectedHeadSha: string | null
+  ): Promise<MergeQueueEntry> {
     const mutation = `
       mutation GlanceEnqueue($id: ID!, $head: GitObjectID) {
         enqueuePullRequest(input: { pullRequestId: $id, expectedHeadOid: $head }) {
@@ -2197,12 +2453,12 @@ export class GitHubProvider implements GitProvider {
 
     const data = await this.graphqlOrThrow<{
       enqueuePullRequest?: { mergeQueueEntry?: MergeQueueEntry | null };
-    }>('enqueuePullRequest', mutation, { id: nodeId, head: input.expectedHeadSha ?? null });
+    }>(op, mutation, { id: nodeId, head: expectedHeadSha });
 
     const entry = data.enqueuePullRequest?.mergeQueueEntry;
     if (!entry) {
       throw new Error(
-        `enqueuePullRequest failed: GitHub accepted the mutation but reported no queue entry on ${projectPath}!${mrIid}`
+        `${op} failed: GitHub accepted the mutation but reported no queue entry on ${projectPath}!${mrIid}`
       );
     }
     return entry;
@@ -2917,7 +3173,7 @@ export class GitHubProvider implements GitProvider {
     method: string,
     path: string,
     body?: unknown,
-    io?: { redirect?: 'manual' }
+    io?: { redirect?: 'manual'; stream?: boolean }
   ): Promise<Response> {
     // Octokit's endpoint parser rewrites `:word` into a route placeholder
     // before the string is ever handed to fetch, and a placeholder with no
@@ -2953,7 +3209,17 @@ export class GitHubProvider implements GitProvider {
     try {
       const res = await this.octokit.request(`${method} ${safePath}`, {
         ...(body !== undefined ? { data: body } : {}),
-        ...(io?.redirect ? { request: { redirect: io.redirect } } : {})
+        ...(io?.redirect || io?.stream
+          ? {
+              request: {
+                ...(io.redirect ? { redirect: io.redirect } : {}),
+                // Octokit then hands back `fetchResponse.body` unread, so a
+                // caller can cancel after the bytes it wants. Error bodies
+                // are still parsed: Octokit reads them before throwing.
+                ...(io.stream ? { parseSuccessResponseBody: false } : {})
+              }
+            }
+          : {})
       });
       return toResponse(res.status, res.headers, res.data);
     } catch (caught) {
@@ -3235,6 +3501,7 @@ export class GitHubProvider implements GitProvider {
           rulesRequired: rulesByBranch.get(node.baseRefName) ?? null
         });
         if (!opts.roles.has(n)) pr.roles = rolesFromViewer(node, viewer, pr.reviewers);
+        if (headRepositoryHidden(errors, n)) pr.sourceProjectPath = undefined;
         out.set(n, pr);
       }
     }
@@ -3785,7 +4052,7 @@ function toResponse(
   const body =
     NULL_BODY_STATUSES.has(status) || data === undefined || data === null
       ? null
-      : typeof data === 'string'
+      : typeof data === 'string' || data instanceof ReadableStream
         ? data
         : JSON.stringify(data);
   // Octokit hands back the whole header map (lowercase keys, string values)

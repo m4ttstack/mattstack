@@ -84,6 +84,7 @@ export interface GHFillNode {
   headRefName: string;
   headRefOid: string;
   baseRefName: string;
+  headRepository: { nameWithOwner: string } | null;
   baseRepository: {
     databaseId: number;
     nameWithOwner: string;
@@ -146,6 +147,7 @@ function fillFields(number: number, listWeight: boolean): string {
   return `id databaseId number title${body} state isDraft url createdAt updatedAt mergedAt
 mergeable mergeStateStatus reviewDecision additions deletions changedFiles
 headRefName headRefOid baseRefName
+headRepository { nameWithOwner }
 baseRepository { databaseId nameWithOwner defaultBranchRef { name } }
 baseRef { branchProtectionRule { requiredApprovingReviewCount } }
 author ${ACTOR}
@@ -543,6 +545,7 @@ export function toPullRequestFromNode(
     conflicts: node.mergeStateStatus === 'DIRTY' || node.mergeable === 'CONFLICTING',
     webUrl: node.url,
     sourceBranch: node.headRefName,
+    sourceProjectPath: node.headRepository?.nameWithOwner ?? null,
     targetBranch: node.baseRefName,
     isStacked: !!defaultBranch && node.baseRefName !== defaultBranch,
     createdAt: node.createdAt,

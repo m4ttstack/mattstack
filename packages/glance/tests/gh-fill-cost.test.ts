@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
 import type { GHFillContext, GHFillNode } from '../src/githubFill.ts';
 import type { RequestInfo } from '../src/instrumentation.ts';
+import { isMergeContextQuery, mergeContextData } from './helpers/gh-merge-context.ts';
 import {
   ghNode,
   jsonResponse,
@@ -306,13 +307,31 @@ describe('GraphQL 5xx retry', () => {
 
   test('a GraphQL mutation answered 502 is sent once', async () => {
     const { urls } = stubForge({
-      graphql: () => jsonResponse({ message: 'Bad Gateway' }, 502),
-      rest: (url) => (url.endsWith('/pulls/1') ? jsonResponse({ number: 1, node_id: 'PR_node1' }) : undefined)
+      graphql: (query) =>
+        isMergeContextQuery(query) ? mergeContextData() : jsonResponse({ message: 'Bad Gateway' }, 502)
     });
     const { provider } = counted();
 
     await expect(provider.setAutoMerge('o/r', 1)).rejects.toThrow(/^setAutoMerge failed: 502/);
-    expect(sentGraphQL(urls)).toBe(1);
+    // The context read, then the mutation once.
+    expect(sentGraphQL(urls)).toBe(2);
+  });
+
+  test('a merge context read answered 502 then 200 is retried', async () => {
+    let calls = 0;
+    const { urls } = stubForge({
+      graphql: (query) => {
+        if (!isMergeContextQuery(query)) {
+          return { enablePullRequestAutoMerge: { pullRequest: { autoMergeRequest: { enabledAt: 'x' } } } };
+        }
+        return ++calls === 1 ? jsonResponse({ message: 'Bad Gateway' }, 502) : mergeContextData();
+      }
+    });
+    const { provider } = counted();
+
+    await provider.setAutoMerge('o/r', 1);
+
+    expect(sentGraphQL(urls)).toBe(3);
   });
 
   test('fetchProjectLabels: 1 request per 100 labels', async () => {

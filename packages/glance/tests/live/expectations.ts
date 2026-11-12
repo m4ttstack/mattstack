@@ -71,11 +71,7 @@ export const GITHUB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
     capability: 'canUnapprove',
     note: 'Implemented as a review dismissal, which leaves a DISMISSED review in the list rather than removing the approval record as GitLab does.'
   },
-  rebasePullRequest: {
-    support: 'unsupported',
-    capability: 'canRebase',
-    note: 'Permanent. GitHub update-branch merges base into head, which is not a rebase.'
-  },
+  rebasePullRequest: { support: 'supported', capability: 'canRebase' },
   enqueuePullRequest: {
     support: 'supported',
     capability: 'canEnqueue',
@@ -114,8 +110,8 @@ export const GITHUB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   requestReReview: { support: 'supported', capability: 'canRequestReReview' },
   restRequest: { support: 'supported' },
   watchMR: {
-    support: 'unsupported',
-    note: 'Permanent. GitHub has no push channel equivalent to ActionCable.'
+    support: 'supported',
+    note: 'Polls every 60s by default; GitHub has no push channel.'
   },
   subscribePullRequestEvents: {
     support: 'absent',

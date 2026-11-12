@@ -27,9 +27,9 @@ import type { Reporter } from './report.ts';
  * check has not passed, it has proven nothing, and reporting it as green
  * would claim coverage that didn't happen.
  */
-class Inconclusive extends Error {}
+export class Inconclusive extends Error {}
 
-async function check(
+export async function check(
   report: Reporter,
   fixture: ProviderFixture,
   method: ProviderMethod,
@@ -57,7 +57,7 @@ async function check(
 // expression was checked, e.g. `assert(main !== undefined, ...)` then using
 // `main` unguarded afterward, instead of forcing a redundant non-null
 // assertion at every call site.
-function assert(condition: boolean, message: string): asserts condition {
+export function assert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
@@ -500,8 +500,7 @@ export async function runUnsupportedConformance(
       // No placeholder skip here any more. Every method in `probes` now
       // reaches a real result on both providers, by one route or another:
       //   rebasePullRequest   GitLab (supported) via runGitLabMutationConformance;
-      //                       GitHub declares it unsupported, so it never
-      //                       reaches this branch at all and is probed below.
+      //                       GitHub (supported) via runGitHubGapsConformance.
       //   setAutoMerge        GitLab (supported) via runGitLabMutationConformance;
       //                       GitHub declares it `approximate`, exercised by the
       //                       measured block in runWriteConformance.
@@ -545,14 +544,15 @@ export async function runUnsupportedConformance(
       }
       assert(threw, 'expected a throw, got a subscription');
     });
-  } else {
+  } else if (fixture.name === 'gitlab') {
     // Actually calling watchMR here would open a real ActionCable WebSocket
     // subscription against a PR that may not exist, with nothing in this
     // script to ever close it. Exercising subscribe/dispose is out of
     // scope for read-path conformance, so the gap is recorded explicitly
     // instead of being left to vanish: without this branch, a provider
     // that declares watchMR supported gets no report entry for it at all,
-    // neither pass, fail, nor skip.
+    // neither pass, fail, nor skip. GitHub's poll-only watchMR has a real
+    // case in runGitHubGapsConformance instead.
     report.skip(
       fixture.name,
       'watchMR',
@@ -579,7 +579,7 @@ export async function runUnsupportedConformance(
 }
 
 /** Unique per run, so an aborted run never collides with the next. */
-function runPrefix(): string {
+export function runPrefix(): string {
   return `conformance/${Date.now().toString(36)}`;
 }
 
@@ -607,7 +607,7 @@ async function scopedRepoId(fixture: ProviderFixture): Promise<string> {
  * fixture the default branch is protected with push access "No one", so
  * advancing it is not an option even where it would be acceptable.
  */
-async function createBranch(
+export async function createBranch(
   fixture: ProviderFixture,
   branch: string,
   from?: string
@@ -641,7 +641,7 @@ async function createBranch(
  * whose source and target are identical, and GitHub will not open a PR with
  * no diff.
  */
-async function commitFile(
+export async function commitFile(
   fixture: ProviderFixture,
   branch: string,
   path: string,
@@ -1958,8 +1958,8 @@ async function cancelActiveGitLabPipelines(
  *
  * GitLab-only, for the same reason the measured auto-merge block inside
  * runWriteConformance is GitHub-only: these are not one behaviour with two
- * spellings. GitHub declares rebasePullRequest permanently unsupported (its
- * update-branch merges base into head), and its auto-merge pair is exercised
+ * spellings. GitHub's rebasePullRequest goes through updatePullRequestBranch
+ * and is not exercised by this cycle, and its auto-merge pair is exercised
  * against GitHub's own enablePullRequestAutoMerge semantics, which are
  * "queue behind required checks", not GitLab's "merge when the pipeline
  * succeeds".

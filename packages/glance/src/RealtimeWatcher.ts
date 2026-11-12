@@ -19,8 +19,13 @@
  * The subscribe callback is transport-agnostic: it receives three callbacks
  * ({ onConnected, onDisconnected, onEvent }) and must return a dispose function.
  * Wire any push mechanism — ActionCable, SSE, socket — into those callbacks.
+ *
+ * Omitting `subscribe` selects poll-only mode: fetch on start, then every
+ * `pollIntervalMs`. A failed poll never retries sooner than `pollIntervalMs`,
+ * nor before a `RateLimitedError` lifts.
  */
 
+import { RateLimitedError } from './errors.ts';
 import { type ForgeLogger, noopLogger } from './logger.ts';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -40,8 +45,11 @@ export interface WatcherSubscribeCallbacks {
 
 /** Connection + health status exposed to consumers. */
 export interface WatcherStatus {
-  /** WebSocket / push connection state. */
-  connection: 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
+  /**
+   * WebSocket / push connection state.
+   * `'polling'`: data is fresh as of the last poll; no push channel.
+   */
+  connection: 'connecting' | 'connected' | 'disconnected' | 'reconnecting' | 'polling';
   /** Number of consecutive fetch failures (0 = healthy). */
   consecutiveErrors: number;
   /** Last error encountered, if any. Cleared on successful fetch. */
@@ -51,6 +59,8 @@ export interface WatcherStatus {
 export interface RealtimeWatcherOptions {
   /**
    * Poll interval while the push subscription is connected (safety net).
+   * In poll-only mode (no `subscribe`) it is the poll interval, and also the
+   * floor for a retry after a failed poll.
    * Default: 30_000 ms.
    */
   pollIntervalMs?: number;
@@ -76,7 +86,8 @@ export interface RealtimeWatcherOptions {
  * Creates a self-healing realtime watcher.
  *
  * @param subscribe  Wires the push subscription. Receives `{ onConnected,
- *   onDisconnected, onEvent }` and must return a dispose function.
+ *   onDisconnected, onEvent }` and must return a dispose function. Omit it
+ *   for poll-only mode.
  * @param fetch      Returns the latest snapshot, or `null` if unavailable.
  *   Called on push events, poll ticks, and push reconnects.
  * @param onUpdate   Called with each successful fetch result.
@@ -85,7 +96,7 @@ export interface RealtimeWatcherOptions {
  *   in-flight fetches. Safe to call multiple times.
  */
 export function createRealtimeWatcher<T>(params: {
-  subscribe: (callbacks: WatcherSubscribeCallbacks) => () => void;
+  subscribe?: (callbacks: WatcherSubscribeCallbacks) => () => void;
   fetch: () => Promise<T | null>;
   onUpdate: (data: T) => void;
   onStatusChange?: (status: WatcherStatus) => void;
@@ -95,6 +106,7 @@ export function createRealtimeWatcher<T>(params: {
   const onStatusChange = params.onStatusChange ?? options.onStatusChange;
   const log = options.logger ?? noopLogger;
   const ctx = options.logContext ?? 'RealtimeWatcher';
+  const pollOnly = subscribe === undefined;
 
   const POLL_WS_UP = options.pollIntervalMs ?? 30_000;
   const POLL_WS_DOWN = options.pollIntervalWsDownMs ?? 10_000;
@@ -108,10 +120,19 @@ export function createRealtimeWatcher<T>(params: {
   let hasConnected = false;
   let pollFailures = 0;
   let lastError: Error | undefined;
+  let hasPolled = false;
 
   // ── Status emission ─────────────────────────────────────────────────────────
   const emitStatus = (): void => {
     if (disposed || !onStatusChange) return;
+    if (pollOnly) {
+      onStatusChange({
+        connection: pollFailures > 0 ? 'reconnecting' : hasPolled ? 'polling' : 'connecting',
+        consecutiveErrors: pollFailures,
+        lastError,
+      });
+      return;
+    }
     onStatusChange({
       connection: wsConnected
         ? 'connected'
@@ -141,6 +162,16 @@ export function createRealtimeWatcher<T>(params: {
     if (disposed) return;
     try {
       const result = await doFetch();
+      if (pollOnly) {
+        if (disposed) return;
+        const changed = !hasPolled || pollFailures > 0;
+        hasPolled = true;
+        pollFailures = 0;
+        lastError = undefined;
+        if (changed) emitStatus();
+        if (result !== null) onUpdate(result);
+        return;
+      }
       if (!disposed && result !== null) {
         const hadErrors = pollFailures > 0;
         pollFailures = 0; // reset backoff streak on success
@@ -169,7 +200,14 @@ export function createRealtimeWatcher<T>(params: {
 
     let delay: number;
 
-    if (pollFailures > 0) {
+    if (pollOnly) {
+      if (pollFailures > 0) {
+        const cap = Math.min(BACKOFF_BASE * Math.pow(2, pollFailures - 1), BACKOFF_MAX);
+        delay = Math.max(Math.random() * cap, POLL_WS_UP, rateLimitWaitMs(lastError));
+      } else {
+        delay = POLL_WS_UP + POLL_WS_UP * 0.1 * (Math.random() * 2 - 1);
+      }
+    } else if (pollFailures > 0) {
       // Full-jitter exponential backoff — proven to distribute retry load optimally
       // across many concurrent clients (AWS Architecture Blog, 2015).
       // delay = random(0, min(base × 2ⁿ, cap))
@@ -192,7 +230,7 @@ export function createRealtimeWatcher<T>(params: {
     });
 
     pollTimer = setTimeout(async () => {
-      await runFetch(wsConnected ? 'poll:safetynet' : 'poll:wsdown');
+      await runFetch(pollOnly ? 'poll' : wsConnected ? 'poll:safetynet' : 'poll:wsdown');
       schedulePoll(); // reschedule after each tick for dynamic interval recalculation
     }, delay);
   };
@@ -249,6 +287,7 @@ export function createRealtimeWatcher<T>(params: {
     schedulePoll();
 
     // Wire the push subscription.
+    if (!subscribe) return;
     disposeSub = subscribe({ onConnected, onDisconnected, onEvent });
   })();
 
@@ -264,4 +303,14 @@ export function createRealtimeWatcher<T>(params: {
     disposeSub?.();
     log.debug(`${ctx}: disposed`);
   };
+}
+
+function rateLimitWaitMs(err: Error | undefined): number {
+  if (!(err instanceof RateLimitedError)) return 0;
+  if (err.retryAfterMs !== null) return err.retryAfterMs;
+  if (err.resetAt !== null) {
+    const until = Date.parse(err.resetAt) - Date.now();
+    return Number.isFinite(until) ? Math.max(0, until) : 0;
+  }
+  return 0;
 }

@@ -9,6 +9,13 @@ import { ghNode, stubForge, useForgeStub } from './helpers/gh-fill-fixture.ts';
 useForgeStub();
 
 describe('buildFillQuery', () => {
+  test('fill selects headRepository at both weights', () => {
+    for (const listWeight of [true, false]) {
+      expect(buildFillQuery('o', 'r', [1], { listWeight })).toContain('headRepository { nameWithOwner }');
+    }
+  });
+
+
   test('one alias per number, isRequired inlined', () => {
     const q = buildFillQuery('o', 'r', [7, 12], { listWeight: false });
     expect(q).toContain('p7: pullRequest(number: 7)');

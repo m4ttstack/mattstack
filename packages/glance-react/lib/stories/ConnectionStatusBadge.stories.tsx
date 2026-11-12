@@ -25,6 +25,11 @@ export const Reconnecting: Story = {
   args: { status: 'reconnecting' },
 };
 
+/** Polling: no push channel, so data is fresh as of the last poll. Hidden by default. */
+export const Polling: Story = {
+  args: { status: 'polling', showWhenConnected: true },
+};
+
 /** Disconnected — connection lost, fast-polling active. */
 export const Disconnected: Story = {
   args: { status: 'disconnected' },
@@ -37,6 +42,7 @@ export const AllStates: Story = {
       <ConnectionStatusBadge status="connecting" />
       <ConnectionStatusBadge status="connected" showWhenConnected />
       <ConnectionStatusBadge status="reconnecting" />
+      <ConnectionStatusBadge status="polling" showWhenConnected />
       <ConnectionStatusBadge status="disconnected" />
     </div>
   ),

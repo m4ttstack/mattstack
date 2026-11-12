@@ -4,6 +4,7 @@ import { describe, expect, test } from 'bun:test';
 import { ReadBackFailedError } from '../src/errors.ts';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
 import { GitLabProvider } from '../src/GitLabProvider.ts';
+import { mergeContextData } from './helpers/gh-merge-context.ts';
 
 function providerWith(payload: unknown) {
   const provider = new GitHubProvider('https://github.com', 'tok');
@@ -22,7 +23,7 @@ const QUEUED = { enqueuePullRequest: { mergeQueueEntry: { position: 2, state: 'Q
 
 describe('mergePullRequest read-back', () => {
   test('a merge whose read-back fails says the write landed', async () => {
-    const { provider } = providerWith({});
+    const { provider } = providerWith(mergeContextData());
     (provider as any).fetchSingleMR = async () => {
       throw new Error('502');
     };
