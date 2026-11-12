@@ -68,7 +68,7 @@ daemon fills them.
 - UI is checked in Fast Browser in both colour schemes against a local
   fixture board, never the live board.
 - RT-542's current design leaves two gaps on GitHub that the board must
-  tolerate: no codeowner approval rules (rows carry no `codeownerSections`)
+  tolerate: no codeowner approval rules (daemon entries carry no `codeownerSections`, so board rows get `[]`)
   and a null behind count (`behindTarget: null`).
 
 ## Approaches
@@ -301,7 +301,7 @@ the URL):
 - Forge words follow the row: `CommentsDrawer`'s "open in gitlab" links
   and `ReviewDraftCard`'s diff link (GitHub's changed-files page is
   `<pr url>/files`, GitLab's stays `<mr url>/diffs`).
-- Rows with `behindTarget: null` and no `codeownerSections` render without
+- Rows with `behindTarget: null` and empty `codeownerSections` render without
   errors and show no behind count.
 
 GitLab rows render exactly as today.
@@ -344,7 +344,7 @@ skipped.
 - **`buildBoard`:** keeps GitHub rows, keeps a GitHub row whose URL
   spelling differs in case from its `board.projects` entry, still drops
   rows outside `board.projects`, matches authors exactly, and handles
-  `behindTarget: null` and absent `codeownerSections`.
+  `behindTarget: null` and a daemon entry with no `codeownerSections`.
 - **Canonical spelling:** on GitHub the parser returns the configured
   spelling for a case-different URL, and `daemonRepoField` and
   `resolveLaunchRepo` then give the identity built from that spelling.
