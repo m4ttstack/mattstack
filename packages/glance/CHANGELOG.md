@@ -11,7 +11,10 @@
   pass 30 s, the same as GitHub, and a write past 65 s (one full GitLab
   window), and then throws `RateLimitedError` (`kind: 'secondary'`) with `retryAfterMs` and
   `resetAt`. A 429 is never applied, so a write retried after one is not sent
-  twice.
+  twice. `GITLAB_READ_RATE_LIMIT_DEADLINE_S` and
+  `GITLAB_WRITE_RATE_LIMIT_DEADLINE_S` are exported, so a caller that times
+  out a write can wait longer than glance does: one that gives up first and
+  retries posts the write twice.
 - GitLab `restRequest` throws `RateLimitedError` for a 429 past its deadline;
   every other non-2xx still resolves.
 - gitbeaker calls no longer resend a write on a 502, which may already have

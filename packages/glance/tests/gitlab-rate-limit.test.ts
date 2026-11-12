@@ -222,3 +222,11 @@ describe('withGitLabRateLimit', () => {
     expect(calls).toBe(1);
   });
 });
+
+describe('the package index', () => {
+  test('exports both GitLab deadlines, so a caller can size its own timeout above them', async () => {
+    const index = await import('../src/index.ts');
+    expect(index.GITLAB_READ_RATE_LIMIT_DEADLINE_S).toBe(30);
+    expect(index.GITLAB_WRITE_RATE_LIMIT_DEADLINE_S).toBe(65);
+  });
+});
