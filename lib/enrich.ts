@@ -45,6 +45,7 @@ import {
 } from "./linear.ts";
 import type { PickSegment } from "./ui/protocol.ts";
 import { childEnv } from "./subprocess.ts";
+import { testRunSignal } from "../packages/rt-client/src/test-isolation.ts";
 
 /** Best-effort serialized identity for a remote URL; undefined with no remote. */
 function identityForRemote(remoteUrl: string | undefined): string | undefined {
@@ -55,13 +56,104 @@ function identityForRemote(remoteUrl: string | undefined): string | undefined {
 
 // ─── Remote URL parser ───────────────────────────────────────────────────────
 
+/** What git would hand ssh for a remote: the alias, and the user and port when the remote names them. */
+export interface SshTarget {
+  alias: string;
+  user: string | null;
+  port: string | null;
+}
+
+/** The real hostname ssh would connect to for `target`, or null when ssh cannot say. */
+export type SshHostResolver = (target: SshTarget) => Promise<string | null>;
+
+const SSH_TIMEOUT_MS = 2000;
+const SSH_TOKEN = /^[a-z0-9][a-z0-9._-]*$/i;
+
+async function sshConfigHostname({ alias, user, port }: SshTarget): Promise<string | null> {
+  // ssh reads ~/.ssh/config through the passwd entry, not HOME, so test HOME isolation would not keep it off the real file.
+  if (testRunSignal(process.env, Bun.main) !== null) return null;
+  const proc = Bun.spawn(["ssh", "-G", ...(user ? ["-l", user] : []), ...(port ? ["-p", port] : []), alias], {
+    stdout: "pipe", stderr: "ignore", stdin: "ignore", env: childEnv(), timeout: SSH_TIMEOUT_MS,
+  });
+  const [stdout, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+  if (code !== 0) return null;
+  return /^hostname (\S+)$/m.exec(stdout)?.[1] ?? null;
+}
+
+let sshHostResolver: SshHostResolver = sshConfigHostname;
+let sshHostGeneration = 0;
+const sshHostCache = new Map<string, string | null>();
+const sshHostLookups = new Map<string, Promise<void>>();
+
+/** Tests swap in a fake ssh; null restores the real one. */
+export function setSshHostResolver(resolver: SshHostResolver | null): void {
+  sshHostResolver = resolver ?? sshConfigHostname;
+  sshHostGeneration++;
+  sshHostCache.clear();
+  sshHostLookups.clear();
+}
+
+function isForgeHost(host: string): boolean {
+  return host === "github.com" || /gitlab\./i.test(host);
+}
+
+/** The ssh target a remote would hand ssh, or null when the remote is not one ssh resolves. */
+function sshTargetOf(remote: string): (SshTarget & { key: string }) | null {
+  const trimmed = remote.trim();
+  const match = /^(?:(?:git\+)?ssh:\/\/)?(?:([^@/:\s]+)@)?([^/:\s]+)(?::(\d+))?[:/]/i.exec(trimmed);
+  if (!match || /^(?!(?:git\+)?ssh:\/\/)[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) return null;
+  const user = match[1] ?? null;
+  const alias = match[2]!.toLowerCase();
+  const port = /^(?:git\+)?ssh:\/\//i.test(trimmed) ? match[3] ?? null : null;
+  if (isForgeHost(alias) || !SSH_TOKEN.test(alias) || (user !== null && !SSH_TOKEN.test(user))) return null;
+  return { alias, user, port, key: `${user ? `${user}@` : ""}${alias}${port ? `:${port}` : ""}` };
+}
+
+/**
+ * Looks up the host behind an ssh alias remote (`git@work-github:o/r`) so
+ * parseRemoteUrl can read it. Async callers await it before they pick a
+ * forge; parseRemoteUrl starts it on a miss and reads the alias until it lands.
+ */
+export function resolveSshAlias(remote: string): Promise<void> {
+  const target = sshTargetOf(remote);
+  if (!target || sshHostCache.has(target.key)) return Promise.resolve();
+  let lookup = sshHostLookups.get(target.key);
+  if (!lookup) {
+    const generation = sshHostGeneration;
+    lookup = sshHostResolver(target)
+      .catch(() => null)
+      .then((real) => {
+        if (generation !== sshHostGeneration) return;
+        sshHostCache.set(target.key, real?.toLowerCase() ?? null);
+        sshHostLookups.delete(target.key);
+      });
+    sshHostLookups.set(target.key, lookup);
+  }
+  return lookup;
+}
+
+/**
+ * The host decides which forge token a repo is offered, so a resolved host
+ * is kept only when it names a forge, and only from the user's own ssh config.
+ */
+function sshAliasHost(remote: string, host: string): string {
+  const target = sshTargetOf(remote);
+  if (!target) return host;
+  if (!sshHostCache.has(target.key)) {
+    void resolveSshAlias(remote);
+    return host;
+  }
+  const real = sshHostCache.get(target.key);
+  return real && isForgeHost(real) ? real : host;
+}
+
 export function parseRemoteUrl(url: string): { host: string; projectPath: string } | null {
   const trimmed = url.trim();
   if (/^file:/i.test(trimmed)) return null;
   const normalized = normalizeRemote(trimmed);
   if (!normalized) return null;
   const slash = normalized.indexOf("/");
-  const host = normalized.slice(0, slash);
+  const host = sshAliasHost(trimmed, normalized.slice(0, slash));
   // A port on an ssh remote belongs to sshd, so it would point the API at the wrong service.
   const webHost = /^https?:\/\//i.test(trimmed) ? host : host.replace(/:\d+$/, "");
   // normalizeRemote strips `.git` before trailing slashes, so a `.git/` remote keeps its suffix.
@@ -101,6 +193,7 @@ export async function forgeTokenFor(
   remoteUrl: string | undefined,
   secrets: { gitlabToken?: string; githubToken?: string },
 ): Promise<{ forge: Forge; token: string | null } | null> {
+  if (remoteUrl) await resolveSshAlias(remoteUrl);
   if (isGitLabRemote(remoteUrl)) return { forge: "gitlab", token: gitlabTokenFor(remoteUrl, secrets) };
   if (isGitHubRemote(remoteUrl)) return { forge: "github", token: (await resolveGithubToken(secrets.githubToken))?.token ?? null };
   return null;
@@ -323,6 +416,7 @@ export async function enrichBranches(
   remoteUrl?: string,
   options?: { silent?: boolean; forceRefresh?: boolean },
 ): Promise<EnrichedBranch[]> {
+  if (remoteUrl) await resolveSshAlias(remoteUrl);
   const real = branches.filter((b) => !b.branch.startsWith("on-deck/"));
   const enrichedReal = real.length > 0
     ? await enrichRealBranches(real, remoteUrl, options)
@@ -530,6 +624,8 @@ export async function refreshAllMRs(
   // Mirrors subprocess.ts's opts.signal check: an already-aborted signal
   // skips the GitLab/Linear round trip rather than starting one just to
   // discard the result once the deadline (cache-refresh.ts) has passed.
+  if (signal?.aborted) return;
+  if (remoteUrl) await resolveSshAlias(remoteUrl);
   if (signal?.aborted) return;
 
   const secrets = await loadSecretsForRemote(remoteUrl);
