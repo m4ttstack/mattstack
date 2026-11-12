@@ -524,7 +524,10 @@ escalation instead.
 - `clean-api-rebase`: a server-side rebase (`mr_rebase`).
   `Server-side rebase licensed?` answers yes only when `--fix-classes`
   is absent or lists `clean-api-rebase`; under `--fix-classes none` it
-  answers no.
+  answers no. On the generic path, Diagnose and rebase never rebases a
+  stack parent: it first lists the MRs that target the MR's source branch
+  (`mr_list` with `targetBranch`), and any MR listed, or a read that
+  cannot prove none, ends the run in `error`.
 - **`mechanical-lint`** (checkout tier only): **behavior-neutral
   mechanical code fixes ONLY**... appending a required lint-disable reason
   suffix, formatting-only changes (whitespace, quote style, trailing

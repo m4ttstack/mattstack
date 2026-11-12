@@ -222,6 +222,31 @@ describe("mr:list-live", () => {
     expect(await h["mr:list-live"]!({ repoName: REPO, limit: 201 })).toEqual({ ok: false, error: '"limit" must be an integer from 1 to 200' });
     expect(await h["mr:list-live"]!({ repoName: REPO, author: 5 })).toEqual({ ok: false, error: '"author" must be a string' });
   });
+  test("on GitHub, targetBranch reaches the provider and a refusal names GitHub", async () => {
+    const GH = "remote:github.com%2Facme%2Fapp";
+    const seen: Array<Record<string, unknown>> = [];
+    const child = {
+      iid: 4, title: "t4", state: "opened", draft: false, sourceBranch: "child-4", targetBranch: "feat",
+      author: "a", webUrl: "https://github.com/acme/app/pull/4", detailedMergeStatus: "mergeable", mergedAt: null,
+    };
+    let answer: () => unknown = () => ({ rows: [child], truncated: true });
+    const provider = {
+      fetchPullRequestSummaries: async (_p: string, options: Record<string, unknown>) => {
+        seen.push(options);
+        const a = answer();
+        if (a instanceof Error) throw a;
+        return a;
+      },
+    };
+    const h = createMRHandlers({ ...fakeCtx(), repoIndex: () => ({ [GH]: "/tmp/ghapp" }) }, () => {}, {
+      getContext: async () => ({ forge: "github" as const, provider, projectPath: "acme/app" }),
+      writeback: () => { throw new Error("a live read must not write the project-MRs store"); },
+    });
+    expect(await h["mr:list-live"]!({ repoName: GH, targetBranch: "feat" })).toEqual({ ok: true, data: { mrs: [child], truncated: true } });
+    expect(seen[0]).toMatchObject({ targetBranch: "feat", state: "opened", limit: 50 });
+    answer = () => new ForgeHttpError("x", 502, "Bad Gateway", "boom");
+    expect(await h["mr:list-live"]!({ repoName: GH, targetBranch: "feat" })).toEqual({ ok: false, error: "GitHub returned 502 Bad Gateway: boom" });
+  });
 });
 
 describe("mr:live-by-branch", () => {
