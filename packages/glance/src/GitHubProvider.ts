@@ -103,6 +103,7 @@ import {
   type GitHubCommentKind
 } from './githubNotes.ts';
 import { submitGitHubReview } from './githubReview.ts';
+import { buildDivergedQuery, DIVERGED_BATCH_SIZE, type GHDivergedNode } from './githubDiverged.ts';
 import {
   buildContextsPageQuery,
   buildFillQuery,
@@ -868,7 +869,7 @@ export class GitHubProvider implements GitProvider {
     canFetchPullRequestDiffs: true,
     canFetchApprovalRules: true,
     canFetchCodeownerSections: true,
-    canFetchDivergedCount: false
+    canFetchDivergedCount: true
   };
 
   // ── GitProvider interface ─────────────────────────────────────────────────
@@ -3529,6 +3530,46 @@ export class GitHubProvider implements GitProvider {
       }
       after = endCursor;
     }
+  }
+
+  /**
+   * How many commits each PR is behind its base, read in batches of
+   * `DIVERGED_BATCH_SIZE` aliased compares.
+   *
+   * The map has an entry for each PR read: the count, or null when the base
+   * branch is gone or GitHub returns no comparison. A PR whose alias errored
+   * or was not found has no entry. `refs/pull/<n>/head` is in the base
+   * repository, so fork PRs work too; that compare head is unverified until
+   * the live run, and the spec names the fallback.
+   */
+  async fetchDivergedCounts(projectPath: string, mrIids: number[]): Promise<Map<number, number | null>> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    const numbers = [...new Set(mrIids)];
+    const out = new Map<number, number | null>();
+    for (let i = 0; i < numbers.length; i += DIVERGED_BATCH_SIZE) {
+      const batch = numbers.slice(i, i + DIVERGED_BATCH_SIZE);
+      const { data, errors } = await this.graphqlRead<{
+        repository: Record<string, GHDivergedNode | null> | null;
+      }>('fetchDivergedCounts', buildDivergedQuery(owner, repo, batch), { owner, repo });
+      if (!data.repository) {
+        throw new Error(`fetchDivergedCounts failed: GitHub reported no repository ${projectPath}${errorSuffix(errors)}`);
+      }
+      for (const n of batch) {
+        const node = data.repository[`p${n}`] ?? null;
+        if (approvalErrorFor(errors, `p${n}`, node !== null) || !node) continue;
+        out.set(n, node.baseRef?.compare?.behindBy ?? null);
+      }
+    }
+    return out;
+  }
+
+  /** `fetchDivergedCounts` for one PR; an alias error or a missing PR rejects. */
+  async fetchDivergedCount(projectPath: string, mrIid: number): Promise<number | null> {
+    const counts = await this.fetchDivergedCounts(projectPath, [mrIid]);
+    if (!counts.has(mrIid)) {
+      throw new Error(`fetchDivergedCount failed: GitHub could not read the comparison for PR ${mrIid} in ${projectPath}`);
+    }
+    return counts.get(mrIid) ?? null;
   }
 
   /**

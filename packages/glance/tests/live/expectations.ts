@@ -162,8 +162,8 @@ export const GITHUB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   fetchPullRequestDiffs: { support: 'supported', capability: 'canFetchPullRequestDiffs' },
   fetchApprovalRules: { support: 'supported', capability: 'canFetchApprovalRules' },
   fetchCodeownerSections: { support: 'supported', capability: 'canFetchCodeownerSections' },
-  fetchDivergedCount: { support: 'absent', capability: 'canFetchDivergedCount', note: 'Lands in this change.' },
-  fetchDivergedCounts: { support: 'absent', capability: 'canFetchDivergedCount', note: 'Lands in this change.' }
+  fetchDivergedCount: { support: 'supported', capability: 'canFetchDivergedCount' },
+  fetchDivergedCounts: { support: 'supported', capability: 'canFetchDivergedCount' }
 };
 
 export const GITLAB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
