@@ -28,6 +28,15 @@ import { mutationTarget } from './sandboxTarget.ts';
 
 const QUEUE_REPO_ENV = 'GLANCE_HARNESS_GITHUB_QUEUE_REPO';
 
+// A real repository other work depends on; no case here may write to it.
+const FORBIDDEN_REPO = 'm4ttheweric/gitq-test-sandbox';
+
+const isForbiddenRepo = (projectPath: string): boolean =>
+  projectPath.trim().toLowerCase() === FORBIDDEN_REPO;
+
+const forbiddenReason = (projectPath: string): string =>
+  `refused before any request: "${projectPath}" is ${FORBIDDEN_REPO}, which these cases must never write to`;
+
 /** What a killed squash-only case is restored to: every method allowed. */
 const BASELINE_MERGE_SETTINGS: MergeSettings = {
   allow_merge_commit: true,
@@ -243,6 +252,10 @@ export async function runGitHubGapsConformance(
   report: Reporter
 ): Promise<void> {
   if (fixture.name !== 'github') return;
+  if (isForbiddenRepo(fixture.projectPath)) {
+    report.fail(fixture.name, 'mergePullRequest', 'GitHub gaps cases', forbiddenReason(fixture.projectPath));
+    return;
+  }
 
   const prefix = `${runPrefix()}-gaps`;
   const scratch = new Scratch(fixture);
@@ -464,6 +477,52 @@ async function patchMergeSettings(
   return null;
 }
 
+const METHOD_REFUSAL =
+  /\b(?:merge method|merge commits?|squash merges?|squash merging|rebase merges?|rebase merging)\b[^.]*\bnot allowed\b/i;
+
+const NEVER_REPORTED_CONTEXT = 'glance-conformance/never-reports';
+
+/** Resolves null on success, or the reason the token may not protect the branch. */
+async function protectWithUnreportedCheck(fixture: ProviderFixture, branch: string): Promise<string | null> {
+  const res = await fixture.provider.restRequest(
+    'PUT',
+    `/repos/${fixture.projectPath}/branches/${branch}/protection`,
+    {
+      required_status_checks: { strict: false, contexts: [NEVER_REPORTED_CONTEXT] },
+      enforce_admins: true,
+      required_pull_request_reviews: null,
+      restrictions: null
+    }
+  );
+  if (res.status === 403 || res.status === 404) {
+    const text = await res.text().catch(() => '');
+    return `the token cannot protect "${branch}" (HTTP ${res.status}${text ? `: ${text.slice(0, 200)}` : ''})`;
+  }
+  if (!res.ok) throw new Error(`PUT branch protection failed: HTTP ${res.status}`);
+  return null;
+}
+
+async function waitForBlocked(fixture: ProviderFixture, iid: number): Promise<void> {
+  let last = 'unread';
+  try {
+    await pollUntil(
+      `#${iid} to read as blocked`,
+      async () => {
+        const raw = await readJson<{ mergeable_state: string }>(
+          fixture,
+          `/repos/${fixture.projectPath}/pulls/${iid}`,
+          `read #${iid}`
+        );
+        last = raw.mergeable_state;
+        return raw.mergeable_state === 'blocked' ? raw : null;
+      },
+      { timeoutMs: 30_000, intervalMs: 2_000 }
+    );
+  } catch {
+    throw new Inconclusive(`#${iid} never read as blocked under the required check (last mergeable_state "${last}")`);
+  }
+}
+
 async function squashOnlyCase(
   fixture: ProviderFixture,
   report: Reporter,
@@ -478,6 +537,7 @@ async function squashOnlyCase(
   let switched = false;
   let autoIid: number | null = null;
   let skipAutoMerge: string | null = 'not run: the squash-only setup did not complete';
+  let protectedTarget = false;
 
   try {
     await check(
@@ -517,16 +577,24 @@ async function squashOnlyCase(
         const pr = await openPr(fixture, mergeSource, target, 'squash-only merge');
         autoIid = (await openPr(fixture, autoSource, target, 'squash-only auto-merge')).iid;
 
+        // Set before the PATCH: one applied server-side whose response is
+        // lost must still be restored, and restoring is idempotent.
+        switched = true;
         const refused = await patchMergeSettings(fixture, {
           allow_merge_commit: false,
           allow_squash_merge: true,
           allow_rebase_merge: false
         });
         if (refused) {
+          switched = false;
           skipAutoMerge = refused;
           throw new Inconclusive(refused);
         }
-        switched = true;
+        const now = await readMergeSettings(fixture);
+        if (now === null || !isSquashOnly(now)) {
+          skipAutoMerge = `the PATCH was accepted but the repository reads back as ${JSON.stringify(now)}, not squash-only`;
+          throw new Inconclusive(skipAutoMerge);
+        }
         skipAutoMerge = null;
 
         const oldTargetHead = (await branchHead(fixture, target)).sha;
@@ -552,13 +620,22 @@ async function squashOnlyCase(
     await check(report, fixture, 'setAutoMerge', 'squash-only repository: arms auto-merge with no method', async () => {
       let armed = false;
       try {
+        // GitHub arms auto-merge only on a blocked PR; a required context
+        // that never reports keeps it blocked, and enforce_admins stops the
+        // admin token from bypassing it, so the arm can never fire a merge.
+        const refused = await protectWithUnreportedCheck(fixture, target);
+        if (refused) throw new Inconclusive(refused);
+        protectedTarget = true;
+        await waitForBlocked(fixture, iid);
+
         try {
           await provider.setAutoMerge(projectPath, iid);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          // A method refusal is the defect this case exists for; only the
-          // two mergeability-window refusals are fixture timing.
-          if (/\bmerge method\b|\bnot allowed\b/i.test(message)) throw err;
+          // A method refusal is the defect this case exists for. "Auto merge
+          // is not allowed for this repository" is a repository setting and
+          // must not match.
+          if (METHOD_REFUSAL.test(message)) throw err;
           if (/\bis in (?:unstable|clean) status\b/.test(message)) {
             throw new Inconclusive(
               `GitHub refused on mergeability, not on the method, so the method pick is unproven: ${message}`
@@ -581,6 +658,14 @@ async function squashOnlyCase(
       }
     });
   } finally {
+    if (protectedTarget) {
+      const res = await provider
+        .restRequest('DELETE', `/repos/${projectPath}/branches/${target}/protection`)
+        .catch(() => null);
+      if (!res?.ok) {
+        console.error(`  cleanup: could not remove protection from ${target}: HTTP ${res?.status ?? 'none'}`);
+      }
+    }
     if (switched && original !== null) {
       const restore: MergeSettings = original;
       const refused = await patchMergeSettings(fixture, restore).catch(err => String(err));
@@ -697,6 +782,33 @@ async function boundedRestRequestCase(fixture: ProviderFixture, report: Reporter
   });
 }
 
+interface BranchRule {
+  type: string;
+  parameters?: { required_status_checks?: Array<{ context: string }> };
+}
+
+/** Throws Inconclusive unless the branch has an active merge queue and a required check. */
+async function assertQueueGuarded(fixture: ProviderFixture, branch: string): Promise<void> {
+  const rules = await readJson<BranchRule[]>(
+    fixture,
+    `/repos/${fixture.projectPath}/rules/branches/${branch}`,
+    `read the active rules on ${fixture.projectPath}:${branch}`
+  );
+  if (!rules.some(r => r.type === 'merge_queue')) {
+    throw new Inconclusive(
+      `${fixture.projectPath}:${branch} has no active merge_queue rule, so a merge would land directly; nothing was written`
+    );
+  }
+  const checks = rules
+    .filter(r => r.type === 'required_status_checks')
+    .flatMap(r => r.parameters?.required_status_checks ?? []);
+  if (checks.length === 0) {
+    throw new Inconclusive(
+      `${fixture.projectPath}:${branch} requires no status check, so its queue could merge the PR before it is dequeued; nothing was written`
+    );
+  }
+}
+
 async function queueCase(fixture: ProviderFixture, report: Reporter, prefix: string): Promise<void> {
   const label = 'merge queue base: a merge with no input resolves queued';
   const raw = process.env[QUEUE_REPO_ENV];
@@ -707,6 +819,10 @@ async function queueCase(fixture: ProviderFixture, report: Reporter, prefix: str
   const target = mutationTarget(QUEUE_REPO_ENV, raw, 'repo');
   if (!target.ok) {
     report.fail(fixture.name, 'mergePullRequest', label, target.refusal);
+    return;
+  }
+  if (isForbiddenRepo(target.projectPath)) {
+    report.fail(fixture.name, 'mergePullRequest', label, forbiddenReason(target.projectPath));
     return;
   }
 
@@ -725,6 +841,10 @@ async function queueCase(fixture: ProviderFixture, report: Reporter, prefix: str
         `read ${queueProject}`
       );
       queueFixture = { ...queueFixture, defaultBranch: repo.default_branch };
+      // Without an active queue the SDK merges directly, into a real default
+      // branch; without a required check the queue can land the PR before
+      // the dequeue below runs. Either way nothing is written.
+      await assertQueueGuarded(queueFixture, repo.default_branch);
       await createBranch(queueFixture, branch);
       created = true;
       await commitFile(queueFixture, branch, `conformance-queue-${Date.now()}.md`, '# queued\n');
@@ -732,6 +852,20 @@ async function queueCase(fixture: ProviderFixture, report: Reporter, prefix: str
       nodeId = (
         await readJson<{ node_id: string }>(queueFixture, `/repos/${queueProject}/pulls/${pr.iid}`, `read #${pr.iid}`)
       ).node_id;
+
+      const [owner, name] = queueProject.split('/');
+      const live = await githubGraphql<{ repository: { pullRequest: { isMergeQueueEnabled: boolean } | null } }>(
+        queueFixture,
+        `query($owner: String!, $name: String!, $number: Int!) {
+          repository(owner: $owner, name: $name) { pullRequest(number: $number) { isMergeQueueEnabled } }
+        }`,
+        { owner, name, number: pr.iid }
+      );
+      if (live.repository.pullRequest?.isMergeQueueEnabled !== true) {
+        throw new Inconclusive(
+          `GitHub reports no active merge queue for #${pr.iid} on ${queueProject}:${repo.default_branch}, so merge was never called`
+        );
+      }
 
       let result;
       try {
