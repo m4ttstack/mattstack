@@ -32,17 +32,15 @@
 
 ---
 
-### Task 0: Live check of GitHub's rebase mutation (gated)
+### Task 0: Live check of GitHub's rebase mutation (done)
 
-Not code. Decides whether GitHub needs a wait at all.
+Not code. Decided whether GitHub needs a wait at all. Ran 2026-11-12 on three throwaway PRs in `m4ttheweric/glance-conformance` (190 to 192, all closed, branches deleted); the result is in the spec's GitHub section.
 
-- [ ] **Step 1:** Ask Matt for the go-ahead with the exact plan: in `m4ttheweric/glance-conformance`, push a throwaway branch one commit behind `main`'s tip, open a PR, call glance-gaps' `GitHubProvider.rebasePullRequest` once, then close the PR and delete the branch. Wait for his yes.
-- [ ] **Step 2:** `rt chat dm justin.xjdp` that the run is starting; wait for his all-clear.
-- [ ] **Step 3:** Run it with a scratch script in the session scratchpad that loads credentials the way glance's live tests do (never print them). Record old head oid, the mutation's returned `headRefOid`, and a re-read's `headRefOid` immediately after.
-- [ ] **Step 4:** Close the PR, delete the branch, tell justin it is done.
-- [ ] **Step 5:** Outcome:
-  - Returned oid moved: append "GitHub mutation verified synchronous (date, oids)" to the spec's GitHub section; commit `docs: record GitHub rebase mutation is synchronous`.
-  - Did not move: **stop the plan** and bring the result to Matt.
+- [x] **Step 1:** Ask Matt for the go-ahead with the exact plan: in `m4ttheweric/glance-conformance`, push a throwaway branch one commit behind `main`'s tip, open a PR, call glance-gaps' `GitHubProvider.rebasePullRequest` once, then close the PR and delete the branch. Wait for his yes.
+- [x] **Step 2:** `rt chat dm justin.xjdp` that the run is starting; wait for his all-clear.
+- [x] **Step 3:** Run it with a scratch script in the session scratchpad that loads credentials the way glance's live tests do (never print them). Record old head oid, the mutation's returned `headRefOid`, and a re-read's `headRefOid` immediately after.
+- [x] **Step 4:** Close the PR, delete the branch, tell justin it is done.
+- [x] **Step 5:** Result: GitHub's mutation is async. Its reply carries the old head, and the head moves within about 3 to 10s. A rebase that conflicts errors in the mutation itself (`PullRequest::RebaseConflictError`) and the head stays put. So GitHub needs a wait: after a mutation that succeeds, re-read the PR until its head moves off the pre-rebase commit, with no clock. Task 2 implements that wait (`waitForHead`). Continue to Task 1.
 
 ### Task 1: Take #1103
 

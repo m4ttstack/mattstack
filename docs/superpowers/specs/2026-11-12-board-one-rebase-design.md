@@ -24,8 +24,9 @@ Everything shows in the drawer the local rebase opens today (`SyncSteps`).
 ## Goals
 
 - One rebase item replaces "rebase on target" and "rebase locally".
-- The forge step's result is known for certain, from the forge itself. There
-  is no time limit anywhere in the chain.
+- The forge step's result is known for certain, from the forge itself. The
+  forge wait has no time limit; step 2 keeps `LOCAL_SYNC_TIMEOUT_MS` and rt
+  sync's own ceiling.
 - GitHub rows get the same action (stacked on glance 0.31.0, PR #1104).
 - The drawer shows which step is running and why the board moved on.
 
