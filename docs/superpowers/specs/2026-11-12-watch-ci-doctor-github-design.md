@@ -222,8 +222,9 @@ untouched.
 - **Classify.** `classify.md`'s three jobId sentences name both forms
   (`gitlab:job:N`, or `github:check:N` on GitHub). A failed GitHub check
   with no Actions log can be neither read nor retried. The signals:
-  - in `mr_pipeline`'s `pipeline.jobs`, a `github:status:` id, or a row
-    whose `runId` is null;
+  - in `mr_pipeline`'s `pipeline.jobs`, a `github:status:` id, or a `github:check:` row
+    whose `runId` is null (GitLab rows carry no `runId`, so the rule never
+    reads them);
   - in `ci_watch`'s `failedJobs`, `jobId` null.
   
   Such a row skips the trace read and takes `real, or no licensed fix`,
@@ -312,6 +313,8 @@ The expected output is empty except for this allowlist of text changes:
 - doctor's "conflicts the forge cannot rebase";
 - doctor's "no pipeline seen for the sha after two watches".
 
+Every new GitHub-only edge label names "GitHub" (the doctor classify
+no-log edges and both retry-wait edges included), so step 2 drops it.
 Anything else in the diff is a GitLab change and fails the review.
 Certify, `rt skills check --strict`, the board skills check under an
 isolated temp HOME and `bun run purity` show the compiled skills are well
@@ -322,7 +325,7 @@ formed; the projection diff shows the GitLab path is the same.
 - Write fence: the two watch-ci trees, `apps/board/skills-src/{doctor,respond}`,
   their compiled output (by compile only), `plugin.json`, `pack/`, the
   README and schema lines above, plugin test fixtures certify needs,
-  `docs/superpowers/`, `.superpowers/`.
+  `docs/superpowers/specs/`, `docs/superpowers/plans/`, `.superpowers/`.
 - Every skill edit follows mattstack:editing-skills, superpowers:writing-skills
   and mattstack:process-digraphs: baseline a fresh agent (RED), edit, compile,
   verify (GREEN), certify. Before the PR: the strict pack check and the
