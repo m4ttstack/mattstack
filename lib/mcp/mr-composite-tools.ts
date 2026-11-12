@@ -1,7 +1,7 @@
 /**
  * Composite tools: each answers in one call what a skill otherwise strings
- * together from several reads. Only mr_resolve_branch speaks GitHub; the
- * rest refuse a github.com identity before any daemon call.
+ * together from several reads. mr_resolve_branch and mr_posted_since speak
+ * GitHub; the rest refuse a github.com identity before any daemon call.
  */
 import { readProjectMRs, rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands, Discussion, GateRow } from "../../packages/rt-client/src/index.ts";
@@ -11,7 +11,7 @@ import { joinMrsToWorktrees, type MrMapRow } from "../mr-map.ts";
 import { parseIdentity } from "../settings/identity.ts";
 import { statusPorcelainAsync } from "../worktree/git-async.ts";
 import { gitPush, realGitRunner, type GitRunner } from "./git-tools.ts";
-import { resolveMrTarget, resolveRepoTarget, sourceInRepo, type MrTarget, type TargetInput } from "./mr-target.ts";
+import { githubProjectOf, resolveMrTarget, resolveRepoTarget, sourceInRepo, type MrTarget, type TargetInput } from "./mr-target.ts";
 import { runToolDefs } from "./run-tools.ts";
 import { checkRequired, err, MR_TARGET_PROPS, MR_WRITE_TIMEOUT_MS, ok, PR_URL_NOTE, REPO_NAME_RULE, REPO_TARGET_PROPS, REPO_TARGET_RULE, type McpToolDef, type ToolResult } from "./shared.ts";
 import { checkRegisteredTree, realTreeGuardDeps, type TreeGuardDeps } from "./tree-guard.ts";
@@ -105,6 +105,12 @@ export function normalizeBody(s: string): string {
 }
 
 export async function selfUsername(deps: MrCompositeDeps, identity: string): Promise<{ ok: true; username: string } | { ok: false; error: string }> {
+  if (githubProjectOf(identity)) {
+    const r = await deps.command<Commands["forge:self"]["data"]>("forge:self", { repoName: identity }, { timeoutMs: READ_TIMEOUT_MS });
+    if (!r.ok || !r.data) return { ok: false, error: explainError(r.error ?? "reading the token's login failed") };
+    if (typeof r.data.username !== "string" || !r.data.username) return { ok: false, error: "GitHub's user read carried no login" };
+    return { ok: true, username: r.data.username };
+  }
   const r = await deps.command<Commands["forge:get"]["data"]>("forge:get", { repoName: identity, path: "user" }, { timeoutMs: READ_TIMEOUT_MS });
   if (!r.ok || !r.data) return { ok: false, error: explainError(r.error ?? "reading the token's user failed") };
   const username = (r.data.body as { username?: unknown } | null)?.username;
@@ -926,13 +932,13 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
   return [
     {
       name: "mr_posted_since",
-      description: `GitLab only. Whether this account (or \`by\`) already posted on the MR: one live thread read, nothing posted, nothing judged beyond the match. \`since\` is epoch milliseconds or an ISO time; a note counts when it is at or after \`since\`. \`by\` defaults to "me", the token's own user. \`threads\` [{discussionId, body?}]: posted when the discussion holds a note whose body equals \`body\` (any author, any time; CRLF and trailing spaces ignored), or a note by \`by\` at or after \`since\`; each row is {discussionId, found, posted, noteId, via: "body" | "author" | null}, found false when GitLab no longer returns the discussion. \`items\` [{id, body?, contains?, path?, line?}]: posted when a note by \`by\` at or after \`since\` has that \`body\` or contains that text, and, when \`path\` or \`line\` is given, sits at that new-side position; each row is {id, posted, noteId, discussionId}. Pass \`threads\`, \`items\` or both. Returns {by, since, threads, items, notes}, where \`notes\` is every non-system note by \`by\` at or after \`since\` (body cut at ${NOTE_BODY_CAP} characters). System notes never match. ${REPO_NAME_RULE}`,
+      description: `Whether this account (or \`by\`) already posted on the MR, on GitLab or GitHub: one live thread read, nothing posted, nothing judged beyond the match. \`since\` is epoch milliseconds or an ISO time; a note counts when it is at or after \`since\`. \`by\` defaults to "me", the token's own user. \`threads\` [{discussionId, body?}]: posted when the discussion holds a note whose body equals \`body\` (any author, any time; CRLF and trailing spaces ignored), or a note by \`by\` at or after \`since\`; each row is {discussionId, found, posted, noteId, via: "body" | "author" | null}, found false when the forge no longer returns the discussion. On GitHub a discussionId reads gh-review-thread-<id> (a diff comment thread), gh-issue-comment-<id> (a PR conversation comment) or gh-review-<id> (a review's summary). \`items\` [{id, body?, contains?, path?, line?}]: posted when a note by \`by\` at or after \`since\` has that \`body\` or contains that text, and, when \`path\` or \`line\` is given, sits at that new-side position (on GitHub only diff comments carry one, so \`path\` and \`line\` match only those); each row is {id, posted, noteId, discussionId}. Pass \`threads\`, \`items\` or both. Returns {by, since, threads, items, notes}, where \`notes\` is every non-system note by \`by\` at or after \`since\` (body cut at ${NOTE_BODY_CAP} characters). System notes never match. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: {
           ...MR_TARGET_PROPS,
           since: { type: ["number", "string"], description: "Epoch milliseconds or an ISO time, e.g. 2026-10-16T10:00:00Z." },
-          by: { type: "string", description: 'A GitLab username, or "me" (the default) for the token\'s own user.' },
+          by: { type: "string", description: 'A forge username (a GitHub login), or "me" (the default) for the token\'s own user.' },
           threads: {
             type: "array",
             items: { type: "object", properties: { discussionId: { type: "string" }, body: { type: "string" } }, required: ["discussionId"], additionalProperties: false },
@@ -961,12 +967,8 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
         const items = input.items === undefined ? [] : checkItems(input.items);
         if (typeof items === "string") return err(items);
 
-        const early = refuseGithubTarget(input, "mr_posted_since", "read threads with gh");
-        if (early) return err(early);
-        const target = await resolveMrTarget(input);
+        const target = await resolveMrTarget(input, { github: true });
         if (!target.ok) return err(target.error);
-        const refused = githubRefusal(target.identity, "mr_posted_since", "read threads with gh");
-        if (refused) return err(refused);
 
         let by = typeof input.by === "string" ? input.by.trim() : "me";
         if (by.toLowerCase() === "me") {
