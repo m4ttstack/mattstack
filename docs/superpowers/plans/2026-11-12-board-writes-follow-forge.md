@@ -170,7 +170,7 @@
 
 - [ ] **Step 2: Run** both files. Expected: FAIL.
 
-- [ ] **Step 3: Implement** `createForgeSelf`, then in `server.ts` build one instance (`forge: () => config.forge.kind`, `fixture: !!FIXTURE_DIR`, `memoryUsername: () => readMemory().identity?.username ?? null`, `teamUsername: () => activeTeam().username`), use `forgeSelf.get()` in `actingSeat()` and for `tokenUser`, call `forgeSelf.reset()` in `reloadConfig`, and in `/doctor` take `await launchIdentity(config.forge.kind, forgeSelf.get, () => resolveDispatchIdentity(identityRead, async () => (await gitlab()).validateToken()))` (GitLab behaviour unchanged).
+- [ ] **Step 3: Implement** `createForgeSelf`, then in `server.ts` build one instance (`forge: () => config.forge.kind`, `fixture: !!FIXTURE_DIR`, `memoryUsername: () => readMemory().identity?.username ?? null`, `teamUsername: () => activeTeam().username`), use `forgeSelf.get()` in `actingSeat()` and for `tokenUser`, call `forgeSelf.reset()` in `reloadConfig`, and in `/doctor` take `await launchIdentity(config.forge.kind, () => forgeSelf.get(), () => resolveDispatchIdentity(identityRead, async () => (await gitlab()).validateToken()))` (GitLab behaviour unchanged).
 
 - [ ] **Step 4: Run** both files plus `src/__tests__/server-own-mr.test.ts`. Expected: PASS.
 
