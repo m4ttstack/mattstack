@@ -26,7 +26,9 @@ no posted flag. The summary is posted when a `gh-review-<n>` entry's note
 contains the first line of the summary Compose built. Each comment is
 posted when a `gh-review-thread-<n>` note at its `path` and `line` (the
 note's `position.newPath` and `newLine`) contains the first line of the
-body Compose built for it. All posted is yes, some is partly, none is no;
+body Compose built for it. A matching note counts only when its
+`createdAt` is at or after the snapshot's `run.started_at`, as GitLab's
+`since` bounds its read. All posted is yes, some is partly, none is no;
 a read error holds, quoting it. The read checks no approval state.
 
 **On both forges:** the latest hold's

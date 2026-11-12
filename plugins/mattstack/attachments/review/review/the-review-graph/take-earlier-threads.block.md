@@ -25,7 +25,8 @@ style) and the new issues form in the fresh reviewer, weighting `git diff
 A missing, `unknown` or unfetched last reviewed commit makes the whole
 change what changed.
 
-On GitHub only a `gh-review-thread-<n>` id goes into `mr_review_submit`'s
-`replies`: an earlier round's threads are the review's own inline threads,
-and a PR-level id (`gh-issue-comment-<n>` or `gh-review-<n>`) is never
-handed to `replies`.
+On GitHub only `gh-review-thread-<n>` rows are kept as earlier threads
+when taking them: the PR-level rows (`gh-issue-comment-<n>` and
+`gh-review-<n>`) are left out, so no PR-level id can reach
+`mr_review_submit`'s `replies`, which takes `gh-review-thread-<n>` ids
+alone.
