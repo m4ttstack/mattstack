@@ -25,6 +25,7 @@ function baseDeps(overrides: Partial<TeamDeps> = {}): TeamDeps & { lines: string
     print: (s: string) => lines.push(s),
     readLocalSecret: async () => null,
     readAdminSecret: async () => null,
+    adminSecretsState: async () => null,
     lines,
     ...overrides,
   };
@@ -645,6 +646,18 @@ describe("teamStatus", () => {
 
     test("a throwing seam reads unknown and still answers", async () => {
       expect(await stateFor(new Error("keychain locked"))).toEqual({ state: "unknown", detail: "keychain locked" });
+    });
+
+    test("a check that never settles reads unknown at the deadline", async () => {
+      const deps = { ...adminDeps("dev1", () => new Promise<Row | null>(() => {})), adminSecretsTimeoutMs: 20 };
+      await teamStatus(["--team", SLUG, "--json"], {}, deps);
+      expect(JSON.parse(deps.lines[0]!).adminSecrets).toEqual({ state: "unknown", detail: "The admin secrets check took too long" });
+    });
+
+    test("adminSecrets is the envelope's last key", async () => {
+      const deps = adminDeps("dev1", async () => null);
+      await teamStatus(["--team", SLUG, "--json"], {}, deps);
+      expect(Object.keys(JSON.parse(deps.lines[0]!)).at(-1)).toBe("adminSecrets");
     });
 
     test("an org admin gets it too", async () => {

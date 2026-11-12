@@ -133,6 +133,8 @@ export interface TeamDeps {
   inviteStatuses?: (slug: string, roster: { username: string; teams?: string[] }[]) => Promise<InviteStatusResult>;
   /** The `org.admin-secrets` setup row for `teamStatus`; real by default, read only for an org owner or admin. */
   adminSecretsState?: (slug: string) => Promise<Row | null>;
+  /** How long `teamStatus` waits on `adminSecretsState` before reading unknown. */
+  adminSecretsTimeoutMs?: number;
 }
 
 export type AdminSecretsState = "current" | "needs-sync" | "needs-you" | "not-this-mac" | "unknown";
@@ -159,11 +161,25 @@ async function realAdminSecretsRow(deps: TeamDeps, slug: string): Promise<Row | 
   return adminSecretsRowSafe(deps.probes, slug, deps.secretPresence ?? realSecretPresence());
 }
 
+const ADMIN_SECRETS_TIMEOUT_MS = 5_000;
+
+/** Bounded so a slow keychain or sops read never stalls a status read the console polls. */
 async function readAdminSecretsStatus(deps: TeamDeps, slug: string): Promise<AdminSecretsStatus> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<AdminSecretsStatus>((resolve) => {
+    timer = setTimeout(() => resolve({ state: "unknown", detail: "The admin secrets check took too long" }), deps.adminSecretsTimeoutMs ?? ADMIN_SECRETS_TIMEOUT_MS);
+  });
+  const check = (async (): Promise<AdminSecretsStatus> => {
+    try {
+      return adminSecretsStatusFrom(await (deps.adminSecretsState ?? ((s: string) => realAdminSecretsRow(deps, s)))(slug));
+    } catch (err) {
+      return { state: "unknown", detail: err instanceof Error ? err.message : String(err) };
+    }
+  })();
   try {
-    return adminSecretsStatusFrom(await (deps.adminSecretsState ?? ((s: string) => realAdminSecretsRow(deps, s)))(slug));
-  } catch (err) {
-    return { state: "unknown", detail: err instanceof Error ? err.message : String(err) };
+    return await Promise.race([check, deadline]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -1208,7 +1224,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
 
   try {
     if (!flagValue(args, "--team") && listOrgs().length === 0) {
-      const result = { mode: "solo" as const, slug: null, name: null, remote: null, lastPush: null, members: [] as never[], invites: [] as never[], adminSecrets: null, role: null, activeTeam: null, teams: [] as never[], orgTeams: [] as never[] };
+      const result = { mode: "solo" as const, slug: null, name: null, remote: null, lastPush: null, members: [] as never[], invites: [] as never[], role: null, activeTeam: null, teams: [] as never[], orgTeams: [] as never[], adminSecrets: null };
       if (json) deps.print(JSON.stringify(envelope(result)));
       else out.print(out.line("off", "No team on this Mac", "just you"));
       return;
@@ -1280,7 +1296,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
     const replied = invites.filter((invite) => invite.state === "replied").map((invite) => invite.handle);
     const adminSecrets = isOrgAdmin(roleFor(deps.probes, slug)) ? await readAdminSecretsStatus(deps, slug) : null;
 
-    const result = { slug, name, remote, branch, dataBranch: homeBranch, trial, lastPush, members: membersWithPeering, invites, adminSecrets, role, activeTeam: active.team, teams: active.listedOn, orgTeams, ...sync };
+    const result = { slug, name, remote, branch, dataBranch: homeBranch, trial, lastPush, members: membersWithPeering, invites, role, activeTeam: active.team, teams: active.listedOn, orgTeams, ...sync, adminSecrets };
     if (json) {
       deps.print(JSON.stringify(envelope(result)));
       return;
