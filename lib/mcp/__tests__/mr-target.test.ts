@@ -12,7 +12,7 @@ import { dirname, join } from "path";
 import { REPO_INDEX_NS } from "../../repo-index.ts";
 import { machineSettingsPath } from "../../rt-paths.ts";
 import { closeStateDb, setKvValue } from "../../state/index.ts";
-import { MR_URL_SHAPE, parseMrUrl, parsePrUrl, resolveMrTarget, resolveRepoTarget } from "../mr-target.ts";
+import { MR_URL_SHAPE, parseMrUrl, parsePrUrl, resolveMrTarget, resolveRepoTarget, sourceInRepo } from "../mr-target.ts";
 
 const APP = "remote:gitlab.example.com%2Facme%2Fapp";
 const SUB = "remote:gitlab.example.com%2Facme%2Fplatform%2Fapp";
@@ -272,5 +272,25 @@ describe("a GitHub pull request URL", () => {
     setKvValue(REPO_INDEX_NS, GH, "/repos/ghapp");
     expect(await resolveMrTarget({ mrUrl: PR })).toEqual({ ok: false, error: MR_URL_SHAPE });
     expect(await resolveRepoTarget({ mrUrl: PR })).toEqual({ ok: false, error: MR_URL_SHAPE });
+  });
+});
+
+describe("sourceInRepo", () => {
+  const GH_ID = "remote:github.com%2Facme%2Fapp";
+  const GL_ID = "remote:gitlab.com%2Facme%2Fapp";
+
+  test("a GitHub PR whose source branch lives in the repo matches, in any case", () => {
+    expect(sourceInRepo(GH_ID, { sourceProjectPath: "acme/app" })).toBe(true);
+    expect(sourceInRepo(GH_ID, { sourceProjectPath: "Acme/App" })).toBe(true);
+  });
+
+  test("a fork PR, a deleted fork and a head repo the token cannot see never match the repo", () => {
+    expect(sourceInRepo(GH_ID, { sourceProjectPath: "someone/app" })).toBe(false);
+    expect(sourceInRepo(GH_ID, { sourceProjectPath: null })).toBe(false);
+    expect(sourceInRepo(GH_ID, {})).toBe(false);
+  });
+
+  test("GitLab reports no source project, so its MRs match as before", () => {
+    expect(sourceInRepo(GL_ID, {})).toBe(true);
   });
 });

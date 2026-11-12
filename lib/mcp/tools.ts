@@ -24,7 +24,7 @@ import { whoamiToolDefs } from "./whoami-tool.ts";
 import { skillsResolveToolDefs } from "./skills-resolve-tool.ts";
 import { gitToolDefs, realGitToolDeps } from "./git-tools.ts";
 import { runRtVerb } from "./rt-verb.ts";
-import { resolveMrTarget, resolveRepoTarget } from "./mr-target.ts";
+import { resolveMrTarget, resolveRepoTarget, sourceInRepo } from "./mr-target.ts";
 import { herdToolDefs } from "./herd-tools.ts";
 import { mrReadToolDefs } from "./mr-read-tools.ts";
 import { EXISTING_MR, findOpenMrForBranch, githubRefusal, mrCompositeToolDefs, refuseGithubTarget, REBASE_DEFAULT_WAIT_S, REBASE_MAX_WAIT_S, REBASE_POLL_MS, waitForRebase, type OpenMr } from "./mr-composite-tools.ts";
@@ -68,6 +68,16 @@ function withCreateSteps(data: Commands["mr:create"]["data"] | undefined): Recor
   if (!data?.failedSteps?.length) return data;
   const steps = joinWords(data.failedSteps.map((s) => `${s.step} step (${s.message})`));
   return { ...data, incomplete: `Pull request #${data.iid} was created, but its ${steps} did not apply. Do not create it again; add what is missing to #${data.iid}.` };
+}
+
+/** GitHub's branch lookup also finds a fork's PR on a same-named branch, which is not this repo's PR, so the lookup drops any PR whose source branch lives elsewhere. */
+function ownRepoLookup(identity: string): typeof rtCommand {
+  return (async (cmd: string, payload: Record<string, unknown>, opts?: { timeoutMs?: number }) => {
+    const res = await rtCommand<Commands["mr:live-by-branch"]["data"]>(cmd as "mr:live-by-branch", payload, opts);
+    if (!res.ok || !res.data) return res;
+    const byBranch = Object.fromEntries(Object.entries(res.data.byBranch).map(([b, pr]) => [b, pr && sourceInRepo(identity, pr) ? pr : null]));
+    return { ...res, data: { ...res.data, byBranch } };
+  }) as typeof rtCommand;
 }
 
 function existingMrResult(mr: OpenMr): ToolResult {
@@ -495,7 +505,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_create",
-      description: `Create a merge request (a pull request on GitHub) from an already-pushed sourceBranch into targetBranch. Pass targetBranch explicitly (read the default branch from git); it is never guessed. draft defaults to true. Write the title, and optionally the description, yourself (e.g. from the branch's commits). labels apply at creation; squash sets the MR's squash-on-merge flag right after it (on GitLab; GitHub picks squash at merge time, so leave it out there). Creates once and never retries. Returns iid, url (null when the forge created the MR but reading it back failed) and, when squash was passed, squashApplied; squashApplied false with squashError means the MR exists, so set squash with mr_update rather than creating again. On GitHub, a create whose labels, reviewers or assignees step failed still returns iid and url, plus failedSteps ({step, message} each) and incomplete, a sentence naming them: the PR exists, so add what is missing (labels with mr_update) rather than creating again. ifExists "return" first looks for an open MR on sourceBranch: when one exists it creates nothing and returns {iid, url, existing: true, targetBranch, draft, title, applied: false}, where applied false means the title, description, labels and squash you passed were not applied, and that MR may target a different branch, so compare its targetBranch with the one you asked for; otherwise it creates and the result adds existing false. A lookup error is returned and nothing is created. ${REPO_TARGET_RULE} ${REPO_PR_URL_NOTE}`,
+      description: `Create a merge request (a pull request on GitHub) from an already-pushed sourceBranch into targetBranch. Pass targetBranch explicitly (read the default branch from git); it is never guessed. draft defaults to true. Write the title, and optionally the description, yourself (e.g. from the branch's commits). labels apply at creation; squash sets the MR's squash-on-merge flag right after it (on GitLab; GitHub picks squash at merge time, so leave it out there). Creates once and never retries. Returns iid, url (null when the forge created the MR but reading it back failed) and, when squash was passed, squashApplied; squashApplied false with squashError means the MR exists, so set squash with mr_update rather than creating again. On GitHub, a create whose labels, reviewers or assignees step failed still returns iid and url, plus failedSteps ({step, message} each) and incomplete, a sentence naming them: the PR exists, so add what is missing (labels with mr_update) rather than creating again. ifExists "return" first looks for an open MR on sourceBranch: when one exists it creates nothing and returns {iid, url, existing: true, targetBranch, draft, title, applied: false}, where applied false means the title, description, labels and squash you passed were not applied, and that MR may target a different branch, so compare its targetBranch with the one you asked for; otherwise it creates and the result adds existing false. On GitHub only a PR whose branch lives in this repo counts: a fork's PR on a same-named branch, or one whose head repository the token cannot see, is not returned, and the create goes ahead. A lookup error is returned and nothing is created. ${REPO_TARGET_RULE} ${REPO_PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -540,13 +550,14 @@ export function mcpTools(): McpToolDef[] {
           if (res.ok) return ok(withCreateSteps(res.data));
           return withLandingHint(fromResponse(res), "mr_for_branch for an open MR on the source branch");
         }
-        const found = await findOpenMrForBranch({ command: rtCommand }, target.identity, payload.sourceBranch);
+        const lookup = { command: ownRepoLookup(target.identity) };
+        const found = await findOpenMrForBranch(lookup, target.identity, payload.sourceBranch);
         if (!found.ok) return err(found.error);
         if (found.mr) return existingMrResult(found.mr);
         const res = await rtCommand<Commands["mr:create"]["data"]>("mr:create", payload, { timeoutMs: MR_WRITE_TIMEOUT_MS });
         if (res.ok) return ok({ ...withCreateSteps(res.data), existing: false });
         if (EXISTING_MR.test(res.error ?? "")) {
-          const raced = await findOpenMrForBranch({ command: rtCommand }, target.identity, payload.sourceBranch);
+          const raced = await findOpenMrForBranch(lookup, target.identity, payload.sourceBranch);
           if (raced.ok && raced.mr) return existingMrResult(raced.mr);
         }
         return withLandingHint(fromResponse(res), "mr_for_branch for an open MR on the source branch");

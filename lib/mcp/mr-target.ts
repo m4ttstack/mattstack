@@ -135,3 +135,16 @@ export async function resolveMrTarget(input: TargetInput, opts: TargetOptions = 
   if (res.iid === undefined) return { ok: false, error: 'pass "iid" or "mrUrl"' };
   return { ok: true, identity: res.identity, iid: res.iid };
 }
+
+/**
+ * Whether a PR's source branch lives in the repo `identity` names, so a local
+ * branch of the same name is the PR's branch. GitHub reports the head repo;
+ * a fork, a deleted fork (null) and a head repo the token cannot see
+ * (undefined) all answer false. GitLab reports none, so its MRs answer true.
+ */
+export function sourceInRepo(identity: string, pr: { sourceProjectPath?: string | null }): boolean {
+  const id = parseIdentity(identity)?.id;
+  if (!id?.toLowerCase().startsWith("github.com/")) return true;
+  const project = id.slice("github.com/".length).toLowerCase();
+  return typeof pr.sourceProjectPath === "string" && pr.sourceProjectPath.toLowerCase() === project;
+}

@@ -603,6 +603,33 @@ describe("mcpTools", () => {
         expect(calls).toEqual([]);
       });
 
+      test("a fork's open PR on a same-named branch is not this repo's PR, so the create goes ahead", async () => {
+        const GH = "remote:github.com%2Facme%2Fapp";
+        const FORK = { ...OPEN, webUrl: "https://github.com/acme/app/pull/7", sourceProjectPath: "someone/app" };
+        const calls = fakeDaemon((cmd) => (cmd === "mr:live-by-branch" ? { ok: true, data: { byBranch: { feat: FORK } } } : { ok: true, data: { iid: 8, url: "https://github.com/acme/app/pull/8" } }));
+        const res = await create().handler({ ...base, repoName: GH }, {} as NodeJS.ProcessEnv);
+        expect(res).toEqual({ ok: true, body: { iid: 8, url: "https://github.com/acme/app/pull/8", existing: false } });
+        expect(calls.map((c) => c.cmd)).toEqual(["mr:live-by-branch", "mr:create"]);
+      });
+
+      test("an open PR whose head repo the token cannot see is not taken for this repo's PR", async () => {
+        const GH = "remote:github.com%2Facme%2Fapp";
+        const HIDDEN = { ...OPEN, webUrl: "https://github.com/acme/app/pull/7" };
+        const calls = fakeDaemon((cmd) => (cmd === "mr:live-by-branch" ? { ok: true, data: { byBranch: { feat: HIDDEN } } } : { ok: true, data: { iid: 8, url: "u" } }));
+        const res = await create().handler({ ...base, repoName: GH }, {} as NodeJS.ProcessEnv);
+        expect(res).toEqual({ ok: true, body: { iid: 8, url: "u", existing: false } });
+        expect(calls.map((c) => c.cmd)).toEqual(["mr:live-by-branch", "mr:create"]);
+      });
+
+      test("this repo's own open PR is returned", async () => {
+        const GH = "remote:github.com%2Facme%2Fapp";
+        const OWN = { ...OPEN, webUrl: "https://github.com/acme/app/pull/7", sourceProjectPath: "acme/app" };
+        const calls = fakeDaemon(() => ({ ok: true, data: { byBranch: { feat: OWN } } }));
+        const res = await create().handler({ ...base, repoName: GH }, {} as NodeJS.ProcessEnv);
+        expect(res).toEqual({ ok: true, body: { iid: 7, url: OWN.webUrl, existing: true, targetBranch: "develop", draft: true, title: "Existing", applied: false } });
+        expect(calls.map((c) => c.cmd)).toEqual(["mr:live-by-branch"]);
+      });
+
       test("a GitHub repo looks for the open PR, then creates one, with its identity", async () => {
         const GH = "remote:github.com%2Facme%2Fapp";
         const calls = fakeDaemon((cmd) => (cmd === "mr:live-by-branch" ? { ok: true, data: { byBranch: { feat: null } } } : { ok: true, data: { iid: 4, url: "https://github.com/acme/app/pull/4" } }));

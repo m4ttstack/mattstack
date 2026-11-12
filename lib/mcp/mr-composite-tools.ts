@@ -11,7 +11,7 @@ import { joinMrsToWorktrees, type MrMapRow } from "../mr-map.ts";
 import { parseIdentity } from "../settings/identity.ts";
 import { statusPorcelainAsync } from "../worktree/git-async.ts";
 import { gitPush, realGitRunner, type GitRunner } from "./git-tools.ts";
-import { resolveMrTarget, resolveRepoTarget, type MrTarget, type TargetInput } from "./mr-target.ts";
+import { resolveMrTarget, resolveRepoTarget, sourceInRepo, type MrTarget, type TargetInput } from "./mr-target.ts";
 import { runToolDefs } from "./run-tools.ts";
 import { checkRequired, err, MR_TARGET_PROPS, MR_WRITE_TIMEOUT_MS, ok, PR_URL_NOTE, REPO_NAME_RULE, REPO_TARGET_PROPS, REPO_TARGET_RULE, type McpToolDef, type ToolResult } from "./shared.ts";
 import { checkRegisteredTree, realTreeGuardDeps, type TreeGuardDeps } from "./tree-guard.ts";
@@ -1001,7 +1001,7 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
     },
     {
       name: "mr_resolve_branch",
-      description: `An MR to its branch and the registered trees on it, for checkout: one MR read and one worktree list, nothing provisioned. Works on opened, merged and closed MRs. Returns {iid, state, title, author (username), sourceBranch, targetBranch, webUrl, trees: [{name, path}]}, where trees holds the registered worktrees whose branch equals sourceBranch exactly: usually none or one, more only for a duplicate branch. Call worktree_provision to make a tree when trees is empty. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
+      description: `An MR to its branch and the registered trees on it, for checkout: one MR read and one worktree list, nothing provisioned. Works on opened, merged and closed MRs. Returns {iid, state, title, author (username), sourceBranch, targetBranch, webUrl, trees: [{name, path}]}, where trees holds the registered worktrees whose branch equals sourceBranch exactly: usually none or one, more only for a duplicate branch. Call worktree_provision to make a tree when trees is empty. On GitHub the result adds sourceProjectPath, the repository the PR's branch lives in (null when that fork was deleted), and trees lists only branches of this repo: a fork's PR, or one whose head repository the token cannot see (no sourceProjectPath), lists none, since a local branch of the same name is not its branch. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: { type: "object", properties: { ...MR_TARGET_PROPS }, additionalProperties: false },
       shellForms: { none: "a branch-to-tree lookup has no glab verb; glab mr view hits the glab catch-all on mr_view" },
       async handler(input) {
@@ -1014,10 +1014,13 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
         if (!list.ok || !list.data) return err(explainError(list.error ?? "worktree list failed"));
 
         const pr = mr.data.mr;
-        const trees = list.data.trees.filter((t) => t.branch === pr.sourceBranch).map((t) => ({ name: t.name, path: t.path }));
+        const local = sourceInRepo(target.identity, pr);
+        const trees = local ? list.data.trees.filter((t) => t.branch === pr.sourceBranch).map((t) => ({ name: t.name, path: t.path })) : [];
         return ok({
           iid: pr.iid, state: pr.state, title: pr.title, author: pr.author.username,
-          sourceBranch: pr.sourceBranch, targetBranch: pr.targetBranch, webUrl: pr.webUrl, trees,
+          sourceBranch: pr.sourceBranch, targetBranch: pr.targetBranch, webUrl: pr.webUrl,
+          ...(pr.sourceProjectPath !== undefined && { sourceProjectPath: pr.sourceProjectPath }),
+          trees,
         });
       },
     },
