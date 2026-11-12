@@ -24,17 +24,15 @@ flowchart TB
     mr_view_found{mr_view returned the MR?}
     mr_for_branch[/"mr_for_branch {repoName: <checkout>, branches: [<branch>]}"/]
     branch_entry_found{mr_for_branch entry for the branch?}
-    gh_pr_view[/gh pr view <ref>/]
-    pr_view_found{gh pr view found the PR?}
     mr_list_branch[/"mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all, limit: 200}"/]
     branch_matches{mr_list matches for the branch?}
     mr_list_ticket[/"mr_list {repoName: <checkout>, search: <ticket id>, state: all, limit: 200}"/]
     ticket_matches{mr_list matches for the ticket?}
     run_budget_target_clarify[/"run_budget {runDb, key: target-clarify, limit: 2, stage}"/]
     target_clarify_spent{target-clarify spent?}
-    stop_gitlab_shell_search[STOP: GitLab ticket searches go through the read tools or gitlab_get]:::stop
-    stop_gitlab_shell_reads[STOP: GitLab reads go through the read tools or gitlab_get]:::stop
-    stop_gitlab_branch_lookup[STOP: GitLab branch lookups go through the read tools or gitlab_get]:::stop
+    stop_gitlab_shell_search[STOP: ticket searches go through the read tools or gitlab_get]:::stop
+    stop_gitlab_shell_reads[STOP: reads go through the read tools or gitlab_get]:::stop
+    stop_gitlab_branch_lookup[STOP: branch lookups go through the read tools or gitlab_get]:::stop
     gate_which_target
     target_answer{Review target answer?}
     own_run_record_target{Own review run: record the target?}
@@ -45,8 +43,8 @@ flowchart TB
     threads_in_hand{Earlier threads in hand?}
     print_depth_block
     diff_forge{Review diff forge?}
-    gh_pr_diff[/gh pr diff <ref>/]
-    git_fetch_pr_head[/git fetch origin +pull/<n>/head:refs/remotes/origin/pr-<n>/]
+    git_fetch_pr_head[/git fetch origin <targetBranch> +pull/<n>/head:refs/remotes/origin/pr-<n>/]
+    git_diff_pr[/git diff origin/<targetBranch>...origin/pr-<n>/]
     git_fetch_mr_head[/git fetch origin <targetBranch> +refs/merge-requests/<iid>/head:refs/remotes/origin/mr-<iid>/]
     git_diff[/git diff origin/<targetBranch>...origin/mr-<iid>/]
     head_checkout_in_hand{MR-head checkout in hand?}
@@ -98,14 +96,11 @@ flowchart TB
     post_next_answer{Review-post next answer?}
     take_human_changes
     iterate_wants_depth{Review iterate note asks for another depth?}
-    posting_forge{Review posting forge?}
-    gh_pr_review[/gh pr review <ref> with the disposition and the summary body/]
-    pr_review_result{gh pr review result?}
-    gh_off_answer{gh pr review off-script answer?}
-    gh_pr_comment[/gh pr comment <ref> with the summary body/]
     compose_review
     resumed_read_mr_first{Resumed run: read the MR first?}
+    resume_forge{Review resume read forge?}
     mr_posted_since[/"mr_posted_since {mrUrl, since: <run started_at>, items}"/]
+    mr_threads_posted[/"mr_threads {mrUrl, refresh: true} (posted already)"/]
     review_already_posted{This review already on the MR?}
     mr_review_submit[/"mr_review_submit {mrUrl, outcome, summary, comments, replies}"/]
     mr_review_submit_result{mr_review_submit result?}
@@ -116,7 +111,6 @@ flowchart TB
     make_approve_move
     end_with_link
     gate_off_script_script
-    gate_off_script_gh
     stop_split_submit[STOP: post a review only as one mr_review_submit]:::stop
     gate_off_script_submit
     gate_off_script_pending
@@ -153,18 +147,17 @@ flowchart TB
     snapshot_records -->|no post decision: re-enter, reuse every recorded answer| resolve_target
     snapshot_records -->|a post decision| own_run_close
     resolve_target --> target_form
-    target_form -->|GitLab URL or iid| mr_view
-    target_form -->|GitLab branch| mr_for_branch
-    target_form -->|GitHub| gh_pr_view
+    target_form -->|an MR or PR URL, or an iid| mr_view
+    target_form -->|a branch| mr_for_branch
     target_form -->|several candidates| gate_which_target
     target_form -->|ticket id only| mr_list_ticket
-    target_form -->|tempted to search with the GitLab CLI| stop_gitlab_shell_search
+    target_form -->|tempted to search with the forge CLI| stop_gitlab_shell_search
     stop_gitlab_shell_search --> mr_list_ticket
     mr_for_branch --> branch_entry_found
     branch_entry_found -->|an iid| mr_view
     branch_entry_found -->|null: no open MR| mr_list_branch
     branch_entry_found -->|an error: hold, quoting it| run_hold
-    branch_entry_found -->|tempted to look it up with the GitLab CLI| stop_gitlab_branch_lookup
+    branch_entry_found -->|tempted to look it up with the forge CLI| stop_gitlab_branch_lookup
     stop_gitlab_branch_lookup --> mr_list_branch
     mr_list_branch --> branch_matches
     branch_matches -->|exactly one| mr_view
@@ -178,11 +171,8 @@ flowchart TB
     mr_view --> mr_view_found
     mr_view_found -->|yes| own_run_record_target
     mr_view_found -->|an error: hold, quoting it| run_hold
-    mr_view_found -->|tempted to read it with the GitLab CLI| stop_gitlab_shell_reads
+    mr_view_found -->|tempted to read it with the forge CLI| stop_gitlab_shell_reads
     stop_gitlab_shell_reads --> mr_view
-    gh_pr_view --> pr_view_found
-    pr_view_found -->|yes| own_run_record_target
-    pr_view_found -->|no: hold, quoting it| run_hold
     gate_which_target --> target_answer
     target_answer -->|a target picked| target_form
     target_answer -->|their text| run_budget_target_clarify
@@ -193,7 +183,7 @@ flowchart TB
     own_run_record_target -->|yes| record_target
     own_run_record_target -->|no: inherited| caller_decided_report
     record_target --> caller_decided_report
-    caller_decided_report -->|yes: post it; review nothing again| posting_forge
+    caller_decided_report -->|yes: post it; review nothing again| compose_review
     caller_decided_report -->|yes, but a selected id the json lacks: hold, quoting it| run_hold
     caller_decided_report -->|no| caller_framed_rereview
     caller_framed_rereview -->|yes| take_earlier_threads
@@ -202,12 +192,12 @@ flowchart TB
     threads_in_hand -->|yes, or none to judge| print_depth_block
     threads_in_hand -->|no: the read errored| run_hold
     print_depth_block --> diff_forge
-    diff_forge -->|GitHub| gh_pr_diff
+    diff_forge -->|GitHub| git_fetch_pr_head
     diff_forge -->|GitLab| git_fetch_mr_head
     git_fetch_mr_head --> git_diff
     git_diff --> head_checkout_in_hand
-    gh_pr_diff --> git_fetch_pr_head
-    git_fetch_pr_head --> head_checkout_in_hand
+    git_fetch_pr_head --> git_diff_pr
+    git_diff_pr --> head_checkout_in_hand
     head_checkout_in_hand -->|yes, or read depth| set_up_depth
     head_checkout_in_hand -->|no: verify or repro| worktree_provision
     head_checkout_in_hand -->|tempted to create one by hand| stop_checkout_without_provision
@@ -243,7 +233,7 @@ flowchart TB
     report_path_given -->|yes| write_report
     report_path_given -->|no| caller_selection
     write_report --> caller_selection
-    caller_selection -->|yes: use it, ask nothing| posting_forge
+    caller_selection -->|yes: use it, ask nothing| compose_review
     caller_selection -->|no| report_json_in_hand
     report_json_in_hand -->|yes| write_post_extras
     report_json_in_hand -->|no| gate_post_legacy
@@ -276,31 +266,23 @@ flowchart TB
     script_off_answer -->|hand back| own_run_abandon
     write_run_line --> hand_back_severity
     hand_back_severity --> caller_answer
-    caller_answer -->|"{findings, outcome}"| posting_forge
+    caller_answer -->|"{findings, outcome}"| compose_review
     caller_answer -->|hold| run_hold
     gate_post_carry --> post_next_answer
     gate_post_legacy --> post_next_answer
-    post_next_answer -->|proceed| posting_forge
+    post_next_answer -->|proceed| compose_review
     post_next_answer -->|iterate here| take_human_changes
     post_next_answer -->|hold| run_hold
     take_human_changes --> iterate_wants_depth
     iterate_wants_depth -->|yes| print_depth_block
     iterate_wants_depth -->|no: a new gate next| report_path_given
-    posting_forge -->|GitHub| gh_pr_review
-    posting_forge -->|GitLab| compose_review
-    gh_pr_review --> pr_review_result
-    pr_review_result -->|posted| gate_record
-    pr_review_result -->|error| gate_off_script_gh
-    gate_off_script_gh --> gh_off_answer
-    gh_off_answer -->|take| gh_pr_comment
-    gh_off_answer -->|iterate here| gh_pr_review
-    gh_off_answer -->|hold| run_hold
-    gh_off_answer -->|hand back| own_run_abandon
-    gh_pr_comment --> gate_record
     compose_review --> resumed_read_mr_first
     resumed_read_mr_first -->|no: a first pass| mr_review_submit
-    resumed_read_mr_first -->|yes: resumed| mr_posted_since
+    resumed_read_mr_first -->|yes: resumed| resume_forge
+    resume_forge -->|GitLab| mr_posted_since
+    resume_forge -->|GitHub| mr_threads_posted
     mr_posted_since --> review_already_posted
+    mr_threads_posted --> review_already_posted
     review_already_posted -->|no| mr_review_submit
     review_already_posted -->|yes, approval outstanding| gate_off_script_approve
     review_already_posted -->|yes, nothing outstanding| gate_record
@@ -312,7 +294,7 @@ flowchart TB
     mr_review_submit_result -->|published: false, bad-anchors| run_budget_bad_anchors
     mr_review_submit_result -->|published: false, pending-drafts| gate_off_script_pending
     mr_review_submit_result -->|error| gate_off_script_submit
-    mr_review_submit_result -->|tempted to post pieces with mr_comment_inline, mr_comment, mr_reply_thread, mr_resolve_thread or the GitLab CLI| stop_split_submit
+    mr_review_submit_result -->|tempted to post pieces with mr_comment_inline, mr_comment, mr_reply_thread, mr_resolve_thread or the forge CLI| stop_split_submit
     stop_split_submit --> gate_off_script_submit
     run_budget_bad_anchors --> bad_anchors_spent
     bad_anchors_spent -->|no| move_bad_anchors

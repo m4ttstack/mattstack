@@ -74,7 +74,7 @@ digraph doctor_diagnose_and_rebase {
     "mr_rebase {mrUrl}" -> "mr_rebase result?";
     "mr_rebase result?" -> "mr_view {mrUrl, maxAgeMs: 5000} (rebase poll)" [label="accepted"];
     "mr_rebase result?" -> "Fixed the mr_rebase call once already?" [label="tool error"];
-    "mr_rebase result?" -> "STOP: rebases go through mr_rebase" [label="tempted to rebase with the GitLab CLI or a checkout"];
+    "mr_rebase result?" -> "STOP: rebases go through mr_rebase" [label="tempted to rebase with the forge CLI or a checkout"];
     "STOP: rebases go through mr_rebase" -> "Fixed the mr_rebase call once already?";
     "Fixed the mr_rebase call once already?" -> "Fix what the mr_rebase error names" [label="no"];
     "Fixed the mr_rebase call once already?" -> "doctor off-script escalation: mr_rebase refused" [label="yes"];
@@ -149,7 +149,7 @@ MR's https URL, `maxAgeMs` a number) and read again, once. An error that
 names no input (GitLab's own refusal, such as a 404 or 403, or the repo
 is not registered with rt) is quoted as written and has nothing to correct: read again unchanged, once,
 and the off-script escalation follows. An error is never a reason to read
-the MR with the GitLab CLI.
+the MR with the forge CLI.
 
 ### Fix what the mr_rebase error names
 

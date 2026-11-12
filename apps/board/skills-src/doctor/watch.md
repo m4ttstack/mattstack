@@ -50,7 +50,7 @@ digraph doctor_watch {
     "ci_watch state (doctor)?" -> "Watch ends the run: continue at the map's exit" [label="lease_lost in board mode, or a holder named: stand down"];
     "ci_watch state (doctor)?" -> "Re-claims after a lost lease = 2 (doctor)?" [label="lease_lost in own mode, no holder"];
     "ci_watch state (doctor)?" -> "Fixed the ci_watch call once already?" [label="tool error"];
-    "ci_watch state (doctor)?" -> "STOP: CI watches go through ci_watch" [label="tempted to poll with the GitLab CLI or a script"];
+    "ci_watch state (doctor)?" -> "STOP: CI watches go through ci_watch" [label="tempted to poll with the forge CLI or a script"];
     "STOP: CI watches go through ci_watch" -> "Fixed the ci_watch call once already?";
     "budget.spent (doctor)?" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, freshWindow?, extendMinutes?, budgetMinutes?}" [label="false: call again"];
     "budget.spent (doctor)?" -> "doctor escalation: budget extension (watch)" [label="true"];
@@ -131,7 +131,7 @@ hex characters, `mrUrl` the MR's https URL, `priorPipelineId` the number
 mode, since it needs a fresh board doctor lease) and watch again, once. An
 error that names no input has nothing to correct: watch again unchanged,
 once, and the off-script escalation follows. An error is never a reason to
-poll with the GitLab CLI or a script.
+poll with the forge CLI or a script.
 
 ### doctor escalation: budget extension (watch)
 
