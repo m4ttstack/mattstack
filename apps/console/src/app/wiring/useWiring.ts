@@ -343,8 +343,8 @@ async function readPackTrial(pack: string): Promise<PackTrial | null> {
 
 /**
  * The trial branch the pack's org copy is on, from `rt team status`; null on
- * the data branch. Until that answers, or when it fails, the changes poll's
- * own `trialBranch` stands in, so a trial never shows Publish while unknown.
+ * the data branch. The changes poll's own `trialBranch` also counts, so a
+ * trial never shows Publish while status is unknown, failed or stale.
  */
 export function usePackTrial(pack: string | null): PackTrial | null {
   const query = useQuery({
@@ -356,7 +356,8 @@ export function usePackTrial(pack: string | null): PackTrial | null {
     retry: false,
   });
   const fallback = usePendingChanges(pack).data?.trialBranch;
-  if (query.data !== undefined) return query.data;
+  if (query.data) return query.data;
+  // The changes poll runs four times as often, so it can see a new trial first.
   return fallback ? { branch: fallback, dataBranch: null } : null;
 }
 

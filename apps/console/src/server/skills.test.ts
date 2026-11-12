@@ -3799,6 +3799,13 @@ describe('trial', () => {
           dir: '/orgs/acme/mattstack/teams/acme/plugin',
           layout: 'grouped',
           team: 'acme',
+          org: 'acme',
+        },
+        {
+          name: 'legacy',
+          dir: '/orgs/acme/mattstack/teams/legacy/plugin',
+          layout: 'grouped',
+          team: 'legacy',
         },
         {
           name: 'mattstack',
@@ -3814,7 +3821,14 @@ describe('trial', () => {
       calls.push(argv);
       if (argv[0] === 'team') {
         return status === undefined
-          ? { code: 2, stdout: '', stderr: 'rt hit an unexpected error' }
+          ? {
+              code: 2,
+              stdout: JSON.stringify({
+                contract: 1,
+                error: { code: 'ambiguous-team' },
+              }),
+              stderr: 'Which team?',
+            }
           : { code: 0, stdout: JSON.stringify(status), stderr: '' };
       }
       return { code: 0, stdout: JSON.stringify(packs), stderr: '' };
@@ -3837,6 +3851,19 @@ describe('trial', () => {
     await expect(res.json()).resolves.toEqual({
       trial: { branch: 'try-it', dataBranch: 'mattstack' },
     });
+    expect(rt.calls).toContainEqual([
+      'team',
+      'status',
+      '--team',
+      'acme',
+      '--json',
+    ]);
+  });
+
+  it('asks a bare team status when an older rt names no org for the pack', async () => {
+    const rt = answers(onTrial);
+    const app = mountSkills(new Hono(), rt.run);
+    await app.request('/api/skills/trial?pack=legacy');
     expect(rt.calls).toContainEqual(['team', 'status', '--json']);
   });
 
@@ -3854,6 +3881,7 @@ describe('trial', () => {
     await expect(
       (await app.request('/api/skills/trial?pack=mattstack')).json()
     ).resolves.toEqual({ trial: null });
+    expect(rt.calls.some(argv => argv[0] === 'team')).toBe(false);
   });
 
   it('answers no trial on a Mac with no team', async () => {
@@ -3864,7 +3892,7 @@ describe('trial', () => {
     ).resolves.toEqual({ trial: null });
   });
 
-  it('answers a failed status read as a non-2xx { error }, never as no trial', async () => {
+  it('answers a failed status read, envelope and all, as a non-2xx { error }, never as no trial', async () => {
     const rt = answers(undefined);
     const app = mountSkills(new Hono(), rt.run);
     const res = await app.request('/api/skills/trial?pack=acme');

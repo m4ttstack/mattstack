@@ -222,7 +222,9 @@ export function fixtureRt(scenario: FixtureScenario): FixtureRt {
           trial
             ? listed => ({
                 packs: listed.packs.map(row =>
-                  row.name === FIXTURE_PACK ? { ...row, team: 'acme' } : row
+                  row.name === FIXTURE_PACK
+                    ? { ...row, team: 'acme', org: 'acme' }
+                    : row
                 ),
               })
             : undefined

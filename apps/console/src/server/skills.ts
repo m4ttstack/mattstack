@@ -38,6 +38,9 @@ interface SkillsPackRow {
   /** The team whose folder holds the pack; null for a plugin or base pack.
       Absent from an rt that predates the field. */
   team?: string | null;
+  /** The org whose copy holds a team pack; null otherwise. Absent from an rt
+      that predates the field. */
+  org?: string | null;
 }
 interface SkillsPacksResponse {
   packs: SkillsPackRow[];
@@ -1945,30 +1948,37 @@ export function mountSkills(
       const { pack } = c.req.valid('query');
       if (!pack) return c.json({ error: 'pack is required' }, 400);
       try {
-        const [status, packs] = await Promise.all([
-          cachedRun(['team', 'status', '--json']),
-          cachedRun(['skills', 'packs', '--json']),
-        ]);
-        const team = parseJsonPayload(status.stdout) as
-          TeamStatusTrial | undefined;
+        const packs = await cachedRun(['skills', 'packs', '--json']);
         const listed = parseJsonPayload(packs.stdout) as
           SkillsPacksResponse | undefined;
-        if (team === undefined || listed === undefined) {
+        if (packs.code !== 0 || listed === undefined) {
           return c.json(
-            {
-              error:
-                (team === undefined ? status : packs).stderr.trim() ||
-                'rt produced no output',
-            },
+            { error: packs.stderr.trim() || 'rt produced no output' },
             502
           );
         }
-        // Only a team pack lives in the org copy, so only it is on the trial.
-        const inOrg = listed.packs.some(
-          row => row.name === pack && typeof row.team === 'string'
+        // Only a team pack lives in an org copy, so only it can be on a trial.
+        const row = listed.packs.find(
+          p => p.name === pack && typeof p.team === 'string'
         );
+        if (!row) return c.json({ trial: null as PackTrial }, 200);
+        // Name the pack's org: with more than one org on the Mac, a bare
+        // `team status` refuses as ambiguous.
+        const status = await cachedRun([
+          'team',
+          'status',
+          ...(row.org ? ['--team', row.org] : []),
+          '--json',
+        ]);
+        const team = parseJsonPayload(status.stdout) as
+          TeamStatusTrial | undefined;
+        if (status.code !== 0 || team === undefined) {
+          return c.json(
+            { error: status.stderr.trim() || 'rt team status failed' },
+            502
+          );
+        }
         const trial: PackTrial =
-          inOrg &&
           team.trial === true &&
           typeof team.branch === 'string' &&
           typeof team.dataBranch === 'string'

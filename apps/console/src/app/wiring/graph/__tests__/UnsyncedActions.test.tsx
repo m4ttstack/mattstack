@@ -223,6 +223,18 @@ describe('UnsyncedActions', () => {
     expect(screen.queryByRole('button', { name: /Publish/ })).toBeNull();
   });
 
+  it("takes the changes poll's trial branch over an older no-trial answer", async () => {
+    serveChanges({
+      ...designFixture('changes.unsynced'),
+      trialBranch: 'block-packs',
+    });
+    render(<UnsyncedActions pack="acme" />);
+    const root = await actions();
+    await waitFor(() => expect(trialGet).toHaveBeenCalled());
+
+    expect(within(root).queryByRole('button', { name: /Publish/ })).toBeNull();
+  });
+
   it("takes the changes poll's trial branch while rt team status cannot answer", async () => {
     trialGet.mockRejectedValue(new Error('rt hit an unexpected error'));
     serveChanges({
