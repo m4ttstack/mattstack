@@ -88,6 +88,29 @@ describe('parseSeam: the shapes the compiler emits', () => {
   });
 });
 
+describe('parseSeam: a seam with no version', () => {
+  it('reads a four-token seam, as rt writes once the versions live in the lock', () => {
+    expect(
+      parseSeam(
+        '<!-- part: prop:ship/flow.tiering binding=mattstack:model-tiering path=attachments/model-tiering/SKILL.md lines=8-117 -->'
+      )
+    ).toEqual({
+      kind: 'prop',
+      name: 'ship/flow.tiering',
+      ref: 'mattstack:model-tiering',
+      version: null,
+      path: 'attachments/model-tiering/SKILL.md',
+      lines: [8, 117],
+    });
+  });
+
+  it('returns null for a four-token seam whose third token is not a path', () => {
+    expect(
+      parseSeam('<!-- part: block:x source=mattstack:x version=1 lines=1-2 -->')
+    ).toBeNull();
+  });
+});
+
 describe('parseSeam: a team section', () => {
   it('reads a section seam by its source, naming the section the kind token carries', () => {
     expect(

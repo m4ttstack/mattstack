@@ -84,8 +84,43 @@ describe("skills_resolve", () => {
   test("declares its schema pattern and the verb it replaces", () => {
     const tool = skillsResolveToolDefs()[0]!;
     expect(tool.name).toBe("skills_resolve");
-    const props = (tool.inputSchema as { properties: { id: { pattern: string } } }).properties;
+    const props = (tool.inputSchema as { properties: { id: { pattern: string }; dir: { type: string } } }).properties;
     expect(new RegExp(props.id.pattern).test("skills:board:respond")).toBe(true);
+    expect(new RegExp(props.id.pattern).test("acme:work")).toBe(true);
     expect(new RegExp(props.id.pattern).test("../x")).toBe(false);
+    expect(props.dir.type).toBe("string");
+  });
+
+  test("dir is passed through and confined", async () => {
+    const root = `${HOME}/.claude/plugins/cache/acme/acme`;
+    const acme = (version: string): Record<string, string> => ({
+      [`${root}/${version}/skills/work/compiled.json`]: JSON.stringify({ id: "acme:work", dir: "skills/work", covers: ["acme:work"], keys: { "work/x.sh": "skills/work/x.sh" } }),
+      [`${root}/${version}/skills/work/x.sh`]: "",
+    });
+    const installed = { ...acme("0.4.11"), ...acme("0.4.12"), "/outside/acme/0.4.11/skills/work/x.sh": "" };
+    const call = (fs: ReturnType<typeof fakeFs>, dir: unknown) => skillsResolveToolDefs({ fs })[0]!.handler({ id: "acme:work", dir }, { HOME } as NodeJS.ProcessEnv);
+
+    const pinned = await call(fakeFs(installed), `${root}/0.4.11/skills/work`);
+    expect(pinned.ok).toBe(true);
+    expect(pinned.body).toMatchObject({ folder: `${root}/0.4.11/skills/work`, pinned: true });
+
+    const escaping = fakeFs(installed);
+    const climbed = await call(escaping, `${root}/0.4.11/../../../../../../../outside/acme/0.4.11/skills/work`);
+    expect(climbed.ok).toBe(false);
+    expect(climbed.error).toContain("dir");
+    expect(escaping.reads).toEqual([]);
+
+    const unpinned = await call(fakeFs(installed), "/src/acme/skills/work");
+    expect(unpinned.ok).toBe(true);
+    expect(unpinned.body).toMatchObject({ folder: `${root}/0.4.12/skills/work`, pinned: false, warning: "No skill folder was passed, so this run is not pinned to the version it loaded." });
+
+    const fs = fakeFs(installed);
+    const other = await call(fs, `${root}/0.4.11/../../acme-base/0.1.0/skills/work`);
+    expect(other.ok).toBe(false);
+    expect(other.error).toContain("acme-base");
+    expectInsideRoots(fs.reads);
+
+    const notText = await call(fakeFs(installed), 7);
+    expect(notText.ok).toBe(false);
   });
 });

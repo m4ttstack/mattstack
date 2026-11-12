@@ -55,7 +55,7 @@ describe("team-params", () => {
   test("section with seams", () => {
     const team = ctx({}, { "ci-extra": "line one\nline two\n" });
     expect(resolveTeamMarkers("{{team.section:ci-extra}}", team, { where, sectionSeams: true })).toBe(
-      "<!-- part: section:ci-extra source=widgets:pack/sections/ci-extra.md version=0.4.0 path=pack/sections/ci-extra.md lines=1-2 -->\nline one\nline two",
+      "<!-- part: section:ci-extra source=widgets:pack/sections/ci-extra.md path=pack/sections/ci-extra.md lines=1-2 -->\nline one\nline two",
     );
   });
 
@@ -267,7 +267,7 @@ describe("team-params", () => {
     const team = ctx({}, { s: "l1\n\nl2\n" });
     expect(resolveTeamMarkers("- item\n  {{team.section:s}}", team, { where, sectionSeams: false })).toBe("- item\n  l1\n\n  l2");
     expect(resolveTeamMarkers("- item\n  {{team.section:s}}", team, { where, sectionSeams: true })).toBe(
-      "- item\n<!-- part: section:s source=widgets:pack/sections/s.md version=0.4.0 path=pack/sections/s.md lines=1-3 -->\n  l1\n\n  l2",
+      "- item\n<!-- part: section:s source=widgets:pack/sections/s.md path=pack/sections/s.md lines=1-3 -->\n  l1\n\n  l2",
     );
   });
 });

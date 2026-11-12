@@ -214,6 +214,13 @@ export function fixtureRt(scenario: FixtureScenario): FixtureRt {
       );
     }
     if (group !== 'skills') return refuse(argv);
+    if (verb === 'history-classify' && argv.includes('--json')) {
+      const asked = argv.filter((_, i) => argv[i - 1] === '--sha');
+      const folded = new Set(def.versionOnly ?? []);
+      return answer(
+        JSON.stringify({ versionOnly: asked.filter(sha => folded.has(sha)) })
+      );
+    }
     if (verb === 'packs' && argv.includes('--json')) {
       // The trial route reads a team pack as one in the org copy.
       return answer(
@@ -307,6 +314,7 @@ export function fixtureRt(scenario: FixtureScenario): FixtureRt {
     const history = {
       ...read,
       commits: [...(def.history?.commits ?? []), ...read.commits],
+      diffs: { ...read.diffs, ...def.history?.diffs },
     };
     const dashDash = rest.indexOf('--');
     const scope = dashDash === -1 ? '.' : (rest[dashDash + 1] ?? '.');

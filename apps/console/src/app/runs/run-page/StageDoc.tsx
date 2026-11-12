@@ -148,7 +148,7 @@ function useDocSource(repo: string, runId: string, stage: string | null) {
   const row = packs?.find(p => p.pack === doc.pack);
   return [
     sha ? `${doc.pack} @ ${sha}` : doc.pack,
-    row ? packState(row).label : null,
+    row ? packState(row)?.label : null,
   ]
     .filter(Boolean)
     .join(' · ');

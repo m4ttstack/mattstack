@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { linksIn, partsFromMarkers } from "../anatomy.ts";
+import { builtVersionOf, builtVersionsOf, linksIn, partsFromMarkers } from "../anatomy.ts";
+import { readLock } from "../compiled-lock.ts";
 
 describe("partsFromMarkers", () => {
   test("a block engine yields a part per seam: its blocks, then each prop value inside them", () => {
@@ -70,5 +71,39 @@ describe("linksIn", () => {
       { path: "../../attachments/gates/SKILL.md", line: 2 },
       { path: "parts/include-x/references/strategies.md", line: 4 },
     ]);
+  });
+});
+
+describe("built versions", () => {
+  test("builtVersion falls back to the lock", () => {
+    expect(builtVersionOf(null, "acme", { acme: "0.4.12" })).toBe("0.4.12");
+    expect(builtVersionOf("0.4.11", "acme", { acme: "0.4.12" })).toBe("0.4.11");
+    expect(builtVersionOf(null, "acme", undefined)).toBeNull();
+    expect(builtVersionOf(null, null, { acme: "0.4.12" })).toBeNull();
+  });
+
+  test("a pack compiled half old, half new reads a built version for both targets", () => {
+    const rendered = (v: (n: string) => string) => [
+      "---", "name: x", "---", "",
+      `<!-- part: block:x source=mattstack:x${v("0.32.55")} path=a/index.block.md lines=5-6 -->`, "# x", "", "body",
+      `<!-- part: prop:x.domain binding=acme:p${v("0.4.11")} path=b lines=1-1 -->`, "fill",
+      `<!-- part: include:n source=mattstack:n${v("0.32.55")} path=c lines=1-1 -->`, "n1",
+    ].join("\n");
+    const old = rendered((n) => ` version=${n}`);
+    const fresh = rendered(() => "");
+    const lock = readLock("/pack", () => JSON.stringify({ targets: { "skills/fresh": { mattstack: "0.32.56", acme: "0.4.12" } } }));
+
+    const fromSeams = builtVersionsOf(old, lock.targets["skills/old"]);
+    expect(fromSeams.root).toBe("0.32.55");
+    expect(Object.fromEntries(fromSeams.parts)).toEqual({ "block:x": ["0.32.55"], "prop:x.domain": ["0.4.11"], "include:n": ["0.32.55"] });
+
+    const fromLock = builtVersionsOf(fresh, lock.targets["skills/fresh"]);
+    expect(fromLock.root).toBe("0.32.56");
+    expect(Object.fromEntries(fromLock.parts)).toEqual({ "block:x": ["0.32.56"], "prop:x.domain": ["0.4.12"], "include:n": ["0.32.56"] });
+  });
+
+  test("a versionless file with no lock entry reads no built version rather than throwing", () => {
+    const fresh = "<!-- part: block:x source=mattstack:x path=a lines=1-1 -->\nbody";
+    expect(builtVersionsOf(fresh, undefined)).toEqual({ root: null, parts: new Map([["block:x", [null]]]) });
   });
 });

@@ -1,0 +1,105 @@
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { pluginOfSeam } from "./drift.ts";
+
+export const LOCK_REL = "pack/compiled.lock.json";
+
+export type CompiledLock = {
+  targets: Record<string, Record<string, string>>;
+  bases: Record<string, string>;
+  mattstackSha: Record<string, string>;
+  mattstackDirty: Record<string, 0 | 1>;
+};
+
+function readIfPresent(path: string): string | null {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+const emptyLock = (): CompiledLock => ({ targets: {}, bases: {}, mattstackSha: {}, mattstackDirty: {} });
+
+const asRecord = (v: unknown): Record<string, never> => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, never>) : {});
+
+export function readLock(packDir: string, readFile: (p: string) => string | null = readIfPresent): CompiledLock {
+  const text = readFile(join(packDir, LOCK_REL));
+  if (text === null) return emptyLock();
+  try {
+    const raw = asRecord(JSON.parse(text));
+    return {
+      targets: asRecord(raw.targets),
+      bases: asRecord(raw.bases),
+      mattstackSha: asRecord(raw.mattstackSha),
+      mattstackDirty: asRecord(raw.mattstackDirty),
+    };
+  } catch {
+    return emptyLock();
+  }
+}
+
+/** Each plugin a compiled target's seams name, at the version it was compiled from; a plugin with no known version is left out. */
+export function lockEntryOf(texts: string[], versionOf: (plugin: string) => string | undefined): Record<string, string> {
+  const entry: Record<string, string> = {};
+  for (const text of texts) {
+    for (const line of text.split("\n")) {
+      const plugin = pluginOfSeam(line);
+      if (plugin === null || Object.hasOwn(entry, plugin)) continue;
+      const version = versionOf(plugin);
+      if (version !== undefined) entry[plugin] = version;
+    }
+  }
+  return entry;
+}
+
+export function mergeLock(current: CompiledLock, compiled: CompiledLock): CompiledLock {
+  const next: CompiledLock = {
+    targets: { ...current.targets },
+    bases: { ...current.bases, ...compiled.bases },
+    mattstackSha: { ...current.mattstackSha },
+    mattstackDirty: { ...current.mattstackDirty },
+  };
+  for (const target of Object.keys(compiled.targets)) {
+    next.targets[target] = compiled.targets[target]!;
+    delete next.mattstackSha[target];
+    delete next.mattstackDirty[target];
+    if (target in compiled.mattstackSha) next.mattstackSha[target] = compiled.mattstackSha[target]!;
+    if (target in compiled.mattstackDirty) next.mattstackDirty[target] = compiled.mattstackDirty[target]!;
+  }
+  return next;
+}
+
+function sortKeys(value: unknown): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(value).sort()) out[key] = sortKeys((value as Record<string, unknown>)[key]);
+  return out;
+}
+
+export function serializeLock(lock: CompiledLock): string {
+  return JSON.stringify(sortKeys(lock), null, 2) + "\n";
+}
+
+export function lockWrite(
+  packDir: string,
+  next: CompiledLock,
+  readFile: (p: string) => string | null,
+  write: boolean,
+): { written: string[]; removed: string[]; stale: boolean } {
+  const target = join(packDir, LOCK_REL);
+  const want = serializeLock(next);
+  if (readFile(target) === want) return { written: [], removed: [], stale: false };
+  if (!write) return { written: [], removed: [], stale: true };
+  mkdirSync(dirname(target), { recursive: true });
+  // Run start reads the lock from a checkout, so a reader must never see it half written.
+  const tmp = `${target}.${process.pid}.tmp`;
+  try {
+    writeFileSync(tmp, want);
+    renameSync(tmp, target);
+  } catch (err) {
+    rmSync(tmp, { force: true });
+    throw err;
+  }
+  return { written: [LOCK_REL], removed: [], stale: false };
+}

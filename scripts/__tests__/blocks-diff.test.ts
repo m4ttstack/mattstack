@@ -49,12 +49,21 @@ test("Slot reference compares equal to the Prop reference, an inlined body does 
   expect(residualDiff(`# A\n\n${ref("Slot")}\n`, "# A\n\nPick the cheapest model.\n", none)).not.toBe("");
 });
 
-test("today's reference line compares equal to the Prop and Slot lines older compiles wrote", () => {
-  const today = "For tiering, invoke the `mattstack:model-tiering` skill (mattstack:model-tiering@1.0.0) when this flow needs it.";
+test("today's reference line compares equal to the versioned and the Prop and Slot lines older compiles wrote", () => {
+  const today = "For tiering, invoke the `mattstack:model-tiering` skill when this flow needs it.";
+  const versioned = "For tiering, invoke the `mattstack:model-tiering` skill (mattstack:model-tiering@1.0.0) when this flow needs it.";
+  expect(residualDiff(`# A\n\n${versioned}\n`, `# A\n\n${today}\n`, none)).toBe("");
   for (const noun of ["Prop", "Slot"]) {
     const older = `${noun} tiering is bound to \`mattstack:model-tiering\` (mattstack:model-tiering@1.0.0) -- invoke that skill when this flow needs it.`;
     expect(residualDiff(`# A\n\n${older}\n`, `# A\n\n${today}\n`, none)).toBe("");
   }
+});
+
+test("normalizeCompiled writes every reference form as today's line", () => {
+  const today = "For tiering, invoke the `mattstack:model-tiering` skill when this flow needs it.";
+  expect(normalizeCompiled("For tiering, invoke the `mattstack:model-tiering` skill (mattstack:model-tiering@1.0.0) when this flow needs it.\n")).toBe(`${today}\n`);
+  expect(normalizeCompiled("Prop tiering is bound to `mattstack:model-tiering` (mattstack:model-tiering@1.0.0) -- invoke that skill when this flow needs it.\n")).toBe(`${today}\n`);
+  expect(normalizeCompiled(`${today}\n`)).toBe(`${today}\n`);
 });
 
 test("a repeated title collapses to one heading", () => {

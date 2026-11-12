@@ -24,6 +24,8 @@ export type TeamContext = {
 export const TEAM_MARKERS_MIN_ENGINE = "0.32.15";
 /** The first release whose MCP server answers `skills_resolve`, which a build carrying `@keys` tells its reader to call. */
 export const POINTER_KEYS_MIN_ENGINE = "0.32.28";
+/** The first release whose `skills_resolve` takes a `<plugin>:<unit>` id and a `dir`, which a build carrying `@keys` now writes. */
+export const VERSIONLESS_IDS_MIN_ENGINE = "0.32.60";
 
 const PARAMS_FILE = "pack/params.jsonc";
 const TEAM_MARKER_RE = /\{\{team\.(section:)?([^}\s?]*)(\?)?\}\}/g;
@@ -170,7 +172,7 @@ export function resolveTeamMarkers(
       const indented = text.split("\n").map((l) => (l === "" ? l : indent + l)).join("\n");
       // Every seam parser anchors a marker at column 0, so only the section's own lines take the indent.
       sectionText = sectionSeams
-        ? `<!-- part: section:${name} source=${values.plugin}:pack/sections/${name}.md version=${values.version} path=pack/sections/${name}.md lines=1-${lines} -->\n${indented}`
+        ? `<!-- part: section:${name} source=${values.plugin}:pack/sections/${name}.md path=pack/sections/${name}.md lines=1-${lines} -->\n${indented}`
         : indented;
       return "";
     });

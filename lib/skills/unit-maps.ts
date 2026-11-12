@@ -58,7 +58,14 @@ export function stageReadsOf(entries: Record<string, StageEntry[]>, pipeline: st
   return [...new Set(lists.flat().map((e) => e.name))];
 }
 
-/** The id `<plugin>@<version>:<unit>` has to pass `ID_RE`, so a name or version it cannot carry refuses here, not at resolve. */
+export function isIdSafeVersion(version: string): boolean {
+  return /^\d+(?:\.\d+)*$/.test(version);
+}
+
+/** The name alone, since ID_RE also takes the older versioned form and `skills:` ids, either of which a name could smuggle in. */
+const PLUGIN_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+/** The id `<plugin>:<unit>` has to pass `ID_RE`, so a name it cannot carry refuses here, not at resolve; `skills:` ids name linked skills. */
 export function readPackIdentity(packDir: string): PackIdentity {
   const file = join(packDir, ".claude-plugin", "plugin.json");
   if (!existsSync(file)) return { ok: false, file, fault: "is missing" };
@@ -71,8 +78,9 @@ export function readPackIdentity(packDir: string): PackIdentity {
   const { name, version } = (parsed && typeof parsed === "object" ? parsed : {}) as { name?: unknown; version?: unknown };
   if (typeof name !== "string" || name === "") return { ok: false, file, fault: "has no name" };
   if (typeof version !== "string" || version === "") return { ok: false, file, fault: "has no version" };
-  if (!ID_RE.test(unitId(name, "0", "unit"))) return { ok: false, file, fault: `has the name "${name}", which a skill id cannot carry: use lowercase letters, digits and dashes` };
-  if (!ID_RE.test(unitId(name, version, "unit"))) return { ok: false, file, fault: `has the version "${version}", which a skill id cannot carry: use numbers and dots only` };
+  if (!PLUGIN_NAME_RE.test(name) || !ID_RE.test(unitId(name, "unit"))) return { ok: false, file, fault: `has the name "${name}", which a skill id cannot carry: use lowercase letters, digits and dashes` };
+  if (name === "skills") return { ok: false, file, fault: `has the name "skills", which a skill id cannot carry: skills ids name linked skills, so pick another name` };
+  if (!isIdSafeVersion(version)) return { ok: false, file, fault: `has the version "${version}", which a skill id cannot carry: use numbers and dots only` };
   return { ok: true, name, version };
 }
 
@@ -163,7 +171,7 @@ export function closeUnits(units: UnitPointers[], idOf: (leaf: string) => string
   return closed;
 }
 
-/** A base copy's provenance keys come first, so its masked `version` stays the first one. Keys are sorted so rewording a body never reorders the file. */
+/** A base copy's provenance keys come first. Keys are sorted so rewording a body never reorders the file. */
 export function mapFileText(map: PointerMap, provenance: Record<string, unknown> = {}): string {
   const keys = Object.fromEntries(Object.entries(map.keys).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
   return JSON.stringify({ ...provenance, ...map, keys }, null, 2) + "\n";
@@ -186,7 +194,7 @@ function parseObject(text: string): Record<string, unknown> | null {
   }
 }
 
-/** The map a unit's last compile wrote, when it was written for `id`: a stamp from another version names other files. */
+/** The map a unit's last compile wrote, when it was written for `id`: a map from older output carries a versioned id and is not reused. */
 function readUnitMap(packDir: string, dir: string, id: string): PointerMap | null {
   const parsed = readJson(join(packDir, dir, MAP_FILE));
   if (!parsed || parsed.id !== id || !Array.isArray(parsed.covers) || !parsed.keys || typeof parsed.keys !== "object") return null;
@@ -209,7 +217,7 @@ export function attachMaps<E extends { name: string } & Compiled>(input: {
   emits: E[];
 }): { maps: Map<string, PointerMap>; emits: E[] } {
   const { packDir, identity, units } = input;
-  const idOf = (leaf: string) => unitId(identity.name, identity.version, leaf);
+  const idOf = (leaf: string) => unitId(identity.name, leaf);
   const pointers: UnitPointers[] = [
     ...input.compiled.flatMap((c) => (c.pointers ? [{ leaf: c.leaf, dir: units[c.leaf]!, ...c.pointers }] : [])),
     ...input.emits.flatMap((e) => (e.pointers ? [{ leaf: leafOf(e.name), dir: `attachments/${e.name}`, ...e.pointers }] : [])),

@@ -61,12 +61,14 @@ const PAYLOAD: EffectiveInputsPayload = {
     {
       pack: 'acme',
       recordedSha: '4c1d9e2b7a',
+      recordedVersion: null,
       currentSha: '4c1d9e2b7a51',
       drifted: false,
     },
     {
       pack: 'acme-base',
       recordedSha: '71b0e44c9d',
+      recordedVersion: null,
       currentSha: 'a92f3e1b07',
       drifted: true,
       commitsSince: 3,
@@ -191,6 +193,30 @@ describe('EffectiveInputs', () => {
     expect(
       within(base).getByText('moved since · 3 commits')
     ).toBeInTheDocument();
+  });
+
+  it('names a pack recorded by version alone, with no drift or count', async () => {
+    effectiveInputsGet.mockResolvedValue(
+      ok({
+        ...PAYLOAD,
+        packVersions: [
+          {
+            pack: 'acme',
+            recordedSha: null,
+            recordedVersion: '0.4.11',
+            currentSha: null,
+            drifted: null,
+          },
+        ],
+      })
+    );
+
+    renderPanel();
+
+    const acme = await screen.findByTestId('pack-row-acme');
+    expect(acme).toHaveTextContent('0.4.11');
+    expect(within(acme).queryByText('pack not found here')).toBeNull();
+    expect(within(acme).queryByText(/moved since/)).toBeNull();
   });
 
   it('says when no pack version was recorded or the tree was dirty', async () => {

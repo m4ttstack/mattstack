@@ -1,10 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { mcpTools } from "../../lib/mcp/tools.ts";
-import { captureSkills } from "../../lib/skills/__tests__/helpers.ts";
-import { checkPack, skillsCheck } from "../skills.ts";
+import { LOCK_REL } from "../../lib/skills/compiled-lock.ts";
+import { captureSkills, seedTwoVerbPack } from "../../lib/skills/__tests__/helpers.ts";
+import { checkPack, skillsCheck, skillsCompile } from "../skills.ts";
 
 function makePack(manifest: Record<string, unknown>, body = "Record it with `rt runs snapshot`."): string {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-check-strict-")));
@@ -175,5 +176,32 @@ describe("pack script scan", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("the compiled lock", () => {
+  const made: string[] = [];
+  afterEach(() => {
+    for (const d of made.splice(0)) rmSync(d, { recursive: true, force: true });
+    process.exitCode = 0;
+  });
+
+  test("check never reads the lock", async () => {
+    const { packDir, flags } = seedTwoVerbPack(made);
+    const compiled = captureSkills();
+    try {
+      await skillsCompile(flags);
+    } finally {
+      compiled.restore();
+    }
+    writeFileSync(join(packDir, LOCK_REL), JSON.stringify({ targets: { "skills/alpha": { acme: "9.9.9" } } }));
+
+    const { exitCode, logs } = await runCheck(flags);
+    expect(exitCode).toBe(0);
+    expect(logs.join("\n")).not.toContain("compiled.lock.json");
+    const payload = await checkPack({ packDir, manifest: flags[flags.indexOf("--manifest") + 1], mattstackDir: flags[flags.indexOf("--mattstack-dir") + 1] });
+    expect(payload.drift).toBe(false);
+    expect(payload.compileErrors).toEqual([]);
+    expect(payload.verbs.map((v) => [v.name, v.status, v.staleFiles])).toEqual([["alpha", "in-sync", []], ["beta", "in-sync", []]]);
   });
 });

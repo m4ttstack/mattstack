@@ -69,9 +69,6 @@ export type PlaceholderContext = {
   includes: Record<string, AttachmentSource>;
   pipelines: Record<string, StageEntry[]>;
   repoKey: string;
-  mattstackSha: string;
-  mattstackDirty: 0 | 1;
-  packSha: string;
   stageDir: string | null;
   stageMeta: StepSource["stageMeta"];
   compiledFrom: string;

@@ -1,13 +1,18 @@
 import { Database } from "bun:sqlite";
-import { join } from "path";
+import { realpathSync } from "fs";
+import { homedir } from "os";
+import { join, sep } from "path";
+import { installedProvenance, lockedMattstack, realInstalledDeps, realReadFile } from "./installed-provenance.ts";
 import { isPathComponent } from "./paths.ts";
-import { composePackCommits, packProvenance } from "./provenance.ts";
+import { composePackCommits, packProvenance, type PackProvenance } from "./provenance.ts";
 import { recordIdentity } from "./identity.ts";
 import { createRunDb, type Fail, type Ok } from "./write.ts";
 
 export type RunStartOpts = {
   repo: string; workType: string; pipeline: string;
   runId?: string; spawnedBy?: string; packDirs?: string[]; ticket?: string;
+  /** The loaded skill's own directory; provenance is worked out from it unless the old baked flags were given. */
+  skillDir?: string;
   mattstackSha?: string; mattstackDirty?: boolean; packSha?: string;
   env?: NodeJS.ProcessEnv; now?: number;
 };
@@ -26,6 +31,43 @@ function newRunId(now: number): string {
   return `${date}-${time}-${rand}-${process.pid}`;
 }
 
+/**
+ * Skills compiled before provenance moved to run start bake --mattstack-dirty
+ * (and the shas beside it) into their flags; those keep today's record, so
+ * nothing is worked out from the skill folder for them.
+ */
+function runProvenance(o: RunStartOpts): PackProvenance {
+  const checkouts = packProvenance(o.packDirs ?? []);
+  const baked = o.mattstackSha !== undefined || o.mattstackDirty !== undefined || o.packSha !== undefined;
+  if (baked || !o.skillDir) return checkouts;
+  const home = o.env?.HOME ?? process.env.HOME ?? homedir();
+  const configDir = (o.env ?? process.env).CLAUDE_CONFIG_DIR;
+  const configDirs = [join(home, ".claude"), ...(configDir ? [configDir] : [])];
+  // git answers inside any enclosing work tree, so a cache copy under a dotfiles repo would read as a checkout.
+  if (!configDirs.some((dir) => inPluginCache(o.skillDir!, dir)) && checkouts.commits.length > 0) {
+    const mattstack = lockedMattstack(o.skillDir, realReadFile);
+    return {
+      commits: mattstack.token ? [...checkouts.commits, mattstack.token] : checkouts.commits,
+      dirty: checkouts.dirty || mattstack.dirty ? 1 : 0,
+    };
+  }
+  const installed = installedProvenance(o.skillDir, realInstalledDeps(home));
+  return { commits: installed.tokens, dirty: installed.dirty };
+}
+
+function realpathOr(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
+function inPluginCache(skillDir: string, configDir: string): boolean {
+  const cache = realpathOr(join(configDir, "plugins", "cache"));
+  return realpathOr(skillDir).startsWith(`${cache}${sep}`);
+}
+
 export function runStart(root: string, o: RunStartOpts): Ok<{ runId: string; runDb: string }> | Fail {
   if (!isPathComponent(o.repo)) return { ok: false, error: `--repo must be a single path component: ${o.repo}`, code: 2 };
   const now = o.now ?? Date.now();
@@ -39,7 +81,7 @@ export function runStart(root: string, o: RunStartOpts): Ok<{ runId: string; run
     return { ok: false, error: `run DB creation failed: ${String(err)}`, code: 1 };
   }
   try {
-    const provenance = packProvenance(o.packDirs ?? []);
+    const provenance = runProvenance(o);
     const packCommits = composePackCommits(provenance, o.mattstackSha, o.packSha);
     const packDirty = o.mattstackDirty ? 1 : provenance.dirty;
     try {

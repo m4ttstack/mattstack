@@ -103,6 +103,11 @@ export function cdCachePath(): string {
   return join(rtDir(), "cd-cache.json");
 }
 
+/** ~/.mattstack/rt/cache/history-classify/<identity>.json — which of an org clone's commits changed only version stamps; `identity` is its serialized wire form. */
+export function historyClassifyCachePath(identity: string): string {
+  return join(rtDir(), "cache", "history-classify", `${identity}.json`);
+}
+
 /**
  * ~/.mattstack/rt/repos/<repoName> — a single repo's data directory (config,
  * hooks, scripts, run-history, etc.). This is `RepoIdentity.dataDir`.

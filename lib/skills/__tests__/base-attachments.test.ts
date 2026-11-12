@@ -15,7 +15,7 @@ const plan = (verbSides: Record<string, "skills" | "attachments"> = { ship: "ski
   planBaseAttachments({ packDir: packDir(), packName: "widgets", verbSides, team });
 const teamWith = (params: Record<string, string>, sections: Record<string, string> = {}) =>
   newTeamContext({ plugin: "widgets", version: "0.4.0", params, sections }, new Set(["acme-base"]));
-const emittedMarker = JSON.stringify({ base: "acme-base", version: null, files: [] });
+const emittedMarker = JSON.stringify({ base: "acme-base", version: null, files: ["SKILL.md"] });
 const clash = "acme-base attachment review-kit has the same name as the widgets verb review-kit; rename one of them";
 
 beforeEach(() => {
@@ -189,7 +189,7 @@ describe("planBaseAttachments", () => {
     expect((files.find((f) => f.path === "SKILL.md") as { content: string }).content).toContain("Use widgets:ship.");
     expect(files.find((f) => f.path === "scripts/run.sh")).toEqual({ path: "scripts/run.sh", copyFrom: join(kit, "scripts", "run.sh") });
     expect((files.find((f) => f.path === "compiled.json") as { content: string }).content).toBe(
-      JSON.stringify({ base: "acme-base", version: "1.4.0", files: ["README.md", "SKILL.md", "references/guide.md", "scripts/.shellcheckrc", "scripts/run.sh"] }, null, 2) + "\n",
+      JSON.stringify({ base: "acme-base", files: ["README.md", "SKILL.md", "references/guide.md", "scripts/.shellcheckrc", "scripts/run.sh"] }, null, 2) + "\n",
     );
   });
 
@@ -376,10 +376,13 @@ describe("planBaseAttachments", () => {
   test("only compile's full shape is provenance", () => {
     expect(isEmittedAttachmentText('{"base":"x"}')).toBe(false);
     expect(isEmittedAttachmentText('{"base":"https://api.example","rows":[]}')).toBe(false);
+    expect(isEmittedAttachmentText('{"base":"x","files":["SKILL.md"]}')).toBe(true);
     expect(isEmittedAttachmentText('{"base":"x","files":[]}')).toBe(false);
-    expect(isEmittedAttachmentText('{"base":"x","version":3,"files":[]}')).toBe(false);
+    expect(isEmittedAttachmentText('{"base":"x","files":["data.csv"]}')).toBe(false);
+    expect(isEmittedAttachmentText('{"base":"x","files":["SKILL.md",3]}')).toBe(false);
+    expect(isEmittedAttachmentText('{"base":"x","version":3,"files":["SKILL.md"]}')).toBe(false);
     expect(isEmittedAttachmentText('{"base":"x","version":null,"files":{}}')).toBe(false);
-    expect(isEmittedAttachmentText(JSON.stringify({ base: "acme-base", version: null, files: [] }))).toBe(true);
+    expect(isEmittedAttachmentText(JSON.stringify({ base: "acme-base", version: null, files: ["SKILL.md"] }))).toBe(true);
     expect(isEmittedAttachmentText(JSON.stringify({ base: "acme-base", version: "1.4.0", files: ["SKILL.md"] }))).toBe(true);
   });
 
@@ -446,7 +449,7 @@ describe("pointers from a base copy to the team's own source", () => {
     });
     expect(result.errors).toEqual([]);
     const rules = (fileOf(result, "references/widgets-evidence/rules.md") as { content: string }).content;
-    expect(rules).toContain("<!-- part: include:style-floor source=mattstack:style-floor version=1.0.0");
+    expect(rules).toContain("<!-- part: include:style-floor source=mattstack:style-floor path=");
     expect(rules).toContain("Run ${CLAUDE_SKILL_DIR}/../../attachments/review-kit/parts/include-style-floor/lint.sh first.");
     expect(fileOf(result, "parts/include-style-floor/lint.sh")).toEqual({ path: "parts/include-style-floor/lint.sh", copyFrom: join(incDir, "lint.sh") });
   });
@@ -488,7 +491,7 @@ describe("grouped base attachments", () => {
     expect((files.find((f) => f.path === "SKILL.md") as { content: string }).content).toContain("See ../../../skills/ship/SKILL.md.");
     expect((files.find((f) => f.path === "references/guide.md") as { content: string }).content).toBe("Back to ../../../../skills/ship/SKILL.md.\n");
     expect((files.find((f) => f.path === "compiled.json") as { content: string }).content).toBe(
-      JSON.stringify({ base: "acme-base", version: "1.4.0", files: ["SKILL.md", "references/guide.md"] }, null, 2) + "\n",
+      JSON.stringify({ base: "acme-base", files: ["SKILL.md", "references/guide.md"] }, null, 2) + "\n",
     );
     expect([...plannedAttachmentsOf(result).keys()].sort()).toEqual(["review-kit", "review/receive-review", "review/self-review"]);
   });
@@ -678,10 +681,23 @@ describe("helpers", () => {
     expect(isEmittedAttachmentDir(join(packDir(), "attachments", "missing"))).toBe(false);
   });
 
-  test("maskProvenanceVersion masks a version string and null alike", () => {
+  test("maskProvenanceVersion makes an old copy's version and a new copy's absence compare equal", () => {
     const a = JSON.stringify({ base: "acme-base", version: "1.4.0", files: [] }, null, 2);
     const b = JSON.stringify({ base: "acme-base", version: null, files: [] }, null, 2);
-    expect(maskProvenanceVersion(a)).toBe(maskProvenanceVersion(b));
+    const c = JSON.stringify({ base: "acme-base", files: [] }, null, 2);
+    expect(maskProvenanceVersion(a)).toBe(maskProvenanceVersion(c));
+    expect(maskProvenanceVersion(b)).toBe(maskProvenanceVersion(c));
+  });
+
+  test("a base copy's compiled.json carries no version", () => {
+    put(join(baseDir(), "attachments", "feature-flags", "SKILL.md"), "---\nname: feature-flags\ndescription: Flags\n---\nFlags.\n");
+    const result = planBaseAttachments({ packDir: packDir(), packName: "widgets", verbSides: {}, team: null, publicNames: new Set(["feature-flags"]) });
+    const provenance = [...result.emits, ...result.doors].map((unit) => (unit.files.find((f) => f.path === "compiled.json") as { content: string }).content);
+    expect(provenance).toHaveLength(2);
+    for (const text of provenance) {
+      expect(JSON.parse(text)).not.toHaveProperty("version");
+      expect(JSON.parse(text).base).toBe("acme-base");
+    }
   });
 
   test("walkAttachmentFiles and isSkippedAttachmentPath keep dotfiles and drop only known junk", () => {

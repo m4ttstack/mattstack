@@ -5,7 +5,8 @@ export type Target = string | { skill: string; path: string };
 export type UnitTable = Record<string, string>;
 export type PointerMap = { id: string; dir: string; covers: string[]; keys: Record<string, Target> };
 
-export const ID_RE = /^(?:[a-z0-9][a-z0-9-]*@\d+(?:\.\d+)*:[a-z0-9][a-z0-9-]*|skills:[a-z0-9][a-z0-9:-]*)$/;
+/** Older compiled output still carries `<plugin>@<version>:<unit>`, so the versioned form keeps resolving. */
+export const ID_RE = /^(?:[a-z0-9][a-z0-9-]*(?:@\d+(?:\.\d+)*)?:[a-z0-9][a-z0-9-]*|skills:[a-z0-9][a-z0-9:-]*)$/;
 
 const PATH_CHARS = "[^\\s`'\"\\\\)\\]>,;#?*:]*";
 /** The braced form, or the unbraced one when no other name character follows it. */
@@ -18,8 +19,8 @@ export const KEY_TOKEN_RE = new RegExp(`(?<![\\w@./-])@[a-z0-9][a-z0-9-]*/${PATH
 // Every internal-unit token climbs `../../` out of the skill folder, so any `skills/<x>` reads it the same.
 const ANY_SKILL_DIR = "skills/~";
 
-export function unitId(plugin: string, version: string, unit: string): string {
-  return `${plugin}@${version}:${unit}`;
+export function unitId(plugin: string, unit: string): string {
+  return `${plugin}:${unit}`;
 }
 
 export function skillsId(name: string): string {
@@ -27,7 +28,7 @@ export function skillsId(name: string): string {
 }
 
 export function openingLine(id: string): string {
-  return `Pointers here are \`@keys\`. Resolve them once per run: if you already hold a \`skills_resolve\` map that covers \`${id}\`, use it; otherwise call \`skills_resolve {id: "${id}"}\` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.`;
+  return `Pointers here are \`@keys\`. Resolve them once per run: if you already hold a \`skills_resolve\` map that covers \`${id}\` and whose folder sits in the same plugin version folder as the loaded skill's own directory, use it; otherwise call \`skills_resolve {id: "${id}", dir: "<the loaded skill's own directory>"}\` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.`;
 }
 
 function splitFrontmatter(text: string): [string, string] {

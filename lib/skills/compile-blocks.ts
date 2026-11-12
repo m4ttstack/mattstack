@@ -298,7 +298,7 @@ export function compileBlockSkill(
   const flatIncludes = Object.fromEntries(Object.entries(includes).filter(([, inc]) => !inc.tree));
 
   const sources = [...values.values()].flatMap((props) => [...props.values()].flatMap((v) => v.sources));
-  const compiledParts = dedupePreserveOrder([`${step.plugin}@${step.version}`, ...sources.map(({ fill }) => `${fill.binding}@${fill.version}`)]);
+  const compiledParts = dedupePreserveOrder([step.plugin, ...sources.map(({ fill }) => fill.binding)]);
   const ctx = placeholderContext(step, flatIncludes, compiledParts.join(" + "), opts);
   if (walk(step.tree).some((b) => RESOLVER_RE.test(b.text))) {
     throw new Error(`engine "${step.name}": compile-native engine calls the runtime resolver (resolve-args.sh)`);
@@ -367,7 +367,7 @@ export function compileBlockSkill(
   const errors = [...lintInternalRoster(body, internalRoster, "body"), ...lintInternalRoster(verb.description, internalRoster, "description")];
   if (!opts.identity || !opts.units) return { files, warnings, errors, diagnostics: [] };
   const site = {
-    id: unitId(opts.identity.name, opts.identity.version, verb.name),
+    id: unitId(opts.identity.name, verb.name),
     dir: `${ctx.side}/${verb.name}`,
     units: opts.units,
     writtenElsewhere: writtenBeforeCompile(ctx.verbSides, opts.plannedAttachments),

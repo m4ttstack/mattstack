@@ -177,13 +177,13 @@ describe("new", () => {
       "---",
       "",
       "<!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->",
-      "<!-- part: step source=mattstack:writing-style-sparse version=0.18.0 path=x lines=1-9 -->",
+      "<!-- part: step source=mattstack:writing-style-sparse path=x lines=1-9 -->",
       "# Sparse",
       "",
     ].join("\n"));
     writeFileSync(join(dir, "pr-description.md"), [
       "<!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->",
-      "<!-- part: step source=mattstack:writing-style-sparse version=0.18.0 path=x lines=1-9 -->",
+      "<!-- part: step source=mattstack:writing-style-sparse path=x lines=1-9 -->",
       "# PR descriptions (sparse)",
       "",
     ].join("\n"));

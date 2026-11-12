@@ -21,6 +21,8 @@ export function inputsSummary(payload: EffectiveInputsPayload): {
   let pack: string;
   if (payload.packVersions === null) pack = 'pack version not recorded';
   else if (!first) pack = 'no pack recorded';
+  else if (first.recordedSha === null)
+    pack = `${first.pack} pack ${first.recordedVersion}`;
   else {
     const state =
       first.drifted === false
@@ -41,11 +43,15 @@ export function settingValue(value: unknown): string {
   return typeof value === 'string' ? value : shortValue(value);
 }
 
-/** A pack's pill: whether today's source still matches the recorded sha. */
-export function packState(pack: PackVersionRow): {
+export interface PackState {
   label: string;
   tone: 'ok' | 'warn' | 'quiet';
-} {
+}
+
+/** A pack's pill: whether today's source still matches the recorded sha.
+    A pack recorded by version alone has no sha to compare, so no pill. */
+export function packState(pack: PackVersionRow): PackState | null {
+  if (pack.recordedSha === null) return null;
   if (pack.drifted === false) return { label: 'matches source', tone: 'ok' };
   if (pack.drifted === null)
     return { label: 'pack not found here', tone: 'quiet' };

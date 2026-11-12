@@ -291,7 +291,7 @@ describe("lintPackDir on disk", () => {
     try {
       mkdirSync(join(pack, "attachments", "review-kit", "references"), { recursive: true });
       mkdirSync(join(pack, "attachments", "own"), { recursive: true });
-      writeFileSync(join(pack, "attachments", "review-kit", "compiled.json"), JSON.stringify({ base: "acme-base", version: null, files: [] }));
+      writeFileSync(join(pack, "attachments", "review-kit", "compiled.json"), JSON.stringify({ base: "acme-base", version: null, files: ["SKILL.md"] }));
       mkdirSync(join(pack, "attachments", "data"), { recursive: true });
       writeFileSync(join(pack, "attachments", "data", "compiled.json"), "{\"rows\": []}\n");
       writeFileSync(join(pack, "attachments", "data", "SKILL.md"), "`git push`\n");
@@ -312,12 +312,12 @@ describe("lintPackDir on disk", () => {
       const group = join(pack, "attachments", "review");
       mkdirSync(join(group, "self-review", "references"), { recursive: true });
       mkdirSync(join(group, "own"), { recursive: true });
-      writeFileSync(join(group, "self-review", "compiled.json"), JSON.stringify({ base: "acme-base", version: null, files: [] }));
+      writeFileSync(join(group, "self-review", "compiled.json"), JSON.stringify({ base: "acme-base", version: null, files: ["SKILL.md"] }));
       writeFileSync(join(group, "self-review", "SKILL.md"), "`git push`\n");
       writeFileSync(join(group, "self-review", "references", "x.md"), "`git push -u`\n");
       writeFileSync(join(group, "own", "SKILL.md"), "`git push`\n");
       mkdirSync(join(pack, "skills", "review", "self-review"), { recursive: true });
-      writeFileSync(join(pack, "skills", "review", "self-review", "compiled.json"), JSON.stringify({ base: "acme-base", version: null, files: [] }));
+      writeFileSync(join(pack, "skills", "review", "self-review", "compiled.json"), JSON.stringify({ base: "acme-base", version: null, files: ["SKILL.md"] }));
       writeFileSync(join(pack, "skills", "review", "self-review", "SKILL.md"), "`git push`\n");
       expect(lintPackDir(pack, RULES).map((h) => h.file)).toEqual([join(group, "own", "SKILL.md"), join(pack, "skills", "review", "self-review", "SKILL.md")]);
     } finally {

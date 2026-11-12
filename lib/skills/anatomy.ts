@@ -1,4 +1,4 @@
-import { isPropReference, partExtents, type DriftCause, type PartExtent } from "./drift.ts";
+import { isPropReference, partExtents, pluginOfSeam, type DriftCause, type PartExtent } from "./drift.ts";
 
 export type AnatomyPartKind = "text" | "block" | "include" | "prop" | "section";
 export type AnatomySource = { ref: string; path: string; version: string; builtVersion: string | null; lines: number; origin?: "base"; base?: string; baseVersion?: string | null };
@@ -27,6 +27,30 @@ export type AnatomyPayload = {
   parts: AnatomyPart[];
   links: AnatomyLink[];
 };
+
+/** A seam an older compile wrote carries its own version; a current one's comes from the target's lock entry, by the plugin it names. */
+export function builtVersionOf(extentVersion: string | null, plugin: string | null, lockEntry: Record<string, string> | undefined): string | null {
+  if (extentVersion !== null) return extentVersion;
+  if (plugin === null) return null;
+  const version = lockEntry?.[plugin];
+  return typeof version === "string" ? version : null;
+}
+
+/**
+ * The built version of each part of a rendered file, in file order under each key (an add prop's values share
+ * one key), and of its engine root, the file's first block seam.
+ */
+export function builtVersionsOf(rendered: string, lockEntry: Record<string, string> | undefined): { root: string | null; parts: Map<string, (string | null)[]> } {
+  const lines = rendered.split("\n");
+  const parts = new Map<string, (string | null)[]>();
+  let root: string | null | undefined;
+  for (const x of partExtents(rendered)) {
+    const version = builtVersionOf(x.version, pluginOfSeam(lines[x.start]!), lockEntry);
+    parts.set(x.key, [...(parts.get(x.key) ?? []), version]);
+    if (root === undefined && x.key.startsWith("block:")) root = version;
+  }
+  return { root: root ?? null, parts };
+}
 
 /** One part per seam in the rendered file, in file order: each block, include, prop value and section. */
 export function partsFromMarkers(rendered: string, sources: Record<string, AnatomySource>, changedKeys: Set<string>): AnatomyPart[] {

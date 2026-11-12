@@ -364,8 +364,9 @@ after certify and before the commit: sync consumes whatever `main` says and
 never bumps the engine, so a skipped bump leaves the engine cache, and
 therefore every pack that compiles against it, silently on the old version.
 
-A compiled skill's id carries the version (`widgets@0.1.1:work`), so after
-the bump, recompile before the commit: the Bash compile above for
+The versions each compiled verb was built from live in the pack's
+`pack/compiled.lock.json`, so after the bump, recompile before the commit
+to rewrite it: the Bash compile above for
 mattstack, `rt_verb {args: ["skills", "compile", "--pack", "<pack>"]}` for
 a team pack. Then rerun the strict check on the recompiled output, the bare
 `rt skills check --pack-dir <your monorepo worktree>/plugins/mattstack --strict` <!-- mcp-lint: allow -->
@@ -485,10 +486,11 @@ this way. When nothing compiled (a hand-authored skill), read the skill's
 cached copy under `<config>/plugins/cache/<marketplace>/<plugin>/<version>/`.
 
 Proof the fix landed: in the installed pack copy
-(`<config>/plugins/cache/<marketplace>/<pack>/<version>/`), the compiled
-verb's `compiled:` metadata names the new mattstack version and the file
-contains no `{{`. `check` alone proves the pack matches the installed
-mattstack, whichever version that is.
+(`<config>/plugins/cache/<marketplace>/<pack>/<version>/`), the
+`pack/compiled.lock.json` entry for the compiled verb names the new
+mattstack version and the verb's file contains no `{{`. `check` alone
+proves the pack matches the installed mattstack, whichever version that
+is.
 
 ### End the turn; the reload runs in place
 
@@ -660,9 +662,9 @@ What `compile` and `check` read:
 | mattstack engines, includes, mattstack fills | the INSTALLED mattstack plugin cache                                                                                                 |
 | the pack's own fills                         | the pack dir `--pack` resolves (the org clone)                                                                                       |
 | everything, for `--pack mattstack` itself    | the monorepo CHECKOUT's plugins/mattstack (engines, fills, and `pack/skills.jsonc`); the installed cache is never consulted                      |
-| mattstack version in every seam marker       | mattstack's `plugin.json` at compile time; `check` masks it, so a bump that changed no inlined engine, include, or fill is not drift |
+| mattstack version each verb was built from   | mattstack's `plugin.json` at compile time, written to the pack's `pack/compiled.lock.json`; `check` does not compare it, so a bump that changed no inlined engine, include, or fill is not drift |
 | the team pack's `pack/params.jsonc` and `pack/sections/<name>.md` | the pack dir, like its fills: compile fills the org base's `{{team.*}}` markers from them, so an edit is drift to `check` and a source change to sync (mattstack:extending-a-pack) |
-| the team pack's `pack/requires.json`         | written by compile from the installed mattstack's `pack/requires.json`, raised to the release that resolves `{{team.*}}` markers when the pack's base text uses one (never hand-edited; `check` reports a stale one as drift). mattstack's own floor is hand-maintained |
+| the team pack's `pack/requires.json`         | written by compile from the installed mattstack's `pack/requires.json`, raised to the release that resolves `{{team.*}}` markers when the pack's base text uses one, and to the release that reads versionless ids and `@key` pointers when its compiled skills carry keys (never hand-edited; `check` reports a stale one as drift). mattstack's own floor is hand-maintained |
 
 ## When a hand-written skill needs shared plugin text
 

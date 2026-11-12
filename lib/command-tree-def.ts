@@ -2656,7 +2656,17 @@ export const TREE: Record<string, CommandNode> = {
         agentSafe: true,
         omitBehavior: { exempt: "agent-facing; the id comes from the skill's own opening line" },
         args: [
-          { name: "Id", type: "text", placeholder: "widgets@0.4.2:work", hint: "The skill's id, as its opening line names it" },
+          { name: "Id", type: "text", placeholder: "acme:work", hint: "The skill's id, as its opening line names it" },
+          SETUP_JSON_ARG,
+        ],
+      },
+      "history-classify": {
+        description: "Tell which of an org clone's commits changed only version numbers",
+        module: "./commands/skills-history-classify.ts",
+        fn: "skillsHistoryClassify",
+        args: [
+          { name: "Repo dir", flag: "--repo-dir", type: "text", placeholder: "/path/to/org", hint: "The org clone whose history to read" },
+          { name: "Sha", flag: "--sha", type: "text", placeholder: "<sha>", hint: "A commit to classify (repeatable)" },
           SETUP_JSON_ARG,
         ],
       },

@@ -25,6 +25,9 @@ export interface StageDocHit {
   sha: string;
 }
 
+/** A recorded version, which never carries a path character. */
+export const VERSION_REF = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
+
 export function parsePackTokens(s: string | null): PackToken[] {
   if (!s) return [];
   const out: PackToken[] = [];
@@ -33,8 +36,7 @@ export function parsePackTokens(s: string | null): PackToken[] {
     if (!m) continue;
     const [, pack, ref] = m;
     if (/^[0-9a-f]{7,40}$/i.test(ref)) out.push({ pack, ref, kind: 'sha' });
-    else if (/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(ref))
-      out.push({ pack, ref, kind: 'version' });
+    else if (VERSION_REF.test(ref)) out.push({ pack, ref, kind: 'version' });
   }
   return out;
 }
