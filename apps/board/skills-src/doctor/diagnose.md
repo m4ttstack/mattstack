@@ -21,6 +21,8 @@ digraph doctor_diagnose_and_rebase {
     "Server-side rebase licensed?" [shape=diamond];
     "mr_list {mrUrl, targetBranch: <source branch>} (stack-parent check)" [shape=plaintext];
     "Stack-parent check (doctor)?" [shape=diamond];
+    "mr_list {mrUrl, targetBranch: <source branch>} (stack-parent check, after the lease take)" [shape=plaintext];
+    "Stack-parent check after the lease take (doctor)?" [shape=diamond];
     "Lease mode (before the rebase)?" [shape=diamond];
     "ci_lease_read {mrUrl} (before the rebase)" [shape=plaintext];
     "ci_lease_claim {mrUrl, holder: doctor, branch?} (before the rebase)" [shape=plaintext];
@@ -95,13 +97,17 @@ digraph doctor_diagnose_and_rebase {
     "Trigger: the rebase poll's sleep finished" -> "mr_view {mrUrl, maxAgeMs: 5000} (rebase poll)";
     "Rebase polls = 5?" -> "Diagnosis ends the run: continue at the map's exit" [label="yes: error with the rebase state"];
     "doctor off-script escalation: lease check refused before the rebase" -> "Off-script outcome (lease check before the rebase)?";
-    "Off-script outcome (lease check before the rebase)?" -> "<status-bin> doctor-status <state> rebasing <message naming the rebase and its fix class>" [label="take: the human confirms the lease"];
+    "Off-script outcome (lease check before the rebase)?" -> "mr_list {mrUrl, targetBranch: <source branch>} (stack-parent check, after the lease take)" [label="take: the human confirms the lease"];
+    "mr_list {mrUrl, targetBranch: <source branch>} (stack-parent check, after the lease take)" -> "Stack-parent check after the lease take (doctor)?";
+    "Stack-parent check after the lease take (doctor)?" -> "<status-bin> doctor-status <state> rebasing <message naming the rebase and its fix class>" [label="full: true, no MR listed"];
+    "Stack-parent check after the lease take (doctor)?" -> "Diagnosis ends the run: continue at the map's exit" [label="an MR listed: error, a stack parent needs a restack"];
+    "Stack-parent check after the lease take (doctor)?" -> "Diagnosis ends the run: continue at the map's exit" [label="tool error, or no MR listed with full: false: error, cannot prove no children"];
     "Off-script outcome (lease check before the rebase)?" -> "Off-script rounds = 2 (lease check before the rebase)?" [label="iterate: the cause is fixed"];
     "Off-script outcome (lease check before the rebase)?" -> "Diagnosis ends the run: continue at the map's exit" [label="hold"];
     "Off-script outcome (lease check before the rebase)?" -> "Diagnosis ends the run: continue at the map's exit" [label="leave it to me in the pane: error"];
     "Off-script outcome (lease check before the rebase)?" -> "Diagnosis ends the run: continue at the map's exit" [label="gate gone"];
     "Off-script outcome (lease check before the rebase)?" -> "Diagnosis ends the run: continue at the map's exit" [label="degraded: error"];
-    "Off-script rounds = 2 (lease check before the rebase)?" -> "Lease mode (before the rebase)?" [label="no: check again"];
+    "Off-script rounds = 2 (lease check before the rebase)?" -> "mr_list {mrUrl, targetBranch: <source branch>} (stack-parent check)" [label="no: check for stack children and the lease again"];
     "Off-script rounds = 2 (lease check before the rebase)?" -> "Diagnosis ends the run: continue at the map's exit" [label="yes: error, the refusals are the reason"];
     "doctor off-script escalation: mr_view refused" -> "Off-script outcome (mr_view)?";
     "Off-script outcome (mr_view)?" -> "What is broken (doctor)?" [label="take: the human reports the MR state"];
@@ -119,7 +125,7 @@ digraph doctor_diagnose_and_rebase {
     "Off-script outcome (mr_rebase)?" -> "Diagnosis ends the run: continue at the map's exit" [label="leave it to me in the pane: error"];
     "Off-script outcome (mr_rebase)?" -> "Diagnosis ends the run: continue at the map's exit" [label="gate gone"];
     "Off-script outcome (mr_rebase)?" -> "Diagnosis ends the run: continue at the map's exit" [label="degraded: error"];
-    "Off-script rounds = 2 (mr_rebase)?" -> "Lease mode (before the rebase)?" [label="no: check the lease, rebase again"];
+    "Off-script rounds = 2 (mr_rebase)?" -> "mr_list {mrUrl, targetBranch: <source branch>} (stack-parent check)" [label="no: check for stack children and the lease, rebase again"];
     "Off-script rounds = 2 (mr_rebase)?" -> "Diagnosis ends the run: continue at the map's exit" [label="yes: error, the refusals are the reason"];
 }
 ```
@@ -149,7 +155,12 @@ What this graph cannot show:
   `partial list, no rows`. Neither retries
   nor escalates: nothing has moved yet, so a human relaunch costs
   nothing. The check never reads rt's MR cache and never treats a failed
-  read as no children.
+  read as no children. It runs again on every return toward the rebase
+  after an escalation (the lease check's take and iterate, and
+  `mr_rebase`'s iterate), because a gate can be held for hours and a
+  child can open meanwhile. The take path uses
+  `Stack-parent check after the lease take (doctor)?`, which reads the
+  same as the first check and goes on to the `rebasing` write.
 - **A pipeline with no verdict.** A head pipeline that is canceled,
   skipped or manual, or no head pipeline at all, with no conflicts, has
   nothing to classify and nothing to watch, and no fix class starts one:
