@@ -65,7 +65,7 @@ const doctor = (
     ...(forge ? { forge } : {}),
   }) as unknown as BoardMRWithReview['doctor'];
 
-/** A row with its sync popover open, the way a click on "rebase locally"
+/** A row with its sync popover open, the way a click on "rebase"
     leaves it for whoever clicked. */
 function OpenRow({ row }: { row: BoardMRWithReview }) {
   const [ready, setReady] = useState(false);

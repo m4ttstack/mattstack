@@ -713,25 +713,26 @@ export function Board() {
     startToast,
     reload: load,
   });
-  // The sync's own output, on the row's word, says how it went; only a
-  // request the server refuses outright still toasts.
-  const failuresOnlyToast = useCallback(
-    () => ({ done: () => {}, fail: addToast }),
-    [addToast]
-  );
-  const rebaseLocalAction = useLaunchAction({
+  const rebaseAction = useLaunchAction({
     axis: 'doctor',
     path: '/doctor',
-    verbing: 'syncing',
+    verbing: 'rebasing',
     started: 'doctor called on the conflicts',
-    noun: 'local rebase',
+    noun: 'rebase',
     claims: 'syncing',
     optimistic: optimisticLifecycle,
     addToast,
-    startToast: failuresOnlyToast,
+    startToast,
     reload: load,
+    doneMessage: (result, mr) => {
+      const said =
+        result.body?.synced ??
+        result.body?.stopped ??
+        (result.body?.cancelled ? 'rebase cancelled' : undefined);
+      return said ? `${mrRef(mr)} ${said}` : undefined;
+    },
     failureMessage: (result, mr) =>
-      `couldn't sync ${mrRef(mr)}${result.text ? `: ${result.text}` : ` (${result.status})`}`,
+      `couldn't rebase ${mrRef(mr)}${result.text ? `: ${result.text}` : ` (${result.status})`}`,
   });
   // Resume actions: axis null means useLaunchAction's setQueued/rollback are
   // no-ops, matching today's handleResume (which never claimed a badge before
@@ -832,11 +833,11 @@ export function Board() {
           );
         case 'doctor':
           return doctorAction(mr, { tabId: state.tab }, note, intent, quiet);
-        case 'rebase-local':
-          // rt sync first; on a conflict the doctor chassis, scoped to the
-          // paused rebase.
+        case 'rebase':
+          // The forge first, then rt sync; on a conflict the doctor chassis,
+          // scoped to the paused rebase.
           if (mr.webUrl && !quiet) startSyncLines(mr.webUrl);
-          return rebaseLocalAction(
+          return rebaseAction(
             mr,
             { mode: 'rebase', tabId: state.tab },
             note,
@@ -852,7 +853,7 @@ export function Board() {
       respondAction,
       resumeRespondAction,
       doctorAction,
-      rebaseLocalAction,
+      rebaseAction,
       state.tab,
     ]
   );

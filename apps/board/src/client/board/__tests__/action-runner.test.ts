@@ -569,13 +569,13 @@ test('a bulk doctor skips MRs a live work run owns and names them', async () => 
   ]);
 });
 
-test('a bulk local rebase skips MRs a live work run owns too', async () => {
+test('a bulk rebase skips MRs a live work run owns too', async () => {
   const { deps, events } = fakeDeps();
   deps.activeRun = (_flow, m) =>
     m.iid === 2 ? { runId: 'run-7', stage: 'implement', name: 'Pip' } : null;
   await runBulk(
     {
-      request: { kind: 'launch', flow: 'rebase-local' },
+      request: { kind: 'launch', flow: 'rebase' },
       targets: [mr(1), mr(2)],
       selected: 2,
     },
@@ -583,8 +583,27 @@ test('a bulk local rebase skips MRs a live work run owns too', async () => {
     deps
   );
   expect(events).toEqual([
-    'launch rebase-local !1 {"quiet":true}',
-    "toast local rebase ran on !1 · skipped !2, Pip's run is active",
+    'launch rebase !1 {"quiet":true}',
+    "toast rebase ran on !1 · skipped !2, Pip's run is active",
+    'reload false',
+  ]);
+});
+
+test('a bulk rebase launches only the targets and says how many it skipped', async () => {
+  const { deps, events } = fakeDeps();
+  await runBulk(
+    {
+      request: { kind: 'launch', flow: 'rebase' },
+      targets: [mr(1), mr(3)],
+      selected: 3,
+    },
+    {},
+    deps
+  );
+  expect(events).toEqual([
+    'launch rebase !1 {"quiet":true}',
+    'launch rebase !3 {"quiet":true}',
+    "toast rebase ran on !1, !3 · 1 didn't need it",
     'reload false',
   ]);
 });

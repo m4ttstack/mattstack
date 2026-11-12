@@ -20,6 +20,8 @@ export interface ActionResult {
     reactions?: string[];
     reason?: string;
     synced?: string;
+    stopped?: string;
+    cancelled?: boolean;
     provisioned?: boolean;
     /** The launch was refused before any pane opened; the row's reason. */
     refused?: string;
