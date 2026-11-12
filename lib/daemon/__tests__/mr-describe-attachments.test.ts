@@ -287,10 +287,13 @@ describe("mr:describe-with-attachments", () => {
     expect(ran()).toBe(false);
   });
 
-  // The write fails only past macOS's 1024-byte path limit.
-  test.skipIf(process.platform !== "darwin")("a staging write that fails is ok:false with no staging path, and the folder is removed", async () => {
+  // The write fails only past the host's path limit: 1024 bytes on macOS, 4096 on Linux.
+  test("a staging write that fails is ok:false with no staging path, and the folder is removed", async () => {
+    const target = process.platform === "darwin" ? 900 : 3960;
     let deep = stage;
-    while (realpathSync(stage).length + (deep.length - stage.length) < 900) deep = join(deep, "d".repeat(200));
+    for (let len = realpathSync(stage).length; len < target; len = realpathSync(stage).length + (deep.length - stage.length)) {
+      deep = join(deep, "d".repeat(Math.min(200, target - len - 1)));
+    }
     mkdirSync(deep, { recursive: true });
     const board = png(repoPath, "board.png");
     const name = `1-${"a".repeat(122)}.png`;
