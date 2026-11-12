@@ -132,8 +132,10 @@ Rules the head applies:
   appears, the anchor is read (once) and replaces the fallback, so a fast
   external status that reports before the Actions run cannot fix the
   fallback in place.
-- **A failed read** leaves that value unset for this poll (no anchor means
-  the budget reads null), and the next poll retries it.
+- **A failed read** leaves that value as it was for this poll and a later
+  poll retries it, at most three attempts per commit. The first read with
+  checks always sets the first-seen fallback, so the budget always has an
+  anchor; a listing that never answers leaves the fallback in place.
 
 With `attend`, the required list and the anchor (or the first-seen fallback
 time) persist in the watch state per sha. Without `attend`, they sit in an
