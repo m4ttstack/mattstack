@@ -115,8 +115,10 @@ refusing with neutral words. Matt picked (a).
   `expectedHeadSha must be a full commit sha`.
 - In the `mr:review-submit` handler, immediately before
   `provider.submitReview` (after the diff anchoring), when the field is set:
-  read the MR with `provider.fetchSingleMR(writeRef(repoCtx), iid, null)`
-  and compare its `sha` case-insensitively.
+  read the MR with `provider.fetchSingleMR(repoCtx.projectPath, iid, null)`
+  and compare its `sha` case-insensitively. It takes the project path, never
+  `writeRef`: GitLab's `fetchSingleMR` queries GraphQL by full path, so the
+  numeric id would read as no MR.
   - A read that throws, returns null, or carries no `sha`: `ok: false`,
     `could not read the MR's head to check expectedHeadSha; nothing was
     posted (<reason>)`.
