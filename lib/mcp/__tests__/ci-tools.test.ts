@@ -525,35 +525,24 @@ describe("ci_watch on GitHub", () => {
     runs: [{ id: 901, createdAt: new Date(-2 * MIN).toISOString() }, { id: 900, createdAt: ANCHOR_AT }], ...over,
   });
 
+  const TRIAGE_SETTINGS: Record<string, unknown> = {
+    "ci.triage.realPatterns": [], "ci.triage.infraPatterns": [], "ci.triage.noisyJobs": [], "ci.triage.baseDepth": 3, "ci.triage.skipBase": false,
+  };
+
   beforeEach(() => { __resetMemoryFacts(); });
 
   function ghDefs(w: World, over: Record<string, unknown> = {}) {
     const calls: Call[] = [];
     const resolveArgs: unknown[][] = [];
     const keepalive = new LeaseKeepalive({ setInterval: () => ({}), clearInterval: () => {}, leaseOpts: () => ({ dir }) });
+    const resolve = (async (...args: unknown[]) => { resolveArgs.push(args); return { ok: true, identity: "remote:x", iid: 42 }; }) as any;
     const defs = ciToolDefs({
       leaseOpts: () => ({ dir }),
       label: () => undefined,
+      triage: { command: (async (name: string, payload: Record<string, any>) => commandOf(name, payload)) as any, resolve, readSetting: (k) => TRIAGE_SETTINGS[k] },
       watch: {
-        resolve: (async (...args: unknown[]) => { resolveArgs.push(args); return { ok: true, identity: "remote:x", iid: 42 }; }) as any,
-        command: (async (name: string, payload: Record<string, any>) => {
-          calls.push({ name, payload });
-          if (name === "mr:get") {
-            const pipeline = { id: "github:run:901", status: w.status, sha: w.sha, ref: "feat", mergeRequestEventType: null, webUrl: `${PR}/checks`, createdAt: null, jobs: w.jobs, runIds: ["900", "901"] };
-            return { ok: true, data: { mr: { iid: 42, sha: w.sha, webUrl: PR, sourceBranch: "feat", targetBranch: "main", pipeline }, fetchedAt: 0 } };
-          }
-          if (name === "forge:get") {
-            const body = payload.path.startsWith(":repo/rules/branches/")
-              ? [{ type: "required_status_checks", parameters: { required_status_checks: w.required.map((context) => ({ context })) } }]
-              : null;
-            return { ok: true, data: { status: body ? 200 : 404, body, truncated: false, nextPage: null, totalPages: null } };
-          }
-          if (name === "pipeline:list") {
-            return { ok: true, data: { pipelines: w.runs.map((r) => ({ id: r.id, status: "running", ref: "feat", sha: w.sha, source: "pull_request", webUrl: null, createdAt: r.createdAt })) } };
-          }
-          if (name === "mr:fetch-job-trace") return { ok: true, data: "boom\nreal failure" };
-          return { ok: true, data: [] };
-        }) as any,
+        resolve,
+        command: (async (name: string, payload: Record<string, any>) => commandOf(name, payload)) as any,
         now: () => 0,
         sleep: async () => {},
         budgetMinutes: () => 75,
@@ -562,7 +551,25 @@ describe("ci_watch on GitHub", () => {
         ...over,
       },
     });
-    return { watch: defs.find((x) => x.name === "ci_watch")!, calls, resolveArgs };
+    async function commandOf(name: string, payload: Record<string, any>): Promise<any> {
+      calls.push({ name, payload });
+      if (name === "mr:get") {
+        const pipeline = { id: "github:run:901", status: w.status, sha: w.sha, ref: "feat", mergeRequestEventType: null, webUrl: `${PR}/checks`, createdAt: null, jobs: w.jobs, runIds: ["900", "901"] };
+        return { ok: true, data: { mr: { iid: 42, sha: w.sha, webUrl: PR, sourceBranch: "feat", targetBranch: "main", pipeline }, fetchedAt: 0 } };
+      }
+      if (name === "forge:get") {
+        const body = payload.path.startsWith(":repo/rules/branches/")
+          ? [{ type: "required_status_checks", parameters: { required_status_checks: w.required.map((context) => ({ context })) } }]
+          : null;
+        return { ok: true, data: { status: body ? 200 : 404, body, truncated: false, nextPage: null, totalPages: null } };
+      }
+      if (name === "pipeline:list") {
+        return { ok: true, data: { pipelines: w.runs.map((r) => ({ id: r.id, status: "running", ref: "feat", sha: w.sha, source: "pull_request", webUrl: null, createdAt: r.createdAt })) } };
+      }
+      if (name === "mr:fetch-job-trace") return { ok: true, data: "boom\nreal failure" };
+      return { ok: true, data: [] };
+    }
+    return { watch: defs.find((x) => x.name === "ci_watch")!, triage: defs.find((x) => x.name === "ci_triage")!, calls, resolveArgs };
   }
   const claim = () => tool("ci_lease_claim").handler({ mrUrl: PR }, A);
   const perCommit = (calls: Call[]) => calls.filter((c) => c.name === "forge:get" || c.name === "pipeline:list");
@@ -625,6 +632,25 @@ describe("ci_watch on GitHub", () => {
     const before = calls.length;
     expect(await watch.handler({ ...target, sha: SHA }, A)).toMatchObject({ ok: true, body: { state: "success", pipeline: { id: "github:run:900" } } });
     expect(perCommit(calls.slice(before))).toEqual([]);
+  });
+  test("an attended watch shares its per-commit reads with ci_triage on the same head", async () => {
+    const { watch, triage, calls } = ghDefs(world({ status: "success", jobs: [check("checks", "success")] }));
+    expect(await watch.handler({ ...target, sha: SHA, attend: true }, A)).toMatchObject({ ok: true, body: { state: "success" } });
+    expect(perCommit(calls).length).toBeGreaterThan(0);
+    const before = calls.length;
+    expect(await triage.handler({ mrUrl: PR, noBase: true }, A)).toMatchObject({ ok: true, body: { state: "triaged", pipeline: { id: 900 } } });
+    expect(perCommit(calls.slice(before))).toEqual([]);
+  });
+  test("an external check run takes no trace slot and costs no trace read; the Actions job still gets its tail", async () => {
+    await claim();
+    const external = [1, 2, 3, 4, 5].map((n) => check(`ext${n}`, "failed", { id: `github:check:${600 + n}`, runId: null }));
+    const { watch, calls } = ghDefs(world({ status: "failed", required: [], jobs: [...external, check("checks", "failed", { id: "github:check:77" })] }));
+    const r = await watch.handler({ ...target, sha: SHA }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "failed", blockingFailures: 6 } });
+    expect(calls.filter((c) => c.name === "mr:fetch-job-trace").map((c) => c.payload.jobId)).toEqual([77]);
+    const rows = (r as any).body.failedJobs as Array<{ jobId: number; traceTail?: string }>;
+    expect(rows.find((j) => j.jobId === 77)?.traceTail).toContain("boom");
+    expect(rows.filter((j) => j.jobId !== 77).every((j) => j.traceTail === undefined)).toBe(true);
   });
   test("intervalSeconds defaults to 60 on GitHub", async () => {
     await claim();

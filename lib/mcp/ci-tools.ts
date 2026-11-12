@@ -95,10 +95,14 @@ function intervalRangeError(min: number, github: boolean): string {
   return `"intervalSeconds" must be an integer from ${min} to ${INTERVAL_MAX}${github ? " on GitHub" : ""}`;
 }
 
-function attendFacts(st: PersistedWatch): FactsStore {
+// Writes through to the in-process cache so ci_triage and pipeline_jobs on the same head reuse an attended watch's reads.
+function attendFacts(st: PersistedWatch, mem: FactsStore): FactsStore {
   return {
-    get: () => structuredClone({ ...emptyFacts(), ...st.github }),
-    set: (f) => { st.github = structuredClone(f); },
+    get: () => st.github ? structuredClone({ ...emptyFacts(), ...st.github }) : mem.get(),
+    set: (f) => {
+      st.github = structuredClone(f);
+      mem.set(f);
+    },
   };
 }
 
@@ -227,7 +231,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
     },
     {
       name: "ci_watch",
-      description: `Watch the MR's pipeline for the pushed commit sha until it settles or maxWaitSeconds (default 300, cap ${MAX_WAIT}) passes, polling every intervalSeconds (default 30, ${INTERVAL_MIN} to ${INTERVAL_MAX}, and never more than half the lease's ttlSeconds). Only a pipeline for sha counts: a branch pipeline by its sha, a merged-results or merge-train pipeline by its merge commit's parents, or (fast-forward trains) by being new since the push; pass priorPipelineId (the head pipeline id read before pushing) so that proof never stalls; a result that proved it without one carries priorPipelineId to pass on the next call. Every poll heartbeats this session's CI lease and returns state lease_lost the moment another owner holds the MR; with underBoardLease (a doctor the board launched) it only reads the lease and needs a fresh board doctor lease. Returns state (success, success_with_warnings, failed, canceled, skipped, manual when settled; failed also as soon as a blocking job fails while the pipeline still runs; running or waiting means call again; superseded, lease_lost or aborted end the watch), the pipeline with sha and ref, failedJobs listing every failed job, with a trace tail on the first five blocking ones (jobs in same-project downstream pipelines included; read any other job's log with mr_job_trace), blockingFailures, lease, budget and next. budget is {minutes, elapsedMinutes, spent}, measured from the watched pipeline's createdAt against the ci.watch.budgetMinutes setting (default ${BUDGET_DEFAULT}), or null while no pipeline for sha exists; a pipeline still running once spent is true returns running at once, so stop watching it. Chat messages reach you only between calls, so a long maxWaitSeconds delays them. With attend: true the call attends the MR itself: every poll heartbeats this session's lease or, when none is held, claims it (holder, with the MR's source branch); a lease that vanishes is re-claimed at most ${MAX_RECLAIMS} times per commit, and the lease is kept alive between calls until ci_lease_release. The budget window, prior pipeline id and waiting clock persist per MR, so later calls need not pass budgetMinutes or priorPipelineId, and a pipeline that last failed and runs again opens a fresh window by itself. attend adds the states timeout (still running past the budget), no_pipeline (${NO_PIPELINE_MS / 60_000} minutes of waiting with no pipeline for sha; pushed says whether the MR head is at sha, remoteSha is that head), stood_down (another owner attends; carries holder), lease_unavailable (the lease could not be claimed or kept; carries error); it never returns lease_lost. With underBoardLease and attend it still only reads the board doctor lease. On GitHub the pipeline is every check on the PR head: required checks (from the target branch's rules and protection) decide blocking and the state, intervalSeconds defaults to ${GITHUB_INTERVAL_DEFAULT} and runs ${GITHUB_INTERVAL_MIN} to ${INTERVAL_MAX}, the budget runs from the head's first Actions run, pipeline.id is a string like github:run:N, a failed commit status has jobId null and no trace tail, and priorPipelineId is ignored. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
+      description: `Watch the MR's pipeline for the pushed commit sha until it settles or maxWaitSeconds (default 300, cap ${MAX_WAIT}) passes, polling every intervalSeconds (default 30, ${INTERVAL_MIN} to ${INTERVAL_MAX}, and never more than half the lease's ttlSeconds). Only a pipeline for sha counts: a branch pipeline by its sha, a merged-results or merge-train pipeline by its merge commit's parents, or (fast-forward trains) by being new since the push; pass priorPipelineId (the head pipeline id read before pushing) so that proof never stalls; a result that proved it without one carries priorPipelineId to pass on the next call. Every poll heartbeats this session's CI lease and returns state lease_lost the moment another owner holds the MR; with underBoardLease (a doctor the board launched) it only reads the lease and needs a fresh board doctor lease. Returns state (success, success_with_warnings, failed, canceled, skipped, manual when settled; failed also as soon as a blocking job fails while the pipeline still runs; running or waiting means call again; superseded, lease_lost or aborted end the watch), the pipeline with sha and ref, failedJobs listing every failed job, with a trace tail on the first five blocking ones (jobs in same-project downstream pipelines included; read any other job's log with mr_job_trace), blockingFailures, lease, budget and next. budget is {minutes, elapsedMinutes, spent}, measured from the watched pipeline's createdAt against the ci.watch.budgetMinutes setting (default ${BUDGET_DEFAULT}), or null while no pipeline for sha exists; a pipeline still running once spent is true returns running at once, so stop watching it. Chat messages reach you only between calls, so a long maxWaitSeconds delays them. With attend: true the call attends the MR itself: every poll heartbeats this session's lease or, when none is held, claims it (holder, with the MR's source branch); a lease that vanishes is re-claimed at most ${MAX_RECLAIMS} times per commit, and the lease is kept alive between calls until ci_lease_release. The budget window, prior pipeline id and waiting clock persist per MR, so later calls need not pass budgetMinutes or priorPipelineId, and a pipeline that last failed and runs again opens a fresh window by itself. attend adds the states timeout (still running past the budget), no_pipeline (${NO_PIPELINE_MS / 60_000} minutes of waiting with no pipeline for sha; pushed says whether the MR head is at sha, remoteSha is that head), stood_down (another owner attends; carries holder), lease_unavailable (the lease could not be claimed or kept; carries error); it never returns lease_lost. With underBoardLease and attend it still only reads the board doctor lease. On GitHub the pipeline is every check on the PR head: required checks (from the target branch's rules and protection) decide blocking and the state, intervalSeconds defaults to ${GITHUB_INTERVAL_DEFAULT} and runs ${GITHUB_INTERVAL_MIN} to ${INTERVAL_MAX}, the budget runs from the head's first Actions run, or from when rt first saw a check when the head has no Actions run, pipeline.id is a string like github:run:N, a failed commit status has jobId null and no trace tail, and priorPipelineId is ignored. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -357,8 +361,12 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
           return { ok: true, mr: pr };
         };
 
-        const githubHead = (pr: PrRead): Promise<GithubHead | null> =>
-          readGithubHead(w.command, target, pr, watched ? attendFacts(watched) : prFacts(mrUrl ?? "", pr), w.now, sha);
+        let lastHead: GithubHead | null = null;
+        const githubHead = async (pr: PrRead): Promise<GithubHead | null> => {
+          const mem = prFacts(mrUrl ?? "", pr);
+          lastHead = await readGithubHead(w.command, target, pr, watched ? attendFacts(watched, mem) : mem, w.now, sha);
+          return lastHead;
+        };
 
         const watchDeps: WatchDeps = {
           now: w.now,
@@ -399,6 +407,8 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
             const r = await w.command<Commands["mr:pipeline-failed-jobs"]["data"]>("mr:pipeline-failed-jobs", { repoName: target.identity, iid: target.iid, pipelineId }, { timeoutMs: 30_000 });
             return r.ok && Array.isArray(r.data) ? r.data : null;
           },
+          // Only an Actions job has a log behind mr:fetch-job-trace; another app's check run would fail the read and spend a slot.
+          traceable: (jobId) => !github || lastHead?.jobs.some((j) => j.jobId === jobId && j.runId !== null) === true,
           traceTail: async (jobId) => {
             const r = await w.command<Commands["mr:fetch-job-trace"]["data"]>("mr:fetch-job-trace", { repoName: target.identity, iid: target.iid, jobId }, { timeoutMs: 60_000 });
             return r.ok ? tailTrace(r.data ?? "", TRACE_TAIL).trace : null;

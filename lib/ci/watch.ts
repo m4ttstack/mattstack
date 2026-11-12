@@ -19,6 +19,7 @@ export interface WatchDeps {
   commitParents(sha: string): Promise<string[] | null>;
   failedJobs(pipelineId: number): Promise<WatchJob[] | null>;
   traceTail(jobId: number): Promise<string | null>;
+  traceable?(jobId: number): boolean;
   observe?(o: WatchObservation): void;
 }
 
@@ -214,7 +215,7 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
       const jobId = idNumber(j.id);
       if (jobId === null) continue;
       const row: WatchResult["failedJobs"][number] = { jobId, name: j.name, stage: j.stage, allowFailure: j.allowFailure, webUrl: j.webUrl };
-      if (withTraces && !j.allowFailure && traced < TRACE_JOBS) {
+      if (withTraces && !j.allowFailure && traced < TRACE_JOBS && deps.traceable?.(jobId) !== false) {
         traced++;
         const tail = await deps.traceTail(jobId);
         if (tail !== null) row.traceTail = tail;
