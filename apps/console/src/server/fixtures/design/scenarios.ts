@@ -24,6 +24,7 @@
  * | `blocks`           | the composition lists `mini`, a block-tree verb, so the block view can open it; `ship`'s and `work`'s anatomy are rt's own, and work's placeholders sit in its block files |
  * | `stale-engine`     | the installed mattstack plugin is older than rt, so every block tree answers `stale-engine` |
  * | `disable-model-invocation` | surface rows show the field on, off, locked and absent |
+ * | `trial`            | `unsynced`, with the org copy on the trial branch `try-roles` |
  *
  * `runs`, `runs-empty` and `runs-outage` are the runs boards' data
  * (`runsFixture.ts`), with the skills routes answering as `clean`.
@@ -53,6 +54,7 @@ export const SCENARIOS = [
   'blocks',
   'stale-engine',
   'disable-model-invocation',
+  'trial',
   'runs',
   'runs-empty',
   'runs-outage',
@@ -740,6 +742,7 @@ const DEFS: Record<FixtureScenario, ScenarioDef> = {
   'runs-empty': { subject: 'stage-plan' },
   'runs-outage': { subject: 'stage-plan' },
   unsynced: { subject: 'stage-plan' },
+  trial: { subject: 'stage-plan' },
   referenced: {
     subject: 'stage-plan',
     anatomy: {

@@ -407,6 +407,15 @@ interface SkillsChangesResponse {
   /** Set when the org copy is on a trial branch: a sync installs on this Mac only. */
   trialBranch?: string;
 }
+/** The part of `rt team status --json` that says whether the org copy is on
+    a trial branch; a Mac with no team answers `mode: "solo"` and none of it. */
+interface TeamStatusTrial {
+  branch?: string | null;
+  dataBranch?: string;
+  trial?: boolean;
+}
+/** A team pack's trial branch and the data branch it is not on; null off a trial. */
+type PackTrial = { branch: string; dataBranch: string } | null;
 interface SkillsDiscardResponse {
   pack: string;
   packDir: string;
@@ -1925,6 +1934,49 @@ export function mountSkills(
           );
         }
         return c.json(payload as SkillsChangesResponse, 200);
+      } catch (err) {
+        if (err instanceof RtNotFoundError) {
+          return c.json({ error: err.message }, 503);
+        }
+        return c.json({ error: (err as Error).message }, 502);
+      }
+    })
+    .get('/api/skills/trial', packQuery, async c => {
+      const { pack } = c.req.valid('query');
+      if (!pack) return c.json({ error: 'pack is required' }, 400);
+      try {
+        const [status, packs] = await Promise.all([
+          cachedRun(['team', 'status', '--json']),
+          cachedRun(['skills', 'packs', '--json']),
+        ]);
+        const team = parseJsonPayload(status.stdout) as
+          | TeamStatusTrial
+          | undefined;
+        const listed = parseJsonPayload(packs.stdout) as
+          | SkillsPacksResponse
+          | undefined;
+        if (team === undefined || listed === undefined) {
+          return c.json(
+            {
+              error:
+                (team === undefined ? status : packs).stderr.trim() ||
+                'rt produced no output',
+            },
+            502
+          );
+        }
+        // Only a team pack lives in the org copy, so only it is on the trial.
+        const inOrg = listed.packs.some(
+          row => row.name === pack && typeof row.team === 'string'
+        );
+        const trial: PackTrial =
+          inOrg &&
+          team.trial === true &&
+          typeof team.branch === 'string' &&
+          typeof team.dataBranch === 'string'
+            ? { branch: team.branch, dataBranch: team.dataBranch }
+            : null;
+        return c.json({ trial }, 200);
       } catch (err) {
         if (err instanceof RtNotFoundError) {
           return c.json({ error: err.message }, 503);
