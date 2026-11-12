@@ -52,7 +52,7 @@ The behavior already exists, so these tests pass on first run. Each gets a mutat
 - Test: `lib/daemon/__tests__/mr-ci-verbs.test.ts` (inside `describe("mr:list-live")`)
 
 **Interfaces:**
-- Consumes: `fake`, `tool`, `GH`, `PR` already in `mr-read-tools.test.ts`; `createMRHandlers`, `fakeCtx`, `fakeStore`, `ForgeHttpError` already imported in `mr-ci-verbs.test.ts`.
+- Consumes: `fake`, `tool`, `GH`, `PR` already in `mr-read-tools.test.ts`; `createMRHandlers`, `fakeCtx`, `ForgeHttpError` already in `mr-ci-verbs.test.ts`.
 - Produces: nothing later tasks use.
 
 - [ ] **Step 1: Add the tool tests** to `describe("on GitHub")`:
@@ -109,7 +109,7 @@ Workspace: `.superpowers/sdd/2026-11-12-doctor-stack-parent-check/` (git-ignored
 **Interfaces:**
 - Produces: `red/<fixture>.md` for `no-children`, `stack-parent`, `read-failed`, and the fixture texts below, reused verbatim for GREEN in Task 3.
 
-Common launch, for every GitLab fixture: the board launched `/board:doctor https://gitlab.com/acme/widgets/-/merge_requests/41 --state /tmp/doctor-41.json --status-bin /tmp/status-bin --tier api`, with no `--skill` and no `--fix-classes`. `ci_lease_read` returns a fresh lease held by the board's `board:doctor:` owner (board mode). `mr_view` returns `{iid: 41, sourceBranch: "feat-a", targetBranch: "main", sha: "aaa1111", conflicts: true, rebaseInProgress: false, author: "alice", pipeline: {status: "failed"}}`. `mr_rebase` is accepted.
+Common launch, for every GitLab fixture: the board launched `/board:doctor https://gitlab.com/acme/widgets/-/merge_requests/41 --state /tmp/doctor-41.json --status-bin /tmp/status-bin --tier api`, with no `--skill` and no `--fix-classes` (every fix class licensed). `resolve-args.sh` exits 1 with `{ok: false, errors: ["no doctor-api binding for this repo"]}`: no domain skill is bound, so the run takes the generic path. `ci_lease_read` returns a fresh lease held by the board's `board:doctor:` owner (board mode). `mr_view` returns `{iid: 41, sourceBranch: "feat-a", targetBranch: "main", sha: "aaa1111", conflicts: true, rebaseInProgress: false, author: "alice", pipeline: {status: "failed"}}`. `mr_rebase` is accepted.
 
 | Fixture | `mr_list` answer (used only if the walker calls it) |
 |---|---|
@@ -125,7 +125,7 @@ Common launch, for every GitLab fixture: the board launched `/board:doctor https
 
 **Files:**
 - Modify: `apps/board/skills-src/doctor/diagnose.md` (node declarations near line 21, the `Server-side rebase licensed?` yes edge at line 64, one prose bullet after the "What is broken" bullet)
-- Modify: `apps/board/skills-src/doctor/SKILL.md:524-526` (the `clean-api-rebase` entry)
+- Modify: `apps/board/skills-src/doctor/SKILL.md:524-527` (the `clean-api-rebase` entry)
 - Regenerate: `apps/board/skills/doctor/`
 
 **Interfaces:**
@@ -170,7 +170,7 @@ git commit -m "board doctor: prove no stack children with a live mr_list before 
   - `stack-parent`: the same `mr_list` call; no `ci_lease_read` or `ci_lease_claim` before a rebase, no `rebasing` status, no `mr_rebase`; terminal `error MR !41 is a stack parent (stacked on it: !42); a rebase would strand the stack: needs a restack of the stack root`. The draft by another author still counts.
   - `read-failed`: one `mr_list` call, no retry, no lease check before a rebase, no `mr_rebase`; terminal `error cannot prove MR !41 has no stacked children: the live target-branch query failed (GitLab returned 502 Bad Gateway: upstream timeout)`.
   - `partial-empty`: no `mr_rebase`; terminal cannot-prove error with `(partial list, no rows)`.
-  - `github-stack-parent`: starts at Diagnose and rebase (`diagnose.md`, with `SKILL.md` for context) on `https://github.com/acme/widgets/pull/41`; the `mr_view` answer as the common launch's; `mr_list` returns `{mrs: [{iid: 42, ...}, {iid: 43, ...}], truncated: true, targetBranch: "feat-a", full: false}`. Expected: `mr_list {mrUrl: "https://github.com/acme/widgets/pull/41", targetBranch: "feat-a"}`, no `mr_rebase`, terminal error `MR !41 is a stack parent (stacked on it: !42, !43, and more); ...`.
+  - `github-stack-parent`: starts at Diagnose and rebase (`diagnose.md`, with `SKILL.md` for context) on `https://github.com/acme/widgets/pull/41`, with the common launch's flags, lease and `mr_view` answer; `mr_list` returns `{mrs: [{iid: 42, ...}, {iid: 43, ...}], truncated: true, targetBranch: "feat-a", full: false}`. Expected: `mr_list {mrUrl: "https://github.com/acme/widgets/pull/41", targetBranch: "feat-a"}`, no `mr_rebase`, terminal error `MR !41 is a stack parent (stacked on it: !42, !43, and more); ...`.
 
   A miss goes back to Step 2, 3 or 4 with the transcript (at most 3 craft rounds, then herd_ask), recommitting through Steps 5 to 7 as `board doctor: <what the round fixed>`.
 
@@ -185,7 +185,7 @@ git commit -m "board doctor: prove no stack children with a live mr_list before 
 ### Task 5: Ship
 
 - [ ] **Step 1: Push.** `git_push {tree: <worktree root>, setUpstream: true}`. Expected: ok.
-- [ ] **Step 2: Open the PR** with `gh pr create --base main`, title `board doctor: check for stack children before a server-side rebase`, body from `.github/pull_request_template.md` if present: why the ticket ends small (PR #628, the fills, the audit log dates 2026-09-28, 2026-10-26, 2026-11-05), the new nodes, which forge the check covers and when, the two tests, and no plugin bump. Run `bun run purity` and `rg -n '\x{2013}|\x{2014}'` on the body file first.
+- [ ] **Step 2: Open the PR** with `gh pr create --base main`, title `board doctor: check for stack children before a server-side rebase`, body in the fallback shape (the repo has no `.github/pull_request_template.md`): why the ticket ends small (PR #628, the fills, the audit log dates 2026-09-28, 2026-10-26, 2026-11-05), the new nodes, which forge the check covers and when, the two tests, and no plugin bump. Run `bun run purity` and `rg -n '\x{2013}|\x{2014}'` on the body file first.
 - [ ] **Step 3: DM skills-watch-ci** (`chat_dm`) with the PR link: rebase onto it, regenerate `apps/board/skills/doctor/`, re-bump the plugin if their change needs one.
 - [ ] **Step 4: Wait for CodeRabbit and CI;** address each actionable finding with a commit and a reply. If the `plugin-mattstack` job's Engine floor check asks, add `engine-floor: unchanged <reason>` to the PR body. Never merge.
 - [ ] **Step 5: Report.** Finish `.superpowers/report-draft.md` in the brief's format and send it with herd_report (chat_dm to the shepherd if herd_report refuses).
