@@ -124,21 +124,28 @@ export type BoardForge = { kind: 'gitlab' | 'github'; host: string };
 
 **Resolution in `loadConfig`:**
 
-1. Read `mattstack.integrations` with the same resolver `loadConfig`
-   already uses. If its `forge` is present with `provider: "github"`, the
-   forge is `{kind: "github", host: "https://" + <normalized host>}`. The
-   normalized host strips a scheme, trailing slashes and lowercases.
-2. Otherwise, if `board.gitlabHost` is set, the forge is
+1. If `board.gitlabHost` is set, the forge is
    `{kind: "gitlab", host: <board.gitlabHost verbatim>}`. Verbatim matters:
    today's `projectPathFromWebUrl` matches the stored string as a prefix,
    and GitLab behaviour must not change.
+2. Otherwise read `mattstack.integrations` with the same resolver
+   `loadConfig` already uses. If its `forge` is present with
+   `provider: "github"`, the forge is
+   `{kind: "github", host: "https://" + <normalized host>}`. The
+   normalized host strips a scheme and trailing slashes and lowercases.
 3. Otherwise the config is incomplete and `parseConfig` throws, exactly as
    a missing `gitlabHost` does today, so `boardConfigured()` is false and
    the setup page answers.
 
-A team forge of GitHub wins over a stray `board.gitlabHost`, since the
-team has one forge. A GitLab team has `mattstack.integrations.forge`
-absent, null or `provider: "gitlab"`, and takes branch 2, unchanged.
+`board.gitlabHost` wins (my call). `mattstack.integrations.forge` is
+written by `rt team create` from the org repo's own remote
+(`lib/team/create.ts`), so it records where the org repo lives, which can
+differ from where a GitLab team's code lives. A team whose org repo is on
+GitHub but whose board tracks GitLab projects keeps working only if the
+explicit GitLab host wins. `lib/skills/init.ts` reads the two keys in the
+same order. Known limit, accepted under "one forge per team": a team whose
+org repo is on GitLab but whose code is on GitHub cannot point the board
+at GitHub.
 
 **`parseConfig`** accepts either a `gitlabHost` string or a `forge`
 object shaped like the integrations value (`{provider, host}`), and
@@ -147,8 +154,8 @@ requires one of them alongside `projects` and `members`. A fixture
 `gitlabHost` when neither is present, so today's message is unchanged for
 a GitLab config.
 
-**Configured on GitHub** means: the team forge says GitHub, and
-`board.projects` and the roster are non-empty.
+**Configured on GitHub** means: `board.gitlabHost` is unset, the team
+forge says GitHub, and `board.projects` and the roster are non-empty.
 
 **Registry wording** (`packages/rt-client/src/settings/registry-defs.ts`,
 wording only, no type or scope change, so `schema.lock.json` does not
@@ -172,10 +179,12 @@ with the forge value:
   `<owner>/<repo>/pull/<n>` (with optional trailing path, query or hash),
   and the function returns `<owner>/<repo>`. Anything else returns null.
 
-GitHub repo paths are case-insensitive, so on a GitHub team `buildBoard`
-compares the parsed path against `board.projects` case-insensitively, and
-returns the `board.projects` spelling as the row's project. GitLab keeps
-its exact match.
+GitHub repo paths and logins are case-insensitive, and the API returns
+their canonical spelling, which a hand-typed setting may not match. So on
+a GitHub team `buildBoard` compares the parsed path against
+`board.projects`, and the PR author against the roster, ignoring case, and
+returns the `board.projects` spelling as the row's project (my call).
+GitLab keeps its exact matches.
 
 Every caller passes `config.forge`: `data.ts` (`buildBoard`),
 `manifest-bindings.ts`, `run-owner-io.ts`, `peer/launch-ask.ts`,
@@ -202,7 +211,19 @@ moves to `config.forge.host`:
 For a GitHub repo the derived identity is `github.com/<owner>/<repo>`,
 which is what the daemon derives from a GitHub remote, so the existing
 `readProjectMRs`, `readDiscussions` and `forge:file-diff` calls reach the
-right store with no change.
+right store with no change. The daemon keys a store by the remote's
+spelling (only the host is lowercased), so a `board.projects` entry must
+match the checkout's remote spelling, exactly as on GitLab today. The
+board does not lowercase identities: that would miss a store keyed by a
+mixed-case remote.
+
+**Demand on GitHub (my call).** RT-542 syncs no codeowner approval rules
+on GitHub, so on a GitHub team `boardDemand` sends no
+`codeownerSections`, and the board treats the scope's section fields
+(`uncoveredSections`, `knownSections`) as absent, which keeps the
+wrong-section alarm off (`data.ts` disables it only on null). A codeowners
+tab configured on a GitHub team stays as configured and shows empty until
+BOARD-66 decides what it becomes. Author demand is sent as today.
 
 ### 4. The one GitLab door
 
@@ -216,9 +237,12 @@ team. Every construction of a GitLab client goes through it:
   `bin/triage.ts`),
 - `bin/triage.ts`'s identity `GitLabProvider`.
 
-On a GitHub team the board never loads the GitLab token
-(`getGitlabToken` resolves null without reading secrets), so a GitLab
-token stored on a GitHub team's Mac is never handed to anything.
+On a GitHub team the board never uses the GitLab token: `getGitlabToken`
+resolves null, so a GitLab token stored on a GitHub team's Mac is never
+handed to any client. The token still arrives inside the board's secrets
+read from the daemon (`secrets:read`, scope `board`, shared with the Slack
+token); changing that verb is outside the board and not needed here (my
+call).
 
 **What each GitLab-only path does on a GitHub team or row:**
 
@@ -293,14 +317,19 @@ skipped.
 
 - **Config:** `loadConfig` and `parseConfig` tests for each resolution
   branch: GitHub team forge, GitLab with `board.gitlabHost` (unchanged
-  output), GitHub forge beside a stray `board.gitlabHost`, neither set
-  (throws, setup page). `boardConfigured()` true for a GitHub team.
+  output), a GitHub team forge beside a set `board.gitlabHost` (GitLab
+  wins), neither set (throws, setup page). `boardConfigured()` true for a
+  GitHub team.
 - **URL parsing:** GitHub URLs with and without trailing path, query and
   hash; a GitHub URL on a GitLab team and the reverse return null; every
   existing GitLab case still passes unchanged.
-- **`buildBoard`:** keeps GitHub rows, matches project case-insensitively
-  on GitHub, still drops rows outside `board.projects`, and handles
-  `behindTarget: null` and absent `codeownerSections`.
+- **`buildBoard`:** keeps GitHub rows, matches project and author ignoring
+  case on GitHub (exact on GitLab), still drops rows outside
+  `board.projects`, and handles `behindTarget: null` and absent
+  `codeownerSections`.
+- **Demand:** `boardDemand` sends no `codeownerSections` on a GitHub team
+  and the same declaration as today on GitLab; the section scope fields
+  read as absent on GitHub.
 - **Identity:** `deriveRtRepos` and `daemonRepoField` give
   `remote:github.com%2F<owner>%2F<repo>` on GitHub and the same values as
   today on GitLab.
@@ -334,7 +363,8 @@ skipped.
   `forgeNoun` or inline per site.
 - The exact refusal and setup page wording, by rt:ui-copy.
 - Whether `getGitlabToken` returns null on GitHub inside its memoized
-  loader or at each caller, as long as no secret is read on a GitHub team.
+  loader or at each caller, as long as no client ever gets the GitLab
+  token on a GitHub team.
 - How the capture baselines treat the new fixture (a new baseline set, or
   Fast Browser screenshots only), following `apps/board/AGENTS.md`.
 
