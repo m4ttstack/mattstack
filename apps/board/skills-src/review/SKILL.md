@@ -1308,6 +1308,15 @@ section. Its `changed` is the one the reviewing pass worked out, as that
 entry's `Changed:` line in `--report`'s Skipped earlier section records
 it.
 
+On GitHub a submit that returns `published: true` with `replyErrors` is
+a review that is up and complete: the listed replies are the only part
+missing. Post each listed reply once with `mr_reply_thread`; its thread
+stays unresolved unless that reply posts, and a `resolve` that was due
+runs after it with `mr_resolve_thread`. The review is never submitted
+again, and that is not the split-posting the STOP guards against. A
+reply that still fails is reported in the done summary with its error,
+apart from `resolveErrors`.
+
 ### Move the bad-anchor findings into the summary (review)
 
 The result's `badAnchors` names comments by `index`, the zero-based

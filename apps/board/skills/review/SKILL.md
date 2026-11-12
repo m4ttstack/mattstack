@@ -22,7 +22,7 @@ metadata:
 
 Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:review`, use it; otherwise call `skills_resolve {id: "skills:board:review"}` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
 
-<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-2149 -->
+<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-2158 -->
 # mr-board review runner
 
 The mr-board spawned this pane to review one MR and report status back to the
@@ -1313,6 +1313,15 @@ on the verdict or at a posting origin, from `--report`'s Skipped earlier
 section. Its `changed` is the one the reviewing pass worked out, as that
 entry's `Changed:` line in `--report`'s Skipped earlier section records
 it.
+
+On GitHub a submit that returns `published: true` with `replyErrors` is
+a review that is up and complete: the listed replies are the only part
+missing. Post each listed reply once with `mr_reply_thread`; its thread
+stays unresolved unless that reply posts, and a `resolve` that was due
+runs after it with `mr_resolve_thread`. The review is never submitted
+again, and that is not the split-posting the STOP guards against. A
+reply that still fails is reported in the done summary with its error,
+apart from `resolveErrors`.
 
 ### Move the bad-anchor findings into the summary (review)
 
