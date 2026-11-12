@@ -82,6 +82,6 @@ describe('rebasePullRequest', () => {
 
     expect(props.blockers.needsRebase).toBe(true);
     expect(props.rebaseButton.visible).toBe(true);
-    expect(props.readiness.reasons).toContain('behind');
+    expect(props.readiness?.reasons).toContain('behind');
   });
 });
