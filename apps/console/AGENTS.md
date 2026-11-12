@@ -70,7 +70,10 @@ a team whose read failed shows only beside at least one of those. With none, the
 Runs pill hide and the page shows a short empty state.
 One centred panel per team, behind a segmented switch when there are several: a replied invite is a
 Members row with "Waiting for approval" and the Approve button, which runs the team's one
-`members sync`. The rail entry carries the waiting count, and the Runs page shows a once-per-list
+`members sync`. rt puts an invitee on the roster before it makes the invite, so a member with an
+open invite shows only as that invite (`settledMembers`). Approve and Update access share one
+guard per org (`teamWriteKey`, held by the query client) and the server answers a second write
+to the same org with 409. A `relayFailed` read shows a note that replies may be waiting. The rail entry carries the waiting count, and the Runs page shows a once-per-list
 pill (`WaitingToast`, built on the shared `toast/ToastPill` the Packs page's unsynced toast uses)
 that opens `/team`. A team whose `adminSecrets` (from `rt team status --json`) reads `needs-sync`
 shows a warn notice above its tabs whose Update access runs `rt team admin-secrets`
