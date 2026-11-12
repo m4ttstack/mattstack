@@ -2660,6 +2660,16 @@ export const TREE: Record<string, CommandNode> = {
           SETUP_JSON_ARG,
         ],
       },
+      "history-classify": {
+        description: "Tell which of an org clone's commits changed only version numbers",
+        module: "./commands/skills-history-classify.ts",
+        fn: "skillsHistoryClassify",
+        args: [
+          { name: "Repo dir", flag: "--repo-dir", type: "text", placeholder: "/path/to/org", hint: "The org clone whose history to read" },
+          { name: "Sha", flag: "--sha", type: "text", placeholder: "<sha>", hint: "A commit to classify (repeatable)" },
+          SETUP_JSON_ARG,
+        ],
+      },
       audit: {
         description: "Advisory LLM audit of a pack's skills and fills for shell instructions the MCP tools cover (plain-words commands, shell-variable hand-offs, wrapped calls); slow, costs tokens, never a gate",
         module: "./commands/skills-audit.ts",
