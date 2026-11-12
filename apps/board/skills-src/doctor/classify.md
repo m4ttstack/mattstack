@@ -72,10 +72,10 @@ digraph doctor_classify_and_retry {
     "Fix what the mr_pipeline error names" -> "mr_pipeline {mrUrl}";
     "Failed jobs listed in pipeline.jobs (doctor)?" -> "mr_job_trace {mrUrl, jobId} per failed job" [label="yes: read each one's trace"];
     "Failed jobs listed in pipeline.jobs (doctor)?" -> "No job list: continue at Watch the pipeline on the head sha" [label="no: pipeline.jobs empty or no failed job in it"];
-    "Failed jobs listed in pipeline.jobs (doctor)?" -> "Classify each failed job (doctor)" [label="GitHub: every failed row has no Actions log"];
+    "Failed jobs listed in pipeline.jobs (doctor)?" -> "Classify each failed job (doctor)" [label="GitHub: every blocking failed row has no Actions log"];
     "Trace tails enough to classify (doctor)?" -> "Classify each failed job (doctor)" [label="yes"];
     "Trace tails enough to classify (doctor)?" -> "mr_job_trace {mrUrl, jobId} per failed job" [label="no"];
-    "Trace tails enough to classify (doctor)?" -> "Classify each failed job (doctor)" [label="GitHub: every row without a tail has no Actions log"];
+    "Trace tails enough to classify (doctor)?" -> "Classify each failed job (doctor)" [label="GitHub: every blocking row without a tail has no Actions log"];
     "mr_job_trace {mrUrl, jobId} per failed job" -> "mr_job_trace result (doctor)?";
     "mr_job_trace result (doctor)?" -> "Classify each failed job (doctor)" [label="ok"];
     "mr_job_trace result (doctor)?" -> "Fixed the mr_job_trace call once already?" [label="tool error"];
@@ -174,7 +174,12 @@ unchanged, once, and the off-script escalation follows.
 
 An error saying the job has no Actions log never comes here: it takes
 `GitHub: no Actions log for the check` to `Classify each failed job
-(doctor)`, never the fix or the `mr_job_trace refused` escalation.
+(doctor)`, never the fix or the `mr_job_trace refused` escalation. For a
+check that is not an Actions job, `mr_job_trace` asks GitHub for an
+Actions job log that does not exist, so the error is most likely a Not
+Found. A Not Found error on a GitHub check with no Actions run (no
+`runId`, or a `webUrl` that is not an Actions job link,
+`/actions/runs/<run>/job/<job>`) counts as no Actions log.
 
 ### Fix what the mr_retry error names
 
@@ -203,15 +208,31 @@ retried. The signals:
   so this never reads them);
 - in `ci_watch`'s `failedJobs`, `jobId` null.
 
-Such a row skips the trace read and classifies as `real, or no licensed
-fix`, with the error naming the check and that it has no Actions log. It
-is never retried as flaky. `mr_job_trace {mrUrl, jobId} per failed job`
-means per failed job with a log: a no-log row gets no trace call, so a
-mixed red traces only the rows that have a log, and a red where no row
-has one comes straight here on a GitHub edge. A check another app
+Such a row skips the trace read and is never retried as flaky. Whether
+it blocks decides the rest; `mr_pipeline`'s `pipeline.jobs` rows and
+`ci_watch`'s `failedJobs` rows carry `allowFailure`, true when the check
+is not required:
+
+- a blocking no-log row (`allowFailure: false`) classifies as `real, or
+  no licensed fix`, with the error naming the check and that it has no
+  Actions log;
+- an optional no-log row (`allowFailure: true`) is not a blocking
+  failure. It is left out of the classification and never takes `real,
+  or no licensed fix`; the error or status message names it as an
+  optional check that is also red.
+
+`mr_job_trace {mrUrl, jobId} per failed job` means per failed job with a
+log: a no-log row gets no trace call, so a mixed red traces only the rows
+that have a log. A GitHub red always has a blocking failed row, since only
+required checks set the head's status and `ci_watch` returns `failed` on
+a blocking failure. A red where no blocking failed row has a log comes
+straight here on a `GitHub: every blocking ...` edge: those rows take
+`real, or no licensed fix`, which decides the run, so no optional row is
+read either. A check another app
 reported keeps a numeric `jobId` in `failedJobs`, so it can still reach
-`mr_job_trace`; the error saying it has no Actions log takes `GitHub: no
-Actions log for the check` to the same outcome.
+`mr_job_trace`; the error saying it has no Actions log, or a Not Found
+on a check with no Actions run, takes `GitHub: no Actions log for the
+check` to the same outcome, blocking or optional by its `allowFailure`.
 After a successful `mr_pipeline` read, `pipeline.jobs` can be empty (the
 pipeline has no jobs yet), and then there is no job id to trace: `Failed jobs
 listed in pipeline.jobs (doctor)?` answers no, and the map watches the head

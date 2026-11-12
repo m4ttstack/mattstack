@@ -233,7 +233,7 @@ code forge (GitHub or GitLab). Both are engines, reached only through a
 binding or a pack's compile, never directly.
 
 - **mattstack:ci-forge-gitlab** -- legacy fill for the watch-ci stage's
-  `forge` prop. CI watch and triage now go through the `ci_watch` and
+  `forge` prop. CI watch and triage go through the `ci_watch` and
   `ci_triage` tools on both GitLab and GitHub.
 - **checkout** -- get a local worktree for someone else's branch, given a
   branch name, an MR/PR link or number, or a ticket id, without starting

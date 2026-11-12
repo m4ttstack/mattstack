@@ -60,7 +60,7 @@ flowchart TB
     ci_triage[/"ci_triage {mrUrl: <mr>, pipelineId: <N> on GitLab, config?}"/]
     ci_triage_result{ci_triage result?}
     stop_gitlab_triage_shortcut[STOP: triage goes through ci_triage]:::stop
-    unclear_jobs_present{UNCLEAR jobs with a log to read?}
+    unclear_jobs_present{UNCLEAR jobs in the report?}
     mr_job_trace[/"mr_job_trace {mrUrl: <mr>, jobId, tailLines?, headLines?, grep?} per UNCLEAR job"/]
     classify_triage_report
     classify_failed_jobs

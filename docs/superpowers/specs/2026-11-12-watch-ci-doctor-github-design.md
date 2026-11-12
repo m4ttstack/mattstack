@@ -358,7 +358,10 @@ formed; the projection diff shows the GitLab path is the same.
   on is `apps/board/src` work, outside this fence.
 - Confirm GitHub's refusal text for a job rerun on a running workflow,
   and pin it in the retry-wait edges. The PR body says it is matched by
-  meaning today.
+  meaning today. Also confirm `mr_job_trace`'s error on a check that is
+  not an Actions job (most likely a Not Found from the Actions job log
+  request), and pin it in doctor's `GitHub: no Actions log for the check`
+  edge.
 
 - Remove the `gh` rules from `lib/setup/base-permissions.ts`.
 - Retire ci-forge code under `lib/`, the `attachments/ci-forge-gitlab`
