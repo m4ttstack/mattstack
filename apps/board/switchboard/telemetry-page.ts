@@ -34,7 +34,7 @@ section{display:grid;gap:12px;min-width:0}
 .stack{display:grid;gap:24px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:24px;align-items:start}
 .card{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
-.scroll{overflow-x:auto}
+.scroll{position:relative;overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
 th,td{padding:10px;text-align:left;vertical-align:top}
 th{color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;border-bottom:1px solid var(--line)}
@@ -123,15 +123,19 @@ const HOLD_REASONS: Record<string, string> = {
   setupRunning: 'setup running',
 };
 
+const nowrap = (text: string): Cell => ({
+  html: `<span class="nowrap">${escapeHtml(text)}</span>`,
+});
+
 function updateCell(m: TelemetrySnapshot['macs'][number]): Cell {
   const u = m.appUpdate;
   if (u?.heldVersion) {
     const reason = u.hold ? (HOLD_REASONS[u.hold] ?? u.hold) : null;
-    return reason
-      ? `${u.heldVersion} held (${reason})`
-      : `${u.heldVersion} held`;
+    return nowrap(
+      reason ? `${u.heldVersion} held (${reason})` : `${u.heldVersion} held`
+    );
   }
-  if (u?.offeredVersion) return `${u.offeredVersion} offered`;
+  if (u?.offeredVersion) return nowrap(`${u.offeredVersion} offered`);
   return '-';
 }
 
@@ -139,7 +143,9 @@ function lastCheckCell(m: TelemetrySnapshot['macs'][number]): Cell {
   const at = m.appUpdate?.lastCheckAt
     ? Date.parse(m.appUpdate.lastCheckAt)
     : NaN;
-  return Number.isNaN(at) ? '-' : time(at);
+  return Number.isNaN(at)
+    ? '-'
+    : { html: `<span class="nowrap">${time(at).html}</span>` };
 }
 
 const change = (from: string | null, to: string) =>
