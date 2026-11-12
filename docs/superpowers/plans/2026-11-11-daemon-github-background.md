@@ -79,27 +79,30 @@ test("reads a GitHub pull url on any host and a #iid", () => {
 
 **Files:**
 - Modify: `lib/notifier.ts` (add the `SelfIds` type only)
-- Modify: `lib/daemon/freshness.ts` (GitHub self cache, `getSelfIds`, `resolveUserIdAcrossTracking`, `resolveSelfUsername`, new `getSelfUsernameFor`, wrappers)
+- Modify: `lib/daemon/freshness.ts` (per-token GitHub self cache replacing the per-provider `githubSelfIds`, `getSelfIds`, `resolveUserIdAcrossTracking`, `resolveSelfUsername`, new `cachedSelfUsername`, wrappers)
 - Test: `lib/daemon/__tests__/freshness-self-identity.test.ts` (new; copy the spies and `repoWithOrigin` helper from `freshness-forge-router.test.ts`: `loadSecrets`, `resolveGithubToken`, `readUserIntegrationOverrides`, `fetch` answering `https://api.github.com/user` with `{ id: 9, login: "octo" }` and GitLab `/user` with `{ id: 7, username: "gl-me" }`)
 
 **Interfaces:**
 - Produces in `lib/notifier.ts`: `export interface SelfIds { gitlab: number | null; github: number | null }`.
 - Produces in `lib/daemon/freshness.ts` (core method plus exported wrapper each):
   - `getSelfIds(): SelfIds`: synchronous, from caches. `gitlab` is today's `userId`; `github` is the id cached for the GitHub token most recently used to build a GitHub context, or null.
-  - `resolveUserIdAcrossTracking(repoIndex, tracking): Promise<void>`: the GitLab half unchanged except that its early return and its warning cover GitLab only; then, with its own resolved flag, for the first tracked repo with the `branches` or `project-mrs` grant whose remote is GitHub, `getRepoContext` plus `getSelfUserId`.
+  - GitHub self cache: `Map<token, { id: number; login: string }>`, written only on a successful `validateToken`. `getSelfUserId(ctx)` reads and fills it through the token its provider was built with (the `githubProviders` entry), so repos sharing a token make one `/user` call. GitHub counts as resolved exactly when the cache holds the current token's user: a failed read is retried on the next call, and a new token starts unresolved.
+  - `resolveUserIdAcrossTracking(repoIndex, tracking): Promise<void>`: the GitLab half unchanged, except that its early return and its warning cover GitLab only. Then, unless GitHub is resolved, it takes the first tracked repo with the `branches` or `project-mrs` grant whose remote is GitHub, builds its `getRepoContext` and calls `getSelfUserId`.
   - `resolveSelfUsername(repoName: string, repoPath: string): Promise<string | null>`: GitLab repo as today; GitHub repo returns the cached login of that repo's provider, reading `/user` once if needed.
-  - `getSelfUsernameFor(repoName: string): string | null`: no I/O. For a repo last routed to GitHub, that provider's cached login or null; otherwise the GitLab `selfUsername`.
+  - `cachedSelfUsername(repoName: string, repoPath: string): Promise<string | null>`: no network. It finds the forge with `isGitHubRepo(repoPath)` (the cached `git config` read). A GitHub repo gets the login cached for the current GitHub token, or null (never the GitLab name); any other repo gets the GitLab `selfUsername`.
 - Consumes: existing `getRepoContext`, `getSelfUserId(ctx)`.
 
 - [ ] **Step 1: Write the failing tests:**
   - `getSelfIds reports the GitHub id after resolution`: one tracked GitHub repo (`mode: "poll", caches: ["branches"]`), `secrets = { githubToken: "ghp_x" }`; after `resolveUserIdAcrossTracking`, `getSelfIds()` equals `{ gitlab: null, github: 9 }`, and exactly one request went to `/user` on api.github.com.
   - `resolves GitHub after GitLab is already resolved`: one GitLab repo and one GitHub repo, both tokens. After one call, `getSelfIds()` is `{ gitlab: 7, github: 9 }`.
+  - `a failed GitHub read is retried; a success is not re-read`: the first `/user` answers 401, so `getSelfIds().github` is null. The second `resolveUserIdAcrossTracking` makes one more `/user` request and resolves 9. A third call makes no request. Two tracked GitHub repos sharing the token cause one `/user` request in total.
   - `a GitHub-only Mac never logs the GitLab warning`: spy the freshness logger's `warn` (or capture through `lazyChildLogger`'s test seam as other freshness tests do). No `gitlabToken` and GitHub user read fails (401): exactly one warning whose message contains `which GitHub user you are` and `rt setup github connect`, none containing `userId is unresolved`. A second call adds no warning.
   - `a new token re-reads the GitHub user`: resolve with `ghp_a`, then set `secrets.githubToken = "ghp_b"` and build the context again; `getSelfIds().github` is null until `resolveUserIdAcrossTracking` runs again, which makes one more `/user` request.
-  - `getSelfUsernameFor returns the GitHub login for a GitHub repo and the GitLab username for a GitLab one`: after resolution, `getSelfUsernameFor(githubRepo)` is `"octo"` and `getSelfUsernameFor(gitlabRepo)` is `"gl-me"`.
+  - `cachedSelfUsername returns the GitHub login for a GitHub repo and the GitLab username for a GitLab one`: after resolution, `cachedSelfUsername(githubRepo, path)` is `"octo"` and `cachedSelfUsername(gitlabRepo, path)` is `"gl-me"`.
+  - `cachedSelfUsername never gives a GitHub repo the GitLab name`: with only the GitLab username resolved and a GitHub repo never routed in this process, `cachedSelfUsername(githubRepo, path)` is null, and no request was made.
   - `resolveSelfUsername on a GitHub repo returns the login`: equals `"octo"`, with no GitLab request.
 - [ ] **Step 2: Run** `bun test lib/daemon/__tests__/freshness-self-identity.test.ts`. Expected: fail (missing exports).
-- [ ] **Step 3: Implement** in `freshness.ts`. Keep the GitLab warning text `userId is unresolved; self-authored MR transitions are being suppressed (no gitlabToken, or token validation failed)` exactly, logged only when a tracked repo with the grants is not on GitHub. The GitHub warning text is `rt could not tell which GitHub user you are, so alerts about your own GitHub PRs are off (no GitHub token, or GitHub refused it); run: rt setup github connect`. Cache `{ id, login }` per GitHub token (a failed read is not cached); record each repo's routed forge in `getRepoContext` for `getSelfUsernameFor`. `disposeFreshness` clears the new caches.
+- [ ] **Step 3: Implement** in `freshness.ts`. Keep the GitLab warning text `userId is unresolved; self-authored MR transitions are being suppressed (no gitlabToken, or token validation failed)` exactly, logged only when a tracked repo with the grants is not on GitHub. The GitHub warning text is `rt could not tell which GitHub user you are, so alerts about your own GitHub PRs are off (no GitHub token, or GitHub refused it); run: rt setup github connect`. `disposeFreshness` clears the new cache.
 - [ ] **Step 4: Run** the new file plus `bun test lib/daemon/__tests__/freshness-poll-userid.test.ts` and `bun test lib/daemon/__tests__/freshness-forge-router.test.ts`. Expected: all pass.
 - [ ] **Step 5: Commit** `git add lib/notifier.ts lib/daemon/freshness.ts lib/daemon/__tests__/freshness-self-identity.test.ts && git commit -m "daemon: resolve your GitHub identity beside the GitLab one (RT-543)"`
 
@@ -137,16 +140,16 @@ test("reads a GitHub pull url on any host and a #iid", () => {
 - Produces in `scope-authors.ts`: `authorListed(authors: readonly string[], pr: { id?: string | null; author?: { username?: string | null } | null }): boolean`. It is false when the PR has no author username. A PR whose `id` starts with `github:` matches ignoring case; every other PR matches exactly (`authors.includes`).
 - Produces in `project-sync-github.ts`:
   - `type GitHubSyncProvider = Pick<GitHubProvider, "fetchPullRequests" | "fetchSingleMR">`
-  - `interface GitHubSyncContext { provider: GitHubSyncProvider; projectPath: string; ignored: IgnoredMrRules }`
-  - `githubFetchOpen(ctx: GitHubSyncContext, authors: readonly string[] | null): Promise<PullRequest[]>`: one `fetchPullRequests({ projectPath, state: "opened", listWeight: true, onWarning })`. It drops `isIgnoredMr` matches and, when `authors` is set, PRs where `authorListed` is false.
-  - `githubFetchDelta(ctx: GitHubSyncContext, updatedAfter: string, stored: ProjectMRStore | undefined): Promise<PullRequest[]>`: runs `fetchDeltaFrom` (from `project-sync.ts`, unchanged) over an adapter. The adapter's `fetchPullRequests` passes through with `onWarning`. Its `fetchMergeRequestIndex` calls `fetchPullRequests({ projectPath, state: ["merged", "closed"], updatedAfter, listWeight: true, onWarning })` and maps each PR to a `MergeRequestIndexRow`. `authorUsername` takes the stored scope's spelling when `authorListed` matches it. Its `fetchSingleMR` returns the PR already read when it has one, else `githubFetchSingle`. `excludeTargetBranches` is always `[]`; `isIgnoredMr` filters every returned PR.
+  - `interface GitHubSyncContext { provider: GitHubSyncProvider; projectPath: string }`
+  - `githubFetchOpen(ctx: GitHubSyncContext, authors: readonly string[] | null): Promise<PullRequest[]>`: one `fetchPullRequests({ projectPath, state: "opened", listWeight: true, onWarning })`. When `authors` is set it drops PRs where `authorListed` is false. Ignored targets are not filtered here: the store's `ignoreFor` (`project-mrs-store.ts`) drops them on both forges.
+  - `githubFetchDelta(ctx: GitHubSyncContext, updatedAfter: string, stored: ProjectMRStore | undefined): Promise<PullRequest[]>`: runs `fetchDeltaFrom` (from `project-sync.ts`, unchanged) over an adapter. The adapter's `fetchPullRequests` passes through with `onWarning`. Its `fetchMergeRequestIndex` calls `fetchPullRequests({ projectPath, state: ["merged", "closed"], updatedAfter, listWeight: true, onWarning })` and maps each PR to a `MergeRequestIndexRow`. `authorUsername` takes the stored scope's spelling when `authorListed` matches it. Its `fetchSingleMR` returns the PR already read when it has one, else `githubFetchSingle`. `excludeTargetBranches` is always `[]`.
   - `readSingleStrict(provider: Pick<GitHubProvider, "fetchSingleMR">, projectPath: string, iid: number): Promise<PullRequest | null>`: `fetchSingleMR(projectPath, iid, null, onWarning)`, throwing under the warning rule below; null only for a real miss. Task 8 uses it too.
   - `githubFetchSingle(ctx: GitHubSyncContext, iid: number): Promise<PullRequest | null>`: `readSingleStrict(ctx.provider, ctx.projectPath, iid)`.
   - Warning rule for every read above: a warning whose `source` is `contexts` is logged at debug; any other warning makes the read throw `new Error(\`GitHub read incomplete: ${warning.message}\`)` after the call returns. A `RateLimitedError` propagates unchanged.
 
 - [ ] **Step 1: Write the failing tests** with a fake provider that records each `fetchPullRequests` options object and can emit warnings:
   - `authorListed ignores case on GitHub only`: `authorListed(["Octo"], { id: "github:pr:1", author: { username: "octo" } })` is true; `authorListed(["Octo"], { id: "gitlab:mr:1", author: { username: "octo" } })` is false; with no author it is false.
-  - `githubFetchOpen lists open PRs once and filters authors and ignored targets`: three PRs (authors `octo`, `Dev`, `x`; one targeting `release/1`), `authors = ["OCTO", "dev"]`, ignored `targetBranches: ["release/*"]`. The result has the two in-scope PRs not on `release/1`, and exactly one call with `{ state: "opened", listWeight: true }` and no `authorUsernames`.
+  - `githubFetchOpen lists open PRs once and filters authors`: three PRs by `octo`, `Dev` and `x`, with `authors = ["OCTO", "dev"]`. The result is the first two, from exactly one call with `{ state: "opened", listWeight: true }` and no `authorUsernames`. With `authors = null`, all three come back.
   - `a fill or page-cap warning fails the read; a contexts warning does not`: a `{ kind: "request-failed", source: "fill" }` warning rejects with `GitHub read incomplete`; `{ kind: "page-cap", source: "list" }` rejects; `{ kind: "page-cap", source: "contexts" }` resolves with the PRs.
   - `githubFetchSingle throws on a failed fill and returns null for a real miss`: a warning plus null rejects; null with no warning resolves null.
   - `terminal rows follow fetchDeltaFrom's reuse rule`. The store's scope authors are `["octo"]`. It holds open #5 on branch `b`, merged #2 on `c` and merged #4 on `e`. The delta's terminal listing returns:
@@ -169,7 +172,7 @@ test("reads a GitHub pull url on any host and a #iid", () => {
 - Test: `lib/daemon/__tests__/project-sync-github-sync.test.ts` (new)
 
 **Interfaces:**
-- Consumes: `githubFetchOpen`, `githubFetchDelta`, `githubFetchSingle`, `GitHubSyncContext`, `authorListed` (Task 5); `resolveSelfUsername`, `getSelfUsernameFor`, `getRepoContext`, `isGitHubRepo` (Task 3 and existing).
+- Consumes: `githubFetchOpen`, `githubFetchDelta`, `githubFetchSingle`, `GitHubSyncContext`, `authorListed` (Task 5); `resolveSelfUsername`, `cachedSelfUsername`, `getRepoContext`, `isGitHubRepo` (Task 3 and existing).
 - Produces: `ProjectSyncOverrides.forge?: "gitlab" | "github"` and `ProjectSyncOverrides.githubContext?: (repoName: string) => Promise<GitHubSyncContext>`; `RemeasureOverrides.forge?: "gitlab" | "github"`. When `forge` is absent, production resolves it with `isGitHubRepo(repoIndex[repo])`. Individual fetch overrides (`fetchProject`, `fetchAuthors`, `fetchDelta`, `fetchSingle`) still win on either forge. On GitHub `fetchRules` and `fetchKnownSections` are absent whatever the overrides say.
 
 - [ ] **Step 1: Write the failing tests** with `forge: "github"`, a `githubContext` override backed by a fake provider, and a temp store (the `tmpStore` pattern in `project-sync.test.ts`):
@@ -180,10 +183,11 @@ test("reads a GitHub pull url on any host and a #iid", () => {
   - `a scoped GitHub deep resolves your login per repo`: no `selfUsername` override, and `spyOn(freshnessModule, "resolveSelfUsername")` resolving `"octo"`. The spy was called with `(repo, path)` and `scope.authors` includes `octo`.
   - `GitHub delta keeps a scope author in another case`: scope authors `["Octo"]`; a delta PR by `octo` lands in the store.
   - `backfillSections on GitHub reads nothing and logs once`: two calls, zero provider calls, and one `info` call with message `codeowner sections are not available on GitHub yet`.
+  - `the GitHub top-up re-reads an in-flight PR and skips a failed one`: the record holds open #1 and #2, both with `pipeline.status: "running"` and fresh `updatedAt`, and the delta returns nothing. The provider's `fetchSingleMR` returns #1 with `pipeline.status: "success"`, and for #2 emits a `fill` warning and returns null. Afterwards #1's stored pipeline is `success`, #2's entry is unchanged, and the sync resolves.
   - `remeasureDivergedCounts makes no read on GitHub`: `forge: "github"` with a `fetchDiverged` that throws; it resolves `[]`.
-  - `backfillAuthors on GitHub adds the GitHub login, not the GitLab username`: no `selfUsername` override; `spyOn(freshnessModule, "getSelfUsernameFor")` returns `"octo"` and `spyOn(freshnessModule, "getSelfUsername")` returns `"gl-me"`. `scope.authors` includes `octo` and not `gl-me`.
+  - `backfillAuthors on GitHub adds the GitHub login, not the GitLab username`: no `selfUsername` override; `spyOn(freshnessModule, "cachedSelfUsername")` resolves `"octo"` and `spyOn(freshnessModule, "getSelfUsername")` returns `"gl-me"`. `scope.authors` includes `octo` and not `gl-me`.
 - [ ] **Step 2: Run** `bun test lib/daemon/__tests__/project-sync-github-sync.test.ts`. Expected: fail.
-- [ ] **Step 3: Implement.** Pass `isIgnoredMr` rules from `readIgnoredMrs(repo)` into the GitHub context. Swap `authors.includes(pr.author.username)` in the delta scope filter for `authorListed(authors, pr)`. Skip the section sweep, the delta re-sweep and the approval reads when the read set has no `fetchRules`. In `remeasureDivergedCounts`, return `[]` for GitHub before any read. Keep the `info` seam for the backfill notice.
+- [ ] **Step 3: Implement.** Swap `authors.includes(pr.author.username)` in the delta scope filter for `authorListed(authors, pr)`. Skip the section sweep, the delta re-sweep and the approval reads when the read set has no `fetchRules`. In `remeasureDivergedCounts`, return `[]` for GitHub before any read. Keep the `info` seam for the backfill notice.
 - [ ] **Step 4: Run** the new file, `bun test lib/daemon/__tests__/project-sync.test.ts`, `bun test lib/daemon/__tests__/project-sync-health.test.ts` and `bun test lib/daemon/__tests__/project-sync-github.test.ts`. Expected: all pass.
 - [ ] **Step 5: Commit** `git rm lib/daemon/__tests__/project-sync-github-skip.test.ts && git add lib/daemon/project-sync.ts lib/daemon/__tests__/project-sync-github-sync.test.ts && git commit -m "daemon: project sync runs on GitHub repos (RT-542)"`
 
@@ -191,7 +195,7 @@ test("reads a GitHub pull url on any host and a #iid", () => {
 
 **Files:**
 - Modify: `lib/daemon/handlers/project-mrs.ts` (`mr:by-branch` upserts on GitHub on both paths)
-- Modify: `lib/daemon/handlers/mr.ts` (remove the three GitHub write-back skips: `writebackFor`, `mr:action` near line 286, the update path near line 430)
+- Modify: `lib/daemon/handlers/mr.ts` (the three GitHub write-back skips: `writebackFor` near line 183, `mr:action` near line 286, `mr:update` near line 458)
 - Modify: `lib/daemon/freshness.ts` (`upsertProject` in `processKeys` uses `authorListed`)
 - Test: `lib/daemon/handlers/__tests__/project-mrs-github-store.test.ts` (new); update `lib/daemon/handlers/__tests__/mr-github.test.ts` assertions that expect no write-back
 
@@ -203,9 +207,22 @@ test("reads a GitHub pull url on any host and a #iid", () => {
   - `mr:by-branch on GitHub stores a found PR on the batched path`: `getContext` returns `{ forge: "github", provider: { fetchPullRequestsByBranches } }` finding #4. The reply has `{ pr, source: "forge" }` and `store.findBySourceBranch(repo, branch)` returns #4.
   - `mr:by-branch on GitHub respects scope, ignoring case`: scope authors `["Octo"]`. A PR by `octo` is stored; a PR by `stranger` is returned but not stored.
   - `mr:by-branch on GitHub still errors when the branch lookup fails`: the batch throws, and the reply is `{ ok: false }` (unchanged behaviour, pinned).
-  - In `mr-github.test.ts`: `merge writes the returned PR back` (`writebacks` has one entry), and `approve schedules the follow-up write-back` (one entry after the follow-up runs).
+  - `mr:by-branch on GitHub stores a PR found on the per-branch path`: `overrides.fetchByBranch` returns `{ pr, projectPath, github: true }`. The PR is stored, and the old `by-branch store upsert skipped` debug line is gone.
+  - In `mr-github.test.ts`, the success paths flip from "no write-back" to one write-back each. Rename and assert:
+    - `merge writes the returned PR back` (line 62; `writebacks` has one entry);
+    - `approve schedules the follow-up write-back` (line 88; one entry after the follow-up runs);
+    - `a title edit writes the updated PR back` (line 110);
+    - `addLabels and removeLabels ... write the read PR back` (line 98; one entry);
+    - `labels ride createPullRequest with no second write, and the PR is written back` (line 134);
+    - `a refresh read returns the PR and writes it back` (line 183);
+    - `mr:by-branch makes one batched read for every missed branch and stores what it found` (line 237).
+    Refusals and failures keep `writebacks` empty: rebase refused, squash refused (both), a failed label write, every miss and every rate-limit case.
+  - New in `mr-github.test.ts`: `update on GitHub keeps its /pull URL reply and writes the PR back`. The reply's `url` is the PR's `webUrl` (a `/pull/` URL), `putMergeRequest` is never reached (no GitLab REST call is recorded), and `writebacks` has one entry.
 - [ ] **Step 2: Run** `bun test lib/daemon/handlers/__tests__/project-mrs-github-store.test.ts` and `bun test lib/daemon/handlers/__tests__/mr-github.test.ts`. Expected: the new assertions fail.
-- [ ] **Step 3: Implement.** In `mr.ts` delete only the three `forge === "github"` write-back early returns and their debug lines; touch nothing else there.
+- [ ] **Step 3: Implement.** In `mr.ts`, change only the write-back:
+  - `writebackFor`: drop the GitHub early return, so it always calls `storeWriteback`.
+  - `mr:action`: drop the GitHub early return and its debug line, so GitHub takes the same follow-up path as GitLab (returned PR, delayed retry follow-up, or follow-up read).
+  - `mr:update`: keep the GitHub block and its `return` (its reply carries the `/pull/N` URL, and the GitLab code after it must not run). Replace only the debug line with `if (pr) storeWriteback(repoName, projectPath, pr)` inside the same never-fail try/catch the GitLab arm uses (log `write-back failed` at warn).
 - [ ] **Step 4: Run** both files plus `bun test lib/daemon/handlers/__tests__/mr-lists-github.test.ts` and `bun test lib/daemon/__tests__/freshness-mapping.test.ts`. Expected: all pass.
 - [ ] **Step 5: Commit** `git add lib/daemon/handlers/project-mrs.ts lib/daemon/handlers/mr.ts lib/daemon/freshness.ts lib/daemon/handlers/__tests__/project-mrs-github-store.test.ts lib/daemon/handlers/__tests__/mr-github.test.ts && git commit -m "daemon: GitHub lookups and mutations write the project store (RT-542)"`
 
@@ -227,6 +244,7 @@ test("reads a GitHub pull url on any host and a #iid", () => {
   - `a branch event on a branch with no cached PR writes null as today`: the entry's `mr` stays null and `fetchedAt` moves.
   - `the approval heal never runs on GitHub`: an `approved` cause with a tagged stored PR and a `fetchRulesByIid` that throws. No throw is logged and no tag changes.
   - `fetchSingleMR gets null as its user id on GitHub`: assert the third argument is null.
+  - `a teammate push whose fill fails writes nothing to the project store`: the grant has `project-mrs`, the branch is not ours, and the store holds #6 on that branch. `fetchSingleMR(#6)` emits a `fill` warning and returns null. The stored #6 is unchanged and no `project-mrs` broadcast happens.
 - [ ] **Step 2: Run** `bun test lib/daemon/__tests__/freshness-mapping-github.test.ts`. Expected: fail.
 - [ ] **Step 3: Implement** the GitHub arms of the `mr` and `branch` cases and the teammate-push read; the GitLab arms keep their exact calls.
 - [ ] **Step 4: Run** the new file, `bun test lib/daemon/__tests__/freshness-mapping.test.ts` and `bun test lib/daemon/__tests__/freshness-pending-cap.test.ts`. Expected: all pass.

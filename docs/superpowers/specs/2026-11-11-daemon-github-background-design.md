@@ -207,9 +207,10 @@ call: a partial list must never prune.)
 **Ignored target branches.** On GitLab, `rt.ignoredMrs` globs expand to
 exact branch names through a branch search, so the server never reads
 those MRs. GitHub filters target branches in the client anyway, so on
-GitHub the daemon drops PRs whose `targetBranch` matches a glob
-(`isIgnoredMr` in `ignored-mrs.ts`) right after each read. No branch search
-runs. (My call.)
+GitHub no branch search runs and the reads exclude nothing: the project
+store's own `ignoreFor` filter (`isIgnoredMr`, `project-mrs-store.ts`)
+already drops ignored PRs on both forges before they are stored. (My
+call.)
 
 **Codeowner sections.** With no `fetchRules` in the GitHub read set:
 
@@ -232,10 +233,13 @@ on GitHub). Both become per repo:
 - `resolveSelfUsername(repoName, repoPath)` returns the GitLab username
   exactly as today for a GitLab repo, and for a GitHub repo the login from
   the cached `/user` read on that repo's provider (section 2).
-- A new synchronous `getSelfUsernameFor(repoName)` returns the cached value
-  for that repo's forge and never reads the network. `backfillAuthors`
-  uses it in place of the global `getSelfUsername()`, so a Mac with both
-  forges never puts its GitLab username in a GitHub scope.
+- A new `cachedSelfUsername(repoName, repoPath)` returns the cached value
+  for that repo's forge and never reads the network. It finds the forge
+  from the repo's remote (the cached `git config` read `isGitHubRepo`
+  uses), so it is right even for a repo nothing has routed yet in this
+  process; a GitHub repo with no cached login gets null.
+  `backfillAuthors` uses it in place of the global `getSelfUsername()`, so
+  a Mac with both forges never puts its GitLab username in a GitHub scope.
 - `getSelfUsername()` stays for its other caller, `handlers/discussions.ts`.
 
 **Branch lookups.** The live path's GitHub branch rule is in section 3.
@@ -258,17 +262,20 @@ GitLab.
 
 **Who you are.** `freshness.ts` keeps today's GitLab user id resolution
 untouched and adds the GitHub one. The token user's GitHub id and login
-come from `validateToken` on the repo's GitHub provider, cached per
-provider (so per token), as `getSelfUserId` already does. A failed read is
-not cached.
+come from `validateToken` on a GitHub provider and are cached per token,
+replacing today's per-provider cache in `getSelfUserId`, so two repos
+sharing a token make one `/user` call. Only a success is cached: after a
+failed read the next caller reads again. A new token starts uncached.
 
 `resolveUserIdAcrossTracking` also resolves the GitHub identity: for the
 first tracked GitHub repo with the `branches` or `project-mrs` grant, it
 builds the context and reads the GitHub user once. Cost: one `/user` call
 per GitHub token per daemon process. Today the function returns early once
 the GitLab id is resolved; the GitHub resolution must not sit behind that
-guard, or a Mac with both forges never resolves GitHub. Each forge has its
-own resolved flag.
+guard, or a Mac with both forges never resolves GitHub. GitHub counts as
+resolved when the per-token cache holds the current token's user, so a
+failed read is retried on the next cycle and a token change resolves
+again.
 
 `getSelfIds()` returns `{ gitlab: number | null; github: number | null }`
 synchronously from the cached values. The 5-minute cycle awaits
@@ -401,13 +408,13 @@ All tests stub the provider or `fetch`; no live forge calls.
 - Project sync: a GitHub-shaped stub provider drives deep (unscoped and
   scoped), delta (open, terminal stored, terminal reuse, terminal dropped),
   top-up and backfill. Tests show that a fill or page-cap warning fails the
-  read and prunes nothing; that ignored targets are dropped; that sections
+  read and prunes nothing; that sections
   stay uncovered with no rules read; that the behind re-measure makes
   no read; and that author matching ignores case on GitHub only. A
   request-count test covers one delta cycle.
 - Identity: GitHub self resolution is cached per token, retried after a
   failure, and resolved on a Mac whose GitLab id is already resolved; the
-  per-forge warning names the right forge; `getSelfUsernameFor` returns the
+  per-forge warning names the right forge; `cachedSelfUsername` returns the
   GitHub login for a GitHub repo and the GitLab username for a GitLab one.
 - Notifier: one test per alert kind with a GitHub author, a test that a
   GitHub PR is not matched against the GitLab id (same number, other
