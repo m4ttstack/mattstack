@@ -18,6 +18,7 @@ import {
   guardedWrite,
   syncRefusal,
   useCompositionSnapshot,
+  usePackTrial,
   usePendingChanges,
   useSkillsSync,
   useSkillsWriting,
@@ -89,22 +90,24 @@ function ChangeList({ pending }: { pending: PendingChange[] }) {
 }
 
 /** The pack's unsynced changes counted as the confirms list them, with the
-    trial branch they would sync to; null while the pack is clean. */
+    trial branch they sit on; null while the pack is clean. */
 export function useUnsyncedSummary(pack: string | null) {
   const changes = useUnsynced(pack);
   const composition = useCompositionSnapshot(pack).data;
+  const trial = usePackTrial(pack);
   if (!changes) return null;
   return {
     count: pendingChangesOf(changes, composition).length,
-    trial: changes.trialBranch ?? null,
+    trial: trial?.branch ?? null,
     signature: changes.signature,
   };
 }
 
 /**
  * The way out of the pack's unsynced changes, for the head of their History
- * view: Publish, behind a confirm that lists every change it acts on, beside
- * the trial branch it would push to.
+ * view: Publish, behind a confirm that lists every change it acts on. On a
+ * trial branch nothing reaches the team, so there is no Publish, only the
+ * branch's name.
  */
 export function UnsyncedActions({
   pack,
@@ -122,6 +125,7 @@ export function UnsyncedActions({
   const sync = useSkillsSync(pack);
   const writing = useSkillsWriting(pack);
   const composition = useCompositionSnapshot(pack).data;
+  const trial = usePackTrial(pack)?.branch ?? null;
   // The host slides the banner out once the pack is clean; it keeps the
   // last list on screen while it goes rather than emptying first.
   const [held, setHeld] = useState(current);
@@ -196,11 +200,8 @@ export function UnsyncedActions({
         <Stack gap={14}>
           <Text fz={13} lh="normal" c={MUTED} data-parity="body">
             This saves {plural(count, 'the change', `the ${count} changes`)} to
-            the {pack} pack and{' '}
-            {changes.trialBranch
-              ? `pushes ${plural(count, 'it', 'them')} to the trial branch ${changes.trialBranch}, not the data branch.`
-              : `shares ${plural(count, 'it', 'them')} with your team.`}{' '}
-            Then it installs the pack in Claude Code.
+            the {pack} pack and shares {plural(count, 'it', 'them')} with your
+            team. Then it installs the pack in Claude Code.
           </Text>
           <ChangeList pending={pending} />
           <Text fz={12} lh="normal" c={MUTED} data-parity="after">
@@ -225,7 +226,6 @@ export function UnsyncedActions({
       ),
     });
 
-  const trial = changes.trialBranch ?? null;
   const sync_ = (
     <Button
       // The diff's 41px head wants the compact size; the Config bar has room.
@@ -238,7 +238,7 @@ export function UnsyncedActions({
       onClick={confirmSync}
       data-parity="button · Publish"
     >
-      <ButtonLabel>{trial ? `Publish to ${trial}` : 'Publish'}</ButtonLabel>
+      <ButtonLabel>Publish</ButtonLabel>
     </Button>
   );
   const why = blockedBy ?? (outside.length > 0 ? outsideNote(outside) : null);
@@ -249,7 +249,7 @@ export function UnsyncedActions({
   ) : (
     sync_
   );
-  if (publishOnly) return publish;
+  if (publishOnly) return trial ? null : publish;
   return (
     <div className={classes.unsyncedActions} data-testid="unsynced-actions">
       {trial && (
@@ -284,7 +284,7 @@ export function UnsyncedActions({
           <Icon name="questionCircle" size={15} />
         </span>
       </Tooltip>
-      {publish}
+      {!trial && publish}
     </div>
   );
 }

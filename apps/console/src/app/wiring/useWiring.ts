@@ -333,6 +333,33 @@ async function readPendingChanges(pack: string): Promise<SkillsChanges> {
   return readOrThrow<SkillsChanges>(res, 'skills changes');
 }
 
+export type PackTrial = { branch: string; dataBranch: string | null };
+
+async function readPackTrial(pack: string): Promise<PackTrial | null> {
+  const res = await client.api.skills.trial.$get({ query: { pack } });
+  return (await readOrThrow<{ trial: PackTrial | null }>(res, 'team status'))
+    .trial;
+}
+
+/**
+ * The trial branch the pack's org copy is on, from `rt team status`; null on
+ * the data branch. Until that answers, or when it fails, the changes poll's
+ * own `trialBranch` stands in, so a trial never shows Publish while unknown.
+ */
+export function usePackTrial(pack: string | null): PackTrial | null {
+  const query = useQuery({
+    queryKey: ['skills', 'trial', pack],
+    queryFn: () => readPackTrial(pack ?? ''),
+    enabled: pack !== null,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+    retry: false,
+  });
+  const fallback = usePendingChanges(pack).data?.trialBranch;
+  if (query.data !== undefined) return query.data;
+  return fallback ? { branch: fallback, dataBranch: null } : null;
+}
+
 /** Feeds the unsynced-changes banner. A failed poll means "unknown", so the
     hook never suspends, never retries (the next poll is 15s away) and never
     toasts: callers read `data` and treat `isError` as "show nothing". The

@@ -30,6 +30,7 @@ import { ContentReadyContext } from './contentReady';
 import graphClasses from './graph/graph.module.css';
 import { GraphTab, GraphTabSidebar } from './graph/GraphTab';
 import { MissingPackNotice } from './graph/MissingPackNotice';
+import { TrialBanner } from './graph/TrialBanner';
 import { useUnsyncedBanner, useUnsyncedSummary } from './graph/UnsyncedBanner';
 import { UnsyncedToast } from './graph/UnsyncedToast';
 import { useWiringUrl, type WiringTab } from './graph/useWiringUrl';
@@ -334,11 +335,16 @@ export function WiringMap() {
             ) : historyPack && !packFailed ? (
               <PageShell.Content bg="var(--tk-card)" contentContainer={false}>
                 {height => (
-                  <HistoryMain
-                    pack={historyPack}
-                    height={height}
-                    onCompile={() => showTab('config')}
-                  />
+                  <div className={graphClasses.historyFrame} style={{ height }}>
+                    <TrialBanner pack={historyPack} m={12} mb={0} />
+                    <div className={graphClasses.historyBody}>
+                      <HistoryMain
+                        pack={historyPack}
+                        height="100%"
+                        onCompile={() => showTab('config')}
+                      />
+                    </div>
+                  </div>
                 )}
               </PageShell.Content>
             ) : (

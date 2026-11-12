@@ -491,3 +491,17 @@
   background: var(--mantine-color-gold-light);
   color: var(--tk-text-gold-small);
 }
+
+.trialBanner {
+  flex: none;
+}
+
+.historyFrame {
+  display: flex;
+  flex-direction: column;
+}
+
+.historyBody {
+  flex: 1;
+  min-height: 0;
+}
