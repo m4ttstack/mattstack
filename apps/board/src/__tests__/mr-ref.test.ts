@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { commentUrl } from '../mr-ref.ts';
 
 const PR = 'https://github.com/acme/webapp/pull/12';
@@ -13,9 +14,15 @@ describe('commentUrl', () => {
   });
 
   test('GitHub anchors by discussion id shape', () => {
-    expect(commentUrl(gh, 'gh-issue-comment-9', 9)).toBe(`${PR}#issuecomment-9`);
-    expect(commentUrl(gh, 'gh-review-thread-40', 41)).toBe(`${PR}#discussion_r41`);
-    expect(commentUrl(gh, 'gh-review-77', 77)).toBe(`${PR}#pullrequestreview-77`);
+    expect(commentUrl(gh, 'gh-issue-comment-9', 9)).toBe(
+      `${PR}#issuecomment-9`
+    );
+    expect(commentUrl(gh, 'gh-review-thread-40', 41)).toBe(
+      `${PR}#discussion_r41`
+    );
+    expect(commentUrl(gh, 'gh-review-77', 77)).toBe(
+      `${PR}#pullrequestreview-77`
+    );
   });
 
   test('an unknown GitHub id shape gets the bare PR', () => {

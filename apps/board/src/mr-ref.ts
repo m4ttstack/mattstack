@@ -38,6 +38,8 @@ export function commentUrl(
 ): string | null {
   if (!mr.webUrl) return null;
   if (!onGitHub(mr)) return `${mr.webUrl}#note_${noteId}`;
-  const hit = GITHUB_ANCHORS.find(([prefix]) => discussionId.startsWith(prefix));
+  const hit = GITHUB_ANCHORS.find(([prefix]) =>
+    discussionId.startsWith(prefix)
+  );
   return hit ? `${mr.webUrl}#${hit[1]}${noteId}` : mr.webUrl;
 }

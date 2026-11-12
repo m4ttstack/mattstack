@@ -740,9 +740,9 @@ test('a GitHub drawer links each comment to its anchor', async () => {
   };
   const drawer = await renderBoardWithDrawerOpen();
   const anchor = `${PR_URL}#discussion_r3001`;
-  expect(
-    drawer.querySelector('.tui-cd-note-time')?.getAttribute('href')
-  ).toBe(anchor);
+  expect(drawer.querySelector('.tui-cd-note-time')?.getAttribute('href')).toBe(
+    anchor
+  );
   expect(
     drawer.querySelector('.tui-cd-thread-open')?.getAttribute('href')
   ).toBe(anchor);
