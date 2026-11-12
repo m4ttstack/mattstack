@@ -10,18 +10,19 @@ import {
   type CiLeaseHolder, type CiLeaseOpts, type Commands,
 } from "../../packages/rt-client/src/index.ts";
 import { readChatSession } from "../chat-session.ts";
+import { emptyFacts, emptyHead, githubTriageForge, prFacts, readGithubHead, type FactsStore, type GithubHead } from "../ci/github-forge.ts";
 import { gitlabTriageForge } from "../ci/gitlab-forge.ts";
 import { isHttpsMrUrl, NO_SESSION, ownerFromEnv } from "../ci/lease-guard.ts";
 import { keepalive as processKeepalive, type LeaseKeepalive } from "../ci/lease-keepalive.ts";
 import { mergeConfig, settingsConfig, type InlineConfig } from "../ci/triage-config.ts";
-import { runTriage } from "../ci/triage.ts";
+import { runTriage, type TriageForge } from "../ci/triage.ts";
 import { readWatchState, writeWatchState, type PersistedWatch } from "../ci/watch-state.ts";
 import { watchPipeline, type LeaseCheck, type WatchDeps, type WatchPipeline } from "../ci/watch.ts";
 import type { Pipeline as GlancePipeline } from "@mattstack/glance";
 import { explainError } from "../explain-error.ts";
 import { parseMrUrl, resolveMrTarget } from "./mr-target.ts";
-import { isGithubPrUrl, readPipelineSubject, tailTrace, unsupportedGithub } from "./mr-read-tools.ts";
-import { checkOptional, checkPositiveInts, checkRequired, err, MR_TARGET_PROPS, ok, REPO_NAME_RULE, type McpToolDef, type ToolResult } from "./shared.ts";
+import { isGithubPrUrl, readPipelineSubject, tailTrace } from "./mr-read-tools.ts";
+import { checkOptional, checkPositiveInts, checkRequired, err, MR_TARGET_PROPS, ok, PR_URL_NOTE, REPO_NAME_RULE, type McpToolDef, type ToolResult } from "./shared.ts";
 
 export interface CiLeaseToolDeps {
   leaseOpts: () => CiLeaseOpts;
@@ -33,6 +34,8 @@ const TTL_MIN = 60;
 const TTL_MAX = 900;
 const INTERVAL_MIN = 10;
 const INTERVAL_MAX = 120;
+export const GITHUB_INTERVAL_DEFAULT = 60;
+export const GITHUB_INTERVAL_MIN = 30;
 // Below Claude Code's 1800 s MCP idle timeout, with room for the last poll's
 // trace fetches, for a client that sends no progress token.
 const MAX_WAIT = 1500;
@@ -88,6 +91,23 @@ function isMinutes(v: unknown, max: number): v is number {
   return typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= max;
 }
 
+function intervalRangeError(min: number, github: boolean): string {
+  return `"intervalSeconds" must be an integer from ${min} to ${INTERVAL_MAX}${github ? " on GitHub" : ""}`;
+}
+
+// Writes through to the in-process cache so ci_triage and pipeline_jobs on the same head reuse an attended watch's reads.
+function attendFacts(st: PersistedWatch, mem: FactsStore): FactsStore {
+  return {
+    get: () => st.github ? structuredClone({ ...emptyFacts(), ...st.github }) : mem.get(),
+    set: (f) => {
+      st.github = structuredClone(f);
+      mem.set(f);
+    },
+  };
+}
+
+type PrRead = Commands["mr:get"]["data"]["mr"];
+
 function settingBudget(): number {
   const v = getSetting<number>("ci.watch.budgetMinutes").value;
   return isMinutes(v, BUDGET_MAX) ? v : BUDGET_DEFAULT;
@@ -103,8 +123,20 @@ const TRACE_TAIL = 40;
 // glance's Pipeline carries sha/ref/mergeRequestEventType as optional (an older provider
 // snapshot may lack them); WatchPipeline requires string | null, never undefined, so a
 // missing field maps to null rather than an unmatchable pipeline.
-function toWatchPipeline(p: GlancePipeline | null | undefined): WatchPipeline | null {
+function toWatchPipeline(p: GlancePipeline | GithubHead | null | undefined): WatchPipeline | null {
   if (!p) return null;
+  if ("allBlock" in p) {
+    return {
+      id: p.id,
+      status: p.status,
+      sha: p.sha,
+      ref: p.ref,
+      mergeRequestEventType: null,
+      webUrl: p.webUrl,
+      createdAt: p.createdAt,
+      jobs: p.jobs.map((j) => ({ id: j.id, name: j.name, stage: "checks", status: j.status, allowFailure: !j.blocking, webUrl: j.webUrl })),
+    };
+  }
   return {
     id: p.id,
     status: p.status,
@@ -199,7 +231,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
     },
     {
       name: "ci_watch",
-      description: `GitLab only. Watch the MR's pipeline for the pushed commit sha until it settles or maxWaitSeconds (default 300, cap ${MAX_WAIT}) passes, polling every intervalSeconds (default 30, ${INTERVAL_MIN} to ${INTERVAL_MAX}, and never more than half the lease's ttlSeconds). Only a pipeline for sha counts: a branch pipeline by its sha, a merged-results or merge-train pipeline by its merge commit's parents, or (fast-forward trains) by being new since the push; pass priorPipelineId (the head pipeline id read before pushing) so that proof never stalls; a result that proved it without one carries priorPipelineId to pass on the next call. Every poll heartbeats this session's CI lease and returns state lease_lost the moment another owner holds the MR; with underBoardLease (a doctor the board launched) it only reads the lease and needs a fresh board doctor lease. Returns state (success, success_with_warnings, failed, canceled, skipped, manual when settled; failed also as soon as a blocking job fails while the pipeline still runs; running or waiting means call again; superseded, lease_lost or aborted end the watch), the pipeline with sha and ref, failedJobs listing every failed job, with a trace tail on the first five blocking ones (jobs in same-project downstream pipelines included; read any other job's log with mr_job_trace), blockingFailures, lease, budget and next. budget is {minutes, elapsedMinutes, spent}, measured from the watched pipeline's createdAt against the ci.watch.budgetMinutes setting (default ${BUDGET_DEFAULT}), or null while no pipeline for sha exists; a pipeline still running once spent is true returns running at once, so stop watching it. Chat messages reach you only between calls, so a long maxWaitSeconds delays them. With attend: true the call attends the MR itself: every poll heartbeats this session's lease or, when none is held, claims it (holder, with the MR's source branch); a lease that vanishes is re-claimed at most ${MAX_RECLAIMS} times per commit, and the lease is kept alive between calls until ci_lease_release. The budget window, prior pipeline id and waiting clock persist per MR, so later calls need not pass budgetMinutes or priorPipelineId, and a pipeline that last failed and runs again opens a fresh window by itself. attend adds the states timeout (still running past the budget), no_pipeline (${NO_PIPELINE_MS / 60_000} minutes of waiting with no pipeline for sha; pushed says whether the MR head is at sha, remoteSha is that head), stood_down (another owner attends; carries holder), lease_unavailable (the lease could not be claimed or kept; carries error) and unsupported_forge (a GitHub PR), and never returns lease_lost. With underBoardLease and attend it still only reads the board doctor lease. ${REPO_NAME_RULE}`,
+      description: `Watch the MR's pipeline for the pushed commit sha until it settles or maxWaitSeconds (default 300, cap ${MAX_WAIT}) passes, polling every intervalSeconds (default 30, ${INTERVAL_MIN} to ${INTERVAL_MAX}, and never more than half the lease's ttlSeconds). Only a pipeline for sha counts: a branch pipeline by its sha, a merged-results or merge-train pipeline by its merge commit's parents, or (fast-forward trains) by being new since the push; pass priorPipelineId (the head pipeline id read before pushing) so that proof never stalls; a result that proved it without one carries priorPipelineId to pass on the next call. Every poll heartbeats this session's CI lease and returns state lease_lost the moment another owner holds the MR; with underBoardLease (a doctor the board launched) it only reads the lease and needs a fresh board doctor lease. Returns state (success, success_with_warnings, failed, canceled, skipped, manual when settled; failed also as soon as a blocking job fails while the pipeline still runs; running or waiting means call again; superseded, lease_lost or aborted end the watch), the pipeline with sha and ref, failedJobs listing every failed job, with a trace tail on the first five blocking ones (jobs in same-project downstream pipelines included; read any other job's log with mr_job_trace), blockingFailures, lease, budget and next. budget is {minutes, elapsedMinutes, spent}, measured from the watched pipeline's createdAt against the ci.watch.budgetMinutes setting (default ${BUDGET_DEFAULT}), or null while no pipeline for sha exists; a pipeline still running once spent is true returns running at once, so stop watching it. Chat messages reach you only between calls, so a long maxWaitSeconds delays them. With attend: true the call attends the MR itself: every poll heartbeats this session's lease or, when none is held, claims it (holder, with the MR's source branch); a lease that vanishes is re-claimed at most ${MAX_RECLAIMS} times per commit, and the lease is kept alive between calls until ci_lease_release. The budget window, prior pipeline id and waiting clock persist per MR, so later calls need not pass budgetMinutes or priorPipelineId, and a pipeline that last failed and runs again opens a fresh window by itself. attend adds the states timeout (still running past the budget), no_pipeline (${NO_PIPELINE_MS / 60_000} minutes of waiting with no pipeline for sha; pushed says whether the MR head is at sha, remoteSha is that head), stood_down (another owner attends; carries holder), lease_unavailable (the lease could not be claimed or kept; carries error); it never returns lease_lost. With underBoardLease and attend it still only reads the board doctor lease. On GitHub the pipeline is every check on the PR head: required checks (from the target branch's rules and protection) decide blocking and the state, intervalSeconds defaults to ${GITHUB_INTERVAL_DEFAULT} and runs ${GITHUB_INTERVAL_MIN} to ${INTERVAL_MAX}, the budget runs from the head's first Actions run, or from when rt first saw a check when the head has no Actions run, pipeline.id is a string like github:run:N, a failed commit status has jobId null and no trace tail, and priorPipelineId is ignored. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -228,8 +260,10 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         if (!/^[0-9a-f]{7,40}$/i.test(sha)) return err('"sha" must be 7 to 40 hex characters');
         const maxWait = (input.maxWaitSeconds as number | undefined) ?? 300;
         if (!(Number.isInteger(maxWait) && maxWait >= 0 && maxWait <= MAX_WAIT)) return err(`"maxWaitSeconds" must be an integer from 0 to ${MAX_WAIT}`);
-        const interval = (input.intervalSeconds as number | undefined) ?? 30;
-        if (!(Number.isInteger(interval) && interval >= INTERVAL_MIN && interval <= INTERVAL_MAX)) return err(`"intervalSeconds" must be an integer from ${INTERVAL_MIN} to ${INTERVAL_MAX}`);
+        const intervalInput = input.intervalSeconds as number | undefined;
+        const prUrl = isGithubPrUrl(input.mrUrl);
+        const floor = prUrl ? GITHUB_INTERVAL_MIN : INTERVAL_MIN;
+        if (intervalInput !== undefined && !(Number.isInteger(intervalInput) && intervalInput >= floor && intervalInput <= INTERVAL_MAX)) return err(intervalRangeError(floor, prUrl));
         if (input.budgetMinutes !== undefined && !isMinutes(input.budgetMinutes, BUDGET_MAX)) return err(`"budgetMinutes" must be an integer from 1 to ${BUDGET_MAX}`);
         if (input.extendMinutes !== undefined && !isMinutes(input.extendMinutes, EXTEND_MAX)) return err(`"extendMinutes" must be an integer from 1 to ${EXTEND_MAX}`);
         const fresh = input.freshWindow === true;
@@ -242,14 +276,14 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         const extendMinutes = fresh ? setting : (input.extendMinutes as number | undefined);
         const owner = deps.owner(env);
         if (!owner) return err(NO_SESSION);
-        if (attend && isGithubPrUrl(input.mrUrl)) return ok({ ...unsupportedGithub("ci_watch"), sha });
-        const target = await w.resolve(input);
+        const target = await w.resolve(input, { github: true });
         if (!target.ok) return err(target.error);
 
         let mrUrl: string | null = null;
         let sourceBranch: string | undefined;
         const underBoard = input.underBoardLease === true;
-        let firstRead: Awaited<ReturnType<WatchDeps["readMr"]>> | null = null;
+        let firstRaw: PrRead | null = null;
+        let github = false;
         // Only set with attend; the leaseCheck mutates held and reclaims, and observe persists them once a poll proves the lease.
         let watched: PersistedWatch | null = null;
         let proved = false;
@@ -319,6 +353,21 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
           }
         };
 
+        const readRaw = async (): Promise<{ ok: true; mr: PrRead } | { ok: false; error: string }> => {
+          const res = await w.command<Commands["mr:get"]["data"]>("mr:get", { repoName: target.identity, iid: target.iid }, { timeoutMs: 30_000 });
+          if (!res.ok || !res.data) return { ok: false, error: explainError(res.error ?? "failed to read the MR") };
+          const pr = res.data.mr;
+          if (typeof pr.sourceBranch === "string" && pr.sourceBranch !== "") sourceBranch = pr.sourceBranch;
+          return { ok: true, mr: pr };
+        };
+
+        let lastHead: GithubHead | null = null;
+        const githubHead = async (pr: PrRead): Promise<GithubHead | null> => {
+          const mem = prFacts(mrUrl ?? "", pr);
+          lastHead = await readGithubHead(w.command, target, pr, watched ? attendFacts(watched, mem) : mem, w.now, sha);
+          return lastHead;
+        };
+
         const watchDeps: WatchDeps = {
           now: w.now,
           sleep: w.sleep,
@@ -336,25 +385,30 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
           },
           readMr: async () => {
             progress?.();
-            if (firstRead) {
-              const memo = firstRead;
-              firstRead = null;
-              return memo;
+            let pr: PrRead;
+            if (firstRaw) {
+              pr = firstRaw;
+              firstRaw = null;
+            } else {
+              const res = await readRaw();
+              if (!res.ok) return res;
+              pr = res.mr;
             }
-            const res = await w.command<Commands["mr:get"]["data"]>("mr:get", { repoName: target.identity, iid: target.iid }, { timeoutMs: 30_000 });
-            if (!res.ok || !res.data) return { ok: false, error: explainError(res.error ?? "failed to read the MR") };
-            const pr = res.data.mr;
-            if (typeof pr.sourceBranch === "string" && pr.sourceBranch !== "") sourceBranch = pr.sourceBranch;
-            return { ok: true, mr: { iid: pr.iid, sha: pr.sha ?? null, webUrl: pr.webUrl ?? null, pipeline: toWatchPipeline(pr.pipeline) } };
+            const pipeline = github ? toWatchPipeline(await githubHead(pr)) : toWatchPipeline(pr.pipeline);
+            return { ok: true, mr: { iid: pr.iid, sha: pr.sha ?? null, webUrl: pr.webUrl ?? null, pipeline } };
           },
           commitParents: async (s) => {
             const r = await w.command<Commands["mr:commit-parents"]["data"]>("mr:commit-parents", { repoName: target.identity, iid: target.iid, sha: s }, { timeoutMs: 30_000 });
             return r.ok && Array.isArray(r.data) ? r.data : null;
           },
           failedJobs: async (pipelineId) => {
+            // The GitHub head already lists every check with its required flag, which a per-run read would drop.
+            if (github) return [];
             const r = await w.command<Commands["mr:pipeline-failed-jobs"]["data"]>("mr:pipeline-failed-jobs", { repoName: target.identity, iid: target.iid, pipelineId }, { timeoutMs: 30_000 });
             return r.ok && Array.isArray(r.data) ? r.data : null;
           },
+          // Only an Actions job has a log behind mr:fetch-job-trace; another app's check run would fail the read and spend a slot.
+          traceable: (jobId) => !github || lastHead?.jobs.some((j) => j.jobId === jobId && j.runId !== null) === true,
           traceTail: async (jobId) => {
             const r = await w.command<Commands["mr:fetch-job-trace"]["data"]>("mr:fetch-job-trace", { repoName: target.identity, iid: target.iid, jobId }, { timeoutMs: 60_000 });
             return r.ok ? tailTrace(r.data ?? "", TRACE_TAIL).trace : null;
@@ -373,14 +427,15 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
           },
         };
 
-        const first = await watchDeps.readMr();
+        progress?.();
+        const first = await readRaw();
         if (!first.ok) return err(first.error);
-        firstRead = first;
-        mrUrl = first.mr.webUrl;
+        firstRaw = first.mr;
+        mrUrl = first.mr.webUrl ?? null;
         if (!mrUrl) return err(`GitLab returned MR !${target.iid} with no web URL`);
-        if (parseMrUrl(mrUrl) === null || (first.mr.pipeline !== null && !first.mr.pipeline.id.startsWith("gitlab:"))) {
-          return attend ? ok({ ...unsupportedGithub("ci_watch"), sha }) : err("ci_watch is GitLab only");
-        }
+        github = parseMrUrl(mrUrl) === null;
+        if (github && intervalInput !== undefined && intervalInput < GITHUB_INTERVAL_MIN) return err(intervalRangeError(GITHUB_INTERVAL_MIN, true));
+        const interval = intervalInput ?? (github ? GITHUB_INTERVAL_DEFAULT : 30);
 
         try {
           if (attend) watched = readWatchState(mrUrl, sha, stateOpts());
@@ -408,12 +463,12 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
     },
     {
       name: "ci_triage",
-      description: `GitLab only. Sort a pipeline's failed jobs, same-project child pipelines included, into REAL, INFRA or UNCLEAR by their log, and mark each blocking job yours, INHERITED (also failing on the target branch) or UNKNOWN. pipelineId defaults to the MR's head pipeline. Returns state triaged with pipeline, base, blocking, nonBlocking, crossProject, summary and next. Patterns and base settings come from ci.triage.*; config adds one-off real-patterns, infra-patterns and noisy-jobs, and sets base-depth, base-ref and skip-base. base names the comparison branch and noBase turns the comparison off. It reports; retrying is the caller's decision. ${REPO_NAME_RULE}`,
+      description: `Sort a pipeline's failed jobs, same-project child pipelines included, into REAL, INFRA or UNCLEAR by their log, and mark each blocking job yours, INHERITED (also failing on the target branch) or UNKNOWN. pipelineId defaults to the MR's head pipeline (on GitHub a workflow run id, defaulting to the PR head's checks). Returns state triaged with pipeline, base, blocking, nonBlocking, crossProject, summary and next. Patterns and base settings come from ci.triage.*; config adds one-off real-patterns, infra-patterns and noisy-jobs, and sets base-depth, base-ref and skip-base. base names the comparison branch and noBase turns the comparison off. It reports; retrying is the caller's decision. On GitHub base pipelines are base-branch commits, and a failed check with no readable log is listed under crossProject. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: {
           ...MR_TARGET_PROPS,
-          pipelineId: { type: "number", description: "The numeric part of a gitlab:pipeline:N id; default the MR's head pipeline." },
+          pipelineId: { type: "number", description: "The numeric part of a gitlab:pipeline:N id, or a GitHub workflow run id (the N of github:run:N); default the MR's head pipeline, or the PR head's checks." },
           config: { type: "object", description: "Optional per-call changes: real-patterns, infra-patterns and noisy-jobs add to the ci.triage.* settings; base-depth, base-ref and skip-base replace them." },
           base: { type: "string", description: "The branch whose recent failures mark a job INHERITED." },
           noBase: { type: "boolean" },
@@ -434,15 +489,24 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
           return err(e instanceof Error ? e.message : String(e));
         }
         if ("error" in config) return err(config.error);
-        if (isGithubPrUrl(input.mrUrl)) return ok(unsupportedGithub("ci_triage"));
-        const target = await tri.resolve(input);
+        const target = await tri.resolve(input, { github: true });
         if (!target.ok) return err(target.error);
-        const subject = await readPipelineSubject(tri.command, target, input.pipelineId as number | undefined);
+        const pipelineId = input.pipelineId as number | undefined;
+        const subject = await readPipelineSubject(tri.command, target, pipelineId);
         if (subject.kind === "error") return err(subject.error);
-        if (subject.kind === "github") return ok(unsupportedGithub("ci_triage"));
-        const report = await runTriage(gitlabTriageForge(tri.command, target), {
-          pipelineId: subject.pipelineId,
-          targetBranch: subject.targetBranch,
+        let run: { forge: TriageForge; pipelineId: number; targetBranch: string | null };
+        if (subject.kind === "github") {
+          const pr = subject.mr;
+          const read = await readGithubHead(tri.command, target, pr, prFacts(pr.webUrl ?? "", pr), Date.now, pr.sha ?? null);
+          if (!read && pipelineId === undefined) return err("the PR has no checks; pass pipelineId");
+          const head = read ?? emptyHead(pr.sha ?? null, pr.sourceBranch ?? null);
+          run = { forge: githubTriageForge(tri.command, target, head), pipelineId: pipelineId ?? head.number, targetBranch: pr.targetBranch ?? null };
+        } else {
+          run = { forge: gitlabTriageForge(tri.command, target), pipelineId: subject.pipelineId, targetBranch: subject.targetBranch };
+        }
+        const report = await runTriage(run.forge, {
+          pipelineId: run.pipelineId,
+          targetBranch: run.targetBranch,
           config,
           ...(typeof input.base === "string" && { base: input.base }),
           ...(input.noBase === true && { noBase: true }),

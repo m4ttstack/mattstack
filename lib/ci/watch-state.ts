@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ciLeaseDir, ciLeaseFileName } from "../../packages/rt-client/src/index.ts";
+import type { GithubCommitFacts } from "./github-forge.ts";
 import { shaMatches } from "./watch.ts";
 
 export interface PersistedWatch {
@@ -18,6 +19,7 @@ export interface PersistedWatch {
   heldBy: string | null;
   reclaims: number;
   updatedAt: number;
+  github?: GithubCommitFacts;
 }
 
 interface WatchStateOpts { dir?: string; now?: () => number }
@@ -33,11 +35,21 @@ function fresh(mr: string, sha: string, priorPipelineId: number | null, now: num
   };
 }
 
+function isObject<T>(v: T | null | undefined): v is T {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
 function parse(raw: string): PersistedWatch | null {
   try {
     const v = JSON.parse(raw) as PersistedWatch;
     if (!(v && v.version === 1 && typeof v.sha === "string")) return null;
-    return { ...v, heldBy: typeof v.heldBy === "string" ? v.heldBy : null };
+    const { github, ...rest } = v;
+    const parsed: PersistedWatch = { ...rest, heldBy: typeof v.heldBy === "string" ? v.heldBy : null };
+    if (isObject(github)) {
+      const anchor = isObject(github.anchor) && Number.isFinite(github.anchor.createdAt) ? github.anchor : null;
+      parsed.github = { ...github, anchor, requiredFor: typeof github.requiredFor === "string" ? github.requiredFor : null };
+    }
+    return parsed;
   } catch {
     return null;
   }

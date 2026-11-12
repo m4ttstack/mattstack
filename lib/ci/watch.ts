@@ -19,6 +19,7 @@ export interface WatchDeps {
   commitParents(sha: string): Promise<string[] | null>;
   failedJobs(pipelineId: number): Promise<WatchJob[] | null>;
   traceTail(jobId: number): Promise<string | null>;
+  traceable?(jobId: number): boolean;
   observe?(o: WatchObservation): void;
 }
 
@@ -29,14 +30,14 @@ export interface WatchInput { sha: string; maxWaitSeconds: number; intervalSecon
 export type WatchState =
   | "success" | "success_with_warnings" | "failed" | "canceled" | "skipped" | "manual"
   | "running" | "waiting" | "superseded" | "lease_lost" | "aborted"
-  | "timeout" | "no_pipeline" | "stood_down" | "lease_unavailable" | "unsupported_forge";
+  | "timeout" | "no_pipeline" | "stood_down" | "lease_unavailable";
 
 export interface WatchResult {
   state: WatchState;
   sha: string;
   headSha: string | null;
   pipeline: Omit<WatchPipeline, "jobs"> | null;
-  failedJobs: Array<{ jobId: number; name: string; stage: string; allowFailure: boolean; webUrl: string | null; traceTail?: string }>;
+  failedJobs: Array<{ jobId: number | null; name: string; stage: string; allowFailure: boolean; webUrl: string | null; traceTail?: string }>;
   blockingFailures: number;
   lease: { owner: string; heartbeatAt: number; expiresAt: number } | null;
   holder?: CiLease | null;
@@ -58,6 +59,7 @@ export const TERMINAL: ReadonlySet<string> = new Set(["success", "success_with_w
 const TRACE_JOBS = 5;
 const READ_TRIES = 3;
 const MINUTE_MS = 60_000;
+const STATUS_JOB_PREFIX = "github:status:";
 const MERGE_REF = /^refs\/merge-requests\/(\d+)\/(merge|train)$/;
 
 export function shaMatches(full: string | null, given: string): boolean {
@@ -73,6 +75,12 @@ export function isMergeRefPipeline(p: WatchPipeline, iid: number): boolean {
   if (p.mergeRequestEventType === "merged_result" || p.mergeRequestEventType === "merge_train") return true;
   const m = p.ref ? MERGE_REF.exec(p.ref) : null;
   return m !== null && Number(m[1]) === iid;
+}
+
+const STATUS_ONLY_NEXT = "every failed row is a commit status with no log to read here; open its webUrl, or the pipeline's webUrl when it has none";
+
+function onlyStatuses(rows: WatchResult["failedJobs"]): boolean {
+  return rows.length > 0 && rows.every((j) => j.jobId === null);
 }
 
 function idNumber(id: string | null | undefined): number | null {
@@ -205,10 +213,15 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
     const out: WatchResult["failedJobs"] = [];
     let traced = 0;
     for (const j of failed) {
+      // A commit status context may itself end in ":<digits>", so the prefix is checked before idNumber.
+      if (j.id.startsWith(STATUS_JOB_PREFIX)) {
+        out.push({ jobId: null, name: j.name, stage: j.stage, allowFailure: j.allowFailure, webUrl: j.webUrl });
+        continue;
+      }
       const jobId = idNumber(j.id);
       if (jobId === null) continue;
       const row: WatchResult["failedJobs"][number] = { jobId, name: j.name, stage: j.stage, allowFailure: j.allowFailure, webUrl: j.webUrl };
-      if (withTraces && !j.allowFailure && traced < TRACE_JOBS) {
+      if (withTraces && !j.allowFailure && traced < TRACE_JOBS && deps.traceable?.(jobId) !== false) {
         traced++;
         const tail = await deps.traceTail(jobId);
         if (tail !== null) row.traceTail = tail;
@@ -310,7 +323,9 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
               ? "the failed jobs could not be read; read them with mr_pipeline or mr_job_trace"
               : f.failedJobs.length === 0
                 ? "no failed job rows (a bridge job's downstream pipeline failed); read it with mr_pipeline and the bridge job's jobId"
-                : "read more of a job's log with mr_job_trace";
+                : onlyStatuses(f.failedJobs)
+                  ? STATUS_ONLY_NEXT
+                  : "read more of a job's log with mr_job_trace";
           return result(p.status as WatchState, mr, next, { failedJobs: f.failedJobs, blockingFailures: f.blockingFailures });
         }
         const early = await failures(p, true);
@@ -319,7 +334,10 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
           if (!after.ok) return leaseEnd(after, mr);
           lease = after.lease;
           observe();
-          return result("failed", mr, "a blocking job failed while the pipeline is still running; read more of its log with mr_job_trace", {
+          const next = onlyStatuses(early.failedJobs)
+            ? `a blocking check failed while the others still run; ${STATUS_ONLY_NEXT}`
+            : "a blocking job failed while the pipeline is still running; read more of its log with mr_job_trace";
+          return result("failed", mr, next, {
             failedJobs: early.failedJobs,
             blockingFailures: early.blockingFailures,
           });

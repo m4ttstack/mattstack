@@ -1,13 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { getEventListeners } from "node:events";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { boardDoctorOwner, ciLeaseFileName, claimCiLease, readCiLease, releaseCiLease } from "../../../packages/rt-client/src/index.ts";
+import { __resetMemoryFacts } from "../../ci/github-forge.ts";
 import { LeaseKeepalive } from "../../ci/lease-keepalive.ts";
 import { watchStatePath, writeWatchState } from "../../ci/watch-state.ts";
+import { closeStateDb } from "../../state/index.ts";
 import { abortableSleep, ciToolDefs } from "../ci-tools.ts";
 import { MR_URL_SHAPE, resolveMrTarget } from "../mr-target.ts";
+import { PR_URL_NOTE } from "../shared.ts";
 
 const MR = "https://gitlab.example.com/grp/proj/-/merge_requests/42";
 let dir: string;
@@ -176,16 +179,6 @@ describe("ci_watch", () => {
     expect((r as any).body.next).toContain("stand down");
     expect((r as any).body.next).not.toContain("ci_lease_claim");
   });
-  test("refuses a GitHub-shaped MR", async () => {
-    const t = watchTool({
-      command: (async (name: string) => (name === "mr:get"
-        ? { ok: true, data: { mr: { iid: 42, sha: SHA, webUrl: "https://github.com/acme/proj/pull/42", pipeline: { id: "gitlab:pipeline:10", status: "success", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: null, jobs: [] } }, fetchedAt: 0 } }
-        : { ok: true, data: [] })) as any,
-    });
-    const r = await t.handler({ repoName: "remote:x", iid: 42, sha: SHA }, A);
-    expect(r.ok).toBe(false);
-    expect((r as any).error).toMatch(/GitLab only/);
-  });
   test("a busy lease lock inside the watch's heartbeat is a tool error, not an unhandled rejection", async () => {
     const { claimCiLease } = await import("../../../packages/rt-client/src/index.ts");
     claimCiLease({ mrUrl: MR, owner: "session:aaa", holder: "watch-ci" }, { dir });
@@ -299,6 +292,10 @@ describe("ci_watch", () => {
     const old = { id: "gitlab:pipeline:10", status: "running", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: new Date(-200 * 60_000).toISOString(), jobs: [] };
     const r = await watchTool({}, old).handler({ repoName: "remote:x", iid: 42, sha: SHA, extendMinutes: 75, maxWaitSeconds: 0 }, A);
     expect(r).toMatchObject({ ok: true, body: { state: "running", budget: { minutes: 275, elapsedMinutes: 200, spent: false } } });
+  });
+  test("intervalSeconds of 20 is accepted on GitLab", async () => {
+    await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
+    expect(await watchTool().handler({ repoName: "remote:x", iid: 42, sha: SHA, intervalSeconds: 20 }, A)).toMatchObject({ ok: true, body: { state: "success" } });
   });
   test("intervalSeconds at the 120 ceiling is accepted", async () => {
     await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
@@ -486,25 +483,6 @@ describe("ci_watch attend", () => {
     expect(r).toMatchObject({ ok: true, body: { state: "success", pipeline: { id: "gitlab:pipeline:12" } } });
     expect(state()).toMatchObject({ sha: NEXT, priorPipelineId: 10, pipelineId: 12 });
   });
-  test("a GitHub PR with attend is unsupported_forge, not an error", async () => {
-    const { watch } = attendDefs({ sha: SHA, webUrl: "https://github.com/acme/proj/pull/42", pipeline: pipeline() });
-    const r = await watch.handler({ ...target, sha: SHA, attend: true }, A);
-    expect(r).toMatchObject({ ok: true, body: { state: "unsupported_forge", forge: "github" } });
-    expect(typeof (r as any).body.next).toBe("string");
-  });
-  test("a GitHub PR passed as mrUrl with attend is unsupported_forge before the target resolves", async () => {
-    let resolved = false;
-    const { watch } = attendDefs({ sha: SHA, pipeline: pipeline() }, { resolve: async () => { resolved = true; return { ok: false, error: "must not resolve" }; } });
-    const r = await watch.handler({ mrUrl: "https://github.com/acme/proj/pull/42", sha: SHA, attend: true }, A);
-    expect(r).toMatchObject({ ok: true, body: { state: "unsupported_forge", forge: "github", sha: SHA } });
-    expect(resolved).toBe(false);
-  });
-  test("a GitHub PR passed as mrUrl without attend is still a resolve error", async () => {
-    const { watch } = attendDefs({ sha: SHA, pipeline: pipeline() }, { resolve: resolveMrTarget });
-    const r = await watch.handler({ mrUrl: "https://github.com/acme/proj/pull/42", sha: SHA }, A);
-    expect(r.ok).toBe(false);
-    expect(r.error).toBe(MR_URL_SHAPE);
-  });
   test("holder without attend is an error", async () => {
     const { watch } = attendDefs({ sha: SHA, pipeline: pipeline() });
     const r = await watch.handler({ ...target, sha: SHA, holder: "doctor" }, A);
@@ -528,6 +506,201 @@ describe("ci_watch attend", () => {
     expect(await watch.handler({ ...target, sha: SHA }, A)).toMatchObject({ ok: true, body: { state: "success" } });
     expect(existsSync(watchStatePath(MR, { dir }))).toBe(false);
     expect(keepalive.size()).toBe(0);
+  });
+});
+
+describe("ci_watch on GitHub", () => {
+  const SHA = "c".repeat(40);
+  const PR = "https://github.com/acme/proj/pull/42";
+  const MIN = 60_000;
+  const target = { repoName: "remote:x", iid: 42 };
+  const ANCHOR_AT = new Date(-5 * MIN).toISOString();
+  type Call = { name: string; payload: Record<string, any> };
+  type World = { sha: string; status: string; jobs: Array<Record<string, unknown>>; required: string[]; runs: Array<{ id: number; createdAt: string }> };
+  const check = (name: string, status: string, over: Record<string, unknown> = {}) => ({
+    id: `github:check:${name.length * 11}`, name, stage: "checks", status, allowFailure: false, duration: null, webUrl: null, runId: "901", ...over,
+  });
+  const world = (over: Partial<World> = {}): World => ({
+    sha: SHA, status: "running", jobs: [check("checks", "running")], required: ["checks"],
+    runs: [{ id: 901, createdAt: new Date(-2 * MIN).toISOString() }, { id: 900, createdAt: ANCHOR_AT }], ...over,
+  });
+
+  const TRIAGE_SETTINGS: Record<string, unknown> = {
+    "ci.triage.realPatterns": [], "ci.triage.infraPatterns": [], "ci.triage.noisyJobs": [], "ci.triage.baseDepth": 3, "ci.triage.skipBase": false,
+  };
+
+  beforeEach(() => { __resetMemoryFacts(); });
+
+  function ghDefs(w: World, over: Record<string, unknown> = {}) {
+    const calls: Call[] = [];
+    const resolveArgs: unknown[][] = [];
+    const keepalive = new LeaseKeepalive({ setInterval: () => ({}), clearInterval: () => {}, leaseOpts: () => ({ dir }) });
+    const resolve = (async (...args: unknown[]) => { resolveArgs.push(args); return { ok: true, identity: "remote:x", iid: 42 }; }) as any;
+    const defs = ciToolDefs({
+      leaseOpts: () => ({ dir }),
+      label: () => undefined,
+      triage: { command: (async (name: string, payload: Record<string, any>) => commandOf(name, payload)) as any, resolve, readSetting: (k) => TRIAGE_SETTINGS[k] },
+      watch: {
+        resolve,
+        command: (async (name: string, payload: Record<string, any>) => commandOf(name, payload)) as any,
+        now: () => 0,
+        sleep: async () => {},
+        budgetMinutes: () => 75,
+        keepalive,
+        stateOpts: () => ({ dir }),
+        ...over,
+      },
+    });
+    async function commandOf(name: string, payload: Record<string, any>): Promise<any> {
+      calls.push({ name, payload });
+      if (name === "mr:get") {
+        const pipeline = { id: "github:run:901", status: w.status, sha: w.sha, ref: "feat", mergeRequestEventType: null, webUrl: `${PR}/checks`, createdAt: null, jobs: w.jobs, runIds: ["900", "901"] };
+        return { ok: true, data: { mr: { iid: 42, sha: w.sha, webUrl: PR, sourceBranch: "feat", targetBranch: "main", pipeline }, fetchedAt: 0 } };
+      }
+      if (name === "forge:get") {
+        const body = payload.path.startsWith(":repo/rules/branches/")
+          ? [{ type: "required_status_checks", parameters: { required_status_checks: w.required.map((context) => ({ context })) } }]
+          : null;
+        return { ok: true, data: { status: body ? 200 : 404, body, truncated: false, nextPage: null, totalPages: null } };
+      }
+      if (name === "pipeline:list") {
+        return { ok: true, data: { pipelines: w.runs.map((r) => ({ id: r.id, status: "running", ref: "feat", sha: w.sha, source: "pull_request", webUrl: null, createdAt: r.createdAt })) } };
+      }
+      if (name === "mr:fetch-job-trace") return { ok: true, data: "boom\nreal failure" };
+      return { ok: true, data: [] };
+    }
+    return { watch: defs.find((x) => x.name === "ci_watch")!, triage: defs.find((x) => x.name === "ci_triage")!, calls, resolveArgs };
+  }
+  const claim = () => tool("ci_lease_claim").handler({ mrUrl: PR }, A);
+  const perCommit = (calls: Call[]) => calls.filter((c) => c.name === "forge:get" || c.name === "pipeline:list");
+
+  test("a PR going running then success settles on success under the anchor run's id", async () => {
+    await claim();
+    let clock = 0;
+    const w = world();
+    const { watch } = ghDefs(w, {
+      now: () => clock,
+      sleep: async (ms: number) => { clock += ms; w.status = "success"; w.jobs = [check("checks", "success")]; },
+    });
+    const r = await watch.handler({ ...target, sha: SHA }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "success", pipeline: { id: "github:run:900", createdAt: ANCHOR_AT }, polls: 2 } });
+  });
+  test("an optional failed check beside a successful required one is success with no blocking failure", async () => {
+    await claim();
+    const { watch } = ghDefs(world({ status: "success", jobs: [check("checks", "success"), check("lint", "failed", { allowFailure: true })] }));
+    const r = await watch.handler({ ...target, sha: SHA }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "success", blockingFailures: 0, failedJobs: [{ name: "lint", allowFailure: true }] } });
+  });
+  test("a required failed check is failed with its trace tail", async () => {
+    await claim();
+    const { watch, calls } = ghDefs(world({ status: "failed", jobs: [check("checks", "failed", { id: "github:check:77" })] }));
+    const r = await watch.handler({ ...target, sha: SHA }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "failed", blockingFailures: 1, failedJobs: [{ jobId: 77, name: "checks", stage: "checks", allowFailure: false }] } });
+    expect((r as any).body.failedJobs[0].traceTail).toContain("boom");
+    expect(calls.filter((c) => c.name === "mr:fetch-job-trace").map((c) => c.payload)).toEqual([{ repoName: "remote:x", iid: 42, jobId: 77 }]);
+    expect(calls.some((c) => c.name === "mr:pipeline-failed-jobs")).toBe(false);
+  });
+  test("with attend, a run still going past the budget from the anchor is timeout", async () => {
+    const { watch } = ghDefs(world({ runs: [{ id: 900, createdAt: new Date(-80 * MIN).toISOString() }] }));
+    const r = await watch.handler({ ...target, sha: SHA, attend: true }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "timeout", budget: { minutes: 75, elapsedMinutes: 80, spent: true } } });
+  });
+  test("the first poll goes through the head: an unreported required check and an optional red one are never failed", async () => {
+    await claim();
+    const { watch } = ghDefs(world({ status: "failed", jobs: [check("lint", "failed")] }));
+    const r = await watch.handler({ ...target, sha: SHA, maxWaitSeconds: 0 }, A);
+    expect(r.ok).toBe(true);
+    expect(["running", "waiting"]).toContain((r as any).body.state);
+    expect((r as any).body.blockingFailures).toBe(0);
+  });
+  test("with attend, the per-commit reads persist in the watch state and the next call reads neither again", async () => {
+    const w = world({ status: "success", jobs: [check("checks", "success")] });
+    const { watch, calls } = ghDefs(w);
+    expect(await watch.handler({ ...target, sha: SHA, attend: true }, A)).toMatchObject({ ok: true, body: { state: "success" } });
+    expect(perCommit(calls).length).toBeGreaterThan(0);
+    __resetMemoryFacts();
+    const before = calls.length;
+    expect(await watch.handler({ ...target, sha: SHA, attend: true }, A)).toMatchObject({ ok: true, body: { state: "success", pipeline: { id: "github:run:900" } } });
+    expect(perCommit(calls.slice(before))).toEqual([]);
+    const st = JSON.parse(readFileSync(watchStatePath(PR, { dir }), "utf8"));
+    expect(st.github).toMatchObject({ required: ["checks"], anchor: { runId: 900, createdAt: Date.parse(ANCHOR_AT) } });
+  });
+  test("without attend, a second call for the same commit reads neither per-commit fact again, even after a short sha", async () => {
+    await claim();
+    const { watch, calls } = ghDefs(world({ status: "success", jobs: [check("checks", "success")] }));
+    await watch.handler({ ...target, sha: SHA.slice(0, 8) }, A);
+    const before = calls.length;
+    expect(await watch.handler({ ...target, sha: SHA }, A)).toMatchObject({ ok: true, body: { state: "success", pipeline: { id: "github:run:900" } } });
+    expect(perCommit(calls.slice(before))).toEqual([]);
+  });
+  test("an attended watch shares its per-commit reads with ci_triage on the same head", async () => {
+    const { watch, triage, calls } = ghDefs(world({ status: "success", jobs: [check("checks", "success")] }));
+    expect(await watch.handler({ ...target, sha: SHA, attend: true }, A)).toMatchObject({ ok: true, body: { state: "success" } });
+    expect(perCommit(calls).length).toBeGreaterThan(0);
+    const before = calls.length;
+    expect(await triage.handler({ mrUrl: PR, noBase: true }, A)).toMatchObject({ ok: true, body: { state: "triaged", pipeline: { id: 900 } } });
+    expect(perCommit(calls.slice(before))).toEqual([]);
+  });
+  test("an external check run takes no trace slot and costs no trace read; the Actions job still gets its tail", async () => {
+    await claim();
+    const external = [1, 2, 3, 4, 5].map((n) => check(`ext${n}`, "failed", { id: `github:check:${600 + n}`, runId: null }));
+    const { watch, calls } = ghDefs(world({ status: "failed", required: [], jobs: [...external, check("checks", "failed", { id: "github:check:77" })] }));
+    const r = await watch.handler({ ...target, sha: SHA }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "failed", blockingFailures: 6 } });
+    expect(calls.filter((c) => c.name === "mr:fetch-job-trace").map((c) => c.payload.jobId)).toEqual([77]);
+    const rows = (r as any).body.failedJobs as Array<{ jobId: number; traceTail?: string }>;
+    expect(rows.find((j) => j.jobId === 77)?.traceTail).toContain("boom");
+    expect(rows.filter((j) => j.jobId !== 77).every((j) => j.traceTail === undefined)).toBe(true);
+  });
+  test("intervalSeconds defaults to 60 on GitHub", async () => {
+    await claim();
+    let clock = 0;
+    const sleeps: number[] = [];
+    const w = world();
+    const { watch } = ghDefs(w, {
+      now: () => clock,
+      sleep: async (ms: number) => { sleeps.push(ms); clock += ms; w.status = "success"; w.jobs = [check("checks", "success")]; },
+    });
+    expect(await watch.handler({ ...target, sha: SHA }, A)).toMatchObject({ ok: true, body: { state: "success" } });
+    expect(sleeps).toEqual([60_000]);
+  });
+  test("intervalSeconds below 30 on GitHub is an error naming 30 to 120", async () => {
+    await claim();
+    const { watch } = ghDefs(world());
+    for (const input of [{ ...target, sha: SHA, intervalSeconds: 20 }, { mrUrl: PR, sha: SHA, intervalSeconds: 20 }]) {
+      const r = await watch.handler(input, A);
+      expect(r.ok).toBe(false);
+      expect(r.error).toContain("30 to 120");
+    }
+  });
+  test("a PR URL resolves with github: true", async () => {
+    await claim();
+    const { watch, resolveArgs } = ghDefs(world({ status: "success", jobs: [check("checks", "success")] }));
+    expect(await watch.handler({ mrUrl: PR, sha: SHA }, A)).toMatchObject({ ok: true, body: { state: "success" } });
+    expect(resolveArgs).toHaveLength(1);
+    expect(resolveArgs[0]![1]).toEqual({ github: true });
+  });
+
+  describe("resolving a PR URL", () => {
+    const origHome = process.env.HOME;
+    let home: string;
+    beforeEach(() => {
+      home = realpathSync(mkdtempSync(join(tmpdir(), "rt-ci-watch-gh-")));
+      process.env.HOME = home;
+      closeStateDb();
+    });
+    afterEach(() => {
+      process.env.HOME = origHome;
+      closeStateDb();
+      rmSync(home, { recursive: true, force: true });
+    });
+    test("a PR URL for an unregistered repo is the resolver's registration error, not MR_URL_SHAPE", async () => {
+      const { watch } = ghDefs(world(), { resolve: resolveMrTarget });
+      const r = await watch.handler({ mrUrl: PR, sha: SHA }, A);
+      expect(r.ok).toBe(false);
+      expect(r.error).not.toBe(MR_URL_SHAPE);
+      expect(r.error).toContain("not registered with rt");
+    });
   });
 });
 
@@ -566,22 +739,88 @@ describe("ci_triage", () => {
   test("declares no shell form and names why", () => {
     expect(triageTool().t.shellForms).toEqual({ none: expect.stringContaining("wave 3") });
   });
-  test("a GitHub MR returns unsupported_forge after the mr:get read and nothing else", async () => {
-    const { t, calls } = triageTool({ webUrl: GITHUB_URL });
-    const r = await t.handler(target, A);
-    expect(r).toMatchObject({ ok: true, body: { state: "unsupported_forge", forge: "github" } });
-    expect(typeof (r.body as any).next).toBe("string");
-    expect(calls.map((c) => c.name)).toEqual(["mr:get"]);
-  });
-  test("a GitHub PR passed as mrUrl is unsupported_forge with no read at all", async () => {
-    const { t, calls } = triageTool();
-    const r = await t.handler({ mrUrl: GITHUB_URL, noBase: true }, A);
-    expect(r).toMatchObject({ ok: true, body: { state: "unsupported_forge", forge: "github" } });
-    expect(calls).toEqual([]);
-  });
-  test("a github: head pipeline id is unsupported_forge too", async () => {
-    const { t } = triageTool({ pipeline: { id: "github:run:3", status: "failed", jobs: [] } });
-    expect(await t.handler(target, A)).toMatchObject({ body: { state: "unsupported_forge", forge: "github" } });
+  describe("on GitHub", () => {
+    const SHA = "D".repeat(40);
+    const ghCheck = (id: number, name: string, status: string, runId: string | null) => ({
+      id: `github:check:${id}`, name, stage: "checks", status, allowFailure: false, duration: null, webUrl: null, runId,
+    });
+    beforeEach(() => { __resetMemoryFacts(); });
+
+    function ghTriageTool(over: { settings?: Record<string, unknown>; traces?: Record<number, string> } = {}) {
+      const calls: Array<{ name: string; payload: Record<string, unknown> }> = [];
+      const resolveArgs: unknown[][] = [];
+      const traces: Record<number, string> = { 71: "Tests: 3 failed\n", 44: "lint broke\n", ...over.traces };
+      const command = (async (name: string, payload: Record<string, unknown>) => {
+        calls.push({ name, payload });
+        if (name === "mr:get") {
+          const pipeline = {
+            id: "github:run:901", status: "failed", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: `${GITHUB_URL}/checks`, createdAt: null,
+            jobs: [ghCheck(71, "unit", "failed", "901"), ghCheck(44, "lint", "failed", "902")],
+          };
+          return { ok: true, data: { mr: { iid: 42, sha: SHA, webUrl: GITHUB_URL, sourceBranch: "feat", targetBranch: "main", pipeline }, fetchedAt: 0 } };
+        }
+        if (name === "forge:get") {
+          const path = payload.path as string;
+          if (path === ":repo") return body({ default_branch: "main" });
+          if (path.startsWith(":repo/rules/branches/")) return body([{ type: "required_status_checks", parameters: { required_status_checks: [{ context: "unit" }] } }]);
+          if (path.startsWith(":repo/branches/")) return { ok: true, data: { status: 404, body: null, truncated: false, nextPage: null, totalPages: null } };
+        }
+        if (name === "pipeline:list") {
+          const rows = payload.sha
+            ? [{ id: 901, status: "failed", ref: "feat", sha: SHA, source: "pull_request", webUrl: null, createdAt: "2026-11-11T10:00:05Z" },
+               { id: 900, status: "failed", ref: "feat", sha: SHA, source: "pull_request", webUrl: null, createdAt: "2026-11-11T10:00:00Z" }]
+            : [{ id: 700, status: "failed", ref: "main", sha: "b".repeat(40), source: "push", webUrl: null, createdAt: "2026-11-10T10:00:00Z" }];
+          return { ok: true, data: { pipelines: rows } };
+        }
+        if (name === "mr:pipeline-failed-jobs" && payload.pipelineId === 700) return { ok: true, data: [ghCheck(500, "unit", "failed", "700")] };
+        if (name === "mr:fetch-job-trace") return { ok: true, data: traces[payload.jobId as number] ?? "" };
+        return { ok: false, error: `unrouted ${name} ${String(payload.path ?? "")}` };
+      }) as any;
+      const merged = { ...settings, ...over.settings };
+      const t = ciToolDefs({
+        triage: {
+          command,
+          resolve: (async (...args: unknown[]) => { resolveArgs.push(args); return { ok: true, identity: "remote:x", iid: 42 }; }) as any,
+          readSetting: (k) => merged[k],
+        },
+      }).find((x) => x.name === "ci_triage")!;
+      return { t, calls, resolveArgs };
+    }
+
+    test("a required failure that also failed on a base commit is REAL and INHERITED", async () => {
+      const { t, calls, resolveArgs } = ghTriageTool();
+      const r = await t.handler({ mrUrl: GITHUB_URL }, A);
+      expect(resolveArgs[0]![1]).toEqual({ github: true });
+      expect(r).toMatchObject({ ok: true, body: { state: "triaged", pipeline: { id: 900, status: "failed", webUrl: `${GITHUB_URL}/checks`, sha: SHA, ref: "feat" } } });
+      const b = r.body as any;
+      expect(b.blocking).toHaveLength(1);
+      expect(b.blocking[0]).toMatchObject({ name: "unit", jobId: 71, pipelineId: 901, verdict: "REAL", ownership: "INHERITED", inheritedOn: ["main"] });
+      expect(b.base).toEqual({ refs: ["main"], scanned: 1, off: false });
+      expect(calls.filter((c) => c.name === "pipeline:list" && !c.payload.sha).map((c) => c.payload)).toEqual([{ repoName: "remote:x", ref: "main", limit: 100 }]);
+    });
+
+    test("an optional failed check lands in nonBlocking", async () => {
+      const { t } = ghTriageTool();
+      const b = (await t.handler({ mrUrl: GITHUB_URL }, A)).body as any;
+      expect(b.nonBlocking).toHaveLength(1);
+      expect(b.nonBlocking[0]).toMatchObject({ name: "lint", jobId: 44, pipelineId: 902, blocking: false });
+    });
+
+    test("a team infra pattern read through the settings turns a matching log INFRA", async () => {
+      const { t } = ghTriageTool({ settings: { "ci.triage.infraPatterns": ["flaky-runner"] }, traces: { 71: "step died on flaky-runner 3\n" } });
+      const b = (await t.handler({ mrUrl: GITHUB_URL, noBase: true }, A)).body as any;
+      expect(b.blocking[0]).toMatchObject({ name: "unit", verdict: "INFRA", infraHits: ["step died on flaky-runner 3"] });
+      expect(b.summary.allInfraBlocking).toBe(true);
+    });
+
+    test("pipelineId equal to the head's anchor id triages the head", async () => {
+      const { t, calls } = ghTriageTool();
+      const r = await t.handler({ mrUrl: GITHUB_URL, pipelineId: 900, noBase: true }, A);
+      expect(r).toMatchObject({ ok: true, body: { state: "triaged", pipeline: { id: 900 } } });
+      expect((r.body as any).blocking.map((j: any) => j.jobId)).toEqual([71]);
+      expect(calls.some((c) => c.name === "mr:pipeline-failed-jobs")).toBe(false);
+      expect(calls.some((c) => c.name === "forge:get" && String(c.payload.path).includes("actions/runs"))).toBe(false);
+    });
   });
   test("a store-set baseDepth out of range is a tool error naming the key, before any read", async () => {
     settings["ci.triage.baseDepth"] = 0;
@@ -635,6 +874,18 @@ describe("ci_triage", () => {
     const { t } = triageTool();
     const r = await t.handler({ ...target, pipelineId: 404 }, A);
     expect(r.ok).toBe(false);
+  });
+});
+
+describe("ci tool descriptions", () => {
+  test("ci_watch and ci_triage take a GitHub PR URL and no longer say GitLab only", () => {
+    const defs = ciToolDefs({ leaseOpts: () => ({}), label: () => "alice" });
+    for (const name of ["ci_watch", "ci_triage"]) {
+      const d = defs.find((t) => t.name === name)!.description;
+      expect(d, name).not.toContain("GitLab only");
+      expect(d, name).not.toContain("unsupported_forge");
+      expect(d, name).toContain(PR_URL_NOTE);
+    }
   });
 });
 

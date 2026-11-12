@@ -1,0 +1,570 @@
+import type { Pipeline, PipelineJob } from "@mattstack/glance";
+import type { rtCommand } from "../../packages/rt-client/src/index.ts";
+import type { ForgeGetData, PipelineListRow } from "../../packages/rt-client/src/commands.ts";
+import type { FailedJobs, ForgeJob, TriageForge } from "./triage.ts";
+import { shaMatches } from "./watch.ts";
+
+export interface GithubJob {
+  id: string;
+  jobId: number | null;
+  name: string;
+  status: string;
+  blocking: boolean;
+  runId: number | null;
+  webUrl: string | null;
+}
+
+export interface GithubCommitFacts {
+  required: string[] | null;
+  requiredFor: string | null;
+  requiredTries: number;
+  anchor: { runId: number | null; createdAt: number } | null;
+  anchorTries: number;
+  confirm: { at: number; open: boolean } | null;
+}
+
+export interface GithubHead {
+  id: string;
+  number: number;
+  status: string;
+  sha: string | null;
+  ref: string | null;
+  webUrl: string | null;
+  createdAt: string | null;
+  jobs: GithubJob[];
+  allBlock: boolean;
+}
+
+export const GITHUB_INFRA_PATTERNS: readonly string[] = [
+  "The runner has received a shutdown signal",
+  "lost communication with the server",
+  "The hosted runner encountered an error",
+  "exceeded the maximum execution time",
+];
+
+const CHECK_ID_PREFIX = "github:check:";
+const RUN_ID_PREFIX = "github:run:";
+
+export function emptyFacts(): GithubCommitFacts {
+  return { required: null, requiredFor: null, requiredTries: 0, anchor: null, anchorTries: 0, confirm: null };
+}
+
+export function restJobStatus(status: string | null, conclusion: string | null): string {
+  if (status === "in_progress") return "running";
+  if (status !== "completed") return "pending";
+  switch (conclusion) {
+    case "success":
+    case "neutral":
+      return "success";
+    case "failure":
+    case "timed_out":
+    case "stale":
+    case "startup_failure":
+      return "failed";
+    case "cancelled":
+      return "canceled";
+    case "skipped":
+      return "skipped";
+    case "action_required":
+      return "manual";
+    default:
+      return "pending";
+  }
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+export function requiredNames(rules: unknown, branch: unknown): string[] {
+  const names = new Set<string>();
+  if (Array.isArray(rules)) {
+    for (const rule of rules) {
+      if (!isRecord(rule) || rule.type !== "required_status_checks") continue;
+      const checks = isRecord(rule.parameters) ? rule.parameters.required_status_checks : null;
+      if (!Array.isArray(checks)) continue;
+      for (const c of checks) {
+        if (isRecord(c) && typeof c.context === "string") names.add(c.context);
+      }
+    }
+  }
+  if (isRecord(branch) && isRecord(branch.protection) && isRecord(branch.protection.required_status_checks)) {
+    const contexts = branch.protection.required_status_checks.contexts;
+    if (Array.isArray(contexts)) {
+      for (const c of contexts) if (typeof c === "string") names.add(c);
+    }
+  }
+  return [...names].sort();
+}
+
+function toGithubJob(j: PipelineJob, blocking: boolean): GithubJob {
+  const jobId = j.id.startsWith(CHECK_ID_PREFIX) ? Number(j.id.slice(CHECK_ID_PREFIX.length)) : NaN;
+  const runId = j.runId == null ? NaN : Number(j.runId);
+  return {
+    id: j.id,
+    jobId: Number.isSafeInteger(jobId) ? jobId : null,
+    name: j.name,
+    status: j.status,
+    blocking,
+    runId: Number.isSafeInteger(runId) ? runId : null,
+    webUrl: j.webUrl,
+  };
+}
+
+function aggregate(statuses: string[]): string {
+  for (const s of ["failed", "canceled", "running"]) {
+    if (statuses.includes(s)) return s;
+  }
+  return statuses.every((s) => s === "success" || s === "skipped") ? "success" : "pending";
+}
+
+export function emptyHead(sha: string | null, ref: string | null): GithubHead {
+  return { id: "", number: 0, status: "", sha, ref, webUrl: null, createdAt: null, jobs: [], allBlock: true };
+}
+
+export function buildHead(p: Pipeline, facts: GithubCommitFacts): GithubHead {
+  const required = facts.required;
+  const hasList = required !== null && required.length > 0;
+  let blockingFlags: boolean[];
+  if (hasList) {
+    const names = new Set(required);
+    blockingFlags = p.jobs.map((j) => names.has(j.name));
+  } else if (required === null && p.jobs.some((j) => !j.allowFailure)) {
+    blockingFlags = p.jobs.map((j) => !j.allowFailure);
+  } else {
+    blockingFlags = p.jobs.map(() => true);
+  }
+  const jobs = p.jobs.map((j, i) => toGithubJob(j, blockingFlags[i]!));
+  const allBlock = !hasList && !(required === null && p.jobs.some((j) => !j.allowFailure));
+
+  const statuses = jobs.filter((j) => j.blocking).map((j) => j.status);
+  if (hasList) {
+    const seen = new Set(jobs.map((j) => j.name));
+    for (const name of required) if (!seen.has(name)) statuses.push("pending");
+  }
+  let status = statuses.length > 0 ? aggregate(statuses) : p.status;
+  if (allBlock && status === "success" && facts.confirm?.open) status = "running";
+
+  const anchor = facts.anchor;
+  const runId = anchor?.runId ?? null;
+  return {
+    id: runId !== null ? `${RUN_ID_PREFIX}${runId}` : p.id,
+    number: runId ?? 0,
+    status,
+    sha: p.sha ?? null,
+    ref: p.ref ?? null,
+    webUrl: p.webUrl,
+    createdAt: anchor ? new Date(anchor.createdAt).toISOString() : null,
+    jobs,
+    allBlock,
+  };
+}
+
+export const CONFIRM_EVERY_MS = 300_000;
+export const REQUIRED_TRIES = 3;
+export const ANCHOR_TRIES = 3;
+
+const READ_TIMEOUT_MS = 30_000;
+const RUN_LIST_LIMIT = 100;
+const RULES_PER_PAGE = 100;
+const COMPLETED_RUN_STATUSES = new Set(["success", "failed", "canceled", "skipped", "manual"]);
+
+export interface FactsStore {
+  get(): GithubCommitFacts;
+  set(f: GithubCommitFacts): void;
+}
+
+const memory = new Map<string, GithubCommitFacts>();
+
+export function memoryFacts(key: string): FactsStore {
+  return {
+    get: () => structuredClone(memory.get(key) ?? emptyFacts()),
+    set: (f) => { memory.set(key, structuredClone(f)); },
+  };
+}
+
+export function __resetMemoryFacts(): void {
+  memory.clear();
+}
+
+export interface GithubTarget {
+  identity: string;
+  iid: number;
+}
+
+type ForgeAnswer = { ok: true; body: unknown } | { ok: false };
+type ForgeRead = { ok: true; body: unknown; truncated: boolean; nextPage: number | null } | { ok: false; status: number | null; error: string };
+type ForgeOpts = { query?: Record<string, string | number | boolean>; page?: number; perPage?: number };
+
+// The daemon reports a non-2xx GitHub answer either as ok:false with the status only in its text or as data.status.
+function githubStatusOf(error: string): number | null {
+  const m = /GitHub returned (\d{3})/.exec(error);
+  return m ? Number(m[1]) : null;
+}
+
+async function readForge(command: typeof rtCommand, target: GithubTarget, path: string, opts: ForgeOpts = {}): Promise<ForgeRead> {
+  const res = await command<ForgeGetData>("forge:get", { repoName: target.identity, path, ...opts }, { timeoutMs: READ_TIMEOUT_MS });
+  if (!res.ok || !res.data) {
+    const error = res.error ?? "GitHub read failed";
+    return { ok: false, status: githubStatusOf(error), error };
+  }
+  if (res.data.status < 200 || res.data.status >= 300) {
+    return { ok: false, status: res.data.status, error: `GitHub returned ${res.data.status}` };
+  }
+  return { ok: true, body: res.data.body, truncated: res.data.truncated, nextPage: res.data.nextPage };
+}
+
+export interface GithubPrRead {
+  sha?: string | null;
+  targetBranch?: string | null;
+  pipeline?: Pipeline | null;
+}
+
+// Facts belong to the full head sha mr:get reports, never the caller's possibly short one.
+export function prFacts(prUrl: string, pr: GithubPrRead): FactsStore {
+  return memoryFacts(`${prUrl}#${(pr.sha ?? "").toLowerCase()}`);
+}
+
+// The reader only touches the facts on the watched sha.
+export function readGithubHead(command: typeof rtCommand, target: GithubTarget, pr: GithubPrRead, store: FactsStore, now: () => number, watchedSha: string | null): Promise<GithubHead | null> {
+  return new GithubHeadReader(command, target, store, now)
+    .read({ sha: pr.sha ?? null, targetBranch: pr.targetBranch ?? null, pipeline: pr.pipeline ?? null }, watchedSha);
+}
+
+export class GithubHeadReader {
+  constructor(
+    private readonly command: typeof rtCommand,
+    private readonly target: GithubTarget,
+    private readonly store: FactsStore,
+    private readonly now: () => number,
+  ) {}
+
+  async read(
+    mr: { sha: string | null; targetBranch: string | null; pipeline: Pipeline | null },
+    watchedSha: string | null,
+  ): Promise<GithubHead | null> {
+    const p = mr.pipeline;
+    if (!p) return null;
+    const onWatched = mr.sha !== null && watchedSha !== null && shaMatches(mr.sha, watchedSha);
+    if (!onWatched) return buildHead(p, emptyFacts());
+
+    const facts = this.store.get();
+    const sha = mr.sha!;
+    let listing: { rows: PipelineListRow[] | null } | null = null;
+
+    // A retargeted PR keeps its head sha, so the required list is per target branch as well as per commit.
+    if (mr.targetBranch && mr.targetBranch !== facts.requiredFor) {
+      facts.required = null;
+      facts.requiredTries = 0;
+      facts.requiredFor = mr.targetBranch;
+    }
+    if (facts.required === null && facts.requiredTries < REQUIRED_TRIES && mr.targetBranch) {
+      const branch = encodeURIComponent(mr.targetBranch);
+      const [rules, protection] = await Promise.all([
+        this.forgeGet(`:repo/rules/branches/${branch}`, { perPage: RULES_PER_PAGE }),
+        this.forgeGet(`:repo/branches/${branch}`),
+      ]);
+      facts.requiredTries += 1;
+      if (rules.ok && protection.ok) facts.required = requiredNames(rules.body, protection.body);
+      this.store.set(facts);
+    }
+
+    if (p.jobs.length > 0) {
+      if (facts.anchor === null) {
+        facts.anchor = { runId: null, createdAt: this.now() };
+        this.store.set(facts);
+      }
+      const ref = p.ref ?? null;
+      if (ref !== null && facts.anchor.runId === null && facts.anchorTries < ANCHOR_TRIES && p.jobs.some((j) => j.runId)) {
+        listing = { rows: await this.listRuns(ref, sha) };
+        facts.anchorTries += 1;
+        const earliest = listing.rows ? earliestRun(listing.rows) : null;
+        if (earliest) facts.anchor = earliest;
+        this.store.set(facts);
+      }
+    }
+
+    const raw = buildHead(p, { ...facts, confirm: null });
+    if (raw.status !== "success") {
+      if (facts.confirm !== null && !facts.confirm.open) {
+        facts.confirm = { at: facts.confirm.at, open: true };
+        this.store.set(facts);
+      }
+    } else if (raw.allBlock) {
+      const due = facts.confirm === null || this.now() - facts.confirm.at >= CONFIRM_EVERY_MS;
+      if (due) {
+        listing ??= { rows: await this.listRuns(p.ref ?? null, sha) };
+        const rows = listing.rows;
+        facts.confirm = {
+          at: this.now(),
+          open: rows ? rows.some((r) => !COMPLETED_RUN_STATUSES.has(r.status)) : (facts.confirm?.open ?? false),
+        };
+        this.store.set(facts);
+      }
+    }
+
+    return buildHead(p, facts);
+  }
+
+  private async forgeGet(path: string, opts: ForgeOpts = {}): Promise<ForgeAnswer> {
+    const r = await readForge(this.command, this.target, path, opts);
+    if (r.ok) return { ok: true, body: r.body };
+    return r.status === 404 ? { ok: true, body: null } : { ok: false };
+  }
+
+  private async listRuns(ref: string | null, sha: string): Promise<PipelineListRow[] | null> {
+    const payload: Record<string, unknown> = { repoName: this.target.identity };
+    if (ref !== null) payload.ref = ref;
+    payload.sha = sha;
+    payload.limit = RUN_LIST_LIMIT;
+    const res = await this.command<{ pipelines: PipelineListRow[] }>("pipeline:list", payload, { timeoutMs: READ_TIMEOUT_MS });
+    if (!res.ok || !res.data || !Array.isArray(res.data.pipelines)) return null;
+    return res.data.pipelines;
+  }
+}
+
+function earliestRun(rows: PipelineListRow[]): { runId: number; createdAt: number } | null {
+  let best: { runId: number; createdAt: number } | null = null;
+  for (const r of rows) {
+    const at = r.createdAt === null ? NaN : Date.parse(r.createdAt);
+    if (!Number.isFinite(at) || !Number.isSafeInteger(r.id)) continue;
+    if (best === null || at < best.createdAt || (at === best.createdAt && r.id < best.runId)) {
+      best = { runId: r.id, createdAt: at };
+    }
+  }
+  return best;
+}
+
+const TRACE_TIMEOUT_MS = 60_000;
+const GITHUB_STAGE = "checks";
+const FIRST_JOBS_PER_PAGE = 30;
+const SMALLEST_JOBS_PER_PAGE = 5;
+const OVER_CAP = "256 KiB";
+
+export interface GithubRun {
+  status: string;
+  webUrl: string | null;
+  sha: string | null;
+  ref: string | null;
+}
+
+export interface GithubRunJob {
+  jobId: number;
+  name: string;
+  status: string;
+  attempt: number;
+  webUrl: string | null;
+}
+
+export async function readRun(command: typeof rtCommand, target: GithubTarget, runId: number): Promise<GithubRun | null> {
+  const r = await readForge(command, target, `:repo/actions/runs/${runId}`);
+  if (!r.ok) {
+    if (r.status === 404) return null;
+    throw new Error(r.error);
+  }
+  const b = isRecord(r.body) ? r.body : {};
+  return { status: restJobStatus(str(b.status), str(b.conclusion)), webUrl: str(b.html_url), sha: str(b.head_sha), ref: str(b.head_branch) };
+}
+
+function runJob(raw: unknown): GithubRunJob | null {
+  if (!isRecord(raw) || !Number.isSafeInteger(raw.id) || typeof raw.name !== "string") return null;
+  return {
+    jobId: raw.id as number,
+    name: raw.name,
+    status: restJobStatus(str(raw.status), str(raw.conclusion)),
+    attempt: Number.isSafeInteger(raw.run_attempt) ? (raw.run_attempt as number) : 1,
+    webUrl: str(raw.html_url),
+  };
+}
+
+export async function readRunJobs(command: typeof rtCommand, target: GithubTarget, runId: number): Promise<GithubRunJob[] | null> {
+  const path = `:repo/actions/runs/${runId}/jobs`;
+  let perPage = FIRST_JOBS_PER_PAGE;
+  for (;;) {
+    const jobs: GithubRunJob[] = [];
+    let over = false;
+    let page: number | null = 1;
+    while (page !== null) {
+      const r = await readForge(command, target, path, { query: { filter: "latest" }, page, perPage });
+      if (!r.ok) {
+        if (r.error.includes(OVER_CAP)) {
+          over = true;
+          break;
+        }
+        if (r.status === 404) return null;
+        throw new Error(r.error);
+      }
+      if (r.truncated) {
+        over = true;
+        break;
+      }
+      const rows = isRecord(r.body) ? r.body.jobs : null;
+      if (!Array.isArray(rows)) throw new Error(`GitHub ${path} was not a jobs listing`);
+      for (const raw of rows) {
+        const job = runJob(raw);
+        if (job) jobs.push(job);
+      }
+      page = r.nextPage;
+    }
+    if (!over) return jobs;
+    if (perPage <= SMALLEST_JOBS_PER_PAGE) throw new Error(`GitHub job page still over the ${OVER_CAP} read cap at ${SMALLEST_JOBS_PER_PAGE} per page`);
+    perPage = Math.max(SMALLEST_JOBS_PER_PAGE, Math.floor(perPage / 2));
+  }
+}
+// The branch filter matches head_branch, so a fork PR opened from the fork's own base-named branch lists as a base run.
+const DROPPED_BASE_SOURCES = new Set(["schedule", "pull_request", "pull_request_target"]);
+
+export interface GithubJobRow {
+  jobId: number | null;
+  name: string;
+  stage: string;
+  status: string;
+  allowFailure: boolean;
+  blocking: boolean;
+  pipelineId: number | null;
+  attempt: number;
+  webUrl: string | null;
+}
+
+function jobRow(j: Omit<GithubJobRow, "stage" | "allowFailure">): GithubJobRow {
+  return { jobId: j.jobId, name: j.name, stage: GITHUB_STAGE, status: j.status, allowFailure: !j.blocking, blocking: j.blocking, pipelineId: j.pipelineId, attempt: j.attempt, webUrl: j.webUrl };
+}
+
+export type GithubListing = { ok: true; pipeline: { id: string; status: string; sha: string | null; ref: string | null; webUrl: string | null }; jobs: GithubJobRow[] } | { ok: false; error: string };
+
+export async function listGithubJobs(command: typeof rtCommand, target: GithubTarget, mr: GithubPrRead & { webUrl?: string | null }, pipelineId: number | undefined): Promise<GithubListing> {
+  const head = await readGithubHead(command, target, mr, prFacts(mr.webUrl ?? "", mr), Date.now, mr.sha ?? null);
+  if (pipelineId === undefined || (head && pipelineId === head.number)) {
+    if (!head) return { ok: false, error: "the PR has no checks; pass pipelineId" };
+    return {
+      ok: true,
+      pipeline: { id: head.id, status: head.status, sha: head.sha, ref: head.ref, webUrl: head.webUrl },
+      jobs: head.jobs.map((j) => jobRow({ jobId: j.jobId, name: j.name, status: j.status, blocking: j.blocking, pipelineId: j.runId ?? (head.number || null), attempt: 1, webUrl: j.webUrl })),
+    };
+  }
+  const run = await readRun(command, target, pipelineId);
+  const jobs = run ? await readRunJobs(command, target, pipelineId) : null;
+  if (!run || !jobs) return { ok: false, error: `pipeline ${pipelineId} not found` };
+  const headBlocking = new Map((head?.jobs ?? []).map((j) => [j.jobId, j.blocking]));
+  return {
+    ok: true,
+    pipeline: { id: `github:run:${pipelineId}`, ...run },
+    jobs: jobs.map((j) => jobRow({ ...j, blocking: headBlocking.get(j.jobId) !== false, pipelineId })),
+  };
+}
+
+function checkJobId(id: string): number | null {
+  if (!id.startsWith(CHECK_ID_PREFIX)) return null;
+  const n = Number(id.slice(CHECK_ID_PREFIX.length));
+  return Number.isSafeInteger(n) ? n : null;
+}
+
+function str(v: unknown): string | null {
+  return typeof v === "string" && v !== "" ? v : null;
+}
+
+export function githubTriageForge(command: typeof rtCommand, target: GithubTarget, head: GithubHead): TriageForge {
+  const baseRuns = new Map<number, PipelineListRow[]>();
+  const headBlocking = new Map(head.jobs.map((j) => [j.id, j.blocking]));
+
+  async function runFailedJobs(runId: number): Promise<PipelineJob[] | null> {
+    const res = await command<PipelineJob[]>(
+      "mr:pipeline-failed-jobs",
+      { repoName: target.identity, iid: target.iid, pipelineId: runId },
+      { timeoutMs: READ_TIMEOUT_MS },
+    );
+    if (!res.ok || !Array.isArray(res.data)) {
+      const error = res.error ?? "failed-jobs read failed";
+      if (githubStatusOf(error) === 404) return null;
+      throw new Error(error);
+    }
+    return res.data;
+  }
+
+  function asForgeJobs(rows: PipelineJob[], runId: number, allowFailure: (id: string) => boolean): ForgeJob[] {
+    const jobs: ForgeJob[] = [];
+    for (const j of rows) {
+      const jobId = checkJobId(j.id);
+      if (j.status !== "failed" || jobId === null) continue;
+      jobs.push({ pipelineId: runId, jobId, name: j.name, stage: j.stage, status: j.status, allowFailure: allowFailure(j.id), attempt: 1, webUrl: j.webUrl });
+    }
+    return jobs;
+  }
+
+  function headFailedJobs(): FailedJobs {
+    const out: FailedJobs = { jobs: [], crossProject: [] };
+    for (const j of head.jobs) {
+      if (j.status !== "failed") continue;
+      if (j.runId !== null && j.jobId !== null) {
+        out.jobs.push({ pipelineId: j.runId, jobId: j.jobId, name: j.name, stage: GITHUB_STAGE, status: j.status, allowFailure: !j.blocking, attempt: 1, webUrl: j.webUrl });
+      } else {
+        out.crossProject.push({ name: j.name, status: j.status, blocking: j.blocking, downstream: null });
+      }
+    }
+    return out;
+  }
+
+  return {
+    async pipelinesForRef(ref, limit) {
+      const res = await command<{ pipelines: PipelineListRow[] }>(
+        "pipeline:list",
+        { repoName: target.identity, ref, limit: RUN_LIST_LIMIT },
+        { timeoutMs: READ_TIMEOUT_MS },
+      );
+      if (!res.ok || !res.data || !Array.isArray(res.data.pipelines)) {
+        const error = res.error ?? "run listing failed";
+        if (githubStatusOf(error) === 404) return null;
+        throw new Error(error);
+      }
+      const bySha = new Map<string, PipelineListRow[]>();
+      for (const r of res.data.pipelines) {
+        if ((r.source !== null && DROPPED_BASE_SOURCES.has(r.source)) || r.sha === null) continue;
+        const runs = bySha.get(r.sha) ?? [];
+        runs.push(r);
+        bySha.set(r.sha, runs);
+      }
+      return [...bySha.values()].slice(0, limit).map((runs) => {
+        const newest = runs[0]!;
+        baseRuns.set(newest.id, runs);
+        return { id: newest.id, status: aggregate(runs.map((r) => r.status)), webUrl: newest.webUrl };
+      });
+    },
+    async pipelineInfo(id) {
+      if (id === head.number) return { id, status: head.status, webUrl: head.webUrl, sha: head.sha, ref: head.ref };
+      const run = await readRun(command, target, id);
+      return run ? { id, ...run } : null;
+    },
+    async failedJobs(id) {
+      if (id === head.number) return headFailedJobs();
+      const runs = baseRuns.get(id);
+      if (runs) {
+        const jobs: ForgeJob[] = [];
+        for (const run of runs) {
+          if (run.status !== "failed") continue;
+          const rows = await runFailedJobs(run.id);
+          if (rows) jobs.push(...asForgeJobs(rows, run.id, () => false));
+        }
+        return { jobs, crossProject: [] };
+      }
+      const rows = await runFailedJobs(id);
+      if (!rows) return null;
+      return { jobs: asForgeJobs(rows, id, (id) => headBlocking.get(id) === false), crossProject: [] };
+    },
+    async trace(jobId) {
+      const res = await command<string>("mr:fetch-job-trace", { repoName: target.identity, iid: target.iid, jobId }, { timeoutMs: TRACE_TIMEOUT_MS });
+      if (!res.ok || typeof res.data !== "string") return { ok: false, error: res.error ?? "trace read failed" };
+      return { ok: true, text: res.data };
+    },
+    async defaultBranch() {
+      const r = await readForge(command, target, ":repo");
+      if (!r.ok) {
+        if (r.status === 404) return null;
+        throw new Error(r.error);
+      }
+      return isRecord(r.body) ? str(r.body.default_branch) : null;
+    },
+    infraPatterns() {
+      return [...GITHUB_INFRA_PATTERNS];
+    },
+  };
+}
