@@ -1,5 +1,15 @@
+import {
+  ReadBackFailedError,
+  type GitLabProvider,
+  type NoteMutator,
+} from '@mattstack/glance';
 import { DAEMON_UNREACHABLE_PREFIX, rtCommand } from '@mattstack/rt-client';
-import type { MrAction } from './mr-action.ts';
+import {
+  mergeRefusalReason,
+  runMrAction,
+  type MrAction,
+  type MrActionProvider,
+} from './mr-action.ts';
 
 /** Must stay above the daemon's own mr:action budget (90 s), or the board
     gives up on a write the daemon is still finishing. */
@@ -21,6 +31,11 @@ export type ForgeWriteResult =
   | { kind: 'unanswered'; reason: string }
   | { kind: 'failed'; message: string };
 
+type Written<K extends ForgeWriteResult['kind']> = Extract<
+  ForgeWriteResult,
+  { kind: K }
+>;
+
 type Command = typeof rtCommand;
 
 const OPTS = { timeoutMs: FORGE_WRITE_TIMEOUT_MS };
@@ -32,6 +47,9 @@ const NOTE_UNANSWERED = 'the note may have posted';
 export function forgeReason(error: string): string {
   return error.replace(/^Error: /, '').replace(/^\w+ failed: /, '');
 }
+
+const refusedReason = (error: string | undefined, cmd: string) =>
+  forgeReason(error ?? '') || `${cmd} failed`;
 
 const unanswered = (error: string | undefined) =>
   (error ?? '').startsWith(DAEMON_UNREACHABLE_PREFIX);
@@ -73,7 +91,7 @@ export async function githubMrWrite(
       ? { kind: 'done' }
       : { kind: 'unanswered', reason: MERGE_UNANSWERED };
   }
-  return { kind: 'refused', reason: forgeReason(res.error ?? '') };
+  return { kind: 'refused', reason: refusedReason(res.error, 'mr:action') };
 }
 
 export async function githubSetDraft(
@@ -90,7 +108,7 @@ export async function githubSetDraft(
   if (res.ok) return { kind: 'done' };
   if (unanswered(res.error))
     return { kind: 'unanswered', reason: ACTION_UNANSWERED };
-  return { kind: 'refused', reason: forgeReason(res.error ?? '') };
+  return { kind: 'refused', reason: refusedReason(res.error, 'mr:action') };
 }
 
 export async function githubPostNote(
@@ -112,5 +130,69 @@ export async function githubPostNote(
   }
   if (unanswered(res.error))
     return { kind: 'unanswered', reason: NOTE_UNANSWERED };
-  return { kind: 'refused', reason: forgeReason(res.error ?? '') };
+  return { kind: 'refused', reason: refusedReason(res.error, 'mr:comment') };
+}
+
+const errorMessage = (err: unknown) =>
+  err instanceof Error ? err.message : String(err);
+
+export async function gitlabMrWrite(
+  provider: MrActionProvider,
+  path: string,
+  iid: number,
+  action: MrAction,
+  onError?: (message: string) => void
+): Promise<Written<'done' | 'refused' | 'failed'>> {
+  try {
+    await runMrAction(provider, path, iid, action);
+    return { kind: 'done' };
+  } catch (err) {
+    const message = errorMessage(err);
+    onError?.(message);
+    const reason = action === 'merge' ? mergeRefusalReason(message) : null;
+    return reason ? { kind: 'refused', reason } : { kind: 'failed', message };
+  }
+}
+
+export async function gitlabSetDraft(
+  provider: Pick<GitLabProvider, 'updatePullRequest' | 'fetchSingleMR'>,
+  path: string,
+  iid: number,
+  draft: boolean,
+  onError?: (message: string) => void
+): Promise<Written<'done' | 'failed'>> {
+  try {
+    const updated = await provider.updatePullRequest(path, iid, { draft });
+    return { kind: 'done', title: updated.title };
+  } catch (err) {
+    const message = errorMessage(err);
+    onError?.(message);
+    // glance retries its post-write read-back before giving up, and the edit
+    // has landed either way, so ask GitLab what is true before calling a
+    // write that worked a failure.
+    const after = await provider
+      .fetchSingleMR(path, iid, null)
+      .catch(() => null);
+    if (after?.draft === draft)
+      return { kind: 'done', title: after.title, recovered: true };
+    // The SDK says outright the edit reached GitLab and only describing it
+    // back failed; that outranks a recovery read that may itself have failed.
+    if (err instanceof ReadBackFailedError && err.writeApplied)
+      return { kind: 'done', recovered: true, verified: false };
+    return { kind: 'failed', message };
+  }
+}
+
+export async function gitlabPostNote(
+  mutator: Pick<NoteMutator, 'createNote'>,
+  projectId: number,
+  iid: number,
+  body: string
+): Promise<Written<'done' | 'failed'>> {
+  try {
+    const note = await mutator.createNote(projectId, iid, body);
+    return { kind: 'done', noteId: note.id };
+  } catch (err) {
+    return { kind: 'failed', message: errorMessage(err) };
+  }
 }

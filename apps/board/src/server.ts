@@ -12,7 +12,6 @@ import {
   MRDetailFetcher,
   NoteMutator,
   parseRepoId,
-  ReadBackFailedError,
 } from '@mattstack/glance';
 import type { MRDetail, PullRequest } from '@mattstack/glance';
 import {
@@ -169,6 +168,11 @@ import {
   gitlabRebaseDeps,
   type ForgeRebaseResult,
 } from './forge-rebase.ts';
+import {
+  gitlabMrWrite,
+  gitlabPostNote,
+  gitlabSetDraft,
+} from './forge-writes.ts';
 import { answerGate } from './gates/answer.ts';
 import {
   answeredWinner,
@@ -256,11 +260,7 @@ import {
   type BoardSkillKind,
 } from './manifest-bindings.ts';
 import { memoizeAsync } from './memoize-async.ts';
-import {
-  mergeRefusalReason,
-  parseMrActionBody,
-  runMrAction,
-} from './mr-action.ts';
+import { parseMrActionBody } from './mr-action.ts';
 import { forgeWord, mrRef, onGitHub } from './mr-ref.ts';
 import { attachOwnerTeams, refreshOwnerTeams } from './owner-teams.ts';
 import {
@@ -3658,26 +3658,26 @@ const httpServer = Bun.serve({
           const refused = requireOwnMr(mr);
           if (refused) return refused;
         }
-        try {
-          const projectId = parseRepoId(mr.repositoryId);
-          const mutator = new NoteMutator(gitlabOnly(config), gitlabToken);
-          const note = await mutator.createNote(projectId, mr.iid, draft.body);
-          writeDraft(mrUrl, kind, {
-            status: 'posted',
-            postedNoteId: note.id,
+        const result = await gitlabPostNote(
+          new NoteMutator(gitlabOnly(config), gitlabToken),
+          parseRepoId(mr.repositoryId),
+          mr.iid,
+          draft.body
+        );
+        if (result.kind === 'failed')
+          return new Response(`note post failed: ${result.message}`, {
+            status: 502,
           });
-          return new Response(
-            JSON.stringify({ ok: true, posted: true, noteId: note.id }),
-            {
-              headers: { 'content-type': 'application/json' },
-            }
-          );
-        } catch (err) {
-          return new Response(
-            `note post failed: ${err instanceof Error ? err.message : err}`,
-            { status: 502 }
-          );
-        }
+        writeDraft(mrUrl, kind, {
+          status: 'posted',
+          postedNoteId: result.noteId,
+        });
+        return new Response(
+          JSON.stringify({ ok: true, posted: true, noteId: result.noteId }),
+          {
+            headers: { 'content-type': 'application/json' },
+          }
+        );
       }
       case '/draft': {
         // Flip one of your own MRs between draft and ready. GitLab has no draft
@@ -3734,75 +3734,30 @@ const httpServer = Bun.serve({
             `could not derive a project path from "${parsed.mrUrl}"`,
             { status: 400 }
           );
-        try {
-          // glance owns the title mechanics (on GitLab the draft state IS the
-          // title prefix), reads the MR first since we send `draft` without a
-          // title, and reads it back after to confirm the flag actually landed --
-          // throwing instead of reporting a transition that did not happen.
-          const updated = await (
-            await gitlab()
-          ).updatePullRequest(path, parsed.iid, { draft });
-          // The cached snapshot still has the old state; drop it so the next
-          // /data.json reflects the flip instead of waiting out the cache TTL.
-          cache.invalidate();
-          return new Response(
-            JSON.stringify({ ok: true, draft, title: updated.title }),
-            {
-              headers: { 'content-type': 'application/json' },
-            }
-          );
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          console.error(
-            `draft update failed for !${parsed.iid} (draft=${draft}): ${message}`
-          );
-          // glance retries its post-write read-back, rejections and a draft flag
-          // that has not caught up alike (0.18.1, MAT-169), so getting here means
-          // those retries were exhausted rather than never tried. The edit landed
-          // before any of that ran either way, so ask GitLab what is actually true
-          // instead of reporting a write that worked as a failure.
-          const after = await (
-            await gitlab()
-          )
-            .fetchSingleMR(path, parsed.iid, null)
-            .catch(() => null);
-          if (after?.draft === draft) {
-            cache.invalidate();
-            return new Response(
-              JSON.stringify({
-                ok: true,
-                draft,
-                title: after.title,
-                recovered: true,
-              }),
-              {
-                headers: { 'content-type': 'application/json' },
-              }
-            );
-          }
-          // The read above is a guess at what happened; this is the SDK telling
-          // us outright that the edit reached GitLab and only describing it back
-          // failed (glance 0.19.0). That outranks a recovery read which may
-          // itself have just failed -- the flip is applied, so 502-ing here
-          // would report a succeeded write as a failure, which is the whole bug.
-          if (err instanceof ReadBackFailedError && err.writeApplied) {
-            cache.invalidate();
-            return new Response(
-              JSON.stringify({
-                ok: true,
-                draft,
-                recovered: true,
-                verified: false,
-              }),
-              {
-                headers: { 'content-type': 'application/json' },
-              }
-            );
-          }
-          return new Response(`gitlab update failed: ${message}`, {
+        const result = await gitlabSetDraft(
+          await gitlab(),
+          path,
+          parsed.iid,
+          draft,
+          message =>
+            console.error(
+              `draft update failed for !${parsed.iid} (draft=${draft}): ${message}`
+            )
+        );
+        if (result.kind === 'failed')
+          return new Response(`gitlab update failed: ${result.message}`, {
             status: 502,
           });
-        }
+        // The cached snapshot still has the old state; drop it so the next
+        // /data.json reflects the flip instead of waiting out the cache TTL.
+        cache.invalidate();
+        const { title, recovered, verified } = result;
+        return new Response(
+          JSON.stringify({ ok: true, draft, title, recovered, verified }),
+          {
+            headers: { 'content-type': 'application/json' },
+          }
+        );
       }
       case '/mr/refresh': {
         // Re-read one MR from GitLab into the daemon's store. The store's
@@ -4040,30 +3995,32 @@ const httpServer = Bun.serve({
             `could not derive a project path from "${parsed.mrUrl}"`,
             { status: 400 }
           );
-        try {
-          await runMrAction(await gitlab(), path, parsed.iid, parsed.action);
-          // The cached snapshot predates the action; drop it so the next
-          // /data.json reflects it instead of waiting out the cache TTL.
-          cache.invalidate();
-          return new Response(JSON.stringify({ ok: true }), {
+        const result = await gitlabMrWrite(
+          await gitlab(),
+          path,
+          parsed.iid,
+          parsed.action,
+          message =>
+            console.error(
+              `mr action ${parsed.action} failed for !${parsed.iid}: ${message}`
+            )
+        );
+        if (result.kind === 'refused')
+          return new Response(JSON.stringify({ reason: result.reason }), {
+            status: 409,
             headers: { 'content-type': 'application/json' },
           });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          console.error(
-            `mr action ${parsed.action} failed for !${parsed.iid}: ${message}`
+        if (result.kind === 'failed')
+          return new Response(
+            `gitlab ${parsed.action} failed: ${result.message}`,
+            { status: 502 }
           );
-          const reason =
-            parsed.action === 'merge' ? mergeRefusalReason(message) : null;
-          if (reason)
-            return new Response(JSON.stringify({ reason }), {
-              status: 409,
-              headers: { 'content-type': 'application/json' },
-            });
-          return new Response(`gitlab ${parsed.action} failed: ${message}`, {
-            status: 502,
-          });
-        }
+        // The cached snapshot predates the action; drop it so the next
+        // /data.json reflects it instead of waiting out the cache TTL.
+        cache.invalidate();
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { 'content-type': 'application/json' },
+        });
       }
       case '/gate/answer': {
         // Answer a gate from the board UI, addressed by its own id -- an MR
