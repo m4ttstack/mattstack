@@ -234,22 +234,31 @@ describe("project-mrs on GitHub", () => {
   const tracking = () => ({ [REPO]: { mode: "live" as const, caches: ["branches", "project-mrs"] as any } });
   const log = { warn() {}, info() {}, error() {}, debug() {} } as any;
 
-  test("mr:by-branch asks fetchPullRequestByBranch and returns the PR without storing it", async () => {
+  test("mr:by-branch makes one batched read for every missed branch and stores nothing", async () => {
     const store = tmpStore();
     const asked: unknown[] = [];
-    const provider = { fetchPullRequestByBranch: async (...args: unknown[]) => { asked.push(args); return prOf(7, { sourceBranch: "feat" }); } };
+    const provider = {
+      fetchPullRequestsByBranches: async (...args: unknown[]) => {
+        asked.push(args);
+        return new Map([["feat", prOf(7, { sourceBranch: "feat" })], ["gone", null], ["other", prOf(8, { sourceBranch: "other" })]]);
+      },
+      fetchPullRequestByBranch: async () => { throw new Error("per-branch read made"); },
+    };
     const h = createProjectMRsHandlers({ repoIndex: () => ({ [REPO]: "/tmp/repo" }), log }, () => {}, {
       store, tracking, getContext: async () => ({ forge: "github", provider, projectPath: "o/r", projectId: null }),
     });
-    const res = await h["mr:by-branch"]({ repoName: REPO, branches: ["feat", "gone"] }) as any;
+    const res = await h["mr:by-branch"]({ repoName: REPO, branches: ["feat", "gone", "other", "b4", "b5"] }) as any;
     expect(res.ok).toBe(true);
     expect(res.data.byBranch.feat).toEqual({ pr: prOf(7, { sourceBranch: "feat" }), source: "forge" });
-    expect(asked).toEqual([["o/r", "feat", "all"], ["o/r", "gone", "all"]]);
+    expect(res.data.byBranch.other).toEqual({ pr: prOf(8, { sourceBranch: "other" }), source: "forge" });
+    expect(res.data.byBranch.gone).toBeNull();
+    expect(res.data.byBranch.b4).toBeNull();
+    expect(asked).toEqual([["o/r", ["feat", "gone", "other", "b4", "b5"], "all"]]);
     expect(store.read(REPO)).toBeUndefined();
   });
 
-  test("mr:by-branch reports a branch with no PR as absent", async () => {
-    const provider = { fetchPullRequestByBranch: async () => null };
+  test("mr:by-branch reports a branch the batched read maps to null as absent", async () => {
+    const provider = { fetchPullRequestsByBranches: async () => new Map([["gone", null]]) };
     const h = createProjectMRsHandlers({ repoIndex: () => ({ [REPO]: "/tmp/repo" }), log }, () => {}, {
       store: tmpStore(), tracking, getContext: async () => ({ forge: "github", provider, projectPath: "o/r", projectId: null }),
     });
@@ -262,7 +271,7 @@ describe("project-mrs on GitHub", () => {
 
   test("mr:by-branch fails the call on a GitHub rate limit, naming the retry time", async () => {
     const limited = new RateLimitedError("GitHub secondary rate limit hit on GET /repos/o/r/pulls", { kind: "secondary", resetAt: null, retryAfterMs: 60000, operation: "GET /repos/o/r/pulls" });
-    const provider = { fetchPullRequestByBranch: async () => { throw limited; } };
+    const provider = { fetchPullRequestsByBranches: async () => { throw limited; } };
     const h = byBranchWith({ getContext: async () => ({ forge: "github", provider, projectPath: "o/r", projectId: null }) });
     const res = await h["mr:by-branch"]({ repoName: REPO, branches: ["feat", "other"] }) as any;
     expect(res.ok).toBe(false);
@@ -271,7 +280,7 @@ describe("project-mrs on GitHub", () => {
   });
 
   test("mr:by-branch fails the call when a GitHub read throws", async () => {
-    const provider = { fetchPullRequestByBranch: async () => { throw new Error("socket hang up"); } };
+    const provider = { fetchPullRequestsByBranches: async () => { throw new Error("socket hang up"); } };
     const h = byBranchWith({ getContext: async () => ({ forge: "github", provider, projectPath: "o/r", projectId: null }) });
     expect(await h["mr:by-branch"]({ repoName: REPO, branches: ["feat"] })).toEqual({ ok: false, error: "Error: socket hang up" });
   });
