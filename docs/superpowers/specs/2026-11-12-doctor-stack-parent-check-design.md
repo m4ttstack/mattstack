@@ -34,7 +34,9 @@ fills. What is still missing is the doctor that runs with no fill.
 ## The gap
 
 The generic board doctor (`apps/board/skills-src/doctor/`) runs for any
-repo with no domain skill bound, which on this machine is every GitHub repo. Its
+repo with no domain skill bound, which on this machine is every GitHub
+repo (once the entry stop below is lifted) and every GitLab repo with
+no pack. Its
 Diagnose and rebase stage (`diagnose.md`) sends an MR with merge
 conflicts straight to `mr_rebase` once `clean-api-rebase` is licensed.
 It never asks whether other MRs target the branch. On a stack parent,
