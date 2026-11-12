@@ -84,7 +84,7 @@ flowchart TB
     run_budget_mr_recalls[/"run_budget {key: ship:mr-create-recalls, limit: 2, stage}"/]
     mr_create_recalls{mr-create-recalls spent?}
     mr_update_squash[/"mr_update {mrUrl, squash: true}"/]
-    stop_gitlab_shortcut[STOP: forge goes through gitlab_get, the read tools and mr_*]:::stop
+    stop_gitlab_shortcut[STOP: forge moves go through gitlab_get, the read tools and mr_*]:::stop
     run_field_set_mr[/"run_field_set {key: mr, value: <url>, stage}"/]
     run_field_get_evidence[/"run_field_get {key: evidence}"/]
     browser_case{Browser screenshot for this case?}

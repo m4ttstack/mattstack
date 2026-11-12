@@ -1450,8 +1450,8 @@ Take "Off-script step" with this question. Label: `pending comments block
 the review of !<iid>: <count> pending`. Context: the count and the first
 lines the result gave, quoted, and that these pending comments are this
 account's own, started in the forge (pending comments on GitLab, a pending review on
-GitHub) or left by an earlier submit that failed, which a submit would publish along with the review. Then the
-summary and every comment in full, for a take.
+GitHub) or left by an earlier submit that failed, which a submit would
+publish along with the review. Then the summary and every comment in full, for a take.
 
 | Value | Label | Description |
 |---|---|---|

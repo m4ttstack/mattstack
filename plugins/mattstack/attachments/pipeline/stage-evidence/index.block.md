@@ -147,8 +147,8 @@ flowchart TB
     forge_host -->|GitLab or GitHub| mr_for_branch
     forge_host -->|another host: ship attaches| record_evidence
     mr_for_branch --> open_mr_on_branch
-    open_mr_on_branch -->|"yes (a PR's state is OPEN): keep its url"| gate_evidence_attach
-    open_mr_on_branch -->|no, or a PR not OPEN: ship attaches later| record_evidence
+    open_mr_on_branch -->|"yes: keep its url"| gate_evidence_attach
+    open_mr_on_branch -->|no: ship attaches later| record_evidence
     gate_evidence_attach --> attach_answer
     attach_answer -->|attach now, or hand back the markdown| record_evidence
     attach_answer -->|iterate, or hide: revise each drawn board their words name, re-ask with their note| gate_evidence_attach

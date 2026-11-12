@@ -488,7 +488,7 @@ Take "Off-script step" with this question. Label: `reply to PR comment
 | `hand back: leave PR comment <threadId> unposted and post the rest (mr_comment refused, round <k>)` | Skip this reply | I leave this thread unposted and carry on with the rest. |
 
 A take counts the reply as posted, marks the thread `posted by hand`, and
-moves to the next thread. Iterate passes `Off-script rounds = 2
+runs the thread's `resolve:` pick, which a PR-level row skips. Iterate passes `Off-script rounds = 2
 (mr_comment)?` for this thread before posting again. Hand back, gate
 unavailable and a spent round budget leave this thread unposted, marked
 `reply handed back`, and move to the next thread; it counts neither
