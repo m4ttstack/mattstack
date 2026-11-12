@@ -607,7 +607,7 @@ it into the team pack. When a team pack `extends` a base, each compile:
   that holds a `SKILL.md` and is not a fill (no `metadata.provides`), plus
   every fill that only `board:*` bindings name, to the
   same path in the team pack;
-- writes `compiled.json` (the base, its version, the files) into each
+- writes `compiled.json` (the base and the files) into each
   copied folder: that file marks compile's output, which the next compile
   rewrites and
   `rt_verb {args: ["skills", "check", "--pack", "widgets"]}` reports as
@@ -722,8 +722,9 @@ has it.
 
 Hand to `mattstack:editing-skills`: bump, commit, push, check and sync each
 pack (`rt_verb {args: ["skills", "sync", "--pack", "<pack>"]}`), then
-`/reload-plugins`. The version bump changes every compiled skill's id, so
-the pack recompiles after the bump and before the commit. Every hand-off
+`/reload-plugins`. The version bump changes the versions in
+`pack/compiled.lock.json`, so the pack recompiles after the bump and
+before the commit. Every hand-off
 enters editing-skills at `What changed?`, with no RED baseline there:
 
 - A round that wrote or revised a skill or fill already passed its RED and

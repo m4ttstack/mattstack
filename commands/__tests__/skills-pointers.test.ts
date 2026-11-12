@@ -9,7 +9,7 @@ import { isEmittedAttachmentDir } from "../../lib/skills/base-attachments.ts";
 import { closeUnits, keyFiles, pointerErrorsIn, stageReadsOf, withMapFile, type UnitPointers } from "../../lib/skills/unit-maps.ts";
 import { openingLine } from "../../lib/skills/pointers.ts";
 import type { CompiledFile } from "../../lib/skills/types.ts";
-import { POINTER_KEYS_MIN_ENGINE } from "../../lib/skills/team-params.ts";
+import { VERSIONLESS_IDS_MIN_ENGINE } from "../../lib/skills/team-params.ts";
 import { compareVersions } from "../../lib/skills/installed-plugins.ts";
 import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
 import { captureSkills, runExpectingCleanExit } from "../../lib/skills/__tests__/helpers.ts";
@@ -157,20 +157,20 @@ describe("compile writes keys, ids and closure maps", () => {
     expect((await compile(f)).errors).toEqual([]);
 
     const lines = read(f, "skills/work/SKILL.md").split("\n");
-    expect(lines.slice(lines.indexOf(HEADER_COMMENT) + 1, lines.indexOf(HEADER_COMMENT) + 3)).toEqual(["", openingLine("widgets@0.4.2:work")]);
+    expect(lines.slice(lines.indexOf(HEADER_COMMENT) + 1, lines.indexOf(HEADER_COMMENT) + 3)).toEqual(["", openingLine("widgets:work")]);
 
     for (const rel of ["skills/work", "skills/stage-x", "attachments/stage-plan", "attachments/receive-review", "attachments/tools/widget"]) {
       for (const file of mdFiles(join(f.packDir, rel))) expect(bodyOf(readFileSync(file, "utf8"))).not.toContain(TOKEN);
     }
-    expect(read(f, "skills/work/references/docs/guide.md")).toStartWith(openingLine("widgets@0.4.2:work"));
-    expect(read(f, "attachments/tools/widget/SKILL.md")).toContain(`---\n${openingLine("widgets@0.4.2:widget")}\n`);
+    expect(read(f, "skills/work/references/docs/guide.md")).toStartWith(openingLine("widgets:work"));
+    expect(read(f, "attachments/tools/widget/SKILL.md")).toContain(`---\n${openingLine("widgets:widget")}\n`);
   });
 
   test("a vendored parts .md is keyed from where it lands", async () => {
     const f = seed();
     await compile(f);
     const parts = partsName(f);
-    expect(read(f, `skills/stage-x/parts/${parts}/notes.md`)).toBe(`${openingLine("widgets@0.4.2:stage-x")}\n\nRun \`@stage-x/parts/${parts}/y.sh\` first.\n`);
+    expect(read(f, `skills/stage-x/parts/${parts}/notes.md`)).toBe(`${openingLine("widgets:stage-x")}\n\nRun \`@stage-x/parts/${parts}/y.sh\` first.\n`);
   });
 
   test("work's map covers both stages and the grouped base copy, and carries the public stage's script", async () => {
@@ -178,10 +178,10 @@ describe("compile writes keys, ids and closure maps", () => {
     await compile(f);
     const parts = partsName(f);
     const work = map(f, "skills/work");
-    expect(work.id).toBe("widgets@0.4.2:work");
+    expect(work.id).toBe("widgets:work");
     expect(work.dir).toBe("skills/work");
-    expect(work.covers[0]).toBe("widgets@0.4.2:work");
-    expect(work.covers).toEqual(expect.arrayContaining(["widgets@0.4.2:stage-plan", "widgets@0.4.2:stage-x", "widgets@0.4.2:widget", "widgets@0.4.2:receive-review"]));
+    expect(work.covers[0]).toBe("widgets:work");
+    expect(work.covers).toEqual(expect.arrayContaining(["widgets:stage-plan", "widgets:stage-x", "widgets:widget", "widgets:receive-review"]));
     expect(work.keys[`stage-x/parts/${parts}/y.sh`]).toBe(`skills/stage-x/parts/${parts}/y.sh`);
     expect(work.keys["stage-plan/SKILL.md"]).toBe("attachments/stage-plan/SKILL.md");
     expect(work.keys["work/references/docs/guide.md"]).toBe("skills/work/references/docs/guide.md");
@@ -200,7 +200,7 @@ describe("compile writes keys, ids and closure maps", () => {
   test("a stage's map holds only its own closure", async () => {
     const f = seed();
     await compile(f);
-    expect(map(f, "attachments/stage-plan")).toEqual({ id: "widgets@0.4.2:stage-plan", dir: "attachments/stage-plan", covers: ["widgets@0.4.2:stage-plan"], keys: {} });
+    expect(map(f, "attachments/stage-plan")).toEqual({ id: "widgets:stage-plan", dir: "attachments/stage-plan", covers: ["widgets:stage-plan"], keys: {} });
   });
 
   test("a base copy that reads a verb by path covers that verb, and keeps its provenance", async () => {
@@ -208,11 +208,10 @@ describe("compile writes keys, ids and closure maps", () => {
     await compile(f);
     expect(map(f, "attachments/tools/widget")).toEqual({
       base: "acme-base",
-      version: "0.1.0",
       files: ["SKILL.md"],
-      id: "widgets@0.4.2:widget",
+      id: "widgets:widget",
       dir: "attachments/tools/widget",
-      covers: ["widgets@0.4.2:widget", "widgets@0.4.2:receive-review"],
+      covers: ["widgets:widget", "widgets:receive-review"],
       keys: {
         "receive-review/SKILL.md": "attachments/receive-review/SKILL.md",
         "receive-review/scripts/gate-ctx.sh": "attachments/receive-review/scripts/gate-ctx.sh",
@@ -239,12 +238,12 @@ describe("compile writes keys, ids and closure maps", () => {
     expect(tools("skills/stage-x/SKILL.md")).toEqual([`  - "Bash(bash ${TOKEN}/../../skills/stage-x/parts/${parts}/y.sh:*)"`]);
     expect(tools("attachments/receive-review/SKILL.md")).toEqual([`  - "Bash(bash ${TOKEN}/scripts/gate-ctx.sh:*)"`]);
     const floor = (JSON.parse(read(f, "pack/requires.json")) as { minEngine: string }).minEngine;
-    expect(compareVersions(floor, POINTER_KEYS_MIN_ENGINE)).toBeGreaterThanOrEqual(0);
+    expect(compareVersions(floor, VERSIONLESS_IDS_MIN_ENGINE)).toBeGreaterThanOrEqual(0);
   });
 });
 
 describe("the opening line goes only where a key is", () => {
-  const site = { id: "widgets@0.4.2:work", dir: "skills/work", units: { work: "skills/work", "stage-plan": "attachments/stage-plan" }, writtenElsewhere: () => false };
+  const site = { id: "widgets:work", dir: "skills/work", units: { work: "skills/work", "stage-plan": "attachments/stage-plan" }, writtenElsewhere: () => false };
   const skillMd = `---\nname: work\n---\n\n${HEADER_COMMENT}\n\n# Work\n`;
   const textOf = (files: CompiledFile[], path: string) => {
     const file = files.find((f) => f.path === path);
@@ -309,14 +308,14 @@ describe("check reads keys and stamps", () => {
     expect(payload.sourcePointerErrors ?? []).toEqual([]);
   });
 
-  test("a plugin.json bumped after the compile makes the verbs out of date", async () => {
+  test("a plugin.json bumped after the compile leaves the verbs current, since ids carry no version", async () => {
     const f = seed();
     await compile(f);
     writeFile(join(f.packDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "0.4.3" }));
     const payload = await check(f);
-    expect(payload.drift).toBe(true);
-    expect(payload.verbs.filter((row) => row.status === "stale").map((row) => row.name).sort()).toEqual(["receive-review", "stage-plan", "stage-x", "work"]);
-    expect(payload.attachments.find((row) => row.name === "tools/widget")?.status).toBe("stale");
+    expect(payload.drift).toBe(false);
+    expect(payload.verbs.filter((row) => row.status === "stale")).toEqual([]);
+    expect(payload.attachments.find((row) => row.name === "tools/widget")?.status).not.toBe("stale");
   });
 
   async function oneRow(f: Fixture, code: string): Promise<void> {
@@ -447,7 +446,7 @@ describe("check's source scan", () => {
     writeFile(engine, readFileSync(engine, "utf8").replace("Then {{verb.path:stage-x}}.", "Then {{verb.path:nope}}."));
     const payload = await check(f);
     expect(payload.pointerConflicts).toEqual([
-      'pointer key @stage-x/SKILL.md has two targets in work\'s closure: widgets@0.4.2:work names "attachments/stage-x/SKILL.md" and widgets@0.4.2:receive-review names "skills/stage-x/SKILL.md"',
+      'pointer key @stage-x/SKILL.md has two targets in work\'s closure: widgets:work names "attachments/stage-x/SKILL.md" and widgets:receive-review names "skills/stage-x/SKILL.md"',
     ]);
     expect(payload.sourcePointerErrors).toEqual([]);
     const seen = syncCheckOf(payload);
@@ -464,7 +463,7 @@ describe("refusals", () => {
       { leaf: "stage-plan", dir: "attachments/stage-plan", keys: { "shared/x.sh": "attachments/stage-plan/x.sh" }, reads: [] },
       { leaf: "stage-x", dir: "skills/stage-x", keys: { "shared/x.sh": "skills/stage-x/x.sh" }, reads: [] },
     ];
-    expect(() => closeUnits(units, (leaf) => `widgets@0.4.2:${leaf}`, () => null)).toThrow(/stage-plan.*stage-x|stage-x.*stage-plan/);
+    expect(() => closeUnits(units, (leaf) => `widgets:${leaf}`, () => null)).toThrow(/stage-plan.*stage-x|stage-x.*stage-plan/);
   });
 
   test("a scoped compile against a sibling compiled from another side fails, naming both units", async () => {
@@ -473,7 +472,7 @@ describe("refusals", () => {
     writeFile(join(f.packDir, "pack", "surface.jsonc"), JSON.stringify({ public: ["work"] }));
     const { exitCode, errors } = await compile(f, "--verb", "work");
     expect(exitCode).toBe(1);
-    expect(errors.join("\n")).toContain("pointer key @stage-x/SKILL.md has two targets in work's closure: widgets@0.4.2:work names \"attachments/stage-x/SKILL.md\" and widgets@0.4.2:receive-review names \"skills/stage-x/SKILL.md\"");
+    expect(errors.join("\n")).toContain("pointer key @stage-x/SKILL.md has two targets in work's closure: widgets:work names \"attachments/stage-x/SKILL.md\" and widgets:receive-review names \"skills/stage-x/SKILL.md\"");
     expect(errors.join("\n")).toContain("Compile the whole pack, with no --verb: rt skills compile");
   });
 
@@ -491,6 +490,8 @@ describe("refusals", () => {
     ["JSON it cannot read", "{ name: widgets", "cannot be read as JSON"],
     ["an uppercase name", JSON.stringify({ name: "Widgets", version: "0.4.2" }), 'has the name "Widgets", which a skill id cannot carry'],
     ["a prerelease version", JSON.stringify({ name: "widgets", version: "1.0.0-rc.1" }), 'has the version "1.0.0-rc.1", which a skill id cannot carry'],
+    ["a version in the name", JSON.stringify({ name: "widgets@1.0", version: "2.0.0" }), 'has the name "widgets@1.0", which a skill id cannot carry'],
+    ["a skills: prefix in the name", JSON.stringify({ name: "skills:board", version: "2.0.0" }), 'has the name "skills:board", which a skill id cannot carry'],
   ] as const) {
     test(`a plugin.json with ${label} refuses to compile, naming the file and the value`, async () => {
       const f = seed();

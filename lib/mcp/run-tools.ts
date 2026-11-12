@@ -40,7 +40,7 @@ export function splitFlags(flags: string): { ok: true; args: string[] } | { ok: 
 }
 
 // The set run-start's own CLI parses (commands/runs-write.ts) minus the ones
-// this tool appends itself (--pack-dirs, --ticket, --spawned-by): a flags
+// this tool appends itself (--pack-dirs, --skill-dir, --ticket, --spawned-by): a flags
 // string that named one of those would let its value win over the tool's
 // own append, since flagValue resolves the FIRST occurrence in argv.
 const RUN_START_FLAGS = new Set(["--repo", "--work-type", "--pipeline", "--run-id", "--mattstack-sha", "--mattstack-dirty", "--pack-sha"]);
@@ -75,7 +75,9 @@ function prepareStart(input: Record<string, unknown>, deps: RunToolDeps): Prepar
   let packRoot: string;
   try { packRoot = packRootFrom(skillDir, deps.realpath); } catch { return { error: `skillDir ${skillDir} does not resolve` }; }
   if (!deps.isPackRoot(packRoot)) return { error: `skillDir ${skillDir} does not resolve to a pack (no .claude-plugin/plugin.json under ${packRoot})` };
-  const args = [...split.args, "--pack-dirs", packRoot];
+  // Spelled under the real pack root, so the skill's target and the cache folders above it read from one path.
+  const abs = resolve(skillDir);
+  const args = [...split.args, "--pack-dirs", packRoot, "--skill-dir", join(packRoot, basename(dirname(abs)), basename(abs))];
   if (typeof input.ticket === "string") args.push("--ticket", input.ticket);
   if (typeof input.spawnedBy === "string") args.push("--spawned-by", input.spawnedBy);
   return { args, packRoot };

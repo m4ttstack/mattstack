@@ -11,6 +11,7 @@ import {
   type RowHandlers,
   type RunnerDeps,
 } from '../action-runner.ts';
+import { runLaunchFlow } from '../launch-flow.ts';
 
 const ok = (body: ActionResult['body'] = null): ActionResult => ({
   ok: true,
@@ -569,13 +570,13 @@ test('a bulk doctor skips MRs a live work run owns and names them', async () => 
   ]);
 });
 
-test('a bulk local rebase skips MRs a live work run owns too', async () => {
+test('a bulk rebase skips MRs a live work run owns too', async () => {
   const { deps, events } = fakeDeps();
   deps.activeRun = (_flow, m) =>
     m.iid === 2 ? { runId: 'run-7', stage: 'implement', name: 'Pip' } : null;
   await runBulk(
     {
-      request: { kind: 'launch', flow: 'rebase-local' },
+      request: { kind: 'launch', flow: 'rebase' },
       targets: [mr(1), mr(2)],
       selected: 2,
     },
@@ -583,8 +584,83 @@ test('a bulk local rebase skips MRs a live work run owns too', async () => {
     deps
   );
   expect(events).toEqual([
-    'launch rebase-local !1 {"quiet":true}',
-    "toast local rebase ran on !1 · skipped !2, Pip's run is active",
+    'launch rebase !1 {"quiet":true}',
+    "toast rebase ran on !1 · skipped !2, Pip's run is active",
+    'reload false',
+  ]);
+});
+
+test('a bulk rebase launches only the targets and says how many it skipped', async () => {
+  const { deps, events } = fakeDeps();
+  await runBulk(
+    {
+      request: { kind: 'launch', flow: 'rebase' },
+      targets: [mr(1), mr(3)],
+      selected: 3,
+    },
+    {},
+    deps
+  );
+  expect(events).toEqual([
+    'launch rebase !1 {"quiet":true}',
+    'launch rebase !3 {"quiet":true}',
+    "toast rebase ran on !1, !3 · 1 didn't need it",
+    'reload false',
+  ]);
+});
+
+test('a bulk rebase counts a stopped reply as failed and names its reason', async () => {
+  const { deps, events } = fakeDeps();
+  deps.launch = (_flow, m) =>
+    runLaunchFlow(
+      {
+        post: async () =>
+          m.iid === 2 ? ok({ stopped: 'tree is dirty' }) : ok({ synced: 'x' }),
+        setQueued: () => {},
+        rollback: () => {},
+        addToast: () => {},
+        startToast: () => ({ done: () => {}, fail: () => {} }),
+        reload: () => {},
+        verbing: 'rebasing',
+        noun: 'rebase',
+        started: 'doctor called on the conflicts',
+        stoppedMessage: r =>
+          r.body?.stopped ? `couldn't rebase: ${r.body.stopped}` : undefined,
+      },
+      m,
+      {}
+    );
+  await runMany({ kind: 'launch', flow: 'rebase' }, [mr(1), mr(2)], deps);
+  expect(events).toEqual([
+    "toast rebase ran on !1 · couldn't launch rebase for !2 (tree is dirty)",
+    'reload false',
+  ]);
+});
+
+test('a bulk review counts a refused reply as failed and names its reason', async () => {
+  const { deps, events } = fakeDeps();
+  deps.launch = (_flow, m) =>
+    runLaunchFlow(
+      {
+        post: async () =>
+          m.iid === 2 ? ok({ refused: 'the acme plugin is turned off' }) : ok(),
+        setQueued: () => {},
+        rollback: () => {},
+        addToast: () => {},
+        startToast: () => ({ done: () => {}, fail: () => {} }),
+        reload: () => {},
+        verbing: 'launching review',
+        noun: 'review',
+        started: 'review started',
+      },
+      m,
+      {}
+    );
+  await runMany({ kind: 'launch', flow: 'review' }, [mr(1), mr(2)], deps);
+  expect(events).toEqual([
+    expect.stringMatching(
+      /^toast .* on !1 · couldn't launch review for !2 \(the acme plugin is turned off\)$/
+    ),
     'reload false',
   ]);
 });

@@ -163,6 +163,12 @@ import {
   type FlockMenu,
 } from './flock-open.ts';
 import { focusPane } from './focus-pane.ts';
+import {
+  forgeRebase,
+  githubRebaseDeps,
+  gitlabRebaseDeps,
+  type ForgeRebaseResult,
+} from './forge-rebase.ts';
 import { answerGate } from './gates/answer.ts';
 import {
   answeredWinner,
@@ -255,7 +261,7 @@ import {
   parseMrActionBody,
   runMrAction,
 } from './mr-action.ts';
-import { mrRef, onGitHub } from './mr-ref.ts';
+import { forgeWord, mrRef, onGitHub } from './mr-ref.ts';
 import { attachOwnerTeams, refreshOwnerTeams } from './owner-teams.ts';
 import {
   acceptAsk,
@@ -340,6 +346,7 @@ import {
   slackMatchPayload,
   type SlackMatch,
 } from './peer/slack-match.ts';
+import { runRebaseChain } from './rebase-chain.ts';
 import { launchReopen, type ReopenIo } from './reopen-launch.ts';
 import {
   attachRespondRounds,
@@ -629,6 +636,67 @@ async function gitlab(): Promise<GitLabProvider> {
   if (!token) throw new Error('gitlab token not configured');
   gitlabProvider ??= new GitLabProvider(gitlabOnly(config), token);
   return gitlabProvider;
+}
+
+/** The rebase chain running on each MR, for POST /rebase/cancel. */
+const REBASE_ABORTS = new Map<string, AbortController>();
+
+/** A poll wait that a cancel cuts short. */
+function abortableSleep(signal: AbortSignal): (ms: number) => Promise<void> {
+  return ms =>
+    new Promise(resolve => {
+      if (signal.aborted) return resolve();
+      const done = () => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', done);
+        resolve();
+      };
+      const timer = setTimeout(done, ms);
+      signal.addEventListener('abort', done, { once: true });
+    });
+}
+
+/** Step 1 of the rebase chain: the MR's own forge rebases it. A cancel
+    answers at once, even while a forge read is still out. */
+async function rebaseOnForge(
+  mr: BoardMR,
+  signal: AbortSignal,
+  onReadError: (message: string | null) => void
+): Promise<ForgeRebaseResult> {
+  const failed = (reason: string): ForgeRebaseResult => ({
+    kind: 'failed',
+    reason,
+    conflicts: false,
+  });
+  let deps: ReturnType<typeof gitlabRebaseDeps>;
+  if (onGitHub(mr)) {
+    const repoName = mr.rtRepo ? repoIdentityField(mr.rtRepo) : null;
+    if (!repoName) return failed('this MR has no rt repo');
+    deps = githubRebaseDeps(repoName, mr.iid);
+  } else {
+    const path = mr.webUrl ? projectPathFromWebUrl(mr.webUrl, config) : null;
+    if (!path) return failed('this MR has no GitLab project');
+    try {
+      deps = gitlabRebaseDeps(await gitlab(), path, mr.iid);
+    } catch (err) {
+      return failed(err instanceof Error ? err.message : String(err));
+    }
+  }
+  const cancelled = new Promise<ForgeRebaseResult>(resolve => {
+    if (signal.aborted) resolve({ kind: 'cancelled' });
+    signal.addEventListener('abort', () => resolve({ kind: 'cancelled' }), {
+      once: true,
+    });
+  });
+  return Promise.race([
+    forgeRebase({
+      ...deps,
+      signal,
+      sleep: abortableSleep(signal),
+      onReadError,
+    }),
+    cancelled,
+  ]);
 }
 
 // Daemon-backed gate rows for the board-row read (attachGates below). Fed by
@@ -955,10 +1023,9 @@ function resolveLaunchSkillFor(
   return resolveLaunchSkill(kind, mrUrl, config, packForLaunch(config, tabId));
 }
 
-/** The board tabs a doctor launch on this MR reaches a domain skill from
-    (the "rebase locally" item needs one to rebase in a checkout). Every MR
-    of a project gets the same answer, so `memo` reads each project's pack
-    files once per request. */
+/** The board tabs a doctor launch on this MR reaches a domain skill from.
+    Every MR of a project gets the same answer, so `memo` reads each
+    project's pack files once per request. */
 function doctorTabs(
   webUrl: string | null | undefined,
   memo: Map<string, string[]>
@@ -3198,19 +3265,17 @@ const httpServer = Bun.serve({
           if (dedup.kind === 'refused')
             return new Response(dedup.reason, { status: 409 });
         }
+        // A running rebase chain's row carries no tabId, so dedup lets an
+        // ordinary launch through.
+        if (parsed.mode !== 'rebase' && LOCAL_SYNCS.has(parsed.mrUrl))
+          return new Response('a sync is already running on this MR', {
+            status: 409,
+          });
         const doctorSkill = resolveLaunchSkillFor(
           'doctor',
           parsed.mrUrl,
           boardTabId
         );
-        // A rebase-only doctor with no domain skill has nothing that can
-        // rebase in a checkout, and its empty allowlist rules out GitLab's
-        // own rebase too, so it could only end in an error.
-        if (parsed.mode === 'rebase' && !doctorSkill)
-          return new Response(
-            'no doctor skill is set up for this board tab, so nothing can rebase in a checkout',
-            { status: 409 }
-          );
         const statePath = doctorFilePath(parsed.mrUrl);
         const doctorRefusal = await skillBindRefusal(doctorSkill);
         if (doctorRefusal) {
@@ -3226,185 +3291,265 @@ const httpServer = Bun.serve({
           });
         }
         let pausedTree: string | undefined;
+        // The rebase chain's lock stays held through its doctor hand-off;
+        // the row has no tabId until the launch settles, so dedup cannot
+        // stop a second doctor in that window.
+        let handOff = false;
         if (parsed.mode === 'rebase') {
           if (LOCAL_SYNCS.has(parsed.mrUrl))
             return new Response('a sync is already running on this MR', {
               status: 409,
             });
           LOCAL_SYNCS.add(parsed.mrUrl);
+          // The forge wait has no clock, so it can outlast Bun's 60s idle
+          // timeout.
+          server.timeout(req, 0);
+          const abort = new AbortController();
+          REBASE_ABORTS.set(parsed.mrUrl, abort);
           const endLive = startLiveSync(parsed.mrUrl, repo, mr.sourceBranch);
           sseSyncStart(parsed.mrUrl);
           try {
             const priorPaused = existing?.pausedTree;
+            const skipForge = !!mr.blockers?.hasConflicts;
             writeDoctorState(statePath, {
               mrUrl: parsed.mrUrl,
               iid: parsed.iid,
-              status: 'syncing',
+              status: skipForge ? 'syncing' : 'forge-rebasing',
               origin: 'manual',
               boardTabId: boardTabId ?? '',
               ...FRESH_SYNC_ROW,
               syncLog: [],
+              forge: null as unknown as undefined,
             });
-            const outcome = await syncBranchLocally(
-              repo,
-              mr.sourceBranch,
-              priorPaused
-            );
-            // The reply's log is whole; streamed lines can land after it.
-            const syncLog = outcome.log.length
-              ? outcome.log
-              : (LIVE_SYNC_LOGS.get(parsed.mrUrl) ?? []);
-            if (outcome.kind === 'clean') {
-              writeDoctorState(statePath, {
-                status: 'synced',
-                message: outcome.message,
-                pausedTree: null as unknown as undefined,
-                syncLog,
-                pipelineAtSync:
-                  mr.pipeline?.id ?? (null as unknown as undefined),
-              });
-              return Response.json({ ok: true, synced: outcome.message });
-            }
-            if (outcome.kind === 'stopped') {
-              writeDoctorState(statePath, {
-                status: 'sync-stopped',
-                message: outcome.message,
-                pausedTree: null as unknown as undefined,
-                syncLog,
-              });
-              return Response.json({ ok: true, stopped: outcome.message });
-            }
-            pausedTree = outcome.tree;
-            writeDoctorState(statePath, {
-              status: 'queued',
-              pausedTree,
-              syncLog,
+            const end = await runRebaseChain({
+              forge: () =>
+                rebaseOnForge(mr, abort.signal, message => {
+                  // A read still out when a cancel ended the chain must not
+                  // reopen the stopped row.
+                  if (abort.signal.aborted) return;
+                  writeDoctorState(statePath, {
+                    status: 'forge-rebasing',
+                    forge: {
+                      forge: forgeWord(mr),
+                      state: 'running',
+                      ...(message ? { detail: message } : {}),
+                    },
+                  });
+                }),
+              forgeKind: forgeWord(mr),
+              skipForge,
+              sync: async () => {
+                const outcome = await syncBranchLocally(
+                  repo,
+                  mr.sourceBranch,
+                  priorPaused
+                );
+                // The reply's log is whole; streamed lines can land after it.
+                return outcome.log.length
+                  ? outcome
+                  : {
+                      ...outcome,
+                      log: LIVE_SYNC_LOGS.get(parsed.mrUrl) ?? [],
+                    };
+              },
+              write: patch =>
+                writeDoctorState(
+                  statePath,
+                  patch as Partial<DoctorState> & { status: DoctorStatus }
+                ),
+              hasDoctor: !!doctorSkill,
+              pipelineAtSync: mr.pipeline?.id,
             });
+            switch (end.kind) {
+              case 'forge-done':
+                cache.invalidate();
+                return Response.json({ ok: true, synced: end.message });
+              case 'synced':
+                return Response.json({ ok: true, synced: end.message });
+              case 'stopped':
+                return Response.json({ ok: true, stopped: end.message });
+              case 'cancelled':
+                return Response.json({ ok: true, cancelled: true });
+            }
+            if (!end.doctor)
+              return Response.json({
+                ok: true,
+                stopped: `paused in ${end.tree}; no doctor on this tab`,
+              });
+            pausedTree = end.tree;
+            handOff = true;
           } finally {
             endLive();
-            LOCAL_SYNCS.delete(parsed.mrUrl);
+            if (!handOff) LOCAL_SYNCS.delete(parsed.mrUrl);
+            REBASE_ABORTS.delete(parsed.mrUrl);
           }
         }
-        const triage = loadTriageConfig();
-        // Token validation happens here, OUTSIDE the lock, since it's a
-        // network round-trip and the lock must never sit open for that long.
-        const identityRead = readMemory();
-        const identityBefore = identityRead.identity;
-        const identity =
-          config.forge.kind === 'github'
-            ? null
-            : await resolveDispatchIdentity(identityRead, async () =>
-                (await gitlab()).validateToken()
-              );
-        // Only touch state/auto-dispatch.json when the identity actually
-        // refreshed (a cache hit leaves identityRead.identity's reference
-        // unchanged). bin/triage.ts serializes every access to this file
-        // behind the same lock, so a slow pass and this manual launch never
-        // clobber the SAME attempt budgets / lastHandledPipelineId /
-        // budgetEscalatedDay in either direction; writeRefreshedIdentity
-        // re-reads the CURRENT file under the lock rather than writing back
-        // this stale pre-network-call snapshot, so a pass that wrote OTHER
-        // fields during the round-trip is never reverted. A pass already
-        // holding the lock just means this request's own identity refresh is
-        // not persisted; it still applies to fixClasses below, and the next
-        // request re-resolves it.
-        if (identityRead.identity !== identityBefore) {
-          const lockToken = tryClaimCron(Date.now());
-          if (lockToken !== false) {
-            try {
-              writeRefreshedIdentity(identityRead.identity);
-            } finally {
-              releaseCron(lockToken);
+        let launched: Promise<void> | undefined;
+        try {
+          const triage = loadTriageConfig();
+          // Token validation happens here, OUTSIDE the lock, since it's a
+          // network round-trip and the lock must never sit open for that long.
+          const identityRead = readMemory();
+          const identityBefore = identityRead.identity;
+          const identity =
+            config.forge.kind === 'github'
+              ? null
+              : await resolveDispatchIdentity(identityRead, async () =>
+                  (await gitlab()).validateToken()
+                );
+          // Only touch state/auto-dispatch.json when the identity actually
+          // refreshed (a cache hit leaves identityRead.identity's reference
+          // unchanged). bin/triage.ts serializes every access to this file
+          // behind the same lock, so a slow pass and this manual launch never
+          // clobber the SAME attempt budgets / lastHandledPipelineId /
+          // budgetEscalatedDay in either direction; writeRefreshedIdentity
+          // re-reads the CURRENT file under the lock rather than writing back
+          // this stale pre-network-call snapshot, so a pass that wrote OTHER
+          // fields during the round-trip is never reverted. A pass already
+          // holding the lock just means this request's own identity refresh is
+          // not persisted; it still applies to fixClasses below, and the next
+          // request re-resolves it.
+          if (identityRead.identity !== identityBefore) {
+            const lockToken = tryClaimCron(Date.now());
+            if (lockToken !== false) {
+              try {
+                writeRefreshedIdentity(identityRead.identity);
+              } finally {
+                releaseCron(lockToken);
+              }
             }
           }
-        }
-        // mode "rebase" is a scoped doctor: checkout tier (whose base
-        // playbook is exactly worktree + rebase) with an EMPTY fix-class
-        // allowlist, so CI triage and code fixes stay out of scope, plus a
-        // note pinning the job to the rebase alone.
-        const manual = manualDoctorFields(triage, mr.author.username, identity);
-        const tier = parsed.mode === 'rebase' ? undefined : manual.tier;
-        const fixClasses = parsed.mode === 'rebase' ? [] : manual.fixClasses;
-        const launchNote =
-          parsed.mode === 'rebase'
-            ? [
-                'rebase-only: resolve the paused rebase and push; skip CI triage and any other fixes',
-                note,
-              ]
-                .filter(Boolean)
-                .join('. ')
-            : note;
-        writeDoctorState(statePath, {
-          mrUrl: parsed.mrUrl,
-          iid: parsed.iid,
-          status: 'queued',
-          origin: 'manual',
-          tier,
-          fixClasses,
-          boardTabId: boardTabId ?? '',
-          noPack: !launchPack(boardTabId),
-          ...(parsed.mode === 'rebase' ? {} : NO_SYNC_CARRY),
-        });
-        void launchDoctor({
-          mrUrl: parsed.mrUrl,
-          iid: parsed.iid,
-          cwd,
-          repo,
-          workspaceLabel: config.doctorsWorkspace,
-          statePath,
-          skill: doctorSkill,
-          pack: launchPack(boardTabId),
-          author,
-          ...loadAgentSettings(),
-          note: launchNote,
-          tier,
-          fixClasses,
-          draftBin: manual.draftBin,
-          pausedTree,
-        })
-          .then(result => {
-            void clearHandoffsAfterLaunch(parsed.mrUrl);
-            if (result.focusedExisting) return;
-            // Race guard: the row may have closed out (operator stand-down)
-            // while this launch was in flight -- readDoctorStates() here is
-            // a fresh read, not the `existing` this handler captured before
-            // dispatching. A terminal row is never resurrected to 'queued'.
-            // Only nudge the fresh pane when it's actually a stand-down
-            // (readMemory, not the doctor row's message string) -- a terminal
-            // row for some other reason gets left alone rather than handed a
-            // misleading "operator stood down" message.
-            const fresh = readDoctorStates().get(parsed.mrUrl);
-            if (fresh && !DOCTOR_IN_FLIGHT.has(fresh.status)) {
-              if (result.paneId && readMemory().mrs[parsed.mrUrl]?.standDown) {
-                void sendPaneText(result.paneId, STAND_DOWN_PANE_MESSAGE).catch(
-                  err =>
+          // mode "rebase" is a scoped doctor: checkout tier (whose base
+          // playbook is exactly worktree + rebase) with an EMPTY fix-class
+          // allowlist, so CI triage and code fixes stay out of scope, plus a
+          // note pinning the job to the rebase alone.
+          const manual = manualDoctorFields(
+            triage,
+            mr.author.username,
+            identity
+          );
+          const tier = parsed.mode === 'rebase' ? undefined : manual.tier;
+          const fixClasses = parsed.mode === 'rebase' ? [] : manual.fixClasses;
+          const launchNote =
+            parsed.mode === 'rebase'
+              ? [
+                  'rebase-only: resolve the paused rebase and push; skip CI triage and any other fixes',
+                  note,
+                ]
+                  .filter(Boolean)
+                  .join('. ')
+              : note;
+          writeDoctorState(statePath, {
+            mrUrl: parsed.mrUrl,
+            iid: parsed.iid,
+            status: 'queued',
+            origin: 'manual',
+            tier,
+            fixClasses,
+            boardTabId: boardTabId ?? '',
+            noPack: !launchPack(boardTabId),
+            ...(parsed.mode === 'rebase' ? {} : NO_SYNC_CARRY),
+          });
+          launched = launchDoctor({
+            mrUrl: parsed.mrUrl,
+            iid: parsed.iid,
+            cwd,
+            repo,
+            workspaceLabel: config.doctorsWorkspace,
+            statePath,
+            skill: doctorSkill,
+            pack: launchPack(boardTabId),
+            author,
+            ...loadAgentSettings(),
+            note: launchNote,
+            tier,
+            fixClasses,
+            draftBin: manual.draftBin,
+            pausedTree,
+          })
+            .then(result => {
+              void clearHandoffsAfterLaunch(parsed.mrUrl);
+              if (result.focusedExisting) return;
+              // Race guard: the row may have closed out (operator stand-down)
+              // while this launch was in flight -- readDoctorStates() here is
+              // a fresh read, not the `existing` this handler captured before
+              // dispatching. A terminal row is never resurrected to 'queued'.
+              // Only nudge the fresh pane when it's actually a stand-down
+              // (readMemory, not the doctor row's message string) -- a terminal
+              // row for some other reason gets left alone rather than handed a
+              // misleading "operator stood down" message.
+              const fresh = readDoctorStates().get(parsed.mrUrl);
+              if (fresh && !DOCTOR_IN_FLIGHT.has(fresh.status)) {
+                if (
+                  result.paneId &&
+                  readMemory().mrs[parsed.mrUrl]?.standDown
+                ) {
+                  void sendPaneText(
+                    result.paneId,
+                    STAND_DOWN_PANE_MESSAGE
+                  ).catch(err =>
                     console.error(
                       `stand-down pane nudge (post-launch) failed: ${err instanceof Error ? err.message : err}`
                     )
-                );
+                  );
+                }
+                return;
               }
-              return;
-            }
-            writeDoctorState(statePath, {
-              status: 'queued',
-              tabId: result.tabId,
-              workspaceId: result.workspaceId,
-              agentId: result.agentId,
-              paneId: result.paneId,
+              writeDoctorState(statePath, {
+                status: 'queued',
+                tabId: result.tabId,
+                workspaceId: result.workspaceId,
+                agentId: result.agentId,
+                paneId: result.paneId,
+              });
+            })
+            .catch(err => {
+              console.error(
+                `doctor launch failed: ${err instanceof Error ? err.message : err}`
+              );
+              writeDoctorState(statePath, {
+                status: 'error',
+                message: launchErrorMessage('doctor', err),
+              });
             });
-          })
-          .catch(err => {
-            console.error(
-              `doctor launch failed: ${err instanceof Error ? err.message : err}`
-            );
-            writeDoctorState(statePath, {
-              status: 'error',
-              message: launchErrorMessage('doctor', err),
-            });
+          return new Response(JSON.stringify({ ok: true }), {
+            headers: { 'content-type': 'application/json' },
           });
-        return new Response(JSON.stringify({ ok: true }), {
-          headers: { 'content-type': 'application/json' },
-        });
+        } finally {
+          if (handOff) {
+            const release = () => LOCAL_SYNCS.delete(parsed.mrUrl);
+            if (launched) void launched.finally(release);
+            else release();
+          }
+        }
+      }
+      case '/rebase/cancel': {
+        // Ends a rebase chain while it waits on the forge. A forge rebase
+        // already under way is not stopped.
+        if (req.method !== 'POST')
+          return new Response('method not allowed', { status: 405 });
+        if (!isLocalRequest(req, server))
+          return new Response('forbidden', { status: 403 });
+        {
+          const notJson = requireJsonBody(req);
+          if (notJson) return notJson;
+        }
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return new Response('invalid json', { status: 400 });
+        }
+        const mrUrl = (body as { mrUrl?: unknown } | null)?.mrUrl;
+        if (typeof mrUrl !== 'string')
+          return new Response('expected { mrUrl: string }', { status: 400 });
+        const abort = REBASE_ABORTS.get(mrUrl);
+        const waiting =
+          !!abort &&
+          !abort.signal.aborted &&
+          readDoctorStates().get(mrUrl)?.status === 'forge-rebasing';
+        if (waiting) abort.abort();
+        return Response.json({ ok: true, cancelled: waiting });
       }
       case '/review/finding-question': {
         // Types the human's question about one finding into the review

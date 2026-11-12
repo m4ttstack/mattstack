@@ -3,7 +3,7 @@ import type { ActiveRun, BoardMRWithReview } from '../types.ts';
 import type { LaunchOpts } from './action-runner.ts';
 import type { LaunchFlow } from './row-actions.ts';
 
-const DOCTOR_FLOWS = new Set<LaunchFlow>(['doctor', 'rebase-local']);
+const DOCTOR_FLOWS = new Set<LaunchFlow>(['doctor', 'rebase']);
 
 /** The live work run a manual doctor would collide with on this MR. */
 export function activeRunConfirmFor(
