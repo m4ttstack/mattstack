@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Alert,
   Button,
@@ -46,6 +46,41 @@ function parse(text: string): Parsed {
 
 function emptyOf(def: SettingDefWire): unknown {
   return def.type === 'array' ? [] : {};
+}
+
+// Centred on the wrapper: Alert's default top alignment plus the icon's
+// 1px offset rides a 12px line above a 14px icon.
+const NOTE_STYLES = {
+  wrapper: { alignItems: 'center' },
+  icon: { marginInlineEnd: 6, marginTop: 0 },
+} as const;
+
+/** One short line about the draft, beside its icon. */
+function DraftNote({
+  color,
+  icon,
+  testId,
+  children,
+}: {
+  color: 'accent' | 'warn';
+  icon: ReactNode;
+  testId: string;
+  children: ReactNode;
+}) {
+  return (
+    <Alert
+      variant="tint"
+      color={color}
+      icon={icon}
+      w="fit-content"
+      py={4}
+      px={10}
+      styles={NOTE_STYLES}
+      data-testid={testId}
+    >
+      <Text fz={12}>{children}</Text>
+    </Alert>
+  );
 }
 
 /** A local draft of one layer's value, as JSON or as a form, checked
@@ -293,32 +328,22 @@ export function DraftEditor({
         </Group>
       </PanelToolbar>
       {showsDefault && (
-        <Alert
-          variant="tint"
+        <DraftNote
           color="accent"
           icon={<Icons.info size={14} />}
-          w="fit-content"
-          py={4}
-          px={10}
-          styles={{ icon: { marginInlineEnd: 6 } }}
-          data-testid="draft-default-note"
+          testId="draft-default-note"
         >
-          <Text fz={12}>Currently set to the default value</Text>
-        </Alert>
+          Currently set to the default value
+        </DraftNote>
       )}
       {keyNote !== null && (
-        <Alert
-          variant="tint"
+        <DraftNote
           color="warn"
           icon={<Icons.warning size={14} />}
-          w="fit-content"
-          py={4}
-          px={10}
-          styles={{ icon: { marginInlineEnd: 6 } }}
-          data-testid="draft-key-note"
+          testId="draft-key-note"
         >
-          <Text fz={12}>{keyNote}</Text>
-        </Alert>
+          {keyNote}
+        </DraftNote>
       )}
       {mode === 'json' && (
         <div>

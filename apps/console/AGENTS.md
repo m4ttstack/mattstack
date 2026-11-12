@@ -74,7 +74,7 @@ Members row with "Waiting for approval" and the Approve button, which runs the t
 pill (`WaitingToast`, built on the shared `toast/ToastPill` the Packs page's unsynced toast uses)
 that opens `/team`. A team whose `adminSecrets` (from `rt team status --json`) reads `needs-sync`
 shows a warn notice above its tabs whose Update access runs `rt team admin-secrets`
-(`POST /api/team/admin-secrets`), and the same pill says so after any waiting one, once per list.
+(`POST /api/team/admin-secrets`), its segment carries a lock mark, and the same pill says so after any waiting one, once per list. Review opens `/team?team=<slug>` on the team it names.
 Editing `mattstack.org` in Settings warns when admins are listed with no owners and refreshes the
 Team read on save. The design fixture draws one `org-owner` team with someone waiting, an `admin`
 team whose access needs updating, and a third team whose read fails.

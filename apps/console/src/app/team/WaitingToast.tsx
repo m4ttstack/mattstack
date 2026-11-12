@@ -2,7 +2,7 @@ import { useLocation } from 'wouter';
 
 import { PAGE_ROW_HEIGHT } from '../chrome';
 import { ToastPill, useToastOnce } from '../toast/ToastPill';
-import { TEAM_HREF } from './TeamRailEntry';
+import { TEAM_HREF, teamHref } from './TeamRailEntry';
 import { repliedHandles, staleAccess, useTeam } from './useTeam';
 
 /** The Team page's one pill over the Runs page: teammates waiting for
@@ -33,14 +33,18 @@ export function WaitingToast() {
             .sort()
             .join(','),
     ready: !waitingToast.claimed,
-    // Before the first read every list is empty, which is not a clear.
-    forgetWhenClear: loaded,
+    // Only a read where every team answers counts as a clear: before the
+    // first read the list is empty, and an unknown check may just be slow.
+    forgetWhenClear:
+      loaded &&
+      teams.every(t => t.ok && t.team.adminSecrets?.state !== 'unknown'),
   });
 
   const showAccess = !waitingToast.visible && accessToast.visible;
   const toast = showAccess ? accessToast : waitingToast;
   const only = waiting.length === 1 ? waiting[0] : undefined;
   const onlyStale = stale.length === 1 ? stale[0] : undefined;
+  const linked = showAccess ? stale[0]?.slug : waiting[0]?.slug;
 
   return (
     <ToastPill
@@ -59,7 +63,7 @@ export function WaitingToast() {
       meta={showAccess ? onlyStale?.team : only?.team}
       onReview={() => {
         toast.hide();
-        navigate(TEAM_HREF);
+        navigate(linked ? teamHref(linked) : TEAM_HREF);
       }}
       onDismiss={toast.hide}
       onHoverChange={toast.setHovered}

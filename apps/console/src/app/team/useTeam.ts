@@ -2,7 +2,11 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { notifications } from '@mattstack/app-kit/notifications';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
-import type { ConfirmResult, TeamRead } from '../../shared/team';
+import type {
+  AdminSecretsUpdate,
+  ConfirmResult,
+  TeamRead,
+} from '../../shared/team';
 import { client } from '../api';
 import { POLL_MS, readApiError, retryOnce } from '../runs/useRuns';
 import { TEAM_KEY } from './teamKey';
@@ -20,6 +24,15 @@ export function adminTeams(teams: TeamRead[]): TeamRead[] {
   const isAdmin = (t: TeamRead) => t.ok && ADMIN_ROLES.has(t.team.role ?? '');
   if (!teams.some(isAdmin)) return NO_TEAMS;
   return teams.filter(t => !t.ok || isAdmin(t));
+}
+
+/** Whether the run re-locked the secrets or shared this Mac's token. */
+function accessChanged(result: AdminSecretsUpdate): boolean {
+  return (
+    result.state === 'updated' ||
+    result.token === 'seeded' ||
+    result.token === 'replaced'
+  );
 }
 
 /** Teams whose admin-only secrets still open for an older set of admins. */
@@ -109,7 +122,12 @@ export function useTeam() {
           json: { slug },
         });
         if (!res.ok) throw await readApiError(res, 'update failed');
-        notifications.success('Admin access updated');
+        const result = (await res.json()) as AdminSecretsUpdate;
+        if (accessChanged(result))
+          notifications.success('Admin access updated');
+        else if (result.state === 'unused')
+          notifications.info('No admin-only secrets to update');
+        else notifications.info('Admin access was already current');
       } catch (err) {
         notifications.error((err as Error).message);
       } finally {

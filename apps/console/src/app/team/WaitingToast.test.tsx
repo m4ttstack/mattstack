@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Router, useLocation } from 'wouter';
+import { Router, useLocation, useSearch } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
 
 import type { TeamRead } from '../../shared/team';
@@ -17,7 +17,8 @@ const { WaitingToast } = await import('./WaitingToast');
 
 function Where() {
   const [path] = useLocation();
-  return <span data-testid="where">{path}</span>;
+  const search = useSearch();
+  return <span data-testid="where">{search ? `${path}?${search}` : path}</span>;
 }
 
 function renderToast(teams: TeamRead[]) {
@@ -25,10 +26,10 @@ function renderToast(teams: TeamRead[]) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  const { hook } = memoryLocation({ path: '/' });
+  const { hook, searchHook } = memoryLocation({ path: '/' });
   return renderWithProviders(
     <QueryClientProvider client={queryClient}>
-      <Router hook={hook}>
+      <Router hook={hook} searchHook={searchHook}>
         <WaitingToast />
         <Where />
       </Router>
@@ -79,7 +80,7 @@ describe('WaitingToast', () => {
     renderToast([team('acme', { invites: [invite('alice', 'replied')] })]);
     const root = await toast();
     await userEvent.click(within(root).getByText('Review'));
-    expect(screen.getByTestId('where')).toHaveTextContent('/team');
+    expect(screen.getByTestId('where')).toHaveTextContent('/team?team=acme');
   });
 
   it('has no approve button', async () => {
@@ -121,6 +122,20 @@ describe('WaitingToast', () => {
   });
 
   describe('admin access', () => {
+    it('keeps the pill quiet when a check flaps to unknown and back', async () => {
+      const first = renderToast([drifted()]);
+      await adminToast();
+      first.unmount();
+      const second = renderToast([
+        drifted({ adminSecrets: { state: 'unknown', detail: 'slow' } }),
+      ]);
+      await settled();
+      second.unmount();
+      renderToast([drifted()]);
+      await settled();
+      expect(screen.queryByTestId('admin-secrets-toast')).toBeNull();
+    });
+
     const drifted = (over: Parameters<typeof team>[1] = {}) =>
       team('acme', {
         name: 'Acme',
@@ -135,7 +150,7 @@ describe('WaitingToast', () => {
       expect(root).toHaveTextContent('Admin access needs updating');
       expect(root).toHaveTextContent('Acme');
       await userEvent.click(within(root).getByText('Review'));
-      expect(screen.getByTestId('where')).toHaveTextContent('/team');
+      expect(screen.getByTestId('where')).toHaveTextContent('/team?team=acme');
     });
 
     it('stays quiet for a team that needs you', async () => {

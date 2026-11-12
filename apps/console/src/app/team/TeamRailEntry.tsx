@@ -7,6 +7,11 @@ import { useTeam } from './useTeam';
 
 export const TEAM_HREF = '/team';
 
+/** The Team page opened on one team. */
+export function teamHref(slug: string): string {
+  return `${TEAM_HREF}?team=${encodeURIComponent(slug)}`;
+}
+
 /** The Team rail entry, for org owners and admins only, with the count of
     teammates waiting for approval. */
 export function TeamRailEntry({ active }: { active: boolean }) {

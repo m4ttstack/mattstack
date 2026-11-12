@@ -45,7 +45,7 @@ export const teamFixture: TeamRead[] = [
       role: 'admin',
       members: [
         { username: 'lee', role: 'owner', peered: true },
-        { username: 'matt', peered: true },
+        { username: 'matt', role: 'admin', peered: true },
       ],
       invites: [],
       adminSecrets: {

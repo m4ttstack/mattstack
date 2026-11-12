@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   Alert,
   Avatar,
@@ -15,6 +15,7 @@ import {
   Text,
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
+import { useSearch } from 'wouter';
 
 import {
   confirmLabel,
@@ -412,10 +413,14 @@ function TabLabel({ label, count }: { label: string; count: number }) {
   );
 }
 
+const ACCESS_ATTENTION = new Set(['needs-sync', 'needs-you']);
+
 function SegmentLabel({ read }: { read: TeamRead }) {
   const waiting = read.ok
     ? read.team.invites.filter(i => i.state === 'replied').length
     : 0;
+  const access =
+    read.ok && ACCESS_ATTENTION.has(read.team.adminSecrets?.state ?? '');
   return (
     <span className={classes.segment}>
       {read.ok ? null : (
@@ -423,6 +428,16 @@ function SegmentLabel({ read }: { read: TeamRead }) {
           <Icon name="warning" size={12} />
         </Text>
       )}
+      {access ? (
+        <Text
+          component="span"
+          c="warn"
+          className={classes.segmentIcon}
+          aria-label="Admin access needs updating"
+        >
+          <Icon name="lock" size={12} />
+        </Text>
+      ) : null}
       {read.ok ? read.team.name : read.slug}
       {waiting > 0 ? (
         <Badge
@@ -444,8 +459,14 @@ function SegmentLabel({ read }: { read: TeamRead }) {
 export function TeamPage() {
   const view = useTeam();
   const { teams } = view;
+  const linked = new URLSearchParams(useSearch()).get('team');
   const [chosen, setChosen] = useState<string | null>(null);
-  const selected = teams.find(t => t.slug === chosen) ?? teams[0];
+  // A new link wins over the segment picked before it.
+  useEffect(() => setChosen(null), [linked]);
+  const selected =
+    teams.find(t => t.slug === chosen) ??
+    teams.find(t => t.slug === linked) ??
+    teams[0];
 
   return (
     <PageShell headerHeight={PAGE_ROW_HEIGHT} compactHeader>

@@ -298,6 +298,89 @@ describe('TeamPage', () => {
       expect(within(notice).queryByRole('button')).toBeNull();
     });
 
+    it('marks a team whose access needs updating or needs you in the switch', async () => {
+      renderPage([
+        team('acme'),
+        team('north', {
+          adminSecrets: { state: 'needs-sync', detail: null },
+        }),
+        team('south', {
+          adminSecrets: { state: 'needs-you', detail: 'x' },
+        }),
+      ]);
+      expect(
+        await screen.findAllByLabelText('Admin access needs updating')
+      ).toHaveLength(2);
+    });
+
+    it('opens the team the link names', async () => {
+      window.history.pushState(null, '', '/team?team=north');
+      try {
+        renderPage([
+          team('acme'),
+          team('north', {
+            adminSecrets: { state: 'needs-sync', detail: null },
+          }),
+        ]);
+        expect(
+          await screen.findByTestId('admin-secrets-notice')
+        ).toBeInTheDocument();
+        expect(screen.getByText('north members')).toBeInTheDocument();
+      } finally {
+        window.history.pushState(null, '', '/');
+      }
+    });
+
+    it('says nothing changed when the access was already current', async () => {
+      adminSecretsPost.mockResolvedValue(
+        ok({
+          state: 'current',
+          holders: ['matt'],
+          withoutKey: [],
+          token: 'kept',
+        })
+      );
+      renderPage([drifted()]);
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Update access' })
+      );
+      expect(
+        await screen.findByText('Admin access was already current')
+      ).toBeInTheDocument();
+      expect(screen.queryByText('Admin access updated')).toBeNull();
+    });
+
+    it('counts sharing this Mac’s token as an update', async () => {
+      adminSecretsPost.mockResolvedValue(
+        ok({
+          state: 'current',
+          holders: ['matt'],
+          withoutKey: [],
+          token: 'seeded',
+        })
+      );
+      renderPage([drifted()]);
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Update access' })
+      );
+      expect(
+        await screen.findByText('Admin access updated')
+      ).toBeInTheDocument();
+    });
+
+    it('says when the org keeps no admin-only secrets', async () => {
+      adminSecretsPost.mockResolvedValue(
+        ok({ state: 'unused', holders: [], withoutKey: [], token: 'none' })
+      );
+      renderPage([drifted()]);
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Update access' })
+      );
+      expect(
+        await screen.findByText('No admin-only secrets to update')
+      ).toBeInTheDocument();
+    });
+
     it('shows nothing when access is current', async () => {
       renderPage([
         team('acme', { adminSecrets: { state: 'current', detail: null } }),
