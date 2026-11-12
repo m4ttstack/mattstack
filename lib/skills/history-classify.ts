@@ -197,8 +197,8 @@ function fullOid(repoDir: string, sha: string): string | null {
   return git(repoDir, ["rev-parse", "--verify", "--quiet", `${sha}^{commit}`])?.toString().trim() || null;
 }
 
-/** Answers worked out between cache writes; a caller that gives up mid-run keeps all but the last few. */
-export const SAVE_EVERY = 25;
+/** Answers worked out between cache writes: under the console's 20-commit page, so a page that times out still keeps some. */
+export const SAVE_EVERY = 10;
 
 /**
  * The input shas whose commits changed nothing but version stamps, in input order and as given. The whole commit
