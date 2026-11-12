@@ -179,12 +179,7 @@ export function createMRHandlers(
     return getContext(repoName);
   }
 
-  /** The stores are GitLab-shaped, so a GitHub PR is never written into them. */
   function writebackFor(c: HandlerRepoContext, repoName: string, pr: PullRequest): void {
-    if (c.forge === "github") {
-      ctx.log.debug({ repo: repoName, iid: pr.iid }, "write-back skipped for a GitHub repo");
-      return;
-    }
     storeWriteback(repoName, c.projectPath, pr);
   }
 
@@ -283,14 +278,10 @@ export function createMRHandlers(
         }
 
         const done = sourceBranchNotDeleted ? { ok: true, data: { sourceBranchNotDeleted } } : { ok: true };
-        if (github) {
-          ctx.log.debug({ repo: repoName, iid, action }, "write-back skipped for a GitHub repo");
-          return done;
-        }
 
         const followUp = async () => {
           try {
-            const pr = await fetchSingle(provider, projectPath, iid);
+            const pr = await fetchSingle(provider, projectPath, iid, github);
             if (pr) storeWriteback(repoName, projectPath, pr);
           } catch (err) {
             ctx.log.warn({ err, repo: repoName, iid, action }, "write-back follow-up failed");
@@ -455,7 +446,11 @@ export function createMRHandlers(
               ctx.log.warn({ err, repo: repoName, iid }, "mr:update read for the pull request URL failed");
             }
           }
-          ctx.log.debug({ repo: repoName, iid }, "write-back skipped for a GitHub repo");
+          try {
+            if (pr) storeWriteback(repoName, projectPath, pr);
+          } catch (err) {
+            ctx.log.warn({ err, repo: repoName, iid }, "mr:update write-back failed");
+          }
           return { ok: true, data: { iid, url: pr?.webUrl ?? `${provider.baseURL}/${projectPath}/pull/${iid}`, applied } };
         }
         if (putFields.length > 0) {

@@ -44,6 +44,7 @@ import { checkAndNotify, type SelfIds } from "../notifier.ts";
 import type { HandlerContext } from "./handlers/types.ts";
 import { lazyChildLogger } from "../daemon-logger.ts";
 import { redactCredentials } from "./redact-credentials.ts";
+import { authorListed } from "./scope-authors.ts";
 import { getProjectMRs, type ProjectMRs } from "./project-mrs-store.ts";
 import { getDiscussionsFileStore } from "./discussions-file-store.ts";
 import { createCursorStore, type CursorStore } from "../state/index.ts";
@@ -754,7 +755,7 @@ function createFreshnessCore() {
       const rec = pStore.read(repoName);
       const scope = rec?.scope;
       const tagged = (rec?.mrs[pr.iid]?.codeownerSections?.length ?? 0) > 0;
-      if (scope && pr.author?.username && !scope.authors.includes(pr.author.username) && !tagged) return;
+      if (scope && pr.author?.username && !authorListed(scope.authors, pr) && !tagged) return;
       const changed = pStore.upsert(repoName, projectPath, pr, "events");
       if (changed.length > 0) env.broadcast("project-mrs", { repoName, iids: changed });
     };

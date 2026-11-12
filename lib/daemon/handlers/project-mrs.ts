@@ -24,6 +24,7 @@ import { syncProjectMRs, backfillAuthors, backfillSections } from "../project-sy
 import { readSyncHealth } from "../project-sync-health.ts";
 import { getRepoContext, isGitHubRepo } from "../freshness.ts";
 import { forgeFailure } from "../forge-reads.ts";
+import { authorListed } from "../scope-authors.ts";
 import type { HandlerContext } from "./types.ts";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 
@@ -273,6 +274,21 @@ export function createProjectMRsHandlers(
       });
       let githubFailure: string | null = null;
 
+      // Same scope/tagged gate upsertProject (lib/daemon/freshness.ts)
+      // enforces for every other write path: a demand-scoped repo must not
+      // pick up a stranger's MR here just because a client happened to ask
+      // for their branch by name; the next delta sync would filter it right
+      // back out, and it would reappear on the next by-branch call. The
+      // caller still gets the PR (it asked for this exact branch); it just
+      // isn't stored.
+      const upsertInScope = (pr: PullRequest, projectPath: string) => {
+        const rec = store().read(repoName);
+        const scope = rec?.scope;
+        const tagged = (rec?.mrs[pr.iid]?.codeownerSections?.length ?? 0) > 0;
+        const inScope = !scope || !pr.author?.username || authorListed(scope.authors, pr) || tagged;
+        if (inScope) store().upsert(repoName, projectPath, pr, "events");
+      };
+
       if (misses.length > 0 && !overrides.fetchByBranch) {
         repoCtxPromise ??= getContext(repoName);
         const repoCtx = await repoCtxPromise.catch(() => null);
@@ -285,6 +301,7 @@ export function createProjectMRsHandlers(
           }
           for (const branch of misses) {
             const pr = found.get(branch) ?? null;
+            if (pr) upsertInScope(pr, repoCtx.projectPath);
             byBranch[branch] = pr ? { pr, source: "forge" } : null;
           }
           misses = [];
@@ -297,23 +314,9 @@ export function createProjectMRsHandlers(
         const chunk = misses.slice(i, i + BY_BRANCH_CONCURRENCY);
         await Promise.all(chunk.map(async (branch) => {
           try {
-            const { pr, projectPath, github } = await fetchByBranch(repoName, branch);
-            if (pr && github) {
-              ctx.log.debug({ repo: repoName, branch }, "by-branch store upsert skipped for a GitHub repo");
-              byBranch[branch] = { pr, source: "forge" };
-            } else if (pr) {
-              // Same scope/tagged gate upsertProject (lib/daemon/freshness.ts)
-              // enforces for every other write path: a demand-scoped repo
-              // must not pick up a stranger's MR here just because a client
-              // happened to ask for their branch by name — the next delta
-              // sync would filter it right back out, and it would reappear
-              // on the next by-branch call. The caller still gets the PR
-              // (it asked for this exact branch); it just isn't stored.
-              const rec = store().read(repoName);
-              const scope = rec?.scope;
-              const tagged = (rec?.mrs[pr.iid]?.codeownerSections?.length ?? 0) > 0;
-              const inScope = !scope || !pr.author?.username || scope.authors.includes(pr.author.username) || tagged;
-              if (inScope) store().upsert(repoName, projectPath, pr, "events");
+            const { pr, projectPath } = await fetchByBranch(repoName, branch);
+            if (pr) {
+              upsertInScope(pr, projectPath);
               byBranch[branch] = { pr, source: "forge" };
             } else {
               byBranch[branch] = null;
