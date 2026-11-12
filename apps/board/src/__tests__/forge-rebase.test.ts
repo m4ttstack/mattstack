@@ -64,6 +64,16 @@ function harness(
 }
 
 describe('forgeRebase on GitLab', () => {
+  test('a cancel during the first read never sends the rebase', async () => {
+    const h = harness([]);
+    h.deps.read = async () => {
+      h.controller.abort();
+      return read();
+    };
+    expect(await forgeRebase(h.deps)).toEqual({ kind: 'cancelled' });
+    expect(h.rebases()).toBe(0);
+  });
+
   test('cannot rebase returns cannot without calling rebase', async () => {
     const h = harness([], { canRebase: false });
     expect(await forgeRebase(h.deps)).toEqual({ kind: 'cannot' });

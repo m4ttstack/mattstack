@@ -48,6 +48,7 @@ export async function forgeRebase(
   } catch {
     before = null;
   }
+  if (deps.signal.aborted) return { kind: 'cancelled' };
 
   try {
     await deps.rebase();
