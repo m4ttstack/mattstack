@@ -44,6 +44,9 @@ const summary = vi.hoisted(() => ({
   current: null as { count: number; trial: string | null } | null,
 }));
 const diffCalls = vi.hoisted(() => [] as (string | null)[][]);
+const historyCommits = vi.hoisted(() => ({
+  current: null as unknown[] | null,
+}));
 const changesRead = vi.hoisted(() => ({ pending: false }));
 const waiting = vi.hoisted(() => ({
   current: undefined as
@@ -65,7 +68,7 @@ vi.mock('../useWiring', () => ({
   useCompileDiff: () => ({ data: undefined, isPending: false, isError: false }),
   usePendingChanges: () => ({ isPending: changesRead.pending }),
   useSkillsHistory: () => ({
-    data: { commits: COMMITS, truncated: false },
+    data: { commits: historyCommits.current ?? COMMITS, truncated: false },
     isPending: false,
     isError: false,
     error: null,
@@ -118,6 +121,7 @@ beforeEach(() => {
   summary.current = null;
   changesRead.pending = false;
   waiting.current = undefined;
+  historyCommits.current = null;
   diffCalls.length = 0;
   at('?tab=history&pack=acme');
 });
@@ -288,6 +292,148 @@ describe('the Changes sidebar: compare', () => {
 
     await userEvent.click(row(NEWEST));
     expect(commitsInUrl()).toBe(MIDDLE.sha);
+  });
+});
+
+describe('the Changes sidebar: version-only commits', () => {
+  const stamp = (n: number) => ({
+    sha: `f${n}`.padEnd(40, String(n)),
+    shortSha: `f${n}`.padEnd(7, String(n)),
+    subject: 'sync the compiled skills',
+    authoredAt: `2026-10-2${n}T12:00:00Z`,
+    versionOnly: true,
+  });
+  const real = (commit: (typeof COMMITS)[number]) => ({
+    ...commit,
+    versionOnly: false,
+  });
+  const [S1, S2, S3] = [stamp(4), stamp(3), stamp(2)];
+
+  beforeEach(() => {
+    historyCommits.current = [real(NEWEST), S1, S2, S3, real(OLDEST)];
+  });
+
+  const visibleRows = () =>
+    within(screen.getByTestId('commit-list'))
+      .getAllByTestId(/^(commit|fold)-/)
+      .map(row => row.dataset.testid)
+      .filter(id => id !== 'commit-working');
+
+  it('keeps the from end of the diff as its own row, and folds only the rest of the run', async () => {
+    at(`?tab=history&pack=acme&commits=${NEWEST.sha}`);
+    renderWithProviders(<HistorySidebar pack="acme" />);
+
+    expect(visibleRows()).toEqual([
+      `commit-${NEWEST.shortSha}`,
+      `commit-${S1.shortSha}`,
+      `fold-${S2.shortSha}`,
+      `commit-${OLDEST.shortSha}`,
+    ]);
+    const fold = screen.getByTestId(`fold-${S2.shortSha}`);
+    expect(fold).toHaveTextContent('2 version-only commits');
+    expect(fold).toHaveTextContent('Show');
+    expect(fold).toHaveAttribute('aria-expanded', 'false');
+
+    await userEvent.click(fold);
+    expect(fold).toHaveTextContent('Hide');
+    expect(visibleRows()).toEqual([
+      `commit-${NEWEST.shortSha}`,
+      `commit-${S1.shortSha}`,
+      `fold-${S2.shortSha}`,
+      `commit-${S2.shortSha}`,
+      `commit-${S3.shortSha}`,
+      `commit-${OLDEST.shortSha}`,
+    ]);
+
+    await userEvent.click(fold);
+    expect(
+      screen.queryByTestId(`commit-${S2.shortSha}`)
+    ).not.toBeInTheDocument();
+  });
+
+  it('compares across a fold, which then folds the rest of its run and stays open', async () => {
+    at(`?tab=history&pack=acme&commits=${NEWEST.sha}`);
+    renderWithProviders(<HistorySidebar pack="acme" />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId(`fold-${S2.shortSha}`));
+    await user.keyboard('{Shift>}');
+    await user.click(screen.getByTestId(`commit-${S3.shortSha}`));
+    await user.keyboard('{/Shift}');
+
+    expect(commitsInUrl()).toBe(`${NEWEST.sha},${S3.sha}`);
+    expect(screen.getByTestId(`commit-${S3.shortSha}`)).toHaveTextContent(
+      /From$/
+    );
+    const fold = screen.getByTestId(`fold-${S1.shortSha}`);
+    expect(fold).toHaveTextContent('2 version-only commits');
+    expect(fold).toHaveTextContent('Hide');
+    expect(visibleRows()).toEqual([
+      `commit-${NEWEST.shortSha}`,
+      `fold-${S1.shortSha}`,
+      `commit-${S1.shortSha}`,
+      `commit-${S2.shortSha}`,
+      `commit-${S3.shortSha}`,
+      `commit-${OLDEST.shortSha}`,
+    ]);
+  });
+
+  it('opens on the newest real commit, with a version-only newest commit as its own row above the fold', async () => {
+    historyCommits.current = [S1, S2, S3, real(MIDDLE), real(OLDEST)];
+    renderWithProviders(<HistorySidebar pack="acme" />);
+
+    await waitFor(() => expect(commitsInUrl()).toBe(MIDDLE.sha));
+    expect(visibleRows()).toEqual([
+      `commit-${S1.shortSha}`,
+      `fold-${S2.shortSha}`,
+      `commit-${MIDDLE.shortSha}`,
+      `commit-${OLDEST.shortSha}`,
+    ]);
+    expect(screen.getByTestId(`commit-${S1.shortSha}`)).toHaveTextContent(
+      'newest'
+    );
+    expect(screen.getByTestId(`fold-${S2.shortSha}`)).toHaveTextContent(
+      '2 version-only commits'
+    );
+  });
+
+  it('does not fold a single commit left hidden', () => {
+    historyCommits.current = [real(NEWEST), S1, S2, real(OLDEST)];
+    at(`?tab=history&pack=acme&commits=${NEWEST.sha}`);
+    renderWithProviders(<HistorySidebar pack="acme" />);
+
+    expect(visibleRows()).toEqual([
+      `commit-${NEWEST.shortSha}`,
+      `commit-${S1.shortSha}`,
+      `commit-${S2.shortSha}`,
+      `commit-${OLDEST.shortSha}`,
+    ]);
+  });
+
+  it('keeps a commit not compiled yet as its own row, splitting the run', () => {
+    historyCommits.current = [
+      real(NEWEST),
+      real(MIDDLE),
+      S1,
+      S2,
+      S3,
+      real(OLDEST),
+    ];
+    waiting.current = { skills: ['work'], commits: [S2.sha], outside: [] };
+    at(`?tab=history&pack=acme&commits=${NEWEST.sha}`);
+    renderWithProviders(<HistorySidebar pack="acme" />);
+
+    expect(screen.getByTestId(`uncompiled-${S2.shortSha}`)).toBeInTheDocument();
+    expect(screen.queryByText(/version-only commits/)).not.toBeInTheDocument();
+  });
+
+  it('leaves a lone version-only commit as its own row', () => {
+    historyCommits.current = [real(NEWEST), S1, real(OLDEST)];
+    at(`?tab=history&pack=acme&commits=${NEWEST.sha}`);
+    renderWithProviders(<HistorySidebar pack="acme" />);
+
+    expect(screen.getByTestId(`commit-${S1.shortSha}`)).toBeInTheDocument();
+    expect(screen.queryByText(/version-only commits/)).not.toBeInTheDocument();
   });
 });
 

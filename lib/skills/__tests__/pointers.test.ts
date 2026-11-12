@@ -222,23 +222,24 @@ describe("isKey", () => {
 });
 
 describe("ids", () => {
-  test("ID_RE takes pinned unit ids and skills ids only", () => {
-    expect(ID_RE.test("widgets@0.4.2:receive-review")).toBe(true);
+  test("ID_RE accepts versionless, versioned and skills ids", () => {
+    expect(ID_RE.test("acme:receive-review")).toBe(true);
+    expect(ID_RE.test("acme@0.4.2:receive-review")).toBe(true);
     expect(ID_RE.test("skills:board:respond")).toBe(true);
-    for (const id of ["widgets@latest:x", "../x", "skills:../x"]) expect(ID_RE.test(id)).toBe(false);
+    for (const id of ["acme@latest:x", "acme@:x", "acme:x:y", "../x", "skills:../x", ":x"]) expect(ID_RE.test(id)).toBe(false);
   });
 
   test("the builders spell ids ID_RE accepts", () => {
-    expect(unitId("widgets", "0.4.2", "receive-review")).toBe("widgets@0.4.2:receive-review");
+    expect(unitId("acme", "receive-review")).toBe("acme:receive-review");
     expect(skillsId("board:respond")).toBe("skills:board:respond");
-    expect(ID_RE.test(unitId("widgets", "0.4.2", "receive-review"))).toBe(true);
+    expect(ID_RE.test(unitId("acme", "receive-review"))).toBe(true);
   });
 });
 
 describe("openingLine", () => {
-  test("fills the id into the one-line instruction", () => {
-    expect(openingLine("widgets@0.4.2:work")).toBe(
-      'Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `widgets@0.4.2:work`, use it; otherwise call `skills_resolve {id: "widgets@0.4.2:work"}` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.',
+  test("openingLine names dir and the version folder rule", () => {
+    expect(openingLine("acme:work")).toBe(
+      'Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `acme:work` and whose folder sits in the same plugin version folder as the loaded skill\'s own directory, use it; otherwise call `skills_resolve {id: "acme:work", dir: "<the loaded skill\'s own directory>"}` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.',
     );
   });
 });
