@@ -10,6 +10,7 @@ import {
   type CiLeaseHolder, type CiLeaseOpts, type Commands,
 } from "../../packages/rt-client/src/index.ts";
 import { readChatSession } from "../chat-session.ts";
+import { emptyFacts, GithubHeadReader, memoryFacts, type FactsStore, type GithubHead } from "../ci/github-forge.ts";
 import { gitlabTriageForge } from "../ci/gitlab-forge.ts";
 import { isHttpsMrUrl, NO_SESSION, ownerFromEnv } from "../ci/lease-guard.ts";
 import { keepalive as processKeepalive, type LeaseKeepalive } from "../ci/lease-keepalive.ts";
@@ -33,6 +34,8 @@ const TTL_MIN = 60;
 const TTL_MAX = 900;
 const INTERVAL_MIN = 10;
 const INTERVAL_MAX = 120;
+export const GITHUB_INTERVAL_DEFAULT = 60;
+export const GITHUB_INTERVAL_MIN = 30;
 // Below Claude Code's 1800 s MCP idle timeout, with room for the last poll's
 // trace fetches, for a client that sends no progress token.
 const MAX_WAIT = 1500;
@@ -88,6 +91,17 @@ function isMinutes(v: unknown, max: number): v is number {
   return typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= max;
 }
 
+function intervalRangeError(min: number, github: boolean): string {
+  return `"intervalSeconds" must be an integer from ${min} to ${INTERVAL_MAX}${github ? " on GitHub" : ""}`;
+}
+
+function attendFacts(st: PersistedWatch): FactsStore {
+  return {
+    get: () => structuredClone({ ...emptyFacts(), ...st.github }),
+    set: (f) => { st.github = structuredClone(f); },
+  };
+}
+
 function settingBudget(): number {
   const v = getSetting<number>("ci.watch.budgetMinutes").value;
   return isMinutes(v, BUDGET_MAX) ? v : BUDGET_DEFAULT;
@@ -103,8 +117,20 @@ const TRACE_TAIL = 40;
 // glance's Pipeline carries sha/ref/mergeRequestEventType as optional (an older provider
 // snapshot may lack them); WatchPipeline requires string | null, never undefined, so a
 // missing field maps to null rather than an unmatchable pipeline.
-function toWatchPipeline(p: GlancePipeline | null | undefined): WatchPipeline | null {
+function toWatchPipeline(p: GlancePipeline | GithubHead | null | undefined): WatchPipeline | null {
   if (!p) return null;
+  if ("allBlock" in p) {
+    return {
+      id: p.id,
+      status: p.status,
+      sha: p.sha,
+      ref: p.ref,
+      mergeRequestEventType: null,
+      webUrl: p.webUrl,
+      createdAt: p.createdAt,
+      jobs: p.jobs.map((j) => ({ id: j.id, name: j.name, stage: "checks", status: j.status, allowFailure: !j.blocking, webUrl: j.webUrl })),
+    };
+  }
   return {
     id: p.id,
     status: p.status,
@@ -228,8 +254,10 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         if (!/^[0-9a-f]{7,40}$/i.test(sha)) return err('"sha" must be 7 to 40 hex characters');
         const maxWait = (input.maxWaitSeconds as number | undefined) ?? 300;
         if (!(Number.isInteger(maxWait) && maxWait >= 0 && maxWait <= MAX_WAIT)) return err(`"maxWaitSeconds" must be an integer from 0 to ${MAX_WAIT}`);
-        const interval = (input.intervalSeconds as number | undefined) ?? 30;
-        if (!(Number.isInteger(interval) && interval >= INTERVAL_MIN && interval <= INTERVAL_MAX)) return err(`"intervalSeconds" must be an integer from ${INTERVAL_MIN} to ${INTERVAL_MAX}`);
+        const intervalInput = input.intervalSeconds as number | undefined;
+        const prUrl = isGithubPrUrl(input.mrUrl);
+        const floor = prUrl ? GITHUB_INTERVAL_MIN : INTERVAL_MIN;
+        if (intervalInput !== undefined && !(Number.isInteger(intervalInput) && intervalInput >= floor && intervalInput <= INTERVAL_MAX)) return err(intervalRangeError(floor, prUrl));
         if (input.budgetMinutes !== undefined && !isMinutes(input.budgetMinutes, BUDGET_MAX)) return err(`"budgetMinutes" must be an integer from 1 to ${BUDGET_MAX}`);
         if (input.extendMinutes !== undefined && !isMinutes(input.extendMinutes, EXTEND_MAX)) return err(`"extendMinutes" must be an integer from 1 to ${EXTEND_MAX}`);
         const fresh = input.freshWindow === true;
@@ -242,14 +270,15 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         const extendMinutes = fresh ? setting : (input.extendMinutes as number | undefined);
         const owner = deps.owner(env);
         if (!owner) return err(NO_SESSION);
-        if (attend && isGithubPrUrl(input.mrUrl)) return ok({ ...unsupportedGithub("ci_watch"), sha });
-        const target = await w.resolve(input);
+        const target = await w.resolve(input, { github: true });
         if (!target.ok) return err(target.error);
 
         let mrUrl: string | null = null;
         let sourceBranch: string | undefined;
         const underBoard = input.underBoardLease === true;
-        let firstRead: Awaited<ReturnType<WatchDeps["readMr"]>> | null = null;
+        type RawMr = Commands["mr:get"]["data"]["mr"];
+        let firstRaw: RawMr | null = null;
+        let github = false;
         // Only set with attend; the leaseCheck mutates held and reclaims, and observe persists them once a poll proves the lease.
         let watched: PersistedWatch | null = null;
         let proved = false;
@@ -319,6 +348,21 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
           }
         };
 
+        const readRaw = async (): Promise<{ ok: true; mr: RawMr } | { ok: false; error: string }> => {
+          const res = await w.command<Commands["mr:get"]["data"]>("mr:get", { repoName: target.identity, iid: target.iid }, { timeoutMs: 30_000 });
+          if (!res.ok || !res.data) return { ok: false, error: explainError(res.error ?? "failed to read the MR") };
+          const pr = res.data.mr;
+          if (typeof pr.sourceBranch === "string" && pr.sourceBranch !== "") sourceBranch = pr.sourceBranch;
+          return { ok: true, mr: pr };
+        };
+
+        // Facts belong to the full head sha mr:get reports, never the caller's possibly short one; the reader only touches them on the watched sha.
+        const githubHead = (pr: RawMr): Promise<GithubHead | null> => {
+          const store = watched ? attendFacts(watched) : memoryFacts(`${mrUrl}#${(pr.sha ?? "").toLowerCase()}`);
+          return new GithubHeadReader(w.command, target, store, w.now)
+            .read({ sha: pr.sha ?? null, targetBranch: pr.targetBranch ?? null, pipeline: pr.pipeline ?? null }, sha);
+        };
+
         const watchDeps: WatchDeps = {
           now: w.now,
           sleep: w.sleep,
@@ -336,22 +380,25 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
           },
           readMr: async () => {
             progress?.();
-            if (firstRead) {
-              const memo = firstRead;
-              firstRead = null;
-              return memo;
+            let pr: RawMr;
+            if (firstRaw) {
+              pr = firstRaw;
+              firstRaw = null;
+            } else {
+              const res = await readRaw();
+              if (!res.ok) return res;
+              pr = res.mr;
             }
-            const res = await w.command<Commands["mr:get"]["data"]>("mr:get", { repoName: target.identity, iid: target.iid }, { timeoutMs: 30_000 });
-            if (!res.ok || !res.data) return { ok: false, error: explainError(res.error ?? "failed to read the MR") };
-            const pr = res.data.mr;
-            if (typeof pr.sourceBranch === "string" && pr.sourceBranch !== "") sourceBranch = pr.sourceBranch;
-            return { ok: true, mr: { iid: pr.iid, sha: pr.sha ?? null, webUrl: pr.webUrl ?? null, pipeline: toWatchPipeline(pr.pipeline) } };
+            const pipeline = github ? toWatchPipeline(await githubHead(pr)) : toWatchPipeline(pr.pipeline);
+            return { ok: true, mr: { iid: pr.iid, sha: pr.sha ?? null, webUrl: pr.webUrl ?? null, pipeline } };
           },
           commitParents: async (s) => {
             const r = await w.command<Commands["mr:commit-parents"]["data"]>("mr:commit-parents", { repoName: target.identity, iid: target.iid, sha: s }, { timeoutMs: 30_000 });
             return r.ok && Array.isArray(r.data) ? r.data : null;
           },
           failedJobs: async (pipelineId) => {
+            // The GitHub head already lists every check with its required flag, which a per-run read would drop.
+            if (github) return [];
             const r = await w.command<Commands["mr:pipeline-failed-jobs"]["data"]>("mr:pipeline-failed-jobs", { repoName: target.identity, iid: target.iid, pipelineId }, { timeoutMs: 30_000 });
             return r.ok && Array.isArray(r.data) ? r.data : null;
           },
@@ -373,14 +420,15 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
           },
         };
 
-        const first = await watchDeps.readMr();
+        progress?.();
+        const first = await readRaw();
         if (!first.ok) return err(first.error);
-        firstRead = first;
-        mrUrl = first.mr.webUrl;
+        firstRaw = first.mr;
+        mrUrl = first.mr.webUrl ?? null;
         if (!mrUrl) return err(`GitLab returned MR !${target.iid} with no web URL`);
-        if (parseMrUrl(mrUrl) === null || (first.mr.pipeline !== null && !first.mr.pipeline.id.startsWith("gitlab:"))) {
-          return attend ? ok({ ...unsupportedGithub("ci_watch"), sha }) : err("ci_watch is GitLab only");
-        }
+        github = parseMrUrl(mrUrl) === null;
+        if (github && intervalInput !== undefined && intervalInput < GITHUB_INTERVAL_MIN) return err(intervalRangeError(GITHUB_INTERVAL_MIN, true));
+        const interval = intervalInput ?? (github ? GITHUB_INTERVAL_DEFAULT : 30);
 
         try {
           if (attend) watched = readWatchState(mrUrl, sha, stateOpts());
