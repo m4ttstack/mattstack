@@ -14,7 +14,7 @@
  * || globalThis.fetch`), so stubbing the global here reaches all the way
  * through the real client built by `createGitHubClient`.
  */
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import { RequestError } from '@octokit/request-error';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
 import { PartialCreateError } from '../src/errors.ts';
@@ -71,6 +71,38 @@ async function withInstantTimers<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/** The token the rest of the suite's GitHub tests construct providers with. */
+const SUITE_TOKEN = 'tok';
+
+/**
+ * `@octokit/plugin-throttling` keeps its write pacing in module scope, keyed
+ * by host and token, so it outlives a test file. A file that collapses
+ * `setTimeout` still pushes Bottleneck's next-request time a second forward
+ * per write or GraphQL POST, and a later file on the same host and token
+ * waits that time out for real: CI's file order once put gh-merge-queue
+ * first and stalled this file's writes past the test timeout. Ten seconds of
+ * that debt left here holds the condition whatever the order, so a test that
+ * builds its provider on the shared token instead of `isolatedProvider` fails.
+ */
+beforeAll(async () => {
+  stubFetch(() => new Response(null, { status: 204 }));
+  const indebted = new GitHubProvider('https://github.com', SUITE_TOKEN);
+  await withInstantTimers(async () => {
+    for (let i = 0; i < 10; i++) {
+      await (indebted as any).api('DELETE', `/repos/acme/repo/git/refs/heads/debt-${i}`);
+    }
+  });
+  globalThis.fetch = realFetch;
+});
+
+let isolatedTokens = 0;
+
+/** A provider on a token no other test uses, so no earlier pacing reaches it. */
+function isolatedProvider(baseURL = 'https://github.com', label = 'tok'): GitHubProvider {
+  isolatedTokens += 1;
+  return new GitHubProvider(baseURL, `${label}-transport-${isolatedTokens}`);
+}
+
 describe('GitHubProvider transport (real Octokit, fetch stubbed)', () => {
   test('fetchPullRequestByBranch sends head=owner:branch intact, even when the branch contains a slash', async () => {
     // This is the regression case for the Octokit placeholder bug: Octokit's
@@ -83,7 +115,7 @@ describe('GitHubProvider transport (real Octokit, fetch stubbed)', () => {
     // against the unfixed code.
     const urls = stubFetch(() => jsonResponse([]));
 
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = isolatedProvider();
     await provider.fetchPullRequestByBranch('acme/repo', 'feature/my-branch');
 
     const headCall = urls.find(u => u.includes('/pulls?head='));
@@ -100,7 +132,7 @@ describe('GitHubProvider transport (real Octokit, fetch stubbed)', () => {
     // and this suite runs on Bun.
     stubFetch(() => new Response(null, { status: 204 }));
 
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = isolatedProvider();
     const res = await (provider as any).api(
       'DELETE',
       '/repos/acme/repo/git/refs/heads/some-branch'
@@ -116,7 +148,7 @@ describe('GitHubProvider transport (real Octokit, fetch stubbed)', () => {
     // on rather than as a thrown error.
     stubFetch(() => jsonResponse({ message: 'Not Found' }, 404));
 
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = isolatedProvider();
     const res = await provider.restRequest('GET', '/repos/acme/repo/branches/missing');
 
     expect(res.ok).toBe(false);
@@ -130,7 +162,7 @@ describe('GitHubProvider transport (real Octokit, fetch stubbed)', () => {
       return new Response(null, { status: 302, headers: { location: 'https://blob.example/x' } });
     }) as typeof fetch;
 
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = isolatedProvider();
     const res = await provider.restRequest('GET', '/x', undefined, 'op', { redirect: 'manual' });
 
     expect(inits).toHaveLength(1);
@@ -153,7 +185,7 @@ describe('GitHubProvider transport (real Octokit, fetch stubbed)', () => {
         }
       })) as typeof fetch;
 
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = isolatedProvider();
     const res = await provider.restRequest('GET', '/repos/acme/repo');
 
     expect(res.headers.get('etag')).toBe('"abc123"');
@@ -169,7 +201,7 @@ describe('GitHubProvider transport (real Octokit, fetch stubbed)', () => {
     // restores that loudness with a message naming the method.
     const urls = stubFetch(() => jsonResponse({}));
 
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = isolatedProvider();
 
     await expect(
       provider.restRequest('GET', '/repos/acme/repo', { some: 'data' })
@@ -188,7 +220,7 @@ describe('GitHubProvider transport (real Octokit, fetch stubbed)', () => {
       throw new TypeError('fetch failed', { cause: new Error('ECONNREFUSED') });
     }) as typeof fetch;
 
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = isolatedProvider();
 
     let caught: unknown;
     try {
@@ -214,7 +246,7 @@ describe('GitHubProvider transport (real Octokit, fetch stubbed)', () => {
     // wording -- so this pins the exact string rather than just a substring.
     stubFetch(() => jsonResponse({ message: 'Bad credentials' }, 401));
 
-    const provider = new GitHubProvider('https://github.com', 'bad-tok');
+    const provider = isolatedProvider('https://github.com', 'bad-tok');
 
     await expect(provider.validateToken()).rejects.toThrow(
       /^GitHub token validation failed: 401 Unauthorized$/
@@ -238,7 +270,7 @@ describe('GitHubProvider transport (real Octokit, fetch stubbed)', () => {
       throw new TypeError('fetch failed', { cause: new Error('ECONNREFUSED') });
     }) as typeof fetch;
 
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = isolatedProvider();
 
     let caught: unknown;
     await withInstantTimers(async () => {
@@ -273,7 +305,7 @@ describe('GitHubProvider transport (real Octokit, fetch stubbed)', () => {
     // string, not the pacing between requests.
     const urls = stubFetch(() => jsonResponse({ items: [] }));
 
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = isolatedProvider();
     await withInstantTimers(() => provider.fetchPullRequests());
 
     const searchCall = urls.find(u => u.includes('/search/issues'));
@@ -306,7 +338,7 @@ describe('GitHubProvider transport (real Octokit, fetch stubbed)', () => {
       throw new Error(`unexpected URL in test: ${url}`);
     });
 
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = isolatedProvider();
 
     await withInstantTimers(() =>
       expect(
@@ -337,7 +369,7 @@ describe('GitHubProvider transport (real Octokit, fetch stubbed)', () => {
       throw new Error(`unexpected URL in test: ${url}`);
     });
 
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = isolatedProvider();
 
     await withInstantTimers(() =>
       expect(
@@ -370,7 +402,7 @@ describe('GitHubProvider transport (real Octokit, fetch stubbed)', () => {
       throw new Error(`unexpected URL in test (call ${call}): ${url}`);
     }) as typeof fetch;
 
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = isolatedProvider();
 
     let caught: unknown;
     await withInstantTimers(async () => {
@@ -411,7 +443,7 @@ describe('GitHubProvider transport (real Octokit, fetch stubbed)', () => {
       return jsonResponse([]);
     }) as typeof fetch;
 
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = isolatedProvider();
     await provider.restRequest('GET', '/repos/acme/repo');
 
     expect(seenHeaders?.get('x-github-api-version')).toBe('2022-11-28');
@@ -426,7 +458,7 @@ describe('GitHubProvider transport (real Octokit, fetch stubbed)', () => {
     // absolute URL.
     const urls = stubFetch(() => jsonResponse([]));
 
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = isolatedProvider();
     await provider.restRequest('GET', 'https://api.github.com/repos/acme/repo/pulls?page=2');
 
     expect(urls).toEqual(['https://api.github.com/repos/acme/repo/pulls?page=2']);
@@ -480,7 +512,7 @@ describe('GitHubProvider transport: listing approvals arrive through the fill', 
       return jsonResponse({ message: 'Not Found' }, 404);
     });
 
-    const provider = new GitHubProvider('https://github.com', 'tok-transport-approvals');
+    const provider = isolatedProvider();
     const prs = await withInstantTimers(() =>
       provider.fetchPullRequests({ projectPath: 'acme/repo', listWeight: true })
     );
@@ -499,7 +531,7 @@ describe('GitHubProvider transport: listing approvals arrive through the fill', 
       return jsonResponse({ message: 'Not Found' }, 404);
     });
 
-    const provider = new GitHubProvider('https://github.com', 'tok-transport-fill-fails');
+    const provider = isolatedProvider();
     const warnings: FetchPullRequestsWarning[] = [];
 
     const prs = await withInstantTimers(() =>
@@ -533,7 +565,7 @@ describe('GitHubProvider transport: GraphQL endpoint resolution (real octokit.gr
   test('github.com sends the GraphQL request to https://api.github.com/graphql', async () => {
     const urls = stubFetch(() => jsonResponse({ data: { ok: true } }));
 
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = isolatedProvider();
     const data = await withInstantTimers(() =>
       (provider as any).graphqlOrThrow('probe', 'query { viewer { login } }', {})
     );
@@ -545,7 +577,7 @@ describe('GitHubProvider transport: GraphQL endpoint resolution (real octokit.gr
   test('a GitHub Enterprise host sends the GraphQL request under /api/graphql, not /api/v3', async () => {
     const urls = stubFetch(() => jsonResponse({ data: { ok: true } }));
 
-    const provider = new GitHubProvider('https://ghe.corp.example', 'tok');
+    const provider = isolatedProvider('https://ghe.corp.example');
     const data = await withInstantTimers(() =>
       (provider as any).graphqlOrThrow('probe', 'query { viewer { login } }', {})
     );
@@ -583,7 +615,7 @@ describe('GitHubProvider transport: a GraphQL rate limit is not retried', () => 
       )
     );
 
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = isolatedProvider();
     await expect(
       withInstantTimers(() =>
         (provider as any).graphqlOrThrow('probe', 'query { viewer { login } }', {})
@@ -606,7 +638,7 @@ describe('GitHubProvider transport: a GraphQL rate limit is not retried', () => 
       )
     );
 
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = isolatedProvider();
     await expect(
       withInstantTimers(() =>
         (provider as any).graphqlOrThrow('probe', 'query { viewer { login } }', {})
@@ -647,7 +679,7 @@ describe('GitHubProvider transport: GraphQL detection matches pathname, not subs
   test('a REST path containing "graphql" as a path segment still gets the REST rate-limit retry (3 fetches)', async () => {
     // The real GitHub org + repo this collision is not theoretical for.
     const urls = stubFetch(() => rateLimited403());
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = isolatedProvider();
 
     const res = await withInstantTimers(() =>
       provider.restRequest('GET', '/repos/graphql/graphql-js/pulls')
@@ -660,7 +692,7 @@ describe('GitHubProvider transport: GraphQL detection matches pathname, not subs
 
   test('a branch literally named "graphql" still gets the REST rate-limit retry (3 fetches)', async () => {
     const urls = stubFetch(() => rateLimited403());
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = isolatedProvider();
 
     const res = await withInstantTimers(() =>
       provider.restRequest('GET', '/repos/acme/repo/git/refs/heads/graphql')
@@ -672,7 +704,7 @@ describe('GitHubProvider transport: GraphQL detection matches pathname, not subs
 
   test('an ordinary REST path retries identically (3 fetches), as the control for the two tests above', async () => {
     const urls = stubFetch(() => rateLimited403());
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = isolatedProvider();
 
     const res = await withInstantTimers(() =>
       provider.restRequest('GET', '/repos/acme/repo/pulls')
@@ -684,7 +716,7 @@ describe('GitHubProvider transport: GraphQL detection matches pathname, not subs
 
   test('the real GraphQL endpoint on github.com still fails immediately under a rate limit (1 fetch)', async () => {
     const urls = stubFetch(() => rateLimited403());
-    const provider = new GitHubProvider('https://github.com', 'tok');
+    const provider = isolatedProvider();
 
     await expect(
       withInstantTimers(() =>
@@ -700,7 +732,7 @@ describe('GitHubProvider transport: GraphQL detection matches pathname, not subs
     // github.com's relative `/graphql` -- both forms must resolve to the
     // same pathname check.
     const urls = stubFetch(() => rateLimited403());
-    const provider = new GitHubProvider('https://ghe.corp.example', 'tok');
+    const provider = isolatedProvider('https://ghe.corp.example');
 
     await expect(
       withInstantTimers(() =>
