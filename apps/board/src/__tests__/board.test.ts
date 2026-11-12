@@ -1263,3 +1263,47 @@ describe('SnapshotCache', () => {
     expect(forcedSnap.mrs).toEqual([{ iid: 2 } as any]); // the second fetch's snapshot
   });
 });
+
+describe('buildBoard reviewers by forge', () => {
+  const reviewers = [
+    {
+      id: 'x:1',
+      username: 'coderabbitai[bot]',
+      name: 'CodeRabbit',
+      avatarUrl: null,
+      reviewState: 'REVIEWED',
+    },
+    {
+      id: 'x:2',
+      username: 'tobrandt',
+      name: 'Tobias',
+      avatarUrl: null,
+      reviewState: 'UNREVIEWED',
+    },
+  ] as unknown as PullRequest['reviewers'];
+
+  test('a GitHub PR drops bot reviewers and recounts', () => {
+    const [mr] = buildBoard(
+      [
+        pr({
+          id: 'github:1',
+          repositoryId: 'github:42',
+          webUrl: 'https://github.com/org/repo-a/pull/1',
+          reviewers,
+        }),
+      ],
+      {
+        ...config,
+        forge: { kind: 'github', host: 'https://github.com' },
+      } as BoardConfig,
+      FIXTURE_NOW
+    );
+    expect(mr!.reviews.reviewers.map(r => r.username)).toEqual(['tobrandt']);
+    expect(mr!.reviews.totalAssigned).toBe(1);
+  });
+
+  test('a GitLab PR keeps its reviewers as served', () => {
+    const [mr] = buildBoard([pr({ reviewers })], config, FIXTURE_NOW);
+    expect(mr!.reviews.reviewers).toHaveLength(2);
+  });
+});

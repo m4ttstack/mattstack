@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import type { MRDetail } from '@mattstack/glance';
 import {
   hasQuietReview,
+  isBotAuthor,
   isBotUsername,
   summarizeDiscussions,
   summarizeThreads,
@@ -431,5 +432,27 @@ describe('hasQuietReview', () => {
       { notes: [note('sam', { body: SPENT_BODY })], resolved: false },
     ]);
     expect(hasQuietReview(spent, [], 'pat', members)).toBe(false);
+  });
+});
+
+describe('GitHub bots', () => {
+  test('isBotUsername flags [bot] logins', () => {
+    expect(isBotUsername('coderabbitai[bot]')).toBe(true);
+    expect(isBotUsername('dependabot[bot]')).toBe(true);
+    expect(isBotUsername('abbott')).toBe(false);
+  });
+
+  test('isBotAuthor honors the bot flag', () => {
+    expect(isBotAuthor({ username: 'helper', bot: true }, new Set())).toBe(true);
+    expect(isBotAuthor({ username: 'helper' }, new Set())).toBe(false);
+  });
+
+  test('drops a thread whose only non-author participant is a [bot]', () => {
+    const d = detail([
+      { notes: [note('coderabbitai[bot]', { body: 'nit' })] },
+      { notes: [note('reviewer', { body: 'please fix' })] },
+    ]);
+    const { threads } = summarizeDiscussions(d, 'dorothy');
+    expect(threads.map(t => t.notes[0]!.body)).toEqual(['please fix']);
   });
 });

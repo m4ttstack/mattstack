@@ -12,6 +12,7 @@ import type {
 } from '@mattstack/rt-client';
 import type { ExecutorState, ExecutorView } from './client/types.ts';
 import type { BoardConfig, BoardForge, Member } from './config.ts';
+import { isBotAuthor } from './discussions.ts';
 import type { ReviewerLatch } from './latch/discussions.ts';
 import type { RespondTarget } from './respond-targets.ts';
 import { extractTicketId } from './ticket.ts';
@@ -182,6 +183,7 @@ export function buildBoard(
       t.source.kind === 'codeowners' ? [t.source.section] : []
     )
   );
+  const configBots = new Set(config.botUsernames.map(b => b.toLowerCase()));
   const out: BoardMR[] = [];
   for (const pr of prs) {
     if (pr.state !== 'opened') continue;
@@ -219,6 +221,16 @@ export function buildBoard(
     // Mutates the freshly-parsed daemon read, never a cached board: each fetch
     // JSON-parses its own objects, and the snapshot cache holds this output.
     scrubAvatarUrls(props);
+    if (props.provider === 'github') {
+      const humans = props.reviews.reviewers.filter(
+        r => !isBotAuthor(r, configBots)
+      );
+      props.reviews = {
+        ...props.reviews,
+        reviewers: humans,
+        totalAssigned: humans.length,
+      };
+    }
     out.push({
       ...props,
       updatedAt: pr.updatedAt,

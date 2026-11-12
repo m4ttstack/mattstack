@@ -44,17 +44,22 @@ export function isBotUsername(username: string | null | undefined): boolean {
     /^service_account_/i.test(username) ||
     /^(project|group)_\d+_bot/i.test(username) ||
     /(^|[._-])bot([._-]|\d|$)/i.test(username) ||
-    /^ghost$/i.test(username)
+    /^ghost$/i.test(username) ||
+    /\[bot\]$/i.test(username)
   );
 }
 
 /** A note author is a bot if config lists their username or display name (the
     escape hatch for named integration bots), or the username-heuristic flags it. */
 export function isBotAuthor(
-  author: { username?: string | null; name?: string | null } | null | undefined,
+  author:
+    | { username?: string | null; name?: string | null; bot?: boolean }
+    | null
+    | undefined,
   configBots: Set<string>
 ): boolean {
   if (!author) return false;
+  if (author.bot === true) return true;
   if (author.username && configBots.has(author.username.toLowerCase()))
     return true;
   if (author.name && configBots.has(author.name.toLowerCase())) return true;
