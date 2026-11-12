@@ -82,12 +82,17 @@ export function movedSourcesOf(
   return [...moved.values()];
 }
 
-/** Every file a compile writes, relative to the pack: each compiled skill's
-    SKILL.md and compiled.json, and the files its keys map. */
+/** rt's `LOCK_REL` (`lib/skills/compiled-lock.ts`); every compile rewrites
+    it, and a version-only sync writes no other compiled file. */
+const COMPILED_LOCK = 'pack/compiled.lock.json';
+
+/** Every file a compile writes, relative to the pack: the pack's compiled
+    lock, each compiled skill's SKILL.md and compiled.json, and the files its
+    keys map. */
 export function compiledOutputs(
   manifests: { dir: string; keys: Record<string, string> }[]
 ): Set<string> {
-  const out = new Set<string>();
+  const out = new Set<string>([COMPILED_LOCK]);
   for (const m of manifests) {
     out.add(`${m.dir}/SKILL.md`);
     out.add(`${m.dir}/compiled.json`);

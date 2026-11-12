@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { pluginOfSeam } from "./drift.ts";
 
 export const LOCK_REL = "pack/compiled.lock.json";
 
@@ -36,6 +37,20 @@ export function readLock(packDir: string, readFile: (p: string) => string | null
   } catch {
     return emptyLock();
   }
+}
+
+/** Each plugin a compiled target's seams name, at the version it was compiled from; a plugin with no known version is left out. */
+export function lockEntryOf(texts: string[], versionOf: (plugin: string) => string | undefined): Record<string, string> {
+  const entry: Record<string, string> = {};
+  for (const text of texts) {
+    for (const line of text.split("\n")) {
+      const plugin = pluginOfSeam(line);
+      if (plugin === null || Object.hasOwn(entry, plugin)) continue;
+      const version = versionOf(plugin);
+      if (version !== undefined) entry[plugin] = version;
+    }
+  }
+  return entry;
 }
 
 export function mergeLock(current: CompiledLock, compiled: CompiledLock): CompiledLock {

@@ -170,7 +170,7 @@ export function resolveTeamMarkers(
       const indented = text.split("\n").map((l) => (l === "" ? l : indent + l)).join("\n");
       // Every seam parser anchors a marker at column 0, so only the section's own lines take the indent.
       sectionText = sectionSeams
-        ? `<!-- part: section:${name} source=${values.plugin}:pack/sections/${name}.md version=${values.version} path=pack/sections/${name}.md lines=1-${lines} -->\n${indented}`
+        ? `<!-- part: section:${name} source=${values.plugin}:pack/sections/${name}.md path=pack/sections/${name}.md lines=1-${lines} -->\n${indented}`
         : indented;
       return "";
     });

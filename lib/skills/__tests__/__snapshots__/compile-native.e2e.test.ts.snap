@@ -24,12 +24,12 @@ policy text
 name: "stage-implement"
 description: "stage-implement"
 metadata:
-  compiled: "mattstack@1.0.0"
+  compiled: "mattstack"
 ---
 
 <!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->
 
-<!-- part: block:stage-implement source=mattstack:stage-implement version=1.0.0 path=attachments/pipeline/stage-implement/index.block.md lines=11-11 -->
+<!-- part: block:stage-implement source=mattstack:stage-implement path=attachments/pipeline/stage-implement/index.block.md lines=11-11 -->
 You consume \`approach\`. You must produce \`commits\`.
 "
 ,
@@ -49,19 +49,19 @@ You consume \`approach\`. You must produce \`commits\`.
 name: "stage-plan"
 description: "stage-plan"
 metadata:
-  compiled: "mattstack@1.0.0 + acme:plan-policy@0.1.0"
+  compiled: "mattstack + acme:plan-policy"
 ---
 
 <!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->
 
 Pointers here are \`@keys\`. Resolve them once per run: if you already hold a \`skills_resolve\` map that covers \`acme@0.1.0:stage-plan\`, use it; otherwise call \`skills_resolve {id: "acme@0.1.0:stage-plan"}\` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
 
-<!-- part: block:stage-plan source=mattstack:stage-plan version=1.0.0 path=attachments/pipeline/stage-plan/index.block.md lines=16-17 -->
+<!-- part: block:stage-plan source=mattstack:stage-plan path=attachments/pipeline/stage-plan/index.block.md lines=16-17 -->
 You consume \`ticket\`. You must produce \`approach\`.
-<!-- part: prop:stage-plan.rules binding=acme:plan-policy version=0.1.0 path=attachments/plan-policy/SKILL.md lines=8-10 -->
+<!-- part: prop:stage-plan.rules binding=acme:plan-policy path=attachments/plan-policy/SKILL.md lines=8-10 -->
 policy text
 
-<!-- part: include:gitlab-note source=mattstack:gitlab-note version=1.0.0 path=attachments/gitlab-note/SKILL.md lines=6-8 -->
+<!-- part: include:gitlab-note source=mattstack:gitlab-note path=attachments/gitlab-note/SKILL.md lines=6-8 -->
 note body
 
 See @stage-plan/parts/include-gitlab-note/scripts/note.sh for the note script.
@@ -90,12 +90,12 @@ echo note
 name: "stage-ship"
 description: "stage-ship"
 metadata:
-  compiled: "mattstack@1.0.0"
+  compiled: "mattstack"
 ---
 
 <!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->
 
-<!-- part: block:stage-ship source=mattstack:stage-ship version=1.0.0 path=attachments/pipeline/stage-ship/index.block.md lines=11-11 -->
+<!-- part: block:stage-ship source=mattstack:stage-ship path=attachments/pipeline/stage-ship/index.block.md lines=11-11 -->
 You consume \`commits\`, \`ticket\`. You must produce \`mr\`.
 "
 ,
@@ -107,6 +107,29 @@ You consume \`commits\`, \`ticket\`. You must produce \`mr\`.
     "acme@0.1.0:stage-ship"
   ],
   "keys": {}
+}
+"
+,
+  "pack/compiled.lock.json": 
+"{
+  "bases": {},
+  "mattstackDirty": {},
+  "mattstackSha": {},
+  "targets": {
+    "attachments/stage-implement": {
+      "mattstack": "1.0.0"
+    },
+    "attachments/stage-plan": {
+      "acme": "0.1.0",
+      "mattstack": "1.0.0"
+    },
+    "attachments/stage-ship": {
+      "mattstack": "1.0.0"
+    },
+    "skills/work": {
+      "mattstack": "1.0.0"
+    }
+  }
 }
 "
 ,
@@ -171,14 +194,14 @@ You consume \`commits\`, \`ticket\`. You must produce \`mr\`.
 name: "work"
 description: "Run a unit of work"
 metadata:
-  compiled: "mattstack@1.0.0"
+  compiled: "mattstack"
 ---
 
 <!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->
 
 Pointers here are \`@keys\`. Resolve them once per run: if you already hold a \`skills_resolve\` map that covers \`acme@0.1.0:work\`, use it; otherwise call \`skills_resolve {id: "acme@0.1.0:work"}\` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
 
-<!-- part: block:work source=mattstack:work version=1.0.0 path=attachments/pipeline/work/index.block.md lines=7-11 -->
+<!-- part: block:work source=mattstack:work path=attachments/pipeline/work/index.block.md lines=7-11 -->
 The work type is \`feature\`. Continue.
 
 \`\`\`json
@@ -222,7 +245,7 @@ The work type is \`feature\`. Continue.
 }
 \`\`\`
 
-<!-- part: block:work source=mattstack:work version=1.0.0 path=attachments/pipeline/work/index.block.md lines=11-11 -->
+<!-- part: block:work source=mattstack:work path=attachments/pipeline/work/index.block.md lines=11-11 -->
 Start: "$RT_PIPELINE_STATE" run-start \`\`\`json
 {
   "feature": "--repo my-repo --work-type feature --pipeline feature --mattstack-sha 1.0.0 --mattstack-dirty 0 --pack-sha acme=0.1.0"

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { changedPartKeys, partExtents, skillMdDriftCauses } from "../drift.ts";
+import { changedPartKeys, partExtents, pluginOfSeam, skillMdDriftCauses } from "../drift.ts";
+import { maskProvenance } from "../provenance.ts";
 
 const compiled = [
   "---\nname: x\n---",
@@ -50,6 +51,34 @@ describe("partExtents", () => {
   test("bounds each include part by its marker's line count", () => {
     const md = ["step", "<!-- part: include:g source=m:g version=0.28.10 path=a lines=7-8 -->", "g1", "g2", "step after"].join("\n");
     expect(partExtents(md)).toEqual([{ key: "include:g", version: "0.28.10", start: 1, end: 3, text: "g1\ng2" }]);
+  });
+});
+
+describe("seams with and without version", () => {
+  const oldSeam = "<!-- part: include:g source=m:g version=0.4.11 path=a lines=7-8 -->";
+  const newSeam = "<!-- part: include:g source=m:g path=a lines=7-8 -->";
+
+  test("partExtents reads seams with and without version", () => {
+    const md = (seam: string) => ["step", seam, "g1", "g2", "step after"].join("\n");
+    expect(partExtents(md(oldSeam))).toEqual([{ key: "include:g", version: "0.4.11", start: 1, end: 3, text: "g1\ng2" }]);
+    expect(partExtents(md(newSeam))).toEqual([{ key: "include:g", version: null, start: 1, end: 3, text: "g1\ng2" }]);
+  });
+
+  test("maskProvenance makes an old and a new seam compare equal", () => {
+    const block = (v: string) => `<!-- part: block:x source=mattstack:x${v} path=a lines=1-2 -->\nstep\n<!-- part: prop:x.d binding=acme:d${v} path=b lines=1-1 -->\nfill`;
+    expect(maskProvenance(block(" version=0.4.11"))).toBe(maskProvenance(block("")));
+    expect(maskProvenance(`${oldSeam}\ng1`)).toBe(maskProvenance(`${newSeam}\ng1`));
+  });
+
+  test("changedPartKeys sees no change between an old and a new seam", () => {
+    expect([...changedPartKeys(`${oldSeam}\ng1\ng2`, `${newSeam}\ng1\ng2`)]).toEqual([]);
+  });
+
+  test("pluginOfSeam reads the plugin from source= or binding=", () => {
+    expect(pluginOfSeam(newSeam)).toBe("m");
+    expect(pluginOfSeam("<!-- part: prop:x.d binding=acme:d version=1 path=b lines=1-1 -->")).toBe("acme");
+    expect(pluginOfSeam("<!-- part: section:s source=acme:pack/sections/s.md path=pack/sections/s.md lines=1-2 -->")).toBe("acme");
+    expect(pluginOfSeam("plain prose")).toBeNull();
   });
 });
 

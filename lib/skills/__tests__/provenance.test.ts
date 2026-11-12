@@ -6,7 +6,7 @@ import { join } from "path";
 import { computePackSha, gitFacts, maskProvenance, mattstackProvenance, packProvenance } from "../provenance.ts";
 
 describe("maskProvenance", () => {
-  test("masks marker versions, the compiled value, and baked provenance flags", () => {
+  test("deletes marker versions and masks the compiled value and baked provenance flags", () => {
     const body = [
       "---", 'name: "work"', "metadata:", '  compiled: "mattstack@0.10.3 + acme:plan-policy@0.5.2"', "---",
       "<!-- part: step source=mattstack:work version=0.10.3 path=attachments/pipeline/work/SKILL.md lines=13-98 -->",
@@ -17,7 +17,7 @@ describe("maskProvenance", () => {
     expect(masked).not.toContain("0.10.3");
     expect(masked).not.toContain("0.5.2");
     expect(masked).not.toContain("abc1234");
-    expect(masked).toContain("version=* path=attachments/pipeline/work/SKILL.md");
+    expect(masked).toContain("source=mattstack:work path=attachments/pipeline/work/SKILL.md");
     expect(masked).toContain("compiled: *");
     expect(masked).toContain("--mattstack-sha * --mattstack-dirty 0 --pack-sha *");
   });

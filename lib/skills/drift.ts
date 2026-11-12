@@ -44,8 +44,16 @@ export function skillMdDriftCauses(onDisk: string, expected: string): DriftCause
 
 export type PartExtent = { key: string; version: string | null; start: number; end: number; text: string };
 
-const EXTENT_RE = /^<!-- part: (include:\S+|section:\S+|block:\S+|prop:\S+) .*?\bversion=(\S+) .*?\blines=(\d+)-(\d+) -->$/;
-const MARKER_VERSION_RE = /^(<!-- part: .*?\bversion=)\S+/gm;
+/** `version=` is on seams an older compile wrote; a current compile's versions are in the pack's compiled lock. */
+const EXTENT_RE = /^<!-- part: (include:\S+|section:\S+|block:\S+|prop:\S+) (?:.*?\bversion=(\S+) )?.*?\blines=(\d+)-(\d+) -->$/;
+const MARKER_VERSION_RE = /^(<!-- part: .*?) version=\S+/gm;
+const SEAM_PLUGIN_RE = /^<!-- part: \S+ (?:source|binding)=([^:\s]+):/;
+
+/** The plugin a seam names by `source=` or `binding=`, which keys its built version in the lock. */
+export function pluginOfSeam(seamLine: string): string | null {
+  return SEAM_PLUGIN_RE.exec(seamLine)?.[1] ?? null;
+}
+
 /**
  * The one line `fillReference` renders for a prop bound by reference; its seam's `lines=` spans the skill it names.
  * The second form is the line an older compile wrote, which on-disk output still carries until it recompiles.
@@ -70,7 +78,7 @@ export function partExtents(md: string): PartExtent[] {
   if (lines[lines.length - 1] === "") lines.pop();
   const markerAt = (i: number) => {
     const m = EXTENT_RE.exec(lines[i]!);
-    return m ? { key: m[1]!, version: m[2]!, count: Number(m[4]) - Number(m[3]) + 1 } : null;
+    return m ? { key: m[1]!, version: m[2] ?? null, count: Number(m[4]) - Number(m[3]) + 1 } : null;
   };
   const out: PartExtent[] = [];
   for (let i = 0; i < lines.length; i++) {
@@ -104,7 +112,7 @@ export function partExtents(md: string): PartExtent[] {
  * substitution, so repeats fold into the one part; the parts nested in it are
  * their own, and only the block's own lines are its text.
  */
-function blockExtents(lines: string[], markerAt: (i: number) => { key: string; version: string } | null, nested: PartExtent[]): PartExtent[] {
+function blockExtents(lines: string[], markerAt: (i: number) => { key: string; version: string | null } | null, nested: PartExtent[]): PartExtent[] {
   const seams = lines.flatMap((_, i) => {
     const m = markerAt(i);
     return m && m.key.startsWith("block:") ? [{ i, key: m.key, version: m.version }] : [];

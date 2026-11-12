@@ -71,6 +71,13 @@ function inline(f: AttachmentSource, c: PlaceholderContext = ctx(), packPaths: s
   return inlineFillText("prop:x.domain", "domain", f, c, { packPaths, references: [], verbPaths: [] });
 }
 
+describe("seams", () => {
+  test("a prop seam carries no version", () => {
+    const seam = inline({ ...fill, body: "fill body" }).split("\n")[0]!;
+    expect(seam).toMatch(/^<!-- part: prop:\S+ binding=\S+ path=\S+ lines=\d+-\d+ -->$/);
+  });
+});
+
 describe("team markers in inlined fills", () => {
   const baseFill: AttachmentSource = { ...fill, binding: "acme-base:flow", plugin: "acme-base", bodyStartLine: 11, body: "Team {{team.linear-team}}" };
   const team = (params: Record<string, string> = {}, sections: Record<string, string> = {}) =>
@@ -79,7 +86,7 @@ describe("team markers in inlined fills", () => {
   test("inlining resolves team markers in a base fill", () => {
     const body = inline(baseFill, ctx({ team: team({ "linear-team": "Widgets" }) }));
     expect(body).toBe([
-      "<!-- part: prop:x.domain binding=acme-base:flow version=0.4.0 path=attachments/plan-policy/SKILL.md lines=11-11 -->",
+      "<!-- part: prop:x.domain binding=acme-base:flow path=attachments/plan-policy/SKILL.md lines=11-11 -->",
       "Team Widgets",
     ].join("\n"));
   });
@@ -119,9 +126,9 @@ describe("team markers in inlined fills", () => {
     const withSection = { ...baseFill, body: "before\n{{team.section:rules}}\nafter" };
     const body = inline(withSection, ctx({ team: team({}, { rules: "r1\nr2\n" }) }));
     expect(body).toBe([
-      "<!-- part: prop:x.domain binding=acme-base:flow version=0.4.0 path=attachments/plan-policy/SKILL.md lines=11-13 -->",
+      "<!-- part: prop:x.domain binding=acme-base:flow path=attachments/plan-policy/SKILL.md lines=11-13 -->",
       "before",
-      "<!-- part: section:rules source=widgets:pack/sections/rules.md version=0.4.0 path=pack/sections/rules.md lines=1-2 -->",
+      "<!-- part: section:rules source=widgets:pack/sections/rules.md path=pack/sections/rules.md lines=1-2 -->",
       "r1\nr2",
       "after",
     ].join("\n"));
@@ -131,7 +138,7 @@ describe("team markers in inlined fills", () => {
 describe("substituteLine", () => {
   test("an inlined value carries a source-coordinate marker", () => {
     expect(inline(fill)).toBe([
-      "<!-- part: prop:x.domain binding=acme:plan-policy version=0.4.0 path=attachments/plan-policy/SKILL.md lines=11-13 -->",
+      "<!-- part: prop:x.domain binding=acme:plan-policy path=attachments/plan-policy/SKILL.md lines=11-13 -->",
       "line one\nline two\nline three",
     ].join("\n"));
   });
@@ -177,7 +184,7 @@ describe("substituteLine", () => {
   test("include inlines with an include marker using source=", () => {
     const { body } = substitute("{{include:review-core-body}}", ctx(), "review");
     expect(body).toBe(
-      "<!-- part: include:review-core-body source=mattstack:review-core-body version=1.0.0 path=attachments/review-core-body/SKILL.md lines=6-7 -->\ncore A\ncore B",
+      "<!-- part: include:review-core-body source=mattstack:review-core-body path=attachments/review-core-body/SKILL.md lines=6-7 -->\ncore A\ncore B",
     );
   });
 

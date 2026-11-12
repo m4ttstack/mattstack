@@ -48,10 +48,10 @@ describe("expandSkills", () => {
     expect(review!.includes).toEqual(["note"]);
     expect(review!.skillMd).toContain("name: board:review\n");
     expect(review!.skillMd).toContain("allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/go.sh:*)\n");
-    expect(review!.skillMd).toContain("metadata:\n  slots: \"review\"\n  compiled: \"mattstack:note@9.9.9\"\n---");
+    expect(review!.skillMd).toContain("metadata:\n  slots: \"review\"\n  compiled: \"mattstack:note\"\n---");
     expect(review!.skillMd).toContain(`\n${EXPAND_HEADER}\n`);
     expect(review!.skillMd).toMatch(/<!-- part: step source=review\/SKILL\.md path=review\/SKILL\.md lines=\d+-\d+ -->/);
-    expect(review!.skillMd).toContain("<!-- part: include:note source=mattstack:note version=9.9.9 path=attachments/note/SKILL.md lines=");
+    expect(review!.skillMd).toContain("<!-- part: include:note source=mattstack:note path=attachments/note/SKILL.md lines=");
     expect(review!.skillMd).toContain("Shared rule one.");
     expect(review!.skillMd).not.toContain("{{");
     expect(review!.files.map((f) => f.path)).toEqual(["scripts/go.sh", MAP_FILE]);
@@ -64,7 +64,7 @@ describe("expandSkills", () => {
   test("a frontmatter with no metadata block gets one", () => {
     write(join(src, "plain", "SKILL.md"), "---\nname: board:plain\ndescription: p\n---\n\n{{include:note}}\n");
     const plain = expandSkills({ srcDir: src, outDir: out, roots: roots() }).find((s) => s.name === "plain")!;
-    expect(plain.skillMd).toContain("description: p\nmetadata:\n  compiled: \"mattstack:note@9.9.9\"\n---");
+    expect(plain.skillMd).toContain("description: p\nmetadata:\n  compiled: \"mattstack:note\"\n---");
   });
 
   test("refuses a source that already carries metadata.compiled", () => {
@@ -179,15 +179,16 @@ describe("writeExpanded and checkExpanded", () => {
     expect(checkExpanded(out, skills)).toContainEqual({ skill: "review", causes: ["foreign"] });
   });
 
-  test("a plugin version bump alone is not drift, and the write still stamps the new version", () => {
+  test("a plugin version bump alone is not drift, and the stamp names no version", () => {
     writeExpanded(out, expandSkills({ srcDir: src, outDir: out, roots: roots() }));
     write(join(root, "plugins", "mattstack", ".claude-plugin", "plugin.json"), JSON.stringify({ name: "mattstack", version: "9.9.10" }));
     const bumped = expandSkills({ srcDir: src, outDir: out, roots: roots() });
     expect(checkExpanded(out, bumped)).toEqual([]);
     writeExpanded(out, bumped);
     const md = readFileSync(join(out, "review", "SKILL.md"), "utf8");
-    expect(md).toContain('compiled: "mattstack:note@9.9.10"');
-    expect(md).toContain("source=mattstack:note version=9.9.10 ");
+    expect(md).toContain('compiled: "mattstack:note"');
+    expect(md).toContain("source=mattstack:note path=");
+    expect(md).not.toContain("9.9.10");
   });
 
   test("check names the cause: source, include, frontmatter, vendored, missing, orphan, foreign", () => {
@@ -387,7 +388,7 @@ describe("block-tree includes", () => {
     expect(headings(skill.skillMd)).toEqual(["# Gates", "## Gate protocol", "### Ask"]);
     expect(skill.skillMd).toContain("Gate intro.");
     expect(skill.skillMd).toContain(`${EXPAND_HEADER}`);
-    expect(skill.skillMd).toContain('  compiled: "mattstack:gp@9.9.9"');
+    expect(skill.skillMd).toContain('  compiled: "mattstack:gp"');
     expect(skill.skillMd).not.toContain("{{");
   });
 
@@ -447,7 +448,7 @@ describe("block-tree includes", () => {
     launcher("## Gates\n\n{{include:gp}}");
     const skill = gatesSkill();
     expect(skill.skillMd).toContain("Inner text.");
-    expect(skill.skillMd).toContain("mattstack:gp@9.9.9 + mattstack:inner@9.9.9");
+    expect(skill.skillMd).toContain("mattstack:gp + mattstack:inner");
     expect(skill.files.map((f) => f.path)).toContain("parts/include-inner/tool.sh");
   });
 

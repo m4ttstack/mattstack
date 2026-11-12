@@ -137,7 +137,7 @@ export function inlineFillText(
   used.packPaths.push(...inlined.packPaths);
   used.references.push(...inlined.references);
   used.verbPaths.push(...inlined.verbPaths);
-  return `<!-- part: ${key} binding=${fill.binding} version=${fill.version} ${resolved.span} -->\n${inlined.body}`;
+  return `<!-- part: ${key} binding=${fill.binding} ${resolved.span} -->\n${inlined.body}`;
 }
 
 const INCLUDE_LINE_RE = /^\s*\{\{include:([^}\s]+)\}\}\s*$/;
@@ -145,7 +145,7 @@ const INCLUDE_LINE_RE = /^\s*\{\{include:([^}\s]+)\}\}\s*$/;
 /** `shift` moves the include's headings, as it does the fill's or block's text it is placed in. */
 export function includeText(name: string, inc: AttachmentSource, ctx: PlaceholderContext, shift = 0): string {
   const body = shiftHeadings(atSkillDir(inc.body, skillDirFor(inc, ctx, `include-${name}`)), shift);
-  return `<!-- part: include:${name} source=${inc.plugin}:${name} version=${inc.version} ${spanOf(inc)} -->\n${body}`;
+  return `<!-- part: include:${name} source=${inc.plugin}:${name} ${spanOf(inc)} -->\n${body}`;
 }
 
 /**

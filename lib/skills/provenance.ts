@@ -2,14 +2,17 @@ import { execFileSync } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 
-const MARKER_VERSION_RE = /(<!-- part: [^>]*?\bversion=)[^\s>]+/g;
+const MARKER_VERSION_RE = /(<!-- part: [^>]*?) version=[^\s>]+/g;
 const COMPILED_RE = /^(\s*compiled: )"[^"\n]*"$/m;
 const BAKED_FLAG_RE = /(--(?:mattstack|pack)-sha )\S+/g;
 
-/** check compares artifacts with the versions and shas the compiler stamps masked out: a bump that changed no inlined body is not drift. */
+/**
+ * check compares artifacts with the versions and shas the compiler stamps masked out: a bump that changed no inlined body is not drift.
+ * A seam's `version=` is deleted rather than masked, so a seam an older compile wrote equals the versionless one a current compile writes.
+ */
 export function maskProvenance(text: string): string {
   return text
-    .replace(MARKER_VERSION_RE, "$1*")
+    .replace(MARKER_VERSION_RE, "$1")
     .replace(COMPILED_RE, "$1*")
     .replace(BAKED_FLAG_RE, "$1*");
 }

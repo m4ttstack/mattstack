@@ -446,7 +446,7 @@ describe("pointers from a base copy to the team's own source", () => {
     });
     expect(result.errors).toEqual([]);
     const rules = (fileOf(result, "references/widgets-evidence/rules.md") as { content: string }).content;
-    expect(rules).toContain("<!-- part: include:style-floor source=mattstack:style-floor version=1.0.0");
+    expect(rules).toContain("<!-- part: include:style-floor source=mattstack:style-floor path=");
     expect(rules).toContain("Run ${CLAUDE_SKILL_DIR}/../../attachments/review-kit/parts/include-style-floor/lint.sh first.");
     expect(fileOf(result, "parts/include-style-floor/lint.sh")).toEqual({ path: "parts/include-style-floor/lint.sh", copyFrom: join(incDir, "lint.sh") });
   });

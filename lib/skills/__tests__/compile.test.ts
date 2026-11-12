@@ -106,7 +106,7 @@ describe("compileBlockSkill", () => {
     expect(content).toContain('name: "watch-ci"');
     expect(content).toContain('description: "Watch CI until it goes green"');
     expect(content).toContain(
-      'metadata:\n  compiled: "mattstack@1.2.0 + acme:watch-ci-domain@0.3.0 + mattstack:gitlab-forge@1.2.0"',
+      'metadata:\n  compiled: "mattstack + acme:watch-ci-domain + mattstack:gitlab-forge"',
     );
 
     expect(toolLinesBetween(content)).toEqual([
@@ -119,12 +119,12 @@ describe("compileBlockSkill", () => {
     expect(content).toContain(
       "<!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->",
     );
-    expect(content).toMatch(/<!-- part: block:watch-ci source=mattstack:watch-ci version=1\.2\.0 path=skills\/pipeline\/watch-ci\/index\.block\.md lines=\d+-\d+ -->/);
+    expect(content).toMatch(/<!-- part: block:watch-ci source=mattstack:watch-ci path=skills\/pipeline\/watch-ci\/index\.block\.md lines=\d+-\d+ -->/);
     expect(content).toContain(
-      "<!-- part: prop:watch-ci.domain binding=acme:watch-ci-domain version=0.3.0 path=attachments/watch-ci-domain/SKILL.md lines=8-8 -->",
+      "<!-- part: prop:watch-ci.domain binding=acme:watch-ci-domain path=attachments/watch-ci-domain/SKILL.md lines=8-8 -->",
     );
     expect(content).toContain(
-      "<!-- part: prop:watch-ci.forge binding=mattstack:gitlab-forge version=1.2.0 path=skills/gitlab-forge/SKILL.md lines=8-8 -->",
+      "<!-- part: prop:watch-ci.forge binding=mattstack:gitlab-forge path=skills/gitlab-forge/SKILL.md lines=8-8 -->",
     );
 
     expect(content).toContain(
@@ -315,7 +315,7 @@ describe("compileBlockSkill", () => {
     ]);
 
     expect(content).toContain(
-      'metadata:\n  compiled: "mattstack@1.2.0 + acme:watch-ci-domain@0.3.0 + mattstack:gitlab-forge@1.2.0"',
+      'metadata:\n  compiled: "mattstack + acme:watch-ci-domain + mattstack:gitlab-forge"',
     );
   });
 
@@ -394,8 +394,8 @@ describe("compileBlockSkill", () => {
 
   test("seams carry the source path and line span, never an absolute path", () => {
     const content = skillFileContent(compile(verb, step, { domain: domainFill, forge: forgeFill }, new Set<string>()).files);
-    expect(content).toMatch(/<!-- part: block:watch-ci source=mattstack:watch-ci version=1\.2\.0 path=\S+ lines=\d+-\d+ -->/);
-    expect(content).toMatch(/<!-- part: prop:watch-ci\.domain binding=acme:watch-ci-domain version=0\.3\.0 path=\S+ lines=\d+-\d+ -->/);
+    expect(content).toMatch(/<!-- part: block:watch-ci source=mattstack:watch-ci path=\S+ lines=\d+-\d+ -->/);
+    expect(content).toMatch(/<!-- part: prop:watch-ci\.domain binding=acme:watch-ci-domain path=\S+ lines=\d+-\d+ -->/);
     // Relative, never absolute: an absolute path would bake this machine's tmpdir
     // into a committed artifact.
     expect(content).not.toMatch(/path=\//);
@@ -482,7 +482,7 @@ describe("compileBlockSkill with placeholders", () => {
     const md = skillMd(compile(verb, stageStep, { domain: domainFill }, new Set(), {
       stageDir: "${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci",
     }));
-    expect(md).toContain("<!-- part: prop:stage-watch-ci.domain binding=acme:watch-ci-domain version=0.3.0 path=attachments/watch-ci-domain/SKILL.md lines=8-8 -->");
+    expect(md).toContain("<!-- part: prop:stage-watch-ci.domain binding=acme:watch-ci-domain path=attachments/watch-ci-domain/SKILL.md lines=8-8 -->");
     expect(md).toContain("You consume `mr`, `branch`. You must produce `ci`.");
     expect(md.indexOf("You consume")).toBeGreaterThan(md.indexOf("part: prop:stage-watch-ci.domain"));
     expect(md.split("part: prop:stage-watch-ci.domain").length).toBe(2);

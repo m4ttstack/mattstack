@@ -1054,7 +1054,7 @@ describe("skillsCompile", () => {
 
     const filesUnder = (rel: string) => (readdirSync(join(packDir, rel), { recursive: true }) as string[]).filter((p) => statSync(join(packDir, rel, p)).isFile()).map((p) => `${rel}/${p}`);
     expect(result.removed).toEqual(["skills/watch-ci/left-over.md"]);
-    expect([...result.written].sort()).toEqual([...filesUnder("skills"), "pack/requires.json"].sort());
+    expect([...result.written].sort()).toEqual([...filesUnder("skills"), "pack/compiled.lock.json", "pack/requires.json"].sort());
     expect(existsSync(join(packDir, "skills", "watch-ci", "left-over.md"))).toBe(false);
   });
 
@@ -2880,7 +2880,7 @@ describe("skillsCheck", () => {
 
     const skillMdPath = join(packDir, "skills", "watch-ci", "SKILL.md");
     const bumped = readFileSync(skillMdPath, "utf8")
-      .replace(/version=\S+/g, "version=9.9.9")
+      .replace(/^(<!-- part: \S+ (?:source|binding)=\S+)/gm, "$1 version=9.9.9")
       .replace(/(compiled: )"[^"]*"/, '$1"bumped"');
     writeFileSync(skillMdPath, bumped);
     io.clear();
@@ -2916,7 +2916,7 @@ describe("skillsCheck", () => {
 
     const skillMdPath = join(packDir, "skills", "watch-ci", "SKILL.md");
     const bumped = readFileSync(skillMdPath, "utf8")
-      .replace(/version=\S+/g, "version=9.9.9")
+      .replace(/^(<!-- part: \S+ (?:source|binding)=\S+)/gm, "$1 version=9.9.9")
       .replace(/(compiled: )"[^"]*"/, '$1"bumped"')
       .replace("Poll the pipeline every 30s", "Poll the pipeline every 45s");
     writeFileSync(skillMdPath, bumped);

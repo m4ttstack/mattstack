@@ -62,7 +62,8 @@ import { brokenSkillPathDiagnostics, teamInputPathDiagnostics } from "../lib/ski
 import { buildBlocksPayload, type BlocksPayload, type PayloadBlock } from "../lib/skills/blocks/payload.ts";
 import { isBlockTree, walk } from "../lib/skills/blocks/tree.ts";
 import type { Block as BlockNode, BlockTree, PropSpec } from "../lib/skills/blocks/types.ts";
-import { linksIn, partsFromMarkers, type AnatomyPayload, type AnatomySource } from "../lib/skills/anatomy.ts";
+import { builtVersionsOf, linksIn, partsFromMarkers, type AnatomyPayload, type AnatomySource } from "../lib/skills/anatomy.ts";
+import { lockEntryOf, lockWrite, mergeLock, readLock, type CompiledLock } from "../lib/skills/compiled-lock.ts";
 import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, pruneEmptiedDirs, SIGNATURE_RE, touchesPack, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
 import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { isBasePack, readZonesFrom, zonePackDir, type InitFs } from "../lib/skills/init.ts";
@@ -1278,6 +1279,28 @@ export function floorWrite(
   return { written: [FLOOR_REL], removed: [], stale: false };
 }
 
+function lockTarget(packDir: string, name: string, isPublic: boolean): string {
+  return relativePath(packDir, outDirFor(packDir, name, isPublic));
+}
+
+/** The lock entries of the targets this compile wrote; mattstack compiled from a git tree keeps its sha beside its plain version. */
+function compiledLockOf(resolved: Resolved, outcomes: { target: CompileTarget; outcome: CompileOutcome }[]): CompiledLock {
+  const lock: CompiledLock = { targets: {}, bases: {}, mattstackSha: {}, mattstackDirty: {} };
+  const mattstack = resolved.pluginRoots.byName.mattstack;
+  const fromGitTree = mattstack !== undefined && resolved.mattstackSha !== "" && resolved.mattstackSha !== mattstack.version;
+  for (const { target, outcome } of outcomes) {
+    if (!outcome.ok) continue;
+    const key = lockTarget(resolved.packDir, target.verb.name, target.isPublic);
+    const texts = outcome.result.files.flatMap((f) => ("content" in f ? [f.content] : []));
+    lock.targets[key] = lockEntryOf(texts, (plugin) => resolved.pluginRoots.byName[plugin]?.version);
+    if (fromGitTree) {
+      lock.mattstackSha[key] = resolved.mattstackSha;
+      lock.mattstackDirty[key] = resolved.mattstackDirty;
+    }
+  }
+  return lock;
+}
+
 const STAGE_COPY_DIR_RE = /^stage-[a-z0-9-]+--[a-z][a-z0-9-]*$/;
 
 /**
@@ -1395,6 +1418,8 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     const floor = floorWrite(resolved, readIfPresent, true, resolved.teamContext?.sawMarker === true || keptRaise, outcomes.length > 0 || emits.length > 0);
     writes.written.push(...floor.written);
     writes.removed.push(...floor.removed);
+    const lock = lockWrite(resolved.packDir, mergeLock(readLock(resolved.packDir, readIfPresent), compiledLockOf(resolved, outcomes)), readIfPresent, true);
+    writes.written.push(...lock.written);
     if (verbFilter === null) {
       const manifest = pipelinesWrite(resolved, readIfPresent, true);
       writes.written.push(...manifest.written);
@@ -2671,9 +2696,6 @@ export async function skillsComposition(args: string[]): Promise<void> {
 
 // ─── rt skills anatomy ─────────────────────────────────────────────────────
 
-/** The engine root's seam is the file's first block seam, and it carries the engine's version. */
-const ROOT_VERSION_RE = /^<!-- part: block:\S+ .*?\bversion=(\S+) /m;
-
 /** A file's line count as an editor shows it: the trailing newline ends the last line rather than starting another. */
 function fileLineCount(text: string): number {
   if (text === "") return 0;
@@ -2718,17 +2740,14 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
     const onDisk = readIfExists(renderedPath);
     const shown = onDisk ?? fresh;
 
-    const extentsOnDisk = partExtents(onDisk ?? "");
-    const builtVersions = new Map(extentsOnDisk.map((p) => [p.key, p.version]));
-    // An add prop's values share one key, so each value reads the version on its own seam, in order.
-    const builtPropVersions = new Map<string, (string | null)[]>();
-    for (const x of extentsOnDisk) if (x.key.startsWith("prop:")) builtPropVersions.set(x.key, [...(builtPropVersions.get(x.key) ?? []), x.version]);
+    const built = builtVersionsOf(onDisk ?? "", readLock(resolved.packDir).targets[lockTarget(resolved.packDir, skill, target.isPublic)]);
+    const builtVersion = (key: string) => built.parts.get(key)?.at(-1) ?? null;
     const sources: Record<string, AnatomySource> = {};
     // A tree include renders through block seams of its own, so only a flat include has an include part.
     for (const [name, inc] of Object.entries(includes)) {
       if (inc.tree) continue;
       const key = `include:${name}`;
-      sources[key] = { ref: `${inc.plugin}:${name}`, path: join(inc.dir, "SKILL.md"), version: inc.version, builtVersion: builtVersions.get(key) ?? null, lines: inc.body.split("\n").length, ...originFor(resolved.pluginRoots, inc.plugin, inc.dir) };
+      sources[key] = { ref: `${inc.plugin}:${name}`, path: join(inc.dir, "SKILL.md"), version: inc.version, builtVersion: builtVersion(key), lines: inc.body.split("\n").length, ...originFor(resolved.pluginRoots, inc.plugin, inc.dir) };
     }
     // An add prop renders one part per value under the same key, so each part takes its value's source in order.
     const propSources = new Map<string, AnatomySource[]>();
@@ -2739,7 +2758,7 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
           ref: fill.binding,
           path: join(fill.dir, fill.file ?? "SKILL.md"),
           version: fill.version,
-          builtVersion: builtPropVersions.get(key)?.[i] ?? null,
+          builtVersion: built.parts.get(key)?.[i] ?? null,
           lines: fill.body.split("\n").length,
           ...originFor(resolved.pluginRoots, fill.plugin, fill.dir),
         })));
@@ -2750,7 +2769,7 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
       for (const extent of partExtents(fresh)) {
         if (!extent.key.startsWith("section:")) continue;
         const name = extent.key.slice("section:".length);
-        sources[extent.key] = { ref: `${team.plugin}:pack/sections/${name}.md`, path: join(resolved.packDir, "pack", "sections", `${name}.md`), version: team.version, builtVersion: builtVersions.get(extent.key) ?? null, lines: extent.text.split("\n").length };
+        sources[extent.key] = { ref: `${team.plugin}:pack/sections/${name}.md`, path: join(resolved.packDir, "pack", "sections", `${name}.md`), version: team.version, builtVersion: builtVersion(extent.key), lines: extent.text.split("\n").length };
       }
     }
     const changedKeys = onDisk ? changedPartKeys(onDisk, fresh) : new Set<string>();
@@ -2774,7 +2793,7 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
         ref: `${step.plugin}:${step.name}`,
         path: templatePath,
         version: step.version,
-        builtVersion: onDisk ? ROOT_VERSION_RE.exec(onDisk)?.[1] ?? null : null,
+        builtVersion: onDisk ? built.root : null,
         lines: fileLineCount(readFileSync(templatePath, "utf8")),
         ...originFor(resolved.pluginRoots, step.plugin, step.dir),
       },

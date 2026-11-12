@@ -99,12 +99,12 @@ describe("compileBlockSkill", () => {
     expect(skillMd.startsWith('---\nname: "mini"\ndescription: "Run the mini widget step"\nallowed-tools:\n')).toBe(true);
     expect(skillMd).toContain('  - "Bash(${CLAUDE_SKILL_DIR}/parts/rules/lint.sh)"\n');
     expect(skillMd).toContain(
-      '  compiled: "mattstack@1.0.0 + widgets:mini-rules/fast@0.1.0 + mattstack:model-tiering@1.0.0 + mattstack:style-floor@1.0.0"\n',
+      '  compiled: "mattstack + widgets:mini-rules/fast + mattstack:model-tiering + mattstack:style-floor"\n',
     );
     expect(skillMd).toContain("<!-- compiled by rt skills compile");
     expect(skillMd.split("\n").filter((l) => l.startsWith("#"))).toEqual(["# mini", "## Run the step", "### Check the result", "## Ask the gate", "## Notes"]);
     expect(skillMd).not.toContain("{{");
-    expect(skillMd).toContain("<!-- part: prop:mini.rules binding=widgets:mini-rules/fast version=0.1.0 path=attachments/mini-rules/fast.md lines=1-2 -->\nFollow the fast widget rules.\nRun ${CLAUDE_SKILL_DIR}/parts/rules/lint.sh first.");
+    expect(skillMd).toContain("<!-- part: prop:mini.rules binding=widgets:mini-rules/fast path=attachments/mini-rules/fast.md lines=1-2 -->\nFollow the fast widget rules.\nRun ${CLAUDE_SKILL_DIR}/parts/rules/lint.sh first.");
   });
 
   test("the pack's empty tiering falls back to its default, a public skill bound by reference", () => {

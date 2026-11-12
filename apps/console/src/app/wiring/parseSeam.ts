@@ -4,11 +4,14 @@
  *
  * rt emits five shapes, one per line, each its own paragraph:
  *
- *     <!-- part: step source=<plugin>:<name> version=<v> path=<p> lines=<a>-<b> -->
- *     <!-- part: block:<block id> source=<plugin>:<skill> version=<v> path=<p> lines=<a>-<b> -->
- *     <!-- part: prop:<block id>.<prop> binding=<fill> version=<v> path=<p> lines=<a>-<b> -->
- *     <!-- part: include:<attachment> source=<plugin>:<attachment> version=<v> path=<p> lines=<a>-<b> -->
- *     <!-- part: section:<name> source=<plugin>:pack/sections/<name>.md version=<v> path=<p> lines=1-<n> -->
+ *     <!-- part: step source=<plugin>:<name> path=<p> lines=<a>-<b> -->
+ *     <!-- part: block:<block id> source=<plugin>:<skill> path=<p> lines=<a>-<b> -->
+ *     <!-- part: prop:<block id>.<prop> binding=<fill> path=<p> lines=<a>-<b> -->
+ *     <!-- part: include:<attachment> source=<plugin>:<attachment> path=<p> lines=<a>-<b> -->
+ *     <!-- part: section:<name> source=<plugin>:pack/sections/<name>.md path=<p> lines=1-<n> -->
+ *
+ * Output an older compile wrote carries `version=<v>` between the ref and the
+ * path, and still parses.
  *
  * They differ in more than the kind word: a prop carries `binding=` (the fill
  * a consumer bound) while the others carry `source=` (an author-fixed
@@ -29,7 +32,8 @@ export interface Seam {
   name: string | null;
   /** Whichever of `source=` / `binding=` the shape carried. */
   ref: string;
-  version: string;
+  /** The seam's own `version=`, which only an older compile wrote. */
+  version: string | null;
   path: string;
   /** 1-indexed and inclusive, as the emitter's `span()` writes it. */
   lines: [number, number];
@@ -72,8 +76,13 @@ export function parseSeam(line: string): Seam | null {
     .slice(SEAM_PREFIX.length, -SEAM_SUFFIX.length)
     .trim()
     .split(/\s+/);
-  if (tokens.length !== 5) return null;
-  const [kindToken, refToken, versionToken, pathToken, linesToken] = tokens;
+  // An older compile wrote `version=` third; a current one keeps it in the
+  // pack's compiled lock and writes four tokens.
+  if (tokens.length !== 4 && tokens.length !== 5) return null;
+  const [kindToken, refToken, versionToken, pathToken, linesToken] =
+    tokens.length === 5
+      ? tokens
+      : [tokens[0], tokens[1], null, tokens[2], tokens[3]];
 
   let kind: SeamKind;
   let name: string | null;
@@ -94,10 +103,12 @@ export function parseSeam(line: string): Seam | null {
   // (`binding=`); the rest are author-fixed (`source=`). A crossed pair is a
   // shape the emitter cannot produce, so reading it would be inventing one.
   const ref = valueOf(refToken, kind === 'prop' ? 'binding' : 'source');
-  const version = valueOf(versionToken, 'version');
+  const version =
+    versionToken === null ? null : valueOf(versionToken, 'version');
   const path = valueOf(pathToken, 'path');
   const lines = valueOf(linesToken, 'lines');
-  if (!ref || !version || !path || !lines) return null;
+  if (!ref || (versionToken !== null && !version) || !path || !lines)
+    return null;
 
   const span = /^(\d+)-(\d+)$/.exec(lines);
   if (!span) return null;

@@ -298,7 +298,7 @@ export function compileBlockSkill(
   const flatIncludes = Object.fromEntries(Object.entries(includes).filter(([, inc]) => !inc.tree));
 
   const sources = [...values.values()].flatMap((props) => [...props.values()].flatMap((v) => v.sources));
-  const compiledParts = dedupePreserveOrder([`${step.plugin}@${step.version}`, ...sources.map(({ fill }) => `${fill.binding}@${fill.version}`)]);
+  const compiledParts = dedupePreserveOrder([step.plugin, ...sources.map(({ fill }) => fill.binding)]);
   const ctx = placeholderContext(step, flatIncludes, compiledParts.join(" + "), opts);
   if (walk(step.tree).some((b) => RESOLVER_RE.test(b.text))) {
     throw new Error(`engine "${step.name}": compile-native engine calls the runtime resolver (resolve-args.sh)`);

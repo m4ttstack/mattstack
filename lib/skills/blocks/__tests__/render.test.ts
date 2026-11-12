@@ -129,20 +129,20 @@ test("the mini tree renders one body with a seam per block and prop", () => {
   });
 
   expect(body.startsWith(
-    "<!-- part: block:mini source=mattstack:mini version=1.0.0 path=attachments/pipeline/mini/index.block.md lines=11-24 -->\n# mini\n\nRuns the step",
+    "<!-- part: block:mini source=mattstack:mini path=attachments/pipeline/mini/index.block.md lines=11-24 -->\n# mini\n\nRuns the step",
   )).toBe(true);
-  expect(body).toContain("<!-- part: block:mini/run source=mattstack:mini version=1.0.0 path=attachments/pipeline/mini/run/index.block.md lines=5-7 -->\n## Run the step\n");
+  expect(body).toContain("<!-- part: block:mini/run source=mattstack:mini path=attachments/pipeline/mini/run/index.block.md lines=5-7 -->\n## Run the step\n");
   expect(body).toContain("\n### Check the result\n");
   expect(body).toContain(
-    "<!-- part: prop:mini/gate.tiering binding=mattstack:model-tiering version=1.0.0 path=skills/model-tiering/SKILL.md lines=8-8 -->\n" +
+    "<!-- part: prop:mini/gate.tiering binding=mattstack:model-tiering path=skills/model-tiering/SKILL.md lines=8-8 -->\n" +
       "For tiering, invoke the `mattstack:model-tiering` skill (mattstack:model-tiering@1.0.0) when this flow needs it.",
   );
-  expect(body).toContain("<!-- part: prop:mini/notes.style binding=mattstack:style-floor version=1.0.0 path=attachments/style-floor/SKILL.md lines=8-8 -->\nWrite short sentences.");
+  expect(body).toContain("<!-- part: prop:mini/notes.style binding=mattstack:style-floor path=attachments/style-floor/SKILL.md lines=8-8 -->\nWrite short sentences.");
   expect(body).toContain(
-    "<!-- part: prop:mini.rules binding=widgets:mini-rules version=0.1.0 path=attachments/mini-rules/SKILL.md lines=8-9 -->\n" +
+    "<!-- part: prop:mini.rules binding=widgets:mini-rules path=attachments/mini-rules/SKILL.md lines=8-9 -->\n" +
       "Follow the widget rules.\nRun ${CLAUDE_SKILL_DIR}/parts/rules/lint.sh first.",
   );
-  expect(body).toContain("<!-- part: block:mini/run/guard source=mattstack:mini version=1.0.0 path=attachments/pipeline/mini/run/guard.block.md lines=4-4 -->\nGuard text with no title line.");
+  expect(body).toContain("<!-- part: block:mini/run/guard source=mattstack:mini path=attachments/pipeline/mini/run/guard.block.md lines=4-4 -->\nGuard text with no title line.");
   expect(body).toContain("```dot\ndigraph flow {\n");
   expect(body).toContain('run_step [label="Run the step"');
   expect(body).not.toContain("mermaid");
@@ -187,7 +187,7 @@ test("a titled block whose only text is an empty add prop keeps its seam and dro
     "empty.block.md": "---\nprops:\n  extra:\n    merge: add\n    default: \"\"\n---\n\n# Empty\n\n{{props.extra}}\n",
   });
   const { body } = render(tree);
-  expect(body).toContain("<!-- part: block:a/empty source=mattstack:a version=1.0.0 path=a/empty.block.md ");
+  expect(body).toContain("<!-- part: block:a/empty source=mattstack:a path=a/empty.block.md ");
   expect(body).not.toContain("Empty");
   expect(body).not.toContain("prop:a/empty.extra");
 });
@@ -414,7 +414,7 @@ test("an include whose root repeats the including title renders that title once"
   });
   const { body, used } = render(host, { includes: resolver({ gp: gpInclude() }) });
   expect(body.split("\n").filter((l) => /^#+ /.test(l))).toEqual(["# host", "## Gate protocol", "### Ask"]);
-  expect(body).toContain("<!-- part: block:gp source=mattstack:gp version=2.0.0 path=attachments/gp/index.block.md lines=6-6 -->\nGate intro.");
+  expect(body).toContain("<!-- part: block:gp source=mattstack:gp path=attachments/gp/index.block.md lines=6-6 -->\nGate intro.");
   expect(used.includes).toEqual(["gp"]);
 });
 
@@ -606,7 +606,7 @@ test("an include that is not a block tree renders as today's flat include", () =
   };
   const host = plainTree({ "index.block.md": "---\n---\n\n# host\n\n{{include:flat}}\n" });
   const { body, used } = render(host, { ctx: ctx({ includes: { flat } }) });
-  expect(body).toContain("<!-- part: include:flat source=mattstack:flat version=1.0.0 path=attachments/flat/SKILL.md lines=5-6 -->\nflat A\nflat B");
+  expect(body).toContain("<!-- part: include:flat source=mattstack:flat path=attachments/flat/SKILL.md lines=5-6 -->\nflat A\nflat B");
   expect(used.includes).toEqual(["flat"]);
 });
 

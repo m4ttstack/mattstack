@@ -63,7 +63,7 @@ describe("compile-native end to end", () => {
     const plan = stages.find(([name]) => name === "stage-plan")![1];
     // The fill comes from the pack under compilation, at the pack's own version --
     // never from an installed copy of a previous release.
-    expect(plan).toContain("<!-- part: prop:stage-plan.rules binding=acme:plan-policy version=0.1.0 path=attachments/plan-policy/SKILL.md");
+    expect(plan).toContain("<!-- part: prop:stage-plan.rules binding=acme:plan-policy path=attachments/plan-policy/SKILL.md");
     expect(plan).toContain("<!-- part: include:gitlab-note");
     expect(plan).toContain("note body");
     expect(existsSync(join(pack, "skills", "work", "scripts", "resolve-pipeline.sh"))).toBe(false);
@@ -652,7 +652,7 @@ describe("block-tree engines end to end", () => {
     const { pack } = await buildBlocks();
     const md = readFileSync(join(pack, "attachments", "mini", "SKILL.md"), "utf8");
 
-    expect(md).toContain('compiled: "mattstack@1.0.0 + widgets:mini-rules/fast@0.1.0 + mattstack:model-tiering@1.0.0 + mattstack:style-floor@1.0.0"');
+    expect(md).toContain('compiled: "mattstack + widgets:mini-rules/fast + mattstack:model-tiering + mattstack:style-floor"');
     expect(md.split("\n").filter((l) => l.startsWith("#"))).toEqual(["# mini", "## Run the step", "### Check the result", "## Ask the gate", "## Notes"]);
     expect(md).toContain("Run @mini/parts/rules/lint.sh first.");
     expect(md).toContain("For tiering, invoke the `mattstack:model-tiering` skill");
