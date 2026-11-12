@@ -385,6 +385,7 @@
       "name": "@mattstack/glance",
       "version": "0.31.0",
       "dependencies": {
+        "@gitbeaker/requester-utils": "^43.8.0",
         "@gitbeaker/rest": "^43.8.0",
         "@octokit/core": "^7.0.7",
         "@octokit/graphql": "^9.0.4",

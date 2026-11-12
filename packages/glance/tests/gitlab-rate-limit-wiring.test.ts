@@ -8,6 +8,7 @@ import { GitLabProvider } from '../src/GitLabProvider.ts';
 import { MRDetailFetcher } from '../src/MRDetailFetcher.ts';
 import { NoteMutator } from '../src/NoteMutator.ts';
 import { RateLimitedError } from '../src/errors.ts';
+import { RATE_LIMIT_RESET_MARGIN_MS } from '../src/gitlabRateLimit.ts';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -43,10 +44,15 @@ const limited = (retryAfter: string): Reply => () =>
 const ok = (body: unknown, status = 200): Reply => () =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
+/** When each request arrived, so a test can tell a wait for the reset from an immediate retry. */
+let sentAt: number[] = [];
+
 /** Serves `replies` in order (the last one repeats), recording each request's method and path. */
 function serve(...replies: Reply[]): string[] {
   const calls: string[] = [];
+  sentAt = [];
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    sentAt.push(performance.now());
     const req = input instanceof Request ? input : null;
     const url = new URL(req ? req.url : String(input));
     calls.push(`${req?.method ?? init?.method ?? 'GET'} ${url.pathname}`);
@@ -202,5 +208,56 @@ describe('GitLabProvider transports wait out a 429', () => {
     const calls = serve(limited('40'));
     await expect(runQuery(provider(), { retry: true })).rejects.toBeInstanceOf(RateLimitedError);
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe('gitbeaker calls wait out a 429', () => {
+  const provider = () => new GitLabProvider(BASE, 't');
+
+  test('an approve refused with 429 is sent once more after the reset', async () => {
+    const calls = serve(limited('0'), ok({ id: 1 }, 201));
+    await provider().approvePullRequest('g/p', 7);
+    expect(sentAt[1]! - sentAt[0]!).toBeGreaterThanOrEqual(RATE_LIMIT_RESET_MARGIN_MS - 50);
+    expect(calls).toEqual([
+      'POST /api/v4/projects/g%2Fp/merge_requests/7/approve',
+      'POST /api/v4/projects/g%2Fp/merge_requests/7/approve',
+    ]);
+  });
+
+  test('a write whose reset is past 65s throws RateLimitedError after one send', async () => {
+    const calls = serve(limited('70'));
+    const err = await provider().approvePullRequest('g/p', 7).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RateLimitedError);
+    expect((err as RateLimitedError).operation).toBe('POST projects/g%2Fp/merge_requests/7/approve');
+    expect(calls).toHaveLength(1);
+  });
+
+  test('a read reads again after the reset and keeps its rows', async () => {
+    const calls = serve(limited('0'), ok([{ id: 9, status: 'success', ref: 'main', sha: 'abc', web_url: 'u' }]));
+    const rows = await provider().fetchPipelineList!('g/p', { limit: 1 });
+    expect(rows.map((r) => r.id)).toEqual([9]);
+    expect(calls).toHaveLength(2);
+    expect(sentAt[1]! - sentAt[0]!).toBeGreaterThanOrEqual(RATE_LIMIT_RESET_MARGIN_MS - 50);
+  });
+
+  test('a read whose reset is past 30s throws RateLimitedError, not a ForgeHttpError', async () => {
+    const calls = serve(limited('40'));
+    await expect(provider().fetchPipelineList!('g/p', { limit: 1 })).rejects.toBeInstanceOf(RateLimitedError);
+    expect(calls).toHaveLength(1);
+  });
+
+  test('a write is not resent on a 502', async () => {
+    const calls = serve(
+      () => new Response('{"message":"bad gateway"}', { status: 502, statusText: 'Bad Gateway', headers: { 'content-type': 'application/json' } }),
+      ok({ id: 1 }, 201),
+    );
+    await expect(provider().approvePullRequest('g/p', 7)).rejects.toThrow(/^approvePullRequest failed: 502 Bad Gateway/);
+    expect(calls).toHaveLength(1);
+  });
+
+  test('a read still retries a 502', async () => {
+    const calls = serve(() => new Response('', { status: 502 }), ok([]));
+    expect(await provider().fetchPipelineList!('g/p', { limit: 1 })).toEqual([]);
+    expect(calls).toHaveLength(2);
   });
 });

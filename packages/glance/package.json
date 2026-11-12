@@ -45,6 +45,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@gitbeaker/requester-utils": "^43.8.0",
     "@gitbeaker/rest": "^43.8.0",
     "@octokit/core": "^7.0.7",
     "@octokit/graphql": "^9.0.4",

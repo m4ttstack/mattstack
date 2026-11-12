@@ -68,6 +68,7 @@ import { startEventsWatcher } from './EventsWatcher.ts';
 import type { FetchEvents, GitLabEvent } from './EventsPoller.ts';
 import { safeEmit, instrumentGitbeaker, type OnRequestHook, type RequestInfo } from './instrumentation.ts';
 import { RetryableError, asRetryable, isTransientStatus, retryAfterMs, withRetry } from './retry.ts';
+import { glanceRequesterFn } from './gitbeakerRequester.ts';
 import { throwIfGitLabRateLimited, withGitLabRateLimit } from './gitlabRateLimit.ts';
 
 export interface RequestIO {
@@ -958,7 +959,7 @@ export class GitLabProvider implements GitProvider {
     this.token = token;
     this.log = options.logger ?? noopLogger;
     this.onRequest = options.onRequest;
-    const gb = new Gitlab({ host: this.baseURL, token });
+    const gb = new Gitlab({ host: this.baseURL, token, requesterFn: glanceRequesterFn });
     // Zero-cost when unset: no Proxy layer unless a hook is attached.
     this.gb = options.onRequest ? instrumentGitbeaker(gb, (info) => safeEmit(this.onRequest, info)) : gb;
     this.mrDetailFetcher = new MRDetailFetcher(this.baseURL, token, {
