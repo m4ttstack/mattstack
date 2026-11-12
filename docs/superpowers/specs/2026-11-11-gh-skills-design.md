@@ -108,7 +108,9 @@ Approach 1, with the four calls below made through the shepherd
    comment counts when a `gh-review-thread-<n>` note at its `path` and
    `line` contains the first line of its body. All posted is yes, some is
    partly, none is no; a read error holds. GitLab keeps
-   `mr_posted_since`.
+   `mr_posted_since`. Whether an approval is still outstanding comes from
+   the latest hold's reason on both forges, as today: the GitHub read
+   checks no approval state.
 3. **A reply to a GitHub PR-level comment or review summary posts as a new
    PR comment.** For a `gh-issue-comment-<n>` or `gh-review-<n>` row, the
    reply posts with `mr_comment {mrUrl, body, resolvable: false}`, its body
@@ -154,6 +156,20 @@ Approach 1, with the four calls below made through the shepherd
   `review-already-posted`.
 - `take-earlier-threads`: already reads `mr_threads`; check it states
   `origin/pr-<n>` as the GitHub head and nothing else needs to change.
+  On GitHub only `gh-review-thread-<n>` ids may go into
+  `mr_review_submit`'s `replies` (others land in `replyErrors`): an earlier
+  round's threads are the review's own inline threads, so say that a
+  PR-level id is never handed to `replies`.
+- `attachments/review-posting/` (included by the review skill through
+  `review-posting.block.md`): `posting-mechanics-by-disposition`,
+  `quick-reference`, `close-hard-gate`, `red-flags`, `caller-inputs` and
+  `tacit-approval-rule` drop `gh pr review`, `gh pr view` and the
+  GitHub-only Request changes: Request changes is unavailable on both
+  forges and posts as the blocking-framed Comment GitLab already uses.
+  The shepherd widened the write fence to this folder (gate `11469618`).
+  No team pack fill includes it directly: a team org's packs reach it
+  only through compiled copies of the mattstack review engine, which pick
+  the change up on their next compile; their GitLab text is unchanged.
 
 ### Receive-review (`plugins/mattstack/attachments/review/receive-review/`)
 
@@ -170,6 +186,13 @@ Approach 1, with the four calls below made through the shepherd
   call 3's `mr_comment` for the other two kinds; `resolve_thread` is
   `mr_resolve_thread`, never for a PR-level row. Push before a Fixed reply
   stays `git_push`.
+- The `post_forge` edge label "GitHub: never respond_post_execute or an
+  mr_ tool" becomes "GitHub: never respond_post_execute" (the walk now
+  uses `mr_*` tools; `respond_post_execute` still refuses GitHub).
+- Change resolution: `change_forge` goes; a GitHub change joins
+  `mr_ref_in_hand`, so with no PR URL in hand `mr_for_branch` finds it,
+  as on GitLab (`resolve-change.block.md` loses "On GitHub it is the PR's
+  URL").
 - `snapshot-records`, `run`, `what-the-graph-cannot-show`, `red-flags`:
   drop `gh` wording.
 
@@ -208,7 +231,8 @@ The new skill text calls `mr_*` tools on GitHub, which only an app carrying
 PRs #1087, #1093 and #1095 can serve (none is released yet). So
 `plugins/mattstack/pack/requires.json` `minEngine` rises to the version this
 change bumps the plugin to, in the same commit. Right before the push the
-plugin version is set one past main's.
+plugin version is set one past main's, and `minEngine` moves with it in
+the same commit, followed by a recompile and strict check.
 
 ## Verification
 
