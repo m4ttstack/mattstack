@@ -104,9 +104,10 @@ recompiled must keep its own record:
 - A compile rewrites only the entries of the targets it compiled.
   (My call: a per-target lock, so a partial compile leaves untouched
   targets' "built → current" rows correct.)
-- When mattstack is compiled from a checkout, its entry records what
-  `mattstackProvenance` records today: `0.32.56+abc1234` and a dirty bit.
-  This keeps the dev provenance the baked flags carried. (My call.)
+- When mattstack is compiled from a checkout, the lock records its sha
+  and dirty bit beside the target (`mattstackSha`, `mattstackDirty`),
+  keeping the version itself plain. This keeps the dev provenance the
+  baked flags carried. (My call.)
 - Seams keep `source=` / `binding=` (which name the plugin) and the line
   spans, and drop `version=`. `PartExtent.version` and anatomy's
   `builtVersion` come from `lock[target][plugin of the seam]`. The
@@ -118,8 +119,11 @@ recompiled must keep its own record:
   console's `baseVersion` reads it there. The owner still comes from the
   copy's `compiled.json`. (My call: in scope, or a base bump would still
   rewrite every base copy.)
-- `check` compares the lock on its own. A lock change alone is not drift,
-  as a version-only bump is not today.
+- `check` never reads the lock: sync's compile always rewrites it, so a
+  lock change alone is never drift, as a version-only bump is not today.
+  Old seams compare equal to new ones (the mask deletes `version=`), but
+  old opening lines do not, so each pack reads stale once after the
+  upgrade until its next sync recompiles it.
 - Console `waiting.ts` counts the lock as compiled output when it finds
   the last compile, so a version-only sync is not listed as an edit
   "waiting for compile". (My call.)
@@ -139,14 +143,15 @@ and `--pack-sha`, and adds nothing in their place. `run_start` and
   because team packs always install from the data branch, even while the
   clone sits on a trial branch. Recorded as `<pack>=<short sha>`.
 - **mattstack.** From the target's lock entry, recorded as
-  `mattstack=<version>`, or the checkout sha with `pack_dirty` set when
-  the entry carries one.
+  `mattstack=<version>`, or `mattstack=<checkout sha>` with `pack_dirty`
+  set when the lock carries one.
 - **Dev pack.** A pack run from a checkout keeps today's
   `packProvenance(dirs)` path (sha plus dirty bit).
 
 If no bump commit can be found (no org clone on this Mac, a shallow
-clone), run start records `<pack>=<version>`, which the console already
-parses as a version token and shows without a sha.
+clone), run start records `<pack>=<version>`. The console's stage-doc
+panel already parses a version token; its drift row drops one today, so
+it gains a version-only row.
 
 `pack_commits` keeps its `name=value,...` shape, so the console's drift
 row and stage-doc panel read it unchanged. The stage-doc panel now shows
@@ -173,8 +178,8 @@ invoked, which in a reference or parts file is the host skill. (My call.)
 The reuse rule changes too. Today a held map is reused when it "covers"
 the id, and a versioned id cannot match a newer version's map. With a
 versionless id it could, so the opening line says to reuse a held map
-only when its `folder` (which `skills_resolve` already returns) is in the
-loaded skill's directory. Otherwise the agent resolves again. (My call.)
+only when its `folder` (which `skills_resolve` already returns) sits in
+the same plugin version folder as the loaded skill's directory. Otherwise the agent resolves again. (My call.)
 
 Resolve takes the version from the plugin cache folder that `dir` sits
 in, then resolves as today.
