@@ -35,6 +35,7 @@ process.env.BOXSCORE_DB = join(dir, 'test.sqlite');
 
 const { getLeaderboard, getUserDetail, ColdCacheError } =
   await import('../src/server/leaderboard.js');
+const { ConfigError } = await import('../src/server/config/index.js');
 const { getStore, __resetStore } = await import('../src/server/store/index.js');
 const { __setProviderFactory } = await import('../src/server/source/index.js');
 const { __setCurrentUser, __resetCurrentUser } =
@@ -47,6 +48,7 @@ const PROJECT = 'acme/app';
 const SETTINGS: Record<string, unknown> = {
   'boxscore.projects': [PROJECT],
   'mattstack.integrations': { forge: { host: 'gl.example' } },
+  'rt.integrations': { forgeHost: 'gl.example' },
 };
 
 /** A provider that answers every fetch with nothing and records each project scan's options. */
@@ -78,7 +80,7 @@ function fakeProvider(
     },
   };
   __setProviderFactory(() => provider as unknown as GitProvider);
-  return { scans };
+  return { scans, provider };
 }
 
 beforeAll(() => {
@@ -413,5 +415,57 @@ describe('viewer roles', () => {
       expect(res.users).toEqual([]);
       expect(res.previewing).toBe(false);
     });
+  });
+});
+
+describe('getLeaderboard: which host the GitLab token goes to', () => {
+  const window = resolvePreset('30d', new Date('2026-06-01T00:00:00Z'));
+  const withHosts = (extra: Record<string, unknown>) => {
+    const values: Record<string, unknown> = {
+      'boxscore.projects': [PROJECT],
+      'mattstack.integrations': { forge: { host: 'gl.team.example' } },
+      ...extra,
+    };
+    __setSettingReader(<T>(k: string) => values[k] as T | undefined);
+  };
+  /** Records the connection envelope of every provider boxscore builds. */
+  const recordEnvs = () => {
+    const { provider } = fakeProvider();
+    const envs: { baseUrl: string }[] = [];
+    __setProviderFactory(env => {
+      envs.push({ baseUrl: env.baseUrl });
+      return provider as unknown as GitProvider;
+    });
+    return envs;
+  };
+
+  afterEach(() => {
+    __setSettingReader(<T>(k: string) => SETTINGS[k] as T | undefined);
+  });
+
+  it('with only a team-declared host, builds no provider and names the setting to confirm', async () => {
+    withHosts({});
+    const envs = recordEnvs();
+
+    const run = getLeaderboard({ window, refresh: true, trend: false });
+
+    await expect(run).rejects.toBeInstanceOf(ConfigError);
+    await expect(run).rejects.toThrow(
+      'rt setup gitlab connect --host gl.team.example'
+    );
+    await expect(run).rejects.toThrow('rt.integrations.forgeHost');
+    expect(envs).toEqual([]);
+  });
+
+  it('sends the token only to the confirmed host, never the team-declared one', async () => {
+    withHosts({ 'rt.integrations': { forgeHost: 'gitlab.corp.example' } });
+    const envs = recordEnvs();
+
+    await getLeaderboard({ window, refresh: true, trend: false });
+
+    expect(envs.length).toBeGreaterThan(0);
+    for (const env of envs) {
+      expect(env.baseUrl).toBe('https://gitlab.corp.example');
+    }
   });
 });

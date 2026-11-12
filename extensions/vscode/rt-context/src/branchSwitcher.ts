@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { extractLinearId } from './branchParser';
 import { fetchTicketsBatch, fetchMyTodoTickets } from './linear';
 import { fetchMRInfoBatch } from './gitlab';
+import { confirmedHostForLookup } from './gitlabNotice';
 import { branchCache, branchListCache } from './cache';
 import { daemonQuery } from './daemonClient';
 import { getSecret } from './secrets';
@@ -279,7 +280,7 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
     // 5. Batch MR lookup — single API call for all local non-default branches
     let mrResults = new Map<string, { webUrl: string | null; linearId: string | null }>();
     if (gitlabToken && remoteUrl && fetchableBranches.length) {
-      mrResults = await fetchMRInfoBatch(gitlabToken, remoteUrl, fetchableBranches);
+      mrResults = await fetchMRInfoBatch(gitlabToken, remoteUrl, fetchableBranches, confirmedHostForLookup(remoteUrl));
     }
 
     // 6. Collect Linear IDs that actually need fetching (respect TTL)

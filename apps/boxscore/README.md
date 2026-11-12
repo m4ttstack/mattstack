@@ -82,8 +82,10 @@ Configuration lives in rt settings, not in a committed file (edit it in console'
 rt settings list | grep boxscore
 ```
 
-The scope and roster come from the shared `mattstack.roster` and `mattstack.integrations`
-keys (GitLab host under `forge.host`); the team's Linear key is in `mattstack.directory`; everything
+The roster comes from the shared `mattstack.roster` key. The GitLab token goes only to the host
+you confirmed with `rt setup gitlab connect --host <host>` (`rt.integrations.forgeHost`), or to
+gitlab.com when the team declares it in `mattstack.integrations`; any other team-declared host is
+shown in the setup hint but never sent the token. The team's Linear key is in `mattstack.directory`; everything
 boxscore-specific (`boxscore.projects`, `boxscore.hiddenMembers`, `boxscore.sizeBand`,
 `boxscore.linearDoneStates`, `boxscore.excludeFilePatterns`, `boxscore.ignoredMrs`,
 `boxscore.botPatterns`, `boxscore.defaultRange`) is set the same way. See the `rt:settings`

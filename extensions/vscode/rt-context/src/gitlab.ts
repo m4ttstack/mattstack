@@ -1,4 +1,5 @@
 import { GitLabProvider } from '@mattstack/glance';
+import { getSetting, mayOfferGitLabTokenToHost } from '@mattstack/rt-client';
 import { parseRemoteUrl } from './branchParser';
 
 /**
@@ -6,6 +7,31 @@ import { parseRemoteUrl } from './branchParser';
  * Used for parsing MR titles like "[ACME-1287] Add damage photos".
  */
 const LINEAR_ID_IN_TEXT = /\b([A-Za-z]+-\d+)\b/;
+
+/** The host the person confirmed through `rt setup gitlab connect --host`, or null. Never throws: an unreadable store confirms nothing. */
+export function confirmedForgeHost(): string | null {
+  try {
+    const host = getSetting<{ forgeHost?: unknown } | undefined>('rt.integrations').value?.forgeHost;
+    return typeof host === 'string' && host !== '' ? host : null;
+  } catch {
+    return null;
+  }
+}
+
+function hostOfRemote(remoteUrl: string): string | null {
+  const remote = parseRemoteUrl(remoteUrl);
+  if (!remote) return null;
+  return new URL(remote.host).host.toLowerCase();
+}
+
+/** Why the GitLab token may not go to this remote's host, in plain words, or null when it may. */
+export function gitlabTokenRefusal(remoteUrl: string, confirmedHost: unknown): string | null {
+  const host = hostOfRemote(remoteUrl);
+  if (host === null) return 'the origin remote is not a URL RT Context can read, so it looks up no merge request.';
+  if (mayOfferGitLabTokenToHost(host, confirmedHost)) return null;
+  if (host === 'github.com') return 'github.com is not a GitLab host, so RT Context looks up no merge request there.';
+  return `RT Context sends your GitLab token only to gitlab.com or the GitLab host you confirmed, and ${host} is not confirmed. To confirm it, run: rt setup gitlab connect --host ${host}`;
+}
 
 export interface MRLookupResult {
   webUrl: string | null;
@@ -21,9 +47,10 @@ export async function fetchMRInfo(
   gitlabToken: string,
   remoteUrl: string,
   branchName: string,
+  confirmedHost: unknown,
 ): Promise<MRLookupResult | null> {
   const remote = parseRemoteUrl(remoteUrl);
-  if (!remote) return null;
+  if (!remote || gitlabTokenRefusal(remoteUrl, confirmedHost) !== null) return null;
 
   try {
     const provider = new GitLabProvider(remote.host, gitlabToken);
@@ -49,12 +76,13 @@ export async function fetchMRInfoBatch(
   gitlabToken: string,
   remoteUrl: string,
   branches: string[],
+  confirmedHost: unknown,
 ): Promise<Map<string, MRLookupResult>> {
   const results = new Map<string, MRLookupResult>();
   if (!branches.length) return results;
 
   const remote = parseRemoteUrl(remoteUrl);
-  if (!remote) return results;
+  if (!remote || gitlabTokenRefusal(remoteUrl, confirmedHost) !== null) return results;
 
   try {
     const provider = new GitLabProvider(remote.host, gitlabToken);

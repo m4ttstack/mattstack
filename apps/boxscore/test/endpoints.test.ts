@@ -41,6 +41,7 @@ const PROJECTS = ['acme/acme-web'];
 const SETTINGS: Record<string, unknown> = {
   'boxscore.projects': PROJECTS,
   'mattstack.integrations': { forge: { host: 'gl.example' } },
+  'rt.integrations': { forgeHost: 'gl.example' },
 };
 
 beforeAll(() => {

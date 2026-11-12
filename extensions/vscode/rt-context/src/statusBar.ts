@@ -4,6 +4,7 @@ import { existsSync } from 'fs';
 import { extractLinearId } from './branchParser';
 import { fetchTicket, type LinearTicket } from './linear';
 import { fetchMRInfo } from './gitlab';
+import { confirmedHostForLookup } from './gitlabNotice';
 import { branchCache } from './cache';
 import { fetchBranchFromDaemon } from './daemonClient';
 import { getSecret } from './secrets';
@@ -329,7 +330,7 @@ async function fetchBranchDataDirect(
         const remoteUrl = getRemoteUrl(repo);
         if (remoteUrl) {
           try {
-            const mrInfo = await fetchMRInfo(gitlabToken, remoteUrl, branch);
+            const mrInfo = await fetchMRInfo(gitlabToken, remoteUrl, branch, confirmedHostForLookup(remoteUrl));
             if (mrInfo) {
               mrUrl = mrInfo.webUrl;
               mrLinearId = mrInfo.linearId;
