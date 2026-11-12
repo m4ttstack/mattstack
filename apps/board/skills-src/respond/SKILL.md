@@ -477,7 +477,9 @@ is `thread-<n>` by 1-based position among these threads, its label the
 thread's `<file>:<line>`, and its two options `post:<threadId>` and
 `resolve:<threadId>`, thread id VERBATIM. An Overview comment's row
 (`resolvable: false` in `mr_threads`) is labelled `Overview comment` and
-gets `post:<threadId>` alone: GitLab cannot resolve it.
+gets `post:<threadId>` alone: GitLab cannot resolve it. On GitHub any
+`gh-issue-comment-<n>` or `gh-review-<n>` row is an Overview row too (a
+`gh-issue-comment` row carries `resolvable: null`).
 
 ```json
 [

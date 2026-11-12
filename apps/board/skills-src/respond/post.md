@@ -49,11 +49,17 @@ digraph respond_gate_2_and_posting {
     "Hold the fixed threads: write respond-post-held into --report" [shape=box];
     "Threads left to post (respond)?" [shape=diamond];
     "Post this thread's reply?" [shape=diamond];
+    "Reply target (respond)?" [shape=diamond];
     "mr_reply_thread {mrUrl, discussionId, body}" [shape=plaintext];
     "mr_reply_thread result?" [shape=diamond];
     "STOP: replies post with mr_reply_thread" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Fixed the mr_reply_thread call once already?" [shape=diamond];
     "Fix what the mr_reply_thread error names" [shape=box];
+    "mr_comment {mrUrl, body, resolvable: false} (respond)" [shape=plaintext];
+    "mr_comment result (respond)?" [shape=diamond];
+    "STOP: PR-level replies post with mr_comment" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "Fixed the mr_comment call once already (respond)?" [shape=diamond];
+    "Fix what the mr_comment error names" [shape=box];
     "Resolve this thread?" [shape=diamond];
     "mr_resolve_thread {mrUrl, discussionId}" [shape=plaintext];
     "mr_resolve_thread result?" [shape=diamond];
@@ -68,6 +74,9 @@ digraph respond_gate_2_and_posting {
     "respond off-script gate: mr_reply_thread refused" [shape=box];
     "Off-script outcome (mr_reply_thread)?" [shape=diamond];
     "Off-script rounds = 2 (mr_reply_thread)?" [shape=diamond];
+    "respond off-script gate: mr_comment refused" [shape=box];
+    "Off-script outcome (mr_comment)?" [shape=diamond];
+    "Off-script rounds = 2 (mr_comment)?" [shape=diamond];
     "respond off-script gate: mr_resolve_thread refused" [shape=box];
     "Off-script outcome (mr_resolve_thread)?" [shape=diamond];
     "Off-script rounds = 2 (mr_resolve_thread)?" [shape=diamond];
@@ -131,22 +140,32 @@ digraph respond_gate_2_and_posting {
     "Hold the fixed threads: write respond-post-held into --report" -> "Threads left to post (respond)?";
     "Threads left to post (respond)?" -> "Post this thread's reply?" [label="yes"];
     "Threads left to post (respond)?" -> "Held threads from a respond-post-held line posted this pass?" [label="no"];
-    "Post this thread's reply?" -> "mr_reply_thread {mrUrl, discussionId, body}" [label="yes: picked post, or reply-only; not held, not posted already, no mark on its reply"];
+    "Post this thread's reply?" -> "Reply target (respond)?" [label="yes: picked post, or reply-only; not held, not posted already, no mark on its reply"];
+    "Reply target (respond)?" -> "mr_reply_thread {mrUrl, discussionId, body}" [label="a thread, or a GitLab Overview comment"];
+    "Reply target (respond)?" -> "mr_comment {mrUrl, body, resolvable: false} (respond)" [label="a GitHub PR-level row"];
     "Post this thread's reply?" -> "Resolve this thread?" [label="no"];
     "mr_reply_thread {mrUrl, discussionId, body}" -> "mr_reply_thread result?";
     "mr_reply_thread result?" -> "Resolve this thread?" [label="posted"];
     "mr_reply_thread result?" -> "Fixed the mr_reply_thread call once already?" [label="tool error"];
-    "mr_reply_thread result?" -> "STOP: replies post with mr_reply_thread" [label="tempted to post with the GitLab CLI or the API"];
+    "mr_reply_thread result?" -> "STOP: replies post with mr_reply_thread" [label="tempted to post with the forge CLI or the API"];
     "STOP: replies post with mr_reply_thread" -> "Fixed the mr_reply_thread call once already?";
     "Fixed the mr_reply_thread call once already?" -> "Fix what the mr_reply_thread error names" [label="no"];
     "Fixed the mr_reply_thread call once already?" -> "respond off-script gate: mr_reply_thread refused" [label="yes"];
     "Fix what the mr_reply_thread error names" -> "mr_reply_thread {mrUrl, discussionId, body}";
+    "mr_comment {mrUrl, body, resolvable: false} (respond)" -> "mr_comment result (respond)?";
+    "mr_comment result (respond)?" -> "Resolve this thread?" [label="posted"];
+    "mr_comment result (respond)?" -> "Fixed the mr_comment call once already (respond)?" [label="tool error"];
+    "mr_comment result (respond)?" -> "STOP: PR-level replies post with mr_comment" [label="tempted to post with the forge CLI or the API"];
+    "STOP: PR-level replies post with mr_comment" -> "Fixed the mr_comment call once already (respond)?";
+    "Fixed the mr_comment call once already (respond)?" -> "Fix what the mr_comment error names" [label="no"];
+    "Fixed the mr_comment call once already (respond)?" -> "respond off-script gate: mr_comment refused" [label="yes"];
+    "Fix what the mr_comment error names" -> "mr_comment {mrUrl, body, resolvable: false} (respond)";
     "Resolve this thread?" -> "mr_resolve_thread {mrUrl, discussionId}" [label="yes: resolve picked; not held, no mark stopping its resolve, not an Overview comment"];
     "Resolve this thread?" -> "Threads left to post (respond)?" [label="no"];
     "mr_resolve_thread {mrUrl, discussionId}" -> "mr_resolve_thread result?";
     "mr_resolve_thread result?" -> "Threads left to post (respond)?" [label="resolved"];
     "mr_resolve_thread result?" -> "Fixed the mr_resolve_thread call once already?" [label="tool error"];
-    "mr_resolve_thread result?" -> "STOP: threads resolve with mr_resolve_thread" [label="tempted to resolve with the GitLab CLI or the API"];
+    "mr_resolve_thread result?" -> "STOP: threads resolve with mr_resolve_thread" [label="tempted to resolve with the forge CLI or the API"];
     "STOP: threads resolve with mr_resolve_thread" -> "Fixed the mr_resolve_thread call once already?";
     "Fixed the mr_resolve_thread call once already?" -> "Fix what the mr_resolve_thread error names" [label="no"];
     "Fixed the mr_resolve_thread call once already?" -> "respond off-script gate: mr_resolve_thread refused" [label="yes"];
@@ -172,6 +191,15 @@ digraph respond_gate_2_and_posting {
     "Off-script outcome (mr_reply_thread)?" -> "Threads left to post (respond)?" [label="gate unavailable: this thread stays unposted"];
     "Off-script rounds = 2 (mr_reply_thread)?" -> "mr_reply_thread {mrUrl, discussionId, body}" [label="no: post again"];
     "Off-script rounds = 2 (mr_reply_thread)?" -> "Threads left to post (respond)?" [label="yes: this thread stays unposted"];
+    "respond off-script gate: mr_comment refused" -> "Off-script outcome (mr_comment)?";
+    "Off-script outcome (mr_comment)?" -> "Resolve this thread?" [label="take: the human posted it"];
+    "Off-script outcome (mr_comment)?" -> "Off-script rounds = 2 (mr_comment)?" [label="iterate: the cause is fixed"];
+    "Off-script outcome (mr_comment)?" -> "Held at a posting off-script gate: continue at Held" [label="hold"];
+    "Off-script outcome (mr_comment)?" -> "Threads left to post (respond)?" [label="hand back: this thread stays unposted"];
+    "Off-script outcome (mr_comment)?" -> "Posting gate gone: continue at Respond gate gone" [label="gate gone"];
+    "Off-script outcome (mr_comment)?" -> "Threads left to post (respond)?" [label="gate unavailable: this thread stays unposted"];
+    "Off-script rounds = 2 (mr_comment)?" -> "mr_comment {mrUrl, body, resolvable: false} (respond)" [label="no: post again"];
+    "Off-script rounds = 2 (mr_comment)?" -> "Threads left to post (respond)?" [label="yes: this thread stays unposted"];
     "respond off-script gate: mr_resolve_thread refused" -> "Off-script outcome (mr_resolve_thread)?";
     "Off-script outcome (mr_resolve_thread)?" -> "Threads left to post (respond)?" [label="take: the human resolved it"];
     "Off-script outcome (mr_resolve_thread)?" -> "Off-script rounds = 2 (mr_resolve_thread)?" [label="iterate: the cause is fixed"];
@@ -209,7 +237,11 @@ error` and the fixed threads are held. `<root>` is the
   `text` when it carries one, else the report's finalized reply; a
   reply-only thread posts the reply its row records (Gate 1's `text` when
   present, the draft otherwise) and is never resolved, so the reviewer can
-  answer. `resolve:` runs after the reply when both are picked. An empty
+  answer. On GitHub a PR-level row (`gh-issue-comment-<n>` or
+  `gh-review-<n>`) posts as a new PR comment with `mr_comment {mrUrl,
+  body, resolvable: false}`: the body is `> <the comment's first line>`, a
+  blank line, `@<author>`, then the reply; `mr_reply_thread` refuses those
+  ids. `resolve:` runs after the reply when both are picked. An empty
   array leaves the thread untouched. A held thread posts and resolves
   nothing. A thread marked posted already never posts its reply again,
   though its `resolve:` pick still runs. When Gate 2 offered a `gate-1:
@@ -219,14 +251,17 @@ reply` thread, or an answer value names one (a gate opened before this
 - **Overview comments.** Resolve never runs for a `resolvable: false`
   row (an Overview comment): GitLab cannot resolve it, so its Gate 2
   question offers only `post:`, and a `resolve:` value that names it
-  anyway is ignored. `Resolve this thread?` answers no for it.
+  anyway is ignored. `Resolve this thread?` answers no for it. On GitHub
+  any `gh-issue-comment-<n>` or `gh-review-<n>` row is an Overview row
+  (a `gh-issue-comment` row carries `resolvable: null`), and GitHub
+  cannot resolve it either.
 - **Escalation marks.** An off-script answer at a posting origin that
   keeps a call from running again writes an `escalation:` field into the
   row it touches, before the walk moves on, whether this pane or a
   resumed one acts on it: `pushed by hand` (a `git_push` take) and
   `push handed back` (a `git_push` hand back, gate unavailable or spent
   round budget) on every fixed thread Gate 2 picked; `posted by hand` (an
-  `mr_reply_thread` take) and `reply handed back` (its hand back,
+  `mr_reply_thread` or `mr_comment` take) and `reply handed back` (their hand back,
   unavailable or spent budget) on that thread; `resolved by hand` (an
   `mr_resolve_thread` take) and `resolve handed back` (the rest) on that
   thread. A row can carry several, comma-separated. The walk reads them
@@ -373,7 +408,16 @@ https URL, `discussionId` the thread id from its report row exactly as
 found" error with the id already matching the row, or an error that names
 no input, has nothing to correct: post again unchanged, once, and the
 off-script gate follows. An error is never a reason to post with the
-GitLab CLI or the API.
+forge CLI or the API.
+
+### Fix what the mr_comment error names
+
+`mr_comment` refused. Correct what the error names: `mrUrl` the MR's
+https URL, `body` the non-empty reply text (the quote of the comment's
+first line, a blank line, `@<author>`, then the reply), `resolvable`
+false. An error that names no input has nothing to correct: post again
+unchanged, once, and the off-script gate follows. An error is never a
+reason to post with the forge CLI or the API.
 
 ### Fix what the mr_resolve_thread error names
 
@@ -381,7 +425,7 @@ GitLab CLI or the API.
 MR's https URL, `discussionId` the thread id from its report row exactly
 as `mr_threads` gave it. An error that names no input has nothing to
 correct: resolve again unchanged, once, and the off-script gate follows.
-An error is never a reason to resolve with the GitLab CLI or the API.
+An error is never a reason to resolve with the forge CLI or the API.
 
 ### Delete the respond-post-held line from --report
 
@@ -429,6 +473,26 @@ thread before posting again. Hand back, gate unavailable and a spent
 round budget leave this thread unposted and unresolved, marked `reply
 handed back`, and move to the next thread; it counts neither posted nor
 held.
+
+### respond off-script gate: mr_comment refused
+
+Take "Off-script step" with this question. Label: `reply to PR comment
+<threadId> refused twice on !<iid>: <second error>`. Context: both
+`mr_comment` errors, quoted, and the reply text.
+
+| Value | Label | Description |
+| --- | --- | --- |
+| `take: you post the reply to PR comment <threadId> yourself (mr_comment refused, round <k>)` | Post it yourself | You post this reply and I continue with the next thread. |
+| `iterate: you fixed the cause, post the reply to PR comment <threadId> again (mr_comment refused, round <k>)` | Fixed it, post again | You fixed what refused the reply and I post it again. |
+| `hold: keep this pane open with the remaining replies unposted (mr_comment refused, round <k>)` | Hold this pane | I stop here and the replies not yet posted stay unposted. |
+| `hand back: leave PR comment <threadId> unposted and post the rest (mr_comment refused, round <k>)` | Skip this reply | I leave this thread unposted and carry on with the rest. |
+
+A take counts the reply as posted, marks the thread `posted by hand`, and
+moves to the next thread. Iterate passes `Off-script rounds = 2
+(mr_comment)?` for this thread before posting again. Hand back, gate
+unavailable and a spent round budget leave this thread unposted, marked
+`reply handed back`, and move to the next thread; it counts neither
+posted nor held.
 
 ### respond off-script gate: mr_resolve_thread refused
 

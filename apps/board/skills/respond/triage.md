@@ -85,7 +85,7 @@ digraph respond_triage_and_gate_1 {
     "mr_view {mrUrl} (respond source branch)" -> "mr_view result (respond)?";
     "mr_view result (respond)?" -> "mr_threads {mrUrl, refresh: true, filter: unresolved-human} (fetch)" [label="ok: keep sourceBranch"];
     "mr_view result (respond)?" -> "Fixed the mr_view call once already (respond)?" [label="tool error"];
-    "mr_view result (respond)?" -> "STOP: MR reads go through mr_view (respond)" [label="tempted to read the MR with the GitLab CLI"];
+    "mr_view result (respond)?" -> "STOP: MR reads go through mr_view (respond)" [label="tempted to read the MR with the forge CLI"];
     "STOP: MR reads go through mr_view (respond)" -> "Fixed the mr_view call once already (respond)?";
     "Fixed the mr_view call once already (respond)?" -> "Fix what the mr_view error names (respond)" [label="no"];
     "Fixed the mr_view call once already (respond)?" -> "respond off-script gate: mr_view refused" [label="yes"];
@@ -93,7 +93,7 @@ digraph respond_triage_and_gate_1 {
     "mr_threads {mrUrl, refresh: true, filter: unresolved-human} (fetch)" -> "mr_threads result (fetch)?";
     "mr_threads result (fetch)?" -> "Adjudicate each unresolved thread" [label="ok"];
     "mr_threads result (fetch)?" -> "Fixed the fetch mr_threads call once already?" [label="tool error"];
-    "mr_threads result (fetch)?" -> "STOP: threads are read with mr_threads" [label="tempted to read them with the GitLab CLI"];
+    "mr_threads result (fetch)?" -> "STOP: threads are read with mr_threads" [label="tempted to read them with the forge CLI"];
     "STOP: threads are read with mr_threads" -> "Fixed the fetch mr_threads call once already?";
     "Fixed the fetch mr_threads call once already?" -> "Fix what the fetch mr_threads error names" [label="no"];
     "Fixed the fetch mr_threads call once already?" -> "respond off-script gate: mr_threads refused (fetch)" [label="yes"];
@@ -206,10 +206,10 @@ it can post.
 `mr_view` refused its input. Correct what the error names (`mrUrl` the
 MR's https URL, `.../-/merge_requests/<iid>`, whose project is registered
 with rt; `maxAgeMs` a number when you pass it) and read again, once. An
-error that names no input (GitLab's own refusal, such as a 404 or 403,
+error that names no input (the forge's own refusal, such as a 404 or 403,
 or the repo is not registered with rt) is quoted as written and has nothing to correct: read again unchanged,
 once, and the off-script gate follows. An error is never a reason to read
-the MR with the GitLab CLI.
+the MR with the forge CLI.
 
 ### Fix what the fetch mr_threads error names
 
@@ -217,9 +217,9 @@ the MR with the GitLab CLI.
 (`mrUrl` the MR's https URL, `.../-/merge_requests/<iid>`, whose project
 is registered with rt; `refresh` a boolean; `filter` the string
 `unresolved-human`) and read again, once. An
-error that names no input (the daemon down, a GitLab fetch failure) has
+error that names no input (the daemon down, a forge fetch failure) has
 nothing to correct: read again unchanged, once, and the off-script gate
-follows. An error is never a reason to read the threads with the GitLab
+follows. An error is never a reason to read the threads with the forge
 CLI or the API.
 
 ### Adjudicate each unresolved thread
@@ -237,6 +237,10 @@ With `--person <username>`, keep only that person's feedback:
   still open: the MR author has not replied on that comment's discussion
   and has not left an Overview comment of their own after it.
 
+On GitHub any `gh-issue-comment-<n>` or `gh-review-<n>` row is an Overview
+comment (a `gh-issue-comment` row carries `resolvable: null`), so it
+counts for `--person` by the same test.
+
 Every other thread and comment on the MR is out of scope, however much it
 seems to need an answer. An Overview comment's row is keyed by its
 discussion `id` like any thread, its location reads `Overview comment` in
@@ -245,6 +249,13 @@ that discussion id: as a live note rather than a draft review, when it
 posts, on that comment's own discussion (GitLab's "Reply to comment",
 then "Add comment now"). It cannot be resolved, so its Gate 2 question
 offers `post:` alone.
+
+On GitHub an Overview comment is a `gh-issue-comment-<n>` or
+`gh-review-<n>` row, and `mr_reply_thread` refuses those ids. Its reply
+posts as a new PR comment with `mr_comment {mrUrl, body, resolvable:
+false}`: the body is `> <the comment's first line>`, a blank line,
+`@<author>`, then the reply. It cannot be resolved either, so its Gate 2
+question offers `post:` alone.
 
 Judge each thread on its merits and pick one verdict:
 

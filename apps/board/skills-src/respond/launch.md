@@ -384,7 +384,7 @@ rows, and the posting walk honours them.
 the error names (`mrUrl` the MR's https URL,
 `.../-/merge_requests/<iid>`, whose project is registered with rt;
 `refresh` a boolean) and read again, once. An error that names no input
-(the daemon down, a GitLab fetch failure) has nothing to correct: read
+(the daemon down, a forge fetch failure) has nothing to correct: read
 again unchanged, once, and the off-script gate follows. An error is never
 a reason to skip the read and post anyway: a reply posted twice is what
 this read prevents.
@@ -403,6 +403,11 @@ chain. A thread already carries this run's reply when it holds either:
   recorded for the stage the pass resumes: `gate-2-answer:` for a posting
   origin or a read before posting, `gate-1-answer:` for a read before
   Implement. A triage origin never takes this read.
+
+On GitHub a PR-level row (`gh-issue-comment-<n>` or `gh-review-<n>`) is
+posted when a `gh-issue-comment` entry by this account, dated after the
+answered gate's `answeredAt`, carries the reply text, since its reply
+is a new PR comment and not a note in the row's own chain.
 
 Such a thread is posted: it counts toward `--posted`, it is never offered
 at a fresh Gate 2, and its reply is never posted again, whatever
