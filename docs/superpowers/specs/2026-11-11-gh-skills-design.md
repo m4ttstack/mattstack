@@ -123,8 +123,9 @@ Approach 1, with the four calls below made through the shepherd
    comment's note chain. Shepherd's call; the PR body names it as a
    behaviour change.
 4. **Board doctor stops at entry on GitHub.** On a `github.com` mrUrl the
-   doctor writes its error status saying CI watch (RT-546) and server-side
-   rebase (GLANCE-45) are not on GitHub yet, and ends. Its "the GitLab CLI"
+   doctor writes its error status saying CI watch and server-side rebase
+   are GitLab only for now, and ends. Skill text names no ticket id
+   (certify fails one); the PR body names RT-546 and GLANCE-45. Its "the GitLab CLI"
    STOP labels become forge-neutral ("the forge CLI"). The stop comes out
    when those land.
 
