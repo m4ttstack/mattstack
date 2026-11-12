@@ -34,7 +34,8 @@ of its lists, and each entry of either has an `id`, a `severity`
 - `rules`: the rules the change triggered. Each one needs a verdict.
 - `alsoInScope`: rules that cover a changed file but that nothing in the
   change triggered. A verdict for one is allowed and never required. A
-  selection without this key lists none.
+  selection without this key lists none. The key is additive, so the
+  contract stays `rule-selector@1`.
 
 **The verdict set** is one fenced block tagged with the `fence` value:
 

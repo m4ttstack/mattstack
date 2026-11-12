@@ -15,9 +15,9 @@ Append to every dispatched prompt, in this order, after its filled template:
    block is left out.
 3. The caller's addendum block, verbatim when provided, except that each
    `@key` in it goes as the absolute path `skills_resolve` returned for it.
-4. The rule selection, only when the caller hands one: `## Rules for
-   this change`, the selection text verbatim, then, when the caller
-   asks for one, the verdict request. The request says: end the reply with
+4. The rule selection, only when the caller hands one:
+   `## Rules for this change`, the selection text verbatim, then, when the
+   caller asks for one, the verdict request. The request says: end the reply with
    the verdict set in one fenced block tagged with the `fence` value, in
    the shape `{"verdicts": [{"rule", "verdict": "pass" | "fail" |
    "not-applicable", "evidence": [{"file", "line", "side"?: "new" |
