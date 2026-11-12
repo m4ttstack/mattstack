@@ -12,7 +12,9 @@
 
 ## Global Constraints
 
-- GitLab behaviour does not change: same glance calls, requests, error text and HTTP status for every GitLab input. `src/__tests__/server-own-mr.test.ts` stays green unmodified.
+- GitLab behaviour does not change: same glance calls, requests, error text and HTTP status for every GitLab input. `src/__tests__/server-own-mr.test.ts` stays green unmodified, including its three mixed-forge cases (a GitHub row on a GitLab board answers 400 `Not available on GitHub yet` after the row lookup).
+- Routes pick the write side by the board's forge (`config.forge.kind`), never by the row; a row whose forge differs from the board's keeps today's post-lookup `FORGE_NOT_YET` refusal.
+- Unanswered reasons (the client prints `no answer for #N; <reason>`): merge `the merge may still land`; rebase, set and cancel auto-merge, draft toggle `it may still apply`; note `the note may have posted`.
 - The board never builds a GitHub client or reads a GitHub token; every GitHub read and write is a daemon verb through `rtCommand`.
 - No new poll, interval or background read.
 - Write only under `apps/board/` except `src/triage/`, `bin/triage.ts`, `skills-src/` and `skills/`; the one exception is one `plainReason` case in `src/triage/nudge.ts` (Task 10).
@@ -61,10 +63,10 @@
   - `githubMrWrite('remote:x', 7, 'merge', fake)` sends `['mr:action', {repoName:'remote:x', iid:7, action:'merge', args:[]}, {timeoutMs: 120_000}]` and answers `{kind:'done'}` on `{ok:true}`.
   - a merge reply `{ok:true, data:{queued:{position:2, state:'QUEUED'}}}` gives `{kind:'done', mergeQueued:{position:2, state:'QUEUED'}}`; `data.sourceBranchNotDeleted: 's'` passes through.
   - `{ok:false, error:'Error: mergePullRequest failed: 405 Pull Request is not mergeable'}` gives `{kind:'refused', reason:'405 Pull Request is not mergeable'}`.
-  - merge with `{ok:false, error:'rt daemon unreachable at /s (timed out)'}` then `mr:get` answering `{ok:true, data:{mr:{state:'merged'}}}` gives `{kind:'done'}`; with `state:'opened'` gives `{kind:'unanswered', reason:'no answer from rt; the merge may still land'}`; the `mr:get` payload is `{repoName, iid, refresh:true}`; exactly one `mr:get`.
-  - `setAutoMerge` unanswered gives `unanswered` with no `mr:get`.
+  - merge with `{ok:false, error:'rt daemon unreachable at /s (timed out)'}` then `mr:get` answering `{ok:true, data:{mr:{state:'merged'}}}` gives `{kind:'done'}`; with `state:'opened'` gives `{kind:'unanswered', reason:'the merge may still land'}`; the `mr:get` payload is `{repoName, iid, refresh:true}`; exactly one `mr:get`.
+  - `setAutoMerge` unanswered gives `{kind:'unanswered', reason:'it may still apply'}` with no `mr:get`; `githubSetDraft` unanswered gives the same reason.
   - `githubSetDraft('remote:x', 7, true, fake)` sends `mr:action {action:'toggleDraft', args:[true]}`.
-  - `githubPostNote('remote:x', 7, 'hi', fake)` sends `mr:comment {repoName, iid:7, body:'hi', resolvable:false}` and answers `{kind:'done', noteId: 55}` from `data.noteId`; unanswered gives `{kind:'unanswered', reason:'no answer from rt; the note may have posted'}`.
+  - `githubPostNote('remote:x', 7, 'hi', fake)` sends `mr:comment {repoName, iid:7, body:'hi', resolvable:false}` and answers `{kind:'done', noteId: 55}` from `data.noteId`; unanswered gives `{kind:'unanswered', reason:'the note may have posted'}`.
   - `forgeReason('Error: setAutoMerge failed: x')` is `'x'`; a message with neither prefix is unchanged.
 
 - [ ] **Step 2: Run** `bun test src/__tests__/forge-writes.test.ts` from `apps/board`. Expected: FAIL, module not found.
@@ -86,8 +88,8 @@
 - Consumes: Task 1's types; `runMrAction`, `mergeRefusalReason`, `MrActionProvider` from `./mr-action.ts`; `NoteMutator`, `ReadBackFailedError`, `GitLabProvider` from `@mattstack/glance`.
 - Produces:
   ```ts
-  export function gitlabMrWrite(provider: MrActionProvider, path: string, iid: number, action: MrAction): Promise<ForgeWriteResult>;
-  export function gitlabSetDraft(provider: Pick<GitLabProvider, 'updatePullRequest' | 'fetchSingleMR'>, path: string, iid: number, draft: boolean): Promise<ForgeWriteResult>;
+  export function gitlabMrWrite(provider: MrActionProvider, path: string, iid: number, action: MrAction, onError?: (message: string) => void): Promise<ForgeWriteResult>;
+  export function gitlabSetDraft(provider: Pick<GitLabProvider, 'updatePullRequest' | 'fetchSingleMR'>, path: string, iid: number, draft: boolean, onError?: (message: string) => void): Promise<ForgeWriteResult>;
   export function gitlabPostNote(mutator: Pick<NoteMutator, 'createNote'>, projectId: number, iid: number, body: string): Promise<ForgeWriteResult>;
   ```
 
@@ -98,7 +100,7 @@
 
 - [ ] **Step 2: Run** `bun test src/__tests__/forge-writes.test.ts`. Expected: the new cases FAIL.
 
-- [ ] **Step 3: Implement** the three functions by moving the route bodies' current try/catch logic, then make the three routes' GitLab paths call them and map results to today's responses byte for byte: `refused` 409 `{reason}` (merge only), `failed` `gitlab ${action} failed: ${message}` 502, `gitlab update failed: ${message}` 502, `note post failed: ${message}` 502; `/draft` done bodies `{ok, draft, title}` / `{ok, draft, title, recovered}` / `{ok, draft, recovered, verified:false}`. Keep each route's `console.error` lines and `cache.invalidate()` calls where they are.
+- [ ] **Step 3: Implement** the three functions by moving the route bodies' current try/catch logic, then make the three routes' GitLab paths call them and map results to today's responses byte for byte: `refused` 409 `{reason}` (merge only), `failed` `gitlab ${action} failed: ${message}` 502, `gitlab update failed: ${message}` 502, `note post failed: ${message}` 502; `/draft` done bodies `{ok, draft, title}` / `{ok, draft, title, recovered}` / `{ok, draft, recovered, verified:false}`. `onError` is called exactly where each route's `console.error` runs today, and the route passes a closure that logs today's line (`mr action ${action} failed for !${iid}: ${message}`, `draft update failed for !${iid} (draft=${draft}): ${message}`). `cache.invalidate()` stays in the routes, on every result that invalidates today.
 
 - [ ] **Step 4: Run** `bun test src/__tests__/forge-writes.test.ts src/__tests__/server-own-mr.test.ts src/__tests__/mr-action.test.ts`. Expected: PASS, with `server-own-mr.test.ts` unmodified.
 
@@ -116,20 +118,21 @@
 
 - [ ] **Step 1: Rewrite the failing tests.** In the fake daemon, add own PRs `fakePr(8, ALICE)`, `fakePr(9, ALICE)`, `fakePr(10, ALICE)` and answer by iid, recording write payloads:
   - `mr:action` merge: 7 `{ok:true}`, 8 `{ok:true, data:{queued:{position:2, state:'QUEUED'}}}`, 9 `{ok:false, error:'Error: mergePullRequest failed: 405 Pull Request is not mergeable'}`, 10 `{ok:false, error:'rt daemon unreachable at /x (timed out)'}`; `mr:get` for 10 answers `state:'opened'`. Other actions `{ok:true}`. `mr:comment` answers `{ok:true, data:{noteId:555, discussionId:null, resolvable:false, url:'u', mrUrl:'m'}}`.
+  - The `/data.json` test's expected rows become `[prUrl(10), prUrl(20), prUrl(7), prUrl(8), prUrl(9)]` sorted as strings.
   - Replace "merge, draft and held-draft post refuse a GitHub PR" with:
     - `merge #7` answers 200 `{ok:true}`; the daemon saw `mr:action` with `{iid:7, action:'merge', args:[]}` and a non-empty `repoName`.
     - `merge #8` answers 200 with `mergeQueued: {position:2, state:'QUEUED'}`.
     - `merge #9` answers 409 `{reason:'405 Pull Request is not mergeable'}`.
-    - `merge #10` answers 504 `{reason:'no answer from rt; the merge may still land'}`.
+    - `merge #10` answers 504 `{reason:'the merge may still land'}`.
     - `setAutoMerge` and `cancelAutoMerge` on #7 reach `mr:action` with that action.
     - `/draft` `{draft:true}` on #7 sends `toggleDraft` with `args:[true]` and answers `{ok:true, draft:true}`.
     - `/drafts` post on a held #7 note sends `mr:comment` `{iid:7, body:'the cache key changed', resolvable:false}`, answers `{ok:true, posted:true, noteId:555}`, and the draft reads `posted` with `postedNoteId: 555`.
     - `merge #20` (Bob's) answers 403 `not your MR` and sends no write.
-    - no response body in this file reads `gitlab token not configured`.
+    - no response body in this file reads `gitlab token not configured` (on a GitHub team `getGitlabToken()` answers null whatever the env, so an ungated token check fails the cases above).
 
 - [ ] **Step 2: Run** `bun test src/__tests__/server-github-team.test.ts`. Expected: FAIL (400 `Not available on GitHub yet`).
 
-- [ ] **Step 3: Implement.** Remove the two `FORGE_NOT_YET` returns per route. Gate each GitLab token check on `config.forge.kind === 'gitlab'` in its current position. After the row lookup and the existing iid and ownership checks, a GitHub row with no `repoIdentityField(mr.rtRepo)` answers 400 `this MR has no rt repo`; otherwise call `server.timeout(req, 0)` and the GitHub function, then map: `done` 200 (fields above), `refused` 409 `{reason}`, `unanswered` 504 `{reason}`, then `cache.invalidate()` on `done`. `/drafts` writes `{status:'posted', postedNoteId}` on `done` and leaves the draft `held` otherwise.
+- [ ] **Step 3: Implement.** Remove the `config.forge.kind === 'github'` `FORGE_NOT_YET` return before each token check, and narrow the post-lookup `onGitHub(mr)` return to `onGitHub(mr) !== (config.forge.kind === 'github')`. Gate each GitLab token check on `config.forge.kind === 'gitlab'` in its current position. On a GitHub board, after the row lookup and the existing iid and ownership checks, a row with no `repoIdentityField(mr.rtRepo)` answers 400 `this MR has no rt repo`; otherwise call `server.timeout(req, 0)` and the GitHub function, then map: `done` 200 (fields above), `refused` 409 `{reason}`, `unanswered` 504 `{reason}`, then `cache.invalidate()` on `done`. `/drafts` writes `{status:'posted', postedNoteId}` on `done` and leaves the draft `held` otherwise.
 
 - [ ] **Step 4: Run** `bun test src/__tests__/server-github-team.test.ts src/__tests__/server-own-mr.test.ts`. Expected: PASS.
 
@@ -153,6 +156,8 @@
     teamUsername: () => string | null;
   }
   export function createForgeSelf(deps: ForgeSelfDeps): { get(): string | null; reset(): void };
+  /** The manual doctor launch's identity: GitHub answers self() and never calls gitlab(). */
+  export function launchIdentity(forge: 'gitlab' | 'github', self: () => string | null, gitlab: () => Promise<string | null>): Promise<string | null>;
   ```
 
 - [ ] **Step 1: Write the failing tests** (`forge-self.test.ts`):
@@ -160,11 +165,12 @@
   - GitHub: returns `teamUsername()`, reads it once until `reset()`, then reads again.
   - fixture: returns null and calls neither reader.
   - `effectiveSeat('alice', createForgeSelf({forge:()=>'github', fixture:false, memoryUsername:()=> 'alice', teamUsername:()=> 'bob'}).get())` is null.
-  - In `server-github-team.test.ts`: write `~/.mattstack/rt/teams/testteam.json` `{"forgeUsername":"alice"}` and change the memory identity to `zed`; `/data.json`'s `tokenUser` is `alice`, and Task 3's own-PR writes still succeed.
+  - `launchIdentity('github', () => 'alice', gitlab)` is `'alice'` and never calls `gitlab`; `launchIdentity('gitlab', self, async () => 'bob')` is `'bob'`.
+  - In `server-github-team.test.ts`, at module top before `bootBoardServer` (the GitHub answer is memoized at first use): write `~/.mattstack/rt/teams/testteam.json` `{"forgeUsername":"alice"}`, give both `mattstack.roster` entries `teams: ['web']` (a known username makes `activeTeam()` look the user up in the roster; without `teams` the active team turns null), and change the memory identity to `zed`. `/data.json`'s `tokenUser` is `alice`, it still lists the same PRs, and Task 3's own-PR writes still succeed.
 
 - [ ] **Step 2: Run** both files. Expected: FAIL.
 
-- [ ] **Step 3: Implement** `createForgeSelf`, then in `server.ts` build one instance (`forge: () => config.forge.kind`, `fixture: !!FIXTURE_DIR`, `memoryUsername: () => readMemory().identity?.username ?? null`, `teamUsername: () => activeTeam().username`), use `forgeSelf.get()` in `actingSeat()` and for `tokenUser`, call `forgeSelf.reset()` in `reloadConfig`, and in `/doctor` take `config.forge.kind === 'github' ? forgeSelf.get() : await resolveDispatchIdentity(...)` (GitLab line unchanged).
+- [ ] **Step 3: Implement** `createForgeSelf`, then in `server.ts` build one instance (`forge: () => config.forge.kind`, `fixture: !!FIXTURE_DIR`, `memoryUsername: () => readMemory().identity?.username ?? null`, `teamUsername: () => activeTeam().username`), use `forgeSelf.get()` in `actingSeat()` and for `tokenUser`, call `forgeSelf.reset()` in `reloadConfig`, and in `/doctor` take `await launchIdentity(config.forge.kind, forgeSelf.get, () => resolveDispatchIdentity(identityRead, async () => (await gitlab()).validateToken()))` (GitLab behaviour unchanged).
 
 - [ ] **Step 4: Run** both files plus `src/__tests__/server-own-mr.test.ts`. Expected: PASS.
 
@@ -190,7 +196,7 @@
 
 - [ ] **Step 2: Run** the four files. Expected: the flipped cases FAIL.
 
-- [ ] **Step 3: Implement:** drop `&& !github` from the forge-writes block and the refresh push (label `refresh from ${forgeWord(mrx)}`), drop `!onGitHub(mr) &&` from `canMerge`, drop the `onGitHub(mr) ? null :` arm in `DraftModal`, and word refresh's pending toast with `forgeWord(mr)`.
+- [ ] **Step 3: Implement:** drop `&& !github` from the forge-writes block and the refresh push (label `refresh from ${forgeWord(mrx)}`) and delete the then-unused `github` local, drop `!onGitHub(mr) &&` from `canMerge`, drop the `onGitHub(mr) ? null :` arm in `DraftModal`, and word refresh's pending toast with `forgeWord(mr)`.
 
 - [ ] **Step 4: Run** the four files and `src/client/board/__tests__/bulk-menu-dom.test.tsx`. Expected: PASS.
 
@@ -208,15 +214,17 @@
 
 - [ ] **Step 1: Write the failing tests:**
   - single merge with body `{mergeQueued:{position:2, state:'QUEUED'}}`: toast `#7 joined the merge queue at position 2`; with `position:null`: `#7 joined the merge queue`; `merging.fail` called once (hold released).
-  - single merge answered 504 `{reason:'no answer from rt; the merge may still land'}`: toast `no answer for #7; it may still merge`; `merging.fail` not called.
+  - single merge answered 504 `{reason:'the merge may still land'}`: toast `no answer for #7; the merge may still land`; `merging.fail` not called.
+  - single `cancelAutoMerge` answered 504 `{reason:'it may still apply'}`: toast `no answer for #7; it may still apply`.
+  - `/draft` answered 504 `{reason:'it may still apply'}`: toast `no answer for #7; it may still apply` (no "couldn't").
   - single merge answered 409 `{reason:'not approved yet'}`: today's `couldn't merge !7: not approved yet`, `merging.fail` called (GitLab unchanged).
-  - bulk merge over #7 (merged) and #8 (queued): summary contains `merge accepted on #7` and `#8 joined the merge queue`, joined by `; `.
+  - bulk merge over #7 (merged), #8 (queued) and #10 (504): summary contains `merge accepted on #7`, `#8 joined the merge queue` and `no answer for #10`, and no `couldn't`.
   - `/draft` answered 409 `{reason:'x'}`: `couldn't mark #7 draft: x`.
-  - `DraftModal` post answered 504: the inline message reads `no answer; it may have posted, check the PR` (not today's "nothing was sent" line), and the post button is still offered; any other failure keeps today's message.
+  - `DraftModal` post answered 504 `{reason:'the note may have posted'}`: the inline message reads `no answer; the note may have posted, check the PR` (not today's "nothing was sent" line), and the post button is still offered; any other failure keeps today's message.
 
 - [ ] **Step 2: Run** both files. Expected: FAIL.
 
-- [ ] **Step 3: Implement.** In `post()`, release the hold when `result.ok ? !!result.body?.mergeQueued : result.status !== 504`. The merge `done` wording reads `mergeQueued`; the mr `fail` wording uses the 504 sentence when `r.status === 504`; the merge `manyDone` splits done rows into merged and queued lists. `/draft`'s `fail` uses `r.body?.reason` when present.
+- [ ] **Step 3: Implement.** In `post()`, release the hold when `result.ok ? !!result.body?.mergeQueued : result.status !== 504`. The merge `done` wording reads `mergeQueued`. The mr and draft `fail` wordings answer `no answer for ${mrRef(mr)}; ${r.body.reason}` when `r.status === 504`; `/draft`'s other failures use `r.body?.reason` when present. The merge `manyDone` splits done rows into merged and queued lists. `runMany` puts a 504 result in an `unanswered` group, worded `no answer for <list>`, beside done and failed.
 
 - [ ] **Step 4: Run** both files. Expected: PASS.
 
@@ -262,7 +270,7 @@
 
 - [ ] **Step 2: Run** both files. Expected: FAIL.
 
-- [ ] **Step 3: Implement:** add `/\[bot\]$/i` to `isBotUsername`, the `bot === true` check to `isBotAuthor`, and, in `buildBoard` for `pr.provider === 'github'`, filter `props.reviews.reviewers` through `isBotAuthor(r, configBots)` and set `totalAssigned` to the kept count.
+- [ ] **Step 3: Implement:** add `/\[bot\]$/i` to `isBotUsername`, the `bot === true` check to `isBotAuthor`, and, in `buildBoard` for `props.provider === 'github'` (glance's `PullRequest` has no `provider`), filter `props.reviews.reviewers` through `isBotAuthor(r, configBots)` and set `totalAssigned` to the kept count.
 
 - [ ] **Step 4: Run** both files. Expected: PASS.
 
@@ -309,7 +317,7 @@
 **Interfaces:**
 - Consumes: everything above.
 
-- [ ] **Step 1: Extend the fixture** (all invented): `discussions.json` ids take glance's shapes (`gh-review-thread-<id>`, `gh-issue-comment-<id>`); one row carries a finished review lane so the review modal opens from `review-report.md`; one row carries `slack.status: 'found'` with two or more posts so the Slack posts modal opens; one own row is approved and mergeable so merge, auto-merge and the draft toggle all show. Update the README's table and drop its "client hides merge..." sentence.
+- [ ] **Step 1: Extend the fixture** (all invented): `discussions.json` ids take glance's shapes (`gh-review-thread-<id>`, `gh-issue-comment-<id>`); one row carries a finished review lane so the review modal opens from `review-report.md`; one row carries `slack.status: 'found'` with two or more posts so the Slack posts modal opens; one own row is approved and mergeable so merge, auto-merge and the draft toggle all show; one own row carries a held `drafts` entry so `DraftModal` opens with its post control. Update the README's table and drop its "client hides merge..." sentence.
 
 - [ ] **Step 2: Boot** `PORT=<free port> BOARD_FIXTURE=$(pwd)/tests/fixture-github bun run src/server.ts` from `apps/board` (fixture mode: no tokens, no daemon, writes refused).
 

@@ -206,9 +206,11 @@ serialized rt identity (`repoIdentityField(mr.rtRepo)`):
   a reason.
 - A merge with no answer (`DAEMON_UNREACHABLE_PREFIX`) reads the PR back
   once through `mr:get {refresh: true}`: `state === 'merged'` is `done`,
-  anything else is `unanswered` ("no answer from rt; the merge may still
-  land"). The board never retries a write. Other writes with no answer
-  are `unanswered` without the read-back.
+  anything else is `unanswered`. The board never retries a write. Other
+  writes with no answer are `unanswered` without the read-back. Each
+  `unanswered` carries a short reason the client puts after "no answer
+  for #N; ": "the merge may still land" (merge), "it may still apply"
+  (rebase, auto-merge, draft toggle), "the note may have posted" (note).
 - Every write uses one board constant, `FORGE_WRITE_TIMEOUT_MS`, 120 s,
   above `mr:action`'s 90 s budget after PR #1110, with a comment saying it
   must stay above the daemon's.
@@ -219,8 +221,12 @@ routes do now.
 
 ### 3. Server routes
 
-`/mr/action`, `/draft` and the `/drafts` post lose their two
-`FORGE_NOT_YET` refusals and call `forge-writes.ts`:
+`/mr/action`, `/draft` and the `/drafts` post pick their side by the
+board's forge (`config.forge.kind`) and call `forge-writes.ts`. The
+refusal before the token check goes. The refusal right after the row
+lookup stays, narrowed to a row whose forge differs from the board's (a
+GitHub row on a GitLab board answers today's 400 `FORGE_NOT_YET`), so
+`server-own-mr.test.ts`'s mixed-forge cases stay green unchanged:
 
 - The team check before the token check goes. The GitLab token check stays
   in its current position, gated on the board's forge
@@ -279,13 +285,15 @@ On a GitHub row, with the same conditions as a GitLab row:
   one. A queued reply releases the row's "merging…" hold at once, since a
   queued PR can stay open far longer than the hold's three minutes.
 - refused: today's "couldn't merge #N: <reason>".
-- unanswered: "no answer for #N; it may still merge". The row keeps its
+- unanswered: "no answer for #N; the merge may still land". The row keeps its
   "merging…" hold, as after an accepted merge, so a merge that lands late
   shows within the hold. This is the cadence every fired merge already
   gets (the hold's faster refresh, lapsing at three minutes), not a new
   one. Today any non-ok reply drops the hold; a 504 from a merge stops
   doing that. *(My call, from the builder check.)*
-- bulk: a queued PR counts as done, and the summary says how many queued.
+- bulk: a queued PR counts as done and is named as queued; an unanswered
+  one is named under "no answer", never under "couldn't".
+- Every 504 reads "no answer for #N; <reason>", never "couldn't".
 
 The same `reason` body serves `/draft` and the note post's toasts.
 
