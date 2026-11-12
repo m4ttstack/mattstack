@@ -2229,7 +2229,11 @@ export async function skillsPacks(args: string[]): Promise<void> {
   // ~/.claude/settings.json.
   const settingsPath = skillsFlagValue(args, "--settings-path");
   const packs = discoverPacks(settingsPath ? { settingsPath } : {});
-  const rows = packs.map((p) => ({ name: p.name, dir: p.dir, layout: p.layout, team: teamOfPackDir(p.dir) }));
+  const rows = packs.map((p) => {
+    const team = teamOfPackDir(p.dir);
+    // The org whose copy holds a team pack, so a caller can ask that org's `rt team status`.
+    return { name: p.name, dir: p.dir, layout: p.layout, team, org: team === null ? null : (orgOfPackDir(p.dir)?.org ?? null) };
+  });
 
   if (json) {
     out.json({ packs: rows });

@@ -150,6 +150,8 @@ describe("teamStatus", () => {
       name: "Acme Team",
       remote: "git@github.com:acme/widgets.git",
       branch: "main",
+      dataBranch: "main",
+      trial: false,
       lastPush: "2026-08-21T10:00:00+00:00",
       members: [{ username: "dev1", peered: null }],
       role: "unknown",
@@ -286,6 +288,28 @@ describe("teamStatus", () => {
       expect(stdout).toContain("branch: try-roles");
       expect(stdout).toContain("a trial; the org's data is on mattstack");
       expect(stdout).not.toContain("not ");
+    });
+
+    async function jsonStatus(checkedOut: string, files: Record<string, string> = {}): Promise<{ branch: string; dataBranch: string; trial: boolean }> {
+      const deps = clonedDeps({
+        files: { ...MARKER, ...files },
+        exec: async (argv) => (argv.includes("symbolic-ref") ? { code: 0, stdout: `${checkedOut}\n`, stderr: "" } : { code: 0, stdout: "2026-08-21T10:00:00+00:00\n", stderr: "" }),
+      });
+      await teamStatus(["--team", SLUG, "--json"], {}, deps);
+      return JSON.parse(deps.lines[0]!);
+    }
+
+    test("--json names the data branch and says the clone is not on a trial while it sits there", async () => {
+      expect(await jsonStatus("mattstack")).toMatchObject({ branch: "mattstack", dataBranch: "mattstack", trial: false });
+    });
+
+    test("--json flags the recorded trial branch as a trial", async () => {
+      const body = await jsonStatus("try-roles", { [teamLocalPath(HOME, SLUG)]: JSON.stringify({ trialBranch: "try-roles" }) });
+      expect(body).toMatchObject({ branch: "try-roles", dataBranch: "mattstack", trial: true });
+    });
+
+    test("--json never calls an unrecorded branch a trial", async () => {
+      expect(await jsonStatus("stray")).toMatchObject({ branch: "stray", dataBranch: "mattstack", trial: false });
     });
 
     test("any other branch is flagged against the data branch", async () => {

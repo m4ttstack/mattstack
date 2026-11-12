@@ -159,6 +159,11 @@ reports when its content is ready through `contentReady.ts`, and the unsynced to
   Unsynced changes carry Discard and Publish (`UnsyncedActions`, `graph/UnsyncedBanner.tsx`),
   and the tab's badge counts them; off this tab, `graph/UnsyncedToast.tsx` says so once per
   change set.
+- **Trial branch.** While the org copy is on a trial branch (`rt team branch use`), a team pack
+  shows `TrialBanner` (`graph/TrialBanner.tsx`) on Config and Changes, with the command that goes
+  back, and neither tab offers Publish; its changes read as trial changes. `usePackTrial` reads
+  `/api/skills/trial`, which answers from `rt team status --json`'s `trial` and `dataBranch`,
+  and falls back to the changes read's `trialBranch` until that answers.
 - **Template model** (`graph/model/*`). Pure functions from rt's payloads (composition, check,
   anatomy, changes) to what the pages show: `focusModel` (the focus list), `templateModel`
   (the stage status and file labels the block view reads), `pendingChanges` (what an unsynced

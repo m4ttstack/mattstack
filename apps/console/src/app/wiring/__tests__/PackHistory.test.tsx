@@ -155,13 +155,13 @@ describe('the Changes sidebar: unsynced changes', () => {
     ).toBeTruthy();
   });
 
-  it('names the trial branch the changes would go to', () => {
+  it('says the changes are on the trial branch only', () => {
     summary.current = { count: 1, trial: 'block-packs' };
     renderWithProviders(<HistorySidebar pack="acme" />);
 
     const working = screen.getByTestId('commit-working');
     expect(working).toHaveTextContent('1 change');
-    expect(working).toHaveTextContent('to sync to block-packs');
+    expect(working).toHaveTextContent('on block-packs only');
   });
 
   it('hides the unsynced row when the pack is clean, and opens on the newest commit', async () => {

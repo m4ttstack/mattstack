@@ -500,7 +500,8 @@ describe('the org base scenarios', () => {
       if (
         scenario === 'org-base' ||
         scenario === 'org-base-drift' ||
-        scenario === 'disable-model-invocation'
+        scenario === 'disable-model-invocation' ||
+        scenario === 'trial'
       )
         continue;
       const result = await fixtureRt(scenario).runRt([

@@ -21,12 +21,14 @@ import { markerState, parseMarker } from "./org-marker.ts";
 import { withoutUrls } from "./redact.ts";
 import { roleFor } from "./roles.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
-import { editTeamLocal } from "./team-local.ts";
+import { editTeamLocal, readTeamLocal } from "./team-local.ts";
 
 export interface BranchUse {
   branch: string;
   created: boolean;
   trial: boolean;
+  /** Unpushed commits the switch left on the trial it came from: they stay on that local branch and nobody else has them. */
+  left?: { branch: string; commits: number };
 }
 
 export interface TrialBranchOptions {
@@ -115,17 +117,21 @@ export async function useBranch(p: Probes, slug: string, name: string, opts: Tri
     warn("trial-branch", `could not read the forge token for ${withoutUrls(remote)}; using git's own credentials`, { context: { err: String(err) } });
   }
 
-  if ((await checkedOutBranch(p, dir)) !== name) {
-    const blocker = await moveBlocker(p, dir, { carry: false });
-    if (blocker?.kind === "held") throw heldError(blocker, name, slug);
-    if (blocker?.kind === "failed") throw new UserActionableError("trial-branch-failed", `rt could not switch your copy of the org to ${name}`, {}, { log: blocker.log });
-  }
-
   const listed = gitWithToken(["ls-remote", "--heads", "origin", `refs/heads/${name}`], token, ENV, { remote });
   const found = await p.exec(listed.argv, { cwd: dir, env: listed.env });
   if (found.code !== 0) throw new UserActionableError("trial-branch-failed", "rt could not look for that branch on the org repo", {}, { log: withoutUrls(`${found.stdout}\n${found.stderr}`.trim()) });
   const created = found.stdout.trim() === "";
   const published = await publishedDataBranch(p, dir, token, remote);
+  const trial = name !== (published ?? "main");
+  const current = await checkedOutBranch(p, dir);
+  const recordedTrial = readTeamLocal(p, slug).trialBranch;
+  // Leaving the recorded trial for the data branch keeps its unpushed commits on the trial's local branch; going back to a trial picks them up.
+  const move = { carry: false, leave: !trial && current !== null && current === recordedTrial, keepLocal: trial };
+  if (current !== name) {
+    const blocker = await moveBlocker(p, dir, move);
+    if (blocker?.kind === "held") throw heldError(blocker, name, slug);
+    if (blocker?.kind === "failed") throw new UserActionableError("trial-branch-failed", `rt could not switch your copy of the org to ${name}`, {}, { log: blocker.log });
+  }
   if (created) {
     const own = markerState(p, dir);
     // The clone's own marker and origin's pointer must both name a data branch: otherwise the org has none to start a new branch from.
@@ -137,7 +143,7 @@ export async function useBranch(p: Probes, slug: string, name: string, opts: Tri
     await assertHoldsOrgData(p, dir, name, token, remote);
   }
 
-  const moved = await moveCloneToDataBranch(p, dir, name, token, remote, { carry: false });
+  const moved = await moveCloneToDataBranch(p, dir, name, token, remote, move);
   if (moved.kind === "held") throw heldError(moved, name, slug);
   if (moved.kind === "failed") {
     throw new UserActionableError("trial-branch-failed", `rt could not switch your copy of the org to ${name}`, {}, { log: moved.log });
@@ -147,8 +153,8 @@ export async function useBranch(p: Probes, slug: string, name: string, opts: Tri
   } catch (err) {
     warn("trial-branch", `switched ${basename(dir)} to the ${name} branch but could not narrow it to the role's folders`, { context: { err: String(err) } });
   }
-  const trial = name !== (published ?? "main");
   // A trial the conversion script made names itself in its marker, so the data branch has to be on record before the copy sits there.
   editTeamLocal(p, slug, (record) => ({ trialBranch: trial ? name : undefined, ...(trial && published !== null && record.dataBranch === undefined ? { dataBranch: published } : {}) }));
-  return { branch: name, created, trial };
+  const left = moved.kind === "moved" && moved.left !== undefined && current !== null ? { left: { branch: current, commits: moved.left } } : {};
+  return { branch: name, created, trial, ...left };
 }

@@ -326,11 +326,6 @@
   gap: 8px;
 }
 
-.bannerStatus {
-  flex: none;
-  text-transform: none;
-}
-
 /* A notification over the page, under the tab bar's right end: dark in both
    schemes, so it reads as the app speaking rather than as page content. */
 .toast {
@@ -490,4 +485,18 @@
 :global(.mantine-AppShell-header) .extendsPill.extendsPill {
   background: var(--mantine-color-gold-light);
   color: var(--tk-text-gold-small);
+}
+
+.trialBanner {
+  flex: none;
+}
+
+.historyFrame {
+  display: flex;
+  flex-direction: column;
+}
+
+.historyBody {
+  flex: 1;
+  min-height: 0;
 }
