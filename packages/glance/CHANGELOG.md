@@ -15,8 +15,11 @@
   default, like `connected`.
 - GitHub rebase through the provider (`canRebase` is true).
 - GitHub `merge` and `setAutoMerge` pick an allowed merge method: the
-  caller's, then `squash: true`, then the viewer default, then the first
-  allowed one.
+  caller's, then `squash: true`, then the viewer's default (the method they
+  last used in the repository, else the repository default), then the first
+  allowed one. `squash: false` now picks an allowed method that is not a
+  squash, possibly rebase, and is refused on a squash-only repository; before,
+  GitHub always made a merge commit.
 - GitHub `merge` enters the merge queue when the base branch uses one and
   resolves with `queued` (the pull request state is still `opened`).
   `MergePullRequestResult.queued` is the new optional field.
@@ -25,7 +28,9 @@
   the new `MergeReadBackFailedError`. The merge-context and rebase reads retry
   a 5xx.
 - `PullRequest.sourceProjectPath` and the capability `canReportSourceProject`
-  tell a caller which repository a pull request's source branch lives in.
+  tell a caller which repository a pull request's source branch lives in. It
+  is null when the head repository was deleted and undefined when the token
+  cannot see it (a private fork); such a pull request still reads and merges.
 - GitHub by-branch reads report a failed or capped read: `ByBranchReadOptions`
   carries `onWarning`, `FetchPullRequestsWarning.branch` names the branch, and
   `canReportIncompleteBranchReads` says the provider does so.

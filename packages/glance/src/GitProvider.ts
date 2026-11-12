@@ -555,8 +555,9 @@ export interface GitProvider {
    * nothing was written: a PR already in the queue whose read-back failed
    * (`writeApplied: false`; see below).
    *
-   * On GitHub the merge method, when not given, is the repository's default
-   * for the viewer (else the first allowed of merge, squash, rebase), and a
+   * On GitHub the merge method, when not given, is the viewer's default
+   * (the method they last used here, else the repository default; when that
+   * is not allowed, the first allowed of merge, squash, rebase), and a
    * method the repository forbids is refused before the write. When the
    * base branch uses a merge queue, the PR is enqueued instead (`sha`
    * becomes the expected head) and the result is the still-open PR with
@@ -599,8 +600,10 @@ export interface GitProvider {
    * pipeline succeeds and all approval rules are met.
    * On GitLab: PUT /merge_requests/:iid/merge with merge_when_pipeline_succeeds.
    * On GitHub: GraphQL `enablePullRequestAutoMerge` with a merge method the
-   * repository allows (its default, else the first allowed of merge, squash,
-   * rebase); on a merge queue branch no method is sent, since the queue
+   * repository allows (the viewer's default, which is the method they last
+   * used here or else the repository default; when that is not allowed, the
+   * first allowed of merge, squash, rebase); on a merge queue branch no
+   * method is sent, since the queue
    * decides. Requires the repository's `allow_auto_merge` setting to be on.
    * Check `capabilities.canAutoMerge` before calling.
    */
