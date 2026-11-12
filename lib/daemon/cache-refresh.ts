@@ -17,7 +17,7 @@ import type { PortCacheRef, RepoIndex } from "./handlers/types.ts";
 import type { BranchCacheStore } from "../state/index.ts";
 import { composeKey } from "../state/branch-cache.ts";
 import { checkAndNotify } from "../notifier.ts";
-import { getCurrentUserId, resolveUserIdAcrossTracking } from "./freshness.ts";
+import { getSelfIds, resolveUserIdAcrossTracking } from "./freshness.ts";
 import { loadRepoTracking, grants } from "../repo-tracking.ts";
 import { remeasureDivergedCounts, syncProjectMRs } from "./project-sync.ts";
 import { getProjectMRs } from "./project-mrs-store.ts";
@@ -432,7 +432,7 @@ export function createCacheRefresher(deps: CacheRefresherDeps): () => Promise<vo
       }
 
       // Check for state transitions and fire notifications
-      checkAndNotify(cache.entries, portCacheRef.ports, getCurrentUserId());
+      checkAndNotify(cache.entries, portCacheRef.ports, getSelfIds());
 
       // Doppler-template reconciliation: keeps ~/.doppler/.doppler.yaml in sync
       // with each repo's rt.dopplerTemplate setting. Cheap and additive —

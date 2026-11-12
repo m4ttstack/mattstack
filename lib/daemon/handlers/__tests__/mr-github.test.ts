@@ -1,7 +1,7 @@
 /**
  * MR verbs on a GitHub repo context: the provider interface carries every
  * write, squash is refused, rebase is refused when the provider cannot, and
- * nothing is written back into the GitLab-shaped stores.
+ * a successful mutation or refresh writes the PR back into the stores.
  */
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "fs";
@@ -59,13 +59,13 @@ describe("mr:action on GitHub", () => {
     expect(h.writebacks).toEqual([]);
   });
 
-  test("merge calls mergePullRequest and returns ok with no write-back", async () => {
+  test("merge writes the returned PR back", async () => {
     const h = harness({ mergePullRequest: async () => prOf(7, { state: "merged" }) });
     const res = await h.handlers["mr:action"]({ repoName: REPO, iid: 7, action: "merge", args: [{ squash: true }] });
     expect(res).toEqual({ ok: true });
     expect(h.calls).toEqual([{ name: "mergePullRequest", args: ["o/r", 7, { squash: true }] }]);
-    expect(h.writebacks).toEqual([]);
-    expect(h.debugs.length).toBe(1);
+    expect(h.writebacks).toEqual([[REPO, "o/r", prOf(7, { state: "merged" })]]);
+    expect(h.debugs.length).toBe(0);
   });
 
   test("a merge whose read-back failed after the write landed still returns ok", async () => {
@@ -74,28 +74,32 @@ describe("mr:action on GitHub", () => {
     });
     const res = await h.handlers["mr:action"]({ repoName: REPO, iid: 7, action: "merge" });
     expect(res).toEqual({ ok: true });
+    expect(h.names()).toEqual(["mergePullRequest", "fetchSingleMR"]);
     expect(h.writebacks).toEqual([]);
   });
 
-  test("a merge whose source branch was not deleted returns ok and passes that sentence on", async () => {
+  test("a merge whose source branch was not deleted returns ok, passes that sentence on and writes the PR back", async () => {
     const note = 'The source branch "b7" was not deleted: it is protected';
     const h = harness({ mergePullRequest: async () => prOf(7, { state: "merged", sourceBranchNotDeleted: note }) });
     const res = await h.handlers["mr:action"]({ repoName: REPO, iid: 7, action: "merge", args: [{ shouldRemoveSourceBranch: true }] });
     expect(res).toEqual({ ok: true, data: { sourceBranchNotDeleted: note } });
-    expect(h.writebacks).toEqual([]);
+    expect(h.writebacks.length).toBe(1);
   });
 
-  test("approve runs as today and skips the write-back follow-up", async () => {
-    const h = harness();
+  test("approve schedules the follow-up write-back", async () => {
+    const h = harness({ fetchSingleMR: async (_pp: string, iid: number) => prOf(iid) });
     const res = await h.handlers["mr:action"]({ repoName: REPO, iid: 7, action: "approve" });
     expect(res).toEqual({ ok: true });
-    expect(h.names()).toEqual(["approvePullRequest"]);
-    expect(h.writebacks).toEqual([]);
+    expect(h.calls).toEqual([
+      { name: "approvePullRequest", args: ["o/r", 7] },
+      { name: "fetchSingleMR", args: ["o/r", 7, null] },
+    ]);
+    expect(h.writebacks).toEqual([[REPO, "o/r", prOf(7)]]);
   });
 });
 
 describe("mr:update on GitHub", () => {
-  test("addLabels and removeLabels call the two label methods and return the PR's webUrl", async () => {
+  test("addLabels and removeLabels call the two label methods, return the PR's webUrl and write the read PR back", async () => {
     const h = harness({ fetchSingleMR: async (_pp: string, iid: number) => prOf(iid) });
     const res = await h.handlers["mr:update"]({ repoName: REPO, iid: 7, addLabels: [" a "], removeLabels: ["b"] });
     expect(res).toEqual({ ok: true, data: { iid: 7, url: PR_URL, applied: ["addLabels", "removeLabels"] } });
@@ -104,21 +108,31 @@ describe("mr:update on GitHub", () => {
       { name: "removePullRequestLabels", args: ["o/r", 7, ["b"]] },
       { name: "fetchSingleMR", args: ["o/r", 7, null] },
     ]);
-    expect(h.writebacks).toEqual([]);
+    expect(h.writebacks).toEqual([[REPO, "o/r", prOf(7)]]);
   });
 
-  test("a title edit returns the updated PR's webUrl without a second read", async () => {
+  test("update on GitHub keeps its /pull URL reply and writes the PR back", async () => {
+    const h = harness({ fetchSingleMR: async (_pp: string, iid: number) => prOf(iid) });
+    const res = await h.handlers["mr:update"]({ repoName: REPO, iid: 7, addLabels: ["a"] }) as any;
+    expect(res.data.url).toBe(PR_URL);
+    expect(res.data.url).toContain("/pull/");
+    expect(h.names()).not.toContain("restRequest");
+    expect(h.writebacks.length).toBe(1);
+  });
+
+  test("a title edit writes the updated PR back without a second read", async () => {
     const h = harness({ updatePullRequest: async (_pp: string, iid: number) => prOf(iid, { webUrl: "https://github.com/o/r/pull/7#edited" }) });
     const res = await h.handlers["mr:update"]({ repoName: REPO, iid: 7, title: "New" });
     expect(res).toEqual({ ok: true, data: { iid: 7, url: "https://github.com/o/r/pull/7#edited", applied: ["title"] } });
     expect(h.names()).toEqual(["updatePullRequest"]);
-    expect(h.writebacks).toEqual([]);
+    expect(h.writebacks).toEqual([[REPO, "o/r", prOf(7, { webUrl: "https://github.com/o/r/pull/7#edited" })]]);
   });
 
   test("a failed label write names what landed and what did not", async () => {
     const h = harness({ removePullRequestLabels: async () => { throw new Error("GitHub said no"); } });
     const res = await h.handlers["mr:update"]({ repoName: REPO, iid: 7, addLabels: ["a"], removeLabels: ["b"] });
     expect(res).toEqual({ ok: false, error: "addLabels landed; removeLabels did not: Error: GitHub said no; retrying with only the failed fields is safe" });
+    expect(h.writebacks).toEqual([]);
   });
 
   test("squash returns an error and makes zero provider calls", async () => {
@@ -131,13 +145,13 @@ describe("mr:update on GitHub", () => {
 });
 
 describe("mr:create on GitHub", () => {
-  test("labels ride createPullRequest with no second write, and nothing is written back", async () => {
+  test("labels ride createPullRequest with no second write, and the PR is written back", async () => {
     const h = harness({ createPullRequest: async () => prOf(9) });
     const res = await h.handlers["mr:create"]({ repoName: REPO, sourceBranch: "feat", targetBranch: "main", title: "T", labels: ["a"] });
     expect(res).toEqual({ ok: true, data: { iid: 9, url: "https://github.com/o/r/pull/9" } });
     expect(h.names()).toEqual(["createPullRequest"]);
     expect((h.calls[0]!.args[0] as any).labels).toEqual(["a"]);
-    expect(h.writebacks).toEqual([]);
+    expect(h.writebacks).toEqual([[REPO, "o/r", prOf(9)]]);
   });
 
   test("squash returns an error and makes zero provider calls", async () => {
@@ -145,6 +159,7 @@ describe("mr:create on GitHub", () => {
     const res = await h.handlers["mr:create"]({ repoName: REPO, sourceBranch: "feat", targetBranch: "main", title: "T", squash: true });
     expect(res).toEqual({ ok: false, error: "GitHub picks squash at merge time; leave out squash" });
     expect(h.calls).toEqual([]);
+    expect(h.writebacks).toEqual([]);
   });
 });
 
@@ -154,6 +169,7 @@ describe("mr:get on GitHub", () => {
     const res = await h.handlers["mr:get"]({ repoName: REPO, iid: 7 });
     expect(res).toEqual({ ok: false, error: "GitHub has no pull request #7 in o/r, or the token cannot read it" });
     expect(h.calls).toEqual([{ name: "fetchSingleMR", args: ["o/r", 7, null, expect.any(Function)] }]);
+    expect(h.writebacks).toEqual([]);
   });
 
   test("a miss whose read failed carries GitHub's reason", async () => {
@@ -180,12 +196,12 @@ describe("mr:get on GitHub", () => {
     expect(res.error).toBe(`GitHub has no pull request #7 in o/r, or the token cannot read it (GitHub said: ${"x".repeat(200)})`);
   });
 
-  test("a refresh read returns the PR and writes nothing back", async () => {
+  test("a refresh read returns the PR and writes it back", async () => {
     const h = harness({ fetchSingleMR: async (_pp: string, iid: number) => prOf(iid) });
     const res = await h.handlers["mr:get"]({ repoName: REPO, iid: 7, refresh: true }) as any;
     expect(res.ok).toBe(true);
     expect(res.data.mr.iid).toBe(7);
-    expect(h.writebacks).toEqual([]);
+    expect(h.writebacks).toEqual([[REPO, "o/r", prOf(7)]]);
   });
 });
 
@@ -225,6 +241,7 @@ describe("a GitHub rate limit in an MR verb", () => {
       expect(res.ok).toBe(false);
       expect(res.error).toContain("rate limit");
       expect(res.error).toContain("retry in 60s");
+      expect(h.writebacks).toEqual([]);
     });
   }
 });
@@ -234,7 +251,7 @@ describe("project-mrs on GitHub", () => {
   const tracking = () => ({ [REPO]: { mode: "live" as const, caches: ["branches", "project-mrs"] as any } });
   const log = { warn() {}, info() {}, error() {}, debug() {} } as any;
 
-  test("mr:by-branch makes one batched read for every missed branch and stores nothing", async () => {
+  test("mr:by-branch makes one batched read for every missed branch and stores what it found", async () => {
     const store = tmpStore();
     const asked: unknown[] = [];
     const provider = {
@@ -254,7 +271,9 @@ describe("project-mrs on GitHub", () => {
     expect(res.data.byBranch.gone).toBeNull();
     expect(res.data.byBranch.b4).toBeNull();
     expect(asked).toEqual([["o/r", ["feat", "gone", "other", "b4", "b5"], "all"]]);
-    expect(store.read(REPO)).toBeUndefined();
+    expect(store.findBySourceBranch(REPO, "feat")?.iid).toBe(7);
+    expect(store.findBySourceBranch(REPO, "other")?.iid).toBe(8);
+    expect(store.findBySourceBranch(REPO, "gone")).toBeNull();
   });
 
   test("mr:by-branch reports a branch the batched read maps to null as absent", async () => {

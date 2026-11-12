@@ -19,12 +19,13 @@ export interface CachedOutcome {
 
 const RUN_STATUSES = new Set<RunOutcome["status"]>(["running", "done", "abandoned", "failed"]);
 const MR_URL = /\/merge_requests\/(\d+)(?:[/?#]|$)/;
+const PULL_URL = /\/pull\/(\d+)(?:[/?#]|$)/;
 
 export function parseMrRef(value: string | null | undefined): { iid: number; url: string | null } | null {
   const raw = value?.trim();
   if (!raw) return null;
-  const fromUrl = /^https?:\/\//i.test(raw) ? MR_URL.exec(raw)?.[1] : undefined;
-  const bare = /^!?(\d+)$/.exec(raw)?.[1];
+  const fromUrl = /^https?:\/\//i.test(raw) ? (MR_URL.exec(raw) ?? PULL_URL.exec(raw))?.[1] : undefined;
+  const bare = /^[!#]?(\d+)$/.exec(raw)?.[1];
   const iid = Number(fromUrl ?? bare);
   if (!Number.isInteger(iid) || iid <= 0) return null;
   return { iid, url: fromUrl ? raw : null };

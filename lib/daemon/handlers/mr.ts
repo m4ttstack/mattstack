@@ -179,15 +179,6 @@ export function createMRHandlers(
     return getContext(repoName);
   }
 
-  /** The stores are GitLab-shaped, so a GitHub PR is never written into them. */
-  function writebackFor(c: HandlerRepoContext, repoName: string, pr: PullRequest): void {
-    if (c.forge === "github") {
-      ctx.log.debug({ repo: repoName, iid: pr.iid }, "write-back skipped for a GitHub repo");
-      return;
-    }
-    storeWriteback(repoName, c.projectPath, pr);
-  }
-
   /** The batch maps a pull request it found but could not fill to null too, so each null is checked against the open pull requests on that branch before it reads as "no PR". */
   async function liveByBranchOnGitHub(provider: any, projectPath: string, branches: string[]): Promise<CommandResult<"mr:live-by-branch">> {
     const found: Map<string, PullRequest | null> = await provider.fetchPullRequestsByBranches(projectPath, branches.map((b) => b.trim()));
@@ -283,14 +274,10 @@ export function createMRHandlers(
         }
 
         const done = sourceBranchNotDeleted ? { ok: true, data: { sourceBranchNotDeleted } } : { ok: true };
-        if (github) {
-          ctx.log.debug({ repo: repoName, iid, action }, "write-back skipped for a GitHub repo");
-          return done;
-        }
 
         const followUp = async () => {
           try {
-            const pr = await fetchSingle(provider, projectPath, iid);
+            const pr = await fetchSingle(provider, projectPath, iid, github);
             if (pr) storeWriteback(repoName, projectPath, pr);
           } catch (err) {
             ctx.log.warn({ err, repo: repoName, iid, action }, "write-back follow-up failed");
@@ -358,7 +345,7 @@ export function createMRHandlers(
             ...(labels && { labels }),
           });
           try {
-            writebackFor(c, repoName, pr);
+            storeWriteback(repoName, projectPath, pr);
           } catch (err) {
             ctx.log.warn({ err, repo: repoName, iid: pr.iid }, "mr:create write-back failed");
           }
@@ -455,7 +442,11 @@ export function createMRHandlers(
               ctx.log.warn({ err, repo: repoName, iid }, "mr:update read for the pull request URL failed");
             }
           }
-          ctx.log.debug({ repo: repoName, iid }, "write-back skipped for a GitHub repo");
+          try {
+            if (pr) storeWriteback(repoName, projectPath, pr);
+          } catch (err) {
+            ctx.log.warn({ err, repo: repoName, iid }, "mr:update write-back failed");
+          }
           return { ok: true, data: { iid, url: pr?.webUrl ?? `${provider.baseURL}/${projectPath}/pull/${iid}`, applied } };
         }
         if (putFields.length > 0) {
@@ -598,7 +589,7 @@ export function createMRHandlers(
         const mr = github
           ? await fetchSingle(provider, projectPath, p.iid, true, (w) => { warning = w; })
           : await fetchSingle(provider, projectPath, p.iid, false);
-        if (mr && p.refresh === true) writebackFor(c, decoded.repo, mr);
+        if (mr && p.refresh === true) storeWriteback(decoded.repo, projectPath, mr);
         if (mr) return { ok: true, data: { mr, fetchedAt: Date.now() } };
         if (github) {
           const miss = `GitHub has no pull request #${p.iid} in ${projectPath}, or the token cannot read it`;

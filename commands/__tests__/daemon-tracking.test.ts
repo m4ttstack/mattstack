@@ -144,7 +144,27 @@ describe("manageTracking off-branch (CLI wiring)", () => {
     expect(io.stdout()).toBe("");
     expect(io.stderr()).toContain(`[refused] rt cannot watch ${REPO_NAME} live`);
     expect(io.stderr()).toContain(`next: rt daemon track ${REPO_NAME} poll`);
+    expect(io.stderr()).toContain("live watching needs a GitLab or GitHub remote");
     expect(getSetting<Record<string, unknown>>("rt.repoTracking").value).toEqual(saved);
+  });
+
+  test("live is accepted on a GitHub remote", async () => {
+    const name = "track-live";
+    const serialized = serializeIdentity({ kind: "remote", id: `github.com/acme/${name}` });
+    const ghRepo = realpathSync(mkdtempSync(join(tmpdir(), "rt-track-live-gh-")));
+    const priorIndex = getKvValue<string | null>(REPO_INDEX_NS, serialized, null);
+    try {
+      execSync("git init -q", { cwd: ghRepo });
+      execSync(`git remote add origin git@github.com:acme/${name}.git`, { cwd: ghRepo });
+      setKvValue(REPO_INDEX_NS, serialized, ghRepo);
+      await manageTracking([name, "live"]);
+      expect(io.stderr()).not.toContain("[refused]");
+      expect(getSetting<Record<string, unknown>>("rt.repoTracking").value[serialized]).toEqual({ mode: "live", caches: ["branches"] });
+    } finally {
+      if (priorIndex === null) deleteKvValue(REPO_INDEX_NS, serialized);
+      else setKvValue(REPO_INDEX_NS, serialized, priorIndex);
+      rmSync(ghRepo, { recursive: true, force: true });
+    }
   });
 
   test("invalid mode and cache print failures without changing tracking", async () => {
