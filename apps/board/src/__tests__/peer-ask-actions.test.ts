@@ -301,7 +301,6 @@ describe('declineRespondAsks', () => {
         id: 'r1',
         result: 'rejected',
         reason: 'Not available on GitHub yet',
-        declined: true,
       },
     ]);
     expect(d.published).toEqual([
@@ -313,7 +312,6 @@ describe('declineRespondAsks', () => {
           nudgeId: 'r1',
           result: 'rejected',
           reason: 'Not available on GitHub yet',
-          declined: true,
         },
       },
     ]);

@@ -204,12 +204,8 @@ export function declineRespondAsks(
   let count = 0;
   for (const ask of deps.readNudges()) {
     if (ask.handled || ask.kind !== 'respond') continue;
-    if (!deps.markNudgeHandled(ask.id, 'rejected', reason, { declined: true }))
-      continue;
-    deps.publishOutcome(
-      ask.from,
-      outcome(ask, 'rejected', { reason, declined: true })
-    );
+    if (!deps.markNudgeHandled(ask.id, 'rejected', reason)) continue;
+    deps.publishOutcome(ask.from, outcome(ask, 'rejected', { reason }));
     count++;
   }
   return count;
