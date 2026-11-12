@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
 import { rtDir } from "../rt-paths.ts";
 
-export const USAGE_SCHEMA_VERSION = 1;
+export const USAGE_SCHEMA_VERSION = 2;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS usage_messages (
@@ -81,6 +81,18 @@ CREATE TABLE IF NOT EXISTS usage_files (
   mtime_ms INTEGER NOT NULL DEFAULT 0,
   "offset" INTEGER NOT NULL DEFAULT 0,
   scanned_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS usage_accounts (
+  machine_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  ts INTEGER NOT NULL,
+  account TEXT NOT NULL,
+  label TEXT,
+  org_type TEXT,
+  seat_tier TEXT,
+  billing_type TEXT,
+  PRIMARY KEY (machine_id, session_id, ts)
 );
 
 CREATE TABLE IF NOT EXISTS usage_meta (

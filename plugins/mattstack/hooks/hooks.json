@@ -19,6 +19,11 @@
             "type": "command",
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/disable-model-invocation-reapply.sh\"",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/account-record.sh\"",
+            "timeout": 5
           }
         ]
       }
@@ -42,6 +47,11 @@
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/plugin/skills/getting-current-time/inject-time.sh\" UserPromptSubmit",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/account-record.sh\"",
+            "timeout": 5
           }
         ]
       }
@@ -58,6 +68,11 @@
             "type": "command",
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/progress-record.sh\"",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/account-record.sh\"",
+            "timeout": 5
           }
         ]
       }
@@ -69,6 +84,11 @@
             "type": "command",
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/pipeline-gate-stop.sh\"",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/account-record.sh\"",
+            "timeout": 5
           }
         ]
       }

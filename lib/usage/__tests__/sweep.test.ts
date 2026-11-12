@@ -29,12 +29,14 @@ let dir: string;
 let runs: string;
 let config: string;
 let dbPath: string;
+let accounts: string;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "usage-sweep-"));
   runs = join(dir, "runs");
   config = join(dir, "config");
   dbPath = join(dir, "usage.db");
+  accounts = join(dir, "usage", "accounts.jsonl");
   mkdirSync(runs);
 });
 afterEach(() => {
@@ -85,6 +87,7 @@ function input(o: Partial<SweepInput> = {}): SweepInput {
   return {
     dbPath,
     runsRoot: runs,
+    accountsPath: accounts,
     configDirs: [config],
     agents: [],
     machineId: async () => M,
@@ -715,4 +718,96 @@ test("a new row starts unattributed", async () => {
   const agent = { id: "ag-1", sessionId: "s-1", subject: "mr:unknown", label: null, caller: null };
   await runSweep(input({ agents: [agent] }));
   expect(rows()).toMatchObject([{ attribution: "none", run_id: null, mr_key: null }]);
+});
+
+describe("account ingest", () => {
+  function accountLine(session: string, ts: number, account = "acct-1"): string {
+    return `${JSON.stringify({
+      session,
+      ts,
+      account,
+      label: "a@example.com",
+      org_type: "claude_max",
+      seat_tier: null,
+      billing_type: "stripe_subscription",
+    })}\n`;
+  }
+
+  function writeAccounts(...lines: string[]): void {
+    mkdirSync(dirname(accounts), { recursive: true });
+    writeFileSync(accounts, lines.join(""));
+  }
+
+  const accountRows = () =>
+    inDb((db) =>
+      db.query("SELECT * FROM usage_accounts ORDER BY session_id, ts").all(),
+    ) as Record<string, unknown>[];
+
+  test("a sweep ingests the recorded lines", async () => {
+    writeAccounts(accountLine("s-1", 100), accountLine("s-2", 200, "acct-2"));
+    await runSweep(input());
+    expect(accountRows()).toEqual([
+      {
+        machine_id: M,
+        session_id: "s-1",
+        ts: 100,
+        account: "acct-1",
+        label: "a@example.com",
+        org_type: "claude_max",
+        seat_tier: null,
+        billing_type: "stripe_subscription",
+      },
+      expect.objectContaining({ session_id: "s-2", ts: 200, account: "acct-2" }),
+    ]);
+  });
+
+  test("a re-sweep adds nothing", async () => {
+    writeAccounts(accountLine("s-1", 100));
+    await runSweep(input());
+    await runSweep(input({ now: NOW + MINUTE }));
+    expect(accountRows().length).toBe(1);
+  });
+
+  test("a half-written last line waits and is ingested once completed", async () => {
+    const whole = accountLine("s-2", 200);
+    writeAccounts(accountLine("s-1", 100), whole.slice(0, 20));
+    await runSweep(input());
+    expect(accountRows().map((r) => r.session_id)).toEqual(["s-1"]);
+
+    appendFileSync(accounts, whole.slice(20));
+    await runSweep(input({ now: NOW + MINUTE }));
+    expect(accountRows().map((r) => r.session_id)).toEqual(["s-1", "s-2"]);
+  });
+
+  test("a bad complete line is skipped and passed over", async () => {
+    writeAccounts(
+      "not json\n",
+      `${JSON.stringify({ session: "s-x", ts: "later", account: "a" })}\n`,
+      `${JSON.stringify({ session: "s-y", ts: 5 })}\n`,
+      accountLine("s-1", 100),
+    );
+    await runSweep(input());
+    await runSweep(input({ now: NOW + MINUTE }));
+    expect(accountRows().map((r) => r.session_id)).toEqual(["s-1"]);
+  });
+
+  test("a file that shrank is read again from the start", async () => {
+    writeAccounts(accountLine("s-1", 100), accountLine("s-2", 200));
+    await runSweep(input());
+    writeAccounts(accountLine("s-3", 300));
+    await runSweep(input({ now: NOW + MINUTE }));
+    expect(accountRows().map((r) => r.session_id)).toEqual(["s-1", "s-2", "s-3"]);
+  });
+
+  test("a duplicate line is ignored", async () => {
+    writeAccounts(accountLine("s-1", 100), accountLine("s-1", 100));
+    await runSweep(input());
+    expect(accountRows().length).toBe(1);
+  });
+
+  test("a missing file changes nothing", async () => {
+    await runSweep(input());
+    expect(accountRows()).toEqual([]);
+    expect(meta("accounts_offset")).toBeNull();
+  });
 });

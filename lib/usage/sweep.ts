@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { statSync } from "fs";
+import { readFileSync, statSync } from "fs";
 import { attributeMessages } from "./attribute.ts";
 import {
   classifyAgentSessions,
@@ -24,6 +24,7 @@ export interface SweepLog {
 export interface SweepInput {
   dbPath: string;
   runsRoot: string;
+  accountsPath: string;
   configDirs: string[];
   agents: AgentLink[];
   machineId: () => Promise<string | null>;
@@ -88,6 +89,65 @@ ON CONFLICT (key) DO UPDATE SET value = excluded.value`;
 const ADD_META = `
 INSERT INTO usage_meta (key, value) VALUES (?1, ?2)
 ON CONFLICT (key) DO UPDATE SET value = CAST(value AS INTEGER) + ?2`;
+
+const INSERT_ACCOUNT = `
+INSERT OR IGNORE INTO usage_accounts
+  (machine_id, session_id, ts, account, label, org_type, seat_tier, billing_type)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+
+const optionalString = (v: unknown): string | null => (typeof v === "string" ? v : null);
+
+export function ingestAccounts(db: Database, path: string, machineId: string): number {
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(path);
+  } catch (err) {
+    if ((err as { code?: string }).code === "ENOENT") return 0;
+    throw err;
+  }
+  const stored = db.query("SELECT value FROM usage_meta WHERE key = 'accounts_offset'").get() as {
+    value: string;
+  } | null;
+  const known = stored === null ? 0 : Number(stored.value);
+  const from = known > bytes.length ? 0 : known;
+  const end = bytes.lastIndexOf(0x0a) + 1;
+  if (end <= from) return 0;
+
+  const insert = db.query(INSERT_ACCOUNT);
+  return db.transaction(() => {
+    let added = 0;
+    for (const text of bytes.subarray(from, end).toString("utf8").split("\n")) {
+      if (text === "") continue;
+      let rec: Record<string, unknown>;
+      try {
+        rec = JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      if (
+        typeof rec !== "object" ||
+        rec === null ||
+        typeof rec.session !== "string" ||
+        typeof rec.account !== "string" ||
+        typeof rec.ts !== "number"
+      ) {
+        continue;
+      }
+      added += insert.run(
+        machineId,
+        rec.session,
+        rec.ts,
+        rec.account,
+        optionalString(rec.label),
+        optionalString(rec.org_type),
+        optionalString(rec.seat_tier),
+        optionalString(rec.billing_type),
+      ).changes;
+    }
+    db.query(SET_META).run("accounts_offset", String(end));
+    return added;
+  })();
+}
 
 function takeLock(db: Database, now: number): boolean {
   try {
@@ -216,6 +276,11 @@ export async function runSweep(input: SweepInput): Promise<SweepResult> {
       const { unresolvedMr } = snapshotRuns(db, input.runsRoot, machineId);
       if (unresolvedMr > 0) {
         log?.debug({ unresolvedMr }, "runs with an mr field that resolved to no key");
+      }
+      try {
+        ingestAccounts(db, input.accountsPath, machineId);
+      } catch (err) {
+        log?.warn({ error: String(err) }, "could not read the accounts file; retrying next sweep");
       }
       linkAgents(db, input.agents, machineId);
       const files = indexTranscripts(input.configDirs, linkedSessionIds(db, machineId));
