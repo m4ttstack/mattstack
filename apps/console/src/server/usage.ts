@@ -17,6 +17,7 @@ import {
   FIXTURE_OUTAGE,
   type RunsFixture,
 } from './fixtures/design/runsFixture';
+import { normalizeMr, normalizeMrs, normalizeTrends } from './usageCompat';
 
 const OUTSIDE = new Set<UsageOutside>([
   'before',
@@ -53,7 +54,7 @@ export function usageRoutes(fixture: RunsFixture | null = null) {
         ...(repo !== undefined ? { repo } : {}),
       });
       if (!res.ok) return c.json({ error: res.error }, 502);
-      return c.json(res.data ?? null, 200);
+      return c.json(normalizeMrs(res.data) ?? null, 200);
     })
     .get('/api/usage/mr', async c => {
       const mrKey = c.req.query('mrKey');
@@ -62,7 +63,7 @@ export function usageRoutes(fixture: RunsFixture | null = null) {
       if (fixture) return c.json(fixture.usage.mr(mrKey), 200);
       const res = await usageMr(mrKey);
       if (!res.ok) return c.json({ error: res.error }, 502);
-      return c.json(res.data ?? null, 200);
+      return c.json(normalizeMr(res.data) ?? null, 200);
     })
     .get('/api/usage/run', async c => {
       const runId = c.req.query('runId');
@@ -104,7 +105,7 @@ export function usageRoutes(fixture: RunsFixture | null = null) {
         ...(repo !== undefined ? { repo } : {}),
       });
       if (!res.ok) return c.json({ error: res.error }, 502);
-      return c.json(res.data ?? null, 200);
+      return c.json(normalizeTrends(res.data) ?? null, 200);
     })
     .get('/api/usage/status', async c => {
       if (fixture?.outage) return c.json({ error: FIXTURE_OUTAGE }, 502);

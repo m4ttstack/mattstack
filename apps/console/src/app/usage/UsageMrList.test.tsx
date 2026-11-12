@@ -26,47 +26,52 @@ const split = (
   unknown: totals(unknown),
 });
 
-function cell(byBilling: Record<UsageBilling, UsageTotals>) {
+function cell(total: number, byBilling: Record<UsageBilling, UsageTotals>) {
   const { getByTestId, queryByTestId } = renderWithProviders(
-    <CostCell byBilling={byBilling} />
+    <CostCell totals={totals(total)} byBilling={byBilling} />
   );
   return {
-    metered: getByTestId('cost-metered').textContent,
+    total: getByTestId('cost-total').textContent,
+    metered: queryByTestId('cost-metered')?.textContent ?? null,
     plan: queryByTestId('cost-plan')?.textContent ?? null,
     unknown: queryByTestId('cost-unknown')?.textContent ?? null,
   };
 }
 
 describe('CostCell', () => {
-  it('shows metered cost with plan usage under it', () => {
-    expect(cell(split(4.6, 1480, 0))).toEqual({
-      metered: '$4.60',
+  it('leads with the total and breaks it down by billing', () => {
+    expect(cell(1484.6, split(4.6, 1480, 0))).toEqual({
+      total: '$1,485',
+      metered: '$4.60 metered',
       plan: '$1,480 on plan',
       unknown: null,
     });
   });
 
-  it('leaves the plan line out when nothing ran on a plan', () => {
-    expect(cell(split(4.6, 0, 0))).toEqual({
-      metered: '$4.60',
+  it('leaves out a part that is zero', () => {
+    expect(cell(4.6, split(4.6, 0, 0))).toEqual({
+      total: '$4.60',
+      metered: '$4.60 metered',
       plan: null,
       unknown: null,
     });
   });
 
-  it('shows cost with no account beside plan usage', () => {
-    expect(cell(split(0, 1480, 32.5))).toEqual({
-      metered: '$0.00',
+  it('adds unknown beside the known parts', () => {
+    expect(cell(1512.5, split(0, 1480, 32.5))).toEqual({
+      total: '$1,513',
+      metered: null,
       plan: '$1,480 on plan',
       unknown: '$32.50 unknown',
     });
   });
 
-  it('shows cost from before accounts were recorded as unknown, not free', () => {
-    expect(cell(split(0, 0, 32.5))).toEqual({
-      metered: '$0.00',
+  it('shows only the total when no cost has a known account', () => {
+    expect(cell(32.5, split(0, 0, 32.5))).toEqual({
+      total: '$32.50',
+      metered: null,
       plan: null,
-      unknown: '$32.50 unknown',
+      unknown: null,
     });
   });
 });
