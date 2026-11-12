@@ -253,18 +253,23 @@ export function failOrphanedSyncs(
 ): void {
   for (const [mrUrl, state] of readDoctorStates(db)) {
     const inSync = state.status === 'syncing';
-    if ((inSync || state.status === 'forge-rebasing') && !running.has(mrUrl))
-      writeDoctorState(
-        doctorFilePath(mrUrl),
-        {
-          status: 'sync-stopped',
-          message: inSync
-            ? 'the board restarted during the sync'
-            : 'the board restarted during the rebase',
-        },
-        now,
-        db
-      );
+    if (!(inSync || state.status === 'forge-rebasing') || running.has(mrUrl))
+      continue;
+    const message = inSync
+      ? 'the board restarted during the sync'
+      : 'the board restarted during the rebase; run rebase again';
+    writeDoctorState(
+      doctorFilePath(mrUrl),
+      {
+        status: 'sync-stopped',
+        message,
+        ...(state.forge?.state === 'running'
+          ? { forge: { ...state.forge, state: 'failed', detail: message } }
+          : {}),
+      },
+      now,
+      db
+    );
   }
 }
 

@@ -46,12 +46,21 @@ function stepAfterForge(kind: ForgeKind, result: ForgeRebaseResult): ForgeStep {
   };
 }
 
+/** `runningForge` names the forge when the throw cut its step off, so the
+    step does not stay running on a stopped row. */
 function stopOnThrow(
   write: RebaseChainDeps['write'],
-  err: unknown
+  err: unknown,
+  runningForge?: ForgeKind
 ): RebaseChainEnd {
   const message = err instanceof Error ? err.message : String(err);
-  write({ status: 'sync-stopped', message });
+  write({
+    status: 'sync-stopped',
+    message,
+    ...(runningForge
+      ? { forge: { forge: runningForge, state: 'failed', detail: message } }
+      : {}),
+  });
   return { kind: 'stopped', message };
 }
 
@@ -76,7 +85,7 @@ export async function runRebaseChain(
     try {
       result = await deps.forge();
     } catch (err) {
-      return stopOnThrow(write, err);
+      return stopOnThrow(write, err, forgeKind);
     }
     if (result.kind === 'cancelled') {
       write({
@@ -87,16 +96,19 @@ export async function runRebaseChain(
       return { kind: 'cancelled' };
     }
     if (result.kind === 'rebased' || result.kind === 'current') {
-      const message = `rebased on ${forgeName(forgeKind)}`;
+      const rebased = result.kind === 'rebased';
+      const message = rebased
+        ? `rebased on ${forgeName(forgeKind)}`
+        : `already up to date on ${forgeName(forgeKind)}`;
       write({
         status: 'synced',
         message,
         pausedTree: CLEAR,
-        pipelineAtSync: deps.pipelineAtSync ?? CLEAR,
+        pipelineAtSync: rebased ? (deps.pipelineAtSync ?? CLEAR) : CLEAR,
         forge: {
           forge: forgeKind,
           state: 'done',
-          detail: result.kind === 'rebased' ? 'rebased' : 'already current',
+          detail: rebased ? 'rebased' : 'already current',
         },
       });
       return { kind: 'forge-done', message };

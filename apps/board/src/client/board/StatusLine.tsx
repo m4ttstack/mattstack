@@ -276,7 +276,9 @@ function SyncLogWord({
                   />
                 }
                 {...(handoff ? { handoff } : {})}
-                {...(url ? { onCancel: () => cancelRebase(url) } : {})}
+                {...(url && mr.doctor?.status === 'forge-rebasing'
+                  ? { onCancel: () => cancelRebase(url) }
+                  : {})}
               />
             </SideDrawer>
           </div>,

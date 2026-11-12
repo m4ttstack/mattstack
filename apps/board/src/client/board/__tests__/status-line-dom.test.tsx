@@ -696,6 +696,15 @@ test('no cancel once the forge step has settled', async () => {
   expect(drawer.querySelector('.tui-syncsteps-cancel')).toBeNull();
 });
 
+test('no cancel on a row that left the forge wait with its step still running', async () => {
+  const drawer = await renderForgeRow({
+    status: 'sync-stopped',
+    message: 'the board restarted during the rebase; run rebase again',
+    forge: { forge: 'gitlab', state: 'running' },
+  });
+  expect(drawer.querySelector('.tui-syncsteps-cancel')).toBeNull();
+});
+
 test('a cancelled rebase says so once and shows no raw output', async () => {
   const drawer = await renderForgeRow({
     status: 'sync-stopped',

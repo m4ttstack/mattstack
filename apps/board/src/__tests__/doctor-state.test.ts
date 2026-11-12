@@ -305,14 +305,44 @@ describe('failOrphanedSyncs', () => {
   test('failOrphanedSyncs fails a forge-rebasing row', () => {
     writeDoctorState(
       doctorFilePath('u/4'),
-      { mrUrl: 'u/4', iid: 1, status: 'forge-rebasing' },
+      {
+        mrUrl: 'u/4',
+        iid: 1,
+        status: 'forge-rebasing',
+        forge: { forge: 'gitlab', state: 'running' },
+      },
       1,
       db
     );
     failOrphanedSyncs(new Set(), 2, db);
     expect(readDoctorStates(db).get('u/4')).toMatchObject({
       status: 'sync-stopped',
-      message: 'the board restarted during the rebase',
+      message: 'the board restarted during the rebase; run rebase again',
+      forge: {
+        forge: 'gitlab',
+        state: 'failed',
+        detail: 'the board restarted during the rebase; run rebase again',
+      },
+    });
+  });
+
+  test('a cut-off sync keeps a forge step that already settled', () => {
+    writeDoctorState(
+      doctorFilePath('u/7'),
+      {
+        mrUrl: 'u/7',
+        iid: 1,
+        status: 'syncing',
+        forge: { forge: 'github', state: 'failed', detail: 'no clear answer' },
+      },
+      1,
+      db
+    );
+    failOrphanedSyncs(new Set(), 2, db);
+    expect(readDoctorStates(db).get('u/7')?.forge).toEqual({
+      forge: 'github',
+      state: 'failed',
+      detail: 'no clear answer',
     });
   });
 

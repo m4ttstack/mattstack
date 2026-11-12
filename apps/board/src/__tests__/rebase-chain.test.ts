@@ -68,15 +68,30 @@ describe('runRebaseChain', () => {
     });
   });
 
-  test('forge current skips sync', async () => {
-    const h = harness({ forge: { kind: 'current' } });
+  test('forge current skips sync and says it was already up to date', async () => {
+    const h = harness({ forge: { kind: 'current' }, pipelineAtSync: '77' });
     const end = await h.run();
     expect(h.calls.sync).toBe(0);
-    expect(end.kind).toBe('forge-done');
-    expect(h.patches.at(-1)).toMatchObject({
+    expect(end).toEqual({
+      kind: 'forge-done',
+      message: 'already up to date on GitLab',
+    });
+    const last = h.patches.at(-1)!;
+    expect(last).toMatchObject({
       status: 'synced',
+      message: 'already up to date on GitLab',
       forge: { state: 'done', detail: 'already current' },
     });
+    expect(last.pipelineAtSync).toBeNull();
+  });
+
+  test('forge rebased records the pipeline it found', async () => {
+    const h = harness({
+      forge: { kind: 'rebased', sha: 'abc' },
+      pipelineAtSync: '77',
+    });
+    await h.run();
+    expect(h.patches.at(-1)?.pipelineAtSync).toBe('77');
   });
 
   test('forge failed runs sync', async () => {
@@ -186,6 +201,11 @@ describe('runRebaseChain', () => {
     expect(patches.at(-1)).toMatchObject({
       status: 'sync-stopped',
       message: 'gitlab token not configured',
+      forge: {
+        forge: 'gitlab',
+        state: 'failed',
+        detail: 'gitlab token not configured',
+      },
     });
   });
 
@@ -202,7 +222,7 @@ describe('runRebaseChain', () => {
       hasDoctor: true,
     });
     expect(end).toEqual({ kind: 'stopped', message: 'daemon gone' });
-    expect(patches.at(-1)).toMatchObject({
+    expect(patches.at(-1)).toEqual({
       status: 'sync-stopped',
       message: 'daemon gone',
     });
