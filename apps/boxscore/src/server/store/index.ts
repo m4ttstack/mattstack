@@ -583,11 +583,11 @@ function buildStore() {
   };
 }
 
-/** Thrown by a guarded write once the confirmed host is no longer the writer's. */
+/** Thrown once the confirmed host is no longer the one a refresh or request started with. */
 export class ForgeHostChangedError extends Error {
   constructor(baseUrl: string) {
     super(
-      `the confirmed GitLab host changed during this refresh; dropped the rest of its results from ${baseUrl}`
+      `the confirmed GitLab host changed while this ran; dropped its results from ${baseUrl}`
     );
     this.name = 'ForgeHostChangedError';
   }

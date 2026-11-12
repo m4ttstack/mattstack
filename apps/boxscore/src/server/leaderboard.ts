@@ -16,7 +16,7 @@ import { computeSnapshot, type Snapshot } from './metrics/snapshot.js';
 import { buildResponse, type BuildContext } from './metrics/trend.js';
 import { runRefresh } from './refresh/index.js';
 import { makeProvider } from './source/index.js';
-import { getStore } from './store/index.js';
+import { ForgeHostChangedError, getStore } from './store/index.js';
 import type { FetchResult } from './store/model.js';
 import {
   buildFetchResult,
@@ -185,6 +185,11 @@ async function buildLeaderboard(
       onProgress: withWindow('current', opts.onProgress),
     });
     warnings.push(...refreshed);
+  }
+
+  // Another request may have switched the store to a new host during the awaits above.
+  if (!store.acceptsForgeHost(env.baseUrl)) {
+    throw new ForgeHostChangedError(env.baseUrl);
   }
 
   if (
