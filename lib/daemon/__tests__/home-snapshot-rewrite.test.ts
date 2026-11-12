@@ -133,6 +133,91 @@ describe("a pull after origin's history was rewritten", () => {
     }
   }, 15_000);
 
+  test("a saved conflict passes a gate that lets the pull through, then resets", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-snapshot-rewrite-gate-pass-")));
+    const db = openStateDb(join(root, "state.db"), "cli");
+    try {
+      const { author, clone } = rewrittenOrigin(root);
+      setKvValue("team-snapshot:acme", "conflict", { at: 1, detail: "CONFLICT (content): mattstack/settings.team.jsonc" }, db);
+      const { handle } = start(clone, db, async () => null);
+      await handle.ready;
+      const result = await handle.pullNow();
+      await handle.settled();
+      handle.stop();
+
+      expect(result.outcome).toBe("reset");
+      expect(git(clone, "rev-parse", "HEAD").trim()).toBe(git(author, "rev-parse", "HEAD").trim());
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  test("a saved conflict never reaches the data-branch move, which would carry its stale commits across", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-snapshot-rewrite-moved-")));
+    const db = openStateDb(join(root, "state.db"), "cli");
+    try {
+      const { clone } = rewrittenOrigin(root);
+      const before = git(clone, "rev-parse", "HEAD").trim();
+      setKvValue("team-snapshot:acme", "conflict", { at: 1, detail: "CONFLICT (content): mattstack/settings.team.jsonc" }, db);
+      const { handle } = start(clone, db, async () => ({ kind: "moved", dataBranch: "mattstack" }));
+      await handle.ready;
+      const result = await handle.pullNow();
+      await handle.settled();
+      handle.stop();
+
+      expect(result).toEqual({ outcome: "skipped", detail: "CONFLICT (content): mattstack/settings.team.jsonc" });
+      expect(git(clone, "rev-parse", "HEAD").trim()).toBe(before);
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  test("a hand cherry-pick in progress is never reset away", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-snapshot-rewrite-pick-")));
+    const db = openStateDb(join(root, "state.db"), "cli");
+    try {
+      const { clone } = rewrittenOrigin(root);
+      const before = git(clone, "rev-parse", "HEAD").trim();
+      writeFileSync(join(clone, ".git", "CHERRY_PICK_HEAD"), `${before}\n`);
+      setKvValue("team-snapshot:acme", "conflict", { at: 1, detail: "CONFLICT (content): mattstack/settings.team.jsonc" }, db);
+      const { handle } = start(clone, db);
+      await handle.ready;
+      const result = await handle.pullNow();
+      await handle.settled();
+      handle.stop();
+
+      expect(result.outcome).toBe("skipped");
+      expect(git(clone, "rev-parse", "HEAD").trim()).toBe(before);
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  test("an uncommitted edit to a tracked file survives a saved conflict's reset", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-snapshot-rewrite-tracked-")));
+    const db = openStateDb(join(root, "state.db"), "cli");
+    try {
+      const { author, clone } = rewrittenOrigin(root);
+      write(clone, "mattstack/settings.team.jsonc", "{ \"a\": \"unsaved\" }\n");
+      setKvValue("team-snapshot:acme", "conflict", { at: 1, detail: "CONFLICT (content): mattstack/settings.team.jsonc" }, db);
+      const { handle } = start(clone, db);
+      await handle.ready;
+      const result = await handle.pullNow();
+      await handle.settled();
+      handle.stop();
+
+      expect(result.outcome).toBe("reset");
+      expect(git(clone, "rev-parse", "HEAD").trim()).toBe(git(author, "rev-parse", "HEAD").trim());
+      expect(readFileSync(join(clone, "mattstack/settings.team.jsonc"), "utf8")).toBe("{ \"a\": \"unsaved\" }\n");
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 15_000);
+
   test("a real local edit ahead of origin still conflicts and is never reset", async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-snapshot-rewrite-edit-")));
     const db = openStateDb(join(root, "state.db"), "cli");
@@ -162,10 +247,11 @@ describe("a pull after origin's history was rewritten", () => {
       commit(clone, "mattstack/teams/widgets/note.md", "mine\n", "my own file");
       const { handle } = start(clone, db);
       await handle.ready;
-      await handle.pullNow();
+      const result = await handle.pullNow();
       await handle.settled();
       handle.stop();
 
+      expect(result.outcome).toBe("conflict");
       expect(readFileSync(join(clone, "mattstack/teams/widgets/note.md"), "utf8")).toBe("mine\n");
       expect(git(clone, "log", "--format=%s").split("\n")).toContain("my own file");
     } finally {

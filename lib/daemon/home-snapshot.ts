@@ -628,6 +628,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   let heldBack: string[] = [];
   let pullBlockedBy: string[] = [];
   let loggedBlockedPull: string | null = null;
+  let loggedResetRefusal: string | null = null;
   let lastPullSkipped: string | null = null;
   let layoutHold: PullHold | null = null;
   let loggedHold: string | null = null;
@@ -1123,6 +1124,9 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
         }
         if (layoutHold !== null) return { outcome: "skipped", detail: holdSentence(layoutHold), hold: layoutHold };
       }
+      // The data-branch move carries unpushed commits across, so a conflicted
+      // clone's stale history must never reach it.
+      if (conflicted && verdict?.kind === "moved") return { outcome: "skipped", detail: conflicted.detail };
       if (verdict) {
         layoutHold = verdict.kind === "above" ? { layout: verdict.layout, reads: ORG_LAYOUT } : { moved: verdict.dataBranch };
         const key = verdict.kind === "above" ? `layout:${verdict.layout}` : `moved:${verdict.dataBranch}`;
@@ -1169,8 +1173,9 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       deps.log.warn({ id: spec.id, reason }, `${label}: rebase refused; will retry next tick`);
       return { outcome: "skipped", detail: reason };
     }
-    await deps.exec(["git", "rebase", "--abort"], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
-    if ((await nothingAhead(branch, ahead)) && (await resetToOrigin(branch, ahead))) return { outcome: "reset", detail: null };
+    const abort = await deps.exec(["git", "rebase", "--abort"], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
+    // A failed abort leaves HEAD detached mid-rebase, where a reset would move the wrong ref.
+    if (abort.exitCode === 0 && (await nothingAhead(branch, ahead)) && (await resetToOrigin(branch, ahead))) return { outcome: "reset", detail: null };
     const detail = redactCredentials(rebase.stderr.trim() || "rebase stopped");
     conflicted = { at: deps.now(), detail };
     try {
@@ -1193,8 +1198,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   }
 
   /**
-   * A history rewritten upstream (a squash, a scrub) leaves this clone holding
-   * commits origin replaced with the same files. They are safe to drop only
+   * A history rewritten upstream with the same files (a squash) leaves this
+   * clone holding commits origin replaced. They are safe to drop only
    * when merging them onto origin yields origin's own tree; any change they
    * carry, or a merge git cannot settle, keeps them.
    */
@@ -1209,13 +1214,23 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     return !!mergedTree && mergedTree === originTree.stdout.trim();
   }
 
-  /** `--keep` refuses rather than overwrite uncommitted work. */
+  /**
+   * `--keep` refuses rather than overwrite uncommitted work, but it would drop
+   * a resolved cherry-pick or revert, so any hand operation in progress skips it.
+   */
   async function resetToOrigin(branch: string, ahead: number | undefined): Promise<boolean> {
-    const reset = await gitHere(["reset", "-q", "--keep", `refs/remotes/origin/${branch}`]);
-    if (reset.exitCode !== 0) {
-      deps.log.warn({ id: spec.id, reason: redactCredentials(reset.stderr.trim()) }, `${label}: commits ahead of origin add nothing, but the reset to origin was refused`);
+    const gitDir = await resolveGitDir();
+    const busy = ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply"].find((name) => existsSync(join(gitDir, name)));
+    const reset = busy ? null : await gitHere(["reset", "-q", "--keep", `refs/remotes/origin/${branch}`]);
+    if (!reset || reset.exitCode !== 0) {
+      const reason = busy ? `${busy} is in progress` : redactCredentials(reset!.stderr.trim());
+      if (loggedResetRefusal !== reason) {
+        deps.log.warn({ id: spec.id, reason }, `${label}: commits ahead of origin add nothing, but the reset to origin was refused`);
+        loggedResetRefusal = reason;
+      }
       return false;
     }
+    loggedResetRefusal = null;
     deps.log.info({ id: spec.id, ahead }, `${label}: reset to origin; the commits ahead of it added nothing`);
     return true;
   }
