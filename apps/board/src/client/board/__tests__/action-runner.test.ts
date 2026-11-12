@@ -51,6 +51,7 @@ function fakeDeps(
       return {
         done: d => events.push(`done ${d}`),
         fail: f => events.push(`fail ${f}`),
+        note: n => events.push(`note ${n}`),
       };
     },
     reload: fresh => events.push(`reload ${fresh}`),
@@ -315,7 +316,7 @@ test('runMany keeps at most four requests in flight', async () => {
     launch: async () => ok(),
     presence: () => null,
     addToast: () => {},
-    startToast: () => ({ done: () => {}, fail: () => {} }),
+    startToast: () => ({ done: () => {}, fail: () => {}, note: () => {} }),
     reload: () => {},
     merging: { start: () => {}, fail: () => {} },
   };
@@ -636,7 +637,7 @@ test('a bulk rebase counts a stopped reply as failed and names its reason', asyn
         setQueued: () => {},
         rollback: () => {},
         addToast: () => {},
-        startToast: () => ({ done: () => {}, fail: () => {} }),
+        startToast: () => ({ done: () => {}, fail: () => {}, note: () => {} }),
         reload: () => {},
         verbing: 'rebasing',
         noun: 'rebase',
@@ -664,7 +665,7 @@ test('a bulk review counts a refused reply as failed and names its reason', asyn
         setQueued: () => {},
         rollback: () => {},
         addToast: () => {},
-        startToast: () => ({ done: () => {}, fail: () => {} }),
+        startToast: () => ({ done: () => {}, fail: () => {}, note: () => {} }),
         reload: () => {},
         verbing: 'launching review',
         noun: 'review',
@@ -732,8 +733,25 @@ test('a merge with no answer keeps the hold and says it may still land', async (
     reply(504, { reason: 'the merge may still land' })
   );
   await runOne(merge, ghMr(7), deps);
-  expect(events).toContain('fail no answer for #7; the merge may still land');
+  expect(events).toContain('note no answer for #7; the merge may still land');
+  expect(events.some(e => /^fail/.test(e))).toBe(false);
   expect(events.some(e => /^release/.test(e))).toBe(false);
+});
+
+test('a merge refused with 409 still settles the toast as failed', async () => {
+  const { deps, events } = fakeDeps(() =>
+    reply(409, { reason: 'merge conflicts' })
+  );
+  await runOne(merge, ghMr(7), deps);
+  expect(events).toContain("fail couldn't merge #7: merge conflicts");
+  expect(events.some(e => /^note/.test(e))).toBe(false);
+});
+
+test('a reasonless 504 still settles the toast as failed', async () => {
+  const { deps, events } = fakeDeps(() => reply(504));
+  await runOne(merge, ghMr(7), deps);
+  expect(events).toContain("fail couldn't merge #7 (504)");
+  expect(events.some(e => /^note/.test(e))).toBe(false);
 });
 
 test('a cancel of auto-merge with no answer says it may still apply', async () => {
@@ -741,7 +759,7 @@ test('a cancel of auto-merge with no answer says it may still apply', async () =
     reply(504, { reason: 'it may still apply' })
   );
   await runOne({ kind: 'mr', action: 'cancelAutoMerge' }, ghMr(7), deps);
-  expect(events).toContain('fail no answer for #7; it may still apply');
+  expect(events).toContain('note no answer for #7; it may still apply');
 });
 
 test('a draft toggle with no answer says it may still apply', async () => {
@@ -749,7 +767,7 @@ test('a draft toggle with no answer says it may still apply', async () => {
     reply(504, { reason: 'it may still apply' })
   );
   await runOne({ kind: 'draft', draft: true }, ghMr(7), deps);
-  expect(events).toContain('fail no answer for #7; it may still apply');
+  expect(events).toContain('note no answer for #7; it may still apply');
   expect(events.some(e => /couldn't/.test(e))).toBe(false);
 });
 

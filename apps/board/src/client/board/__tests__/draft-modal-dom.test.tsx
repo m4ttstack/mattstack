@@ -109,6 +109,10 @@ test('a note with no answer says to check the PR and keeps post offered', async 
   expect(text).toContain('no answer; the note may have posted, check the PR');
   expect(text).not.toContain('nothing was sent');
   expect(
+    document.querySelector('.tui-draft-actions .tui-draft-note')
+  ).not.toBeNull();
+  expect(document.querySelector('.tui-draft-error')).toBeNull();
+  expect(
     [...document.querySelectorAll('.tui-draft-actions button')].map(b =>
       b.textContent?.trim()
     )
@@ -118,6 +122,8 @@ test('a note with no answer says to check the PR and keeps post offered', async 
 test('any other failed post keeps the nothing-was-sent message', async () => {
   const text = await postWith(Response.json({}, { status: 502 }));
   expect(text).toContain('nothing was sent');
+  expect(document.querySelector('.tui-draft-error')).not.toBeNull();
+  expect(document.querySelector('.tui-draft-note')).toBeNull();
 });
 
 test('a refused post says why instead of nothing-was-sent', async () => {
@@ -126,6 +132,8 @@ test('a refused post says why instead of nothing-was-sent', async () => {
   );
   expect(text).toContain("couldn't post: the PR is closed");
   expect(text).not.toContain('nothing was sent');
+  expect(document.querySelector('.tui-draft-error')).not.toBeNull();
+  expect(document.querySelector('.tui-draft-note')).toBeNull();
 });
 
 test('a reasonless failure keeps the semicolon wording', async () => {

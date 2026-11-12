@@ -36,6 +36,7 @@ test('launch flow: a launch the server answered with a focus settles the toast a
         return {
           done: d => events.push(`done:${d}`),
           fail: f => events.push(`fail:${f}`),
+          note: n => events.push(`note:${n}`),
         };
       },
       reload: () => events.push('reload'),
@@ -67,6 +68,7 @@ test('launch flow: non-ok rolls back and toasts the status', async () => {
         return {
           done: d => events.push(`done:${d}`),
           fail: f => events.push(`fail:${f}`),
+          note: n => events.push(`note:${n}`),
         };
       },
       reload: () => events.push('reload'),
@@ -102,6 +104,7 @@ test('launch flow: failureMessage override replaces the default failure toast', 
         return {
           done: d => events.push(`done:${d}`),
           fail: f => events.push(`fail:${f}`),
+          note: n => events.push(`note:${n}`),
         };
       },
       reload: () => events.push('reload'),
@@ -139,6 +142,7 @@ test('launch flow: focus intent skips queued and launch toast, toasts the focus'
         return {
           done: d => events.push(`done:${d}`),
           fail: f => events.push(`fail:${f}`),
+          note: n => events.push(`note:${n}`),
         };
       },
       reload: () => events.push('reload'),
@@ -169,6 +173,7 @@ test('launch flow: focus intent posts focus:true, and a refusal toasts the serve
         return {
           done: d => events.push(`done:${d}`),
           fail: f => events.push(`fail:${f}`),
+          note: n => events.push(`note:${n}`),
         };
       },
       reload: () => events.push('reload'),
@@ -199,6 +204,7 @@ test('launch flow: a started launch settles its toast with the started text', as
         return {
           done: d => events.push(`done:${d}`),
           fail: f => events.push(`fail:${f}`),
+          note: n => events.push(`note:${n}`),
         };
       },
       reload: () => events.push('reload'),
@@ -226,7 +232,7 @@ test('launch flow: a launch never sends focus:true', async () => {
       setQueued: () => {},
       rollback: () => {},
       addToast: () => {},
-      startToast: () => ({ done: () => {}, fail: () => {} }),
+      startToast: () => ({ done: () => {}, fail: () => {}, note: () => {} }),
       reload: () => {},
       verbing: 'calling doctor',
       noun: 'doctor',
@@ -245,7 +251,7 @@ test('launch flow returns the server result', async () => {
       setQueued: () => {},
       rollback: () => {},
       addToast: () => {},
-      startToast: () => ({ done: () => {}, fail: () => {} }),
+      startToast: () => ({ done: () => {}, fail: () => {}, note: () => {} }),
       reload: () => {},
       verbing: 'launching review',
       noun: 'review',
@@ -274,6 +280,7 @@ test('launch flow: a 200 that reports a stop fails the toast with that text', as
         return {
           done: d => events.push(`done:${d}`),
           fail: f => events.push(`fail:${f}`),
+          note: n => events.push(`note:${n}`),
         };
       },
       reload: () => events.push('reload'),
@@ -319,6 +326,7 @@ test('launch flow: a refused launch drops the claim, fails the toast with the re
         return {
           done: d => events.push(`done:${d}`),
           fail: f => events.push(`fail:${f}`),
+          note: n => events.push(`note:${n}`),
         };
       },
       reload: () => events.push('reload'),

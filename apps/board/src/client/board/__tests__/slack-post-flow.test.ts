@@ -48,6 +48,7 @@ function run(
       return {
         done: t => events.push(`done ${t}`),
         fail: t => events.push(`fail ${t}`),
+        note: t => events.push(`note ${t}`),
       };
     },
     openDialog: (_mr, p) => opened.push(p),

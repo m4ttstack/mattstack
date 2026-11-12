@@ -78,7 +78,11 @@ function DraftModal({
       <pre className="tui-draft-body">{draft.body}</pre>
       <div className="tui-draft-actions">
         {failed && (
-          <span className="tui-draft-error">
+          <span
+            className={
+              failed === 'unanswered' ? 'tui-draft-note' : 'tui-draft-error'
+            }
+          >
             {failed === 'unanswered'
               ? 'no answer; the note may have posted, check the PR'
               : refusal

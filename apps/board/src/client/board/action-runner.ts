@@ -366,10 +366,13 @@ export async function runOne(
   const pending = spec.pending?.(mr);
   const toast = pending
     ? deps.startToast(pending)
-    : { done: deps.addToast, fail: deps.addToast };
+    : { done: deps.addToast, fail: deps.addToast, note: deps.addToast };
   const result = await post(req, spec, mr, url, deps);
   if (!result.ok) {
-    toast.fail(spec.fail(mr, result));
+    const text = spec.fail(mr, result);
+    // An unanswered write may still land, so it must not read as failed.
+    if (isUnanswered(result)) toast.note(text);
+    else toast.fail(text);
     // A GitLab refusal means the row was out of date; show what GitLab says now.
     if (spec.fresh) deps.reload(true);
     return result;
