@@ -289,7 +289,7 @@ describe('GitHubProvider.fetchApprovalRules', () => {
             data: page([
               node({ number: 1 }),
               node({ number: 2 }),
-              node({ number: 3, requests: [{ asCodeOwner: true, requestedReviewer: null }] })
+              node({ number: 3, requests: [teamRequest('org/a')] })
             ]),
             errors: [
               {
@@ -307,6 +307,7 @@ describe('GitHubProvider.fetchApprovalRules', () => {
         [3, false]
       ]);
       expect(out[2]!.rules).toEqual([]);
+      expect(out[2]!.unknownReason).toMatch(/SAML enforcement/);
     });
 
     test('a null node with errors throws', async () => {
