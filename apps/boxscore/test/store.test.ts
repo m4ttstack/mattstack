@@ -13,7 +13,7 @@ import type {
 const dir = mkdtempSync(join(tmpdir(), 'boxscore-store-'));
 process.env.BOXSCORE_DB = join(dir, 'test.sqlite');
 
-const { getStore, mrKey, __resetStore } =
+const { getStore, mrKey, __resetStore, guardForgeWrites } =
   await import('../src/server/store/index.js');
 
 afterEach(() => __resetStore());
@@ -592,4 +592,38 @@ describe('forge host', () => {
 
     expect(reopened.counts()).toEqual(allForgeRows);
   });
+
+  it('a guarded write holds the write lock from its host check through the write', () => {
+    const s = getStore();
+    s.clear();
+    s.adoptForgeHost('https://gl.example');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { Database } = require('bun:sqlite') as typeof import('bun:sqlite');
+    const otherProcess = new Database(process.env.BOXSCORE_DB!);
+    otherProcess.exec('PRAGMA busy_timeout = 0');
+    let otherSwitchedHost = false;
+    const guarded = guardForgeWrites(
+      {
+        ...s,
+        upsertIndexRows: rows => {
+          try {
+            otherProcess.exec(
+              "INSERT OR REPLACE INTO store_meta (key, value) VALUES ('forge_host', 'gl.other.example')"
+            );
+            otherSwitchedHost = true;
+          } catch {
+            // SQLITE_BUSY: the guard still holds the write lock.
+          }
+          s.upsertIndexRows(rows);
+        },
+      },
+      'https://gl.example'
+    );
+
+    guarded.upsertIndexRows([row()]);
+    otherProcess.close();
+
+    expect(otherSwitchedHost).toBe(false);
+  });
 });
+

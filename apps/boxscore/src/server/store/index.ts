@@ -164,6 +164,16 @@ function hostOf(baseUrl: string): string {
 
 const FORGE_HOST_KEY = 'forge_host';
 
+/** Thrown once the confirmed host is no longer the one a refresh or request started with. */
+export class ForgeHostChangedError extends Error {
+  constructor(baseUrl: string) {
+    super(
+      `the confirmed GitLab host changed while this ran; dropped its results from ${baseUrl}`
+    );
+    this.name = 'ForgeHostChangedError';
+  }
+}
+
 function buildStore() {
   const db = getDb();
 
@@ -171,6 +181,12 @@ function buildStore() {
   const stmtSetMeta = db.query(
     'INSERT OR REPLACE INTO store_meta (key, value) VALUES (?, ?)'
   );
+  const recordedHost = (): string | undefined =>
+    (stmtGetMeta.get(FORGE_HOST_KEY) as { value: string } | null)?.value;
+  const accepts = (baseUrl: string): boolean => {
+    const recorded = recordedHost();
+    return recorded === undefined || recorded === hostOf(baseUrl);
+  };
 
   const stmtUpsertIndex = db.query(
     `INSERT OR REPLACE INTO mr_index
@@ -544,9 +560,7 @@ function buildStore() {
     adoptForgeHost(baseUrl: string): boolean {
       const host = hostOf(baseUrl);
       const tx = db.transaction((): boolean => {
-        const recorded = (
-          stmtGetMeta.get(FORGE_HOST_KEY) as { value: string } | null
-        )?.value;
+        const recorded = recordedHost();
         if (recorded === host) return false;
         if (recorded !== undefined) {
           for (const table of FORGE_TABLES) db.exec(`DELETE FROM ${table}`);
@@ -554,15 +568,25 @@ function buildStore() {
         stmtSetMeta.run(FORGE_HOST_KEY, host);
         return recorded !== undefined;
       });
-      return tx();
+      return tx.immediate();
     },
 
     /** True when `baseUrl`'s host is the recorded one, or when none is recorded yet. */
     acceptsForgeHost(baseUrl: string): boolean {
-      const recorded = (
-        stmtGetMeta.get(FORGE_HOST_KEY) as { value: string } | null
-      )?.value;
-      return recorded === undefined || recorded === hostOf(baseUrl);
+      return accepts(baseUrl);
+    },
+
+    /**
+     * Runs `write` only while `baseUrl` is still the accepted host, holding SQLite's write
+     * lock from the check through the write: another process (the server and
+     * `cli.ts --refresh` share the file) cannot switch hosts in between.
+     */
+    writeAsForgeHost(baseUrl: string, write: () => void): void {
+      const tx = db.transaction(() => {
+        if (!accepts(baseUrl)) throw new ForgeHostChangedError(baseUrl);
+        write();
+      });
+      tx.immediate();
     },
 
     clear(): void {
@@ -581,16 +605,6 @@ function buildStore() {
       resetDb();
     },
   };
-}
-
-/** Thrown once the confirmed host is no longer the one a refresh or request started with. */
-export class ForgeHostChangedError extends Error {
-  constructor(baseUrl: string) {
-    super(
-      `the confirmed GitLab host changed while this ran; dropped its results from ${baseUrl}`
-    );
-    this.name = 'ForgeHostChangedError';
-  }
 }
 
 const FORGE_WRITES = [
@@ -613,10 +627,7 @@ export function guardForgeWrites(store: Store, baseUrl: string): Store {
   for (const name of FORGE_WRITES) {
     const write = store[name] as (...args: unknown[]) => void;
     (guarded as Record<string, unknown>)[name] = (...args: unknown[]) => {
-      if (!store.acceptsForgeHost(baseUrl)) {
-        throw new ForgeHostChangedError(baseUrl);
-      }
-      write(...args);
+      store.writeAsForgeHost(baseUrl, () => write(...args));
     };
   }
   return guarded;
