@@ -26,18 +26,23 @@ background jobs still assume GitLab:
 The four tickets come from a 2026-11-09 audit. On main:
 
 - Holds: the four bullets above.
-- Already fixed: `mr:by-branch` on GitHub returns an error when a lookup
-  fails, never "no PR" (`GitHubReadFailure` in `handlers/project-mrs.ts`).
-  A GitHub repo no longer fails project sync every cycle: it skips and
-  records success, so branch cache GC already runs for it.
+- Mostly fixed: `mr:by-branch` on GitHub returns an error when its branch
+  lookup fails (`GitHubReadFailure` in `handlers/project-mrs.ts`). One gap
+  remains: glance's `fetchPullRequestsByBranches` maps a PR it found but
+  could not fill to null, with no warning to the caller, so a failed fill
+  still reads as "no PR". See section 1, "Branch lookups".
+- Already fixed: a GitHub repo no longer fails project sync every cycle: it
+  skips and records success, so branch cache GC already runs for it.
 - Already fixed: "conflicts" and "needs rebase" alerts read glance's
   neutral `blockerReasons` on both forges, and "ready to merge" reads
   `readiness`. Merge error has no GitHub source: glance's `mergeError` is
   always null there.
-- New finding: GitHub's `fetchSingleMR` returns null when its fill fails,
-  and `fetchPullRequestByBranch` returns null on any HTTP error. The live
-  path writes a null as "this branch has no PR". On GitHub those reads must
-  report failure, not null.
+- New finding: on GitHub, `fetchSingleMR` returns null when its fill fails
+  (it reports the failure only to an `onWarning` hook passed as its fourth
+  argument), `fetchPullRequestByBranch` returns null on any HTTP error, and
+  `fetchPullRequestsByBranches` returns null for a failed fill. The live
+  path writes a null as "this branch has no PR". On GitHub the daemon must
+  tell those failures from a real "no PR".
 
 ## Goals
 
@@ -58,13 +63,33 @@ The four tickets come from a 2026-11-09 audit. On main:
   demanded sections stay uncovered and `divergedCommitsCount` stays null.
   The board-forge lane is making the board tolerate both.
 - Merge error alerts on GitHub (no source in glance).
-- Any glance change. The three missing glance reads (approval rules from
-  CODEOWNERS, a behind count, a merged-PR index) are listed in the report
-  as follow-ups; no tickets are filed here.
+- Any glance change. The report lists as follow-ups, with no tickets filed
+  here: the three missing glance reads (approval rules from CODEOWNERS, a
+  behind count, a merged-PR index), and `mr:by-branch` passing `onWarning`
+  once GLANCE-52 lands.
 - GitHub Enterprise (RT-550). Identity and providers stay keyed so a host
   can be added later.
 - RT-464's gates-table half (skip the gates query when a decision row
   already gives `posted`).
+- A bare `#N` in usage keys (`lib/usage/mr-key.ts` handles GitHub URLs but
+  not `#N`). That file is outside the write fence.
+- `handlers/discussions.ts` still reads the GitLab-only `getSelfUsername()`.
+  It is outside the write fence and RT-541's territory.
+
+## Constraints
+
+- Write fence: `lib/daemon/project-sync.ts`, `lib/daemon/cache-refresh.ts`,
+  `lib/daemon/freshness.ts`, `lib/daemon/handlers/project-mrs.ts`,
+  `lib/daemon/run-outcome-refresher.ts`, `lib/daemon/discussions-poller.ts`,
+  `lib/notifier.ts`, `lib/runs/outcome.ts`, `commands/daemon.ts`, new files
+  under `lib/daemon/` that these need, and their `__tests__` folders. Plus
+  `lib/daemon/handlers/mr.ts` for the GitHub write-back skip only. Not
+  `packages/glance`, `lib/ci/`, `lib/mcp/`, `apps/`, `extensions/` or
+  `plugins/`.
+- No live forge calls in tests; tests stub the provider or `fetch`.
+- Each job handles its own GitHub failures, rate limits included, as each
+  GitLab job does today. A `RateLimitedError` in one job does not pause the
+  others; glance's events watcher backs off on its own. (My call.)
 
 ## Anti-goals
 
@@ -113,6 +138,12 @@ The shepherd picked A on 2026-11-11.
    only: remove the GitHub write-back skip (shepherd, 2026-11-11).
 6. Standing rulings: Octokit and gitbeaker only; GitLab behaviour does not
    change; one forge per team; GitHub Enterprise is later.
+7. `mr:by-branch`'s batched GitHub read stays as it is: a failed fill
+   still reads as "no PR" there. glance is adding an optional `onWarning`
+   to both by-branch reads behind a capability flag (GLANCE-52); passing it
+   from `mr:by-branch` is a follow-up once that lands. The PR body says
+   RT-542 acceptance #2 is met for a failed branch lookup but not yet for a
+   failed fill (shepherd, 2026-11-11).
 
 ## Design
 
@@ -138,12 +169,17 @@ override wins over either set, as today.
 
 - Deep, unscoped: `fetchPullRequests({projectPath, state: "opened",
   listWeight: true})`. Cost: one REST page per 100 open PRs plus one
-  GraphQL fill per 25.
+  GraphQL fill per 25. glance stops a listing at 20 pages (2,000 PRs).
 - Deep, scoped to authors, and `backfillAuthors`: the same listing,
   filtered to the scope's authors in the daemon. glance's author mode runs
   one search per author, all at once, and GitHub allows 30 searches a
   minute, so a 40-author board would trip the search limit and fail the
   deep. The listing costs the same as the unscoped deep. (My call.)
+- Author matching on GitHub ignores case everywhere a scope's authors are
+  compared with a PR author: this author filter, the delta's scope filter,
+  the events path's `upsertProject` and `mr:by-branch`'s scope check.
+  GitHub logins are case-insensitive and board demands carry whatever case
+  was typed. GitLab keeps its exact match. (My call.)
 - Delta: two listings with `updatedAfter`, `listWeight: true`: open PRs,
   then merged and closed PRs. Each normally stops after one REST page; a
   fill runs only for PRs that changed. A terminal PR enters the store under
@@ -163,7 +199,10 @@ result, so the read throws and the sync fails. A deep that fails that way
 falls back to delta exactly as a failed GitLab deep does; a delta that fails
 does not advance freshness, so the next cycle retries the same window. A
 `contexts` warning keeps the PR with checks pending, and is only logged.
-`RateLimitedError` propagates as a sync failure.
+`RateLimitedError` propagates as a sync failure. A repo past the 2,000-PR
+listing cap therefore fails its deep: with a record it falls back to delta
+as above; with none, every cycle reports `syncError` until it fits. (My
+call: a partial list must never prune.)
 
 **Ignored target branches.** On GitLab, `rt.ignoredMrs` globs expand to
 exact branch names through a branch search, so the server never reads
@@ -186,9 +225,23 @@ runs. (My call.)
 repo, before any read.
 
 **Self in scope.** A scoped deep adds the repo's own user to the authors.
-On GitHub that is the token user's login, read through the same cached
-`/user` call the notifier uses (section 2). `backfillAuthors` reads the
-cached value only, as it does on GitLab.
+Today `resolveSelfUsername` and `getSelfUsername` hold one global, GitLab
+only (`resolveSelfUsername` goes through `getGitLabContext`, which throws
+on GitHub). Both become per repo:
+
+- `resolveSelfUsername(repoName, repoPath)` returns the GitLab username
+  exactly as today for a GitLab repo, and for a GitHub repo the login from
+  the cached `/user` read on that repo's provider (section 2).
+- A new synchronous `getSelfUsernameFor(repoName)` returns the cached value
+  for that repo's forge and never reads the network. `backfillAuthors`
+  uses it in place of the global `getSelfUsername()`, so a Mac with both
+  forges never puts its GitLab username in a GitHub scope.
+- `getSelfUsername()` stays for its other caller, `handlers/discussions.ts`.
+
+**Branch lookups.** The live path's GitHub branch rule is in section 3.
+`mr:by-branch`'s batched GitHub read is unchanged (Decided 7): a branch
+lookup that fails still errors, and a failed fill still reads as "no PR"
+until glance's `onWarning` lands.
 
 **Store writes on GitHub.** `mr:by-branch` upserts a found GitHub PR into
 the store under the same scope rule as GitLab, on both its batched and
@@ -212,9 +265,17 @@ not cached.
 `resolveUserIdAcrossTracking` also resolves the GitHub identity: for the
 first tracked GitHub repo with the `branches` or `project-mrs` grant, it
 builds the context and reads the GitHub user once. Cost: one `/user` call
-per GitHub token per daemon process.
+per GitHub token per daemon process. Today the function returns early once
+the GitLab id is resolved; the GitHub resolution must not sit behind that
+guard, or a Mac with both forges never resolves GitHub. Each forge has its
+own resolved flag.
 
-`getSelfIds()` returns `{ gitlab: number | null; github: number | null }`.
+`getSelfIds()` returns `{ gitlab: number | null; github: number | null }`
+synchronously from the cached values. The 5-minute cycle awaits
+`resolveUserIdAcrossTracking` before `checkAndNotify`, as today, and the
+live path runs after a reconcile that resolves it too. A transition seen
+while a forge's identity is still unresolved is suppressed and not
+replayed, which is GitLab's behaviour today.
 
 **Missing identity warning.** Today one warning says "userId is
 unresolved; ... (no gitlabToken, or token validation failed)". It becomes
@@ -261,7 +322,9 @@ provider, and the watch records its forge.
 
 **Token rotation.** At each reconcile, a GitHub watch whose provider is no
 longer the router's provider for that repo (the token changed) is stopped
-and started again, as GitLab's token check does today.
+and started again, as GitLab's token check does today. Building the
+context makes no GitHub request: it reads the secrets file and the token
+resolver, which caches `gh auth token` for its TTL.
 
 **Cursor.** glance's GitHub cursor carries string event ids and its own
 `seenIds`; it is stored and resumed through the existing cursor store
@@ -276,10 +339,18 @@ differences:
   logged and skipped, never written as null. The approval-heal runs only
   on GitLab.
 - `branch` events for one of your branches: one
-  `fetchPullRequestsByBranches(projectPath, [ref], "all")`, which throws on
-  failure, in place of `fetchPullRequestByBranch`, which returns null on an
-  HTTP error. A teammate's push resolves through the project store and
-  `fetchSingleMR` as on GitLab, with the same failure rule.
+  `fetchPullRequestsByBranches(projectPath, [ref], "all")` in place of
+  `fetchPullRequestByBranch`, which returns null on an HTTP error. The
+  batch throws when its branch lookup fails, but returns null for a PR it
+  found and could not fill, so a null is not trusted on its own:
+  - a PR comes back: write it;
+  - null, and the entry already holds a PR: re-read that PR with
+    `fetchSingleMR` and its `onWarning` hook; write what comes back, and
+    on a failed fill write nothing;
+  - null, and the entry holds no PR: write null as today, since it changes
+    nothing a person sees (the gap-fill rule still applies).
+- A teammate's push resolves through the project store and `fetchSingleMR`
+  as on GitLab, with the same failed-fill rule as `mr` events.
 - `notes` events: unchanged; `refreshDiscussions` already works on GitHub.
 - The gap-fill: unchanged; it already uses `fetchPullRequestsByBranches`.
 - After a batch that changed an entry, `checkAndNotify` gets
@@ -287,6 +358,10 @@ differences:
 
 **Connection state.** GitHub watches count in `getAggregatedConnection`, so
 a GitHub-only Mac with a live repo reports connected.
+
+**How fast.** glance reads the feed every 60 seconds. GitHub itself can
+add delay before an event appears in the feed, so "about a minute" is the
+watcher's cadence, tested against stubs, not a guarantee of GitHub's.
 
 **What the feed misses.** CI status changes and metadata-only edits emit no
 event on GitHub either. The 5-minute cycle and the pipeline top-up stay
@@ -304,13 +379,17 @@ updated: a live GitHub repo now gets `notes` events too.
 The returned `url` is the link as given, null for a bare reference.
 `buildOutcome` and the refresher both read through it, so a GitHub run's
 outcome is built and refreshed through `mr:get`, which already works on
-GitHub.
+GitHub. As on GitLab today, only the number is used; the lookup goes to the
+run's own repo, and the URL's repo path is not checked against it.
 
 **Backoff.** In `run-outcome-refresher.ts` a failed lookup records its
 failure count. A run is not asked again until `10 minutes * 2^(failures -
 1)` has passed, capped at 6 hours. A success clears the count, and an open
 PR then keeps the 10-minute refresh. Counts live in memory, so a daemon
-restart asks again at once. Closed and merged PRs stay final, as today.
+restart asks again at once. Every failure backs off the same way, whether
+it is transient or permanent (a deleted PR, a repo without a token); a
+permanent one settles at one read every 6 hours. Closed and merged PRs
+stay final, as today.
 RT-553's GitHub cadence note in `lib/daemon.ts` still holds.
 
 ## Testing
@@ -321,16 +400,20 @@ All tests stub the provider or `fetch`; no live forge calls.
   scoped), delta (open, terminal stored, terminal reuse, terminal dropped),
   top-up and backfill. Tests show that a fill or page-cap warning fails the
   read and prunes nothing; that ignored targets are dropped; that sections
-  stay uncovered with no rules read; and that the behind re-measure makes
-  no read. A request-count test covers one delta cycle.
-- Identity: GitHub self resolution is cached per token and retried after a
-  failure; the per-forge warning names the right forge.
+  stay uncovered with no rules read; that the behind re-measure makes
+  no read; and that author matching ignores case on GitHub only. A
+  request-count test covers one delta cycle.
+- Identity: GitHub self resolution is cached per token, retried after a
+  failure, and resolved on a Mac whose GitLab id is already resolved; the
+  per-forge warning names the right forge; `getSelfUsernameFor` returns the
+  GitHub login for a GitHub repo and the GitLab username for a GitLab one.
 - Notifier: one test per alert kind with a GitHub author, a test that a
   GitHub PR is not matched against the GitLab id (same number, other
   forge), a both-forges test, and today's GitLab tests unchanged.
 - Live: reconcile starts a GitHub watch for a live GitHub repo and none
   without a token; a token change restarts it; `branch` and `mr` events on
-  GitHub never write null on a failed read; connection reports connected.
+  GitHub never write null on a failed read (including a batch null for a
+  branch whose cached PR then fails to fill); connection reports connected.
   `rt daemon track` accepts a GitHub remote and refuses another with the
   new reason.
 - Outcomes: `parseMrRef` cases for each form; backoff doubles, caps at 6
