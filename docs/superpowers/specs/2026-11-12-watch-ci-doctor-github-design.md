@@ -113,19 +113,24 @@ forge-specific work, and the GitLab walk does not change.
 - **Prose.**
   - Header: `<N>` is the number in `pipeline.id` (`gitlab:pipeline:N`).
     On GitHub, `ci_triage` and `pipeline_jobs` are called with no
-    `pipelineId`: their default is every check on the PR head, while a
-    `github:run:N` names one workflow run and would miss failures in the
-    others. The head is the watched sha, since a moved head makes
-    `ci_watch` return `superseded` first. *(My call, from
+    `pipelineId`. Their default is every check on the PR head. `ci_watch`'s
+    `N` is the head's anchor run, which today maps back to the same
+    checks, but only while both tools read the same per-PR facts. Any other
+    run id names one workflow run alone, so leaving it out is the form that
+    cannot narrow the read. The head is the watched sha, since a moved head
+    makes `ci_watch` return `superseded` first. *(My call, from
     `lib/mcp/ci-tools.ts` and `lib/ci/github-forge.ts`.)* The
     `domain-rules` sentence "call `ci_triage` with `pipelineId: <N>`"
     gains the same GitHub exception, and the `ci_triage` node label reads
     `pipelineId: <N> on GitLab`.
   - Guards that name GitLab only (`stop_gitlab_ci_shortcut`,
     `stop_gitlab_triage_shortcut`, the "a script or the GitLab CLI" row in
-    `the-attendant-lease`) widen to name both forges' CLIs (`glab`, `gh`).
-    The text changes and the edges stay, and the projection allowlist
-    lists each changed text. *(My call.)*
+    `the-attendant-lease`, and the edge labels that name "the GitLab CLI")
+    widen to "the GitLab or GitHub CLI", in words, never the bare tokens
+    `glab` or `gh`: the strict mcp lint flags a bare `glab` anywhere in a
+    graph fence or code span. `domain-rules` in both trees quotes the
+    triage STOP's text, so the quote changes with it. The edges stay, and
+    each changed text is on the allowlist below. *(My call.)*
   - `reading-gitlab-facts` stays GitLab's. On GitHub, a fact no read tool
     returns is unreadable: a classification takes UNCLEAR, and any other
     step takes its off-script gate, quoting what was missing. The block
@@ -134,9 +139,10 @@ forge-specific work, and the GitLab walk does not change.
     the tool ignores it, so it is never the input to correct.
   - `flow/classify-failed-jobs` (the `ci_triage`-errored fallback): the
     bridges read is GitLab's; on GitHub an empty `failedJobs` on `failed`
-    is read with `pipeline_jobs`, and a failed check with `jobId` null (a
-    commit status, or a check another app reported) has no trace, so it is
-    UNCLEAR.
+    is read with `pipeline_jobs`. Two kinds of GitHub failure have no log,
+    so each is UNCLEAR. A commit status comes with `jobId` null. A check
+    another app reported keeps its numeric `jobId` and gets no
+    `traceTail`, and `mr_job_trace` errors on it.
   - `flow/classify-triage-report`: a `crossProject` entry on GitHub is a
     failed check with no readable log, so it is UNCLEAR (the existing rule
     "an unreadable trace is UNCLEAR, never INFRA" already sends it to the
@@ -146,8 +152,8 @@ forge-specific work, and the GitLab walk does not change.
     the "On GitLab" qualifier in the rationalization row go.
   - `what-the-graph-cannot-show`: the sha-guard bullet loses its GitHub
     `headRefOid` and `gh run rerun` sentence.
-  - `flow/gate-ci`: where `no_pipeline` is described, add that on GitHub it
-    means no check reported for the sha.
+  - `flow/gate-ci` (and the stage's `gate-ci`): where `no_pipeline` is
+    described, add that on GitHub it means no check reported for the sha.
   - `budgets-in-this-verb`, `domain-rules`, `forge`, `run/`: change only if
     they name a deleted node, budget key or `gh` command.
 
@@ -162,7 +168,10 @@ the header, `fix-watch-error`, `classify-failed-jobs`,
 `classify-triage-report`, `the-attendant-lease` and
 `what-the-graph-cannot-show`, plus the same GitHub retry wait. The stage has no target lookup (it reads
 `mr` from the run). Edges into `run_field_set_ci_red` from a deleted gate
-go with it. The vendored `scripts/ci-triage.sh` and its `tests/` are
+go with it. The stage's `draft_forge_host` also has an "anything else"
+edge to `run_field_set_ci_green`, and it goes with the diamond: `mr_view`
+answers the draft check on both forges, and an unknown forge never gets
+this far, because `mr` came from a forge tool. The vendored `scripts/ci-triage.sh` and its `tests/` are
 untouched.
 
 ### 3. Board doctor (`apps/board/skills-src/doctor/`)
@@ -208,12 +217,26 @@ untouched.
   ran: "no pipeline seen for the sha after two watches". `Fix what the
   ci_watch error names` names `priorPipelineId` as GitLab's `N` only.
   Doctor keeps calling `ci_watch` without `attend` (board-mode lease rules
-  unchanged).
+  unchanged). The watched-sha bullet's "the new head the rebase poll
+  read" gains "or, on GitHub, the `sha` `mr_rebase` returned".
 - **Classify.** `classify.md`'s three jobId sentences name both forms
   (`gitlab:job:N`, or `github:check:N` on GitHub). A failed GitHub check
-  with `jobId` null or no Actions trace cannot be read or retried, so it
-  takes `real, or no licensed fix` with the error naming the check and
-  why; it is never retried as flaky.
+  with no Actions log can be neither read nor retried. The signals:
+  - in `mr_pipeline`'s `pipeline.jobs`, a `github:status:` id, or a row
+    whose `runId` is null;
+  - in `ci_watch`'s `failedJobs`, `jobId` null.
+  
+  Such a row skips the trace read and takes `real, or no licensed fix`,
+  with the error naming the check and that it has no Actions log. It is
+  never retried as flaky. A check another app reported can still reach
+  `mr_job_trace` through `failedJobs`, since it keeps a numeric `jobId`.
+  An `mr_job_trace` error saying the job has no Actions log takes the
+  same outcome, never fix-once or the `mr_job_trace refused` escalation.
+- **GitLab-only wording on paths GitHub now reaches.** `entry.md`'s
+  `ci_lease_read` fix text, which names the `/-/merge_requests/<iid>` URL
+  shape, also names the `/pull/<number>` shape. The `!<iid>` in labels
+  stays, since it is the MR or PR number on both forges and is the
+  board's own label form. *(My call.)*
 - **Retry wait on GitHub.** Doctor's `mr_retry {mrUrl, jobId}` result
   gains the same edge as watch-ci. An error saying the job's run is still
   in progress counts `Retry waits = 20 (doctor)?`. Not yet: one
@@ -262,22 +285,37 @@ push, and the PR body carries the engine-floor line.
 ## Proving the GitLab walk is unchanged
 
 The shepherd asked that this claim be checkable. The plan adds a scratch
-script under `.superpowers/` (committed with the branch, never shipped)
-that, for each edited graph (`watch_ci` in both trees, and doctor's
-`entry`, `diagnose`, `watch` and `classify` digraphs):
+script at `.superpowers/gitlab-walk.ts`. `.superpowers/` is gitignored,
+so the script stays uncommitted: the final review runs it in the worktree
+and quotes its output in the report and the PR body. For each edited
+graph (`watch_ci` in both trees; doctor's `entry`, `diagnose`, `watch` and
+`classify` digraphs; and `SKILL.md`'s `doctor_flow`), the script:
 
-1. parses the graph's nodes and edges at `main` and at the branch head;
-2. projects each onto GitLab: drops edges whose label names GitHub only,
-   splices out each forge diamond by following its GitLab edge, and keeps
-   only what the entry node reaches;
+1. parses the graph's nodes and edges at the branch's merge-base with
+   `main` and at the branch head;
+2. projects each onto GitLab:
+   - drops edges whose label names GitHub only;
+   - splices out each forge diamond by following its GitLab edge:
+     - `target_forge_host`: "GitLab, no MR known";
+     - `retry_forge_host`, `draft_forge_host` and `mark_ready_forge_host`:
+       "GitLab";
+     - doctor's `mrUrl on github.com (doctor)?`: "no";
+     - the new `Forge (before the rebase)?`: its GitLab edge;
+   - keeps only what the entry node reaches;
 3. diffs the two projections by node text and edge label.
 
-The expected output is empty except for an allowlist the plan writes out
-(renamed edge labels such as "GitLab or GitHub, no MR known", and
-doctor's "no pipeline seen" label). The final review runs it and quotes
-the output. Certify, `rt skills check --strict` and the board skills check
-under an isolated temp HOME show the compiled skills are well formed; the
-projection diff shows the GitLab path is the same.
+The expected output is empty except for this allowlist of text changes:
+
+- the target-lookup label "GitLab or GitHub, no MR known";
+- the `ci_triage` node label "`pipelineId: <N>` on GitLab";
+- the widened STOP texts and "GitLab CLI" edge labels (section 1, Guards);
+- doctor's "conflicts the forge cannot rebase";
+- doctor's "no pipeline seen for the sha after two watches".
+
+Anything else in the diff is a GitLab change and fails the review.
+Certify, `rt skills check --strict`, the board skills check under an
+isolated temp HOME and `bun run purity` show the compiled skills are well
+formed; the projection diff shows the GitLab path is the same.
 
 ## Constraints
 
@@ -287,7 +325,9 @@ projection diff shows the GitLab path is the same.
   `docs/superpowers/`, `.superpowers/`.
 - Every skill edit follows mattstack:editing-skills, superpowers:writing-skills
   and mattstack:process-digraphs: baseline a fresh agent (RED), edit, compile,
-  verify (GREEN), certify. RED and GREEN runs make no live forge call and
+  verify (GREEN), certify. Before the PR: the strict pack check and the
+  board skills check under an isolated temp HOME, and `bun run purity`
+  from the worktree root. RED and GREEN runs make no live forge call and
   never post to or poll a real PR.
 - No em or en dashes. No live forge calls. Built binaries only under an
   isolated HOME.
@@ -303,6 +343,17 @@ projection diff shows the GitLab path is the same.
 
 ## Follow-ups (listed in the PR)
 
+- Doctor: route the rebase off-script take and iterate re-entries
+  through the stack-parent check from PR #1113, so a child opened during a
+  held gate is still caught. This changes the GitLab walk, so it belongs
+  to the stack-check lane. Raised by rt-363-doctor-stack.
+- Doctor `entry.md`: `Branch-writing class under --tier api?` reads
+  ambiguously when `--fix-classes` is absent, which licenses every class.
+  Raised by rt-363-doctor-stack.
+- Board triage logs that auto-doctor skips GitHub teams
+  (`apps/board/src/triage/forge-skip.ts`). If triage does skip it, this
+  lane gives GitHub doctor on manual launches only. Turning auto-doctor
+  on is `apps/board/src` work, outside this fence.
 - Confirm GitHub's refusal text for a job rerun on a running workflow,
   and pin it in the retry-wait edges. The PR body says it is matched by
   meaning today.
