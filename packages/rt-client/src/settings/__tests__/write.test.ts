@@ -282,7 +282,7 @@ describe("settings/write", () => {
       });
 
       test("a missing entry that normalizes to home still gets a notice", () => {
-        const entry = join(home, "missing", "..");
+        const entry = `${home}/missing/..`;
         expect(capture([entry])).toEqual([broad(entry)]);
       });
 
