@@ -82,8 +82,10 @@ requires an up-to-date branch. GitLab behaviour does not change.
   changed. Their doc comments that say "GitLab" are widened to name both id
   shapes where that keeps them true.
 - **Fixture.** `tests/fixture-github/data.json` moves to the 0.31 id shape
-  (`github:run:<n>` with `runIds`; the statuses-only fallback
-  `github:checks:<prUrl>` on one row) and gains two seat-owned PRs: one with a
+  (`github:run:<n>`, with each check job carrying its `runId` as a 0.31
+  row's jobs do; a board row has no pipeline-level `runIds`. The
+  statuses-only fallback `github:checks:<prUrl>`, with `runId: null` jobs,
+  goes on one row) and gains two seat-owned PRs: one with a
   failed Actions run, one behind its base (`blockers.needsRebase: true` and
   `actions.rebase` visible, as `buildBoard` serves a BEHIND PR). The README
   table lists them, its "rebase shows only when a row needs one, which none

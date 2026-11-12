@@ -27,7 +27,7 @@
 2. A red GitHub PR whose CI is commit statuses only: no edge, one line naming the PR (Task 2 test).
 3. A new push on an already-handled red PR: the new run id fires again (Task 4 test).
 4. Peer mode on a GitHub team keeps declining respond asks exactly as today (Task 3: peer paths read no plan field).
-5. A recorded username whose case differs from the PR author: ownership still holds; fix-class licensing stays exact-match as today (Task 4 test).
+5. A recorded username whose case differs from the PR author: ownership still holds; the branch-writing classes drop, exact match as today (Task 4 test).
 
 ---
 
@@ -35,7 +35,6 @@
 
 **Files:**
 - Create: `apps/board/src/triage/forge-plan.ts`
-- Delete: `apps/board/src/triage/forge-skip.ts` (`git rm`)
 - Modify: `apps/board/src/__tests__/forge-door.test.ts` (replace the `triageForgeSkip` describe)
 
 **Interfaces:**
@@ -68,9 +67,9 @@
     expect(GITHUB_NO_USERNAME).toBe('triage: no forge username is recorded for this team, so auto-doctor owns no PRs');
     ```
 - [ ] **Step 2: Run** `cd apps/board && bun test src/__tests__/forge-door.test.ts`. Expected: FAIL, cannot resolve `../triage/forge-plan.ts`.
-- [ ] **Step 3: Implement `triageForgePlan`** in `forge-plan.ts`; call `recordedUsername` only when `config.forge.kind === 'github'`. Delete `forge-skip.ts`.
-- [ ] **Step 4: Run** the same test. Expected: PASS. (`bin/triage.ts` still imports `forge-skip.ts` until Task 3; do not typecheck yet.)
-- [ ] **Step 5: Commit** `forge-plan.ts`, the deletion, and the test: `triage: forge plan replaces the GitHub skip flag`.
+- [ ] **Step 3: Implement `triageForgePlan`** in `forge-plan.ts`; call `recordedUsername` only when `config.forge.kind === 'github'`. Leave `forge-skip.ts` in place; Task 3 removes it with its last import.
+- [ ] **Step 4: Run** the same test. Expected: PASS.
+- [ ] **Step 5: Commit** `forge-plan.ts` and the test: `triage: forge plan for GitHub teams`.
 
 ### Task 2: Name red PRs whose pipeline id cannot parse
 
@@ -92,7 +91,9 @@
 ### Task 3: Wire the plan into `bin/triage.ts`
 
 **Files:**
-- Modify: `apps/board/bin/triage.ts` (imports; the `forgeSkip` block at about 192-195; `runTriage` gate at about 249; `nudgeReady` at about 286; `latchToken` and the latch gate at about 366-367)
+- Modify: `apps/board/bin/triage.ts` (imports; the identity comment and `forgeSkip` block at about 175-195; `runTriage` gate at about 247; `nudgeReady` at about 290; `latchToken` and the latch gate at about 367-368)
+- Delete: `apps/board/src/triage/forge-skip.ts` (`git rm`)
+- Modify (comments only): `apps/board/src/triage/edge.ts` (`OwnMrFacts.pipelineId`, `OwnMrFacts.author`), `apps/board/src/triage/run.ts` (`numericPipelineId`, `composeFixClasses` and the `identity` field docs that say "GitLab token username")
 
 **Interfaces:**
 - Consumes: `triageForgePlan`, `unparsedRedLines` (Tasks 1, 2); `activeTeam` from `@mattstack/rt-client` (its `.username` is the team record's `forgeUsername`).
@@ -100,9 +101,10 @@
 - [ ] **Step 1: Replace the skip flag.** `const plan = triageForgePlan(boardConfig, () => activeTeam().username);`. In non-peer mode only: log each `plan.lines` entry with `console.log`, then set `username` to `await resolveUsername()` when `plan.identity === 'gitlab-token'`, to `plan.identity.recorded` when it is an object, and leave it `''` when null.
 - [ ] **Step 2: Gate the passes.** Define `const asksAndLatch = peerMode || plan.asksAndLatch;` and use it everywhere `!forgeSkip` stood (`nudgeReady`, `latchToken`, the latch `if`). Run `runTriage` when `!peerMode && plan.identity !== null`. Peer-mode behaviour must read exactly as before: `asksAndLatch` is true there, as `!forgeSkip` was.
 - [ ] **Step 3: Log the unparsed reds.** Pass `runTriage` a `fetchOwnMrs` that awaits the existing `fetchOwnMrs`, logs each `unparsedRedLines(mrs)` line, and returns `mrs`. Leave the nudge pass's own `fetchOwnMrs` call unwrapped.
-- [ ] **Step 4: Verify** `cd apps/board && bun run typecheck` passes and `grep -rn "forge-skip\|triageForgeSkip" apps/board` finds nothing.
-- [ ] **Step 5: Run** `cd apps/board && bun test src/__tests__/forge-door.test.ts src/__tests__/triage-run.test.ts src/__tests__/triage-edge.test.ts`. Expected: PASS.
-- [ ] **Step 6: Commit**: `triage: run the auto-doctor on GitHub teams as the recorded username`.
+- [ ] **Step 4: Remove `forge-skip.ts` and correct the comments.** `git rm` the file. Comments that say the pipeline id is `gitlab:pipeline:N` name both shapes (`gitlab:pipeline:N`, `github:run:N`); comments that call the identity or author "the GitLab token username" say "the forge username triage owns PRs as (the GitLab token's user, or on GitHub the team record's)". The identity comment in `bin/triage.ts` says the same. `memory.ts`'s `identity` comment stays: that cache is still GitLab's only.
+- [ ] **Step 5: Verify** `cd apps/board && bun run typecheck` passes and `grep -rn "forge-skip\|triageForgeSkip" .` (from `apps/board`) finds nothing.
+- [ ] **Step 6: Run** `cd apps/board && bun test src/__tests__/forge-door.test.ts src/__tests__/triage-run.test.ts src/__tests__/triage-edge.test.ts`. Expected: PASS.
+- [ ] **Step 7: Commit**: `triage: run the auto-doctor on GitHub teams as the recorded username`.
 
 ### Task 4: GitHub fixture rows and the edge proof
 
@@ -114,10 +116,10 @@
 **Interfaces:**
 - Consumes: `ownMrFacts` (`src/run-owner-io.ts`), `observe`, `detectEdges`, `markHandled` (`src/triage/edge.ts`), `triageOwns` (`src/triage/seat.ts`), `composeFixClasses` (`src/triage/run.ts`), `unparsedRedLines` (Task 2).
 
-- [ ] **Step 1: Move the fixture to the 0.31 id shape.** Pipeline ids: #4101 `github:run:7004101`, #4102 `github:run:7004102`, #4103 `github:run:7004103`, #4105 `github:run:7004105`. #4104 becomes statuses-only: id `github:checks:https://github.com/acme/webapp/pull/4104`, job ids `github:status:<name>`.
+- [ ] **Step 1: Move the fixture to the 0.31 id shape.** Pipeline ids: #4101 `github:run:7004101`, #4102 `github:run:7004102`, #4103 `github:run:7004103`, #4105 `github:run:7004105`. Each check job on those rows gains `runId: "<n>"` (the row's run id), as a 0.31 row's jobs carry; a board row has no pipeline-level `runIds`. #4104 becomes statuses-only: id `github:checks:https://github.com/acme/webapp/pull/4104`, job ids `github:status:<name>`, `runId: null`, job `webUrl`s on an invented CI host (`https://ci.acme.test/...`), not `actions/runs`.
 - [ ] **Step 2: Add two seat-owned rows**, copied from #4105's shape with new iids, titles, branches and `WEB-` ids:
-  - #4106 (mkeller): pipeline `github:run:7004106`, status `failed`, one failed job; `pipelineState: "failed"`, `blockers.pipelineFailing: true`, `blockers.any: true`, `status: "blocked"`.
-  - #4107 (mkeller): pipeline `github:run:7004107`, status `success`; `blockers.needsRebase: true`, `blockers.any: true`, `rebaseButton.visible: true`, `behindTarget: null`, `pipelineState: "passed"`, `status: "blocked"`.
+  - #4106 (mkeller): pipeline `github:run:7004106`, status `failed`, jobs with one `failed` and the rest `success` and counts to match (`failing: 1`, `running: 0`); `pipelineState: "failed"`, `blockers.pipelineFailing: true`, `blockers.pipelineRunning: false`, `blockers.any: true`, `status: "blocked"`.
+  - #4107 (mkeller): pipeline `github:run:7004107`, status `success`, every job `success`, `running: 0`; `blockers.pipelineRunning: false`, `blockers.needsRebase: true`, `blockers.any: true`, `rebaseButton.visible: true`, `behindTarget: null`, `pipelineState: "passed"`, `status: "blocked"`.
   - `members` and `allMembers`: mkeller `count` 3 becomes 5.
   - README: add both rows to the table; the #4104 line says its checks are commit statuses; replace "which none here do" with "which #4107 does".
 - [ ] **Step 3: Extend `fixture-github.test.ts`** with `'every pipeline id is a glance 0.31 GitHub id'`: each row's `pipeline.id` matches `/^github:run:\d+$/` or equals `github:checks:${row.webUrl}`, and at least one row has each form.
@@ -127,7 +129,7 @@
   - `'a handled run stays quiet and a new push fires again'`: `markHandled` the 4106 edge; `detectEdges` gives no 4106 edge; replace that row's pipeline id with `github:run:7004199`; it fires `pipeline-red` with `pipelineId: 7004199`.
   - `'a behind PR fires needs-rebase once until it is clean'`: `markHandled` the 4107 edge; no 4107 edge; `observe` with `needsRebase: false` then `true` again fires it again.
   - `'statuses-only CI gives no edge and is named'`: `ownMrFacts` of #4104 has `pipelineId: null` and `pipelineState: 'failed'`; `detectEdges` over it (after `observe`) gives no `pipeline-red`; `unparsedRedLines` names `https://github.com/acme/webapp/pull/4104`.
-  - `'a recorded username in another case still owns the PR'`: `triageOwns(row4106, 'mkeller', 'MKeller')` is true; `composeFixClasses({ retryFlake: true, inheritedNoteDraft: false, cleanApiRebase: false, mechanicalLint: true, codeFix: true }, 'mkeller', 'mkeller')` includes `code-fix` and `mechanical-lint`.
+  - `'a recorded username in another case owns the PR but licenses no branch writes'`: `triageOwns(row4106, 'mkeller', 'MKeller')` is true. With `fc = { retryFlake: true, inheritedNoteDraft: false, cleanApiRebase: false, mechanicalLint: true, codeFix: true }`, `composeFixClasses(fc, 'mkeller', 'mkeller')` includes `code-fix` and `mechanical-lint`, and `composeFixClasses(fc, 'mkeller', 'MKeller')` excludes both and keeps `retry-flake` (exact match, as today).
 - [ ] **Step 5: Run** `cd apps/board && bun test src/__tests__/triage-github-edges.test.ts src/__tests__/fixture-github.test.ts`. Expected: PASS. (These prove existing edge code against the new rows, so they pass once the fixture lands; confirm each test can fail by temporarily breaking one expected value, then restore it.)
 - [ ] **Step 6: Commit**: `board: GitHub fixture rows prove the auto-doctor edges`.
 
