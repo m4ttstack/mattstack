@@ -35,6 +35,15 @@ export interface TelemetryPing {
   legacyDirs: string[];
   orgs: { org: string; layout: number | null }[];
   packs: { id: string; version: string | null }[];
+  appUpdate: AppUpdateStatus | null;
+}
+
+/** What the app's updater last did, as the tray writes it (`UpdateStatus.swift`). */
+export interface AppUpdateStatus {
+  lastCheckAt: string | null;
+  offeredVersion: string | null;
+  heldVersion: string | null;
+  hold: string | null;
 }
 
 export interface PingVersions {
@@ -67,6 +76,20 @@ async function readAppVersion(p: Probes): Promise<string | null> {
   const root = appBundlePath(p);
   if (!root) return null;
   return execText(p, ["/usr/libexec/PlistBuddy", "-c", "Print CFBundleShortVersionString", join(root, "Contents", "Info.plist")]);
+}
+
+/** An app older than the status file, or the dev flavor, which never checks, writes none. */
+export function readAppUpdate(p: Probes): AppUpdateStatus | null {
+  const text = p.readFile(join(p.home, ".mattstack", "rt", "app-update.json"));
+  if (text === null) return null;
+  const raw: unknown = JSON.parse(text);
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+  const pick = (key: keyof AppUpdateStatus): string | null => {
+    const value = record[key];
+    return typeof value === "string" && value.length <= 128 ? value : null;
+  };
+  return { lastCheckAt: pick("lastCheckAt"), offeredVersion: pick("offeredVersion"), heldVersion: pick("heldVersion"), hold: pick("hold") };
 }
 
 /** `kern.hv_vmm_present` is 1 under a hypervisor; an unreadable answer counts as a real Mac. */
@@ -130,5 +153,6 @@ export async function collectPing(p: Probes): Promise<TelemetryPing> {
     }),
     orgs,
     packs,
+    appUpdate: await field("appUpdate", null, () => readAppUpdate(p)),
   };
 }

@@ -118,6 +118,30 @@ const lastSeen = (m: TelemetrySnapshot['macs'][number]): Cell => ({
     : `<span class="seen">${time(m.lastSeen).html}</span>`,
 });
 
+const HOLD_REASONS: Record<string, string> = {
+  windowsOpen: 'window open',
+  setupRunning: 'setup running',
+};
+
+function updateCell(m: TelemetrySnapshot['macs'][number]): Cell {
+  const u = m.appUpdate;
+  if (u?.heldVersion) {
+    const reason = u.hold ? (HOLD_REASONS[u.hold] ?? u.hold) : null;
+    return reason
+      ? `${u.heldVersion} held (${reason})`
+      : `${u.heldVersion} held`;
+  }
+  if (u?.offeredVersion) return `${u.offeredVersion} offered`;
+  return '-';
+}
+
+function lastCheckCell(m: TelemetrySnapshot['macs'][number]): Cell {
+  const at = m.appUpdate?.lastCheckAt
+    ? Date.parse(m.appUpdate.lastCheckAt)
+    : NaN;
+  return Number.isNaN(at) ? '-' : time(at);
+}
+
 const change = (from: string | null, to: string) =>
   `${escapeHtml(orDash(from))} <span class="arrow">\u2192</span> ${escapeHtml(to)}`;
 
@@ -160,7 +184,7 @@ export function renderTelemetryPage(s: TelemetrySnapshot): string {
     plugin: newest(prod.map(m => m.pluginVersion)),
   };
   const behind = table(
-    ['Mac', 'App', 'rt', 'Last seen'],
+    ['Mac', 'App', 'rt', 'Update', 'Last check', 'Last seen'],
     s.macs
       .filter(
         m =>
@@ -170,6 +194,8 @@ export function renderTelemetryPage(s: TelemetrySnapshot): string {
         macLabel(m),
         versionCell(m.appVersion, latest.app),
         versionCell(m.rtVersion, latest.rt),
+        updateCell(m),
+        lastCheckCell(m),
         lastSeen(m),
       ])
   );

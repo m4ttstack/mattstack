@@ -29,6 +29,7 @@ const ping = (over: Partial<TelemetryPing> = {}): TelemetryPing => ({
   legacyDirs: [],
   orgs: [],
   packs: [],
+  appUpdate: null,
   ...over,
 });
 
@@ -386,6 +387,52 @@ describe('GET /telemetry', () => {
     expect(section).not.toContain('dana');
     expect(section.indexOf('carol')).toBeGreaterThan(-1);
     expect(section.indexOf('carol')).toBeLessThan(section.indexOf('bob'));
+  });
+
+  test('a Mac behind shows its held or offered update and its last check', async () => {
+    const { telemetry, get } = setup();
+    const current = { appVersion: '2.31.1', rtVersion: 'v2.31.1' };
+    const old = { appVersion: '2.30.0', rtVersion: 'v2.30.0' };
+    telemetry.record(ping({ ...current, installId: 'a' }), null, NOW);
+    telemetry.record(
+      ping({
+        ...old,
+        installId: 'b',
+        usernames: ['bob'],
+        appUpdate: {
+          lastCheckAt: '2026-11-06T14:33:37Z',
+          offeredVersion: '2.30.1',
+          heldVersion: '2.30.1',
+          hold: 'windowsOpen',
+        },
+      }),
+      null,
+      NOW
+    );
+    telemetry.record(
+      ping({
+        ...old,
+        installId: 'c',
+        usernames: ['carol'],
+        appUpdate: {
+          lastCheckAt: null,
+          offeredVersion: '2.31.1',
+          heldVersion: null,
+          hold: null,
+        },
+      }),
+      null,
+      NOW
+    );
+    const html = await (await get(`/telemetry?key=${VIEW}`)).text();
+    const section = html.slice(
+      html.indexOf('Not on the latest release'),
+      html.indexOf('<h2>Macs</h2>')
+    );
+    expect(section).toContain('<th>Update</th><th>Last check</th>');
+    expect(section).toContain('2.30.1 held (window open)');
+    expect(section).toContain('<time datetime="2026-11-06T14:33:37.000Z">');
+    expect(section).toContain('2.31.1 offered');
   });
 
   test('shows an app and rt update from one ping as one row', async () => {
