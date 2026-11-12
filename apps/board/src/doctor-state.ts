@@ -1,6 +1,7 @@
 import { Database } from 'bun:sqlite';
 
 import { draftBinPath } from './herdr.ts';
+import type { ForgeStep } from './rebase-chain.ts';
 import {
   FRESH_RUN_PANE,
   getStateDb,
@@ -18,6 +19,7 @@ import {
  */
 export type DoctorStatus =
   | 'queued'
+  | 'forge-rebasing'
   | 'syncing'
   | 'diagnosing'
   | 'rebasing'
@@ -92,6 +94,8 @@ export interface DoctorState {
   /** The pipeline the MR showed when a sync pushed: its result predates the
       push, so it says nothing about the rebased branch. */
   pipelineAtSync?: string;
+  /** The forge's own rebase, the first step of a one-click rebase. */
+  forge?: ForgeStep;
   startedAt: number;
   updatedAt: number;
 }
@@ -135,6 +139,7 @@ export function writeDoctorState(
     pausedTree: patch.pausedTree,
     syncLog: patch.syncLog,
     pipelineAtSync: patch.pipelineAtSync,
+    forge: patch.forge,
     startedAt: now,
     updatedAt: now,
   };
@@ -245,12 +250,15 @@ export function failOrphanedSyncs(
   db: Database = getStateDb()
 ): void {
   for (const [mrUrl, state] of readDoctorStates(db)) {
-    if (state.status === 'syncing' && !running.has(mrUrl))
+    const inSync = state.status === 'syncing';
+    if ((inSync || state.status === 'forge-rebasing') && !running.has(mrUrl))
       writeDoctorState(
         doctorFilePath(mrUrl),
         {
           status: 'sync-stopped',
-          message: 'the board restarted during the sync',
+          message: inSync
+            ? 'the board restarted during the sync'
+            : 'the board restarted during the rebase',
         },
         now,
         db

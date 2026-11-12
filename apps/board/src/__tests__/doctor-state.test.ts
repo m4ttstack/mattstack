@@ -300,6 +300,20 @@ describe('failOrphanedSyncs', () => {
     failOrphanedSyncs(new Set(['u/2']), 2, db);
     expect(readDoctorStates(db).get('u/2')?.status).toBe('syncing');
   });
+
+  test('failOrphanedSyncs fails a forge-rebasing row', () => {
+    writeDoctorState(
+      doctorFilePath('u/4'),
+      { mrUrl: 'u/4', iid: 1, status: 'forge-rebasing' },
+      1,
+      db
+    );
+    failOrphanedSyncs(new Set(), 2, db);
+    expect(readDoctorStates(db).get('u/4')).toMatchObject({
+      status: 'sync-stopped',
+      message: 'the board restarted during the rebase',
+    });
+  });
 });
 
 test('dispatchPrompt carries the paused tree', async () => {
