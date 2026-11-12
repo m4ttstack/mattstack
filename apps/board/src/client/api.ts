@@ -19,6 +19,8 @@ export interface ActionResult {
     status?: string;
     reactions?: string[];
     reason?: string;
+    /** A GitHub merge that joined the forge's merge queue instead of landing. */
+    mergeQueued?: { position: number | null; state: string };
     synced?: string;
     stopped?: string;
     cancelled?: boolean;

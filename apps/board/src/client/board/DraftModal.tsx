@@ -30,22 +30,27 @@ function DraftModal({
   // second sends. Any failure disarms so a retry restates intent.
   const [armed, setArmed] = useState(false);
   const [busy, setBusy] = useState<'post' | 'dismiss' | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<'failed' | 'unanswered' | null>(null);
   const act = async (action: 'post' | 'dismiss') => {
     setBusy(action);
-    setFailed(false);
+    setFailed(null);
     try {
       const res = await fetch('/drafts', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ mrUrl: mr.webUrl, kind: draft.kind, action }),
       });
-      if (!res.ok) throw new Error(String(res.status));
+      if (!res.ok) {
+        setBusy(null);
+        setArmed(false);
+        setFailed(res.status === 504 ? 'unanswered' : 'failed');
+        return;
+      }
       onResolved(action === 'post' ? 'posted' : 'dismissed');
     } catch {
       setBusy(null);
       setArmed(false);
-      setFailed(true);
+      setFailed('failed');
     }
   };
   return (
@@ -64,7 +69,9 @@ function DraftModal({
       <div className="tui-draft-actions">
         {failed && (
           <span className="tui-draft-error">
-            action failed — nothing was sent, try again
+            {failed === 'unanswered'
+              ? 'no answer; the note may have posted, check the PR'
+              : 'action failed — nothing was sent, try again'}
           </span>
         )}
         {local ? (

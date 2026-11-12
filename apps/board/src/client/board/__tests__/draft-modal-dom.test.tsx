@@ -81,3 +81,41 @@ test('a held draft on a GitHub row follows the same author rule', async () => {
   expect(await render(false, pr)).toEqual(['dismiss']);
   expect(document.body.textContent).toContain('only the author posts');
 });
+
+async function postWith(reply: Response): Promise<string> {
+  const real = globalThis.fetch;
+  globalThis.fetch = (async () => reply) as unknown as typeof fetch;
+  try {
+    await render(true);
+    const click = async (label: string) =>
+      React.act(async () => {
+        const b = [...document.querySelectorAll('button')].find(
+          x => x.textContent?.trim() === label
+        );
+        b?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+    await click('post');
+    await click('confirm post');
+    return document.querySelector('.tui-draft-actions')?.textContent ?? '';
+  } finally {
+    globalThis.fetch = real;
+  }
+}
+
+test('a note with no answer says to check the PR and keeps post offered', async () => {
+  const text = await postWith(
+    Response.json({ reason: 'the note may have posted' }, { status: 504 })
+  );
+  expect(text).toContain('no answer; the note may have posted, check the PR');
+  expect(text).not.toContain('nothing was sent');
+  expect(
+    [...document.querySelectorAll('.tui-draft-actions button')].map(b =>
+      b.textContent?.trim()
+    )
+  ).toEqual(['dismiss', 'post']);
+});
+
+test('any other failed post keeps the nothing-was-sent message', async () => {
+  const text = await postWith(Response.json({}, { status: 502 }));
+  expect(text).toContain('nothing was sent');
+});

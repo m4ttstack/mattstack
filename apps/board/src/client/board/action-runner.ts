@@ -110,6 +110,18 @@ function iids(mrs: readonly BoardMR[]): string {
 
 const on = (done: Done[]) => iids(done.map(d => d.mr));
 
+/** The forge never answered; its reason says whether the write may still land. */
+const isUnanswered = (r: ActionResult | undefined): boolean =>
+  r?.status === 504 && !!r.body?.reason;
+
+const unanswered = (mr: BoardMR, r: ActionResult) =>
+  `no answer for ${mrRef(mr)}; ${r.body?.reason}`;
+
+const queuedWord = (mr: BoardMR, r: ActionResult) => {
+  const position = r.body?.mergeQueued?.position;
+  return `${mrRef(mr)} joined the merge queue${position == null ? '' : ` at position ${position}`}`;
+};
+
 interface PostSpec extends Wording {
   path: string;
   payload: (mr: BoardMR, url: string) => Record<string, unknown>;
@@ -171,7 +183,8 @@ async function post(
   const merge = req.kind === 'mr' && req.action === 'merge';
   if (merge) deps.merging.start(url);
   const result = await deps.post(spec.path, spec.payload(mr, url));
-  if (merge && !result.ok) deps.merging.fail(url);
+  if (merge && (result.ok ? !!result.body?.mergeQueued : result.status !== 504))
+    deps.merging.fail(url);
   return result;
 }
 
@@ -183,13 +196,25 @@ function postSpec(req: PostRequest, people: People): PostSpec {
         path: '/mr/action',
         payload: (mr, url) => ({ mrUrl: url, iid: mr.iid, action: req.action }),
         pending: mr => `${w.pending} ${mrRef(mr)}…`,
-        done: mr => `${w.done} ${mrRef(mr)}`,
+        done: (mr, r) =>
+          r.body?.mergeQueued ? queuedWord(mr, r) : `${w.done} ${mrRef(mr)}`,
         fail: (mr, r) =>
-          r.body?.reason
-            ? `couldn't ${req.action} ${mrRef(mr)}: ${r.body.reason}`
-            : `couldn't ${req.action} ${mrRef(mr)} (${r.status})`,
+          isUnanswered(r)
+            ? unanswered(mr, r)
+            : r.body?.reason
+              ? `couldn't ${req.action} ${mrRef(mr)}: ${r.body.reason}`
+              : `couldn't ${req.action} ${mrRef(mr)} (${r.status})`,
         fresh: true,
-        manyDone: done => `${w.manyDone} ${on(done)}`,
+        manyDone: done => {
+          const queued = done.filter(d => d.result.body?.mergeQueued);
+          const landed = done.filter(d => !d.result.body?.mergeQueued);
+          return [
+            ...(landed.length ? [`${w.manyDone} ${on(landed)}`] : []),
+            ...(queued.length
+              ? [`${iids(queued.map(d => d.mr))} joined the merge queue`]
+              : []),
+          ].join(', ');
+        },
         manyFail: list => `couldn't ${w.manyVerb} ${list}`,
       };
     }
@@ -203,7 +228,10 @@ function postSpec(req: PostRequest, people: People): PostSpec {
           req.draft
             ? `${mrRef(mr)} is back to draft`
             : `${mrRef(mr)} is ready for review`,
-        fail: (mr, r) => `couldn't mark ${mrRef(mr)} ${verb} (${r.status})`,
+        fail: (mr, r) =>
+          isUnanswered(r)
+            ? unanswered(mr, r)
+            : `couldn't mark ${mrRef(mr)} ${verb}${r.body?.reason ? `: ${r.body.reason}` : ` (${r.status})`}`,
         fresh: true,
         manyDone: done => `marked ${verb} on ${on(done)}`,
         manyFail: list => `couldn't mark ${list} ${verb}`,
@@ -427,13 +455,19 @@ export async function runMany(
   );
   const done: Done[] = [];
   const failed: Array<{ mr: BoardMR; result: ActionResult | undefined }> = [];
+  const silent: Done[] = [];
   targets.forEach((mr, i) => {
     const result = results[i];
     if (result?.ok) done.push({ mr, result });
+    else if (result && isUnanswered(result)) silent.push({ mr, result });
     else failed.push({ mr, result });
   });
   const parts: string[] = [];
   if (done.length) parts.push(plan.manyDone(done));
+  if (silent.length)
+    parts.push(
+      `no answer for ${on(silent)}; ${silent[0]?.result.body?.reason}`
+    );
   if (failed.length) {
     const only = failed.length === 1 ? failed[0]?.result : undefined;
     parts.push(

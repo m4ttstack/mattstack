@@ -696,3 +696,91 @@ test('the live-run skip never filters a review bulk run', async () => {
   );
   expect(events[0]).toBe('launch review !1 {"quiet":true}');
 });
+
+const ghMr = (iid: number) =>
+  ({
+    iid,
+    webUrl: `https://github.com/acme/webapp/pull/${iid}`,
+    provider: 'github',
+  }) as BoardMR;
+const reply = (
+  status: number,
+  body: ActionResult['body'] = null
+): ActionResult => ({ ok: status < 400, status, body, text: '' });
+const merge = { kind: 'mr', action: 'merge' } as const;
+
+test('a queued merge says it joined the queue and lets go of the row', async () => {
+  const { deps, events } = fakeDeps(() =>
+    reply(200, { mergeQueued: { position: 2, state: 'QUEUED' } })
+  );
+  await runOne(merge, ghMr(7), deps);
+  expect(events).toContain('done #7 joined the merge queue at position 2');
+  expect(events.filter(e => /^release/.test(e))).toEqual(['release 7']);
+  expect(events.some(e => /merge accepted/.test(e))).toBe(false);
+});
+
+test('a queued merge with no position leaves the position out', async () => {
+  const { deps, events } = fakeDeps(() =>
+    reply(200, { mergeQueued: { position: null, state: 'QUEUED' } })
+  );
+  await runOne(merge, ghMr(7), deps);
+  expect(events).toContain('done #7 joined the merge queue');
+});
+
+test('a merge with no answer keeps the hold and says it may still land', async () => {
+  const { deps, events } = fakeDeps(() =>
+    reply(504, { reason: 'the merge may still land' })
+  );
+  await runOne(merge, ghMr(7), deps);
+  expect(events).toContain('fail no answer for #7; the merge may still land');
+  expect(events.some(e => /^release/.test(e))).toBe(false);
+});
+
+test('a cancel of auto-merge with no answer says it may still apply', async () => {
+  const { deps, events } = fakeDeps(() =>
+    reply(504, { reason: 'it may still apply' })
+  );
+  await runOne({ kind: 'mr', action: 'cancelAutoMerge' }, ghMr(7), deps);
+  expect(events).toContain('fail no answer for #7; it may still apply');
+});
+
+test('a draft toggle with no answer says it may still apply', async () => {
+  const { deps, events } = fakeDeps(() =>
+    reply(504, { reason: 'it may still apply' })
+  );
+  await runOne({ kind: 'draft', draft: true }, ghMr(7), deps);
+  expect(events).toContain('fail no answer for #7; it may still apply');
+  expect(events.some(e => /couldn't/.test(e))).toBe(false);
+});
+
+test("a refused draft toggle toasts the forge's reason", async () => {
+  const { deps, events } = fakeDeps(() => reply(409, { reason: 'x' }));
+  await runOne({ kind: 'draft', draft: true }, ghMr(7), deps);
+  expect(events).toContain("fail couldn't mark #7 draft: x");
+});
+
+test('a GitLab merge refusal keeps its wording and lets go of the row', async () => {
+  const { deps, events } = fakeDeps(() =>
+    reply(409, { reason: 'not approved yet' })
+  );
+  await runOne(merge, mr(7), deps);
+  expect(events).toContain("fail couldn't merge !7: not approved yet");
+  expect(events.filter(e => /^release/.test(e))).toEqual(['release 7']);
+});
+
+test('bulk merge names merged, queued and unanswered rows apart', async () => {
+  const { deps, events } = fakeDeps(p =>
+    p.iid === 8
+      ? reply(200, { mergeQueued: { position: 1, state: 'QUEUED' } })
+      : p.iid === 10
+        ? reply(504, { reason: 'the merge may still land' })
+        : reply(200)
+  );
+  await runMany(merge, [7, 8, 10].map(ghMr), deps);
+  const summary = events.find(e => e.startsWith('toast ')) ?? '';
+  expect(summary).toContain('merge accepted on #7');
+  expect(summary).toContain('#8 joined the merge queue');
+  expect(summary).toContain('no answer for #10');
+  expect(summary).not.toContain("couldn't");
+  expect(events.filter(e => /^release/.test(e)).sort()).toEqual(['release 8']);
+});
