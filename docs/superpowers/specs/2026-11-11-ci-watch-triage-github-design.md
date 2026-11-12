@@ -95,7 +95,7 @@ the GitHub head the tools use. It rests on two per-commit reads, both through
   branch name is one segment). When either read fails, including a path the
   guard refuses, the list is unset for this poll: the head uses glance's
   `isRequired` for that poll, nothing is stored, and a later poll retries
-  both, at most twice per call. A 404 is an answer (no rules, or no
+  both, at most twice per commit. A 404 is an answer (no rules, or no
   protection), not a failure. Only a list read with both sources answering
   is kept for the commit.
 - **Anchor.** `pipeline:list {ref: <head branch>, sha: <head sha>, limit: 100}`
@@ -119,8 +119,10 @@ Rules the head applies:
   every check blocks, so a workflow whose later jobs have not been created
   yet could read green early. There, a head that reads `success` is
   confirmed with one more `pipeline:list {ref, sha}` read: while any listed
-  workflow run is not completed the head reads `running`. This costs one
-  REST read per poll while it holds a success. With a required list the
+  workflow run is not completed the head reads `running`. The read runs at
+  most once every 5 minutes per commit (an unfinished answer holds `running`
+  until the next read), so it costs at most 12 REST reads an hour while it
+  holds a success. With a required list the
   missing required name already keeps the head pending, so no confirmation
   runs and an optional workflow never holds success back.
 - **External CI only.** The anchor read waits until a check on the head has a
@@ -134,8 +136,9 @@ Rules the head applies:
   the budget reads null), and the next poll retries it.
 
 With `attend`, the required list and the anchor (or the first-seen fallback
-time) persist in the watch state per sha, so they cost one read each per
-commit. Without `attend`, one each per call.
+time) persist in the watch state per sha. Without `attend`, they sit in an
+in-process cache keyed by PR URL and sha (the MCP server outlives a call), so
+they cost one read each per commit either way (per process for the cache).
 
 ### ci_watch on GitHub
 
@@ -173,9 +176,9 @@ a value below 30 is an error naming the GitHub floor.
 query (about 1 point; one more per extra 100 checks) and the branch-rules REST
 read glance caches for 10 minutes (at most 6 an hour). At the 60 s default that
 is about 60 GraphQL and 6 REST an hour, plus three REST reads per commit (the
-two required-check reads and the anchor; per call without `attend`), and up
-to five log reads on a failure. A repo with no required checks adds one
-confirmation read per poll while a green head waits on an unfinished run. Today's
+two required-check reads and the anchor), and up to five log reads on a
+failure. A repo with no required checks adds at most 12 confirmation reads an
+hour while a green head waits on an unfinished run. Today's
 `gh pr checks` loop costs about the same.
 
 ### ci_triage on GitHub
