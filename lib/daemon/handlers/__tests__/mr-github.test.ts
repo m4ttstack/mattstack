@@ -7,7 +7,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { RateLimitedError, ReadBackFailedError } from "@mattstack/glance";
+import { MergeReadBackFailedError, PartialCreateError, RateLimitedError, ReadBackFailedError } from "@mattstack/glance";
 import { createMRHandlers } from "../mr.ts";
 import { createProjectMRsHandlers } from "../project-mrs.ts";
 import { createProjectMRs } from "../../project-mrs-store.ts";
@@ -86,6 +86,36 @@ describe("mr:action on GitHub", () => {
     expect(h.writebacks.length).toBe(1);
   });
 
+  test("a merge that entered the merge queue replies with its queue entry and writes the still-open PR back", async () => {
+    const queued = { position: 2, state: "QUEUED" };
+    const h = harness({ mergePullRequest: async () => prOf(7, { state: "opened", queued }) });
+    const res = await h.handlers["mr:action"]({ repoName: REPO, iid: 7, action: "merge" });
+    expect(res).toEqual({ ok: true, data: { queued } });
+    expect(h.writebacks).toEqual([[REPO, "o/r", prOf(7, { state: "opened", queued })]]);
+  });
+
+  test("a landed merge whose read-back failed still passes on why its source branch is left", async () => {
+    const note = "The source branch was not deleted: GitHub refused the delete with 422.";
+    const h = harness({
+      mergePullRequest: async () => {
+        throw new MergeReadBackFailedError("Merged PR #7 but could not read it back", { operation: "mergePullRequest", projectPath: "o/r", iid: 7, writeApplied: true, sourceBranchNotDeleted: note });
+      },
+    });
+    const res = await h.handlers["mr:action"]({ repoName: REPO, iid: 7, action: "merge" });
+    expect(res).toEqual({ ok: true, data: { sourceBranchNotDeleted: note } });
+  });
+
+  test("a PR already queued whose read-back failed replies queued, not failed", async () => {
+    const queued = { position: 1, state: "AWAITING_CHECKS" };
+    const h = harness({
+      mergePullRequest: async () => {
+        throw new MergeReadBackFailedError("PR #7 is queued but could not be read back", { operation: "mergePullRequest", projectPath: "o/r", iid: 7, writeApplied: false, queued });
+      },
+    });
+    const res = await h.handlers["mr:action"]({ repoName: REPO, iid: 7, action: "merge" });
+    expect(res).toEqual({ ok: true, data: { queued } });
+  });
+
   test("approve schedules the follow-up write-back", async () => {
     const h = harness({ fetchSingleMR: async (_pp: string, iid: number) => prOf(iid) });
     const res = await h.handlers["mr:action"]({ repoName: REPO, iid: 7, action: "approve" });
@@ -152,6 +182,50 @@ describe("mr:create on GitHub", () => {
     expect(h.names()).toEqual(["createPullRequest"]);
     expect((h.calls[0]!.args[0] as any).labels).toEqual(["a"]);
     expect(h.writebacks).toEqual([[REPO, "o/r", prOf(9)]]);
+  });
+
+  test("a create whose labels step failed replies ok with the PR number, its URL and the failed step, and writes the read-back PR", async () => {
+    const h = harness({
+      createPullRequest: async () => {
+        throw new PartialCreateError("Created PR #9 but its labels step failed", {
+          projectPath: "o/r", iid: 9,
+          failedSteps: [{ step: "labels", message: "422 label does not exist" }],
+          pullRequest: prOf(9),
+        });
+      },
+    });
+    const res = await h.handlers["mr:create"]({ repoName: REPO, sourceBranch: "feat", targetBranch: "main", title: "T", labels: ["a"] });
+    expect(res).toEqual({
+      ok: true,
+      data: { iid: 9, url: "https://github.com/o/r/pull/9", failedSteps: [{ step: "labels", message: "422 label does not exist" }] },
+    });
+    expect(h.names()).toEqual(["createPullRequest"]);
+    expect(h.writebacks).toEqual([[REPO, "o/r", prOf(9)]]);
+  });
+
+  test("a partial create whose read-back failed too still names the PR's URL", async () => {
+    const h = harness({
+      createPullRequest: async () => {
+        throw new PartialCreateError("Created PR #9 but its labels step failed", {
+          projectPath: "o/r", iid: 9,
+          failedSteps: [{ step: "labels", message: "boom" }],
+          pullRequest: null,
+        });
+      },
+    });
+    const res = await h.handlers["mr:create"]({ repoName: REPO, sourceBranch: "feat", targetBranch: "main", title: "T", labels: ["a"] });
+    expect(res).toEqual({ ok: true, data: { iid: 9, url: "https://github.com/o/r/pull/9", failedSteps: [{ step: "labels", message: "boom" }] } });
+    expect(h.writebacks).toEqual([]);
+  });
+
+  test("a plain read-back failure keeps its null URL and names no failed step", async () => {
+    const h = harness({
+      createPullRequest: async () => {
+        throw new ReadBackFailedError("Created PR #9 but could not read it back", { operation: "createPullRequest", projectPath: "o/r", iid: 9, writeApplied: true });
+      },
+    });
+    const res = await h.handlers["mr:create"]({ repoName: REPO, sourceBranch: "feat", targetBranch: "main", title: "T" });
+    expect(res).toEqual({ ok: true, data: { iid: 9, url: null } });
   });
 
   test("squash returns an error and makes zero provider calls", async () => {
@@ -283,6 +357,40 @@ describe("project-mrs on GitHub", () => {
     });
     const res = await h["mr:by-branch"]({ repoName: REPO, branches: ["gone"] }) as any;
     expect(res).toEqual({ ok: true, data: { byBranch: { gone: null }, syncedAt: 0 } });
+  });
+
+  test("mr:by-branch answers a failed read, not a missing PR, when the batched fill of a branch failed", async () => {
+    const store = tmpStore();
+    const asked: unknown[] = [];
+    const provider = {
+      capabilities: { canReportIncompleteBranchReads: true },
+      fetchPullRequestsByBranches: async (...args: any[]) => {
+        asked.push(args);
+        args[3].onWarning({ kind: "request-failed", source: "fill", status: 502, message: "fill failed", target: "o/r#7", branch: "feat" });
+        return new Map([["feat", null], ["other", prOf(8, { sourceBranch: "other" })]]);
+      },
+    };
+    const h = createProjectMRsHandlers({ repoIndex: () => ({ [REPO]: "/tmp/repo" }), log }, () => {}, {
+      store, tracking, getContext: async () => ({ forge: "github", provider, projectPath: "o/r", projectId: null }),
+    });
+    const res = await h["mr:by-branch"]({ repoName: REPO, branches: ["feat", "other"] });
+    expect(res).toEqual({ ok: false, error: "GitHub could not finish reading the pull request on feat in o/r (502 fill failed); try again" });
+    expect(asked.length).toBe(1);
+  });
+
+  test("mr:by-branch answers a failed read when a single-branch read hit its scan cap", async () => {
+    const provider = {
+      capabilities: { canReportIncompleteBranchReads: true },
+      fetchPullRequestByBranch: async (_p: string, branch: string, _s: string, options: any) => {
+        options.onWarning({ kind: "page-cap", source: "list", message: "GitHub listed 500 PRs without finding it", target: "o/r", branch });
+        return null;
+      },
+    };
+    const h = createProjectMRsHandlers({ repoIndex: () => ({ [REPO]: "/tmp/repo" }), log }, () => {}, {
+      store: tmpStore(), tracking, getContext: async () => ({ forge: "github", provider, projectPath: "o/r", projectId: null }),
+    });
+    const res = await h["mr:by-branch"]({ repoName: REPO, branches: ["feat"] });
+    expect(res).toEqual({ ok: false, error: "GitHub could not finish reading the pull request on feat in o/r (GitHub listed 500 PRs without finding it); try again" });
   });
 
   const byBranchWith = (over: Record<string, unknown>) =>

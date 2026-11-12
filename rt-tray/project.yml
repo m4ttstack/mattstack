@@ -73,7 +73,7 @@ targetTemplates:
         SUFeedURL: https://github.com/m4ttstack/mattstack/releases/latest/download/appcast.xml
         SUPublicEDKey: REPLACE_WITH_RELEASE_PUBLIC_ED_KEY
         SUEnableAutomaticChecks: true
-        SUAutomaticallyUpdate: true
+        SUAutomaticallyUpdate: false
         SUVerifyUpdateBeforeExtraction: true
         SUScheduledCheckInterval: 21600
         NSAppTransportSecurity:

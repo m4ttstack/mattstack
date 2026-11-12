@@ -74,9 +74,7 @@ flowchart TB
     run_budget_mr_recalls[/"run_budget {key: ship:mr-create-recalls, limit: 2, stage}"/]
     mr_recalls_spent{"mr-create-recalls spent (ship)?"}
     mr_update_squash[/"mr_update {mrUrl, squash: true}"/]
-    stop_gitlab_shortcut["STOP: GitLab moves go through gitlab_get, the read tools and mr_* (ship)"]:::stop
-    gh_pr_create[/"gh pr create --fill --base <resolved target> [--draft]"/]
-    gh_create_result{"gh pr create result (ship)?"}
+    stop_gitlab_shortcut["STOP: forge moves go through gitlab_get, the read tools and mr_* (ship)"]:::stop
     own_run_mr{"Own run (MR identity)?"}
     run_field_set_mr[/"run_field_set {key: mr, value: <url>, stage: ship}"/]
     run_field_get_evidence[/"run_field_get {key: evidence} (ship)"/]
@@ -94,26 +92,18 @@ flowchart TB
     attach_evidence
     attach_outcome{"Attach outcome (ship)?"}
     domain_owns_title{"Domain owns the title or description (ship)?"}
-    read_forge_host{"Forge host (ship, read back)?"}
     mr_view_url[/"mr_view {mrUrl}"/]
-    gh_pr_view_body[/gh pr view <mr> --json title,body/]
     write_title_description
-    write_forge_host{"Forge host (ship, write back)?"}
     mr_update_description[/"mr_update {mrUrl, title, description}"/]
-    gh_pr_edit[/gh pr edit <mr> --title <title> --body <description>/]
     domain_runs_ci{"Domain runs CI after the MR (ship)?"}
     run_watch_ci
     watch_ci_result{"watch-ci result (ship)?"}
-    draft_forge_host{"Forge host (ship, draft check)?"}
     mr_view_draft[/"mr_view {repoName, iid} (draft check)"/]
-    gh_pr_view_draft[/"gh pr view <mr> --json isDraft (draft check)"/]
     mr_still_draft{"MR still a draft (ship)?"}
     gate_mark_ready
     run_budget_mark_ready[/"run_budget {key: ship:mark-ready-rounds, limit: 2, stage}"/]
     mark_ready_spent{"mark-ready-rounds spent (ship)?"}
-    mark_ready_forge_host{"Forge host (ship, mark-ready)?"}
     mr_ready[/"mr_ready {repoName: <root>, iid}"/]
-    gh_pr_ready[/gh pr ready <number>/]
     which_exit{"Which exit (ship)?"}
     run_close_done[/"run_close {workType: ship, stage: ship, outcome: done}"/]
     run_close_abandoned[/"run_close {workType: ship, stage: ship, outcome: abandoned}"/]
@@ -208,7 +198,7 @@ flowchart TB
     landing_checks_spent -->|yes: a failure| which_exit
     git_remote_origin --> create_forge_host
     create_forge_host -->|GitLab| mr_create
-    create_forge_host -->|GitHub| gh_pr_create
+    create_forge_host -->|GitHub| mr_create
     create_forge_host -->|anything else| run_budget_forge_clarify
     run_budget_forge_clarify --> forge_clarify_spent
     forge_clarify_spent -->|no| gate_which_forge
@@ -220,15 +210,12 @@ flowchart TB
     mr_create_result -->|squashApplied: false| mr_update_squash
     mr_create_result -->|url: null| run_budget_mr_recalls
     mr_create_result -->|error: a failure| which_exit
-    mr_create_result -->|tempted to use the GitLab CLI| stop_gitlab_shortcut
+    mr_create_result -->|tempted to use the forge CLI| stop_gitlab_shortcut
     stop_gitlab_shortcut --> mr_create
     run_budget_mr_recalls --> mr_recalls_spent
     mr_recalls_spent -->|no: call again| mr_create
     mr_recalls_spent -->|yes: a failure| which_exit
     mr_update_squash --> own_run_mr
-    gh_pr_create --> gh_create_result
-    gh_create_result -->|url printed or existing: keep it| own_run_mr
-    gh_create_result -->|error: a failure| which_exit
     own_run_mr -->|yes| run_field_set_mr
     own_run_mr -->|no: inherited| run_field_get_evidence
     run_field_set_mr --> run_field_get_evidence
@@ -260,39 +247,27 @@ flowchart TB
     attach_outcome -->|"Attached (never Taken: Take links)"| domain_owns_title
     attach_outcome -->|Attach held: hold| which_exit
     attach_outcome -->|Attach failed: a failure quoting the reason| which_exit
-    domain_owns_title -->|yes| read_forge_host
+    domain_owns_title -->|yes| mr_view_url
     domain_owns_title -->|no| domain_runs_ci
-    read_forge_host -->|GitLab| mr_view_url
-    read_forge_host -->|GitHub| gh_pr_view_body
     mr_view_url --> write_title_description
-    gh_pr_view_body --> write_title_description
-    write_title_description --> write_forge_host
-    write_forge_host -->|GitLab| mr_update_description
-    write_forge_host -->|GitHub| gh_pr_edit
+    write_title_description --> mr_update_description
     mr_update_description --> domain_runs_ci
-    gh_pr_edit --> domain_runs_ci
     domain_runs_ci -->|yes| run_watch_ci
     domain_runs_ci -->|no, or a re-capture: done| which_exit
     run_watch_ci --> watch_ci_result
-    watch_ci_result -->|green| draft_forge_host
+    watch_ci_result -->|green| mr_view_draft
     watch_ci_result -->|"red (done), off-script, failure or stand-down"| which_exit
     watch_ci_result -->|held| held_in_watch_ci
-    draft_forge_host -->|GitLab| mr_view_draft
-    draft_forge_host -->|GitHub| gh_pr_view_draft
     mr_view_draft --> mr_still_draft
-    gh_pr_view_draft --> mr_still_draft
     mr_still_draft -->|yes| gate_mark_ready
     mr_still_draft -->|no: done| which_exit
-    gate_mark_ready -->|mark ready now| mark_ready_forge_host
+    gate_mark_ready -->|mark ready now| mr_ready
     gate_mark_ready -->|"keep it draft (done), go back, or hold"| which_exit
     gate_mark_ready -->|iterate| run_budget_mark_ready
     run_budget_mark_ready --> mark_ready_spent
     mark_ready_spent -->|no: a new gate| gate_mark_ready
     mark_ready_spent -->|yes: done, a draft| which_exit
-    mark_ready_forge_host -->|GitLab| mr_ready
-    mark_ready_forge_host -->|GitHub| gh_pr_ready
     mr_ready --> which_exit
-    gh_pr_ready --> which_exit
     which_exit -->|own run: done, stood down, or a re-capture's failure| run_close_done
     which_exit -->|own run: abort| run_close_abandoned
     which_exit -->|own run: a failure or a hand back, not on a re-capture| run_close_failed

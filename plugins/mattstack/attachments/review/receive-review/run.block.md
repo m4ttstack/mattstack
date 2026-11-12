@@ -50,7 +50,8 @@ and records nothing.
 
 A thread hold makes no `run_hold` call: the run stays open with `hold` at
 `held` (on GitLab `respond_post_execute` sets it and re-records the held
-ids; on GitHub this verb does both). A resume calls the post side again,
+ids; on GitHub this verb does both, for a held fix row and for a reply or
+resolve that errored). A resume calls the post side again,
 acting only on the held threads; `run_enter` clears the field.
 
 The close runs only when this verb started or resumed the run, once

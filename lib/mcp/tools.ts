@@ -24,7 +24,7 @@ import { whoamiToolDefs } from "./whoami-tool.ts";
 import { skillsResolveToolDefs } from "./skills-resolve-tool.ts";
 import { gitToolDefs, realGitToolDeps } from "./git-tools.ts";
 import { runRtVerb } from "./rt-verb.ts";
-import { resolveMrTarget, resolveRepoTarget } from "./mr-target.ts";
+import { githubProjectOf, resolveMrTarget, resolveRepoTarget, sourceInRepo } from "./mr-target.ts";
 import { herdToolDefs } from "./herd-tools.ts";
 import { mrReadToolDefs } from "./mr-read-tools.ts";
 import { EXISTING_MR, findOpenMrForBranch, githubRefusal, mrCompositeToolDefs, refuseGithubTarget, REBASE_DEFAULT_WAIT_S, REBASE_MAX_WAIT_S, REBASE_POLL_MS, waitForRebase, type OpenMr } from "./mr-composite-tools.ts";
@@ -57,10 +57,64 @@ function withReviewTimeout(res: ToolResult): ToolResult {
 }
 
 const MR_UPLOAD_GH_MOVE = "GitHub uploads a file only as part of a PR write; on a PR, evidence_attach uploads the images into its description";
-const MR_REBASE_GH_MOVE = "no server-side rebase on GitHub";
+
+function joinWords(parts: string[]): string {
+  return parts.length <= 1 ? (parts[0] ?? "") : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+/** A create whose follow-up steps failed still made the PR, so the result says so in words an agent cannot read as "try again". */
+function withCreateSteps(data: Commands["mr:create"]["data"] | undefined): Record<string, unknown> | undefined {
+  if (!data?.failedSteps?.length) return data;
+  const steps = joinWords(data.failedSteps.map((s) => `${s.step} step (${s.message})`));
+  return { ...data, incomplete: `Pull request #${data.iid} was created, but its ${steps} did not apply. Do not create it again; add what is missing to #${data.iid}.` };
+}
+
+/** GitHub's branch lookup also finds a fork's PR on a same-named branch, which is not this repo's PR, so the lookup drops any PR whose source branch lives elsewhere. */
+function ownRepoLookup(identity: string): typeof rtCommand {
+  return (async (cmd: string, payload: Record<string, unknown>, opts?: { timeoutMs?: number }) => {
+    const res = await rtCommand<Commands["mr:live-by-branch"]["data"]>(cmd as "mr:live-by-branch", payload, opts);
+    if (!res.ok || !res.data) return res;
+    const byBranch = Object.fromEntries(Object.entries(res.data.byBranch).map(([b, pr]) => [b, pr && sourceInRepo(identity, pr) ? pr : null]));
+    return { ...res, data: { ...res.data, byBranch } };
+  }) as typeof rtCommand;
+}
 
 function existingMrResult(mr: OpenMr): ToolResult {
   return ok({ iid: mr.iid, url: mr.url, existing: true, targetBranch: mr.targetBranch, draft: mr.draft, title: mr.title, applied: false });
+}
+
+const REBASE_READ_TIMEOUT_MS = 30_000;
+
+type GithubRebaseWait =
+  | { status: "rebased"; sha: string | null; previousSha: string | null }
+  | { status: "pending"; sha: string | null; lastError?: string };
+
+/** GitHub reports no rebase in progress, no merge error and no divergence count, and its conflict flag can predate the rebase, so only a moved head settles the wait. Same budget rules as waitForRebase. */
+async function waitForGithubRebase(
+  sleep: (ms: number) => Promise<void>,
+  target: { identity: string; iid: number },
+  previousSha: string | null,
+  opts: { maxWaitMs: number; pollMs: number; signal?: AbortSignal; progress?: () => void },
+): Promise<GithubRebaseWait> {
+  const deadline = Date.now() + opts.maxWaitMs;
+  let sha = previousSha;
+  let lastError: string | undefined;
+  let slept = 0;
+  while (!opts.signal?.aborted) {
+    opts.progress?.();
+    const r = await rtCommand<Commands["mr:get"]["data"]>("mr:get", { repoName: target.identity, iid: target.iid }, { timeoutMs: REBASE_READ_TIMEOUT_MS });
+    if (!r.ok || !r.data) {
+      lastError = explainError(r.error ?? "PR read failed");
+    } else {
+      lastError = undefined;
+      sha = r.data.mr.sha;
+      if (sha !== previousSha) return { status: "rebased", sha, previousSha };
+    }
+    if (slept + opts.pollMs > opts.maxWaitMs || Date.now() >= deadline) break;
+    await sleep(opts.pollMs);
+    slept += opts.pollMs;
+  }
+  return { status: "pending", sha, ...(lastError !== undefined && { lastError }) };
 }
 
 /** The CI lease guard mr_retry reads; a test replaces `ensureLease` and restores it. */
@@ -484,7 +538,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_create",
-      description: `Create a merge request (a pull request on GitHub) from an already-pushed sourceBranch into targetBranch. Pass targetBranch explicitly (read the default branch from git); it is never guessed. draft defaults to true. Write the title, and optionally the description, yourself (e.g. from the branch's commits). labels apply at creation; squash sets the MR's squash-on-merge flag right after it (on GitLab; GitHub picks squash at merge time, so leave it out there). Creates once and never retries. Returns iid, url (null when the forge created the MR but reading it back failed) and, when squash was passed, squashApplied; squashApplied false with squashError means the MR exists, so set squash with mr_update rather than creating again. ifExists "return" first looks for an open MR on sourceBranch: when one exists it creates nothing and returns {iid, url, existing: true, targetBranch, draft, title, applied: false}, where applied false means the title, description, labels and squash you passed were not applied, and that MR may target a different branch, so compare its targetBranch with the one you asked for; otherwise it creates and the result adds existing false. A lookup error is returned and nothing is created. ${REPO_TARGET_RULE} ${REPO_PR_URL_NOTE}`,
+      description: `Create a merge request (a pull request on GitHub) from an already-pushed sourceBranch into targetBranch. Pass targetBranch explicitly (read the default branch from git); it is never guessed. draft defaults to true. Write the title, and optionally the description, yourself (e.g. from the branch's commits). labels apply at creation; squash sets the MR's squash-on-merge flag right after it (on GitLab; GitHub picks squash at merge time, so leave it out there). Creates once and never retries. Returns iid, url (null when the forge created the MR but reading it back failed) and, when squash was passed, squashApplied; squashApplied false with squashError means the MR exists, so set squash with mr_update rather than creating again. On GitHub, a create whose labels, reviewers or assignees step failed still returns iid and url, plus failedSteps ({step, message} each) and incomplete, a sentence naming them: the PR exists, so add what is missing (labels with mr_update) rather than creating again. ifExists "return" first looks for an open MR on sourceBranch: when one exists it creates nothing and returns {iid, url, existing: true, targetBranch, draft, title, applied: false}, where applied false means the title, description, labels and squash you passed were not applied, and that MR may target a different branch, so compare its targetBranch with the one you asked for; otherwise it creates and the result adds existing false. On GitHub only a PR whose branch lives in this repo counts: a fork's PR on a same-named branch, or one whose head repository the token cannot see, is not returned, and the create goes ahead. A lookup error is returned and nothing is created. ${REPO_TARGET_RULE} ${REPO_PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -526,15 +580,17 @@ export function mcpTools(): McpToolDef[] {
         if (input.squash !== undefined) payload.squash = input.squash as boolean;
         if (!returnExisting) {
           const res = await rtCommand<Commands["mr:create"]["data"]>("mr:create", payload, { timeoutMs: MR_WRITE_TIMEOUT_MS });
+          if (res.ok) return ok(withCreateSteps(res.data));
           return withLandingHint(fromResponse(res), "mr_for_branch for an open MR on the source branch");
         }
-        const found = await findOpenMrForBranch({ command: rtCommand }, target.identity, payload.sourceBranch);
+        const lookup = { command: ownRepoLookup(target.identity) };
+        const found = await findOpenMrForBranch(lookup, target.identity, payload.sourceBranch);
         if (!found.ok) return err(found.error);
         if (found.mr) return existingMrResult(found.mr);
         const res = await rtCommand<Commands["mr:create"]["data"]>("mr:create", payload, { timeoutMs: MR_WRITE_TIMEOUT_MS });
-        if (res.ok) return ok({ ...res.data, existing: false });
+        if (res.ok) return ok({ ...withCreateSteps(res.data), existing: false });
         if (EXISTING_MR.test(res.error ?? "")) {
-          const raced = await findOpenMrForBranch({ command: rtCommand }, target.identity, payload.sourceBranch);
+          const raced = await findOpenMrForBranch(lookup, target.identity, payload.sourceBranch);
           if (raced.ok && raced.mr) return existingMrResult(raced.mr);
         }
         return withLandingHint(fromResponse(res), "mr_for_branch for an open MR on the source branch");
@@ -721,7 +777,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_rebase",
-      description: `GitLab only. Ask GitLab to rebase the MR's source branch onto its target server-side (no checkout). GitLab accepts the request and rebases asynchronously: without \`wait\` the reply only says the request was accepted, so re-read the MR before assuming the rebase finished or succeeded. With \`wait: true\` the tool reads the MR, asks for the rebase, then re-reads it every ${REBASE_POLL_MS / 1000} seconds for up to \`maxWaitSeconds\` (1 to ${REBASE_MAX_WAIT_S}, default ${REBASE_DEFAULT_WAIT_S}) and returns one of: {status: "rebased", sha, previousSha} when the source branch sha moved; {status: "failed", mergeError, conflicts, sha} when, with no rebase running, GitLab reports a merge error or conflicts; {status: "current", sha} when nothing moved and the branch is not behind its target; {status: "unchanged", sha} when nothing moved across two reads and GitLab does not say whether the branch was behind, so it may already have been current; {status: "pending", sha, rebaseInProgress, lastError?} when the budget ran out, so call again or look at the MR. A failed re-read counts as a poll and is reported as lastError only if the budget ends on it. ${REPO_NAME_RULE}`,
+      description: `Ask the forge to rebase the MR's source branch onto its target server-side (no checkout): GitLab accepts the request and rebases asynchronously, and GitHub updates the PR's branch by rebasing it. Without \`wait\` the reply only says the request was accepted, so re-read the MR before assuming the rebase finished or succeeded. With \`wait: true\` the tool reads the MR, asks for the rebase, then re-reads it every ${REBASE_POLL_MS / 1000} seconds for up to \`maxWaitSeconds\` (1 to ${REBASE_MAX_WAIT_S}, default ${REBASE_DEFAULT_WAIT_S}) and returns one of: {status: "rebased", sha, previousSha} when the source branch sha moved; {status: "failed", mergeError, conflicts, sha} when, with no rebase running, GitLab reports a merge error or conflicts; {status: "current", sha} when nothing moved and the branch is not behind its target; {status: "unchanged", sha} when nothing moved across two reads and GitLab does not say whether the branch was behind, so it may already have been current; {status: "pending", sha, rebaseInProgress, lastError?} when the budget ran out, so call again or look at the MR. On GitHub, which reports no rebase in progress, merge error or divergence, wait returns only {status: "rebased", sha, previousSha} once the head moved or {status: "pending", sha, lastError?} when the budget ran out; a PR GitHub will not rebase (already up to date, conflicts, a fork that does not allow edits) is a tool error from the request, not a status. A failed re-read counts as a poll and is reported as lastError only if the budget ends on it. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -737,7 +793,7 @@ export function mcpTools(): McpToolDef[] {
         if (bad) return err(bad);
         if (input.wait !== true && input.maxWaitSeconds !== undefined) return err("maxWaitSeconds needs wait: true");
         if (input.wait !== true) {
-          const target = await resolveMrTarget(input);
+          const target = await resolveMrTarget(input, { github: true });
           if (!target.ok) return err(target.error);
           return runMrAction(target, "rebase", [], { rebased: true });
         }
@@ -745,30 +801,23 @@ export function mcpTools(): McpToolDef[] {
         if (typeof maxWait !== "number" || !Number.isInteger(maxWait) || maxWait < 1 || maxWait > REBASE_MAX_WAIT_S) {
           return err(`"maxWaitSeconds" must be an integer from 1 to ${REBASE_MAX_WAIT_S}`);
         }
-        const early = refuseGithubTarget(input, "mr_rebase", MR_REBASE_GH_MOVE);
-        if (early) return err(early);
-        const target = await resolveMrTarget(input);
+        const target = await resolveMrTarget(input, { github: true });
         if (!target.ok) return err(target.error);
-        const refused = githubRefusal(target.identity, "mr_rebase", MR_REBASE_GH_MOVE);
-        if (refused) return err(refused);
 
         const before = await rtCommand<Commands["mr:get"]["data"]>("mr:get", { repoName: target.identity, iid: target.iid }, { timeoutMs: MR_WRITE_TIMEOUT_MS });
         if (!before.ok || !before.data) return err(explainError(before.error ?? "MR read failed"));
         const asked = await runMrAction(target, "rebase", [], null);
         if (!asked.ok) return asked;
 
-        const result = await waitForRebase(
-          { command: rtCommand, sleep: (ms) => abortableSleep(ms, signal) },
-          target,
-          before.data.mr.sha,
-          { maxWaitMs: maxWait * 1000, pollMs: REBASE_POLL_MS, ...(signal && { signal }), ...(progress && { progress }) },
-        );
-        return ok(result);
+        const sleep = (ms: number) => abortableSleep(ms, signal);
+        const opts = { maxWaitMs: maxWait * 1000, pollMs: REBASE_POLL_MS, ...(signal && { signal }), ...(progress && { progress }) };
+        if (githubProjectOf(target.identity) !== null) return ok(await waitForGithubRebase(sleep, target, before.data.mr.sha, opts));
+        return ok(await waitForRebase({ command: rtCommand, sleep }, target, before.data.mr.sha, opts));
       },
     },
     {
       name: "mr_merge",
-      description: `Merge an MR or PR on GitLab or GitHub. On GitHub it asks GitHub whether the PR goes through a merge queue and takes the right path: queued PRs return {queued: true, position, state} or {queued: true, alreadyQueued: true}, and landing is still to come. wait: true holds until the PR leaves the queue, up to maxWaitSeconds (default ${MERGE_WAIT_DEFAULT_SECONDS}, cap ${MERGE_WAIT_MAX_SECONDS}), and returns {merged: true}, {dropped: true, reason, at} or {queued: true, timedOut: true}; call again with wait: true to keep waiting, which is also how to pick up a PR queued earlier. A dropped PR stays out, even after a push: every call returns {dropped: true, reason, at} until requeue: true is passed, which enters the queue again, so pass it only once the cause is fixed and the new head has been reviewed. A PR that has already merged returns {merged: true}. Chat messages reach you only between calls. A PR enters the queue only once it is ready (approved, required checks green); before that GitHub refuses and the error says why, so wait for green and call again. A queue applies its own merge settings and waits for checks, so squash, removeSourceBranch and whenPipelineSucceeds are refused there. Otherwise it merges now (the forge still enforces approvals and pipeline rules), optionally squashing and deleting the source branch; whenPipelineSucceeds: true instead enables auto-merge, which may fire at once when the pipeline has already passed. Auto-merge applies the project's own merge settings, so whenPipelineSucceeds cannot be combined with squash or removeSourceBranch. The result is what was observed: merged: true when it merged; autoMerge: true (whenPipelineSucceeds only) when auto-merge is enabled; an error carrying GitLab's mergeError when one is set; otherwise {requested, verified: false, state} (state when known), meaning the forge accepted the request but the outcome was not observed, so re-read the MR before assuming either way. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
+      description: `Merge an MR or PR on GitLab or GitHub. On GitHub it asks GitHub whether the PR goes through a merge queue and takes the right path: queued PRs return {queued: true, position, state} or {queued: true, alreadyQueued: true}, and landing is still to come. wait: true holds until the PR leaves the queue, up to maxWaitSeconds (default ${MERGE_WAIT_DEFAULT_SECONDS}, cap ${MERGE_WAIT_MAX_SECONDS}), and returns {merged: true}, {dropped: true, reason, at} or {queued: true, timedOut: true}; call again with wait: true to keep waiting, which is also how to pick up a PR queued earlier. A dropped PR stays out, even after a push: every call returns {dropped: true, reason, at} until requeue: true is passed, which enters the queue again, so pass it only once the cause is fixed and the new head has been reviewed. A PR that has already merged returns {merged: true}. Chat messages reach you only between calls. A PR enters the queue only once it is ready (approved, required checks green); before that GitHub refuses and the error says why, so wait for green and call again. A queue applies its own merge settings and waits for checks, so squash, removeSourceBranch and whenPipelineSucceeds are refused there. Otherwise it merges now (the forge still enforces approvals and pipeline rules), optionally squashing and deleting the source branch; whenPipelineSucceeds: true instead enables auto-merge, which may fire at once when the pipeline has already passed. Auto-merge applies the project's own merge settings, so whenPipelineSucceeds cannot be combined with squash or removeSourceBranch. The result is what was observed: merged: true when it merged; autoMerge: true (whenPipelineSucceeds only) when auto-merge is enabled; an error carrying GitLab's mergeError when one is set; otherwise {requested, verified: false, state} (state when known), meaning the forge accepted the request but the outcome was not observed, so re-read the MR before assuming either way. On GitHub, a merge that landed but left its source branch adds sourceBranchNotDeleted (why), and a merge GitHub put in the queue itself returns {queued: true, position, state}, never merged. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: { ...MR_TARGET_PROPS, squash: { type: "boolean" }, removeSourceBranch: { type: "boolean" }, whenPipelineSucceeds: { type: "boolean" }, wait: { type: "boolean" }, requeue: { type: "boolean" }, maxWaitSeconds: { type: "number" } },

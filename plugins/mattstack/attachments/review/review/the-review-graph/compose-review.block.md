@@ -8,13 +8,15 @@ One call carries the whole review. Selected findings: the union of the
 `findings-<n>` answers (`{value, note, texts}` unwraps to its value), a
 legacy `tiers` answer's whole tiers, or the caller's selection (each
 finding as the report json it was decided on writes it). `outcome`: the
-picked option's value, `comment` or `approve` (or `request_changes` on
-GitHub).
+picked option's value, `comment` or `approve`. A caller's legacy
+`request_changes` posts as `comment`, its summary line the `comment` one.
+With drafts, that line posts as it stands, since drafted text is never
+reworded. Without drafts, compose it as review-posting's blocking-framed
+Comment: the Assessment names the findings that block the merge and says
+approval is withheld.
 
 **The json carries drafts** (its `summary` has `comments`): every text
-below is taken as it stands, never written here. On GitHub the same texts
-and the same summary build the `gh pr review` body (The one review on
-GitLab and GitHub, below).
+below is taken as it stands, never written here.
 
 - A finding's text: the `texts` entry at its id (from any `findings-<n>`
   answer, or the caller's `texts`), else its `comment` in the report json

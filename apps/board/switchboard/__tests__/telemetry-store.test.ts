@@ -26,6 +26,7 @@ function ping(over: Partial<TelemetryPing> = {}): TelemetryPing {
     legacyDirs: [],
     orgs: [],
     packs: [],
+    appUpdate: null,
     ...over,
   };
 }
@@ -405,9 +406,38 @@ describe('parsePing', () => {
     expect(parsePing(raw({ packs: [null] }))).toBeNull();
   });
 
+  test('appUpdate: absent reads null, a full status passes, a wrong shape rejects the ping', () => {
+    const rest: Record<string, unknown> = { ...ping() };
+    delete rest.appUpdate;
+    expect(parsePing(rest)?.appUpdate).toBeNull();
+    const status = {
+      lastCheckAt: '2026-11-06T14:33:37Z',
+      offeredVersion: '2.31.1',
+      heldVersion: '2.31.1',
+      hold: 'windowsOpen',
+    };
+    expect(
+      parsePing(raw({ appUpdate: { ...status, extra: 1 } }))?.appUpdate
+    ).toEqual(status);
+    expect(parsePing(raw({ appUpdate: 'held' }))).toBeNull();
+    expect(parsePing(raw({ appUpdate: { ...status, hold: 3 } }))).toBeNull();
+  });
+
+  test('a row stored before appUpdate existed reads it as null', () => {
+    const db = new Database(':memory:');
+    const s = new TelemetryStore(db);
+    const old: Record<string, unknown> = { ...ping() };
+    delete old.appUpdate;
+    db.run(
+      `INSERT INTO telemetry_macs (install_id, ping, verified_username, last_seen) VALUES (?, ?, NULL, ?)`,
+      ['install-a', JSON.stringify(old), T0]
+    );
+    expect(s.snapshot(T0).macs[0]!.appUpdate).toBeNull();
+  });
+
   test('rejects a missing required field', () => {
     for (const key of Object.keys(ping()) as (keyof TelemetryPing)[]) {
-      if (key === 'installId') continue;
+      if (key === 'installId' || key === 'appUpdate') continue;
       const rest: Record<string, unknown> = { ...ping() };
       delete rest[key];
       expect(parsePing(rest)).toBeNull();

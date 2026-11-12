@@ -84,9 +84,7 @@ flowchart TB
     run_budget_mr_recalls[/"run_budget {key: ship:mr-create-recalls, limit: 2, stage}"/]
     mr_create_recalls{mr-create-recalls spent?}
     mr_update_squash[/"mr_update {mrUrl, squash: true}"/]
-    stop_gitlab_shortcut[STOP: GitLab goes through gitlab_get, the read tools and mr_*]:::stop
-    gh_pr_create[/"gh pr create --fill --base <resolved target> [--draft]"/]
-    gh_create_result{gh pr create result?}
+    stop_gitlab_shortcut[STOP: forge moves go through gitlab_get, the read tools and mr_*]:::stop
     run_field_set_mr[/"run_field_set {key: mr, value: <url>, stage}"/]
     run_field_get_evidence[/"run_field_get {key: evidence}"/]
     browser_case{Browser screenshot for this case?}
@@ -102,13 +100,9 @@ flowchart TB
     run_has_evidence{Run has an evidence record?}
     attach_evidence
     attach_outcome{Attach outcome?}
-    read_forge_host{"Forge host (read back)?"}
     mr_view_url[/"mr_view {mrUrl}"/]
-    gh_pr_view_body[/gh pr view <mr> --json title,body/]
     write_title_description
-    write_forge_host{"Forge host (write back)?"}
     mr_update_description[/"mr_update {mrUrl, title, description}"/]
-    gh_pr_edit[/gh pr edit <mr> --title <title> --body <description>/]
     run_stage_fail[/"run_stage {action: fail, stage, reason}"/]
     run_hold[/"run_hold {stage, reason, decidedBy}"/]
     held_end_turn(((Held: end the turn naming run and stage)))
@@ -196,7 +190,7 @@ flowchart TB
     run_field_set_pushed_head --> git_remote_origin
     git_remote_origin --> forge_host
     forge_host -->|GitLab| mr_create
-    forge_host -->|GitHub| gh_pr_create
+    forge_host -->|GitHub| mr_create
     forge_host -->|anything else| run_budget_forge_clarify
     run_budget_forge_clarify --> forge_clarify_rounds
     forge_clarify_rounds -->|no| gate_which_forge
@@ -210,15 +204,12 @@ flowchart TB
     mr_create_result -->|squashApplied: false| mr_update_squash
     mr_create_result -->|url: null| run_budget_mr_recalls
     mr_create_result -->|error: a failure| which_exit
-    mr_create_result -->|tempted to use the GitLab CLI| stop_gitlab_shortcut
+    mr_create_result -->|tempted to use the forge CLI| stop_gitlab_shortcut
     stop_gitlab_shortcut --> mr_create
     run_budget_mr_recalls --> mr_create_recalls
     mr_create_recalls -->|no: call again| mr_create
     mr_create_recalls -->|yes: a failure| which_exit
     mr_update_squash --> run_field_set_mr
-    gh_pr_create --> gh_create_result
-    gh_create_result -->|url printed, or already exists| run_field_set_mr
-    gh_create_result -->|error: a failure| which_exit
     run_field_set_mr --> run_field_get_evidence
     run_field_get_evidence --> browser_case
     browser_case -->|yes| capture_after_browser
@@ -243,20 +234,14 @@ flowchart TB
     record_outcome -->|Record held at evidence-waiver or evidence-redaction| run_hold
     record_outcome -->|Record failed: a failure naming the images or quoting the error| which_exit
     run_has_evidence -->|yes| attach_evidence
-    run_has_evidence -->|no: the field is unset| read_forge_host
+    run_has_evidence -->|no: the field is unset| mr_view_url
     attach_evidence --> attach_outcome
-    attach_outcome -->|"Attached (never Taken: Take links)"| read_forge_host
+    attach_outcome -->|"Attached (never Taken: Take links)"| mr_view_url
     attach_outcome -->|Attach held| run_hold
     attach_outcome -->|Attach failed: a failure quoting the reason| which_exit
-    read_forge_host -->|GitLab| mr_view_url
-    read_forge_host -->|GitHub| gh_pr_view_body
     mr_view_url --> write_title_description
-    gh_pr_view_body --> write_title_description
-    write_title_description --> write_forge_host
-    write_forge_host -->|GitLab| mr_update_description
-    write_forge_host -->|GitHub| gh_pr_edit
+    write_title_description --> mr_update_description
     mr_update_description --> ship_done
-    gh_pr_edit --> ship_done
     run_stage_fail --> stage_failed
     run_hold --> held_end_turn
 ```
