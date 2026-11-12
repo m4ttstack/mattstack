@@ -9,7 +9,7 @@ import {
 import { Button, ICONS, Markdown, SideDrawer } from '@mattstack/tui-kit';
 import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
 import type { BoardMR } from '../../data.ts';
-import { forgeWord, mrRef } from '../../mr-ref.ts';
+import { commentUrl, forgeWord, mrRef } from '../../mr-ref.ts';
 import { isOwnMr } from '../../view.ts';
 import { getDiscussions, postThreadWrite } from '../api.ts';
 import type { CommentNote, CommentThread, GeneralComment } from '../types.ts';
@@ -78,11 +78,13 @@ function ThreadsLink({
     timestamp that deep-links to the note in GitLab, and the markdown body. */
 function CommentNoteView({
   mr,
+  discussionId,
   note,
   now,
   verbs,
 }: {
   mr: BoardMR;
+  discussionId: string;
   note: CommentNote;
   now: number;
   verbs?: ReactNode;
@@ -100,7 +102,7 @@ function CommentNoteView({
           {verbs}
           <a
             className="tui-cd-note-time"
-            href={mr.webUrl ? `${mr.webUrl}#note_${note.id}` : '#'}
+            href={commentUrl(mr, discussionId, note.id) ?? '#'}
             target="_blank"
             rel="noopener noreferrer"
             title={`open this comment in ${forgeWord(mr)}`}
@@ -427,7 +429,7 @@ function ThreadCard({
           {mr.webUrl && thread.notes[0] && (
             <a
               className="tui-cd-thread-open"
-              href={`${mr.webUrl}#note_${thread.notes[0].id}`}
+              href={commentUrl(mr, id, thread.notes[0].id) ?? '#'}
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -437,7 +439,13 @@ function ThreadCard({
         </span>
       </div>
       {thread.notes.map(n => (
-        <CommentNoteView key={n.id} mr={mr} note={n} now={now} />
+        <CommentNoteView
+          key={n.id}
+          mr={mr}
+          discussionId={id}
+          note={n}
+          now={now}
+        />
       ))}
       {writes?.composing === id && (
         <ReplyBox
@@ -481,6 +489,7 @@ function CommentCard({
         <CommentNoteView
           key={n.id}
           mr={mr}
+          discussionId={id}
           note={n}
           now={now}
           verbs={

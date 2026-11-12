@@ -722,6 +722,32 @@ test("a GitHub MR's drawer links open in github", async () => {
   );
 });
 
+test('a GitHub drawer links each comment to its anchor', async () => {
+  const PR_URL = 'https://github.com/acme/webapp/pull/101';
+  servedData = {
+    ...BOARD_DATA,
+    mrs: [{ ...BOARD_DATA.mrs[0]!, webUrl: PR_URL, provider: 'github' }],
+  };
+  servedDiscussions = {
+    threads: [
+      {
+        discussionId: 'gh-review-thread-3001',
+        status: 'awaiting',
+        notes: [note(3001, 'kim', 'rename this')],
+      },
+    ],
+    comments: [],
+  };
+  const drawer = await renderBoardWithDrawerOpen();
+  const anchor = `${PR_URL}#discussion_r3001`;
+  expect(
+    drawer.querySelector('.tui-cd-note-time')?.getAttribute('href')
+  ).toBe(anchor);
+  expect(
+    drawer.querySelector('.tui-cd-thread-open')?.getAttribute('href')
+  ).toBe(anchor);
+});
+
 test("a GitLab MR's drawer still links open in gitlab", async () => {
   const drawer = await renderBoardWithDrawerOpen();
   expect(drawer.querySelector('.tui-cd-open')?.textContent).toBe(
