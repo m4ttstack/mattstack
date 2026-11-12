@@ -1107,13 +1107,13 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       const tree = await deps.run("git", ["write-tree"], { cwd: pack.dir });
       if (tree.code !== 0) return stop(`git write-tree failed: ${tree.stderr.trim()}`, []);
       pendingTree = tree.stdout.trim();
-      // Checked before rt's add, which would overwrite a differing stage of the same path.
-      // A path the person staged must still hold their content here, even where rt then stages its build.
-      const beforeAdd = new Map([...built, ...expectedBlobs(staged)]);
-      const unseen = await readOrStop([], async () => unseenStaged(deps, pack.dir, await prefixOfPack(), beforeAdd));
-      if (!Array.isArray(unseen)) return unseen;
-      if (unseen.length > 0) return abandon(unseenLead(unseen), unseen, versionStaged, refused, unstage);
     }
+    // Checked before rt's add, which would overwrite a differing stage of the same path.
+    // A path the person staged must still hold their content here, even where rt then stages its build.
+    const beforeAdd = new Map([...built, ...expectedBlobs(staged)]);
+    const unseenBefore = await readOrStop([], async () => unseenStaged(deps, pack.dir, await prefixOfPack(), beforeAdd));
+    if (!Array.isArray(unseenBefore)) return unseenBefore;
+    if (unseenBefore.length > 0) return abandon(unseenLead(unseenBefore), unseenBefore, versionStaged, refused, unstage);
     const add = await deps.run("git", ["add", "--", ...addPaths.map(literal)], { cwd: pack.dir });
     if (add.code !== 0) return stop(`git add failed: ${add.stderr.trim()}`, []);
     if (compiled.removed.length > 0) {

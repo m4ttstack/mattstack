@@ -2489,6 +2489,33 @@ describe("commit-pending against real git", () => {
     expect(remoteLog(remote)).toEqual(["base"]);
   }, REAL_GIT_TIMEOUT_MS);
 
+  test("on a clean pack, a compiled file staged by someone else mid-sync refuses before rt's add replaces it", async () => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [true, false] };
+    const deps = realGitDeps(root, pack, engine, world);
+    deps.compilePack = rebuildingCompile(pack);
+    const checkPack = deps.checkPack;
+    deps.checkPack = async (name) => {
+      const answer = await checkPack(name);
+      if (world.calls.filter((c) => c.cmd === "checkPack").length === 2) {
+        const blob = execFileSync("git", ["hash-object", "-w", "--stdin"], { cwd: root, env: REAL_GIT_ENV, input: "staged by someone else\n", encoding: "utf8" }).trim();
+        mustGit(root, "update-index", "--cacheinfo", `100644,${blob},skills/keep/SKILL.md`);
+      }
+      return answer;
+    };
+
+    const report = await syncPack(pack, engine, deps);
+
+    const detail = report.steps.at(-1)!.detail;
+    expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "refused" });
+    expect(detail).toContain(`The index in ${pack.dir} holds changes rt did not stage: skills/keep/SKILL.md`);
+    expect(world.calls.some((c) => c.cmd === "git" && ["add", "commit", "push"].includes(c.args[0]!))).toBe(false);
+    expect(mustGit(root, "show", ":skills/keep/SKILL.md")).toBe("staged by someone else\n");
+    expect(mustGit(root, "log", "--format=%s").trim().split("\n")).toEqual(["base"]);
+    expect(remoteLog(remote)).toEqual(["base"]);
+  }, REAL_GIT_TIMEOUT_MS);
+
   test("a failed push undoes the one commit", async () => {
     const { root, remote, pack } = realPackRepo("");
     const engine = fixturePack("beacon", "local", "2.0.0");
