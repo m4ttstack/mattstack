@@ -8,10 +8,16 @@
  * suite through a handful of tokens. It wraps `fetch`, so every GitLab
  * request counts, whichever glance transport (gitbeaker, raw REST, GraphQL)
  * sent it, glance's own 429 retries included.
+ *
+ * Requests are spaced evenly rather than let through in bursts: the wait
+ * happens inside `fetch`, after the caller's own timeout has started, so a
+ * burst followed by a minute-long stall would time out the stalled request.
  */
 
 const DEFAULT_PER_MINUTE = 80;
 const WINDOW_MS = 60_000;
+/** Shorter waits are the even spacing itself; only longer ones are worth a log line. */
+const LOG_WAIT_MS = 5_000;
 
 export interface GitLabPacerOptions {
   /** Requests one identity may send in any rolling minute. Below 100 to leave room for anything else using the token. */
@@ -26,6 +32,7 @@ interface Identity {
   label: string;
   /** Send times still inside the rolling minute, oldest first. */
   recent: number[];
+  lastAt: number | null;
   requests: number;
   waitedMs: number;
   /** Serialises this identity's slot grants, so concurrent requests cannot both take the last slot. */
@@ -35,9 +42,15 @@ interface Identity {
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
+/** GitLab's REST transports send the token as PRIVATE-TOKEN and GraphQL as a bearer token: one user either way. */
 function tokenOf(input: string | URL | Request, init?: RequestInit): string {
   const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
-  return headers.get('private-token') ?? headers.get('authorization') ?? 'anonymous';
+  const raw = headers.get('private-token') ?? headers.get('authorization') ?? 'anonymous';
+  return raw.replace(/^bearer\s+/i, '');
+}
+
+function signalOf(input: string | URL | Request, init?: RequestInit): AbortSignal | undefined {
+  return init?.signal ?? (input instanceof Request ? input.signal : undefined);
 }
 
 function urlOf(input: string | URL | Request): URL | null {
@@ -72,7 +85,12 @@ export class GitLabPacer {
 
   wrap(inner: typeof fetch): typeof fetch {
     const paced = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
-      if (urlOf(input)?.host === this.host) await this.take(this.identity(tokenOf(input, init)));
+      if (urlOf(input)?.host === this.host) {
+        const signal = signalOf(input, init);
+        if (!(await this.take(this.identity(tokenOf(input, init)), signal))) {
+          throw signal?.reason ?? new DOMException('The operation was aborted.', 'AbortError');
+        }
+      }
       return inner(input, init);
     };
     return Object.assign(paced, { preconnect: inner.preconnect }) as typeof fetch;
@@ -93,32 +111,42 @@ export class GitLabPacer {
   private identity(token: string): Identity {
     let id = this.identities.get(token);
     if (!id) {
-      id = { label: `identity ${this.identities.size + 1}`, recent: [], requests: 0, waitedMs: 0, queue: Promise.resolve() };
+      id = { label: `identity ${this.identities.size + 1}`, recent: [], lastAt: null, requests: 0, waitedMs: 0, queue: Promise.resolve() };
       this.identities.set(token, id);
     }
     return id;
   }
 
-  private take(id: Identity): Promise<void> {
+  /** Resolves false when `signal` aborted before the slot came up: that request is never sent, so it takes none. */
+  private take(id: Identity, signal: AbortSignal | undefined): Promise<boolean> {
+    const spacingMs = WINDOW_MS / this.perMinute;
     const turn = id.queue.then(async () => {
       for (;;) {
+        if (signal?.aborted) {
+          this.log(`  [gitlab pacer] ${id.label}: a request was cancelled while it waited; it took no slot`);
+          return false;
+        }
         const t = this.now();
         while (id.recent.length > 0 && id.recent[0]! + WINDOW_MS <= t) id.recent.shift();
-        if (id.recent.length < this.perMinute) {
+        const spacedAt = id.lastAt === null ? t : id.lastAt + spacingMs;
+        const windowAt = id.recent.length < this.perMinute ? t : id.recent[0]! + WINDOW_MS;
+        const waitMs = Math.max(spacedAt, windowAt) - t;
+        if (waitMs <= 0) {
           id.recent.push(t);
+          id.lastAt = t;
           id.requests += 1;
-          return;
+          return true;
         }
-        const waitMs = id.recent[0]! + WINDOW_MS - t;
-        this.log(
-          `  [gitlab pacer] ${id.label} sent ${plural(id.recent.length, 'request')} in the last minute; waiting ${seconds(waitMs)}`,
-        );
+        if (waitMs >= LOG_WAIT_MS) this.log(`  [gitlab pacer] ${id.label} waiting ${seconds(waitMs)}`);
         await this.sleep(waitMs);
         id.waitedMs += waitMs;
         this.waitedMs += waitMs;
       }
     });
-    id.queue = turn.catch(() => {});
+    id.queue = turn.then(
+      () => {},
+      () => {},
+    );
     return turn;
   }
 }
