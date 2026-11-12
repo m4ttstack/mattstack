@@ -14,6 +14,7 @@ import {
   readProjectMRs,
 } from '@mattstack/rt-client';
 import {
+  FORGE_NOT_YET,
   gitlabOnly,
   loadAgentSettings,
   loadConfig,
@@ -37,8 +38,15 @@ import {
   readLatchRows,
 } from '../src/latch/latch-state.ts';
 import { packForLaunch } from '../src/manifest-bindings.ts';
+import {
+  declineRespondAsks,
+  type AskActionDeps,
+} from '../src/peer/ask-actions.ts';
 import { makeSwitchboardClient } from '../src/peer/client.ts';
-import { makeEnvelope } from '../src/peer/envelope.ts';
+import {
+  makeEnvelope,
+  type NudgeOutcomePayload,
+} from '../src/peer/envelope.ts';
 import { runPeerTick } from '../src/peer/inbox.ts';
 import { makeAskLauncher, makeRepoForMrUrl } from '../src/peer/launch-ask.ts';
 import { boardMaterializeDeps } from '../src/peer/materialize-deps.ts';
@@ -281,7 +289,24 @@ try {
       );
     let ownUrls = new Set<string>();
     let nudgeReady = !forgeSkip;
-    if (nudgeReady && (!peerMode || needsOwnMrs(readNudges()))) {
+    const markHandled: AskActionDeps['markNudgeHandled'] = (
+      id,
+      r,
+      reason,
+      opts
+    ) => markNudgeHandled(id, r, reason, undefined, undefined, opts);
+    const publishOutcome = (to: string, payload: NudgeOutcomePayload) =>
+      enqueueOutbox(makeEnvelope(to, 'nudge-outcome', payload));
+    if (peerMode && boardConfig.forge.kind === 'github') {
+      declineRespondAsks(
+        {
+          readNudges,
+          markNudgeHandled: markHandled,
+          publishOutcome,
+        },
+        FORGE_NOT_YET
+      );
+    } else if (nudgeReady && (!peerMode || needsOwnMrs(readNudges()))) {
       try {
         if (peerMode) username = await resolveUsername();
         ownUrls = new Set((await fetchOwnMrs()).map(m => m.mrUrl));
@@ -297,8 +322,7 @@ try {
     if (nudgeReady) {
       const nudgeResult = await runNudgePass({
         readNudges,
-        markNudgeHandled: (id, r, reason, opts) =>
-          markNudgeHandled(id, r, reason, undefined, undefined, opts),
+        markNudgeHandled: markHandled,
         readReviewStates,
         readRespondStates,
         isOwnMr: mrUrl => ownUrls.has(mrUrl),
@@ -323,8 +347,7 @@ try {
             // the held ask still shows in the inbox
           }
         },
-        publishOutcome: (to, payload) =>
-          enqueueOutbox(makeEnvelope(to, 'nudge-outcome', payload)),
+        publishOutcome,
         memory,
         cfg: { ...triage, enabled: peerAsks.enabled },
         appendAudit,

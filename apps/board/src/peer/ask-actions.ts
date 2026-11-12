@@ -192,6 +192,29 @@ export function declineWhileOff(
   return count;
 }
 
+/** Decline every waiting respond ask with `reason`, leaving review and
+    re-review asks for the pass. */
+export function declineRespondAsks(
+  deps: Pick<
+    AskActionDeps,
+    'readNudges' | 'markNudgeHandled' | 'publishOutcome'
+  >,
+  reason: string
+): number {
+  let count = 0;
+  for (const ask of deps.readNudges()) {
+    if (ask.handled || ask.kind !== 'respond') continue;
+    if (!deps.markNudgeHandled(ask.id, 'rejected', reason, { declined: true }))
+      continue;
+    deps.publishOutcome(
+      ask.from,
+      outcome(ask, 'rejected', { reason, declined: true })
+    );
+    count++;
+  }
+  return count;
+}
+
 /** Expire waiting asks past NUDGE_FRESH_MS. The triage pass does the same,
     but a board with no cron pass would otherwise hold them forever. */
 export function expireStaleAsks(
