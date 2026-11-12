@@ -423,6 +423,14 @@ What the graph cannot show:
   refused approval), the `--report` write, and under a run the domain
   skill's `run_stage` done and `run_status` done. A write sent in the same
   batch as the done write is lost.
+- **A submit result with `replyErrors` (GitHub).** On GitHub a submit that
+  returns `published: true` with `replyErrors` is a review that is up and
+  complete: the listed replies are the only part missing. Post each listed
+  reply once with `mr_reply_thread`; its thread stays unresolved unless that
+  reply posts, and a `resolve` that was due runs after it with
+  `mr_resolve_thread`. The review is never submitted again, and that is not
+  the split-posting the STOP guards against. A reply that still fails is
+  reported in the done summary with its error, apart from `resolveErrors`.
 - **Resumed entry.** `--resumed-gate <gateId>` means a human answered a
   gate an earlier pane on this MR opened and the board parked, and the
   board is replaying that answer into this pane. `--resumed-gate-kind`
@@ -1307,15 +1315,6 @@ on the verdict or at a posting origin, from `--report`'s Skipped earlier
 section. Its `changed` is the one the reviewing pass worked out, as that
 entry's `Changed:` line in `--report`'s Skipped earlier section records
 it.
-
-On GitHub a submit that returns `published: true` with `replyErrors` is
-a review that is up and complete: the listed replies are the only part
-missing. Post each listed reply once with `mr_reply_thread`; its thread
-stays unresolved unless that reply posts, and a `resolve` that was due
-runs after it with `mr_resolve_thread`. The review is never submitted
-again, and that is not the split-posting the STOP guards against. A
-reply that still fails is reported in the done summary with its error,
-apart from `resolveErrors`.
 
 ### Move the bad-anchor findings into the summary (review)
 

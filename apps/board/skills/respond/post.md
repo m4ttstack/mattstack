@@ -483,7 +483,8 @@ held.
 
 Take "Off-script step" with this question. Label: `reply to PR comment
 <threadId> refused twice on !<iid>: <second error>`. Context: both
-`mr_comment` errors, quoted, and the reply text.
+`mr_comment` errors, quoted, and the full body to post, marker line
+included.
 
 | Value                                                                                                         | Label                | Description                                               |
 | ------------------------------------------------------------------------------------------------------------- | -------------------- | --------------------------------------------------------- |
