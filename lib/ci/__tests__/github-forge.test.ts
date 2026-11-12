@@ -374,6 +374,55 @@ describe("GithubHeadReader per-commit reads", () => {
     expect(h.store.get().required).toBeNull();
   });
 
+  describe("a retargeted PR on the same sha", () => {
+    const rulesFor = (branch: string) => `:repo/rules/branches/${branch}`;
+    const branchFor = (branch: string) => `:repo/branches/${branch}`;
+    const byBranch: Responder = (name, payload) => {
+      if (name === "forge:get" && payload.path === rulesFor("main")) {
+        return forgeOk([{ type: "required_status_checks", parameters: { required_status_checks: [{ context: "checks" }] } }]);
+      }
+      if (name === "forge:get" && payload.path === rulesFor("release")) {
+        return forgeOk([{ type: "required_status_checks", parameters: { required_status_checks: [{ context: "release-gate" }] } }]);
+      }
+      if (name === "forge:get") return forgeOk({ protected: false });
+      return defaultResponder()(name, payload);
+    };
+    const onTarget = (targetBranch: string) => ({ ...mrOf([job("checks", "running")]), targetBranch });
+
+    test("re-reads the required list for the new target and keeps the anchor", async () => {
+      const h = harness(byBranch);
+      await h.reader.read(onTarget("main"), SHA_FULL);
+      expect(h.store.get()).toMatchObject({ required: ["checks"], requiredFor: "main", requiredTries: 1 });
+      const anchor = h.store.get().anchor;
+
+      h.reset();
+      const head = await h.reader.read(onTarget("release"), SHA_FULL);
+      expect(h.calls.filter((c) => c.name === "forge:get").map((c) => c.payload.path)).toEqual([rulesFor("release"), branchFor("release")]);
+      expect(h.count("pipeline:list")).toBe(0);
+      expect(h.store.get()).toMatchObject({ required: ["release-gate"], requiredFor: "release", requiredTries: 1, anchor });
+      expect(head?.status).toBe("pending");
+    });
+
+    test("makes no required read while the target stays the same", async () => {
+      const h = harness(byBranch);
+      await h.reader.read(onTarget("main"), SHA_FULL);
+      h.reset();
+      await h.reader.read(onTarget("main"), SHA_FULL);
+      expect(h.count("forge:get")).toBe(0);
+    });
+
+    test("a retarget after exhausted attempts gets fresh attempts", async () => {
+      const h = harness(defaultResponder({ rules: forgeOk(null, 500) }));
+      for (let i = 0; i < 3; i++) await h.reader.read(onTarget("main"), SHA_FULL);
+      expect(h.store.get()).toMatchObject({ required: null, requiredTries: 3 });
+      h.reset();
+      h.setResponder(byBranch);
+      await h.reader.read(onTarget("release"), SHA_FULL);
+      expect(h.count("forge:get")).toBe(2);
+      expect(h.store.get()).toMatchObject({ required: ["release-gate"], requiredFor: "release", requiredTries: 1 });
+    });
+  });
+
   test("a failed read followed by a good one keeps the list", async () => {
     const h = harness(defaultResponder({ rules: forgeOk(null, 500) }));
     await h.reader.read(mrOf([job("checks", "running")]), SHA_FULL);

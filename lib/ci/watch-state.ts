@@ -47,7 +47,7 @@ function parse(raw: string): PersistedWatch | null {
     const parsed: PersistedWatch = { ...rest, heldBy: typeof v.heldBy === "string" ? v.heldBy : null };
     if (isObject(github)) {
       const anchor = isObject(github.anchor) && Number.isFinite(github.anchor.createdAt) ? github.anchor : null;
-      parsed.github = { ...github, anchor };
+      parsed.github = { ...github, anchor, requiredFor: typeof github.requiredFor === "string" ? github.requiredFor : null };
     }
     return parsed;
   } catch {

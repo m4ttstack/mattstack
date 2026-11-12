@@ -16,6 +16,7 @@ export interface GithubJob {
 
 export interface GithubCommitFacts {
   required: string[] | null;
+  requiredFor: string | null;
   requiredTries: number;
   anchor: { runId: number | null; createdAt: number } | null;
   anchorTries: number;
@@ -45,7 +46,7 @@ const CHECK_ID_PREFIX = "github:check:";
 const RUN_ID_PREFIX = "github:run:";
 
 export function emptyFacts(): GithubCommitFacts {
-  return { required: null, requiredTries: 0, anchor: null, anchorTries: 0, confirm: null };
+  return { required: null, requiredFor: null, requiredTries: 0, anchor: null, anchorTries: 0, confirm: null };
 }
 
 export function restJobStatus(status: string | null, conclusion: string | null): string {
@@ -251,6 +252,12 @@ export class GithubHeadReader {
     const sha = mr.sha!;
     let listing: { rows: PipelineListRow[] | null } | null = null;
 
+    // A retargeted PR keeps its head sha, so the required list is per target branch as well as per commit.
+    if (mr.targetBranch && mr.targetBranch !== facts.requiredFor) {
+      facts.required = null;
+      facts.requiredTries = 0;
+      facts.requiredFor = mr.targetBranch;
+    }
     if (facts.required === null && facts.requiredTries < REQUIRED_TRIES && mr.targetBranch) {
       const branch = encodeURIComponent(mr.targetBranch);
       const [rules, protection] = await Promise.all([
