@@ -168,7 +168,7 @@ export function closeUnits(units: UnitPointers[], idOf: (leaf: string) => string
   return closed;
 }
 
-/** A base copy's provenance keys come first, so its masked `version` stays the first one. Keys are sorted so rewording a body never reorders the file. */
+/** A base copy's provenance keys come first. Keys are sorted so rewording a body never reorders the file. */
 export function mapFileText(map: PointerMap, provenance: Record<string, unknown> = {}): string {
   const keys = Object.fromEntries(Object.entries(map.keys).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
   return JSON.stringify({ ...provenance, ...map, keys }, null, 2) + "\n";

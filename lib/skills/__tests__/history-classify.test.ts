@@ -3,7 +3,7 @@ import { execFileSync } from "child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { classifyCommits, CLASSIFY_RULE, isVersionOnly, maskStamps } from "../history-classify.ts";
+import { classifyCommits, CLASSIFY_RULE, isVersionOnly, maskStamps, SAVE_EVERY } from "../history-classify.ts";
 import { __test__ as warnTest } from "../../ui/warn.ts";
 import { captureOut } from "../../ui/__tests__/capture-out.ts";
 
@@ -243,6 +243,20 @@ describe("classifyCommits", () => {
       cap.restore();
       warnTest.reset();
     }
+  });
+
+  test("a run cut off part-way leaves the answers it saved in the cache", () => {
+    const oids = Array.from({ length: SAVE_EVERY + 5 }, (_, i) => i.toString(16).padStart(40, "0"));
+    let seen = 0;
+    const cutOff = () => {
+      if (++seen > SAVE_EVERY + 3) throw new Error("killed");
+      return true;
+    };
+    expect(() => classifyCommits(repo, oids, cachePath, cutOff)).toThrow("killed");
+    expect(JSON.parse(readFileSync(cachePath, "utf8"))).toEqual({ rule: CLASSIFY_RULE, shas: Object.fromEntries(oids.slice(0, SAVE_EVERY).map((oid) => [oid, true])) });
+
+    const again = classifyCommits(repo, oids, cachePath, () => false);
+    expect(again).toEqual(oids.slice(0, SAVE_EVERY));
   });
 
   test("a sha git cannot read is not version-only and is not cached", () => {

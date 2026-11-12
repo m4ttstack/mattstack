@@ -82,8 +82,8 @@ export function movedSourcesOf(
   return [...moved.values()];
 }
 
-/** rt's `LOCK_REL` (`lib/skills/compiled-lock.ts`); every compile rewrites
-    it, and a version-only sync writes no other compiled file. */
+/** rt's `LOCK_REL` (`lib/skills/compiled-lock.ts`); a compile that changes a version
+    rewrites it, and a version-only sync writes no other compiled file. */
 const COMPILED_LOCK = 'pack/compiled.lock.json';
 
 /** Every file a compile writes, relative to the pack: the pack's compiled

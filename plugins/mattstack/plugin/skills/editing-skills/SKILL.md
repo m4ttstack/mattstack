@@ -664,7 +664,7 @@ What `compile` and `check` read:
 | everything, for `--pack mattstack` itself    | the monorepo CHECKOUT's plugins/mattstack (engines, fills, and `pack/skills.jsonc`); the installed cache is never consulted                      |
 | mattstack version each verb was built from   | mattstack's `plugin.json` at compile time, written to the pack's `pack/compiled.lock.json`; `check` does not compare it, so a bump that changed no inlined engine, include, or fill is not drift |
 | the team pack's `pack/params.jsonc` and `pack/sections/<name>.md` | the pack dir, like its fills: compile fills the org base's `{{team.*}}` markers from them, so an edit is drift to `check` and a source change to sync (mattstack:extending-a-pack) |
-| the team pack's `pack/requires.json`         | written by compile from the installed mattstack's `pack/requires.json`, raised to the release that resolves `{{team.*}}` markers when the pack's base text uses one (never hand-edited; `check` reports a stale one as drift). mattstack's own floor is hand-maintained |
+| the team pack's `pack/requires.json`         | written by compile from the installed mattstack's `pack/requires.json`, raised to the release that resolves `{{team.*}}` markers when the pack's base text uses one, and to the release that reads versionless ids and `@key` pointers when its compiled skills carry keys (never hand-edited; `check` reports a stale one as drift). mattstack's own floor is hand-maintained |
 
 ## When a hand-written skill needs shared plugin text
 

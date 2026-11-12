@@ -2333,6 +2333,7 @@ describe("commit-pending against real git", () => {
     expect(remoteLog(remote)).toEqual(["base"]);
     expect(readVersion(pack.dir)).toBe("1.0.1");
   }, REAL_GIT_TIMEOUT_MS);
+
   test("a commit rt cannot identify, because a ref is named like its short sha, is left in place and named, never undone", async () => {
     const { root, remote, pack } = realPackRepo("");
     const engine = fixturePack("beacon", "local", "2.0.0");
@@ -2358,6 +2359,7 @@ describe("commit-pending against real git", () => {
     expect(mustGit(root, "log", "--format=%s").trim().split("\n")).toEqual(["skills sync: acme v1.0.1", "base"]);
     expect(remoteLog(remote)).toEqual(["base"]);
   }, REAL_GIT_TIMEOUT_MS);
+
   test("a file staged while rt makes its commit is caught by the tree check, and rt undoes that commit", async () => {
     const { root, remote, pack } = realPackRepo("");
     const engine = fixturePack("beacon", "local", "2.0.0");
@@ -2667,6 +2669,7 @@ describe("commit-pending against real git", () => {
     expectBuildPutBack(pack);
     expect(remoteLog(remote)).toEqual(["base"]);
   }, REAL_GIT_TIMEOUT_MS);
+
   test("a file staged after the index check and before the commit is caught by the tree check, and rt undoes that commit", async () => {
     const { root, remote, pack } = realPackRepo("");
     const engine = fixturePack("beacon", "local", "2.0.0");
@@ -2854,6 +2857,7 @@ describe("commit-pending against real git", () => {
     expect(detail).not.toContain("moved past");
     expect(remoteLog(remote)).toEqual(["base"]);
   }, REAL_GIT_TIMEOUT_MS);
+
   test("a manifest another process edits and stages before the version commit is left as found and named", async () => {
     const { root, remote, pack } = realPackRepo("");
     const engine = fixturePack("beacon", "local", "2.0.0");
@@ -2898,6 +2902,7 @@ describe("commit-pending against real git", () => {
     expect(mustGit(root, "log", "--format=%s").trim().split("\n")).toEqual(["base"]);
     expect(remoteLog(remote)).toEqual(["base"]);
   }, REAL_GIT_TIMEOUT_MS);
+
   test("a bump another process stages exactly as rt would before rt stages it commits as rt's own", async () => {
     const { root, remote, pack } = realPackRepo("");
     const engine = fixturePack("beacon", "local", "2.0.0");
@@ -2927,6 +2932,7 @@ describe("commit-pending against real git", () => {
     expect(mustGit(root, "show", "HEAD:pack/skills.jsonc")).toBe('{ "bindings": {} }\n');
     expect(mustGit(root, "status", "--porcelain")).toBe("");
   }, REAL_GIT_TIMEOUT_MS);
+
   test("a clean pack inside a larger repo commits its rebuilt skills, read from the pack", async () => {
     const { root, remote, pack } = realPackRepo("packs");
     const engine = fixturePack("beacon", "local", "2.0.0");

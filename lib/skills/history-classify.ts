@@ -148,13 +148,16 @@ function fullOid(repoDir: string, sha: string): string | null {
   return git(repoDir, ["rev-parse", "--verify", "--quiet", `${sha}^{commit}`])?.toString().trim() || null;
 }
 
+/** Answers worked out between cache writes; a caller that gives up mid-run keeps all but the last few. */
+export const SAVE_EVERY = 25;
+
 /**
  * The input shas whose commits changed nothing but version stamps, in input order and as given. The whole commit
  * counts, so a change outside the pack keeps it unfolded. A commit never changes, so its answer is cached by full oid.
  */
-export function classifyCommits(repoDir: string, shas: string[], cachePath: string): string[] {
+export function classifyCommits(repoDir: string, shas: string[], cachePath: string, classifyStep: typeof classifyOne = classifyOne): string[] {
   const cache = readCache(cachePath);
-  let learned = false;
+  let unsaved = 0;
   const oids = new Map<string, string>();
   for (const sha of new Set(shas)) {
     if (!isCommitSha(sha)) continue;
@@ -162,11 +165,14 @@ export function classifyCommits(repoDir: string, shas: string[], cachePath: stri
     if (oid === null) continue;
     oids.set(sha, oid);
     if (Object.hasOwn(cache.shas, oid)) continue;
-    const answer = classifyOne(repoDir, oid);
+    const answer = classifyStep(repoDir, oid);
     if (answer === null) continue;
     cache.shas[oid] = answer;
-    learned = true;
+    if (++unsaved >= SAVE_EVERY) {
+      writeCache(cachePath, cache);
+      unsaved = 0;
+    }
   }
-  if (learned) writeCache(cachePath, cache);
+  if (unsaved > 0) writeCache(cachePath, cache);
   return shas.filter((sha) => oids.has(sha) && cache.shas[oids.get(sha)!] === true);
 }
