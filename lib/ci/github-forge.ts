@@ -117,6 +117,10 @@ function aggregate(statuses: string[]): string {
   return statuses.every((s) => s === "success" || s === "skipped") ? "success" : "pending";
 }
 
+export function emptyHead(sha: string | null, ref: string | null): GithubHead {
+  return { id: "", number: 0, status: "", sha, ref, webUrl: null, createdAt: null, jobs: [], allBlock: true };
+}
+
 export function buildHead(p: Pipeline, facts: GithubCommitFacts): GithubHead {
   const required = facts.required;
   const hasList = required !== null && required.length > 0;
@@ -307,6 +311,8 @@ function earliestRun(rows: PipelineListRow[]): { runId: number; createdAt: numbe
 
 const TRACE_TIMEOUT_MS = 60_000;
 const GITHUB_STAGE = "checks";
+// The branch filter matches head_branch, so a fork PR opened from the fork's own base-named branch lists as a base run.
+const DROPPED_BASE_SOURCES = new Set(["schedule", "pull_request", "pull_request_target"]);
 
 function checkJobId(id: string): number | null {
   if (!id.startsWith(CHECK_ID_PREFIX)) return null;
@@ -373,7 +379,7 @@ export function githubTriageForge(command: typeof rtCommand, target: GithubTarge
       }
       const bySha = new Map<string, PipelineListRow[]>();
       for (const r of res.data.pipelines) {
-        if (r.source === "schedule" || r.sha === null) continue;
+        if ((r.source !== null && DROPPED_BASE_SOURCES.has(r.source)) || r.sha === null) continue;
         const runs = bySha.get(r.sha) ?? [];
         runs.push(r);
         bySha.set(r.sha, runs);
@@ -414,7 +420,7 @@ export function githubTriageForge(command: typeof rtCommand, target: GithubTarge
       }
       const rows = await runFailedJobs(id);
       if (!rows) return null;
-      return { jobs: asForgeJobs(rows, id, (jobId) => headBlocking.get(jobId) === false), crossProject: [] };
+      return { jobs: asForgeJobs(rows, id, (id) => headBlocking.get(id) === false), crossProject: [] };
     },
     async trace(jobId) {
       const res = await command<string>("mr:fetch-job-trace", { repoName: target.identity, iid: target.iid, jobId }, { timeoutMs: TRACE_TIMEOUT_MS });

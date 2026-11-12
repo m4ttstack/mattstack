@@ -660,6 +660,28 @@ describe("githubTriageForge", () => {
     ]);
   });
 
+  test("pipelinesForRef drops pull_request runs, which a fork PR from a base-named branch lists under the base ref", async () => {
+    const { forge, calls } = forgeOf((name) => name === "pipeline:list"
+      ? { ok: true, data: { pipelines: [
+        baseRow(830, "fff", "failed", "pull_request"),
+        baseRow(829, "eee", "failed", "pull_request_target"),
+        baseRow(812, "aaa", "failed"),
+      ] } }
+      : { ok: false, error: `unexpected ${name}` });
+    expect((await forge.pipelinesForRef("main", 4))?.map((g) => g.id)).toEqual([812]);
+    expect(calls).toHaveLength(1);
+  });
+
+  test("a base commit whose only run was cancelled makes no failed-jobs read and has no jobs", async () => {
+    const { forge, calls } = forgeOf((name) => name === "pipeline:list"
+      ? { ok: true, data: { pipelines: [baseRow(840, "ggg", "canceled")] } }
+      : { ok: false, error: `unexpected ${name}` });
+    await forge.pipelinesForRef("main", 4);
+    calls.splice(0);
+    expect(await forge.failedJobs(840)).toEqual({ jobs: [], crossProject: [] });
+    expect(calls).toEqual([]);
+  });
+
   test("pipelinesForRef returns at most limit commits", async () => {
     const { forge } = forgeOf(baseResponder);
     expect((await forge.pipelinesForRef("main", 1))?.map((g) => g.id)).toEqual([812]);

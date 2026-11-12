@@ -10,7 +10,7 @@ import {
   type CiLeaseHolder, type CiLeaseOpts, type Commands,
 } from "../../packages/rt-client/src/index.ts";
 import { readChatSession } from "../chat-session.ts";
-import { emptyFacts, GithubHeadReader, githubTriageForge, memoryFacts, type FactsStore, type GithubHead, type GithubTarget } from "../ci/github-forge.ts";
+import { emptyFacts, emptyHead, GithubHeadReader, githubTriageForge, memoryFacts, type FactsStore, type GithubHead, type GithubTarget } from "../ci/github-forge.ts";
 import { gitlabTriageForge } from "../ci/gitlab-forge.ts";
 import { isHttpsMrUrl, NO_SESSION, ownerFromEnv } from "../ci/lease-guard.ts";
 import { keepalive as processKeepalive, type LeaseKeepalive } from "../ci/lease-keepalive.ts";
@@ -113,10 +113,6 @@ function prFacts(prUrl: string, pr: PrRead): FactsStore {
 function readGithubHead(command: typeof rtCommand, target: GithubTarget, pr: PrRead, store: FactsStore, now: () => number, watchedSha: string | null): Promise<GithubHead | null> {
   return new GithubHeadReader(command, target, store, now)
     .read({ sha: pr.sha ?? null, targetBranch: pr.targetBranch ?? null, pipeline: pr.pipeline ?? null }, watchedSha);
-}
-
-function emptyHead(pr: PrRead): GithubHead {
-  return { id: "", number: 0, status: "", sha: pr.sha ?? null, ref: pr.sourceBranch ?? null, webUrl: null, createdAt: null, jobs: [], allBlock: true };
 }
 
 function settingBudget(): number {
@@ -504,7 +500,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
           const pr = subject.mr;
           const read = await readGithubHead(tri.command, target, pr, prFacts(pr.webUrl ?? "", pr), Date.now, pr.sha ?? null);
           if (!read && pipelineId === undefined) return err("the PR has no checks; pass pipelineId");
-          const head = read ?? emptyHead(pr);
+          const head = read ?? emptyHead(pr.sha ?? null, pr.sourceBranch ?? null);
           run = { forge: githubTriageForge(tri.command, target, head), pipelineId: pipelineId ?? head.number, targetBranch: pr.targetBranch ?? null };
         } else {
           run = { forge: gitlabTriageForge(tri.command, target), pipelineId: subject.pipelineId, targetBranch: subject.targetBranch };
