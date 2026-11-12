@@ -224,7 +224,7 @@ try {
       iid: m.iid,
       projectId: parseRepoId(m.repositoryId),
       projectPath:
-        projectPathFromWebUrl(m.webUrl!, boardConfig.forge.host) ?? '',
+        projectPathFromWebUrl(m.webUrl!, boardConfig) ?? '',
       // Encoded, not the bare rtRepos value: readDetail below passes this
       // straight to readDiscussions, which is daemon-identity-keyed.
       rtRepo: repoIdentityField(m.rtRepo) ?? '',
@@ -258,7 +258,7 @@ try {
       doctorTabOpen: iid => mrTabOpen(boardConfig.doctorsWorkspace, iid),
       now: () => Date.now(),
       attendants: createBoardAttendants(),
-      ...daemonOwnerIo(boardConfig.forge.host),
+      ...daemonOwnerIo(boardConfig),
     });
     console.log(
       `triage: dispatched ${result.dispatched}, escalated ${result.escalated}, skipped ${result.skipped}`

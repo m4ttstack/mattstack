@@ -213,16 +213,16 @@ describe('projectPathFromWebUrl', () => {
     expect(
       projectPathFromWebUrl(
         'https://gitlab.com/org/sub/repo/-/merge_requests/7',
-        'https://gitlab.com'
+        { forge: { kind: 'gitlab', host: 'https://gitlab.com' }, projects: [] }
       )
     ).toBe('org/sub/repo');
   });
   test('null for foreign host', () => {
     expect(
-      projectPathFromWebUrl(
-        'https://other.com/org/repo/-/merge_requests/7',
-        'https://gitlab.com'
-      )
+      projectPathFromWebUrl('https://other.com/org/repo/-/merge_requests/7', {
+        forge: { kind: 'gitlab', host: 'https://gitlab.com' },
+        projects: [],
+      })
     ).toBeNull();
   });
 });
@@ -469,6 +469,59 @@ describe('buildBoard', () => {
     const board = buildBoard(prs, testConfig, FIXTURE_NOW);
     expect(board.find(m => m.webUrl!.includes('/g/a/'))!.rtRepo).toBe('repo-a');
     expect(board.find(m => m.webUrl!.includes('/g/b/'))!.rtRepo).toBeNull();
+  });
+});
+
+describe('buildBoard on a GitHub forge', () => {
+  const ghConfig: BoardConfig = {
+    ...config,
+    forge: { kind: 'github', host: 'https://github.com' },
+    projects: ['acme/widgets'],
+    members: [{ username: 'dev1' }],
+    rtRepos: { 'acme/widgets': 'github.com/acme/widgets' },
+  };
+  const ghPr = (n: number, url: string, username = 'dev1') =>
+    pr({
+      id: `github:${n}`,
+      iid: n,
+      provider: 'github',
+      repositoryId: 'github:1',
+      webUrl: url,
+      author: { id: 'github:9', username, name: username, avatarUrl: null },
+      divergedCommitsCount: null,
+    } as Partial<PullRequest>);
+
+  test('keeps a GitHub row', () => {
+    const rows = buildBoard(
+      [ghPr(7, 'https://github.com/acme/widgets/pull/7')],
+      ghConfig,
+      FIXTURE_NOW
+    );
+    expect(rows.map(r => r.rtRepo)).toEqual(['github.com/acme/widgets']);
+  });
+  test('keeps a GitHub row whose URL differs in case from board.projects', () => {
+    const rows = buildBoard(
+      [ghPr(7, 'https://github.com/Acme/Widgets/pull/7')],
+      ghConfig,
+      FIXTURE_NOW
+    );
+    expect(rows.map(r => r.iid)).toEqual([7]);
+  });
+  test('drops a GitHub row outside board.projects', () => {
+    const rows = buildBoard(
+      [ghPr(8, 'https://github.com/acme/other/pull/8')],
+      ghConfig,
+      FIXTURE_NOW
+    );
+    expect(rows).toEqual([]);
+  });
+  test('matches a GitHub author exactly', () => {
+    const rows = buildBoard(
+      [ghPr(9, 'https://github.com/acme/widgets/pull/9', 'Dev1')],
+      ghConfig,
+      FIXTURE_NOW
+    );
+    expect(rows).toEqual([]);
   });
 });
 

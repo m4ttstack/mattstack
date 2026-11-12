@@ -635,7 +635,7 @@ const runMrs = new RunMrResolver({
   onChange: () => sseNudge(),
 });
 
-const ownerIo = () => daemonOwnerIo(config.forge.host);
+const ownerIo = () => daemonOwnerIo(config);
 const runOwners = createRunOwnerRefresher({
   listRuns: () => ownerIo().listRuns(),
   probe: session => ownerIo().probe(session),
@@ -958,9 +958,7 @@ function doctorTabs(
   webUrl: string | null | undefined,
   memo: Map<string, string[]>
 ): string[] {
-  const project = webUrl
-    ? projectPathFromWebUrl(webUrl, config.forge.host)
-    : null;
+  const project = webUrl ? projectPathFromWebUrl(webUrl, config) : null;
   if (!project) return [];
   let tabs = memo.get(project);
   if (!tabs) {
@@ -1315,7 +1313,7 @@ async function readOwnerRules(
   | { ok: false; status: number; message: string }
 > {
   const projectPath = mr.webUrl
-    ? projectPathFromWebUrl(mr.webUrl, config.forge.host)
+    ? projectPathFromWebUrl(mr.webUrl, config)
     : null;
   const repoName = projectPath ? daemonRepoField(config, projectPath) : null;
   if (!repoName) {
@@ -1391,7 +1389,7 @@ async function ownersPostPlan(
   | Response
 > {
   const projectPath = mr.webUrl
-    ? projectPathFromWebUrl(mr.webUrl, config.forge.host)
+    ? projectPathFromWebUrl(mr.webUrl, config)
     : null;
   if (!projectPath || !codeownerSlackOn(config, projectPath)) {
     return new Response('code owner posts are not turned on for this repo', {
@@ -2256,10 +2254,7 @@ const httpServer = Bun.serve({
           return mr ? { iid: mr.iid, webUrl: mrUrl } : null;
         },
         repoFor: mr => {
-          const projectPath = projectPathFromWebUrl(
-            mr.webUrl,
-            config.forge.host
-          );
+          const projectPath = projectPathFromWebUrl(mr.webUrl, config);
           return projectPath ? daemonRepoField(config, projectPath) : null;
         },
         readDiff: payload =>
@@ -2775,7 +2770,7 @@ const httpServer = Bun.serve({
         const repo = resolveLaunchRepo(
           mr.rtRepo,
           config.forge.host,
-          projectPathFromWebUrl(parsed.mrUrl, config.forge.host) ?? '',
+          projectPathFromWebUrl(parsed.mrUrl, config) ?? '',
           parsed.mrUrl
         );
         if (reReview) {
@@ -2985,7 +2980,7 @@ const httpServer = Bun.serve({
         const repo = resolveLaunchRepo(
           mr.rtRepo,
           config.forge.host,
-          projectPathFromWebUrl(parsed.mrUrl, config.forge.host) ?? '',
+          projectPathFromWebUrl(parsed.mrUrl, config) ?? '',
           parsed.mrUrl
         );
         if (resume) {
@@ -3184,7 +3179,7 @@ const httpServer = Bun.serve({
         const repo = resolveLaunchRepo(
           mr.rtRepo,
           config.forge.host,
-          projectPathFromWebUrl(parsed.mrUrl, config.forge.host) ?? '',
+          projectPathFromWebUrl(parsed.mrUrl, config) ?? '',
           parsed.mrUrl
         );
         {
@@ -3576,7 +3571,7 @@ const httpServer = Bun.serve({
             headers: { 'content-type': 'application/json' },
           });
         }
-        const path = projectPathFromWebUrl(parsed.mrUrl, config.forge.host);
+        const path = projectPathFromWebUrl(parsed.mrUrl, config);
         if (!path)
           return new Response(
             `could not derive a project path from "${parsed.mrUrl}"`,
@@ -3879,7 +3874,7 @@ const httpServer = Bun.serve({
           const refused = requireOwnMr(mr);
           if (refused) return refused;
         }
-        const path = projectPathFromWebUrl(parsed.mrUrl, config.forge.host);
+        const path = projectPathFromWebUrl(parsed.mrUrl, config);
         if (!path)
           return new Response(
             `could not derive a project path from "${parsed.mrUrl}"`,
@@ -5623,8 +5618,7 @@ async function handleAgentSignal(
             detail,
             gateway: latchGateway(gitlabOnly(config), gitlabToken),
             projectId,
-            projectPath:
-              projectPathFromWebUrl(signal.mrUrl, config.forge.host) ?? '',
+            projectPath: projectPathFromWebUrl(signal.mrUrl, config) ?? '',
             mrUrl: signal.mrUrl,
             iid: mr.iid,
           });
@@ -5670,7 +5664,7 @@ async function handleAgentSignal(
               gitlabOnly(config),
               gitlabToken
             ).resolveDiscussion(
-              projectPathFromWebUrl(signal.mrUrl, config.forge.host) ?? '',
+              projectPathFromWebUrl(signal.mrUrl, config) ?? '',
               signal.iid,
               id
             );

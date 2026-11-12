@@ -21,7 +21,7 @@ export function makeRepoForMrUrl(
 ): (mrUrl: string) => string {
   return mrUrl => {
     const projectPath =
-      projectPathFromWebUrl(mrUrl, boardConfig.forge.host) ?? '';
+      projectPathFromWebUrl(mrUrl, boardConfig) ?? '';
     return resolveLaunchRepo(
       boardConfig.rtRepos[projectPath] ?? null,
       boardConfig.forge.host,

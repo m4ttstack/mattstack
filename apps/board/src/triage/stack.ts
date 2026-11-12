@@ -27,7 +27,9 @@ export function projectKeyOf(mrUrl: string): string {
   try {
     const path = new URL(mrUrl).pathname;
     const [project] = path.split('/-/');
-    return (project ?? path).replace(/\/\d+$/, '');
+    return (project ?? path)
+      .replace(/\/pull\/\d+(?:\/.*)?$/, '')
+      .replace(/\/\d+$/, '');
   } catch {
     return mrUrl.replace(/\/\d+$/, '');
   }

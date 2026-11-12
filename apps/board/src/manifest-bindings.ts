@@ -175,7 +175,7 @@ export function resolveLaunchSkill(
   pack: string | null,
   mattstackHome?: string
 ): string {
-  const project = projectPathFromWebUrl(mrUrl, cfg.forge.host);
+  const project = projectPathFromWebUrl(mrUrl, cfg);
   const resolved: ResolvedBoardSkill = project
     ? resolveBoardSkill(kind, project, cfg, pack, mattstackHome)
     : { skill: configSkillFor(kind, cfg), source: 'config', pack };

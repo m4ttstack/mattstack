@@ -103,15 +103,26 @@ export interface Snapshot {
   syncError: BoardSyncError | null;
 }
 
-/** Parse "group/project" out of a GitLab MR web URL. */
+/** Parse "group/project" (GitLab) or "owner/repo" (GitHub) out of an MR web
+    URL. A GitHub match returns the `board.projects` spelling of the repo, so
+    every caller keys it the same way whatever case the URL carries. */
 export function projectPathFromWebUrl(
   webUrl: string,
-  gitlabHost: string
+  config: Pick<BoardConfig, 'forge' | 'projects'>
 ): string | null {
-  if (!webUrl.startsWith(gitlabHost)) return null;
-  const rest = webUrl.slice(gitlabHost.length).replace(/^\//, '');
-  const idx = rest.indexOf('/-/');
-  return idx === -1 ? null : rest.slice(0, idx);
+  const host = config.forge.host;
+  if (!webUrl.startsWith(host)) return null;
+  const rest = webUrl.slice(host.length);
+  if (config.forge.kind === 'github') {
+    const m = /^\/?([^/?#]+)\/([^/?#]+)\/pull\/\d+(?:[/?#].*)?$/.exec(rest);
+    if (!m) return null;
+    const path = `${m[1]}/${m[2]}`;
+    const lower = path.toLowerCase();
+    return config.projects.find(p => p.toLowerCase() === lower) ?? path;
+  }
+  const trimmed = rest.replace(/^\//, '');
+  const idx = trimmed.indexOf('/-/');
+  return idx === -1 ? null : trimmed.slice(0, idx);
 }
 
 /** Collapse the SDK's pipeline signals into one grouping/sorting key. */
@@ -194,9 +205,7 @@ export function buildBoard(
       const prefix = ticket ? ticket.slice(0, ticket.indexOf('-')) : null;
       if (!prefix || !prefixes.has(prefix)) continue;
     }
-    const path = pr.webUrl
-      ? projectPathFromWebUrl(pr.webUrl, config.forge.host)
-      : null;
+    const path = pr.webUrl ? projectPathFromWebUrl(pr.webUrl, config) : null;
     if (!path || !projects.has(path)) continue;
     // Drop MRs gone quiet: no activity (last update) within the stale window.
     const staleDays =
