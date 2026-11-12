@@ -93,6 +93,12 @@ export interface MrByTargetData {
 }
 
 /** One MR fetched from GitLab on demand: any author, any state. Never from the open-MR cache. */
+/** A follow-up write GitHub's create needed that did not apply; the PR exists without it. */
+export interface MrCreateFailedStep {
+  step: "reviewers" | "assignees" | "labels";
+  message: string;
+}
+
 export interface MrGetData {
   mr: PullRequest;
   fetchedAt: number;
@@ -1236,10 +1242,13 @@ export interface Commands {
       GitLab created the MR but reading it back failed. `labels` apply at
       creation (an empty array sends nothing); `squash` is one follow-up write, and a create that landed is
       never reported failed over it: `squashApplied: false` plus
-      `squashError` means set it with mr:update instead of creating again. */
+      `squashError` means set it with mr:update instead of creating again.
+      On GitHub a create whose labels, reviewers or assignees step failed
+      still replies ok, with `failedSteps` naming each step that did not
+      apply: the PR exists, so re-apply those with mr:update. */
   "mr:create": {
     payload: { repoName: string; sourceBranch: string; targetBranch: string; title: string; description?: string; draft?: boolean; labels?: string[]; squash?: boolean };
-    data: { iid: number; url: string | null; squashApplied?: boolean; squashError?: string };
+    data: { iid: number; url: string | null; squashApplied?: boolean; squashError?: string; failedSteps?: MrCreateFailedStep[] };
   };
 
   /** Edits an open MR. title/description go through glance (a title change

@@ -41,9 +41,9 @@
 
 import { applyMRWriteback, getCurrentUserId, getRepoContext } from "../freshness.ts";
 import type { PullRequest, UpdatePullRequestInput } from "@mattstack/glance";
-import { ReadBackFailedError } from "@mattstack/glance";
+import { PartialCreateError, ReadBackFailedError } from "@mattstack/glance";
 import type { HandlerContext, HandlerMap, CommandResult } from "./types.ts";
-import type { MrListState, MrTargetSummary } from "../../../packages/rt-client/src/commands.ts";
+import type { MrCreateFailedStep, MrListState, MrTargetSummary } from "../../../packages/rt-client/src/commands.ts";
 import { decodeRepo } from "../identity-decoder.ts";
 import { createFileDiffReader, fileDiffContextOf, type FileDiffContext } from "../file-diff.ts";
 import { LIST_MAX_LIMIT, PIPELINE_MAX_LIMIT, forgeFailure, forgeGet, listLabels, listMrsLive, listPipelines, missingMrReason, type Forge, type SummariesProvider } from "../forge-reads.ts";
@@ -337,6 +337,7 @@ export function createMRHandlers(
         if (forge === "github" && squash !== undefined) return { ok: false, error: GITHUB_SQUASH_REFUSAL };
         let iid: number;
         let url: string | null;
+        let failedSteps: MrCreateFailedStep[] | undefined;
         try {
           const pr: PullRequest = await provider.createPullRequest({
             projectPath, title, sourceBranch, targetBranch,
@@ -355,10 +356,24 @@ export function createMRHandlers(
           // The MR exists once glance reports writeApplied; ok:false here would
           // invite a second create.
           if (!(err instanceof ReadBackFailedError && err.writeApplied)) throw err;
-          ctx.log.warn({ err, repo: repoName, iid: err.iid }, "mr:create landed but its read-back failed");
           iid = err.iid;
           url = null;
+          if (err instanceof PartialCreateError) {
+            ctx.log.warn({ err, repo: repoName, iid, steps: err.failedSteps.map((s) => s.step) }, "mr:create landed but a follow-up step failed");
+            failedSteps = err.failedSteps.map((s) => ({ step: s.step, message: s.message }));
+            url = err.pullRequest?.webUrl ?? `${provider.baseURL}/${projectPath}/pull/${iid}`;
+            if (err.pullRequest) {
+              try {
+                storeWriteback(repoName, projectPath, err.pullRequest);
+              } catch (writebackErr) {
+                ctx.log.warn({ err: writebackErr, repo: repoName, iid }, "mr:create write-back failed");
+              }
+            }
+          } else {
+            ctx.log.warn({ err, repo: repoName, iid: err.iid }, "mr:create landed but its read-back failed");
+          }
         }
+        if (failedSteps) return { ok: true, data: { iid, url, failedSteps } };
         if (squash === undefined) return { ok: true, data: { iid, url } };
         const set = await putMergeRequest(provider, projectPath, iid, { squash }, "mr:create squash");
         if (set.ok) return { ok: true, data: { iid, url, squashApplied: true } };

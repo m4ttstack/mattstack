@@ -59,6 +59,17 @@ function withReviewTimeout(res: ToolResult): ToolResult {
 const MR_UPLOAD_GH_MOVE = "GitHub uploads a file only as part of a PR write; on a PR, evidence_attach uploads the images into its description";
 const MR_REBASE_GH_MOVE = "no server-side rebase on GitHub";
 
+function joinWords(parts: string[]): string {
+  return parts.length <= 1 ? (parts[0] ?? "") : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+/** A create whose follow-up steps failed still made the PR, so the result says so in words an agent cannot read as "try again". */
+function withCreateSteps(data: Commands["mr:create"]["data"] | undefined): Record<string, unknown> | undefined {
+  if (!data?.failedSteps?.length) return data;
+  const steps = joinWords(data.failedSteps.map((s) => `${s.step} step (${s.message})`));
+  return { ...data, incomplete: `Pull request #${data.iid} was created, but its ${steps} did not apply. Do not create it again; add what is missing to #${data.iid}.` };
+}
+
 function existingMrResult(mr: OpenMr): ToolResult {
   return ok({ iid: mr.iid, url: mr.url, existing: true, targetBranch: mr.targetBranch, draft: mr.draft, title: mr.title, applied: false });
 }
@@ -484,7 +495,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_create",
-      description: `Create a merge request (a pull request on GitHub) from an already-pushed sourceBranch into targetBranch. Pass targetBranch explicitly (read the default branch from git); it is never guessed. draft defaults to true. Write the title, and optionally the description, yourself (e.g. from the branch's commits). labels apply at creation; squash sets the MR's squash-on-merge flag right after it (on GitLab; GitHub picks squash at merge time, so leave it out there). Creates once and never retries. Returns iid, url (null when the forge created the MR but reading it back failed) and, when squash was passed, squashApplied; squashApplied false with squashError means the MR exists, so set squash with mr_update rather than creating again. ifExists "return" first looks for an open MR on sourceBranch: when one exists it creates nothing and returns {iid, url, existing: true, targetBranch, draft, title, applied: false}, where applied false means the title, description, labels and squash you passed were not applied, and that MR may target a different branch, so compare its targetBranch with the one you asked for; otherwise it creates and the result adds existing false. A lookup error is returned and nothing is created. ${REPO_TARGET_RULE} ${REPO_PR_URL_NOTE}`,
+      description: `Create a merge request (a pull request on GitHub) from an already-pushed sourceBranch into targetBranch. Pass targetBranch explicitly (read the default branch from git); it is never guessed. draft defaults to true. Write the title, and optionally the description, yourself (e.g. from the branch's commits). labels apply at creation; squash sets the MR's squash-on-merge flag right after it (on GitLab; GitHub picks squash at merge time, so leave it out there). Creates once and never retries. Returns iid, url (null when the forge created the MR but reading it back failed) and, when squash was passed, squashApplied; squashApplied false with squashError means the MR exists, so set squash with mr_update rather than creating again. On GitHub, a create whose labels, reviewers or assignees step failed still returns iid and url, plus failedSteps ({step, message} each) and incomplete, a sentence naming them: the PR exists, so add what is missing (labels with mr_update) rather than creating again. ifExists "return" first looks for an open MR on sourceBranch: when one exists it creates nothing and returns {iid, url, existing: true, targetBranch, draft, title, applied: false}, where applied false means the title, description, labels and squash you passed were not applied, and that MR may target a different branch, so compare its targetBranch with the one you asked for; otherwise it creates and the result adds existing false. A lookup error is returned and nothing is created. ${REPO_TARGET_RULE} ${REPO_PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -526,13 +537,14 @@ export function mcpTools(): McpToolDef[] {
         if (input.squash !== undefined) payload.squash = input.squash as boolean;
         if (!returnExisting) {
           const res = await rtCommand<Commands["mr:create"]["data"]>("mr:create", payload, { timeoutMs: MR_WRITE_TIMEOUT_MS });
+          if (res.ok) return ok(withCreateSteps(res.data));
           return withLandingHint(fromResponse(res), "mr_for_branch for an open MR on the source branch");
         }
         const found = await findOpenMrForBranch({ command: rtCommand }, target.identity, payload.sourceBranch);
         if (!found.ok) return err(found.error);
         if (found.mr) return existingMrResult(found.mr);
         const res = await rtCommand<Commands["mr:create"]["data"]>("mr:create", payload, { timeoutMs: MR_WRITE_TIMEOUT_MS });
-        if (res.ok) return ok({ ...res.data, existing: false });
+        if (res.ok) return ok({ ...withCreateSteps(res.data), existing: false });
         if (EXISTING_MR.test(res.error ?? "")) {
           const raced = await findOpenMrForBranch({ command: rtCommand }, target.identity, payload.sourceBranch);
           if (raced.ok && raced.mr) return existingMrResult(raced.mr);

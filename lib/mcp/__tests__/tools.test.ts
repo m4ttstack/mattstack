@@ -525,6 +525,20 @@ describe("mcpTools", () => {
       expect(calls[0]!.payload).toEqual({ repoName: "remote:x", sourceBranch: "feat", targetBranch: "main", title: "T", labels: ["a", "b"], squash: true });
     });
 
+    test("a GitHub create whose labels step failed says in plain words that the PR exists and which step to re-apply", async () => {
+      const failedSteps = [{ step: "labels", message: "422 label does not exist" }, { step: "reviewers", message: "404 no such user" }];
+      fakeDaemon(() => ({ ok: true, data: { iid: 9, url: "https://github.com/acme/app/pull/9", failedSteps } }));
+      const tool = mcpTools().find((t) => t.name === "mr_create")!;
+      const res = await tool.handler({ repoName: "remote:github.com%2Facme%2Fapp", sourceBranch: "feat", targetBranch: "main", title: "T", labels: ["a"] }, {} as NodeJS.ProcessEnv);
+      expect(res).toEqual({
+        ok: true,
+        body: {
+          iid: 9, url: "https://github.com/acme/app/pull/9", failedSteps,
+          incomplete: "Pull request #9 was created, but its labels step (422 label does not exist) and reviewers step (404 no such user) did not apply. Do not create it again; add what is missing to #9.",
+        },
+      });
+    });
+
     describe("mr_create ifExists", () => {
       const base = { repoName: "remote:x", sourceBranch: "feat", targetBranch: "main", title: "T", ifExists: "return" };
       const OPEN = { iid: 7, title: "Existing", draft: true, webUrl: "https://gitlab.example.com/acme/app/-/merge_requests/7", sourceBranch: "feat", targetBranch: "develop" };

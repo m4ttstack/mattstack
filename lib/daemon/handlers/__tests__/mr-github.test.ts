@@ -7,7 +7,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { RateLimitedError, ReadBackFailedError } from "@mattstack/glance";
+import { PartialCreateError, RateLimitedError, ReadBackFailedError } from "@mattstack/glance";
 import { createMRHandlers } from "../mr.ts";
 import { createProjectMRsHandlers } from "../project-mrs.ts";
 import { createProjectMRs } from "../../project-mrs-store.ts";
@@ -152,6 +152,50 @@ describe("mr:create on GitHub", () => {
     expect(h.names()).toEqual(["createPullRequest"]);
     expect((h.calls[0]!.args[0] as any).labels).toEqual(["a"]);
     expect(h.writebacks).toEqual([[REPO, "o/r", prOf(9)]]);
+  });
+
+  test("a create whose labels step failed replies ok with the PR number, its URL and the failed step, and writes the read-back PR", async () => {
+    const h = harness({
+      createPullRequest: async () => {
+        throw new PartialCreateError("Created PR #9 but its labels step failed", {
+          projectPath: "o/r", iid: 9,
+          failedSteps: [{ step: "labels", message: "422 label does not exist" }],
+          pullRequest: prOf(9),
+        });
+      },
+    });
+    const res = await h.handlers["mr:create"]({ repoName: REPO, sourceBranch: "feat", targetBranch: "main", title: "T", labels: ["a"] });
+    expect(res).toEqual({
+      ok: true,
+      data: { iid: 9, url: "https://github.com/o/r/pull/9", failedSteps: [{ step: "labels", message: "422 label does not exist" }] },
+    });
+    expect(h.names()).toEqual(["createPullRequest"]);
+    expect(h.writebacks).toEqual([[REPO, "o/r", prOf(9)]]);
+  });
+
+  test("a partial create whose read-back failed too still names the PR's URL", async () => {
+    const h = harness({
+      createPullRequest: async () => {
+        throw new PartialCreateError("Created PR #9 but its labels step failed", {
+          projectPath: "o/r", iid: 9,
+          failedSteps: [{ step: "labels", message: "boom" }],
+          pullRequest: null,
+        });
+      },
+    });
+    const res = await h.handlers["mr:create"]({ repoName: REPO, sourceBranch: "feat", targetBranch: "main", title: "T", labels: ["a"] });
+    expect(res).toEqual({ ok: true, data: { iid: 9, url: "https://github.com/o/r/pull/9", failedSteps: [{ step: "labels", message: "boom" }] } });
+    expect(h.writebacks).toEqual([]);
+  });
+
+  test("a plain read-back failure keeps its null URL and names no failed step", async () => {
+    const h = harness({
+      createPullRequest: async () => {
+        throw new ReadBackFailedError("Created PR #9 but could not read it back", { operation: "createPullRequest", projectPath: "o/r", iid: 9, writeApplied: true });
+      },
+    });
+    const res = await h.handlers["mr:create"]({ repoName: REPO, sourceBranch: "feat", targetBranch: "main", title: "T" });
+    expect(res).toEqual({ ok: true, data: { iid: 9, url: null } });
   });
 
   test("squash returns an error and makes zero provider calls", async () => {
