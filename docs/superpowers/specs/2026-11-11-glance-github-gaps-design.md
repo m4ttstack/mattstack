@@ -121,8 +121,13 @@ one).
 
 **Poll-only watcher.** `createRealtimeWatcher`'s `subscribe` parameter
 becomes optional. Without it the watcher is poll-only: it fetches on start,
-then every `pollIntervalMs`, with the same full-jitter backoff on failures and
-the same disposal. Its status is:
+then every `pollIntervalMs`, with the same disposal. Failures back off with
+the existing full-jitter rule, but in poll-only mode a retry never comes
+sooner than `pollIntervalMs` (my call: the push mode's 2s first retry exists
+to recover a live channel; here it would only multiply requests against a
+failing or rate-limited token). A `RateLimitedError` waits until its
+`retryAfterMs` or `resetAt` when that is later still. Push mode keeps its
+current timing exactly. Its status is:
 
 - `connecting` until the first fetch settles;
 - `polling` after a successful fetch;
@@ -151,7 +156,9 @@ because `watchMR` does. `createBranchDashboard` and `createDashboardGroup`
 choose poll-only mode when the provider has no `subscribePullRequestEvents`
 (GitHub); with it (GitLab) they run exactly as today, including the branch
 dashboard's existing immediate `onConnected()`. Their GitHub poll interval
-stays at today's 30s, so their request volume does not change.
+stays at today's 30s, so their healthy request volume does not change; their
+failure retries follow the poll-only rule above, so they send fewer requests
+than today while failing.
 
 **glance-react.** `ConnectionStatusBadge`'s local `ConnectionState` gains
 `'polling'` with a `STATUS_CONFIG` entry; it is a healthy state, hidden by
@@ -162,8 +169,9 @@ schemes before the task is done. `useDashboard` needs no change
 (`ConnectionStatus` derives from `WatcherStatus`).
 
 **Cost.** One GraphQL read (1 rate-limit point) per poll: 60 per hour per
-open single-PR dashboard at the default. Branch and multi-PR dashboards: no
-change.
+open single-PR dashboard at the default, and never more than one per
+interval while reads fail. Branch and multi-PR dashboards: no change while
+healthy, fewer while failing.
 
 ### 2. Rebase (GLANCE-45)
 
@@ -205,22 +213,31 @@ repository(owner, name) {
 
 1. Read the merge context.
 2. Queue path, when `isMergeQueueEnabled`:
-   - Refuse before any write if the input sets `mergeMethod`, `squash`,
-     `commitMessage`, `squashCommitMessage` or `shouldRemoveSourceBranch`:
-     the queue applies its own settings. `sha` is honoured as the enqueue's
-     `expectedHeadOid`.
+   - Refuse before any write if the input gives any value, `false`
+     included, for `mergeMethod`, `squash`, `commitMessage`,
+     `squashCommitMessage` or `shouldRemoveSourceBranch`: the queue applies
+     its own settings. This matches `mr_merge`, which refuses any defined
+     value. `sha` is honoured as the enqueue's `expectedHeadOid`.
    - Already in the queue: no write; the result's `queued` is the current
      entry.
    - Otherwise `enqueuePullRequest` with the node id from the context (no
-     extra node-id read).
+     extra node-id read). This includes a PR the queue dropped earlier (my
+     call): a `mergePullRequest` call is an explicit request to merge, and
+     GitHub's own merge button re-adds a dropped PR the same way. `mr_merge`
+     keeps its stricter `requeue` policy, because it checks the queue itself
+     and never reaches this path.
    - Read the PR back and resolve `{ ...pr, queued: { position, state } }`.
      The PR's `state` is still `opened`.
 3. Direct path otherwise: the method is the caller's `mergeMethod`, else
    `'squash'` when `squash` is true, else `viewerDefaultMergeMethod`
    (lowercased); if that is somehow not allowed, the first allowed of merge,
-   squash, rebase. A caller-named method the repository forbids is refused
-   before the write, naming the allowed methods. `merge_method` is always
-   sent; the commit-message pick uses the resolved method.
+   squash, rebase. `squash: false` means "not a squash" (my call: it is the
+   caller saying so, and today it yields a merge commit): the default is used
+   unless it is squash, in which case the first allowed of merge, rebase; a
+   repository that allows only squash refuses it before the write. A
+   caller-named method the repository forbids is refused before the write,
+   naming the allowed methods. `merge_method` is always sent; the
+   commit-message pick uses the resolved method.
 4. Read-back and branch removal as in section 4d.
 
 `MergePullRequestResult` gains `queued?: MergeQueueEntry`, set only on the
@@ -241,12 +258,24 @@ queue is off, so it never takes the queue path; and even if it did,
 `daemonMergeProvider.mergePullRequest` reads the PR back and
 `mergeOnGitHub` reports `merged` only when its state is `merged`
 (`github-merge.ts:131-146, 182-187`), so a queued result cannot read as a
-landed merge there. Two gaps remain, both outside the fence: `mr:action`
-replies a bare `{ ok: true }` and drops `queued`
-(`lib/daemon/handlers/mr.ts:252-256, 285-288`), and the board's
-`runMrAction` treats any resolve as success (`apps/board/src/mr-action.ts:73-82`).
-Both are listed as required follow-ups. `mr_merge` pays one extra GraphQL read
-per GitHub merge (its own queue check plus glance's context read).
+landed merge there. One gap remains, outside the fence: `mr:action` replies
+a bare `{ ok: true }` and drops `queued`
+(`lib/daemon/handlers/mr.ts:252-256, 285-288`), so a direct `mr:action`
+merge caller on a GitHub queue branch sees plain success; it is a required
+follow-up. The board's `runMrAction` treats any resolve as success
+(`apps/board/src/mr-action.ts:73-82`), but the board only merges through
+`GitLabProvider` (`apps/board/src/server.ts:3888`), so it is unaffected.
+`mr_merge` pays one extra GraphQL read per GitHub merge (its own queue check
+plus glance's context read).
+
+**Sequencing.** glance is linked as `workspace:*`, so merging this work is
+its in-repo release: the daemon picks it up on its next restart from main,
+before any follow-up lands. Two behaviours change for the daemon on that day,
+both accepted by the shepherd with the follow-ups below: a GitHub create
+whose reviewer, assignee or label step fails returns `ok: true` with the PR
+number instead of `ok: false` (follow-up 1), and an `mr:action` merge on a
+GitHub queue branch enqueues and returns `ok: true` instead of failing with a
+405 (follow-up 2). The report asks for follow-ups 1 and 2 to land soon after.
 
 ### 4. Honest reads and writes (GLANCE-52)
 
@@ -365,7 +394,7 @@ template and records a skip with the reason when none is configured.
 | rt daemon, `lib/daemon/handlers/mr.ts` | merge, rebase (gated on `canRebase`), setAutoMerge, enqueue/queue status (gated on `canEnqueue`), create, batch by-branch with a per-branch workaround, `restRequest` | Rebase on GitHub now runs instead of refusing; merge routes through the queue; new signals unused until follow-ups |
 | rt daemon, `lib/mcp/github-merge.ts` | queue status, enqueue, merge, setAutoMerge via daemon verbs | Unchanged behaviour; one extra GraphQL read per GitHub merge |
 | rt daemon, `lib/daemon/forge-reads.ts`, `file-diff.ts`, `freshness.ts`, `project-sync.ts`, `project-mrs.ts`, `enrich.ts`, `herd-lanes.ts`, `ignored-mrs.ts`, `discussions.ts` | `restRequest`, by-branch reads | `readCapped` now saves memory on GitHub; nulls unchanged |
-| board, `apps/board/src/mr-action.ts` | merge, rebase, setAutoMerge through a structural provider | Compiles; a queue merge resolves as success (follow-up) |
+| board, `apps/board/src/mr-action.ts`, `src/server.ts:3888` | merge, rebase, setAutoMerge through a structural provider, always a `GitLabProvider` | Unchanged |
 | gitq, `apps/gitq/src/core/forge-sync.ts`, `src/server/data.ts`, tests | create (catches `ReadBackFailedError` with `writeApplied`), by-branch reads; typed `GitProvider` fakes | A partial create now records the PR number; fakes compile because every addition is optional |
 | VS Code extension, `extensions/vscode/rt-context/src/gitlab.ts` | by-branch reads on `GitLabProvider` | Unchanged |
 | glance-react, `lib/hooks/useDashboard.ts`, `lib/components/forge/ConnectionStatusBadge.tsx` | dashboards, connection union | Badge gains `polling` (forced change) |
@@ -376,18 +405,19 @@ template and records a skip with the reason when none is configured.
 
 1. Daemon `mr:create` must read `PartialCreateError.failedSteps` and report
    the failed steps instead of a clean create
-   (`lib/daemon/handlers/mr.ts:370-376`).
+   (`lib/daemon/handlers/mr.ts:367-374`).
 2. Daemon `mr:action` merge should pass `queued` through, and read
    `sourceBranchNotDeleted` from a `MergeReadBackFailedError`
    (`lib/daemon/handlers/mr.ts:252-275, 285-288`;
    `packages/rt-client/src/commands.ts:1232`).
-3. Board `runMrAction` should report a queued merge as queued
-   (`apps/board/src/mr-action.ts:73-82`).
-4. Daemon `liveByBranchOnGitHub` can drop its per-branch summary read for
+3. Daemon `liveByBranchOnGitHub` can drop its per-branch summary read for
    `onWarning` (`lib/daemon/handlers/mr.ts:192-209`); `project-mrs.ts:268`
    can see the scan cap the same way.
-5. `mr_resolve_branch` and `mr_create` with `ifExists` should compare
+4. `mr_resolve_branch` and `mr_create` with `ifExists` should compare
    `sourceProjectPath` to reject a fork PR on a same-named branch.
+
+Follow-ups 1 and 2 change what the daemon reports on the day this merges
+(see Sequencing in section 3), so they should land soon after.
 
 ## Left to the builder
 
