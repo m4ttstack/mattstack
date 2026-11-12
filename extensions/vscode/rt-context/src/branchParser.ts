@@ -44,6 +44,15 @@ export function extractLinearId(branch: string): string | null {
   return null;
 }
 
+/** The https origin a request to this authority would reach, as a URL parser reads it, so the host a token gate judges is the host the request goes to. */
+function originOf(authority: string): string | null {
+  try {
+    return new URL(`https://${authority}`).origin;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Parse a GitLab/GitHub remote URL to extract the project path.
  *
@@ -55,13 +64,15 @@ export function parseRemoteUrl(url: string): { host: string; projectPath: string
   // SSH format: git@host:org/repo.git
   const sshMatch = /^git@([^:]+):(.+?)(?:\.git)?$/.exec(url);
   if (sshMatch) {
-    return { host: `https://${sshMatch[1]}`, projectPath: sshMatch[2]! };
+    const host = originOf(sshMatch[1]!);
+    return host ? { host, projectPath: sshMatch[2]! } : null;
   }
 
   // HTTPS format: https://host/org/repo.git
   const httpsMatch = /^https?:\/\/([^/]+)\/(.+?)(?:\.git)?$/.exec(url);
   if (httpsMatch) {
-    return { host: `https://${httpsMatch[1]}`, projectPath: httpsMatch[2]! };
+    const host = originOf(httpsMatch[1]!);
+    return host ? { host, projectPath: httpsMatch[2]! } : null;
   }
 
   return null;

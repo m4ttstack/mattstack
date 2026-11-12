@@ -18,6 +18,7 @@ describe("mayOfferGitLabTokenToHost", () => {
 
   test("github.com never takes a GitLab token, even when it is the confirmed host", () => {
     expect(mayOfferGitLabTokenToHost("github.com", "github.com")).toBe(false);
+    expect(mayOfferGitLabTokenToHost("github.com:443", "github.com:443")).toBe(false);
   });
 
   test("a missing host or a confirmed value that is not a string is refused", () => {

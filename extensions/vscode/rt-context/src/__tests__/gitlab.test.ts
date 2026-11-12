@@ -23,6 +23,12 @@ describe('gitlabTokenRefusal', () => {
     expect(refusal).toContain('rt setup gitlab connect --host gitlab.evil.example');
   });
 
+  test('an authority that a URL parser would send elsewhere is judged by where the request would go', () => {
+    expect(gitlabTokenRefusal('https://gitlab.evil.example\\@gitlab.com/acme/app.git', null)).toContain('gitlab.evil.example');
+    expect(gitlabTokenRefusal('https://gitlab.evil.example?@gitlab.com/acme/app.git', null)).not.toBeNull();
+    expect(gitlabTokenRefusal('https://gitlab.evil.example#@gitlab.com/acme/app.git', null)).not.toBeNull();
+  });
+
   test('github.com is refused as not a GitLab host, with no connect command', () => {
     const refusal = gitlabTokenRefusal('git@github.com:acme/app.git', 'github.com');
     expect(refusal).toContain('github.com is not a GitLab host');
@@ -55,6 +61,11 @@ describe('MR lookups only reach a host that may take the token', () => {
   test('fetchMRInfoBatch makes no request to an unconfirmed host', async () => {
     const results = await fetchMRInfoBatch(TOKEN, 'git@gitlab.evil.example:acme/app.git', ['feature'], 'gitlab.corp.example');
     expect(results.size).toBe(0);
+    expect(calls).toEqual([]);
+  });
+
+  test('fetchMRInfo makes no request when the authority hides another host', async () => {
+    expect(await fetchMRInfo(TOKEN, 'https://gitlab.evil.example\\@gitlab.com/acme/app.git', 'feature', null)).toBeNull();
     expect(calls).toEqual([]);
   });
 

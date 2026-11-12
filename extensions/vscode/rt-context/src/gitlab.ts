@@ -21,7 +21,7 @@ export function confirmedForgeHost(): string | null {
 function hostOfRemote(remoteUrl: string): string | null {
   const remote = parseRemoteUrl(remoteUrl);
   if (!remote) return null;
-  return remote.host.replace(/^https?:\/\//, '').replace(/^[^@]*@/, '').toLowerCase();
+  return new URL(remote.host).host.toLowerCase();
 }
 
 /** Why the GitLab token may not go to this remote's host, in plain words, or null when it may. */

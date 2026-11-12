@@ -11,7 +11,8 @@
 export function mayOfferGitLabTokenToHost(host: string | null | undefined, confirmedHost: unknown): boolean {
   if (!host) return false;
   const h = host.toLowerCase();
-  if (h === "github.com") return false;
+  const name = h.replace(/:\d+$/, "");
+  if (name === "github.com") return false;
   if (h === "gitlab.com") return true;
   return typeof confirmedHost === "string" && confirmedHost !== "" && h === confirmedHost.toLowerCase();
 }
