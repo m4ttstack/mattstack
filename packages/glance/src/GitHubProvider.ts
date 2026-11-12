@@ -2823,16 +2823,39 @@ export class GitHubProvider implements GitProvider {
   // ── Pipeline mutations ──────────────────────────────────────────────────
 
   /**
-   * Reruns the failed jobs of one GitHub Actions workflow run, as GitLab's
-   * pipeline retry reruns failed jobs only. `pipelineId` is the run id
-   * (`Pipeline.id` is `github:run:<id>`; `Pipeline.runIds` lists every run on
-   * the head commit). A commit status from external CI has no run to rerun.
+   * Reruns the failed jobs of every failed workflow run on the head commit of
+   * run `pipelineId`, as GitLab's pipeline retry reruns failed jobs only.
+   * `pipelineId` is the run id in `Pipeline.id` (`github:run:<id>`, the
+   * commit's lowest run id; `Pipeline.runIds` lists every run). Costs two
+   * reads and one POST per failed run. A commit status from external CI has
+   * no run to rerun.
    */
   async retryPipeline(projectPath: string, pipelineId: number): Promise<void> {
     try {
-      await this.octokit.request(
-        `POST /repos/${projectPath}/actions/runs/${pipelineId}/rerun-failed-jobs`
+      const { data: run } = await this.octokit.request(
+        `GET /repos/${projectPath}/actions/runs/${pipelineId}`
       );
+      const sha = run.head_sha;
+      const { data: list } = await this.octokit.request(
+        `GET /repos/${projectPath}/actions/runs?head_sha=${encodeURIComponent(sha)}&per_page=100`
+      );
+      const failed = list.workflow_runs.filter(
+        (r: { status: string | null; conclusion: string | null }) =>
+          checkStatusFromParts(
+            (r.status ?? '').toUpperCase(),
+            r.conclusion ? r.conclusion.toUpperCase() : null
+          ) === 'failed'
+      );
+      if (failed.length === 0) {
+        throw new Error(
+          `retryPipeline failed: ${projectPath} run ${pipelineId} on ${sha} has no failed runs to rerun`
+        );
+      }
+      for (const r of failed) {
+        await this.octokit.request(
+          `POST /repos/${projectPath}/actions/runs/${r.id}/rerun-failed-jobs`
+        );
+      }
     } catch (err) {
       if (err instanceof RequestError && err.response) {
         const failure = ghError('retryPipeline', err, 'statusText');

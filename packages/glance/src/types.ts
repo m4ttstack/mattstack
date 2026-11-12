@@ -87,7 +87,7 @@ export interface PipelineJob {
 }
 
 export interface Pipeline {
-  /** Scoped provider ID, e.g. "gitlab:pipeline:12345". */
+  /** Scoped provider ID, e.g. "gitlab:pipeline:12345". On GitHub, `github:run:<n>` where n is the lowest workflow run id on the head commit, whatever each run's status, so it stays the same for that commit and changes on a new push. */
   id: string;
   /** Normalized status. */
   status: string;
@@ -100,7 +100,7 @@ export interface Pipeline {
   createdAt: string | null;
   webUrl: string | null;
   jobs: PipelineJob[];
-  /** GitHub workflow run ids on the head commit, each once. Absent on GitLab. */
+  /** GitHub workflow run ids on the head commit, each once. `retryPipeline` reruns every failed one. Absent on GitLab. */
   runIds?: string[];
 }
 
