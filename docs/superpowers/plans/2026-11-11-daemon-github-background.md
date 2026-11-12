@@ -209,8 +209,9 @@ test("reads a GitHub pull url on any host and a #iid", () => {
   - `mr:by-branch on GitHub still errors when the branch lookup fails`: the batch throws, and the reply is `{ ok: false }` (unchanged behaviour, pinned).
   - `mr:by-branch on GitHub stores a PR found on the per-branch path`: `overrides.fetchByBranch` returns `{ pr, projectPath, github: true }`. The PR is stored, and the old `by-branch store upsert skipped` debug line is gone.
   - In `mr-github.test.ts`, the success paths flip from "no write-back" to one write-back each. Rename and assert:
-    - `merge writes the returned PR back` (line 62; `writebacks` has one entry);
-    - `approve schedules the follow-up write-back` (line 88; one entry after the follow-up runs);
+    - `merge writes the returned PR back` (line 62; `writebacks` has one entry; its `debugs` count drops by the removed skip line);
+    - `a merge whose source branch was not deleted ... writes the PR back` (line 80);
+    - `approve schedules the follow-up write-back` (line 88; its `fetchSingleMR` stub returns a PR, `names()` gains `fetchSingleMR`, one entry after the follow-up runs);
     - `a title edit writes the updated PR back` (line 110);
     - `addLabels and removeLabels ... write the read PR back` (line 98; one entry);
     - `labels ride createPullRequest with no second write, and the PR is written back` (line 134);
