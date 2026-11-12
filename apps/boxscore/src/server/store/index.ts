@@ -557,6 +557,14 @@ function buildStore() {
       return tx();
     },
 
+    /** True when `baseUrl`'s host is the recorded one, or when none is recorded yet. */
+    acceptsForgeHost(baseUrl: string): boolean {
+      const recorded = (
+        stmtGetMeta.get(FORGE_HOST_KEY) as { value: string } | null
+      )?.value;
+      return recorded === undefined || recorded === hostOf(baseUrl);
+    },
+
     clear(): void {
       const tx = db.transaction(() => {
         for (const table of TABLES) db.exec(`DELETE FROM ${table}`);
@@ -573,6 +581,45 @@ function buildStore() {
       resetDb();
     },
   };
+}
+
+/** Thrown by a guarded write once the confirmed host is no longer the writer's. */
+export class ForgeHostChangedError extends Error {
+  constructor(baseUrl: string) {
+    super(
+      `the confirmed GitLab host changed during this refresh; dropped the rest of its results from ${baseUrl}`
+    );
+    this.name = 'ForgeHostChangedError';
+  }
+}
+
+const FORGE_WRITES = [
+  'upsertIndexRows',
+  'recordScan',
+  'upsertMrMetrics',
+  'upsertPipelines',
+  'upsertPushEvents',
+  'upsertIdentities',
+  'upsertLinearIssues',
+] as const;
+
+/**
+ * A view of `store` whose forge writes refuse once `baseUrl` stops being the confirmed host,
+ * so a refresh that outlives a host change cannot write the old host's rows after the
+ * clear.
+ */
+export function guardForgeWrites(store: Store, baseUrl: string): Store {
+  const guarded = { ...store };
+  for (const name of FORGE_WRITES) {
+    const write = store[name] as (...args: unknown[]) => void;
+    (guarded as Record<string, unknown>)[name] = (...args: unknown[]) => {
+      if (!store.acceptsForgeHost(baseUrl)) {
+        throw new ForgeHostChangedError(baseUrl);
+      }
+      write(...args);
+    };
+  }
+  return guarded;
 }
 
 let store: ReturnType<typeof buildStore> | null = null;
