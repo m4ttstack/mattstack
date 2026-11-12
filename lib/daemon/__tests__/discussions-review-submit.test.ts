@@ -116,9 +116,17 @@ describe("mr:review-submit", () => {
 
   test("an invalid payload is refused before any network call", async () => {
     const h = createDiscussionHandlers(fakeCtx, () => {}, seams(stubProvider(), { repoContext: async () => { throw new Error("unexpected"); } }));
-    expect(await h["mr:review-submit"]({ ...PAYLOAD, outcome: "request_changes" })).toEqual({ ok: false, error: "outcome must be comment or approve" });
+    expect(await h["mr:review-submit"]({ ...PAYLOAD, outcome: "reject" })).toEqual({ ok: false, error: "outcome must be comment, approve or request_changes" });
     expect(await h["mr:review-submit"]({ ...PAYLOAD, iid: 0 })).toEqual({ ok: false, error: "missing repoName/iid" });
     expect(await h["mr:review-submit"]({ ...PAYLOAD, repoName: "not-an-identity" })).toEqual({ ok: false, error: "repo must be a serialized identity" });
+  });
+
+  test("request_changes is passed to submitReview unchanged", async () => {
+    const stub = stubProvider();
+    const h = createDiscussionHandlers(fakeCtx, () => {}, seams(stub));
+    const res = await h["mr:review-submit"]({ ...PAYLOAD, outcome: "request_changes" });
+    expect(res.ok).toBe(true);
+    expect(stub.sent().outcome).toBe("request_changes");
   });
 
   test("a refresh or reviewer-state failure never turns a published review into a failure", async () => {

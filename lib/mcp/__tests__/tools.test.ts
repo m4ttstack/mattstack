@@ -680,10 +680,10 @@ describe("mcpTools", () => {
       expect(d).toContain("A refused review posts nothing:");
     });
 
-    test("schema requires outcome and summary and limits outcome to comment or approve", () => {
+    test("schema requires outcome and summary and limits outcome to comment, approve or request_changes", () => {
       const schema = tool().inputSchema as { required?: string[]; properties: Record<string, { enum?: string[] }> };
       expect(schema.required).toEqual(["outcome", "summary"]);
-      expect(schema.properties.outcome!.enum).toEqual(["comment", "approve"]);
+      expect(schema.properties.outcome!.enum).toEqual(["comment", "approve", "request_changes"]);
     });
 
     test("sends mr:review-submit with a long timeout and empty arrays by default", async () => {
@@ -692,8 +692,16 @@ describe("mcpTools", () => {
       expect(calls).toEqual([{ cmd: "mr:review-submit", payload: { ...TARGET, outcome: "comment", summary: "s", comments: [], replies: [] }, timeoutMs: 180_000 }]);
     });
 
+    test("sends request_changes to the daemon", async () => {
+      const out = await tool().handler({ ...TARGET, outcome: "request_changes", summary: "s" }, {} as NodeJS.ProcessEnv);
+      expect(out.ok).toBe(true);
+      expect(calls[0]!.payload.outcome).toBe("request_changes");
+    });
+
     test("refuses a bad outcome and non-array comments before calling the daemon", async () => {
-      expect((await tool().handler({ ...TARGET, outcome: "request_changes", summary: "s" }, {} as NodeJS.ProcessEnv)).ok).toBe(false);
+      const rejected = await tool().handler({ ...TARGET, outcome: "reject", summary: "s" }, {} as NodeJS.ProcessEnv);
+      expect(rejected.ok).toBe(false);
+      expect(JSON.stringify(rejected)).toContain("outcome must be comment, approve or request_changes");
       expect((await tool().handler({ ...TARGET, outcome: "comment", summary: "s", comments: "x" }, {} as NodeJS.ProcessEnv)).ok).toBe(false);
       expect(calls).toEqual([]);
     });

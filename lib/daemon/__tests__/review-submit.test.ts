@@ -8,7 +8,10 @@ describe("parseReviewSubmit", () => {
   test("accepts the minimal review", () => {
     expect(parseReviewSubmit(base)).toEqual({ ok: true, input: base });
   });
-  test("refuses anything but comment or approve", () => bad({ outcome: "request_changes" }, "outcome must be comment or approve"));
+  test("accepts request_changes", () => {
+    expect(parseReviewSubmit({ ...base, outcome: "request_changes" })).toEqual({ ok: true, input: { ...base, outcome: "request_changes" } });
+  });
+  test("refuses an unknown outcome", () => bad({ outcome: "reject" }, "outcome must be comment, approve or request_changes"));
   test("refuses a blank summary", () => bad({ summary: "  " }, "summary must be a non-empty string"));
   test("refuses a comment without a positive integer line", () =>
     bad({ comments: [{ body: "b", path: "a.ts", line: 0 }] }, "comments[0]: body, path and a positive integer line are required"));

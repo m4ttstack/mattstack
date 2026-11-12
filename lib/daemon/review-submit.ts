@@ -6,7 +6,7 @@ import type { ReviewSubmitComment, ReviewSubmitReply } from "../../packages/rt-c
 import { checkAnchor, type DiffFileRow } from "./diff-line-kind.ts";
 
 export interface ReviewSubmitInput {
-  outcome: "comment" | "approve";
+  outcome: "comment" | "approve" | "request_changes";
   summary: string;
   comments: ReviewSubmitComment[];
   replies: ReviewSubmitReply[];
@@ -23,7 +23,7 @@ export function parseReviewSubmit(
 ): { ok: true; input: ReviewSubmitInput } | { ok: false; error: string } {
   const p = (payload ?? {}) as Record<string, unknown>;
   const fail = (error: string) => ({ ok: false as const, error });
-  if (p.outcome !== "comment" && p.outcome !== "approve") return fail("outcome must be comment or approve");
+  if (p.outcome !== "comment" && p.outcome !== "approve" && p.outcome !== "request_changes") return fail("outcome must be comment, approve or request_changes");
   if (!isText(p.summary)) return fail("summary must be a non-empty string");
   if (!Array.isArray(p.comments) || !Array.isArray(p.replies)) return fail("comments and replies must be arrays");
   if (p.comments.length + p.replies.length > MAX_ITEMS) {

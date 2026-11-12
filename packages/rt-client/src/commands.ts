@@ -1227,7 +1227,7 @@ export interface Commands {
       caller never publishes twice. */
   "mr:review-submit": {
     payload: {
-      repoName: string; iid: number; outcome: "comment" | "approve"; summary: string;
+      repoName: string; iid: number; outcome: "comment" | "approve" | "request_changes"; summary: string;
       comments: ReviewSubmitComment[]; replies: ReviewSubmitReply[];
     };
     data: ReviewSubmitData;
