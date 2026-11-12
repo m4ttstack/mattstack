@@ -4,7 +4,7 @@
  * commands/chat.ts (both pull in TUI-adjacent modules that lib/mcp must
  * stay clear of).
  */
-import { chatBuddies, herdList } from "../../packages/rt-client/src/index.ts";
+import { chatBuddies, DAEMON_UNREACHABLE_PREFIX, herdList } from "../../packages/rt-client/src/index.ts";
 import type { RtResponse } from "../../packages/rt-client/src/index.ts";
 import { readChatSession, sessionName, type ChatSession } from "../chat-session.ts";
 import { explainError } from "../explain-error.ts";
@@ -121,8 +121,9 @@ export function isTimeoutError(text: string | undefined): boolean {
   return /timed ?out|timeout/i.test(text ?? "");
 }
 
+/** Without an answer the daemon may already have sent the write, whatever cut the connection. */
 export function withLandingHint(res: ToolResult, check: string): ToolResult {
-  if (res.ok || !isTimeoutError(res.error)) return res;
+  if (res.ok || !(isTimeoutError(res.error) || res.error?.startsWith(DAEMON_UNREACHABLE_PREFIX))) return res;
   return err(`${res.error}; the write may still land, so check ${check} before retrying`);
 }
 

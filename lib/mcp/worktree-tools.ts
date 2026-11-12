@@ -1,5 +1,5 @@
 import { basename, isAbsolute } from "node:path";
-import { rtCommand } from "../../packages/rt-client/src/index.ts";
+import { DAEMON_UNREACHABLE_PREFIX, rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands, WorktreeTreeRef } from "../../packages/rt-client/src/index.ts";
 import { explainError } from "../explain-error.ts";
 import { tryResolveRepoArg } from "../repo-arg.ts";
@@ -41,7 +41,7 @@ export function parseProvisionError(raw: string): ProvisionRefusal {
     return refusal("create-failed", { step, ...(detail ? { detail } : {}) });
   }
   if (raw.startsWith("unsafe git ref")) return refusal("unsafe-ref", { detail: raw });
-  if (raw.startsWith("rt daemon unreachable at ")) return refusal("daemon-unreachable", { detail: raw });
+  if (raw.startsWith(DAEMON_UNREACHABLE_PREFIX)) return refusal("daemon-unreachable", { detail: raw });
   if (/^daemon at version .* does not know "/.test(raw)) return refusal("daemon-outdated", { detail: raw });
   return refusal("error", { detail: raw });
 }

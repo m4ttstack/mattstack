@@ -234,7 +234,7 @@ export function createProjectMRsHandlers(
       }
 
       const byBranch: Commands["mr:by-branch"]["data"]["byBranch"] = {};
-      const misses: string[] = [];
+      let misses: string[] = [];
       for (const branch of branches) {
         const hit = store().findBySourceBranch(repoName, branch);
         byBranch[branch] = hit ? { pr: hit, source: "store" } : null;
@@ -272,6 +272,24 @@ export function createProjectMRsHandlers(
         }
       });
       let githubFailure: string | null = null;
+
+      if (misses.length > 0 && !overrides.fetchByBranch) {
+        repoCtxPromise ??= getContext(repoName);
+        const repoCtx = await repoCtxPromise.catch(() => null);
+        if (repoCtx?.forge === "github" && typeof repoCtx.provider.fetchPullRequestsByBranches === "function") {
+          let found: Map<string, PullRequest | null>;
+          try {
+            found = await repoCtx.provider.fetchPullRequestsByBranches(repoCtx.projectPath, misses, "all");
+          } catch (err) {
+            return { ok: false, error: forgeFailure(err, "github") };
+          }
+          for (const branch of misses) {
+            const pr = found.get(branch) ?? null;
+            byBranch[branch] = pr ? { pr, source: "forge" } : null;
+          }
+          misses = [];
+        }
+      }
 
       // Chunked 4-wide (mirrors project-sync.ts's pipeline top-up loop) so a
       // large batch can't burst the forge with one fetch per branch.
