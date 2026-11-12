@@ -13,6 +13,7 @@ import { modals } from '@mattstack/app-kit/modals';
 import type { SettingDefWire } from '@mattstack/settings-kit/react';
 import { checkValue, type SchemaIssue } from '@mattstack/settings-kit/shapes';
 
+import { draftNote } from './draftNotes';
 import { canDraw, type FormShape } from './formShape';
 import {
   footerSummary,
@@ -136,6 +137,7 @@ export function DraftEditor({
         ...standingIssues(reported, start, parsed.value, checked, origin),
       ]
     : checked;
+  const keyNote = parsed.ok ? draftNote(def.key, parsed.value) : null;
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!reveal) return;
@@ -302,6 +304,20 @@ export function DraftEditor({
           data-testid="draft-default-note"
         >
           <Text fz={12}>Currently set to the default value</Text>
+        </Alert>
+      )}
+      {keyNote !== null && (
+        <Alert
+          variant="tint"
+          color="warn"
+          icon={<Icons.warning size={14} />}
+          w="fit-content"
+          py={4}
+          px={10}
+          styles={{ icon: { marginInlineEnd: 6 } }}
+          data-testid="draft-key-note"
+        >
+          <Text fz={12}>{keyNote}</Text>
         </Alert>
       )}
       {mode === 'json' && (

@@ -41,6 +41,7 @@ export function team(
       role: 'org-owner',
       members: [member('matt', { role: 'owner' })],
       invites: [],
+      adminSecrets: null,
       ...over,
     },
   };
@@ -54,6 +55,7 @@ export const failed = (slug: string, error: string): TeamRead => ({
 
 export const teamGet = vi.fn();
 export const confirmPost = vi.fn();
+export const adminSecretsPost = vi.fn();
 
 export function serveTeams(teams: TeamRead[]) {
   teamGet.mockResolvedValue(ok({ teams }));
@@ -65,6 +67,9 @@ export const apiMock = () => ({
       team: {
         $get: (...args: unknown[]) => teamGet(...args),
         confirm: { $post: (...args: unknown[]) => confirmPost(...args) },
+        'admin-secrets': {
+          $post: (...args: unknown[]) => adminSecretsPost(...args),
+        },
       },
     },
   },

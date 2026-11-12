@@ -1,12 +1,15 @@
 import { useState, type ReactNode } from 'react';
 import {
+  Alert,
   Avatar,
   Badge,
   Button,
+  Code,
   Group,
   PageShell,
   Paper,
   SegmentedControl,
+  Stack,
   Table,
   Tabs,
   Text,
@@ -245,16 +248,80 @@ function InvitesTable({ invites }: { invites: TeamInvite[] }) {
   );
 }
 
+const REPLACE_TOKEN = 'rt team admin-secrets --replace-token';
+
+/** Admin-only secrets that no longer open for exactly the org's owners and
+    admins: Update access when rt can fix it alone, the steps when not. */
+function AdminSecretsNotice({
+  team,
+  updating,
+  onUpdate,
+}: {
+  team: TeamView;
+  updating: string | null;
+  onUpdate: (slug: string) => void;
+}) {
+  const state = team.adminSecrets?.state;
+  if (state === 'needs-sync') {
+    return (
+      <div className={classes.notice}>
+        <RetryAlert
+          color="warn"
+          icon="lock"
+          retryLabel="Update access"
+          busy={updating === team.slug}
+          onRetry={() => onUpdate(team.slug)}
+          data-testid="admin-secrets-notice"
+        >
+          <Text span inherit fw={600}>
+            Admins changed
+          </Text>{' '}
+          <Text span inherit c="dimmed">
+            Admin-only secrets still open for the old set
+          </Text>
+        </RetryAlert>
+      </div>
+    );
+  }
+  if (state === 'needs-you') {
+    return (
+      <div className={classes.notice}>
+        <Alert
+          color="warn"
+          variant="light"
+          icon={<Icon name="lock" size={16} />}
+          data-testid="admin-secrets-notice"
+        >
+          <Stack gap={4}>
+            <Text fz="lg" lh="normal" c="warn">
+              {team.adminSecrets?.detail ?? 'Admin access needs you'}
+            </Text>
+            <Text fz="sm" c="dimmed" lh="normal">
+              If this Mac&apos;s token is the newer one, run{' '}
+              <Code>{REPLACE_TOKEN}</Code>
+            </Text>
+          </Stack>
+        </Alert>
+      </div>
+    );
+  }
+  return null;
+}
+
 function TeamPanel({
   read,
   confirming,
   onConfirm,
   onRetry,
+  updating,
+  onUpdate,
 }: {
   read: TeamRead;
   confirming: string | null;
   onConfirm: (slug: string) => void;
   onRetry: () => void;
+  updating: string | null;
+  onUpdate: (slug: string) => void;
 }) {
   const [tab, setTab] = useState<string | null>('members');
 
@@ -304,6 +371,7 @@ function TeamPanel({
           </Text>
         ) : null}
       </header>
+      <AdminSecretsNotice team={team} updating={updating} onUpdate={onUpdate} />
       <Tabs
         value={tab}
         onChange={setTab}
@@ -447,6 +515,8 @@ export function TeamPage() {
                 confirming={view.confirming}
                 onConfirm={slug => void view.confirm(slug)}
                 onRetry={() => void view.refetch()}
+                updating={view.updating}
+                onUpdate={slug => void view.updateAccess(slug)}
               />
             ) : null}
           </div>

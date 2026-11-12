@@ -5,8 +5,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ConfirmResult, TeamRead } from '../../shared/team';
 import { client } from '../api';
 import { POLL_MS, readApiError, retryOnce } from '../runs/useRuns';
+import { TEAM_KEY } from './teamKey';
 
-export const TEAM_KEY = ['team'] as const;
+export { TEAM_KEY };
 
 /** rt's `isOrgAdmin`: only these roles can approve a teammate. */
 const ADMIN_ROLES = new Set(['org-owner', 'admin']);
@@ -19,6 +20,15 @@ export function adminTeams(teams: TeamRead[]): TeamRead[] {
   const isAdmin = (t: TeamRead) => t.ok && ADMIN_ROLES.has(t.team.role ?? '');
   if (!teams.some(isAdmin)) return NO_TEAMS;
   return teams.filter(t => !t.ok || isAdmin(t));
+}
+
+/** Teams whose admin-only secrets still open for an older set of admins. */
+export function staleAccess(teams: TeamRead[]) {
+  return teams.flatMap(t =>
+    t.ok && t.team.adminSecrets?.state === 'needs-sync'
+      ? [{ slug: t.slug, team: t.team.name }]
+      : []
+  );
 }
 
 export function repliedHandles(teams: TeamRead[]) {
@@ -86,9 +96,38 @@ export function useTeam() {
     [queryClient]
   );
 
+  const [updating, setUpdating] = useState<string | null>(null);
+  const updateInFlight = useRef(false);
+
+  const updateAccess = useCallback(
+    async (slug: string) => {
+      if (updateInFlight.current) return;
+      updateInFlight.current = true;
+      setUpdating(slug);
+      try {
+        const res = await client.api.team['admin-secrets'].$post({
+          json: { slug },
+        });
+        if (!res.ok) throw await readApiError(res, 'update failed');
+        notifications.success('Admin access updated');
+      } catch (err) {
+        notifications.error((err as Error).message);
+      } finally {
+        await queryClient
+          .invalidateQueries({ queryKey: TEAM_KEY })
+          .catch(() => undefined);
+        updateInFlight.current = false;
+        setUpdating(null);
+      }
+    },
+    [queryClient]
+  );
+
   return {
     teams,
     waiting,
+    updateAccess,
+    updating,
     loaded: query.isSuccess,
     failed: query.isError,
     updatedAt: query.dataUpdatedAt,

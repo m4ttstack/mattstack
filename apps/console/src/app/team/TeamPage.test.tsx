@@ -3,12 +3,13 @@ import '../icons';
 import { notifications } from '@mattstack/app-kit/notifications';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { TeamRead } from '../../shared/team';
 import {
+  adminSecretsPost,
   confirmPost,
   failed,
   invite,
@@ -210,5 +211,99 @@ describe('TeamPage', () => {
 
     expect(await screen.findByText('Nobody was added')).toBeInTheDocument();
     expect(screen.getByText('Waiting for approval')).toBeInTheDocument();
+  });
+
+  describe('admin secrets', () => {
+    const drifted = () =>
+      team('acme', {
+        adminSecrets: { state: 'needs-sync', detail: 'The admins changed' },
+      });
+
+    it('offers Update access in the panel when the admins changed', async () => {
+      renderPage([drifted()]);
+      const notice = await screen.findByTestId('admin-secrets-notice');
+      expect(notice).toHaveTextContent('Admins changed');
+      expect(notice).toHaveTextContent(
+        'Admin-only secrets still open for the old set'
+      );
+      expect(
+        within(notice).getByRole('button', { name: 'Update access' })
+      ).toBeInTheDocument();
+    });
+
+    it('posts once and refetches the team after an update', async () => {
+      let finish: (value: unknown) => void = () => {};
+      adminSecretsPost.mockReturnValue(new Promise(r => (finish = r)));
+      renderPage([drifted()]);
+      const button = await screen.findByRole('button', {
+        name: 'Update access',
+      });
+      await userEvent.dblClick(button);
+      expect(adminSecretsPost).toHaveBeenCalledTimes(1);
+      expect(adminSecretsPost).toHaveBeenCalledWith({
+        json: { slug: 'acme' },
+      });
+
+      const reads = teamGet.mock.calls.length;
+      serveTeams([
+        team('acme', { adminSecrets: { state: 'current', detail: null } }),
+      ]);
+      await act(async () =>
+        finish(
+          ok({
+            state: 'updated',
+            holders: ['matt'],
+            withoutKey: [],
+            token: 'kept',
+          })
+        )
+      );
+      expect(
+        await screen.findByText('Admin access updated')
+      ).toBeInTheDocument();
+      await waitFor(() =>
+        expect(teamGet.mock.calls.length).toBeGreaterThan(reads)
+      );
+      await waitFor(() =>
+        expect(screen.queryByTestId('admin-secrets-notice')).toBeNull()
+      );
+    });
+
+    it('shows the server message when the update fails', async () => {
+      adminSecretsPost.mockResolvedValue(
+        ok({ error: 'No admin has a key' }, 502)
+      );
+      renderPage([drifted()]);
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Update access' })
+      );
+      expect(await screen.findByText('No admin has a key')).toBeInTheDocument();
+    });
+
+    it('shows the detail and the command, with no button, when it needs you', async () => {
+      renderPage([
+        team('acme', {
+          adminSecrets: {
+            state: 'needs-you',
+            detail:
+              "The org shares a different switchboard admin token from this Mac's",
+          },
+        }),
+      ]);
+      const notice = await screen.findByTestId('admin-secrets-notice');
+      expect(notice).toHaveTextContent(
+        "The org shares a different switchboard admin token from this Mac's"
+      );
+      expect(notice).toHaveTextContent('rt team admin-secrets --replace-token');
+      expect(within(notice).queryByRole('button')).toBeNull();
+    });
+
+    it('shows nothing when access is current', async () => {
+      renderPage([
+        team('acme', { adminSecrets: { state: 'current', detail: null } }),
+      ]);
+      await screen.findByTestId('team-panel');
+      expect(screen.queryByTestId('admin-secrets-notice')).toBeNull();
+    });
   });
 });

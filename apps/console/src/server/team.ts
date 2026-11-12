@@ -5,11 +5,14 @@ import {
 import { listOrgs } from '@mattstack/rt-client';
 import { Hono } from 'hono';
 
-import type {
-  ConfirmResult,
-  TeamInvite,
-  TeamMember,
-  TeamRead,
+import {
+  ADMIN_SECRETS_STATES,
+  type AdminSecretsUpdate,
+  type AdminSecretsView,
+  type ConfirmResult,
+  type TeamInvite,
+  type TeamMember,
+  type TeamRead,
 } from '../shared/team';
 import {
   runRt as liveRunRt,
@@ -60,6 +63,16 @@ function asStrings(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((v): v is string => typeof v === 'string')
     : [];
+}
+
+function asAdminSecrets(value: unknown): AdminSecretsView | null {
+  const row = value as { state?: unknown; detail?: unknown } | null;
+  const state = ADMIN_SECRETS_STATES.find(s => s === row?.state);
+  if (!state) return null;
+  return {
+    state,
+    detail: typeof row?.detail === 'string' ? row.detail : null,
+  };
 }
 
 async function readOrg(slug: string, runRt: RunRt): Promise<TeamRead> {
@@ -126,6 +139,7 @@ async function readOrg(slug: string, runRt: RunRt): Promise<TeamRead> {
         role: typeof payload.role === 'string' ? payload.role : null,
         members,
         invites,
+        adminSecrets: asAdminSecrets(payload.adminSecrets),
       },
     };
   } catch (err) {
@@ -194,6 +208,51 @@ export function teamRoutes({
             .split('\n')
             .map(line => line.trim())
             .filter(line => line !== ''),
+        };
+        return c.json(result, 200);
+      } catch (err) {
+        if (err instanceof RtNotFoundError) {
+          return c.json({ error: err.message }, 503);
+        }
+        return c.json({ error: (err as Error).message }, 502);
+      }
+    })
+    .post('/api/team/admin-secrets', async c => {
+      if (fixture) return c.json({ error: FIXTURE_READ_ONLY }, 403);
+      if (!isLocalRequest(c.req.raw, c.env as LocalServer | undefined)) {
+        return c.json({ error: 'forbidden' }, 403);
+      }
+      const body = (await c.req.json().catch(() => null)) as {
+        slug?: unknown;
+      } | null;
+      const slug = body?.slug;
+      try {
+        if (typeof slug !== 'string' || !orgs().includes(slug)) {
+          return c.json({ error: 'unknown team' }, 400);
+        }
+        const { code, stdout, stderr } = await runRt(
+          ['team', 'admin-secrets', '--team', slug, '--json'],
+          { timeoutMs: WRITE_TIMEOUT_MS }
+        );
+        const payload = parseJson(stdout);
+        if (code !== 0 || payload === null) {
+          return c.json(
+            {
+              error: failureMessage(
+                payload,
+                stderr,
+                'rt team admin-secrets failed'
+              ),
+            },
+            502
+          );
+        }
+        const state = payload.state;
+        const result: AdminSecretsUpdate = {
+          state: state === 'unused' || state === 'current' ? state : 'updated',
+          holders: asStrings(payload.holders),
+          withoutKey: asStrings(payload.withoutKey),
+          token: typeof payload.token === 'string' ? payload.token : 'none',
         };
         return c.json(result, 200);
       } catch (err) {

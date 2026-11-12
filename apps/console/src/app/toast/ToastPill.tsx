@@ -21,10 +21,14 @@ export function useToastOnce({
   storageKey,
   signature,
   ready = true,
+  forgetWhenClear = false,
 }: {
   storageKey: string;
   signature: string | null;
   ready?: boolean;
+  /** A null signature forgets the last one shown, so the same state
+      coming back shows again. */
+  forgetWhenClear?: boolean;
 }) {
   const [seen, setSeen] = useLocalStorage<string>({
     key: storageKey,
@@ -34,10 +38,14 @@ export function useToastOnce({
   const [hovered, setHovered] = useState(false);
 
   useEffect(() => {
-    if (!ready || signature === null || seen === signature) return;
+    if (signature === null) {
+      if (forgetWhenClear && seen !== '') setSeen('');
+      return;
+    }
+    if (!ready || seen === signature) return;
     setSeen(signature);
     setVisible(true);
-  }, [ready, signature, seen, setSeen]);
+  }, [ready, signature, seen, setSeen, forgetWhenClear]);
 
   useEffect(() => {
     if (!visible || hovered) return;
@@ -45,7 +53,13 @@ export function useToastOnce({
     return () => clearTimeout(timer);
   }, [visible, hovered]);
 
-  return { visible, hide: () => setVisible(false), setHovered };
+  return {
+    visible,
+    /** Showing now, or about to on the next effect pass. */
+    claimed: visible || (signature !== null && seen !== signature),
+    hide: () => setVisible(false),
+    setHovered,
+  };
 }
 
 /** The dark notification pill over the top right of a page: a warn dot, a

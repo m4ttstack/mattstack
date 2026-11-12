@@ -33,6 +33,26 @@ export const teamFixture: TeamRead[] = [
           state: 'expired',
         },
       ],
+      adminSecrets: { state: 'current', detail: null },
+    },
+  },
+  {
+    slug: 'north',
+    ok: true,
+    team: {
+      slug: 'north',
+      name: 'north',
+      role: 'admin',
+      members: [
+        { username: 'lee', role: 'owner', peered: true },
+        { username: 'matt', peered: true },
+      ],
+      invites: [],
+      adminSecrets: {
+        state: 'needs-sync',
+        detail:
+          "The org's owners and admins changed since its admin-only secrets were last locked to them",
+      },
     },
   },
   {

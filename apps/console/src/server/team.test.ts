@@ -65,7 +65,30 @@ describe('GET /api/team', () => {
         { username: 'bo', peered: null },
       ],
       invites: status('acme').invites,
+      adminSecrets: null,
     });
+  });
+
+  it('carries the admin secrets state and drops one it does not know', async () => {
+    const runRt = vi.fn<RunRt>(async argv =>
+      ok({
+        ...status(argv[3]!),
+        adminSecrets:
+          argv[3] === 'acme'
+            ? { state: 'needs-sync', detail: 'The admins changed' }
+            : { state: 'odd', detail: null },
+      })
+    );
+    const body = (await (await app(runRt).request('/api/team')).json()) as {
+      teams: TeamRead[];
+    };
+    const [acme, beta] = body.teams;
+    if (!acme?.ok || !beta?.ok) throw new Error('expected ok');
+    expect(acme.team.adminSecrets).toEqual({
+      state: 'needs-sync',
+      detail: 'The admins changed',
+    });
+    expect(beta.team.adminSecrets).toBeNull();
   });
 
   it('keeps the other orgs when one fails', async () => {
@@ -249,6 +272,90 @@ describe('POST /api/team/confirm', () => {
     expect(await (await a.request('/api/team')).json()).toEqual({
       teams: fixture,
     });
+    expect((await post(a, { slug: 'acme' })).status).toBe(403);
+    expect(runRt).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/team/admin-secrets', () => {
+  const post = (a: ReturnType<typeof app>, body: unknown) =>
+    a.request('http://localhost/api/team/admin-secrets', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', host: 'localhost' },
+      body: JSON.stringify(body),
+    });
+
+  it('runs admin-secrets for the slug and returns its result', async () => {
+    const runRt = vi.fn(async () =>
+      ok({
+        contract: 1,
+        at: '2026-11-12T00:00:00.000Z',
+        state: 'updated',
+        holders: ['matt', 'priya'],
+        withoutKey: [],
+        added: ['age1a'],
+        removed: [],
+        reencrypted: ['rt.json'],
+        token: 'kept',
+      })
+    );
+    const res = await post(app(runRt), { slug: 'acme' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      state: 'updated',
+      holders: ['matt', 'priya'],
+      withoutKey: [],
+      token: 'kept',
+    });
+    expect(runRt).toHaveBeenCalledWith(
+      ['team', 'admin-secrets', '--team', 'acme', '--json'],
+      { timeoutMs: WRITE_TIMEOUT_MS }
+    );
+  });
+
+  it("surfaces rt's failure envelope", async () => {
+    const runRt = vi.fn(async () => ({
+      code: 2,
+      stdout: JSON.stringify({
+        error: { code: 'no-admin-keys', message: 'No admin has a key' },
+      }),
+      stderr: '',
+    }));
+    const res = await post(app(runRt), { slug: 'acme' });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: 'No admin has a key' });
+  });
+
+  it('refuses a non-local request', async () => {
+    const runRt = vi.fn();
+    const res = await app(runRt).request(
+      'http://evil.example/api/team/admin-secrets',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', host: 'evil.example' },
+        body: JSON.stringify({ slug: 'acme' }),
+      }
+    );
+    expect(res.status).toBe(403);
+    expect(runRt).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown slug without running rt', async () => {
+    const runRt = vi.fn();
+    expect((await post(app(runRt), { slug: 'evil' })).status).toBe(400);
+    expect(runRt).not.toHaveBeenCalled();
+  });
+
+  it('answers 503 when rt is missing', async () => {
+    const runRt = vi.fn(async () => {
+      throw new RtNotFoundError(['/x/rt']);
+    });
+    expect((await post(app(runRt), { slug: 'acme' })).status).toBe(503);
+  });
+
+  it('refuses under the fixture', async () => {
+    const runRt = vi.fn();
+    const a = app(runRt, ['acme'], [{ slug: 'acme', ok: false, error: 'x' }]);
     expect((await post(a, { slug: 'acme' })).status).toBe(403);
     expect(runRt).not.toHaveBeenCalled();
   });

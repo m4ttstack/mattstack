@@ -119,4 +119,65 @@ describe('WaitingToast', () => {
     ]);
     expect(await toast()).toBeInTheDocument();
   });
+
+  describe('admin access', () => {
+    const drifted = (over: Parameters<typeof team>[1] = {}) =>
+      team('acme', {
+        name: 'Acme',
+        adminSecrets: { state: 'needs-sync', detail: 'The admins changed' },
+        ...over,
+      });
+    const adminToast = () => screen.findByTestId('admin-secrets-toast');
+
+    it('raises the pill when a team needs its access updated', async () => {
+      renderToast([drifted()]);
+      const root = await adminToast();
+      expect(root).toHaveTextContent('Admin access needs updating');
+      expect(root).toHaveTextContent('Acme');
+      await userEvent.click(within(root).getByText('Review'));
+      expect(screen.getByTestId('where')).toHaveTextContent('/team');
+    });
+
+    it('stays quiet for a team that needs you', async () => {
+      renderToast([
+        drifted({ adminSecrets: { state: 'needs-you', detail: 'x' } }),
+      ]);
+      await settled();
+      expect(screen.queryByTestId('admin-secrets-toast')).toBeNull();
+    });
+
+    it('shows once per signature', async () => {
+      const first = renderToast([drifted()]);
+      await adminToast();
+      first.unmount();
+      renderToast([drifted()]);
+      await settled();
+      expect(screen.queryByTestId('admin-secrets-toast')).toBeNull();
+    });
+
+    it('shows the waiting pill first, then the admin one', async () => {
+      renderToast([drifted({ invites: [invite('alice', 'replied')] })]);
+      const waiting = await toast();
+      expect(screen.queryByTestId('admin-secrets-toast')).toBeNull();
+      await userEvent.click(
+        within(waiting).getByRole('button', { name: 'Dismiss' })
+      );
+      expect(await adminToast()).toHaveTextContent(
+        'Admin access needs updating'
+      );
+    });
+
+    it('shows again once the access was current in between', async () => {
+      const first = renderToast([drifted()]);
+      await adminToast();
+      first.unmount();
+      const second = renderToast([
+        drifted({ adminSecrets: { state: 'current', detail: null } }),
+      ]);
+      await settled();
+      second.unmount();
+      renderToast([drifted()]);
+      expect(await adminToast()).toBeInTheDocument();
+    });
+  });
 });
