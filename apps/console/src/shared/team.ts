@@ -23,6 +23,13 @@ export type TeamRead =
   | { slug: string; ok: true; team: TeamView }
   | { slug: string; ok: false; error: string };
 
+/** `warnings` is rt's stderr, one line each; a sync that adds nobody still answers 200. */
+export interface ConfirmResult {
+  added: string[];
+  pending: string[];
+  warnings: string[];
+}
+
 /** The label of the button that confirms every waiting teammate; null when nobody has replied. */
 export function confirmLabel(invites: TeamInvite[]): string | null {
   const replied = invites.filter(invite => invite.state === 'replied');

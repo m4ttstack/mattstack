@@ -5,7 +5,12 @@ import {
 import { listOrgs } from '@mattstack/rt-client';
 import { Hono } from 'hono';
 
-import type { TeamInvite, TeamMember, TeamRead } from '../shared/team';
+import type {
+  ConfirmResult,
+  TeamInvite,
+  TeamMember,
+  TeamRead,
+} from '../shared/team';
 import {
   runRt as liveRunRt,
   READ_TIMEOUT_MS,
@@ -33,6 +38,24 @@ function parseJson(stdout: string): Record<string, unknown> | null {
   }
 }
 
+/** With --json rt writes a failure as `{error: {code, message}}` on stdout and nothing on stderr. */
+function failureMessage(
+  payload: Record<string, unknown> | null,
+  stderr: string,
+  fallback: string
+): string {
+  const err = payload?.error;
+  const message =
+    err !== null && typeof err === 'object'
+      ? (err as { message?: unknown }).message
+      : err;
+  if (typeof message === 'string' && message.trim()) return message.trim();
+  return stderr.trim() || fallback;
+}
+
+// eslint-disable-next-line no-control-regex
+const ANSI = /\u001b\[[0-9;]*[A-Za-z]/g;
+
 function asStrings(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((v): v is string => typeof v === 'string')
@@ -50,7 +73,7 @@ async function readOrg(slug: string, runRt: RunRt): Promise<TeamRead> {
       return {
         slug,
         ok: false,
-        error: stderr.trim() || 'rt team status failed',
+        error: failureMessage(payload, stderr, 'rt team status failed'),
       };
     }
     if (payload === null) {
@@ -141,30 +164,37 @@ export function teamRoutes({
         slug?: unknown;
       } | null;
       const slug = body?.slug;
-      if (typeof slug !== 'string' || !orgs().includes(slug)) {
-        return c.json({ error: 'unknown team' }, 400);
-      }
       try {
+        if (typeof slug !== 'string' || !orgs().includes(slug)) {
+          return c.json({ error: 'unknown team' }, 400);
+        }
         const { code, stdout, stderr } = await runRt(
           ['team', 'members', 'sync', '--team', slug, '--json'],
           { timeoutMs: WRITE_TIMEOUT_MS }
         );
         const payload = parseJson(stdout);
         if (code !== 0 || payload === null) {
-          const detail =
-            typeof payload?.error === 'string' ? payload.error : '';
           return c.json(
-            { error: stderr.trim() || detail || 'rt team members sync failed' },
+            {
+              error: failureMessage(
+                payload,
+                stderr,
+                'rt team members sync failed'
+              ),
+            },
             502
           );
         }
-        return c.json(
-          {
-            added: asStrings(payload.addedHandles),
-            pending: asStrings(payload.pending),
-          },
-          200
-        );
+        const result: ConfirmResult = {
+          added: asStrings(payload.addedHandles),
+          pending: asStrings(payload.pending),
+          warnings: stderr
+            .replace(ANSI, '')
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line !== ''),
+        };
+        return c.json(result, 200);
       } catch (err) {
         if (err instanceof RtNotFoundError) {
           return c.json({ error: err.message }, 503);

@@ -71,7 +71,13 @@ describe('GET /api/team', () => {
   it('keeps the other orgs when one fails', async () => {
     const runRt = vi.fn(async (argv: string[]) =>
       argv[3] === 'acme'
-        ? { code: 1, stdout: '', stderr: 'switchboard down\n' }
+        ? {
+            code: 2,
+            stdout: JSON.stringify({
+              error: { code: 'no-team', message: 'switchboard down' },
+            }),
+            stderr: '',
+          }
         : ok(status('beta'))
     );
     const body = (await (await app(runRt).request('/api/team')).json()) as {
@@ -94,7 +100,14 @@ describe('GET /api/team', () => {
     const body = (await (await app(runRt).request('/api/team')).json()) as {
       teams: TeamRead[];
     };
-    expect(body.teams.map(t => t.ok)).toEqual([false, false]);
+    expect(body.teams).toEqual([
+      {
+        slug: 'acme',
+        ok: false,
+        error: 'this Mac has no team for that org',
+      },
+      { slug: 'beta', ok: false, error: 'rt produced no readable output' },
+    ]);
   });
 
   it('gives an empty list with no orgs', async () => {
@@ -133,22 +146,86 @@ describe('POST /api/team/confirm', () => {
     );
     const res = await post(app(runRt), { slug: 'acme' });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ added: ['alice'], pending: ['bob'] });
+    expect(await res.json()).toEqual({
+      added: ['alice'],
+      pending: ['bob'],
+      warnings: [],
+    });
     expect(runRt).toHaveBeenCalledWith(
       ['team', 'members', 'sync', '--team', 'acme', '--json'],
       { timeoutMs: WRITE_TIMEOUT_MS }
     );
   });
 
-  it("surfaces the sync's error", async () => {
+  it("surfaces the sync's failure envelope from stdout", async () => {
     const runRt = vi.fn(async () => ({
-      code: 1,
-      stdout: '',
-      stderr: 'keychain locked\n',
+      code: 2,
+      stdout: JSON.stringify({
+        error: { code: 'members-error', message: 'keychain locked' },
+      }),
+      stderr: '',
     }));
     const res = await post(app(runRt), { slug: 'acme' });
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({ error: 'keychain locked' });
+  });
+
+  it('falls back to stderr when stdout has no envelope', async () => {
+    const runRt = vi.fn(async () => ({
+      code: 1,
+      stdout: '',
+      stderr: 'boom\n',
+    }));
+    const res = await post(app(runRt), { slug: 'acme' });
+    expect(await res.json()).toEqual({ error: 'boom' });
+  });
+
+  it('passes rt warnings through when nobody was added', async () => {
+    const runRt = vi.fn(async () => ({
+      code: 0,
+      stdout: JSON.stringify({
+        addedHandles: [],
+        added: [],
+        pending: ['alice'],
+        reencrypted: [],
+      }),
+      stderr: '\u001b[33mThe reply from alice could not be used\u001b[0m\n\n',
+    }));
+    const res = await post(app(runRt), { slug: 'acme' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      added: [],
+      pending: ['alice'],
+      warnings: ['The reply from alice could not be used'],
+    });
+  });
+
+  it('refuses a non-local request', async () => {
+    const runRt = vi.fn();
+    const res = await app(runRt).request(
+      'http://evil.example/api/team/confirm',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', host: 'evil.example' },
+        body: JSON.stringify({ slug: 'acme' }),
+      }
+    );
+    expect(res.status).toBe(403);
+    expect(runRt).not.toHaveBeenCalled();
+  });
+
+  it('answers 502 when listing orgs throws', async () => {
+    const res = await teamRoutes({
+      runRt: vi.fn(),
+      orgs: () => {
+        throw new Error('orgs unreadable');
+      },
+    }).request('http://localhost/api/team/confirm', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', host: 'localhost' },
+      body: JSON.stringify({ slug: 'acme' }),
+    });
+    expect(res.status).toBe(502);
   });
 
   it('rejects an unknown slug without running rt', async () => {
