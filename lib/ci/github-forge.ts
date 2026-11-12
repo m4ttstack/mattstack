@@ -212,7 +212,7 @@ export class GithubHeadReader {
 
     const facts = this.store.get();
     const sha = mr.sha!;
-    let rows: PipelineListRow[] | null = null;
+    let listing: { rows: PipelineListRow[] | null } | null = null;
 
     if (facts.required === null && facts.requiredTries < REQUIRED_TRIES && mr.targetBranch) {
       const branch = encodeURIComponent(mr.targetBranch);
@@ -230,20 +230,27 @@ export class GithubHeadReader {
         facts.anchor = { runId: null, createdAt: this.now() };
         this.store.set(facts);
       }
-      if (facts.anchor.runId === null && facts.anchorTries < ANCHOR_TRIES && p.jobs.some((j) => j.runId)) {
-        rows = await this.listRuns(p.ref ?? null, sha);
+      const ref = p.ref ?? null;
+      if (ref !== null && facts.anchor.runId === null && facts.anchorTries < ANCHOR_TRIES && p.jobs.some((j) => j.runId)) {
+        listing = { rows: await this.listRuns(ref, sha) };
         facts.anchorTries += 1;
-        const earliest = rows ? earliestRun(rows) : null;
+        const earliest = listing.rows ? earliestRun(listing.rows) : null;
         if (earliest) facts.anchor = earliest;
         this.store.set(facts);
       }
     }
 
     const raw = buildHead(p, { ...facts, confirm: null });
-    if (raw.allBlock && raw.status === "success") {
+    if (raw.status !== "success") {
+      if (facts.confirm !== null && !facts.confirm.open) {
+        facts.confirm = { at: facts.confirm.at, open: true };
+        this.store.set(facts);
+      }
+    } else if (raw.allBlock) {
       const due = facts.confirm === null || this.now() - facts.confirm.at >= CONFIRM_EVERY_MS;
       if (due) {
-        rows ??= await this.listRuns(p.ref ?? null, sha);
+        listing ??= { rows: await this.listRuns(p.ref ?? null, sha) };
+        const rows = listing.rows;
         facts.confirm = {
           at: this.now(),
           open: rows ? rows.some((r) => !COMPLETED_RUN_STATUSES.has(r.status)) : (facts.confirm?.open ?? false),

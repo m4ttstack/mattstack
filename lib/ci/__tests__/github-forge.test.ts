@@ -542,3 +542,64 @@ describe("GithubHeadReader success confirmation", () => {
     expect(h.count("pipeline:list")).toBe(0);
   });
 });
+
+describe("GithubHeadReader listing reuse and stale confirmation", () => {
+  beforeEach(() => __resetMemoryFacts());
+
+  const noRules = { rules: forgeOk([]), branch: forgeOk({ protected: false }) };
+
+  test("a failed anchor listing is not repeated for the confirmation in the same read", async () => {
+    const h = harness(defaultResponder({ ...noRules, list: { ok: false, error: "GitHub returned 502 Bad Gateway" } }));
+    const head = await h.reader.read(mrOf([job("build", "success")]), SHA_FULL);
+    expect(h.count("pipeline:list")).toBe(1);
+    expect(head?.status).toBe("success");
+    expect(h.store.get().confirm).toEqual({ at: T0, open: false });
+  });
+
+  test("a head with no ref makes no anchor listing and spends no anchor attempt", async () => {
+    const h = harness(defaultResponder());
+    const head = await h.reader.read(
+      mrOf([], { pipeline: pipeline([job("checks", "running")], { sha: SHA_FULL, ref: null }) }),
+      SHA_FULL,
+    );
+    expect(h.count("pipeline:list")).toBe(0);
+    expect(h.store.get()).toMatchObject({ anchor: { runId: null, createdAt: T0 }, anchorTries: 0 });
+    expect(head?.number).toBe(0);
+  });
+
+  test("a head with no ref confirms by sha only", async () => {
+    const h = harness(defaultResponder({
+      ...noRules,
+      list: { ok: true, data: { pipelines: [runRow(900, "2026-11-11T10:00:00Z", "running")] } },
+    }));
+    const head = await h.reader.read(
+      mrOf([], { pipeline: pipeline([job("build", "success")], { sha: SHA_FULL, ref: null }) }),
+      SHA_FULL,
+    );
+    expect(h.calls.filter((c) => c.name === "pipeline:list").map((c) => c.payload)).toEqual([
+      { repoName: "github.com/o/r", sha: SHA_FULL, limit: 100 },
+    ]);
+    expect(head?.status).toBe("running");
+  });
+
+  test("a head that leaves success marks the last confirmation stale until the next due read", async () => {
+    const h = harness(defaultResponder({
+      ...noRules,
+      list: { ok: true, data: { pipelines: [runRow(900, "2026-11-11T10:00:00Z", "success")] } },
+    }));
+    const green = [job("build", "success", { runId: null })];
+    expect((await h.reader.read(mrOf(green), SHA_FULL))?.status).toBe("success");
+    expect(h.store.get().confirm).toEqual({ at: T0, open: false });
+
+    h.reset();
+    h.advance(60_000);
+    expect((await h.reader.read(mrOf([job("build", "running", { runId: null })]), SHA_FULL))?.status).toBe("running");
+    h.advance(60_000);
+    expect((await h.reader.read(mrOf(green), SHA_FULL))?.status).toBe("running");
+    expect(h.count("pipeline:list")).toBe(0);
+
+    h.advance(CONFIRM_EVERY_MS);
+    expect((await h.reader.read(mrOf(green), SHA_FULL))?.status).toBe("success");
+    expect(h.count("pipeline:list")).toBe(1);
+  });
+});

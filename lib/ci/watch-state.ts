@@ -35,13 +35,20 @@ function fresh(mr: string, sha: string, priorPipelineId: number | null, now: num
   };
 }
 
+function isObject<T>(v: T | null | undefined): v is T {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
 function parse(raw: string): PersistedWatch | null {
   try {
     const v = JSON.parse(raw) as PersistedWatch;
     if (!(v && v.version === 1 && typeof v.sha === "string")) return null;
     const { github, ...rest } = v;
     const parsed: PersistedWatch = { ...rest, heldBy: typeof v.heldBy === "string" ? v.heldBy : null };
-    if (typeof github === "object" && github !== null && !Array.isArray(github)) parsed.github = github;
+    if (isObject(github)) {
+      const anchor = isObject(github.anchor) && Number.isFinite(github.anchor.createdAt) ? github.anchor : null;
+      parsed.github = { ...github, anchor };
+    }
     return parsed;
   } catch {
     return null;
