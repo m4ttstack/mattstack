@@ -1,5 +1,4 @@
 import {
-  hasLocalOrigin,
   isLocalRequest,
   type LocalServer,
 } from '@mattstack/app-server/local-request';
@@ -182,10 +181,7 @@ export function teamRoutes({
     })
     .post('/api/team/confirm', async c => {
       if (fixture) return c.json({ error: FIXTURE_READ_ONLY }, 403);
-      if (
-        !isLocalRequest(c.req.raw, c.env as LocalServer | undefined) ||
-        !hasLocalOrigin(c.req.raw)
-      ) {
+      if (!isLocalRequest(c.req.raw, c.env as LocalServer | undefined)) {
         return c.json({ error: 'forbidden' }, 403);
       }
       const body = (await c.req.json().catch(() => null)) as {
@@ -238,10 +234,7 @@ export function teamRoutes({
     })
     .post('/api/team/admin-secrets', async c => {
       if (fixture) return c.json({ error: FIXTURE_READ_ONLY }, 403);
-      if (
-        !isLocalRequest(c.req.raw, c.env as LocalServer | undefined) ||
-        !hasLocalOrigin(c.req.raw)
-      ) {
+      if (!isLocalRequest(c.req.raw, c.env as LocalServer | undefined)) {
         return c.json({ error: 'forbidden' }, 403);
       }
       const body = (await c.req.json().catch(() => null)) as {

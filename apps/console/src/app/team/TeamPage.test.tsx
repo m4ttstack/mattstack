@@ -308,6 +308,32 @@ describe('TeamPage', () => {
     );
   });
 
+  it('keeps Update access off while an approve runs on the same org', async () => {
+    let finish: (value: unknown) => void = () => {};
+    confirmPost.mockReturnValue(new Promise(r => (finish = r)));
+    renderPage([
+      team('acme', {
+        invites: [invite('alice', 'replied')],
+        adminSecrets: { state: 'needs-sync', detail: null },
+      }),
+    ]);
+    const update = await screen.findByRole('button', {
+      name: 'Update access',
+    });
+    expect(update).toBeEnabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    await waitFor(() => expect(update).toBeDisabled());
+    await act(async () =>
+      finish(ok({ added: ['alice'], pending: [], warnings: [] }))
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Update access' })
+      ).toBeEnabled()
+    );
+    expect(adminSecretsPost).not.toHaveBeenCalled();
+  });
+
   it('keeps Approve off after leaving and coming back mid-sync', async () => {
     let finish: (value: unknown) => void = () => {};
     confirmPost.mockReturnValue(new Promise(r => (finish = r)));

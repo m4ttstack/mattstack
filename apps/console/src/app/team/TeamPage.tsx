@@ -279,10 +279,13 @@ const REPLACE_TOKEN = 'rt team admin-secrets --replace-token';
 function AdminSecretsNotice({
   team,
   updating,
+  busy,
   onUpdate,
 }: {
   team: TeamView;
   updating: boolean;
+  /** Any write on this org runs, so Update access waits for it. */
+  busy: boolean;
   onUpdate: () => void;
 }) {
   const state = team.adminSecrets?.state;
@@ -294,6 +297,7 @@ function AdminSecretsNotice({
           icon="lock"
           retryLabel="Update access"
           busy={updating}
+          disabled={busy}
           onRetry={onUpdate}
           data-testid="admin-secrets-notice"
         >
@@ -427,6 +431,7 @@ function TeamPanel({ read, onRetry }: { read: TeamRead; onRetry: () => void }) {
       <AdminSecretsNotice
         team={team}
         updating={writes.updating}
+        busy={writes.busy}
         onUpdate={writes.updateAccess}
       />
       <Tabs

@@ -296,14 +296,16 @@ describe('team writes', () => {
     });
 
   it.each(['/api/team/confirm', '/api/team/admin-secrets'])(
-    '%s refuses a page from another origin',
+    '%s answers through the Vite proxy, whose Origin names another port',
     async path => {
-      const runRt = vi.fn();
+      const runRt = vi.fn(async () =>
+        ok({ addedHandles: [], pending: [], state: 'current' })
+      );
       const res = await write(app(runRt), path, {
-        origin: 'https://evil.example',
+        host: '127.0.0.1:11097',
+        origin: 'http://localhost:5307',
       });
-      expect(res.status).toBe(403);
-      expect(runRt).not.toHaveBeenCalled();
+      expect(res.status).toBe(200);
     }
   );
 
