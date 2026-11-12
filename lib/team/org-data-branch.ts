@@ -28,7 +28,7 @@ export type HeldMove =
   | { kind: "held"; why: "detached" };
 
 export type MoveResult =
-  | { kind: "moved"; branch: string; carried?: number }
+  | { kind: "moved"; branch: string; carried?: number; left?: number }
   | { kind: "already"; branch: string }
   | HeldMove
   | { kind: "failed"; log: string };
@@ -91,13 +91,14 @@ export function heldCopy(held: HeldMove): { detail: string; remedy: string } {
 type Blocker = HeldMove | { kind: "failed"; log: string };
 
 /** The commits origin has none of, oldest first, or what holds them back from the move. */
-type Ready = { kind: "ready"; commits: string[] };
+type Ready = { kind: "ready"; commits: string[]; left?: number };
 
-async function unpushed(p: Pick<Probes, "exec">, dir: string, current: string, carry: boolean): Promise<Ready | Blocker> {
+async function unpushed(p: Pick<Probes, "exec">, dir: string, current: string, carry: boolean, leave: boolean): Promise<Ready | Blocker> {
   // Against every origin ref, not the branch's own: a missing tracking ref must not make local commits look pushed.
   const listed = await p.exec(["git", "rev-list", "--reverse", "HEAD", "--not", "--remotes=origin"], { cwd: dir, env: ENV });
   if (listed.code !== 0) return { kind: "failed", log: withoutUrls(listed.stderr) };
   const commits = listed.stdout.split("\n").filter(Boolean);
+  if (leave) return { kind: "ready", commits: [], left: commits.length };
   if (!carry && commits.length > 0) return { kind: "held", why: "unpushed", commits: commits.length, branch: current };
   for (const commit of commits) {
     const touched = await p.exec(["git", "diff-tree", "-r", "--root", "--no-commit-id", "--name-only", commit], { cwd: dir, env: ENV });
@@ -109,24 +110,28 @@ async function unpushed(p: Pick<Probes, "exec">, dir: string, current: string, c
   return { kind: "ready", commits };
 }
 
-async function blockerOn(p: Pick<Probes, "exec">, dir: string, current: string | null, carry: boolean): Promise<Ready | Blocker> {
+async function blockerOn(p: Pick<Probes, "exec">, dir: string, current: string | null, carry: boolean, leave = false): Promise<Ready | Blocker> {
   const status = await p.exec(["git", "status", "--porcelain=v1", "--untracked-files=no"], { cwd: dir, env: ENV });
   if (status.code !== 0) return { kind: "failed", log: withoutUrls(status.stderr) };
   const files = status.stdout.split("\n").filter(Boolean).map((line) => line.slice(3));
   if (files.length > 0) return { kind: "held", why: "dirty", files };
   if (current === null) return { kind: "held", why: "detached" };
-  return unpushed(p, dir, current, carry);
+  return unpushed(p, dir, current, carry, leave);
 }
 
 /** What keeps the clone from moving now: unsaved changes, no branch checked out, or unpushed commits the move cannot carry. Null when nothing does; a clash with the data branch shows only when the move tries. */
 export async function moveBlocker(p: Pick<Probes, "exec">, dir: string, opts: MoveOptions = {}): Promise<Blocker | null> {
-  const blocker = await blockerOn(p, dir, await checkedOutBranch(p, dir), opts.carry ?? true);
+  const blocker = await blockerOn(p, dir, await checkedOutBranch(p, dir), opts.carry ?? true, opts.leave ?? false);
   return blocker.kind === "ready" ? null : blocker;
 }
 
 export interface MoveOptions {
   /** Replay unpushed commits onto the target (the one-time convergence). A switch the person chose passes false and holds instead: commits on a branch they were trying stay there. */
   carry?: boolean;
+  /** Leave unpushed commits on the branch the clone is leaving, so they neither hold the move nor follow it (leaving a trial). */
+  leave?: boolean;
+  /** Check out a local `branch` holding commits origin lacks as it is, instead of holding (returning to a trial those commits were left on). */
+  keepLocal?: boolean;
 }
 
 const CLASH_RE = /conflict|could not apply|after resolving|is a merge/i;
@@ -142,18 +147,21 @@ const CLASH_RE = /conflict|could not apply|after resolving|is a merge/i;
 export async function moveCloneToDataBranch(p: Pick<Probes, "exec">, dir: string, branch: string, token: string | null, remote: string, opts: MoveOptions = {}): Promise<MoveResult> {
   const current = await checkedOutBranch(p, dir);
   if (current === branch) return { kind: "already", branch };
-  const ready = await blockerOn(p, dir, current, opts.carry ?? true);
+  const ready = await blockerOn(p, dir, current, opts.carry ?? true, opts.leave ?? false);
   if (ready.kind !== "ready") return ready;
   const refspec = dataBranchRefspec(branch);
   const fetch = gitWithToken(["fetch", "-q", "origin", refspec], token, ENV, { remote });
   const fetched = await p.exec(fetch.argv, { cwd: dir, env: fetch.env });
   if (fetched.code !== 0) return { kind: "failed", log: withoutUrls(`${fetched.stdout}\n${fetched.stderr}`.trim()) };
   const existed = (await p.exec(["git", "rev-parse", "--verify", "-q", `refs/heads/${branch}`], { cwd: dir, env: ENV })).code === 0;
+  let resume = false;
   if (existed) {
     const stranded = await strandedOn(p, dir, branch);
-    if (stranded !== null) return stranded;
+    if (stranded?.kind === "held" && opts.keepLocal) resume = true;
+    else if (stranded !== null) return stranded;
   }
-  const checkout = await p.exec(["git", "checkout", "-q", "-B", branch, `refs/remotes/origin/${branch}`], { cwd: dir, env: ENV });
+  const checkoutArgs = resume ? ["git", "checkout", "-q", branch] : ["git", "checkout", "-q", "-B", branch, `refs/remotes/origin/${branch}`];
+  const checkout = await p.exec(checkoutArgs, { cwd: dir, env: ENV });
   if (checkout.code !== 0) return { kind: "failed", log: withoutUrls(checkout.stderr) };
   if (ready.commits.length > 0) {
     const picked = await p.exec(["git", "cherry-pick", ...ready.commits], { cwd: dir, env: ENV });
@@ -168,7 +176,8 @@ export async function moveCloneToDataBranch(p: Pick<Probes, "exec">, dir: string
   }
   await p.exec(["git", "branch", "-q", "--set-upstream-to", `origin/${branch}`], { cwd: dir, env: ENV });
   await p.exec(["git", "config", "--replace-all", "remote.origin.fetch", refspec], { cwd: dir, env: ENV });
-  return ready.commits.length > 0 ? { kind: "moved", branch, carried: ready.commits.length } : { kind: "moved", branch };
+  const left = ready.left !== undefined && ready.left > 0 ? { left: ready.left } : {};
+  return ready.commits.length > 0 ? { kind: "moved", branch, carried: ready.commits.length, ...left } : { kind: "moved", branch, ...left };
 }
 
 /** What `git checkout -B` would throw away: commits on the local `branch` that its origin copy does not hold. Null when there are none. */

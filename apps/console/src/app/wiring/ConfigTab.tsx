@@ -14,6 +14,7 @@ import { loadSteps, StepLoader, useStepLoading } from '../StepLoader';
 import classes from './ConfigTab.module.css';
 import { useReportReady } from './contentReady';
 import { useConfirmCompile } from './graph/confirmCompile';
+import { TrialBanner } from './graph/TrialBanner';
 import { UnsyncedActions, useUnsyncedSummary } from './graph/UnsyncedBanner';
 import { useWiringUrl } from './graph/useWiringUrl';
 import {
@@ -181,12 +182,17 @@ function PackStatusBar({
           <>
             <Badge
               variant="tint"
-              color="warn"
+              color={summary.trial ? 'purple' : 'warn'}
               leftSection={<span className={classes.pillDot} />}
               className={classes.pill}
+              data-testid="pending-pill"
             >
-              {summary.count} {summary.count === 1 ? 'change' : 'changes'} to
-              publish
+              {summary.count}{' '}
+              {summary.trial
+                ? summary.count === 1
+                  ? 'trial change'
+                  : 'trial changes'
+                : `${summary.count === 1 ? 'change' : 'changes'} to publish`}
             </Badge>
             <Button
               variant="subtle"
@@ -369,6 +375,7 @@ export function ConfigTab({
 
   return (
     <Stack gap={16} data-testid="config-tab">
+      <TrialBanner pack={pack} />
       <PackStatusBar
         pack={pack}
         inSync={groups.inSyncCount}

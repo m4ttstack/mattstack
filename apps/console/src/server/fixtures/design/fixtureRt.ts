@@ -194,16 +194,42 @@ async function payload<T>(
 
 export function fixtureRt(scenario: FixtureScenario): FixtureRt {
   const def = scenarioOf(scenario);
-  const unsynced = scenario === 'unsynced';
+  const trial = scenario === 'trial';
+  const unsynced = scenario === 'unsynced' || trial;
   const changesFile = `changes.${unsynced ? 'unsynced' : 'clean'}.json`;
   const pendingFiles = async () =>
     (await readJson<{ files: PendingFile[] }>(changesFile)).files;
 
   const runRt: RunRt = async argv => {
     const [group, verb] = argv;
+    if (group === 'team' && verb === 'status' && argv.includes('--json')) {
+      return answer(
+        JSON.stringify({
+          contract: 1,
+          slug: 'acme',
+          branch: trial ? 'try-roles' : 'mattstack',
+          dataBranch: 'mattstack',
+          trial,
+        })
+      );
+    }
     if (group !== 'skills') return refuse(argv);
     if (verb === 'packs' && argv.includes('--json')) {
-      return answer(await readJsonText('packs.json'));
+      // The trial route reads a team pack as one in the org copy.
+      return answer(
+        await payload<{ packs: { name: string; team?: string | null }[] }>(
+          'packs.json',
+          trial
+            ? listed => ({
+                packs: listed.packs.map(row =>
+                  row.name === FIXTURE_PACK
+                    ? { ...row, team: 'acme', org: 'acme' }
+                    : row
+                ),
+              })
+            : undefined
+        )
+      );
     }
     if (flagValue(argv, '--pack') !== FIXTURE_PACK) return refuse(argv);
 

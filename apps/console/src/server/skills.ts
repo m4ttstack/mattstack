@@ -38,6 +38,9 @@ interface SkillsPackRow {
   /** The team whose folder holds the pack; null for a plugin or base pack.
       Absent from an rt that predates the field. */
   team?: string | null;
+  /** The org whose copy holds a team pack; null otherwise. Absent from an rt
+      that predates the field. */
+  org?: string | null;
 }
 interface SkillsPacksResponse {
   packs: SkillsPackRow[];
@@ -407,6 +410,15 @@ interface SkillsChangesResponse {
   /** Set when the org copy is on a trial branch: a sync installs on this Mac only. */
   trialBranch?: string;
 }
+/** The part of `rt team status --json` that says whether the org copy is on
+    a trial branch; a Mac with no team answers `mode: "solo"` and none of it. */
+interface TeamStatusTrial {
+  branch?: string | null;
+  dataBranch?: string;
+  trial?: boolean;
+}
+/** A team pack's trial branch and the data branch it is not on; null off a trial. */
+type PackTrial = { branch: string; dataBranch: string } | null;
 interface SkillsDiscardResponse {
   pack: string;
   packDir: string;
@@ -1925,6 +1937,54 @@ export function mountSkills(
           );
         }
         return c.json(payload as SkillsChangesResponse, 200);
+      } catch (err) {
+        if (err instanceof RtNotFoundError) {
+          return c.json({ error: err.message }, 503);
+        }
+        return c.json({ error: (err as Error).message }, 502);
+      }
+    })
+    .get('/api/skills/trial', packQuery, async c => {
+      const { pack } = c.req.valid('query');
+      if (!pack) return c.json({ error: 'pack is required' }, 400);
+      try {
+        const packs = await cachedRun(['skills', 'packs', '--json']);
+        const listed = parseJsonPayload(packs.stdout) as
+          SkillsPacksResponse | undefined;
+        if (packs.code !== 0 || listed === undefined) {
+          return c.json(
+            { error: packs.stderr.trim() || 'rt produced no output' },
+            502
+          );
+        }
+        // Only a team pack lives in an org copy, so only it can be on a trial.
+        const row = listed.packs.find(
+          p => p.name === pack && typeof p.team === 'string'
+        );
+        if (!row) return c.json({ trial: null as PackTrial }, 200);
+        // Name the pack's org: with more than one org on the Mac, a bare
+        // `team status` refuses as ambiguous.
+        const status = await cachedRun([
+          'team',
+          'status',
+          ...(row.org ? ['--team', row.org] : []),
+          '--json',
+        ]);
+        const team = parseJsonPayload(status.stdout) as
+          TeamStatusTrial | undefined;
+        if (status.code !== 0 || team === undefined) {
+          return c.json(
+            { error: status.stderr.trim() || 'rt team status failed' },
+            502
+          );
+        }
+        const trial: PackTrial =
+          team.trial === true &&
+          typeof team.branch === 'string' &&
+          typeof team.dataBranch === 'string'
+            ? { branch: team.branch, dataBranch: team.dataBranch }
+            : null;
+        return c.json({ trial }, 200);
       } catch (err) {
         if (err instanceof RtNotFoundError) {
           return c.json({ error: err.message }, 503);

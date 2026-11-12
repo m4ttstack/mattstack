@@ -4033,14 +4033,14 @@ describe("skillsPacks --json", () => {
     expect(() => JSON.parse(io.lines().join("\n"))).not.toThrow();
   });
 
-  test("names the team for an org team pack and null for a marketplace plugin", async () => {
+  test("names the team and org for an org team pack and null for a marketplace plugin", async () => {
     const savedHome = process.env.HOME;
     const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-packs-team-")));
     try {
       process.env.HOME = home;
       const orgRoot = join(home, ".mattstack", "orgs", "acme", "mattstack");
       mkdirSync(join(orgRoot, "teams", "web", "plugin"), { recursive: true });
-      writeFileSync(join(orgRoot, "mattstack.jsonc"), '{"role":"org"}');
+      writeFileSync(join(orgRoot, "mattstack.jsonc"), '{"role":"org","org":"acme"}');
       writeFileSync(join(orgRoot, "teams", "web", "plugin", "surface.jsonc"), "{}");
       const market = join(home, "market");
       mkdirSync(join(market, ".claude-plugin"), { recursive: true });
@@ -4052,10 +4052,10 @@ describe("skillsPacks --json", () => {
 
       await skillsPacks(["--settings-path", settings, "--json"]);
 
-      const { packs } = JSON.parse(io.lines().join("\n")) as { packs: { name: string; team: string | null }[] };
-      expect(packs.map((p) => [p.name, p.team])).toEqual([
-        ["tools", null],
-        ["web", "web"],
+      const { packs } = JSON.parse(io.lines().join("\n")) as { packs: { name: string; team: string | null; org: string | null }[] };
+      expect(packs.map((p) => [p.name, p.team, p.org])).toEqual([
+        ["tools", null, null],
+        ["web", "web", "acme"],
       ]);
     } finally {
       process.env.HOME = savedHome;

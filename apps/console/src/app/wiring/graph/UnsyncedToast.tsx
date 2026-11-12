@@ -73,8 +73,12 @@ export function UnsyncedToast({
           >
             <span className={classes.toastDot} aria-hidden />
             <span className={classes.toastTitle}>
-              {summary?.count} {summary?.count === 1 ? 'change' : 'changes'} not
-              synced
+              {summary?.count}{' '}
+              {summary?.trial
+                ? summary.count === 1
+                  ? 'trial change'
+                  : 'trial changes'
+                : `${summary?.count === 1 ? 'change' : 'changes'} not synced`}
             </span>
             <span className={classes.toastMeta}>
               {summary?.trial ? `${pack} · ${summary.trial}` : pack}

@@ -110,20 +110,45 @@ describe("useBranch", () => {
     expect(() => w.atOrigin("rev-parse", "--verify", "-q", "refs/heads/try-it")).toThrow();
   }, 30_000);
 
-  test("unpushed trial commits hold the switch back to the data branch, and stay where they are", async () => {
+  test("unpushed trial commits do not hold the switch back to the data branch: they stay on the local trial branch, unpushed", async () => {
     const w = dataBranchWorld();
     await useBranch(w.p, "acme", "try-it", noToken);
     writeFileSync(join(w.root, "mattstack/teams/widgets/settings.team.jsonc"), '{"board.title":"trial"}');
     w.git("commit", "-aq", "-m", "trial only");
     const trialTip = w.git("rev-parse", "HEAD").trim();
+    const originTrial = w.atOrigin("rev-parse", "refs/heads/try-it").trim();
     const dataTip = w.atOrigin("rev-parse", "refs/heads/mattstack").trim();
-    const err = await refusal(useBranch(w.p, "acme", "mattstack", noToken));
-    expect(err.code).toBe("trial-branch-held");
-    expect(err.message).toBe("Your copy of the org has 1 commit on try-it that is not pushed yet, so rt did not switch");
+    const back = await useBranch(w.p, "acme", "mattstack", noToken);
+    expect(back).toEqual({ branch: "mattstack", created: false, trial: false, left: { branch: "try-it", commits: 1 } });
+    expect(w.git("symbolic-ref", "--short", "HEAD").trim()).toBe("mattstack");
+    expect(w.git("rev-parse", "HEAD").trim()).toBe(dataTip);
+    expect(w.git("rev-parse", "refs/heads/try-it").trim()).toBe(trialTip);
+    expect(w.atOrigin("rev-parse", "refs/heads/try-it").trim()).toBe(originTrial);
+    expect(w.atOrigin("rev-parse", "refs/heads/mattstack").trim()).toBe(dataTip);
+    expect(readTeamLocal(w.p, "acme").trialBranch).toBeUndefined();
+  }, 30_000);
+
+  test("going back to a trial whose local commits were left there picks them up again", async () => {
+    const w = dataBranchWorld();
+    await useBranch(w.p, "acme", "try-it", noToken);
+    writeFileSync(join(w.root, "mattstack/teams/widgets/settings.team.jsonc"), '{"board.title":"trial"}');
+    w.git("commit", "-aq", "-m", "trial only");
+    const trialTip = w.git("rev-parse", "HEAD").trim();
+    await useBranch(w.p, "acme", "mattstack", noToken);
+    const again = await useBranch(w.p, "acme", "try-it", noToken);
+    expect(again).toEqual({ branch: "try-it", created: false, trial: true });
     expect(w.git("symbolic-ref", "--short", "HEAD").trim()).toBe("try-it");
     expect(w.git("rev-parse", "HEAD").trim()).toBe(trialTip);
-    expect(w.atOrigin("rev-parse", "refs/heads/mattstack").trim()).toBe(dataTip);
-    expect(w.git("rev-parse", "mattstack").trim()).toBe(dataTip);
+    expect(readTeamLocal(w.p, "acme").trialBranch).toBe("try-it");
+  }, 30_000);
+
+  test("unsaved changes on a trial still hold the switch back to the data branch", async () => {
+    const w = dataBranchWorld();
+    await useBranch(w.p, "acme", "try-it", noToken);
+    writeFileSync(join(w.root, "mattstack/teams/widgets/settings.team.jsonc"), '{"board.title":"half done"}');
+    const err = await refusal(useBranch(w.p, "acme", "mattstack", noToken));
+    expect(err.code).toBe("trial-branch-held");
+    expect(w.git("symbolic-ref", "--short", "HEAD").trim()).toBe("try-it");
     expect(readTeamLocal(w.p, "acme").trialBranch).toBe("try-it");
   }, 30_000);
 

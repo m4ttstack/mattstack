@@ -81,4 +81,11 @@ describe("rt team branch use", () => {
     expect(text).toContain("Your copy of the org is on mattstack");
     expect(text).not.toContain("auto-commit");
   });
+
+  test("commits left on the trial are named, with how to get back to them", () => {
+    const text = renderPlain(branchUseBlocks({ branch: "mattstack", created: false, trial: false, left: { branch: "try-it", commits: 3 } }, "acme"));
+    expect(text).toContain("Your copy of the org is on mattstack");
+    expect(text).toContain("3 commits stay on try-it on this Mac only");
+    expect(text).toContain("rt team branch use try-it --team acme");
+  });
 });

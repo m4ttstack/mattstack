@@ -276,7 +276,7 @@ export function HistorySidebar({ pack }: { pack: string }) {
                 </span>
                 <span>
                   {summary?.trial
-                    ? `to sync to ${summary.trial}`
+                    ? `on ${summary.trial} only`
                     : 'not synced yet'}
                 </span>
               </span>

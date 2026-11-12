@@ -60,6 +60,7 @@ import { createTeam, type CreateTeamOpts } from "../lib/team/create.ts";
 import { extractInviteCode } from "../lib/team/invite-crypto.ts";
 import { mintInvite, realMintInviteSeams, type InviteResult, type MintInviteSeams } from "../lib/team/invite.ts";
 import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
+import { approvedBranches } from "../lib/team/approved-branch.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
 import { syncAdminSecrets, type AdminSecretsResult, type TokenOutcome } from "../lib/team/admin-secrets.ts";
 import { canonicalHandle, readAdminToken, readPeeredBoards, realReadAdminSecret, realReadLocalSecret, type ReadAdminSecret, type ReadLocalSecret } from "../lib/team/board-peers.ts";
@@ -75,7 +76,6 @@ import { createRelayClient } from "../lib/team/relay-client.ts";
 import { withoutUrls } from "../lib/team/redact.ts";
 import { logCliEvent } from "../lib/cli-logger.ts";
 import { checkedOutBranch } from "../lib/team/org-branch.ts";
-import { markerState } from "../lib/team/org-marker.ts";
 import { useBranch, type BranchUse } from "../lib/team/trial-branch.ts";
 import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
@@ -637,8 +637,16 @@ export async function teamRename(args: string[], _ctx: CommandContext = {}, deps
   }
 }
 
-export function branchUseBlocks(result: BranchUse): Block[] {
-  return [out.line("done", `Your copy of the org is on ${result.branch}`, result.trial ? "auto-commit runs here on this Mac only" : undefined)];
+export function branchUseBlocks(result: BranchUse, slug?: string): Block[] {
+  const done = out.line("done", `Your copy of the org is on ${result.branch}`, result.trial ? "auto-commit runs here on this Mac only" : undefined);
+  if (!result.left) return [done];
+  const { branch, commits } = result.left;
+  const team = slug ? ` --team ${slug}` : "";
+  return [
+    done,
+    out.callout("note", `${commits === 1 ? "1 commit stays" : `${commits} commits stay`} on ${branch} on this Mac only. They were never pushed, so no one else has them.`),
+    out.callout("next", ["To pick them up again, run ", out.cmd(`rt team branch use ${branch}${team}`)]),
+  ];
 }
 
 export async function teamBranchUse(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
@@ -652,7 +660,7 @@ export async function teamBranchUse(args: string[], _ctx: CommandContext = {}, d
       deps.print(JSON.stringify(envelope({ ok: true, slug, ...result })));
       return;
     }
-    out.print(...branchUseBlocks(result));
+    out.print(...branchUseBlocks(result, slug));
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;
@@ -1188,8 +1196,9 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
     );
 
     const branch = await checkedOutBranch(deps.probes, dir);
-    const marker = markerState(deps.probes, dir);
-    const homeBranch = marker.kind === "org" && marker.dataBranch !== null ? marker.dataBranch : "main";
+    const homeBranch = approvedBranches(deps.probes, slug, dir)[0] ?? "main";
+    const trialBranch = readTeamLocal(deps.probes, slug).trialBranch;
+    const trial = branch !== null && branch === trialBranch && branch !== homeBranch;
     const log = await deps.probes.exec(["git", "-C", dir, "log", "-1", "--format=%cI", `origin/${branch ?? "main"}`]);
     const lastPush = log.code === 0 ? log.stdout.trim() || null : null;
 
@@ -1203,7 +1212,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
     const membersWithPeering = members.map((m) => ({ ...m, peered: peeredBoards ? peeredBoards.has(canonicalHandle(m.username)) : null }));
     const peeredCount = membersWithPeering.filter((m) => m.peered === true).length;
 
-    const result = { slug, name, remote, branch, lastPush, members: membersWithPeering, role, activeTeam: active.team, teams: active.listedOn, orgTeams, ...sync };
+    const result = { slug, name, remote, branch, dataBranch: homeBranch, trial, lastPush, members: membersWithPeering, role, activeTeam: active.team, teams: active.listedOn, orgTeams, ...sync };
     if (json) {
       deps.print(JSON.stringify(envelope(result)));
       return;
@@ -1218,7 +1227,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
         name,
         name === slug ? undefined : slug,
         out.kv("remote", result.remote ?? "none"),
-        ...branchRow(branch, homeBranch, readTeamLocal(deps.probes, slug).trialBranch),
+        ...branchRow(branch, homeBranch, trialBranch),
         out.kv("last push", lastPush ?? "never"),
         out.kv("members", String(members.length), peeredBoards ? `${peeredCount} with a connected board` : undefined),
         out.kv("your team", active.team ?? "none"),
