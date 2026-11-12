@@ -189,6 +189,29 @@ describe('GitHubProvider known-number reads through the fill', () => {
     expect(warnings[0]).toMatchObject({ kind: 'request-failed', source: 'fill', target: 'o/r#2' });
   });
 
+  test('an error under headRepository keeps the PR with sourceProjectPath unknown, not deleted', async () => {
+    stubForge({
+      graphql: () =>
+        jsonResponse({
+          data: { repository: { p1: nodeFor(1, { headRepository: null }) } },
+          errors: [
+            {
+              type: 'FORBIDDEN',
+              path: ['repository', 'p1', 'headRepository'],
+              message: 'Resource not accessible by personal access token'
+            }
+          ]
+        })
+    });
+    const warnings: FetchPullRequestsWarning[] = [];
+
+    const pr = await provider().fetchSingleMR('o/r', 1, null, (w) => warnings.push(w));
+
+    expect(pr).not.toBeNull();
+    expect(pr!.sourceProjectPath).toBeUndefined();
+    expect(warnings).toEqual([]);
+  });
+
   test('an error under baseRef.branchProtectionRule reads as no classic count and keeps the PR', async () => {
     stubForge({
       graphql: () =>
@@ -229,7 +252,7 @@ describe('GitHubProvider known-number reads through the fill', () => {
                           contexts: {
                             totalCount: 1,
                             pageInfo: { hasNextPage: false, endCursor: null },
-                            nodes: [{ ...checkRun(1, 'SUCCESS'), checkSuite: { workflowRun: null } }]
+                            nodes: [{ ...checkRun(1, 'SUCCESS'), checkSuite: { workflowRun: null } } as GHFillContext]
                           }
                         }
                       }
@@ -314,7 +337,7 @@ describe('GitHubProvider known-number reads through the fill', () => {
     const path = ['repository', 'p1', 'commits', 'nodes', 0, 'commit', 'statusCheckRollup', 'contexts', 'nodes', 49, 'checkSuite', 'workflowRun'];
     const page = contextsPage(1, [
       ...Array.from({ length: 49 }, (_, i) => checkRun(200 + i, 'SUCCESS')),
-      { ...checkRun(300, 'FAILURE'), checkSuite: { workflowRun: null } }
+      { ...checkRun(300, 'FAILURE'), checkSuite: { workflowRun: null } } as GHFillContext
     ]);
     stubForge({
       graphql: (query) =>

@@ -566,7 +566,14 @@ function createBranchDashboard(
     subscribe(listener: (mr: MRDashboardProps) => void) {
       disposeWatcher = createRealtimeWatcher<PullRequest>({
         fetch: async () => {
-          const pr = await provider.fetchPullRequestByBranch(projectPath, branch, 'all');
+          let readWarning: FetchPullRequestsWarning | undefined;
+          // Thrown after the read returns: the provider swallows a throw from inside onWarning.
+          const pr = await provider.fetchPullRequestByBranch(projectPath, branch, 'all', {
+            onWarning: (w) => {
+              if (w.source === 'list' || w.source === 'fill') readWarning = w;
+            }
+          });
+          if (readWarning) throw new Error(readWarning.message);
           if (pr && pr.iid !== resolvedIid) {
             resolvedIid = pr.iid;
             actions = buildActions(provider, projectPath, pr.iid);

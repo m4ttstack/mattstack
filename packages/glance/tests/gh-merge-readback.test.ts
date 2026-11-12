@@ -160,6 +160,45 @@ describe('GitHubProvider mergePullRequest when the read-back succeeds', () => {
   });
 });
 
+describe('a head repository the token cannot see', () => {
+  test('the merge lands and reports the branch not deleted, with no DELETE', async () => {
+    const calls: string[] = [];
+    stubForge({
+      graphql: query => {
+        if (isMergeContextQuery(query)) {
+          return jsonResponse({
+            data: mergeContextData({ headBranch: 'feat', headRepo: null }),
+            errors: [
+              {
+                type: 'FORBIDDEN',
+                path: ['repository', 'pullRequest', 'headRepository'],
+                message: 'Resource not accessible by personal access token'
+              }
+            ]
+          });
+        }
+        return undefined;
+      },
+      fill: numbers =>
+        Object.fromEntries(
+          numbers.map(n => [n, ghNode({ number: n, state: 'MERGED', mergedAt: '2026-01-03T00:00:00Z' })])
+        ),
+      rest: (url, method) => {
+        calls.push(`${method} ${new URL(url).pathname}`);
+        if (method === 'PUT') return jsonResponse({ merged: true, sha: 'm1' });
+        return undefined;
+      }
+    });
+
+    const pr = await provider().mergePullRequest('o/r', 7, { shouldRemoveSourceBranch: true });
+
+    expect(pr.state).toBe('merged');
+    expect(pr.sourceBranchNotDeleted).toContain('head repository is unknown');
+    expect(calls).toContain('PUT /repos/o/r/pulls/7/merge');
+    expect(calls.some(c => c.startsWith('DELETE'))).toBe(false);
+  });
+});
+
 function notFound(): GraphqlResponseError<unknown> {
   return new GraphqlResponseError(
     { method: 'POST', url: 'https://api.github.com/graphql' } as never,

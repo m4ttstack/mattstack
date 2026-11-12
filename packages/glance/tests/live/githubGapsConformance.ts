@@ -623,9 +623,13 @@ async function squashOnlyCase(
         // GitHub arms auto-merge only on a blocked PR; a required context
         // that never reports keeps it blocked, and enforce_admins stops the
         // admin token from bypassing it, so the arm can never fire a merge.
-        const refused = await protectWithUnreportedCheck(fixture, target);
-        if (refused) throw new Inconclusive(refused);
+        // Set before the PUT, as `switched` is before the PATCH.
         protectedTarget = true;
+        const refused = await protectWithUnreportedCheck(fixture, target);
+        if (refused) {
+          protectedTarget = false;
+          throw new Inconclusive(refused);
+        }
         await waitForBlocked(fixture, iid);
 
         try {
@@ -662,8 +666,14 @@ async function squashOnlyCase(
       const res = await provider
         .restRequest('DELETE', `/repos/${projectPath}/branches/${target}/protection`)
         .catch(() => null);
-      if (!res?.ok) {
-        console.error(`  cleanup: could not remove protection from ${target}: HTTP ${res?.status ?? 'none'}`);
+      // A 404 is a branch the PUT never protected.
+      if (!res?.ok && res?.status !== 404) {
+        report.fail(
+          fixture.name,
+          'setAutoMerge',
+          'squash-only repository: branch protection removed',
+          `branch ${target} in ${projectPath} is still protected (required check "${NEVER_REPORTED_CONTEXT}", enforce_admins); remove its protection by hand: HTTP ${res?.status ?? 'none'}`
+        );
       }
     }
     if (switched && original !== null) {

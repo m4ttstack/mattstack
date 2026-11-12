@@ -4,9 +4,8 @@ import { ReadBackFailedError } from '../src/errors.ts';
 import type { GHFillContext, GHFillNode } from '../src/githubFill.ts';
 import type { RequestInfo } from '../src/instrumentation.ts';
 import { createDashboard } from '../src/MRDashboard.ts';
-import type { MRDashboardProps } from '../src/MRDashboard.ts';
 import type { WatcherStatus } from '../src/RealtimeWatcher.ts';
-import type { PullRequest } from '../src/types.ts';
+import type { MRDashboardProps, PullRequest } from '../src/types.ts';
 import {
   ghNode,
   jsonResponse,

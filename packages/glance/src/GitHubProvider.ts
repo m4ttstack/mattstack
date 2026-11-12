@@ -404,7 +404,9 @@ const QUEUE_REFUSED_FIELDS = [
  * rule: a token that cannot see it gets an error there and a null rule, and
  * that is an unknown count, not a failed read. A check's workflow run is
  * the same: a token without Actions read access errors there and gets a null
- * run, which is an unknown run id, not a failed read.
+ * run, which is an unknown run id, not a failed read. So is the head
+ * repository: a token that cannot see a private fork errors there, and the
+ * PR still reads with an unknown `sourceProjectPath`.
  */
 function isWorkflowRunError(e: GraphQLReadError): boolean {
   const path = e.path ?? [];
@@ -455,11 +457,25 @@ function fillErrorFor(
     if (alias === `p${n}`) {
       if (rest[0] === 'baseRef' && rest[1] === 'branchProtectionRule') continue;
       if (isWorkflowRunError(e)) continue;
+      if (rest[0] === 'headRepository') continue;
       return e;
     }
     if (!resolved && alias === undefined) return e;
   }
   return null;
+}
+
+function headRepositoryHidden(errors: GraphQLReadError[], n: number): boolean {
+  return errors.some(e => {
+    const [, alias, field] = e.path ?? [];
+    return alias === `p${n}` && field === 'headRepository';
+  });
+}
+
+/** Errors on the merge context's head repository leave `headRepo` null, which refuses only the branch removal. */
+function isMergeContextHeadRepoError(e: GraphQLReadError): boolean {
+  const path = e.path ?? [];
+  return path.length >= 2 && path[path.length - 2] === 'pullRequest' && path[path.length - 1] === 'headRepository';
 }
 
 /** An item from `/search/issues`: issue-shaped, with a `pull_request` stub on PRs. */
@@ -2287,7 +2303,7 @@ export class GitHubProvider implements GitProvider {
     });
     const context = toMergeContext(data);
     if (!context) throw missingPullRequestError(op, projectPath, mrIid, errors);
-    throwOnGraphQLErrors(op, errors);
+    throwOnGraphQLErrors(op, errors.filter(e => !isMergeContextHeadRepoError(e)));
     return context;
   }
 
@@ -3480,6 +3496,7 @@ export class GitHubProvider implements GitProvider {
           rulesRequired: rulesByBranch.get(node.baseRefName) ?? null
         });
         if (!opts.roles.has(n)) pr.roles = rolesFromViewer(node, viewer, pr.reviewers);
+        if (headRepositoryHidden(errors, n)) pr.sourceProjectPath = undefined;
         out.set(n, pr);
       }
     }

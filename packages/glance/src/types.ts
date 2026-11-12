@@ -175,8 +175,10 @@ export interface PullRequest {
   webUrl: string | null;
   sourceBranch: string;
   /** The `owner/repo` the source branch lives in. GitHub only: null when the
-      head repository is gone (a deleted fork); absent on GitLab. Compare with
-      the project path to tell a fork PR from a same-named base branch. */
+      head repository is gone (a deleted fork); undefined when it was not
+      reported, on GitLab or when the token cannot see the head repository (a
+      private fork). Compare with the project path to tell a fork PR from a
+      same-named base branch. */
   sourceProjectPath?: string | null;
   targetBranch: string;
   /** True when targetBranch differs from the repo's default branch (a stack
@@ -567,11 +569,12 @@ export interface UpdatePullRequestInput {
  * - "squash" — Squash all commits into one before merging.
  * - "rebase" — Rebase the source branch onto the target (fast-forward).
  *
- * When omitted, both providers use the repository's default: GitLab's merge
- * endpoint defers to the project's configured default merge method. GitHub's
- * endpoint would always merge, so glance reads the viewer's default merge
- * method and sends it, or the first method the repository allows (merge,
- * squash, rebase) when that default is not allowed. A method the repository
+ * When omitted, GitLab's merge endpoint defers to the project's configured
+ * default merge method. GitHub's endpoint would always merge, so glance reads
+ * the viewer's default merge method (the one they last used in the
+ * repository, else the repository default) and sends it, or the first method
+ * the repository allows (merge, squash, rebase) when that default is not
+ * allowed. A method the repository
  * forbids is refused before anything is written.
  */
 export type MergeMethod = 'merge' | 'squash' | 'rebase';
@@ -605,7 +608,7 @@ export interface MergeQueueEntry {
  * All fields are **optional**. On GitLab, omitting them defers to the
  * project-level settings configured in the forge UI (merge method, squash
  * policy, delete-source-branch, etc.), matching how the web UI works. On
- * GitHub, an omitted `mergeMethod` is the repository's default merge method
+ * GitHub, an omitted `mergeMethod` is the viewer's default merge method
  * (see `MergeMethod`), and `squash: false` picks an allowed method that is
  * not a squash, refusing on a squash-only repository.
  */
