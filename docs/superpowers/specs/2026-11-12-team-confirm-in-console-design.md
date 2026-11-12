@@ -67,6 +67,23 @@ Both through `runRt`; the sync uses the write timeout.
   above zero, with the confirm button.
 - Polls about once a minute. Mocked in pen.dev first and shown to Matt.
 
+## Revisions after the mock review (2026-11-12, Matt)
+
+- Only org owners and admins see the Team page, its rail entry and the
+  toast: they are the only roles rt lets invite and approve (`isOrgAdmin`).
+  Letting a team owner invite and approve into their own team is a separate
+  change to rt's permissions, out of scope here.
+- The confirm button reads "Approve" (one replied in the team) or
+  "Approve N", replacing "Add <handle>" / "Add N people". It sits beside the
+  person, in the members table, under an amber "Waiting for approval" chip.
+- The home page shows no card and offers no approval: a dark pill toast in
+  the pack page's unsynced-toast style says who is waiting and leads to
+  `/team`.
+- Added: console surfaces when the org's owners and admins changed but the
+  admin-only secrets are still locked to the old set, and offers to run
+  `rt team admin-secrets`; the `mattstack.org` editor warns when admins are
+  listed with no owners, since every admin then counts as an org owner.
+
 ## Left to the builder
 
 - How the console server lists the teams on this Mac (an existing rt verb,
