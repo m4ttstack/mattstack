@@ -300,7 +300,7 @@ test('launch flow: a 200 that reports a stop fails the toast with that text', as
 });
 test('launch flow: a refused launch drops the claim, fails the toast with the reason and reloads', async () => {
   const events: string[] = [];
-  await runLaunchFlow(
+  const result = await runLaunchFlow(
     {
       post: async () => ({
         ok: true,
@@ -336,4 +336,10 @@ test('launch flow: a refused launch drops the claim, fails the toast with the re
     "fail:Couldn't load acme:board-review: the acme plugin is turned off.",
     'reload',
   ]);
+  expect(result).toMatchObject({
+    ok: false,
+    body: {
+      reason: "Couldn't load acme:board-review: the acme plugin is turned off.",
+    },
+  });
 });

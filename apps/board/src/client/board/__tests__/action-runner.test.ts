@@ -637,6 +637,34 @@ test('a bulk rebase counts a stopped reply as failed and names its reason', asyn
   ]);
 });
 
+test('a bulk review counts a refused reply as failed and names its reason', async () => {
+  const { deps, events } = fakeDeps();
+  deps.launch = (_flow, m) =>
+    runLaunchFlow(
+      {
+        post: async () =>
+          m.iid === 2 ? ok({ refused: 'the acme plugin is turned off' }) : ok(),
+        setQueued: () => {},
+        rollback: () => {},
+        addToast: () => {},
+        startToast: () => ({ done: () => {}, fail: () => {} }),
+        reload: () => {},
+        verbing: 'launching review',
+        noun: 'review',
+        started: 'review started',
+      },
+      m,
+      {}
+    );
+  await runMany({ kind: 'launch', flow: 'review' }, [mr(1), mr(2)], deps);
+  expect(events).toEqual([
+    expect.stringMatching(
+      /^toast .* on !1 · couldn't launch review for !2 \(the acme plugin is turned off\)$/
+    ),
+    'reload false',
+  ]);
+});
+
 test('the live-run skip never filters a review bulk run', async () => {
   const { deps, events } = fakeDeps();
   deps.activeRun = () => ({ runId: 'run-7', stage: 'implement' });
