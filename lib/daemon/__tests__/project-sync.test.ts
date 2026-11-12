@@ -2,7 +2,7 @@ import { describe, expect, setSystemTime, test } from "bun:test";
 import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { syncProjectMRs, fetchDeltaFrom, backfillAuthors, backfillSections, effectiveSections, sectionsMatching, remeasureDivergedCounts, __resetDivergedMeasuresForTest, DIVERGED_REMEASURE_CAP, DEEP_RECONCILE_MS, DEEP_RETRY_BACKOFF_MS, DELTA_OVERLAP_MS, DEMAND_IDLE_EXPIRY_MS } from "../project-sync.ts";
+import { syncProjectMRs, fetchDeltaFrom, backfillAuthors, backfillSections, effectiveSections, sectionsMatching, sweepTags, remeasureDivergedCounts, __resetDivergedMeasuresForTest, DIVERGED_REMEASURE_CAP, DEEP_RECONCILE_MS, DEEP_RETRY_BACKOFF_MS, DELTA_OVERLAP_MS, DEMAND_IDLE_EXPIRY_MS } from "../project-sync.ts";
 import { createProjectMRs } from "../project-mrs-store.ts";
 import { openStateDb } from "../../state/index.ts";
 import { readSyncHealth, recordSyncFailure } from "../project-sync-health.ts";
@@ -1458,6 +1458,40 @@ describe("delta retag and keep-tagged-strangers", () => {
     const rec = store.read("r")!;
     expect(rec.mrs[9]!.pr.title).toBe("v2");                        // delta update still applied
     expect(rec.mrs[9]!.codeownerSections).toEqual(["Acme"]);   // tag survives despite the failed retag
+  });
+
+  describe("sweepTags", () => {
+    const owner = (section: string) => ({ type: "CODE_OWNER" as const, approved: false, section });
+    const stored = (map: Record<number, string[]>) => (iid: number) => map[iid];
+
+    test("sticky keeps a stored demanded tag when the fresh rules are empty", () => {
+      const out = sweepTags([{ iid: 1, rules: [] }], ["@org/a"], stored({ 1: ["@org/a"] }), { sticky: true });
+      expect(out.tags.get(1)).toEqual(["@org/a"]);
+      expect(out.unknown).toEqual([]);
+    });
+
+    test("sticky drops a stored tag no demand names any more", () => {
+      const out = sweepTags([{ iid: 1, rules: [owner("@org/a")] }], ["@org/a"], stored({ 1: ["@org/b"] }), { sticky: true });
+      expect(out.tags.get(1)).toEqual(["@org/a"]);
+    });
+
+    test("non-sticky returns the fresh match only", () => {
+      const out = sweepTags(
+        [{ iid: 1, rules: [] }, { iid: 2, rules: [owner("@org/b")] }],
+        ["@org/a", "@org/b"],
+        stored({ 1: ["@org/a"], 2: ["@org/a"] }),
+        { sticky: false },
+      );
+      expect(out.tags.get(1)).toEqual([]);
+      expect(out.tags.get(2)).toEqual(["@org/b"]);
+    });
+
+    test("an unknown entry returns its stored demanded tags and lands in unknown", () => {
+      const entry = { iid: 3, rules: [], unknownReason: "team unreadable" };
+      const out = sweepTags([entry], ["@org/a"], stored({ 3: ["@org/b", "@org/a"] }), { sticky: false });
+      expect(out.tags.get(3)).toEqual(["@org/a"]);
+      expect(out.unknown).toEqual([entry]);
+    });
   });
 
   test("sectionsMatching sorts its output regardless of demanded's order", () => {

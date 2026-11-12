@@ -1,4 +1,4 @@
-import type { FetchPullRequestsWarning, GitHubProvider, MergeRequestIndexRow, PullRequest } from "@mattstack/glance";
+import type { FetchPullRequestsWarning, GitHubProvider, MergeRequestIndexRow, MRApprovalRules, PullRequest } from "@mattstack/glance";
 import { fetchDeltaFrom, type DeltaProvider } from "./project-sync.ts";
 import type { ProjectMRStore } from "./project-mrs-store.ts";
 import { authorListed } from "./scope-authors.ts";
@@ -8,7 +8,10 @@ import { lazyChildLogger } from "../daemon-logger.ts";
 // imported bindings are only dereferenced at call time so the cycle loads safely.
 const log = lazyChildLogger("project-sync-github");
 
-export type GitHubSyncProvider = Pick<GitHubProvider, "fetchPullRequests" | "fetchSingleMR">;
+export type GitHubSyncProvider = Pick<
+  GitHubProvider,
+  "fetchPullRequests" | "fetchSingleMR" | "fetchMergeRequestIndex" | "fetchApprovalRules" | "fetchCodeownerSections" | "fetchDivergedCounts"
+>;
 
 export interface GitHubSyncContext {
   provider: GitHubSyncProvider;
@@ -49,6 +52,14 @@ export async function readSingleStrict(
 
 export function githubFetchSingle(ctx: GitHubSyncContext, iid: number): Promise<PullRequest | null> {
   return readSingleStrict(ctx.provider, ctx.projectPath, iid);
+}
+
+export function githubFetchRules(ctx: GitHubSyncContext, opts: { updatedAfter?: string; iids?: number[] }): Promise<MRApprovalRules[]> {
+  return ctx.provider.fetchApprovalRules({ projectPath: ctx.projectPath, ...opts });
+}
+
+export function githubFetchKnownSections(ctx: GitHubSyncContext): Promise<string[] | null> {
+  return ctx.provider.fetchCodeownerSections({ projectPath: ctx.projectPath });
 }
 
 function indexRow(pr: PullRequest, projectPath: string, scopeAuthors: readonly string[] | undefined): MergeRequestIndexRow {
