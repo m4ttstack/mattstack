@@ -671,3 +671,56 @@ test('a bulk doctor redo skips the MR a live run owns and names it', async () =>
     "skipped !115, Pip's run is active"
   );
 });
+
+const ghMr = (iid: number, over: Record<string, unknown> = {}) =>
+  boardMr(iid, {
+    webUrl: `https://github.com/acme/webapp/pull/${iid}`,
+    provider: 'github',
+    repositoryId: `github:${iid}`,
+    ...over,
+  });
+const githubBoard = (mrs: unknown[]) =>
+  ({
+    ...BOARD_DATA,
+    title: 'PRs ready for review',
+    forge: 'github',
+    slackEnabled: true,
+    mrs,
+  }) as unknown as typeof BOARD_DATA;
+
+test('a GitHub board says PR in the redo confirm', async () => {
+  servedData = githubBoard([
+    ghMr(201, {
+      blockers: { any: true, pipelineFailing: true },
+      respond: { status: 'done', sessionId: 'sess-1' },
+    }),
+  ]);
+  await renderBoard();
+  await rightClick(201);
+  await click('redo response');
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+    'This PR already had a response. Are you sure?'
+  );
+  await confirmWith('Cancel');
+});
+
+test('a GitHub board asks about PRs and posts PRs to slack', async () => {
+  servedData = githubBoard([ghMr(202), ghMr(203)]);
+  await renderBoard();
+  await check(202);
+  await check(203);
+  await rightClick(202);
+  await click('request review from…');
+  await click('Kimberly Ash');
+  expect(document.body.textContent).toContain(
+    "Ask Kimberly's agent to review 2 PRs?"
+  );
+  const cancel = [...document.querySelectorAll('button')].find(
+    b => b.textContent === 'Cancel'
+  )!;
+  await React.act(async () => cancel.click());
+  const post = container.querySelector<HTMLButtonElement>('.tui-selbar-post')!;
+  await React.act(async () => post.click());
+  await settle();
+  expect(document.body.textContent).toContain('posted 2 PRs to slack');
+});

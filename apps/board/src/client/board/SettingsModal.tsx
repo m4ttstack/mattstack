@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { Modal } from '@mattstack/tui-kit';
+import { mrNoun, type ForgeKind } from '../../mr-ref.ts';
 import { isPeered } from '../../view.ts';
 import type { ConfigMember } from '../types.ts';
 import { MemberInvadr } from './MemberInvadr.tsx';
@@ -14,6 +15,7 @@ function SettingsModal({
   canInvite,
   local,
   defaultMember,
+  forge,
   onToggle,
   onClose,
 }: {
@@ -23,6 +25,8 @@ function SettingsModal({
   canInvite: boolean;
   local: boolean;
   defaultMember: string;
+  /** The board's forge, which names MRs or PRs in the count tip. */
+  forge?: ForgeKind;
   onToggle: (username: string, hidden: boolean) => void;
   onClose: () => void;
 }) {
@@ -87,7 +91,7 @@ function SettingsModal({
                   className="tui-modal-count"
                   title={
                     m.count === null
-                      ? 'checked out -- MR count not fetched'
+                      ? `checked out -- ${mrNoun(forge)} count not fetched`
                       : undefined
                   }
                 >

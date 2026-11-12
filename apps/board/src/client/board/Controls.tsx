@@ -7,6 +7,7 @@ import {
   ICONS,
   LabeledSeg,
 } from '@mattstack/tui-kit';
+import { mrNouns, type ForgeKind } from '../../mr-ref.ts';
 import type { TurnConfig } from '../../turn.ts';
 import { effectiveSort, GROUP_KEYS, sortKeysFor } from '../../view.ts';
 import type { GroupKey, ShowItem, ViewState } from '../../view.ts';
@@ -28,6 +29,8 @@ export interface ShowMenuModel {
   toggle: (item: ShowItem) => void;
   /** Your own rows are GitHub pull requests: My PRs, not My MRs. */
   prs?: boolean;
+  /** The board's forge, which names MRs or PRs in the chip tips. */
+  forge?: ForgeKind;
   /** The board's whose-turn signals, which the Waiting on author tip names. */
   turn?: TurnConfig;
 }
@@ -56,7 +59,8 @@ export function showLabel(
 
 export function showDescription(
   item: ShowItem,
-  channel: string | null
+  channel: string | null,
+  forge: ForgeKind = 'gitlab'
 ): string {
   switch (item) {
     case 'posted':
@@ -66,9 +70,9 @@ export function showDescription(
     case 'authorTurn':
       return 'comments, red CI, conflicts, ready to merge';
     case 'myDrafts':
-      return 'your own draft MRs';
+      return `your own draft ${mrNouns(forge)}`;
     case 'mine':
-      return 'your own MRs';
+      return `your own ${mrNouns(forge)}`;
   }
 }
 
