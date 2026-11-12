@@ -12,13 +12,13 @@ import { createRealAgeKeySeam } from "../home/age-key.ts";
 import { createRealSecretsExecSeam, personalStoreReady, writeSecret } from "../secrets/store.ts";
 import { getSetting } from "../settings/resolve.ts";
 import type { Probes } from "../setup/probes.ts";
-import { forgeFromRemote, readTeamSnapshot } from "../setup/team-settings.ts";
+import { forgeFromRemote, readTeamSnapshot, type SettingsReader } from "../setup/team-settings.ts";
 import { canonicalHandle, readAdminToken, realReadAdminSecret, realReadLocalSecret, type ReadAdminSecret, type ReadLocalSecret } from "./board-peers.ts";
 import { boardEnvValue, readBoardSwitchboardToken } from "./board-token.ts";
 import { forgeLogin } from "./forge.ts";
 import { teamRemote } from "./members.ts";
 import { scrub } from "./redact.ts";
-import { storedForgeToken } from "./stored-forge-token.ts";
+import { confirmedForgeHost, refuseUnconfirmedForge, storedTokenForForge } from "./stored-forge-token.ts";
 import { readTeamLocal } from "./team-local.ts";
 
 export interface PeerSeams {
@@ -40,7 +40,7 @@ export interface PeerResult {
 }
 
 /** The switchboard knows a board only by the name it was registered under, so this is the name `rt team join` registers: the username this Mac recorded for the org. `board.defaultMember` (which board view runs as, and can name a teammate) is a fallback only, then the org forge's login. */
-async function realBoardUsername(p: Probes, slug: string): Promise<string | null> {
+export async function realBoardUsername(p: Probes, slug: string, read?: SettingsReader): Promise<string | null> {
   const recorded = readTeamLocal(p, slug).forgeUsername;
   if (recorded) return recorded;
   try {
@@ -50,10 +50,11 @@ async function realBoardUsername(p: Probes, slug: string): Promise<string | null
     /* an unreadable setting falls through to the forge login */
   }
   const remote = teamRemote(p, slug);
-  const forge = readTeamSnapshot(p, slug).integrations.forge ?? (remote ? forgeFromRemote(remote) : null);
+  const forge = readTeamSnapshot(p, slug, read ? { read } : {}).integrations.forge ?? (remote ? forgeFromRemote(remote) : null);
   if (!forge) return null;
-  const token = remote ? await storedForgeToken(p, remote) : null;
-  return forgeLogin(p, forge.provider, forge.host, token);
+  const confirmedHost = confirmedForgeHost(p);
+  refuseUnconfirmedForge(forge, confirmedHost);
+  return forgeLogin(p, forge.provider, forge.host, await storedTokenForForge(p, forge, confirmedHost));
 }
 
 export function realPeerSeams(): PeerSeams {

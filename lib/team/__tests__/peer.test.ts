@@ -6,8 +6,9 @@ import { switchboardUrl } from "../../../packages/rt-client/src/switchboard.ts";
 import { UserActionableError } from "../../errors.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import type { Probes } from "../../setup/probes.ts";
-import { peerOwnBoard, realPeerSeams, type PeerSeams } from "../peer.ts";
+import { peerOwnBoard, realBoardUsername, realPeerSeams, type PeerSeams } from "../peer.ts";
 import { teamLocalPath } from "../team-local.ts";
+import { stageSecret } from "../../setup/staging.ts";
 import { userSettingsPath } from "../../rt-paths.ts";
 
 type Reply = { status: number; body: string; headers: Record<string, string> };
@@ -198,5 +199,54 @@ describe("realPeerSeams().boardUsername", () => {
     } finally {
       rmSync(store, { force: true });
     }
+  });
+});
+
+describe("realPeerSeams().boardUsername and the GitLab token", () => {
+  const home = "/home/x";
+  const gitConfig = (remote: string) => ({ [`${home}/.mattstack/orgs/acme/.git/config`]: `[remote "origin"]\n\turl = ${remote}\n` });
+  const userSettings = (forgeHost: string) => ({ [`${home}/.mattstack/user/settings.user.jsonc`]: JSON.stringify({ "rt.integrations": { forgeHost } }) });
+
+  test("an unconfirmed gitlab-shaped host is refused and glab never runs", async () => {
+    const p = fakeProbes({ home, files: gitConfig("https://gitlab.evil.example/acme/org.git") });
+    stageSecret(p, "rt", "gitlabToken", "glpat-secret");
+
+    const err = await rejection(realPeerSeams().boardUsername(p, "acme"));
+
+    expect(err.code).toBe("forge-host-unconfirmed");
+    expect(err.message).toContain("gitlab.evil.example");
+    expect(p.calls.exec).toEqual([]);
+    expect(p.calls.fetch).toEqual([]);
+  });
+
+  test("the confirmed host still asks glab for the login with the token", async () => {
+    const seen: Array<Record<string, string> | undefined> = [];
+    const p = fakeProbes({
+      home,
+      files: { ...gitConfig("https://gitlab.acme.internal/acme/org.git"), ...userSettings("gitlab.acme.internal") },
+      exec: (_argv, opts) => {
+        seen.push(opts?.env);
+        return { code: 0, stdout: JSON.stringify({ username: "dev1" }), stderr: "" };
+      },
+    });
+    stageSecret(p, "rt", "gitlabToken", "glpat-secret");
+
+    expect(await realPeerSeams().boardUsername(p, "acme")).toBe("dev1");
+    expect(seen.some((env) => env?.GITLAB_TOKEN === "glpat-secret")).toBe(true);
+  });
+});
+
+describe("realBoardUsername and a declared forge", () => {
+  test("a declared GitLab forge on an unconfirmed host is refused though the remote is gitlab.com", async () => {
+    const home = "/home/x";
+    const p = fakeProbes({ home, files: { [`${home}/.mattstack/orgs/acme/.git/config`]: `[remote "origin"]\n\turl = https://gitlab.com/acme/org.git\n` } });
+    stageSecret(p, "rt", "gitlabToken", "glpat-secret");
+    const read = <T,>(key: string): T | undefined => (key === "mattstack.integrations" ? ({ forge: { provider: "gitlab", host: "gitlab.evil.example" } } as T) : undefined);
+
+    const err = await rejection(realBoardUsername(p, "acme", read));
+
+    expect(err.code).toBe("forge-host-unconfirmed");
+    expect(err.message).toContain("gitlab.evil.example");
+    expect(p.calls.exec).toEqual([]);
   });
 });

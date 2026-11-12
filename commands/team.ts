@@ -372,8 +372,9 @@ async function autoPeer(deps: TeamDeps, slug: string): Promise<PeerResult | null
   } catch (err) {
     if (err instanceof UserActionableError && err.code === "peer-needs-admin") return null;
     const why = err instanceof UserActionableError ? err.why : undefined;
+    const next = err instanceof UserActionableError && err.next ? err.next : "rt team peer";
     warn("team", `board peering after create: ${err instanceof Error ? err.message : String(err)}`, {
-      show: { title: "The org is ready, but rt could not connect your board", hint: why, next: out.cmd("rt team peer") },
+      show: { title: "The org is ready, but rt could not connect your board", hint: why, next: out.cmd(next) },
     });
     return null;
   }
