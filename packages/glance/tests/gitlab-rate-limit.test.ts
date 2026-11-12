@@ -189,6 +189,38 @@ describe('withGitLabRateLimit', () => {
     expect((err as RateLimitedError).resetAt).toBeNull();
   });
 
+  test('retryBy refuses a wait that would start the next send too late, counting time the send already took', async () => {
+    const clock = fakeClock();
+    let calls = 0;
+    const err = await withGitLabRateLimit(
+      'POST /bulk_publish',
+      'write',
+      async () => {
+        calls += 1;
+        await clock.sleep(20_000);
+        throwIfGitLabRateLimited(limited({ 'retry-after': '25' }));
+      },
+      { ...clock, retryBy: NOW + 30_000 },
+    ).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RateLimitedError);
+    expect(calls).toBe(1);
+  });
+
+  test('retryBy allows a wait that ends in time', async () => {
+    const clock = fakeClock();
+    let calls = 0;
+    await withGitLabRateLimit(
+      'POST /bulk_publish',
+      'write',
+      async () => {
+        calls += 1;
+        if (calls === 1) throwIfGitLabRateLimited(limited({ 'retry-after': '25' }));
+      },
+      { ...clock, retryBy: NOW + 30_000 },
+    );
+    expect(calls).toBe(2);
+  });
+
   test('any other error passes through untouched, unretried', async () => {
     const boom = new Error('500 Internal Server Error');
     let calls = 0;

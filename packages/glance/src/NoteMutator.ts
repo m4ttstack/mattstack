@@ -128,8 +128,7 @@ export class NoteMutator {
     init: { headers: Record<string, string>; body?: string | FormData; timeoutMs?: number; shareBudget?: boolean },
   ): Promise<Response> {
     const budgetEnd = init.shareBudget && init.timeoutMs !== undefined ? Date.now() + init.timeoutMs : undefined;
-    const limits =
-      budgetEnd !== undefined ? { maxWaitMs: Math.max(0, init.timeoutMs! - GITLAB_REQUEST_LIMIT_MS) } : {};
+    const limits = budgetEnd !== undefined ? { retryBy: budgetEnd - GITLAB_REQUEST_LIMIT_MS } : {};
     return withGitLabRateLimit(`${method} ${path}`, method === 'GET' ? 'read' : 'write', async () => {
       const timeoutMs = budgetEnd !== undefined ? Math.max(1, budgetEnd - Date.now()) : init.timeoutMs;
       const started = performance.now();

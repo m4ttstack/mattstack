@@ -62,8 +62,12 @@ export function gitlabRateLimitWaitMs(headers: Headers, nowMs: number): number |
 export interface GitLabRateLimitOptions {
   /** Caller cancellation; aborts a wait in progress. */
   signal?: AbortSignal;
-  /** Caps the total wait below the deadline for `kind`, for a caller whose own budget is tighter. */
-  maxWaitMs?: number;
+  /**
+   * Epoch ms by which the next send must start, for a caller whose own
+   * budget is tighter than the deadline for `kind`. Checked at each 429, so
+   * time a send already took counts against it.
+   */
+  retryBy?: number;
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   now?: () => number;
 }
@@ -87,10 +91,7 @@ export async function withGitLabRateLimit<T>(
 ): Promise<T> {
   const now = opts.now ?? Date.now;
   const sleep = opts.sleep ?? abortableSleep;
-  const deadlineMs = Math.min(
-    (kind === 'read' ? GITLAB_READ_RATE_LIMIT_DEADLINE_S : GITLAB_WRITE_RATE_LIMIT_DEADLINE_S) * 1000,
-    opts.maxWaitMs ?? Number.POSITIVE_INFINITY,
-  );
+  const deadlineMs = (kind === 'read' ? GITLAB_READ_RATE_LIMIT_DEADLINE_S : GITLAB_WRITE_RATE_LIMIT_DEADLINE_S) * 1000;
   let waitedMs = 0;
   for (;;) {
     try {
@@ -99,7 +100,8 @@ export async function withGitLabRateLimit<T>(
       if (!(err instanceof GitLabRateLimitHit)) throw err;
       const at = now();
       const waitMs = gitlabRateLimitWaitMs(err.headers, at);
-      if (waitMs === null || waitedMs + waitMs > deadlineMs) throw rateLimitedError(operation, err.headers, at, waitMs);
+      const tooLate = waitMs === null || waitedMs + waitMs > deadlineMs || (opts.retryBy !== undefined && at + waitMs > opts.retryBy);
+      if (tooLate) throw rateLimitedError(operation, err.headers, at, waitMs);
       await sleep(waitMs, opts.signal);
       waitedMs += waitMs;
     }
