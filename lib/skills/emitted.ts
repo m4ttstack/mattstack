@@ -10,7 +10,7 @@ export function isEmittedAttachmentText(text: string | null): boolean {
     const parsed: unknown = JSON.parse(text);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
     const { base, files, version } = parsed as { base?: unknown; files?: unknown; version?: unknown };
-    return typeof base === "string" && Array.isArray(files) && (version === undefined || typeof version === "string" || version === null);
+    return typeof base === "string" && Array.isArray(files) && files.every((f) => typeof f === "string") && files.includes("SKILL.md") && (version === undefined || typeof version === "string" || version === null);
   } catch {
     return false;
   }

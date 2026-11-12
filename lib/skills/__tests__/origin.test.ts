@@ -41,7 +41,7 @@ test("an emitted folder is a base from its compiled.json", () => {
 });
 
 test("a compiled.json version of null reads as a null baseVersion", () => {
-  const dir = emitted(join(root, "a"), JSON.stringify({ base: "acme-base", version: null, files: [] }));
+  const dir = emitted(join(root, "a"), JSON.stringify({ base: "acme-base", version: null, files: ["SKILL.md"] }));
   expect(originOfDir(dir)).toEqual({ origin: "base", base: "acme-base", baseVersion: null });
 });
 
@@ -52,7 +52,7 @@ test("a hand-authored or malformed compiled.json is not a base", () => {
 });
 
 test("the path wins over the name", () => {
-  const dir = emitted(join(root, "widgets", "attachments", "board-fill"), JSON.stringify({ base: "acme-base", version: "0.1.0", files: [] }));
+  const dir = emitted(join(root, "widgets", "attachments", "board-fill"), JSON.stringify({ base: "acme-base", version: "0.1.0", files: ["SKILL.md"] }));
   expect(originFor(roots(), "widgets", dir)).toEqual({ origin: "base", base: "acme-base", baseVersion: "0.1.0" });
   expect(originFor(roots(), "acme-base", null)).toEqual({ origin: "base", base: "acme-base", baseVersion: "0.1.0" });
   expect(originFor(roots(), "mattstack", join(root, "mattstack", "attachments", "x"))).toEqual({});
@@ -73,20 +73,20 @@ test("originFor reads baseVersion from the lock", () => {
 
 test("a grouped copy finds its pack's lock too", () => {
   const packDir = join(root, "widgets");
-  const dir = emitted(join(packDir, "attachments", "refs", "dev-servers"), JSON.stringify({ base: "acme-base", files: [] }));
+  const dir = emitted(join(packDir, "attachments", "refs", "dev-servers"), JSON.stringify({ base: "acme-base", files: ["SKILL.md"] }));
   lockBase(packDir, "acme-base", "0.2.0");
   expect(originOfDir(dir)).toEqual({ origin: "base", base: "acme-base", baseVersion: "0.2.0" });
 });
 
 test("a copy with no version and no lock entry has a null baseVersion", () => {
   const packDir = join(root, "widgets");
-  const dir = emitted(join(packDir, "attachments", "dev-servers"), JSON.stringify({ base: "acme-base", files: [] }));
+  const dir = emitted(join(packDir, "attachments", "dev-servers"), JSON.stringify({ base: "acme-base", files: ["SKILL.md"] }));
   lockBase(packDir, "other-base", "9.9.9");
   expect(originOfDir(dir)).toEqual({ origin: "base", base: "acme-base", baseVersion: null });
 });
 
 test("originFor still reads an old copy's own version", () => {
   const packDir = join(root, "widgets");
-  const dir = emitted(join(packDir, "attachments", "dev-servers"), JSON.stringify({ base: "acme-base", version: "0.1.0", files: [] }));
+  const dir = emitted(join(packDir, "attachments", "dev-servers"), JSON.stringify({ base: "acme-base", version: "0.1.0", files: ["SKILL.md"] }));
   expect(originFor(roots(), "widgets", dir)).toEqual({ origin: "base", base: "acme-base", baseVersion: "0.1.0" });
 });

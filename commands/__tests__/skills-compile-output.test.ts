@@ -8,6 +8,7 @@ import { captureSkills, seedTwoVerbPack, setTwoVerbPackVersion } from "../../lib
 import { childEnv } from "../../lib/subprocess.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as out from "../../lib/ui/out.ts";
+import { originOfDir } from "../../lib/skills/origin.ts";
 import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
 import { compileBlocks, compileFailure, misplacedFailure, skillsCompile, staleEngineFailure } from "../skills.ts";
 
@@ -166,6 +167,7 @@ describe("the compiled lock", () => {
     await compile(flags);
     expect(inRepo(packDir, "status", "--porcelain").split("\n").filter(Boolean)).toEqual([` M ${LOCK_REL}`]);
     expect(readLock(packDir).bases).toEqual({ "acme-base": "0.2.0" });
+    expect(originOfDir(join(packDir, "attachments", "dev-servers"))).toEqual({ origin: "base", base: "acme-base", baseVersion: "0.2.0" });
   });
 
   test("a compile that emits no base copy keeps the base version", async () => {

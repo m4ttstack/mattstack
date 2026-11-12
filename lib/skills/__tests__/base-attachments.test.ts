@@ -15,7 +15,7 @@ const plan = (verbSides: Record<string, "skills" | "attachments"> = { ship: "ski
   planBaseAttachments({ packDir: packDir(), packName: "widgets", verbSides, team });
 const teamWith = (params: Record<string, string>, sections: Record<string, string> = {}) =>
   newTeamContext({ plugin: "widgets", version: "0.4.0", params, sections }, new Set(["acme-base"]));
-const emittedMarker = JSON.stringify({ base: "acme-base", version: null, files: [] });
+const emittedMarker = JSON.stringify({ base: "acme-base", version: null, files: ["SKILL.md"] });
 const clash = "acme-base attachment review-kit has the same name as the widgets verb review-kit; rename one of them";
 
 beforeEach(() => {
@@ -376,10 +376,13 @@ describe("planBaseAttachments", () => {
   test("only compile's full shape is provenance", () => {
     expect(isEmittedAttachmentText('{"base":"x"}')).toBe(false);
     expect(isEmittedAttachmentText('{"base":"https://api.example","rows":[]}')).toBe(false);
-    expect(isEmittedAttachmentText('{"base":"x","files":[]}')).toBe(true);
-    expect(isEmittedAttachmentText('{"base":"x","version":3,"files":[]}')).toBe(false);
+    expect(isEmittedAttachmentText('{"base":"x","files":["SKILL.md"]}')).toBe(true);
+    expect(isEmittedAttachmentText('{"base":"x","files":[]}')).toBe(false);
+    expect(isEmittedAttachmentText('{"base":"x","files":["data.csv"]}')).toBe(false);
+    expect(isEmittedAttachmentText('{"base":"x","files":["SKILL.md",3]}')).toBe(false);
+    expect(isEmittedAttachmentText('{"base":"x","version":3,"files":["SKILL.md"]}')).toBe(false);
     expect(isEmittedAttachmentText('{"base":"x","version":null,"files":{}}')).toBe(false);
-    expect(isEmittedAttachmentText(JSON.stringify({ base: "acme-base", version: null, files: [] }))).toBe(true);
+    expect(isEmittedAttachmentText(JSON.stringify({ base: "acme-base", version: null, files: ["SKILL.md"] }))).toBe(true);
     expect(isEmittedAttachmentText(JSON.stringify({ base: "acme-base", version: "1.4.0", files: ["SKILL.md"] }))).toBe(true);
   });
 
