@@ -64,9 +64,19 @@ clears that flag, then:
 - `mergeError` set or conflicts reported: **failed**. Go to step 2.
 - nothing moved and the branch is not behind: **already current**. Done.
 
+- anything else once the flag clears (sha unmoved, no error, behind count
+  unknown or still above 0; rt's `unchanged`): **unclear**. Go to step 2,
+  which answers for certain (it rebases, or reports already up to date).
+  *(My call: `rt sync` is the deterministic fallback.)*
+- `PUT /rebase` itself errors (no permission, a rebase already running):
+  **failed**. Go to step 2. *(My call.)*
+
 The wait ends only on GitLab's answer or a cancel from the drawer. rt's
 `waitForRebase` (`lib/mcp/mr-composite-tools.ts`) reads the same fields; its
-time budget is the part this design drops.
+time budget is the part this design drops. "No time limit" covers the forge
+wait only: step 2 keeps `LOCAL_SYNC_TIMEOUT_MS` and rt sync's own ceiling,
+per the non-goal. *(My call: Matt's ruling was about guessing the forge's
+outcome on a clock.)*
 
 **GitHub.** The board never reads or writes GitHub through its own provider;
 it goes through the daemon. The forge step calls the daemon's `mr:action`
@@ -106,6 +116,11 @@ task is a live run**: rebase a PR that is behind and compare the returned
   `mr:action`. `cannot` (no `canRebase`) goes straight to step 2.
 - Skip step 1 when the row already reports conflicts (`blockers.hasConflicts`):
   the forge rebase cannot succeed, so the drawer marks it skipped.
+- A board tab with no doctor skill still gets the action (Matt). The
+  "no doctor skill" refusal moves from the top of the handler to just
+  before step 3; with no doctor the chain stops at "paused on conflicts" and
+  the drawer says the rebase is paused in `<worktree>` with no doctor on
+  this tab, to finish by hand. The menu drops its `doctorSkillTabs` gate.
 - The existing per-MR lock (`LOCAL_SYNCS`) covers the whole chain, so one MR
   never runs two.
 - A board restart mid-wait marks the row stopped the way
@@ -134,8 +149,11 @@ task is a live run**: rebase a PR that is behind and compare the returned
   forge), done (rebased or already current), failed with the forge's reason,
   skipped (conflicts already known, or the forge cannot rebase).
 - When the forge rebase succeeds, the four local steps show skipped.
-- A cancel control while the forge step runs. It stops the board waiting;
-  it does not stop a rebase the forge already started.
+- A cancel control while the forge step runs. It ends the whole chain and
+  never drops to step 2, so a local push cannot race the forge's own rebase.
+  The row is left `sync-stopped` with "cancelled; the forge may still be
+  rebasing". It does not stop a rebase the forge already started.
+  *(My call.)*
 - On GitHub, one line noting that a rebase re-runs checks and can drop the
   PR from a merge queue.
 
