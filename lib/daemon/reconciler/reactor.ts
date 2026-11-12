@@ -28,7 +28,8 @@ import {
 } from "../../worktree/git-async.ts";
 import { withTreeLock } from "../../worktree/locks.ts";
 import { branchOf } from "../../state/branch-cache.ts";
-import { classifyDirtyAsync, disposeTree } from "../../worktree/dispose.ts";
+import { classifyDirtyAsync, disposeTree, type DisposeDeps } from "../../worktree/dispose.ts";
+import { changeMarker, changeNoun } from "../../repo-label.ts";
 import { mergedMrCoversTips } from "../../worktree/containment.ts";
 import { loadWorktreeAppConfig, type WorktreeAppConfig } from "../../worktree/config.ts";
 import { killWorktreeProcesses } from "../worktree-process-kill.ts";
@@ -118,6 +119,10 @@ export interface ReactorDeps {
   /** Injectable for tests; default is tree-holders.ts. */
   treeHolders?: (treePath: string) => Promise<TreeHolder[]>;
   stopProcesses?: (pids: number[]) => void;
+  /** Posts the stopped-session notice into a chat room; unwired, no notice goes out. */
+  notify?: DisposeDeps["notify"];
+  /** Test seam passed to disposeTree; unset, dispose uses the real kill. */
+  killWorktree?: DisposeDeps["killWorktree"];
 }
 
 function jobHold(deps: ReactorDeps, rec: TreeRecord): string | null {
@@ -384,6 +389,13 @@ async function actOnTree(
     scopedEntries[branchOf(key)] = entry;
   }
 
+  const iid = scopedEntries[branch]?.mr?.iid;
+  const noun = changeNoun(deps.repoName);
+  const why =
+    typeof iid === "number"
+      ? `${noun} ${changeMarker(deps.repoName)}${iid} merged`
+      : `${noun} for ${branch} merged`;
+
   const outcome = await disposeTree(
     {
       repoName: deps.repoName,
@@ -393,9 +405,11 @@ async function actOnTree(
       log: deps.log,
       killProcesses: appConfig.killProcesses,
       findRunningRun: deps.findRunningRun,
+      ...(deps.notify ? { notify: deps.notify } : {}),
+      ...(deps.killWorktree ? { killWorktree: deps.killWorktree } : {}),
     },
     rec,
-    { auto: true },
+    { auto: true, stopSessions: { why } },
   );
   if (outcome.disposed) return "fired";
 
