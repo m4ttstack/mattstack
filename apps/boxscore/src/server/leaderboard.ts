@@ -77,14 +77,19 @@ export class UnknownUserError extends Error {
   override readonly name = 'UnknownUserError';
 }
 
+/** The setup hint when no host may take the GitLab token: confirming one sets rt.integrations.forgeHost. */
+function gitlabNotConnected(declaredHost: string): string {
+  const host = declaredHost || '<your GitLab host>';
+  const lead = declaredHost
+    ? `GitLab is not connected: boxscore sends your GitLab token only to a host you confirmed, and ${declaredHost} is not confirmed yet.`
+    : 'GitLab is not connected.';
+  return `${lead} Run rt setup gitlab connect --host ${host} (sets rt.integrations.forgeHost).`;
+}
+
 /** Assembles the fetchers' connection envelope from settings + daemon secrets (spec 5.4). */
 async function resolveEnv(): Promise<Env> {
   const s = readSettings();
-  if (!s.baseUrl) {
-    throw new ConfigError(
-      'GitLab is not configured: set the forge host in mattstack.integrations (rt settings).'
-    );
-  }
+  if (!s.baseUrl) throw new ConfigError(gitlabNotConnected(s.declaredHost));
   const secrets = await readSecrets();
   if (secrets.warning) console.warn(`[config] ${secrets.warning}`);
   if (!secrets.gitlabToken) {

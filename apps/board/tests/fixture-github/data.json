@@ -1,0 +1,895 @@
+{
+  "title": "PR Board",
+  "defaultMember": "mkeller",
+  "members": [
+    {
+      "username": "mkeller",
+      "name": "Mara Keller",
+      "count": 3
+    },
+    {
+      "username": "tobrandt",
+      "name": "Theo Brandt",
+      "count": 1
+    },
+    {
+      "username": "ivasco",
+      "name": "Ines Vasco",
+      "count": 1
+    },
+    {
+      "username": "lnorth",
+      "name": "Lars North",
+      "count": 0
+    },
+    {
+      "username": "wzhou",
+      "name": "Wen Zhou",
+      "count": 0
+    }
+  ],
+  "allMembers": [
+    {
+      "username": "mkeller",
+      "name": "Mara Keller",
+      "hidden": false,
+      "count": 3
+    },
+    {
+      "username": "tobrandt",
+      "name": "Theo Brandt",
+      "hidden": false,
+      "count": 1
+    },
+    {
+      "username": "ivasco",
+      "name": "Ines Vasco",
+      "hidden": false,
+      "count": 1
+    },
+    {
+      "username": "lnorth",
+      "name": "Lars North",
+      "hidden": false,
+      "count": 0
+    },
+    {
+      "username": "wzhou",
+      "name": "Wen Zhou",
+      "hidden": false,
+      "count": 0
+    }
+  ],
+  "local": true,
+  "canInvite": false,
+  "peering": null,
+  "slackEnabled": false,
+  "slackEmoji": {
+    "looking": "eyes",
+    "commented": "comment",
+    "approved": "white_check_mark"
+  },
+  "slackTemplates": {
+    "single": "{title}: {url}",
+    "multiHeader": "{count} PR's ready for review",
+    "multiItem": "- {title}: {url}"
+  },
+  "fetchedAt": 1755600000000,
+  "fetchError": null,
+  "dataSyncedAt": 1755603480000,
+  "syncError": null,
+  "scopeUncovered": [],
+  "scopeWindowDays": 30,
+  "staleAfterDays": 30,
+  "tabs": [
+    {
+      "id": "team",
+      "label": "Team",
+      "source": {
+        "kind": "authors"
+      }
+    }
+  ],
+  "scopeUncoveredSections": [],
+  "scopeKnownSections": [],
+  "peers": [],
+  "mrs": [
+    {
+      "provider": "github",
+      "iid": 4101,
+      "title": "WEB-412: cache the sitemap between deploys",
+      "webUrl": "https://github.com/acme/webapp/pull/4101",
+      "state": "opened",
+      "isDraft": false,
+      "author": {
+        "id": "github:user:tobrandt",
+        "username": "tobrandt",
+        "name": "Theo Brandt",
+        "avatarUrl": null
+      },
+      "assignees": [],
+      "createdAt": "2025-08-17T14:00:00Z",
+      "sourceBranch": "web-412-sitemap-cache",
+      "targetBranch": "main",
+      "isStacked": false,
+      "behindTarget": 12,
+      "diff": {
+        "additions": 184,
+        "deletions": 41,
+        "filesChanged": 6
+      },
+      "pipeline": {
+        "id": "github:checks:4101",
+        "status": "success",
+        "passing": 4,
+        "failing": 0,
+        "running": 0,
+        "total": 4,
+        "hasWarnings": false,
+        "jobs": [
+          {
+            "id": "github:check:41010",
+            "name": "lint",
+            "stage": "checks",
+            "status": "success",
+            "allowFailure": false,
+            "duration": 40,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/41010",
+            "downstreamPipeline": null
+          },
+          {
+            "id": "github:check:41011",
+            "name": "unit",
+            "stage": "checks",
+            "status": "success",
+            "allowFailure": false,
+            "duration": 77,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/41011",
+            "downstreamPipeline": null
+          },
+          {
+            "id": "github:check:41012",
+            "name": "build",
+            "stage": "checks",
+            "status": "success",
+            "allowFailure": false,
+            "duration": 114,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/41012",
+            "downstreamPipeline": null
+          },
+          {
+            "id": "github:check:41013",
+            "name": "e2e",
+            "stage": "checks",
+            "status": "success",
+            "allowFailure": false,
+            "duration": 151,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/41013",
+            "downstreamPipeline": null
+          }
+        ]
+      },
+      "reviews": {
+        "required": 1,
+        "given": 1,
+        "remaining": 0,
+        "isApproved": true,
+        "approvedBy": [
+          {
+            "id": "github:user:ivasco",
+            "username": "ivasco",
+            "name": "Ines Vasco",
+            "avatarUrl": null
+          }
+        ],
+        "reviewers": [],
+        "totalAssigned": 0,
+        "haveActed": 0,
+        "havePending": 0,
+        "haveNotStarted": 0
+      },
+      "status": "mergeable",
+      "statusDetail": "mergeable",
+      "isReady": true,
+      "isCheckingMergeability": false,
+      "isMerging": false,
+      "isRebasing": false,
+      "isLoading": false,
+      "mergeButton": {
+        "visible": true,
+        "disabled": false,
+        "loading": false,
+        "label": "Merge"
+      },
+      "autoMergeButton": {
+        "visible": true,
+        "isActive": false,
+        "strategy": null,
+        "setBy": null,
+        "label": "Auto-merge",
+        "cancelLabel": "Cancel auto-merge"
+      },
+      "rebaseButton": {
+        "visible": false,
+        "loading": false,
+        "label": "Rebase"
+      },
+      "blockers": {
+        "isDraft": false,
+        "hasConflicts": false,
+        "needsRebase": false,
+        "pipelineFailing": false,
+        "pipelineRunning": false,
+        "awaitingApprovals": false,
+        "hasUnresolvedDiscussions": false,
+        "hasMergeError": false,
+        "mergeError": null,
+        "any": false
+      },
+      "connection": "idle",
+      "updatedAt": "2025-08-19T10:20:00Z",
+      "unresolvedThreads": 0,
+      "reviewerComments": 0,
+      "pipelineState": "passed",
+      "repositoryId": "github:700042",
+      "rtRepo": "github.com/acme/webapp",
+      "codeownerSections": [],
+      "threadSummary": {
+        "awaiting": 0,
+        "replied": 0,
+        "resolved": 0
+      },
+      "generalComments": 0,
+      "slack": {
+        "status": "none",
+        "permalink": null,
+        "reactions": [],
+        "posted": false
+      },
+      "gates": []
+    },
+    {
+      "provider": "github",
+      "iid": 4102,
+      "title": "WEB-431: draft a retry policy for webhook delivery",
+      "webUrl": "https://github.com/acme/webapp/pull/4102",
+      "state": "opened",
+      "isDraft": true,
+      "author": {
+        "id": "github:user:mkeller",
+        "username": "mkeller",
+        "name": "Mara Keller",
+        "avatarUrl": null
+      },
+      "assignees": [],
+      "createdAt": "2025-08-19T09:30:00Z",
+      "sourceBranch": "web-431-webhook-retry",
+      "targetBranch": "main",
+      "isStacked": false,
+      "behindTarget": 0,
+      "diff": {
+        "additions": 96,
+        "deletions": 8,
+        "filesChanged": 3
+      },
+      "pipeline": {
+        "id": "github:checks:4102",
+        "status": "running",
+        "passing": 1,
+        "failing": 0,
+        "running": 3,
+        "total": 4,
+        "hasWarnings": false,
+        "jobs": [
+          {
+            "id": "github:check:41020",
+            "name": "lint",
+            "stage": "checks",
+            "status": "success",
+            "allowFailure": false,
+            "duration": 40,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/41020",
+            "downstreamPipeline": null
+          },
+          {
+            "id": "github:check:41021",
+            "name": "unit",
+            "stage": "checks",
+            "status": "running",
+            "allowFailure": false,
+            "duration": null,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/41021",
+            "downstreamPipeline": null
+          },
+          {
+            "id": "github:check:41022",
+            "name": "build",
+            "stage": "checks",
+            "status": "running",
+            "allowFailure": false,
+            "duration": null,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/41022",
+            "downstreamPipeline": null
+          },
+          {
+            "id": "github:check:41023",
+            "name": "e2e",
+            "stage": "checks",
+            "status": "running",
+            "allowFailure": false,
+            "duration": null,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/41023",
+            "downstreamPipeline": null
+          }
+        ]
+      },
+      "reviews": {
+        "required": 1,
+        "given": 0,
+        "remaining": 1,
+        "isApproved": false,
+        "approvedBy": [],
+        "reviewers": [],
+        "totalAssigned": 0,
+        "haveActed": 0,
+        "havePending": 0,
+        "haveNotStarted": 0
+      },
+      "status": "draft",
+      "statusDetail": "draft",
+      "isReady": false,
+      "isCheckingMergeability": false,
+      "isMerging": false,
+      "isRebasing": false,
+      "isLoading": false,
+      "mergeButton": {
+        "visible": false,
+        "disabled": true,
+        "loading": false,
+        "label": "Merge"
+      },
+      "autoMergeButton": {
+        "visible": false,
+        "isActive": false,
+        "strategy": null,
+        "setBy": null,
+        "label": "Auto-merge",
+        "cancelLabel": "Cancel auto-merge"
+      },
+      "rebaseButton": {
+        "visible": false,
+        "loading": false,
+        "label": "Rebase"
+      },
+      "blockers": {
+        "isDraft": true,
+        "hasConflicts": false,
+        "needsRebase": false,
+        "pipelineFailing": false,
+        "pipelineRunning": true,
+        "awaitingApprovals": true,
+        "hasUnresolvedDiscussions": false,
+        "hasMergeError": false,
+        "mergeError": null,
+        "any": true
+      },
+      "connection": "idle",
+      "updatedAt": "2025-08-19T10:45:00Z",
+      "unresolvedThreads": 0,
+      "reviewerComments": 0,
+      "pipelineState": "running",
+      "repositoryId": "github:700042",
+      "rtRepo": "github.com/acme/webapp",
+      "codeownerSections": [],
+      "threadSummary": {
+        "awaiting": 0,
+        "replied": 0,
+        "resolved": 0
+      },
+      "generalComments": 0,
+      "slack": {
+        "status": "none",
+        "permalink": null,
+        "reactions": [],
+        "posted": false
+      },
+      "gates": []
+    },
+    {
+      "provider": "github",
+      "iid": 4103,
+      "title": "WEB-420: export the usage table as CSV",
+      "webUrl": "https://github.com/acme/webapp/pull/4103",
+      "state": "opened",
+      "isDraft": false,
+      "author": {
+        "id": "github:user:mkeller",
+        "username": "mkeller",
+        "name": "Mara Keller",
+        "avatarUrl": null
+      },
+      "assignees": [],
+      "createdAt": "2025-08-18T08:15:00Z",
+      "sourceBranch": "web-420-usage-csv",
+      "targetBranch": "main",
+      "isStacked": false,
+      "behindTarget": 7,
+      "diff": {
+        "additions": 312,
+        "deletions": 19,
+        "filesChanged": 9
+      },
+      "pipeline": {
+        "id": "github:checks:4103",
+        "status": "success",
+        "passing": 4,
+        "failing": 0,
+        "running": 0,
+        "total": 4,
+        "hasWarnings": false,
+        "jobs": [
+          {
+            "id": "github:check:41030",
+            "name": "lint",
+            "stage": "checks",
+            "status": "success",
+            "allowFailure": false,
+            "duration": 40,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/41030",
+            "downstreamPipeline": null
+          },
+          {
+            "id": "github:check:41031",
+            "name": "unit",
+            "stage": "checks",
+            "status": "success",
+            "allowFailure": false,
+            "duration": 77,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/41031",
+            "downstreamPipeline": null
+          },
+          {
+            "id": "github:check:41032",
+            "name": "build",
+            "stage": "checks",
+            "status": "success",
+            "allowFailure": false,
+            "duration": 114,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/41032",
+            "downstreamPipeline": null
+          },
+          {
+            "id": "github:check:41033",
+            "name": "e2e",
+            "stage": "checks",
+            "status": "success",
+            "allowFailure": false,
+            "duration": 151,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/41033",
+            "downstreamPipeline": null
+          }
+        ]
+      },
+      "reviews": {
+        "required": 1,
+        "given": 0,
+        "remaining": 1,
+        "isApproved": false,
+        "approvedBy": [],
+        "reviewers": [],
+        "totalAssigned": 0,
+        "haveActed": 0,
+        "havePending": 0,
+        "haveNotStarted": 0
+      },
+      "status": "blocked",
+      "statusDetail": "not_approved",
+      "isReady": false,
+      "isCheckingMergeability": false,
+      "isMerging": false,
+      "isRebasing": false,
+      "isLoading": false,
+      "mergeButton": {
+        "visible": true,
+        "disabled": true,
+        "loading": false,
+        "label": "Merge"
+      },
+      "autoMergeButton": {
+        "visible": true,
+        "isActive": false,
+        "strategy": null,
+        "setBy": null,
+        "label": "Auto-merge",
+        "cancelLabel": "Cancel auto-merge"
+      },
+      "rebaseButton": {
+        "visible": false,
+        "loading": false,
+        "label": "Rebase"
+      },
+      "blockers": {
+        "isDraft": false,
+        "hasConflicts": false,
+        "needsRebase": false,
+        "pipelineFailing": false,
+        "pipelineRunning": false,
+        "awaitingApprovals": true,
+        "hasUnresolvedDiscussions": false,
+        "hasMergeError": false,
+        "mergeError": null,
+        "any": true
+      },
+      "connection": "idle",
+      "updatedAt": "2025-08-19T10:40:00Z",
+      "unresolvedThreads": 0,
+      "reviewerComments": 0,
+      "pipelineState": "passed",
+      "repositoryId": "github:700042",
+      "rtRepo": "github.com/acme/webapp",
+      "codeownerSections": [],
+      "threadSummary": {
+        "awaiting": 0,
+        "replied": 0,
+        "resolved": 0
+      },
+      "generalComments": 1,
+      "slack": {
+        "status": "none",
+        "permalink": null,
+        "reactions": [],
+        "posted": false
+      },
+      "gates": [
+        {
+          "gateId": "gate-review-post-4103",
+          "subject": "mr:https://github.com/acme/webapp/pull/4103",
+          "kind": "review-post",
+          "label": "review-post",
+          "status": "open",
+          "openedAt": 1755603180000,
+          "domain": "review",
+          "context": "Findings: Important (1), Minor (2)\n[Important] The export button stays enabled while the request is in flight (double submit)\n[Minor] The empty state copy repeats the page title\n[Minor] A unit test asserts on the CSS class instead of the role",
+          "origin": {
+            "paneId": "pane-4103",
+            "tabId": "w21:t1",
+            "worktree": "webapp"
+          },
+          "questions": [
+            {
+              "id": "tiers",
+              "label": "Post which findings?",
+              "multi": true,
+              "options": [
+                {
+                  "value": "Important",
+                  "label": "Important (1)"
+                },
+                {
+                  "value": "Minor",
+                  "label": "Minor (2)"
+                }
+              ]
+            },
+            {
+              "id": "outcome",
+              "label": "Verdict",
+              "multi": false,
+              "options": [
+                {
+                  "value": "comment",
+                  "label": "comment (recommended)"
+                },
+                "approve"
+              ]
+            }
+          ]
+        }
+      ],
+      "peerReviews": [
+        {
+          "mrUrl": "https://github.com/acme/webapp/pull/4103",
+          "iid": 4103,
+          "reviewer": "rowan",
+          "status": "reviewing",
+          "updatedAt": 1755603300000,
+          "receivedAt": 1755603300000
+        }
+      ]
+    },
+    {
+      "provider": "github",
+      "iid": 4104,
+      "title": "WEB-398: replace the date picker with the native input",
+      "webUrl": "https://github.com/acme/webapp/pull/4104",
+      "state": "opened",
+      "isDraft": false,
+      "author": {
+        "id": "github:user:ivasco",
+        "username": "ivasco",
+        "name": "Ines Vasco",
+        "avatarUrl": null
+      },
+      "assignees": [],
+      "createdAt": "2025-08-15T11:00:00Z",
+      "sourceBranch": "web-398-native-date",
+      "targetBranch": "main",
+      "isStacked": false,
+      "behindTarget": 31,
+      "diff": {
+        "additions": 140,
+        "deletions": 260,
+        "filesChanged": 11
+      },
+      "pipeline": {
+        "id": "github:checks:4104",
+        "status": "failed",
+        "passing": 3,
+        "failing": 1,
+        "running": 0,
+        "total": 4,
+        "hasWarnings": false,
+        "jobs": [
+          {
+            "id": "github:check:41040",
+            "name": "lint",
+            "stage": "checks",
+            "status": "success",
+            "allowFailure": false,
+            "duration": 40,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/41040",
+            "downstreamPipeline": null
+          },
+          {
+            "id": "github:check:41041",
+            "name": "unit",
+            "stage": "checks",
+            "status": "success",
+            "allowFailure": false,
+            "duration": 77,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/41041",
+            "downstreamPipeline": null
+          },
+          {
+            "id": "github:check:41042",
+            "name": "build",
+            "stage": "checks",
+            "status": "success",
+            "allowFailure": false,
+            "duration": 114,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/41042",
+            "downstreamPipeline": null
+          },
+          {
+            "id": "github:check:41043",
+            "name": "e2e",
+            "stage": "checks",
+            "status": "failed",
+            "allowFailure": false,
+            "duration": 151,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/41043",
+            "downstreamPipeline": null
+          }
+        ]
+      },
+      "reviews": {
+        "required": 1,
+        "given": 0,
+        "remaining": 1,
+        "isApproved": false,
+        "approvedBy": [],
+        "reviewers": [],
+        "totalAssigned": 0,
+        "haveActed": 0,
+        "havePending": 0,
+        "haveNotStarted": 0
+      },
+      "status": "blocked",
+      "statusDetail": "not_approved",
+      "isReady": false,
+      "isCheckingMergeability": false,
+      "isMerging": false,
+      "isRebasing": false,
+      "isLoading": false,
+      "mergeButton": {
+        "visible": true,
+        "disabled": true,
+        "loading": false,
+        "label": "Merge"
+      },
+      "autoMergeButton": {
+        "visible": true,
+        "isActive": false,
+        "strategy": null,
+        "setBy": null,
+        "label": "Auto-merge",
+        "cancelLabel": "Cancel auto-merge"
+      },
+      "rebaseButton": {
+        "visible": false,
+        "loading": false,
+        "label": "Rebase"
+      },
+      "blockers": {
+        "isDraft": false,
+        "hasConflicts": false,
+        "needsRebase": false,
+        "pipelineFailing": true,
+        "pipelineRunning": false,
+        "awaitingApprovals": true,
+        "hasUnresolvedDiscussions": true,
+        "hasMergeError": false,
+        "mergeError": null,
+        "any": true
+      },
+      "connection": "idle",
+      "updatedAt": "2025-08-19T10:50:00Z",
+      "unresolvedThreads": 1,
+      "reviewerComments": 3,
+      "pipelineState": "failed",
+      "repositoryId": "github:700042",
+      "rtRepo": "github.com/acme/webapp",
+      "codeownerSections": [],
+      "threadSummary": {
+        "awaiting": 1,
+        "replied": 1,
+        "resolved": 1
+      },
+      "generalComments": 0,
+      "slack": {
+        "status": "none",
+        "permalink": null,
+        "reactions": [],
+        "posted": false
+      },
+      "gates": []
+    },
+    {
+      "provider": "github",
+      "iid": 4105,
+      "title": "WEB-440: tidy the onboarding checklist spacing",
+      "webUrl": "https://github.com/acme/webapp/pull/4105",
+      "state": "opened",
+      "isDraft": false,
+      "author": {
+        "id": "github:user:mkeller",
+        "username": "mkeller",
+        "name": "Mara Keller",
+        "avatarUrl": null
+      },
+      "assignees": [],
+      "createdAt": "2025-08-19T10:30:00Z",
+      "sourceBranch": "web-440-checklist-spacing",
+      "targetBranch": "main",
+      "isStacked": false,
+      "behindTarget": null,
+      "diff": {
+        "additions": 22,
+        "deletions": 20,
+        "filesChanged": 2
+      },
+      "pipeline": {
+        "id": "github:checks:4105",
+        "status": "running",
+        "passing": 2,
+        "failing": 0,
+        "running": 2,
+        "total": 4,
+        "hasWarnings": false,
+        "jobs": [
+          {
+            "id": "github:check:41050",
+            "name": "lint",
+            "stage": "checks",
+            "status": "success",
+            "allowFailure": false,
+            "duration": 40,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/41050",
+            "downstreamPipeline": null
+          },
+          {
+            "id": "github:check:41051",
+            "name": "unit",
+            "stage": "checks",
+            "status": "success",
+            "allowFailure": false,
+            "duration": 77,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/41051",
+            "downstreamPipeline": null
+          },
+          {
+            "id": "github:check:41052",
+            "name": "build",
+            "stage": "checks",
+            "status": "running",
+            "allowFailure": false,
+            "duration": null,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/41052",
+            "downstreamPipeline": null
+          },
+          {
+            "id": "github:check:41053",
+            "name": "e2e",
+            "stage": "checks",
+            "status": "running",
+            "allowFailure": false,
+            "duration": null,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/41053",
+            "downstreamPipeline": null
+          }
+        ]
+      },
+      "reviews": {
+        "required": 1,
+        "given": 0,
+        "remaining": 1,
+        "isApproved": false,
+        "approvedBy": [],
+        "reviewers": [],
+        "totalAssigned": 0,
+        "haveActed": 0,
+        "havePending": 0,
+        "haveNotStarted": 0
+      },
+      "status": "blocked",
+      "statusDetail": "not_approved",
+      "isReady": false,
+      "isCheckingMergeability": false,
+      "isMerging": false,
+      "isRebasing": false,
+      "isLoading": false,
+      "mergeButton": {
+        "visible": true,
+        "disabled": true,
+        "loading": false,
+        "label": "Merge"
+      },
+      "autoMergeButton": {
+        "visible": true,
+        "isActive": false,
+        "strategy": null,
+        "setBy": null,
+        "label": "Auto-merge",
+        "cancelLabel": "Cancel auto-merge"
+      },
+      "rebaseButton": {
+        "visible": false,
+        "loading": false,
+        "label": "Rebase"
+      },
+      "blockers": {
+        "isDraft": false,
+        "hasConflicts": false,
+        "needsRebase": false,
+        "pipelineFailing": false,
+        "pipelineRunning": true,
+        "awaitingApprovals": true,
+        "hasUnresolvedDiscussions": false,
+        "hasMergeError": false,
+        "mergeError": null,
+        "any": true
+      },
+      "connection": "idle",
+      "updatedAt": "2025-08-19T10:55:00Z",
+      "unresolvedThreads": 0,
+      "reviewerComments": 0,
+      "pipelineState": "running",
+      "repositoryId": "github:700042",
+      "rtRepo": "github.com/acme/webapp",
+      "codeownerSections": [],
+      "threadSummary": {
+        "awaiting": 0,
+        "replied": 0,
+        "resolved": 0
+      },
+      "generalComments": 0,
+      "slack": {
+        "status": "none",
+        "permalink": null,
+        "reactions": [],
+        "posted": false
+      },
+      "gates": []
+    }
+  ]
+}

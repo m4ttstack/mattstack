@@ -6,6 +6,7 @@ import {
   busyEnv,
   failedEnv,
   failedLanes,
+  ghOwnIdle,
   mrx,
   ownBusy,
   ownEnv,
@@ -24,11 +25,10 @@ test('an idle own MR: every action, by section, in menu order', () => {
   expect(sections(ownIdle, ownEnv)).toEqual([
     'top:post-slack',
     'agent:respond',
-    'agent:rebase-local',
+    'agent:rebase',
     'agent:request-review',
     'sessions:review',
     'gitlab:merge',
-    'gitlab:rebase',
     'gitlab:setAutoMerge',
     'gitlab:mark-draft',
     'gitlab:open-gitlab',
@@ -230,7 +230,7 @@ test('a draft blocks merge and auto-merge, and offers mark ready', () => {
   expect(by.merge?.blocked).toBe('draft');
   expect(by.setAutoMerge?.blocked).toBe('draft');
   expect(by['mark-ready']?.blocked).toBeUndefined();
-  expect(by.rebase?.blocked).toBe('up to date');
+  expect(by.rebase).toBeUndefined();
 });
 
 test('a draft with auto-merge armed offers cancel auto-merge, unblocked', () => {
@@ -305,13 +305,9 @@ test("gitlab rows follow glance's buttons", () => {
   expect(by.merge?.blocked).toBe('pipeline running');
 });
 
-test('a null behind count leaves rebase on target enabled', () => {
+test('a null behind count alone offers no rebase', () => {
   const mr = mrx(1418, { behindTarget: null });
-  const rebase = rowActions(mr, actionEnvOf(ownEnv, mr)).find(
-    a => a.key === 'rebase'
-  );
-  expect(rebase).toBeDefined();
-  expect(rebase?.blocked).toBeUndefined();
+  expect(keys(mr, ownEnv)).not.toContain('rebase');
 });
 
 test('auto-doctor ignore is blocked when triage is off and no doctor runs', () => {
@@ -401,7 +397,7 @@ test('only the bulk-capable actions carry a bulk label', () => {
     review: 'review',
     'request-review': 'request review from…',
     merge: 'merge',
-    rebase: 'rebase on target',
+    rebase: 'rebase',
     setAutoMerge: 'set auto-merge',
     'mark-draft': 'mark as draft',
   });
@@ -506,7 +502,7 @@ test('switchboard asks close the top level together, under the cloud robot', () 
   expect(own.filter(a => a.section === 'agent').map(a => a.key)).toEqual([
     'respond',
     'doctor',
-    'rebase-local',
+    'rebase',
     'nudge-kim',
     'request-review',
   ]);
@@ -534,7 +530,7 @@ test("a latch from a reviewer the switchboard hasn't heard from offers the re-re
   );
   expect(agent.map(a => a.key)).toEqual([
     'respond',
-    'rebase-local',
+    'rebase',
     'latch-jo',
     'request-review',
   ]);
@@ -804,7 +800,6 @@ test('one-row-only actions never reach the bulk menu', () => {
   const keys = bulkActions([a, b, c], env3([a, b, c])).map(e => e.key);
   for (const k of [
     'respond',
-    'rebase-local',
     'stand-down',
     'open-gitlab',
     'post-slack',
@@ -821,7 +816,6 @@ const AUTHOR_ONLY = [
   'cancelAutoMerge',
   'doctor',
   'focus-doctor',
-  'rebase-local',
   'respond',
   'focus-respond',
   'resume-respond',
@@ -864,7 +858,6 @@ test('the same broken, mergeable MR offers every author-only action to its autho
     'rebase',
     'setAutoMerge',
     'doctor',
-    'rebase-local',
     'respond',
     'resume-respond',
     'post-slack',
@@ -1050,19 +1043,6 @@ test('a teammate outside peers gets no re-review item', () => {
 
 test('without a peers list every finished reviewer is offered a re-review', () => {
   expect(rereviewKeys()).toEqual(['nudge-tom', 'nudge-mira']);
-});
-
-test('rebase locally shows only on a tab whose launch reaches a doctor skill', () => {
-  const broken = MENU_STATES['own broken']!.mr;
-  const on = (tab: string, tabs: string[] | undefined) =>
-    rowActions(
-      { ...broken, doctorSkillTabs: tabs },
-      { ...actionEnvOf(ownEnv, broken), tab }
-    ).map(a => a.key);
-  expect(on('team', undefined)).toContain('rebase-local');
-  expect(on('team', ['team'])).toContain('rebase-local');
-  expect(on('team', ['other'])).not.toContain('rebase-local');
-  expect(on('team', [])).not.toContain('rebase-local');
 });
 
 test('call doctor says what it does at the api tier', () => {
@@ -1321,4 +1301,150 @@ test('approved and only waiting on ci: set auto-merge leads the menu', () => {
 
   const bulk = bulkActions([waiting()], actionEnvOf(ownEnv, waiting()));
   expect(bulk.find(e => e.key === 'setAutoMerge')?.section).toBe('gitlab');
+});
+
+const FORGE_WRITES = [
+  'merge',
+  'setAutoMerge',
+  'cancelAutoMerge',
+  'mark-draft',
+  'mark-ready',
+  'refresh-mr',
+];
+
+test('a GitHub own MR keeps only open in github in its forge section', () => {
+  const rows = rowActions(ghOwnIdle, actionEnvOf(ownEnv, ghOwnIdle));
+  expect(
+    rows.filter(a => a.section === 'gitlab').map(a => `${a.key}:${a.label}`)
+  ).toEqual(['open-gitlab:open in github']);
+  const all = rows.map(a => a.key);
+  for (const key of FORGE_WRITES) expect(all).not.toContain(key);
+});
+
+test('auto-merge never leads the menu on a GitHub MR', () => {
+  const ready = mrx(8, {
+    webUrl: 'https://github.com/acme/webapp/pull/8',
+    provider: 'github',
+    reviews: { isApproved: true, required: 1, given: 1, reviewers: [] },
+    blockers: { any: false, pipelineRunning: true },
+    autoMergeButton: { visible: true, isActive: false },
+  });
+  expect(sections(ready, ownEnv)).not.toContain('top:setAutoMerge');
+  const onGitLab = mrx(8, {
+    reviews: ready.reviews,
+    blockers: ready.blockers,
+    autoMergeButton: ready.autoMergeButton,
+  });
+  expect(sections(onGitLab, ownEnv)).toContain('top:setAutoMerge');
+});
+
+test('bulk actions over GitHub rows offer no merge, auto-merge or draft entry', () => {
+  const other = mrx(9, {
+    webUrl: 'https://github.com/acme/webapp/pull/9',
+    provider: 'github',
+    behindTarget: 4,
+    rebaseButton: { visible: true, loading: false },
+    mergeButton: { visible: true, disabled: false, loading: false },
+    autoMergeButton: { visible: true, isActive: false },
+  });
+  const entries = bulkActions(
+    [ghOwnIdle, other],
+    actionEnvOf(ownEnv, ghOwnIdle)
+  ).map(e => e.key);
+  for (const key of FORGE_WRITES) expect(entries).not.toContain(key);
+  expect(entries.length).toBeGreaterThan(0);
+});
+
+test('a GitHub teammate row offers no respond ask; review asks stay', () => {
+  const gh = {
+    ...teammateReviewed,
+    webUrl: 'https://github.com/acme/webapp/pull/1418',
+    provider: 'github',
+  } as typeof teammateReviewed;
+  const keys = rowActions(gh, actionEnvOf(ownEnv, gh)).map(a => a.key);
+  expect(keys).not.toContain('ask-respond');
+  expect(keys).toContain('re-review');
+  expect(
+    rowActions(teammateReviewed, actionEnvOf(ownEnv, teammateReviewed)).map(
+      a => a.key
+    )
+  ).toContain('ask-respond');
+});
+
+const rebaseItems = (mr: ReturnType<typeof mrx>, env = ownEnv) =>
+  rowActions(mr, actionEnvOf(env, mr)).filter(a => a.key.startsWith('rebase'));
+
+test('an own behind MR shows one rebase item', () => {
+  const items = rebaseItems(mrx(401, { behindTarget: 3 }));
+  expect(items.map(a => `${a.section}:${a.key}:${a.label}`)).toEqual([
+    'agent:rebase:rebase',
+  ]);
+  expect(items[0]).toMatchObject({
+    request: { kind: 'launch', flow: 'rebase' },
+    notable: true,
+    bulk: 'rebase',
+  });
+});
+
+test.each([
+  ['conflicts', { blockers: { any: true, hasConflicts: true } }],
+  ['the GitLab button', { rebaseButton: { visible: true, loading: false } }],
+  [
+    'needs-rebase readiness',
+    { readiness: { state: 'blocked', reasons: ['behind'] } },
+  ],
+])('rebase shows for %s alone', (_name, over) => {
+  expect(rebaseItems(mrx(402, over)).map(a => a.key)).toEqual(['rebase']);
+});
+
+test('rebase shows on a GitHub row', () => {
+  const gh = mrx(403, {
+    webUrl: 'https://github.com/acme/webapp/pull/403',
+    provider: 'github',
+    behindTarget: 2,
+  });
+  expect(rebaseItems(gh).map(a => `${a.section}:${a.key}`)).toEqual([
+    'agent:rebase',
+  ]);
+});
+
+test('rebase shows on a tab with no doctor skill', () => {
+  const behind = mrx(404, { behindTarget: 3, doctorSkillTabs: ['other'] });
+  const items = rowActions(behind, {
+    ...actionEnvOf(ownEnv, behind),
+    tab: 'team',
+  });
+  expect(items.map(a => a.key)).toContain('rebase');
+});
+
+test.each(['forge-rebasing', 'syncing'])(
+  'rebase is blocked while the doctor row is %s',
+  status => {
+    const running = mrx(405, { behindTarget: 3, doctor: { status } });
+    expect(rebaseItems(running)[0]?.blocked).toBe('rebasing');
+  }
+);
+
+test('rebase is hidden on an up-to-date MR and on teammates MRs', () => {
+  expect(rebaseItems(mrx(406, { behindTarget: 0 }))).toEqual([]);
+  expect(
+    rebaseItems(
+      mrx(407, {
+        behindTarget: 3,
+        author: { username: 'kim', name: 'Kim' },
+      })
+    )
+  ).toEqual([]);
+});
+
+test('bulk rebase targets only the MRs needing one', () => {
+  const rows = [
+    mrx(411, { behindTarget: 2 }),
+    mrx(412, { behindTarget: 0 }),
+    mrx(413, { rebaseButton: { visible: true, loading: false } }),
+  ];
+  const entry = bulkActions(rows, env3(rows)).find(e => e.key === 'rebase');
+  expect(entry?.request).toEqual({ kind: 'launch', flow: 'rebase' });
+  expect(entry?.label).toBe('rebase');
+  expect(entry?.targets.map(t => t.iid)).toEqual([411, 413]);
 });

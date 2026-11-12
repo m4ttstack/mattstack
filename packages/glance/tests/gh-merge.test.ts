@@ -11,6 +11,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { RequestError } from '@octokit/request-error';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
+import { mergeContextData } from './helpers/gh-merge-context.ts';
 
 const API = 'https://api.github.com';
 
@@ -69,12 +70,14 @@ function toOctokitRequestStub(
  * stubbed too: mergePullRequest re-fetches the PR to return it, and that read
  * is not what these tests are about.
  *
+ * `sourceBranch` and `headRepoFullName` reach the merge context read, which
+ * is where the branch removal takes its branch and repository from.
  * `headRepoFullName` defaults to the same repo the merge is against, since
  * that is the ordinary (non-fork) case. Pass a different value, or `null`, to
  * exercise the fork / unknown-head-repo paths.
  *
- * `mergePullRequest`'s `shouldRemoveSourceBranch` path calls `fetchPR` and
- * `deleteMergedSourceBranch`, both of which go through `octokit.request`
+ * `mergePullRequest`'s `shouldRemoveSourceBranch` path calls
+ * `deleteMergedSourceBranch`, which goes through `octokit.request`
  * rather than `api()`. Binding `octokit.request` here, to this same base
  * `apiFn`, is only the starting point: a per-test override that needs the
  * DELETE or git/ref/heads checks to answer differently has to replace
@@ -93,23 +96,6 @@ function stubGitHub(
     body?: unknown
   ) => {
     calls.push({ method, path, body: body as Record<string, unknown> | undefined });
-    // The raw-PR GET that mergePullRequest issues to resolve the head repo,
-    // distinct from the merge PUT (.../merge) and the git/ref GETs.
-    if (method === 'GET' && /\/pulls\/\d+$/.test(path)) {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          head: {
-            sha: 'abc123',
-            ref: sourceBranch,
-            repo: headRepoFullName ? { full_name: headRepoFullName } : null
-          }
-        }),
-        text: async () => '',
-        headers: { get: () => null }
-      } as unknown as Response;
-    }
     return {
       ok: true,
       status: 200,
@@ -119,7 +105,8 @@ function stubGitHub(
     } as unknown as Response;
   };
   (provider as any).api = apiFn;
-  (provider as any).octokit = { request: toOctokitRequestStub(apiFn) };
+  const graphql = async () => mergeContextData({ headBranch: sourceBranch, headRepo: headRepoFullName });
+  (provider as any).octokit = { request: toOctokitRequestStub(apiFn), graphql };
   (provider as any).fetchSingleMR = async () => ({ iid: 1, sourceBranch });
   return calls;
 }
@@ -129,14 +116,14 @@ function stubGitHub(
  * DELETE/GET response shape for `deleteMergedSourceBranch`. That method now
  * calls `octokit.request` rather than `.api`, so the override has to reach
  * both, or the migrated code keeps talking to the original recorder and
- * never sees the simulated response.
+ * never sees the simulated response. The merge context stub is kept.
  */
 function overrideApi(
   provider: GitHubProvider,
   apiFn: (method: string, path: string, body?: unknown) => Promise<Response>
 ): void {
   (provider as any).api = apiFn;
-  (provider as any).octokit = { request: toOctokitRequestStub(apiFn) };
+  (provider as any).octokit = { request: toOctokitRequestStub(apiFn), graphql: (provider as any).octokit.graphql };
 }
 
 function mergeBody(calls: MergeCall[]): Record<string, unknown> {
@@ -157,7 +144,7 @@ describe('GitHubProvider merge commit messages (MAT-25)', () => {
     const body = mergeBody(calls);
     expect(body.commit_title).toBe('Ship the thing');
     expect(body.commit_message).toBeUndefined();
-    expect(body.merge_method).toBeUndefined();
+    expect(body.merge_method).toBe('merge');
   });
 
   test('squashCommitMessage does not reach a non-squash merge at all', async () => {
@@ -214,7 +201,7 @@ describe('GitHubProvider merge commit messages (MAT-25)', () => {
 
     const body = mergeBody(calls);
     expect(body.commit_title).toBe('only message the caller gave');
-    expect(body.merge_method).toBeUndefined();
+    expect(body.merge_method).toBe('merge');
   });
 
   test('a multi-line message splits into title and body', async () => {
@@ -609,7 +596,7 @@ describe('GitHubProvider shouldRemoveSourceBranch targets the head repository (f
     ).toBe(false);
   });
 
-  test('a PR whose head.repo is null deletes nothing and says why rather than guessing', async () => {
+  test('a PR whose head repository is null deletes nothing and says why rather than guessing', async () => {
     const provider = new GitHubProvider('https://github.com', 'tok');
     const calls = stubGitHub(provider, 'feature/x', null);
 

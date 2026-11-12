@@ -20,8 +20,8 @@ label: Graph notes
 - `hold` records `run_hold`: `reason` their words or the gate,
   `decidedBy` as the answer recorded it.
 - **`targetBranch`** is what `branch_stack` resolved; a default branch is
-  read from git, never guessed. A GitHub PR takes it as `--base`, with `--draft` unless the gate
-  said ready. The rebase
+  read from git, never guessed. `mr_create` takes it as `targetBranch`, with `draft` unless the gate
+  said ready, on both forges. The rebase
   goes onto `origin/<target>`, so a stack member never replays its
   parent's unmerged commits.
 - **The MR.** `mr_create`'s `url` is `mrUrl` from here on. `existing:

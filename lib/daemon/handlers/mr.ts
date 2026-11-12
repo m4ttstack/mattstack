@@ -40,13 +40,13 @@
  */
 
 import { applyMRWriteback, getCurrentUserId, getRepoContext } from "../freshness.ts";
-import type { PullRequest, UpdatePullRequestInput } from "@mattstack/glance";
-import { ReadBackFailedError } from "@mattstack/glance";
+import type { FetchPullRequestsWarning, MergeQueueEntry, PullRequest, UpdatePullRequestInput } from "@mattstack/glance";
+import { MergeReadBackFailedError, PartialCreateError, ReadBackFailedError } from "@mattstack/glance";
 import type { HandlerContext, HandlerMap, CommandResult } from "./types.ts";
-import type { MrListState, MrTargetSummary } from "../../../packages/rt-client/src/commands.ts";
+import type { MrCreateFailedStep, MrListState, MrTargetSummary } from "../../../packages/rt-client/src/commands.ts";
 import { decodeRepo } from "../identity-decoder.ts";
 import { createFileDiffReader, fileDiffContextOf, type FileDiffContext } from "../file-diff.ts";
-import { LIST_MAX_LIMIT, PIPELINE_MAX_LIMIT, forgeFailure, forgeGet, listLabels, listMrsLive, listPipelines, missingMrReason, type Forge, type SummariesProvider } from "../forge-reads.ts";
+import { LIST_MAX_LIMIT, PIPELINE_MAX_LIMIT, forgeFailure, forgeGet, incompleteBranchRead, listLabels, listMrsLive, listPipelines, missingMrReason, type Forge, type SummariesProvider } from "../forge-reads.ts";
 
 type ActionName =
   | "merge" | "rebase" | "approve" | "unapprove"
@@ -134,7 +134,8 @@ export interface MRHandlerOverrides {
 }
 
 // "mr:action" keeps its pre-existing `{ok:true}` wire reply verbatim, with
-// `data` only for a merge that left its source branch, so it stays on the
+// `data` only for a merge that left its source branch or entered a merge
+// queue, so it stays on the
 // loose `Promise<any>` escape hatch (same trick as endpoint.ts/repos.ts); the
 // two job-detail verbs already envelope as {ok,data} and get the standard
 // CommandResult carve-out.
@@ -179,23 +180,22 @@ export function createMRHandlers(
     return getContext(repoName);
   }
 
-  /** The stores are GitLab-shaped, so a GitHub PR is never written into them. */
-  function writebackFor(c: HandlerRepoContext, repoName: string, pr: PullRequest): void {
-    if (c.forge === "github") {
-      ctx.log.debug({ repo: repoName, iid: pr.iid }, "write-back skipped for a GitHub repo");
-      return;
-    }
-    storeWriteback(repoName, c.projectPath, pr);
-  }
-
-  /** The batch maps a pull request it found but could not fill to null too, so each null is checked against the open pull requests on that branch before it reads as "no PR". */
+  /** The batch maps a pull request it found but could not fill to null too. A provider that reports incomplete branch reads says so through onWarning; for any other, each null is checked against the open pull requests on that branch before it reads as "no PR". */
   async function liveByBranchOnGitHub(provider: any, projectPath: string, branches: string[]): Promise<CommandResult<"mr:live-by-branch">> {
-    const found: Map<string, PullRequest | null> = await provider.fetchPullRequestsByBranches(projectPath, branches.map((b) => b.trim()));
+    const reports = provider.capabilities?.canReportIncompleteBranchReads === true;
+    const warned = new Map<string, FetchPullRequestsWarning>();
+    const trimmed = branches.map((b) => b.trim());
+    const found: Map<string, PullRequest | null> = reports
+      ? await provider.fetchPullRequestsByBranches(projectPath, trimmed, undefined, { onWarning: (w: FetchPullRequestsWarning) => { if (w.branch && !warned.has(w.branch)) warned.set(w.branch, w); } })
+      : await provider.fetchPullRequestsByBranches(projectPath, trimmed);
     const byBranch: Record<string, PullRequest | null> = {};
     const unfilled: string[] = [];
     for (const branch of branches) {
       byBranch[branch] = found.get(branch.trim()) ?? null;
-      if (!byBranch[branch]) unfilled.push(branch);
+      if (byBranch[branch]) continue;
+      const warning = warned.get(branch.trim());
+      if (warning) return { ok: false, error: incompleteBranchRead(branch.trim(), projectPath, warning) };
+      if (!reports) unfilled.push(branch);
     }
     for (const branch of unfilled) {
       const open = await provider.fetchPullRequestSummaries(projectPath, { state: "opened", sourceBranch: branch.trim(), limit: 1 });
@@ -247,12 +247,14 @@ export function createMRHandlers(
         }
         let returnedPr: PullRequest | null = null;
         let sourceBranchNotDeleted: string | undefined;
+        let queued: MergeQueueEntry | undefined;
         try {
           switch (action) {
             case "merge": {
               const merged = await provider.mergePullRequest(projectPath, iid, args[0]);
               returnedPr = merged;
               sourceBranchNotDeleted = merged?.sourceBranchNotDeleted;
+              queued = merged?.queued;
               break;
             }
             case "rebase":           await provider.rebasePullRequest(projectPath, iid);                  break;
@@ -278,19 +280,23 @@ export function createMRHandlers(
           //
           // `returnedPr` stays null, which drops through to the same follow-up
           // fetch the void actions use, so the stores still get a fresh shape.
-          if (!(err instanceof ReadBackFailedError && err.writeApplied)) throw err;
+          // A PR already in the queue is queued even when nothing was written.
+          const merge = err instanceof MergeReadBackFailedError ? err : null;
+          if (!(err instanceof ReadBackFailedError && (err.writeApplied || merge?.queued))) throw err;
+          sourceBranchNotDeleted = merge?.sourceBranchNotDeleted;
+          queued = merge?.queued;
           ctx.log.warn({ err, repo: repoName, iid, action }, "action landed but its read-back failed; recovering via follow-up fetch");
         }
 
-        const done = sourceBranchNotDeleted ? { ok: true, data: { sourceBranchNotDeleted } } : { ok: true };
-        if (github) {
-          ctx.log.debug({ repo: repoName, iid, action }, "write-back skipped for a GitHub repo");
-          return done;
-        }
+        const data = {
+          ...(sourceBranchNotDeleted && { sourceBranchNotDeleted }),
+          ...(queued && { queued: { position: queued.position, state: queued.state } }),
+        };
+        const done = Object.keys(data).length > 0 ? { ok: true, data } : { ok: true };
 
         const followUp = async () => {
           try {
-            const pr = await fetchSingle(provider, projectPath, iid);
+            const pr = await fetchSingle(provider, projectPath, iid, github);
             if (pr) storeWriteback(repoName, projectPath, pr);
           } catch (err) {
             ctx.log.warn({ err, repo: repoName, iid, action }, "write-back follow-up failed");
@@ -350,6 +356,7 @@ export function createMRHandlers(
         if (forge === "github" && squash !== undefined) return { ok: false, error: GITHUB_SQUASH_REFUSAL };
         let iid: number;
         let url: string | null;
+        let failedSteps: MrCreateFailedStep[] | undefined;
         try {
           const pr: PullRequest = await provider.createPullRequest({
             projectPath, title, sourceBranch, targetBranch,
@@ -358,7 +365,7 @@ export function createMRHandlers(
             ...(labels && { labels }),
           });
           try {
-            writebackFor(c, repoName, pr);
+            storeWriteback(repoName, projectPath, pr);
           } catch (err) {
             ctx.log.warn({ err, repo: repoName, iid: pr.iid }, "mr:create write-back failed");
           }
@@ -368,10 +375,24 @@ export function createMRHandlers(
           // The MR exists once glance reports writeApplied; ok:false here would
           // invite a second create.
           if (!(err instanceof ReadBackFailedError && err.writeApplied)) throw err;
-          ctx.log.warn({ err, repo: repoName, iid: err.iid }, "mr:create landed but its read-back failed");
           iid = err.iid;
           url = null;
+          if (err instanceof PartialCreateError) {
+            ctx.log.warn({ err, repo: repoName, iid, steps: err.failedSteps.map((s) => s.step) }, "mr:create landed but a follow-up step failed");
+            failedSteps = err.failedSteps.map((s) => ({ step: s.step, message: s.message }));
+            url = err.pullRequest?.webUrl ?? `${provider.baseURL}/${projectPath}/pull/${iid}`;
+            if (err.pullRequest) {
+              try {
+                storeWriteback(repoName, projectPath, err.pullRequest);
+              } catch (writebackErr) {
+                ctx.log.warn({ err: writebackErr, repo: repoName, iid }, "mr:create write-back failed");
+              }
+            }
+          } else {
+            ctx.log.warn({ err, repo: repoName, iid: err.iid }, "mr:create landed but its read-back failed");
+          }
         }
+        if (failedSteps) return { ok: true, data: { iid, url, failedSteps } };
         if (squash === undefined) return { ok: true, data: { iid, url } };
         const set = await putMergeRequest(provider, projectPath, iid, { squash }, "mr:create squash");
         if (set.ok) return { ok: true, data: { iid, url, squashApplied: true } };
@@ -455,7 +476,11 @@ export function createMRHandlers(
               ctx.log.warn({ err, repo: repoName, iid }, "mr:update read for the pull request URL failed");
             }
           }
-          ctx.log.debug({ repo: repoName, iid }, "write-back skipped for a GitHub repo");
+          try {
+            if (pr) storeWriteback(repoName, projectPath, pr);
+          } catch (err) {
+            ctx.log.warn({ err, repo: repoName, iid }, "mr:update write-back failed");
+          }
           return { ok: true, data: { iid, url: pr?.webUrl ?? `${provider.baseURL}/${projectPath}/pull/${iid}`, applied } };
         }
         if (putFields.length > 0) {
@@ -598,7 +623,7 @@ export function createMRHandlers(
         const mr = github
           ? await fetchSingle(provider, projectPath, p.iid, true, (w) => { warning = w; })
           : await fetchSingle(provider, projectPath, p.iid, false);
-        if (mr && p.refresh === true) writebackFor(c, decoded.repo, mr);
+        if (mr && p.refresh === true) storeWriteback(decoded.repo, projectPath, mr);
         if (mr) return { ok: true, data: { mr, fetchedAt: Date.now() } };
         if (github) {
           const miss = `GitHub has no pull request #${p.iid} in ${projectPath}, or the token cannot read it`;

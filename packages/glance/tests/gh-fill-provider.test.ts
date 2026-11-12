@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
+import { GitLabProvider } from '../src/GitLabProvider.ts';
 import type { FetchPullRequestsWarning } from '../src/GitProvider.ts';
 import { RateLimitedError, ReadBackFailedError } from '../src/errors.ts';
 import {
@@ -15,6 +16,7 @@ import {
   useForgeStub,
   useInstantTimers
 } from './helpers/gh-fill-fixture.ts';
+import { isMergeContextQuery, mergeContextData } from './helpers/gh-merge-context.ts';
 
 useForgeStub();
 useInstantTimers();
@@ -187,6 +189,29 @@ describe('GitHubProvider known-number reads through the fill', () => {
     expect(warnings[0]).toMatchObject({ kind: 'request-failed', source: 'fill', target: 'o/r#2' });
   });
 
+  test('an error under headRepository keeps the PR with sourceProjectPath unknown, not deleted', async () => {
+    stubForge({
+      graphql: () =>
+        jsonResponse({
+          data: { repository: { p1: nodeFor(1, { headRepository: null }) } },
+          errors: [
+            {
+              type: 'FORBIDDEN',
+              path: ['repository', 'p1', 'headRepository'],
+              message: 'Resource not accessible by personal access token'
+            }
+          ]
+        })
+    });
+    const warnings: FetchPullRequestsWarning[] = [];
+
+    const pr = await provider().fetchSingleMR('o/r', 1, null, (w) => warnings.push(w));
+
+    expect(pr).not.toBeNull();
+    expect(pr!.sourceProjectPath).toBeUndefined();
+    expect(warnings).toEqual([]);
+  });
+
   test('an error under baseRef.branchProtectionRule reads as no classic count and keeps the PR', async () => {
     stubForge({
       graphql: () =>
@@ -227,7 +252,7 @@ describe('GitHubProvider known-number reads through the fill', () => {
                           contexts: {
                             totalCount: 1,
                             pageInfo: { hasNextPage: false, endCursor: null },
-                            nodes: [{ ...checkRun(1, 'SUCCESS'), checkSuite: { workflowRun: null } }]
+                            nodes: [{ ...checkRun(1, 'SUCCESS'), checkSuite: { workflowRun: null } } as GHFillContext]
                           }
                         }
                       }
@@ -312,7 +337,7 @@ describe('GitHubProvider known-number reads through the fill', () => {
     const path = ['repository', 'p1', 'commits', 'nodes', 0, 'commit', 'statusCheckRollup', 'contexts', 'nodes', 49, 'checkSuite', 'workflowRun'];
     const page = contextsPage(1, [
       ...Array.from({ length: 49 }, (_, i) => checkRun(200 + i, 'SUCCESS')),
-      { ...checkRun(300, 'FAILURE'), checkSuite: { workflowRun: null } }
+      { ...checkRun(300, 'FAILURE'), checkSuite: { workflowRun: null } } as GHFillContext
     ]);
     stubForge({
       graphql: (query) =>
@@ -488,7 +513,8 @@ describe('GitHubProvider known-number reads through the fill', () => {
         method === 'PUT' && url.endsWith('/pulls/9/merge')
           ? jsonResponse({ merged: true, sha: 'm1' })
           : undefined,
-      graphql: () => jsonResponse({ message: 'Bad Gateway' }, 502)
+      graphql: (query) =>
+        isMergeContextQuery(query) ? mergeContextData() : jsonResponse({ message: 'Bad Gateway' }, 502)
     });
 
     const err = await provider()
@@ -577,6 +603,29 @@ describe('toPullRequestFromNode', () => {
     const node = nodeFor(4, { mergeable: 'UNKNOWN', mergeStateStatus: 'DIRTY' });
 
     expect(toPullRequestFromNode(node, ctx(node)).conflicts).toBe(true);
+  });
+});
+
+describe('sourceProjectPath', () => {
+  const ctx = (node: GHFillNode) => ({
+    roles: ['author'],
+    contexts: node.commits.nodes[0]!.commit.statusCheckRollup!.contexts.nodes,
+    contextsComplete: true,
+    rulesRequired: null
+  });
+
+  test('sourceProjectPath maps a same-repo PR, a fork and a deleted fork', () => {
+    const same = ghNode();
+    const fork = ghNode({ headRepository: { nameWithOwner: 'fork/r' } });
+    const deleted = { ...ghNode(), headRepository: null } as GHFillNode;
+    expect(toPullRequestFromNode(same, ctx(same)).sourceProjectPath).toBe('o/r');
+    expect(toPullRequestFromNode(fork, ctx(fork)).sourceProjectPath).toBe('fork/r');
+    expect(toPullRequestFromNode(deleted, ctx(deleted)).sourceProjectPath).toBeNull();
+  });
+
+  test('capability flags', () => {
+    expect(new GitHubProvider('https://github.com', 'tok').capabilities.canReportSourceProject).toBe(true);
+    expect(new GitLabProvider('https://gitlab.com', 'tok').capabilities.canReportSourceProject).toBe(false);
   });
 });
 
@@ -895,8 +944,11 @@ const mergedFill = (numbers: number[]) =>
     numbers.map((n) => [n, nodeFor(n, { state: 'MERGED', mergedAt: '2026-01-03T00:00:00Z' })])
   );
 
+/** Answers the merge context read every merge makes first; the fill falls through to `fill`. */
+const answerMergeContext = (query: string) => (isMergeContextQuery(query) ? mergeContextData() : undefined);
+
 interface MergeScenario {
-  headRead?: () => Response;
+  headRepo?: string | null;
   del?: () => Response;
   refCheck?: () => Response;
 }
@@ -906,16 +958,14 @@ function landedMerge(scenario: MergeScenario = {}): { calls: string[] } {
   const calls: string[] = [];
   stubForge({
     fill: mergedFill,
+    graphql: (query) =>
+      isMergeContextQuery(query)
+        ? mergeContextData({ headRepo: scenario.headRepo === undefined ? 'o/r' : scenario.headRepo })
+        : undefined,
     rest: (url, method) => {
       const path = new URL(url).pathname;
       calls.push(`${method} ${path}`);
       if (method === 'PUT') return jsonResponse({ merged: true, sha: 'm1' });
-      if (method === 'GET' && /\/pulls\/9$/.test(path)) {
-        return (
-          scenario.headRead?.() ??
-          jsonResponse({ number: 9, head: { ref: 'feature', repo: { full_name: 'o/r' } } })
-        );
-      }
       if (method === 'DELETE') return scenario.del?.() ?? new Response(null, { status: 204 });
       if (method === 'GET' && path.includes('/git/ref/heads/')) {
         return scenario.refCheck?.() ?? jsonResponse({ message: 'Not Found' }, 404);
@@ -927,43 +977,14 @@ function landedMerge(scenario: MergeScenario = {}): { calls: string[] } {
 }
 
 describe('GitHubProvider mergePullRequest after the merge landed', () => {
-  test('a rate-limited head repository read resolves with the leftover branch and its reset time', async () => {
-    const reset = Math.floor(Date.now() / 1000) + 3600;
-    const { calls } = landedMerge({
-      headRead: () =>
-        jsonResponse({ message: 'API rate limit exceeded' }, 403, {
-          'x-ratelimit-remaining': '0',
-          'x-ratelimit-reset': String(reset)
-        })
-    });
-
-    const pr = await provider().mergePullRequest('o/r', 9, { shouldRemoveSourceBranch: true });
-
-    expect(pr.state).toBe('merged');
-    expect(pr.sourceBranchNotDeleted).toContain('rate limit');
-    expect(pr.sourceBranchNotDeleted).toContain('"feature"');
-    expect(pr.sourceBranchNotDeleted).toContain(new Date(reset * 1000).toISOString());
-    expect(calls.some((c) => c.startsWith('DELETE'))).toBe(false);
-  });
-
-  test('a forbidden head repository read resolves with the leftover branch', async () => {
-    landedMerge({ headRead: () => jsonResponse({ message: 'Forbidden' }, 403) });
-
-    const pr = await provider().mergePullRequest('o/r', 9, { shouldRemoveSourceBranch: true });
-
-    expect(pr.state).toBe('merged');
-    expect(pr.sourceBranchNotDeleted).toMatch(
-      /^The source branch "feature" was not deleted: reading the PR to find its head repository failed: 403/
-    );
-  });
-
   test('an unknown head repository resolves with the leftover branch', async () => {
-    landedMerge({ headRead: () => jsonResponse({ number: 9, head: { ref: 'feature', repo: null } }) });
+    const { calls } = landedMerge({ headRepo: null });
 
     const pr = await provider().mergePullRequest('o/r', 9, { shouldRemoveSourceBranch: true });
 
     expect(pr.state).toBe('merged');
     expect(pr.sourceBranchNotDeleted).toContain('head repository is unknown');
+    expect(calls.some((c) => c.startsWith('DELETE'))).toBe(false);
   });
 
   test('a refused branch delete resolves with the leftover branch', async () => {
@@ -1004,6 +1025,7 @@ describe('GitHubProvider mergePullRequest after the merge landed', () => {
   test('a rate-limited merge PUT still rejects, as the write error it always was', async () => {
     stubForge({
       fill: mergedFill,
+      graphql: answerMergeContext,
       rest: (_url, method) => (method === 'PUT' ? rateLimited() : undefined)
     });
 

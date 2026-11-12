@@ -2,11 +2,13 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 
 import { Badge, ICONS, Popover, SideDrawer, Tooltip } from '@mattstack/tui-kit';
+import { cancelRebase } from '../api.ts';
 import type { BoardMRWithReview, RowContext } from '../types.ts';
 import { clauseOf } from './clause.ts';
 import { cleanTitle } from './format.ts';
 import { AgentGlyph, ChevronGlyph, CloudSpinner, Sun } from './icons.tsx';
 import { heldOrder, laneOf, moreAction, moreKey } from './more-actions.ts';
+import { mrRef } from './MrLinks.tsx';
 import type { Candidate, RowStatus, Verb } from './row-status.ts';
 import { RowSpotlight } from './RowSpotlight.tsx';
 import {
@@ -247,7 +249,7 @@ function SyncLogWord({
             <SideDrawer
               side="right"
               className="tui-cd-panel tui-sync-drawer tui-spotlit"
-              ariaLabel={`rt sync for !${mr.iid}`}
+              ariaLabel={`rt sync for ${mrRef(mr)}`}
               data-closing={drawer.leaving ? 'true' : undefined}
               onClose={close}
             >
@@ -261,7 +263,7 @@ function SyncLogWord({
                 </button>
               </div>
               <div className="tui-cd-title">
-                <span className="tui-cd-iid">!{mr.iid}</span>{' '}
+                <span className="tui-cd-iid">{mrRef(mr)}</span>{' '}
                 {cleanTitle(mr.title)}
               </div>
               <SyncSteps
@@ -274,6 +276,9 @@ function SyncLogWord({
                   />
                 }
                 {...(handoff ? { handoff } : {})}
+                {...(url && mr.doctor?.status === 'forge-rebasing'
+                  ? { onCancel: () => cancelRebase(url) }
+                  : {})}
               />
             </SideDrawer>
           </div>,
@@ -319,7 +324,7 @@ function MoreStatuses({
       initialFocus={list}
       align="start"
       sideOffset={6}
-      ariaLabel={`other statuses for !${mr.iid}`}
+      ariaLabel={`other statuses for ${mrRef(mr)}`}
       classNames={{ popup: 'tui-status-more-pop' }}
       trigger={
         <button
@@ -459,9 +464,12 @@ export function StatusLine({
     ? line.verbs
     : line.verbs.filter(verb => verb.kind !== 'merge');
   const hot = line.tone === 'bad' || line.tone === 'warn';
-  const syncing = mr.doctor?.status === 'syncing';
+  const syncing =
+    mr.doctor?.status === 'syncing' || mr.doctor?.status === 'forge-rebasing';
   const syncLines = useSyncLog(mr, line.syncLog, syncing);
-  const view = line.syncLog ? syncSteps(syncLines, syncing) : null;
+  const view = line.syncLog
+    ? syncSteps(syncLines, syncing, mr.doctor?.forge)
+    : null;
   const handoff =
     view?.outcome === 'paused' && DOCTOR_AT_WORK.has(mr.doctor?.status ?? '')
       ? { onFocus: () => ctx.onFocusPane(mr, 'doctor') }

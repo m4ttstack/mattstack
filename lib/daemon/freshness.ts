@@ -1,8 +1,9 @@
 /**
  * Live-freshness subsystem.
  *
- * One glance-sdk `watchEvents()` watcher per GitLab repo polls the project
- * events feed (SDK-owned loop, ~15s cadence) and reports invalidation keys.
+ * One glance-sdk `watchEvents()` watcher per live GitLab or GitHub repo polls
+ * the project events feed (SDK-owned loop, 15s on GitLab, 60s on GitHub) and
+ * reports invalidation keys.
  * The mapping in this module turns each key into the narrowest possible
  * cache refresh (single MR, single branch, one MR's discussions). The 5-min
  * full poll in cache-refresh.ts remains the safety net for the events feed's
@@ -40,17 +41,20 @@ import { loadSecrets } from "../linear.ts";
 import { parseRemoteUrl, isGitHubRemote, isGitLabRemote, numericUserId, toMRInfo } from "../enrich.ts";
 import { resolveGithubToken } from "../github-token.ts";
 import { gitlabHostRefusal } from "../team/forge-token.ts";
-import { checkAndNotify } from "../notifier.ts";
+import { checkAndNotify, type SelfIds } from "../notifier.ts";
 import type { HandlerContext } from "./handlers/types.ts";
 import { lazyChildLogger } from "../daemon-logger.ts";
 import { redactCredentials } from "./redact-credentials.ts";
+import { prInScope } from "./scope-authors.ts";
+import { readSingleStrict } from "./project-sync-github.ts";
 import { getProjectMRs, type ProjectMRs } from "./project-mrs-store.ts";
 import { getDiscussionsFileStore } from "./discussions-file-store.ts";
 import { createCursorStore, type CursorStore } from "../state/index.ts";
 import { composeKey, branchOf } from "../state/branch-cache.ts";
 import { runCapture } from "../subprocess.ts";
 
-const log = lazyChildLogger("freshness");
+type FreshnessLog = Pick<ReturnType<typeof lazyChildLogger>, "info" | "warn" | "debug" | "error">;
+let log: FreshnessLog = lazyChildLogger("freshness");
 
 // ─── Env bundle (passed in from daemon.ts to avoid circular imports) ────────
 
@@ -86,7 +90,8 @@ export function repositoryIdFor(ctx: RepoContext): string {
 
 /** Per-repo live watcher state. Structurally a BatchRunner (Task 3). */
 interface RepoWatch {
-  provider:     GitLabProvider;
+  forge:        "gitlab" | "github";
+  provider:     GitLabProvider | GitHubProvider;
   projectPath:  string;
   dispose:      () => void;
   /** Numeric GitLab project id. Resolved lazily on first discussions fetch. */
@@ -145,12 +150,22 @@ async function fetchProjectId(provider: GitLabProvider, projectPath: string): Pr
 }
 
 // glance >=0.15 widened EventCursor.lastEventId to number | string | null for
-// GitHub's string event ids. This watch path is GitLab-only, whose ids stay
-// numeric; anything else reads as absent, same as glance's own pollers treat
-// foreign cursor shapes.
+// GitHub's string event ids. GitLab ids stay numeric; anything else reads as
+// absent, same as glance's own pollers treat foreign cursor shapes.
 function numericEventId(v: number | string | null | undefined): number | null {
   return typeof v === "number" ? v : null;
 }
+
+/** The snapshot's lastEventId is numeric, so a GitHub id too long to stay exact reports as absent. */
+function githubEventId(v: number | string | null | undefined): number | null {
+  if (typeof v !== "string" || !/^\d+$/.test(v)) return null;
+  const n = Number(v);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
+type WatchSource =
+  | { forge: "gitlab"; provider: GitLabProvider }
+  | { forge: "github"; provider: GitHubProvider };
 
 /**
  * Write one refreshed MR into its cache entry, preserving enrichment fields
@@ -217,11 +232,11 @@ export type TargetedFetcher = Pick<
   "fetchSingleMR" | "fetchPullRequestByBranch" | "fetchPullRequestsByBranches" | "fetchApprovalRules"
 >;
 
-export interface RepoTarget {
-  repoName:    string;
-  projectPath: string;
-  provider:    TargetedFetcher;
-}
+export type GitHubTargetedFetcher = Pick<GitHubProvider, "fetchSingleMR" | "fetchPullRequestsByBranches">;
+
+export type RepoTarget =
+  | { repoName: string; projectPath: string; forge?: "gitlab"; provider: TargetedFetcher }
+  | { repoName: string; projectPath: string; forge: "github"; provider: GitHubTargetedFetcher };
 
 /** Mutable batch-processing state. RepoWatch satisfies this structurally. */
 export interface BatchRunner {
@@ -239,7 +254,7 @@ export interface BatchRunner {
 /** Test seams. Production callers omit this. */
 export interface MappingOverrides {
   refreshDiscussions?: (env: FreshnessEnv, repoName: string, iid: number) => Promise<unknown>;
-  notify?:             (entries: Record<string, any>, userId: number | null) => void;
+  notify?:             (entries: Record<string, any>, self: SelfIds) => void;
   gapFillDebounceMs?:  number;
   grantsFor?:            (repoName: string) => RepoGrants;                   // default: grants(loadRepoTracking(), repoName)
   projectStore?:         ProjectMRs;                                          // default: getProjectMRs()
@@ -266,13 +281,17 @@ function createFreshnessCore() {
   const watches   = new Map<string, RepoWatch>();
   const providers = new Map<string, { provider: GitLabProvider; token: string }>();
   const githubProviders = new Map<string, { provider: GitHubProvider; token: string }>();
-  const githubSelfIds = new WeakMap<GitHubProvider, number>();
+  const githubProviderTokens = new WeakMap<GitHubProvider, string>();
+  const githubSelf = new Map<string, { id: number; login: string }>();
+  let   currentGithubToken: string | null = null;
+  let   githubSuppressedWarned = false;
   let   userId: number | null = null;
   let   userIdResolved = false;
   let   selfUsername: string | null = null;
   let   userIdSuppressedWarned = false;
 
   const remoteUrlCache = new Map<string, string | null>();
+  const githubWatchSkipLogged = new Set<string>();
 
   /**
    * Cache of (projectPath, projectId) resolved for repos without a live watch.
@@ -380,35 +399,74 @@ function createFreshnessCore() {
    * BEFORE its checkAndNotify (reconcileSubscriptions/reconcileFreshnessImpl
    * runs after, so relying on it alone would leave the first cache-refresh
    * cycle still passing null). Gates on the `branches`/`project-mrs` grant,
-   * never on mode, and is a no-op once userIdResolved (ensureUserId's own
-   * guard) or once every candidate repo has been tried this cycle.
+   * never on mode. Each forge stops asking once its own user is known: GitLab
+   * through userIdResolved, GitHub through the per-token cache, which only the
+   * first GitHub candidate fills.
    */
   async function resolveUserIdAcrossTracking(
     repoIndex: Record<string, string>,
     tracking: RepoTracking,
   ): Promise<void> {
-    if (userIdResolved) return;
+    let gitlabCandidate = false;
+    let githubCandidate: { repoName: string; repoPath: string } | null = null;
     for (const [repoName, repoPath] of Object.entries(repoIndex)) {
       const g = grants(tracking, repoName);
       if (g.mode === "off") continue;
       if (!g.caches.has("branches") && !g.caches.has("project-mrs")) continue;
       if (!existsSync(repoPath)) continue;
+      if (await isGitHubRepo(repoPath)) {
+        githubCandidate ??= { repoName, repoPath };
+        continue;
+      }
+      gitlabCandidate = true;
+      if (userIdResolved) continue;
       const provider = await ensureProvider(repoName, repoPath);
       if (!provider) continue;
       await ensureUserId();
-      if (userIdResolved) return;
     }
-    if (!userIdResolved && !userIdSuppressedWarned) {
+    if (gitlabCandidate && !userIdResolved && !userIdSuppressedWarned) {
       userIdSuppressedWarned = true;
       log.warn("userId is unresolved; self-authored MR transitions are being suppressed (no gitlabToken, or token validation failed)");
     }
+    if (!githubCandidate || githubResolved()) return;
+    try {
+      await getSelfUserId(await getRepoContext(githubCandidate.repoName, githubCandidate.repoPath));
+    } catch (err) {
+      log.debug({ err }, "GitHub self lookup skipped");
+    }
+    if (!githubResolved() && !githubSuppressedWarned) {
+      githubSuppressedWarned = true;
+      log.warn("rt could not tell which GitHub user you are, so alerts about your own GitHub PRs are off (no GitHub token, or GitHub refused it); run: rt setup github connect");
+    }
+  }
+
+  function currentGithubSelf(): { id: number; login: string } | undefined {
+    return currentGithubToken !== null ? githubSelf.get(currentGithubToken) : undefined;
+  }
+
+  function githubResolved(): boolean {
+    return currentGithubSelf() !== undefined;
+  }
+
+  function getSelfIds(): SelfIds {
+    return {
+      gitlab: userId,
+      github: currentGithubSelf()?.id ?? null,
+    };
   }
 
   function getSelfUsername(): string | null { return selfUsername; }
 
   async function resolveSelfUsername(repoName: string, repoPath: string): Promise<string | null> {
-    if (selfUsername) return selfUsername;
     try {
+      if (await isGitHubRepo(repoPath)) {
+        const ctx = await getRepoContext(repoName, repoPath);
+        if (ctx.forge !== "github") return null;
+        await getSelfUserId(ctx);
+        const token = githubProviderTokens.get(ctx.provider);
+        return token !== undefined ? githubSelf.get(token)?.login ?? null : null;
+      }
+      if (selfUsername) return selfUsername;
       await getGitLabContext("self username", repoName, repoPath);   // materializes a provider for ensureUserId
       await ensureUserId();
       return selfUsername;
@@ -416,6 +474,13 @@ function createFreshnessCore() {
       log.warn({ err, repo: repoName }, "self username resolution failed");
       return null;
     }
+  }
+
+  async function cachedSelfUsername(_repoName: string, repoPath: string): Promise<string | null> {
+    if (await isGitHubRepo(repoPath)) {
+      return currentGithubSelf()?.login ?? null;
+    }
+    return selfUsername;
   }
 
   /**
@@ -448,6 +513,7 @@ function createFreshnessCore() {
   }
 
   async function isGitHubRepo(repoPath: string): Promise<boolean> {
+    if (!repoPath) return false;
     return isGitHubRemote((await getRemoteUrl(repoPath)) ?? undefined);
   }
 
@@ -459,6 +525,7 @@ function createFreshnessCore() {
     const resolved = await resolveGithubToken((await loadSecrets()).githubToken);
     if (!resolved) {
       githubProviders.delete(repoName);
+      currentGithubToken = null;
       throw new Error("missing GitHub token (run: rt setup github connect)");
     }
     const remote = parseRemoteUrl(remoteUrl);
@@ -469,7 +536,9 @@ function createFreshnessCore() {
     if (!entry || entry.token !== resolved.token) {
       entry = { provider: new GitHubProvider(remote.host, resolved.token, providerRequestHook()), token: resolved.token };
       githubProviders.set(repoName, entry);
+      githubProviderTokens.set(entry.provider, resolved.token);
     }
+    currentGithubToken = resolved.token;
     return { forge: "github", provider: entry.provider, projectPath: projectPathOverride ?? remote.projectPath, projectId: null };
   }
 
@@ -609,17 +678,19 @@ function createFreshnessCore() {
   }
 
   /**
-   * Numeric id of the token's own user on the repo's forge. A GitHub provider
-   * is rebuilt when its token changes, so keying by provider re-reads `/user`
-   * for a new token; a failed read is not remembered.
+   * Numeric id of the token's own user on the repo's forge. On GitHub the
+   * answer is cached per token, so repos sharing a token read `/user` once and
+   * a new token reads it again; a failed read is not remembered.
    */
   async function getSelfUserId(ctx: RepoContext): Promise<number | null> {
     if (ctx.forge === "gitlab") return getCurrentUserId();
-    const known = githubSelfIds.get(ctx.provider);
-    if (known !== undefined) return known;
+    const token = githubProviderTokens.get(ctx.provider);
+    const known = token !== undefined ? githubSelf.get(token) : undefined;
+    if (known) return known.id;
     try {
-      const id = numericUserId((await ctx.provider.validateToken()).id);
-      if (id !== null) githubSelfIds.set(ctx.provider, id);
+      const user = await ctx.provider.validateToken();
+      const id = numericUserId(user.id);
+      if (id !== null && token !== undefined) githubSelf.set(token, { id, login: user.username });
       return id;
     } catch (err) {
       log.warn({ err }, "GitHub user lookup failed");
@@ -670,7 +741,14 @@ function createFreshnessCore() {
     overrides: MappingOverrides,
   ): Promise<void> {
     const { ctx } = env;
-    const { repoName, projectPath, provider } = target;
+    const { repoName, projectPath } = target;
+
+    // GitHub's fill reports a failed read as a warning and a null, so a null
+    // from it is never trusted as "no PR"; the strict read throws instead.
+    const readSingle = (iid: number): Promise<PullRequest | null> =>
+      target.forge === "github"
+        ? readSingleStrict(target.provider, projectPath, iid)
+        : target.provider.fetchSingleMR(projectPath, iid, getCurrentUserId());
 
     // Dedup by kind:ref. The SDK dedups within a tick, but merged pending
     // batches can re-introduce duplicates.
@@ -695,15 +773,7 @@ function createFreshnessCore() {
     const wantProject = g.caches.has("project-mrs");
 
     const upsertProject = (pr: PullRequest) => {
-      // Demand-scoped repos only track the declared authors; an MR missing an
-      // author never guess-drops, since we can't tell which side of the scope
-      // it belongs on. A tagged stranger (out-of-scope author, still section-
-      // tagged) is kept too: dropping it here would silently erase a tag that
-      // only the approval-heal path is meant to clear.
-      const rec = pStore.read(repoName);
-      const scope = rec?.scope;
-      const tagged = (rec?.mrs[pr.iid]?.codeownerSections?.length ?? 0) > 0;
-      if (scope && pr.author?.username && !scope.authors.includes(pr.author.username) && !tagged) return;
+      if (!prInScope(pStore.read(repoName), pr)) return;
       const changed = pStore.upsert(repoName, projectPath, pr, "events");
       if (changed.length > 0) env.broadcast("project-mrs", { repoName, iids: changed });
     };
@@ -723,7 +793,7 @@ function createFreshnessCore() {
               scheduleGapFill(env, target, runner, overrides);
               break;
             }
-            const pr = await provider.fetchSingleMR(projectPath, iid, getCurrentUserId());
+            const pr = await readSingle(iid);
             const feedBranch = branch
               ?? (pr && ctx.cache.entries[composeKey(repoName, pr.sourceBranch)] !== undefined ? pr.sourceBranch : undefined);
             if (feedBranch) mutated = updateEntry(env, repoName, feedBranch, pr) || mutated;
@@ -731,12 +801,13 @@ function createFreshnessCore() {
             // GitLab's approval action bumps no updatedAt, so this is the only
             // signal that heals a tag within one events tick rather than
             // waiting on the next deep/delta sweep.
-            if (k.cause === "approved" && wantProject) {
+            if (k.cause === "approved" && wantProject && target.forge !== "github") {
+              const gitlab = target.provider;
               const rec = pStore.read(repoName);
               const sections = rec?.scope?.sections ?? [];
               if (sections.length > 0 && (rec?.mrs[iid]?.codeownerSections?.length ?? 0) > 0) {
                 const fetchRulesByIid = overrides.fetchRulesByIid
-                  ?? (async (iids: number[]) => provider.fetchApprovalRules({ projectPath, iids }));
+                  ?? (async (iids: number[]) => gitlab.fetchApprovalRules({ projectPath, iids }));
                 const rules = await fetchRulesByIid([iid]);
                 const match = rules.find((r) => r.iid === iid);
                 if (match) {
@@ -762,8 +833,20 @@ function createFreshnessCore() {
             const entry = ctx.cache.entries[composeKey(repoName, k.ref)];
             const isOurs = entry !== undefined;
             let fetchedForRef: PullRequest | null | undefined;
-            if (isOurs) {
-              fetchedForRef = await provider.fetchPullRequestByBranch(projectPath, k.ref, "all");
+            let unread = false;
+            if (isOurs && target.forge === "github") {
+              const found = await target.provider.fetchPullRequestsByBranches(projectPath, [k.ref], "all");
+              fetchedForRef = found.get(k.ref) ?? null;
+              // The batch returns null for a PR it found but could not fill.
+              const cachedIid = entry.mr?.iid;
+              if (fetchedForRef == null && typeof cachedIid === "number") {
+                fetchedForRef = await readSingle(cachedIid);
+                unread = fetchedForRef == null;
+              }
+            } else if (isOurs && target.forge !== "github") {
+              fetchedForRef = await target.provider.fetchPullRequestByBranch(projectPath, k.ref, "all");
+            }
+            if (isOurs && !unread) {
               if (!(fetchedForRef == null && runner.gapFillTimer)) {
                 // MR may be mid-creation when null and a gap-fill is already
                 // armed; let the gap-fill decide instead of writing null now.
@@ -778,7 +861,7 @@ function createFreshnessCore() {
                 // Teammate push: resolve the branch through the project store.
                 const hit = pStore.findBySourceBranch(repoName, k.ref);
                 if (hit) {
-                  const pr = await provider.fetchSingleMR(projectPath, hit.iid, getCurrentUserId());
+                  const pr = await readSingle(hit.iid);
                   if (pr) upsertProject(pr);
                 }
               }
@@ -801,8 +884,8 @@ function createFreshnessCore() {
     // writes the row itself.
     if (mutated) {
       const notify = overrides.notify
-        ?? ((entries: Record<string, any>, uid: number | null) => checkAndNotify(entries, undefined, uid));
-      notify(ctx.cache.entries, getCurrentUserId());
+        ?? ((entries: Record<string, any>, self: SelfIds) => checkAndNotify(entries, undefined, self));
+      notify(ctx.cache.entries, getSelfIds());
     }
   }
 
@@ -848,8 +931,8 @@ function createFreshnessCore() {
     }
     if (mutated) {
       const notify = overrides.notify
-        ?? ((entries: Record<string, any>, uid: number | null) => checkAndNotify(entries, undefined, uid));
-      notify(ctx.cache.entries, getCurrentUserId());
+        ?? ((entries: Record<string, any>, self: SelfIds) => checkAndNotify(entries, undefined, self));
+      notify(ctx.cache.entries, getSelfIds());
       log.info({ repo: repoName, filled: [...found.values()].filter(Boolean).length }, "gap-fill applied");
     }
   }
@@ -861,7 +944,7 @@ function createFreshnessCore() {
 
   /**
    * Align watchers with the repo index and the tracking config: start one per
-   * live-tracked GitLab repo that lacks one, dispose watchers for repos removed
+   * live-tracked GitLab or GitHub repo that lacks one, dispose watchers for repos removed
    * from either. A watcher covers the whole project regardless of how many MRs
    * are cached, because pushes to MR-less branches matter too.
    */
@@ -877,6 +960,11 @@ function createFreshnessCore() {
 
     for (const [repoName, repoPath] of Object.entries(repoIndex)) {
       if (grants(tracking, repoName).mode !== "live") continue;
+
+      if (existsSync(repoPath) && (await isGitHubRepo(repoPath))) {
+        await reconcileGitHubWatch(env, repoName, repoPath);
+        continue;
+      }
 
       // A live watch whose provider token has since rotated must be dropped so the
       // ensureProvider/startWatch below rebuilds it with the current token (S048/S049).
@@ -901,7 +989,7 @@ function createFreshnessCore() {
       const remote = remoteUrl ? parseRemoteUrl(remoteUrl) : null;
       if (!remote) continue;
 
-      startWatch(env, repoName, provider, remote.projectPath);
+      startWatch(env, repoName, { forge: "gitlab", provider }, remote.projectPath);
     }
 
     for (const repoName of [...watches.keys()]) {
@@ -917,17 +1005,57 @@ function createFreshnessCore() {
     broadcastStatus(env);
   }
 
-  function startWatch(env: FreshnessEnv, repoName: string, provider: GitLabProvider, projectPath: string): void {
+  /**
+   * A provider other than the context's means the token changed, so the watch
+   * restarts on the new one. A removed token stops the watch rather than keep
+   * calling GitHub with a token the user took away.
+   */
+  async function reconcileGitHubWatch(env: FreshnessEnv, repoName: string, repoPath: string): Promise<void> {
+    let ctx: RepoContext;
+    try {
+      ctx = await getRepoContext(repoName, repoPath);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      if (watches.has(repoName)) {
+        stopWatch(repoName);
+        githubWatchSkipLogged.add(repoName);
+        log.info(`stopped events watch for ${repoName}: ${reason}`);
+      } else if (!githubWatchSkipLogged.has(repoName)) {
+        githubWatchSkipLogged.add(repoName);
+        log.info(`${reason}; skipping events watch for ${repoName}`);
+      }
+      return;
+    }
+    if (ctx.forge !== "github") return;
+
+    const existing = watches.get(repoName);
+    if (existing && existing.provider !== ctx.provider) stopWatch(repoName);
+    if (watches.has(repoName)) return;
+
+    await getSelfUserId(ctx);
+    if (watches.has(repoName)) return;
+
+    githubWatchSkipLogged.delete(repoName);
+    startWatch(env, repoName, { forge: "github", provider: ctx.provider }, ctx.projectPath);
+  }
+
+  function startWatch(env: FreshnessEnv, repoName: string, source: WatchSource, projectPath: string): void {
     const resumeCursor = cursorStore().get(repoName);
+    const { provider } = source;
+    const eventId = source.forge === "github" ? githubEventId : numericEventId;
+    const target: RepoTarget = source.forge === "github"
+      ? { repoName, projectPath, forge: "github", provider: source.provider }
+      : { repoName, projectPath, provider: source.provider };
 
     const watch: RepoWatch = {
+      forge:        source.forge,
       provider,
       projectPath,
       dispose:      () => {},
       projectId:    null,
       state:        "live",
       lastSyncedAt: null,
-      lastEventId:  numericEventId(resumeCursor?.lastEventId),
+      lastEventId:  eventId(resumeCursor?.lastEventId),
       processing:   false,
       pending:      [],
       gapFillTimer: null,
@@ -940,7 +1068,7 @@ function createFreshnessCore() {
         cursor: resumeCursor,
         onCursor: (c) => {
           cursorStore().set(repoName, c);
-          watch.lastEventId = numericEventId(c.lastEventId);
+          watch.lastEventId = eventId(c.lastEventId);
         },
         onStatus: (s) => {
           const prev = watch.state;
@@ -955,7 +1083,7 @@ function createFreshnessCore() {
       (batch) => {
         watch.lastSyncedAt = batch.syncedAt;
         if (batch.invalidations.length === 0) return;
-        applyInvalidationBatch(env, { repoName, projectPath, provider }, watch, batch.invalidations)
+        applyInvalidationBatch(env, target, watch, batch.invalidations)
           .catch((err) => log.warn({ err, repo: repoName }, "invalidation batch failed"));
       },
     );
@@ -986,14 +1114,20 @@ function createFreshnessCore() {
     for (const repoName of [...watches.keys()]) stopWatch(repoName);
     providers.clear();
     githubProviders.clear();
+    githubSelf.clear();
+    currentGithubToken = null;
+    githubSuppressedWarned = false;
     userId = null;
     userIdResolved = false;
+    selfUsername = null;
   }
 
   return {
     resolveUserIdAcrossTracking,
     getSelfUsername,
     resolveSelfUsername,
+    cachedSelfUsername,
+    getSelfIds,
     getAggregatedConnection,
     getFreshnessSnapshot,
     getRepoContext,
@@ -1044,6 +1178,12 @@ export function createFreshness(env: FreshnessEnv): FreshnessUnit {
 }
 
 export const __test__ = {
+  /** Routes the module's log lines to `replacement` until the returned restore runs. */
+  swapLog(replacement: FreshnessLog): () => void {
+    const previous = log;
+    log = replacement;
+    return () => { log = previous; };
+  },
   /** The live watches Map backing a unit built by createFreshness, for R031 independence assertions only. */
   watchesOf(unit: FreshnessUnit): Map<string, unknown> {
     return (unit as unknown as { __watches: Map<string, unknown> }).__watches;
@@ -1075,6 +1215,15 @@ export function getSelfUsername(): string | null {
 
 export function resolveSelfUsername(repoName: string, repoPath: string): Promise<string | null> {
   return getDefaultCore().resolveSelfUsername(repoName, repoPath);
+}
+
+/** Login cached for this repo's forge; never reads the network, and a GitHub repo never gets the GitLab name. */
+export function cachedSelfUsername(repoName: string, repoPath: string): Promise<string | null> {
+  return getDefaultCore().cachedSelfUsername(repoName, repoPath);
+}
+
+export function getSelfIds(): SelfIds {
+  return getDefaultCore().getSelfIds();
 }
 
 export function getAggregatedConnection(): "connected" | "connecting" | "disconnected" {

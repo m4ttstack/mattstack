@@ -157,7 +157,7 @@ const LAUNCH_WORDING: Record<LaunchFlow, { done: string; noun: string }> = {
   respond: { done: 'response started on', noun: 'response' },
   'resume-respond': { done: 'response resumed on', noun: 'response' },
   doctor: { done: 'doctor called on', noun: 'doctor' },
-  'rebase-local': { done: 'local rebase ran on', noun: 'local rebase' },
+  rebase: { done: 'rebase ran on', noun: 'rebase' },
 };
 
 async function post(
@@ -405,12 +405,12 @@ export async function runMany(
   const presenceNote = presenceSkipped
     .map(
       s =>
-        `skipped !${s.mr.iid}, ${(deps.people ?? NO_PEOPLE).short(s.reviewer)} is reviewing`
+        `skipped ${mrRef(s.mr)}, ${(deps.people ?? NO_PEOPLE).short(s.reviewer)} is reviewing`
     )
     .join(', ');
   const runNotes = runSkipped.map(
     s =>
-      `skipped !${s.mr.iid}, ${s.run.name ? `${s.run.name}'s run` : 'a work run'} is active`
+      `skipped ${mrRef(s.mr)}, ${s.run.name ? `${s.run.name}'s run` : 'a work run'} is active`
   );
   const skipNotes = [...(presenceNote ? [presenceNote] : []), ...runNotes];
   // A stale picker snapshot (runBulk's pickTargets.get(pick) ?? []) can reach
@@ -481,7 +481,7 @@ export function runBulk(
           : null;
       if (reviewer) presenceSkipped.push({ mr: m, reviewer });
       const run =
-        req.flow === 'doctor' || req.flow === 'rebase-local'
+        req.flow === 'doctor' || req.flow === 'rebase'
           ? (deps.activeRun?.(req.flow, m) ?? null)
           : null;
       if (run) runSkipped.push({ mr: m, run });

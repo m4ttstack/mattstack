@@ -5,6 +5,7 @@
 import { mergeBlockedReason } from '@mattstack/glance';
 import type { BoardMR } from '../../data.ts';
 import type { MrAction } from '../../mr-action.ts';
+import { forgeWord, mrRef, onGitHub } from '../../mr-ref.ts';
 import { hasStackDescendants, isOwnMr, stackParents } from '../../view.ts';
 import type { BoardMRWithReview, OrgTeam } from '../types.ts';
 import { askPickerModel, type AskPickerModel } from './ask-picker.ts';
@@ -71,7 +72,7 @@ export type LaunchFlow =
   | 'respond'
   | 'resume-respond'
   | 'doctor'
-  | 'rebase-local';
+  | 'rebase';
 
 export type ActionRequest =
   | { kind: 'launch'; flow: LaunchFlow; intent?: 'focus'; person?: string }
@@ -210,9 +211,8 @@ const SHELL: ActionGlyph = { kind: 'menu', name: 'shell' };
 const CLAUDE: ActionGlyph = { kind: 'agent' };
 const RESUME: ActionGlyph = { kind: 'menu', name: 'resume' };
 const COMMAND: ActionGlyph = { kind: 'menu', name: 'command' };
-const GITLAB_GLYPH: Record<MrAction, ActionGlyph> = {
+const GITLAB_GLYPH: Record<Exclude<MrAction, 'rebase'>, ActionGlyph> = {
   merge: { kind: 'flag', name: 'conflicts' },
-  rebase: { kind: 'menu', name: 'branch' },
   setAutoMerge: { kind: 'flag', name: 'auto-merge' },
   cancelAutoMerge: { kind: 'flag', name: 'auto-merge' },
 };
@@ -249,7 +249,7 @@ const ABSENT = new Set(['no session', 'no report yet', 'nothing to dismiss']);
 /** Every action this MR offers, in menu order, each in one section. A row
     is omitted for who is looking (local board, own MR, seat, Slack on, an
     opted-in repo) and in these state cases: call doctor on a healthy MR,
-    rebase locally on a current one, and a session row (resume, view report,
+    rebase on a current one, and a session row (resume, view report,
     dismiss) with nothing to act on. Every other state blocks
     the row with a reason instead of removing it. */
 export function rowActions(
@@ -441,20 +441,31 @@ export function rowActions(
     }
     if (
       own &&
-      (!mrx.doctorSkillTabs || mrx.doctorSkillTabs.includes(env.tab ?? '')) &&
       (mrx.blockers?.hasConflicts ||
         mrx.rebaseButton.visible ||
-        (mrx.behindTarget ?? 0) > 0)
-    )
+        (mrx.behindTarget ?? 0) > 0 ||
+        mrx.readiness?.reasons.includes('behind'))
+    ) {
+      const status = mrx.doctor?.status;
       agent.push(
         agentItem(
           'doctor',
-          'rebase-local',
-          'rebase locally',
-          { kind: 'launch', flow: 'rebase-local' },
-          { notable: true }
+          'rebase',
+          'rebase',
+          { kind: 'launch', flow: 'rebase' },
+          {
+            notable: true,
+            bulk: 'rebase',
+            ...block(
+              (mrx.rebaseButton.loading ||
+                status === 'forge-rebasing' ||
+                status === 'syncing') &&
+                'rebasing'
+            ),
+          }
         )
       );
+    }
   }
 
   sessions.push(
@@ -573,7 +584,7 @@ export function rowActions(
       )
     );
   }
-  if (env.local && env.self !== null && !own) {
+  if (env.local && env.self !== null && !own && !onGitHub(mrx)) {
     const target = respondAskTarget(mrx, env.peers);
     const who = target ?? mrx.author.username;
     agent.push(
@@ -610,7 +621,8 @@ export function rowActions(
       )
     );
 
-  if (env.local && own) {
+  const github = onGitHub(mrx);
+  if (env.local && own && !github) {
     // glance hides both buttons on a draft or an MR that is not open; the
     // board lists only open MRs, so a hidden button past draft is a state
     // the row blocks rather than one it trusts.
@@ -627,25 +639,6 @@ export function rowActions(
           confirm: 'really merge?',
           ...block(
             mergeBlockedReason(mrx) || (!mrx.mergeButton.visible && hidden)
-          ),
-        }
-      )
-    );
-    gitlab.push(
-      item(
-        'gitlab',
-        'rebase',
-        'rebase on target',
-        GITLAB_GLYPH.rebase,
-        { kind: 'mr', action: 'rebase' },
-        {
-          bulk: 'rebase on target',
-          ...block(
-            mrx.rebaseButton.loading
-              ? 'rebasing'
-              : !mrx.rebaseButton.visible &&
-                  mrx.behindTarget === 0 &&
-                  'up to date'
           ),
         }
       )
@@ -708,12 +701,12 @@ export function rowActions(
     item(
       'gitlab',
       'open-gitlab',
-      'open in gitlab',
+      `open in ${forgeWord(mrx)}`,
       { kind: 'out' },
       { kind: 'open', url: mrx.webUrl ?? '' }
     )
   );
-  if (env.local)
+  if (env.local && !github)
     gitlab.push(
       item('gitlab', 'refresh-mr', 'refresh from gitlab', REFRESH, {
         kind: 'refresh',
@@ -966,16 +959,10 @@ function mergeBlock(checked: BoardMR[], allMrs: BoardMR[]): string | undefined {
   );
   for (const mr of checked) {
     const parent = parentByUrl.get(mr.webUrl);
-    if (parent) return `!${mr.iid} sits on !${parent.iid}, which is still open`;
+    if (parent)
+      return `${mrRef(mr)} sits on ${mrRef(parent)}, which is still open`;
   }
   return undefined;
-}
-
-/** An unknown behind count leaves the row's rebase enabled, but a bulk
-    rebase only targets an MR GitLab or the behind count says is behind;
-    the rest count as already there. */
-function rebaseNeeded(mr: BoardMR): boolean {
-  return mr.rebaseButton.visible || (mr.behindTarget ?? 0) > 0;
 }
 
 /** The bulk menu: an action shows when every checked MR either offers it
@@ -989,9 +976,7 @@ export function bulkActions(
 ): BulkEntry[] {
   if (!env.local) return [];
   const rows = mrs.map(mr => {
-    const actions = rowActions(mr, env).filter(
-      a => !a.blocked && (a.key !== 'rebase' || rebaseNeeded(mr))
-    );
+    const actions = rowActions(mr, env).filter(a => !a.blocked);
     return {
       mr,
       actions,

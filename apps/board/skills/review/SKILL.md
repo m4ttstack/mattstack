@@ -22,7 +22,7 @@ metadata:
 
 Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:review` and whose folder sits in the same plugin version folder as the loaded skill's own directory, use it; otherwise call `skills_resolve {id: "skills:board:review", dir: "<the loaded skill's own directory>"}` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
 
-<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-2143 -->
+<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-2165 -->
 # mr-board review runner
 
 The mr-board spawned this pane to review one MR and report status back to the
@@ -267,7 +267,7 @@ digraph review_flow {
     "mr_view {mrUrl} (review)" -> "mr_view result (review)?";
     "mr_view result (review)?" -> "--re-review given (thread read)?" [label="ok: keep title, description, branches"];
     "mr_view result (review)?" -> "Fixed the mr_view call once already (review)?" [label="tool error"];
-    "mr_view result (review)?" -> "STOP: MR reads go through mr_view (review)" [label="tempted to read the MR with the GitLab CLI or the API"];
+    "mr_view result (review)?" -> "STOP: MR reads go through mr_view (review)" [label="tempted to read the MR with the forge CLI or the API"];
     "STOP: MR reads go through mr_view (review)" -> "Fixed the mr_view call once already (review)?";
     "Fixed the mr_view call once already (review)?" -> "Fix what the mr_view error names (review)" [label="no"];
     "Fixed the mr_view call once already (review)?" -> "review off-script gate: mr_view refused" [label="yes"];
@@ -286,7 +286,7 @@ digraph review_flow {
     "mr_threads {mrUrl, refresh: true} (re-review)" -> "mr_threads result (re-review)?";
     "mr_threads result (re-review)?" -> "Review the MR yourself" [label="ok"];
     "mr_threads result (re-review)?" -> "Fixed the re-review mr_threads call once already?" [label="tool error"];
-    "mr_threads result (re-review)?" -> "STOP: threads are read with mr_threads (review)" [label="tempted to read them with the GitLab CLI or the API"];
+    "mr_threads result (re-review)?" -> "STOP: threads are read with mr_threads (review)" [label="tempted to read them with the forge CLI or the API"];
     "STOP: threads are read with mr_threads (review)" -> "Fixed the re-review mr_threads call once already?";
     "Fixed the re-review mr_threads call once already?" -> "Fix what the re-review mr_threads error names" [label="no"];
     "Fixed the re-review mr_threads call once already?" -> "review off-script gate: mr_threads refused (re-review)" [label="yes"];
@@ -364,7 +364,7 @@ digraph review_flow {
     "mr_review_submit result (review)?" -> "review off-script gate: pending comments on the MR" [label="published: false, pending-drafts"];
     "mr_review_submit result (review)?" -> "review off-script gate: mr_review_submit refused" [label="tool error saying it timed out, the outcome is unknown, or it only partly landed"];
     "mr_review_submit result (review)?" -> "Fixed the mr_review_submit call once already?" [label="any other tool error"];
-    "mr_review_submit result (review)?" -> "STOP: a review posts whole through mr_review_submit" [label="tempted to post the pieces with mr_comment_inline, mr_comment, mr_reply_thread or mr_resolve_thread, or with the GitLab CLI or the API"];
+    "mr_review_submit result (review)?" -> "STOP: a review posts whole through mr_review_submit" [label="tempted to post the pieces with mr_comment_inline, mr_comment, mr_reply_thread or mr_resolve_thread, or with the forge CLI or the API"];
     "STOP: a review posts whole through mr_review_submit" -> "Fixed the mr_review_submit call once already?";
     "Fixed the mr_review_submit call once already?" -> "Fix what the mr_review_submit error names" [label="no"];
     "Fixed the mr_review_submit call once already?" -> "review off-script gate: mr_review_submit refused" [label="yes"];
@@ -377,7 +377,7 @@ digraph review_flow {
     "mr_approve {mrUrl}" -> "mr_approve result?";
     "mr_approve result?" -> "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [label="approved, or already approved by this account"];
     "mr_approve result?" -> "Fixed the mr_approve call once already?" [label="tool error"];
-    "mr_approve result?" -> "STOP: the approval goes through mr_approve" [label="tempted to approve with the GitLab CLI or the API"];
+    "mr_approve result?" -> "STOP: the approval goes through mr_approve" [label="tempted to approve with the forge CLI or the API"];
     "STOP: the approval goes through mr_approve" -> "Fixed the mr_approve call once already?";
     "Fixed the mr_approve call once already?" -> "Fix what the mr_approve error names" [label="no"];
     "Fixed the mr_approve call once already?" -> "review off-script gate: mr_approve refused" [label="yes"];
@@ -425,10 +425,23 @@ What the graph cannot show:
   the moment `review-status <state> done` lands, which ends this session
   mid-batch. So the done write is a call of its own, sent only after every
   other write of the run has returned: the posting (the domain skill's, or
-  this skill's own one `mr_review_submit`, and `mr_approve` alone after a
-  refused approval), the `--report` write, and under a run the domain
+  this skill's own one `mr_review_submit`, the `replyErrors` replies and
+  their resolves, and `mr_approve` alone after a refused approval), the
+  `--report` write, and under a run the domain
   skill's `run_stage` done and `run_status` done. A write sent in the same
   batch as the done write is lost.
+- **A submit result with `replyErrors` (GitHub).** On GitHub a submit that
+  returns `published: true` with `replyErrors` is a review that is up and
+  complete: the listed replies are the only part missing. Post them
+  first, right after the submit result: each listed reply once with
+  `mr_reply_thread`; its thread stays unresolved unless that reply posts,
+  and a `resolve` that was due runs after it with `mr_resolve_thread`.
+  Only then follow the edge the approval names, as a result without
+  `replyErrors` would, so an asked approval that came back `approved:
+  false` still goes to the approval recovery, and a hold there leaves no
+  reply unposted. The review is never submitted again, and that is not
+  the split-posting the STOP guards against. A reply that still fails is
+  reported in the done summary with its error, apart from `resolveErrors`.
 - **Resumed entry.** `--resumed-gate <gateId>` means a human answered a
   gate an earlier pane on this MR opened and the board parked, and the
   board is replaying that answer into this pane. `--resumed-gate-kind`
@@ -798,13 +811,19 @@ branches. Under `--re-review` the threads are already read too, at
 `mr_threads {mrUrl, refresh: true} (re-review)`. Read the diff in the
 checkout this pane runs in (the board's configured review checkout): fetch
 both branches from `origin`, then read the diff of the target branch to
-the source branch with read-only git. A failed read is never a reason to
-read with the GitLab CLI or the API.
+the source ref with read-only git. The source ref is `origin/<source branch>`
+on GitLab; on GitHub it is `origin/pr-<n>`, fetched as
+`+pull/<n>/head:refs/remotes/origin/pr-<n>` (a fork's branch is not on
+`origin`), so the diff is `<target>...origin/pr-<n>`. Every later read of
+the source (the re-review diff, the skipped findings' `changed` test, the
+round's sha fallback) uses the source ref. A failed read is
+never a reason to read with the forge CLI or the API.
 
 `Generic review result?` answers failed when the MR link is bad or the
 diff cannot be read, and the review writes `error` naming which. A source
-branch this checkout's `origin` cannot reach (an MR from another project,
-or from a fork) is a failed read.
+branch this checkout's `origin` cannot reach (on GitLab, an MR from
+another project or from a fork) is a failed read; a GitHub fork's PR is
+reached through its pull ref.
 
 Read the diff critically and produce findings. Each finding has:
 
@@ -834,7 +853,7 @@ post:
   hold.
 
 Then hunt for new issues, weighting the diff since the last reviewed
-commit (`git diff <last reviewed sha>..origin/<source branch>`) while
+commit (`git diff <last reviewed sha>..<source ref>`) while
 still reading the whole change; with no last reviewed commit, a last
 reviewed commit of `unknown` (a round rebuilt from an old report), or one
 the fetch does not have, the whole change is what changed. An issue an
@@ -854,10 +873,10 @@ the `reviewedSha` of its round. A would-be finding that says what a
 skipped one says, about the same code, is that skipped finding: it stays
 out of the findings, so out of `tiers` too, and the gate offers it back
 on its own. For each skipped finding work out `changed`: true when `git
-diff <its round's sha>..origin/<source branch> -- <file>` touches its
+diff <its round's sha>..<source ref> -- <file>` touches its
 `line` (any hunk in the file, when it has a `file` and no `line`), or its
-`snippet`, when non-empty, is no longer in the file at `origin/<source
-branch>`. When its round's sha is `unknown` or not in this checkout (`git
+`snippet`, when non-empty, is no longer in the file at `<source ref>`. When its round's sha is
+`unknown` or not in this checkout (`git
 cat-file -e <sha>^{commit}` fails: the MR was rebased or force-pushed),
 the snippet test alone decides, and with no snippet `changed` is false.
 It is false when the finding has no `file`.
@@ -930,7 +949,7 @@ reviewed:
 `<n>` is 1 on a first review, else the round "Re-review mode" worked
 out. `<sha>` is the MR head this pass reviewed: on the generic path
 `mr_view`'s `mr.sha` (after a take at `mr_view`, which read no MR, `git
-rev-parse origin/<source branch>` from the fetch), on the domain path
+rev-parse <source ref>` from the fetch), on the domain path
 the sha the domain skill handed back. Never a guess: a domain skill that
 handed back no sha gets no line, and neither does a re-review whose
 ledger read exited nonzero, since its round number is a guess and a
@@ -1136,7 +1155,7 @@ not `resolve:<id>`: the reviewer said so and left resolving to the
 author, and no later round asks about it again. A resumed pane that
 finds the round already recorded records it again; the write replaces.
 The MR head sha is `mr_view`'s `mr.sha` (the source branch head as
-GitLab reports it; the field is on glance's `PullRequest`), read in the
+the forge reports it; the field is on glance's `PullRequest`), read in the
 same pass as the review; never a guess.
 
 Both `<n>` and the sha are read from `--report`'s `review-round:` line
@@ -1213,11 +1232,12 @@ one `mr_review_submit` call.
 ### Fix what the mr_view error names (review)
 
 `mr_view` refused. Correct what the error names: `mrUrl` the MR's https
-URL, `.../-/merge_requests/<iid>`, whose project is registered with rt.
-An error that names no input (the daemon down, a GitLab fetch failure)
-has nothing to correct: read again unchanged, once, and the off-script
-gate follows. An error is never a reason to read the MR with the GitLab
-CLI or the API.
+URL, `.../-/merge_requests/<iid>` on GitLab or
+`https://github.com/<owner>/<repo>/pull/<n>` on GitHub, whose project is
+registered with rt. An error that names no input (the daemon down, a
+forge fetch failure) has nothing to correct: read again unchanged, once,
+and the off-script gate follows. An error is never a reason to read the
+MR with the forge CLI or the API.
 
 ### Fix what the re-review mr_threads error names
 
@@ -1225,14 +1245,14 @@ CLI or the API.
 `mrUrl` the MR's https URL, whose project is registered with rt;
 `refresh` a boolean. An error that names no input has nothing to correct:
 read again unchanged, once, and the off-script gate follows. An error is
-never a reason to read the threads with the GitLab CLI or the API.
+never a reason to read the threads with the forge CLI or the API.
 
 ### Fix what the posted-already mr_threads error names (review)
 
 `mr_threads` refused the Posted already read. Correct what the error
 names: `mrUrl` the MR's https URL, whose project is registered with rt;
 `refresh` a boolean. An error that names no input (the daemon down, a
-GitLab fetch failure) has nothing to correct: read again unchanged, once,
+forge fetch failure) has nothing to correct: read again unchanged, once,
 and the off-script gate follows. An error is never a reason to skip the
 read and post anyway: a review posted twice is what this read prevents.
 
@@ -1250,7 +1270,8 @@ mark a take writes after a partly landed refusal, where the human
 finished the review by hand. With no such mark and no summary note, the
 pane submits. Approval has no read: on an approve verdict `mr_approve`
 runs unless a mark says it was approved by hand; approving an approved MR
-is harmless.
+is harmless. On GitHub the summary note is the review's
+`gh-review-<n>` entry.
 
 ### Review already posted (review)?
 
@@ -1331,7 +1352,7 @@ has nothing to correct: call again unchanged, once, and the off-script
 gate follows. An error that says the call timed out, that the outcome is
 unknown, or that the review only partly landed, is never retried: it goes
 straight to the off-script gate. An error is never a reason to post the
-findings one by one, or with the GitLab CLI or the API.
+findings one by one, or with the forge CLI or the API.
 
 ### Fix what the mr_approve error names
 
@@ -1342,7 +1363,7 @@ itself (the token's user may not approve this MR) has nothing to correct
 in the call: approve again unchanged, once, and the off-script gate
 follows. A refusal saying this account already approved is not an error:
 it counts as approved. An error is never a reason to approve with the
-GitLab CLI or the API.
+forge CLI or the API.
 
 ### review off-script gate: mr_view refused
 
@@ -1423,7 +1444,7 @@ up:
 - **Only partly landed:** the context says first that some of this
   review's comments may be on the MR without its summary, and that the
   human checks the MR's threads. The move is take only: the human
-  finishes the review in GitLab (what is missing, the summary included).
+  finishes the review in the forge (what is missing, the summary included).
 
 After any of these errors the context also says that iterate is only for
 a human who has confirmed nothing from this review is on the MR; it is
@@ -1445,22 +1466,23 @@ refusal and what the MR shows.
 
 ### review off-script gate: pending comments on the MR
 
-Take "Off-script step" with this question. Label: `pending comments block
-the review of !<iid>: <count> pending`. Context: the count and the first
-lines the result gave, quoted, and that these pending comments are this
-account's own, started in GitLab or left by an earlier submit that
-failed, which a submit would publish along with the review. Then the
-summary and every comment in full, for a take.
+Take "Off-script step" with this question. Label: `pending comments
+block the review of !<iid>: <count> pending`. Context: the count and the
+first lines the result gave, quoted, and that these pending comments are
+this account's own, started in the forge (pending comments on GitLab, a
+pending review on GitHub) or left by an earlier submit that failed,
+which a submit would publish along with the review. Then the summary and
+every comment in full, for a take.
 
 | Value | Label | Description |
 |---|---|---|
 | `take: you post this review yourself together with your pending comments, then I apply the verdict (pending comments on the MR, round <k>)` | Post it yourself | You post this review along with your pending comments and I carry on to the verdict. |
-| `iterate: you submitted or discarded your pending comments, submit the review again (pending comments on the MR, round <k>)` | Cleared them, post again | You submit or discard your pending comments in GitLab and I submit the review again. |
+| `iterate: you submitted or discarded your pending comments, submit the review again (pending comments on the MR, round <k>)` | Cleared them, post again | You submit or discard your pending comments in the forge and I submit the review again. |
 | `hold: keep this pane open with nothing posted (pending comments on the MR, round <k>)` | Hold this pane | I stop here with nothing posted. |
 | `hand back: write an error naming the pending comments, nothing posted (pending comments on the MR, round <k>)` | Hand it back | I write an error naming the pending comments and you take over. |
 
 Iterate is the usual answer: the human submits or discards those pending
-comments in GitLab, and iterate passes `Off-script rounds = 2 (pending
+comments in the forge, and iterate passes `Off-script rounds = 2 (pending
 comments)?` before submitting the same review again. A take writes
 `review-escalation-mark: review posted by hand` into `--report` and
 continues to `Outcome is approve?`. Hand back, gate unavailable and a

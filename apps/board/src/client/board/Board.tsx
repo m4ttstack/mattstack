@@ -21,6 +21,7 @@ import type { TabConfig } from '../../config.ts';
 import type { BoardMR } from '../../data.ts';
 import { inferRoster } from '../../data.ts';
 import type { GateRow } from '../../gates/store.ts';
+import { forgeWord } from '../../mr-ref.ts';
 import type { DeclineReason } from '../../peer/envelope.ts';
 import { sectionStatus } from '../../sections.ts';
 import {
@@ -283,12 +284,12 @@ const resumeReviewFailureMessage = (
   result: ActionResult,
   mr: BoardMR
 ): string =>
-  `resume review failed for !${mr.iid} (${result.status})${result.text ? `: ${result.text}` : ''}`;
+  `resume review failed for ${mrRef(mr)} (${result.status})${result.text ? `: ${result.text}` : ''}`;
 const resumeRespondFailureMessage = (
   result: ActionResult,
   mr: BoardMR
 ): string =>
-  `resume respond failed for !${mr.iid} (${result.status})${result.text ? `: ${result.text}` : ''}`;
+  `resume respond failed for ${mrRef(mr)} (${result.status})${result.text ? `: ${result.text}` : ''}`;
 
 // ── board ──────────────────────────────────────────────────────────────────
 
@@ -607,7 +608,7 @@ export function Board() {
       addToast(
         outcome === 'posted'
           ? `held note posted to !${mr.iid}`
-          : `held note dismissed on !${mr.iid}`
+          : `held note dismissed on ${mrRef(mr)}`
       );
     },
     [draftModal, addToast]
@@ -712,25 +713,29 @@ export function Board() {
     startToast,
     reload: load,
   });
-  // The sync's own output, on the row's word, says how it went; only a
-  // request the server refuses outright still toasts.
-  const failuresOnlyToast = useCallback(
-    () => ({ done: () => {}, fail: addToast }),
-    [addToast]
-  );
-  const rebaseLocalAction = useLaunchAction({
+  const rebaseAction = useLaunchAction({
     axis: 'doctor',
     path: '/doctor',
-    verbing: 'syncing',
+    verbing: 'rebasing',
     started: 'doctor called on the conflicts',
-    noun: 'local rebase',
+    noun: 'rebase',
     claims: 'syncing',
     optimistic: optimisticLifecycle,
     addToast,
-    startToast: failuresOnlyToast,
+    startToast,
     reload: load,
+    doneMessage: (result, mr) => {
+      const said =
+        result.body?.synced ??
+        (result.body?.cancelled ? 'rebase cancelled' : undefined);
+      return said ? `${mrRef(mr)} ${said}` : undefined;
+    },
+    stoppedMessage: (result, mr) =>
+      result.body?.stopped
+        ? `couldn't rebase ${mrRef(mr)}: ${result.body.stopped}`
+        : undefined,
     failureMessage: (result, mr) =>
-      `couldn't sync ${mrRef(mr)}${result.text ? `: ${result.text}` : ` (${result.status})`}`,
+      `couldn't rebase ${mrRef(mr)}${result.text ? `: ${result.text}` : ` (${result.status})`}`,
   });
   // Resume actions: axis null means useLaunchAction's setQueued/rollback are
   // no-ops, matching today's handleResume (which never claimed a badge before
@@ -831,11 +836,11 @@ export function Board() {
           );
         case 'doctor':
           return doctorAction(mr, { tabId: state.tab }, note, intent, quiet);
-        case 'rebase-local':
-          // rt sync first; on a conflict the doctor chassis, scoped to the
-          // paused rebase.
+        case 'rebase':
+          // The forge first, then rt sync; on a conflict the doctor chassis,
+          // scoped to the paused rebase.
           if (mr.webUrl && !quiet) startSyncLines(mr.webUrl);
-          return rebaseLocalAction(
+          return rebaseAction(
             mr,
             { mode: 'rebase', tabId: state.tab },
             note,
@@ -851,7 +856,7 @@ export function Board() {
       respondAction,
       resumeRespondAction,
       doctorAction,
-      rebaseLocalAction,
+      rebaseAction,
       state.tab,
     ]
   );
@@ -882,7 +887,7 @@ export function Board() {
       if (run) {
         setPendingRun({
           run,
-          iid: mr.iid,
+          mr,
           ring: () => ringWorker(mr),
           launch: () => void launch(flow, mr, opts),
         });
@@ -943,7 +948,7 @@ export function Board() {
       if (!run) return setPendingRedo(pending);
       setPendingRun({
         run,
-        iid: mr.iid,
+        mr,
         ring: () => ringWorker(mr),
         launch: pending.run,
       });
@@ -1161,7 +1166,9 @@ export function Board() {
       setNoteEditing(null);
       postAction('/note', { mrUrl: mr.webUrl, text }).then(result => {
         if (!result.ok) {
-          addToast(`could not save the note on !${mr.iid} (${result.status})`);
+          addToast(
+            `could not save the note on ${mrRef(mr)} (${result.status})`
+          );
           return;
         }
         load();
@@ -1176,7 +1183,7 @@ export function Board() {
         ? mrLine(mr, data.slackTemplates)
         : (mr.webUrl ?? mr.title);
       navigator.clipboard?.writeText(text).then(
-        () => addToast(`copied !${mr.iid} for slack`),
+        () => addToast(`copied ${mrRef(mr)} for slack`),
         () => {}
       );
     },
@@ -2273,6 +2280,7 @@ export function Board() {
                 entries={bulkEntries}
                 empty={`nothing fits all ${selectedMrs.length}`}
                 flat
+                forge={forgeWord(selectedMrs[0])}
                 onClose={() => setRowMenu(null)}
                 onRun={(key, opts) => {
                   const entry = bulkEntries.find(e => e.key === key);

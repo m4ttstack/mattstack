@@ -8,7 +8,8 @@
  * mr:by-branch ... batch branch → MR resolution for the same repo, same grant.
  * Store-first (any stored state), forge-fallthrough on a miss with a
  * write-back upsert so the next call for that branch is a store hit. A
- * per-branch forge failure resolves to null rather than failing the batch.
+ * per-branch forge failure resolves to null rather than failing the batch,
+ * except on GitHub, where a failed or incomplete read fails the whole call.
  *
  * `payload.repoName` is opaque here — the store, grants, and sync it drives
  * all key on whatever string arrives. It becomes the serialized repo identity
@@ -16,14 +17,15 @@
  * rows unchanged.
  */
 
-import type { PullRequest } from "@mattstack/glance";
+import type { FetchPullRequestsWarning, PullRequest } from "@mattstack/glance";
 import { decodeRepo } from "../identity-decoder.ts";
 import { loadRepoTracking, grants, type RepoTracking } from "../../repo-tracking.ts";
 import { getProjectMRs, freshnessOf, type ProjectMRs } from "../project-mrs-store.ts";
 import { syncProjectMRs, backfillAuthors, backfillSections } from "../project-sync.ts";
 import { readSyncHealth } from "../project-sync-health.ts";
 import { getRepoContext, isGitHubRepo } from "../freshness.ts";
-import { forgeFailure } from "../forge-reads.ts";
+import { forgeFailure, incompleteBranchRead } from "../forge-reads.ts";
+import { prInScope } from "../scope-authors.ts";
 import type { HandlerContext } from "./types.ts";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 
@@ -72,14 +74,25 @@ export interface ProjectMRsHandlerOverrides {
    * it through a captured outer variable, which would have silently no-opped
    * the upsert had the assignment ever been reordered out from under it).
    */
-  fetchByBranch?: (repoName: string, branch: string) => Promise<{ pr: PullRequest | null; projectPath: string; github?: boolean }>;
+  fetchByBranch?: (repoName: string, branch: string) => Promise<{ pr: PullRequest | null; projectPath: string }>;
   getContext?: (repoName: string) => Promise<{ forge?: "gitlab" | "github"; provider: any; projectPath: string }>;
   isGitHub?: (repoName: string) => Promise<boolean>;
 }
 
 /** On GitHub a failed read must not pass for "no PR", so it fails the whole call. */
 class GitHubReadFailure {
-  constructor(readonly cause: unknown) {}
+  constructor(readonly cause: unknown, readonly text?: string) {}
+}
+
+type BranchWarnings = { onWarning: (w: FetchPullRequestsWarning) => void; first: (branch: string) => FetchPullRequestsWarning | undefined };
+
+/** Keeps each branch's first warning, so a null the read could not vouch for is a failed read, not "no PR". */
+function branchWarnings(): BranchWarnings {
+  const seen = new Map<string, FetchPullRequestsWarning>();
+  return {
+    onWarning: (w) => { if (w.branch && !seen.has(w.branch)) seen.set(w.branch, w); },
+    first: (branch) => seen.get(branch),
+  };
 }
 
 export function createProjectMRsHandlers(
@@ -263,28 +276,52 @@ export function createProjectMRsHandlers(
           throw (await onGitHubPromise) ? new GitHubReadFailure(err) : err;
         }
         const github = repoCtx.forge === "github";
+        // On GitHub a fork branch is found by scanning at most 500 pull requests of any state; a provider that reports incomplete reads says when that cap, a failed list or a failed fill left the null unproven.
+        const warnings = github && repoCtx.provider.capabilities?.canReportIncompleteBranchReads === true ? branchWarnings() : null;
+        let pr: PullRequest | null;
         try {
-          // On GitHub a fork branch is found by scanning at most 500 pull requests of any state, and a null cannot say whether that cap was hit.
-          const pr = await repoCtx.provider.fetchPullRequestByBranch(repoCtx.projectPath, branch, "all");
-          return { pr, projectPath: repoCtx.projectPath, github };
+          pr = warnings
+            ? await repoCtx.provider.fetchPullRequestByBranch(repoCtx.projectPath, branch, "all", { onWarning: warnings.onWarning })
+            : await repoCtx.provider.fetchPullRequestByBranch(repoCtx.projectPath, branch, "all");
         } catch (err) {
           throw github ? new GitHubReadFailure(err) : err;
         }
+        const warning = pr ? undefined : warnings?.first(branch);
+        if (warning) throw new GitHubReadFailure(null, incompleteBranchRead(branch, repoCtx.projectPath, warning));
+        return { pr, projectPath: repoCtx.projectPath };
       });
       let githubFailure: string | null = null;
+
+      // The same prInScope gate every other write path enforces: a demand-scoped repo must not
+      // pick up a stranger's MR here just because a client happened to ask
+      // for their branch by name; the next delta sync would filter it right
+      // back out, and it would reappear on the next by-branch call. The
+      // caller still gets the PR (it asked for this exact branch); it just
+      // isn't stored.
+      const upsertInScope = (pr: PullRequest, projectPath: string) => {
+        if (prInScope(store().read(repoName), pr)) store().upsert(repoName, projectPath, pr, "events");
+      };
 
       if (misses.length > 0 && !overrides.fetchByBranch) {
         repoCtxPromise ??= getContext(repoName);
         const repoCtx = await repoCtxPromise.catch(() => null);
         if (repoCtx?.forge === "github" && typeof repoCtx.provider.fetchPullRequestsByBranches === "function") {
+          const warnings = repoCtx.provider.capabilities?.canReportIncompleteBranchReads === true ? branchWarnings() : null;
           let found: Map<string, PullRequest | null>;
           try {
-            found = await repoCtx.provider.fetchPullRequestsByBranches(repoCtx.projectPath, misses, "all");
+            found = warnings
+              ? await repoCtx.provider.fetchPullRequestsByBranches(repoCtx.projectPath, misses, "all", { onWarning: warnings.onWarning })
+              : await repoCtx.provider.fetchPullRequestsByBranches(repoCtx.projectPath, misses, "all");
           } catch (err) {
             return { ok: false, error: forgeFailure(err, "github") };
           }
           for (const branch of misses) {
+            const warning = found.get(branch) ? undefined : warnings?.first(branch);
+            if (warning) return { ok: false, error: incompleteBranchRead(branch, repoCtx.projectPath, warning) };
+          }
+          for (const branch of misses) {
             const pr = found.get(branch) ?? null;
+            if (pr) upsertInScope(pr, repoCtx.projectPath);
             byBranch[branch] = pr ? { pr, source: "forge" } : null;
           }
           misses = [];
@@ -297,30 +334,16 @@ export function createProjectMRsHandlers(
         const chunk = misses.slice(i, i + BY_BRANCH_CONCURRENCY);
         await Promise.all(chunk.map(async (branch) => {
           try {
-            const { pr, projectPath, github } = await fetchByBranch(repoName, branch);
-            if (pr && github) {
-              ctx.log.debug({ repo: repoName, branch }, "by-branch store upsert skipped for a GitHub repo");
-              byBranch[branch] = { pr, source: "forge" };
-            } else if (pr) {
-              // Same scope/tagged gate upsertProject (lib/daemon/freshness.ts)
-              // enforces for every other write path: a demand-scoped repo
-              // must not pick up a stranger's MR here just because a client
-              // happened to ask for their branch by name — the next delta
-              // sync would filter it right back out, and it would reappear
-              // on the next by-branch call. The caller still gets the PR
-              // (it asked for this exact branch); it just isn't stored.
-              const rec = store().read(repoName);
-              const scope = rec?.scope;
-              const tagged = (rec?.mrs[pr.iid]?.codeownerSections?.length ?? 0) > 0;
-              const inScope = !scope || !pr.author?.username || scope.authors.includes(pr.author.username) || tagged;
-              if (inScope) store().upsert(repoName, projectPath, pr, "events");
+            const { pr, projectPath } = await fetchByBranch(repoName, branch);
+            if (pr) {
+              upsertInScope(pr, projectPath);
               byBranch[branch] = { pr, source: "forge" };
             } else {
               byBranch[branch] = null;
             }
           } catch (err) {
             if (err instanceof GitHubReadFailure) {
-              githubFailure ??= forgeFailure(err.cause, "github");
+              githubFailure ??= err.text ?? forgeFailure(err.cause, "github");
               return;
             }
             ctx.log.warn({ err, repo: repoName, branch }, "by-branch forge fetch failed");

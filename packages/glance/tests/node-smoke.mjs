@@ -197,11 +197,32 @@ await check('unapprovePullRequest dismisses the newest approval', async () => {
   assert.equal(dismissals[0].review_id, 1);
 });
 
+const MERGE_CONTEXT = {
+  repository: {
+    viewerDefaultMergeMethod: 'SQUASH',
+    mergeCommitAllowed: false,
+    squashMergeAllowed: true,
+    rebaseMergeAllowed: false,
+    pullRequest: {
+      id: 'PR_kwABC',
+      headRefOid: 'abc123',
+      headRefName: 'feature',
+      headRepository: { nameWithOwner: 'acme/repo' },
+      isMergeQueueEnabled: false,
+      isInMergeQueue: false,
+      mergeQueueEntry: null
+    }
+  }
+};
+
 await check('setAutoMerge threads the node id', async () => {
   const mutations = [];
   const p = provider({
-    request: async () => ({ status: 200, headers: {}, data: { number: 5, node_id: 'PR_kwABC' } }),
+    request: async () => {
+      throw new Error('setAutoMerge reads the node id from the merge context, not REST');
+    },
     graphql: async (query, variables) => {
+      if (query.includes('GlanceMergeContext')) return MERGE_CONTEXT;
       mutations.push(variables);
       return {
         enablePullRequestAutoMerge: {
@@ -212,20 +233,27 @@ await check('setAutoMerge threads the node id', async () => {
   });
 
   await p.setAutoMerge('acme/repo', 5);
+  assert.equal(mutations.length, 1);
   assert.equal(mutations[0].id, 'PR_kwABC');
+  assert.equal(mutations[0].mergeMethod, 'SQUASH');
 });
 
 await check('setAutoMerge throws when GitHub accepts the mutation but enables nothing', async () => {
+  const mutations = [];
   const p = provider({
-    request: async () => ({ status: 200, headers: {}, data: { number: 5, node_id: 'PR_kwABC' } }),
-    graphql: async () => ({
-      enablePullRequestAutoMerge: {
-        pullRequest: { autoMergeRequest: null }
-      }
-    })
+    graphql: async (query, variables) => {
+      if (query.includes('GlanceMergeContext')) return MERGE_CONTEXT;
+      mutations.push(variables);
+      return {
+        enablePullRequestAutoMerge: {
+          pullRequest: { autoMergeRequest: null }
+        }
+      };
+    }
   });
 
   await assert.rejects(() => p.setAutoMerge('acme/repo', 5), /reported no auto-merge/i);
+  assert.equal(mutations.length, 1);
 });
 
 await check('cancelAutoMerge throws when auto-merge is still on', async () => {

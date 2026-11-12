@@ -148,7 +148,8 @@ function boot(
   name: string,
   seat: string | null,
   tokenUser: string = seat ?? 'alice',
-  doctorSkill?: string
+  doctorSkill?: string,
+  githubRow = false
 ): Board {
   const home = mkdtempSync(join(tmpdir(), `board-own-mr-${name}-`));
   const gitlabSeen: string[] = [];
@@ -225,7 +226,17 @@ function boot(
     },
     db
   );
-  const prs = [fakePr(host, 7, ALICE), fakePr(host, 20, BOB)];
+  const prs: Array<ReturnType<typeof fakePr>> = [
+    fakePr(host, 7, ALICE),
+    fakePr(host, 20, BOB),
+  ];
+  if (githubRow)
+    prs.push({
+      ...fakePr(host, 30, ALICE),
+      id: 'github:30',
+      repositoryId: 'github:9',
+      provider: 'github',
+    } as ReturnType<typeof fakePr>);
   const gates = GATES.map(([id, kind, iid]) => gateRow(host, id, kind, iid));
   const daemonSeen: Seen = [];
   const rtDir = join(home, '.mattstack', 'rt');
@@ -316,12 +327,16 @@ const everyone = boot('all', null);
 const borrowed = boot('borrowed', 'alice', 'carol');
 // Its doctor skill can't bind: CLAUDE_BIN points at nothing.
 const unbound = boot('unbound', 'alice', 'alice', 'acme:board-doctor');
+// Its daemon read also carries a GitHub row, on a GitLab-shaped url, owned by
+// the seat.
+const ghRow = boot('gh-row', 'alice', 'alice', undefined, true);
 
 afterAll(() => {
   seated.stop();
   everyone.stop();
   borrowed.stop();
   unbound.stop();
+  ghRow.stop();
 });
 
 async function post(b: Board, path: string, body: unknown): Promise<Response> {
@@ -549,14 +564,14 @@ describe('your own MR gets past the gate', () => {
       ).toBe(true);
     }, 15_000);
 
-  test('/doctor launches a pane; rebase mode with no doctor skill is refused', async () => {
+  test('/doctor launches a pane; rebase mode with no doctor skill runs the chain', async () => {
     const rebase = await post(seated, '/doctor', {
       mrUrl: seated.url(7),
       iid: 7,
       mode: 'rebase',
     });
-    expect(rebase.status).toBe(409);
-    expect(await rebase.text()).toContain('no doctor skill');
+    expect(rebase.status).toBe(200);
+    expect(await rebase.json()).toMatchObject({ ok: true });
     const res = await post(seated, '/doctor', { mrUrl: seated.url(7), iid: 7 });
     expect(res.status).toBe(200);
     await new Promise(r => setTimeout(r, 200));
@@ -809,3 +824,40 @@ describe('a doctor skill that cannot bind', () => {
     15_000
   );
 });
+
+test('a GitHub row on a GitLab board is refused after the row lookup', async () => {
+  const before = ghRow.gitlabSeen.length;
+  const res = await post(ghRow, '/mr/action', {
+    mrUrl: ghRow.url(30),
+    iid: 30,
+    action: 'merge',
+  });
+  expect(res.status).toBe(400);
+  expect(await res.text()).toBe('Not available on GitHub yet');
+  expect(ghRow.gitlabSeen.length).toBe(before);
+}, 15_000);
+
+test('a GitHub row on a GitLab board refuses /draft after the row lookup', async () => {
+  const before = ghRow.gitlabSeen.length;
+  const res = await post(ghRow, '/draft', {
+    mrUrl: ghRow.url(30),
+    iid: 30,
+    draft: true,
+  });
+  expect(res.status).toBe(400);
+  expect(await res.text()).toBe('Not available on GitHub yet');
+  expect(ghRow.gitlabSeen.length).toBe(before);
+}, 15_000);
+
+test('a GitHub row on a GitLab board refuses a held-draft post after the row lookup', async () => {
+  held(ghRow, 30);
+  const before = ghRow.gitlabSeen.length;
+  const res = await post(ghRow, '/drafts', {
+    mrUrl: ghRow.url(30),
+    kind: 'ci-note',
+    action: 'post',
+  });
+  expect(res.status).toBe(400);
+  expect(await res.text()).toBe('Not available on GitHub yet');
+  expect(ghRow.gitlabSeen.length).toBe(before);
+}, 15_000);

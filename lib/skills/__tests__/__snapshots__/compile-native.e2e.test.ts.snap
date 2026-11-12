@@ -178,7 +178,7 @@ You consume \`commits\`, \`ticket\`. You must produce \`mr\`.
 "
 ,
   "pack/requires.json": 
-"{"minEngine":"0.32.58"}
+"{"minEngine":"0.32.60"}
 "
 ,
   "pack/stubs.jsonc": 

@@ -14,6 +14,8 @@ import {
   readProjectMRs,
 } from '@mattstack/rt-client';
 import {
+  FORGE_NOT_YET,
+  gitlabOnly,
   loadAgentSettings,
   loadConfig,
   loadGitLabToken,
@@ -36,8 +38,15 @@ import {
   readLatchRows,
 } from '../src/latch/latch-state.ts';
 import { packForLaunch } from '../src/manifest-bindings.ts';
+import {
+  declineRespondAsks,
+  type AskActionDeps,
+} from '../src/peer/ask-actions.ts';
 import { makeSwitchboardClient } from '../src/peer/client.ts';
-import { makeEnvelope } from '../src/peer/envelope.ts';
+import {
+  makeEnvelope,
+  type NudgeOutcomePayload,
+} from '../src/peer/envelope.ts';
 import { runPeerTick } from '../src/peer/inbox.ts';
 import { makeAskLauncher, makeRepoForMrUrl } from '../src/peer/launch-ask.ts';
 import { boardMaterializeDeps } from '../src/peer/materialize-deps.ts';
@@ -66,6 +75,7 @@ import {
   loadTriageConfig,
 } from '../src/triage/config.ts';
 import type { OwnMrFacts } from '../src/triage/edge.ts';
+import { triageForgeSkip } from '../src/triage/forge-skip.ts';
 import {
   latchInScope,
   runLatchPass,
@@ -174,13 +184,15 @@ try {
       const token = await loadGitLabToken();
       if (!token)
         throw new Error('triage: no gitlab token available for identity');
-      return new GitLabProvider(boardConfig.gitlabHost, token).validateToken();
+      return new GitLabProvider(gitlabOnly(boardConfig), token).validateToken();
     });
     if (!resolved)
       throw new Error('triage: no gitlab token available for identity');
     return resolved;
   };
-  if (!peerMode) username = await resolveUsername();
+  const forgeSkip = peerMode ? null : triageForgeSkip(boardConfig);
+  if (forgeSkip) console.log(forgeSkip);
+  if (!peerMode && !forgeSkip) username = await resolveUsername();
 
   // SCOPE (review fix 1): triage's MR scope is deliberately the BOARD's
   // visibility scope -- buildBoard applies the member, own-draft, stale-window,
@@ -222,8 +234,7 @@ try {
       mrUrl: m.webUrl!,
       iid: m.iid,
       projectId: parseRepoId(m.repositoryId),
-      projectPath:
-        projectPathFromWebUrl(m.webUrl!, boardConfig.gitlabHost) ?? '',
+      projectPath: projectPathFromWebUrl(m.webUrl!, boardConfig) ?? '',
       // Encoded, not the bare rtRepos value: readDetail below passes this
       // straight to readDiscussions, which is daemon-identity-keyed.
       rtRepo: repoIdentityField(m.rtRepo) ?? '',
@@ -233,7 +244,7 @@ try {
     }));
   };
 
-  if (!peerMode) {
+  if (!peerMode && !forgeSkip) {
     const result = await runTriage({
       triage,
       doctorCwd: boardConfig.doctorCwd || boardConfig.reviewCwd,
@@ -257,7 +268,7 @@ try {
       doctorTabOpen: iid => mrTabOpen(boardConfig.doctorsWorkspace, iid),
       now: () => Date.now(),
       attendants: createBoardAttendants(),
-      ...daemonOwnerIo(boardConfig.gitlabHost),
+      ...daemonOwnerIo(boardConfig),
     });
     console.log(
       `triage: dispatched ${result.dispatched}, escalated ${result.escalated}, skipped ${result.skipped}`
@@ -276,8 +287,25 @@ try {
         boardMaterializeDeps(line => console.error(line))
       );
     let ownUrls = new Set<string>();
-    let nudgeReady = true;
-    if (!peerMode || needsOwnMrs(readNudges())) {
+    let nudgeReady = !forgeSkip;
+    const markHandled: AskActionDeps['markNudgeHandled'] = (
+      id,
+      r,
+      reason,
+      opts
+    ) => markNudgeHandled(id, r, reason, undefined, undefined, opts);
+    const publishOutcome = (to: string, payload: NudgeOutcomePayload) =>
+      enqueueOutbox(makeEnvelope(to, 'nudge-outcome', payload));
+    if (peerMode && boardConfig.forge.kind === 'github') {
+      declineRespondAsks(
+        {
+          readNudges,
+          markNudgeHandled: markHandled,
+          publishOutcome,
+        },
+        FORGE_NOT_YET
+      );
+    } else if (nudgeReady && (!peerMode || needsOwnMrs(readNudges()))) {
       try {
         if (peerMode) username = await resolveUsername();
         ownUrls = new Set((await fetchOwnMrs()).map(m => m.mrUrl));
@@ -293,8 +321,7 @@ try {
     if (nudgeReady) {
       const nudgeResult = await runNudgePass({
         readNudges,
-        markNudgeHandled: (id, r, reason, opts) =>
-          markNudgeHandled(id, r, reason, undefined, undefined, opts),
+        markNudgeHandled: markHandled,
         readReviewStates,
         readRespondStates,
         isOwnMr: mrUrl => ownUrls.has(mrUrl),
@@ -319,8 +346,7 @@ try {
             // the held ask still shows in the inbox
           }
         },
-        publishOutcome: (to, payload) =>
-          enqueueOutbox(makeEnvelope(to, 'nudge-outcome', payload)),
+        publishOutcome,
         memory,
         cfg: { ...triage, enabled: peerAsks.enabled },
         appendAudit,
@@ -338,8 +364,8 @@ try {
   // can do. Both passes bank cooldown and budget counters into the same
   // memory, and this one runs whether or not a switchboard is configured, so
   // the persist below sits outside that block.
-  const latchToken = await loadGitLabToken();
-  if (!peerMode && latchToken && username && reReview.enabled) {
+  const latchToken = forgeSkip ? null : await loadGitLabToken();
+  if (!peerMode && !forgeSkip && latchToken && username && reReview.enabled) {
     try {
       const latchResult = await runLatchPass({
         readReviewStates,
@@ -352,7 +378,7 @@ try {
           if (!res.ok || !res.data) return null;
           return { discussions: res.data.discussions } as MRDetail;
         },
-        gateway: latchGateway(boardConfig.gitlabHost, latchToken),
+        gateway: latchGateway(gitlabOnly(boardConfig), latchToken),
         self: username,
         launchReReview: (mrUrl, iid) =>
           launchReReview(mrUrl, iid, {
@@ -376,7 +402,7 @@ try {
           fetchNewDiscussionCount(
             () =>
               new MRDetailFetcher(
-                boardConfig.gitlabHost,
+                gitlabOnly(boardConfig),
                 latchToken
               ).fetchDetail(mr.projectId, mr.iid),
             username,

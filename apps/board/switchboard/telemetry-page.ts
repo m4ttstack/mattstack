@@ -34,7 +34,7 @@ section{display:grid;gap:12px;min-width:0}
 .stack{display:grid;gap:24px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:24px;align-items:start}
 .card{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
-.scroll{overflow-x:auto}
+.scroll{position:relative;overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
 th,td{padding:10px;text-align:left;vertical-align:top}
 th{color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;border-bottom:1px solid var(--line)}
@@ -118,6 +118,36 @@ const lastSeen = (m: TelemetrySnapshot['macs'][number]): Cell => ({
     : `<span class="seen">${time(m.lastSeen).html}</span>`,
 });
 
+const HOLD_REASONS: Record<string, string> = {
+  windowsOpen: 'window open',
+  setupRunning: 'setup running',
+};
+
+const nowrap = (text: string): Cell => ({
+  html: `<span class="nowrap">${escapeHtml(text)}</span>`,
+});
+
+function updateCell(m: TelemetrySnapshot['macs'][number]): Cell {
+  const u = m.appUpdate;
+  if (u?.heldVersion) {
+    const reason = u.hold ? (HOLD_REASONS[u.hold] ?? u.hold) : null;
+    return nowrap(
+      reason ? `${u.heldVersion} held (${reason})` : `${u.heldVersion} held`
+    );
+  }
+  if (u?.offeredVersion) return nowrap(`${u.offeredVersion} offered`);
+  return '-';
+}
+
+function lastCheckCell(m: TelemetrySnapshot['macs'][number]): Cell {
+  const at = m.appUpdate?.lastCheckAt
+    ? Date.parse(m.appUpdate.lastCheckAt)
+    : NaN;
+  return Number.isNaN(at)
+    ? '-'
+    : { html: `<span class="nowrap">${time(at).html}</span>` };
+}
+
 const change = (from: string | null, to: string) =>
   `${escapeHtml(orDash(from))} <span class="arrow">\u2192</span> ${escapeHtml(to)}`;
 
@@ -160,7 +190,7 @@ export function renderTelemetryPage(s: TelemetrySnapshot): string {
     plugin: newest(prod.map(m => m.pluginVersion)),
   };
   const behind = table(
-    ['Mac', 'App', 'rt', 'Last seen'],
+    ['Mac', 'App', 'rt', 'Update', 'Last check', 'Last seen'],
     s.macs
       .filter(
         m =>
@@ -170,6 +200,8 @@ export function renderTelemetryPage(s: TelemetrySnapshot): string {
         macLabel(m),
         versionCell(m.appVersion, latest.app),
         versionCell(m.rtVersion, latest.rt),
+        updateCell(m),
+        lastCheckCell(m),
         lastSeen(m),
       ])
   );

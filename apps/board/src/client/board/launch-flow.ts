@@ -25,11 +25,14 @@ export interface LaunchFlowDeps {
   /** Overrides `started` when the answer says what happened, as a local
       rebase's does. */
   doneMessage?: (result: ActionResult, mr: BoardMR) => string | undefined;
-  /** Overrides the default failure toast (`couldn't launch ${noun} for !${iid}
-      (${status})`). Resume actions use this to surface the server's own
-      response text, matching today's handleResume (`resume review failed for
-      !N (400): <server message>`) -- the other six handlers rely on the
-      default and are unaffected. */
+  /** A 200 answer that still reports the action did not get there, as a
+      rebase that stopped does: the toast fails with this text. */
+  stoppedMessage?: (result: ActionResult, mr: BoardMR) => string | undefined;
+  /** Overrides the default failure toast (`couldn't launch ${noun} for
+      ${mrRef(mr)} (${status})`). Resume actions use this to surface the
+      server's own response text, matching today's handleResume (`resume
+      review failed for !N (400): <server message>`, `#N` on GitHub) -- the
+      other six handlers rely on the default and are unaffected. */
   failureMessage?: (result: ActionResult, mr: BoardMR) => string;
 }
 
@@ -85,11 +88,29 @@ export async function runLaunchFlow(
   // A refusal or a focus starts no run, so the server may never write the
   // lane the claim is waiting on; the claim would otherwise stand until its
   // hold lapses.
+  // A refused or stopped answer is returned as not ok, so a bulk run counts
+  // it failed and names its reason.
   if (intent === 'launch' && result.body?.refused) {
     deps.rollback();
     toast?.fail(result.body.refused);
     deps.reload();
-    return result;
+    return {
+      ...result,
+      ok: false,
+      body: { ...result.body, reason: result.body.refused },
+    };
+  }
+  const stopped =
+    intent === 'launch' ? deps.stoppedMessage?.(result, mr) : undefined;
+  if (stopped) {
+    deps.rollback();
+    toast?.fail(stopped);
+    deps.reload();
+    return {
+      ...result,
+      ok: false,
+      body: { ...result.body, reason: result.body?.stopped ?? stopped },
+    };
   }
   if (intent === 'focus') {
     if (result.body?.focused)
@@ -116,7 +137,7 @@ export const FINDING_QUESTION = {
   started: 'Question asked in the review pane',
   noun: 'question',
   failureMessage: (result: ActionResult, mr: BoardMR): string =>
-    `Question failed for !${mr.iid} (${result.status})${result.text ? `: ${result.text}` : ''}`,
+    `Question failed for ${mrRef(mr)} (${result.status})${result.text ? `: ${result.text}` : ''}`,
 } as const;
 
 /** The `/review/finding-question` body beyond the flow's own `mrUrl`/`iid`.

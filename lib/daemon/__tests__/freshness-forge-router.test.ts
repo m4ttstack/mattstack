@@ -6,7 +6,7 @@ import { join } from "path";
 import * as githubTokenModule from "../../github-token.ts";
 import * as linearModule from "../../linear.ts";
 import * as teamSettings from "../../setup/team-settings.ts";
-import { getCurrentUserId, getGitLabContext, getRepoContext, getSelfUserId, repositoryIdFor } from "../freshness.ts";
+import { disposeFreshness, getCurrentUserId, getGitLabContext, getRepoContext, getSelfUserId, repositoryIdFor } from "../freshness.ts";
 
 const GITLAB_TOKEN = "glpat-router-secret";
 const GITHUB_TOKEN = "ghp_router_secret";
@@ -34,6 +34,7 @@ function headerValues(sent: Sent): string {
 }
 
 beforeEach(() => {
+  disposeFreshness();
   requests = [];
   secrets = {};
   forgeHost = undefined;

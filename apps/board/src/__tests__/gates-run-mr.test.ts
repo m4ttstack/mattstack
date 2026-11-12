@@ -110,6 +110,11 @@ describe('mrUrlFromRun', () => {
     expect(mrUrlFromRun(detail([field('branch', 'fix-it', 5)]))).toBeNull();
   });
 
+  test('a GitHub PR url resolves as recorded', () => {
+    const pr = 'https://github.test/o/r/pull/7';
+    expect(mrUrlFromRun(detail([field('mr', pr, 5)]))).toBe(pr);
+  });
+
   test('a trailing slash is dropped', () => {
     expect(mrUrlFromRun(detail([field('mr', `${MR_1}/`, 5)]))).toBe(MR_1);
     expect(normalizeMrUrl(`${MR_1}//`)).toBe(MR_1);

@@ -201,6 +201,34 @@ describe('gateOpen', () => {
     });
   });
 
+  test('a GitHub PR gate names the row #<n> in its label and headline', async () => {
+    const ghUrl = 'https://github.com/acme/webapp/pull/4103';
+    const ghPath = mintHandle('review', ghUrl, dir);
+    insertAgentState(
+      'review',
+      ghUrl,
+      4103,
+      {
+        mrUrl: ghUrl,
+        iid: 4103,
+        status: 'reviewing',
+        startedAt: 1,
+        updatedAt: 1,
+      },
+      ghPath,
+      db
+    );
+    const { io, calls } = fakeIo();
+
+    await gateOpen(ghPath, 'review-post', JSON.stringify(QUESTIONS), io);
+
+    expect(calls.gateAsk[0]!.meta).toEqual({
+      label: 'review gate #4103',
+      headline: 'Your review of #4103 is ready',
+      summary: 'Pick what to post',
+    });
+  });
+
   test('persists the returned gateId and gateKind onto review state, leaving other fields untouched', async () => {
     const { io } = fakeIo({
       openResult: {

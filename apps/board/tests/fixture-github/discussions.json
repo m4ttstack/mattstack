@@ -1,0 +1,66 @@
+{
+  "threads": [
+    {
+      "discussionId": "fx-gh-thread-1",
+      "status": "awaiting",
+      "notes": [
+        {
+          "id": 3001,
+          "name": "Mara Keller",
+          "username": "mkeller",
+          "at": "2025-08-18T15:02:00.000Z",
+          "body": "The native input drops the min/max hint we show today. Is that intended, or should the helper text carry it?"
+        }
+      ]
+    },
+    {
+      "discussionId": "fx-gh-thread-2",
+      "status": "replied",
+      "notes": [
+        {
+          "id": 3002,
+          "name": "Lars North",
+          "username": "lnorth",
+          "at": "2025-08-18T16:10:00.000Z",
+          "body": "Safari formats the value differently when the locale is unset. Worth pinning the locale in the e2e config."
+        },
+        {
+          "id": 3003,
+          "name": "Ines Vasco",
+          "username": "ivasco",
+          "at": "2025-08-19T08:40:00.000Z",
+          "body": "Pinned `en-US` in the e2e config and added a case for the unset locale."
+        }
+      ]
+    },
+    {
+      "discussionId": "fx-gh-thread-3",
+      "status": "resolved",
+      "notes": [
+        {
+          "id": 3004,
+          "name": "Wen Zhou",
+          "username": "wzhou",
+          "at": "2025-08-17T09:00:00.000Z",
+          "body": "Nit: the unused `pickerRef` import can go."
+        },
+        {
+          "id": 3005,
+          "name": "Ines Vasco",
+          "username": "ivasco",
+          "at": "2025-08-17T09:30:00.000Z",
+          "body": "Removed."
+        }
+      ]
+    }
+  ],
+  "comments": [
+    {
+      "id": 3101,
+      "name": "Release Bot",
+      "username": "release-bot",
+      "at": "2025-08-18T08:20:00.000Z",
+      "body": "Preview for this pull request is ready: https://preview.example.com/web-420"
+    }
+  ]
+}

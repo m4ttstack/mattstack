@@ -9,6 +9,7 @@
 import { domainForKind, unwrapGateAnswer } from '@mattstack/gate-kit';
 import type { BoardMR } from '../../data.ts';
 import { hasChangesRequested } from '../../data.ts';
+import { onGitHub } from '../../mr-ref.ts';
 import { isFreshPeerReview } from '../../peer/presence.ts';
 import { respondOutcome } from '../../respond-outcome.ts';
 import { approvalSlots, isOwnMr, statusBucket } from '../../view.ts';
@@ -179,6 +180,7 @@ export function statusPhrase(mr: BoardMR): { text: string; hue: PillHue } {
 
 const REVIEW_IN_FLIGHT = new Set<ReviewStatus>(['queued', 'reviewing']);
 const DOCTOR_WORKING = new Set<DoctorStatus>([
+  'forge-rebasing',
   'syncing',
   'diagnosing',
   'rebasing',
@@ -217,6 +219,7 @@ function canMerge(mr: BoardMRWithReview, self: string | null): boolean {
   const button = mr.mergeButton;
   return (
     self !== null &&
+    !onGitHub(mr) &&
     mr.author.username === self &&
     mr.reviews.isApproved &&
     !mr.blockers.any &&
@@ -799,6 +802,7 @@ function doctorStatusLine(
           ],
         };
       return { tone: 'quiet', word: DOCTOR_LABEL[d.status], verbs: [] };
+    case 'forge-rebasing':
     case 'syncing':
       return {
         tone: 'work',

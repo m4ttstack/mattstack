@@ -1,11 +1,19 @@
 import { expect, test } from 'bun:test';
 
 import type { MenuEntry } from '../row-actions.ts';
-import { mrx, ownEnv, ownIdle, teammateReviewed } from './menu-fixtures.ts';
+import {
+  ghOwnIdle,
+  mrx,
+  ownEnv,
+  ownIdle,
+  teammateReviewed,
+} from './menu-fixtures.ts';
 import {
   act,
+  allItemLabels,
   clickItem,
   harness,
+  itemTexts,
   menuLines,
   openActionMenu,
   openMenu,
@@ -26,7 +34,7 @@ test('an own MR shows the short top level, flyouts last', async () => {
     '---',
     '# agent actions',
     'respond to John',
-    'rebase locally',
+    'rebase',
     '---',
     'request review from…',
     '---',
@@ -49,7 +57,6 @@ test('a flyout opens with its rows in it', async () => {
     [...panel!.querySelectorAll('[role="menuitem"]')].map(el => el.textContent)
   ).toEqual([
     'merge',
-    'rebase on target',
     'set auto-merge',
     'mark as draft',
     'open in gitlab',
@@ -320,4 +327,43 @@ test('merge in the gitlab flyout still asks for a second click', async () => {
   expect(harness.effects).toEqual([]);
   await clickItem('really merge?');
   expect(harness.effects.map(e => e.effect)).toEqual(['mr:merge']);
+});
+
+const forgeEntry = (key: string): MenuEntry => ({
+  key,
+  section: 'gitlab',
+  label: key,
+  glyph: null,
+});
+
+test("a GitHub row's forge heading reads github, a GitLab row's gitlab", async () => {
+  const entries = [forgeEntry('open-gitlab'), forgeEntry('other')];
+  await openActionMenu(entries, { flat: true, forge: 'github' });
+  expect(menuLines()).toContain('# github');
+  expect(menuLines()).not.toContain('# gitlab');
+  await openActionMenu(entries, { forge: 'github' });
+  expect(menuLines()).toContain('> github');
+  await openSub('github');
+  expect(
+    document
+      .querySelector('[data-part="contextmenu-submenu"]')
+      ?.getAttribute('aria-label')
+  ).toBe('github for 2 selected');
+  await openActionMenu(entries, { flat: true, forge: 'gitlab' });
+  expect(menuLines()).toContain('# gitlab');
+});
+
+test('a GitHub own MR offers open in github and no GitLab-only rows', async () => {
+  await openMenu(ghOwnIdle, ownEnv);
+  expect(menuLines()).toContain('open in github');
+  const all = await allItemLabels();
+  for (const label of [
+    'merge',
+    'set auto-merge',
+    'mark as draft',
+    'open in gitlab',
+    'refresh from gitlab',
+  ])
+    expect(all).not.toContain(label);
+  expect(itemTexts()).toContain('open in github');
 });

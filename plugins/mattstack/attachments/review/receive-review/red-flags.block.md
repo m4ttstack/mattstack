@@ -21,7 +21,7 @@ order: 11
 | "The verdict report recommended a reply here, so it posts" | Posting reads each row's `gate-1` field, never the recommendation. |
 | "The gate approved posting, not a push, so I'll ask before pushing" | The proceed authorizes the push. |
 | "The fix is held on a branch mismatch; I'll switch branches, or push from the shell" | Never. Report it verbatim; the run stays open. Only `respond_post_execute` (GitLab) or `git_push` (GitHub) pushes, never forced. |
-| "The forge refused one reply, so I'll post it myself with `mr_reply_thread`" | The tool already retried it. Open the one off-script gate; take and iterate call `respond_post_execute` again. |
+| "GitLab refused one reply, so I'll post it myself with `mr_reply_thread`" | The tool already retried it. Open the one off-script gate; take and iterate call `respond_post_execute` again. |
 | "They ticked post before choosing `iterate` (or `hold`), so those picks act now" | Only `proceed` acts. |
 | "The run already records respond-post with nothing held, so it posted; I'll close" | A pane can record and die before it posts. Run the post side again. |
 | "This one is clearly right, I'll add the guard in a follow-up commit" | Implementation follows `code-changes: approve`. |

@@ -352,3 +352,22 @@ test('bannerCopy leaves out the wait when openedAt is missing, and says just ope
     '!1 · fix the thing · just opened'
   );
 });
+
+test('a GitHub entry is named #N in the peek and the banner, a GitLab one keeps !N', () => {
+  const pr: QueueEntry = {
+    gate: { gateId: 'g9', status: 'open', openedAt: Number.NaN } as GateRow,
+    mr: {
+      iid: 4103,
+      title: 'export the usage table as CSV',
+      webUrl: 'https://github.com/acme/webapp/pull/4103',
+      provider: 'github',
+    } as BoardMRWithReview,
+  };
+  expect(entryPeek(pr)).toBe('#4103 · export the usage table as CSV');
+  expect(bannerCopy([pr], 0).detail).toBe(
+    '#4103 · export the usage table as CSV'
+  );
+  expect(entryPeek(entry('g1', 7, 'tidy the cache'))).toBe(
+    '!7 · tidy the cache'
+  );
+});

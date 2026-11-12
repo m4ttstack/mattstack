@@ -49,7 +49,7 @@ import { readBreadcrumb, readSupervisionState } from "../lib/daemon/supervision-
 import { readHeartbeat } from "../lib/daemon/heartbeat-file.ts";
 import { runCapture } from "../lib/subprocess.ts";
 import { findBundledTool, whichWithWellKnownDirs } from "../lib/bundled-tool.ts";
-import { isGitLabRemote } from "../lib/enrich.ts";
+import { isGitHubRemote, isGitLabRemote } from "../lib/enrich.ts";
 import type { CacheKind, RepoTrackingEntry } from "../lib/repo-tracking.ts";
 import { loadRepoTracking, loadMachineRepoTracking, loadMachineRepoTrackingRaw, saveRepoTrackingRaw, grants, parseCachesArg, CACHE_KINDS, DEFAULT_PROJECT_MRS_WINDOW_DAYS, teamNamesIdentity } from "../lib/repo-tracking.ts";
 import { deriveRepoIdentity, parseIdentity, serializeIdentity } from "../lib/settings/identity.ts";
@@ -614,7 +614,7 @@ async function resolveTrackingIdentity(arg: string): Promise<{ identity: string;
  * Manage per-repo background tracking.
  *
  *   rt daemon track                      list repos with level + watcher state
- *   rt daemon track <repo> live|poll     events watcher + 5-min enrichment (branches by default)
+ *   rt daemon track <repo> live|poll     events watcher (15s on GitLab, 60s on GitHub) + 5-min cycle (branches by default)
  *   rt daemon track <repo> off           no background API calls (default)
  *   rt daemon track <repo> live|poll <caches>  opt-in to specific caches (branches,project-mrs,discussions)
  *
@@ -676,7 +676,7 @@ export async function manageTracking(args: string[] = []): Promise<void> {
     const picked = await filterableSelect({
       message: `${repoArg} tracking mode`,
       options: [
-        { value: "live", label: "live", hint: [modeHint("live"), "events watcher (~15s) + 5-min cycle · GitLab only"].filter(Boolean).join(" · ") },
+        { value: "live", label: "live", hint: [modeHint("live"), "events watcher (15s on GitLab, 60s on GitHub) + 5-min cycle"].filter(Boolean).join(" · ") },
         { value: "poll", label: "poll", hint: [modeHint("poll"), "5-min cycle only"].filter(Boolean).join(" · ") },
         { value: "off",  label: "off",  hint: [modeHint("off"), "no background API calls (on-demand still works)"].filter(Boolean).join(" · ") },
       ],
@@ -743,7 +743,7 @@ export async function manageTracking(args: string[] = []): Promise<void> {
       return;
     }
     if (levelArg2 === "live") {
-      // Watchers only ever start for GitLab remotes; refuse rather than
+      // Watchers only ever start for GitLab and GitHub remotes; refuse rather than
       // write a tracking entry that can never take effect.
       let remoteUrl = "";
       try {
@@ -751,8 +751,8 @@ export async function manageTracking(args: string[] = []): Promise<void> {
           cwd: repoPath, encoding: "utf8", stdio: "pipe",
         }).trim();
       } catch { /* no origin remote */ }
-      if (!isGitLabRemote(remoteUrl)) {
-        out.note(out.line("refused", `rt cannot watch ${repoArg} live`, "live watching needs a GitLab remote"), out.callout("next", out.cmd(`rt daemon track ${repoArg} poll`)));
+      if (!isGitLabRemote(remoteUrl) && !isGitHubRemote(remoteUrl)) {
+        out.note(out.line("refused", `rt cannot watch ${repoArg} live`, "live watching needs a GitLab or GitHub remote"), out.callout("next", out.cmd(`rt daemon track ${repoArg} poll`)));
         process.exitCode = 2;
         return;
       }

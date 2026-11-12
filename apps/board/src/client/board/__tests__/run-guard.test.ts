@@ -10,7 +10,7 @@ const mr = (activeRun?: ActiveRun) =>
 describe('activeRunConfirmFor', () => {
   test('a manual doctor on an MR a live run owns asks first', () => {
     expect(activeRunConfirmFor('doctor', {}, mr(RUN))).toEqual(RUN);
-    expect(activeRunConfirmFor('rebase-local', {}, mr(RUN))).toEqual(RUN);
+    expect(activeRunConfirmFor('rebase', {}, mr(RUN))).toEqual(RUN);
   });
 
   test('no live run, no question', () => {
@@ -44,4 +44,13 @@ describe('runParent', () => {
     expect(runParent({ ...RUN, viaBranch: 'feature/p' })).toBe('feature/p');
     expect(runParent(RUN)).toBeNull();
   });
+});
+
+test("a GitHub MR's parent is named #N", () => {
+  const pr = {
+    iid: 4127,
+    webUrl: 'https://github.com/acme/webapp/pull/4127',
+    provider: 'github' as const,
+  };
+  expect(runParent({ ...RUN, viaIid: 1400 }, pr)).toBe('#1400');
 });
