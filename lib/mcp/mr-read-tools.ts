@@ -215,7 +215,7 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
     },
     {
       name: "pipeline_jobs",
-      description: `GitLab only. The jobs of one pipeline and its same-project child pipelines: {state: "listed", pipeline, jobs, bridges}. A job row is {jobId, name, stage, status, allowFailure, blocking, pipelineId, attempt, webUrl}; only the latest run of each job is listed, attempt counts its runs. bridges lists every bridge with its downstream pipeline and a crossProject flag. pipelineId defaults to the MR's head pipeline; scope is one GitLab job scope (${JOB_SCOPES.join(", ")}); name keeps jobs whose name contains it. Read a job's log with mr_job_trace. ${LIVE_NOTE}. ${REPO_NAME_RULE}`,
+      description: `The jobs of one pipeline and its same-project child pipelines: {state: "listed", pipeline, jobs, bridges}. A job row is {jobId, name, stage, status, allowFailure, blocking, pipelineId, attempt, webUrl}; only the latest run of each job is listed, attempt counts its runs. bridges lists every bridge with its downstream pipeline and a crossProject flag. pipelineId defaults to the MR's head pipeline; scope is one GitLab job scope (${JOB_SCOPES.join(", ")}); name keeps jobs whose name contains it. Read a job's log with mr_job_trace. On GitHub the default lists the PR head's checks (stage "checks"; a commit status has jobId null) and pipelineId is a workflow run id; bridges is always empty. ${LIVE_NOTE}. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: { ...MR_TARGET_PROPS, pipelineId: { type: "number" }, scope: { type: "string", enum: [...JOB_SCOPES] }, name: { type: "string", description: "Substring of the job name." } },

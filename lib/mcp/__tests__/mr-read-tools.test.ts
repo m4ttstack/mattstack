@@ -623,14 +623,13 @@ describe("on GitHub", () => {
     });
   });
 
-  test("descriptions say GitLab only exactly where the tool still is", () => {
+  test("no read tool description says GitLab only and each names the PR URL form", () => {
     const defs = mrReadToolDefs();
-    for (const name of ["mr_view", "mr_list", "mr_for_branch", "mr_pipeline", "mr_job_trace", "mr_threads"]) {
+    for (const name of ["mr_view", "mr_list", "mr_for_branch", "mr_pipeline", "pipeline_jobs", "mr_job_trace", "mr_threads"]) {
       const d = defs.find((t) => t.name === name)!.description;
       expect(d, name).not.toContain("GitLab only");
       expect(d, name).toContain("github.com/<owner>/<repo>/pull/<number>");
     }
-    expect(defs.find((t) => t.name === "pipeline_jobs")!.description).toStartWith("GitLab only.");
     expect(defs.find((t) => t.name === "mr_threads")!.description).not.toContain("from GitLab");
   });
 });

@@ -10,6 +10,7 @@ import { watchStatePath, writeWatchState } from "../../ci/watch-state.ts";
 import { closeStateDb } from "../../state/index.ts";
 import { abortableSleep, ciToolDefs } from "../ci-tools.ts";
 import { MR_URL_SHAPE, resolveMrTarget } from "../mr-target.ts";
+import { PR_URL_NOTE } from "../shared.ts";
 
 const MR = "https://gitlab.example.com/grp/proj/-/merge_requests/42";
 let dir: string;
@@ -847,6 +848,18 @@ describe("ci_triage", () => {
     const { t } = triageTool();
     const r = await t.handler({ ...target, pipelineId: 404 }, A);
     expect(r.ok).toBe(false);
+  });
+});
+
+describe("ci tool descriptions", () => {
+  test("ci_watch and ci_triage take a GitHub PR URL and no longer say GitLab only", () => {
+    const defs = ciToolDefs({ leaseOpts: () => ({}), label: () => "alice" });
+    for (const name of ["ci_watch", "ci_triage"]) {
+      const d = defs.find((t) => t.name === name)!.description;
+      expect(d, name).not.toContain("GitLab only");
+      expect(d, name).not.toContain("unsupported_forge");
+      expect(d, name).toContain(PR_URL_NOTE);
+    }
   });
 });
 
