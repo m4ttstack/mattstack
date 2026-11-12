@@ -961,6 +961,112 @@ function diffGit(stdout = DIFF_STDOUT) {
   );
 }
 
+describe('skills history route: version-only commits', () => {
+  const sha = (i: number) => String(i).padStart(40, '0');
+
+  function classifyingRt(
+    classify: (argv: string[]) => Promise<{
+      code: number;
+      stdout: string;
+      stderr: string;
+    }>
+  ) {
+    const calls: string[][] = [];
+    const run = vi.fn(async (argv: string[]) => {
+      calls.push(argv);
+      if (argv[1] === 'history-classify') return classify(argv);
+      return { code: 0, stdout: PACKS_STDOUT, stderr: '' };
+    });
+    return { run, calls };
+  }
+
+  it('history marks version-only commits from rt', async () => {
+    const rt = classifyingRt(async () => ({
+      code: 0,
+      stdout: JSON.stringify({ versionOnly: [sha(0), sha(2)] }),
+      stderr: '',
+    }));
+    const app = mountGit(rt.run, defaultGit(3).run);
+
+    const res = await app.request('/api/skills/history?pack=demo');
+
+    expect(res.status).toBe(200);
+    const classify = rt.calls.find(argv => argv[1] === 'history-classify');
+    expect(classify).toEqual([
+      'skills',
+      'history-classify',
+      '--repo-dir',
+      REPO_ROOT,
+      '--sha',
+      sha(0),
+      '--sha',
+      sha(1),
+      '--sha',
+      sha(2),
+      '--json',
+    ]);
+    const body = (await res.json()) as {
+      commits: { sha: string; versionOnly: boolean }[];
+    };
+    expect(body.commits.map(c => [c.sha, c.versionOnly])).toEqual([
+      [sha(0), true],
+      [sha(1), false],
+      [sha(2), true],
+    ]);
+  });
+
+  it('history still answers when the classifier fails', async () => {
+    const failures: (() => Promise<{
+      code: number;
+      stdout: string;
+      stderr: string;
+    }>)[] = [
+      async () => ({ code: 1, stdout: '', stderr: 'unknown verb' }),
+      async () => ({ code: 0, stdout: 'not json', stderr: '' }),
+      async () => ({ code: 0, stdout: '{"versionOnly":"all"}', stderr: '' }),
+      async () => {
+        throw new RtTimeoutError(['skills', 'history-classify'], 1000);
+      },
+      async () => {
+        throw new RtNotFoundError(['/nowhere/rt']);
+      },
+    ];
+    for (const failure of failures) {
+      const app = mountGit(classifyingRt(failure).run, defaultGit(2).run);
+
+      const res = await app.request('/api/skills/history?pack=demo');
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        commits: { versionOnly: boolean }[];
+      };
+      expect(body.commits.map(c => c.versionOnly)).toEqual([false, false]);
+    }
+  });
+
+  it('bounds the classifier and skips it when there is no commit', async () => {
+    const rt = classifyingRt(async () => ({
+      code: 0,
+      stdout: JSON.stringify({ versionOnly: [] }),
+      stderr: '',
+    }));
+
+    await mountGit(rt.run, defaultGit(1).run).request(
+      '/api/skills/history?pack=demo'
+    );
+    expect(rt.run).toHaveBeenCalledWith(
+      expect.arrayContaining(['history-classify']),
+      { timeoutMs: expect.any(Number) }
+    );
+
+    rt.calls.length = 0;
+    await mountGit(rt.run, defaultGit(0).run).request(
+      '/api/skills/history?pack=demo'
+    );
+    expect(rt.calls.some(argv => argv[1] === 'history-classify')).toBe(false);
+  });
+});
+
 describe('skills diff route', () => {
   it('diffs inside the pack dir rt reported, with pack-relative paths', async () => {
     const rt = fakeRt({ code: 0, stdout: PACKS_STDOUT, stderr: '' });

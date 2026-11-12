@@ -25,6 +25,7 @@
  * | `stale-engine`     | the installed mattstack plugin is older than rt, so every block tree answers `stale-engine` |
  * | `disable-model-invocation` | surface rows show the field on, off, locked and absent |
  * | `trial`            | `unsynced`, with the org copy on the trial branch `try-roles` |
+ * | `version-stamps`   | the history gains three syncs that only moved version stamps, between two real commits, and rt reads the release commit as version-only too |
  *
  * `runs`, `runs-empty` and `runs-outage` are the runs boards' data
  * (`runsFixture.ts`), with the skills routes answering as `clean`.
@@ -55,6 +56,7 @@ export const SCENARIOS = [
   'stale-engine',
   'disable-model-invocation',
   'trial',
+  'version-stamps',
   'runs',
   'runs-empty',
   'runs-outage',
@@ -167,8 +169,11 @@ export interface ScenarioDef {
   blocks?: Record<string, Failure>;
   /** rt answers every skill with a blocks file as `stale-engine`. */
   staleEngine?: boolean;
-  /** Commits newer than the pack's own history, newest first. */
-  history?: { commits: HistoryCommit[] };
+  /** Commits newer than the pack's own history, newest first, and the
+      diffs they add, keyed `<from sha>..<to sha>`. */
+  history?: { commits: HistoryCommit[]; diffs?: Record<string, string> };
+  /** The shas `rt skills history-classify` answers as version-only. */
+  versionOnly?: string[];
 }
 
 interface HistoryCommit {
@@ -736,6 +741,64 @@ const SHIP_LINT_COMMITS: HistoryCommit[] = [
   },
 ];
 
+/** Newest first: a real change, three syncs that only restamped the
+    compiled skills, then another real change. */
+const STAMP_COMMITS: HistoryCommit[] = [
+  {
+    sha: 'f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e7',
+    shortSha: 'f6e5d4c',
+    authoredAt: '2026-10-21T11:02:37-05:00',
+    author: 'Robin Okafor',
+    subject: 'acme: plan asks for the rollout window',
+    files: ['attachments/plan-policy/SKILL.md'],
+  },
+  ...[19, 16, 13].map((day, i) => {
+    const sha = `c0ffee${String(i + 1).repeat(34)}`;
+    return {
+      sha,
+      shortSha: sha.slice(0, 7),
+      authoredAt: `2026-10-${day}T09:30:00-05:00`,
+      author: 'Jules Navarro',
+      subject: 'acme: sync the compiled skills',
+      files: ['skills/work/SKILL.md'],
+    };
+  }),
+  {
+    sha: 'b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b9a8',
+    shortSha: 'b7a6f5e',
+    authoredAt: '2026-10-09T14:48:05-05:00',
+    author: 'Sam Reyes',
+    subject: 'acme: work names the reviewer it waits on',
+    files: ['skills/work/SKILL.md'],
+  },
+];
+
+/** What a restamp sync changes: the engine version in work's stamps. */
+const RESTAMP_DIFF = (from: string, to: string) =>
+  [
+    'diff --git a/skills/work/SKILL.md b/skills/work/SKILL.md',
+    '--- a/skills/work/SKILL.md',
+    '+++ b/skills/work/SKILL.md',
+    '@@ -8,7 +8,7 @@',
+    ' metadata:',
+    `-  compiled: "mattstack:work@${from}"`,
+    `+  compiled: "mattstack:work@${to}"`,
+    ' ---',
+    ' ',
+    ' <!-- compiled by rt skills compile from the sources below -->',
+    ' ',
+    `-<!-- part: step source=mattstack:work version=${from} lines=13-250 -->`,
+    `+<!-- part: step source=mattstack:work version=${to} lines=13-250 -->`,
+    '',
+  ].join('\n');
+
+const STAMP_DIFFS: Record<string, string> = Object.fromEntries(
+  STAMP_COMMITS.slice(1, 4).map((commit, i) => [
+    `${STAMP_COMMITS[i + 2]!.sha}..${commit.sha}`,
+    RESTAMP_DIFF(`0.28.${12 - i}`, `0.28.${13 - i}`),
+  ])
+);
+
 const DEFS: Record<FixtureScenario, ScenarioDef> = {
   clean: { subject: 'stage-plan' },
   runs: { subject: 'stage-plan' },
@@ -860,6 +923,14 @@ const DEFS: Record<FixtureScenario, ScenarioDef> = {
     },
   },
   'stale-engine': { subject: 'stage-plan', staleEngine: true },
+  'version-stamps': {
+    subject: 'stage-plan',
+    history: { commits: STAMP_COMMITS, diffs: STAMP_DIFFS },
+    versionOnly: [
+      ...STAMP_COMMITS.slice(1, 4).map(commit => commit.sha),
+      '9b07e3d4c1a2f5b6e7d8c9a0b1c2d3e4f5a6b7c8',
+    ],
+  },
   'disable-model-invocation': {
     subject: 'stage-plan',
     surface: {

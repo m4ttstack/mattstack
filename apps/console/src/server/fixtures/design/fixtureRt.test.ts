@@ -1027,6 +1027,32 @@ describe('the skills routes on the fixture', () => {
       packVersion: '0.8.14',
     });
   });
+
+  it('version-stamps scenario: rt reads the restamp syncs and the release as version-only', async () => {
+    const res = await mount('version-stamps').request(
+      '/api/skills/history?pack=acme'
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      commits: { shortSha: string; versionOnly: boolean }[];
+    };
+    expect(
+      body.commits.filter(c => c.versionOnly).map(c => c.shortSha)
+    ).toEqual(['c0ffee1', 'c0ffee2', 'c0ffee3', '9b07e3d']);
+    expect(body.commits[0]).toMatchObject({
+      shortSha: 'f6e5d4c',
+      versionOnly: false,
+    });
+  });
+
+  it('version-stamps scenario: a restamp sync shows its stamp diff', async () => {
+    const res = await mount('version-stamps').request(
+      '/api/skills/diff?pack=acme&from=c0ffee2&to=c0ffee1'
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { diff: string };
+    expect(body.diff).toContain('+  compiled: "mattstack:work@0.28.13"');
+  });
 });
 
 describe('server wiring', () => {

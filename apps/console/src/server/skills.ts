@@ -463,7 +463,7 @@ interface SkillsHistoryResponse {
   limit: number;
   /** True when the repo holds more history than `limit` returned. */
   truncated: boolean;
-  commits: GitCommit[];
+  commits: (GitCommit & { versionOnly: boolean })[];
   /** Deliberately a SEPARATE object rather than extra rows in `commits`:
       these are momentary and true only of this machine, and the surface
       renders them as their own region for that reason. */
@@ -592,6 +592,10 @@ const RT_UNEXPECTED = 'rt hit an unexpected error';
 
 const DEFAULT_HISTORY_LIMIT = 20;
 const MAX_HISTORY_LIMIT = 100;
+
+/** A cold classify diffs every listed commit; the history waits on it, so it
+    gets far less than a read before every commit reads as a real change. */
+const CLASSIFY_TIMEOUT_MS = 10_000;
 
 /** A restamp of a large pack rewrites every compiled verb at once, so a diff
     across two of them is genuinely big; past this it is cut and says so
@@ -963,6 +967,36 @@ export function mountSkills(
       return typeof version === 'string' && version.length > 0 ? version : null;
     } catch {
       return null;
+    }
+  }
+
+  /** The shas rt reads as only moving version stamps. Never throws: a
+      classifier that cannot answer leaves every commit a real change. */
+  async function versionOnlyOf(
+    repoRoot: string,
+    shas: string[]
+  ): Promise<Set<string>> {
+    if (shas.length === 0) return new Set();
+    try {
+      const { code, stdout } = await runRt(
+        [
+          'skills',
+          'history-classify',
+          '--repo-dir',
+          repoRoot,
+          ...shas.flatMap(sha => ['--sha', sha]),
+          '--json',
+        ],
+        { timeoutMs: CLASSIFY_TIMEOUT_MS }
+      );
+      if (code !== 0) return new Set();
+      const listed = (
+        parseJsonPayload(stdout) as { versionOnly?: unknown } | undefined
+      )?.versionOnly;
+      if (!Array.isArray(listed)) return new Set();
+      return new Set(listed.filter((s): s is string => typeof s === 'string'));
+    } catch {
+      return new Set();
     }
   }
 
@@ -1464,15 +1498,22 @@ export function mountSkills(
           return c.json({ error: log.stderr.trim() || 'git log failed' }, 502);
         }
 
-        const [rawDirtyFiles, packVersion] = await Promise.all([
+        const listed = parseGitLog(log.stdout);
+        const shown = listed.slice(0, limit);
+        const [rawDirtyFiles, packVersion, versionOnly] = await Promise.all([
           dirtyFilesIn(packDir, pathspecs),
           packVersionOf(packDir),
+          versionOnlyOf(
+            repoRoot,
+            shown.map(commit => commit.sha)
+          ),
         ]);
         const dirtyFiles = rawDirtyFiles && rawDirtyFiles.map(toCoordinate);
 
-        const commits = parseGitLog(log.stdout).map(commit => ({
+        const commits = shown.map(commit => ({
           ...commit,
           files: commit.files.map(toCoordinate),
+          versionOnly: versionOnly.has(commit.sha),
         }));
         const response: SkillsHistoryResponse = {
           pack,
@@ -1482,8 +1523,8 @@ export function mountSkills(
           ...(basePathspecs.length > 0 ? { basePathspecs } : {}),
           verb: verb ?? null,
           limit,
-          truncated: commits.length > limit,
-          commits: commits.slice(0, limit),
+          truncated: listed.length > limit,
+          commits,
           runtime: {
             dirtyFiles: dirtyFiles && dirtyFiles.slice(0, MAX_DIRTY_FILES),
             moreDirtyFiles: (dirtyFiles?.length ?? 0) > MAX_DIRTY_FILES,
