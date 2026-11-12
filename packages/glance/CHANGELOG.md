@@ -1,5 +1,81 @@
 # @mattstack/glance
 
+## 0.30.0
+
+### Minor Changes
+
+- Breaking for an outside `GitProvider` implementation or a full mock:
+  `createComment`, `createInlineComment`, `replyToDiscussion`,
+  `updateComment`, `deleteComment` and `submitReview` are new required
+  members, and `canReplyToGeneralComments`, `canRequestChanges` and
+  `canFetchPullRequestDiffs` are new required `ProviderCapabilities` fields.
+  Code that only calls the providers is unaffected.
+- Comment writes on both providers: `createComment` (a resolvable thread on
+  GitLab, or a plain note with `resolvable: false`; a pull request comment on
+  GitHub), `createInlineComment` (a `CommentAnchor` of `path` plus `line`,
+  `oldLine` or both), `replyToDiscussion`, `updateComment` and `deleteComment`.
+  Edits and deletes take a `NoteRef`; on GitHub its `kind` (`general`, `diff`
+  or `review`) names the endpoint, and with no kind the diff comment is tried
+  first, then the pull request comment, and a comment that belongs to another
+  pull request is refused before any write. GitHub cannot delete a review.
+- `submitReview` posts a whole review on both providers: a summary, diff
+  comments, replies and resolves, with outcome `comment`, `approve` or
+  `request_changes`. GitLab publishes pending comments once, at most 100
+  comments and replies together, and deletes what it created when a step
+  fails before the publish. GitHub sends one review POST, then the replies and
+  resolves; every reply must name a `gh-review-thread-<id>`, and
+  `replyToDiscussion` refuses a pull request comment or a review summary
+  before any request. An approve GitHub
+  refuses on the caller's own pull request posts as a comment with
+  `approved: false` and `approveError`. A reply that fails is listed in
+  `replyErrors` and its resolve is skipped. Either provider returns
+  `pending-drafts` when the caller already has a pending review, and
+  `bad-anchors` when the forge refuses a comment's anchor, with nothing posted.
+- `fetchPullRequestDiffs` (GitHub only, optional on `GitProvider`) reads one
+  page of up to 100 per-file diffs; a file with no inline patch comes back
+  with an empty `diff` and `tooLarge: true`. New capability flags
+  `canReplyToGeneralComments` (false on GitHub, where pull request comments
+  are not threads), `canRequestChanges` and `canFetchPullRequestDiffs`.
+- New exports: `EmptyDiscussionError`, `WriteOutcomeUnknownError` and the
+  types `CommentAnchor`, `NoteKind`, `NoteRef`, `NoteWriteResult`,
+  `InlineCommentResult`, `ReviewComment`, `ReviewReply`, `ReviewSubmission`,
+  `ReviewSubmitResult` and `PullRequestFileDiff`.
+- The GitHub comment writes (`createComment`, `createInlineComment`,
+  `replyToDiscussion`, `updateComment`, `deleteComment`) and the review POST in
+  `submitReview` go out once, with no retry, under an abort signal: 15 s for a
+  comment write and 60 s for the review POST, set by the new `GitHubProvider`
+  options `writeTimeoutMs` and `reviewTimeoutMs`; `createInlineComment`'s
+  head commit read shares the write's bound and is not retried. On a comment
+  write, a timeout, a lost answer or a 5xx (GitHub can apply a write and
+  still answer 5xx) throws `WriteOutcomeUnknownError`, whose message says
+  GitHub may still have applied the write and to check the pull request
+  before retrying; a 4xx still throws `ForgeHttpError`. `submitReview`
+  instead throws a plain `Error` whose message starts `publish failed and its
+  outcome is unknown` and whose `cause` is the `WriteOutcomeUnknownError`.
+- `NoteMutator` accepts a project path string as well as a numeric id, and
+  `GitLabProvider.fetchReviewerStates` reads reviewer states.
+- GitHub `fetchMRDiscussions` accepts `github:<owner>/<repo>` as the
+  repository id and then makes no `/repositories` call; the numeric
+  `github:<id>` form still works at the cost of that call. The read now also
+  pages the `/reviews` list on every call, and the `/files` list when the pull
+  request has review comments.
+- `NoteAuthor.bot` is set on GitHub notes (true for a bot account, false
+  otherwise) and absent on GitLab. A note by a deleted GitHub user now reads as
+  the `ghost` author instead of throwing.
+- Behavior change: GitHub `fetchMRDiscussions` now returns each submitted
+  review's summary as its own discussion, `gh-review-<id>`, with the review as
+  the single note. A review with an empty body and a pending review are left
+  out.
+- Behavior change: a GitHub comment on the old side of the diff (`LEFT`) now
+  reports its line as `oldLine` with `newLine` null; it used to put it in
+  `newLine`.
+- Behavior change: a GitHub comment on the new side (`RIGHT`) now reports
+  `oldLine` as null; it used to carry GitHub's `original_line` there.
+- Behavior change: a GitHub comment whose line no longer exists in the diff
+  (an outdated comment) now falls back to `original_line` for its line instead
+  of reporting none.
+- GitHub notes on a renamed file carry the old path in `position.oldPath`.
+
 ## 0.29.0
 
 ### Minor Changes

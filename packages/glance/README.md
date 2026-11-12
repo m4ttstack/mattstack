@@ -65,6 +65,12 @@ const provider = createProvider('gitlab', 'https://gitlab.com', token, {
 | `requestReReview(path, iid, usernames?)` | Request re-review |
 | `resolveDiscussion(path, iid, discussionId)` | Resolve a discussion thread |
 | `unresolveDiscussion(path, iid, discussionId)` | Unresolve a discussion thread |
+| `createComment(path, iid, body, options?)` | Post a top-level comment: a resolvable thread on GitLab (`resolvable: false` for a plain note), a pull request comment on GitHub |
+| `createInlineComment(path, iid, body, anchor)` | Comment on a diff line; the `CommentAnchor` takes `path` plus `line`, `oldLine` or both |
+| `replyToDiscussion(path, iid, discussionId, body)` | Reply inside a thread; on GitHub only `gh-review-thread-<id>` threads take replies (`canReplyToGeneralComments` is false), and a pull request comment or a review summary is refused before any request |
+| `updateComment(path, iid, note, body)` | Replace a comment's body; `note` is a `NoteRef`, and on GitHub its `kind` picks the endpoint |
+| `deleteComment(path, iid, note)` | Delete a comment; GitHub cannot delete a review |
+| `submitReview(path, iid, review)` | Post a summary, diff comments, replies and resolves with an outcome of `comment`, `approve` or `request_changes`; returns `pending-drafts` or `bad-anchors` with nothing posted when the forge refuses |
 | `watchMR(path, iid, userId, onUpdate, options?)` | Real-time MR subscription (returns `dispose()`) |
 | `subscribePullRequestEvents?(path, prs, callbacks)` | Push-only events for already-fetched MRs, no fetch or poll (GitLab; absent on GitHub) |
 | `fetchMRDiscussions(repoId, iid)` | Fetch MR discussions and notes |
@@ -77,6 +83,7 @@ const provider = createProvider('gitlab', 'https://gitlab.com', token, {
 | `fetchPullRequestSummaries?(path, options)` | Scalar `PullRequestSummary` rows by state, author, branch or search, without the dashboard fill (`canFetchPullRequestSummaries`) |
 | `addPullRequestLabels?(path, iid, labels)` | Add labels, leaving the others in place (`canEditLabels`) |
 | `removePullRequestLabels?(path, iid, labels)` | Remove labels, leaving the others in place (`canEditLabels`) |
+| `fetchPullRequestDiffs?(path, iid, options?)` | One page of up to 100 per-file diffs; a file with no inline patch has an empty `diff` and `tooLarge: true` (GitHub; `canFetchPullRequestDiffs`) |
 | `restRequest(method, path, body?, op?, io?)` | Raw authenticated REST API pass-through; `io.redirect: 'manual'` returns a redirect instead of following it. GitHub accepts `op` for parameter-order parity and ignores it |
 
 Provider capabilities are exposed via `provider.capabilities` — check flags like `canMerge`, `canRebase`, `canAutoMerge`, `canResolveDiscussions`, etc. before calling provider-specific methods.
@@ -276,6 +283,8 @@ Fetches full MR discussion threads. Used to populate reviewer summaries and comm
 
 Creates and manages notes (comments) on MRs. Returns `CreatedNote` with the note's metadata.
 
+Its project argument is a numeric id or a project path.
+
 ```ts
 import { MRDetailFetcher, NoteMutator } from '@mattstack/glance';
 import type { CreatedNote } from '@mattstack/glance';
@@ -453,6 +462,27 @@ head-repository read for `shouldRemoveSourceBranch` is rate limited, it does
 not throw. It resolves with `sourceBranchNotDeleted` saying the read was rate
 limited and, when GitHub said, when the limit resets. A caller that retries on
 `RateLimitedError` would otherwise re-issue a merge that already landed.
+
+### `WriteOutcomeUnknownError`
+
+The `GitHubProvider` comment writes (`createComment`, `createInlineComment`,
+`replyToDiscussion`, `updateComment`, `deleteComment`) and the review POST in
+`submitReview` go out once, with no retry, under an abort signal: 15 s for a
+comment write (`writeTimeoutMs`) and 60 s for the review POST
+(`reviewTimeoutMs`). On a comment write, a timeout, a lost answer or a 5xx
+throws `WriteOutcomeUnknownError`, which means GitHub may still have applied
+the write: GitHub can apply a write and still answer 5xx. Look at the pull
+request before sending it again. A 4xx still throws `ForgeHttpError`.
+
+`submitReview` throws a plain `Error` instead, whose message starts
+`publish failed and its outcome is unknown` and whose `cause` is the
+`WriteOutcomeUnknownError`. Check `cause` rather than the error itself.
+
+| Property | Description |
+|---|---|
+| `operation` | The write that gave up, e.g. `"createComment"` |
+| `reason` | `'timed-out'`, `'no-answer'` or `'server-error'` (a 5xx) |
+| `cause` | The underlying error, when there was one; a `ForgeHttpError` with the status for `'server-error'` |
 
 ## License
 

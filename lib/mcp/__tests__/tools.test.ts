@@ -402,14 +402,20 @@ describe("mcpTools", () => {
     }
   });
 
-  test("mr_reply_thread's description says GitLab only and names an MR discussion thread", () => {
+  test("mr_reply_thread's description names an MR discussion thread and says GitHub replies go to review threads only", () => {
     const tool = mcpTools().find((t) => t.name === "mr_reply_thread")!;
-    expect(tool.description.startsWith("GitLab only.")).toBe(true);
+    expect(tool.description).not.toContain("GitLab only");
+    expect(tool.description).toContain("review threads");
     expect(tool.description).toContain("MR discussion thread");
     expect(tool.description).not.toContain("merge or pull request discussion thread");
   });
 
   describe("mr write tools: mr_comment, mr_create", () => {
+    test("mr_comment says a GitHub discussionId cannot be resolved or replied to", () => {
+      const d = mcpTools().find((t) => t.name === "mr_comment")!.description;
+      expect(d).toContain("discussionId (null for a plain note; gh-issue-comment-<id> on GitHub, which cannot be resolved or replied to)");
+    });
+
     afterEach(() => {
       mock.module("../../../packages/rt-client/src/transport.ts", () => ({ ...realTransport, rtCommand: realRtCommand }));
     });
@@ -622,6 +628,16 @@ describe("mcpTools", () => {
     });
     const tool = () => mcpTools().find((t) => t.name === "mr_review_submit")!;
     const TARGET = { repoName: "remote:gitlab.example.com%2Facme%2Fwebapp", iid: 7 };
+
+    test("the description names both forges' pending state and every error list", () => {
+      const d = tool().description;
+      expect(d).not.toContain("in GitLab first");
+      expect(d).toContain("pending drafts on GitLab, a pending review on GitHub");
+      expect(d).toContain("resolveErrors (the threads a reply could not resolve)");
+      expect(d).toContain("replyErrors (GitHub only: the review is up but those replies did not post and their threads stay unresolved; post each with mr_reply_thread, never by calling this again)");
+      expect(d).not.toContain("unless all of it can");
+      expect(d).toContain("A refused review posts nothing:");
+    });
 
     test("schema requires outcome and summary and limits outcome to comment or approve", () => {
       const schema = tool().inputSchema as { required?: string[]; properties: Record<string, { enum?: string[] }> };
@@ -1060,12 +1076,24 @@ describe("mcpTools", () => {
         expect((await run("mr_retry", { mrUrl: PR, jobId: 9 })).ok).toBe(true);
         expect((await run("mr_update", { mrUrl: PR, title: "T" })).ok).toBe(true);
         expect((await run("mr_create", { mrUrl: PR, sourceBranch: "feat", targetBranch: "main", title: "T" })).ok).toBe(true);
-        expect(calls.map((c) => c.payload)).toEqual([
-          { repoName: GH, iid: 3, action: "approve", args: [] },
-          { repoName: GH, iid: 3, action: "toggleDraft", args: [false] },
-          { repoName: GH, iid: 3, action: "retryJob", args: [9] },
-          { repoName: GH, iid: 3, title: "T" },
-          { repoName: GH, sourceBranch: "feat", targetBranch: "main", title: "T" },
+        expect((await run("mr_reply_thread", { mrUrl: PR, discussionId: "d1", body: "b" })).ok).toBe(true);
+        expect((await run("mr_update_note", { mrUrl: PR, noteId: 1, body: "b" })).ok).toBe(true);
+        expect((await run("mr_comment_inline", { mrUrl: PR, body: "b", path: "a.ts", line: 1 })).ok).toBe(true);
+        expect((await run("mr_comment", { mrUrl: PR, body: "b" })).ok).toBe(true);
+        expect((await run("mr_review_submit", { mrUrl: PR, outcome: "comment", summary: "s" })).ok).toBe(true);
+        expect((await run("mr_resolve_thread", { mrUrl: PR, discussionId: "d1" })).ok).toBe(true);
+        expect(calls.map((c) => [c.cmd, c.payload])).toEqual([
+          ["mr:action", { repoName: GH, iid: 3, action: "approve", args: [] }],
+          ["mr:action", { repoName: GH, iid: 3, action: "toggleDraft", args: [false] }],
+          ["mr:action", { repoName: GH, iid: 3, action: "retryJob", args: [9] }],
+          ["mr:update", { repoName: GH, iid: 3, title: "T" }],
+          ["mr:create", { repoName: GH, sourceBranch: "feat", targetBranch: "main", title: "T" }],
+          ["discussions:reply", { repoName: GH, iid: 3, discussionId: "d1", body: "b" }],
+          ["mr:note-update", { repoName: GH, iid: 3, noteId: 1, body: "b" }],
+          ["mr:comment-inline", { repoName: GH, iid: 3, body: "b", path: "a.ts", line: 1 }],
+          ["mr:comment", { repoName: GH, iid: 3, body: "b" }],
+          ["mr:review-submit", { repoName: GH, iid: 3, outcome: "comment", summary: "s", comments: [], replies: [] }],
+          ["discussions:resolve", { repoName: GH, iid: 3, discussionId: "d1", resolved: true }],
         ]);
       });
 
@@ -1082,12 +1110,6 @@ describe("mcpTools", () => {
         setKvValue(REPO_INDEX_NS, GH, "/repos/ghapp");
         const calls = fakeDaemon();
         const inputs: Record<string, Record<string, unknown>> = {
-          mr_reply_thread: { discussionId: "d1", body: "b" },
-          mr_update_note: { noteId: 1, body: "b" },
-          mr_comment_inline: { body: "b", path: "a.ts", line: 1 },
-          mr_comment: { body: "b" },
-          mr_review_submit: { outcome: "comment", summary: "s" },
-          mr_resolve_thread: { discussionId: "d1" },
           mr_rebase: {},
         };
         for (const [name, input] of Object.entries(inputs)) {
@@ -1101,11 +1123,11 @@ describe("mcpTools", () => {
 
       test("descriptions say GitLab only exactly where the tool still is", () => {
         const describe = (name: string) => mcpTools().find((t) => t.name === name)!.description;
-        for (const name of ["mr_approve", "mr_ready", "mr_retry", "mr_update", "mr_create", "mr_merge"]) {
+        for (const name of ["mr_approve", "mr_ready", "mr_retry", "mr_update", "mr_create", "mr_merge", "mr_reply_thread", "mr_update_note", "mr_comment_inline", "mr_comment", "mr_review_submit", "mr_resolve_thread"]) {
           expect(describe(name), name).not.toContain("GitLab only");
           expect(describe(name), name).toContain("github.com/<owner>/<repo>/pull/<number>");
         }
-        for (const name of ["mr_reply_thread", "mr_update_note", "mr_comment_inline", "mr_comment", "mr_review_submit", "mr_resolve_thread", "mr_rebase", "mr_upload"]) {
+        for (const name of ["mr_rebase", "mr_upload"]) {
           expect(describe(name), name).toStartWith("GitLab only.");
         }
       });

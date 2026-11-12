@@ -139,3 +139,34 @@ export class ForgeHttpError extends Error {
     this.bodyText = bodyText;
   }
 }
+
+/** GitLab created a discussion but returned it with no notes, so there is no note to report. */
+export class EmptyDiscussionError extends Error {
+  readonly discussionId: string;
+
+  constructor(discussionId: string, message = `GitLab created discussion ${discussionId} with no notes`) {
+    super(message);
+    this.name = 'EmptyDiscussionError';
+    this.discussionId = discussionId;
+  }
+}
+
+/**
+ * A write whose outcome is unknown: it timed out, or GitHub's answer never
+ * arrived. The forge may still have applied it, so a caller must look before
+ * retrying rather than send it again.
+ */
+export class WriteOutcomeUnknownError extends Error {
+  readonly operation: string;
+  readonly reason: 'timed-out' | 'no-answer' | 'server-error';
+
+  constructor(
+    message: string,
+    details: { operation: string; reason: 'timed-out' | 'no-answer' | 'server-error'; cause?: unknown }
+  ) {
+    super(message, details.cause === undefined ? undefined : { cause: details.cause });
+    this.name = 'WriteOutcomeUnknownError';
+    this.operation = details.operation;
+    this.reason = details.reason;
+  }
+}

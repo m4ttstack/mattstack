@@ -15,6 +15,7 @@ import { parseUpdatedAfter, requireProjectPath } from './GitProvider.ts';
 import { gitlabReadiness } from './readiness.ts';
 import type {
   BranchProtectionRule,
+  CommentAnchor,
   CreatePullRequestInput,
   DiffStats,
   FetchApprovalRulesOptions,
@@ -29,6 +30,11 @@ import type {
   MRApprovalRules,
   MRDetail,
   FetchSummariesOptions,
+  InlineCommentResult,
+  NoteRef,
+  NoteWriteResult,
+  ReviewSubmission,
+  ReviewSubmitResult,
   Pipeline,
   PipelineJob,
   PipelineListEntry,
@@ -45,7 +51,9 @@ import type {
   WatchEventsOptions,
 } from './types.ts';
 import { isTransitionalMergeStatus } from './types.ts';
-import { ForgeHttpError, ReadBackFailedError } from './errors.ts';
+import { EmptyDiscussionError, ForgeHttpError, ReadBackFailedError } from './errors.ts';
+import { NoteMutator, type ReviewerState } from './NoteMutator.ts';
+import { buildTextPosition, submitGitLabReview } from './gitlabReview.ts';
 import { parseCodeownerSections } from './codeowners.ts';
 import { type ForgeLogger, noopLogger } from './logger.ts';
 import { MRDetailFetcher } from './MRDetailFetcher.ts';
@@ -927,6 +935,7 @@ export class GitLabProvider implements GitProvider {
   /** Typed REST client. All non-GraphQL API calls go through this. */
   private readonly gb: InstanceType<typeof Gitlab>;
   private readonly onRequest?: OnRequestHook;
+  private readonly notes: NoteMutator;
 
   // ── Shared ActionCable connection ────────────────────────────────────
   // Every watchMR and subscribePullRequestEvents call multiplexes over one WebSocket.
@@ -954,6 +963,7 @@ export class GitLabProvider implements GitProvider {
       logger: this.log,
       onRequest: (info) => safeEmit(this.onRequest, info),
     });
+    this.notes = new NoteMutator(this.baseURL, token, { onRequest: options.onRequest });
   }
 
   // ── Capabilities ──────────────────────────────────────────────────────
@@ -981,6 +991,9 @@ export class GitLabProvider implements GitProvider {
     canFetchPipelineFailedJobs: true,
     canFetchPullRequestSummaries: true,
     canEditLabels: true,
+    canReplyToGeneralComments: true,
+    canRequestChanges: true,
+    canFetchPullRequestDiffs: false,
   };
 
   // MARK: - GitProvider
@@ -2327,6 +2340,104 @@ export class GitLabProvider implements GitProvider {
     } catch (err) {
       throw this.legacyError('unresolveDiscussion', err);
     }
+  }
+
+  // ── Comment writes ──────────────────────────────────────────────────────
+
+  async createComment(
+    projectPath: string,
+    mrIid: number,
+    body: string,
+    options: { resolvable?: boolean } = {},
+  ): Promise<NoteWriteResult> {
+    if (options.resolvable === false) {
+      const created = await this.notes.createNote(projectPath, mrIid, body);
+      return {
+        noteId: created.id,
+        discussionId: null,
+        resolvable: created.resolvable === true,
+        url: this.noteUrl(projectPath, mrIid, created.id),
+      };
+    }
+    const discussion = await this.notes.createDiscussion(projectPath, mrIid, body);
+    const first = discussion.notes[0];
+    if (!first) throw new EmptyDiscussionError(discussion.id);
+    return {
+      noteId: first.id,
+      discussionId: discussion.id,
+      resolvable: first.resolvable === true,
+      url: this.noteUrl(projectPath, mrIid, first.id),
+    };
+  }
+
+  /** One attempt: a note GitLab did not anchor comes back with `anchored: false` for the caller to handle. */
+  async createInlineComment(
+    projectPath: string,
+    mrIid: number,
+    body: string,
+    anchor: CommentAnchor,
+  ): Promise<InlineCommentResult> {
+    const refs = await this.notes.fetchDiffRefs(projectPath, mrIid);
+    const discussion = await this.notes.createPositionedDiscussion(
+      projectPath,
+      mrIid,
+      body,
+      buildTextPosition(anchor, refs),
+    );
+    const first = discussion.notes[0];
+    if (!first) throw new EmptyDiscussionError(discussion.id);
+    return {
+      noteId: first.id,
+      discussionId: discussion.id,
+      resolvable: first.resolvable === true,
+      url: this.noteUrl(projectPath, mrIid, first.id),
+      anchored: first.type === 'DiffNote',
+      noteType: first.type,
+    };
+  }
+
+  async replyToDiscussion(
+    projectPath: string,
+    mrIid: number,
+    discussionId: string,
+    body: string,
+  ): Promise<NoteWriteResult> {
+    const created = await this.notes.createNote(projectPath, mrIid, body, discussionId);
+    return {
+      noteId: created.id,
+      discussionId,
+      resolvable: created.resolvable === true,
+      url: this.noteUrl(projectPath, mrIid, created.id),
+    };
+  }
+
+  async updateComment(projectPath: string, mrIid: number, note: NoteRef, body: string): Promise<void> {
+    await this.notes.updateNote(projectPath, mrIid, note.id, body);
+  }
+
+  async deleteComment(projectPath: string, mrIid: number, note: NoteRef): Promise<void> {
+    await this.notes.deleteNote(projectPath, mrIid, note.id);
+  }
+
+  async submitReview(projectPath: string, mrIid: number, review: ReviewSubmission): Promise<ReviewSubmitResult> {
+    return submitGitLabReview(
+      {
+        mutator: this.notes,
+        project: projectPath,
+        iid: mrIid,
+        approve: () => this.approvePullRequest(projectPath, mrIid),
+        resolve: (discussionId) => this.resolveDiscussion(projectPath, mrIid, discussionId),
+      },
+      review,
+    );
+  }
+
+  async fetchReviewerStates(projectPath: string, mrIid: number): Promise<ReviewerState[]> {
+    return this.notes.fetchReviewerStates(projectPath, mrIid);
+  }
+
+  private noteUrl(projectPath: string, mrIid: number, noteId: number): string {
+    return `${this.baseURL}/${projectPath}/-/merge_requests/${mrIid}#note_${noteId}`;
   }
 
   // ── Pipeline mutations ──────────────────────────────────────────────────

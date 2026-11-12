@@ -53,6 +53,7 @@ describe('expectation tables', () => {
       'fetchProject',
       'fetchProjectPipelines',
       'fetchUserEvents',
+      'fetchPullRequestDiffs',
     ];
     for (const table of [GITHUB_EXPECTATIONS, GITLAB_EXPECTATIONS]) {
       for (const [method, exp] of Object.entries(table)) {

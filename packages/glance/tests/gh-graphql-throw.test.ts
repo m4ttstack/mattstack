@@ -2,9 +2,8 @@
 /**
  * MAT-133: every way a GraphQL call can fail must reach the caller.
  *
- * `graphql()` swallows all of these into a warn and a null, which is fine for
- * reads that report "unknown". `graphqlOrThrow()` is what mutations use, and a
- * mutation that returns null is indistinguishable from one that did nothing.
+ * `graphqlOrThrow()` is what mutations use, and a mutation that returns null
+ * is indistinguishable from one that did nothing.
  * These tests drive it through `setDraft`, the one existing caller, because
  * `graphqlOrThrow` is private.
  *
@@ -73,7 +72,7 @@ describe('graphqlOrThrow: failure categories reach the caller', () => {
     await expect(setDraft(provider)).rejects.toThrow(/no data/);
   });
 
-  test('an empty `errors` array is success, matching graphql()', async () => {
+  test('an empty `errors` array is success', async () => {
     // `@octokit/graphql` throws whenever the response body has an `errors`
     // key at all, and `[]` is truthy. The pre-Octokit code tested
     // `payload.errors?.length`, so an empty array read as success. Both

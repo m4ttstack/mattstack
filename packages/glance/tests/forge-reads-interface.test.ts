@@ -18,6 +18,11 @@ const GUARDS: Array<[keyof ProviderCapabilities, string[]]> = [
   ['canEditLabels', ['addPullRequestLabels', 'removePullRequestLabels']]
 ];
 
+const COMMENT_WRITE_FLAGS: Record<'github' | 'gitlab', Record<string, boolean>> = {
+  github: { canReplyToGeneralComments: false, canRequestChanges: true, canFetchPullRequestDiffs: true },
+  gitlab: { canReplyToGeneralComments: true, canRequestChanges: true, canFetchPullRequestDiffs: false }
+};
+
 describe('forge reads interface', () => {
   for (const [name, provider] of Object.entries(providers)) {
     for (const [flag, methods] of GUARDS) {
@@ -37,6 +42,16 @@ describe('forge reads interface', () => {
       for (const [flag] of GUARDS) expect(`${flag}:${provider.capabilities[flag]}`).toBe(`${flag}:true`);
     }
   });
+
+  for (const [name, provider] of Object.entries(providers)) {
+    test(`${name}: comment-write flags are set and fetchPullRequestDiffs is a function exactly where its flag is true`, () => {
+      const flags = COMMENT_WRITE_FLAGS[name as 'github' | 'gitlab'];
+      const caps = provider.capabilities as unknown as Record<string, unknown>;
+      for (const [flag, want] of Object.entries(flags)) expect(`${flag}:${caps[flag]}`).toBe(`${flag}:${want}`);
+      const member = (provider as unknown as Record<string, unknown>).fetchPullRequestDiffs;
+      expect(typeof member).toBe(flags.canFetchPullRequestDiffs ? 'function' : 'undefined');
+    });
+  }
 
   test('ForgeHttpError carries status, statusText and bodyText', () => {
     const err = new ForgeHttpError('GitLab returned 404 Not Found: nope', 404, 'Not Found', 'nope');

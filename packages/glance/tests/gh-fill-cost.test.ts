@@ -209,6 +209,47 @@ describe('GitHub read cost', () => {
     expect(byKind(requests)).toEqual({ graphql: 1, list: 0, search: 0, rules: 0, other: 1 });
   });
 
+  const threadsAnswer = (query: string) =>
+    query.includes('GlancePullRequestThreads')
+      ? {
+          repository: {
+            pullRequest: {
+              reviewThreads: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] }
+            }
+          }
+        }
+      : undefined;
+
+  test('fetchMRDiscussions with one review comment: 4 REST + 1 GraphQL', async () => {
+    const reviewComment = {
+      id: 1,
+      body: 'b',
+      user: { id: 7, login: 'ada', name: null, avatar_url: null, type: 'User' },
+      created_at: '2026-01-01T00:00:00Z',
+      path: 'a.ts',
+      line: 1,
+      side: 'RIGHT'
+    };
+    stubForge({
+      graphql: threadsAnswer,
+      rest: (url) => jsonResponse(url.includes('/pulls/1/comments') ? [reviewComment] : [])
+    });
+    const { provider, requests } = counted();
+
+    await provider.fetchMRDiscussions('github:o/r', 1);
+
+    expect(byTransport(requests)).toEqual({ graphql: 1, rest: 4 });
+  });
+
+  test('fetchMRDiscussions with no review comments: 3 REST, no GraphQL', async () => {
+    stubForge({ graphql: threadsAnswer, rest: () => jsonResponse([]) });
+    const { provider, requests } = counted();
+
+    await provider.fetchMRDiscussions('github:o/r', 1);
+
+    expect(byTransport(requests)).toEqual({ graphql: 0, rest: 3 });
+  });
+
   test('150 contexts: 2 GraphQL + 1 REST', async () => {
     const first = Array.from({ length: 100 }, (_, i) => checkRun(i + 1));
     const rest = Array.from({ length: 50 }, (_, i) => checkRun(i + 101));

@@ -1,98 +1,80 @@
 /**
- * Discussion IPC handlers — thread/note reads and mutations for the MR
+ * Discussion IPC handlers: thread/note reads and mutations for the MR
  * status sub-view. Like `mr:action`, every call routes through the daemon so
- * it owns the single authoritative GitLabProvider per repo.
+ * it owns the single authoritative provider per repo, GitLab or GitHub.
  *
- *   discussions:read     — return cached discussions, lazy-fetch on miss/stale
- *   discussions:refresh  — force re-fetch from GitLab
- *   discussions:resolve  — toggle resolved state on a thread
- *   discussions:reply    — post a note into an existing thread
+ *   discussions:read     - return cached discussions, lazy-fetch on miss/stale
+ *   discussions:refresh  - force re-fetch from the forge
+ *   discussions:resolve  - toggle resolved state on a thread
+ *   discussions:reply    - post a note into an existing thread
+ *   discussions:diffs    - read the MR's file diffs
  *   mr:comment-inline    - post a new positioned (line-anchored) discussion
  *   mr:comment           - post a new top-level note (resolvable discussion or plain note)
  *   mr:note-update       - replace the body of an existing note
- *   mr:review-submit     - post one whole review: pending comments, one publish, approve, resolve
+ *   mr:review-submit     - post one whole review with its comments, replies, approval and resolves
  *
  * All handlers take `{ repoName, iid }` and look up the cache entry whose
  * `mr.iid` matches. Writes go through `refreshDiscussions` in
  * `discussions-store.ts`, which also emits new-comment notifications.
  *
- * `repoName` is opaque here — it flows straight into `grants()`, the
- * discussions table, and `getGitLabContext`. It becomes the serialized repo
+ * `repoName` is opaque here: it flows straight into `grants()`, the
+ * discussions table, and `getRepoContext`. It becomes the serialized repo
  * identity once every caller sends one; this module makes no assumption
  * about its shape.
  */
 
-import { NoteMutator, type TextPosition, type CreatedDiscussion } from "@mattstack/glance";
+import {
+  EmptyDiscussionError,
+  type CommentAnchor,
+  type GitHubProvider,
+  type GitLabProvider,
+  type GitProvider,
+  type InlineCommentResult,
+  type NoteRef,
+  type ReviewComment,
+} from "@mattstack/glance";
 import { decodeRepo } from "../identity-decoder.ts";
-import { getGitLabContext, getSelfUsername, providerRequestHook } from "../freshness.ts";
-import { anchorComments, parseReviewSubmit, submitReview, type ReviewMutator } from "../review-submit.ts";
-import { loadSecrets } from "../../linear.ts";
-import { refreshDiscussions, type BroadcastFn } from "../discussions-store.ts";
+import { getRepoContext, getSelfUsername } from "../freshness.ts";
+import { anchorComments, parseReviewSubmit } from "../review-submit.ts";
+import { refreshDiscussions, type BroadcastFn, type RefreshResult } from "../discussions-store.ts";
 import { getDiscussionsFileStore } from "../discussions-file-store.ts";
 import { grants, loadRepoTracking } from "../../repo-tracking.ts";
 import { lazyChildLogger } from "../../daemon-logger.ts";
 import { checkAnchor } from "../diff-line-kind.ts";
 import type { HandlerContext, HandlerMap, CommandResult } from "./types.ts";
-import type { Commands, Discussion } from "../../../packages/rt-client/src/commands.ts";
+import type { Commands, Discussion, ReviewSubmitComment } from "../../../packages/rt-client/src/commands.ts";
 
 const log = lazyChildLogger("discussions");
 
-/** The subset of NoteMutator the inline-comment repair flow needs; test seam. */
-export type CommentInlineMutator = Pick<NoteMutator, "fetchDiffRefs" | "createPositionedDiscussion" | "deleteNote">;
+/** What the thread handlers use of a forge provider; test seam. */
+export type ThreadProvider = { baseURL: string }
+  & Pick<GitProvider, "createComment" | "createInlineComment" | "replyToDiscussion" | "updateComment"
+    | "deleteComment" | "submitReview" | "resolveDiscussion" | "unresolveDiscussion">
+  & Partial<Pick<GitHubProvider, "fetchPullRequestDiffs">>
+  & Partial<Pick<GitLabProvider, "restRequest" | "fetchReviewerStates">>;
 
-/** The subset of NoteMutator mr:comment needs; test seam. */
-export type CommentMutator = Pick<NoteMutator, "createDiscussion" | "createNote" | "updateNote">;
-
-/** What mr:review-submit needs from NoteMutator; test seam. */
-export type ReviewSubmitMutator = ReviewMutator & Pick<NoteMutator, "fetchReviewerStates">;
+/** A missing `forge` reads as GitLab. */
+export interface ThreadContext {
+  forge?: "gitlab" | "github";
+  provider: ThreadProvider;
+  projectPath: string;
+  projectId?: number | null;
+}
 
 /**
- * Injectable plumbing for `discussions:reply`, `mr:comment-inline` and
- * `mr:comment`. Every field defaults to the real daemon plumbing; tests
- * override only what a case needs.
+ * Injectable plumbing for the thread handlers. Every field defaults to the
+ * real daemon plumbing; tests override only what a case needs.
  */
 export interface DiscussionHandlerSeams {
-  repoContext?: (repoName: string, repoPath?: string) => Promise<{ provider: { baseURL: string }; projectPath: string; projectId: number }>;
-  gitlabToken?: () => Promise<string | undefined>;
-  mutator?: (baseURL: string, token: string) => CommentInlineMutator;
-  commentMutator?: (baseURL: string, token: string) => CommentMutator;
+  repoContext?: (repoName: string, repoPath?: string) => Promise<ThreadContext>;
   diffs?: (
-    baseURL: string, projectPath: string, iid: number, token: string,
+    ctx: ThreadContext, iid: number,
     opts: { reqSignal?: AbortSignal; timeoutMs?: number },
   ) => Promise<{ diffs: MrDiffRow[]; truncated: boolean }>;
   warn?: (obj: object, msg: string) => void;
-  refresh?: (repoName: string, iid: number) => Promise<unknown>;
+  refresh?: (repoName: string, iid: number) => Promise<Pick<RefreshResult, "discussions" | "fetchedAt"> | undefined>;
   readCached?: (repoName: string, iid: number) => { discussions: Discussion[]; fetchedAt: number } | undefined;
-  reviewMutator?: (baseURL: string, token: string) => ReviewSubmitMutator;
-  reviewActions?: (repoName: string, repoPath?: string) => Promise<{
-    approve: (iid: number) => Promise<void>;
-    resolve: (iid: number, discussionId: string) => Promise<void>;
-  }>;
   selfUsername?: () => string | null;
-}
-
-function buildTextPosition(
-  payload: { path: string; line: number; oldPath?: string; oldLine?: number },
-  diffRefs: { base_sha: string; start_sha: string; head_sha: string },
-): TextPosition {
-  const old_path = payload.oldPath ?? payload.path;
-  if (typeof payload.oldLine === "number") {
-    return {
-      ...diffRefs,
-      position_type: "text",
-      new_path: payload.path,
-      new_line: payload.line,
-      old_path,
-      old_line: payload.oldLine,
-    };
-  }
-  return {
-    ...diffRefs,
-    position_type: "text",
-    new_path: payload.path,
-    new_line: payload.line,
-    old_path,
-  };
 }
 
 const ANCHOR_HINT = " (an unchanged line needs both line and oldLine; a removed line needs oldLine)";
@@ -121,33 +103,73 @@ export interface MrDiffRow {
 }
 
 /**
- * Every other outbound fetch in the daemon carries a bound (linear.ts,
- * notifier.ts, park.ts); this one previously had none, so a stalled GitLab
- * connection left the promise (and the sops-decrypted token in its closure)
- * pending indefinitely. `reqSignal` is the client's own request signal
- * (handlers/types.ts's Handler(payload, signal?)) so a client giving up
- * actually cancels the in-flight GitLab request instead of orphaning it.
+ * Every other outbound read in the daemon carries a bound (linear.ts,
+ * notifier.ts, park.ts); this one once had none, so a stalled connection
+ * left the promise pending indefinitely. `reqSignal` is the client's own
+ * request signal (handlers/types.ts's Handler(payload, signal?)) so a client
+ * giving up actually cancels the in-flight request instead of orphaning it.
  * `truncated` reports a full page rather than silently dropping files past it.
  */
 export async function fetchMrDiffs(
-  baseURL: string,
-  projectPath: string,
+  ctx: ThreadContext,
   iid: number,
-  token: string,
-  opts: { reqSignal?: AbortSignal; fetchFn?: typeof fetch; timeoutMs?: number } = {},
+  opts: { reqSignal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<{ diffs: MrDiffRow[]; truncated: boolean }> {
-  const fetchFn = opts.fetchFn ?? fetch;
-  const encoded = encodeURIComponent(projectPath);
-  const url = `${baseURL}/api/v4/projects/${encoded}/merge_requests/${iid}/diffs?per_page=${DIFFS_PAGE_SIZE}`;
   const timeout = AbortSignal.timeout(opts.timeoutMs ?? DIFFS_FETCH_TIMEOUT_MS);
   const signal = opts.reqSignal ? AbortSignal.any([timeout, opts.reqSignal]) : timeout;
-  const res = await fetchFn(url, { headers: { "PRIVATE-TOKEN": token }, signal });
+  const { provider, projectPath } = ctx;
+  if (ctx.forge === "github") {
+    if (!provider.fetchPullRequestDiffs) throw new Error("fetchMrDiffs: the GitHub provider cannot read pull request files");
+    return provider.fetchPullRequestDiffs(projectPath, iid, { signal });
+  }
+  if (!provider.restRequest) throw new Error("fetchMrDiffs: the GitLab provider cannot make REST requests");
+  const path = `/projects/${encodeURIComponent(projectPath)}/merge_requests/${iid}/diffs?per_page=${DIFFS_PAGE_SIZE}`;
+  const res = await provider.restRequest("GET", path, undefined, "fetchMrDiffs", { signal });
   if (!res.ok) throw new Error(`GitLab diffs API: ${res.status}`);
   const raw = (await res.json()) as Array<{ new_path: string; old_path?: string; diff: string; collapsed?: boolean; too_large?: boolean }>;
   return {
     diffs: raw.map((d) => ({ newPath: d.new_path, oldPath: d.old_path, diff: d.diff, collapsed: d.collapsed, tooLarge: d.too_large })),
     truncated: raw.length >= DIFFS_PAGE_SIZE,
   };
+}
+
+function mrWebUrl(ctx: ThreadContext, iid: number): string {
+  const base = `${ctx.provider.baseURL}/${ctx.projectPath}`;
+  return ctx.forge === "github" ? `${base}/pull/${iid}` : `${base}/-/merge_requests/${iid}`;
+}
+
+/** GitLab answers a non-GET on a moved project's old path with 404, so its writes go by numeric id. */
+function writeRef(ctx: ThreadContext): string {
+  return ctx.forge !== "github" && ctx.projectId != null ? String(ctx.projectId) : ctx.projectPath;
+}
+
+const GITHUB_THREAD_KINDS: Array<[prefix: string, kind: NonNullable<NoteRef["kind"]>]> = [
+  ["gh-review-thread-", "diff"],
+  ["gh-issue-comment-", "general"],
+  ["gh-review-", "review"],
+];
+
+/**
+ * The kinds of every cached thread holding the note. More than one means the
+ * id names comments in separate GitHub id spaces, and a kind-less edit would
+ * patch whichever the forge probe finds first.
+ */
+function githubNoteKinds(discussions: Discussion[], noteId: number): Set<NoteRef["kind"]> {
+  const kinds = new Set<NoteRef["kind"]>();
+  for (const d of discussions) {
+    if (!d.notes.some((n) => n.id === noteId)) continue;
+    kinds.add(GITHUB_THREAD_KINDS.find(([prefix]) => d.id.startsWith(prefix))?.[1]);
+  }
+  return kinds;
+}
+
+/**
+ * GitHub takes one side per comment: a caller's old line goes LEFT, anything
+ * else goes RIGHT, so an old line the diff filled in never reaches it.
+ */
+function githubReviewComment(c: ReviewSubmitComment): ReviewComment {
+  const side = c.oldLine !== undefined ? { oldLine: c.oldLine } : { line: c.line };
+  return { body: c.body, path: c.path, ...side, ...(c.oldPath !== undefined ? { oldPath: c.oldPath } : {}) };
 }
 
 export function createDiscussionHandlers(
@@ -165,23 +187,11 @@ export function createDiscussionHandlers(
   & { "mr:review-submit": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:review-submit">> }
   & HandlerMap {
   const deps = { ctx, broadcast };
-  const repoContextFn = seams.repoContext ?? ((repoName: string, repoPath?: string) => getGitLabContext("threads", repoName, repoPath));
-  const gitlabTokenFn = seams.gitlabToken ?? (async () => (await loadSecrets()).gitlabToken);
-  const mutatorFn = seams.mutator ?? ((baseURL: string, token: string) => new NoteMutator(baseURL, token, providerRequestHook()));
-  const commentMutatorFn = seams.commentMutator ?? ((baseURL: string, token: string) => new NoteMutator(baseURL, token, providerRequestHook()));
-  const diffsFn = seams.diffs ?? ((baseURL: string, projectPath: string, iid: number, token: string, opts: { reqSignal?: AbortSignal; timeoutMs?: number }) =>
-    fetchMrDiffs(baseURL, projectPath, iid, token, opts));
+  const repoContextFn = seams.repoContext ?? ((repoName: string, repoPath?: string): Promise<ThreadContext> => getRepoContext(repoName, repoPath));
+  const diffsFn = seams.diffs ?? fetchMrDiffs;
   const warnFn = seams.warn ?? ((obj: object, msg: string) => log.warn(obj, msg));
   const refreshFn = seams.refresh ?? ((repoName: string, iid: number) => refreshDiscussions(deps, repoName, iid));
   const readCachedFn = seams.readCached ?? ((repoName: string, iid: number) => getDiscussionsFileStore().read(repoName, iid));
-  const reviewMutatorFn = seams.reviewMutator ?? ((baseURL: string, token: string) => new NoteMutator(baseURL, token, providerRequestHook()));
-  const reviewActionsFn = seams.reviewActions ?? (async (repoName: string, repoPath?: string) => {
-    const { provider, projectPath } = await getGitLabContext("threads", repoName, repoPath);
-    return {
-      approve: (iid: number) => provider.approvePullRequest(projectPath, iid),
-      resolve: (iid: number, discussionId: string) => provider.resolveDiscussion(projectPath, iid, discussionId),
-    };
-  });
   const selfUsernameFn = seams.selfUsername ?? getSelfUsername;
 
   return {
@@ -262,13 +272,14 @@ export function createDiscussionHandlers(
 
       const repoPath = ctx.repoIndex()[repoName];
       try {
-        const repoCtx = await getGitLabContext("threads", repoName, repoPath);
+        const repoCtx = await repoContextFn(repoName, repoPath);
         if (resolved) {
           await repoCtx.provider.resolveDiscussion(repoCtx.projectPath, iid, discussionId);
         } else {
           await repoCtx.provider.unresolveDiscussion(repoCtx.projectPath, iid, discussionId);
         }
-        const res = await refreshDiscussions(deps, repoName, iid);
+        const res = await refreshFn(repoName, iid);
+        if (!res) return { ok: false, error: "discussions refresh returned nothing" };
         return { ok: true, data: { discussions: res.discussions, fetchedAt: res.fetchedAt } };
       } catch (err) {
         return { ok: false, error: String(err) };
@@ -289,17 +300,8 @@ export function createDiscussionHandlers(
 
       const repoPath = ctx.repoIndex()[repoName];
       try {
-        const repoCtx = await getGitLabContext("threads", repoName, repoPath);
-        const secrets = await loadSecrets();
-        if (!secrets.gitlabToken) return { ok: false, error: "no gitlabToken in secrets" };
-
-        const { diffs, truncated } = await fetchMrDiffs(
-          repoCtx.provider.baseURL,
-          repoCtx.projectPath,
-          iid,
-          secrets.gitlabToken,
-          { reqSignal: signal },
-        );
+        const repoCtx = await repoContextFn(repoName, repoPath);
+        const { diffs, truncated } = await diffsFn(repoCtx, iid, { reqSignal: signal });
         return { ok: true, data: { diffs, truncated } };
       } catch (err) {
         return { ok: false, error: String(err) };
@@ -324,9 +326,7 @@ export function createDiscussionHandlers(
       const repoPath = ctx.repoIndex()[repoName];
       try {
         const repoCtx = await repoContextFn(repoName, repoPath);
-        const token = await gitlabTokenFn();
-        if (!token) return { ok: false, error: "no gitlabToken in secrets" };
-        const created = await commentMutatorFn(repoCtx.provider.baseURL, token).createNote(repoCtx.projectId, iid, body, discussionId);
+        const created = await repoCtx.provider.replyToDiscussion(writeRef(repoCtx), iid, discussionId, body);
         // A refresh failure must never turn a landed reply into ok:false: the
         // caller would retry and post it twice.
         const refreshed = await refreshFn(repoName, iid).catch((err) => {
@@ -334,7 +334,7 @@ export function createDiscussionHandlers(
           return undefined;
         }) as { discussions?: Discussion[]; fetchedAt?: number } | undefined;
         if (refreshed?.discussions) {
-          return { ok: true, data: { discussions: refreshed.discussions, fetchedAt: refreshed.fetchedAt ?? Date.now(), noteId: created.id } };
+          return { ok: true, data: { discussions: refreshed.discussions, fetchedAt: refreshed.fetchedAt ?? Date.now(), noteId: created.noteId } };
         }
         let cached: { discussions: Discussion[]; fetchedAt: number } | undefined;
         try {
@@ -342,7 +342,7 @@ export function createDiscussionHandlers(
         } catch (err) {
           log.warn({ err, repoName, iid }, "discussions:reply: cached discussions unreadable after a failed refresh");
         }
-        return { ok: true, data: { discussions: cached?.discussions ?? [], fetchedAt: cached?.fetchedAt ?? 0, noteId: created.id } };
+        return { ok: true, data: { discussions: cached?.discussions ?? [], fetchedAt: cached?.fetchedAt ?? 0, noteId: created.noteId } };
       } catch (err) {
         return { ok: false, error: String(err) };
       }
@@ -374,18 +374,17 @@ export function createDiscussionHandlers(
       }
       const repoName = decoded.repo;
       const position = { path, line, oldPath: p?.oldPath, oldLine: p?.oldLine };
+      const callerOldLine = p?.oldLine;
 
       const repoPath = ctx.repoIndex()[repoName];
       try {
         const repoCtx = await repoContextFn(repoName, repoPath);
-        const token = await gitlabTokenFn();
-        if (!token) return { ok: false, error: "no gitlabToken in secrets" };
-        const mutator = mutatorFn(repoCtx.provider.baseURL, token);
+        const forgeName = repoCtx.forge === "github" ? "GitHub" : "GitLab";
 
         if (position.oldLine === undefined) {
           let page: Awaited<ReturnType<typeof diffsFn>> | undefined;
           try {
-            page = await diffsFn(repoCtx.provider.baseURL, repoCtx.projectPath, iid, token, {
+            page = await diffsFn(repoCtx, iid, {
               reqSignal: signal,
               timeoutMs: ANCHOR_DIFFS_TIMEOUT_MS,
             });
@@ -395,7 +394,7 @@ export function createDiscussionHandlers(
           }
           if (page) {
             const anchor = checkAnchor(page, path, line);
-            const refusal = `line ${line} of ${path} is not in this MR's diff, so GitLab cannot anchor a comment there`;
+            const refusal = `line ${line} of ${path} is not in this MR's diff, so ${forgeName} cannot anchor a comment there`;
             if (anchor.kind === "no-file") return { ok: false, error: `${refusal}; this file has no diff in this MR` };
             if (anchor.kind === "outside") {
               const hint = anchor.nearest.length > 0
@@ -408,10 +407,16 @@ export function createDiscussionHandlers(
           }
         }
 
-        const postOnce = async () => {
-          const diffRefs = await mutator.fetchDiffRefs(repoCtx.projectId, iid);
-          return mutator.createPositionedDiscussion(repoCtx.projectId, iid, body, buildTextPosition(position, diffRefs));
-        };
+        // GitHub takes one side: a caller's old line goes LEFT, anything else
+        // goes RIGHT, so an old line the diff filled in is dropped there.
+        const github = repoCtx.forge === "github";
+        const commentAnchor: CommentAnchor = github && callerOldLine !== undefined
+          ? { path, oldLine: callerOldLine }
+          : { path, line };
+        if (position.oldPath !== undefined) commentAnchor.oldPath = position.oldPath;
+        if (!github && position.oldLine !== undefined) commentAnchor.oldLine = position.oldLine;
+
+        const postOnce = () => repoCtx.provider.createInlineComment(writeRef(repoCtx), iid, body, commentAnchor);
 
         // Awaited (not fire-and-forget): a caller reading discussions right
         // after this resolves must see its own just-posted comment. A refresh
@@ -424,50 +429,53 @@ export function createDiscussionHandlers(
         };
 
         if (signal?.aborted) return { ok: false, error: "request aborted before the comment was posted" };
-        const first = await postOnce();
-        const firstNote = first.notes[0];
-        if (!firstNote) return { ok: false, error: "GitLab created a discussion with no notes" };
+        let first: InlineCommentResult;
+        try {
+          first = await postOnce();
+        } catch (err) {
+          if (err instanceof EmptyDiscussionError) return { ok: false, error: "GitLab created a discussion with no notes" };
+          throw err;
+        }
 
-        if (firstNote.type === "DiffNote") {
-          return succeed(first.id, firstNote.id);
+        if (github || first.anchored) {
+          return succeed(first.discussionId, first.noteId);
         }
 
         // The first note landed as a general note (GitLab silently dropped the
         // position). It must be deleted before the retry: leaving it would
         // strand a duplicate, unpositioned copy of the comment on the MR.
         try {
-          await mutator.deleteNote(repoCtx.projectId, iid, firstNote.id);
+          await repoCtx.provider.deleteComment(writeRef(repoCtx), iid, { id: first.noteId });
         } catch (err) {
-          return { ok: false, error: `could not delete stray note ${firstNote.id}: ${String(err)}` };
+          return { ok: false, error: `could not delete stray note ${first.noteId}: ${String(err)}` };
         }
 
-        let second: CreatedDiscussion;
+        let second: InlineCommentResult;
         try {
           second = await postOnce();
         } catch (err) {
+          if (err instanceof EmptyDiscussionError) return { ok: false, error: "GitLab created a retry discussion with no notes" };
           return {
             ok: false,
-            error: `first attempt degraded (note ${firstNote.id} type ${firstNote.type}, deleted); `
+            error: `first attempt degraded (note ${first.noteId} type ${first.noteType}, deleted); `
               + `retry failed: ${withAnchorHint(err)}`,
           };
         }
-        const secondNote = second.notes[0];
-        if (!secondNote) return { ok: false, error: "GitLab created a retry discussion with no notes" };
 
-        if (secondNote.type === "DiffNote") {
-          return succeed(second.id, secondNote.id);
+        if (second.anchored) {
+          return succeed(second.discussionId, second.noteId);
         }
 
         try {
-          await mutator.deleteNote(repoCtx.projectId, iid, secondNote.id);
+          await repoCtx.provider.deleteComment(writeRef(repoCtx), iid, { id: second.noteId });
         } catch (err) {
-          return { ok: false, error: `could not delete stray note ${secondNote.id}: ${String(err)}` };
+          return { ok: false, error: `could not delete stray note ${second.noteId}: ${String(err)}` };
         }
 
         return {
           ok: false,
-          error: `GitLab dropped the position twice (note ${firstNote.id} type ${firstNote.type}, `
-            + `note ${secondNote.id} type ${secondNote.type}); both general notes were deleted`,
+          error: `GitLab dropped the position twice (note ${first.noteId} type ${first.noteType}, `
+            + `note ${second.noteId} type ${second.noteType}); both general notes were deleted`,
         };
       } catch (err) {
         return { ok: false, error: withAnchorHint(err) };
@@ -494,35 +502,21 @@ export function createDiscussionHandlers(
       const repoPath = ctx.repoIndex()[repoName];
       try {
         const repoCtx = await repoContextFn(repoName, repoPath);
-        const token = await gitlabTokenFn();
-        if (!token) return { ok: false, error: "no gitlabToken in secrets" };
-        const mutator = commentMutatorFn(repoCtx.provider.baseURL, token);
-
-        let noteId: number;
-        let discussionId: string | null;
-        let resolvable: boolean;
-        if (p.resolvable === false) {
-          const created = await mutator.createNote(repoCtx.projectId, iid, body);
-          noteId = created.id;
-          discussionId = null;
-          resolvable = created.resolvable === true;
-        } else {
-          const created = await mutator.createDiscussion(repoCtx.projectId, iid, body);
-          const first = created.notes[0];
-          if (!first) return { ok: false, error: `GitLab created discussion ${created.id} with no notes` };
-          noteId = first.id;
-          discussionId = created.id;
-          resolvable = first.resolvable === true;
-        }
+        const created = await repoCtx.provider.createComment(writeRef(repoCtx), iid, body, { resolvable: p.resolvable !== false });
 
         // A refresh failure must never turn a landed note into ok:false: the
         // caller would retry and post it twice.
         await refreshFn(repoName, iid).catch((err) =>
           log.warn({ err, repoName, iid }, "mr:comment: post-comment discussions refresh failed"));
 
-        const mrUrl = `${repoCtx.provider.baseURL}/${repoCtx.projectPath}/-/merge_requests/${iid}`;
-        return { ok: true, data: { noteId, discussionId, resolvable, url: `${mrUrl}#note_${noteId}`, mrUrl } };
+        const { noteId, discussionId, resolvable } = created;
+        const mrUrl = mrWebUrl(repoCtx, iid);
+        const url = repoCtx.forge === "github" ? created.url : `${mrUrl}#note_${noteId}`;
+        return { ok: true, data: { noteId, discussionId, resolvable, url, mrUrl } };
       } catch (err) {
+        if (err instanceof EmptyDiscussionError) {
+          return { ok: false, error: `GitLab created discussion ${err.discussionId} with no notes` };
+        }
         return { ok: false, error: String(err) };
       }
     },
@@ -546,9 +540,22 @@ export function createDiscussionHandlers(
       const repoPath = ctx.repoIndex()[repoName];
       try {
         const repoCtx = await repoContextFn(repoName, repoPath);
-        const token = await gitlabTokenFn();
-        if (!token) return { ok: false, error: "no gitlabToken in secrets" };
-        await commentMutatorFn(repoCtx.provider.baseURL, token).updateNote(repoCtx.projectId, iid, noteId, body);
+        const note: NoteRef = { id: noteId };
+        if (repoCtx.forge === "github") {
+          let cached: { discussions: Discussion[] } | undefined;
+          try {
+            cached = readCachedFn(repoName, iid);
+          } catch (err) {
+            warnFn({ err, repoName, iid }, "mr:note-update: cached discussions unreadable, editing with no note kind");
+          }
+          const kinds = githubNoteKinds(cached?.discussions ?? [], noteId);
+          if (kinds.size > 1) {
+            return { ok: false, error: `note ${noteId} matches more than one comment on this pull request; edit it on GitHub` };
+          }
+          const [kind] = kinds;
+          if (kind) note.kind = kind;
+        }
+        await repoCtx.provider.updateComment(writeRef(repoCtx), iid, note, body);
 
         await refreshFn(repoName, iid).catch((err) =>
           log.warn({ err, repoName, iid }, "mr:note-update: post-edit discussions refresh failed"));
@@ -575,17 +582,13 @@ export function createDiscussionHandlers(
       const repoPath = ctx.repoIndex()[repoName];
       try {
         const repoCtx = await repoContextFn(repoName, repoPath);
-        const token = await gitlabTokenFn();
-        if (!token) return { ok: false, error: "no gitlabToken in secrets" };
-        const mutator = reviewMutatorFn(repoCtx.provider.baseURL, token);
-        const actions = await reviewActionsFn(repoName, repoPath);
-        const mrUrl = `${repoCtx.provider.baseURL}/${repoCtx.projectPath}/-/merge_requests/${iid}`;
+        const mrUrl = mrWebUrl(repoCtx, iid);
 
         let input = parsed.input;
         if (input.comments.some((c) => c.oldLine === undefined)) {
           let page: Awaited<ReturnType<typeof diffsFn>> | undefined;
           try {
-            page = await diffsFn(repoCtx.provider.baseURL, repoCtx.projectPath, iid, token, {
+            page = await diffsFn(repoCtx, iid, {
               reqSignal: signal,
               timeoutMs: REVIEW_DIFFS_TIMEOUT_MS,
             });
@@ -602,23 +605,25 @@ export function createDiscussionHandlers(
           }
         }
 
-        const outcome = await submitReview({
-          mutator,
-          projectId: repoCtx.projectId,
-          iid,
-          position: buildTextPosition,
-          approve: () => actions.approve(iid),
-          resolve: (discussionId) => actions.resolve(iid, discussionId),
-        }, input);
+        const github = repoCtx.forge === "github";
+        const comments: ReviewComment[] = github ? parsed.input.comments.map(githubReviewComment) : input.comments;
+        const outcome = await repoCtx.provider.submitReview(writeRef(repoCtx), iid, { ...input, comments });
         if (!outcome.published) return { ok: true, data: { ...outcome, mrUrl } };
+        const { reviewId, reviewerState: reviewState, ...published } = outcome;
 
         // Everything below describes a review that already landed, so none of
         // it may answer ok:false: the caller would submit the review again.
+        if (github) {
+          await refreshFn(repoName, iid).catch((err) =>
+            log.warn({ err, repoName, iid }, "mr:review-submit: post-review discussions refresh failed"));
+          return { ok: true, data: { ...published, reviewerState: reviewState, summaryNoteId: reviewId, mrUrl } };
+        }
+
         const self = selfUsernameFn();
         const refreshed = await refreshFn(repoName, iid).catch((err) => {
           log.warn({ err, repoName, iid }, "mr:review-submit: post-review discussions refresh failed");
           return undefined;
-        }) as { discussions?: Discussion[] } | undefined;
+        });
         let summaryNoteId: number | null = null;
         for (const d of refreshed?.discussions ?? []) {
           for (const n of d.notes) {
@@ -627,12 +632,17 @@ export function createDiscussionHandlers(
             }
           }
         }
-        const states = await mutator.fetchReviewerStates(repoCtx.projectId, iid).catch((err) => {
+        const { provider } = repoCtx;
+        const readStates = async () => {
+          if (!provider.fetchReviewerStates) throw new Error("the GitLab provider cannot read reviewer states");
+          return provider.fetchReviewerStates(writeRef(repoCtx), iid);
+        };
+        const states = await readStates().catch((err) => {
           log.warn({ err, repoName, iid }, "mr:review-submit: reviewer state read failed");
           return [];
         });
         const reviewerState = self ? states.find((s) => s.username === self)?.state ?? null : null;
-        return { ok: true, data: { ...outcome, reviewerState, summaryNoteId, mrUrl } };
+        return { ok: true, data: { ...published, reviewerState, summaryNoteId, mrUrl } };
       } catch (err) {
         return { ok: false, error: String(err) };
       }

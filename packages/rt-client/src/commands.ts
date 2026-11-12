@@ -923,6 +923,8 @@ export type ReviewSubmitData =
       approved: boolean;
       approveError?: string;
       resolveErrors: Array<{ discussionId: string; error: string }>;
+      /** GitHub only: replies that failed to post. */
+      replyErrors?: Array<{ discussionId: string; error: string }>;
       reviewerState: string | null;
       summaryNoteId: number | null;
       mrUrl: string;
@@ -1176,7 +1178,8 @@ export interface Commands {
   "discussions:refresh": { payload: { repoName: string; iid: number }; data: DiscussionsWriteData };
   "discussions:resolve": { payload: { repoName: string; iid: number; discussionId: string; resolved?: boolean }; data: DiscussionsWriteData };
   /** `noteId` is the posted reply. A refresh failure after the post still
-      answers ok, with the cached discussions, so a caller never re-posts. */
+      answers ok, with the cached discussions, so a caller never re-posts.
+      On GitHub only a `gh-review-thread-<id>` thread takes replies. */
   "discussions:reply": { payload: { repoName: string; iid: number; discussionId: string; body: string }; data: DiscussionsWriteData & { noteId: number } };
   "discussions:diffs": { payload: { repoName: string; iid: number }; data: DiscussionsDiffsData };
 
@@ -1194,26 +1197,28 @@ export interface Commands {
 
   /** Top-level MR note. `resolvable` (default true) opens a discussion a
       human can resolve; false posts a plain note and `discussionId` is null.
-      `resolvable` in the reply is what GitLab reports. Posts once, never
-      retries. */
+      `resolvable` in the reply is what the forge reports, so a GitHub pull
+      request comment is never resolvable. Posts once, never retries. */
   "mr:comment": {
     payload: { repoName: string; iid: number; body: string; resolvable?: boolean };
     data: { noteId: number; discussionId: string | null; resolvable: boolean; url: string; mrUrl: string };
   };
 
-  /** Replaces the body of an existing MR note. GitLab decides who may edit;
-      its refusal comes back as the error text. */
+  /** Replaces the body of an existing MR note. The forge decides who may
+      edit; its refusal comes back as the error text. */
   "mr:note-update": {
     payload: { repoName: string; iid: number; noteId: number; body: string };
     data: { noteId: number };
   };
 
-  /** One whole review in one call: every comment and reply becomes a
-      pending comment, then one publish posts them with the summary and
-      marks the caller as having reviewed; `approve` approves afterwards.
-      `published: false` means nothing reached the MR and names why. A
-      refused approval after a publish answers `published: true,
-      approved: false`, so a caller never publishes twice. */
+  /** One whole review in one call. On GitLab every comment and reply
+      becomes a pending comment, then one publish posts them with the
+      summary and marks the caller as having reviewed; `approve` approves
+      afterwards. On GitHub it is one review, and `summaryNoteId` is the
+      review's id. `published: false` means nothing reached the MR and
+      names why. A refused approval after a publish (on GitHub, one's own
+      pull request) answers `published: true, approved: false`, so a
+      caller never publishes twice. */
   "mr:review-submit": {
     payload: {
       repoName: string; iid: number; outcome: "comment" | "approve"; summary: string;
