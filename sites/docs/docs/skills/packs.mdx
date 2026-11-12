@@ -175,15 +175,15 @@ A team's `pack/sections/*.md` text and `pack/params.jsonc` values may use `{{pac
 
 ## Pointers in compiled skills
 
-Pack sources keep the forms above: `${CLAUDE_SKILL_DIR}/<file>` for a file in the skill's own folder, `{{pack.path:...}}` and `{{verb.path:...}}` for the rest. Compile writes each one in the compiled skill as an `@key`, such as `@work/references/capture-evidence/SKILL.md`. It records the file each key leads to in the skill's `compiled.json`. A compiled skill whose `compiled.json` holds a key opens with a line naming its id, such as `widgets@0.4.2:work`. An agent running the skill calls the `skills_resolve` tool once with that id. It gets back the absolute path for every key, from whichever folder the skill loaded. A `./` or `../` path in prose stays as written unless the compile writes its file. So `./gradlew test` still runs the repo's own script. `allowed-tools` in the frontmatter keeps `${CLAUDE_SKILL_DIR}` as written.
+Pack sources keep the forms above: `${CLAUDE_SKILL_DIR}/<file>` for a file in the skill's own folder, `{{pack.path:...}}` and `{{verb.path:...}}` for the rest. Compile writes each one in the compiled skill as an `@key`, such as `@work/references/capture-evidence/SKILL.md`. It records the file each key leads to in the skill's `compiled.json`. A compiled skill whose `compiled.json` holds a key opens with a line naming its id, such as `widgets:work`. An agent running the skill calls the `skills_resolve` tool once with that id and the skill's own folder (`dir`), so a run stays on the version it loaded even after a newer one installs. It gets back the absolute path for every key, from that folder. A `./` or `../` path in prose stays as written unless the compile writes its file. So `./gradlew test` still runs the repo's own script. `allowed-tools` in the frontmatter keeps `${CLAUDE_SKILL_DIR}` as written.
 
 - `rt skills resolve <id>` prints the same map, to see where each key leads.
 - `rt skills check` fails a key whose target is not a file. A pointer to a folder counts as missing, so name each file.
-- The id carries the pack's version, so a version bump needs a recompile before you commit. `rt skills check` reports a bump without one as drift.
+- The versions each compiled skill was built from live in the pack's `pack/compiled.lock.json`, so recompile after a version bump and commit the bump with the rewritten lock.
 
 ## What not to do
 
-- Do not edit `skills/work/`, `attachments/stage-*/` (stage copies like `attachments/stage-evidence--accessibility/` included), `pack/requires.json` or an attachment folder holding `compiled.json`: compiled output, overwritten on the next compile.
+- Do not edit `skills/work/`, `attachments/stage-*/` (stage copies like `attachments/stage-evidence--accessibility/` included), `pack/requires.json`, `pack/compiled.lock.json` or an attachment folder holding `compiled.json`: compiled output, overwritten on the next compile.
 - Do not edit the mattstack engine in the plugin cache: every team compiles from it, and the next update erases the edit.
 - Do not edit a repo's generated `skills.jsonc` under `~/.mattstack/repos/`: `rt skills materialize` regenerates it, and `pack/skills.jsonc` is the source.
 - Do not edit a pack in a git worktree or another copy of the org repo. Make every pack edit, with its commit and push, in the org clone, on the branch it has checked out. Materialize reads a pack's fragment only from the org clone. `rt skills sync` refuses a `.worktrees/` or `.claude/worktrees/` folder under the pack.
