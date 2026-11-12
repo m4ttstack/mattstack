@@ -19,6 +19,8 @@ digraph doctor_diagnose_and_rebase {
     "Fix what the mr_view error names" [shape=box];
     "What is broken (doctor)?" [shape=diamond];
     "Server-side rebase licensed?" [shape=diamond];
+    "mr_list {mrUrl, targetBranch: <source branch>} (stack-parent check)" [shape=plaintext];
+    "Stack-parent check (doctor)?" [shape=diamond];
     "Lease mode (before the rebase)?" [shape=diamond];
     "ci_lease_read {mrUrl} (before the rebase)" [shape=plaintext];
     "ci_lease_claim {mrUrl, holder: doctor, branch?} (before the rebase)" [shape=plaintext];
@@ -61,7 +63,11 @@ digraph doctor_diagnose_and_rebase {
     "What is broken (doctor)?" -> "Red CI: continue at Classify and retry" [label="red CI, no conflicts"];
     "What is broken (doctor)?" -> "Rebased or running: continue at Watch the pipeline" [label="pipeline running or pending, no conflicts: watch its head sha"];
     "What is broken (doctor)?" -> "Diagnosis ends the run: continue at the map's exit" [label="pipeline canceled, skipped or manual, or no pipeline, no conflicts: error naming the state"];
-    "Server-side rebase licensed?" -> "Lease mode (before the rebase)?" [label="yes"];
+    "Server-side rebase licensed?" -> "mr_list {mrUrl, targetBranch: <source branch>} (stack-parent check)" [label="yes"];
+    "mr_list {mrUrl, targetBranch: <source branch>} (stack-parent check)" -> "Stack-parent check (doctor)?";
+    "Stack-parent check (doctor)?" -> "Lease mode (before the rebase)?" [label="full: true, no MR listed"];
+    "Stack-parent check (doctor)?" -> "Diagnosis ends the run: continue at the map's exit" [label="an MR listed: error, a stack parent needs a restack"];
+    "Stack-parent check (doctor)?" -> "Diagnosis ends the run: continue at the map's exit" [label="tool error, or no MR listed with full: false: error, cannot prove no children"];
     "Server-side rebase licensed?" -> "Diagnosis ends the run: continue at the map's exit" [label="no: error, the conflicts need a checkout"];
     "Lease mode (before the rebase)?" -> "ci_lease_read {mrUrl} (before the rebase)" [label="board mode"];
     "Lease mode (before the rebase)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch?} (before the rebase)" [label="own mode"];
@@ -128,6 +134,22 @@ What this graph cannot show:
   take or iterate that retried, rebased or pushed, and after someone else
   retried before this launch. Never call a running or pending pipeline
   clean and green.
+- **The stack-parent check.** `<source branch>` is the `sourceBranch`
+  the first `mr_view` read. The call passes no `limit` and no `state`, so
+  it reads up to 50 open MRs (drafts included) by any author. Only
+  `full: true` with no MR listed goes on to the lease check and the
+  rebase: a rebase rewrites the commits every listed MR is built on. Any
+  MR listed, whatever `full` says, is `error` (`MR !<iid> is a stack
+  parent (stacked on it: <children>); a rebase would strand the stack:
+  needs a restack of the stack root`), where `<children>` is each listed
+  MR as `!<iid>`, comma separated, followed by `, and more` when `full`
+  is false. A tool error, or no MR listed with `full: false`, is `error`
+  (`cannot prove MR !<iid> has no stacked children: the live
+  target-branch query failed (<reason>)`), where `<reason>` is the tool's
+  error quoted as written, or `partial list, no rows`. Neither retries
+  nor escalates: nothing has moved yet, so a human relaunch costs
+  nothing. The check never reads rt's MR cache and never treats a failed
+  read as no children.
 - **A pipeline with no verdict.** A head pipeline that is canceled,
   skipped or manual, or no head pipeline at all, with no conflicts, has
   nothing to classify and nothing to watch, and no fix class starts one:
