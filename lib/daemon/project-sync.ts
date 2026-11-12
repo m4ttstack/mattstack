@@ -835,7 +835,11 @@ export async function backfillSections(
 
   const updatedAfter = new Date(Date.now() - windowDays * 86_400_000).toISOString();
   const { projectPath, rules } = await fetchRules(repoName, { updatedAfter });
-  const swept = sweepTags(rules, sections, (iid) => store.read(repoName)?.mrs[iid]?.codeownerSections, { sticky: forge === "github" });
+  const sticky = forge === "github";
+  // The write below replaces each PR's whole tag list, so a sticky sweep must
+  // also demand the sections the scope already covers or their tags are lost.
+  const demanded = sticky ? [...new Set([...(record?.scope?.sections ?? []), ...sections])].sort() : sections;
+  const swept = sweepTags(rules, demanded, (iid) => store.read(repoName)?.mrs[iid]?.codeownerSections, { sticky });
   warnUnknown(overrides.warn ?? ((obj, msg) => log.warn(obj, msg)), repoName, "sections-backfill", swept.unknown);
   const unread = new Set(swept.unknown.map((r) => r.iid));
   const matched = [...swept.tags]

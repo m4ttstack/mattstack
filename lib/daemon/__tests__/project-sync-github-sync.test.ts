@@ -305,4 +305,20 @@ describe("codeowner sections on GitHub", () => {
     expect(rec.mrs[5]!.codeownerSections).toEqual([A]);
     expect(rec.scope).toMatchObject({ sections: [A], knownSections: [A] });
   });
+
+  test("backfillSections on GitHub keeps a sticky tag in a section the scope already covers", async () => {
+    const repo = "github.com/acme/backfill-covered";
+    const B = "@org/b";
+    const store = tmpStore();
+    store.fullSync(repo, "o/r", [stranger(1)], Date.now());
+    store.setScope(repo, { authors: ["dev"], sections: [A], windowDays: 30 });
+    store.setSectionTags(repo, { 1: [A] });
+    await backfillSections(deps(repo), repo, [B], {
+      store, forge: "github", windowDays: 30,
+      fetchRules: async () => ({ projectPath: "o/r", rules: [{ iid: 1, rules: [owner(B)] }] }),
+      fetchKnownSections: async () => [A, B],
+      fetchSingle: async () => { throw new Error("stored row needs no fetch"); },
+    });
+    expect(store.read(repo)!.mrs[1]!.codeownerSections).toEqual([A, B]);
+  });
 });
