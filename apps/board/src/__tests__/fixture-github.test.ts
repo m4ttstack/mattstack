@@ -48,3 +48,16 @@ test('no fixture file carries a GitLab merge request url', () => {
   ])
     expect(read(name)).not.toContain('/-/merge_requests/');
 });
+
+test('every pipeline id is a glance 0.31 GitHub id', () => {
+  const ids = rows().map(row => ({
+    row,
+    id: (row as unknown as { pipeline: { id: string } }).pipeline.id,
+  }));
+  for (const { row, id } of ids)
+    expect(
+      /^github:run:\d+$/.test(id) || id === `github:checks:${row.webUrl}`
+    ).toBe(true);
+  expect(ids.some(({ id }) => /^github:run:\d+$/.test(id))).toBe(true);
+  expect(ids.some(({ id }) => id.startsWith('github:checks:'))).toBe(true);
+});
