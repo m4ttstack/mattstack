@@ -17,6 +17,14 @@ self-review as an afterthought at the end does not satisfy this: the fresh conte
 comments are adjudicated, not a final gut-check.
 </HARD-GATE>
 
+Before numbering the threads, on GitHub drop two kinds of PR-level row
+(`gh-issue-comment-<n>` or `gh-review-<n>`) from the read: a row whose
+note is by the account this run posts as is out of scope, never
+adjudicated or replied to; and a row that a later PR-level comment by
+this account quotes (its first line as a Markdown quote, per the
+PR-level reply shape) is already answered. When that leaves no thread,
+the outcome is the zero-thread one: say so.
+
 Hand the dispatch flow (below, after the Off-script gate section) the
 numbered threads (`file:line` plus note chains), the requirements and the
 diff range; it owns the template, the subagent and the standard blocks.
