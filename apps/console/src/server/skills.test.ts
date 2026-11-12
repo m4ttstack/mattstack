@@ -3790,12 +3790,25 @@ describe('skills disable-model-invocation route', () => {
 });
 
 describe('trial', () => {
-  const answers = (status: unknown, packs: unknown = {
-    packs: [
-      { name: 'acme', dir: '/orgs/acme/mattstack/teams/acme/plugin', layout: 'grouped', team: 'acme' },
-      { name: 'mattstack', dir: '/src/plugins/mattstack', layout: 'grouped', team: null },
-    ],
-  }) => {
+  const answers = (
+    status: unknown,
+    packs: unknown = {
+      packs: [
+        {
+          name: 'acme',
+          dir: '/orgs/acme/mattstack/teams/acme/plugin',
+          layout: 'grouped',
+          team: 'acme',
+        },
+        {
+          name: 'mattstack',
+          dir: '/src/plugins/mattstack',
+          layout: 'grouped',
+          team: null,
+        },
+      ],
+    }
+  ) => {
     const calls: string[][] = [];
     const run = vi.fn(async (argv: string[]) => {
       calls.push(argv);
@@ -3808,33 +3821,47 @@ describe('trial', () => {
     });
     return { run, calls };
   };
-  const onTrial = { contract: 1, slug: 'acme', branch: 'try-it', dataBranch: 'mattstack', trial: true };
+  const onTrial = {
+    contract: 1,
+    slug: 'acme',
+    branch: 'try-it',
+    dataBranch: 'mattstack',
+    trial: true,
+  };
 
   it('names the trial branch and the data branch for a team pack while the org copy is on a trial', async () => {
     const rt = answers(onTrial);
     const app = mountSkills(new Hono(), rt.run);
     const res = await app.request('/api/skills/trial?pack=acme');
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual({ trial: { branch: 'try-it', dataBranch: 'mattstack' } });
+    await expect(res.json()).resolves.toEqual({
+      trial: { branch: 'try-it', dataBranch: 'mattstack' },
+    });
     expect(rt.calls).toContainEqual(['team', 'status', '--json']);
   });
 
   it('answers no trial on the data branch', async () => {
     const rt = answers({ ...onTrial, branch: 'mattstack', trial: false });
     const app = mountSkills(new Hono(), rt.run);
-    await expect((await app.request('/api/skills/trial?pack=acme')).json()).resolves.toEqual({ trial: null });
+    await expect(
+      (await app.request('/api/skills/trial?pack=acme')).json()
+    ).resolves.toEqual({ trial: null });
   });
 
   it('answers no trial for a pack outside the org copy', async () => {
     const rt = answers(onTrial);
     const app = mountSkills(new Hono(), rt.run);
-    await expect((await app.request('/api/skills/trial?pack=mattstack')).json()).resolves.toEqual({ trial: null });
+    await expect(
+      (await app.request('/api/skills/trial?pack=mattstack')).json()
+    ).resolves.toEqual({ trial: null });
   });
 
   it('answers no trial on a Mac with no team', async () => {
     const rt = answers({ contract: 1, mode: 'solo', slug: null });
     const app = mountSkills(new Hono(), rt.run);
-    await expect((await app.request('/api/skills/trial?pack=acme')).json()).resolves.toEqual({ trial: null });
+    await expect(
+      (await app.request('/api/skills/trial?pack=acme')).json()
+    ).resolves.toEqual({ trial: null });
   });
 
   it('answers a failed status read as a non-2xx { error }, never as no trial', async () => {
@@ -3842,7 +3869,9 @@ describe('trial', () => {
     const app = mountSkills(new Hono(), rt.run);
     const res = await app.request('/api/skills/trial?pack=acme');
     expect(res.status).toBe(502);
-    await expect(res.json()).resolves.toMatchObject({ error: expect.any(String) });
+    await expect(res.json()).resolves.toMatchObject({
+      error: expect.any(String),
+    });
   });
 
   it('400s without a pack', async () => {

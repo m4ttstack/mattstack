@@ -11,6 +11,7 @@ const compositionGet = vi.fn();
 const checkGet = vi.fn();
 const surfaceGet = vi.fn();
 const changesGet = vi.fn();
+const trialGet = vi.fn();
 const compilePost = vi.fn();
 const syncPost = vi.fn();
 
@@ -25,6 +26,7 @@ vi.mock('../../api', () => ({
           apply: { $post: vi.fn() },
         },
         changes: { $get: (...args: unknown[]) => changesGet(...args) },
+        trial: { $get: (...args: unknown[]) => trialGet(...args) },
         compile: { $post: (...args: unknown[]) => compilePost(...args) },
         sync: { $post: (...args: unknown[]) => syncPost(...args) },
         discard: { $post: vi.fn() },
@@ -120,6 +122,7 @@ function renderConfig({
   installed,
   changes = CLEAN,
   checkExtra = {},
+  trial = null,
 }: {
   statuses?: Record<string, Status>;
   installed?: { status: string; version: string | null } | null;
@@ -127,7 +130,10 @@ function renderConfig({
   /** Fields of `rt skills check` beyond the verbs: base attachments, base
       errors, stage copies, dropped overrides. */
   checkExtra?: Record<string, unknown>;
+  /** What `/api/skills/trial` answers: the org copy's trial branch, or null. */
+  trial?: { branch: string; dataBranch: string } | null;
 } = {}) {
+  trialGet.mockResolvedValue(ok({ trial }));
   compositionGet.mockResolvedValue(ok(COMPOSITION));
   checkGet.mockResolvedValue(
     ok({
@@ -305,13 +311,30 @@ describe('ConfigTab: the status bar', () => {
     expect(onReview).toHaveBeenCalledOnce();
   });
 
-  it('names the trial branch Publish goes to', async () => {
-    renderConfig({ changes: { ...UNSYNCED, trialBranch: 'block-packs' } });
+  it('shows the trial banner and trial changes, with no Publish, on a trial branch', async () => {
+    renderConfig({
+      changes: UNSYNCED,
+      trial: { branch: 'block-packs', dataBranch: 'mattstack' },
+    });
+    const bar = await statusBar();
+
+    const banner = await screen.findByTestId('trial-banner');
+    expect(banner).toHaveTextContent('Trial branch block-packs');
+    expect(banner).toHaveTextContent('rt team branch use mattstack');
+    expect(await within(bar).findByTestId('pending-pill')).toHaveTextContent(
+      /trial change/
+    );
+    expect(within(bar).queryByRole('button', { name: /Publish/ })).toBeNull();
+  });
+
+  it('shows no trial banner on the data branch', async () => {
+    renderConfig({ changes: UNSYNCED });
     const bar = await statusBar();
 
     expect(
-      await within(bar).findByRole('button', { name: 'Publish to block-packs' })
+      await within(bar).findByRole('button', { name: 'Publish' })
     ).toBeInTheDocument();
+    expect(screen.queryByTestId('trial-banner')).toBeNull();
   });
 
   it('puts the compile first while a skill needs one, even with changes to publish', async () => {

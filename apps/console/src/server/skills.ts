@@ -1950,11 +1950,9 @@ export function mountSkills(
           cachedRun(['skills', 'packs', '--json']),
         ]);
         const team = parseJsonPayload(status.stdout) as
-          | TeamStatusTrial
-          | undefined;
+          TeamStatusTrial | undefined;
         const listed = parseJsonPayload(packs.stdout) as
-          | SkillsPacksResponse
-          | undefined;
+          SkillsPacksResponse | undefined;
         if (team === undefined || listed === undefined) {
           return c.json(
             {

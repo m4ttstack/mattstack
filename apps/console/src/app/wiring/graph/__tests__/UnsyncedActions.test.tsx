@@ -13,6 +13,7 @@ import type { SkillsChanges } from '../../useWiring';
 import { designFixture } from './designFixtures';
 
 const changesGet = vi.fn();
+const trialGet = vi.fn();
 const syncPost = vi.fn();
 const discardPost = vi.fn();
 
@@ -26,6 +27,7 @@ vi.mock('../../../api', () => ({
         changes: {
           $get: (args: { query: { pack: string } }) => changesGet(args),
         },
+        trial: { $get: () => trialGet() },
         sync: { $post: (...args: unknown[]) => syncPost(...args) },
         discard: { $post: (...args: unknown[]) => discardPost(...args) },
       },
@@ -112,8 +114,11 @@ function serveChanges(changes: SkillsChanges) {
   changesGet.mockImplementation(() => Promise.resolve(ok(changes)));
 }
 
+const ON_TRIAL = { trial: { branch: 'block-packs', dataBranch: 'mattstack' } };
+
 beforeEach(() => {
   serveChanges(designFixture('changes.unsynced'));
+  trialGet.mockResolvedValue(ok({ trial: null }));
   syncPost.mockResolvedValue(ok(SYNCED));
   discardPost.mockResolvedValue(
     ok({ pack: 'acme', packDir: '/fixture/packs/acme', discarded: [] })
@@ -199,7 +204,27 @@ describe('UnsyncedActions', () => {
     expect(within(root).queryByTestId('unsynced-trial')).toBeNull();
   });
 
-  it('names the trial branch it would publish to, on the button and in the confirm', async () => {
+  it('offers no Publish while rt team status says the org copy is on a trial', async () => {
+    trialGet.mockResolvedValue(ok(ON_TRIAL));
+    render(<UnsyncedActions pack="acme" />);
+    const root = await actions();
+
+    await waitFor(() =>
+      expect(within(root).queryByRole('button', { name: /Publish/ })).toBeNull()
+    );
+    expect(within(root).getByTestId('discard-hint')).toBeInTheDocument();
+  });
+
+  it('draws nothing for a bar that shows the rest itself while on a trial', async () => {
+    trialGet.mockResolvedValue(ok(ON_TRIAL));
+    render(<UnsyncedActions pack="acme" publishOnly />);
+    await settled();
+
+    expect(screen.queryByRole('button', { name: /Publish/ })).toBeNull();
+  });
+
+  it("takes the changes poll's trial branch while rt team status cannot answer", async () => {
+    trialGet.mockRejectedValue(new Error('rt hit an unexpected error'));
     serveChanges({
       ...designFixture('changes.unsynced'),
       trialBranch: 'block-packs',
@@ -207,12 +232,8 @@ describe('UnsyncedActions', () => {
     render(<UnsyncedActions pack="acme" />);
     const root = await actions();
 
-    expect(within(root).getByTestId('unsynced-trial')).toHaveTextContent(
-      'trial · block-packs'
-    );
-    await userEvent.click(button(root, 'Publish to block-packs'));
-    expect(await dialog('Publish 1 change?')).toHaveTextContent(
-      'pushes it to the trial branch block-packs, not the data branch.'
+    await waitFor(() =>
+      expect(within(root).queryByRole('button', { name: /Publish/ })).toBeNull()
     );
   });
 
@@ -505,15 +526,20 @@ describe('UnsyncedToast', () => {
     return Object.assign(view, { onReview });
   }
 
-  it('says how many changes wait, and where, once the page is ready', async () => {
-    serveChanges({
-      ...designFixture('changes.unsynced'),
-      trialBranch: 'block-packs',
-    });
+  it('says how many changes wait once the page is ready', async () => {
     renderToast();
 
     const root = await toast();
     expect(root).toHaveTextContent('1 change not synced');
+    expect(root).toHaveTextContent('acme');
+  });
+
+  it('calls them trial changes, and names the trial branch, on a trial', async () => {
+    trialGet.mockResolvedValue(ok(ON_TRIAL));
+    renderToast();
+
+    const root = await toast();
+    await waitFor(() => expect(root).toHaveTextContent('1 trial change'));
     expect(root).toHaveTextContent('acme · block-packs');
   });
 

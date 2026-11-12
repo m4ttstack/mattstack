@@ -326,11 +326,6 @@
   gap: 8px;
 }
 
-.bannerStatus {
-  flex: none;
-  text-transform: none;
-}
-
 /* A notification over the page, under the tab bar's right end: dark in both
    schemes, so it reads as the app speaking rather than as page content. */
 .toast {

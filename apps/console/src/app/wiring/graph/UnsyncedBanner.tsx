@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  Badge,
   Button,
   Group,
   Paper,
@@ -252,17 +251,6 @@ export function UnsyncedActions({
   if (publishOnly) return trial ? null : publish;
   return (
     <div className={classes.unsyncedActions} data-testid="unsynced-actions">
-      {trial && (
-        <Badge
-          variant="tint"
-          color="purple"
-          leftSection={<Icon name="gitBranch" size={12} />}
-          classNames={{ root: classes.bannerStatus }}
-          data-testid="unsynced-trial"
-        >
-          trial · {trial}
-        </Badge>
-      )}
       <Tooltip
         label={
           <>
