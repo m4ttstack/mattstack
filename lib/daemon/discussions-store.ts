@@ -112,15 +112,25 @@ export interface RefreshOverrides {
 }
 
 /**
- * Collect the set of non-system note IDs across a discussion list so we can
+ * GitHub numbers diff comments, pull request comments and review summaries
+ * in separate id spaces, so a note's id alone can name two comments there.
+ * GitLab ids are unique and keep the bare form.
+ */
+function noteKey(discussionId: string, noteId: number): string {
+  const space = /^gh-(review-thread|issue-comment|review)-/.exec(discussionId)?.[1] ?? "";
+  return `${space}:${noteId}`;
+}
+
+/**
+ * Collect the set of non-system note keys across a discussion list so we can
  * compare two snapshots.
  */
-function collectNoteIds(discussions: Discussion[] | undefined): Set<number> {
-  const ids = new Set<number>();
+function collectNoteIds(discussions: Discussion[] | undefined): Set<string> {
+  const ids = new Set<string>();
   if (!discussions) return ids;
   for (const d of discussions) {
     for (const n of d.notes) {
-      if (!n.system) ids.add(n.id);
+      if (!n.system) ids.add(noteKey(d.id, n.id));
     }
   }
   return ids;
@@ -131,7 +141,7 @@ function collectNoteIds(discussions: Discussion[] | undefined): Set<number> {
  * the thread retained so callers can deep-link.
  */
 function collectNewNotes(
-  prev: Set<number>,
+  prev: Set<string>,
   nextDiscussions: Discussion[],
   currentUserId: number | null,
   isMrAuthor: boolean,
@@ -149,7 +159,7 @@ function collectNewNotes(
     if (!isMrAuthor && !involved) continue;
     for (const n of d.notes) {
       if (n.system) continue;
-      if (prev.has(n.id)) continue;
+      if (prev.has(noteKey(d.id, n.id))) continue;
       if (isSelf(n)) continue;
       if (isBot(n)) continue;
       out.push(buildNewNote(n));

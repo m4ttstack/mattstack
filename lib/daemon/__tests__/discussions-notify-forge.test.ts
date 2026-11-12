@@ -66,6 +66,27 @@ describe("new-comment notifications follow the forge", () => {
     expect(notified.map((n) => n.title)).toEqual(["New comment on #5"]);
   });
 
+  test("GitHub: a diff comment sharing its id with an earlier pull request comment still notifies", async () => {
+    const fileStore = createDiscussionsFileStore(tmpDb());
+    const notified: Notified[] = [];
+    const deps = { ctx: ownPrCtx("github"), broadcast: () => {} };
+    const overrides = {
+      fileStore,
+      projectStore: createProjectMRs(tmpDb()),
+      currentUserId: 42,
+      forge: "github" as const,
+      notify: (category: string, title: string, message: string, url?: string) => { notified.push({ category, title, message, url }); },
+    };
+    const general = { id: "gh-issue-comment-30", notes: [note(30, { id: "github:user:7", username: "luke" })] } as any;
+    await refreshDiscussions(deps, "repo", 5, { ...overrides, fetchDiscussions: async () => [general] });
+    const res = await refreshDiscussions(deps, "repo", 5, {
+      ...overrides,
+      fetchDiscussions: async () => [general, { id: "gh-review-thread-30", notes: [note(30, { id: "github:user:7", username: "luke" })] } as any],
+    });
+    expect(res.newNotes.map((n) => n.noteId)).toEqual([30]);
+    expect(notified.map((n) => n.title)).toEqual(["New comment on #5"]);
+  });
+
   test("GitLab: the same shape still titles !5", async () => {
     const { res, notified, newComments } = await secondFetchAdds("gitlab", [
       note(2, { id: "gitlab:user:42", username: "me" }),
