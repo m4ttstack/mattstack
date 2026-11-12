@@ -179,10 +179,6 @@ export function createMRHandlers(
     return getContext(repoName);
   }
 
-  function writebackFor(c: HandlerRepoContext, repoName: string, pr: PullRequest): void {
-    storeWriteback(repoName, c.projectPath, pr);
-  }
-
   /** The batch maps a pull request it found but could not fill to null too, so each null is checked against the open pull requests on that branch before it reads as "no PR". */
   async function liveByBranchOnGitHub(provider: any, projectPath: string, branches: string[]): Promise<CommandResult<"mr:live-by-branch">> {
     const found: Map<string, PullRequest | null> = await provider.fetchPullRequestsByBranches(projectPath, branches.map((b) => b.trim()));
@@ -349,7 +345,7 @@ export function createMRHandlers(
             ...(labels && { labels }),
           });
           try {
-            writebackFor(c, repoName, pr);
+            storeWriteback(repoName, projectPath, pr);
           } catch (err) {
             ctx.log.warn({ err, repo: repoName, iid: pr.iid }, "mr:create write-back failed");
           }
@@ -593,7 +589,7 @@ export function createMRHandlers(
         const mr = github
           ? await fetchSingle(provider, projectPath, p.iid, true, (w) => { warning = w; })
           : await fetchSingle(provider, projectPath, p.iid, false);
-        if (mr && p.refresh === true) writebackFor(c, decoded.repo, mr);
+        if (mr && p.refresh === true) storeWriteback(decoded.repo, projectPath, mr);
         if (mr) return { ok: true, data: { mr, fetchedAt: Date.now() } };
         if (github) {
           const miss = `GitHub has no pull request #${p.iid} in ${projectPath}, or the token cannot read it`;

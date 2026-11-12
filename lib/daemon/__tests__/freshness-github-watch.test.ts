@@ -147,6 +147,36 @@ describe("live watch on a GitHub repo", () => {
     expect(unit!.getSnapshot()[REPO]?.state).toBe("live");
   });
 
+  test("a token removed under a running watch logs the stop every time", async () => {
+    const stopped = () => infos.filter((m) => m === `stopped events watch for ${REPO}: missing GitHub token (run: rt setup github connect)`);
+    await unit!.reconcile();
+    token = null;
+    await unit!.reconcile();
+    await unit!.reconcile();
+    expect(stopped()).toHaveLength(1);
+    token = "ghp_a";
+    await unit!.reconcile();
+    token = null;
+    await unit!.reconcile();
+    expect(stopped()).toHaveLength(2);
+    expect(infos.filter((m) => m.includes("skipping events watch"))).toHaveLength(0);
+  });
+
+  test("a started watch lets a later skip log again", async () => {
+    const skipped = () => infos.filter((m) => m.endsWith(`skipping events watch for ${REPO}`));
+    token = null;
+    await unit!.reconcile();
+    expect(skipped()).toHaveLength(1);
+    token = "ghp_a";
+    await unit!.reconcile();
+    tracking = { [REPO]: { mode: "poll", caches: ["branches"] } };
+    await unit!.reconcile();
+    tracking = { [REPO]: { mode: "live", caches: ["branches"] } };
+    token = null;
+    await unit!.reconcile();
+    expect(skipped()).toHaveLength(2);
+  });
+
   test("a watch on a repo no longer live is disposed", async () => {
     await unit!.reconcile();
     tracking = { [REPO]: { mode: "poll", caches: ["branches"] } };

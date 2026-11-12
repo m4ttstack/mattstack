@@ -45,7 +45,7 @@ import { checkAndNotify, type SelfIds } from "../notifier.ts";
 import type { HandlerContext } from "./handlers/types.ts";
 import { lazyChildLogger } from "../daemon-logger.ts";
 import { redactCredentials } from "./redact-credentials.ts";
-import { authorListed } from "./scope-authors.ts";
+import { prInScope } from "./scope-authors.ts";
 import { readSingleStrict } from "./project-sync-github.ts";
 import { getProjectMRs, type ProjectMRs } from "./project-mrs-store.ts";
 import { getDiscussionsFileStore } from "./discussions-file-store.ts";
@@ -431,8 +431,8 @@ function createFreshnessCore() {
     if (!githubCandidate || githubResolved()) return;
     try {
       await getSelfUserId(await getRepoContext(githubCandidate.repoName, githubCandidate.repoPath));
-    } catch {
-      // Missing token: the warning below says what to run.
+    } catch (err) {
+      log.debug({ err }, "GitHub self lookup skipped");
     }
     if (!githubResolved() && !githubSuppressedWarned) {
       githubSuppressedWarned = true;
@@ -440,14 +440,18 @@ function createFreshnessCore() {
     }
   }
 
+  function currentGithubSelf(): { id: number; login: string } | undefined {
+    return currentGithubToken !== null ? githubSelf.get(currentGithubToken) : undefined;
+  }
+
   function githubResolved(): boolean {
-    return currentGithubToken !== null && githubSelf.has(currentGithubToken);
+    return currentGithubSelf() !== undefined;
   }
 
   function getSelfIds(): SelfIds {
     return {
       gitlab: userId,
-      github: currentGithubToken !== null ? githubSelf.get(currentGithubToken)?.id ?? null : null,
+      github: currentGithubSelf()?.id ?? null,
     };
   }
 
@@ -474,7 +478,7 @@ function createFreshnessCore() {
 
   async function cachedSelfUsername(_repoName: string, repoPath: string): Promise<string | null> {
     if (await isGitHubRepo(repoPath)) {
-      return currentGithubToken !== null ? githubSelf.get(currentGithubToken)?.login ?? null : null;
+      return currentGithubSelf()?.login ?? null;
     }
     return selfUsername;
   }
@@ -509,6 +513,7 @@ function createFreshnessCore() {
   }
 
   async function isGitHubRepo(repoPath: string): Promise<boolean> {
+    if (!repoPath) return false;
     return isGitHubRemote((await getRemoteUrl(repoPath)) ?? undefined);
   }
 
@@ -768,15 +773,7 @@ function createFreshnessCore() {
     const wantProject = g.caches.has("project-mrs");
 
     const upsertProject = (pr: PullRequest) => {
-      // Demand-scoped repos only track the declared authors; an MR missing an
-      // author never guess-drops, since we can't tell which side of the scope
-      // it belongs on. A tagged stranger (out-of-scope author, still section-
-      // tagged) is kept too: dropping it here would silently erase a tag that
-      // only the approval-heal path is meant to clear.
-      const rec = pStore.read(repoName);
-      const scope = rec?.scope;
-      const tagged = (rec?.mrs[pr.iid]?.codeownerSections?.length ?? 0) > 0;
-      if (scope && pr.author?.username && !authorListed(scope.authors, pr) && !tagged) return;
+      if (!prInScope(pStore.read(repoName), pr)) return;
       const changed = pStore.upsert(repoName, projectPath, pr, "events");
       if (changed.length > 0) env.broadcast("project-mrs", { repoName, iids: changed });
     };
@@ -1018,10 +1015,14 @@ function createFreshnessCore() {
     try {
       ctx = await getRepoContext(repoName, repoPath);
     } catch (err) {
-      stopWatch(repoName);
-      if (!githubWatchSkipLogged.has(repoName)) {
+      const reason = err instanceof Error ? err.message : String(err);
+      if (watches.has(repoName)) {
+        stopWatch(repoName);
         githubWatchSkipLogged.add(repoName);
-        log.info(`${err instanceof Error ? err.message : String(err)}; skipping events watch for ${repoName}`);
+        log.info(`stopped events watch for ${repoName}: ${reason}`);
+      } else if (!githubWatchSkipLogged.has(repoName)) {
+        githubWatchSkipLogged.add(repoName);
+        log.info(`${reason}; skipping events watch for ${repoName}`);
       }
       return;
     }
@@ -1034,6 +1035,7 @@ function createFreshnessCore() {
     await getSelfUserId(ctx);
     if (watches.has(repoName)) return;
 
+    githubWatchSkipLogged.delete(repoName);
     startWatch(env, repoName, { forge: "github", provider: ctx.provider }, ctx.projectPath);
   }
 

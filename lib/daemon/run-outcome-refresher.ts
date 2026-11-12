@@ -104,7 +104,7 @@ export function createOutcomeRefresher(
   const maxBackoffMs = opts.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS;
   // A failed lookup keeps its entry as it was, so without this a run the
   // forge cannot answer for would take a batch slot on every tick.
-  const failedAt = new Map<string, { at: number; failures: number }>();
+  const failedAt = new Map<string, { at: number; failures: number; iid: number }>();
   // A review past the max age is asked for its post gate once per process;
   // without this one with no answered post gate would be asked every tick.
   const askedOld = new Set<string>();
@@ -168,7 +168,11 @@ export function createOutcomeRefresher(
           if (now - previous.checkedAt < openTtlMs) continue;
           if (now - run.started_at > maxAgeMs) continue;
         }
-        const failed = failedAt.get(run.id);
+        let failed = failedAt.get(run.id);
+        if (failed !== undefined && failed.iid !== ref.iid) {
+          failedAt.delete(run.id);
+          failed = undefined;
+        }
         if (failed !== undefined && now - failed.at < Math.min(openTtlMs * 2 ** (failed.failures - 1), maxBackoffMs)) continue;
         due.push({ run, iid: ref.iid, previous });
       }
@@ -176,7 +180,7 @@ export function createOutcomeRefresher(
       for (const { run, iid, previous } of due.slice(0, batch)) {
         const mr = await getMrBounded(run.repo, iid);
         if (!mr.ok) {
-          failedAt.set(run.id, { at: now, failures: (failedAt.get(run.id)?.failures ?? 0) + 1 });
+          failedAt.set(run.id, { at: now, failures: (failedAt.get(run.id)?.failures ?? 0) + 1, iid });
           continue;
         }
         failedAt.delete(run.id);

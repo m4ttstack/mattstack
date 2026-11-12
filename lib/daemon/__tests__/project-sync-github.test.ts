@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { FetchPullRequestsOptions, FetchPullRequestsWarning, PullRequest } from "@mattstack/glance";
-import { authorListed } from "../scope-authors.ts";
+import { authorListed, prInScope } from "../scope-authors.ts";
 import { githubFetchDelta, githubFetchOpen, githubFetchSingle, type GitHubSyncContext } from "../project-sync-github.ts";
-import type { ProjectMRStore } from "../project-mrs-store.ts";
+import type { ProjectMREntry, ProjectMRStore } from "../project-mrs-store.ts";
 
 function pr(iid: number, over: Partial<PullRequest> = {}): PullRequest {
   return {
@@ -46,6 +46,31 @@ describe("authorListed", () => {
     expect(authorListed(["Octo"], { id: "gitlab:mr:1", author: { username: "octo" } })).toBe(false);
     expect(authorListed(["Octo"], { id: "github:pr:1", author: null })).toBe(false);
     expect(authorListed(["Octo"], { id: "github:pr:1" })).toBe(false);
+  });
+});
+
+describe("prInScope", () => {
+  const scoped = (mrs: Record<number, ProjectMREntry> = {}) =>
+    ({ mrs, scope: { authors: ["Octo"] } }) as unknown as ProjectMRStore;
+
+  test("no record or no scope keeps every PR", () => {
+    expect(prInScope(undefined, pr(1, { author: { username: "stranger" } } as Partial<PullRequest>))).toBe(true);
+    expect(prInScope({ mrs: {} } as unknown as ProjectMRStore, pr(1, { author: { username: "stranger" } } as Partial<PullRequest>))).toBe(true);
+  });
+
+  test("a PR with no author username is kept", () => {
+    expect(prInScope(scoped(), pr(1, { author: null } as unknown as Partial<PullRequest>))).toBe(true);
+  });
+
+  test("a listed author is in scope, case-insensitively on GitHub", () => {
+    expect(prInScope(scoped(), pr(1))).toBe(true);
+  });
+
+  test("a stranger is out unless the stored PR is section-tagged", () => {
+    const stranger = pr(2, { author: { username: "stranger" } } as Partial<PullRequest>);
+    expect(prInScope(scoped(), stranger)).toBe(false);
+    expect(prInScope(scoped({ 2: { pr: stranger, fetchedAt: 0, codeownerSections: [] } }), stranger)).toBe(false);
+    expect(prInScope(scoped({ 2: { pr: stranger, fetchedAt: 0, codeownerSections: ["api"] } }), stranger)).toBe(true);
   });
 });
 

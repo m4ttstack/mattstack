@@ -24,7 +24,7 @@ import { syncProjectMRs, backfillAuthors, backfillSections } from "../project-sy
 import { readSyncHealth } from "../project-sync-health.ts";
 import { getRepoContext, isGitHubRepo } from "../freshness.ts";
 import { forgeFailure } from "../forge-reads.ts";
-import { authorListed } from "../scope-authors.ts";
+import { prInScope } from "../scope-authors.ts";
 import type { HandlerContext } from "./types.ts";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 
@@ -73,7 +73,7 @@ export interface ProjectMRsHandlerOverrides {
    * it through a captured outer variable, which would have silently no-opped
    * the upsert had the assignment ever been reordered out from under it).
    */
-  fetchByBranch?: (repoName: string, branch: string) => Promise<{ pr: PullRequest | null; projectPath: string; github?: boolean }>;
+  fetchByBranch?: (repoName: string, branch: string) => Promise<{ pr: PullRequest | null; projectPath: string }>;
   getContext?: (repoName: string) => Promise<{ forge?: "gitlab" | "github"; provider: any; projectPath: string }>;
   isGitHub?: (repoName: string) => Promise<boolean>;
 }
@@ -267,26 +267,21 @@ export function createProjectMRsHandlers(
         try {
           // On GitHub a fork branch is found by scanning at most 500 pull requests of any state, and a null cannot say whether that cap was hit.
           const pr = await repoCtx.provider.fetchPullRequestByBranch(repoCtx.projectPath, branch, "all");
-          return { pr, projectPath: repoCtx.projectPath, github };
+          return { pr, projectPath: repoCtx.projectPath };
         } catch (err) {
           throw github ? new GitHubReadFailure(err) : err;
         }
       });
       let githubFailure: string | null = null;
 
-      // Same scope/tagged gate upsertProject (lib/daemon/freshness.ts)
-      // enforces for every other write path: a demand-scoped repo must not
+      // The same prInScope gate every other write path enforces: a demand-scoped repo must not
       // pick up a stranger's MR here just because a client happened to ask
       // for their branch by name; the next delta sync would filter it right
       // back out, and it would reappear on the next by-branch call. The
       // caller still gets the PR (it asked for this exact branch); it just
       // isn't stored.
       const upsertInScope = (pr: PullRequest, projectPath: string) => {
-        const rec = store().read(repoName);
-        const scope = rec?.scope;
-        const tagged = (rec?.mrs[pr.iid]?.codeownerSections?.length ?? 0) > 0;
-        const inScope = !scope || !pr.author?.username || authorListed(scope.authors, pr) || tagged;
-        if (inScope) store().upsert(repoName, projectPath, pr, "events");
+        if (prInScope(store().read(repoName), pr)) store().upsert(repoName, projectPath, pr, "events");
       };
 
       if (misses.length > 0 && !overrides.fetchByBranch) {

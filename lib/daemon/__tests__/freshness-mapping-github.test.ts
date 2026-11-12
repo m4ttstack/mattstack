@@ -125,6 +125,21 @@ describe("applyInvalidationBatch on GitHub", () => {
     expect(notified).toBe(0);
   });
 
+  test("a branch event whose batch lookup throws writes nothing", async () => {
+    const cached = fakePR(3, { sourceBranch: "feat-a" });
+    const entries: Record<string, any> = { [K("feat-a")]: { mr: cached, fetchedAt: 1, repoName: "repo-x" } };
+    const { env, puts } = makeEnv(entries);
+    let notified = 0;
+    const target = githubTarget(failingFill, async () => { throw new Error("GitHub said 502"); });
+    await applyInvalidationBatch(env, target, makeRunner(), [key("branch", "feat-a")], {
+      notify: () => { notified++; }, gapFillDebounceMs: 10, grantsFor: branchesOnlyGrants,
+    });
+    expect(entries[K("feat-a")].mr).toBe(cached);
+    expect(entries[K("feat-a")].fetchedAt).toBe(1);
+    expect(puts).toEqual([]);
+    expect(notified).toBe(0);
+  });
+
   test("a branch event null re-reads the cached PR", async () => {
     const entries: Record<string, any> = { [K("feat-a")]: { mr: fakePR(3, { sourceBranch: "feat-a" }), fetchedAt: 1, repoName: "repo-x" } };
     const { env } = makeEnv(entries);

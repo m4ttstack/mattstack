@@ -72,7 +72,7 @@ describe("mr:by-branch on GitHub writes the project store", () => {
     const store = tmpStore();
     const debugs: string[] = [];
     const pr = prOf(6, "feat");
-    const h = handlers(store, { fetchByBranch: async () => ({ pr, projectPath: "o/r", github: true }) }, debugs);
+    const h = handlers(store, { fetchByBranch: async () => ({ pr, projectPath: "o/r" }) }, debugs);
     const res = await h["mr:by-branch"]({ repoName: REPO, branches: ["feat"] }) as any;
     expect(res.data.byBranch.feat).toEqual({ pr, source: "forge" });
     expect(store.findBySourceBranch(REPO, "feat")?.iid).toBe(6);

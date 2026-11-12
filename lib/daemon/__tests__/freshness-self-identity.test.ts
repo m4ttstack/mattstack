@@ -13,6 +13,7 @@ import {
   disposeFreshness,
   getRepoContext,
   getSelfIds,
+  isGitHubRepo,
   resolveSelfUsername,
   resolveUserIdAcrossTracking,
 } from "../freshness.ts";
@@ -175,6 +176,15 @@ describe("your identity on each forge", () => {
     const before = requests.length;
     expect(await cachedSelfUsername(hub.name, hub.path)).toBeNull();
     expect(requests.length).toBe(before);
+  });
+
+  test("an empty repo path takes the GitLab username path", async () => {
+    secrets = { gitlabToken: GITLAB_TOKEN, githubToken: "ghp_x" };
+    const lab = repoWithOrigin("git@gitlab.com:acme/widgets.git");
+    const hub = repoWithOrigin("git@github.com:acme/widgets.git");
+    await resolveUserIdAcrossTracking(...tracked(lab, hub));
+    expect(await isGitHubRepo("")).toBe(false);
+    expect(await cachedSelfUsername(lab.name, "")).toBe("gl-me");
   });
 
   test("resolveSelfUsername on a GitHub repo returns the login", async () => {

@@ -229,6 +229,25 @@ describe("outcome refresher tick", () => {
     expect(counts).toEqual([1, 2, 2, 3, 3, 4]);
   });
 
+  test("a run whose link moves to a new iid drops its backoff and asks at once", async () => {
+    const run = ownRun();
+    const h = harness([run]);
+    h.answer({ ok: false });
+    const refresher = createOutcomeRefresher(h.deps);
+    let at = 0;
+    for (const t of [0, 10, 30]) {
+      h.advance((t - at) * MIN);
+      at = t;
+      await refresher.tick();
+    }
+    expect(h.calls).toHaveLength(3);
+    h.advance(1 * MIN);
+    run.mr = { value: "406", produced_by: "ship" };
+    h.answer(opened);
+    await refresher.tick();
+    expect(h.calls.at(-1)).toEqual({ repo: run.repo, iid: 406 });
+  });
+
   test("the backoff caps at maxBackoffMs", async () => {
     const h = harness([ownRun()]);
     h.answer({ ok: false });
