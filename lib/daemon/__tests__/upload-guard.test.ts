@@ -5,10 +5,11 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "child_process";
+import * as realFs from "fs";
 import { linkSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, relative } from "path";
-import { TEXT_MAX_BYTES, UPLOAD_MAX_BYTES, builtInEvidenceRoot, checkTextPath, checkUploadPath, claudeTempRoots, isInsideRoot, runEvidenceRoot, workRoot } from "../upload-guard.ts";
+import { TEXT_MAX_BYTES, UPLOAD_MAX_BYTES, builtInEvidenceRoot, checkTextPath, checkUploadPath, claudeTempRoots, type GuardFs, isInsideRoot, runEvidenceRoot, workRoot } from "../upload-guard.ts";
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 0x49, 0x48, 0x44, 0x52]);
 const JPG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 1, 0, 0, 1]);
@@ -493,5 +494,83 @@ describe("root helpers", () => {
   test("claudeTempRoots names the private root and its /tmp alias, or nothing without a uid", () => {
     expect(claudeTempRoots(501)).toEqual(["/private/tmp/claude-501", "/tmp/claude-501"]);
     expect(claudeTempRoots(null)).toEqual([]);
+  });
+});
+
+describe("the read refusals only a racing writer can reach", () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "rt-upload-race-"));
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function faked(over: Partial<GuardFs>): { fs: GuardFs; closed: number[] } {
+    const closed: number[] = [];
+    const fs: GuardFs = {
+      openSync: realFs.openSync,
+      fstatSync: realFs.fstatSync,
+      readSync: realFs.readSync,
+      closeSync: (fd) => {
+        closed.push(fd);
+        realFs.closeSync(fd);
+      },
+      ...over,
+    };
+    return { fs, closed };
+  }
+
+  function png(name = "shot.png"): string {
+    const p = join(root, name);
+    writeFileSync(p, PNG);
+    return p;
+  }
+
+  const identity = "file changed identity between check and read";
+
+  test("an fstat that reports another inode refuses and still closes the descriptor", () => {
+    const { fs, closed } = faked({
+      fstatSync: ((fd: number) => {
+        const st = realFs.fstatSync(fd);
+        return Object.assign(Object.create(Object.getPrototypeOf(st)), st, { ino: st.ino + 1 });
+      }) as GuardFs["fstatSync"],
+    });
+    expect(checkUploadPath(png(), [root], { fs })).toEqual({ ok: false, error: identity });
+    expect(closed.length).toBe(1);
+  });
+
+  test("an open that lands on a different file of the same size refuses the same way", () => {
+    const other = join(root, "other.png");
+    writeFileSync(other, PNG);
+    const { fs, closed } = faked({ openSync: ((_p: string, flags: number) => realFs.openSync(other, flags)) as GuardFs["openSync"] });
+    expect(checkUploadPath(png(), [root], { fs })).toEqual({ ok: false, error: identity });
+    expect(closed.length).toBe(1);
+  });
+
+  test("a read that returns nothing refuses as short", () => {
+    const { fs, closed } = faked({ readSync: (() => 0) as unknown as GuardFs["readSync"] });
+    expect(checkUploadPath(png(), [root], { fs })).toEqual({ ok: false, error: "file read short of its reported size" });
+    expect(closed.length).toBe(1);
+  });
+
+  test("a probe read that returns a byte refuses as grown", () => {
+    const { fs, closed } = faked({
+      readSync: ((fd: number, buf: Buffer, off: number, len: number, pos: number) => (len === 1 && pos === PNG.length ? 1 : realFs.readSync(fd, buf, off, len, pos))) as GuardFs["readSync"],
+    });
+    expect(checkUploadPath(png(), [root], { fs })).toEqual({ ok: false, error: "file grew during read" });
+    expect(closed.length).toBe(1);
+  });
+
+  test("checkTextPath refuses a grown file the same way", () => {
+    const p = join(root, "t.md");
+    writeFileSync(p, "# hi\n");
+    const size = 5;
+    const { fs, closed } = faked({
+      readSync: ((fd: number, buf: Buffer, off: number, len: number, pos: number) => (len === 1 && pos === size ? 1 : realFs.readSync(fd, buf, off, len, pos))) as GuardFs["readSync"],
+    });
+    expect(checkTextPath(p, [root], { fs })).toEqual({ ok: false, error: "file grew during read" });
+    expect(closed.length).toBe(1);
   });
 });
