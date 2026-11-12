@@ -159,8 +159,15 @@ describe("thread handlers on GitHub", () => {
       expect(await editAndCapture(999)).toEqual(["o/r", 7, { id: 999 }, "edited"]);
     });
 
-    test("an id in two kinds of thread sends no kind", async () => {
-      expect(await editAndCapture(30)).toEqual(["o/r", 7, { id: 30 }, "edited"]);
+    test("an id in two kinds of thread is refused and edits nothing", async () => {
+      let edits = 0;
+      const h = createDiscussionHandlers(fakeCtx, () => {}, seams(
+        { updateComment: async () => { edits++; } },
+        { readCached: () => ({ discussions: cached, fetchedAt: 1 }) },
+      ));
+      const res = await h["mr:note-update"]({ repoName: IDENTITY, iid: 7, noteId: 30, body: "edited" });
+      expect(res).toEqual({ ok: false, error: "note 30 matches more than one comment on this pull request; edit it on GitHub" });
+      expect(edits).toBe(0);
     });
 
     test("no cached threads sends no kind", async () => {

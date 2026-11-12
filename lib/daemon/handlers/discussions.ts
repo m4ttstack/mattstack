@@ -149,14 +149,18 @@ const GITHUB_THREAD_KINDS: Array<[prefix: string, kind: NonNullable<NoteRef["kin
   ["gh-review-", "review"],
 ];
 
-/** The kind of every cached thread holding the note, when they all agree. */
-function githubNoteKind(discussions: Discussion[], noteId: number): NoteRef["kind"] {
+/**
+ * The kinds of every cached thread holding the note. More than one means the
+ * id names comments in separate GitHub id spaces, and a kind-less edit would
+ * patch whichever the forge probe finds first.
+ */
+function githubNoteKinds(discussions: Discussion[], noteId: number): Set<NoteRef["kind"]> {
   const kinds = new Set<NoteRef["kind"]>();
   for (const d of discussions) {
     if (!d.notes.some((n) => n.id === noteId)) continue;
     kinds.add(GITHUB_THREAD_KINDS.find(([prefix]) => d.id.startsWith(prefix))?.[1]);
   }
-  return kinds.size === 1 ? [...kinds][0] : undefined;
+  return kinds;
 }
 
 /**
@@ -544,7 +548,11 @@ export function createDiscussionHandlers(
           } catch (err) {
             warnFn({ err, repoName, iid }, "mr:note-update: cached discussions unreadable, editing with no note kind");
           }
-          const kind = githubNoteKind(cached?.discussions ?? [], noteId);
+          const kinds = githubNoteKinds(cached?.discussions ?? [], noteId);
+          if (kinds.size > 1) {
+            return { ok: false, error: `note ${noteId} matches more than one comment on this pull request; edit it on GitHub` };
+          }
+          const [kind] = kinds;
           if (kind) note.kind = kind;
         }
         await repoCtx.provider.updateComment(writeRef(repoCtx), iid, note, body);
