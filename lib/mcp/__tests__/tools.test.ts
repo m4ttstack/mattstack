@@ -981,6 +981,7 @@ describe("mcpTools", () => {
       const res = await tool.handler({ repoName: "ghapp", paths: ["/tmp/a.png"] }, {} as NodeJS.ProcessEnv);
       expect(res.ok).toBe(false);
       expect(res.error).toContain("GitLab only: mr_upload does not speak GitHub");
+      expect(res.error).toContain("evidence_attach");
       expect(calls).toEqual([]);
     });
 
@@ -1375,6 +1376,19 @@ describe("mcpTools", () => {
         const res = await upload().handler({ repoName: "github.com/acme/web", paths: ["/tmp/a.png"] }, env);
         expect(res.ok).toBe(false);
         expect(res.error).toContain("GitLab only: mr_upload does not speak GitHub");
+        expect(res.error).toContain("evidence_attach");
+        expect(calls).toEqual([]);
+      });
+
+      test("the single-path form refuses a github.com mrUrl, a github.com repoName and a label resolving to a GitHub repo, before the daemon", async () => {
+        setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fghapp", "/repos/ghapp");
+        const calls = fakeDaemon();
+        for (const target of [{ mrUrl: "https://github.com/acme/app/pull/3" }, { repoName: "github.com/acme/web" }, { repoName: "ghapp" }]) {
+          const res = await upload().handler({ ...target, path: "/tmp/a.png" }, env);
+          expect(res.ok).toBe(false);
+          expect(res.error).toContain("GitLab only: mr_upload does not speak GitHub");
+          expect(res.error).toContain("evidence_attach");
+        }
         expect(calls).toEqual([]);
       });
 

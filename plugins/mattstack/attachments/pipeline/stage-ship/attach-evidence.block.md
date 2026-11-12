@@ -9,7 +9,7 @@ props:
 # Attach the evidence (evidence-record)
 
 The ship gate's `proceed` is the attach consent (on a re-capture, the
-operator's ask). On GitLab, Gate evidence-boards then shows every file
+operator's ask). Gate evidence-boards then shows every file
 about to go up but a cleared board before anything uploads. This is the last attach, so
 a Take at the upload off-script gate (never the first call) sends
 `linkRefused: true`.

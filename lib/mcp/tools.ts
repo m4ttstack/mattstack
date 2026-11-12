@@ -56,7 +56,7 @@ function withReviewTimeout(res: ToolResult): ToolResult {
   return err(`mr_review_submit timed out and its outcome is unknown; the review may still land; look at the MR before retrying (${res.error})`);
 }
 
-const MR_UPLOAD_GH_MOVE = "GitHub has no upload API; link the local path instead";
+const MR_UPLOAD_GH_MOVE = "GitHub uploads a file only as part of a PR write; on a PR, evidence_attach uploads the images into its description";
 const MR_REBASE_GH_MOVE = "no server-side rebase on GitHub";
 
 function existingMrResult(mr: OpenMr): ToolResult {
@@ -577,7 +577,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_upload",
-      description: `GitLab only. Upload local images or videos (png, jpg, jpeg, gif, webp, mp4, mov, webm; at most 50 MB) to the target project and get back url and markdown; pass path for one file or paths (1 to 20, never both) for several, which upload in order, report each file as {path, ok, url, markdown} or {path, ok: false, error} under results, and do not stop at a failure; paste the markdown into an MR description or note (mr_create, mr_update, mr_comment). Works before an MR exists. Every path must be absolute and under an allowed root: a worktree of the target repo, this user's Claude Code temp root (the session scratchpad lives there), rt's evidence folder ~/.mattstack/evidence/ (for screenshots you want to upload), a pipeline run's own evidence folder (~/.mattstack/work/<run id>/evidence/, for a run that exists on this machine), or a directory in the rt.mcp.uploadRoots setting; anything else, a directory, a file with other hard links, or a file whose bytes do not match its extension is refused. Uploads once; a timed-out upload may have landed, but an unused upload is harmless, so retrying is safe. Pass runId when the file is a pipeline run's evidence: the daemon then also refuses a file that run's evidence record does not list as an annotated image or a waived capture, and names the file. A composed board that hides part of a ticket image is refused until its redactions are confirmed (fast-browser compose --confirm), as is a board whose redaction record is empty until compose --confirm confirms nothing needs hiding, and an imported capture (a <stem>.cN.png whose sidecar says import) is refused: upload its board. A file under a run's evidence folder is checked against that run's record even without runId, and a run's saved ticket image (source ticket) is refused at its own path and as a byte copy anywhere. ${REPO_TARGET_RULE}`,
+      description: `GitLab only. On GitHub it refuses in every form and names evidence_attach, since GitHub uploads a file only as part of a PR write. Upload local images or videos (png, jpg, jpeg, gif, webp, mp4, mov, webm; at most 50 MB) to the target project and get back url and markdown; pass path for one file or paths (1 to 20, never both) for several, which upload in order, report each file as {path, ok, url, markdown} or {path, ok: false, error} under results, and do not stop at a failure; paste the markdown into an MR description or note (mr_create, mr_update, mr_comment). Works before an MR exists. Every path must be absolute and under an allowed root: a worktree of the target repo, this user's Claude Code temp root (the session scratchpad lives there), rt's evidence folder ~/.mattstack/evidence/ (for screenshots you want to upload), a pipeline run's own evidence folder (~/.mattstack/work/<run id>/evidence/, for a run that exists on this machine), or a directory in the rt.mcp.uploadRoots setting; anything else, a directory, a file with other hard links, or a file whose bytes do not match its extension is refused. Uploads once; a timed-out upload may have landed, but an unused upload is harmless, so retrying is safe. Pass runId when the file is a pipeline run's evidence: the daemon then also refuses a file that run's evidence record does not list as an annotated image or a waived capture, and names the file. A composed board that hides part of a ticket image is refused until its redactions are confirmed (fast-browser compose --confirm), as is a board whose redaction record is empty until compose --confirm confirms nothing needs hiding, and an imported capture (a <stem>.cN.png whose sidecar says import) is refused: upload its board. A file under a run's evidence folder is checked against that run's record even without runId, and a run's saved ticket image (source ticket) is refused at its own path and as a byte copy anywhere. ${REPO_TARGET_RULE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -617,8 +617,12 @@ export function mcpTools(): McpToolDef[] {
           });
           return ok({ results: results.map((r) => (r.ok ? r : { path: r.path, ok: false, error: r.error })) });
         }
+        const early = refuseGithubTarget(input, "mr_upload", MR_UPLOAD_GH_MOVE);
+        if (early) return err(early);
         const target = await resolveRepoTarget(input);
         if (!target.ok) return err(target.error);
+        const resolvedGithub = githubRefusal(target.identity, "mr_upload", MR_UPLOAD_GH_MOVE);
+        if (resolvedGithub) return err(resolvedGithub);
         const payload: Commands["mr:upload"]["payload"] = { repoName: target.identity, path: input.path as string };
         if (typeof input.runId === "string") payload.runId = input.runId;
         const res = await rtCommand<Commands["mr:upload"]["data"]>("mr:upload", payload, { timeoutMs: MR_UPLOAD_TIMEOUT_MS });

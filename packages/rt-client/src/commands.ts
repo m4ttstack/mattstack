@@ -132,6 +132,10 @@ export interface ForgeFileDiff {
     page or byte cap stopped the listing first, so null need not mean the diff
     leaves the path alone. */
 export interface ForgeFileDiffData { forge: "gitlab" | "github"; headSha: string; truncated: boolean; file: ForgeFileDiff | null }
+export type DescribeAttachment = { path: string; name: string };
+export type DescribeWithAttachmentsResult =
+  | { outcome: "refused"; refused: Array<{ path: string; error: string }> }
+  | { outcome: "ran"; written: boolean; urls: Record<string, string>; ghError?: string; uploadRejected?: boolean; readBackError?: string };
 export interface PipelineListRow { id: number; status: string; ref: string | null; sha: string | null; source: string | null; webUrl: string | null; createdAt: string | null }
 
 /** A null entry means GitLab has no open MR with that source branch. */
@@ -1258,6 +1262,19 @@ export interface Commands {
     data: { url: string; markdown: string };
   };
 
+  /** Writes a GitHub PR's description and uploads its images with it
+      (`gh pr edit --body-file --attach`; GitHub uploads a file only as part
+      of a PR write). Every
+      `name` must appear in the description as `](./<name>)`. Each file goes
+      through mr:upload's checks first; any refusal is `outcome: "refused"`
+      and nothing runs. `urls` is keyed by each attachment's `path` as sent.
+      `written` is true when gh exited 0, or when it failed partway and the
+      read-back found at least one hosted URL. */
+  "mr:describe-with-attachments": {
+    payload: { repoName: string; iid: number; description: string; attachments: DescribeAttachment[]; runId?: string };
+    data: DescribeWithAttachmentsResult;
+  };
+
   "mr:fetch-job-detail": { payload: { repoName: string; iid: number; jobId: number; pipelineId?: number }; data: MrJobDetail };
   "mr:fetch-job-trace": { payload: { repoName: string; iid: number; jobId: number }; data: string };
 
@@ -1560,6 +1577,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "mr:create",
   "mr:update",
   "mr:upload",
+  "mr:describe-with-attachments",
   "mr:fetch-job-detail",
   "mr:fetch-job-trace",
   "mr:commit-parents",
