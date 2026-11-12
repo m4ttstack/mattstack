@@ -101,7 +101,7 @@ import { compareVersions } from "../lib/skills/installed-plugins.ts";
 import { buildStageEntries, hostDir, outDirFor, otherSideDir, targetOutDirs } from "../lib/skills/layout.ts";
 import { defaultPipeline, effectiveBindings, engineRefOf, lastWinsBindings, pipelineBindingKey, pipelineNameError, type BindingsMap } from "../lib/skills/pipelines.ts";
 import { originFor, originOf, originOfDir, type Origin } from "../lib/skills/origin.ts";
-import { computePackSha, maskProvenance, mattstackProvenance, packPluginIdentity } from "../lib/skills/provenance.ts";
+import { maskProvenance, mattstackProvenance, packPluginIdentity } from "../lib/skills/provenance.ts";
 import {
   frontmatterYamlError,
   installedVersionFor,
@@ -593,9 +593,9 @@ type Resolved = {
   stages: VerbDef[];
   stageEntries: Record<string, StageEntry[]>;
   repoKey: string;
+  /** The mattstack checkout's short sha and dirty bit, which the lock keeps beside a target; the plain version when mattstack is not a checkout. */
   mattstackSha: string;
   mattstackDirty: 0 | 1;
-  packSha: string;
   /** Built once per resolve(), so each compile run starts with nothing missing or used; null for a pack with no plugin identity. */
   teamContext: TeamContext | null;
   /** `<plugin>:<root id>` of every block tree a compile in this run resolved props for. */
@@ -696,7 +696,6 @@ async function resolve(flags: Flags): Promise<Resolved> {
   }
   const repoKey = manifestPath ? manifestRepoKey(manifestPath) : "";
   const { sha: mattstackSha, dirty: mattstackDirty } = mattstackProvenance(pipelines, pluginRoots.byName.mattstack);
-  const packSha = computePackSha(pipelines, self, packDir);
   let stageEntries: Record<string, StageEntry[]>;
   try {
     const copies = new Set(stages.filter((s) => s.pipeline !== undefined).map((s) => s.name));
@@ -717,7 +716,7 @@ async function resolve(flags: Flags): Promise<Resolved> {
 
   return {
     packDir, team, fullRoster, bindings, pluginRoots, invocable, surface, internalRoster, manifestPath, base, provenance,
-    pipelines, pipelineBindings, stages, stageEntries, repoKey, mattstackSha, mattstackDirty, packSha, teamContext,
+    pipelines, pipelineBindings, stages, stageEntries, repoKey, mattstackSha, mattstackDirty, teamContext,
     claimedTrees: new Set<string>(), identity: readPackIdentity(packDir),
   };
 }
@@ -933,9 +932,6 @@ function compileVerb(
     includes,
     pipelines: entries,
     repoKey: resolved.repoKey,
-    mattstackSha: resolved.mattstackSha,
-    mattstackDirty: resolved.mattstackDirty,
-    packSha: resolved.packSha,
     stageDir,
     stageAllowedTools: isOrchestrator ? stageAllowedToolsFor(resolved, entries) : [],
     emittedSiblingDirs: [...allStageDirs, ...internalVerbDirs],

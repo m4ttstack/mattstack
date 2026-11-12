@@ -169,6 +169,28 @@ describe('resolveStageDoc', () => {
     expect(runGit).not.toHaveBeenCalled();
   });
 
+  it('a sync-commit sha finds the stage doc', async () => {
+    expect(
+      await resolveStageDoc(deps(), {
+        packCommits: 'mattstack=0.32.56,acme=ccc3333',
+        stage: 'plan',
+        pipeline: null,
+      })
+    ).toEqual({ text: 'ACME PLAN', pack: 'acme', sha: 'ccc3333' });
+  });
+
+  it('is null for a pack recorded only by its version', async () => {
+    const runGit = vi.fn(fakeGit({ org }));
+    expect(
+      await resolveStageDoc(deps({ runGit }), {
+        packCommits: 'mattstack=0.32.56,acme=0.4.11',
+        stage: 'plan',
+        pipeline: null,
+      })
+    ).toBeNull();
+    expect(runGit).not.toHaveBeenCalled();
+  });
+
   it('is null when no pack has the stage', async () => {
     expect(
       await resolveStageDoc(deps(), {

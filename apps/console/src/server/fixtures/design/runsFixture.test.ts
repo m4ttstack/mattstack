@@ -615,6 +615,27 @@ describe('runsFixture', () => {
     expect(await runs.effectiveInputs(REPO, 'nope')).toBeNull();
   });
 
+  it('serves version rows for a run that recorded its packs by version', async () => {
+    const inputs = await runs.effectiveInputs(REPO, '20261007-0958');
+    expect(inputs!.packVersions).toEqual([
+      {
+        pack: 'mattstack',
+        recordedSha: null,
+        recordedVersion: '0.32.56',
+        currentSha: null,
+        drifted: null,
+      },
+      {
+        pack: 'acme',
+        recordedSha: null,
+        recordedVersion: '0.4.11',
+        currentSha: null,
+        drifted: null,
+      },
+    ]);
+    expect(await runs.stageDoc(REPO, '20261007-0958', 'plan')).toBeNull();
+  });
+
   it('enriches only the branches asked for', async () => {
     expect(
       Object.keys(await runs.enrich(['dedupe-contacts', 'other']))

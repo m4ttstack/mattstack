@@ -248,7 +248,7 @@ The work type is \`feature\`. Continue.
 <!-- part: block:work source=mattstack:work path=attachments/pipeline/work/index.block.md lines=11-11 -->
 Start: "$RT_PIPELINE_STATE" run-start \`\`\`json
 {
-  "feature": "--repo my-repo --work-type feature --pipeline feature --mattstack-sha 1.0.0 --mattstack-dirty 0 --pack-sha acme=0.1.0"
+  "feature": "--repo my-repo --work-type feature --pipeline feature"
 }
 \`\`\`
 "

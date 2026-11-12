@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { LOCK_REL, readLock } from "../../lib/skills/compiled-lock.ts";
@@ -11,6 +11,8 @@ import * as out from "../../lib/ui/out.ts";
 import { originOfDir } from "../../lib/skills/origin.ts";
 import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
 import { compileBlocks, compileFailure, misplacedFailure, skillsCompile, staleEngineFailure } from "../skills.ts";
+
+const PIPELINE_FIX = join(import.meta.dir, "..", "..", "lib", "skills", "__tests__", "fixtures", "compile-native");
 
 test("a compile lists each verb, with its warnings under it", () => {
   expect(
@@ -111,6 +113,55 @@ describe("the compiled lock", () => {
     await compile(flags);
     expect(inRepo(packDir, "status", "--porcelain").split("\n").filter(Boolean).sort()).toEqual([" M .claude-plugin/plugin.json", ` M ${LOCK_REL}`]);
     expect(readLock(packDir).targets["skills/beta"]).toEqual({ acme: "0.4.12", mattstack: "1.0.0" });
+  });
+
+  const commitAll = (dir: string, message: string) => {
+    inRepo(dir, "add", "-A");
+    inRepo(dir, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", message);
+  };
+
+  /** The compile-native fixture: a keyed pack with a `work` pipeline, compiled against a mattstack dir beside it. */
+  function seedPipelinePack(): { pack: string; ms: string; flags: string[] } {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-lock-pipeline-")));
+    made.push(root);
+    cpSync(PIPELINE_FIX, root, { recursive: true });
+    const pack = join(root, "pack");
+    const ms = join(root, "mattstack-home");
+    return { pack, ms, flags: ["--pack-dir", pack, "--mattstack-dir", ms, "--manifest", join(ms, "repos", "my-repo", "skills.jsonc")] };
+  }
+
+  test("a version-only bump changes only plugin.json and the lock, with keys and a pipeline", async () => {
+    const { pack, flags } = seedPipelinePack();
+    inRepo(pack, "init", "-q");
+    await compile(flags);
+    const work = readFileSync(join(pack, "skills", "work", "SKILL.md"), "utf8");
+    expect(work).toContain('"feature": "--repo my-repo --work-type feature --pipeline feature"');
+    expect(work).toContain('"read": "@stage-plan/SKILL.md"');
+    commitAll(pack, "compile");
+    writeFileSync(join(pack, "NOTES.md"), "another team's change\n");
+    commitAll(pack, "unrelated");
+
+    writeFileSync(join(pack, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "acme", version: "0.1.1" }));
+    await compile(flags);
+    expect(inRepo(pack, "status", "--porcelain").split("\n").filter(Boolean).sort()).toEqual([" M .claude-plugin/plugin.json", ` M ${LOCK_REL}`]);
+  });
+
+  test("mattstack compiled from a checkout keeps its sha and dirty bit beside the plain version", async () => {
+    const { pack, ms, flags } = seedPipelinePack();
+    inRepo(ms, "init", "-q");
+    commitAll(ms, "mattstack");
+    const head = inRepo(ms, "rev-parse", "--short", "HEAD").trim();
+    await compile(flags);
+    let lock = readLock(pack);
+    expect(lock.targets["skills/work"]?.mattstack).toBe("1.0.0");
+    expect(lock.mattstackSha["skills/work"]).toBe(head);
+    expect(lock.mattstackDirty["skills/work"]).toBe(0);
+
+    writeFileSync(join(ms, "plugins", "mattstack", "WIP.md"), "uncommitted\n");
+    await compile(flags);
+    lock = readLock(pack);
+    expect(lock.mattstackSha["skills/work"]).toBe(head);
+    expect(lock.mattstackDirty["skills/work"]).toBe(1);
   });
 
   test("a --verb compile leaves other targets' lock entries alone", async () => {

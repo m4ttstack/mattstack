@@ -50,7 +50,7 @@ function ctx(over: Partial<PlaceholderContext> = {}): PlaceholderContext {
       { name: "stage-provision", engine: "stage-provision", stage: "provision", dir: "${CLAUDE_SKILL_DIR}/../../attachments/stage-provision", consumes: ["ticket", "repo"], produces: ["branch", "worktree"] },
       { name: "stage-plan", engine: "stage-plan", stage: "plan", dir: "${CLAUDE_SKILL_DIR}/../../attachments/stage-plan", consumes: ["ticket"], produces: ["approach"] },
     ] },
-    repoKey: "my-repo", mattstackSha: "abc1234", mattstackDirty: 0, packSha: "acme=abc1234",
+    repoKey: "my-repo",
     stageDir: null, stageMeta: null, compiledFrom: "mattstack@1.0.0 + acme:plan-policy@0.4.0",
     verbSides: { work: "skills", checkout: "skills", "stage-plan": "attachments", "receive-review": "attachments" },
     side: "skills",
@@ -217,36 +217,23 @@ describe("substituteLine", () => {
     });
   });
 
-  test("run-start.flags is keyed by work type and carries the baked mattstack and pack facts", () => {
+  test("run-start.flags is keyed by work type", () => {
     const body = substitute("{{run-start.flags}}", ctx(), "work").body;
     const json = JSON.parse(body.replace(/^```json\n/, "").replace(/\n```$/, ""));
-    expect(json.feature).toBe("--repo my-repo --work-type feature --pipeline feature --mattstack-sha abc1234 --mattstack-dirty 0 --pack-sha acme=abc1234");
+    expect(json.feature).toBe("--repo my-repo --work-type feature --pipeline feature");
   });
 
-  test("run-start.flags omits --mattstack-sha when no sha is known", () => {
-    const body = substitute("{{run-start.flags}}", ctx({ mattstackSha: "" }), "work").body;
-    const json = JSON.parse(body.replace(/^```json\n/, "").replace(/\n```$/, ""));
-    expect(json.feature).toBe("--repo my-repo --work-type feature --pipeline feature --mattstack-dirty 0 --pack-sha acme=abc1234");
-  });
-
-  test("run-start.flags omits --pack-sha when no pack sha is known", () => {
-    const body = substitute("{{run-start.flags}}", ctx({ packSha: "" }), "work").body;
-    const json = JSON.parse(body.replace(/^```json\n/, "").replace(/\n```$/, ""));
-    expect(json.feature).toBe("--repo my-repo --work-type feature --pipeline feature --mattstack-sha abc1234 --mattstack-dirty 0");
+  test("run-start flags bake no shas", () => {
+    const body = substitute("{{run-start.flags}}\n\n{{run-start.flags:review}}", ctx(), "work").body;
+    expect(body).not.toContain("--mattstack-sha");
+    expect(body).not.toContain("--mattstack-dirty");
+    expect(body).not.toContain("--pack-sha");
   });
 
   test("run-start.flags:<verb> renders one line for a standalone verb, keyed by that verb", () => {
     const body = substitute("{{run-start.flags:review}}", ctx(), "work").body;
     const json = JSON.parse(body.replace(/^```json\n/, "").replace(/\n```$/, ""));
-    expect(json).toEqual({
-      review: "--repo my-repo --work-type review --pipeline review --mattstack-sha abc1234 --mattstack-dirty 0 --pack-sha acme=abc1234",
-    });
-  });
-
-  test("run-start.flags:<verb> still omits --mattstack-sha and --pack-sha when unknown", () => {
-    const body = substitute("{{run-start.flags:ship}}", ctx({ mattstackSha: "", packSha: "" }), "work").body;
-    const json = JSON.parse(body.replace(/^```json\n/, "").replace(/\n```$/, ""));
-    expect(json.ship).toBe("--repo my-repo --work-type ship --pipeline ship --mattstack-dirty 0");
+    expect(json).toEqual({ review: "--repo my-repo --work-type review --pipeline review" });
   });
 
   test("run-start.flags:<verb> rejects an arg that is not a bare verb name", () => {
@@ -351,13 +338,13 @@ describe("a work verb's pipeline", () => {
   test("run-start.flags:<verb> records the verb's pipeline", () => {
     const body = substitute("{{run-start.flags:work}}", workCtx("accessibility"), "work-a11y").body;
     const json = JSON.parse(body.replace(/^```json\n/, "").replace(/\n```$/, ""));
-    expect(json.work).toBe("--repo my-repo --work-type work --pipeline accessibility --mattstack-sha abc1234 --mattstack-dirty 0 --pack-sha acme=abc1234");
+    expect(json.work).toBe("--repo my-repo --work-type work --pipeline accessibility");
   });
 
   test("run-start.flags:<verb> with no pipeline is unchanged", () => {
     const body = substitute("{{run-start.flags:work}}", workCtx(null), "work").body;
     const json = JSON.parse(body.replace(/^```json\n/, "").replace(/\n```$/, ""));
-    expect(json.work).toBe("--repo my-repo --work-type work --pipeline work --mattstack-sha abc1234 --mattstack-dirty 0 --pack-sha acme=abc1234");
+    expect(json.work).toBe("--repo my-repo --work-type work --pipeline work");
   });
 
   test("run-list.pipelines adds the old work pipeline only for the default pipeline", () => {

@@ -335,19 +335,15 @@ function workTypeText(pipelines: Record<string, StageEntry[]>, where: string): s
 
 const VERB_NAME_RE = /^[a-z][a-z0-9-]*$/;
 
+/** Provenance is worked out at run start from the skill's folder, so a sync never restamps these lines. */
 function runStartFlags(ctx: PlaceholderContext, arg: string | undefined, raw: string, where: string): string {
-  // run-start's flag parser takes the token after a flag as its value, so an empty
-  // sha must drop the flag entirely rather than leave `--mattstack-dirty` as the value.
-  const sha = ctx.mattstackSha ? ` --mattstack-sha ${ctx.mattstackSha}` : "";
-  const pack = ctx.packSha ? ` --pack-sha ${ctx.packSha}` : "";
-  const tail = `${sha} --mattstack-dirty ${ctx.mattstackDirty}${pack}`;
   if (arg !== undefined) {
     if (!VERB_NAME_RE.test(arg)) throw new Error(`${where}: ${raw} -- verb must match [a-z][a-z0-9-]*`);
-    return fenced({ [arg]: `--repo ${ctx.repoKey} --work-type ${arg} --pipeline ${ctx.pipeline ?? arg}${tail}` });
+    return fenced({ [arg]: `--repo ${ctx.repoKey} --work-type ${arg} --pipeline ${ctx.pipeline ?? arg}` });
   }
   const out: Record<string, string> = {};
   for (const t of Object.keys(ctx.pipelines)) {
-    out[t] = `--repo ${ctx.repoKey} --work-type ${t} --pipeline ${t}${tail}`;
+    out[t] = `--repo ${ctx.repoKey} --work-type ${t} --pipeline ${t}`;
   }
   return fenced(out);
 }

@@ -53,9 +53,7 @@ describe("compile-native end to end", () => {
       expect(md).not.toContain("{{");
     }
     expect(work).toContain("<!-- part: block:work source=mattstack:work");
-    expect(work).toMatch(/--mattstack-sha \S+ --mattstack-dirty [01]/);
-    // build() copies the fixture to a temp dir with no git history, so the baked value is the pack's plugin.json version.
-    expect(work).toContain("--pack-sha acme=0.1.0");
+    expect(work).toContain('"feature": "--repo my-repo --work-type feature --pipeline feature"');
     for (const [name, body] of stages) {
       expect(body).toContain(`<!-- part: block:${name} source=mattstack:${name}`);
     }

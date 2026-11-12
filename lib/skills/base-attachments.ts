@@ -425,7 +425,7 @@ type VendorInput = {
 /** The team's source ships as written, so a base copy reads its own rendered copy of each unit it names, as a built skill does. */
 function vendorTeamSources(targets: PackTarget[], out: CompiledFile[], v: VendorInput): { errors: string[]; warnings: string[]; verbPaths: string[] } {
   const ctx: PlaceholderContext = {
-    partsPrefix: `${v.copyDir}/parts`, includes: {}, pipelines: {}, repoKey: "", mattstackSha: "", mattstackDirty: 0, packSha: "",
+    partsPrefix: `${v.copyDir}/parts`, includes: {}, pipelines: {}, repoKey: "",
     stageDir: v.copyDir, stageMeta: null, compiledFrom: "", verbSides: v.verbSides, side: "attachments", packRoot: v.packDir,
     plannedAttachments: v.planned, pipeline: null, team: v.team,
   };

@@ -114,6 +114,13 @@ describe('parsePackCommits', () => {
     expect(parsePackCommits('')).toEqual([]);
   });
 
+  it('keeps a version token as a version', () => {
+    expect(parsePackCommits('mattstack=0.32.56,acme=0.4.11')).toEqual([
+      { pack: 'mattstack', version: '0.32.56' },
+      { pack: 'acme', version: '0.4.11' },
+    ]);
+  });
+
   it('drops a malformed token rather than throwing', () => {
     expect(parsePackCommits('mattstack=59b90cd not-a-pair')).toEqual([
       { pack: 'mattstack', sha: '59b90cd' },
@@ -170,6 +177,7 @@ describe('effective-inputs route', () => {
       {
         pack: 'mattstack',
         recordedSha: '59b90cd',
+        recordedVersion: null,
         currentSha: '1111111abcdef',
         drifted: true,
         commitsSince: null,
@@ -378,6 +386,47 @@ describe('effective-inputs route', () => {
     const body = await res.json();
     expect(body.packVersions).toBeNull();
     expect(rtFake.run).not.toHaveBeenCalled();
+    expect(git.run).not.toHaveBeenCalled();
+  });
+
+  it('a version token shows a version row', async () => {
+    vi.mocked(rt.getRun).mockResolvedValue({
+      ok: true,
+      data: baseDetail({
+        run: baseRun({ pack_commits: 'mattstack=0.32.56,acme=0.4.11' }),
+      }),
+    });
+    vi.mocked(rt.getSetting).mockImplementation(() => ({
+      value: 1,
+      provenance: [],
+    }));
+
+    const rtFake = fakeRt({ code: 0, stdout: '{}', stderr: '' });
+    const git = fakeRun(() => ({ code: 0, stdout: '', stderr: '' }));
+    const app = mountEffectiveInputs(new Hono(), rtFake.run, git.run);
+
+    const res = await app.request(
+      '/api/runs/repo-tools/run-1/effective-inputs'
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.packVersions).toEqual([
+      {
+        pack: 'mattstack',
+        recordedSha: null,
+        recordedVersion: '0.32.56',
+        currentSha: null,
+        drifted: null,
+      },
+      {
+        pack: 'acme',
+        recordedSha: null,
+        recordedVersion: '0.4.11',
+        currentSha: null,
+        drifted: null,
+      },
+    ]);
     expect(git.run).not.toHaveBeenCalled();
   });
 
