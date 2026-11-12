@@ -4,7 +4,7 @@
     are reached through deps.launch. DOM-free, like launch-flow.ts. */
 import type { BoardMR } from '../../data.ts';
 import type { MrAction } from '../../mr-action.ts';
-import { forgeWord } from '../../mr-ref.ts';
+import { forgeWord, mrNoun } from '../../mr-ref.ts';
 import type { ActionResult } from '../api.ts';
 import type { ActiveRun, AskKind } from '../types.ts';
 import type { ToastHandle } from './launch-flow.ts';
@@ -296,7 +296,7 @@ function postSpec(req: PostRequest, people: People): PostSpec {
       };
     case 'resolve-latch': {
       const what = (mr: BoardMR) =>
-        `${people.short(req.reviewer)}'s agent for a follow-up review of ${mrRef(mr)} through the MR thread`;
+        `${people.short(req.reviewer)}'s agent for a follow-up review of ${mrRef(mr)} through the ${mrNoun(mr)} thread`;
       return {
         path: '/discussions/resolve',
         payload: mr => ({

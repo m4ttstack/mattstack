@@ -120,5 +120,8 @@ test('on a GitHub PR the dialog names the MR and its parent #N', async () => {
   const parent = await open({ runId: 'r', stage: null, viaIid: 1400 }, pr);
   expect(title(parent.dialog)).toBe('A work run is active on #1400');
   expect(parent.dialog?.textContent).toContain('The run is on parent #1400.');
+  expect(parent.dialog?.textContent).toContain(
+    'Ring worker tells the worker what this PR needs, and no doctor starts.'
+  );
   await parent.close();
 });

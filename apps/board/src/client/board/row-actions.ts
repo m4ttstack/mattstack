@@ -5,7 +5,7 @@
 import { mergeBlockedReason } from '@mattstack/glance';
 import type { BoardMR } from '../../data.ts';
 import type { MrAction } from '../../mr-action.ts';
-import { forgeWord, mrRef, onGitHub } from '../../mr-ref.ts';
+import { forgeWord, mrNoun, mrRef, onGitHub } from '../../mr-ref.ts';
 import { hasStackDescendants, isOwnMr, stackParents } from '../../view.ts';
 import type { BoardMRWithReview, OrgTeam } from '../types.ts';
 import { askPickerModel, type AskPickerModel } from './ask-picker.ts';
@@ -27,8 +27,8 @@ import {
   reviewLogged,
   reviewMenuItems,
   roundSuffix,
-  SEAT_HINT,
   SEAT_UNVERIFIED_HINT,
+  seatHint,
 } from './format.ts';
 import { boardPeople, NO_PEOPLE, type People } from './people.ts';
 import { laneDismissed } from './row-status.ts';
@@ -535,7 +535,7 @@ export function rowActions(
             reviewer: latch.reviewer,
             discussionId: latch.discussionId,
           },
-          block(latch.requested && 'asked in the MR thread')
+          block(latch.requested && `asked in the ${mrNoun(mrx)} thread`)
         )
       );
     const askTargets = firstReviewTargets(mrx, env.roster, env.peers);
@@ -609,7 +609,7 @@ export function rowActions(
         'author actions',
         PEOPLE,
         { kind: 'open', url: '' },
-        { blocked: env.seatUnverified ? SEAT_UNVERIFIED_HINT : SEAT_HINT }
+        { blocked: env.seatUnverified ? SEAT_UNVERIFIED_HINT : seatHint(mrx) }
       )
     );
   if (!env.local)
@@ -741,7 +741,7 @@ export function rowActions(
         ? item(
             'slack',
             'open-slack-post',
-            'open MR post in slack…',
+            `open ${mrNoun(mrx)} post in slack…`,
             SLACK,
             { kind: 'slack-posts' },
             { hint: `${posts.length} posts` }
@@ -749,7 +749,7 @@ export function rowActions(
         : item(
             'slack',
             'open-slack-post',
-            'open MR post in slack',
+            `open ${mrNoun(mrx)} post in slack`,
             SLACK,
             { kind: 'open', url: posts[0]?.permalink ?? '' },
             block(
@@ -804,7 +804,7 @@ export function rowActions(
         'stand-down',
         mrx.standDown
           ? 're-enable auto-doctor'
-          : `auto-doctor: ignore this ${hasStackDescendants(onBoard, env.allMrs) ? 'stack' : 'MR'}`,
+          : `auto-doctor: ignore this ${hasStackDescendants(onBoard, env.allMrs) ? 'stack' : mrNoun(mrx)}`,
         DISMISS,
         { kind: 'stand-down', on: !mrx.standDown },
         block(

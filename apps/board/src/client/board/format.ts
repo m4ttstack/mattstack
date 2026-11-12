@@ -2,6 +2,7 @@ import { getReviewDisplayState } from '@mattstack/glance';
 import type { BoardMR } from '../../data.ts';
 import { stripDraftPrefix } from '../../data.ts';
 import type { ReviewerLatch } from '../../latch/discussions.ts';
+import { mrNouns, type ForgeKind, type MrLinkTarget } from '../../mr-ref.ts';
 import { canonicalUsername } from '../../peer/envelope.ts';
 import type { RespondStatus } from '../../respond-outcome.ts';
 import { DEFAULT_SLACK_EMOJI } from '../../slack-emoji.ts';
@@ -512,11 +513,15 @@ function laneInterrupted(
 
 /** Where an author action would be on a seatless ("all") board, which owns
     no MR and so offers none. */
-const SEAT_HINT = 'set your seat in board settings to act on your own MRs';
+const seatHint = (on?: MrLinkTarget | ForgeKind) =>
+  `set your seat in board settings to act on your own ${mrNouns(on)}`;
+
+const SEAT_HINT = seatHint('gitlab');
 
 const SEAT_UNVERIFIED_HINT = 'run rt setup to add your GitHub login';
 
 export {
+  seatHint,
   SEAT_HINT,
   SEAT_UNVERIFIED_HINT,
   GROUP_LABEL,

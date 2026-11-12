@@ -553,6 +553,19 @@ test('a latch already resolved waits greyed out instead of asking twice', () => 
   expect(item?.blocked).toBe('asked in the MR thread');
 });
 
+test('a GitHub latch already resolved waits in the PR thread', () => {
+  const asked = {
+    ...ownIdle,
+    webUrl: 'https://github.com/acme/webapp/pull/9',
+    provider: 'github',
+    reviewerLatches: [{ reviewer: 'jo', discussionId: 'd9', requested: true }],
+  } as typeof ownIdle;
+  const item = rowActions(asked, actionEnvOf(ownEnv, asked)).find(
+    a => a.key === 'latch-jo'
+  );
+  expect(item?.blocked).toBe('asked in the PR thread');
+});
+
 test('a reviewer the switchboard reaches keeps the switchboard ask, not the latch', () => {
   const both = {
     ...failedLanes,
@@ -922,6 +935,21 @@ test('an unset seat keeps its own hint when the flag is off', () => {
     actionEnvOf({ ...ownEnv, self: null }, brokenAndMergeable())
   );
   expect(actions.find(a => a.key === 'seat-hint')?.blocked).toBe(SEAT_HINT);
+});
+
+test('a GitHub row says PR in its seat hint and its stand-down label', () => {
+  const gh = mrx(910, {
+    webUrl: 'https://github.com/acme/webapp/pull/910',
+    provider: 'github',
+  });
+  const seatless = rowActions(gh, actionEnvOf({ ...ownEnv, self: null }, gh));
+  expect(seatless.find(a => a.key === 'seat-hint')?.blocked).toBe(
+    'set your seat in board settings to act on your own PRs'
+  );
+  const own = rowActions(gh, actionEnvOf(ownEnv, gh));
+  expect(own.find(a => a.key === 'stand-down')?.label).toBe(
+    'auto-doctor: ignore this PR'
+  );
 });
 
 const REPO = 'gitlab.example.com/acme/webapp';

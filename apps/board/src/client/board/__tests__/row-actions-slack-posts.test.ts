@@ -55,3 +55,22 @@ test('a found thread with no link and no other post says so', () => {
     openPost(mrx(273, { slack: { ...found, permalink: undefined } })).blocked
   ).toBe('no link yet');
 });
+
+test('a GitHub row names its PR post', () => {
+  const gh = {
+    webUrl: 'https://github.com/acme/webapp/pull/9',
+    provider: 'github',
+  };
+  expect(openPost(mrx(274, { ...gh, slack: found })).label).toBe(
+    'open PR post in slack'
+  );
+  expect(
+    openPost(
+      mrx(275, {
+        ...gh,
+        slack: found,
+        ownerPosts: [ownerPost('pod-acme', 1)],
+      })
+    ).label
+  ).toBe('open PR post in slack…');
+});

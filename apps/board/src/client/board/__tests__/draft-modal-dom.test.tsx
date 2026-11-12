@@ -82,11 +82,14 @@ test('a held draft on a GitHub row follows the same author rule', async () => {
   expect(document.body.textContent).toContain('only the author posts');
 });
 
-async function postWith(reply: Response): Promise<string> {
+async function postWith(
+  reply: Response,
+  on: BoardMRWithReview = mr
+): Promise<string> {
   const real = globalThis.fetch;
   globalThis.fetch = (async () => reply) as unknown as typeof fetch;
   try {
-    await render(true);
+    await render(true, on);
     const click = async (label: string) =>
       React.act(async () => {
         const b = [...document.querySelectorAll('button')].find(
@@ -139,4 +142,18 @@ test('a refused post says why instead of nothing-was-sent', async () => {
 test('a reasonless failure keeps the semicolon wording', async () => {
   const text = await postWith(Response.json({}, { status: 502 }));
   expect(text).toContain('action failed; nothing was sent, try again');
+});
+
+test('a GitHub row with no answer says to check the PR', async () => {
+  const pr = {
+    ...mr,
+    iid: 7,
+    webUrl: 'https://github.com/acme/webapp/pull/7',
+    provider: 'github',
+  } as unknown as BoardMRWithReview;
+  const text = await postWith(
+    Response.json({ reason: 'the note may have posted' }, { status: 504 }),
+    pr
+  );
+  expect(text).toContain('no answer; the note may have posted, check the PR');
 });

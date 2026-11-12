@@ -757,3 +757,27 @@ test("a GitLab MR's drawer still links open in gitlab", async () => {
     'open this comment in gitlab'
   );
 });
+
+test('the general comments head says PR comments on GitHub, MR on GitLab', async () => {
+  servedDiscussions = { threads: [], comments: [edComment] };
+  let drawer = await renderBoardWithDrawerOpen();
+  expect(drawer.querySelector('.tui-cd-comments-head')?.textContent).toBe(
+    'MR comments'
+  );
+  await React.act(async () => root.unmount());
+  container.remove();
+  servedData = {
+    ...BOARD_DATA,
+    mrs: [
+      {
+        ...BOARD_DATA.mrs[0]!,
+        webUrl: 'https://github.com/acme/webapp/pull/101',
+        provider: 'github',
+      },
+    ],
+  };
+  drawer = await renderBoardWithDrawerOpen();
+  expect(drawer.querySelector('.tui-cd-comments-head')?.textContent).toBe(
+    'PR comments'
+  );
+});

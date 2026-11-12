@@ -16,6 +16,7 @@ import {
 } from '@mattstack/gate-kit';
 import { Button, Chip, Markdown } from '@mattstack/tui-kit';
 import type { GateRow } from '../../gates/store.ts';
+import { mrNoun } from '../../mr-ref.ts';
 import type { BoardMRWithReview } from '../types.ts';
 import { anchorLine, anchorPath } from './diff-source.ts';
 import { Disclosure, DisclosureHead } from './Disclosure.tsx';
@@ -29,7 +30,7 @@ import {
   SearchCheckIcon,
 } from './icons.tsx';
 import { MrCard } from './MrCard.tsx';
-import { mrRef, onGitHub } from './MrLinks.tsx';
+import { mrRef } from './MrLinks.tsx';
 import { usePeople } from './people.ts';
 import {
   attachDraftEdits,
@@ -846,7 +847,7 @@ function ReviewGateSheet({
         <section className="tui-sheet-main" data-sheet="review">
           <SheetHeading
             icon={<ScanSearch size={18} aria-hidden />}
-            title={`Review ${author}'s ${mr && onGitHub(mr) ? 'PR' : 'MR'}`}
+            title={`Review ${author}'s ${mrNoun(mr)}`}
             aside={
               <GateTimeline
                 round={review.round ?? 1}

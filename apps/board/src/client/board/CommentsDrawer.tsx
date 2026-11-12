@@ -9,7 +9,7 @@ import {
 import { Button, ICONS, Markdown, SideDrawer } from '@mattstack/tui-kit';
 import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
 import type { BoardMR } from '../../data.ts';
-import { commentUrl, forgeWord, mrRef } from '../../mr-ref.ts';
+import { commentUrl, forgeWord, mrNoun, mrRef } from '../../mr-ref.ts';
 import { isOwnMr } from '../../view.ts';
 import { getDiscussions, postThreadWrite } from '../api.ts';
 import type { CommentNote, CommentThread, GeneralComment } from '../types.ts';
@@ -640,7 +640,9 @@ function CommentsDrawer({
             ))}
             {data.comments.length > 0 && (
               <section className="tui-cd-comments">
-                <div className="tui-cd-comments-head">MR comments</div>
+                <div className="tui-cd-comments-head">
+                  {mrNoun(mr)} comments
+                </div>
                 {byDiscussion(data.comments).map(([id, notes]) => (
                   <CommentCard
                     key={id}

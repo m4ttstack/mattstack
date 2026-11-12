@@ -198,6 +198,25 @@ test("runOne ask prefers the server's refusal text, and says when it queued", as
   );
 });
 
+test('runOne resolve-latch on a GitHub row says the PR thread', async () => {
+  const target = {
+    ...mr(7),
+    webUrl: 'https://github.com/acme/webapp/pull/7',
+    provider: 'github',
+    rtRepo: 'github.com/acme/webapp',
+    author: { username: 'rae' },
+  } as BoardMR;
+  const a = fakeDeps();
+  await runOne(
+    { kind: 'resolve-latch', reviewer: 'kim', discussionId: 'd1' },
+    target,
+    a.deps
+  );
+  expect(a.events).toContain(
+    "done asked kim's agent for a follow-up review of #7 through the PR thread"
+  );
+});
+
 test("runOne resolve-latch resolves the reviewer's latch thread and reloads fresh", async () => {
   const target = {
     ...mr(7),
