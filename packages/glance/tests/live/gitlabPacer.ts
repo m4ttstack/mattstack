@@ -53,13 +53,19 @@ function signalOf(input: string | URL | Request, init?: RequestInit): AbortSigna
   return init?.signal ?? (input instanceof Request ? input.signal : undefined);
 }
 
-/** Settles when `signal` aborts; never, without one. */
-function abortedBy(signal: AbortSignal | undefined): Promise<'aborted'> {
-  return new Promise((resolve) => {
+/** `promise` settles when `signal` aborts (never, without one); `dispose` detaches it from a signal that outlives the request. */
+function abortedBy(signal: AbortSignal | undefined): { promise: Promise<'aborted'>; dispose: () => void } {
+  let onAbort = (): void => {};
+  const promise = new Promise<'aborted'>((resolve) => {
     if (!signal) return;
-    if (signal.aborted) resolve('aborted');
-    else signal.addEventListener('abort', () => resolve('aborted'), { once: true });
+    if (signal.aborted) {
+      resolve('aborted');
+      return;
+    }
+    onAbort = () => resolve('aborted');
+    signal.addEventListener('abort', onAbort, { once: true });
   });
+  return { promise, dispose: () => signal?.removeEventListener('abort', onAbort) };
 }
 
 function urlOf(input: string | URL | Request): URL | null {
@@ -97,7 +103,12 @@ export class GitLabPacer {
       if (urlOf(input)?.host === this.host) {
         const signal = signalOf(input, init);
         const aborted = abortedBy(signal);
-        const granted = await Promise.race([this.take(this.identity(tokenOf(input, init)), signal, aborted), aborted]);
+        let granted: boolean | 'aborted';
+        try {
+          granted = await Promise.race([this.take(this.identity(tokenOf(input, init)), signal, aborted.promise), aborted.promise]);
+        } finally {
+          aborted.dispose();
+        }
         if (granted !== true) {
           throw signal?.reason ?? new DOMException('The operation was aborted.', 'AbortError');
         }

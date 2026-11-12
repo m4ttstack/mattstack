@@ -130,6 +130,25 @@ describe('GitLabPacer', () => {
     expect(pacer.summary()).toContain('1 GitLab request');
   });
 
+  test('a shared signal keeps no abort listener once its requests are paced', async () => {
+    const h = harness(80);
+    const shared = new AbortController().signal;
+    let live = 0;
+    const add = shared.addEventListener.bind(shared);
+    const remove = shared.removeEventListener.bind(shared);
+    shared.addEventListener = ((...args: Parameters<AbortSignal['addEventListener']>) => {
+      live += 1;
+      add(...args);
+    }) as AbortSignal['addEventListener'];
+    shared.removeEventListener = ((...args: Parameters<AbortSignal['removeEventListener']>) => {
+      live -= 1;
+      remove(...args);
+    }) as AbortSignal['removeEventListener'];
+    for (let i = 0; i < 3; i++) await h.fetch('https://gitlab.com/api/v4/user', { ...asOwner, signal: shared });
+    expect(h.sent).toHaveLength(3);
+    expect(live).toBe(0);
+  });
+
   test('the summary names the total wait per identity and never the token', async () => {
     const h = harness(1);
     await h.fetch('https://gitlab.com/api/v4/user', asOwner);
