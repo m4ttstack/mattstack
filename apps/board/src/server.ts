@@ -521,7 +521,7 @@ function fixtureDataJson(): string {
     mrs: Array<{ peerReviews?: PeerReviewState[] }>;
   };
   shiftPeerReviews(data, shift);
-  return JSON.stringify(data);
+  return JSON.stringify({ ...data, seatUnverified: false });
 }
 
 // Containment must be structural, not route-enumeration-dependent: pin
@@ -1831,8 +1831,18 @@ const forgeSelf = createForgeSelf({
   teamUsername: () => activeTeam().username,
 });
 
+/** A GitHub board with no recorded forge username cannot tell whose seat
+    this is, so it owns nothing; the fixture is inert and keeps its seat. */
+function seatUnverified(): boolean {
+  return (
+    !FIXTURE_DIR && config.forge.kind === 'github' && forgeSelf.get() === null
+  );
+}
+
 function actingSeat(): string | null {
-  return effectiveSeat(config.defaultMember, forgeSelf.get());
+  return seatUnverified()
+    ? null
+    : effectiveSeat(config.defaultMember, forgeSelf.get());
 }
 
 /** A respond or doctor gate is the MR author's to answer; a review gate
@@ -2462,6 +2472,7 @@ const httpServer = Bun.serve({
             title: config.title,
             defaultMember: config.defaultMember,
             tokenUser: forgeSelf.get(),
+            seatUnverified: seatUnverified(),
             members: buildRoster(visible, visibleMrs, memberNames),
             ...slackMatchPayload(currentSlackMatch(snapshot.mrs)),
             allMembers: config.members.map(m => ({

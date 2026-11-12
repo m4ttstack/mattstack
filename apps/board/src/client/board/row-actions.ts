@@ -28,6 +28,7 @@ import {
   reviewMenuItems,
   roundSuffix,
   SEAT_HINT,
+  SEAT_UNVERIFIED_HINT,
 } from './format.ts';
 import { boardPeople, NO_PEOPLE, type People } from './people.ts';
 import { laneDismissed } from './row-status.ts';
@@ -175,6 +176,8 @@ export interface ActionEnv {
   ownerSlackRepos?: string[];
   /** The board's seat; null on an "all" board. */
   self: string | null;
+  /** The seat is set but unverified; `self` is null for that reason. */
+  seatUnverified?: boolean;
   roster: string[];
   /** Everyone the board knows; absent, a row names only its own MR's
       people and the org's teams. */
@@ -606,7 +609,7 @@ export function rowActions(
         'author actions',
         PEOPLE,
         { kind: 'open', url: '' },
-        { blocked: SEAT_HINT }
+        { blocked: env.seatUnverified ? SEAT_UNVERIFIED_HINT : SEAT_HINT }
       )
     );
   if (!env.local)

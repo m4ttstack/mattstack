@@ -398,8 +398,10 @@ describe('a GitHub team', () => {
   test('/data.json names the team username as the board user', async () => {
     const data = (await (await fetch(`${base()}/data.json`)).json()) as {
       tokenUser: string | null;
+      seatUnverified: boolean;
     };
     expect(data.tokenUser).toBe('alice');
+    expect(data.seatUnverified).toBe(false);
   }, 15_000);
 
   test('a held draft posts through mr:comment', async () => {

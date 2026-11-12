@@ -9,6 +9,7 @@ import {
   approvalSlots,
   arrangeGroups,
   behindToken,
+  boardSeat,
   dataAgeLabel,
   DEFAULT_VIEW,
   descendantsOf,
@@ -86,6 +87,31 @@ describe('effectiveSeat', () => {
   test("a seat that is not the token's user is no seat at all", () => {
     expect(effectiveSeat('alice', 'carol')).toBeNull();
     expect(effectiveSeat('all', 'alice')).toBeNull();
+  });
+});
+
+describe('boardSeat', () => {
+  test('is the effective seat while the seat is verified', () => {
+    expect(boardSeat({ defaultMember: 'alice', tokenUser: null })).toBe(
+      'alice'
+    );
+    expect(
+      boardSeat({
+        defaultMember: 'alice',
+        tokenUser: 'carol',
+        seatUnverified: false,
+      })
+    ).toBeNull();
+  });
+
+  test('is no seat at all once the server says the seat is unverified', () => {
+    expect(
+      boardSeat({
+        defaultMember: 'alice',
+        tokenUser: null,
+        seatUnverified: true,
+      })
+    ).toBeNull();
   });
 });
 

@@ -368,6 +368,18 @@ export function effectiveSeat(
   return canonicalUsername(seat) === canonicalUsername(tokenUser) ? seat : null;
 }
 
+/** effectiveSeat as the client reads it from /data.json: a seat the server
+    could not tie to the signed-in forge user owns nothing. */
+export function boardSeat(data: {
+  defaultMember: string | null | undefined;
+  tokenUser?: string | null;
+  seatUnverified?: boolean;
+}): string | null {
+  return data.seatUnverified
+    ? null
+    : effectiveSeat(data.defaultMember, data.tokenUser);
+}
+
 /** Whether the seat authored this MR; on an "all" board nothing is. Every
     author-only action (merge, doctor, respond, slack post...) gates on this,
     in the menu and in the server route alike. */

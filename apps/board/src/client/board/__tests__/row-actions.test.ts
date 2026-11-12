@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 
+import { SEAT_HINT, SEAT_UNVERIFIED_HINT } from '../format.ts';
 import { bulkActions, rowActions } from '../row-actions.ts';
 import {
   actionEnvOf,
@@ -895,6 +896,32 @@ test('a seatless board says where author actions went, and nothing more', () => 
   expect(
     keys(brokenAndMergeable(), { ...ownEnv, self: null, local: false })
   ).not.toContain('seat-hint');
+});
+
+test('an unverified seat gets the login hint, and no author action', () => {
+  const env = { ...ownEnv, self: null, seatUnverified: true };
+  const actions = rowActions(
+    brokenAndMergeable(),
+    actionEnvOf(env, brokenAndMergeable())
+  );
+  const hint = actions.find(a => a.key === 'seat-hint');
+  expect(hint?.blocked).toBe(SEAT_UNVERIFIED_HINT);
+  expect(hint?.blocked).toBe('run rt setup to add your GitHub login');
+  expect(hint?.bulk).toBeUndefined();
+  const offered = actions.map(a => a.key);
+  for (const k of [...AUTHOR_ONLY, 'mark-draft', 'unmark-draft'])
+    expect(offered).not.toContain(k);
+  expect(keys(brokenAndMergeable(), { ...env, local: false })).not.toContain(
+    'seat-hint'
+  );
+});
+
+test('an unset seat keeps its own hint when the flag is off', () => {
+  const actions = rowActions(
+    brokenAndMergeable(),
+    actionEnvOf({ ...ownEnv, self: null }, brokenAndMergeable())
+  );
+  expect(actions.find(a => a.key === 'seat-hint')?.blocked).toBe(SEAT_HINT);
 });
 
 const REPO = 'gitlab.example.com/acme/webapp';

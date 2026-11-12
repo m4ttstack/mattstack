@@ -514,8 +514,11 @@ function laneInterrupted(
     no MR and so offers none. */
 const SEAT_HINT = 'set your seat in board settings to act on your own MRs';
 
+const SEAT_UNVERIFIED_HINT = 'run rt setup to add your GitHub login';
+
 export {
   SEAT_HINT,
+  SEAT_UNVERIFIED_HINT,
   GROUP_LABEL,
   SORT_LABEL,
   ago,

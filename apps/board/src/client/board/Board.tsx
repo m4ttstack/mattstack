@@ -34,8 +34,8 @@ import { ALL_TURN } from '../../turn.ts';
 import {
   activeOff,
   arrangeGroups,
+  boardSeat,
   dataAgeLabel,
-  effectiveSeat,
   effectiveSort,
   filterByMember,
   filterByShow,
@@ -53,6 +53,7 @@ import {
   parseViewState,
   picksOnTabSwitch,
   rosterUsernamesFor,
+  seatOf,
   serializeViewState,
   tabDimsEmpty,
   visibleByAuthor,
@@ -1721,7 +1722,7 @@ export function Board() {
   useFlockMenuWarmup(
     data?.mrs,
     data?.local === true,
-    data ? effectiveSeat(data.defaultMember, data.tokenUser) : null
+    data ? boardSeat(data) : null
   );
 
   if (!data) {
@@ -1796,7 +1797,7 @@ export function Board() {
   // Drawn from `mrs`, not `filtered` -- that's what lets a selection span
   // member filters.
   const selectedMrs = selectionOf(mrs, selected);
-  const seat = effectiveSeat(data.defaultMember, data.tokenUser);
+  const seat = boardSeat(data);
   seatRef.current = seat;
   const postableMrs = postableOf(flatMrs, seat);
   const postableSelected = postableOf(selectedMrs, seat);
@@ -1844,6 +1845,8 @@ export function Board() {
     tab: state.tab,
     ownerSlackRepos: data.ownerSlackRepos,
     self: seat,
+    seatUnverified:
+      !!data.seatUnverified && seatOf(data.defaultMember) !== null,
     roster: data.members.map(m => m.username),
     people,
     peers: data.peers,
@@ -2392,7 +2395,7 @@ export function Board() {
               readOnly={gateReadOnlyReason(
                 queue.active.gate,
                 queue.active.mr,
-                effectiveSeat(data.defaultMember, data.tokenUser)
+                boardSeat(data)
               )}
             />
           )}
@@ -2412,10 +2415,7 @@ export function Board() {
               mr={draftModal.mr}
               draft={draftModal.draft}
               local={data.local}
-              canPost={isOwnMr(
-                draftModal.mr,
-                effectiveSeat(data.defaultMember, data.tokenUser)
-              )}
+              canPost={isOwnMr(draftModal.mr, boardSeat(data))}
               onResolved={handleDraftResolved}
               onClose={() => setDraftModal(null)}
             />
@@ -2455,7 +2455,7 @@ export function Board() {
                 ) ?? comments.shown
               }
               local={data.local}
-              self={effectiveSeat(data.defaultMember, data.tokenUser)}
+              self={boardSeat(data)}
               closing={comments.leaving}
               onClose={() => setCommentsFor(null)}
             />
