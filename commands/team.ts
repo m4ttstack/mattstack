@@ -637,8 +637,16 @@ export async function teamRename(args: string[], _ctx: CommandContext = {}, deps
   }
 }
 
-export function branchUseBlocks(result: BranchUse): Block[] {
-  return [out.line("done", `Your copy of the org is on ${result.branch}`, result.trial ? "auto-commit runs here on this Mac only" : undefined)];
+export function branchUseBlocks(result: BranchUse, slug?: string): Block[] {
+  const done = out.line("done", `Your copy of the org is on ${result.branch}`, result.trial ? "auto-commit runs here on this Mac only" : undefined);
+  if (!result.left) return [done];
+  const { branch, commits } = result.left;
+  const team = slug ? ` --team ${slug}` : "";
+  return [
+    done,
+    out.callout("note", `${commits === 1 ? "1 commit stays" : `${commits} commits stay`} on ${branch} on this Mac only. They were never pushed, so no one else has them.`),
+    out.callout("next", ["To pick them up again, run ", out.cmd(`rt team branch use ${branch}${team}`)]),
+  ];
 }
 
 export async function teamBranchUse(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
@@ -652,7 +660,7 @@ export async function teamBranchUse(args: string[], _ctx: CommandContext = {}, d
       deps.print(JSON.stringify(envelope({ ok: true, slug, ...result })));
       return;
     }
-    out.print(...branchUseBlocks(result));
+    out.print(...branchUseBlocks(result, slug));
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;
@@ -1188,7 +1196,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
     );
 
     const branch = await checkedOutBranch(deps.probes, dir);
-    const [homeBranch] = approvedBranches(deps.probes, slug, dir);
+    const homeBranch = approvedBranches(deps.probes, slug, dir)[0] ?? "main";
     const trialBranch = readTeamLocal(deps.probes, slug).trialBranch;
     const trial = branch !== null && branch === trialBranch && branch !== homeBranch;
     const log = await deps.probes.exec(["git", "-C", dir, "log", "-1", "--format=%cI", `origin/${branch ?? "main"}`]);
