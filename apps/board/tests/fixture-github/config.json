@@ -1,0 +1,37 @@
+{
+  "forge": {
+    "provider": "github",
+    "host": "github.com"
+  },
+  "projects": [
+    "acme/webapp"
+  ],
+  "rtRepos": {},
+  "members": [
+    {
+      "username": "mkeller",
+      "name": "Mara Keller"
+    },
+    {
+      "username": "tobrandt",
+      "name": "Theo Brandt"
+    },
+    {
+      "username": "ivasco",
+      "name": "Ines Vasco"
+    },
+    {
+      "username": "lnorth",
+      "name": "Lars North"
+    },
+    {
+      "username": "wzhou",
+      "name": "Wen Zhou"
+    }
+  ],
+  "defaultMember": "mkeller",
+  "title": "PRs ready for review",
+  "slack": {
+    "autoResolveIntervalMinutes": 0
+  }
+}
