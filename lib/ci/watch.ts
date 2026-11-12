@@ -29,14 +29,14 @@ export interface WatchInput { sha: string; maxWaitSeconds: number; intervalSecon
 export type WatchState =
   | "success" | "success_with_warnings" | "failed" | "canceled" | "skipped" | "manual"
   | "running" | "waiting" | "superseded" | "lease_lost" | "aborted"
-  | "timeout" | "no_pipeline" | "stood_down" | "lease_unavailable" | "unsupported_forge";
+  | "timeout" | "no_pipeline" | "stood_down" | "lease_unavailable";
 
 export interface WatchResult {
   state: WatchState;
   sha: string;
   headSha: string | null;
   pipeline: Omit<WatchPipeline, "jobs"> | null;
-  failedJobs: Array<{ jobId: number; name: string; stage: string; allowFailure: boolean; webUrl: string | null; traceTail?: string }>;
+  failedJobs: Array<{ jobId: number | null; name: string; stage: string; allowFailure: boolean; webUrl: string | null; traceTail?: string }>;
   blockingFailures: number;
   lease: { owner: string; heartbeatAt: number; expiresAt: number } | null;
   holder?: CiLease | null;
@@ -58,6 +58,7 @@ export const TERMINAL: ReadonlySet<string> = new Set(["success", "success_with_w
 const TRACE_JOBS = 5;
 const READ_TRIES = 3;
 const MINUTE_MS = 60_000;
+const STATUS_JOB_PREFIX = "github:status:";
 const MERGE_REF = /^refs\/merge-requests\/(\d+)\/(merge|train)$/;
 
 export function shaMatches(full: string | null, given: string): boolean {
@@ -205,6 +206,11 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
     const out: WatchResult["failedJobs"] = [];
     let traced = 0;
     for (const j of failed) {
+      // A commit status context may itself end in ":<digits>", so the prefix is checked before idNumber.
+      if (j.id.startsWith(STATUS_JOB_PREFIX)) {
+        out.push({ jobId: null, name: j.name, stage: j.stage, allowFailure: j.allowFailure, webUrl: j.webUrl });
+        continue;
+      }
       const jobId = idNumber(j.id);
       if (jobId === null) continue;
       const row: WatchResult["failedJobs"][number] = { jobId, name: j.name, stage: j.stage, allowFailure: j.allowFailure, webUrl: j.webUrl };

@@ -211,6 +211,23 @@ describe("watchPipeline", () => {
     expect(r.failedJobs).toHaveLength(1);
     expect(r.blockingFailures).toBe(1);
   });
+  test("a failed commit status is a row with a null jobId and no trace, even when its context ends in :digits", async () => {
+    const jobs = [
+      { id: "github:check:7", name: "unit", stage: "test", status: "failed", allowFailure: false, webUrl: null },
+      { id: "github:status:ci/build:12", name: "ci/build:12", stage: "test", status: "failed", allowFailure: false, webUrl: null },
+    ];
+    const traced: number[] = [];
+    const { deps } = fake([mr(SHA, pipe({ id: "github:run:10", status: "failed", jobs }))], {
+      traceTail: async (id) => { traced.push(id); return "tail"; },
+    });
+    const r = await watchPipeline(base, deps) as { failedJobs: Array<{ jobId: number | null; name: string; traceTail?: string }>; blockingFailures: number };
+    expect(r.failedJobs).toHaveLength(2);
+    expect(r.failedJobs[0]).toMatchObject({ jobId: 7, traceTail: "tail" });
+    expect(r.failedJobs[1]).toMatchObject({ jobId: null, name: "ci/build:12" });
+    expect("traceTail" in r.failedJobs[1]!).toBe(false);
+    expect(r.blockingFailures).toBe(2);
+    expect(traced).toEqual([7]);
+  });
   test("merged_result: a successful parent fetch that misses the sha is no match, even for a pipeline new since the push", async () => {
     const { deps } = fake([mr(SHA, pipe({ id: "gitlab:pipeline:12", sha: "m".repeat(40), mergeRequestEventType: "merged_result", status: "success" }))], {
       commitParents: async () => ["t".repeat(40), OLD],
