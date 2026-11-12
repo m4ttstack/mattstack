@@ -71,28 +71,30 @@ async function withInstantTimers<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-/** The token the rest of the suite's GitHub tests construct providers with. */
-const SUITE_TOKEN = 'tok';
+/** The token most of the suite's other GitHub test files construct providers with. */
+const SHARED_TOKEN = 'tok';
 
 /**
  * `@octokit/plugin-throttling` keeps its write pacing in module scope, keyed
  * by host and token, so it outlives a test file. A file that collapses
  * `setTimeout` still pushes Bottleneck's next-request time a second forward
  * per write or GraphQL POST, and a later file on the same host and token
- * waits that time out for real: CI's file order once put gh-merge-queue
- * first and stalled this file's writes past the test timeout. Ten seconds of
- * that debt left here holds the condition whatever the order, so a test that
- * builds its provider on the shared token instead of `isolatedProvider` fails.
+ * waits that time out for real. Ten seconds of that debt left here holds the
+ * condition whatever the file order, so a real-timer write in this file on
+ * the shared token instead of `isolatedProvider` times out.
  */
 beforeAll(async () => {
   stubFetch(() => new Response(null, { status: 204 }));
-  const indebted = new GitHubProvider('https://github.com', SUITE_TOKEN);
-  await withInstantTimers(async () => {
-    for (let i = 0; i < 10; i++) {
-      await (indebted as any).api('DELETE', `/repos/acme/repo/git/refs/heads/debt-${i}`);
-    }
-  });
-  globalThis.fetch = realFetch;
+  try {
+    const indebted = new GitHubProvider('https://github.com', SHARED_TOKEN);
+    await withInstantTimers(async () => {
+      for (let i = 0; i < 10; i++) {
+        await (indebted as any).api('DELETE', `/repos/acme/repo/git/refs/heads/debt-${i}`);
+      }
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
 
 let isolatedTokens = 0;
