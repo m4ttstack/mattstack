@@ -58,6 +58,15 @@ export const ownIdle = mrx(1418, {
   autoMergeButton: { visible: true, isActive: false },
   slack: { status: 'notfound', reactions: [], posted: false },
 });
+export const ghOwnIdle = mrx(7, {
+  webUrl: 'https://github.com/acme/webapp/pull/7',
+  provider: 'github',
+  behindTarget: null,
+  respondTargets: JOHN_OPEN,
+  mergeButton: { visible: true, disabled: false, loading: false },
+  autoMergeButton: { visible: true, isActive: false },
+  slack: { status: 'notfound', reactions: [], posted: false },
+});
 export const ownEnv: MenuEnv = {
   self: 'pat',
   slackEnabled: true,

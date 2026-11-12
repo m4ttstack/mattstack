@@ -136,7 +136,7 @@ export async function openMenu(
     bare entry keys. */
 export async function openActionMenu(
   entries: MenuEntry[],
-  opts: { flat?: boolean } = {}
+  opts: { flat?: boolean; forge?: 'github' | 'gitlab' } = {}
 ): Promise<void> {
   await mount(
     <ActionMenu
@@ -145,6 +145,7 @@ export async function openActionMenu(
       subject="2 selected"
       entries={entries}
       flat={opts.flat}
+      forge={opts.forge}
       onRun={key => {
         harness.effects.push({ effect: key, iid: 0 });
       }}

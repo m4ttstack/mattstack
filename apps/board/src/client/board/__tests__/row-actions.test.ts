@@ -6,6 +6,7 @@ import {
   busyEnv,
   failedEnv,
   failedLanes,
+  ghOwnIdle,
   mrx,
   ownBusy,
   ownEnv,
@@ -1321,4 +1322,57 @@ test('approved and only waiting on ci: set auto-merge leads the menu', () => {
 
   const bulk = bulkActions([waiting()], actionEnvOf(ownEnv, waiting()));
   expect(bulk.find(e => e.key === 'setAutoMerge')?.section).toBe('gitlab');
+});
+
+const FORGE_WRITES = [
+  'merge',
+  'rebase',
+  'setAutoMerge',
+  'cancelAutoMerge',
+  'mark-draft',
+  'mark-ready',
+  'refresh-mr',
+];
+
+test('a GitHub own MR keeps only open in github in its forge section', () => {
+  const rows = rowActions(ghOwnIdle, actionEnvOf(ownEnv, ghOwnIdle));
+  expect(
+    rows.filter(a => a.section === 'gitlab').map(a => `${a.key}:${a.label}`)
+  ).toEqual(['open-gitlab:open in github']);
+  const all = rows.map(a => a.key);
+  for (const key of FORGE_WRITES) expect(all).not.toContain(key);
+});
+
+test('auto-merge never leads the menu on a GitHub MR', () => {
+  const ready = mrx(8, {
+    webUrl: 'https://github.com/acme/webapp/pull/8',
+    provider: 'github',
+    reviews: { isApproved: true, required: 1, given: 1, reviewers: [] },
+    blockers: { any: false, pipelineRunning: true },
+    autoMergeButton: { visible: true, isActive: false },
+  });
+  expect(sections(ready, ownEnv)).not.toContain('top:setAutoMerge');
+  const onGitLab = mrx(8, {
+    reviews: ready.reviews,
+    blockers: ready.blockers,
+    autoMergeButton: ready.autoMergeButton,
+  });
+  expect(sections(onGitLab, ownEnv)).toContain('top:setAutoMerge');
+});
+
+test('bulk actions over GitHub rows offer no merge, rebase, auto-merge or draft entry', () => {
+  const other = mrx(9, {
+    webUrl: 'https://github.com/acme/webapp/pull/9',
+    provider: 'github',
+    behindTarget: 4,
+    rebaseButton: { visible: true, loading: false },
+    mergeButton: { visible: true, disabled: false, loading: false },
+    autoMergeButton: { visible: true, isActive: false },
+  });
+  const entries = bulkActions(
+    [ghOwnIdle, other],
+    actionEnvOf(ownEnv, ghOwnIdle)
+  ).map(e => e.key);
+  for (const key of FORGE_WRITES) expect(entries).not.toContain(key);
+  expect(entries.length).toBeGreaterThan(0);
 });

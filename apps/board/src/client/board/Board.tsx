@@ -21,6 +21,7 @@ import type { TabConfig } from '../../config.ts';
 import type { BoardMR } from '../../data.ts';
 import { inferRoster } from '../../data.ts';
 import type { GateRow } from '../../gates/store.ts';
+import { forgeWord } from '../../mr-ref.ts';
 import type { DeclineReason } from '../../peer/envelope.ts';
 import { sectionStatus } from '../../sections.ts';
 import {
@@ -2273,6 +2274,7 @@ export function Board() {
                 entries={bulkEntries}
                 empty={`nothing fits all ${selectedMrs.length}`}
                 flat
+                forge={forgeWord(selectedMrs[0])}
                 onClose={() => setRowMenu(null)}
                 onRun={(key, opts) => {
                   const entry = bulkEntries.find(e => e.key === key);
