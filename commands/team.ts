@@ -520,6 +520,7 @@ const PULL_COPY: Record<string, { status: RenderStatus; title: (slug: string) =>
   "up-to-date": { status: "done", title: (slug) => `The ${slug} team is already up to date` },
   "fast-forwarded": { status: "done", title: (slug) => `Pulled the ${slug} team` },
   rebased: { status: "done", title: (slug) => `Pulled the ${slug} team` },
+  reset: { status: "done", title: (slug) => `Pulled the ${slug} team, replacing commits its history rewrite left behind` },
   conflict: { status: "needs-you", title: (slug) => `The ${slug} team has changes that clash with yours` },
   skipped: { status: "skipped", title: (slug) => `Skipped pulling the ${slug} team` },
   moved: { status: "done", title: (slug) => `Moved the ${slug} team to its new branch` },
