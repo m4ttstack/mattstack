@@ -56,9 +56,17 @@ export function pluginOfSeam(seamLine: string): string | null {
 
 /**
  * The one line `fillReference` renders for a prop bound by reference; its seam's `lines=` spans the skill it names.
- * The second form is the line an older compile wrote, which on-disk output still carries until it recompiles.
+ * Older compiles wrote it with a `(<binding>@<version>)` after "skill", or as `Prop <name> is bound to`, and on-disk
+ * output still carries those until it recompiles.
  */
-const PROP_REFERENCE_RE = /^(?:For [^,`]+, invoke the `[^`]+` skill \(|Prop \S+ is bound to `)/;
+const PROP_REFERENCE_RE = /^(?:For [^,`]+, invoke the `[^`]+` skill(?: \(| when this flow needs it\.$)|Prop \S+ is bound to `)/;
+
+const VERSIONED_REFERENCE_RE = /^(For [^,`\n]+, invoke the `[^`\n]+` skill) \([^)\n]+\)( when this flow needs it\.)$/gm;
+
+/** A reference line an older compile wrote with `(<binding>@<version>)` reads as the versionless line a current compile writes. */
+export function withoutReferenceVersions(text: string): string {
+  return text.replace(VERSIONED_REFERENCE_RE, "$1$2");
+}
 
 export function isPropReference(text: string): boolean {
   return PROP_REFERENCE_RE.test(text);
@@ -135,7 +143,7 @@ function blockExtents(lines: string[], markerAt: (i: number) => { key: string; v
 
 /** A key can own several extents (a block split by an include, an add prop's values), so its texts compare joined. */
 export function changedPartKeys(onDisk: string, fresh: string): Set<string> {
-  const bare = (text: string) => text.replace(MARKER_VERSION_RE, "$1");
+  const bare = (text: string) => withoutReferenceVersions(text.replace(MARKER_VERSION_RE, "$1"));
   const texts = (md: string) => {
     const out = new Map<string, string[]>();
     for (const p of partExtents(md)) out.set(p.key, [...(out.get(p.key) ?? []), bare(p.text)]);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { changedPartKeys, partExtents, pluginOfSeam, skillMdDriftCauses } from "../drift.ts";
+import { changedPartKeys, isPropReference, partExtents, pluginOfSeam, skillMdDriftCauses } from "../drift.ts";
 import { maskProvenance } from "../provenance.ts";
 
 const compiled = [
@@ -68,6 +68,12 @@ describe("seams with and without version", () => {
     const block = (v: string) => `<!-- part: block:x source=mattstack:x${v} path=a lines=1-2 -->\nstep\n<!-- part: prop:x.d binding=acme:d${v} path=b lines=1-1 -->\nfill`;
     expect(maskProvenance(block(" version=0.4.11"))).toBe(maskProvenance(block("")));
     expect(maskProvenance(`${oldSeam}\ng1`)).toBe(maskProvenance(`${newSeam}\ng1`));
+  });
+
+  test("a reference line an older compile versioned compares equal to today's", () => {
+    const ref = (v: string) => `<!-- part: prop:x.t binding=mattstack:model-tiering${v} path=s lines=8-30 -->\nFor tiering, invoke the \`mattstack:model-tiering\` skill${v ? " (mattstack:model-tiering@1.0.0)" : ""} when this flow needs it.\n`;
+    expect(maskProvenance(ref(" version=1.0.0"))).toBe(maskProvenance(ref("")));
+    expect([...changedPartKeys(ref(" version=1.0.0"), ref(""))]).toEqual([]);
   });
 
   test("changedPartKeys sees no change between an old and a new seam", () => {
@@ -180,6 +186,16 @@ describe("partExtents on a block-compiled body", () => {
     );
     const tiering = partExtents(old).find((e) => e.key === "prop:mini/gate.tiering")!;
     expect([tiering.start, tiering.end]).toEqual([20, 21]);
+  });
+
+  test("a reference line with no version, as a current compile writes it, is still one line", () => {
+    const current = md().replace(
+      "For tiering, invoke the `mattstack:model-tiering` skill (mattstack:model-tiering@1.0.0) when this flow needs it.",
+      "For tiering, invoke the `mattstack:model-tiering` skill when this flow needs it.",
+    );
+    const tiering = partExtents(current).find((e) => e.key === "prop:mini/gate.tiering")!;
+    expect([tiering.start, tiering.end]).toEqual([20, 21]);
+    expect(isPropReference(tiering.text)).toBe(true);
   });
 
   test("a value edit changes only its prop; a block edit only its block", () => {

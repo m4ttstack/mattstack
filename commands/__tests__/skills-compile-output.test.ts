@@ -100,6 +100,7 @@ describe("the compiled lock", () => {
     inRepo(packDir, "init", "-q");
     await compile(flags);
     expect(readLock(packDir).targets["skills/alpha"]).toEqual({ acme: "0.4.11", mattstack: "1.0.0" });
+    expect(readFileSync(join(packDir, "skills", "alpha", "SKILL.md"), "utf8")).toContain("For guide, invoke the `acme:guide` skill when this flow needs it.");
     inRepo(packDir, "add", "-A");
     inRepo(packDir, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "compile");
 

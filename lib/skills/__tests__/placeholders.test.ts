@@ -170,9 +170,9 @@ describe("substituteLine", () => {
     expect(body).toContain("shape at ${CLAUDE_SKILL_DIR}/references/adjudicator.md");
   });
 
-  test("a registered public fill's reference line names it and its version", () => {
+  test("a registered public fill's reference line names it, with no version", () => {
     const pub = { ...fill, registered: true };
-    expect(fillReference("domain", pub)).toBe("For domain, invoke the `acme:plan-policy` skill (acme:plan-policy@0.4.0) when this flow needs it.");
+    expect(fillReference("domain", pub)).toBe("For domain, invoke the `acme:plan-policy` skill when this flow needs it.");
   });
 
   test("an include's own file references are rewritten under parts/include-<name>", () => {

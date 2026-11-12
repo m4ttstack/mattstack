@@ -297,7 +297,7 @@ describe("compileBlockSkill", () => {
     const content = skillFileContent(result.files);
 
     expect(content).toContain(
-      "For forge, invoke the `mattstack:gitlab-forge` skill (mattstack:gitlab-forge@1.2.0) when this flow needs it.",
+      "For forge, invoke the `mattstack:gitlab-forge` skill when this flow needs it.",
     );
     expect(content).not.toContain("Talk to GitLab via glab.");
 

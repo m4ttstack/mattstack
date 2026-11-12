@@ -110,7 +110,7 @@ export function compileOneBlock(v: VerbDef, step: StepSource, fills: Record<stri
 }
 
 const twoVerbEngine = (name: string) =>
-  `---\nname: ${name}\ndescription: "${name} things"\ntype: pipeline-step\nprops:\n  domain:\n    merge: replace\n    default: ""\n    contract: "domain@1"\n---\n\nDo ${name}.\n\n{{props.domain}}\n`;
+  `---\nname: ${name}\ndescription: "${name} things"\ntype: pipeline-step\nprops:\n  domain:\n    merge: replace\n    default: ""\n    contract: "domain@1"\n  guide:\n    merge: replace\n    default: ""\n    contract: "guide@1"\n---\n\nDo ${name}.\n\n{{props.domain}}\n\n{{props.guide}}\n`;
 
 function writeTo(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true });
@@ -119,8 +119,9 @@ function writeTo(path: string, content: string): void {
 
 /**
  * An acme pack 0.4.11 compiled against mattstack 1.0.0: two public verbs,
- * alpha and beta, each with a prop bound to the pack's own fill, no pipeline
- * and no pointer keys. `made` collects the temp dirs for the caller to remove.
+ * alpha and beta, each with a prop inlining the pack's own fill and a prop
+ * bound by reference to the pack's own public skill, no pipeline and no
+ * pointer keys. `made` collects the temp dirs for the caller to remove.
  */
 export function seedTwoVerbPack(made: string[]): { packDir: string; flags: string[] } {
   const tmp = (prefix: string) => {
@@ -139,9 +140,10 @@ export function seedTwoVerbPack(made: string[]): { packDir: string; flags: strin
     verbs: { alpha: { engine: "alpha", description: "Use for alpha." }, beta: { engine: "beta", description: "Use for beta." } },
   }));
   writeTo(join(packDir, "attachments", "policy", "SKILL.md"), `---\nname: policy\ndescription: "acme policy"\nmetadata:\n  provides: "domain@1"\n---\n\nFollow the acme policy.\n`);
+  writeTo(join(packDir, "skills", "guide", "SKILL.md"), `---\nname: guide\ndescription: "Use when an acme flow needs the guide."\nmetadata:\n  provides: "guide@1"\n---\n\nRead the acme guide.\n`);
 
   const manifest = join(tmp("rt-two-verb-manifest-"), "skills.jsonc");
-  writeTo(manifest, JSON.stringify({ bindings: { "mattstack:alpha": { domain: "acme:policy" }, "mattstack:beta": { domain: "acme:policy" } } }));
+  writeTo(manifest, JSON.stringify({ bindings: { "mattstack:alpha": { domain: "acme:policy", guide: "acme:guide" }, "mattstack:beta": { domain: "acme:policy", guide: "acme:guide" } } }));
   return { packDir, flags: ["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifest] };
 }
 

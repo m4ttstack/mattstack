@@ -199,7 +199,7 @@ const DOMAIN = 'stage-plan.domain';
 const DOMAIN_BODY: Range = [223, 302];
 
 const REFERENCE_LINE =
-  'For domain, invoke the `acme:plan-policy` skill (acme:plan-policy@0.8.14) when this flow needs it.';
+  'For domain, invoke the `acme:plan-policy` skill when this flow needs it.';
 
 const CHANGELOG_ERROR = [
   'loadAttachment: prop "changelog": binding "acme:changelog-style" not found; searched:',
