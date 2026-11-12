@@ -54,13 +54,15 @@ function mr(
 const doctor = (
   status: string,
   syncLog: string[],
-  message?: string
+  message?: string,
+  forge?: NonNullable<BoardMRWithReview['doctor']>['forge']
 ): BoardMRWithReview['doctor'] =>
   ({
     status,
     syncLog,
     updatedAt: NOW - 60_000,
     ...(message ? { message } : {}),
+    ...(forge ? { forge } : {}),
   }) as unknown as BoardMRWithReview['doctor'];
 
 /** A row with its sync popover open, the way a click on "rebase locally"
@@ -165,6 +167,106 @@ export const Conflict: Story = {
           L.rebasing,
           L.conflicts,
         ])
+      )}
+    />
+  ),
+};
+
+export const ForgeWaiting: Story = {
+  name: 'Forge rebase: waiting on GitLab',
+  render: () => (
+    <OpenRow
+      row={mr(
+        doctor('forge-rebasing', [], undefined, {
+          forge: 'gitlab',
+          state: 'running',
+        })
+      )}
+    />
+  ),
+};
+
+export const ForgeDone: Story = {
+  name: 'Forge rebase: done, no local sync',
+  render: () => (
+    <OpenRow
+      row={mr(
+        doctor('synced', [], 'rebased on GitLab', {
+          forge: 'gitlab',
+          state: 'done',
+          detail: 'rebased',
+        }),
+        { behindTarget: null }
+      )}
+    />
+  ),
+};
+
+export const ForgeFailed: Story = {
+  name: 'Forge rebase failed, local sync runs',
+  render: () => (
+    <OpenRow
+      row={mr(
+        doctor(
+          'syncing',
+          [L.tree, L.fetched, L.backup, L.rebasing],
+          undefined,
+          {
+            forge: 'gitlab',
+            state: 'failed',
+            detail: 'Rebase failed: conflict',
+          }
+        )
+      )}
+    />
+  ),
+};
+
+export const ForgeCancelled: Story = {
+  name: 'Forge rebase cancelled',
+  render: () => (
+    <OpenRow
+      row={mr(
+        doctor(
+          'sync-stopped',
+          [],
+          'cancelled; the forge may still be rebasing',
+          { forge: 'gitlab', state: 'failed', detail: 'cancelled' }
+        )
+      )}
+    />
+  ),
+};
+
+export const NoDoctorPaused: Story = {
+  name: 'Paused, no doctor on this tab',
+  render: () => (
+    <OpenRow
+      row={mr(
+        doctor(
+          'sync-stopped',
+          [L.tree, L.fetched, L.backup, L.rebasing, L.conflicts],
+          'paused in george; no doctor on this tab',
+          {
+            forge: 'gitlab',
+            state: 'failed',
+            detail: 'Rebase failed: conflict',
+          }
+        )
+      )}
+    />
+  ),
+};
+
+export const ForgeWaitingGitHub: Story = {
+  name: 'Forge rebase: waiting on GitHub',
+  render: () => (
+    <OpenRow
+      row={mr(
+        doctor('forge-rebasing', [], undefined, {
+          forge: 'github',
+          state: 'running',
+        })
       )}
     />
   ),

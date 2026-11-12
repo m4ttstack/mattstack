@@ -148,3 +148,104 @@ describe('syncSteps once finished', () => {
     expect(v.steps[2]!.detail).toBe('50 commits');
   });
 });
+
+describe('syncSteps with a forge step', () => {
+  const gitlab = (
+    state: 'running' | 'done' | 'failed' | 'skipped',
+    detail?: string
+  ) => ({ forge: 'gitlab' as const, state, ...(detail ? { detail } : {}) });
+
+  test('forge running leads the steps', () => {
+    const v = syncSteps([], true, gitlab('running'));
+    expect(v.steps[0]).toEqual({
+      key: 'forge',
+      label: 'GitLab rebase',
+      state: 'running',
+    });
+    expect(v.steps.map(s => s.key)).toEqual([
+      'forge',
+      'fetch',
+      'backup',
+      'rebase',
+      'push',
+    ]);
+    expect(v.title).toBe('Rebasing on GitLab');
+    expect(v.phase).toEqual({ word: 'rebasing', detail: 'on GitLab' });
+    expect(v.outcome).toBe('running');
+  });
+
+  test('a GitHub forge step is labelled for GitHub', () => {
+    const v = syncSteps([], true, { forge: 'github', state: 'running' });
+    expect(v.steps[0]!.label).toBe('GitHub rebase');
+    expect(v.forge).toBe('github');
+    expect(v.title).toBe('Rebasing on GitHub');
+  });
+
+  test('forge done skips the local steps', () => {
+    const v = syncSteps([], false, gitlab('done', 'rebased'));
+    expect(v.outcome).toBe('forge-done');
+    expect(v.title).toBe('Rebased on GitLab');
+    expect(v.steps[0]).toMatchObject({ state: 'done', detail: 'rebased' });
+    expect(states({ ...v, steps: v.steps.slice(1) })).toEqual([
+      'skipped',
+      'skipped',
+      'skipped',
+      'skipped',
+    ]);
+  });
+
+  test('a cancelled forge step is its own outcome', () => {
+    const v = syncSteps([], false, gitlab('failed', 'cancelled'));
+    expect(v.outcome).toBe('cancelled');
+    expect(v.title).toBe('Rebase cancelled');
+    expect(v.steps[0]).toMatchObject({ state: 'failed', detail: 'cancelled' });
+    expect(v.steps.slice(1).every(s => s.state === 'skipped')).toBe(true);
+  });
+
+  test('forge failed then local steps run', () => {
+    const v = syncSteps(
+      [L.tree, L.fetched, L.backup, L.rebasing],
+      true,
+      gitlab('failed', 'Rebase failed: conflict')
+    );
+    expect(v.steps[0]).toEqual({
+      key: 'forge',
+      label: 'GitLab rebase',
+      state: 'failed',
+      detail: 'Rebase failed: conflict',
+    });
+    expect(states({ ...v, steps: v.steps.slice(1) })).toEqual([
+      'done',
+      'done',
+      'running',
+      'pending',
+    ]);
+    expect(v.phase).toEqual({
+      word: 'rebasing',
+      detail: '110 commits onto main',
+    });
+  });
+
+  test('forge failed, local sync finished: the outcome is the local one', () => {
+    const v = syncSteps(
+      [L.tree, L.fetched, L.backup, L.rebasing, L.rebased, L.pushed],
+      false,
+      gitlab('failed', 'Rebase failed: conflict')
+    );
+    expect(v.outcome).toBe('pushed');
+    expect(v.steps[0]!.state).toBe('failed');
+  });
+
+  test("no forge keeps today's four steps", () => {
+    const lines = [L.tree, L.fetched, L.backup, L.rebasing];
+    const v = syncSteps(lines, true);
+    expect(v.steps.map(s => s.key)).toEqual([
+      'fetch',
+      'backup',
+      'rebase',
+      'push',
+    ]);
+    expect(v.forge).toBeUndefined();
+    expect(v).toEqual(syncSteps(lines, true, undefined));
+  });
+});

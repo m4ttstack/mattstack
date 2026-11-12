@@ -4,6 +4,7 @@ import type { GateDomain } from '@mattstack/gate-kit';
 import type { TabConfig } from '../config.ts';
 import type { BoardMR, BoardSyncError } from '../data.ts';
 import type { GateRow } from '../gates/store.ts';
+import type { ForgeStep } from '../rebase-chain.ts';
 import type { RespondStatus } from '../respond-outcome.ts';
 import type { ReviewRevision } from '../review-revision.ts';
 import type { ReactedBy } from '../slack-emoji.ts';
@@ -95,6 +96,7 @@ export interface RespondInfo {
 }
 export type DoctorStatus =
   | 'queued'
+  | 'forge-rebasing'
   | 'syncing'
   | 'diagnosing'
   | 'rebasing'
@@ -126,6 +128,8 @@ export interface DoctorInfo {
   syncLog?: string[];
   /** The pipeline the MR showed when the sync pushed. */
   pipelineAtSync?: string;
+  /** The forge's own rebase, the first step of a one-click rebase. */
+  forge?: ForgeStep;
 }
 export interface DraftInfo {
   kind: string;

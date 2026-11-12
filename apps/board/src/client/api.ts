@@ -56,6 +56,15 @@ export async function postAction(
   }
 }
 
+/** End a one-click rebase while it waits on the forge. `cancelled` is false
+    when the chain had already moved on to the local sync. */
+export function cancelRebase(
+  mrUrl: string,
+  fetcher: typeof fetch = fetch
+): Promise<ActionResult> {
+  return postAction('/rebase/cancel', { mrUrl }, fetcher);
+}
+
 /** Give a peer's ask the go-ahead; `alwaysAllow` also starts that peer's
     later asks without waiting. */
 export function acceptAsk(
