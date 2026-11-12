@@ -4,6 +4,7 @@
  * `retry-after: 0` keeps each wait to the margin.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
+import { GitLabProvider } from '../src/GitLabProvider.ts';
 import { MRDetailFetcher } from '../src/MRDetailFetcher.ts';
 import { NoteMutator } from '../src/NoteMutator.ts';
 import { RateLimitedError } from '../src/errors.ts';
@@ -125,5 +126,81 @@ describe('MRDetailFetcher waits out a 429', () => {
     const detail = await new MRDetailFetcher(BASE, 't').fetchDetail(1, 7);
     expect(detail.discussions).toEqual([]);
     expect(calls).toEqual(['GET /api/v4/projects/1/merge_requests/7/discussions', 'GET /api/v4/projects/1/merge_requests/7/discussions']);
+  });
+});
+
+describe('GitLabProvider transports wait out a 429', () => {
+  const provider = () => new GitLabProvider(BASE, 't');
+  const runQuery = (p: GitLabProvider, io?: { retry?: boolean }) =>
+    (p as unknown as { runQuery: (op: string, q: string, v?: unknown, io?: unknown) => Promise<unknown> }).runQuery(
+      'op',
+      'query { currentUser { id } }',
+      undefined,
+      io,
+    );
+
+  test('restRequest GET without io reads again after the reset', async () => {
+    const calls = serve(limited('0'), ok({ id: 1 }));
+    const res = await provider().restRequest('GET', '/projects/1');
+    expect(res.status).toBe(200);
+    expect(calls).toEqual(['GET /api/v4/projects/1', 'GET /api/v4/projects/1']);
+  });
+
+  test('restRequest PUT is sent once more after the reset', async () => {
+    const calls = serve(limited('0'), ok({ id: 1 }));
+    const res = await provider().restRequest('PUT', '/projects/1/merge_requests/7', { title: 't' });
+    expect(res.status).toBe(200);
+    expect(calls).toHaveLength(2);
+  });
+
+  test('restRequest throws RateLimitedError once a write would wait past 65s', async () => {
+    const calls = serve(limited('70'));
+    const err = await provider()
+      .restRequest('PUT', '/projects/1/merge_requests/7', { title: 't' })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RateLimitedError);
+    expect((err as RateLimitedError).operation).toBe('PUT /projects/1/merge_requests/7');
+    expect(calls).toHaveLength(1);
+  });
+
+  test('restRequest with retry hands a 429 to the rate limit, not the transient ladder', async () => {
+    const calls = serve(limited('40'));
+    await expect(provider().restRequest('GET', '/projects/1', undefined, 'op', { retry: true })).rejects.toBeInstanceOf(
+      RateLimitedError,
+    );
+    expect(calls).toHaveLength(1);
+  });
+
+  test('restRequest with retry never resends a write on a 5xx', async () => {
+    const calls = serve(() => new Response('', { status: 503, headers: { 'retry-after': '0' } }), ok({}));
+    const res = await provider().restRequest('POST', '/projects/1/merge_requests', { title: 't' }, 'op', { retry: true });
+    expect(res.status).toBe(503);
+    expect(calls).toHaveLength(1);
+  });
+
+  test('restJson (fetchProject) reads again after the reset', async () => {
+    const calls = serve(limited('0'), ok({ id: 5, path_with_namespace: 'g/p' }));
+    expect(await provider().fetchProject('g/p')).toEqual({ id: 'gitlab:5', fullPath: 'g/p' });
+    expect(calls).toHaveLength(2);
+  });
+
+  test('restJson throws RateLimitedError once a read would wait past 30s', async () => {
+    const calls = serve(limited('40'));
+    await expect(provider().fetchProject('g/p')).rejects.toBeInstanceOf(RateLimitedError);
+    expect(calls).toHaveLength(1);
+  });
+
+  test('a GraphQL query reads again after the reset, with or without io', async () => {
+    for (const io of [undefined, { retry: true }]) {
+      const calls = serve(limited('0'), ok({ data: { currentUser: { id: 1 } } }));
+      expect(await runQuery(provider(), io)).toEqual({ currentUser: { id: 1 } });
+      expect(calls).toEqual(['POST /api/graphql', 'POST /api/graphql']);
+    }
+  });
+
+  test('a GraphQL query is a read: past 30s it throws RateLimitedError', async () => {
+    const calls = serve(limited('40'));
+    await expect(runQuery(provider(), { retry: true })).rejects.toBeInstanceOf(RateLimitedError);
+    expect(calls).toHaveLength(1);
   });
 });

@@ -68,6 +68,7 @@ import { startEventsWatcher } from './EventsWatcher.ts';
 import type { FetchEvents, GitLabEvent } from './EventsPoller.ts';
 import { safeEmit, instrumentGitbeaker, type OnRequestHook, type RequestInfo } from './instrumentation.ts';
 import { RetryableError, asRetryable, isTransientStatus, retryAfterMs, withRetry } from './retry.ts';
+import { throwIfGitLabRateLimited, withGitLabRateLimit } from './gitlabRateLimit.ts';
 
 export interface RequestIO {
   signal?: AbortSignal;
@@ -2050,6 +2051,7 @@ export class GitLabProvider implements GitProvider {
         durationMs: performance.now() - started,
         status: res.status,
       });
+      throwIfGitLabRateLimited(res);
       if (io.retry && isTransientStatus(res.status)) {
         throw new RetryableError(new Error(`${op}: HTTP ${res.status} for ${path}`), retryAfterMs(res));
       }
@@ -2064,7 +2066,12 @@ export class GitLabProvider implements GitProvider {
       }
     };
 
-    return withRetry(attempt, { signal: io.signal, attempts: io.retry ? undefined : 1 });
+    return withGitLabRateLimit(
+      `GET ${path}`,
+      'read',
+      () => withRetry(attempt, { signal: io.signal, attempts: io.retry ? undefined : 1 }),
+      { signal: io.signal },
+    );
   }
 
   async restRequest(method: string, path: string, body?: unknown, op = 'restRequest', io?: RequestIO): Promise<Response> {
@@ -2091,6 +2098,10 @@ export class GitLabProvider implements GitProvider {
       headers['Content-Type'] = 'application/json';
     }
     const bodyStr = body !== undefined ? JSON.stringify(body) : undefined;
+    const verb = method.toUpperCase();
+    const isRead = verb === 'GET' || verb === 'HEAD';
+    // A write that timed out or drew a 5xx may have been applied; only a 429 proves it was not.
+    const retryTransient = io?.retry === true && isRead;
 
     const attempt = async (signal?: AbortSignal): Promise<Response> => {
       const started = performance.now();
@@ -2108,14 +2119,19 @@ export class GitLabProvider implements GitProvider {
         durationMs: performance.now() - started,
         status: res.status,
       });
-      if (io?.retry && isTransientStatus(res.status)) {
+      throwIfGitLabRateLimited(res);
+      if (retryTransient && isTransientStatus(res.status)) {
         throw new RetryableError(new Error(`${op}: HTTP ${res.status} for ${path}`), retryAfterMs(res));
       }
       return res;
     };
 
-    if (!io) return attempt();
-    return withRetry(attempt, { signal: io.signal, attempts: io.retry ? undefined : 1 });
+    return withGitLabRateLimit(
+      `${verb} ${path}`,
+      isRead ? 'read' : 'write',
+      () => (io ? withRetry(attempt, { signal: io.signal, attempts: retryTransient ? undefined : 1 }) : attempt()),
+      { signal: io?.signal },
+    );
   }
 
   watchMR(
@@ -2912,6 +2928,7 @@ export class GitLabProvider implements GitProvider {
         durationMs: performance.now() - started,
         status: res.status,
       });
+      throwIfGitLabRateLimited(res);
       if (io?.retry && isTransientStatus(res.status)) {
         throw new RetryableError(new Error(`GraphQL request failed: ${res.status} ${res.statusText}`), retryAfterMs(res));
       }
@@ -2925,7 +2942,13 @@ export class GitLabProvider implements GitProvider {
       }
     };
 
-    const envelope = io ? await withRetry(attempt, { signal: io.signal, attempts: io.retry ? undefined : 1 }) : await attempt();
+    // Every GitLab GraphQL call glance sends is a query, so it waits as a read.
+    const envelope = await withGitLabRateLimit(
+      `POST /api/graphql (${op})`,
+      'read',
+      () => (io ? withRetry(attempt, { signal: io.signal, attempts: io.retry ? undefined : 1 }) : attempt()),
+      { signal: io?.signal },
+    );
 
     if (envelope.errors?.length) {
       const msg = envelope.errors.map((e) => e.message).join('; ');
