@@ -175,8 +175,9 @@ try {
 
   // The forge username triage owns PRs as (the GitLab token's user, or on
   // GitHub the team record's), cached on GitLab so steady-state runs are
-  // pure socket reads. An MR is triage's only when this user AND the seat authored it
-  // (triageOwns), so a seatless board runs no auto-doctor and no respond ask.
+  // pure socket reads. An MR is triage's only when this user AND the seat
+  // authored it (triageOwns), so a seatless board runs no auto-doctor and
+  // no respond ask.
   // Throw rather than process.exit(1) on a resolution failure: an exit here
   // would skip the finally block and strand the lock until the stale window
   // reclaims it.
@@ -253,6 +254,7 @@ try {
   };
 
   if (plan && plan.identity !== null) {
+    const logsUnparsedReds = plan.identity !== 'gitlab-token';
     const result = await runTriage({
       triage,
       doctorCwd: boardConfig.doctorCwd || boardConfig.reviewCwd,
@@ -261,11 +263,13 @@ try {
       repoForMr: repoForMrUrl,
       // Same resolved identity fetchOwnMrs just filtered by (MAT-351 re-check).
       identity: username,
-      fetchOwnMrs: async () => {
-        const mrs = await fetchOwnMrs();
-        for (const line of unparsedRedLines(mrs)) console.log(line);
-        return mrs;
-      },
+      fetchOwnMrs: logsUnparsedReds
+        ? async () => {
+            const mrs = await fetchOwnMrs();
+            for (const line of unparsedRedLines(mrs)) console.log(line);
+            return mrs;
+          }
+        : fetchOwnMrs,
       readDoctorStates,
       launchDoctor,
       pack: launchPack ?? undefined,

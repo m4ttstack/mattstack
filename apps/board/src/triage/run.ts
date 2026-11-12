@@ -171,8 +171,8 @@ export interface TriageRunDeps {
       project path. */
   repoForMr(mrUrl: string): string;
   /** The forge username this pipeline dispatches as (the GitLab token's
-      user, or on GitHub the team record's); see bin/triage.ts. Never config.defaultMember (2026-08-08 ruling). Used
-      only to re-verify the mechanical-lint author gate (MAT-351); null
+      user, or on GitHub the team record's); see bin/triage.ts. Never
+      config.defaultMember (2026-08-08 ruling). Used only to re-verify the mechanical-lint author gate (MAT-351); null
       before the identity has ever been resolved. */
   identity: string | null;
   /** Own open MRs (triage identity, drafts included), already reduced to
