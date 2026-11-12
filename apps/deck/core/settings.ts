@@ -255,7 +255,10 @@ function currentRawAppsStore(): StoreApps {
  * should actually disappear from the store, so those are deleted from the
  * result.
  */
-function nextAppsStoreDict(previous: SettingsFile): StoreApps {
+function nextAppsStoreDict(
+  previous: SettingsFile,
+  dropped: string[]
+): StoreApps {
   const next: StoreApps = {
     ...currentRawAppsStore(),
     ...buildAppsStoreDict(cache),
@@ -263,6 +266,7 @@ function nextAppsStoreDict(previous: SettingsFile): StoreApps {
   for (const app of Object.keys(previous.apps)) {
     if (!(app in cache.apps)) delete next[app];
   }
+  for (const app of dropped) delete next[app];
   return next;
 }
 
@@ -298,7 +302,11 @@ function revertedAppsStoreDict(previous: SettingsFile): StoreApps {
  * could turn a private app public. A rename is never file-only, because the
  * old name's store entry would stay behind and the new name read as public.
  */
-function save(previous: SettingsFile, fileOnly = false): void {
+function save(
+  previous: SettingsFile,
+  fileOnly = false,
+  dropped: string[] = []
+): void {
   let storeChanged = false;
   try {
     if (storeUnreadable) {
@@ -307,7 +315,7 @@ function save(previous: SettingsFile, fileOnly = false): void {
           `deck: ${STORE_KEY} could not be read at the last load; restart deck before changing app settings`
         );
     } else {
-      const next = nextAppsStoreDict(previous);
+      const next = nextAppsStoreDict(previous, dropped);
       storeChanged = !isDeepStrictEqual(next, currentRawAppsStore());
       if (storeChanged) setSetting(STORE_KEY, next, 'user');
     }
@@ -404,12 +412,15 @@ export function renameAppSettings(oldName: string, newName: string): void {
   save(previous);
 }
 
-/** Drops a removed app's whole entry, so a later app reusing the name starts private with no password. */
+/**
+ * Drops a removed app's whole entry, so a later app reusing the name starts
+ * private with no password. The store may hold the name even when this
+ * process's cache does not, since another writer can add it after the last load.
+ */
 export function forgetAppSettings(app: string): void {
-  if (!cache.apps[app]) return;
   const previous = structuredClone(cache);
   delete cache.apps[app];
-  save(previous);
+  save(previous, false, [app]);
 }
 
 export function getOverride(app: string): PortOverride | undefined {

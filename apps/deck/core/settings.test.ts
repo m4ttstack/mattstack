@@ -501,6 +501,21 @@ test('forgetAppSettings drops the app from the store and the file, and leaves ot
   expect(getAppSettings('kept').published).toBe(true);
 });
 
+test('forgetAppSettings drops an app another writer added to the store after the last load', () => {
+  reloadSettings();
+  setSetting(
+    'deck.apps',
+    { late: { published: true, publicFollowsOverride: false } },
+    'user'
+  );
+
+  forgetAppSettings('late');
+
+  expect(
+    getSetting<Record<string, unknown>>('deck.apps').value ?? {}
+  ).not.toHaveProperty('late');
+});
+
 test('forgetAppSettings on an unknown app writes nothing', () => {
   forgetAppSettings('never-seen');
   expect(existsSync(userStorePath())).toBe(false);
