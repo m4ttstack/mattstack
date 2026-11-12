@@ -159,7 +159,11 @@ export const GITHUB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   fetchPullRequestSummaries: { support: 'supported', capability: 'canFetchPullRequestSummaries' },
   addPullRequestLabels: { support: 'supported', capability: 'canEditLabels' },
   removePullRequestLabels: { support: 'supported', capability: 'canEditLabels' },
-  fetchPullRequestDiffs: { support: 'supported', capability: 'canFetchPullRequestDiffs' }
+  fetchPullRequestDiffs: { support: 'supported', capability: 'canFetchPullRequestDiffs' },
+  fetchApprovalRules: { support: 'absent', capability: 'canFetchApprovalRules', note: 'Lands in this change.' },
+  fetchCodeownerSections: { support: 'absent', capability: 'canFetchCodeownerSections', note: 'Lands in this change.' },
+  fetchDivergedCount: { support: 'absent', capability: 'canFetchDivergedCount', note: 'Lands in this change.' },
+  fetchDivergedCounts: { support: 'absent', capability: 'canFetchDivergedCount', note: 'Lands in this change.' }
 };
 
 export const GITLAB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
@@ -242,6 +246,13 @@ export const GITLAB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
     support: 'absent',
     capability: 'canFetchPullRequestDiffs',
     note: 'The daemon reads the GitLab diffs through restRequest, so glance does not implement the read.'
+  },
+  fetchApprovalRules: { support: 'supported', capability: 'canFetchApprovalRules' },
+  fetchCodeownerSections: { support: 'supported', capability: 'canFetchCodeownerSections' },
+  fetchDivergedCount: { support: 'supported', capability: 'canFetchDivergedCount' },
+  fetchDivergedCounts: {
+    support: 'absent',
+    note: 'GitLab reads one MR at a time with fetchDivergedCount; the batched read is GitHub only.'
   }
 };
 

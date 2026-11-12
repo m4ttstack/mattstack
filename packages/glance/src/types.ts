@@ -241,8 +241,8 @@ export interface PullRequest {
    * role-based mode of `fetchPullRequests`. `GitLabProvider.fetchDivergedCount`
    * returns the count alone, for refreshing it on an MR another path read. The `iids`, `authorUsernames`,
    * and `projectPath` modes of `fetchPullRequests`, plus
-   * `fetchPullRequestsByBranches`, all leave it null. GitHub always leaves it
-   * null: it would need a `GET /compare/{base}...{head}` per PR.
+   * `fetchPullRequestsByBranches`, all leave it null. GitHub's PRs leave it
+   * null from every fetch; `GitProvider.fetchDivergedCounts` reads it.
    *
    * Collapsing that null into zero is what MAT-164 fixed. Do not reintroduce
    * a `?? 0` on this field.
@@ -710,6 +710,12 @@ export interface ProviderCapabilities {
   canRequestChanges: boolean;
   /** Can read a pull request's per-file diffs with `fetchPullRequestDiffs`. */
   canFetchPullRequestDiffs: boolean;
+  /** Can read per-PR approval rules with `fetchApprovalRules`. */
+  canFetchApprovalRules?: boolean;
+  /** Can read the CODEOWNERS section names with `fetchCodeownerSections`. */
+  canFetchCodeownerSections?: boolean;
+  /** Can read how far a PR's base has moved on with `fetchDivergedCount` (and `fetchDivergedCounts` where the provider has it). */
+  canFetchDivergedCount?: boolean;
   /** Pull requests carry `sourceProjectPath`, the repository their source branch lives in. */
   canReportSourceProject?: boolean;
   /**
@@ -875,12 +881,22 @@ export interface ApprovalRuleLite {
 export interface MRApprovalRules {
   iid: number;
   rules: ApprovalRuleLite[];
+  /**
+   * Set when the rules could not be read for this PR. `rules` is then empty
+   * and means "not read", never "no rules"; the string says why in one
+   * sentence. GitLab never sets it.
+   */
+  unknownReason?: string;
 }
 
 /**
  * Options for `GitLabProvider.fetchApprovalRules`. `updatedAfter` and `iids`
  * are mutually exclusive: the former drives windowed discovery, the latter
  * the targeted events-heal path.
+ *
+ * GitHub reads 50 PRs per GraphQL request and its page size defaults to 50.
+ * Draft PRs are left out of windowed mode, since GitHub does not request code
+ * owners on a draft.
  */
 export interface FetchApprovalRulesOptions {
   projectPath: string;

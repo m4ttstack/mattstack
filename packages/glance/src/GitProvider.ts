@@ -6,6 +6,8 @@ import type {
   InvalidationBatch,
   JobDetail,
   EnqueuePullRequestInput,
+  FetchApprovalRulesOptions,
+  MRApprovalRules,
   MergePullRequestInput,
   MergePullRequestResult,
   MergeQueueEntry,
@@ -529,6 +531,35 @@ export interface GitProvider {
    * deadline. Caller cancellation via `options.signal` is never retried.
    */
   fetchUserEvents?(userId: string, options: FetchUserEventsOptions): Promise<UserEvent[]>;
+
+  /**
+   * Reads the approval rules of the project's open PRs, one entry per PR.
+   * Gated on `capabilities.canFetchApprovalRules`. A rule's `section` is the
+   * owner; GitHub lowercases it (`@org/team`, `@login`) so it joins with
+   * `fetchCodeownerSections`. An entry with `unknownReason` set means that
+   * PR's rules were not read, which is not the same as "no rules".
+   */
+  fetchApprovalRules?(options: FetchApprovalRulesOptions): Promise<MRApprovalRules[]>;
+
+  /**
+   * Reads the CODEOWNERS section names for a project, or null when it has no
+   * CODEOWNERS file. Gated on `capabilities.canFetchCodeownerSections`.
+   * GitHub's sections are the owners, lowercased with an `@` prefix.
+   */
+  fetchCodeownerSections?(options: { projectPath: string }): Promise<string[] | null>;
+
+  /**
+   * Reads how many commits one PR's base has moved on, or null when there is
+   * no comparison. Gated on `capabilities.canFetchDivergedCount`.
+   */
+  fetchDivergedCount?(projectPath: string, mrIid: number): Promise<number | null>;
+
+  /**
+   * Batched `fetchDivergedCount`. The map has an entry for each PR that was
+   * read, null when that PR has no comparison, and no entry when that PR's
+   * read failed. Gated on `capabilities.canFetchDivergedCount`.
+   */
+  fetchDivergedCounts?(projectPath: string, mrIids: number[]): Promise<Map<number, number | null>>;
 
   // ── Mutation capabilities ───────────────────────────────────────────────
 

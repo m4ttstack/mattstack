@@ -822,7 +822,10 @@ export class GitHubProvider implements GitProvider {
     canEditLabels: true,
     canReplyToGeneralComments: false,
     canRequestChanges: true,
-    canFetchPullRequestDiffs: true
+    canFetchPullRequestDiffs: true,
+    canFetchApprovalRules: false,
+    canFetchCodeownerSections: false,
+    canFetchDivergedCount: false
   };
 
   // ── GitProvider interface ─────────────────────────────────────────────────
