@@ -852,7 +852,10 @@ export interface GitProvider {
    * **GitLab**: Implemented via ActionCable WebSocket subscription on
    *   `userMergeRequestUpdated`, backed by a `MR_DETAIL_QUERY` re-fetch on
    *   each event to return a complete, strongly-typed PullRequest.
-   * **GitHub**: Not yet implemented — throws `ProviderNotSupportedError`.
+   * **GitHub**: Poll-only, since GitHub has no push channel: one
+   *   `fetchSingleMR` every `options.pollIntervalMs` (default 60s), status
+   *   `polling`. A failed fill reports `reconnecting` with a
+   *   `ReadBackFailedError`; a failed checks page still delivers the PR.
    *
    * @param projectPath - e.g. "group/project"
    * @param mrIid - the numeric MR/PR number

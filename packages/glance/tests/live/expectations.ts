@@ -114,8 +114,8 @@ export const GITHUB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   requestReReview: { support: 'supported', capability: 'canRequestReReview' },
   restRequest: { support: 'supported' },
   watchMR: {
-    support: 'unsupported',
-    note: 'Permanent. GitHub has no push channel equivalent to ActionCable.'
+    support: 'supported',
+    note: 'Polls every 60s by default; GitHub has no push channel.'
   },
   subscribePullRequestEvents: {
     support: 'absent',

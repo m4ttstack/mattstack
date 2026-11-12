@@ -59,6 +59,8 @@ export interface WatcherStatus {
 export interface RealtimeWatcherOptions {
   /**
    * Poll interval while the push subscription is connected (safety net).
+   * In poll-only mode (no `subscribe`) it is the poll interval, and also the
+   * floor for a retry after a failed poll.
    * Default: 30_000 ms.
    */
   pollIntervalMs?: number;

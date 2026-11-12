@@ -573,11 +573,13 @@ function createBranchDashboard(
           }
           return pr;
         },
-        subscribe: ({ onConnected }) => {
-          // No ActionCable for branch-based — IID not known upfront.
-          onConnected();
-          return () => {};
-        },
+        subscribe: provider.subscribePullRequestEvents
+          ? ({ onConnected }) => {
+              // No ActionCable for branch-based: IID not known upfront.
+              onConnected();
+              return () => {};
+            }
+          : undefined,
         onUpdate: (pr) => {
           _isInitialLoading = false;
           listener(getMRDashboardProps(pr, connectionState));
@@ -757,18 +759,16 @@ function createDashboardGroup(
     disposeWatcher = createRealtimeWatcher<Map<number, PullRequest>>({
       fetch: batchFetch,
 
-      subscribe: (callbacks) => {
-        if (!provider.subscribePullRequestEvents) {
-          callbacks.onConnected();
-          return () => {};
-        }
-        push = { callbacks, subscribed: new Set(), disposers: [] };
-        attachPush(fetchedPrs, true);
-        return () => {
-          for (const dispose of push?.disposers ?? []) dispose();
-          push = null;
-        };
-      },
+      subscribe: provider.subscribePullRequestEvents
+        ? (callbacks) => {
+            push = { callbacks, subscribed: new Set(), disposers: [] };
+            attachPush(fetchedPrs, true);
+            return () => {
+              for (const dispose of push?.disposers ?? []) dispose();
+              push = null;
+            };
+          }
+        : undefined,
 
       onUpdate: (freshMap) => {
         _isInitialLoading = false;

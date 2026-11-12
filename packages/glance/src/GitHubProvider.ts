@@ -61,6 +61,7 @@ import {
   type GitHubEvent
 } from './GitHubEventsPoller.ts';
 import { startWatcherLoop, type LoopTick } from './EventsWatcher.ts';
+import { createRealtimeWatcher, type RealtimeWatcherOptions } from './RealtimeWatcher.ts';
 import { ForgeHttpError, RateLimitedError } from './errors.ts';
 import {
   bodyText,
@@ -436,6 +437,8 @@ const LIST_MAX_PAGES = 20;
  * REST call to one per branch per window.
  */
 const RULES_CACHE_MS = 600_000;
+
+const WATCH_MR_POLL_INTERVAL_MS = 60_000;
 
 /**
  * Branch aliases per batched `pullRequests(headRefName:)` query.
@@ -1624,18 +1627,43 @@ export class GitHubProvider implements GitProvider {
     return this.api(method, path, body, io);
   }
 
+  /**
+   * Poll-only: GitHub has no push channel. Each poll is one `fetchSingleMR`.
+   * A `fill` warning fails the poll so the watcher reports `reconnecting`; a
+   * `contexts` warning still delivers the PR with its pending pipeline.
+   */
   watchMR(
-    _projectPath: string,
-    _mrIid: number,
-    _currentUserNumericId: number | null,
-    _onUpdate: (pr: PullRequest) => void,
-    _options?: import('./RealtimeWatcher.ts').RealtimeWatcherOptions
+    projectPath: string,
+    mrIid: number,
+    currentUserNumericId: number | null,
+    onUpdate: (pr: PullRequest) => void,
+    options?: RealtimeWatcherOptions
   ): () => void {
-    throw new Error(
-      'watchMR is not supported by the GitHub REST API. ' +
-        'GitHub does not offer a WebSocket subscription equivalent. ' +
-        'Check provider capabilities before calling.'
-    );
+    return createRealtimeWatcher<PullRequest>({
+      fetch: async () => {
+        let fillWarning: FetchPullRequestsWarning | undefined;
+        // Thrown after the read returns: `warn()` swallows a throw from inside onWarning.
+        const pr = await this.fetchSingleMR(projectPath, mrIid, currentUserNumericId, w => {
+          if (w.source === 'fill') fillWarning = w;
+        });
+        if (fillWarning) {
+          throw new ReadBackFailedError(fillWarning.message, {
+            operation: 'watchMR',
+            projectPath,
+            iid: mrIid,
+            writeApplied: false
+          });
+        }
+        return pr;
+      },
+      onUpdate,
+      options: {
+        pollIntervalMs: options?.pollIntervalMs ?? WATCH_MR_POLL_INTERVAL_MS,
+        onStatusChange: options?.onStatusChange,
+        logger: options?.logger ?? this.log,
+        logContext: options?.logContext ?? `watchMR:${projectPath}!${mrIid}`
+      }
+    });
   }
 
   /**
