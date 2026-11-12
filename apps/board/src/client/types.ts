@@ -4,7 +4,6 @@ import type { GateDomain } from '@mattstack/gate-kit';
 import type { TabConfig } from '../config.ts';
 import type { BoardMR, BoardSyncError } from '../data.ts';
 import type { GateRow } from '../gates/store.ts';
-import type { ForgeStep } from '../rebase-chain.ts';
 import type { RespondStatus } from '../respond-outcome.ts';
 import type { ReviewRevision } from '../review-revision.ts';
 import type { ReactedBy } from '../slack-emoji.ts';
@@ -106,6 +105,12 @@ export type DoctorStatus =
   | 'error'
   | 'sync-stopped'
   | 'synced';
+/** The forge's own rebase, as the server's doctor row carries it. */
+export interface ForgeStep {
+  forge: 'gitlab' | 'github';
+  state: 'running' | 'done' | 'failed' | 'skipped';
+  detail?: string;
+}
 export interface DoctorInfo {
   status: DoctorStatus;
   /** The rt agent running the doctor, matched against a gone pane. */

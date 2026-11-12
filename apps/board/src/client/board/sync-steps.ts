@@ -2,7 +2,7 @@
     own rebase when the chain asked it first, so the popover and the row's
     word show where a sync is without replaying its log. */
 
-import type { ForgeStep } from '../../rebase-chain.ts';
+import type { ForgeStep } from '../types.ts';
 import { parseSyncLine } from './sync-lines.ts';
 
 type LocalKey = 'fetch' | 'backup' | 'rebase' | 'push';
@@ -252,7 +252,10 @@ export function syncSteps(
       : forgeOnly && forge.state === 'failed'
         ? 'Rebase failed'
         : 'Sync stopped',
-    'forge-done': `Rebased ${forgeWord}`,
+    'forge-done':
+      forge?.detail === 'already current'
+        ? `Already up to date ${forgeWord}`
+        : `Rebased ${forgeWord}`,
     cancelled: 'Rebase cancelled',
   }[outcome];
 

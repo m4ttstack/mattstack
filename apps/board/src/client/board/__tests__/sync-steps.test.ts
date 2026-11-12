@@ -194,6 +194,18 @@ describe('syncSteps with a forge step', () => {
     ]);
   });
 
+  test('forge done with nothing to rebase reads as already up to date', () => {
+    const v = syncSteps([], false, gitlab('done', 'already current'));
+    expect(v.outcome).toBe('forge-done');
+    expect(v.title).toBe('Already up to date on GitLab');
+    const gh = syncSteps([], false, {
+      forge: 'github',
+      state: 'done',
+      detail: 'already current',
+    });
+    expect(gh.title).toBe('Already up to date on GitHub');
+  });
+
   test('a cancelled forge step is its own outcome', () => {
     const v = syncSteps([], false, gitlab('failed', 'cancelled'));
     expect(v.outcome).toBe('cancelled');
