@@ -119,9 +119,11 @@
   border-bottom-color: transparent;
 }
 
-/* The block's own edge closes the list, so the last row draws no rule. */
+/* The block's own edge closes the list, so the last row draws no rule, and
+   its hover wash follows the block's rounded corners. */
 .block > :last-child:not([data-open]) {
   border-bottom-color: transparent;
+  border-radius: 0 0 var(--mantine-radius-lg) var(--mantine-radius-lg);
 }
 
 /* A provider's run of keys inside the Agents group: its name and a hairline,
