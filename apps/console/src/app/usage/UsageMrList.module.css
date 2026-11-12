@@ -1,5 +1,5 @@
 .table {
-  --columns: minmax(0, 1fr) 240px 76px 76px 84px 216px 16px;
+  --columns: minmax(0, 1fr) 316px 76px 76px 84px 304px 16px;
 
   display: flex;
   flex: 0 1 auto;
@@ -14,7 +14,7 @@
   display: flex;
   flex: 0 1 auto;
   flex-direction: column;
-  min-width: 960px;
+  min-width: 1120px;
   min-height: 0;
 }
 

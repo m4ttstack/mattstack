@@ -24,18 +24,10 @@ function row(over: Partial<UsageMrRow>): UsageMrRow {
 }
 
 describe('MR sorting', () => {
-  const billed = (cost: number, metered: number) => ({
-    totals: { cost } as never,
-    byBilling: {
-      metered: { cost: metered },
-      plan: { cost: cost - metered },
-      unknown: { cost: 0 },
-    } as never,
-  });
   const rows = [
-    row({ mrKey: 'a', lastActivity: 1, ...billed(5, 5) }),
-    row({ mrKey: 'b', lastActivity: 3, ...billed(1, 1) }),
-    row({ mrKey: 'c', lastActivity: 2, ...billed(5, 5) }),
+    row({ mrKey: 'a', lastActivity: 1, totals: { cost: 5 } as never }),
+    row({ mrKey: 'b', lastActivity: 3, totals: { cost: 1 } as never }),
+    row({ mrKey: 'c', lastActivity: 2, totals: { cost: 5 } as never }),
   ];
   const keys = (list: UsageMrRow[]) => list.map(r => r.mrKey);
 
@@ -61,20 +53,13 @@ describe('MR sorting', () => {
     expect(keys(rows)).toEqual(['a', 'b', 'c']);
   });
 
-  it('sorts the metered column on metered cost, then total cost', () => {
+  it('sorts the cost column on total cost', () => {
     const mixed = [
-      row({ mrKey: 'plan', ...billed(50, 0) }),
-      row({ mrKey: 'small', ...billed(2, 2) }),
-      row({ mrKey: 'bigger-plan', ...billed(60, 0) }),
+      row({ mrKey: 'small', totals: { cost: 2 } as never }),
+      row({ mrKey: 'big', totals: { cost: 60 } as never }),
     ];
     expect(keys(sortMrs(mixed, { sort: 'cost', dir: 'desc' }))).toEqual([
-      'small',
-      'bigger-plan',
-      'plan',
-    ]);
-    expect(keys(sortMrs(mixed, { sort: 'cost', dir: 'asc' }))).toEqual([
-      'plan',
-      'bigger-plan',
+      'big',
       'small',
     ]);
   });

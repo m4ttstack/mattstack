@@ -24,38 +24,49 @@ const split = (
   unknown: totals(unknown),
 });
 
-const pairs = (byBilling: Record<UsageBilling, UsageTotals>) =>
-  billingStats(byBilling).map(s => [s.value, s.label]);
+const pairs = (total: number, byBilling?: Record<UsageBilling, UsageTotals>) =>
+  billingStats(total, byBilling).map(s => [s.value, s.label]);
 
 describe('billingStats', () => {
-  it('leads with metered cost, with plan usage beside it', () => {
-    expect(pairs(split(12.5, 1500, 0))).toEqual([
+  it('leads with the total, then metered and on plan', () => {
+    expect(pairs(1512.5, split(12.5, 1500, 0))).toEqual([
+      ['$1,513', 'estimated cost'],
       ['$12.50', 'metered'],
       ['$1,500', 'on plan'],
     ]);
     const { container } = renderWithProviders(
-      <UsageStats stats={billingStats(split(12.5, 1500, 0))} />
+      <UsageStats stats={billingStats(1512.5, split(12.5, 1500, 0))} />
     );
     const text = (part: string) =>
       [...container.querySelectorAll(`[data-parity="${part}"]`)].map(
         el => el.textContent
       );
-    expect(text('value')).toEqual(['$12.50', '$1,500']);
-    expect(text('label')).toEqual(['metered', 'on plan']);
+    expect(text('value')).toEqual(['$1,513', '$12.50', '$1,500']);
+    expect(text('label')).toEqual(['estimated cost', 'metered', 'on plan']);
   });
 
-  it('holds the metered and plan slots at zero while the split loads', () => {
-    expect(billingStats(undefined).map(s => [s.value, s.label])).toEqual([
+  it('adds unknown beside the known parts', () => {
+    expect(pairs(1503.2, split(0, 1500, 3.2))).toEqual([
+      ['$1,503', 'estimated cost'],
       ['$0.00', 'metered'],
-      ['$0.00', 'on plan'],
+      ['$1,500', 'on plan'],
+      ['$3.20', 'unknown'],
     ]);
   });
 
-  it('adds unknown only when some cost has no account', () => {
-    expect(pairs(split(0, 0, 3.2))).toEqual([
-      ['$0.00', 'metered'],
-      ['$0.00', 'on plan'],
-      ['$3.20', 'unknown'],
+  it('shows only the total when every cost is unknown', () => {
+    expect(pairs(3.2, split(0, 0, 3.2))).toEqual([['$3.20', 'estimated cost']]);
+  });
+
+  it('shows only the total while the split loads', () => {
+    expect(pairs(0, undefined)).toEqual([['$0.00', 'estimated cost']]);
+  });
+
+  it('carries the tone onto each stat', () => {
+    expect(billingStats(5, split(5, 0, 0), 'gray').map(s => s.tone)).toEqual([
+      'gray',
+      'gray',
+      'gray',
     ]);
   });
 });

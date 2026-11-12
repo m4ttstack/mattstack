@@ -355,6 +355,21 @@ export function usageFixture(): UsageFixture {
         subagent: tot(0, 0, 0, 0, 0),
         stages: [[null, null, null, tot(200, 6000, 900_000, 50_000, 2.2)]],
       }),
+      entry({
+        runId: null,
+        sessionId: 's-other-1',
+        kind: 'other',
+        round: null,
+        pipeline: null,
+        status: null,
+        start: WEEK + 2 * DAY + 15 * HOUR,
+        hours: 1,
+        accounts: [],
+        shares: { unknown: 1 },
+        main: tot(150, 4000, 600_000, 30_000, 1.3),
+        subagent: tot(0, 0, 0, 0, 0),
+        stages: [[null, null, null, tot(150, 4000, 600_000, 30_000, 1.3)]],
+      }),
     ]
   );
 
