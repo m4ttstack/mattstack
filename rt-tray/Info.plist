@@ -60,7 +60,7 @@
     <key>SUEnableAutomaticChecks</key>
     <true/>
     <key>SUAutomaticallyUpdate</key>
-    <true/>
+    <false/>
     <key>SUVerifyUpdateBeforeExtraction</key>
     <true/>
     <key>SUScheduledCheckInterval</key>

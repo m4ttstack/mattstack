@@ -18,6 +18,15 @@ export interface TelemetryPing {
   legacyDirs: string[];
   orgs: { org: string; layout: number | null }[];
   packs: { id: string; version: string | null }[];
+  /** Null from a Mac older than the field, or one whose app wrote no status. */
+  appUpdate: AppUpdateStatus | null;
+}
+
+export interface AppUpdateStatus {
+  lastCheckAt: string | null;
+  offeredVersion: string | null;
+  heldVersion: string | null;
+  hold: string | null;
 }
 
 export interface MacRow extends TelemetryPing {
@@ -90,6 +99,22 @@ function entries<T>(v: unknown, read: (item: unknown) => T | null): T[] | null {
   return out;
 }
 
+/** Absent reads as null, so a Mac older than the field still records. */
+function appUpdate(v: unknown): AppUpdateStatus | null | undefined {
+  if (v === undefined || v === null) return null;
+  if (!isRecord(v)) return undefined;
+  const { lastCheckAt, offeredVersion, heldVersion, hold } = v;
+  if (
+    !isStrOrNull(lastCheckAt) ||
+    !isStrOrNull(offeredVersion) ||
+    !isStrOrNull(heldVersion) ||
+    !isStrOrNull(hold)
+  ) {
+    return undefined;
+  }
+  return { lastCheckAt, offeredVersion, heldVersion, hold };
+}
+
 /** The relay's only gate on an unauthenticated body: a fresh object with the
     spec's fields and nothing else, or null. No coercion. */
 export function parsePing(raw: unknown): TelemetryPing | null {
@@ -120,13 +145,15 @@ export function parsePing(raw: unknown): TelemetryPing | null {
     }
     return { id: item.id, version: item.version };
   });
+  const update = appUpdate(raw.appUpdate);
   if (
     !usernames ||
     !migrationsRecorded ||
     !migrationsKnown ||
     !legacyDirs ||
     !orgs ||
-    !packs
+    !packs ||
+    update === undefined
   ) {
     return null;
   }
@@ -143,6 +170,7 @@ export function parsePing(raw: unknown): TelemetryPing | null {
     legacyDirs,
     orgs,
     packs,
+    appUpdate: update,
   };
 }
 
@@ -294,12 +322,16 @@ export class TelemetryStore {
          FROM telemetry_macs ORDER BY last_seen DESC, install_id`
       )
       .all()
-      .map(r => ({
-        ...(JSON.parse(r.ping) as TelemetryPing),
-        verifiedUsername: r.verified_username,
-        lastSeen: r.last_seen,
-        running: now - r.last_seen <= RUNNING_WINDOW_MS,
-      }));
+      .map(r => {
+        const ping = JSON.parse(r.ping) as TelemetryPing;
+        return {
+          ...ping,
+          appUpdate: ping.appUpdate ?? null,
+          verifiedUsername: r.verified_username,
+          lastSeen: r.last_seen,
+          running: now - r.last_seen <= RUNNING_WINDOW_MS,
+        };
+      });
     const labels = new Map(macs.map(m => [m.installId, macLabel(m)]));
 
     const updates = this.db

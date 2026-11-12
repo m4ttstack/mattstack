@@ -281,14 +281,28 @@ real 2.8.1 build. The prod-Mac leg (Create Release → appcast → an installed
 app on real hardware) still awaits the first real tag; treat that first run
 as a verification exercise, not a routine.
 
-A downloaded update installs and relaunches once no window is open and
-setup is not running. Sparkle offers its install handler once, and the
-tray keeps it (`HeldUpdateInstaller`) rather than declining: a declined
-update waits for a quit, which a login item rarely sees, and Sparkle puts
-off its next check for a week. The tray retries every minute, and the
-"Update Available" menu item installs at once (setup still holds it). An
-`app_update` notification says when an update is waiting and again after
-the relaunch into the new version (`UpdateNotice`).
+A scheduled check that finds an update opens Sparkle's own update window
+in front (`SUAutomaticallyUpdate` is off), so the person installs it from
+there. Silent install was dropped because a Mac with a mattstack window
+open all day never installed, and a held update stops Sparkle checking
+again. While setup runs the window waits: the "Update Available" menu item
+is the reminder, and the next scheduled check opens it.
+
+An update put off to quit (the person closed Sparkle's window after the
+download) installs and relaunches once no window is open and setup is not
+running. Sparkle offers its install handler once, and the tray keeps it
+(`HeldUpdateInstaller`) rather than declining: a declined update waits for
+a quit, which a login item rarely sees, and Sparkle puts off its next check
+for a week. The tray retries every minute, and the "Update Available" menu
+item installs at once (setup still holds it). An `app_update` notification
+says when an update is waiting and again after the relaunch into the new
+version (`UpdateNotice`).
+
+The tray writes what the updater last did to `~/.mattstack/rt/app-update.json`
+(`UpdateStatus`): the last check, the version offered, and a held version
+with what holds it. The daemon's version ping carries it as `appUpdate`, and
+the relay's telemetry page shows it beside each Mac that is behind. An app
+older than the file reports nothing there.
 
 ### Requiring an intermediate update
 

@@ -18,6 +18,19 @@ let updatePolicyChecks: [Check] = [
         c.expectEqual(UpdatePolicy.shouldStartUpdater(isDevBuild: true, publicEDKey: "abc", feedURL: nil, feedOverride: "http://127.0.0.1:8000/appcast.xml"), true)
         c.expectEqual(UpdatePolicy.shouldStartUpdater(isDevBuild: true, publicEDKey: UpdatePolicy.placeholderKey, feedURL: nil, feedOverride: "http://127.0.0.1:8000/appcast.xml"), false)
     },
+    Check("UpdatePolicy.opensUpdateWindow: a scheduled update opens Sparkle's window unless setup runs") { c in
+        c.expectEqual(UpdatePolicy.opensUpdateWindow(handledBySparkle: false, userInitiated: false, setupRunning: false), true)
+        c.expectEqual(UpdatePolicy.opensUpdateWindow(handledBySparkle: false, userInitiated: false, setupRunning: true), false)
+        c.expectEqual(UpdatePolicy.opensUpdateWindow(handledBySparkle: true, userInitiated: true, setupRunning: false), false, "the window it opened must not reopen itself")
+        c.expectEqual(UpdatePolicy.opensUpdateWindow(handledBySparkle: true, userInitiated: false, setupRunning: false), false)
+    },
+    Check("UpdateStatus encodes the keys the daemon's ping reads") { c in
+        let status = UpdateStatus(lastCheckAt: Date(timeIntervalSince1970: 0), offeredVersion: "2.31.1", heldVersion: "2.31.1", hold: UpdateStatus.holdName(.windowsOpen))
+        let text = String(decoding: (try? status.encoded()) ?? Data(), as: UTF8.self)
+        c.expectEqual(text, #"{"heldVersion":"2.31.1","hold":"windowsOpen","lastCheckAt":"1970-01-01T00:00:00Z","offeredVersion":"2.31.1"}"#)
+        c.expectEqual(UpdateStatus.holdName(.setupRunning), "setupRunning")
+        c.expectEqual(UpdateStatus.holdName(nil), nil)
+    },
     Check("UpdatePolicy.hold names what keeps an update from installing, setup first") { c in
         c.expectEqual(UpdatePolicy.hold(setupRunning: false, windowsOpen: 0), nil)
         c.expectEqual(UpdatePolicy.hold(setupRunning: false, windowsOpen: 2), .windowsOpen)
