@@ -125,7 +125,13 @@ import { RequestError } from '@octokit/request-error';
 // instance, which requires this package's @octokit/graphql range to track
 // @octokit/core's.
 import { GraphqlResponseError } from '@octokit/graphql';
-import { MergeReadBackFailedError, ReadBackFailedError } from './errors.ts';
+import {
+  type CreateFollowUpStep,
+  type FailedCreateStep,
+  MergeReadBackFailedError,
+  PartialCreateError,
+  ReadBackFailedError
+} from './errors.ts';
 
 // ---------------------------------------------------------------------------
 // GitHub REST API response shapes (only fields we consume)
@@ -1605,39 +1611,56 @@ export class GitHubProvider implements GitProvider {
       throw err;
     }
 
-    // GitHub doesn't support reviewers/assignees/labels on create -- add them
-    // separately. The PR above already exists by this point: a failure here
-    // is not "no PR was created," it is "PR #<n> exists without this one
-    // field applied." The op label below names both the sub-operation and
-    // the PR number so a caller (or a human reading the thrown message) can
-    // tell the two apart and find the PR that already exists, instead of
-    // retrying and hitting GitHub's own "a pull request already exists" 422.
+    // GitHub doesn't support reviewers/assignees/labels on create, so each is
+    // its own write against a PR that already exists. Every step is tried even
+    // after one fails, so the error lists everything still missing; the op
+    // label names the PR number so its message never reads as "no PR".
+    const steps: Array<{ step: CreateFollowUpStep; route: string; data: unknown }> = [];
     if (input.reviewers?.length) {
-      await this.fireAndThrow(
-        `createPullRequest reviewers for #${created.number}`,
-        `POST /repos/${input.projectPath}/pulls/${created.number}/requested_reviewers`,
-        { reviewers: input.reviewers }
-      );
+      steps.push({
+        step: 'reviewers',
+        route: `POST /repos/${input.projectPath}/pulls/${created.number}/requested_reviewers`,
+        data: { reviewers: input.reviewers }
+      });
     }
     if (input.assignees?.length) {
-      await this.fireAndThrow(
-        `createPullRequest assignees for #${created.number}`,
-        `POST /repos/${input.projectPath}/issues/${created.number}/assignees`,
-        { assignees: input.assignees }
-      );
+      steps.push({
+        step: 'assignees',
+        route: `POST /repos/${input.projectPath}/issues/${created.number}/assignees`,
+        data: { assignees: input.assignees }
+      });
     }
     if (input.labels?.length) {
-      await this.fireAndThrow(
-        `createPullRequest labels for #${created.number}`,
-        `POST /repos/${input.projectPath}/issues/${created.number}/labels`,
-        { labels: input.labels }
-      );
+      steps.push({
+        step: 'labels',
+        route: `POST /repos/${input.projectPath}/issues/${created.number}/labels`,
+        data: { labels: input.labels }
+      });
     }
 
-    return this.fetchSingleMRAfterMutation(
-      input.projectPath,
-      created.number,
-      'Created'
+    const failedSteps: FailedCreateStep[] = [];
+    for (const { step, route, data } of steps) {
+      try {
+        await this.fireAndThrow(`createPullRequest ${step} for #${created.number}`, route, data);
+      } catch (err) {
+        failedSteps.push({ step, message: err instanceof Error ? err.message : String(err), cause: err });
+      }
+    }
+
+    if (failedSteps.length === 0) {
+      return this.fetchSingleMRAfterMutation(input.projectPath, created.number, 'Created');
+    }
+
+    let pullRequest: PullRequest | null = null;
+    let cause: unknown = failedSteps[0]!.cause;
+    try {
+      pullRequest = await this.fetchSingleMRAfterMutation(input.projectPath, created.number, 'Created');
+    } catch (err) {
+      cause = err;
+    }
+    throw new PartialCreateError(
+      `Created PR #${created.number} but could not apply ${failedSteps.map(s => s.step).join(', ')}: ${failedSteps[0]!.message}`,
+      { projectPath: input.projectPath, iid: created.number, failedSteps, pullRequest, cause }
     );
   }
 

@@ -133,11 +133,13 @@ export type { RequestInfo, OnRequestHook } from './instrumentation.ts';
 export {
   ReadBackFailedError,
   MergeReadBackFailedError,
+  PartialCreateError,
   RateLimitedError,
   ForgeHttpError,
   EmptyDiscussionError,
   WriteOutcomeUnknownError
 } from './errors.ts';
+export type { CreateFollowUpStep, FailedCreateStep } from './errors.ts';
 
 // ── Providers ─────────────────────────────────────────────────────────────────
 export {

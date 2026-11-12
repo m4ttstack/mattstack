@@ -546,7 +546,9 @@ export interface GitProvider {
    * `sourceBranchNotDeleted`, never thrown. A rejection means the merge
    * failed, or its write was applied but the PR could not be read back
    * (`ReadBackFailedError` with `writeApplied: true`): a landed merge, or
-   * on a merge-queue base a queued PR that has not merged.
+   * on a merge-queue base a queued PR that has not merged. It can also mean
+   * nothing was written: a PR already in the queue whose read-back failed
+   * (`writeApplied: false`; see below).
    *
    * On GitHub the merge method, when not given, is the repository's default
    * for the viewer (else the first allowed of merge, squash, rebase), and a

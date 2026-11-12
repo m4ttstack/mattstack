@@ -184,13 +184,17 @@ describe('GitHubProvider.fetchPullRequestByBranch warnings', () => {
   test('a throwing onWarning is ignored', async () => {
     rest(() => jsonResponse({ message: 'Bad Gateway' }, 502));
 
+    let calls = 0;
+
     const pr = await provider().fetchPullRequestByBranch('o/r', 'feat', 'opened', {
       onWarning: () => {
+        calls++;
         throw new Error('listener broke');
       }
     });
 
     expect(pr).toBeNull();
+    expect(calls).toBe(1);
   });
 });
 
@@ -237,20 +241,27 @@ describe('GitHubProvider.fetchPullRequestsByBranches warnings', () => {
     });
   });
 
-  test('a throwing onWarning is ignored', async () => {
+  test('a throwing onWarning is ignored, and every branch on the PR still hears it', async () => {
+    // Two branches resolving to one PR share one fill warning. The fill's own
+    // swallow would hide the first throw, but only the per-branch catch lets
+    // the second branch still be called.
     batchStub(
-      (branch) => (branch === 'a' ? 12 : undefined),
+      (branch) => (branch === 'a' || branch === 'b' ? 12 : undefined),
       () => ({}),
       () => failedFill(12)
     );
+    const heard: string[] = [];
 
-    const result = await provider().fetchPullRequestsByBranches('o/r', ['a'], 'opened', {
-      onWarning: () => {
+    const result = await provider().fetchPullRequestsByBranches('o/r', ['a', 'b'], 'opened', {
+      onWarning: (w) => {
+        heard.push(w.branch ?? '');
         throw new Error('listener broke');
       }
     });
 
     expect(result.get('a')).toBeNull();
+    expect(result.get('b')).toBeNull();
+    expect(heard).toEqual(['a', 'b']);
   });
 });
 
