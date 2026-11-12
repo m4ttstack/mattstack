@@ -1,5 +1,34 @@
 # @mattstack/glance
 
+## 0.32.0
+
+### Minor Changes
+
+- GitLab waits out a 429 instead of failing. Every GitLab request (gitbeaker,
+  `restRequest`, the REST reads, GraphQL, `NoteMutator`, `MRDetailFetcher`)
+  waits for the reset GitLab names (`retry-after`, else `ratelimit-reset`)
+  plus 0.5 s, then sends again. A read gives up once its total wait would
+  pass 30 s, the same as GitHub, and a write past 65 s (one full GitLab
+  window), and then throws `RateLimitedError` (`kind: 'secondary'`) with `retryAfterMs` and
+  `resetAt`. A 429 is never applied, so a write retried after one is not sent
+  twice.
+- GitLab `restRequest` throws `RateLimitedError` for a 429 past its deadline;
+  every other non-2xx still resolves.
+- gitbeaker calls no longer resend a write on a 502, which may already have
+  landed; reads still retry a 502. glance now depends on
+  `@gitbeaker/requester-utils` (already installed by `@gitbeaker/rest`) to
+  give gitbeaker its own request handler.
+- `restRequest(..., { retry: true })` on GitLab retries a timeout or a 5xx
+  only for a GET or HEAD.
+- A GitLab review submit whose publish is still rate limited past the
+  deadline reports that nothing was posted.
+- A GitHub create whose reviewer GitHub accepts but leaves out of
+  `requested_reviewers` (an unknown login) throws `PartialCreateError` with a
+  failed `reviewers` step, instead of resolving as if the reviewer was added.
+- GitLab `fetchSingleMR` logs a warning when its REST read fails: that read is
+  the only one that makes GitLab recheck mergeability, so without it
+  `detailedMergeStatus` can stay `unchecked`.
+
 ## 0.31.0
 
 ### Minor Changes
