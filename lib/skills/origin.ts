@@ -1,5 +1,6 @@
-import { readFileSync } from "fs";
-import { join } from "path";
+import { existsSync, readFileSync } from "fs";
+import { dirname, join } from "path";
+import { LOCK_REL, readLock, type CompiledLock } from "./compiled-lock.ts";
 import { isEmittedAttachmentDir, PROVENANCE_FILE } from "./base-attachments.ts";
 import type { PluginRoots } from "./sources.ts";
 
@@ -13,8 +14,17 @@ export function originOf(roots: PluginRoots, plugin: string): Origin | NoOrigin 
 
 export function originOfDir(dir: string): Origin | NoOrigin {
   if (!isEmittedAttachmentDir(dir)) return {};
-  const { base, version } = JSON.parse(readFileSync(join(dir, PROVENANCE_FILE), "utf8")) as { base: string; version: string | null };
-  return { origin: "base", base, baseVersion: version || null };
+  const { base, version } = JSON.parse(readFileSync(join(dir, PROVENANCE_FILE), "utf8")) as { base: string; version?: string | null };
+  const locked = packLockOf(dir)?.bases[base];
+  return { origin: "base", base, baseVersion: locked || version || null };
+}
+
+/** The lock of the pack a compiled copy sits in: the nearest ancestor that has one. */
+function packLockOf(dir: string): CompiledLock | null {
+  for (let at = dirname(dir); at !== dirname(at); at = dirname(at)) {
+    if (existsSync(join(at, LOCK_REL))) return readLock(at);
+  }
+  return null;
 }
 
 /** A team-pack copy of a base file is the base's, whatever plugin name binds it. */

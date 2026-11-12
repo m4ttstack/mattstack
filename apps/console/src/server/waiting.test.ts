@@ -61,7 +61,7 @@ describe('movedSourcesOf', () => {
 });
 
 describe('compiledOutputs', () => {
-  it('holds each SKILL.md, compiled.json and keyed file', () => {
+  it('holds the lock and each SKILL.md, compiled.json and keyed file', () => {
     expect(
       compiledOutputs([
         {
@@ -71,6 +71,7 @@ describe('compiledOutputs', () => {
       ])
     ).toEqual(
       new Set([
+        'pack/compiled.lock.json',
         'skills/review/SKILL.md',
         'skills/review/compiled.json',
         'skills/review/references/lore/a.lore',
@@ -125,6 +126,22 @@ describe('waitingForCompile', () => {
       deps({ verbs: [{ name: 'work', status: 'stale' }] }, log)
     );
     expect(result).toEqual({ skills: ['work'], commits: ['c3'], outside: [] });
+  });
+
+  it('a lock-only commit counts as a compile', async () => {
+    const log = [
+      '',
+      'c3\n\nteams/demo/plugin/pack/sections/a.md\n',
+      'c2\n\nteams/demo/plugin/.claude-plugin/plugin.json\nteams/demo/plugin/pack/compiled.lock.json\n',
+      'c1\n\nteams/demo/plugin/pack/sections/b.md\n',
+    ].join('\0');
+    const result = await waitingForCompile(
+      'demo',
+      PACK,
+      '/org',
+      deps({ verbs: [{ name: 'work', status: 'stale' }] }, log)
+    );
+    expect(result.commits).toEqual(['c3']);
   });
 
   it('marks nothing when no skill is stale', async () => {

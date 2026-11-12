@@ -198,6 +198,7 @@ beforeEach(() => {
         {
           pack: 'acme',
           recordedSha: '4c1d9e2b7a',
+          recordedVersion: null,
           currentSha: '4c1d9e2b7a',
           drifted: false,
         },

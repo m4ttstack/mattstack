@@ -13,6 +13,10 @@ import {
   type ExplainRowWire,
   type SettingDefWire,
 } from '@mattstack/settings-kit/react';
+import { QueryClientContext } from '@tanstack/react-query';
+
+import { TEAM_KEY } from '../team/teamKey';
+import { ORG_ROLES_KEY } from './draftNotes';
 
 const BASE = '/api/settings';
 // Matches no registered key: that scope instance exists only to lend
@@ -247,6 +251,18 @@ export function useConsoleSettings(
     setGeneration(g => g + 1);
   }, []);
 
+  // Optional: an embed or a test may render this with no query client.
+  const queryClient = useContext(QueryClientContext);
+  const rolesChanged = useCallback(
+    (key: string) => {
+      if (key !== ORG_ROLES_KEY) return;
+      void queryClient
+        ?.invalidateQueries({ queryKey: TEAM_KEY })
+        .catch(() => undefined);
+    },
+    [queryClient]
+  );
+
   const post = useCallback(
     async (
       path: 'set' | 'unset' | 'prune',
@@ -285,12 +301,13 @@ export function useConsoleSettings(
           })
         );
         reread();
+        rolesChanged(key);
         return null;
       } catch (err) {
         return (err as Error).message;
       }
     },
-    [reread, repo, viewTeam]
+    [reread, repo, viewTeam, rolesChanged]
   );
 
   const set = useCallback(
@@ -314,9 +331,10 @@ export function useConsoleSettings(
       if (loadedFor.current !== repo) return STILL_LOADING;
       const err = await kitMove(key, from, to);
       reread();
+      if (err === null) rolesChanged(key);
       return err;
     },
-    [kitMove, reread, repo]
+    [kitMove, reread, repo, rolesChanged]
   );
 
   return useMemo(

@@ -40,7 +40,7 @@ export type BaseAttachmentPlan = {
 };
 
 export function maskProvenanceVersion(text: string): string {
-  return text.replace(/"version": (?:"[^"]*"|null)/, '"version": "*"');
+  return text.replace(/\n\s*"version": (?:"[^"]*"|null),/, "");
 }
 
 export function isSkippedAttachmentPath(rel: string): boolean {
@@ -157,7 +157,7 @@ function doorFor(base: BaseRef, rel: string, skillMd: string): BaseDoor {
     name,
     files: [
       { path: "SKILL.md", content: `${doorHead(name, skillMd)}${HEADER_COMMENT}\n\n${doorBody(rel)}` },
-      { path: PROVENANCE_FILE, content: JSON.stringify({ base: base.name, version: base.version, files: ["SKILL.md"] }, null, 2) + "\n" },
+      { path: PROVENANCE_FILE, content: JSON.stringify({ base: base.name, files: ["SKILL.md"] }, null, 2) + "\n" },
     ],
   };
 }
@@ -380,9 +380,9 @@ export function planBaseAttachments(input: {
       warnings.push(...v.warnings);
       reads.push(...v.verbPaths);
     }
-    const keyed = identity?.version ? keyFiles(out, { id: unitId(identity.name, identity.version, leafOf(name)), dir: `attachments/${name}`, units: unitTable, writtenElsewhere: writtenBeforeCompile(verbSides, planned) }) : null;
+    const keyed = identity?.version ? keyFiles(out, { id: unitId(identity.name, leafOf(name)), dir: `attachments/${name}`, units: unitTable, writtenElsewhere: writtenBeforeCompile(verbSides, planned) }) : null;
     const emitted = keyed?.files ?? out;
-    emitted.push({ path: PROVENANCE_FILE, content: JSON.stringify({ base: base.name, version: base.version, files }, null, 2) + "\n" });
+    emitted.push({ path: PROVENANCE_FILE, content: JSON.stringify({ base: base.name, files }, null, 2) + "\n" });
     emits.push({
       name,
       files: emitted.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
@@ -425,7 +425,7 @@ type VendorInput = {
 /** The team's source ships as written, so a base copy reads its own rendered copy of each unit it names, as a built skill does. */
 function vendorTeamSources(targets: PackTarget[], out: CompiledFile[], v: VendorInput): { errors: string[]; warnings: string[]; verbPaths: string[] } {
   const ctx: PlaceholderContext = {
-    partsPrefix: `${v.copyDir}/parts`, includes: {}, pipelines: {}, repoKey: "", mattstackSha: "", mattstackDirty: 0, packSha: "",
+    partsPrefix: `${v.copyDir}/parts`, includes: {}, pipelines: {}, repoKey: "",
     stageDir: v.copyDir, stageMeta: null, compiledFrom: "", verbSides: v.verbSides, side: "attachments", packRoot: v.packDir,
     plannedAttachments: v.planned, pipeline: null, team: v.team,
   };

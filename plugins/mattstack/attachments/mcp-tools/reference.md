@@ -3646,7 +3646,7 @@ Report this session's identity as the other tools see it: its Claude Code sessio
 ### skills_resolve
 
 <!-- mcp-lint: allow -->
-Resolve a compiled skill's @key pointers to absolute paths. Pass the id from the skill's opening line (<plugin>@<version>:<unit> or skills:<name>); returns { id, folder, covers, keys }, where keys maps each @key (without the @) to the path to use. Call it once per run and reuse the map for every id in covers. Reads only the installed plugin cache and ~/.claude/skills; a refusal means stop and say so, never look for the file another way.
+Resolve a compiled skill's @key pointers to absolute paths. Pass the id from the skill's opening line (<plugin>:<unit>, <plugin>@<version>:<unit> or skills:<name>) and, as dir, the loaded skill's own directory, which pins the run to the plugin version that skill was loaded from; returns { id, folder, covers, keys, pinned, warning? }, where keys maps each @key (without the @) to the path to use. Call it once per run and reuse the map for every id in covers while its folder sits in the same plugin version folder as the loaded skill. Reads only the installed plugin cache and ~/.claude/skills; a refusal means stop and say so, never look for the file another way.
 
 ```json
 {
@@ -3654,8 +3654,12 @@ Resolve a compiled skill's @key pointers to absolute paths. Pass the id from the
   "properties": {
     "id": {
       "type": "string",
-      "pattern": "^(?:[a-z0-9][a-z0-9-]*@\\d+(?:\\.\\d+)*:[a-z0-9][a-z0-9-]*|skills:[a-z0-9][a-z0-9:-]*)$",
-      "description": "The skill id, e.g. widgets@0.4.2:work or skills:board:respond"
+      "pattern": "^(?:[a-z0-9][a-z0-9-]*(?:@\\d+(?:\\.\\d+)*)?:[a-z0-9][a-z0-9-]*|skills:[a-z0-9][a-z0-9:-]*)$",
+      "description": "The skill id, e.g. acme:work or skills:board:respond"
+    },
+    "dir": {
+      "type": "string",
+      "description": "The loaded skill's own directory; a <plugin>:<unit> id resolves in the plugin version installed there"
     }
   },
   "required": [

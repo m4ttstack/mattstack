@@ -30,8 +30,12 @@ import { legacyItems, readEvidence } from '@mattstack/rt-client/evidence';
 import { boardsWaiting, parseBoards } from '../../../shared/gate-boards';
 import { runIdOfGate } from '../../../shared/gate-run';
 import { readExcerpt, type Excerpt } from '../../artifact';
-import type { EffectiveInputsPayload } from '../../effectiveInputs';
+import type {
+  EffectiveInputsPayload,
+  PackVersionRow,
+} from '../../effectiveInputs';
 import { LEGACY_IMAGE_MIME } from '../../legacyEvidence';
+import { parsePackTokens } from '../../stageDoc';
 import { onDisk } from './fixtureRt';
 import type { FixtureScenario } from './scenarios';
 import {
@@ -193,6 +197,33 @@ function decodeRepo(repo: string): string {
   } catch {
     return repo;
   }
+}
+
+/** A run that records its own pack commits gets a row per token; every
+    other run shares the rows the boards were drawn with. */
+function packVersionsOf(
+  packCommits: string | null,
+  shared: SharedInputs
+): PackVersionRow[] | null {
+  if (packCommits === null) return null;
+  if (packCommits === PACK_COMMITS) return shared.packVersions;
+  return parsePackTokens(packCommits).map(t =>
+    t.kind === 'version'
+      ? {
+          pack: t.pack,
+          recordedSha: null,
+          recordedVersion: t.ref,
+          currentSha: null,
+          drifted: null,
+        }
+      : (shared.packVersions?.find(r => r.pack === t.pack) ?? {
+          pack: t.pack,
+          recordedSha: t.ref,
+          recordedVersion: null,
+          currentSha: null,
+          drifted: null,
+        })
+  );
 }
 
 function buildDetail(raw: RawRun, repo: string): RunDetail {
@@ -396,7 +427,7 @@ export function runsFixture(scenario: FixtureScenario): RunsFixture {
       return {
         pipeline: run.pipeline,
         workType: run.work_type,
-        packVersions: run.pack_commits === null ? null : shared.packVersions,
+        packVersions: packVersionsOf(run.pack_commits, shared),
         packDirty: shared.packDirty,
         stages: [...new Set(stages.map(s => s.name))],
         config: shared.config,
@@ -406,6 +437,8 @@ export function runsFixture(scenario: FixtureScenario): RunsFixture {
     async stageDoc(repo, runId, stage) {
       const detail = STAGE_NAME.test(stage) ? await getRun(repo, runId) : null;
       if (!detail) return null;
+      const recorded = parsePackTokens(detail.run.pack_commits);
+      if (!recorded.some(t => t.kind === 'sha')) return null;
       const { pipeline } = detail.run;
       const names = STAGE_NAME.test(pipeline)
         ? [`${stage}--${pipeline}`, stage]
@@ -421,7 +454,9 @@ export function runsFixture(scenario: FixtureScenario): RunsFixture {
       if (text === null) return null;
       const shared = await readRuns<SharedInputs>('effective-inputs.json');
       const [first] = shared.packVersions ?? [];
-      return first ? { text, pack: first.pack, sha: first.recordedSha } : null;
+      return first?.recordedSha
+        ? { text, pack: first.pack, sha: first.recordedSha }
+        : null;
     },
 
     async transcript(repo, runId) {

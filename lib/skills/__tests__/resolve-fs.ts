@@ -47,5 +47,10 @@ export function fakeFs(files: Record<string, string>, links: Record<string, stri
       const at = walk(p, false);
       return at !== null && Object.hasOwn(links, at);
     },
+    realPath(p) {
+      reads.push(p);
+      const real = follow(p);
+      return real !== null && (Object.hasOwn(files, real) || isDir(real)) ? real : null;
+    },
   };
 }
