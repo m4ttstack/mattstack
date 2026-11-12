@@ -1311,6 +1311,8 @@ export interface Commands {
   "project:labels": { payload: { repoName: string; search?: string }; data: { labels: ProjectLabel[] } };
   "pipeline:list": { payload: { repoName: string; ref?: string; sha?: string; iid?: number; limit?: number }; data: { pipelines: PipelineListRow[] } };
   "forge:get": { payload: { repoName: string; path: string; query?: Record<string, string | number | boolean>; page?: number; perPage?: number }; data: ForgeGetData };
+  /** The forge token's own login, and nothing else about that user. */
+  "forge:self": { payload: { repoName: string }; data: { username: string } };
   /** One file's diff in an MR (GitLab) or PR (GitHub), read through the repo's own forge; iid is the MR iid or PR number. */
   "forge:file-diff": { payload: { repoName: string; iid: number; path: string }; data: ForgeFileDiffData };
 
@@ -1608,6 +1610,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "project:labels",
   "pipeline:list",
   "forge:get",
+  "forge:self",
   "forge:file-diff",
   "endpoint:claim",
   "endpoint:lookup",

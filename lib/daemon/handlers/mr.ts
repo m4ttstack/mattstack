@@ -39,7 +39,7 @@
  * Follow-up failures log at warn and never fail the action.
  */
 
-import { applyMRWriteback, getCurrentUserId, getRepoContext } from "../freshness.ts";
+import { applyMRWriteback, getCurrentUserId, getRepoContext, resolveSelfUsername } from "../freshness.ts";
 import type { FetchPullRequestsWarning, MergeQueueEntry, PullRequest, UpdatePullRequestInput } from "@mattstack/glance";
 import { MergeReadBackFailedError, PartialCreateError, ReadBackFailedError } from "@mattstack/glance";
 import type { HandlerContext, HandlerMap, CommandResult } from "./types.ts";
@@ -131,6 +131,7 @@ export interface MRHandlerOverrides {
   fetchSingle?: (provider: any, projectPath: string, iid: number, github?: boolean, onWarning?: (w: FillWarning) => void) => Promise<PullRequest | null>;
   retryDelayMs?: number;
   fileDiffContext?: (repoName: string) => Promise<FileDiffContext>;
+  selfUsername?: (repoName: string, repoPath: string) => Promise<string | null>;
 }
 
 // "mr:action" keeps its pre-existing `{ok:true}` wire reply verbatim, with
@@ -159,6 +160,7 @@ export function createMRHandlers(
   & { "project:labels": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"project:labels">> }
   & { "pipeline:list": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"pipeline:list">> }
   & { "forge:get": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"forge:get">> }
+  & { "forge:self": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"forge:self">> }
   & { "forge:file-diff": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"forge:file-diff">> }
   & HandlerMap {
   const getContext = overrides.getContext
@@ -175,6 +177,7 @@ export function createMRHandlers(
   const fileDiffContext = overrides.fileDiffContext
     ?? (async (repoName: string) => fileDiffContextOf(await contextFor(repoName)));
   const readFileDiff = createFileDiffReader();
+  const selfUsername = overrides.selfUsername ?? resolveSelfUsername;
 
   function contextFor(repoName: string): Promise<HandlerRepoContext> {
     return getContext(repoName);
@@ -786,6 +789,20 @@ export function createMRHandlers(
         return await forgeGet(c.provider, c.projectPath, {
           path: p.path, query: p.query as Record<string, string | number | boolean> | undefined, page: p.page as number | undefined, perPage: p.perPage as number | undefined,
         }, forgeOf(c));
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
+
+    "forge:self": async (payload) => {
+      const decoded = decodeIndexedRepo(payload);
+      if (!decoded.ok) return { ok: false, error: decoded.error };
+      const repoPath = ctx.repoIndex()[decoded.repo];
+      if (repoPath === undefined) return { ok: false, error: "repo-unknown" };
+      try {
+        const username = await selfUsername(decoded.repo, repoPath);
+        if (username === null) return { ok: false, error: `could not read the token's own user for ${decoded.repo}` };
+        return { ok: true, data: { username } };
       } catch (err) {
         return { ok: false, error: String(err) };
       }
