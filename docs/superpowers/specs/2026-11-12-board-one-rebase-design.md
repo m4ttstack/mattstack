@@ -84,7 +84,7 @@ it goes through the daemon. The forge step calls the daemon's `mr:action`
 `updatePullRequestBranch` with `updateMethod: REBASE` and `expectedHeadOid`.
 A mutation error (a conflict included) is **failed** and drops to step 2.
 
-Open fact: whether that mutation completes before it returns. GitHub's REST
+Open fact (now answered below): whether that mutation completes before it returns. GitHub's REST
 `update-branch` answers 202 and works in the background; the GraphQL
 mutation is unverified (#1104's live cases have not run). **The first build
 task is a live run**: rebase a PR that is behind and compare the returned
@@ -100,10 +100,21 @@ task is a live run**: rebase a PR that is behind and compare the returned
 - Tell justin before it runs; he has a GitLab conformance rerun on the same
   fixtures to keep clear.
 
-- If it moved, the mutation is synchronous: its answer is the outcome.
-- If it did not, stop and bring it back to Matt. GitHub has no
-  "rebase in progress" flag to wait on, and a time cap is ruled out, so the
-  fix is his call.
+**Verified 2026-11-12** (three throwaway PRs in glance-conformance, 190 to
+192, all closed and their branches deleted):
+
+- The mutation is not synchronous. Its reply carries the old head. The
+  branch ref moved onto `main` within 3s, and the PR's `headRefOid` caught up
+  by 10s. Outside reports match: one probe saw about 5s.
+- A rebase that conflicts errors in the mutation itself
+  (`UNPROCESSABLE`, `PullRequest::RebaseConflictError`), and the head stays
+  put.
+
+So on GitHub: a mutation error is **failed** (a conflict when the message is
+`RebaseConflictError`), and goes to step 2. A mutation that succeeds is
+followed by re-reading the PR until its head moves off the pre-rebase
+commit, which is **rebased**. Matt picked "head moved = done". As on
+GitLab, there is no clock: the wait ends only on the move or a cancel.
 
 ## Server
 
