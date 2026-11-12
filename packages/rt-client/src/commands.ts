@@ -519,8 +519,11 @@ export interface UsageMrsData {
   summary: { mrCount: number; totals: UsageTotals; medianCost: number };
 }
 
-/** When a run's message fell outside every stage; `none` is a run with no stages at all. */
-export type UsageOutside = "before" | "between" | "after" | "none";
+/**
+ * When a run's message fell outside every stage; `none` is a run with no stages at all.
+ * `session` is the run's session before it started or after it ended: shown, never counted.
+ */
+export type UsageOutside = "before" | "between" | "after" | "none" | "session";
 
 /** `name` and `attempt` are null, and `outside` set, on a row of a run's messages outside every stage. */
 export interface UsageStageRow {
@@ -563,6 +566,8 @@ export interface UsageMrData extends UsageSplits {
   lastActivity: number;
   totals: UsageTotals;
   costByKind: Record<UsageKind, number>;
+  /** The runs' sessions outside the runs themselves, which none of the totals above count. */
+  outsideRuns: UsageTotals;
   runs: UsageMrEntry[];
 }
 

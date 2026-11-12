@@ -18,7 +18,13 @@ import {
   type RunsFixture,
 } from './fixtures/design/runsFixture';
 
-const OUTSIDE = new Set<UsageOutside>(['before', 'between', 'after', 'none']);
+const OUTSIDE = new Set<UsageOutside>([
+  'before',
+  'between',
+  'after',
+  'none',
+  'session',
+]);
 
 /** The daemon refuses past this too; checking here makes the fixture refuse alike. */
 const MAX_DAYS = 3650;

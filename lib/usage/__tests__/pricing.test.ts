@@ -17,6 +17,12 @@ test("fast mode prices as standard on a model without it", () => {
   near(costOf("claude-sonnet-5-5", each, "fast"), costOf("claude-sonnet-5-5", each, null)!);
 });
 
+test("fable 5.2 prices each field, and doubles in fast mode", () => {
+  const standard = 8 + 40 + 0.2 + 10 + 16;
+  near(costOf("claude-fable-5-2", each, "standard"), standard);
+  near(costOf("claude-fable-5-2", each, "fast"), 2 * standard);
+});
+
 test("null speed prices as standard", () => {
   near(costOf("claude-opus-5-5", each, null), costOf("claude-opus-5-5", each, "standard")!);
 });
