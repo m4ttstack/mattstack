@@ -289,7 +289,7 @@ flowchart TB
     apply_post_note -->|a new gate| build_post_open
     gate_record_post --> post_forge
     post_forge -->|GitLab| respond_post_execute
-    post_forge -->|GitHub: never respond_post_execute or an mr_ tool| read_posted_threads_gh
+    post_forge -->|GitHub: never respond_post_execute| read_posted_threads_gh
     respond_post_execute --> execute_result
     execute_result -->|held is empty| run_field_set_hold_clear
     execute_result -->|a reply or resolve held| gate_off_script_forge
