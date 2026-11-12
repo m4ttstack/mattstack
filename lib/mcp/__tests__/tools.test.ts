@@ -411,6 +411,11 @@ describe("mcpTools", () => {
   });
 
   describe("mr write tools: mr_comment, mr_create", () => {
+    test("mr_comment says a GitHub discussionId cannot be resolved or replied to", () => {
+      const d = mcpTools().find((t) => t.name === "mr_comment")!.description;
+      expect(d).toContain("discussionId (null for a plain note; gh-issue-comment-<id> on GitHub, which cannot be resolved or replied to)");
+    });
+
     afterEach(() => {
       mock.module("../../../packages/rt-client/src/transport.ts", () => ({ ...realTransport, rtCommand: realRtCommand }));
     });
@@ -623,6 +628,14 @@ describe("mcpTools", () => {
     });
     const tool = () => mcpTools().find((t) => t.name === "mr_review_submit")!;
     const TARGET = { repoName: "remote:gitlab.example.com%2Facme%2Fwebapp", iid: 7 };
+
+    test("the description names both forges' pending state and every error list", () => {
+      const d = tool().description;
+      expect(d).not.toContain("in GitLab first");
+      expect(d).toContain("pending drafts on GitLab, a pending review on GitHub");
+      expect(d).toContain("resolveErrors (the threads a reply could not resolve)");
+      expect(d).toContain("replyErrors (present when a reply failed to post; its resolve is skipped)");
+    });
 
     test("schema requires outcome and summary and limits outcome to comment or approve", () => {
       const schema = tool().inputSchema as { required?: string[]; properties: Record<string, { enum?: string[] }> };
