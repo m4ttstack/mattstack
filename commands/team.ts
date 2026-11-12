@@ -9,7 +9,7 @@ import { roleFor, rolesFor } from "../lib/team/roles.ts";
 import { applyForgeAccess, readForgeAccess, realForgeAccessSeams, sharedBranchSentence, type ForgeAccessApplied, type ForgeAccessReport, type ForgeAccessSeams } from "../lib/team/forge-access-apply.ts";
 import { diffLines, hasChanges, limitSentence } from "../lib/team/forge-access-plan.ts";
 import { restoreDataBranch, type RestorePlan, type RestoreResult } from "../lib/team/data-branch-guard.ts";
-import { isOrgAdmin } from "../packages/rt-client/src/settings/org-roles.ts";
+import { isOrgAdmin, roleOf } from "../packages/rt-client/src/settings/org-roles.ts";
 /**
  * rt team create|publish|rename|invite|join|members|status: the team-repo
  * lifecycle verbs.
@@ -156,22 +156,24 @@ export function adminSecretsStatusFrom(r: Row | null): AdminSecretsStatus {
   return { state: "current", detail: null };
 }
 
-async function realAdminSecretsRow(deps: TeamDeps, slug: string): Promise<Row | null> {
+async function realAdminSecretsRow(deps: TeamDeps, slug: string, deadlineAt: number): Promise<Row | null> {
   const { realSecretPresence } = await import("../lib/setup/plan.ts");
-  return adminSecretsRowSafe(deps.probes, slug, deps.secretPresence ?? realSecretPresence());
+  return adminSecretsRowSafe(deps.probes, slug, deps.secretPresence ?? realSecretPresence({ deadlineAt }));
 }
 
 const ADMIN_SECRETS_TIMEOUT_MS = 5_000;
 
-/** Bounded so a slow keychain or sops read never stalls a status read the console polls. */
+/** Bounded so a slow keychain or sops read never stalls a status read the console polls: the real check's children are killed at the same deadline, so none outlives it. */
 async function readAdminSecretsStatus(deps: TeamDeps, slug: string): Promise<AdminSecretsStatus> {
+  const timeoutMs = deps.adminSecretsTimeoutMs ?? ADMIN_SECRETS_TIMEOUT_MS;
+  const deadlineAt = Date.now() + timeoutMs;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<AdminSecretsStatus>((resolve) => {
-    timer = setTimeout(() => resolve({ state: "unknown", detail: "The admin secrets check took too long" }), deps.adminSecretsTimeoutMs ?? ADMIN_SECRETS_TIMEOUT_MS);
+    timer = setTimeout(() => resolve({ state: "unknown", detail: "The admin secrets check took too long" }), timeoutMs);
   });
   const check = (async (): Promise<AdminSecretsStatus> => {
     try {
-      return adminSecretsStatusFrom(await (deps.adminSecretsState ?? ((s: string) => realAdminSecretsRow(deps, s)))(slug));
+      return adminSecretsStatusFrom(await (deps.adminSecretsState ?? ((s: string) => realAdminSecretsRow(deps, s, deadlineAt)))(slug));
     } catch (err) {
       return { state: "unknown", detail: err instanceof Error ? err.message : String(err) };
     }
@@ -183,8 +185,8 @@ async function readAdminSecretsStatus(deps: TeamDeps, slug: string): Promise<Adm
   }
 }
 
-const ADMIN_SECRETS_KV: Record<Exclude<AdminSecretsState, "current">, { value: string; hint: (detail: string | null) => string | undefined }> = {
-  "needs-sync": { value: "needs updating", hint: () => "rt team admin-secrets locks them to the current owners and admins" },
+const ADMIN_SECRETS_KV: Record<Exclude<AdminSecretsState, "current">, { value: string; hint: (detail: string | null, slug: string) => string | undefined }> = {
+  "needs-sync": { value: "needs updating", hint: (_detail, slug) => `rt team admin-secrets --team ${slug} locks them to the current owners and admins` },
   "needs-you": { value: "needs you", hint: (detail) => detail ?? undefined },
   "not-this-mac": { value: "not this Mac", hint: (detail) => detail ?? undefined },
   unknown: { value: "unknown", hint: (detail) => detail ?? undefined },
@@ -1224,7 +1226,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
 
   try {
     if (!flagValue(args, "--team") && listOrgs().length === 0) {
-      const result = { mode: "solo" as const, slug: null, name: null, remote: null, lastPush: null, members: [] as never[], invites: [] as never[], role: null, activeTeam: null, teams: [] as never[], orgTeams: [] as never[], adminSecrets: null };
+      const result = { mode: "solo" as const, slug: null, name: null, remote: null, lastPush: null, members: [] as never[], invites: [] as never[], role: null, activeTeam: null, teams: [] as never[], orgTeams: [] as never[], relayFailed: false, adminSecrets: null };
       if (json) deps.print(JSON.stringify(envelope(result)));
       else out.print(out.line("off", "No team on this Mac", "just you"));
       return;
@@ -1241,6 +1243,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
     const title = read<string>("board.title");
     const name = title && title.length > 0 ? title : slug;
     const active = activeTeamFor(deps.probes, slug);
+    const roles = rolesFor(deps.probes, slug);
     const role = roleFor(deps.probes, slug).kind;
     const teamsDir = join(dir, "mattstack", "teams");
     const orgTeams = deps.probes.readDir(teamsDir)
@@ -1268,12 +1271,6 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
 
     const { reachable, heldBack, ...sync } = await readTeamSyncFields(deps, slug);
 
-    // null when nothing on this Mac can ask the switchboard, so "not peered"
-    // is only ever said when the switchboard said it.
-    const peeredBoards = await readPeeredBoards(deps.probes, deps.readLocalSecret ?? realReadLocalSecret, { org: slug, read: deps.readAdminSecret ?? realReadAdminSecret });
-    const membersWithPeering = members.map((m) => ({ ...m, peered: peeredBoards ? peeredBoards.has(canonicalHandle(m.username)) : null }));
-    const peeredCount = membersWithPeering.filter((m) => m.peered === true).length;
-
     const rosterForInvites = everyone.flatMap((member) => {
       const username = (member as { username?: unknown } | null)?.username;
       const teams = (member as { teams?: unknown } | null)?.teams;
@@ -1286,17 +1283,22 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
         roster,
         now: Date.now(),
       }));
-    let inviteResult: InviteStatusResult = { invites: [], relayFailed: false };
-    try {
-      inviteResult = await readInvites(slug, rosterForInvites);
-    } catch {
+    const noInvites: InviteStatusResult = { invites: [], relayFailed: false };
+    const [peeredBoards, inviteResult, adminSecrets] = await Promise.all([
+      // null when nothing on this Mac can ask the switchboard, so "not peered"
+      // is only ever said when the switchboard said it.
+      readPeeredBoards(deps.probes, deps.readLocalSecret ?? realReadLocalSecret, { org: slug, read: deps.readAdminSecret ?? realReadAdminSecret }),
       // a damaged invite file must not take the rest of the status down
-    }
+      Promise.resolve().then(() => readInvites(slug, rosterForInvites)).catch(() => noInvites),
+      isOrgAdmin(roleFor(deps.probes, slug)) ? readAdminSecretsStatus(deps, slug) : Promise.resolve(null),
+    ]);
+    const membersWithPeering = members.map((m) => ({ ...m, role: roleOf(m.username, roles).kind, peered: peeredBoards ? peeredBoards.has(canonicalHandle(m.username)) : null }));
+    const peeredCount = membersWithPeering.filter((m) => m.peered === true).length;
+
     const { invites, relayFailed } = inviteResult;
     const replied = invites.filter((invite) => invite.state === "replied").map((invite) => invite.handle);
-    const adminSecrets = isOrgAdmin(roleFor(deps.probes, slug)) ? await readAdminSecretsStatus(deps, slug) : null;
 
-    const result = { slug, name, remote, branch, dataBranch: homeBranch, trial, lastPush, members: membersWithPeering, invites, role, activeTeam: active.team, teams: active.listedOn, orgTeams, ...sync, adminSecrets };
+    const result = { slug, name, remote, branch, dataBranch: homeBranch, trial, lastPush, members: membersWithPeering, invites, role, activeTeam: active.team, teams: active.listedOn, orgTeams, ...sync, relayFailed, adminSecrets };
     if (json) {
       deps.print(JSON.stringify(envelope(result)));
       return;
@@ -1318,11 +1320,11 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
           ? [out.kv(
             "waiting to join",
             replied.length > 0 ? replied.join(", ") : "unknown",
-            relayFailed ? "the switchboard did not answer, so replies may be waiting" : "rt team members sync adds them",
+            relayFailed ? "the switchboard did not answer, so replies may be waiting" : `rt team members sync --team ${slug} adds them`,
           )]
           : []),
         ...(adminSecrets !== null && adminSecrets.state !== "current"
-          ? [out.kv("admin secrets", ADMIN_SECRETS_KV[adminSecrets.state].value, ADMIN_SECRETS_KV[adminSecrets.state].hint(adminSecrets.detail))]
+          ? [out.kv("admin secrets", ADMIN_SECRETS_KV[adminSecrets.state].value, ADMIN_SECRETS_KV[adminSecrets.state].hint(adminSecrets.detail, slug))]
           : []),
         out.kv("your team", active.team ?? "none"),
         out.kv("your role", role === "org-owner" ? "org owner" : role === "admin" ? "org admin" : role === "owner" ? "team owner" : role === "member" ? "member" : "unknown"),

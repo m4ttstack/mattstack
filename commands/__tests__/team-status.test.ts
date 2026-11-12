@@ -99,6 +99,17 @@ describe("teamStatus", () => {
       expect(await status("dev1")).toMatchObject({ slug: "acme", name: "Acme Team", role: "org-owner", activeTeam: "widgets", teams: ["widgets"], orgTeams: ["gadgets", "widgets"], members: [{ username: "dev1" }, { username: "dev2" }] });
     });
 
+    test("each member carries their own org role kind, whoever is viewing", async () => {
+      expect((await status("dev3")).members).toEqual([
+        { username: "dev2", role: "owner", peered: null },
+        { username: "dev3", role: "member", peered: null },
+      ]);
+      expect((await status("dev1")).members).toEqual([
+        { username: "dev1", role: "org-owner", peered: null },
+        { username: "dev2", role: "owner", peered: null },
+      ]);
+    });
+
     test("an owner starts on their first roster team and preserves roster order", async () => {
       expect(await status("dev2")).toMatchObject({ role: "owner", activeTeam: "gadgets", teams: ["gadgets", "widgets"], members: [{ username: "dev2" }, { username: "dev3" }] });
     });
@@ -156,7 +167,7 @@ describe("teamStatus", () => {
       dataBranch: "main",
       trial: false,
       lastPush: "2026-08-21T10:00:00+00:00",
-      members: [{ username: "dev1", peered: null }],
+      members: [{ username: "dev1", role: "member", peered: null }],
       invites: [],
       adminSecrets: null,
       role: "unknown",
@@ -168,6 +179,7 @@ describe("teamStatus", () => {
       lastPullSkipped: null,
       conflicted: null,
       pullOnly: false,
+      relayFailed: false,
     });
   });
 
@@ -186,8 +198,8 @@ describe("teamStatus", () => {
     await teamStatus(["--team", SLUG, "--json"], {}, deps);
 
     expect(JSON.parse(deps.lines[0]!).members).toEqual([
-      { username: "dev1", peered: true },
-      { username: "dev2", peered: false },
+      { username: "dev1", role: "member", peered: true },
+      { username: "dev2", role: "member", peered: false },
     ]);
     expect(fetched).toEqual([{ url: `${switchboardUrl()}/boards`, auth: "Bearer admin-tok" }]);
   });
@@ -208,8 +220,8 @@ describe("teamStatus", () => {
     await teamStatus(["--team", SLUG, "--json"], {}, deps);
 
     expect(JSON.parse(deps.lines[0]!).members).toEqual([
-      { username: "dev1", peered: true },
-      { username: "dev2", peered: false },
+      { username: "dev1", role: "member", peered: true },
+      { username: "dev2", role: "member", peered: false },
     ]);
     expect(fetched).toEqual([{ url: `${switchboardUrl()}/boards`, auth: "Bearer admin-file" }]);
   });
@@ -228,8 +240,8 @@ describe("teamStatus", () => {
 
     await teamStatus(["--team", SLUG, "--json"], {}, deps);
     expect(JSON.parse(deps.lines[0]!).members).toEqual([
-      { username: "dev1", peered: false },
-      { username: "dev2", peered: true },
+      { username: "dev1", role: "member", peered: false },
+      { username: "dev2", role: "member", peered: true },
     ]);
     expect(fetched).toEqual([`${switchboardUrl()}/peers`]);
 
@@ -497,7 +509,7 @@ describe("teamStatus", () => {
     }
 
     const body = JSON.parse(deps.lines[0]!);
-    expect(body.members).toEqual([{ username: "dev2", peered: null }]);
+    expect(body.members).toEqual([{ username: "dev2", role: "member", peered: null }]);
   });
 
   test("a malformed roster entry warns on stderr and leaves the envelope alone", async () => {
@@ -512,7 +524,7 @@ describe("teamStatus", () => {
     try {
       await teamStatus(["--team", SLUG, "--json"], {}, deps);
       expect(deps.lines).toHaveLength(1);
-      expect(JSON.parse(deps.lines[0]!).members).toEqual([{ username: "dev2", peered: null }]);
+      expect(JSON.parse(deps.lines[0]!).members).toEqual([{ username: "dev2", role: "member", peered: null }]);
       expect(io.stdout()).toBe("");
       expect(io.stderr()).toBe("[warning] Some team members could not be read  4 left out\n");
     } finally {
@@ -534,6 +546,15 @@ describe("teamStatus", () => {
       const body = JSON.parse(deps.lines[0]!);
       expect(body.invites).toEqual([invite]);
       expect(Object.keys(body)).toEqual(expect.arrayContaining(["slug", "members", "role", "orgTeams", "pullOnly"]));
+    });
+
+    test("--json carries relayFailed from the seam", async () => {
+      const failed = withSeam(async () => ({ invites: [], relayFailed: true }));
+      await teamStatus(["--team", SLUG, "--json"], {}, failed);
+      expect(JSON.parse(failed.lines[0]!).relayFailed).toBe(true);
+      const ok = withSeam(async () => ({ invites: [], relayFailed: false }));
+      await teamStatus(["--team", SLUG, "--json"], {}, ok);
+      expect(JSON.parse(ok.lines[0]!).relayFailed).toBe(false);
     });
 
     test("--json carries an empty invites list with no records", async () => {
@@ -562,7 +583,7 @@ describe("teamStatus", () => {
       try {
         await teamStatus(["--team", SLUG], {}, deps);
         expect(io.stdout()).toContain("waiting to join: alice");
-        expect(io.stdout()).toContain("rt team members sync");
+        expect(io.stdout()).toContain(`rt team members sync --team ${SLUG} adds them`);
       } finally {
         io.restore();
       }
@@ -654,6 +675,18 @@ describe("teamStatus", () => {
       expect(JSON.parse(deps.lines[0]!).adminSecrets).toEqual({ state: "unknown", detail: "The admin secrets check took too long" });
     });
 
+    test("the invite read and the admin secrets check run at the same time", async () => {
+      let adminAsked!: () => void;
+      const asked = new Promise<void>((resolve) => { adminAsked = resolve; });
+      const deps = {
+        ...adminDeps("dev1", async () => { adminAsked(); return null; }),
+        inviteStatuses: async () => { await asked; return { invites: [], relayFailed: false }; },
+        adminSecretsTimeoutMs: 1_000,
+      };
+      await teamStatus(["--team", SLUG, "--json"], {}, deps);
+      expect(JSON.parse(deps.lines[0]!).adminSecrets).toEqual({ state: "current", detail: null });
+    });
+
     test("adminSecrets is the envelope's last key", async () => {
       const deps = adminDeps("dev1", async () => null);
       await teamStatus(["--team", SLUG, "--json"], {}, deps);
@@ -677,7 +710,7 @@ describe("teamStatus", () => {
       ui.__test__.setHuman(() => false);
       try {
         await teamStatus(["--team", SLUG], {}, adminDeps("dev1", async () => syncRow("The org's owners and admins changed")));
-        expect(io.stdout()).toContain("admin secrets: needs updating\n  rt team admin-secrets locks them to the current owners and admins\n");
+        expect(io.stdout()).toContain("admin secrets: needs updating\n  rt team admin-secrets --team acme locks them to the current owners and admins\n");
         const before = io.stdout().length;
         await teamStatus(["--team", SLUG], {}, adminDeps("dev1", async () => null));
         expect(io.stdout().slice(before)).not.toContain("admin secrets");
