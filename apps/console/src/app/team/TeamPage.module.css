@@ -6,9 +6,6 @@
 
 .panel {
   overflow: hidden;
-  border: 1px solid var(--tk-border-soft);
-  border-radius: 12px;
-  background: var(--tk-card);
 }
 
 .head {
@@ -23,135 +20,19 @@
   padding: 0 20px;
 }
 
-.tabs::before {
-  border-color: var(--tk-border-soft);
-}
-
 .tab {
   padding: 10px 0;
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--tk-text-2);
 }
 
-.tab[data-active] {
-  font-weight: 600;
-  color: var(--tk-text-1);
-  border-color: var(--tk-fill-accent);
-}
-
-.tabCount {
-  margin-left: 6px;
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--tk-text-3);
-}
-
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12.5px;
-}
-
-.table th {
-  padding: 8px 20px;
-  text-align: left;
-  font-size: 10.5px;
-  font-weight: 600;
+.th {
   letter-spacing: 0.6px;
   text-transform: uppercase;
-  color: var(--tk-text-3);
-  background: var(--tk-panel);
-  border-bottom: 1px solid var(--tk-border-soft);
 }
 
-.table td {
-  height: 42px;
-  padding: 0 20px;
-  color: var(--tk-text-2);
-}
-
-.table tbody tr + tr td {
-  border-top: 1px solid var(--tk-border-soft);
-}
-
-.roleCol {
-  width: 152px;
-}
-
-.boardCol {
-  width: 200px;
-}
-
-.who {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.avatar {
-  display: inline-grid;
-  flex: none;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--tk-text-2);
-  background: var(--tk-inset);
-}
-
-.avatar[data-waiting] {
-  color: var(--tk-text-warn-small);
-  background: color-mix(
-    in srgb,
-    var(--tk-fill-warn) var(--tk-wash),
-    transparent
-  );
-}
-
-.name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--tk-text-1);
-}
-
-.chip {
-  display: inline-flex;
-  align-items: center;
-  height: 18px;
-  padding: 0 7px;
-  border-radius: 9px;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-  color: var(--tk-text-warn-small);
-  background: color-mix(
-    in srgb,
-    var(--tk-fill-warn) var(--tk-wash),
-    transparent
-  );
-}
-
-.muted {
-  color: var(--tk-text-2);
-}
-
-.table td.dim,
-.dim {
-  color: var(--tk-text-3);
-}
-
-.board {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.board[data-peered='false'] {
-  color: var(--tk-text-3);
+/* Inter's ascent outweighs its descent, so a normal line height rides the
+   capital about 1.5px above the circle's centre. */
+.initial {
+  line-height: 1;
 }
 
 .boardDot {
@@ -161,21 +42,19 @@
   background: var(--tk-dot-ok);
 }
 
-.board[data-peered='false'] .boardDot {
+.boardDot[data-peered='false'] {
   background: var(--tk-border);
 }
 
 .none,
 .empty {
   padding: 14px 20px;
-  color: var(--tk-text-3);
 }
 
 .empty {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  color: inherit;
 }
 
 .failure {
@@ -188,19 +67,6 @@
   gap: 6px;
 }
 
-.segmentWarn {
-  color: var(--tk-text-warn);
-}
-
-.segmentCount {
-  display: inline-grid;
-  place-items: center;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 5px;
-  border-radius: 8px;
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--tk-on-fill-bad);
-  background: var(--tk-fill-bad);
+.segmentIcon {
+  display: inline-flex;
 }

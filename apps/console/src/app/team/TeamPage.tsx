@@ -1,8 +1,13 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
+  Avatar,
+  Badge,
   Button,
+  Group,
   PageShell,
+  Paper,
   SegmentedControl,
+  Table,
   Tabs,
   Text,
 } from '@mattstack/app-kit/core';
@@ -21,7 +26,7 @@ import { clockTime } from '../usage/format';
 import classes from './TeamPage.module.css';
 import { useTeam } from './useTeam';
 
-const PANEL_WIDTH = 880;
+const PANEL_WIDTH = 1080;
 const PAGE_PAD_X = 40;
 
 const VIEWER_ROLE: Record<string, string> = {
@@ -41,25 +46,54 @@ function expiresOn(iso: string): string {
     : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-function Avatar({ name, waiting }: { name: string; waiting?: boolean }) {
+function Person({ name, waiting }: { name: string; waiting?: boolean }) {
   return (
-    <span
-      className={classes.avatar}
-      data-waiting={waiting || undefined}
+    <Avatar
+      size={24}
+      radius="xl"
+      variant="light"
+      color={waiting ? 'warn' : 'gray'}
+      classNames={{ placeholder: classes.initial }}
       aria-hidden
     >
       {name.charAt(0).toUpperCase()}
-    </span>
+    </Avatar>
+  );
+}
+
+function Name({ children }: { children: string }) {
+  return (
+    <Text fz="sm" fw={600} lh="normal">
+      {children}
+    </Text>
+  );
+}
+
+function Quiet({ children }: { children: string }) {
+  return (
+    <Text fz="sm" c="dimmed" lh="normal">
+      {children}
+    </Text>
   );
 }
 
 function Board({ peered }: { peered: boolean | null }) {
-  if (peered === null) return <span className={classes.dim}>Unknown</span>;
+  if (peered === null) return <Quiet>Unknown</Quiet>;
   return (
-    <span className={classes.board} data-peered={peered}>
-      <span className={classes.boardDot} aria-hidden />
-      {peered ? 'Connected' : 'Not connected'}
-    </span>
+    <Group gap={6}>
+      <span className={classes.boardDot} data-peered={peered} aria-hidden />
+      <Text fz="sm" c={peered ? undefined : 'dimmed'} lh="normal">
+        {peered ? 'Connected' : 'Not connected'}
+      </Text>
+    </Group>
+  );
+}
+
+function WarnBadge({ children }: { children: string }) {
+  return (
+    <Badge color="warn" variant="light" size="sm" tt="none">
+      {children}
+    </Badge>
   );
 }
 
@@ -79,6 +113,41 @@ function memberRows(team: TeamView): Row[] {
   ];
 }
 
+function ColumnHead({ children }: { children: string }) {
+  return (
+    <Text fz="xs" fw={600} c="dimmed" lh="normal" className={classes.th}>
+      {children}
+    </Text>
+  );
+}
+
+function TeamTable({
+  columns,
+  children,
+}: {
+  columns: [string, string, string];
+  children: ReactNode;
+}) {
+  return (
+    <Table variant="soft" noPaper fullWidth horizontalSpacing={20}>
+      <Table.Thead>
+        <Table.Tr>
+          <Table.Th>
+            <ColumnHead>{columns[0]}</ColumnHead>
+          </Table.Th>
+          <Table.Th w={152}>
+            <ColumnHead>{columns[1]}</ColumnHead>
+          </Table.Th>
+          <Table.Th w={200}>
+            <ColumnHead>{columns[2]}</ColumnHead>
+          </Table.Th>
+        </Table.Tr>
+      </Table.Thead>
+      <Table.Tbody>{children}</Table.Tbody>
+    </Table>
+  );
+}
+
 function MembersTable({
   team,
   confirming,
@@ -90,92 +159,89 @@ function MembersTable({
 }) {
   const label = confirmLabel(team.invites);
   return (
-    <table className={classes.table}>
-      <thead>
-        <tr>
-          <th>Member</th>
-          <th className={classes.roleCol}>Role</th>
-          <th className={classes.boardCol}>Board</th>
-        </tr>
-      </thead>
-      <tbody>
-        {memberRows(team).map(row =>
-          row.kind === 'member' ? (
-            <tr key={`m-${row.member.username}`}>
-              <td>
-                <div className={classes.who}>
-                  <Avatar name={row.member.username} />
-                  <span className={classes.name}>{row.member.username}</span>
-                </div>
-              </td>
-              <td className={classes.muted}>{roleWords(row.member.role)}</td>
-              <td>
-                <Board peered={row.member.peered} />
-              </td>
-            </tr>
-          ) : (
-            <tr key={`w-${row.invite.handle}`}>
-              <td>
-                <div className={classes.who}>
-                  <Avatar name={row.invite.handle} waiting />
-                  <span className={classes.name}>{row.invite.handle}</span>
-                  <span className={classes.chip}>Waiting for approval</span>
-                  <Button
-                    size="compact-sm"
-                    radius="sm"
-                    leftSection={<Icon name="check" size={12} />}
-                    disabled={confirming !== null}
-                    loading={confirming === team.slug}
-                    onClick={() => onConfirm(team.slug)}
-                  >
-                    {label}
-                  </Button>
-                </div>
-              </td>
-              <td className={classes.dim}>Member</td>
-              <td className={classes.dim}>Joins after you add</td>
-            </tr>
-          )
-        )}
-      </tbody>
-    </table>
+    <TeamTable columns={['Member', 'Role', 'Board']}>
+      {memberRows(team).map(row =>
+        row.kind === 'member' ? (
+          <Table.Tr key={`m-${row.member.username}`}>
+            <Table.Td>
+              <Group gap={10}>
+                <Person name={row.member.username} />
+                <Name>{row.member.username}</Name>
+              </Group>
+            </Table.Td>
+            <Table.Td>
+              <Text fz="sm" lh="normal">
+                {roleWords(row.member.role)}
+              </Text>
+            </Table.Td>
+            <Table.Td>
+              <Board peered={row.member.peered} />
+            </Table.Td>
+          </Table.Tr>
+        ) : (
+          <Table.Tr key={`w-${row.invite.handle}`}>
+            <Table.Td>
+              <Group gap={10}>
+                <Person name={row.invite.handle} waiting />
+                <Name>{row.invite.handle}</Name>
+                <WarnBadge>Waiting for approval</WarnBadge>
+                <Button
+                  size="compact-sm"
+                  leftSection={<Icon name="check" size={12} />}
+                  disabled={confirming !== null}
+                  loading={confirming === team.slug}
+                  onClick={() => onConfirm(team.slug)}
+                >
+                  {label}
+                </Button>
+              </Group>
+            </Table.Td>
+            <Table.Td>
+              <Quiet>Member</Quiet>
+            </Table.Td>
+            <Table.Td>
+              <Quiet>Joins after you add</Quiet>
+            </Table.Td>
+          </Table.Tr>
+        )
+      )}
+    </TeamTable>
   );
 }
 
 function InvitesTable({ invites }: { invites: TeamInvite[] }) {
   if (invites.length === 0) {
-    return <div className={classes.none}>No open invites</div>;
+    return (
+      <div className={classes.none}>
+        <Quiet>No open invites</Quiet>
+      </div>
+    );
   }
   return (
-    <table className={classes.table}>
-      <thead>
-        <tr>
-          <th>Member</th>
-          <th className={classes.roleCol}>Status</th>
-          <th className={classes.boardCol}>Expires</th>
-        </tr>
-      </thead>
-      <tbody>
-        {invites.map(invite => (
-          <tr key={invite.handle}>
-            <td>
-              <div className={classes.who}>
-                <Avatar name={invite.handle} />
-                <span className={classes.name}>{invite.handle}</span>
-              </div>
-            </td>
-            <td>
-              {invite.state === 'expired' ? (
-                <span className={classes.chip}>Expired</span>
-              ) : (
-                <span className={classes.muted}>Invite sent</span>
-              )}
-            </td>
-            <td className={classes.dim}>{expiresOn(invite.expiresAt)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <TeamTable columns={['Member', 'Status', 'Expires']}>
+      {invites.map(invite => (
+        <Table.Tr key={invite.handle}>
+          <Table.Td>
+            <Group gap={10}>
+              <Person name={invite.handle} />
+              <Name>{invite.handle}</Name>
+            </Group>
+          </Table.Td>
+          <Table.Td>
+            {invite.state === 'expired' ? (
+              <WarnBadge>Expired</WarnBadge>
+            ) : (
+              <Text fz="sm" lh="normal">
+                Invite sent
+              </Text>
+            )}
+          </Table.Td>
+          <Table.Td>
+            <Quiet>{expiresOn(invite.expiresAt)}</Quiet>
+          </Table.Td>
+        </Table.Tr>
+      ))}
+    </TeamTable>
   );
 }
 
@@ -194,7 +260,13 @@ function TeamPanel({
 
   if (!read.ok) {
     return (
-      <section className={classes.panel} data-testid="team-panel">
+      <Paper
+        variant="ground"
+        withBorder
+        radius={12}
+        className={classes.panel}
+        data-testid="team-panel"
+      >
         <header className={classes.head}>
           <Text fz={15} fw={700} lh="normal">
             {`${read.slug} members`}
@@ -208,14 +280,20 @@ function TeamPanel({
             {read.error}
           </RetryAlert>
         </div>
-      </section>
+      </Paper>
     );
   }
 
   const team = read.team;
   const invites = team.invites.filter(i => i.state !== 'replied');
   return (
-    <section className={classes.panel} data-testid="team-panel">
+    <Paper
+      variant="ground"
+      withBorder
+      radius={12}
+      className={classes.panel}
+      data-testid="team-panel"
+    >
       <header className={classes.head}>
         <Text fz={15} fw={700} lh="normal">
           {`${team.name} members`}
@@ -234,11 +312,10 @@ function TeamPanel({
       >
         <Tabs.List>
           <Tabs.Tab value="members">
-            Members{' '}
-            <span className={classes.tabCount}>{team.members.length}</span>
+            <TabLabel label="Members" count={team.members.length} />
           </Tabs.Tab>
           <Tabs.Tab value="invites">
-            Invites <span className={classes.tabCount}>{invites.length}</span>
+            <TabLabel label="Invites" count={invites.length} />
           </Tabs.Tab>
         </Tabs.List>
         <Tabs.Panel value="members">
@@ -252,7 +329,18 @@ function TeamPanel({
           <InvitesTable invites={invites} />
         </Tabs.Panel>
       </Tabs>
-    </section>
+    </Paper>
+  );
+}
+
+function TabLabel({ label, count }: { label: string; count: number }) {
+  return (
+    <Group gap={6}>
+      {label}
+      <Text component="span" fz="xs" c="dimmed">
+        {count}
+      </Text>
+    </Group>
   );
 }
 
@@ -263,16 +351,21 @@ function SegmentLabel({ read }: { read: TeamRead }) {
   return (
     <span className={classes.segment}>
       {read.ok ? null : (
-        <Icon name="warning" size={12} className={classes.segmentWarn} />
+        <Text component="span" c="warn" className={classes.segmentIcon}>
+          <Icon name="warning" size={12} />
+        </Text>
       )}
       {read.ok ? read.team.name : read.slug}
       {waiting > 0 ? (
-        <span
-          className={classes.segmentCount}
+        <Badge
+          color="bad"
+          variant="filled"
+          size="xs"
+          circle
           aria-label={`${waiting} waiting`}
         >
           {waiting}
-        </span>
+        </Badge>
       ) : null}
     </span>
   );
@@ -318,7 +411,12 @@ export function TeamPage() {
               </RetryAlert>
             ) : null}
             {view.loaded && teams.length === 0 ? (
-              <section className={classes.panel}>
+              <Paper
+                variant="ground"
+                withBorder
+                radius={12}
+                className={classes.panel}
+              >
                 <div className={classes.empty}>
                   <Text fz="lg" fw={500} lh="normal">
                     No teams to manage
@@ -327,7 +425,7 @@ export function TeamPage() {
                     Org owners and admins approve teammates here
                   </Text>
                 </div>
-              </section>
+              </Paper>
             ) : null}
             {teams.length > 1 ? (
               <div>

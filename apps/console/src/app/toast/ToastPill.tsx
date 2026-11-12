@@ -58,6 +58,7 @@ export function ToastPill({
   onDismiss,
   onHoverChange,
   testId,
+  top,
 }: {
   mounted: boolean;
   title: ReactNode;
@@ -66,13 +67,16 @@ export function ToastPill({
   onDismiss: () => void;
   onHoverChange: (hovered: boolean) => void;
   testId: string;
+  /** Distance from the page's top edge, to clear a title row the pill
+      would otherwise cover. */
+  top?: number;
 }) {
   return (
     <Transition mounted={mounted} transition="fade-down" duration={180}>
       {style => (
         <div
           className={classes.toast}
-          style={style}
+          style={top === undefined ? style : { ...style, top }}
           role="status"
           onMouseEnter={() => onHoverChange(true)}
           onMouseLeave={() => onHoverChange(false)}

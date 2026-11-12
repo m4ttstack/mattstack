@@ -16,14 +16,15 @@ import {
   ok,
   serveTeams,
   team,
+  teamGet,
 } from './teamTestData';
 
 vi.mock('../api', async () => (await import('./teamTestData')).apiMock());
 
 const { TeamPage } = await import('./TeamPage');
 
-function renderPage(teams: TeamRead[]) {
-  serveTeams(teams);
+function renderPage(teams?: TeamRead[]) {
+  if (teams) serveTeams(teams);
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -97,6 +98,21 @@ describe('TeamPage', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('acme')).toBeInTheDocument();
     expect(screen.queryByRole('table')).toBeNull();
+  });
+
+  it('keeps the whole-page banner away when only one team fails', async () => {
+    renderPage([acme(), failed('beta', 'offline')]);
+    await screen.findByText('marsh');
+    await new Promise(r => setTimeout(r, 50));
+    expect(screen.queryByText(/Can't read your teams/)).toBeNull();
+  });
+
+  it('shows the whole-page banner when the team read itself fails', async () => {
+    teamGet.mockResolvedValue(ok({ error: 'rt is not installed' }, 503));
+    renderPage();
+    expect(
+      await screen.findByText(/Can't read your teams/)
+    ).toBeInTheDocument();
   });
 
   it('shows a short empty state with no team to manage', async () => {

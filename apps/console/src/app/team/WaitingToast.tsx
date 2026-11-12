@@ -1,5 +1,6 @@
 import { useLocation } from 'wouter';
 
+import { PAGE_ROW_HEIGHT } from '../chrome';
 import { ToastPill, useToastOnce } from '../toast/ToastPill';
 import { TEAM_HREF } from './TeamRailEntry';
 import { repliedHandles, useTeam } from './useTeam';
@@ -40,6 +41,7 @@ export function WaitingToast() {
       onDismiss={toast.hide}
       onHoverChange={toast.setHovered}
       testId="waiting-toast"
+      top={PAGE_ROW_HEIGHT + 12}
     />
   );
 }
