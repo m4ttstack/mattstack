@@ -131,7 +131,7 @@
 - Consumes: Tasks 1 to 3 (`GithubHeadReader`, `memoryFacts`, `FactsStore`).
 - Produces: `GITHUB_INTERVAL_DEFAULT = 60`, `GITHUB_INTERVAL_MIN = 30` in `ci-tools.ts`.
 
-- [ ] **Step 1: Write the failing tests** (replace the two `unsupported_forge` ci_watch tests, the "ci_watch is GitLab only" test, and "a GitHub PR passed as mrUrl without attend is still a resolve error", which becomes: a PR URL for an unregistered repo is the resolver's registration error, not `MR_URL_SHAPE`). Call `__resetMemoryFacts()` in `beforeEach`. Stub `mr:get` returning `webUrl: "https://github.com/acme/proj/pull/42"`, `targetBranch: "main"`, glance pipeline with `github:check:` jobs; stub `forge:get` and `pipeline:list`:
+- [ ] **Step 1: Write the failing tests** (replace the two `unsupported_forge` ci_watch tests, the "ci_watch is GitLab only" test, and "a GitHub PR passed as mrUrl without attend is still a resolve error", which becomes: a PR URL for an unregistered repo is the resolver's registration error, not `MR_URL_SHAPE`, run under an isolated HOME set up the way the `on GitHub` block in `mr-read-tools.test.ts` does). Call `__resetMemoryFacts()` in `beforeEach`. Stub `mr:get` returning `webUrl: "https://github.com/acme/proj/pull/42"`, `targetBranch: "main"`, glance pipeline with `github:check:` jobs; stub `forge:get` and `pipeline:list`:
   - a PR going `running` then `success` returns `state: "success"`, `pipeline.id: "github:run:900"`;
   - an optional failed check plus a successful required check returns `success` with `blockingFailures: 0`;
   - a required failed check returns `failed` with its `traceTail` from `mr:fetch-job-trace`;
@@ -154,7 +154,7 @@
 ### Task 5: ci_triage on GitHub
 
 **Files:**
-- Modify: `lib/ci/github-forge.ts`, `lib/mcp/ci-tools.ts`, `lib/mcp/mr-read-tools.ts` (`readPipelineSubject`, `unsupportedGithub` removal)
+- Modify: `lib/ci/github-forge.ts`, `lib/mcp/ci-tools.ts`, `lib/mcp/mr-read-tools.ts` (`readPipelineSubject` only)
 - Test: `lib/ci/__tests__/github-forge.test.ts`, `lib/mcp/__tests__/ci-tools.test.ts`
 
 **Interfaces:**
