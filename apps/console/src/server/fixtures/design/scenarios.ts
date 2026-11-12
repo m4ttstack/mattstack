@@ -742,7 +742,19 @@ const DEFS: Record<FixtureScenario, ScenarioDef> = {
   'runs-empty': { subject: 'stage-plan' },
   'runs-outage': { subject: 'stage-plan' },
   unsynced: { subject: 'stage-plan' },
-  trial: { subject: 'stage-plan' },
+  trial: {
+    subject: 'stage-plan',
+    // The Config tab needs a surface list to draw its status bar.
+    surface: {
+      pack: 'acme',
+      packDir: '/fixture/packs/acme',
+      rows: [
+        { name: 'work', kind: 'compiled', status: 'public' },
+        { name: 'review', kind: 'compiled', status: 'public' },
+        { name: 'ship', kind: 'hand-authored', status: 'internal' },
+      ],
+    },
+  },
   referenced: {
     subject: 'stage-plan',
     anatomy: {
