@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
 
 import {
-  DOCTOR_IN_FLIGHT,
   dedupInFlight,
+  DOCTOR_IN_FLIGHT,
   REVIEW_IN_FLIGHT,
 } from '../launch-dedup.ts';
 

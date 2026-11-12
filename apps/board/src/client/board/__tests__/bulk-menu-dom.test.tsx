@@ -413,9 +413,7 @@ test('a bulk rebase posts once per MR and speaks once', async () => {
   await rightClick(101);
   await click('rebase');
   expect(
-    posts
-      .filter(p => p.url === '/doctor')
-      .map(p => [p.body.iid, p.body.mode])
+    posts.filter(p => p.url === '/doctor').map(p => [p.body.iid, p.body.mode])
   ).toEqual([
     [101, 'rebase'],
     [102, 'rebase'],
