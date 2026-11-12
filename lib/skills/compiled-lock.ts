@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pluginOfSeam } from "./drift.ts";
 
@@ -92,6 +92,14 @@ export function lockWrite(
   if (readFile(target) === want) return { written: [], removed: [], stale: false };
   if (!write) return { written: [], removed: [], stale: true };
   mkdirSync(dirname(target), { recursive: true });
-  writeFileSync(target, want);
+  // Run start reads the lock from a checkout, so a reader must never see it half written.
+  const tmp = `${target}.${process.pid}.tmp`;
+  try {
+    writeFileSync(tmp, want);
+    renameSync(tmp, target);
+  } catch (err) {
+    rmSync(tmp, { force: true });
+    throw err;
+  }
   return { written: [LOCK_REL], removed: [], stale: false };
 }
