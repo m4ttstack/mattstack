@@ -11,6 +11,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 
+import { getSetting } from '@mattstack/rt-client';
 import type { AppRecord } from '../registry/records.ts';
 
 const dir = mkdtempSync(join(tmpdir(), 'local-flows-'));
@@ -290,7 +291,12 @@ test('unregister: a later app reusing the name does not inherit its public state
     200
   );
   expect(getAppSettings('myapp').published).toBe(false);
+  expect(storedApps()).not.toHaveProperty('myapp');
 });
+
+function storedApps(): Record<string, unknown> {
+  return getSetting<Record<string, unknown>>('deck.apps').value ?? {};
+}
 
 function writeRoutes(
   hostnames: string[],
@@ -333,6 +339,18 @@ test('unregister: a route-only row whose only route is name.mattstack loses that
 
   expect(res).toEqual({ status: 200, body: { ok: true } });
   expect(routeHosts()).toEqual(['gitq-docs.mattstack']);
+});
+
+test('unregister: a route-only remove drops the name from deck.apps', async () => {
+  updatePlatformSettings({ tlds: ['localhost', 'mattstack'] });
+  writeRoutes(['gitq.mattstack']);
+  await setPublished('gitq', false);
+  expect(storedApps()).toHaveProperty('gitq');
+
+  const res = await unregisterApp('gitq', 'user', false, drivers);
+
+  expect(res).toEqual({ status: 200, body: { ok: true } });
+  expect(storedApps()).not.toHaveProperty('gitq');
 });
 
 test('unregister: a route-only remove that cannot rewrite routes.json answers ok:false with the error', async () => {

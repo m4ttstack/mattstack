@@ -11,10 +11,10 @@ import {
 import { removeRoutes } from '../../core/routes-writer.ts';
 import {
   clearOverride,
+  forgetAppSettings,
   getLive,
   getOverride,
   renameAppSettings,
-  setPublished,
 } from '../../core/settings.ts';
 import type { CfDns } from '../edge/cf-dns.ts';
 import { renameOAuth } from '../edge/oauth.ts';
@@ -393,6 +393,15 @@ function removeNameRoutes(
   });
 }
 
+/** Refused while deck.apps is unreadable; the removal still stands. */
+function forgetSettings(name: string): void {
+  try {
+    forgetAppSettings(name);
+  } catch (err) {
+    console.warn(`deck: could not drop ${name} from deck.apps`, err);
+  }
+}
+
 /** Shared by unregisterApp and removeManagedApps: tears down a record's launchd service and routes. */
 async function teardownRecord(
   record: AppRecord,
@@ -425,9 +434,7 @@ async function teardownRecord(
   }
   deleteRecord(record.name);
   removeIcon(record.name);
-  // A later app reusing this name must not inherit its public state. The
-  // setter refuses while the store is unreadable, and removal still stands.
-  await setPublished(record.name, false).catch(() => {});
+  forgetSettings(record.name);
   return { ok: true, issues };
 }
 
@@ -476,6 +483,7 @@ export async function unregisterApp(
           error: `still routed by a running process: ${heldRoutes(name)}`,
         },
       };
+    forgetSettings(name);
     return { status: 200, body: { ok: true } };
   }
   const verdict = authorizeStructural(record, caller, force);

@@ -404,6 +404,14 @@ export function renameAppSettings(oldName: string, newName: string): void {
   save(previous);
 }
 
+/** Drops a removed app's whole entry, so a later app reusing the name starts private with no password. */
+export function forgetAppSettings(app: string): void {
+  if (!cache.apps[app]) return;
+  const previous = structuredClone(cache);
+  delete cache.apps[app];
+  save(previous);
+}
+
 export function getOverride(app: string): PortOverride | undefined {
   return cache.apps[app]?.override;
 }

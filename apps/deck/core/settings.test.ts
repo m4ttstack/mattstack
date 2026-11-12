@@ -53,6 +53,7 @@ const {
   getPublicFollowsOverride,
   setPublicFollowsOverride,
   renameAppSettings,
+  forgetAppSettings,
   getLive,
   setLive,
   clearLive,
@@ -466,6 +467,43 @@ test('store key present: renameAppSettings carries published/publicFollowsOverri
   expect(stored?.['old-name']).toBeUndefined();
   expect(stored?.['new-name']?.publicFollowsOverride).toBe(true);
   expect(getPublicFollowsOverride('new-name')).toBe(true);
+});
+
+test('forgetAppSettings drops the app from the store and the file, and leaves other apps alone', async () => {
+  setSetting(
+    'deck.apps',
+    {
+      gone: { published: true, publicFollowsOverride: true },
+      kept: { published: true, publicFollowsOverride: false },
+    },
+    'user'
+  );
+  reloadSettings();
+  await setPassword('gone', 'hunter2');
+  setOverride('gone', { devPort: 5173, basePort: 8787 });
+
+  forgetAppSettings('gone');
+
+  const stored = getSetting<Record<string, unknown>>('deck.apps').value ?? {};
+  expect(Object.keys(stored)).toEqual(['kept']);
+  const file = JSON.parse(
+    readFileSync(process.env.LOCAL_APPS_SETTINGS_PATH!, 'utf8')
+  );
+  expect(file.apps.gone).toBeUndefined();
+  reloadSettings();
+  expect(getAppSettings('gone')).toEqual({
+    published: false,
+    passwordHash: undefined,
+    passwordVersion: 0,
+    override: undefined,
+    publicFollowsOverride: false,
+  });
+  expect(getAppSettings('kept').published).toBe(true);
+});
+
+test('forgetAppSettings on an unknown app writes nothing', () => {
+  forgetAppSettings('never-seen');
+  expect(existsSync(userStorePath())).toBe(false);
 });
 
 const LIVE = {
