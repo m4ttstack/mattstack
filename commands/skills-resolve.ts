@@ -12,6 +12,7 @@ export function resolveBlocks(result: ResolveResult): Block[] {
   return [
     out.kv("Folder", result.folder),
     ...(rows.length > 0 ? [out.table(rows, ["Key", "Path"])] : [out.line("off", "This skill points at no other files.")]),
+    ...(result.warning ? [out.line("warn", result.warning)] : []),
   ];
 }
 

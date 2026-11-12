@@ -79,7 +79,7 @@ import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } fr
 import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { TREE } from "../lib/command-tree-def.ts";
 import { assertNoTeamMarkerInAllowedTools, findPlaceholders, packPathResolves } from "../lib/skills/placeholders.ts";
-import { newTeamContext, POINTER_KEYS_MIN_ENGINE, readTeamValues, TEAM_MARKERS_MIN_ENGINE, type MissingMarker, type TeamContext } from "../lib/skills/team-params.ts";
+import { newTeamContext, POINTER_KEYS_MIN_ENGINE, readTeamValues, TEAM_MARKERS_MIN_ENGINE, VERSIONLESS_IDS_MIN_ENGINE, type MissingMarker, type TeamContext } from "../lib/skills/team-params.ts";
 import type { PointerMap } from "../lib/skills/pointers.ts";
 import {
   attachMaps,
@@ -1262,7 +1262,7 @@ export function floorWrite(
   if (engineDir !== null && resolvePath(engineDir) === resolvePath(resolved.packDir)) return { written: [], removed: [], stale: false };
   if (engineDir === null && !usesTeamMarkers && !carriesKeys) return { written: [], removed: [], stale: false };
   const engineFloor = engineDir === null ? null : readFloor(readFile, engineDir);
-  const raises = [...(usesTeamMarkers ? [TEAM_MARKERS_MIN_ENGINE] : []), ...(carriesKeys ? [POINTER_KEYS_MIN_ENGINE] : [])];
+  const raises = [...(usesTeamMarkers ? [TEAM_MARKERS_MIN_ENGINE] : []), ...(carriesKeys ? [POINTER_KEYS_MIN_ENGINE, VERSIONLESS_IDS_MIN_ENGINE] : [])];
   const floor = raises.reduce<string | null>((high, v) => (high === null || compareVersions(high, v) < 0 ? v : high), engineFloor);
   const target = join(resolved.packDir, FLOOR_REL);
   const current = readFile(target);

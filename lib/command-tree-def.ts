@@ -2656,7 +2656,7 @@ export const TREE: Record<string, CommandNode> = {
         agentSafe: true,
         omitBehavior: { exempt: "agent-facing; the id comes from the skill's own opening line" },
         args: [
-          { name: "Id", type: "text", placeholder: "widgets@0.4.2:work", hint: "The skill's id, as its opening line names it" },
+          { name: "Id", type: "text", placeholder: "acme:work", hint: "The skill's id, as its opening line names it" },
           SETUP_JSON_ARG,
         ],
       },

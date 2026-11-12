@@ -367,7 +367,7 @@ export function compileBlockSkill(
   const errors = [...lintInternalRoster(body, internalRoster, "body"), ...lintInternalRoster(verb.description, internalRoster, "description")];
   if (!opts.identity || !opts.units) return { files, warnings, errors, diagnostics: [] };
   const site = {
-    id: unitId(opts.identity.name, opts.identity.version, verb.name),
+    id: unitId(opts.identity.name, verb.name),
     dir: `${ctx.side}/${verb.name}`,
     units: opts.units,
     writtenElsewhere: writtenBeforeCompile(ctx.verbSides, opts.plannedAttachments),

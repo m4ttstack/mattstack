@@ -109,12 +109,7 @@ describe("the compiled lock", () => {
 
     setTwoVerbPackVersion(packDir, "0.4.12");
     await compile(flags);
-    // compiled.json's versioned resolve id is the one stamp left, and Task 4 removes it.
-    const idOnly = ["skills/alpha/compiled.json", "skills/beta/compiled.json"];
-    expect(inRepo(packDir, "status", "--porcelain").split("\n").filter(Boolean).sort()).toEqual([" M .claude-plugin/plugin.json", ` M ${LOCK_REL}`, ...idOnly.map((f) => ` M ${f}`)]);
-    const changed = inRepo(packDir, "diff", "-U0", "--", ...idOnly).split("\n").filter((l) => /^[-+](?![-+])/.test(l));
-    expect(changed.length).toBeGreaterThan(0);
-    expect(changed.every((l) => /acme@0\.4\.1[12]:(alpha|beta)/.test(l))).toBe(true);
+    expect(inRepo(packDir, "status", "--porcelain").split("\n").filter(Boolean).sort()).toEqual([" M .claude-plugin/plugin.json", ` M ${LOCK_REL}`]);
     expect(readLock(packDir).targets["skills/beta"]).toEqual({ acme: "0.4.12", mattstack: "1.0.0" });
   });
 

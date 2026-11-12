@@ -380,7 +380,7 @@ export function planBaseAttachments(input: {
       warnings.push(...v.warnings);
       reads.push(...v.verbPaths);
     }
-    const keyed = identity?.version ? keyFiles(out, { id: unitId(identity.name, identity.version, leafOf(name)), dir: `attachments/${name}`, units: unitTable, writtenElsewhere: writtenBeforeCompile(verbSides, planned) }) : null;
+    const keyed = identity?.version ? keyFiles(out, { id: unitId(identity.name, leafOf(name)), dir: `attachments/${name}`, units: unitTable, writtenElsewhere: writtenBeforeCompile(verbSides, planned) }) : null;
     const emitted = keyed?.files ?? out;
     emitted.push({ path: PROVENANCE_FILE, content: JSON.stringify({ base: base.name, files }, null, 2) + "\n" });
     emits.push({

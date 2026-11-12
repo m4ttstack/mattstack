@@ -18,7 +18,7 @@ import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
-import { POINTER_KEYS_MIN_ENGINE } from "../../lib/skills/team-params.ts";
+import { VERSIONLESS_IDS_MIN_ENGINE } from "../../lib/skills/team-params.ts";
 import { openingLine } from "../../lib/skills/pointers.ts";
 import { attachMaps, withMapFile } from "../../lib/skills/unit-maps.ts";
 import { changedPartKeys, partExtents } from "../../lib/skills/drift.ts";
@@ -1116,7 +1116,7 @@ describe("base pack attachments", () => {
 
     expect(readFileSync(join(packDir, "attachments", "board-review", "SKILL.md"), "utf8")).toBe(BOARD_REVIEW_MD.replace("{{pack.name}}", "widgets"));
     expect(JSON.parse(readFileSync(join(packDir, "attachments", "board-review", "compiled.json"), "utf8"))).toEqual({
-      base: "acme-base", files: ["SKILL.md"], id: "widgets@0.1.0:board-review", dir: "attachments/board-review", covers: ["widgets@0.1.0:board-review"], keys: {},
+      base: "acme-base", files: ["SKILL.md"], id: "widgets:board-review", dir: "attachments/board-review", covers: ["widgets:board-review"], keys: {},
     });
     expect(boardBindings()["board:review"]).toEqual({ review: "widgets:board-review" });
     expect(boardBindings()["mattstack:watch-ci"]!.domain).toBe("acme-base:watch-ci-domain");
@@ -1207,12 +1207,12 @@ describe("base pack attachments", () => {
     const { errors } = await compile();
 
     expect(errors).toEqual([]);
-    expect(readFileSync(kit(packDir, "SKILL.md"), "utf8")).toBe(`---\nname: review-kit\ndescription: shared review notes\n---\n${openingLine("widgets@0.1.0:review-kit")}\n\nInvoke widgets:watch-ci. Read @watch-ci/SKILL.md.\n`);
-    expect(readFileSync(kit(packDir, "references", "guide.md"), "utf8")).toBe(`${openingLine("widgets@0.1.0:review-kit")}\n\nBack to @watch-ci/SKILL.md. Keep {{slot:x}} and $\{{ secrets.TOKEN }}.\n`);
+    expect(readFileSync(kit(packDir, "SKILL.md"), "utf8")).toBe(`---\nname: review-kit\ndescription: shared review notes\n---\n${openingLine("widgets:review-kit")}\n\nInvoke widgets:watch-ci. Read @watch-ci/SKILL.md.\n`);
+    expect(readFileSync(kit(packDir, "references", "guide.md"), "utf8")).toBe(`${openingLine("widgets:review-kit")}\n\nBack to @watch-ci/SKILL.md. Keep {{slot:x}} and $\{{ secrets.TOKEN }}.\n`);
     expect(readFileSync(kit(packDir, "scripts", "run.sh")).equals(readFileSync(join(baseDir, "attachments", "review-kit", "scripts", "run.sh")))).toBe(true);
     expect(statSync(kit(packDir, "scripts", "run.sh")).mode & 0o111).not.toBe(0);
     expect(JSON.parse(readFileSync(kit(packDir, "compiled.json"), "utf8"))).toMatchObject({
-      base: "acme-base", files: ["SKILL.md", "references/guide.md", "scripts/run.sh"], id: "widgets@0.1.0:review-kit", dir: "attachments/review-kit",
+      base: "acme-base", files: ["SKILL.md", "references/guide.md", "scripts/run.sh"], id: "widgets:review-kit", dir: "attachments/review-kit",
     });
   });
 
@@ -1246,8 +1246,8 @@ describe("base pack attachments", () => {
     expect(first.errors).toEqual([]);
     const verbDir = join(packDir, "skills", "watch-ci");
     expect(readFileSync(join(verbDir, "SKILL.md"), "utf8")).toContain("@watch-ci/references/notes-kit/references/guide.md");
-    expect(readFileSync(join(verbDir, "references", "notes-kit", "SKILL.md"), "utf8")).toBe(`---\nname: notes-kit\ndescription: shared notes\n---\n${openingLine("widgets@0.1.0:watch-ci")}\n\nNotes. Back to @watch-ci/SKILL.md.\n`);
-    expect(readFileSync(join(verbDir, "references", "notes-kit", "references", "guide.md"), "utf8")).toBe(`${openingLine("widgets@0.1.0:watch-ci")}\n\nSee @watch-ci/references/notes-kit/SKILL.md.\n`);
+    expect(readFileSync(join(verbDir, "references", "notes-kit", "SKILL.md"), "utf8")).toBe(`---\nname: notes-kit\ndescription: shared notes\n---\n${openingLine("widgets:watch-ci")}\n\nNotes. Back to @watch-ci/SKILL.md.\n`);
+    expect(readFileSync(join(verbDir, "references", "notes-kit", "references", "guide.md"), "utf8")).toBe(`${openingLine("widgets:watch-ci")}\n\nSee @watch-ci/references/notes-kit/SKILL.md.\n`);
     expect(existsSync(join(verbDir, "references", "notes-kit", "compiled.json"))).toBe(false);
     expect((await checkPack({ packDir, mattstackDir })).verbs.map((row) => [row.name, row.status])).toEqual([["watch-ci", "in-sync"]]);
 
@@ -1264,8 +1264,8 @@ describe("base pack attachments", () => {
     expect((await compile()).errors).toEqual([]);
 
     const copy = join(packDir, "skills", "watch-ci", "references", "review-kit");
-    expect(readFileSync(join(copy, "SKILL.md"), "utf8")).toBe(`---\nname: review-kit\ndescription: shared review notes\n---\n${openingLine("widgets@0.1.0:watch-ci")}\n\nInvoke widgets:watch-ci. Read @watch-ci/SKILL.md.\n`);
-    expect(readFileSync(join(copy, "references", "guide.md"), "utf8")).toBe(`${openingLine("widgets@0.1.0:watch-ci")}\n\nBack to @watch-ci/SKILL.md. Keep {{slot:x}} and $\{{ secrets.TOKEN }}.\n`);
+    expect(readFileSync(join(copy, "SKILL.md"), "utf8")).toBe(`---\nname: review-kit\ndescription: shared review notes\n---\n${openingLine("widgets:watch-ci")}\n\nInvoke widgets:watch-ci. Read @watch-ci/SKILL.md.\n`);
+    expect(readFileSync(join(copy, "references", "guide.md"), "utf8")).toBe(`${openingLine("widgets:watch-ci")}\n\nBack to @watch-ci/SKILL.md. Keep {{slot:x}} and $\{{ secrets.TOKEN }}.\n`);
     expect(readFileSync(join(copy, "scripts", "run.sh")).equals(readFileSync(join(baseDir, "attachments", "review-kit", "scripts", "run.sh")))).toBe(true);
   });
 
@@ -1315,7 +1315,7 @@ describe("base pack attachments", () => {
 
     expect((await compile()).errors).toEqual([]);
 
-    expect(readFileSync(kit(packDir, "SKILL.md"), "utf8")).toBe(`---\nname: review-kit\ndescription: shared review notes\n---\n${openingLine("widgets@0.1.0:review-kit")}\n\nInvoke widgets:watch-ci. Read @watch-ci/SKILL.md.\n`);
+    expect(readFileSync(kit(packDir, "SKILL.md"), "utf8")).toBe(`---\nname: review-kit\ndescription: shared review notes\n---\n${openingLine("widgets:review-kit")}\n\nInvoke widgets:watch-ci. Read @watch-ci/SKILL.md.\n`);
     expect(existsSync(kit(packDir, "old.md"))).toBe(false);
     expect(existsSync(kit(packDir, "compiled.json"))).toBe(true);
     const shown = io.lines().join("\n");
@@ -1490,8 +1490,8 @@ describe("base pack attachments", () => {
     writeFile(group("receive-review", "SKILL.md"), "---\nname: receive-review\n---\nbody\n");
 
     expect((await compile()).errors).toEqual([]);
-    expect(readFileSync(team("self-review", "SKILL.md"), "utf8")).toBe(`---\nname: self-review\n---\n${openingLine("widgets@0.1.0:self-review")}\n\nRead @watch-ci/SKILL.md.\n`);
-    expect(JSON.parse(readFileSync(team("self-review", "compiled.json"), "utf8"))).toMatchObject({ base: "acme-base", files: ["SKILL.md"], id: "widgets@0.1.0:self-review", dir: "attachments/review/self-review" });
+    expect(readFileSync(team("self-review", "SKILL.md"), "utf8")).toBe(`---\nname: self-review\n---\n${openingLine("widgets:self-review")}\n\nRead @watch-ci/SKILL.md.\n`);
+    expect(JSON.parse(readFileSync(team("self-review", "compiled.json"), "utf8"))).toMatchObject({ base: "acme-base", files: ["SKILL.md"], id: "widgets:self-review", dir: "attachments/review/self-review" });
     expect(existsSync(team("compiled.json"))).toBe(false);
     expect(io.lines().join("\n")).toContain("Copied review/self-review");
 
@@ -1892,7 +1892,7 @@ describe("base pack attachments", () => {
       expect((await compilePackAll({ packDir, mattstackDir })).ok).toBe(true);
       expect(readFileSync(join(packDir, "skills", "triage-ci", "SKILL.md"), "utf8")).toContain("Linear team: Widgets.");
       expect(readFileSync(join(packDir, "attachments", "ci-notes", "SKILL.md"), "utf8")).toContain("Extra jobs:\n- lint\n- e2e\n");
-      expect(JSON.parse(readFileSync(join(packDir, "pack", "requires.json"), "utf8"))).toEqual({ minEngine: POINTER_KEYS_MIN_ENGINE });
+      expect(JSON.parse(readFileSync(join(packDir, "pack", "requires.json"), "utf8"))).toEqual({ minEngine: VERSIONLESS_IDS_MIN_ENGINE });
     });
 
     test("--json carries missing beside the verb rows and exits 1", async () => {
@@ -2121,7 +2121,7 @@ describe("base pack attachments", () => {
       const files = filesUnder(plain.packDir);
       expect(Object.keys(files).length).toBeGreaterThan(0);
       expect(filesUnder(optional.packDir)).toEqual(files);
-      expect(JSON.parse(readFileSync(join(plain.packDir, "pack", "requires.json"), "utf8"))).toEqual({ minEngine: POINTER_KEYS_MIN_ENGINE });
+      expect(JSON.parse(readFileSync(join(plain.packDir, "pack", "requires.json"), "utf8"))).toEqual({ minEngine: VERSIONLESS_IDS_MIN_ENGINE });
     });
 
     test("a team marker in a stage fill's allowed-tools refuses a scoped orchestrator compile before it reaches the orchestrator's frontmatter", async () => {

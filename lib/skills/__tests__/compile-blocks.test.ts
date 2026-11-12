@@ -10,7 +10,7 @@ import { loadAttachment, loadInclude, loadStepSource, type PluginRoots } from ".
 import type { CompiledFile, PlannedAttachments, StepSource } from "../types.ts";
 import type { BlockTree } from "../blocks/types.ts";
 import { newTeamContext, type TeamContext } from "../team-params.ts";
-import { fileCheckFor, pointerErrorsIn, unitsInMemory } from "../unit-maps.ts";
+import { fileCheckFor, pointerErrorsIn, readPackIdentity, unitsInMemory } from "../unit-maps.ts";
 
 const FIX = join(import.meta.dir, "fixtures", "blocks");
 const MANIFEST = join(FIX, "mattstack-home", "repos", "my-repo", "skills.jsonc");
@@ -803,4 +803,13 @@ describe("tree includes", () => {
     const values = valuesFor(step, s.roots, bindingsOf(readFileSync(MANIFEST, "utf8")));
     expect(() => compileBlockSkill(VERB, step, values, new Set(["mattstack:model-tiering"]), {})).toThrow('include "gone-lookup" is not a loaded attachment');
   });
+});
+
+test("a pack named skills is refused", () => {
+  const packDir = tmp();
+  mkdirSync(join(packDir, ".claude-plugin"), { recursive: true });
+  writeFileSync(join(packDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "skills", version: "0.1.0" }));
+  const identity = readPackIdentity(packDir);
+  expect(identity.ok).toBe(false);
+  expect(identity).toMatchObject({ fault: expect.stringContaining('has the name "skills"') });
 });
