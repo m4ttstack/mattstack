@@ -1,10 +1,11 @@
 /**
  * MR read tools. Each asks the daemon for a live read from the repo's forge;
  * none reads the daemon's open-MR cache, so any MR the token can see is
- * readable. pipeline_jobs still reads GitLab only.
+ * readable, on GitLab and GitHub alike.
  */
 import { latchKindOf, rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands, Discussion } from "../../packages/rt-client/src/index.ts";
+import { listGithubJobs } from "../ci/github-forge.ts";
 import { walkPipeline } from "../ci/gitlab-forge.ts";
 import { isHttpsMrUrl } from "../ci/lease-guard.ts";
 import { explainError } from "../explain-error.ts";
@@ -83,10 +84,6 @@ export async function readPipelineSubject(command: typeof rtCommand, target: { i
 /** A GitHub PR URL, which resolveMrTarget rejects by shape before any read could tell the forge. */
 export function isGithubPrUrl(mrUrl: unknown): boolean {
   return typeof mrUrl === "string" && isHttpsMrUrl(mrUrl) && parseMrUrl(mrUrl) === null;
-}
-
-export function unsupportedGithub(tool: string) {
-  return { state: "unsupported_forge", forge: "github", next: `${tool} reads GitLab pipelines only; this is a GitHub pull request, so read its checks on GitHub.` } as const;
 }
 
 const JOB_SCOPES = ["failed", "success", "running", "pending", "manual", "canceled", "skipped", "created"] as const;
@@ -229,13 +226,18 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
         const bad = checkOptional(input, [{ name: "pipelineId", type: "number" }, { name: "scope", type: "string" }, { name: "name", type: "string" }]) ?? checkPositiveInts(input, ["pipelineId"]);
         if (bad) return err(bad);
         if (input.scope !== undefined && !JOB_SCOPES.includes(input.scope as typeof JOB_SCOPES[number])) return err(`"scope" must be one of ${JOB_SCOPES.join(", ")}`);
-        if (isGithubPrUrl(input.mrUrl)) return ok(unsupportedGithub("pipeline_jobs"));
-        const target = await resolveMrTarget(input);
+        const target = await resolveMrTarget(input, { github: true });
         if (!target.ok) return err(target.error);
         const subject = await readPipelineSubject(deps.command, target, input.pipelineId as number | undefined);
         if (subject.kind === "error") return err(subject.error);
-        if (subject.kind === "github") return ok(unsupportedGithub("pipeline_jobs"));
         try {
+          if (subject.kind === "github") {
+            const listed = await listGithubJobs(deps.command, target, subject.mr, input.pipelineId as number | undefined);
+            if (!listed.ok) return err(listed.error);
+            const { scope, name } = input as { scope?: string; name?: string };
+            const jobs = listed.jobs.filter((j) => (!scope || j.status === scope) && (!name || j.name.includes(name)));
+            return ok({ state: "listed", pipeline: listed.pipeline, jobs, bridges: [] });
+          }
           const walk = await walkPipeline(deps.command, target, subject.pipelineId, {
             ...(typeof input.scope === "string" && { scope: input.scope }),
             ...(typeof input.name === "string" && { name: input.name }),

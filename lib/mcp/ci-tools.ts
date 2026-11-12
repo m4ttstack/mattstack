@@ -10,7 +10,7 @@ import {
   type CiLeaseHolder, type CiLeaseOpts, type Commands,
 } from "../../packages/rt-client/src/index.ts";
 import { readChatSession } from "../chat-session.ts";
-import { emptyFacts, emptyHead, GithubHeadReader, githubTriageForge, memoryFacts, type FactsStore, type GithubHead, type GithubTarget } from "../ci/github-forge.ts";
+import { emptyFacts, emptyHead, githubTriageForge, prFacts, readGithubHead, type FactsStore, type GithubHead } from "../ci/github-forge.ts";
 import { gitlabTriageForge } from "../ci/gitlab-forge.ts";
 import { isHttpsMrUrl, NO_SESSION, ownerFromEnv } from "../ci/lease-guard.ts";
 import { keepalive as processKeepalive, type LeaseKeepalive } from "../ci/lease-keepalive.ts";
@@ -103,17 +103,6 @@ function attendFacts(st: PersistedWatch): FactsStore {
 }
 
 type PrRead = Commands["mr:get"]["data"]["mr"];
-
-// Facts belong to the full head sha mr:get reports, never the caller's possibly short one.
-function prFacts(prUrl: string, pr: PrRead): FactsStore {
-  return memoryFacts(`${prUrl}#${(pr.sha ?? "").toLowerCase()}`);
-}
-
-// The reader only touches the facts on the watched sha.
-function readGithubHead(command: typeof rtCommand, target: GithubTarget, pr: PrRead, store: FactsStore, now: () => number, watchedSha: string | null): Promise<GithubHead | null> {
-  return new GithubHeadReader(command, target, store, now)
-    .read({ sha: pr.sha ?? null, targetBranch: pr.targetBranch ?? null, pipeline: pr.pipeline ?? null }, watchedSha);
-}
 
 function settingBudget(): number {
   const v = getSetting<number>("ci.watch.budgetMinutes").value;

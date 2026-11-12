@@ -191,7 +191,8 @@ export interface GithubTarget {
 }
 
 type ForgeAnswer = { ok: true; body: unknown } | { ok: false };
-type ForgeRead = { ok: true; body: unknown } | { ok: false; status: number | null; error: string };
+type ForgeRead = { ok: true; body: unknown; truncated: boolean; nextPage: number | null } | { ok: false; status: number | null; error: string };
+type ForgeOpts = { query?: Record<string, string | number | boolean>; page?: number; perPage?: number };
 
 // The daemon reports a non-2xx GitHub answer either as ok:false with the status only in its text or as data.status.
 function githubStatusOf(error: string): number | null {
@@ -199,8 +200,8 @@ function githubStatusOf(error: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
-async function readForge(command: typeof rtCommand, target: GithubTarget, path: string): Promise<ForgeRead> {
-  const res = await command<ForgeGetData>("forge:get", { repoName: target.identity, path }, { timeoutMs: READ_TIMEOUT_MS });
+async function readForge(command: typeof rtCommand, target: GithubTarget, path: string, opts: ForgeOpts = {}): Promise<ForgeRead> {
+  const res = await command<ForgeGetData>("forge:get", { repoName: target.identity, path, ...opts }, { timeoutMs: READ_TIMEOUT_MS });
   if (!res.ok || !res.data) {
     const error = res.error ?? "GitHub read failed";
     return { ok: false, status: githubStatusOf(error), error };
@@ -208,7 +209,24 @@ async function readForge(command: typeof rtCommand, target: GithubTarget, path: 
   if (res.data.status < 200 || res.data.status >= 300) {
     return { ok: false, status: res.data.status, error: `GitHub returned ${res.data.status}` };
   }
-  return { ok: true, body: res.data.body };
+  return { ok: true, body: res.data.body, truncated: res.data.truncated, nextPage: res.data.nextPage };
+}
+
+export interface GithubPrRead {
+  sha?: string | null;
+  targetBranch?: string | null;
+  pipeline?: Pipeline | null;
+}
+
+// Facts belong to the full head sha mr:get reports, never the caller's possibly short one.
+export function prFacts(prUrl: string, pr: GithubPrRead): FactsStore {
+  return memoryFacts(`${prUrl}#${(pr.sha ?? "").toLowerCase()}`);
+}
+
+// The reader only touches the facts on the watched sha.
+export function readGithubHead(command: typeof rtCommand, target: GithubTarget, pr: GithubPrRead, store: FactsStore, now: () => number, watchedSha: string | null): Promise<GithubHead | null> {
+  return new GithubHeadReader(command, target, store, now)
+    .read({ sha: pr.sha ?? null, targetBranch: pr.targetBranch ?? null, pipeline: pr.pipeline ?? null }, watchedSha);
 }
 
 export class GithubHeadReader {
@@ -311,8 +329,121 @@ function earliestRun(rows: PipelineListRow[]): { runId: number; createdAt: numbe
 
 const TRACE_TIMEOUT_MS = 60_000;
 const GITHUB_STAGE = "checks";
+const FIRST_JOBS_PER_PAGE = 30;
+const SMALLEST_JOBS_PER_PAGE = 5;
+const OVER_CAP = "256 KiB";
+
+export interface GithubRun {
+  status: string;
+  webUrl: string | null;
+  sha: string | null;
+  ref: string | null;
+}
+
+export interface GithubRunJob {
+  jobId: number;
+  name: string;
+  status: string;
+  attempt: number;
+  webUrl: string | null;
+}
+
+export async function readRun(command: typeof rtCommand, target: GithubTarget, runId: number): Promise<GithubRun | null> {
+  const r = await readForge(command, target, `:repo/actions/runs/${runId}`);
+  if (!r.ok) {
+    if (r.status === 404) return null;
+    throw new Error(r.error);
+  }
+  const b = isRecord(r.body) ? r.body : {};
+  return { status: restJobStatus(str(b.status), str(b.conclusion)), webUrl: str(b.html_url), sha: str(b.head_sha), ref: str(b.head_branch) };
+}
+
+function runJob(raw: unknown): GithubRunJob | null {
+  if (!isRecord(raw) || !Number.isSafeInteger(raw.id) || typeof raw.name !== "string") return null;
+  return {
+    jobId: raw.id as number,
+    name: raw.name,
+    status: restJobStatus(str(raw.status), str(raw.conclusion)),
+    attempt: Number.isSafeInteger(raw.run_attempt) ? (raw.run_attempt as number) : 1,
+    webUrl: str(raw.html_url),
+  };
+}
+
+export async function readRunJobs(command: typeof rtCommand, target: GithubTarget, runId: number): Promise<GithubRunJob[] | null> {
+  const path = `:repo/actions/runs/${runId}/jobs`;
+  let perPage = FIRST_JOBS_PER_PAGE;
+  for (;;) {
+    const jobs: GithubRunJob[] = [];
+    let over = false;
+    let page: number | null = 1;
+    while (page !== null) {
+      const r = await readForge(command, target, path, { query: { filter: "latest" }, page, perPage });
+      if (!r.ok) {
+        if (r.error.includes(OVER_CAP)) {
+          over = true;
+          break;
+        }
+        if (r.status === 404) return null;
+        throw new Error(r.error);
+      }
+      if (r.truncated) {
+        over = true;
+        break;
+      }
+      const rows = isRecord(r.body) ? r.body.jobs : null;
+      if (!Array.isArray(rows)) throw new Error(`GitHub ${path} was not a jobs listing`);
+      for (const raw of rows) {
+        const job = runJob(raw);
+        if (job) jobs.push(job);
+      }
+      page = r.nextPage;
+    }
+    if (!over) return jobs;
+    if (perPage <= SMALLEST_JOBS_PER_PAGE) throw new Error(`GitHub job page still over the ${OVER_CAP} read cap at ${SMALLEST_JOBS_PER_PAGE} per page`);
+    perPage = Math.max(SMALLEST_JOBS_PER_PAGE, Math.floor(perPage / 2));
+  }
+}
 // The branch filter matches head_branch, so a fork PR opened from the fork's own base-named branch lists as a base run.
 const DROPPED_BASE_SOURCES = new Set(["schedule", "pull_request", "pull_request_target"]);
+
+export interface GithubJobRow {
+  jobId: number | null;
+  name: string;
+  stage: string;
+  status: string;
+  allowFailure: boolean;
+  blocking: boolean;
+  pipelineId: number;
+  attempt: number;
+  webUrl: string | null;
+}
+
+function jobRow(j: Omit<GithubJobRow, "stage" | "allowFailure">): GithubJobRow {
+  return { jobId: j.jobId, name: j.name, stage: GITHUB_STAGE, status: j.status, allowFailure: !j.blocking, blocking: j.blocking, pipelineId: j.pipelineId, attempt: j.attempt, webUrl: j.webUrl };
+}
+
+export type GithubListing = { ok: true; pipeline: { id: string; status: string; sha: string | null; ref: string | null; webUrl: string | null }; jobs: GithubJobRow[] } | { ok: false; error: string };
+
+export async function listGithubJobs(command: typeof rtCommand, target: GithubTarget, mr: GithubPrRead & { webUrl?: string | null }, pipelineId: number | undefined): Promise<GithubListing> {
+  const head = await readGithubHead(command, target, mr, prFacts(mr.webUrl ?? "", mr), Date.now, mr.sha ?? null);
+  if (pipelineId === undefined || (head && pipelineId === head.number)) {
+    if (!head) return { ok: false, error: "the PR has no checks; pass pipelineId" };
+    return {
+      ok: true,
+      pipeline: { id: head.id, status: head.status, sha: head.sha, ref: head.ref, webUrl: head.webUrl },
+      jobs: head.jobs.map((j) => jobRow({ jobId: j.jobId, name: j.name, status: j.status, blocking: j.blocking, pipelineId: j.runId ?? head.number, attempt: 1, webUrl: j.webUrl })),
+    };
+  }
+  const run = await readRun(command, target, pipelineId);
+  const jobs = run ? await readRunJobs(command, target, pipelineId) : null;
+  if (!run || !jobs) return { ok: false, error: `pipeline ${pipelineId} not found` };
+  const headBlocking = new Map((head?.jobs ?? []).map((j) => [j.jobId, j.blocking]));
+  return {
+    ok: true,
+    pipeline: { id: `github:run:${pipelineId}`, ...run },
+    jobs: jobs.map((j) => jobRow({ ...j, blocking: headBlocking.get(j.jobId) !== false, pipelineId })),
+  };
+}
 
 function checkJobId(id: string): number | null {
   if (!id.startsWith(CHECK_ID_PREFIX)) return null;
@@ -392,19 +523,8 @@ export function githubTriageForge(command: typeof rtCommand, target: GithubTarge
     },
     async pipelineInfo(id) {
       if (id === head.number) return { id, status: head.status, webUrl: head.webUrl, sha: head.sha, ref: head.ref };
-      const r = await readForge(command, target, `:repo/actions/runs/${id}`);
-      if (!r.ok) {
-        if (r.status === 404) return null;
-        throw new Error(r.error);
-      }
-      const b = isRecord(r.body) ? r.body : {};
-      return {
-        id,
-        status: restJobStatus(str(b.status), str(b.conclusion)),
-        webUrl: str(b.html_url),
-        sha: str(b.head_sha),
-        ref: str(b.head_branch),
-      };
+      const run = await readRun(command, target, id);
+      return run ? { id, ...run } : null;
     },
     async failedJobs(id) {
       if (id === head.number) return headFailedJobs();
