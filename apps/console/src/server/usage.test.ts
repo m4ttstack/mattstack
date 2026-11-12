@@ -80,6 +80,11 @@ describe('usage api', () => {
       runId: 'r',
       outside: 'after',
     });
+    await get(usageRoutes(), '/api/usage/activity?runId=r&outside=session');
+    expect(rt.usageActivity).toHaveBeenLastCalledWith({
+      runId: 'r',
+      outside: 'session',
+    });
   });
 
   it('refuses an activity read with no run or an unknown window', async () => {
