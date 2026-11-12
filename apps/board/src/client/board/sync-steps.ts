@@ -27,6 +27,8 @@ export interface SyncView {
   steps: SyncStep[];
   /** Set when the chain asked a forge first; GitHub's step carries a note. */
   forge?: ForgeStep['forge'];
+  /** The forge step has run and rt sync has not: no output exists to show. */
+  noRaw?: true;
   /** What the row's word says while the sync runs. */
   phase?: { word: string; detail?: string };
   failure?: string;
@@ -279,6 +281,9 @@ export function syncSteps(
     ...(tree ? { tree } : {}),
     steps: forgeStep ? [forgeStep, ...list] : list,
     ...(forge ? { forge: forge.forge } : {}),
+    ...(forge && parsed === 0 && (!running || forge.state === 'running')
+      ? { noRaw: true as const }
+      : {}),
     ...(phase ? { phase } : {}),
     ...(failure ? { failure } : {}),
     outcome,

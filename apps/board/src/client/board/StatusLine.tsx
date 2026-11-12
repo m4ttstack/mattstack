@@ -200,7 +200,6 @@ function SyncLogWord({
   view,
   running,
   handoff,
-  message,
 }: {
   mr: BoardMRWithReview;
   word: string;
@@ -208,7 +207,6 @@ function SyncLogWord({
   view: SyncView;
   running: boolean;
   handoff?: { onFocus: () => void };
-  message?: string;
 }) {
   const url = mr.webUrl ?? '';
   const [open, setOpen] = useState(() => takeAutoOpen(url));
@@ -278,7 +276,6 @@ function SyncLogWord({
                   />
                 }
                 {...(handoff ? { handoff } : {})}
-                {...(message ? { message } : {})}
                 {...(url ? { onCancel: () => cancelRebase(url) } : {})}
               />
             </SideDrawer>
@@ -495,7 +492,6 @@ export function StatusLine({
           view={view}
           running={syncing}
           {...(handoff ? { handoff } : {})}
-          {...(mr.doctor?.message ? { message: mr.doctor.message } : {})}
         />
       ) : (
         <span className="tui-status-word" title={line.word}>

@@ -696,7 +696,7 @@ test('no cancel once the forge step has settled', async () => {
   expect(drawer.querySelector('.tui-syncsteps-cancel')).toBeNull();
 });
 
-test('a cancelled rebase shows the server message', async () => {
+test('a cancelled rebase says so once and shows no raw output', async () => {
   const drawer = await renderForgeRow({
     status: 'sync-stopped',
     message: 'cancelled; the forge may still be rebasing',
@@ -705,9 +705,32 @@ test('a cancelled rebase shows the server message', async () => {
   expect(drawer.querySelector('.tui-syncsteps-title')?.textContent).toBe(
     'Rebase cancelled'
   );
-  expect(drawer.querySelector('.tui-syncsteps-note')?.textContent).toBe(
-    'cancelled; the forge may still be rebasing'
+  expect(drawer.querySelector('.tui-syncsteps-note')).toBeNull();
+  expect(drawer.querySelector('.tui-syncsteps-raw')).toBeNull();
+  expect(drawer.querySelector('.tui-syncsteps-rawlog')).toBeNull();
+});
+
+test('raw output is hidden while the forge step runs with no sync lines', async () => {
+  // A running row streams the page's live lines, which are keyed by URL.
+  const drawer = await renderForgeRow(
+    {
+      status: 'forge-rebasing',
+      forge: { forge: 'gitlab', state: 'running' },
+    },
+    'https://gitlab.example.com/acme/webapp/-/merge_requests/1430'
   );
+  expect(drawer.querySelector('.tui-syncsteps-raw')).toBeNull();
+  expect(drawer.querySelector('.tui-syncsteps-rawlog')).toBeNull();
+  expect(drawer.textContent).not.toContain('Starting rt sync');
+});
+
+test('raw output is hidden when the forge alone settled it', async () => {
+  const drawer = await renderForgeRow({
+    status: 'synced',
+    forge: { forge: 'gitlab', state: 'done', detail: 'rebased' },
+  });
+  expect(drawer.querySelector('.tui-syncsteps-raw')).toBeNull();
+  expect(drawer.textContent).not.toContain('No output was saved');
 });
 
 test('GitHub note shows on a GitHub forge step', async () => {

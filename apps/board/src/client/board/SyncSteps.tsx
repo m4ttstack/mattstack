@@ -93,7 +93,6 @@ export function SyncSteps({
   view,
   raw,
   handoff,
-  message,
   onCancel,
 }: {
   view: SyncView;
@@ -101,8 +100,6 @@ export function SyncSteps({
   raw: ReactNode;
   /** A doctor picked up the paused rebase. */
   handoff?: { onFocus: () => void };
-  /** The server's word on a cancelled rebase. */
-  message?: string;
   /** Ends the forge's rebase; offered only while that step runs. */
   onCancel?: () => Promise<unknown>;
 }) {
@@ -114,9 +111,7 @@ export function SyncSteps({
         // failure already says it on its line.
         view.failure && !view.steps.some(s => s.state === 'failed')
         ? { tone: 'bad' as const, text: view.failure }
-        : view.outcome === 'cancelled' && message
-          ? { tone: 'quiet' as const, text: message }
-          : null;
+        : null;
   return (
     <div
       className="tui-syncsteps"
@@ -185,18 +180,22 @@ export function SyncSteps({
           )}
         </div>
       )}
-      <div className="tui-syncsteps-foot">
-        <button
-          type="button"
-          className="tui-syncsteps-raw"
-          aria-expanded={showRaw}
-          onClick={() => setShowRaw(v => !v)}
-        >
-          <Icon d={PATHS.chevron} width={12} height={12} />
-          Raw output
-        </button>
-      </div>
-      {showRaw && <div className="tui-syncsteps-rawlog">{raw}</div>}
+      {!view.noRaw && (
+        <>
+          <div className="tui-syncsteps-foot">
+            <button
+              type="button"
+              className="tui-syncsteps-raw"
+              aria-expanded={showRaw}
+              onClick={() => setShowRaw(v => !v)}
+            >
+              <Icon d={PATHS.chevron} width={12} height={12} />
+              Raw output
+            </button>
+          </div>
+          {showRaw && <div className="tui-syncsteps-rawlog">{raw}</div>}
+        </>
+      )}
     </div>
   );
 }

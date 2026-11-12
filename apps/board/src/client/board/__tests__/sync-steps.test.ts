@@ -214,6 +214,18 @@ describe('syncSteps with a forge step', () => {
     expect(v.steps.slice(1).every(s => s.state === 'skipped')).toBe(true);
   });
 
+  test('raw output is hidden only while the forge has written no sync lines', () => {
+    expect(syncSteps([], true, gitlab('running')).noRaw).toBe(true);
+    expect(syncSteps([], false, gitlab('done', 'rebased')).noRaw).toBe(true);
+    expect(syncSteps([], false, gitlab('failed', 'cancelled')).noRaw).toBe(
+      true
+    );
+    expect(
+      syncSteps([L.tree, L.fetched], true, gitlab('failed', 'x')).noRaw
+    ).toBeUndefined();
+    expect(syncSteps([], true).noRaw).toBeUndefined();
+  });
+
   test('forge failed then local steps run', () => {
     const v = syncSteps(
       [L.tree, L.fetched, L.backup, L.rebasing],
