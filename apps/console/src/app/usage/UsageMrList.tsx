@@ -10,6 +10,7 @@ import type {
 
 import {
   compact,
+  hasKnownBilling,
   KIND_ORDER,
   mrParts,
   mrSummary,
@@ -32,7 +33,7 @@ const SORT_COLUMNS: Array<{ sort: MrSort; label: string }> = [
   { sort: 'date', label: 'Last active' },
   { sort: 'output', label: 'Output' },
   { sort: 'cacheRead', label: 'Cache read' },
-  { sort: 'cost', label: 'Metered' },
+  { sort: 'cost', label: 'Est. cost' },
 ];
 
 function SortHeader({
@@ -69,27 +70,40 @@ function SortHeader({
 }
 
 export function CostCell({
+  totals,
   byBilling,
 }: {
+  totals: UsageTotals;
   byBilling: Record<UsageBilling, UsageTotals>;
 }) {
+  const parts: Array<[string, number, string]> = [
+    ['metered', byBilling.metered.cost, 'metered'],
+    ['plan', byBilling.plan.cost, 'on plan'],
+    ['unknown', byBilling.unknown.cost, 'unknown'],
+  ];
   return (
     <div role="cell" className={classes.cost}>
-      <Text fz="sm" fw={500} lh="normal" data-testid="cost-metered">
-        {usd(byBilling.metered.cost)}
+      <Text fz="sm" fw={500} lh="normal" data-testid="cost-total">
+        {usd(totals.cost)}
       </Text>
-      <div className={classes.costRest}>
-        {byBilling.plan.cost > 0 ? (
-          <Text span fz="sm" c="dimmed" lh="normal" data-testid="cost-plan">
-            {`${usd(byBilling.plan.cost)} on plan`}
-          </Text>
-        ) : null}
-        {byBilling.unknown.cost > 0 ? (
-          <Text span fz="sm" c="dimmed" lh="normal" data-testid="cost-unknown">
-            {`${usd(byBilling.unknown.cost)} unknown`}
-          </Text>
-        ) : null}
-      </div>
+      {hasKnownBilling(byBilling) ? (
+        <div className={classes.costRest}>
+          {parts.map(([key, cost, label]) =>
+            cost > 0 ? (
+              <Text
+                key={key}
+                span
+                fz="sm"
+                c="dimmed"
+                lh="normal"
+                data-testid={`cost-${key}`}
+              >
+                {`${usd(cost)} ${label}`}
+              </Text>
+            ) : null
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -150,7 +164,7 @@ function MrRow({
       <Text role="cell" fz="sm" c="dimmed" ta="right">
         {compact(row.totals.cacheRead)}
       </Text>
-      <CostCell byBilling={row.byBilling} />
+      <CostCell totals={row.totals} byBilling={row.byBilling} />
       <div role="cell" className={classes.chevron}>
         <Icon name="chevronRight" size={16} />
       </div>

@@ -1,4 +1,5 @@
 import type {
+  UsageBilling,
   UsageKind,
   UsageMrData,
   UsageMrRow,
@@ -27,6 +28,10 @@ export function usd(cost: number): string {
   if (cost >= 1000) return `$${Math.round(cost).toLocaleString('en-US')}`;
   return `$${cost.toFixed(2)}`;
 }
+
+/** True once some cost has a known account, metered or on plan. */
+export const hasKnownBilling = (byBilling: Record<UsageBilling, UsageTotals>) =>
+  byBilling.metered.cost + byBilling.plan.cost > 0;
 
 export function compact(n: number): string {
   if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
@@ -66,7 +71,7 @@ export interface MrSortOrder {
 }
 
 const MR_SORT_VALUES: Record<MrSort, (row: UsageMrRow) => number[]> = {
-  cost: row => [row.byBilling.metered.cost, row.totals.cost],
+  cost: row => [row.totals.cost],
   date: row => [row.lastActivity],
   output: row => [row.totals.output],
   cacheRead: row => [row.totals.cacheRead],

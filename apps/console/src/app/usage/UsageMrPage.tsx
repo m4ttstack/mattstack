@@ -282,7 +282,7 @@ export function UsageMrPage({ mrKey }: { mrKey: string }) {
 
                 <UsageStats
                   stats={[
-                    ...billingStats(mr.byBilling),
+                    ...billingStats(mr.totals.cost, mr.byBilling),
                     {
                       key: 'output',
                       value: compact(mr.totals.output),

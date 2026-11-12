@@ -218,7 +218,7 @@ export function UsagePage() {
   const responseCost = rows.reduce((sum, r) => sum + r.costByKind.respond, 0);
   const mrStats: UsageStat[] = summary
     ? [
-        ...billingStats(summary.byBilling, 'gray'),
+        ...billingStats(summary.totals.cost, summary.byBilling, 'gray'),
         {
           key: 'mrs',
           value: summary.mrCount,
@@ -241,7 +241,7 @@ export function UsagePage() {
     : [];
   const trendCost = trends.data?.totals.cost ?? 0;
   const trendStats: UsageStat[] = [
-    ...billingStats(trends.data?.byBilling),
+    ...billingStats(trendCost, trends.data?.byBilling),
     {
       key: 'average',
       value: usd(averageWeek(trendCost, url.range, weeks)),
