@@ -29,7 +29,7 @@ Every claim in the job brief was checked against the code.
 |---|---|---|
 | `GitHubProvider.watchMR` throws unconditionally | true | `src/GitHubProvider.ts:1627-1639` |
 | `MRDashboard` single-MR `subscribe` calls it unguarded | true | `src/MRDashboard.ts:512-528` |
-| No polling connection state | true; worse, GitHub branch and multi-PR dashboards fake a push connect and report `connected` | `src/MRDashboard.ts:576-580, 760-764`; union at `src/RealtimeWatcher.ts`, `src/types.ts:457` |
+| No polling connection state | true; worse, the branch dashboard fakes a push connect on both forges, and the multi-PR dashboard does on GitHub, so both report `connected` while only polling | `src/MRDashboard.ts:576-580, 760-764`; union at `src/RealtimeWatcher.ts`, `src/types.ts:457` |
 | `rebasePullRequest` throws, `canRebase` false | true | `src/GitHubProvider.ts:691, 2061-2072` |
 | README and `tests/live/expectations.ts` say rebase is permanently unsupported | expectations: true (`tests/live/expectations.ts:74-78`). README: false the other way; its table lists rebase as a GitHub capability and omits auto-merge and the queue | `README.md:30` |
 | `mergePullRequest` sends `merge_method` only when passed, never reads allowed methods | true | `src/GitHubProvider.ts:1773-1777` |
@@ -45,7 +45,10 @@ Every claim in the job brief was checked against the code.
 ## Goals
 
 1. GitHub `watchMR` polls, so single-PR dashboards load and update; no
-   dashboard that only polls claims a live connection.
+   GitHub dashboard that only polls claims a live connection. The GitLab
+   branch dashboard, which also only polls and reports `connected`, keeps
+   doing so under the GitLab ruling; it is a known remaining case and a
+   candidate follow-up.
 2. GitHub rebase works and `canRebase` is true.
 3. GitHub merge and auto-merge use a method the repository allows when the
    caller names none.
@@ -73,8 +76,8 @@ Every claim in the job brief was checked against the code.
 ## Anti-goals
 
 - Reporting success while proving nothing: a queued merge must never look
-  merged, a partial create must never look clean, a polling dashboard must
-  never say `connected`, a failed read must never be indistinguishable from a
+  merged, a partial create must never look clean, a polling GitHub dashboard
+  must never say `connected`, a failed read must never be indistinguishable from a
   miss for a caller that asks.
 - Raising GitHub request volume silently. Every added request is counted
   below.
@@ -130,7 +133,9 @@ failing or rate-limited token). A `RateLimitedError` waits until its
 current timing exactly. Its status is:
 
 - `connecting` until the first fetch settles;
-- `polling` after a successful fetch;
+- `polling` after a successful fetch, including one that resolves null (a
+  branch with no PR yet, a PR that does not exist): the read succeeded, there
+  was just nothing to deliver;
 - `reconnecting` with `consecutiveErrors` and `lastError` while fetches fail,
   back to `polling` on the next success.
 
@@ -144,12 +149,16 @@ poll; no push channel". This breaks an outside exhaustive switch over the
 union; the CHANGELOG says so.
 
 **`GitHubProvider.watchMR`** runs a poll-only watcher whose fetch is
-`fetchSingleMR(projectPath, mrIid, userId, onWarning)`. A fill warning makes
-the fetch throw (so the watcher reports `reconnecting` with the warning's
-message) instead of silently delivering nothing. A PR that does not exist
-resolves null and delivers nothing, as GitLab's watcher does. Default
-interval 60s; `options.pollIntervalMs` overrides it. `options.onStatusChange`,
-`logger` and `logContext` are honoured as on GitLab.
+`fetchSingleMR(projectPath, mrIid, userId, onWarning)`. A warning with
+`source: 'fill'` makes the fetch throw (so the watcher reports
+`reconnecting` with the warning's message) instead of silently delivering
+nothing. A `contexts` warning does not: the PR is delivered with its pending
+pipeline, as `fetchPullRequests` does, so a PR with more than 100 checks keeps
+updating when a later checks page fails. A PR that does not exist resolves
+null and delivers nothing, as GitLab's watcher does. Default interval 60s;
+`options.pollIntervalMs` overrides it. `options.onStatusChange` is honoured;
+the logger is `options.logger` else the provider's own, and the log context
+is `options.logContext` else `watchMR:<projectPath>!<iid>`.
 
 **Dashboards.** `createSingleDashboard` is unchanged: it now works on GitHub
 because `watchMR` does. `createBranchDashboard` and `createDashboardGroup`
@@ -168,10 +177,15 @@ is rendered in Storybook through Fast Browser and screenshotted in both
 schemes before the task is done. `useDashboard` needs no change
 (`ConnectionStatus` derives from `WatcherStatus`).
 
-**Cost.** One GraphQL read (1 rate-limit point) per poll: 60 per hour per
-open single-PR dashboard at the default, and never more than one per
-interval while reads fail. Branch and multi-PR dashboards: no change while
-healthy, fewer while failing.
+**Cost.** Each poll is one `fetchSingleMR`: one GraphQL fill (1 rate-limit
+point), plus one GraphQL request per extra page of checks past the first 100,
+plus one REST rulesets read for an open PR with a review decision when the
+fill's 10-minute rules cache (`RULES_CACHE_MS`, `src/GitHubProvider.ts:438`)
+has expired (`tests/gh-fill-cost.test.ts:97`). At the 60s default that is
+60 GraphQL plus up to 6 REST requests per hour per open single-PR dashboard
+(more GraphQL only for a PR with over 100 checks), and never more than one
+poll per interval while reads fail. Branch and multi-PR dashboards: no change
+while healthy, fewer while failing. The shepherd was told the full count.
 
 ### 2. Rebase (GLANCE-45)
 
@@ -219,7 +233,8 @@ repository(owner, name) {
      its own settings. This matches `mr_merge`, which refuses any defined
      value. `sha` is honoured as the enqueue's `expectedHeadOid`.
    - Already in the queue: no write; the result's `queued` is the current
-     entry.
+     entry. If the read-back then fails it throws `MergeReadBackFailedError`
+     with `writeApplied: false` (nothing was written) and `queued` set.
    - Otherwise `enqueuePullRequest` with the node id from the context (no
      extra node-id read). This includes a PR the queue dropped earlier (my
      call): a `mergePullRequest` call is an explicit request to merge, and
@@ -247,10 +262,12 @@ per direct merge: one more than today (the context read); the branch-delete
 path saves one (4d), so a merge with branch removal costs the same as today.
 
 **`setAutoMerge` on GitHub** replaces its REST node-id read with the context
-read (same request count) and passes `mergeMethod` (the
-`viewerDefaultMergeMethod` enum) to `enablePullRequestAutoMerge`, whose own
-default is MERGE. On a queue branch it omits `mergeMethod`, since the queue
-decides.
+read (same request count) and passes `mergeMethod` to
+`enablePullRequestAutoMerge`, whose own default is MERGE. The method comes
+from the same pick function as the direct merge path with no caller input
+(`viewerDefaultMergeMethod`, else the first allowed of merge, squash,
+rebase), upper-cased to GitHub's enum. On a queue branch it omits
+`mergeMethod`, since the queue decides.
 
 **Daemon check (shepherd's note).** `mr_merge` asks GitHub about the queue
 itself (`lib/mcp/github-merge.ts:162-180`) and calls merge only when the
@@ -299,7 +316,10 @@ can attribute it. GitHub fires:
 - `page-cap`, source `list`: the 500-PR fallback scan ended with no match;
 - `request-failed`, source `fill`: the PR was found but its fill failed
   (`target` is `warningTarget(projectPath, number)`), for the single read
-  and for each such PR in the batch.
+  and for each such PR in the batch;
+- whatever the fill itself reports for a PR it kept, such as a `contexts`
+  warning for a failed checks page (the PR is returned with a pending
+  pipeline, as in `fetchPullRequests`), forwarded with `branch` set.
 
 A warning callback that throws is ignored, as in `fetchPullRequests`.
 Capability `canReportIncompleteBranchReads?: boolean`: true on GitHub, false
@@ -313,8 +333,7 @@ first, then reads the PR back. If any step failed it throws
 
 - extends `ReadBackFailedError`, with `writeApplied: true`, `operation:
   'createPullRequest'`, `projectPath`, `iid`;
-- `failedSteps: Array<{ step: 'reviewers' | 'assignees' | 'labels'; message: string }>`
-  (each step's cause kept on the entry);
+- `failedSteps: Array<{ step: 'reviewers' | 'assignees' | 'labels'; message: string; cause?: unknown }>`;
 - `pullRequest: PullRequest | null`, the read-back, null when it failed;
 - a message naming the PR number and the failed steps.
 
@@ -381,7 +400,9 @@ update and reports `polling`; rebase moves a behind branch onto its base;
 merge with no method uses the repository default; a squash-only merge and
 auto-merge on the fixture switched to squash-only for the case and restored in
 a `finally` (recorded as a skip with the reason when the token cannot change
-repository settings); `sourceProjectPath` on a same-repo PR; a create with a
+repository settings; if the case finds the fixture already squash-only at its
+start, a run was killed mid-case, so it restores the settings first and
+records that in the report); `sourceProjectPath` on a same-repo PR; a create with a
 reviewer GitHub refuses throws `PartialCreateError` for a PR that exists,
 then closes it; `restRequest` stops early on a large response. The queue path
 runs against an optional queue-protected repo entry in the credentials
@@ -415,6 +436,10 @@ template and records a skip with the reason when none is configured.
    can see the scan cap the same way.
 4. `mr_resolve_branch` and `mr_create` with `ifExists` should compare
    `sourceProjectPath` to reject a fork PR on a same-named branch.
+
+Candidate, not required: the GitLab branch dashboard only polls but reports
+`connected` (Goal 1); moving it to `polling` is a GitLab behaviour change and
+needs its own ruling.
 
 Follow-ups 1 and 2 change what the daemon reports on the day this merges
 (see Sequencing in section 3), so they should land soon after.
