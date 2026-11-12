@@ -2,10 +2,10 @@ import AppKit
 import Sparkle
 import MattstackCore
 
-/// Sparkle for an LSUIElement app: gentle reminders instead of a window
-/// stealing focus, a menu item bound to canCheckForUpdates, silent install
-/// once idle (held while a window is open or setup runs), and nothing at all
-/// in the dev flavor.
+/// Sparkle for an LSUIElement app: a scheduled update opens Sparkle's own
+/// window in front (only the menu item while setup runs), a menu item bound
+/// to canCheckForUpdates, an update put off to quit installs once idle (held
+/// while a window is open or setup runs), and nothing at all in the dev flavor.
 final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPUStandardUserDriverDelegate, @unchecked Sendable {
     @objc dynamic private(set) var canCheckForUpdates = false
     var onUpdateAvailable: ((String) -> Void)?
@@ -18,6 +18,8 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
     private var controller: SPUStandardUpdaterController?
     private var observation: NSKeyValueObservation?
     private let installer: HeldUpdateInstaller
+    private let isBusy: () -> Bool
+    private var status = UpdateStatus()
     private var retryTimer: Timer?
     private static let retryInterval: TimeInterval = 60
 
@@ -31,6 +33,7 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
     ]
 
     init(isDevBuild: Bool, isBusy: @escaping () -> Bool) {
+        self.isBusy = isBusy
         installer = HeldUpdateInstaller(setupRunning: isBusy, windowsOpen: {
             NSApp.windows.filter {
                 UpdatePolicy.windowHoldsUpdate(isVisible: $0.isVisible, isMiniaturized: $0.isMiniaturized, canBecomeKey: $0.canBecomeKey)
@@ -51,6 +54,7 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
         }
         let c = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: self, userDriverDelegate: self)
         controller = c
+        writeStatus { $0 = UpdateStatus(lastCheckAt: c.updater.lastUpdateCheckDate) }
         observation = c.updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { [weak self] updater, _ in
             self?.canCheckForUpdates = updater.canCheckForUpdates
         }
@@ -93,6 +97,17 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
         UserDefaults.standard.set(item.displayVersionString, forKey: UpdateNotice.pendingVersionKey)
     }
 
+    private func writeStatus(_ change: (inout UpdateStatus) -> Void) {
+        change(&status)
+        guard enabled else { return }
+        let path = AppHome.current + "/.mattstack/rt/" + UpdateStatus.fileName
+        do {
+            try status.encoded().write(to: URL(fileURLWithPath: path), options: .atomic)
+        } catch {
+            TrayLog.info("update status not written", ["error": String(describing: error)])
+        }
+    }
+
     private func startRetrying() {
         retryTimer?.invalidate()
         retryTimer = Timer.scheduledTimer(withTimeInterval: Self.retryInterval, repeats: true) { [weak self] timer in
@@ -111,17 +126,33 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
         return true
     }
 
-    // MARK: SPUStandardUserDriverDelegate — gentle reminders
+    // MARK: SPUStandardUserDriverDelegate — the update window
 
     var supportsGentleScheduledUpdateReminders: Bool { true }
 
+    // Sparkle shows a background app's scheduled update behind every other
+    // app unless it proposes immediate focus, so the window is opened here.
     func standardUserDriverShouldHandleShowingScheduledUpdate(_ update: SUAppcastItem, andInImmediateFocus immediateFocus: Bool) -> Bool {
-        immediateFocus
+        false
     }
 
     func standardUserDriverWillHandleShowingUpdate(_ handleShowingUpdate: Bool, forUpdate update: SUAppcastItem, state: SPUUserUpdateState) {
+        let version = update.displayVersionString
         if !handleShowingUpdate || state.userInitiated == false {
-            DispatchQueue.main.async { self.onUpdateAvailable?(update.displayVersionString) }
+            DispatchQueue.main.async { self.onUpdateAvailable?(version) }
+        }
+        let opens = UpdatePolicy.opensUpdateWindow(handledBySparkle: handleShowingUpdate,
+                                                   userInitiated: state.userInitiated,
+                                                   setupRunning: isBusy())
+        DispatchQueue.main.async {
+            self.writeStatus {
+                $0.offeredVersion = version
+                $0.lastCheckAt = Date()
+            }
+            guard opens, let c = self.controller else { return }
+            TrayLog.info("update window opened", ["version": version])
+            NSApp.activate(ignoringOtherApps: true)
+            c.checkForUpdates(nil)
         }
     }
 
@@ -144,6 +175,8 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
 
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: (any Error)?) {
         onUpdateInstallingChanged?(false)
+        let checkedAt = updater.lastUpdateCheckDate
+        DispatchQueue.main.async { self.writeStatus { $0.lastCheckAt = checkedAt } }
     }
 
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem,
@@ -151,6 +184,10 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
         recordPending(item)
         let version = item.displayVersionString
         let hold = installer.offer(version: version) { DispatchQueue.main.async { immediateInstallHandler() } }
+        writeStatus {
+            $0.heldVersion = hold == nil ? nil : version
+            $0.hold = UpdateStatus.holdName(hold)
+        }
         if let hold {
             TrayLog.info("update held", ["version": version, "hold": String(describing: hold)])
             startRetrying()

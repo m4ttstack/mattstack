@@ -214,8 +214,26 @@ describe("collectPing", () => {
     expect(ping.migrationsKnown).toEqual([...MIGRATION_IDS]);
   });
 
+  test("appUpdate carries the tray's update status, and is null when the app wrote none", async () => {
+    const status = { hold: "windowsOpen", heldVersion: "2.31.1", lastCheckAt: "2026-11-06T14:33:37Z", offeredVersion: "2.31.1" };
+    const written = world([], { files: { [`${HOME}/.mattstack/rt/app-update.json`]: JSON.stringify(status) } });
+    expect((await collectPing(written)).appUpdate).toEqual(status);
+    expect((await collectPing(world([]))).appUpdate).toBeNull();
+  });
+
+  test("appUpdate keeps only string fields and nulls the rest", async () => {
+    const p = world([], { files: { [`${HOME}/.mattstack/rt/app-update.json`]: JSON.stringify({ lastCheckAt: 5, offeredVersion: "2.31.1", extra: "x" }) } });
+    expect((await collectPing(p)).appUpdate).toEqual({ lastCheckAt: null, offeredVersion: "2.31.1", heldVersion: null, hold: null });
+  });
+
+  test("an unreadable update status file leaves appUpdate null", async () => {
+    const p = world([], { files: { [`${HOME}/.mattstack/rt/app-update.json`]: "not json" } });
+    expect((await collectPing(p)).appUpdate).toBeNull();
+  });
+
   test("the ping carries exactly the spec's fields", async () => {
     expect(Object.keys(await collectPing(world([]))).sort()).toEqual([
+      "appUpdate",
       "appVersion",
       "flavor",
       "installId",

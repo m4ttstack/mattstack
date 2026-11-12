@@ -577,7 +577,7 @@ check_sparkle() { # app
         assert_eq "$exe SUFeedURL" "https://github.com/m4ttstack/mattstack/releases/latest/download/appcast.xml" "$(plist "$info" SUFeedURL)"
         assert_eq "$exe SUEnableAutomaticChecks" "true" "$(plist "$info" SUEnableAutomaticChecks)"
         assert_eq "$exe SUScheduledCheckInterval" "21600" "$(plist "$info" SUScheduledCheckInterval)"
-        assert_eq "$exe SUAutomaticallyUpdate" "true" "$(plist "$info" SUAutomaticallyUpdate)"
+        assert_eq "$exe SUAutomaticallyUpdate" "false" "$(plist "$info" SUAutomaticallyUpdate)"
         assert_eq "$exe SUVerifyUpdateBeforeExtraction" "true" "$(plist "$info" SUVerifyUpdateBeforeExtraction)"
     fi
     for k in SUEnableInstallerLauncherService SUEnableDownloaderService SUEnableInstallerConnectionService SUEnableInstallerStatusService; do
