@@ -706,3 +706,28 @@ describe('drawer reads', () => {
     expect(document.body.textContent).not.toContain("couldn't load comments");
   });
 });
+
+test("a GitHub MR's drawer links open in github", async () => {
+  const PR_URL = 'https://github.com/acme/webapp/pull/101';
+  servedData = {
+    ...BOARD_DATA,
+    mrs: [{ ...BOARD_DATA.mrs[0]!, webUrl: PR_URL, provider: 'github' }],
+  };
+  const drawer = await renderBoardWithDrawerOpen();
+  const open = drawer.querySelector<HTMLAnchorElement>('.tui-cd-open')!;
+  expect(open.textContent).toBe('open in github ↗');
+  expect(open.getAttribute('href')).toBe(PR_URL);
+  expect(drawer.querySelector('.tui-cd-note-time')?.getAttribute('title')).toBe(
+    'open this comment in github'
+  );
+});
+
+test("a GitLab MR's drawer still links open in gitlab", async () => {
+  const drawer = await renderBoardWithDrawerOpen();
+  expect(drawer.querySelector('.tui-cd-open')?.textContent).toBe(
+    'open in gitlab ↗'
+  );
+  expect(drawer.querySelector('.tui-cd-note-time')?.getAttribute('title')).toBe(
+    'open this comment in gitlab'
+  );
+});

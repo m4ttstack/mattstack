@@ -119,3 +119,13 @@ describe('serveUnconfigured', () => {
     handle.stop();
   });
 });
+
+describe('setup page wording', () => {
+  test('is forge-neutral', async () => {
+    const text = await unconfiguredResponse(new Request('http://x/')).text();
+    expect(text).toContain('open merge requests and pull requests');
+    expect(text).toContain('board.projects');
+    expect(text).toContain('too on a GitLab team');
+    expect(text).not.toContain('open GitLab merge requests');
+  });
+});

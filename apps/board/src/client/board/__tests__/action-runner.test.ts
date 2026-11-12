@@ -492,6 +492,27 @@ test('the toast still shows when every selected MR was skipped for presence', as
   expect(events).toEqual(['toast skipped !1, mira is reviewing']);
 });
 
+test('a presence skip on a GitHub PR names it #<n>', async () => {
+  const { deps, events } = fakeDeps();
+  deps.presence = () => 'mira';
+  await runBulk(
+    {
+      request: { kind: 'launch', flow: 'review' },
+      targets: [
+        {
+          iid: 7,
+          webUrl: 'https://github.com/acme/webapp/pull/7',
+          provider: 'github',
+        } as BoardMR,
+      ],
+      selected: 1,
+    },
+    {},
+    deps
+  );
+  expect(events).toEqual(['toast skipped #7, mira is reviewing']);
+});
+
 test("presence skips stay out of the didn't-need-it count", async () => {
   const { deps, events } = fakeDeps();
   deps.presence = (_flow, m) => (m.iid === 2 ? 'mira' : null);

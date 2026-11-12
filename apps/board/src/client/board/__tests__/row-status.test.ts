@@ -2134,6 +2134,19 @@ describe('merge from the row', () => {
     expect(line!.verbs.map(v => v.kind)).toEqual(['merge', 'open-mr']);
   });
 
+  test('my approved, mergeable GitHub PR offers no merge; the same row on GitLab does', () => {
+    const pr = mine({
+      ...reviewDone,
+      webUrl: 'https://github.com/acme/webapp/pull/7',
+      provider: 'github',
+    });
+    expect(verbs(pr)).toEqual(['read-review']);
+    expect(
+      candidateLines(pr, NOW, NONE, ME).flatMap(l => l.verbs.map(v => v.kind))
+    ).not.toContain('merge');
+    expect(verbs(mine(reviewDone))).toEqual(['merge', 'read-review']);
+  });
+
   test("someone else's MR never offers merge", () => {
     expect(
       verbs(mine({ ...reviewDone, author: { username: 'pat', name: 'Pat' } }))

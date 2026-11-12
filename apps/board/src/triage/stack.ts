@@ -26,6 +26,10 @@ export interface StackChain {
 export function projectKeyOf(mrUrl: string): string {
   try {
     const path = new URL(mrUrl).pathname;
+    if (!path.includes('/-/')) {
+      const pr = path.replace(/\/pull\/\d+(?:\/.*)?$/, '');
+      return pr !== path ? pr : path.replace(/\/\d+$/, '');
+    }
     const [project] = path.split('/-/');
     return (project ?? path).replace(/\/\d+$/, '');
   } catch {

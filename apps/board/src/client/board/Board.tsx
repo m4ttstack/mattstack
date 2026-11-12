@@ -21,6 +21,7 @@ import type { TabConfig } from '../../config.ts';
 import type { BoardMR } from '../../data.ts';
 import { inferRoster } from '../../data.ts';
 import type { GateRow } from '../../gates/store.ts';
+import { forgeWord } from '../../mr-ref.ts';
 import type { DeclineReason } from '../../peer/envelope.ts';
 import { sectionStatus } from '../../sections.ts';
 import {
@@ -283,12 +284,12 @@ const resumeReviewFailureMessage = (
   result: ActionResult,
   mr: BoardMR
 ): string =>
-  `resume review failed for !${mr.iid} (${result.status})${result.text ? `: ${result.text}` : ''}`;
+  `resume review failed for ${mrRef(mr)} (${result.status})${result.text ? `: ${result.text}` : ''}`;
 const resumeRespondFailureMessage = (
   result: ActionResult,
   mr: BoardMR
 ): string =>
-  `resume respond failed for !${mr.iid} (${result.status})${result.text ? `: ${result.text}` : ''}`;
+  `resume respond failed for ${mrRef(mr)} (${result.status})${result.text ? `: ${result.text}` : ''}`;
 
 // ── board ──────────────────────────────────────────────────────────────────
 
@@ -607,7 +608,7 @@ export function Board() {
       addToast(
         outcome === 'posted'
           ? `held note posted to !${mr.iid}`
-          : `held note dismissed on !${mr.iid}`
+          : `held note dismissed on ${mrRef(mr)}`
       );
     },
     [draftModal, addToast]
@@ -882,7 +883,7 @@ export function Board() {
       if (run) {
         setPendingRun({
           run,
-          iid: mr.iid,
+          mr,
           ring: () => ringWorker(mr),
           launch: () => void launch(flow, mr, opts),
         });
@@ -943,7 +944,7 @@ export function Board() {
       if (!run) return setPendingRedo(pending);
       setPendingRun({
         run,
-        iid: mr.iid,
+        mr,
         ring: () => ringWorker(mr),
         launch: pending.run,
       });
@@ -1161,7 +1162,9 @@ export function Board() {
       setNoteEditing(null);
       postAction('/note', { mrUrl: mr.webUrl, text }).then(result => {
         if (!result.ok) {
-          addToast(`could not save the note on !${mr.iid} (${result.status})`);
+          addToast(
+            `could not save the note on ${mrRef(mr)} (${result.status})`
+          );
           return;
         }
         load();
@@ -1176,7 +1179,7 @@ export function Board() {
         ? mrLine(mr, data.slackTemplates)
         : (mr.webUrl ?? mr.title);
       navigator.clipboard?.writeText(text).then(
-        () => addToast(`copied !${mr.iid} for slack`),
+        () => addToast(`copied ${mrRef(mr)} for slack`),
         () => {}
       );
     },
@@ -2273,6 +2276,7 @@ export function Board() {
                 entries={bulkEntries}
                 empty={`nothing fits all ${selectedMrs.length}`}
                 flat
+                forge={forgeWord(selectedMrs[0])}
                 onClose={() => setRowMenu(null)}
                 onRun={(key, opts) => {
                   const entry = bulkEntries.find(e => e.key === key);

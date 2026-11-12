@@ -137,3 +137,14 @@ test('the read-only face shows the questions but nothing to pick, submit or focu
   expect(choices.length).toBe(0);
   expect(posts).toEqual([]);
 });
+
+test("a GitHub PR's read-only notice names it #N", () => {
+  const pr = {
+    ...theirs,
+    webUrl: 'https://github.com/acme/webapp/pull/1271',
+    provider: 'github',
+  } as BoardMRWithReview;
+  expect(gateReadOnlyReason(gate('respond-plan'), pr, 'rmarlow')).toBe(
+    "Only #1271's author can answer this. You're viewing it read-only."
+  );
+});

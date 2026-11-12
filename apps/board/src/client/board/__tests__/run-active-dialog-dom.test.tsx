@@ -22,7 +22,9 @@ afterAll(async () => {
   await GlobalRegistrator.unregister();
 });
 
-async function open(run: ActiveRun) {
+type MrLinkTarget = import('../../../mr-ref.ts').MrLinkTarget;
+
+async function open(run: ActiveRun, mr: MrLinkTarget = { iid: 1418 }) {
   const calls: string[] = [];
   const container = document.createElement('div');
   document.body.appendChild(container);
@@ -32,7 +34,7 @@ async function open(run: ActiveRun) {
       <RunActiveConfirmDialog
         pending={{
           run,
-          iid: 1418,
+          mr,
           ring: () => calls.push('ring'),
           launch: () => calls.push('launch'),
         }}
@@ -104,4 +106,19 @@ test('Ring worker rings, Launch doctor anyway launches, Cancel holds focus', asy
   await React.act(async () => e.button('Launch doctor anyway')?.click());
   expect(e.calls).toEqual(['launch', 'done']);
   await e.close();
+});
+
+test('on a GitHub PR the dialog names the MR and its parent #N', async () => {
+  const pr: MrLinkTarget = {
+    iid: 1418,
+    webUrl: 'https://github.com/acme/webapp/pull/1418',
+    provider: 'github',
+  };
+  const own = await open({ runId: 'r', stage: null }, pr);
+  expect(title(own.dialog)).toBe('A work run is active on #1418');
+  await own.close();
+  const parent = await open({ runId: 'r', stage: null, viaIid: 1400 }, pr);
+  expect(title(parent.dialog)).toBe('A work run is active on #1400');
+  expect(parent.dialog?.textContent).toContain('The run is on parent #1400.');
+  await parent.close();
 });

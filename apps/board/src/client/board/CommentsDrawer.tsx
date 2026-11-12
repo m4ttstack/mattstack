@@ -9,6 +9,7 @@ import {
 import { Button, ICONS, Markdown, SideDrawer } from '@mattstack/tui-kit';
 import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
 import type { BoardMR } from '../../data.ts';
+import { forgeWord, mrRef } from '../../mr-ref.ts';
 import { isOwnMr } from '../../view.ts';
 import { getDiscussions, postThreadWrite } from '../api.ts';
 import type { CommentNote, CommentThread, GeneralComment } from '../types.ts';
@@ -102,7 +103,7 @@ function CommentNoteView({
             href={mr.webUrl ? `${mr.webUrl}#note_${note.id}` : '#'}
             target="_blank"
             rel="noopener noreferrer"
-            title="open this comment in gitlab"
+            title={`open this comment in ${forgeWord(mr)}`}
           >
             {ago(note.at, now)} ↗
           </a>
@@ -599,7 +600,7 @@ function CommentsDrawer({
         </button>
       </div>
       <div className="tui-cd-title">
-        <span className="tui-cd-iid">!{mr.iid}</span> {cleanTitle(mr.title)}
+        <span className="tui-cd-iid">{mrRef(mr)}</span> {cleanTitle(mr.title)}
       </div>
       <a
         className="tui-cd-open"
@@ -607,7 +608,7 @@ function CommentsDrawer({
         target="_blank"
         rel="noopener noreferrer"
       >
-        open in gitlab ↗
+        open in {forgeWord(mr)} ↗
       </a>
       <div className="tui-cd-body">
         {!data ? (

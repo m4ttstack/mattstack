@@ -4,6 +4,7 @@ import { switchboardUrl } from '@mattstack/rt-client';
 import {
   boardSetting,
   daemonRepoField,
+  noRepoIdentity,
   parseConfig,
   repoIdentityField,
   resetBoardSettingWarnings,
@@ -16,6 +17,24 @@ const base = {
 };
 
 describe('parseConfig', () => {
+  test('a github forge with no gitlabHost gives a github forge', () => {
+    const { gitlabHost: _gl, ...rest } = base;
+    const cfg = parseConfig(
+      JSON.stringify({
+        ...rest,
+        forge: { provider: 'github', host: 'github.com' },
+      })
+    );
+    expect(cfg.forge).toEqual({ kind: 'github', host: 'https://github.com' });
+  });
+
+  test('with neither gitlabHost nor forge it throws the gitlabHost message', () => {
+    const { gitlabHost: _gl, ...rest } = base;
+    expect(() => parseConfig(JSON.stringify(rest))).toThrow(
+      /missing required field "gitlabHost"/
+    );
+  });
+
   test('parses members and applies defaults', () => {
     const cfg = parseConfig(JSON.stringify(base));
     expect(cfg.members).toEqual([
@@ -424,5 +443,29 @@ describe('boardSetting', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+describe('noRepoIdentity', () => {
+  test('a GitLab board names board.gitlabHost, as it always has', () => {
+    expect(
+      noRepoIdentity(
+        { forge: { kind: 'gitlab', host: 'https://gitlab.com' } },
+        'org/repo'
+      )
+    ).toBe(
+      'org/repo: could not derive its rt repo identity from board.gitlabHost'
+    );
+  });
+
+  test("a GitHub board names the team's forge host in mattstack.integrations", () => {
+    expect(
+      noRepoIdentity(
+        { forge: { kind: 'github', host: 'github.test' } },
+        'org/repo'
+      )
+    ).toBe(
+      "org/repo: could not derive its rt repo identity from the team's forge host in mattstack.integrations"
+    );
   });
 });

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { domainForKind } from '@mattstack/gate-kit';
 import type { GateRow } from '../../gates/store.ts';
+import { mrRef } from '../../mr-ref.ts';
 import { isOwnMr } from '../../view.ts';
 import type { BoardMRWithReview } from '../types.ts';
 import type { TriageGateState } from './DecisionQueueModal.tsx';
@@ -20,7 +21,7 @@ export function gateReadOnlyReason(
   if (self === null)
     return 'Set your seat in board settings to answer gates on your own MRs.';
   if (mr && isOwnMr(mr, self)) return null;
-  return `Only ${mr ? `!${mr.iid}'s` : "the MR's"} author can answer this. You're viewing it read-only.`;
+  return `Only ${mr ? `${mrRef(mr)}'s` : "the MR's"} author can answer this. You're viewing it read-only.`;
 }
 
 export interface QueueEntry {
@@ -100,7 +101,7 @@ export function markAnswered(
 
 export function entryPeek(entry: QueueEntry): string {
   return entry.mr
-    ? `!${entry.mr.iid} · ${cleanTitle(entry.mr.title)}`
+    ? `${mrRef(entry.mr)} · ${cleanTitle(entry.mr.title)}`
     : entry.gate.label;
 }
 

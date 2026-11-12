@@ -40,11 +40,14 @@ const mr = {
 } as unknown as BoardMRWithReview;
 const draft = { kind: 'ci-note', body: 'the cache key changed' } as DraftInfo;
 
-async function render(canPost: boolean): Promise<string[]> {
+async function render(
+  canPost: boolean,
+  on: BoardMRWithReview = mr
+): Promise<string[]> {
   await React.act(async () => {
     root.render(
       <DraftModal
-        mr={mr}
+        mr={on}
         draft={draft}
         local
         canPost={canPost}
@@ -65,4 +68,15 @@ test("the author's board can post the held note or dismiss it", async () => {
 test("someone else's board can only dismiss it", async () => {
   expect(await render(false)).toEqual(['dismiss']);
   expect(document.body.textContent).toContain('only the author posts');
+});
+
+test('a held draft on a GitHub row offers only dismiss', async () => {
+  const pr = {
+    ...mr,
+    iid: 7,
+    webUrl: 'https://github.com/acme/webapp/pull/7',
+    provider: 'github',
+  } as unknown as BoardMRWithReview;
+  expect(await render(true, pr)).toEqual(['dismiss']);
+  expect(document.body.textContent).not.toContain('only the author posts');
 });

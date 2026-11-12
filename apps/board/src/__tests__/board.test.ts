@@ -36,7 +36,7 @@ import { extractTicketId } from '../ticket.ts';
 const FIXTURE_NOW = Date.parse('2026-07-13T00:00:00Z');
 
 const config: BoardConfig = {
-  gitlabHost: 'https://gitlab.com',
+  forge: { kind: 'gitlab', host: 'https://gitlab.com' },
   projects: ['org/repo-a', 'org/repo-b'],
   members: [{ username: 'alice' }, { username: 'bob' }],
   defaultMember: 'all',
@@ -213,16 +213,16 @@ describe('projectPathFromWebUrl', () => {
     expect(
       projectPathFromWebUrl(
         'https://gitlab.com/org/sub/repo/-/merge_requests/7',
-        'https://gitlab.com'
+        { forge: { kind: 'gitlab', host: 'https://gitlab.com' }, projects: [] }
       )
     ).toBe('org/sub/repo');
   });
   test('null for foreign host', () => {
     expect(
-      projectPathFromWebUrl(
-        'https://other.com/org/repo/-/merge_requests/7',
-        'https://gitlab.com'
-      )
+      projectPathFromWebUrl('https://other.com/org/repo/-/merge_requests/7', {
+        forge: { kind: 'gitlab', host: 'https://gitlab.com' },
+        projects: [],
+      })
     ).toBeNull();
   });
 });
@@ -472,6 +472,59 @@ describe('buildBoard', () => {
   });
 });
 
+describe('buildBoard on a GitHub forge', () => {
+  const ghConfig: BoardConfig = {
+    ...config,
+    forge: { kind: 'github', host: 'https://github.com' },
+    projects: ['acme/widgets'],
+    members: [{ username: 'dev1' }],
+    rtRepos: { 'acme/widgets': 'github.com/acme/widgets' },
+  };
+  const ghPr = (n: number, url: string, username = 'dev1') =>
+    pr({
+      id: `github:${n}`,
+      iid: n,
+      provider: 'github',
+      repositoryId: 'github:1',
+      webUrl: url,
+      author: { id: 'github:9', username, name: username, avatarUrl: null },
+      divergedCommitsCount: null,
+    } as Partial<PullRequest>);
+
+  test('keeps a GitHub row', () => {
+    const rows = buildBoard(
+      [ghPr(7, 'https://github.com/acme/widgets/pull/7')],
+      ghConfig,
+      FIXTURE_NOW
+    );
+    expect(rows.map(r => r.rtRepo)).toEqual(['github.com/acme/widgets']);
+  });
+  test('keeps a GitHub row whose URL differs in case from board.projects', () => {
+    const rows = buildBoard(
+      [ghPr(7, 'https://github.com/Acme/Widgets/pull/7')],
+      ghConfig,
+      FIXTURE_NOW
+    );
+    expect(rows.map(r => r.iid)).toEqual([7]);
+  });
+  test('drops a GitHub row outside board.projects', () => {
+    const rows = buildBoard(
+      [ghPr(8, 'https://github.com/acme/other/pull/8')],
+      ghConfig,
+      FIXTURE_NOW
+    );
+    expect(rows).toEqual([]);
+  });
+  test('matches a GitHub author exactly', () => {
+    const rows = buildBoard(
+      [ghPr(9, 'https://github.com/acme/widgets/pull/9', 'Dev1')],
+      ghConfig,
+      FIXTURE_NOW
+    );
+    expect(rows).toEqual([]);
+  });
+});
+
 describe('buildBoard tagged rows (codeowner tabs)', () => {
   const withTabs: BoardConfig = { ...config, tabs: tabsWithCodeowners };
   const now = Date.parse('2026-07-11T00:00:00Z');
@@ -713,6 +766,18 @@ describe('boardDemand', () => {
     expect(boardDemand(withTabs, 1).codeownerSections).toEqual(['Acme']);
     expect(boardDemand(config, 1).codeownerSections).toBeUndefined();
   });
+
+  test('boardDemand sends no codeownerSections on a GitHub team', () => {
+    const gh: BoardConfig = {
+      ...config,
+      forge: { kind: 'github', host: 'https://github.com' },
+      tabs: tabsWithCodeowners,
+    };
+    expect('codeownerSections' in boardDemand(gh, 1)).toBe(false);
+    expect(
+      boardDemand({ ...gh, forge: config.forge }, 1).codeownerSections
+    ).toEqual(['Acme']);
+  });
 });
 
 describe('channelForMR', () => {
@@ -839,6 +904,27 @@ describe('reviewSkillForTab', () => {
 });
 
 describe('aggregateSyncScope', () => {
+  test('aggregateSyncScope ignores section scope on GitHub', () => {
+    const reads = [
+      {
+        syncedAt: 1,
+        scope: {
+          windowDays: 7,
+          authors: [],
+          uncovered: [],
+          uncoveredSections: ['A'],
+          knownSections: ['A'],
+        },
+      },
+    ];
+    const gh = aggregateSyncScope(reads, 'github');
+    expect(gh.scopeUncoveredSections).toEqual([]);
+    expect(gh.scopeKnownSections).toBeNull();
+    const gl = aggregateSyncScope(reads);
+    expect(gl.scopeUncoveredSections).toEqual(['A']);
+    expect(gl.scopeKnownSections).toEqual(['A']);
+  });
+
   test('dataSyncedAt is the min syncedAt across reads', () => {
     const agg = aggregateSyncScope([
       { syncedAt: 300 },

@@ -1,3 +1,4 @@
+import { mrRef, type MrLinkTarget } from '../../../mr-ref.ts';
 import type { AskCardData, AskKind } from '../../types.ts';
 
 const ASKED: Record<AskKind, string> = {
@@ -70,6 +71,6 @@ export function historyOutcome(view: Pick<AskCardData, 'kind' | 'handled'>): {
 }
 
 /** The one line a card shrinks to after its go-ahead starts the agent. */
-export function confirmLine(kind: AskKind, iid: number): string {
-  return `Your agent ${DOING[kind]} !${iid}`;
+export function confirmLine(kind: AskKind, mr: MrLinkTarget): string {
+  return `Your agent ${DOING[kind]} ${mrRef(mr)}`;
 }

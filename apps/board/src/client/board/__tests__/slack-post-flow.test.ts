@@ -265,3 +265,22 @@ test('a recent check, a found thread, or no slack here skips the lookup', () => 
   );
   expect(needsThreadLookup(mr({ webUrl: null }), NOW, on)).toBe(false);
 });
+
+test('a GitHub PR is named #N in the slack toasts', async () => {
+  const pr = mr({
+    webUrl: 'https://github.com/acme/webapp/pull/7',
+    provider: 'github',
+  });
+  const { done, events } = run(
+    { '/slack/post': ok({ ok: true, posted: 1 }) },
+    pr,
+    []
+  );
+  await done;
+  expect(events).toEqual([
+    'toast posting #7 to slack…',
+    'post /slack/post {"mrUrls":["https://github.com/acme/webapp/pull/7"]}',
+    'done posted #7 to slack',
+    'reload',
+  ]);
+});

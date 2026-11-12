@@ -365,6 +365,30 @@ test("a diff that fails to load keeps the header, says why, and links to the MR'
   ).toBe(false);
 });
 
+test("a GitHub PR's diff that fails to load links to the PR's files on GitHub", async () => {
+  const pr = {
+    ...MR,
+    webUrl: 'https://github.com/acme/widgets/pull/31',
+    provider: 'github',
+  } as unknown as BoardMRWithReview;
+  await render(
+    {
+      fetchFileDiff: async () => {
+        throw new Error('GitHub answered 500 for this diff.');
+      },
+      loadView: () => import('../DiffView.tsx'),
+    },
+    pr
+  );
+  const open = codeOf(
+    'Retry loop lacks backoff'
+  ).querySelector<HTMLAnchorElement>('a[href]')!;
+  expect(open.textContent).toContain('open on GitHub');
+  expect(open.getAttribute('href')).toBe(
+    'https://github.com/acme/widgets/pull/31/files'
+  );
+});
+
 test('the same MR and file at a new revision is fetched again', async () => {
   const calls: string[] = [];
   const fresh: DiffSource = {

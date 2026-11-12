@@ -3,9 +3,11 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { describe, expect, test } from 'bun:test';
 
+import { FORGE_NOT_YET } from '../config.ts';
 import {
   acceptAsk,
   declineAsk,
+  declineRespondAsks,
   declineWhileOff,
   expireStaleAsks,
   type AskActionDeps,
@@ -272,6 +274,44 @@ describe('declineWhileOff', () => {
           nudgeId: 'n1',
           result: 'rejected',
           reason: 'asks-off',
+        },
+      },
+    ]);
+  });
+});
+
+describe('declineRespondAsks', () => {
+  test('declines each waiting respond ask with the reason and leaves review asks pending', () => {
+    const respond: NudgeState = { ...ask, id: 'r1', kind: 'respond' };
+    const d = deps({
+      readNudges: () => [
+        ask,
+        { ...ask, id: 'rr1', kind: 're-review' },
+        respond,
+        {
+          ...respond,
+          id: 'r2',
+          handled: { at: 1, result: 'launched' },
+        },
+      ],
+    });
+    expect(declineRespondAsks(d, FORGE_NOT_YET)).toBe(1);
+    expect(d.handled).toEqual([
+      {
+        id: 'r1',
+        result: 'rejected',
+        reason: 'Not available on GitHub yet',
+      },
+    ]);
+    expect(d.published).toEqual([
+      {
+        to: 'rae',
+        p: {
+          mrUrl: ask.mrUrl,
+          iid: 1,
+          nudgeId: 'r1',
+          result: 'rejected',
+          reason: 'Not available on GitHub yet',
         },
       },
     ]);

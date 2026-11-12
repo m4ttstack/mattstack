@@ -16,3 +16,8 @@ export function onGitHub(mr?: MrLinkTarget, subject?: string): boolean {
 export function mrRef(mr: MrLinkTarget): string {
   return `${onGitHub(mr) ? '#' : '!'}${mr.iid}`;
 }
+
+/** The forge's name as the menus write it, lowercase. */
+export function forgeWord(mr?: MrLinkTarget): 'github' | 'gitlab' {
+  return onGitHub(mr) ? 'github' : 'gitlab';
+}

@@ -106,3 +106,39 @@ test('an ask with no title shows no title text, never its URL', async () => {
   }
   await act(async () => root.unmount());
 });
+
+test('an ask on a GitHub PR names it #<n> on the card and in history', async () => {
+  const gh = {
+    ...fx.RAE_ASK,
+    iid: 4103,
+    mrUrl: 'https://github.com/acme/webapp/pull/4103',
+  };
+  const handled = {
+    ...gh,
+    id: 'h1',
+    handled: { at: fx.ASKS_NOW, result: 'launched' as const },
+  };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  for (const initialView of ['list', 'history'] as const) {
+    await act(async () =>
+      root.render(
+        <AsksDropdown
+          key={initialView}
+          asks={{ pending: [gh], history: [handled], alwaysAllow: [] }}
+          initialView={initialView}
+          flashId={null}
+          onAccept={async () => {}}
+          onDecline={async () => {}}
+          onAllow={async () => {}}
+          onFocus={() => {}}
+          onNotice={() => {}}
+        />
+      )
+    );
+    expect(host.textContent).toContain('#4103');
+    expect(host.textContent).not.toContain('!4103');
+  }
+  await act(async () => root.unmount());
+});

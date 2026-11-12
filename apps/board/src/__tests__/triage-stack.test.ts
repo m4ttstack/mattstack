@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { OwnMrFacts } from '../triage/edge.ts';
-import { chainOf } from '../triage/stack.ts';
+import { chainOf, projectKeyOf } from '../triage/stack.ts';
 
 function mr(over: Partial<OwnMrFacts> = {}): OwnMrFacts {
   return {
@@ -137,5 +137,30 @@ describe('chainOf', () => {
       ancestors: [],
       unresolvedParentBranch: null,
     });
+  });
+});
+
+describe('projectKeyOf', () => {
+  test('a GitHub PR URL keys by owner/repo', () => {
+    expect(projectKeyOf('https://github.com/acme/widgets/pull/7')).toBe(
+      '/acme/widgets'
+    );
+    expect(projectKeyOf('https://github.com/acme/widgets/pull/9')).toBe(
+      '/acme/widgets'
+    );
+  });
+  test('a numeric GitHub repo name stays in the key', () => {
+    expect(projectKeyOf('https://github.com/acme/123/pull/7')).toBe(
+      '/acme/123'
+    );
+  });
+  test('GitLab keys are unchanged', () => {
+    expect(projectKeyOf('https://gl.example.com/g/p/-/merge_requests/3')).toBe(
+      '/g/p'
+    );
+    expect(
+      projectKeyOf('https://gl.example.com/g/pull/5/-/merge_requests/3')
+    ).toBe('/g/pull');
+    expect(projectKeyOf('https://x/mr/1')).toBe('/mr');
   });
 });

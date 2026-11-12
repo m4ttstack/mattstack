@@ -1,6 +1,7 @@
 import { ListGroup, Modal } from '@mattstack/tui-kit';
 import type { BoardMRWithReview } from '../types.ts';
 import { ago, cleanTitle, getSlackMarks } from './format.ts';
+import { mrRef } from './MrLinks.tsx';
 import { slackLadder } from './slack-ladder.ts';
 import type { SlackPostLink } from './slack-posts.ts';
 
@@ -23,8 +24,8 @@ function SlackPostsModal({
     mr.ownerTeams?.find(t => t.channel === channel)?.team;
   return (
     <Modal
-      title={<>❯ open in slack · !{mr.iid}</>}
-      ariaLabel={`open !${mr.iid} in slack`}
+      title={<>❯ open in slack · {mrRef(mr)}</>}
+      ariaLabel={`open ${mrRef(mr)} in slack`}
       onClose={onClose}
       className="tui-owners-modal"
       overlayClassName="tui-slack-posts-overlay"

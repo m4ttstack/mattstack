@@ -122,6 +122,7 @@ function ActionMenu({
   entries,
   empty,
   flat,
+  forge = 'gitlab',
   onRun,
   onClose,
 }: {
@@ -134,6 +135,9 @@ function ActionMenu({
   empty?: string;
   /** Render every section inline under its heading, as the bulk menu does. */
   flat?: boolean;
+  /** Names the `gitlab` section: the menu's MR's forge, or the bulk
+      selection's first MR's. */
+  forge?: 'github' | 'gitlab';
   onRun: (key: string, opts: RunOpts) => void | Promise<unknown>;
   onClose: () => void;
 }) {
@@ -374,7 +378,9 @@ function ActionMenu({
         return (
           <Fragment key={section}>
             {section !== 'agent' && <ContextMenu.Separator />}
-            <ContextMenu.Label>{title}</ContextMenu.Label>
+            <ContextMenu.Label>
+              {section === 'gitlab' ? forge : title}
+            </ContextMenu.Label>
             {items.map(renderItem)}
           </Fragment>
         );
@@ -393,7 +399,7 @@ function ActionMenu({
   const flyouts = (Object.keys(FLYOUT) as FlyoutSection[])
     .map(section => ({
       section,
-      title: FLYOUT[section][0],
+      title: section === 'gitlab' ? forge : FLYOUT[section][0],
       glyph: FLYOUT[section][1],
       items: entries.filter(e => e.section === section),
     }))
@@ -435,7 +441,9 @@ function ActionMenu({
       {topGroups.map((g, i) => (
         <Fragment key={g.from}>
           {(i > 0 || topLoose.length > 0) && <ContextMenu.Separator />}
-          <ContextMenu.Label>{g.from} actions</ContextMenu.Label>
+          <ContextMenu.Label>
+            {g.from === 'gitlab' ? forge : g.from} actions
+          </ContextMenu.Label>
           {g.items.map(renderItem)}
         </Fragment>
       ))}

@@ -100,6 +100,51 @@ const twoTeamsRoster = [
   { username: 'dev3', teams: ['gadgets'] },
 ];
 
+describe('loadConfig: the team forge', () => {
+  const GH = {
+    'board.projects': ['acme/widgets'],
+    'mattstack.roster': [{ username: 'dev1' }],
+    'mattstack.integrations': {
+      forge: { provider: 'github', host: 'github.com' },
+    },
+  };
+  test('a GitHub team forge with no board.gitlabHost resolves to github', () => {
+    const cfg = loadConfig(fakeResolve(GH));
+    expect(cfg.forge).toEqual({ kind: 'github', host: 'https://github.com' });
+    expect(cfg.rtRepos).toEqual({ 'acme/widgets': 'github.com/acme/widgets' });
+    expect(boardConfigured(fakeResolve(GH))).toBe(true);
+  });
+  test('a forge host stored with a scheme, capitals or a trailing slash normalizes', () => {
+    const cfg = loadConfig(
+      fakeResolve({
+        ...GH,
+        'mattstack.integrations': {
+          forge: { provider: 'github', host: 'https://GitHub.com/' },
+        },
+      })
+    );
+    expect(cfg.forge.host).toBe('https://github.com');
+  });
+  test('board.gitlabHost wins over a GitHub team forge', () => {
+    const cfg = loadConfig(
+      fakeResolve({
+        ...TEAM,
+        'mattstack.integrations': GH['mattstack.integrations'],
+      })
+    );
+    expect(cfg.forge).toEqual({ kind: 'gitlab', host: 'gitlab.example.com' });
+  });
+  test('a GitLab team forge with no board.gitlabHost is not configured', () => {
+    const r = fakeResolve({
+      ...GH,
+      'mattstack.integrations': {
+        forge: { provider: 'gitlab', host: 'gitlab.example.com' },
+      },
+    });
+    expect(boardConfigured(r)).toBe(false);
+  });
+});
+
 describe('loadConfig: the store and the registry defaults', () => {
   test('with only the team keys set, every other field is its registry default', () => {
     const cfg = loadConfig(fakeResolve(TEAM));
@@ -121,6 +166,7 @@ describe('loadConfig: the store and the registry defaults', () => {
       tabs: [{ id: 'team', label: 'Team', source: { kind: 'authors' } }],
       rtRepos: { 'acme/widgets': 'gitlab.example.com/acme/widgets' },
     });
+    expect(cfg.forge).toEqual({ kind: 'gitlab', host: 'gitlab.example.com' });
     expect(cfg.slack).toMatchObject({
       channel: '',
       singleTemplate: '{title}: {url}',
@@ -200,7 +246,7 @@ describe('loadConfig: store values', () => {
         'board.title': 'Team Board',
       })
     );
-    expect(cfg.gitlabHost).toBe('https://gitlab.example.com');
+    expect(cfg.forge.host).toBe('https://gitlab.example.com');
     expect(cfg.title).toBe('Team Board');
     expect(cfg.projects).toEqual(['acme/widgets']);
   });

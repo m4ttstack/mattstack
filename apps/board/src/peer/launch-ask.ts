@@ -20,11 +20,10 @@ export function makeRepoForMrUrl(
   boardConfig: BoardConfig
 ): (mrUrl: string) => string {
   return mrUrl => {
-    const projectPath =
-      projectPathFromWebUrl(mrUrl, boardConfig.gitlabHost) ?? '';
+    const projectPath = projectPathFromWebUrl(mrUrl, boardConfig) ?? '';
     return resolveLaunchRepo(
       boardConfig.rtRepos[projectPath] ?? null,
-      boardConfig.gitlabHost,
+      boardConfig.forge.host,
       projectPath,
       mrUrl
     );
