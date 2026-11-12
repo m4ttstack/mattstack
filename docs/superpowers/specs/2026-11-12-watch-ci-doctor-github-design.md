@@ -249,7 +249,10 @@ untouched.
   rt-363-doctor-stack inserts between `Server-side rebase licensed?` (yes)
   and `Lease mode (before the rebase)?`, and `SKILL.md`'s Fix classes
   `clean-api-rebase` line, as agreed by DM. If that lane lands first, this
-  branch rebases onto it and keeps its hunks.
+  branch rebases onto it and keeps its hunks. PR #1113 also reroutes the
+  lease-check and `mr_rebase` off-script iterate edges, and the lease take,
+  through its stack-parent check. That is agreed by DM, and this branch
+  leaves those edges as #1113 sets them.
 
 The diagnosis itself needs no change: on GitHub `mr_view` returns
 `conflicts` and a head `pipeline` (glance `githubFill.ts`).
@@ -346,10 +349,6 @@ formed; the projection diff shows the GitLab path is the same.
 
 ## Follow-ups (listed in the PR)
 
-- Doctor: route the rebase off-script take and iterate re-entries
-  through the stack-parent check from PR #1113, so a child opened during a
-  held gate is still caught. This changes the GitLab walk, so it belongs
-  to the stack-check lane. Raised by rt-363-doctor-stack.
 - Doctor `entry.md`: `Branch-writing class under --tier api?` reads
   ambiguously when `--fix-classes` is absent, which licenses every class.
   Raised by rt-363-doctor-stack.
