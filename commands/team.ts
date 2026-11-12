@@ -73,6 +73,7 @@ import { writeGeneratedMarketplace } from "../lib/setup/generated-marketplace.ts
 import { commitPendingPackShares, droppedShareBlocks, droppedShares, packShareBlocks, rememberPackShare, sharePack } from "../lib/team/share-pack.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
 import { createRelayClient } from "../lib/team/relay-client.ts";
+import { readInviteStatuses, type InviteStatusResult } from "../lib/team/invite-status.ts";
 import { withoutUrls } from "../lib/team/redact.ts";
 import { logCliEvent } from "../lib/cli-logger.ts";
 import { checkedOutBranch } from "../lib/team/org-branch.ts";
@@ -126,6 +127,8 @@ export interface TeamDeps {
   forgeAccessSeams?: ForgeAccessSeams;
   /** The announcement send, seamed so a test never reaches the switchboard; real by default. */
   announce?: typeof sendAnnouncement;
+  /** The open invites and their states for `teamStatus`; real relay and clock by default. */
+  inviteStatuses?: (slug: string, roster: { username: string; teams?: string[] }[]) => Promise<InviteStatusResult>;
 }
 
 async function defaultReadCode(json: boolean): Promise<string> {
@@ -1162,7 +1165,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
 
   try {
     if (!flagValue(args, "--team") && listOrgs().length === 0) {
-      const result = { mode: "solo" as const, slug: null, name: null, remote: null, lastPush: null, members: [] as never[], role: null, activeTeam: null, teams: [] as never[], orgTeams: [] as never[] };
+      const result = { mode: "solo" as const, slug: null, name: null, remote: null, lastPush: null, members: [] as never[], invites: [] as never[], role: null, activeTeam: null, teams: [] as never[], orgTeams: [] as never[] };
       if (json) deps.print(JSON.stringify(envelope(result)));
       else out.print(out.line("off", "No team on this Mac", "just you"));
       return;
@@ -1212,7 +1215,28 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
     const membersWithPeering = members.map((m) => ({ ...m, peered: peeredBoards ? peeredBoards.has(canonicalHandle(m.username)) : null }));
     const peeredCount = membersWithPeering.filter((m) => m.peered === true).length;
 
-    const result = { slug, name, remote, branch, dataBranch: homeBranch, trial, lastPush, members: membersWithPeering, role, activeTeam: active.team, teams: active.listedOn, orgTeams, ...sync };
+    const rosterForInvites = everyone.flatMap((member) => {
+      const username = (member as { username?: unknown } | null)?.username;
+      const teams = (member as { teams?: unknown } | null)?.teams;
+      if (typeof username !== "string") return [];
+      return [{ username, ...(Array.isArray(teams) ? { teams: teams.filter((t): t is string => typeof t === "string") } : {}) }];
+    });
+    const readInvites = deps.inviteStatuses
+      ?? ((s: string, roster: { username: string; teams?: string[] }[]) => readInviteStatuses(deps.probes, s, {
+        relay: createRelayClient(deps.probes.fetch, switchboardUrl(deps.probes.env)),
+        roster,
+        now: Date.now(),
+      }));
+    let inviteResult: InviteStatusResult = { invites: [], relayFailed: false };
+    try {
+      inviteResult = await readInvites(slug, rosterForInvites);
+    } catch {
+      // a damaged invite file must not take the rest of the status down
+    }
+    const { invites, relayFailed } = inviteResult;
+    const replied = invites.filter((invite) => invite.state === "replied").map((invite) => invite.handle);
+
+    const result = { slug, name, remote, branch, dataBranch: homeBranch, trial, lastPush, members: membersWithPeering, invites, role, activeTeam: active.team, teams: active.listedOn, orgTeams, ...sync };
     if (json) {
       deps.print(JSON.stringify(envelope(result)));
       return;
@@ -1230,6 +1254,13 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
         ...branchRow(branch, homeBranch, trialBranch),
         out.kv("last push", lastPush ?? "never"),
         out.kv("members", String(members.length), peeredBoards ? `${peeredCount} with a connected board` : undefined),
+        ...(replied.length > 0 || (relayFailed && invites.length > 0)
+          ? [out.kv(
+            "waiting to join",
+            replied.length > 0 ? replied.join(", ") : "unknown",
+            relayFailed ? "the switchboard did not answer, so replies may be waiting" : "rt team members sync adds them",
+          )]
+          : []),
         out.kv("your team", active.team ?? "none"),
         out.kv("your role", role === "org-owner" ? "org owner" : role === "admin" ? "org admin" : role === "owner" ? "team owner" : role === "member" ? "member" : "unknown"),
         out.kv("sync", syncState, syncNotes.length > 0 ? syncNotes.join("; ") : undefined),

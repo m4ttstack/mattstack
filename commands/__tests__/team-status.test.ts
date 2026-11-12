@@ -154,6 +154,7 @@ describe("teamStatus", () => {
       trial: false,
       lastPush: "2026-08-21T10:00:00+00:00",
       members: [{ username: "dev1", peered: null }],
+      invites: [],
       role: "unknown",
       activeTeam: null,
       teams: [],
@@ -432,7 +433,7 @@ describe("teamStatus", () => {
   test("no --team and zero local teams -> mode solo, exit 0, in both output modes", async () => {
     const deps = baseDeps();
     await teamStatus(["--json"], {}, deps);
-    expect(JSON.parse(deps.lines[0]!)).toMatchObject({ contract: 1, mode: "solo", slug: null, name: null, remote: null, lastPush: null, members: [], role: null, activeTeam: null, teams: [], orgTeams: [] });
+    expect(JSON.parse(deps.lines[0]!)).toMatchObject({ contract: 1, mode: "solo", slug: null, name: null, remote: null, lastPush: null, members: [], invites: [], role: null, activeTeam: null, teams: [], orgTeams: [] });
 
     const text = baseDeps();
     const io = captureOut();
@@ -514,6 +515,79 @@ describe("teamStatus", () => {
       warnTest.reset();
       io.restore();
     }
+  });
+
+  describe("invites", () => {
+    const invite = { handle: "alice", teams: ["widgets"], expiresAt: "2026-12-01T00:00:00.000Z", state: "replied" as const };
+    const withSeam = (inviteStatuses: NonNullable<TeamDeps["inviteStatuses"]>) => ({
+      ...clonedDeps({ exec: async () => ({ code: 0, stdout: "", stderr: "" }), read: { "mattstack.roster": [{ username: "dev1", teams: ["widgets"] }] } }),
+      inviteStatuses,
+    });
+
+    test("--json carries invites from the seam", async () => {
+      const deps = withSeam(async () => ({ invites: [invite], relayFailed: false }));
+      await teamStatus(["--team", SLUG, "--json"], {}, deps);
+      const body = JSON.parse(deps.lines[0]!);
+      expect(body.invites).toEqual([invite]);
+      expect(Object.keys(body)).toEqual(expect.arrayContaining(["slug", "members", "role", "orgTeams", "pullOnly"]));
+    });
+
+    test("--json carries an empty invites list with no records", async () => {
+      const deps = withSeam(async () => ({ invites: [], relayFailed: false }));
+      await teamStatus(["--team", SLUG, "--json"], {}, deps);
+      expect(JSON.parse(deps.lines[0]!).invites).toEqual([]);
+    });
+
+    test("the seam receives the full roster", async () => {
+      let seen: unknown;
+      const deps = withSeam(async (_slug, roster) => { seen = roster; return { invites: [], relayFailed: false }; });
+      await teamStatus(["--team", SLUG, "--json"], {}, deps);
+      expect(seen).toEqual([{ username: "dev1", teams: ["widgets"] }]);
+    });
+
+    test("a throwing inviteStatuses seam still answers with invites: []", async () => {
+      const deps = withSeam(async () => { throw new Error("damaged invite file"); });
+      await teamStatus(["--team", SLUG, "--json"], {}, deps);
+      expect(JSON.parse(deps.lines[0]!).invites).toEqual([]);
+    });
+
+    test("human output names who is waiting", async () => {
+      const deps = withSeam(async () => ({ invites: [invite], relayFailed: false }));
+      const io = captureOut();
+      ui.__test__.setHuman(() => false);
+      try {
+        await teamStatus(["--team", SLUG], {}, deps);
+        expect(io.stdout()).toContain("waiting to join: alice");
+        expect(io.stdout()).toContain("rt team members sync");
+      } finally {
+        io.restore();
+      }
+    });
+
+    test("human output notes an unreachable switchboard", async () => {
+      const deps = withSeam(async () => ({ invites: [{ ...invite, state: "invited" as const }], relayFailed: true }));
+      const io = captureOut();
+      ui.__test__.setHuman(() => false);
+      try {
+        await teamStatus(["--team", SLUG], {}, deps);
+        expect(io.stdout()).toContain("waiting to join: unknown");
+        expect(io.stdout()).toContain("the switchboard did not answer");
+      } finally {
+        io.restore();
+      }
+    });
+
+    test("no row when nobody has replied", async () => {
+      const deps = withSeam(async () => ({ invites: [{ ...invite, state: "invited" as const }], relayFailed: false }));
+      const io = captureOut();
+      ui.__test__.setHuman(() => false);
+      try {
+        await teamStatus(["--team", SLUG], {}, deps);
+        expect(io.stdout()).not.toContain("waiting to join");
+      } finally {
+        io.restore();
+      }
+    });
   });
 
   test("human mode names the team and remote", async () => {
