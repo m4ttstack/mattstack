@@ -50,6 +50,7 @@ function recordRequestOptions(provider: GitHubProvider): Array<{ route: string; 
 describe('GitHub restRequest streams its body', () => {
   test('a reader can stop early', async () => {
     let pulls = 0;
+    let cancelled = false;
     stubFetch(() => {
       const stream = new ReadableStream<Uint8Array>({
         pull(controller) {
@@ -59,6 +60,9 @@ describe('GitHub restRequest streams its body', () => {
             return;
           }
           controller.enqueue(new Uint8Array(CHUNK).fill(120));
+        },
+        cancel() {
+          cancelled = true;
         }
       });
       return new Response(stream, {
@@ -86,6 +90,7 @@ describe('GitHub restRequest streams its body', () => {
 
     expect(read).toBeGreaterThanOrEqual(256 * 1024);
     expect(pulls).toBeLessThan(CHUNKS);
+    expect(cancelled).toBe(true);
   });
 
   test('a JSON body still parses', async () => {
