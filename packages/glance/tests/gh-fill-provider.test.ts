@@ -16,6 +16,7 @@ import {
   useForgeStub,
   useInstantTimers
 } from './helpers/gh-fill-fixture.ts';
+import { isMergeContextQuery, mergeContextData } from './helpers/gh-merge-context.ts';
 
 useForgeStub();
 useInstantTimers();
@@ -489,7 +490,8 @@ describe('GitHubProvider known-number reads through the fill', () => {
         method === 'PUT' && url.endsWith('/pulls/9/merge')
           ? jsonResponse({ merged: true, sha: 'm1' })
           : undefined,
-      graphql: () => jsonResponse({ message: 'Bad Gateway' }, 502)
+      graphql: (query) =>
+        isMergeContextQuery(query) ? mergeContextData() : jsonResponse({ message: 'Bad Gateway' }, 502)
     });
 
     const err = await provider()
@@ -919,6 +921,9 @@ const mergedFill = (numbers: number[]) =>
     numbers.map((n) => [n, nodeFor(n, { state: 'MERGED', mergedAt: '2026-01-03T00:00:00Z' })])
   );
 
+/** Answers the merge context read every merge makes first; the fill falls through to `fill`. */
+const answerMergeContext = (query: string) => (isMergeContextQuery(query) ? mergeContextData() : undefined);
+
 interface MergeScenario {
   headRead?: () => Response;
   del?: () => Response;
@@ -930,6 +935,7 @@ function landedMerge(scenario: MergeScenario = {}): { calls: string[] } {
   const calls: string[] = [];
   stubForge({
     fill: mergedFill,
+    graphql: answerMergeContext,
     rest: (url, method) => {
       const path = new URL(url).pathname;
       calls.push(`${method} ${path}`);
@@ -1028,6 +1034,7 @@ describe('GitHubProvider mergePullRequest after the merge landed', () => {
   test('a rate-limited merge PUT still rejects, as the write error it always was', async () => {
     stubForge({
       fill: mergedFill,
+      graphql: answerMergeContext,
       rest: (_url, method) => (method === 'PUT' ? rateLimited() : undefined)
     });
 

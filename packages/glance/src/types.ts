@@ -567,11 +567,12 @@ export interface UpdatePullRequestInput {
  * - "squash" — Squash all commits into one before merging.
  * - "rebase" — Rebase the source branch onto the target (fast-forward).
  *
- * When omitted, what happens differs by provider: GitLab's merge endpoint
- * defers to the project's configured default merge method, matching its web
- * UI. GitHub's REST merge endpoint has no such deference; it defaults
- * `merge_method` to "merge" regardless of the repository's configured
- * default, which only the web UI honors.
+ * When omitted, both providers use the repository's default: GitLab's merge
+ * endpoint defers to the project's configured default merge method. GitHub's
+ * endpoint would always merge, so glance reads the viewer's default merge
+ * method and sends it, or the first method the repository allows (merge,
+ * squash, rebase) when that default is not allowed. A method the repository
+ * forbids is refused before anything is written.
  */
 export type MergeMethod = 'merge' | 'squash' | 'rebase';
 
@@ -604,9 +605,9 @@ export interface MergeQueueEntry {
  * All fields are **optional**. On GitLab, omitting them defers to the
  * project-level settings configured in the forge UI (merge method, squash
  * policy, delete-source-branch, etc.), matching how the web UI works. On
- * GitHub, the REST merge endpoint does not defer to those settings the way
- * the web UI does: for example, an omitted `mergeMethod` becomes "merge",
- * not the repository's configured default.
+ * GitHub, an omitted `mergeMethod` is the repository's default merge method
+ * (see `MergeMethod`), and `squash: false` picks an allowed method that is
+ * not a squash, refusing on a squash-only repository.
  */
 export interface MergePullRequestInput {
   /** Merge commit message. Omit to use the provider/project default. */
@@ -653,7 +654,10 @@ export interface ProviderCapabilities {
   canRebase: boolean;
   /** Can enable automatic merge when pipeline succeeds. */
   canAutoMerge: boolean;
-  /** Can add a pull request to the target branch's merge queue. */
+  /**
+   * Can add a pull request to the target branch's merge queue. On GitHub this
+   * also gates `mergePullRequest`'s queue routing on a branch with a merge queue.
+   */
   canEnqueue: boolean;
   /** Can resolve / unresolve discussion threads. */
   canResolveDiscussions: boolean;

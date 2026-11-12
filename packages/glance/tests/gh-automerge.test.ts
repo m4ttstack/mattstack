@@ -12,10 +12,14 @@
 import { describe, expect, test } from 'bun:test';
 import { RequestError } from '@octokit/request-error';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
+import { isMergeContextQuery, mergeContextData } from './helpers/gh-merge-context.ts';
 
 /**
- * A provider whose PR lookup returns a fixed node id and whose GraphQL
- * transport answers mutations with `payload`.
+ * A provider whose PR lookup and merge context read return a fixed node id
+ * and whose GraphQL transport answers mutations with `payload`.
+ *
+ * `contextReads` holds the merge context queries' variables, apart from
+ * `mutations`, so each list proves its own request.
  *
  * `requests` captures every `octokit.request` call's route and params: the
  * stub used to ignore its arguments entirely, so nothing verified that
@@ -26,6 +30,7 @@ function providerWith(payload: unknown) {
   const provider = new GitHubProvider('https://github.com', 'tok');
   const mutations: Array<{ query: string; variables: Record<string, unknown> }> = [];
   const requests: Array<{ route: string; params?: Record<string, unknown> }> = [];
+  const contextReads: Array<Record<string, unknown>> = [];
   (provider as any).octokit = {
     request: async (route: string, params?: Record<string, unknown>) => {
       requests.push({ route, params });
@@ -36,11 +41,15 @@ function providerWith(payload: unknown) {
       };
     },
     graphql: async (query: string, variables: Record<string, unknown>) => {
+      if (isMergeContextQuery(query)) {
+        contextReads.push(variables);
+        return mergeContextData({ nodeId: 'PR_kwABC' });
+      }
       mutations.push({ query, variables });
       return payload;
     }
   };
-  return { provider, mutations, requests };
+  return { provider, mutations, requests, contextReads };
 }
 
 /** A provider whose PR lookup fails, for exercising `pullRequestNodeId`'s own error paths. */
@@ -61,7 +70,7 @@ describe('setAutoMerge', () => {
   });
 
   test('enables auto-merge against the PR node id', async () => {
-    const { provider, mutations, requests } = providerWith({
+    const { provider, mutations, requests, contextReads } = providerWith({
       enablePullRequestAutoMerge: {
         pullRequest: { autoMergeRequest: { enabledAt: '2026-08-05T00:00:00Z' } }
       }
@@ -69,11 +78,10 @@ describe('setAutoMerge', () => {
 
     await provider.setAutoMerge('acme/repo', 5);
 
-    // Proves the PR lookup itself was scoped to the right repo and PR, not
-    // just that some request happened to return a usable node id.
-    expect(requests.length).toBe(1);
-    expect(requests[0]?.route).toBe('GET /repos/{owner}/{repo}/pulls/{pull_number}');
-    expect(requests[0]?.params).toMatchObject({ owner: 'acme', repo: 'repo', pull_number: 5 });
+    // Proves the context read itself was scoped to the right repo and PR,
+    // not just that some request happened to return a usable node id.
+    expect(requests.length).toBe(0);
+    expect(contextReads).toEqual([{ owner: 'acme', repo: 'repo', number: 5 }]);
 
     expect(mutations.length).toBe(1);
     expect(mutations[0]?.query).toContain('enablePullRequestAutoMerge');
@@ -126,10 +134,10 @@ describe("pullRequestNodeId's failure paths", () => {
       });
     });
 
-    // Both setAutoMerge and cancelAutoMerge share this lookup; setAutoMerge
-    // exercises it here since either call site proves the same code path.
-    await expect(provider.setAutoMerge('acme/repo', 5)).rejects.toThrow(
-      /setAutoMerge failed: 404/
+    // setAutoMerge reads the node id from the merge context instead, so
+    // cancelAutoMerge is the call site that exercises this lookup.
+    await expect(provider.cancelAutoMerge('acme/repo', 5)).rejects.toThrow(
+      /cancelAutoMerge failed: 404/
     );
   });
 
@@ -144,7 +152,7 @@ describe("pullRequestNodeId's failure paths", () => {
       data: { number: 5 }
     }));
 
-    await expect(provider.setAutoMerge('acme/repo', 5)).rejects.toThrow(
+    await expect(provider.cancelAutoMerge('acme/repo', 5)).rejects.toThrow(
       /carries no GraphQL node id/
     );
   });

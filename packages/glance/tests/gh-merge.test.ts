@@ -11,6 +11,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { RequestError } from '@octokit/request-error';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
+import { mergeContextData } from './helpers/gh-merge-context.ts';
 
 const API = 'https://api.github.com';
 
@@ -119,7 +120,7 @@ function stubGitHub(
     } as unknown as Response;
   };
   (provider as any).api = apiFn;
-  (provider as any).octokit = { request: toOctokitRequestStub(apiFn) };
+  (provider as any).octokit = { request: toOctokitRequestStub(apiFn), graphql: answerMergeContext };
   (provider as any).fetchSingleMR = async () => ({ iid: 1, sourceBranch });
   return calls;
 }
@@ -136,7 +137,12 @@ function overrideApi(
   apiFn: (method: string, path: string, body?: unknown) => Promise<Response>
 ): void {
   (provider as any).api = apiFn;
-  (provider as any).octokit = { request: toOctokitRequestStub(apiFn) };
+  (provider as any).octokit = { request: toOctokitRequestStub(apiFn), graphql: answerMergeContext };
+}
+
+/** The merge context read every merge makes before its PUT: a repository allowing every method, defaulting to merge. */
+async function answerMergeContext() {
+  return mergeContextData();
 }
 
 function mergeBody(calls: MergeCall[]): Record<string, unknown> {
@@ -157,7 +163,7 @@ describe('GitHubProvider merge commit messages (MAT-25)', () => {
     const body = mergeBody(calls);
     expect(body.commit_title).toBe('Ship the thing');
     expect(body.commit_message).toBeUndefined();
-    expect(body.merge_method).toBeUndefined();
+    expect(body.merge_method).toBe('merge');
   });
 
   test('squashCommitMessage does not reach a non-squash merge at all', async () => {
@@ -214,7 +220,7 @@ describe('GitHubProvider merge commit messages (MAT-25)', () => {
 
     const body = mergeBody(calls);
     expect(body.commit_title).toBe('only message the caller gave');
-    expect(body.merge_method).toBeUndefined();
+    expect(body.merge_method).toBe('merge');
   });
 
   test('a multi-line message splits into title and body', async () => {

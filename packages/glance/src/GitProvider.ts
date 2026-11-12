@@ -549,8 +549,10 @@ export interface GitProvider {
    * Enable auto-merge: the MR will be merged automatically when the
    * pipeline succeeds and all approval rules are met.
    * On GitLab: PUT /merge_requests/:iid/merge with merge_when_pipeline_succeeds.
-   * On GitHub: GraphQL `enablePullRequestAutoMerge`. Requires the
-   * repository's `allow_auto_merge` setting to be on.
+   * On GitHub: GraphQL `enablePullRequestAutoMerge` with a merge method the
+   * repository allows (its default, else the first allowed of merge, squash,
+   * rebase); on a merge queue branch no method is sent, since the queue
+   * decides. Requires the repository's `allow_auto_merge` setting to be on.
    * Check `capabilities.canAutoMerge` before calling.
    */
   setAutoMerge(projectPath: string, mrIid: number): Promise<void>;

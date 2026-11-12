@@ -28,6 +28,7 @@ import type {
   InvalidationBatch,
   JobDetail,
   EnqueuePullRequestInput,
+  MergeMethod,
   MergePullRequestInput,
   MergePullRequestResult,
   MergeQueueEntry,
@@ -63,6 +64,13 @@ import {
 import { startWatcherLoop, type LoopTick } from './EventsWatcher.ts';
 import { createRealtimeWatcher, type RealtimeWatcherOptions } from './RealtimeWatcher.ts';
 import { ForgeHttpError, RateLimitedError } from './errors.ts';
+import {
+  MERGE_CONTEXT_QUERY,
+  pickMergeMethod,
+  toMergeContext,
+  type GHMergeContextResponse,
+  type GitHubMergeContext
+} from './githubMerge.ts';
 import {
   bodyText,
   createGitHubClient,
@@ -1799,10 +1807,9 @@ export class GitHubProvider implements GitProvider {
     mrIid: number,
     input?: MergePullRequestInput
   ): Promise<MergePullRequestResult> {
-    const body: Record<string, unknown> = {};
-    const mergeMethod =
-      input?.mergeMethod ?? (input?.squash ? 'squash' : undefined);
-    if (mergeMethod) body.merge_method = mergeMethod;
+    const context = await this.mergeContext('mergePullRequest', projectPath, mrIid);
+    const mergeMethod = pickMergeMethod('mergePullRequest', projectPath, context, input);
+    const body: Record<string, unknown> = { merge_method: mergeMethod };
     Object.assign(body, this.mergeCommitFields(input, mergeMethod));
     if (input?.sha != null) body.sha = input.sha;
 
@@ -1889,7 +1896,7 @@ export class GitHubProvider implements GitProvider {
    */
   private mergeCommitFields(
     input: MergePullRequestInput | undefined,
-    mergeMethod: string | undefined
+    mergeMethod: MergeMethod
   ): { commit_title?: string; commit_message?: string } {
     // A squash with no squash-specific message still has the caller's intent in
     // commitMessage, and GitHub produces exactly one commit either way, so
@@ -2128,10 +2135,24 @@ export class GitHubProvider implements GitProvider {
     );
   }
 
+  private async mergeContext(op: string, projectPath: string, mrIid: number): Promise<GitHubMergeContext> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    const data = await this.graphqlOrThrow<GHMergeContextResponse>(op, MERGE_CONTEXT_QUERY, {
+      owner,
+      repo,
+      number: mrIid
+    });
+    const context = toMergeContext(data);
+    if (!context) {
+      throw new Error(`${op} failed: GitHub returned no pull request for ${projectPath}!${mrIid}`);
+    }
+    return context;
+  }
+
   /**
    * The GraphQL node id for a pull request the caller named by number.
    *
-   * Both auto-merge mutations address a PR by node id and `GitProvider` only
+   * The node-id mutations address a PR by node id and `GitProvider` only
    * hands this provider `projectPath` and `mrIid`, so every call pays one
    * REST read for the translation.
    */
@@ -2174,10 +2195,15 @@ export class GitHubProvider implements GitProvider {
    * primary use case a consumer who just read `canAutoMerge: true` hits.
    */
   async setAutoMerge(projectPath: string, mrIid: number): Promise<void> {
-    const nodeId = await this.pullRequestNodeId('setAutoMerge', projectPath, mrIid);
+    const context = await this.mergeContext('setAutoMerge', projectPath, mrIid);
+    const variables: Record<string, unknown> = { id: context.nodeId };
+    // A merge queue applies its own method, so none is sent there.
+    if (!context.queueEnabled) {
+      variables.mergeMethod = pickMergeMethod('setAutoMerge', projectPath, context).toUpperCase();
+    }
     const mutation = `
-      mutation GlanceEnableAutoMerge($id: ID!) {
-        enablePullRequestAutoMerge(input: { pullRequestId: $id }) {
+      mutation GlanceEnableAutoMerge($id: ID!, $mergeMethod: PullRequestMergeMethod) {
+        enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: $mergeMethod }) {
           pullRequest { autoMergeRequest { enabledAt } }
         }
       }
@@ -2187,7 +2213,7 @@ export class GitHubProvider implements GitProvider {
       enablePullRequestAutoMerge?: {
         pullRequest?: { autoMergeRequest?: { enabledAt?: string | null } | null } | null;
       };
-    }>('setAutoMerge', mutation, { id: nodeId });
+    }>('setAutoMerge', mutation, variables);
 
     // Reading the end state back, not just the absence of an error: an
     // accepted mutation that enabled nothing is indistinguishable from a
