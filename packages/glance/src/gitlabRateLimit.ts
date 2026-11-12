@@ -33,7 +33,6 @@ export class GitLabRateLimitHit extends Error {
   }
 }
 
-/** Throws `GitLabRateLimitHit` on a 429, releasing its unread body. */
 export function throwIfGitLabRateLimited(res: Response): void {
   if (res.status !== 429) return;
   res.body?.cancel().catch(() => {});
@@ -72,6 +71,11 @@ export interface GitLabRateLimitOptions {
  * and run it again. Once the total wait would pass the deadline for `kind`,
  * throw `RateLimitedError` instead. Anything else `send` throws passes
  * through on the first throw.
+ *
+ * The deadline bounds one request. An operation that sends several (a
+ * paginated read, a fan-out) can wait up to the deadline on each, though
+ * after one reset its later requests rarely meet another 429 in the same
+ * minute.
  */
 export async function withGitLabRateLimit<T>(
   operation: string,
@@ -99,7 +103,8 @@ export async function withGitLabRateLimit<T>(
 
 function rateLimitedError(operation: string, headers: Headers, nowMs: number, waitMs: number | null): RateLimitedError {
   const untilMs = untilReset(headers, nowMs);
-  const resetAt = untilMs === null ? null : new Date(nowMs + untilMs).toISOString();
+  const reset = untilMs === null ? null : new Date(nowMs + untilMs);
+  const resetAt = reset === null || Number.isNaN(reset.getTime()) ? null : reset.toISOString();
   const hint = waitMs === null ? '' : `; retry after ${Math.ceil(waitMs / 1000)} seconds`;
   return new RateLimitedError(`GitLab rate limit hit on ${operation}${hint}`, {
     kind: 'secondary',

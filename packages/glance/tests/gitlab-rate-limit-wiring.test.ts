@@ -9,6 +9,8 @@ import { MRDetailFetcher } from '../src/MRDetailFetcher.ts';
 import { NoteMutator } from '../src/NoteMutator.ts';
 import { RateLimitedError } from '../src/errors.ts';
 import { RATE_LIMIT_RESET_MARGIN_MS } from '../src/gitlabRateLimit.ts';
+import { glanceRequestHandler } from '../src/gitbeakerRequester.ts';
+import { GitbeakerTimeoutError } from '@gitbeaker/rest';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -259,5 +261,17 @@ describe('gitbeaker calls wait out a 429', () => {
     const calls = serve(() => new Response('', { status: 502 }), ok([]));
     expect(await provider().fetchPipelineList!('g/p', { limit: 1 })).toEqual([]);
     expect(calls).toHaveLength(2);
+  });
+});
+
+describe('the gitbeaker handler and its query timeout', () => {
+  test('gitbeaker\'s query timeout firing during a 429 wait surfaces as GitbeakerTimeoutError', async () => {
+    serve(limited('5'));
+    const err = await glanceRequestHandler('projects/1', {
+      method: 'GET',
+      prefixUrl: `${BASE}/api/v4`,
+      signal: AbortSignal.timeout(50),
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GitbeakerTimeoutError);
   });
 });

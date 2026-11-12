@@ -336,7 +336,12 @@ interface AssignedResponse {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** gitbeaker retries only these, and its retry error carries no response to read a reason phrase from. */
+/**
+ * glance's gitbeaker handler (`gitbeakerRequester.ts`) retries only a read's
+ * 502, and its retry error carries no response to read a reason phrase from.
+ * A 429 becomes RateLimitedError instead; its entry here covers a retry error
+ * from any other gitbeaker handler.
+ */
 const RETRIED_STATUS_TEXT: Record<number, string> = { 429: 'Too Many Requests', 502: 'Bad Gateway' };
 
 /** Extract numeric ID from a GQL global ID like "gid://gitlab/MergeRequest/12345". */
@@ -1079,10 +1084,12 @@ export class GitLabProvider implements GitProvider {
     currentUserNumericId: number | null,
   ): Promise<PullRequest | null> {
     // Run GraphQL detail query and REST diverged_commits_count fetch in parallel.
-    // The REST read is also the only one that makes GitLab recheck
-    // mergeability: its MR entity calls `check_mergeability(async: true)`,
-    // while GraphQL's `detailedMergeStatus` only reads the stored state. A
-    // poll whose REST reads all fail sees `unchecked` indefinitely.
+    // The REST read is also, as far as GitLab's API source shows, the only
+    // one that asks GitLab to recheck mergeability: its MR entity calls
+    // `check_mergeability(async: true)` when it renders `merge_status`, while
+    // GraphQL's `detailedMergeStatus` reads the stored state. A live
+    // merge-readiness poll sat at `unchecked` for 90s in a run whose REST
+    // reads were refused with 429.
     let resp: MRDetailResponse;
     let divergedCommitsCount: number | null = null;
     try {
@@ -2894,9 +2901,9 @@ export class GitLabProvider implements GitProvider {
       return new Error(`${label} failed: ${res.status} ${res.statusText}${desc ? ` — ${desc}` : ''}`);
     }
     if (err instanceof GitbeakerRetryError) {
-      // Gitbeaker retries 429/502 internally up to 10 times, then throws
-      // this (no cause.response) with a message like "...after 10 retries,
-      // last status code: 429. Check the applicable rate limits...".
+      // glance's gitbeaker handler retries a read's 502 up to 10 times, then
+      // throws this (no cause.response) with a message like "...after 10
+      // retries, last status code: 502. Verify the status of the endpoint."
       const match = err.message.match(/status code: (\d{3})/);
       const status = match?.[1];
       return status

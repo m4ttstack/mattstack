@@ -60,7 +60,7 @@ async function throwFailedRequestError(request: Request, response: Response): Pr
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-async function glanceRequestHandler(endpoint: string, options: Record<string, unknown> = {}): Promise<FormattedResponse> {
+export async function glanceRequestHandler(endpoint: string, options: Record<string, unknown> = {}): Promise<FormattedResponse> {
   const { rateLimiters, agent, asStream, prefixUrl, searchParams, method, ...opts } = options as {
     rateLimiters?: RateLimiters;
     agent?: unknown;
@@ -100,10 +100,16 @@ async function glanceRequestHandler(endpoint: string, options: Record<string, un
     );
   };
 
-  return withGitLabRateLimit(`${verb} ${endpoint}`, isRead ? 'read' : 'write', send, { signal: opts.signal ?? undefined });
+  // The signal is gitbeaker's whole-call query timeout, which can also fire during a 429 wait.
+  return withGitLabRateLimit(`${verb} ${endpoint}`, isRead ? 'read' : 'write', send, {
+    signal: opts.signal ?? undefined,
+  }).catch((e: unknown) => {
+    const name = (e as { name?: unknown } | null)?.name;
+    if (name === 'TimeoutError' || name === 'AbortError') throw new GitbeakerTimeoutError('Query timeout was reached');
+    throw e;
+  });
 }
 
-/** Pass as `requesterFn` to `new Gitlab()`. */
 export const glanceRequesterFn: (serviceOptions: ResourceOptions) => RequesterType = createRequesterFn(
   (_, requestOptions) => Promise.resolve(requestOptions),
   glanceRequestHandler,

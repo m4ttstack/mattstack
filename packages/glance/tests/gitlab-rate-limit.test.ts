@@ -178,6 +178,17 @@ describe('withGitLabRateLimit', () => {
     expect(clock.waits).toEqual([]);
   });
 
+  test('a reset too far off to be a date still throws RateLimitedError, with resetAt null', async () => {
+    const err = await withGitLabRateLimit(
+      'GET /projects/1',
+      'read',
+      async () => throwIfGitLabRateLimited(limited({ 'retry-after': '1e13' })),
+      fakeClock(),
+    ).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RateLimitedError);
+    expect((err as RateLimitedError).resetAt).toBeNull();
+  });
+
   test('any other error passes through untouched, unretried', async () => {
     const boom = new Error('500 Internal Server Error');
     let calls = 0;
