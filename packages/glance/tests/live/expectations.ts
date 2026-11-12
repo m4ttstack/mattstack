@@ -160,7 +160,7 @@ export const GITHUB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   addPullRequestLabels: { support: 'supported', capability: 'canEditLabels' },
   removePullRequestLabels: { support: 'supported', capability: 'canEditLabels' },
   fetchPullRequestDiffs: { support: 'supported', capability: 'canFetchPullRequestDiffs' },
-  fetchApprovalRules: { support: 'absent', capability: 'canFetchApprovalRules', note: 'Lands in this change.' },
+  fetchApprovalRules: { support: 'supported', capability: 'canFetchApprovalRules' },
   fetchCodeownerSections: { support: 'supported', capability: 'canFetchCodeownerSections' },
   fetchDivergedCount: { support: 'absent', capability: 'canFetchDivergedCount', note: 'Lands in this change.' },
   fetchDivergedCounts: { support: 'absent', capability: 'canFetchDivergedCount', note: 'Lands in this change.' }

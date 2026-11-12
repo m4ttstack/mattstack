@@ -890,13 +890,12 @@ export interface MRApprovalRules {
 }
 
 /**
- * Options for `GitLabProvider.fetchApprovalRules`. `updatedAfter` and `iids`
+ * Options for `fetchApprovalRules` on either forge. `updatedAfter` and `iids`
  * are mutually exclusive: the former drives windowed discovery, the latter
  * the targeted events-heal path.
  *
- * GitHub reads 50 PRs per GraphQL request and its page size defaults to 50.
- * Draft PRs are left out of windowed mode, since GitHub does not request code
- * owners on a draft.
+ * GitHub reads 50 PRs per GraphQL request. Draft PRs are left out of windowed
+ * mode, since GitHub does not request code owners on a draft.
  */
 export interface FetchApprovalRulesOptions {
   projectPath: string;
@@ -904,7 +903,7 @@ export interface FetchApprovalRulesOptions {
   updatedAfter?: string;
   /** Targeted mode: just these MRs (the events-heal path). Mutually exclusive with updatedAfter... enforced at runtime. */
   iids?: number[];
-  /** Page size, default 100. */
+  /** Page size. Default 100 on GitLab and 50 on GitHub; GitHub caps it at 50. */
   pageSize?: number;
   /** Windowed mode only: leave out MRs whose target branch is one of these exact names, server-side. */
   excludeTargetBranches?: string[];
