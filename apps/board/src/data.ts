@@ -10,9 +10,9 @@ import type {
   ProjectMRsScope,
   ProjectSyncError,
 } from '@mattstack/rt-client';
+import { isBotAuthor } from './bots.ts';
 import type { ExecutorState, ExecutorView } from './client/types.ts';
 import type { BoardConfig, BoardForge, Member } from './config.ts';
-import { isBotAuthor } from './discussions.ts';
 import type { ReviewerLatch } from './latch/discussions.ts';
 import type { RespondTarget } from './respond-targets.ts';
 import { extractTicketId } from './ticket.ts';
