@@ -119,8 +119,12 @@ rebase tools are GitLab only. `mr_merge` is on the server for both forges
 through the daemon too (`mr:merge-queue-status`, `mr:enqueue`, `mr:action`,
 and `mr:get` to read the merge back), so only the daemon holds the token, and the tool keeps the merge queue wait
 on its own side, one `mr:merge-queue-status` read per poll. The skill's ship gate is the
-human check. `mr_upload` is
-the one tool that sends a local file off the machine, so its daemon guard
+human check. `mr_upload` and `evidence_attach` are
+the tools that send a local file off the machine (on GitHub `mr_upload`
+refuses and names `evidence_attach`, which sends a PR's evidence images
+through the daemon's `mr:describe-with-attachments`: the same guard and
+record checks as `mr:upload`, then gh with the token only in its
+environment), so the daemon guard
 (`lib/daemon/upload-guard.ts`) refuses anything outside the target repo's
 worktrees, the user's Claude Code temp root, rt's own evidence folder
 (`~/.mattstack/evidence/`, `evidenceDir()` in `lib/rt-paths.ts`, for
@@ -134,7 +138,7 @@ label, or `mrUrl`) lives in `lib/mcp/mr-target.ts`; for a tool that
 resolves its target through `resolveMrTarget` or `resolveRepoTarget` there, a
 GitHub PR URL names a target only when the tool passes `github: true`, and
 only a tool whose daemon verbs all answer on GitHub may (`evidence_attach`
-builds its own GitHub target). The daemon verbs still take the serialized
+passes `github: true` too). The daemon verbs still take the serialized
 identity only.
 
 Decision gates (`rt gate ask`, `rt gate wait`, the board's stage sheet) are

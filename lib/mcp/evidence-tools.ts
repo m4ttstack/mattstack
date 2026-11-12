@@ -3,14 +3,16 @@
  * one merge, and its files uploaded and spliced into the MR description.
  * Run fields go through the run tools' handlers, never sqlite, so fieldSet's
  * validateEvidence and the runDb confinement apply. Every upload goes
- * through the daemon's mr:upload, so its path guard and record check run on
+ * through the daemon (mr:upload, or on GitHub mr:describe-with-attachments,
+ * which runs the same checks), so its path guard and record check run on
  * each file sent; the only skip is a reuse whose bytes match a prior upload
- * and that the redaction check would still pass.
+ * and that the redaction check would still pass. The GitHub token stays in
+ * the daemon: this process never reads it.
  */
 import { createHash } from "crypto";
 import { existsSync, readFileSync, realpathSync, statSync } from "fs";
 import { homedir } from "os";
-import { basename, dirname, isAbsolute, join } from "path";
+import { basename, dirname, extname, isAbsolute, join } from "path";
 import { rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands } from "../../packages/rt-client/src/index.ts";
 import { readEvidence, uploadablePaths, type EvidenceRecord, type EvidenceShot } from "../../packages/rt-client/src/evidence.ts";
@@ -25,20 +27,36 @@ import { appendixProblem, namesHome, renderSection, spliceSection, type FileLink
 import { addTickets, parseTickets, serializeTickets, ticketShots, TICKETS_FIELD, type TicketEntry } from "../evidence/tickets-field.ts";
 import { parseUploads, serializeUploads, sha256Of, type UploadEntry } from "../evidence/uploads-field.ts";
 import { loadRepoIndex } from "../repo-index.ts";
-import { identityFromRemote, parseIdentity, repoIdentitySlug } from "../settings/identity.ts";
+import { parseIdentity, repoIdentitySlug } from "../settings/identity.ts";
 import { getSetting } from "../settings/resolve.ts";
 import { loadRegistry } from "../worktree/registry.ts";
 import { githubRefusal, refuseGithubTarget } from "./mr-composite-tools.ts";
 import { resolveRepoTarget } from "./mr-target.ts";
 import { isFieldChanged, valueSha256 } from "../runs/write.ts";
 import { runToolDefs } from "./run-tools.ts";
-import { checkOptional, checkRequired, err, isTimeoutError, MR_TARGET_PROPS, MR_WRITE_TIMEOUT_MS, ok, REPO_NAME_RULE, type McpToolDef, type ToolResult } from "./shared.ts";
+import { checkOptional, checkRequired, err, isTimeoutError, MR_TARGET_PROPS, MR_WRITE_TIMEOUT_MS, ok, PR_URL_NOTE, REPO_NAME_RULE, type McpToolDef, type ToolResult } from "./shared.ts";
 import { checkRegisteredTree, realTreeGuardDeps, type TreeGuardDeps } from "./tree-guard.ts";
 
 /** A 50 MB multipart POST over a slow link outlives the 30s write timeout. */
 export const MR_UPLOAD_TIMEOUT_MS = 120_000;
 
+/** gh uploads every image and then writes the body in one run, which the daemon stops at 180s; the rest is the read before and the read back. */
+export const MR_DESCRIBE_TIMEOUT_MS = 240_000;
+
+export const GITHUB_UPLOAD_REFUSED_NOTE = "The images are named, not shown: GitHub refused the upload for the token rt uses.";
+
 const READ_TIMEOUT_MS = 30_000;
+const PROGRESS_EVERY_MS = 15_000;
+
+const NAME_MAX = 100;
+
+/** The name gh stages a file under: the daemon refuses a name outside [A-Za-z0-9._-], one that collides ignoring case, or one whose extension differs from the file's. */
+export function attachmentName(index: number, path: string): string {
+  const safe = basename(path).replace(/[^A-Za-z0-9._-]/g, "-");
+  const ext = extname(safe);
+  const base = safe.length <= NAME_MAX ? safe : ext.length < NAME_MAX ? safe.slice(0, NAME_MAX - ext.length) + ext : safe.slice(0, NAME_MAX);
+  return `${index + 1}-${base}`;
+}
 
 export interface EvidenceToolDeps {
   command: typeof rtCommand;
@@ -430,43 +448,12 @@ async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
 
 type Refused = Record<Bucket, Array<{ path: string; error: string }>>;
 type Uploaded = { path: string; url: string; markdown: string; reused: boolean };
-type Target =
-  | { forge: "github"; mr: string | null; number: number | null; repo: string | null }
-  | { forge: "gitlab"; identity: string; iid: number | undefined; mr: string | null };
-
-const ghMove = (n: number | null) => {
-  const pr = n === null ? "<number>" : String(n);
-  return `GitHub has no upload API, so the section names each file as attached separately; read the body with gh pr view ${pr} --json body, then write it with gh pr edit ${pr} --body-file <file>`;
-};
-
-function prNumber(url: unknown, iid: unknown): number | null {
-  const m = typeof url === "string" ? /\/pull\/(\d+)/.exec(url) : null;
-  if (m) return Number(m[1]);
-  return typeof iid === "number" && Number.isInteger(iid) && iid > 0 ? iid : null;
-}
+type Target = { forge: "gitlab" | "github"; identity: string; iid: number | undefined; mr: string | null };
 
 /** A remote identity's raw `host/path`, the form repo-scoped settings key on; a path identity has no repo section. */
 function remoteId(identity: string): string | null {
   const parsed = parseIdentity(identity);
   return parsed?.kind === "remote" ? parsed.id : null;
-}
-
-/** The repo a PR url or a github.com repoName names, through identityFromRemote so it matches the clone's own identity, overrides included. */
-function githubRepo(url: string | null, repoName: unknown): string | null {
-  const name = typeof repoName === "string" ? (remoteId(repoName.trim()) ?? repoName.trim().replace(/^remote:/i, "").replace(/%2f/gi, "/")) : "";
-  const m = (url ? /^https?:\/\/(?:www\.)?github\.com\/([^/]+\/[^/]+)/i.exec(url) : null)
-    ?? /^github\.com\/([^/]+\/[^/]+?)\/?$/i.exec(name);
-  return m ? (identityFromRemote(`https://github.com/${m[1]}`)?.id ?? null) : null;
-}
-
-function githubUrl(v: unknown): string | null {
-  if (typeof v !== "string") return null;
-  try {
-    const host = new URL(v.trim()).hostname.toLowerCase();
-    return host === "github.com" || host === "www.github.com" ? v.trim() : null;
-  } catch {
-    return null;
-  }
 }
 
 /** The MR is mrUrl, or repoName plus iid, else the run's mr field; repoName alone takes the field's MR only when both name one repo. */
@@ -478,32 +465,22 @@ async function resolveAttachTarget(deps: EvidenceToolDeps, input: Obj, mrField: 
   const mrUrl = explicit ? input.mrUrl : mrField;
   const fieldFallback = input.mrUrl === undefined && input.iid === undefined ? mrField : undefined;
   const loneIid = explicit ? undefined : input.iid;
-  const iidMismatch = (named: number | null | undefined) =>
-    loneIid !== undefined && named !== loneIid
-      ? { error: `iid ${String(loneIid)} does not match the run's mr field ${String(mrUrl).trim()}; pass mrUrl, or repoName with iid` }
-      : null;
-  const github = (identity?: string): Target | { error: string } => {
-    const url = githubUrl(mrUrl) ?? githubUrl(fieldFallback);
-    const number = prNumber(url, input.iid);
-    const repo = (identity === undefined ? null : remoteId(identity)) ?? githubRepo(url, input.repoName);
-    return iidMismatch(number) ?? { forge: "github", mr: url, number, repo };
-  };
-  if (refuseGithubTarget({ repoName: input.repoName, mrUrl }, "evidence_attach", "") !== null) return github();
-  const target = await deps.resolveRepo(explicit ? { repoName: input.repoName, iid: input.iid, mrUrl: input.mrUrl } : { mrUrl });
+  const target = await deps.resolveRepo(explicit ? { repoName: input.repoName, iid: input.iid, mrUrl: input.mrUrl } : { mrUrl }, { github: true });
   if (!target.ok) return { error: target.error };
-  if (githubRefusal(target.identity, "evidence_attach", "") !== null) return github(target.identity);
-  const mismatch = iidMismatch(target.iid);
-  if (mismatch) return mismatch;
+  if (loneIid !== undefined && target.iid !== loneIid) {
+    return { error: `iid ${String(loneIid)} does not match the run's mr field ${String(mrUrl).trim()}; pass mrUrl, or repoName with iid` };
+  }
+  const forge = githubRefusal(target.identity, "evidence_attach", "") === null ? "gitlab" : "github";
   if (target.iid === undefined && fieldFallback !== undefined) {
     const mismatch = (named: string) => ({ error: `repoName resolves to ${target.identity}, but the run's mr field names ${named}; pass mrUrl, or repoName with iid` });
-    if (githubUrl(fieldFallback)) return mismatch(fieldFallback.trim());
-    const fromField = await deps.resolveRepo({ mrUrl: fieldFallback });
+    if (forge === "gitlab" && refuseGithubTarget({ mrUrl: fieldFallback }, "evidence_attach", "") !== null) return mismatch(fieldFallback.trim());
+    const fromField = await deps.resolveRepo({ mrUrl: fieldFallback }, { github: true });
     if (!fromField.ok) return { error: `the run's mr field does not resolve: ${fromField.error}` };
     if (fromField.identity !== target.identity) return mismatch(fromField.identity);
-    return { forge: "gitlab", identity: target.identity, iid: fromField.iid, mr: fieldFallback.trim() };
+    return { forge, identity: target.identity, iid: fromField.iid, mr: fieldFallback.trim() };
   }
   const mr = target.iid === undefined ? null : typeof mrUrl === "string" ? mrUrl.trim() : null;
-  return { forge: "gitlab", identity: target.identity, iid: target.iid, mr };
+  return { forge, identity: target.identity, iid: target.iid, mr };
 }
 
 /** Refused files leave the section unless the Take names them as attached separately. */
@@ -536,6 +513,8 @@ function attachRecord(value: string | undefined): EvidenceRecord {
   return readEvidence(value ?? null);
 }
 
+/** The skill before the boards gate passed the PR body here; it must not reach an upload. */
+const STALE_SKILL_DESCRIPTION = "evidence_attach takes no description on a GitHub PR; this skill predates the installed rt, so update the mattstack plugin (claude plugin update mattstack@mattstack) and attach again";
 const HOME_IN_SECTION = "the section names a path in your home directory (a caption, label, waiver, ticket or appendix carries it), so the description was not written; take the path out of the evidence record and call again";
 
 function homesOf(deps: EvidenceToolDeps): string[] {
@@ -590,6 +569,253 @@ function isEmptyRecord(record: EvidenceRecord): boolean {
   return record.cases.length === 0 && !record.transcript && !record.url && !record.attach;
 }
 
+/** Merged onto the latest value, never over it: another process may have remembered uploads meanwhile, and once more if it lands between the read and the write. */
+async function rememberUploads(
+  deps: EvidenceToolDeps, runDb: string, stage: string, uploadsMap: Record<string, UploadEntry>, fresh: Record<string, UploadEntry>, env: NodeJS.ProcessEnv,
+): Promise<{ merged: Record<string, UploadEntry>; error?: string }> {
+  let merged = { ...uploadsMap, ...fresh };
+  if (!Object.keys(fresh).length) return { merged };
+  let res: ToolResult = err("run_field_set failed");
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const latest = await readField(deps, runDb, "evidence-uploads", env);
+    merged = latest.ok ? { ...uploadsMap, ...parseUploads(latest.value), ...fresh } : { ...uploadsMap, ...fresh };
+    const cas = latest.ok ? { ifSha256: valueSha256(latest.value ?? "") } : {};
+    res = await deps.runTool("run_field_set", { runDb, key: "evidence-uploads", value: serializeUploads(merged), stage, ...cas }, env);
+    if (res.ok || !isFieldChanged(res.error ?? "")) break;
+  }
+  return res.ok ? { merged } : { merged, error: `remembering the uploads in evidence-uploads failed: ${res.error ?? "run_field_set failed"}` };
+}
+
+type Forge = Target["forge"];
+const prOrMr = (forge: Forge) => (forge === "github" ? "PR" : "MR");
+
+async function readDescription(deps: EvidenceToolDeps, forge: Forge, identity: string, iid: number): Promise<{ ok: true; live: string; webUrl: string | null } | { ok: false; error: string }> {
+  const got = await deps.command<Commands["mr:get"]["data"]>("mr:get", { repoName: identity, iid, refresh: true }, { timeoutMs: READ_TIMEOUT_MS });
+  if (!got.ok || !got.data) return { ok: false, error: `reading the ${prOrMr(forge)} description failed: ${got.error ?? "mr:get failed"}` };
+  return { ok: true, live: got.data.mr.description ?? "", webUrl: got.data.mr.webUrl };
+}
+
+async function putDescription(deps: EvidenceToolDeps, identity: string, iid: number, description: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const put = await deps.command<Commands["mr:update"]["data"]>("mr:update", { repoName: identity, iid, description }, { timeoutMs: MR_WRITE_TIMEOUT_MS });
+  return put.ok ? { ok: true } : { ok: false, error: put.error ?? "mr:update failed" };
+}
+
+const writeHint = (forge: Forge, e: string) => (isTimeoutError(e) ? `${e}; the write may still land, so read the ${prOrMr(forge)} description before retrying` : e);
+
+const cancelledError = (files: string[]) =>
+  `cancelled: ${files.length} file(s) never uploaded (${files.join(", ")}), so the description was not written; the uploads that finished are remembered, so calling again resumes`;
+
+async function describeOnce(deps: EvidenceToolDeps, payload: Commands["mr:describe-with-attachments"]["payload"], progress?: () => void) {
+  progress?.();
+  const timer = progress ? setInterval(progress, PROGRESS_EVERY_MS) : undefined;
+  try {
+    return await deps.command<Commands["mr:describe-with-attachments"]["data"]>("mr:describe-with-attachments", payload, { timeoutMs: MR_DESCRIBE_TIMEOUT_MS });
+  } finally {
+    if (timer) clearInterval(timer);
+  }
+}
+
+interface AttachState {
+  deps: EvidenceToolDeps;
+  env: NodeJS.ProcessEnv;
+  signal?: AbortSignal;
+  progress?: () => void;
+  runDb: string;
+  stage: string;
+  runId: string;
+  target: Target;
+  linkRefused: boolean;
+  description: string | undefined;
+  appendix: string | undefined;
+  fold: boolean;
+  splice: (text: string, section: string) => string;
+  record: EvidenceRecord;
+  uploadsMap: Record<string, UploadEntry>;
+  paths: string[];
+  toSend: string[];
+  shas: Map<string, string>;
+  wasLinked: Set<string>;
+  uploaded: Uploaded[];
+  refused: Refused;
+  linked: Array<{ path: string; error: string }>;
+  writeErrors: string[];
+}
+
+type NotWritten = "no-mr" | "refused" | "unchanged";
+
+async function githubAttach(a: AttachState): Promise<ToolResult> {
+  const { deps, target, record, paths, uploaded, refused, linked, writeErrors } = a;
+  const identity = target.identity;
+  const order = new Map(paths.map((p, i) => [p, i]));
+  const nameOf = (path: string) => attachmentName(order.get(path)!, path);
+  const shown = new Map(uploaded.map((u) => [u.path, u.markdown]));
+  const local = new Set<string>();
+  const fresh: Record<string, UploadEntry> = {};
+  const at = deps.now();
+  let merged = a.uploadsMap;
+  let mr = target.mr;
+  const empty = isEmptyRecord(record);
+
+  const link = (path: string): FileLink => {
+    const markdown = shown.get(path);
+    if (markdown !== undefined) return { markdown };
+    return local.has(path) ? { local: path } : { markdown: `![](./${nameOf(path)})` };
+  };
+  const render = (o: { drop?: Set<string>; link?: (path: string) => FileLink; appendix?: string } = {}) =>
+    empty ? "" : renderSection(o.drop ? withoutFiles(record, o.drop) : record, o.link ?? link, { coveredUrls: coveredUrls(record, merged), appendix: o.appendix ?? a.appendix, fold: a.fold });
+  const done = (section: string, o: { notWritten?: NotWritten; descriptionWritten?: boolean; description?: string; uploadRefused?: string; readBackError?: string } = {}) => {
+    uploaded.sort((x, y) => order.get(x.path)! - order.get(y.path)!);
+    return ok({
+      forge: "github", mr, uploaded, refused, timedOutTwice: [], linked, section,
+      ...(o.description !== undefined && { description: o.description }),
+      descriptionWritten: o.descriptionWritten ?? false,
+      ...(o.notWritten && { notWritten: o.notWritten }),
+      ...(writeErrors.length > 0 && { writeErrors }),
+      ...(o.uploadRefused !== undefined && { uploadRefused: o.uploadRefused }),
+      ...(o.readBackError !== undefined && { readBackError: o.readBackError }),
+    });
+  };
+  const remember = async () => {
+    const r = await rememberUploads(deps, a.runDb, a.stage, a.uploadsMap, fresh, a.env);
+    merged = r.merged;
+    if (r.error) writeErrors.push(r.error);
+  };
+
+  if (empty) return done("", { notWritten: "unchanged", description: a.description });
+  if (target.iid === undefined) {
+    const section = render({ link: (path) => (shown.has(path) ? { markdown: shown.get(path)! } : { local: path }) });
+    if (namesHome(section, homesOf(deps))) {
+      writeErrors.push(HOME_IN_SECTION);
+      return done(section, { notWritten: "refused" });
+    }
+    return done(section, { notWritten: "no-mr", ...(a.description !== undefined && { description: a.splice(a.description, section) }) });
+  }
+  const iid = target.iid;
+  const first = render();
+  if (namesHome(first, homesOf(deps))) {
+    writeErrors.push(HOME_IN_SECTION);
+    return done(first, { notWritten: "refused" });
+  }
+  if (a.description !== undefined) {
+    writeErrors.push(STALE_SKILL_DESCRIPTION);
+    return done(first, { notWritten: "refused" });
+  }
+
+  const got = await readDescription(deps, "github", identity, iid);
+  if (!got.ok) {
+    writeErrors.push(got.error);
+    return done(first);
+  }
+  mr ??= got.webUrl;
+  const live = got.live;
+  // gh may already have replaced the body, so a write that would leave live as it was still goes out when overwrite is set.
+  const write = async (section: string, o: { overwrite?: boolean; uploadRefused?: string; readBackError?: string } = {}) => {
+    const next = a.splice(live, section);
+    const extra = { uploadRefused: o.uploadRefused, readBackError: o.readBackError };
+    if (next === live && !o.overwrite) return done(section, { notWritten: "unchanged", ...extra });
+    const put = await putDescription(deps, identity, iid, next);
+    if (!put.ok) writeErrors.push(writeHint("github", put.error));
+    return done(section, { descriptionWritten: put.ok, ...extra });
+  };
+
+  let sending = [...a.toSend];
+  let ran: Extract<Commands["mr:describe-with-attachments"]["data"], { outcome: "ran" }> | undefined;
+  for (let round = 0; ; round++) {
+    if (!sending.length) {
+      await remember();
+      return write(render());
+    }
+    if (a.signal?.aborted) {
+      await remember();
+      writeErrors.push(cancelledError(sending));
+      return done(render({ drop: new Set(sending) }));
+    }
+    const section = render();
+    const res = await describeOnce(deps, {
+      repoName: identity, iid, description: a.splice(live, section),
+      attachments: sending.map((path) => ({ path, name: nameOf(path) })),
+      runId: a.runId,
+    }, a.progress);
+    if (!res.ok || !res.data) {
+      await remember();
+      const e = res.error ?? "mr:describe-with-attachments failed";
+      writeErrors.push(isTimeoutError(e) ? `${e}; gh may still have written the PR body, so read it before retrying` : e);
+      return done(section);
+    }
+    if (res.data.outcome === "ran") {
+      ran = res.data;
+      break;
+    }
+    const bucketed = new Set<string>();
+    const named = new Set<string>();
+    for (const r of res.data.refused) {
+      named.add(r.path);
+      if (a.wasLinked.has(r.path)) linked.push(r);
+      else {
+        refused[bucketFor(r.error)].push(r);
+        bucketed.add(r.path);
+      }
+    }
+    if (round > 0 || (bucketed.size > 0 && !a.linkRefused)) {
+      for (const p of named) if (!bucketed.has(p)) local.add(p);
+      await remember();
+      return done(render({ drop: bucketed }), { notWritten: "refused" });
+    }
+    for (const p of named) {
+      local.add(p);
+      if (a.linkRefused) fresh[realOr(p)] = { linked: true, at };
+    }
+    sending = sending.filter((p) => !named.has(p));
+  }
+
+  for (const path of sending) {
+    const url = ran.urls[path];
+    if (typeof url !== "string") continue;
+    const markdown = `![${basename(path).replace(/[[\]]/g, "")}](${url})`;
+    uploaded.push({ path, url, markdown, reused: false });
+    shown.set(path, markdown);
+    const sha = a.shas.get(path);
+    if (sha) fresh[realOr(path)] = { sha256: sha, project: identity, url, markdown, at };
+  }
+  const missing = sending.filter((p) => !shown.has(p));
+  const readBackError = ran.readBackError;
+
+  if (ran.uploadRejected) {
+    for (const p of missing) local.add(p);
+    await remember();
+    const note = a.appendix ? `${GITHUB_UPLOAD_REFUSED_NOTE}\n\n${a.appendix}` : GITHUB_UPLOAD_REFUSED_NOTE;
+    return write(render({ appendix: note }), { overwrite: ran.written, uploadRefused: ran.ghError, readBackError });
+  }
+  if (ran.ghError !== undefined) {
+    const failure = `${ran.ghError}; the images that uploaded are remembered, so calling again resumes`;
+    const bucketed = new Set<string>();
+    for (const p of missing) {
+      if (a.wasLinked.has(p)) linked.push({ path: p, error: failure });
+      else {
+        refused.other.push({ path: p, error: failure });
+        bucketed.add(p);
+      }
+    }
+    if (bucketed.size > 0 && !a.linkRefused) {
+      for (const p of missing) if (!bucketed.has(p)) local.add(p);
+      await remember();
+      if (ran.written) {
+        const put = await putDescription(deps, identity, iid, live);
+        if (!put.ok) writeErrors.push(`gh left the PR body with ${missing.length} images unshown and putting it back failed: ${put.error}; read the PR body before retrying`);
+      }
+      return done(render({ drop: bucketed }), { notWritten: "refused", readBackError });
+    }
+    for (const p of missing) {
+      local.add(p);
+      if (a.linkRefused) fresh[realOr(p)] = { linked: true, at };
+    }
+    await remember();
+    return write(render(), { overwrite: ran.written, readBackError });
+  }
+  await remember();
+  return done(render(), { descriptionWritten: true, readBackError });
+}
+
 async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.ProcessEnv, signal?: AbortSignal, progress?: () => void): Promise<ToolResult> {
   const bad = checkRequired(input, [{ name: "runDb", type: "string" }, { name: "stage", type: "string" }, { name: "heading", type: "string" }])
     ?? checkOptional(input, [{ name: "before", type: "string" }, { name: "appendix", type: "string" }, { name: "description", type: "string" }, { name: "linkRefused", type: "boolean" }]);
@@ -627,20 +853,7 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   const description = typeof input.description === "string" ? input.description : undefined;
   const splice = (text: string, section: string) => spliceSection(text, heading, section, input.before as string | undefined);
   const appendix = typeof input.appendix === "string" ? input.appendix : undefined;
-  const repo = target.forge === "github" ? target.repo : remoteId(target.identity);
-  const fold = deps.foldScreenshots(repo);
-
-  if (target.forge === "github") {
-    const section = isEmptyRecord(record) ? "" : renderSection(record, (path) => ({ local: path }), { appendix, fold });
-    if (namesHome(section, homesOf(deps))) {
-      return ok({ forge: "github", mr: target.mr, uploaded, refused, timedOutTwice, linked, section, descriptionWritten: false, notWritten: "github", writeErrors: [HOME_IN_SECTION] });
-    }
-    return ok({
-      forge: "github", mr: target.mr, uploaded, refused, timedOutTwice, linked, section,
-      ...(description !== undefined && { description: section ? splice(description, section) : description }),
-      descriptionWritten: false, notWritten: "github", next: ghMove(target.number),
-    });
-  }
+  const fold = deps.foldScreenshots(remoteId(target.identity));
 
   const paths = [...new Set(uploadablePaths(record))];
   const toSend: string[] = [];
@@ -657,6 +870,13 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
     }
     try { shas.set(path, sha256Of(real)); } catch { /* unreadable: the daemon's refusal names it */ }
     toSend.push(path);
+  }
+
+  if (target.forge === "github") {
+    return githubAttach({
+      deps, env, signal, progress, runDb, stage, runId, target, linkRefused, description, appendix, fold, splice,
+      record, uploadsMap, paths, toSend, shas, wasLinked, uploaded, refused, linked, writeErrors,
+    });
   }
 
   const results = await uploadEach(deps, { identity: target.identity, paths: toSend, runId, retryTimeoutOnce: true, signal, progress });
@@ -683,19 +903,9 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   const order = new Map(paths.map((p, i) => [p, i]));
   uploaded.sort((a, b) => order.get(a.path)! - order.get(b.path)!);
 
-  let merged = { ...uploadsMap, ...fresh };
-  if (Object.keys(fresh).length) {
-    // another process may have remembered uploads meanwhile: merge onto its value rather than over it, once more if it lands between the read and the write
-    let res: ToolResult = err("run_field_set failed");
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const latest = await readField(deps, runDb, "evidence-uploads", env);
-      merged = latest.ok ? { ...uploadsMap, ...parseUploads(latest.value), ...fresh } : { ...uploadsMap, ...fresh };
-      const cas = latest.ok ? { ifSha256: valueSha256(latest.value ?? "") } : {};
-      res = await deps.runTool("run_field_set", { runDb, key: "evidence-uploads", value: serializeUploads(merged), stage, ...cas }, env);
-      if (res.ok || !isFieldChanged(res.error ?? "")) break;
-    }
-    if (!res.ok) writeErrors.push(`remembering the uploads in evidence-uploads failed: ${res.error ?? "run_field_set failed"}`);
-  }
+  const remembered = await rememberUploads(deps, runDb, stage, uploadsMap, fresh, env);
+  const merged = remembered.merged;
+  if (remembered.error) writeErrors.push(remembered.error);
 
   const unsent = new Set([...timedOutTwice, ...BUCKETS.flatMap((b) => refused[b].map((r) => r.path)), ...notStarted]);
   const byPath = new Map(uploaded.map((u) => [u.path, u.markdown]));
@@ -708,12 +918,12 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   const shown = blocked || notStarted.length ? withoutFiles(record, linkRefused ? new Set(notStarted) : unsent) : record;
   const section = empty ? "" : renderSection(shown, link, { coveredUrls: coveredUrls(record, merged), appendix, fold });
 
-  let notWritten: "no-mr" | "refused" | "unchanged" | undefined;
+  let notWritten: NotWritten | undefined;
   let descriptionOut: string | undefined;
   let descriptionWritten = false;
   let mr = target.mr;
   if (notStarted.length) {
-    writeErrors.push(`cancelled: ${notStarted.length} file(s) never uploaded (${notStarted.join(", ")}), so the description was not written; the uploads that finished are remembered, so calling again resumes`);
+    writeErrors.push(cancelledError(notStarted));
   } else if (empty) {
     notWritten = "unchanged";
     descriptionOut = description;
@@ -726,21 +936,17 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
     notWritten = "no-mr";
     if (description !== undefined) descriptionOut = splice(description, section);
   } else {
-    const got = await deps.command<Commands["mr:get"]["data"]>("mr:get", { repoName: target.identity, iid: target.iid, refresh: true }, { timeoutMs: READ_TIMEOUT_MS });
-    if (!got.ok || !got.data) {
-      writeErrors.push(`reading the MR description failed: ${got.error ?? "mr:get failed"}`);
+    const got = await readDescription(deps, "gitlab", target.identity, target.iid);
+    if (!got.ok) {
+      writeErrors.push(got.error);
     } else {
-      mr ??= got.data.mr.webUrl;
-      const live = got.data.mr.description ?? "";
-      const next = splice(live, section);
-      if (next === live) notWritten = "unchanged";
+      mr ??= got.webUrl;
+      const next = splice(got.live, section);
+      if (next === got.live) notWritten = "unchanged";
       else {
-        const put = await deps.command<Commands["mr:update"]["data"]>("mr:update", { repoName: target.identity, iid: target.iid, description: next }, { timeoutMs: MR_WRITE_TIMEOUT_MS });
+        const put = await putDescription(deps, target.identity, target.iid, next);
         if (put.ok) descriptionWritten = true;
-        else {
-          const e = put.error ?? "mr:update failed";
-          writeErrors.push(isTimeoutError(e) ? `${e}; the write may still land, so read the MR description before retrying` : e);
-        }
+        else writeErrors.push(writeHint("gitlab", put.error));
       }
     }
   }
@@ -852,7 +1058,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
     },
     {
       name: "evidence_attach",
-      description: `Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section (each case folded behind a summary when rt.evidence.foldScreenshots is on for the repo); and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which names it as \"<file name> (attached separately)\" instead, never its path; a file an earlier call linked that way is sent again: refused again, it stays linked, is listed in linked and does not block; timed out twice, it lands in timedOutTwice like any other file. The target is mrUrl, or repoName with iid, else the run's mr field (an iid passed alone must match that field's, or the call is refused); with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub nothing uploads and nothing is written: the section names each file as attached separately and next names the gh move. A section that names a path in your home directory (a caption, label, waiver, ticket or appendix carrying one) is never written, nor next given, and writeErrors says so. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, linked, section, description?, descriptionWritten, notWritten?, writeErrors?}. ${REPO_NAME_RULE}`,
+      description: `Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section (each case folded behind a summary when rt.evidence.foldScreenshots is on for the repo); and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which names it as \"<file name> (attached separately)\" instead, never its path; a file an earlier call linked that way is sent again: refused again, it stays linked, is listed in linked and does not block; timed out twice, it lands in timedOutTwice like any other file. The target is mrUrl, or repoName with iid, else the run's mr field (an iid passed alone must match that field's, or the call is refused); with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub the files go up with the description in one gh write through the daemon (gh 2.99 or newer), after the same checks; a token GitHub refuses for uploads still gets the description written, with the files named as attached separately and a line saying why. A section that names a path in your home directory (a caption, label, waiver, ticket or appendix carrying one) is never written, and writeErrors says so. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, linked, section, description?, descriptionWritten, notWritten?, writeErrors?, uploadRefused?, readBackError?}. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -862,7 +1068,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
           before: { type: "string", description: "A heading line the section is inserted above when heading is absent." },
           appendix: { type: "string", description: "Markdown printed inside the section after the generated content. A heading at or above heading's level, or a code fence left open, is refused." },
           ...MR_TARGET_PROPS,
-          description: { type: "string", description: "A description to splice the section into when there is no MR to write, or on GitHub." },
+          description: { type: "string", description: "A description to splice the section into when there is no MR or PR to write." },
           linkRefused: { type: "boolean", description: "The off-script gate's Take: name refused files as attached separately (no path) and write anyway." },
         },
         required: ["runDb", "stage", "heading"],
