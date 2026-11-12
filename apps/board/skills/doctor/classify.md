@@ -211,7 +211,9 @@ retried. The signals:
 Such a row skips the trace read and is never retried as flaky. Whether
 it blocks decides the rest; `mr_pipeline`'s `pipeline.jobs` rows and
 `ci_watch`'s `failedJobs` rows carry `allowFailure`, true when the check
-is not required:
+is not required. When no row in `pipeline.jobs` has `allowFailure: false`,
+the repo requires no checks: every row is blocking, as the head's status
+and `ci_watch` count it.
 
 - a blocking no-log row (`allowFailure: false`) classifies as `real, or
   no licensed fix`, with the error naming the check and that it has no
@@ -223,9 +225,9 @@ is not required:
 
 `mr_job_trace {mrUrl, jobId} per failed job` means per failed job with a
 log: a no-log row gets no trace call, so a mixed red traces only the rows
-that have a log. A GitHub red always has a blocking failed row, since only
-required checks set the head's status and `ci_watch` returns `failed` on
-a blocking failure. A red where no blocking failed row has a log comes
+that have a log. A GitHub red always has a blocking failed row, since
+only blocking checks (every check, when none is required) set the head's
+status and `ci_watch` returns `failed` on a blocking failure. A red where no blocking failed row has a log comes
 straight here on a `GitHub: every blocking ...` edge: those rows take
 `real, or no licensed fix`, which decides the run, so no optional row is
 read either. A check another app
