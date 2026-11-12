@@ -336,7 +336,10 @@ export async function forgeGet(
   const qs = query.toString();
   try {
     const res = await provider.restRequest("GET", `${checked.path}${qs ? `?${qs}` : ""}`, undefined, "forge:get", { redirect: "manual" });
-    if (res.status >= 300 && res.status < 400) return { ok: false, error: redirectRefusal(res, forge) };
+    if (res.status >= 300 && res.status < 400) {
+      await res.body?.cancel().catch(() => {});
+      return { ok: false, error: redirectRefusal(res, forge) };
+    }
     if (!res.ok) return { ok: false, error: github ? await githubFailure(res) : await gitlabFailure(res) };
     const length = github ? headerNumber(res, "content-length") : null;
     if (length !== null && length > FORGE_GET_MAX_BYTES) {
