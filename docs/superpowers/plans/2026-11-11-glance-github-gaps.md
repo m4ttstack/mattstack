@@ -4,7 +4,7 @@
 
 **Goal:** Close GLANCE-44, GLANCE-45 and GLANCE-52 in `@mattstack/glance`: GitHub `watchMR` polls with an honest `polling` state, GitHub rebase works, merge picks an allowed method and enters the merge queue, and by-branch reads, create, merge and `restRequest` stop hiding failures.
 
-**Architecture:** Every change lives in `packages/glance` (plus one forced badge change in `packages/glance-react`). GitHub-only behaviour sits in `GitHubProvider` and two small new modules; shared code (`RealtimeWatcher`, `MRDashboard`) gains a poll-only mode that GitLab never takes. Every interface addition is optional, so outside fakes keep compiling.
+**Architecture:** Every change lives in `packages/glance` (plus one forced badge change in `packages/glance-react`). GitHub-only behaviour sits in `GitHubProvider` and one small new module (`githubMerge.ts`); shared code (`RealtimeWatcher`, `MRDashboard`) gains a poll-only mode that GitLab never takes. Every interface addition is optional, so outside fakes keep compiling.
 
 **Tech Stack:** TypeScript 5.9, Bun 1.4 test runner, Octokit (`@octokit/core` 7, `@octokit/request` 10), React 19 + vitest for glance-react.
 
@@ -179,7 +179,7 @@
 - Modify: `packages/glance/src/errors.ts`, `packages/glance/src/index.ts:132-140` (export)
 - Modify: `packages/glance/src/GitHubProvider.ts:1794-1849` (`mergePullRequest` tail, `removeMergedSourceBranch`), `:970-996` (`fetchSingleMRAfterMutation` verb union gains `'Queued'` for Task 8)
 - Create: `packages/glance/tests/gh-merge-readback.test.ts`
-- Modify: `tests/gh-merge.test.ts` (its `stubGitHub` must serve the context's `headRefName` and `headRepository` for every delete and fork case); `tests/gh-fill-provider.test.ts:930-975` (behaviour change: the REST head-repo read is gone, so its rate-limited and forbidden head-read cases are deleted, and its unknown-head-repo case becomes `headRepository: null` in the context)
+- Modify: `tests/gh-merge.test.ts` (its `stubGitHub` must serve the context's `headRefName` and `headRepository` for every delete and fork case; drop its now-dead raw `GET /pulls/N` branch at line 98); `tests/gh-fill-provider.test.ts:930-975` (behaviour change: the REST head-repo read is gone, so its rate-limited and forbidden head-read cases are deleted, and its unknown-head-repo case becomes `headRepository: null` in the context)
 
 **Interfaces:**
 - Consumes: Task 6's merge path and `GitHubMergeContext.headBranch`/`headRepo`.
