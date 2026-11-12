@@ -36,7 +36,7 @@ import { extractTicketId } from '../ticket.ts';
 const FIXTURE_NOW = Date.parse('2026-07-13T00:00:00Z');
 
 const config: BoardConfig = {
-  gitlabHost: 'https://gitlab.com',
+  forge: { kind: 'gitlab', host: 'https://gitlab.com' },
   projects: ['org/repo-a', 'org/repo-b'],
   members: [{ username: 'alice' }, { username: 'bob' }],
   defaultMember: 'all',

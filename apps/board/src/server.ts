@@ -78,6 +78,7 @@ import {
   codeownerSlackOn,
   daemonRepoField,
   displayName,
+  gitlabOnly,
   loadAgentSettings,
   loadConfig,
   loadGitLabToken,
@@ -619,7 +620,7 @@ let gitlabProvider: GitLabProvider | undefined;
 async function gitlab(): Promise<GitLabProvider> {
   const token = await getGitlabToken();
   if (!token) throw new Error('gitlab token not configured');
-  gitlabProvider ??= new GitLabProvider(config.gitlabHost, token);
+  gitlabProvider ??= new GitLabProvider(gitlabOnly(config), token);
   return gitlabProvider;
 }
 
@@ -634,7 +635,7 @@ const runMrs = new RunMrResolver({
   onChange: () => sseNudge(),
 });
 
-const ownerIo = () => daemonOwnerIo(config.gitlabHost);
+const ownerIo = () => daemonOwnerIo(config.forge.host);
 const runOwners = createRunOwnerRefresher({
   listRuns: () => ownerIo().listRuns(),
   probe: session => ownerIo().probe(session),
@@ -905,7 +906,7 @@ async function fetchTeamMRs(force = false): Promise<TeamMRsResult> {
     const repoId = daemonRepoField(config, projectPath);
     if (!repoId) {
       errors.push(
-        `${projectPath}: could not derive its rt repo identity from board.gitlabHost`
+        `${projectPath}: could not derive its rt repo identity from the team's forge host`
       );
       continue;
     }
@@ -958,7 +959,7 @@ function doctorTabs(
   memo: Map<string, string[]>
 ): string[] {
   const project = webUrl
-    ? projectPathFromWebUrl(webUrl, config.gitlabHost)
+    ? projectPathFromWebUrl(webUrl, config.forge.host)
     : null;
   if (!project) return [];
   let tabs = memo.get(project);
@@ -1314,14 +1315,14 @@ async function readOwnerRules(
   | { ok: false; status: number; message: string }
 > {
   const projectPath = mr.webUrl
-    ? projectPathFromWebUrl(mr.webUrl, config.gitlabHost)
+    ? projectPathFromWebUrl(mr.webUrl, config.forge.host)
     : null;
   const repoName = projectPath ? daemonRepoField(config, projectPath) : null;
   if (!repoName) {
     return {
       ok: false,
       status: 400,
-      message: `${projectPath ?? mr.webUrl}: could not derive its rt repo identity from board.gitlabHost`,
+      message: `${projectPath ?? mr.webUrl}: could not derive its rt repo identity from the team's forge host`,
     };
   }
   const res = await rtCommand<ForgeGetData>(
@@ -1390,7 +1391,7 @@ async function ownersPostPlan(
   | Response
 > {
   const projectPath = mr.webUrl
-    ? projectPathFromWebUrl(mr.webUrl, config.gitlabHost)
+    ? projectPathFromWebUrl(mr.webUrl, config.forge.host)
     : null;
   if (!projectPath || !codeownerSlackOn(config, projectPath)) {
     return new Response('code owner posts are not turned on for this repo', {
@@ -1896,7 +1897,7 @@ async function fetchMemberMRs(username: string): Promise<BoardMR[]> {
     const repoId = daemonRepoField(config, projectPath);
     if (!repoId) {
       errors.push(
-        `${projectPath}: could not derive its rt repo identity from board.gitlabHost`
+        `${projectPath}: could not derive its rt repo identity from the team's forge host`
       );
       continue;
     }
@@ -2257,7 +2258,7 @@ const httpServer = Bun.serve({
         repoFor: mr => {
           const projectPath = projectPathFromWebUrl(
             mr.webUrl,
-            config.gitlabHost
+            config.forge.host
           );
           return projectPath ? daemonRepoField(config, projectPath) : null;
         },
@@ -2773,8 +2774,8 @@ const httpServer = Bun.serve({
         const existing = readReviewStates().get(parsed.mrUrl);
         const repo = resolveLaunchRepo(
           mr.rtRepo,
-          config.gitlabHost,
-          projectPathFromWebUrl(parsed.mrUrl, config.gitlabHost) ?? '',
+          config.forge.host,
+          projectPathFromWebUrl(parsed.mrUrl, config.forge.host) ?? '',
           parsed.mrUrl
         );
         if (reReview) {
@@ -2983,8 +2984,8 @@ const httpServer = Bun.serve({
         const existing = readRespondStates().get(parsed.mrUrl);
         const repo = resolveLaunchRepo(
           mr.rtRepo,
-          config.gitlabHost,
-          projectPathFromWebUrl(parsed.mrUrl, config.gitlabHost) ?? '',
+          config.forge.host,
+          projectPathFromWebUrl(parsed.mrUrl, config.forge.host) ?? '',
           parsed.mrUrl
         );
         if (resume) {
@@ -3182,8 +3183,8 @@ const httpServer = Bun.serve({
         const existing = readDoctorStates().get(parsed.mrUrl);
         const repo = resolveLaunchRepo(
           mr.rtRepo,
-          config.gitlabHost,
-          projectPathFromWebUrl(parsed.mrUrl, config.gitlabHost) ?? '',
+          config.forge.host,
+          projectPathFromWebUrl(parsed.mrUrl, config.forge.host) ?? '',
           parsed.mrUrl
         );
         {
@@ -3510,7 +3511,7 @@ const httpServer = Bun.serve({
         }
         try {
           const projectId = parseRepoId(mr.repositoryId);
-          const mutator = new NoteMutator(config.gitlabHost, gitlabToken);
+          const mutator = new NoteMutator(gitlabOnly(config), gitlabToken);
           const note = await mutator.createNote(projectId, mr.iid, draft.body);
           writeDraft(mrUrl, kind, {
             status: 'posted',
@@ -3575,7 +3576,7 @@ const httpServer = Bun.serve({
             headers: { 'content-type': 'application/json' },
           });
         }
-        const path = projectPathFromWebUrl(parsed.mrUrl, config.gitlabHost);
+        const path = projectPathFromWebUrl(parsed.mrUrl, config.forge.host);
         if (!path)
           return new Response(
             `could not derive a project path from "${parsed.mrUrl}"`,
@@ -3878,7 +3879,7 @@ const httpServer = Bun.serve({
           const refused = requireOwnMr(mr);
           if (refused) return refused;
         }
-        const path = projectPathFromWebUrl(parsed.mrUrl, config.gitlabHost);
+        const path = projectPathFromWebUrl(parsed.mrUrl, config.forge.host);
         if (!path)
           return new Response(
             `could not derive a project path from "${parsed.mrUrl}"`,
@@ -5611,7 +5612,7 @@ async function handleAgentSignal(
               fetchNewDiscussionCount(
                 () =>
                   new MRDetailFetcher(
-                    config.gitlabHost,
+                    gitlabOnly(config),
                     gitlabToken
                   ).fetchDetail(projectId, mr.iid),
                 self,
@@ -5620,10 +5621,10 @@ async function handleAgentSignal(
             self,
             approvedBy: mr.reviews.approvedBy.map(r => r.username),
             detail,
-            gateway: latchGateway(config.gitlabHost, gitlabToken),
+            gateway: latchGateway(gitlabOnly(config), gitlabToken),
             projectId,
             projectPath:
-              projectPathFromWebUrl(signal.mrUrl, config.gitlabHost) ?? '',
+              projectPathFromWebUrl(signal.mrUrl, config.forge.host) ?? '',
             mrUrl: signal.mrUrl,
             iid: mr.iid,
           });
@@ -5666,10 +5667,10 @@ async function handleAgentSignal(
           pending,
           async id => {
             await latchGateway(
-              config.gitlabHost,
+              gitlabOnly(config),
               gitlabToken
             ).resolveDiscussion(
-              projectPathFromWebUrl(signal.mrUrl, config.gitlabHost) ?? '',
+              projectPathFromWebUrl(signal.mrUrl, config.forge.host) ?? '',
               signal.iid,
               id
             );

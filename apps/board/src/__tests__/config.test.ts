@@ -16,6 +16,24 @@ const base = {
 };
 
 describe('parseConfig', () => {
+  test('a github forge with no gitlabHost gives a github forge', () => {
+    const { gitlabHost: _gl, ...rest } = base;
+    const cfg = parseConfig(
+      JSON.stringify({
+        ...rest,
+        forge: { provider: 'github', host: 'github.com' },
+      })
+    );
+    expect(cfg.forge).toEqual({ kind: 'github', host: 'https://github.com' });
+  });
+
+  test('with neither gitlabHost nor forge it throws the gitlabHost message', () => {
+    const { gitlabHost: _gl, ...rest } = base;
+    expect(() => parseConfig(JSON.stringify(rest))).toThrow(
+      /missing required field "gitlabHost"/
+    );
+  });
+
   test('parses members and applies defaults', () => {
     const cfg = parseConfig(JSON.stringify(base));
     expect(cfg.members).toEqual([

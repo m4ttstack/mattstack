@@ -195,7 +195,7 @@ export function buildBoard(
       if (!prefix || !prefixes.has(prefix)) continue;
     }
     const path = pr.webUrl
-      ? projectPathFromWebUrl(pr.webUrl, config.gitlabHost)
+      ? projectPathFromWebUrl(pr.webUrl, config.forge.host)
       : null;
     if (!path || !projects.has(path)) continue;
     // Drop MRs gone quiet: no activity (last update) within the stale window.

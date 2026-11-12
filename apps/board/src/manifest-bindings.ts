@@ -36,8 +36,8 @@ function configSkillFor(kind: BoardSkillKind, cfg: BoardConfig): string {
     project path also "-". E.g. "https://gitlab.example.com" + "acme/widgets"
     -> "gitlab.example.com-acme-widgets". Must stay identical to the slug rule
     `rt skills materialize` writes the per-pack files under. */
-export function boardRepoSlug(gitlabHost: string, project: string): string {
-  const host = gitlabHost
+export function boardRepoSlug(forgeHost: string, project: string): string {
+  const host = forgeHost
     .replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '')
     .replace(/^[^@/]*@/, '')
     .split('/')[0]!
@@ -106,7 +106,7 @@ export function resolveBoardSkill(
   const manifestPath = join(
     home,
     'repos',
-    boardRepoSlug(cfg.gitlabHost, project),
+    boardRepoSlug(cfg.forge.host, project),
     'packs',
     pack,
     'skills.jsonc'
@@ -175,7 +175,7 @@ export function resolveLaunchSkill(
   pack: string | null,
   mattstackHome?: string
 ): string {
-  const project = projectPathFromWebUrl(mrUrl, cfg.gitlabHost);
+  const project = projectPathFromWebUrl(mrUrl, cfg.forge.host);
   const resolved: ResolvedBoardSkill = project
     ? resolveBoardSkill(kind, project, cfg, pack, mattstackHome)
     : { skill: configSkillFor(kind, cfg), source: 'config', pack };

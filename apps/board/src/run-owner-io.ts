@@ -20,7 +20,7 @@ export interface OwnerIo {
 
 /** Run lookups, rings and probes over the rt daemon, as triage and the
     board server both use them. */
-export function daemonOwnerIo(gitlabHost: string): OwnerIo {
+export function daemonOwnerIo(forgeHost: string): OwnerIo {
   return {
     listRuns: async () => {
       try {
@@ -42,7 +42,7 @@ export function daemonOwnerIo(gitlabHost: string): OwnerIo {
       };
     },
     repoSlugForMr: mrUrl =>
-      boardRepoSlug(gitlabHost, projectPathFromWebUrl(mrUrl, gitlabHost) ?? ''),
+      boardRepoSlug(forgeHost, projectPathFromWebUrl(mrUrl, forgeHost) ?? ''),
   };
 }
 

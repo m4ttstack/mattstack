@@ -60,10 +60,10 @@ export function repoIdentityField(
  * a third.
  */
 export function deriveRtRepos(
-  gitlabHost: string,
+  forgeHost: string,
   projects: string[]
 ): Record<string, string> {
-  const host = gitlabHost
+  const host = forgeHost
     .replace(/^https?:\/\//, '')
     .replace(/\/+$/, '')
     .toLowerCase();
@@ -86,11 +86,11 @@ export function daemonRepoField(
     section is keyed by the project's host and path, never by an rtRepos
     override, which names where a checkout tracks rather than the project. */
 export function codeownerSlackOn(
-  config: Pick<BoardConfig, 'gitlabHost'>,
+  config: Pick<BoardConfig, 'forge'>,
   projectPath: string,
   resolve: typeof getSetting = getSetting
 ): boolean {
-  const repoIdentity = deriveRtRepos(config.gitlabHost, [projectPath])[
+  const repoIdentity = deriveRtRepos(config.forge.host, [projectPath])[
     projectPath
   ];
   try {
@@ -110,21 +110,21 @@ export function codeownerSlackOn(
     filter). Prefers the project's configured rtRepos value -- the same
     resolution readDiscussions already relies on at server.ts's
     enrichReviewerComments/readLatchDetail -- and falls back to deriving one
-    from gitlabHost plus the MR's own GitLab project path. Never blocks a
+    from the forge host plus the MR's own project path. Never blocks a
     launch: when both attempts fail (malformed config), logs a warning and
     returns the bare project path as a best-effort value instead of null. */
 export function resolveLaunchRepo(
   rtRepoOverride: string | null | undefined,
-  gitlabHost: string,
+  forgeHost: string,
   projectPath: string,
   mrUrl: string
 ): string {
   const repo =
     repoIdentityField(rtRepoOverride) ??
-    repoIdentityField(`${gitlabHost}/${projectPath}`);
+    repoIdentityField(`${forgeHost}/${projectPath}`);
   if (repo) return repo;
   console.warn(
-    `launch: could not resolve an rt repo identity for ${mrUrl} (gitlabHost=${gitlabHost}, projectPath=${projectPath || '<empty>'}); launching with the bare project path`
+    `launch: could not resolve an rt repo identity for ${mrUrl} (forgeHost=${forgeHost}, projectPath=${projectPath || '<empty>'}); launching with the bare project path`
   );
   return projectPath;
 }
@@ -172,8 +172,35 @@ export function displayName(
   return member.name?.trim() || profileName?.trim() || null;
 }
 
+export type BoardForge = { kind: 'gitlab' | 'github'; host: string };
+
+export function normalizeForgeHost(host: string): string {
+  const bare = host
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/+$/, '')
+    .toLowerCase();
+  return `https://${bare}`;
+}
+
+export const FORGE_NOT_YET = 'Not available on GitHub yet';
+
+export class ForgeNotSupported extends Error {
+  constructor() {
+    super(FORGE_NOT_YET);
+    this.name = 'ForgeNotSupported';
+  }
+}
+
+/** The host every GitLab client is built against; a GitHub forge never reaches one. */
+export function gitlabOnly(config: Pick<BoardConfig, 'forge'>): string {
+  if (config.forge.kind !== 'gitlab') throw new ForgeNotSupported();
+  return config.forge.host;
+}
+
 export interface BoardConfig {
-  gitlabHost: string;
+  /** board.gitlabHost when set, else the team's GitHub forge from mattstack.integrations. */
+  forge: BoardForge;
   /** GitLab project paths whose MRs are eligible, e.g. "group/project". */
   projects: string[];
   /** Team members whose authored MRs the board shows, in sidebar order. */
@@ -225,7 +252,7 @@ export interface BoardConfig {
       name, case-insensitive). Additive to the built-in heuristic — for named
       integration bots that don't match a bot-username pattern. */
   botUsernames: string[];
-  /** rt repo identities keyed by GitLab project path, derived from gitlabHost and projects. */
+  /** rt repo identities keyed by project path, derived from the forge host and projects. */
   rtRepos: Record<string, string>;
   slack: SlackConfig;
   /** Peer-boards relay: always the built-in switchboard. The token comes from
@@ -269,8 +296,12 @@ const DEFAULT_SLACK: SlackConfig = {
 
 /** Parse and validate a board config's JSON. `source` names where a malformed value came from in every thrown message: the store reader passes a settings-store label, the fixture server its file. */
 export function parseConfig(raw: string, source = 'config.json'): BoardConfig {
-  const cfg = JSON.parse(raw) as Partial<BoardConfig>;
-  for (const key of ['gitlabHost', 'projects', 'members'] as const) {
+  const cfg = JSON.parse(raw) as Partial<BoardConfig> & {
+    gitlabHost?: string;
+    forge?: { provider?: unknown; host?: unknown };
+  };
+  const forge = parseForge(cfg, source);
+  for (const key of ['projects', 'members'] as const) {
     const value = cfg[key];
     if (!value || (Array.isArray(value) && value.length === 0)) {
       throw new Error(`${source} is missing required field "${key}"`);
@@ -369,7 +400,7 @@ export function parseConfig(raw: string, source = 'config.json'): BoardConfig {
   const switchboard: SwitchboardBoardConfig = { url: switchboardUrl() };
   const tabs = parseTabs(cfg.tabs, source);
   return {
-    gitlabHost: cfg.gitlabHost!,
+    forge,
     projects: cfg.projects!,
     members: cfg.members!,
     defaultMember: cfg.defaultMember ?? 'all',
@@ -388,11 +419,28 @@ export function parseConfig(raw: string, source = 'config.json'): BoardConfig {
     doctorSkill: cfg.doctorSkill ?? '',
     teamPack: '',
     botUsernames: (cfg.botUsernames ?? []).map(b => b.trim()),
-    rtRepos: deriveRtRepos(cfg.gitlabHost!, cfg.projects!),
+    rtRepos: deriveRtRepos(forge.host, cfg.projects!),
     slack,
     switchboard,
     tabs,
   };
+}
+
+function parseForge(
+  cfg: { gitlabHost?: string; forge?: { provider?: unknown; host?: unknown } },
+  source: string
+): BoardForge {
+  if (cfg.gitlabHost) {
+    if (typeof cfg.gitlabHost !== 'string') {
+      throw new Error(`${source} "gitlabHost" must be a string`);
+    }
+    return { kind: 'gitlab', host: cfg.gitlabHost };
+  }
+  const { provider, host } = cfg.forge ?? {};
+  if (provider === 'github' && typeof host === 'string' && host.trim()) {
+    return { kind: 'github', host: normalizeForgeHost(host) };
+  }
+  throw new Error(`${source} is missing required field "gitlabHost"`);
 }
 
 /** Absent = IMPLICIT_TABS (the classic single authors-roster board), never zero tabs. */
@@ -740,6 +788,7 @@ export function loadConfig(resolve: GetSettingFn = getSetting): BoardConfig {
   );
   const merged = {
     gitlabHost: read<string | undefined>('board.gitlabHost'),
+    forge: read<{ forge?: unknown }>('mattstack.integrations')?.forge,
     projects: read<string[] | undefined>('board.projects'),
     members,
     title: read<string>('board.title'),

@@ -14,6 +14,7 @@ import {
   readProjectMRs,
 } from '@mattstack/rt-client';
 import {
+  gitlabOnly,
   loadAgentSettings,
   loadConfig,
   loadGitLabToken,
@@ -174,7 +175,7 @@ try {
       const token = await loadGitLabToken();
       if (!token)
         throw new Error('triage: no gitlab token available for identity');
-      return new GitLabProvider(boardConfig.gitlabHost, token).validateToken();
+      return new GitLabProvider(gitlabOnly(boardConfig), token).validateToken();
     });
     if (!resolved)
       throw new Error('triage: no gitlab token available for identity');
@@ -223,7 +224,7 @@ try {
       iid: m.iid,
       projectId: parseRepoId(m.repositoryId),
       projectPath:
-        projectPathFromWebUrl(m.webUrl!, boardConfig.gitlabHost) ?? '',
+        projectPathFromWebUrl(m.webUrl!, boardConfig.forge.host) ?? '',
       // Encoded, not the bare rtRepos value: readDetail below passes this
       // straight to readDiscussions, which is daemon-identity-keyed.
       rtRepo: repoIdentityField(m.rtRepo) ?? '',
@@ -257,7 +258,7 @@ try {
       doctorTabOpen: iid => mrTabOpen(boardConfig.doctorsWorkspace, iid),
       now: () => Date.now(),
       attendants: createBoardAttendants(),
-      ...daemonOwnerIo(boardConfig.gitlabHost),
+      ...daemonOwnerIo(boardConfig.forge.host),
     });
     console.log(
       `triage: dispatched ${result.dispatched}, escalated ${result.escalated}, skipped ${result.skipped}`
@@ -352,7 +353,7 @@ try {
           if (!res.ok || !res.data) return null;
           return { discussions: res.data.discussions } as MRDetail;
         },
-        gateway: latchGateway(boardConfig.gitlabHost, latchToken),
+        gateway: latchGateway(gitlabOnly(boardConfig), latchToken),
         self: username,
         launchReReview: (mrUrl, iid) =>
           launchReReview(mrUrl, iid, {
@@ -376,7 +377,7 @@ try {
           fetchNewDiscussionCount(
             () =>
               new MRDetailFetcher(
-                boardConfig.gitlabHost,
+                gitlabOnly(boardConfig),
                 latchToken
               ).fetchDetail(mr.projectId, mr.iid),
             username,
