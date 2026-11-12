@@ -114,6 +114,15 @@ describe("runStart provenance from the skill folder", () => {
     expect(recorded(start(skillDir, home))).toEqual({ pack_commits: "acme=0.4.11,mattstack=0.32.56", pack_dirty: 0 });
   });
 
+  test("a pack in CLAUDE_CONFIG_DIR's plugin cache inside an enclosing work tree skips the checkout path too", () => {
+    const home = tmp();
+    git(home, "init", "-q");
+    git(home, "commit", "-q", "--allow-empty", "-m", "dotfiles");
+    const configDir = join(home, ".claude-account");
+    const skillDir = installedSkill("0.4.11", { mattstack: "0.32.56" }, join(configDir, "plugins", "cache"));
+    expect(recorded(start(skillDir, home, { env: { HOME: home, CLAUDE_CONFIG_DIR: configDir } }))).toEqual({ pack_commits: "acme=0.4.11,mattstack=0.32.56", pack_dirty: 0 });
+  });
+
   test("old baked flags still record provenance", () => {
     const { home } = homeWithOrgClone();
     const skillDir = installedSkill("0.4.11", { mattstack: "0.32.56", sha: "abc1234", dirty: 1 }, join(home, ".claude", "plugins", "cache"));

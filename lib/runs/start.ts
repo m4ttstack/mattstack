@@ -41,8 +41,10 @@ function runProvenance(o: RunStartOpts): PackProvenance {
   const baked = o.mattstackSha !== undefined || o.mattstackDirty !== undefined || o.packSha !== undefined;
   if (baked || !o.skillDir) return checkouts;
   const home = o.env?.HOME ?? process.env.HOME ?? homedir();
+  const configDir = (o.env ?? process.env).CLAUDE_CONFIG_DIR;
+  const configDirs = [join(home, ".claude"), ...(configDir ? [configDir] : [])];
   // git answers inside any enclosing work tree, so a cache copy under a dotfiles repo would read as a checkout.
-  if (!inPluginCache(o.skillDir, home) && checkouts.commits.length > 0) {
+  if (!configDirs.some((dir) => inPluginCache(o.skillDir!, dir)) && checkouts.commits.length > 0) {
     const mattstack = lockedMattstack(o.skillDir, realReadFile);
     return {
       commits: mattstack.token ? [...checkouts.commits, mattstack.token] : checkouts.commits,
@@ -61,8 +63,8 @@ function realpathOr(p: string): string {
   }
 }
 
-function inPluginCache(skillDir: string, home: string): boolean {
-  const cache = realpathOr(join(home, ".claude", "plugins", "cache"));
+function inPluginCache(skillDir: string, configDir: string): boolean {
+  const cache = realpathOr(join(configDir, "plugins", "cache"));
   return realpathOr(skillDir).startsWith(`${cache}${sep}`);
 }
 
