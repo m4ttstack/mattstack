@@ -17,7 +17,11 @@ export const TABLES = [
   'store_meta',
 ] as const;
 
-/** The tables holding data read from the GitLab host; cleared when the confirmed host changes. */
+/**
+ * Every table worked out from the GitLab host, cleared when the confirmed host changes.
+ * linear_issues is one: its credit, closure and links come from that host's MRs. Only
+ * linear_ids, a cache of which ids Linear knows, survives.
+ */
 export const FORGE_TABLES = [
   'mr_index',
   'scan_meta',
@@ -25,6 +29,7 @@ export const FORGE_TABLES = [
   'pipelines',
   'push_events',
   'identities',
+  'linear_issues',
 ] as const;
 
 export const DDL = `

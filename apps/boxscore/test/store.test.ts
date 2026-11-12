@@ -538,8 +538,9 @@ describe('forge host', () => {
     expect(s.counts()).toEqual(allForgeRows);
   });
 
-  it('a new host clears every forge row and watermark and keeps the Linear rows', () => {
+  it('a new host clears every row worked out from the old host, and keeps the Linear id cache', () => {
     const s = seedForgeAndLinear();
+    s.putLinearIds([{ id: 'ENG-1', valid: true }]);
     s.adoptForgeHost('https://gl.example');
 
     expect(s.adoptForgeHost('https://gl.other.example')).toBe(true);
@@ -549,8 +550,9 @@ describe('forge host', () => {
       mrMetrics: 0,
       pipelines: 0,
       pushEvents: 0,
-      linearIssues: 1,
+      linearIssues: 0,
     });
+    expect(s.isValidLinearId('ENG-1')).toBe(true);
     expect(s.lastScan('g/p')).toBeNull();
     expect(s.scanFloor('g/p')).toBeNull();
     expect(s.identities(['ada'])).toEqual([]);

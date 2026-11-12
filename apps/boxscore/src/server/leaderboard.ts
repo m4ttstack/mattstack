@@ -149,7 +149,7 @@ async function buildLeaderboard(
   const store = getStore();
   if (store.adoptForgeHost(env.baseUrl)) {
     console.warn(
-      `[store] the confirmed GitLab host is now ${env.baseUrl}; cleared the previous host's MRs, pipelines, events and scan watermarks`
+      `[store] the confirmed GitLab host is now ${env.baseUrl}; cleared the previous host's MRs, pipelines, events, scan watermarks and Linear credit`
     );
   }
   const pw = priorWindow(opts.window);
