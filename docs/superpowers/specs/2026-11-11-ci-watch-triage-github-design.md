@@ -90,9 +90,12 @@ the GitHub head the tools use. It rests on two per-commit reads, both through
   `:repo/branches/<target>` (classic protection). glance's `isRequired` only
   covers checks already on the PR, so a required check that has not reported
   yet (this repo's final `checks` job, which `needs:` every other job, appears
-  last) is invisible to it; the list closes that gap. A failed read of either
-  is treated as an empty contribution from it, and a call where both fail
-  falls back to glance's `isRequired`.
+  last) is invisible to it; the list closes that gap. The target branch goes
+  into both paths percent-encoded once (`encodeURIComponent`, so a `/` in a
+  branch name is one segment). When either read fails, including a path the
+  guard refuses, the list is unset for this poll: the head uses glance's
+  `isRequired` for that poll, nothing is stored, and the next poll retries
+  both. Only a list read with both sources answering is kept for the commit.
 - **Anchor.** `pipeline:list {ref: <head branch>, sha: <head sha>, limit: 100}`
   lists the head sha's workflow runs on the PR's branch (the branch filter
   keeps an older run of the same sha on another branch out). The anchor is
@@ -104,15 +107,20 @@ Rules the head applies:
 
 - **Blocking and status.** With a non-empty required list, a check blocks
   exactly when its name is on the list; the head's status is computed over
-  the required names only (failed, else canceled, else running, else
-  pending, else success), and a required name with no check on the PR yet
-  makes it at least `pending`. With an empty list every check blocks and the
+  the required names only (failed, else canceled, else running, else pending
+  when any is pending or `manual`, else success; a `skipped` required check
+  counts as passing, as GitHub treats it), and a required name with no check
+  on the PR yet makes it at least `pending`. With an empty list every check blocks and the
   head keeps glance's aggregate (glance already counts every check then). An
   optional red check therefore never blocks while a required list exists.
-- **No early success.** A head that reads `success` is confirmed with one
-  more `pipeline:list {ref, sha}` read: while any listed workflow run is not
-  completed the head reads `running`. This catches a workflow whose later jobs
-  have not been created yet. One REST read, only at a success.
+- **No early success (empty required list only).** With no required list
+  every check blocks, so a workflow whose later jobs have not been created
+  yet could read green early. There, a head that reads `success` is
+  confirmed with one more `pipeline:list {ref, sha}` read: while any listed
+  workflow run is not completed the head reads `running`. This costs one
+  REST read per poll while it holds a success. With a required list the
+  missing required name already keeps the head pending, so no confirmation
+  runs and an optional workflow never holds success back.
 - **External CI only.** The anchor read waits until a check on the head has a
   workflow run (glance's per-job `runId`). Until then, and for a head whose
   checks never have one, the head keeps glance's id and its `createdAt` is the
@@ -163,8 +171,9 @@ a value below 30 is an error naming the GitHub floor.
 query (about 1 point; one more per extra 100 checks) and the branch-rules REST
 read glance caches for 10 minutes (at most 6 an hour). At the 60 s default that
 is about 60 GraphQL and 6 REST an hour, plus three REST reads per commit (the
-two required-check reads and the anchor; per call without `attend`), one
-confirmation read at a success and up to five log reads on a failure. Today's
+two required-check reads and the anchor; per call without `attend`), and up
+to five log reads on a failure. A repo with no required checks adds one
+confirmation read per poll while a green head waits on an unfinished run. Today's
 `gh pr checks` loop costs about the same.
 
 ### ci_triage on GitHub
@@ -193,7 +202,10 @@ team triage rules reach GitHub unchanged.
   for, so `allInfraBlocking` stays false while one blocks and no ownership is
   claimed for a check the base scan cannot see. For a base commit: one
   `mr:pipeline-failed-jobs` read per run of that commit whose status is
-  failed; a green run costs no request.
+  failed, keeping only rows whose status is `failed` (glance also returns
+  cancelled jobs, as `canceled`, and a job cancelled on the base is not a
+  failure there, matching GitLab's `scope: "failed"` walk); a green run
+  costs no request.
 - **Inherited.** `pipelinesForRef(ref, depth)` lists the base branch's
   workflow runs (`pipeline:list {ref, limit: 100}`, since `baseDepth` counts
   commits and each commit has one run per workflow), drops `schedule` runs
