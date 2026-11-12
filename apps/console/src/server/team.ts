@@ -1,4 +1,5 @@
 import {
+  hasLocalOrigin,
   isLocalRequest,
   type LocalServer,
 } from '@mattstack/app-server/local-request';
@@ -7,6 +8,7 @@ import { Hono } from 'hono';
 
 import {
   ADMIN_SECRETS_STATES,
+  MEMBER_ROLES,
   type AdminSecretsUpdate,
   type AdminSecretsView,
   type ConfirmResult,
@@ -23,6 +25,7 @@ import {
 } from './rt-bin';
 
 const FIXTURE_READ_ONLY = 'the design fixture is read-only';
+const BUSY = 'Another change to this team is still running';
 
 interface TeamDeps {
   runRt?: RunRt;
@@ -100,10 +103,11 @@ async function readOrg(slug: string, runRt: RunRt): Promise<TeamRead> {
     ).flatMap((m: unknown) => {
       const row = m as { username?: unknown; role?: unknown; peered?: unknown };
       if (typeof row?.username !== 'string') return [];
+      const role = MEMBER_ROLES.find(r => r === row.role);
       return [
         {
           username: row.username,
-          ...(typeof row.role === 'string' ? { role: row.role } : {}),
+          ...(role ? { role } : {}),
           peered: typeof row.peered === 'boolean' ? row.peered : null,
         },
       ];
@@ -137,6 +141,9 @@ async function readOrg(slug: string, runRt: RunRt): Promise<TeamRead> {
         slug,
         name: typeof payload.name === 'string' ? payload.name : slug,
         role: typeof payload.role === 'string' ? payload.role : null,
+        activeTeam:
+          typeof payload.activeTeam === 'string' ? payload.activeTeam : null,
+        relayFailed: payload.relayFailed === true,
         members,
         invites,
         adminSecrets: asAdminSecrets(payload.adminSecrets),
@@ -155,6 +162,9 @@ export function teamRoutes({
   orgs = () => listOrgs(),
   fixture = null,
 }: TeamDeps = {}) {
+  // Both writes rewrite the org's .sops.yaml and re-encrypt its admin files,
+  // and rt holds no lock of its own across them.
+  const writing = new Set<string>();
   return new Hono()
     .get('/api/team', async c => {
       if (fixture) return c.json({ teams: fixture }, 200);
@@ -172,17 +182,24 @@ export function teamRoutes({
     })
     .post('/api/team/confirm', async c => {
       if (fixture) return c.json({ error: FIXTURE_READ_ONLY }, 403);
-      if (!isLocalRequest(c.req.raw, c.env as LocalServer | undefined)) {
+      if (
+        !isLocalRequest(c.req.raw, c.env as LocalServer | undefined) ||
+        !hasLocalOrigin(c.req.raw)
+      ) {
         return c.json({ error: 'forbidden' }, 403);
       }
       const body = (await c.req.json().catch(() => null)) as {
         slug?: unknown;
       } | null;
       const slug = body?.slug;
+      let held = false;
       try {
         if (typeof slug !== 'string' || !orgs().includes(slug)) {
           return c.json({ error: 'unknown team' }, 400);
         }
+        if (writing.has(slug)) return c.json({ error: BUSY }, 409);
+        writing.add(slug);
+        held = true;
         const { code, stdout, stderr } = await runRt(
           ['team', 'members', 'sync', '--team', slug, '--json'],
           { timeoutMs: WRITE_TIMEOUT_MS }
@@ -215,21 +232,30 @@ export function teamRoutes({
           return c.json({ error: err.message }, 503);
         }
         return c.json({ error: (err as Error).message }, 502);
+      } finally {
+        if (held) writing.delete(slug as string);
       }
     })
     .post('/api/team/admin-secrets', async c => {
       if (fixture) return c.json({ error: FIXTURE_READ_ONLY }, 403);
-      if (!isLocalRequest(c.req.raw, c.env as LocalServer | undefined)) {
+      if (
+        !isLocalRequest(c.req.raw, c.env as LocalServer | undefined) ||
+        !hasLocalOrigin(c.req.raw)
+      ) {
         return c.json({ error: 'forbidden' }, 403);
       }
       const body = (await c.req.json().catch(() => null)) as {
         slug?: unknown;
       } | null;
       const slug = body?.slug;
+      let held = false;
       try {
         if (typeof slug !== 'string' || !orgs().includes(slug)) {
           return c.json({ error: 'unknown team' }, 400);
         }
+        if (writing.has(slug)) return c.json({ error: BUSY }, 409);
+        writing.add(slug);
+        held = true;
         const { code, stdout, stderr } = await runRt(
           ['team', 'admin-secrets', '--team', slug, '--json'],
           { timeoutMs: WRITE_TIMEOUT_MS }
@@ -252,6 +278,7 @@ export function teamRoutes({
           state: state === 'unused' || state === 'current' ? state : 'updated',
           holders: asStrings(payload.holders),
           withoutKey: asStrings(payload.withoutKey),
+          removed: asStrings(payload.removed).length,
           token: typeof payload.token === 'string' ? payload.token : 'none',
         };
         return c.json(result, 200);
@@ -260,6 +287,8 @@ export function teamRoutes({
           return c.json({ error: err.message }, 503);
         }
         return c.json({ error: (err as Error).message }, 502);
+      } finally {
+        if (held) writing.delete(slug as string);
       }
     });
 }

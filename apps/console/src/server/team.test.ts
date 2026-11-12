@@ -14,9 +14,12 @@ const status = (slug: string) => ({
   slug,
   name: `${slug} Co`,
   role: 'admin',
+  activeTeam: 'dev',
+  relayFailed: true,
   members: [
-    { username: 'matt', role: 'owner', peered: true },
-    { username: 'bo', peered: null },
+    { username: 'matt', role: 'org-owner', peered: true },
+    { username: 'bo', role: 'member', peered: null },
+    { username: 'cy', role: 'boss', peered: null },
   ],
   invites: [
     {
@@ -60,9 +63,12 @@ describe('GET /api/team', () => {
       slug: 'acme',
       name: 'acme Co',
       role: 'admin',
+      activeTeam: 'dev',
+      relayFailed: true,
       members: [
-        { username: 'matt', role: 'owner', peered: true },
-        { username: 'bo', peered: null },
+        { username: 'matt', role: 'org-owner', peered: true },
+        { username: 'bo', role: 'member', peered: null },
+        { username: 'cy', peered: null },
       ],
       invites: status('acme').invites,
       adminSecrets: null,
@@ -277,6 +283,63 @@ describe('POST /api/team/confirm', () => {
   });
 });
 
+describe('team writes', () => {
+  const write = (a: ReturnType<typeof app>, path: string, headers = {}) =>
+    a.request(`http://localhost${path}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        host: 'localhost',
+        ...headers,
+      },
+      body: JSON.stringify({ slug: 'acme' }),
+    });
+
+  it.each(['/api/team/confirm', '/api/team/admin-secrets'])(
+    '%s refuses a page from another origin',
+    async path => {
+      const runRt = vi.fn();
+      const res = await write(app(runRt), path, {
+        origin: 'https://evil.example',
+      });
+      expect(res.status).toBe(403);
+      expect(runRt).not.toHaveBeenCalled();
+    }
+  );
+
+  it('runs one write per org at a time, across both routes', async () => {
+    let finish!: () => void;
+    const held = new Promise<void>(resolve => {
+      finish = resolve;
+    });
+    const runRt = vi.fn(async (argv: string[]) => {
+      if (argv[1] === 'members') await held;
+      return ok({ addedHandles: [], pending: [], state: 'current' });
+    });
+    const a = app(runRt);
+    const first = write(a, '/api/team/confirm');
+    await vi.waitFor(() => expect(runRt).toHaveBeenCalledTimes(1));
+    const second = await write(a, '/api/team/admin-secrets');
+    expect(second.status).toBe(409);
+    expect(await second.json()).toEqual({
+      error: 'Another change to this team is still running',
+    });
+    finish();
+    expect((await first).status).toBe(200);
+    expect((await write(a, '/api/team/admin-secrets')).status).toBe(200);
+  });
+
+  it('frees the org after a failed write', async () => {
+    const runRt = vi.fn(async () => {
+      throw new Error('spawn failed');
+    });
+    const a = app(runRt);
+    expect((await write(a, '/api/team/confirm')).status).toBe(502);
+    expect((await write(a, '/api/team/confirm')).status).toBe(502);
+    expect(runRt).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('POST /api/team/admin-secrets', () => {
   const post = (a: ReturnType<typeof app>, body: unknown) =>
     a.request('http://localhost/api/team/admin-secrets', {
@@ -305,12 +368,34 @@ describe('POST /api/team/admin-secrets', () => {
       state: 'updated',
       holders: ['matt', 'priya'],
       withoutKey: [],
+      removed: 0,
       token: 'kept',
     });
     expect(runRt).toHaveBeenCalledWith(
       ['team', 'admin-secrets', '--team', 'acme', '--json'],
       { timeoutMs: WRITE_TIMEOUT_MS }
     );
+  });
+
+  it('counts who lost access', async () => {
+    const runRt = vi.fn(async () =>
+      ok({
+        state: 'updated',
+        holders: ['matt'],
+        withoutKey: ['priya'],
+        added: [],
+        removed: ['age1old', 'age1older'],
+        reencrypted: ['rt.json'],
+        token: 'differs',
+      })
+    );
+    expect(await (await post(app(runRt), { slug: 'acme' })).json()).toEqual({
+      state: 'updated',
+      holders: ['matt'],
+      withoutKey: ['priya'],
+      removed: 2,
+      token: 'differs',
+    });
   });
 
   it("surfaces rt's failure envelope", async () => {

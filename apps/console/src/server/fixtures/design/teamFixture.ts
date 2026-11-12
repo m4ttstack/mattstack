@@ -1,5 +1,7 @@
 import type { TeamRead } from '../../../shared/team';
 
+/** Shaped as `rt team status --json` reads: rt puts an invitee on the
+    roster before it makes the invite, so each one is a member too. */
 export const teamFixture: TeamRead[] = [
   {
     slug: 'acme',
@@ -8,10 +10,15 @@ export const teamFixture: TeamRead[] = [
       slug: 'acme',
       name: 'acme',
       role: 'org-owner',
+      activeTeam: 'web',
+      relayFailed: false,
       members: [
-        { username: 'matt', role: 'owner', peered: true },
-        { username: 'priya', peered: true },
-        { username: 'dana', peered: false },
+        { username: 'matt', role: 'org-owner', peered: true },
+        { username: 'priya', role: 'owner', peered: true },
+        { username: 'dana', role: 'member', peered: false },
+        { username: 'marsh', role: 'member', peered: false },
+        { username: 'carol', role: 'member', peered: false },
+        { username: 'ravi', role: 'member', peered: false },
       ],
       invites: [
         {
@@ -43,8 +50,10 @@ export const teamFixture: TeamRead[] = [
       slug: 'north',
       name: 'north',
       role: 'admin',
+      activeTeam: 'core',
+      relayFailed: false,
       members: [
-        { username: 'lee', role: 'owner', peered: true },
+        { username: 'lee', role: 'org-owner', peered: true },
         { username: 'matt', role: 'admin', peered: true },
       ],
       invites: [],

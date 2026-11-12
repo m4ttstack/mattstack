@@ -1,12 +1,37 @@
 import { describe, expect, it } from 'vitest';
 
-import { confirmLabel, type TeamInvite } from './team';
+import { confirmLabel, settledMembers, type TeamInvite } from './team';
 
 const invite = (handle: string, state: TeamInvite['state']): TeamInvite => ({
   handle,
   teams: [],
   expiresAt: '2026-12-01T00:00:00.000Z',
   state,
+});
+
+describe('settledMembers', () => {
+  it('drops a member with an open invite in any state, by canonical handle', () => {
+    const members = settledMembers({
+      slug: 'acme',
+      name: 'acme',
+      role: 'org-owner',
+      activeTeam: null,
+      relayFailed: false,
+      adminSecrets: null,
+      members: [
+        { username: 'matt', role: 'org-owner', peered: true },
+        { username: 'Alice', role: 'member', peered: false },
+        { username: 'bob', role: 'member', peered: false },
+        { username: 'cy', role: 'member', peered: false },
+      ],
+      invites: [
+        invite(' alice ', 'replied'),
+        invite('bob', 'invited'),
+        invite('cy', 'expired'),
+      ],
+    });
+    expect(members.map(m => m.username)).toEqual(['matt']);
+  });
 });
 
 describe('confirmLabel', () => {
