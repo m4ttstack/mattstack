@@ -413,7 +413,7 @@ export interface GithubJobRow {
   status: string;
   allowFailure: boolean;
   blocking: boolean;
-  pipelineId: number;
+  pipelineId: number | null;
   attempt: number;
   webUrl: string | null;
 }
@@ -431,7 +431,7 @@ export async function listGithubJobs(command: typeof rtCommand, target: GithubTa
     return {
       ok: true,
       pipeline: { id: head.id, status: head.status, sha: head.sha, ref: head.ref, webUrl: head.webUrl },
-      jobs: head.jobs.map((j) => jobRow({ jobId: j.jobId, name: j.name, status: j.status, blocking: j.blocking, pipelineId: j.runId ?? head.number, attempt: 1, webUrl: j.webUrl })),
+      jobs: head.jobs.map((j) => jobRow({ jobId: j.jobId, name: j.name, status: j.status, blocking: j.blocking, pipelineId: j.runId ?? (head.number || null), attempt: 1, webUrl: j.webUrl })),
     };
   }
   const run = await readRun(command, target, pipelineId);

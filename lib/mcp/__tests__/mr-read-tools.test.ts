@@ -591,6 +591,21 @@ describe("on GitHub", () => {
       }
     });
 
+    test("a run whose jobs listing 404s is not found", async () => {
+      const { t, calls } = ghJobs({ jobsPage: () => ({ ok: false, error: "GitHub returned 404 Not Found" }) });
+      expect(await t.handler({ mrUrl: PR, pipelineId: 555 }, env)).toMatchObject({ ok: false, error: "pipeline 555 not found" });
+      expect(jobsCalls(calls)).toHaveLength(1);
+    });
+
+    test("an anchorless head's commit status row has a null pipelineId", async () => {
+      const status = check("github:status:ci/build:12", "ci/build:12", "success", null, "https://ci.example/12");
+      const { t } = ghJobs({ pipeline: { ...headPipeline, id: `github:checks:${PR}`, status: "success", jobs: [status] } });
+      const r = await t.handler({ mrUrl: PR }, env);
+      expect((r.body as any).jobs).toEqual([
+        { jobId: null, name: "ci/build:12", stage: "checks", status: "success", allowFailure: false, blocking: true, pipelineId: null, attempt: 1, webUrl: "https://ci.example/12" },
+      ]);
+    });
+
     test("scope and name filter the head's checks", async () => {
       const { t } = ghJobs();
       const failed = await t.handler({ mrUrl: PR, scope: "failed" }, env);
