@@ -13,7 +13,8 @@ marks each blocking one `yours`, INHERITED (failing on the target branch
 too) or UNKNOWN (no base); the `blocking` list decides the verdict. Read
 each UNCLEAR job with `mr_job_trace`: the tail, then `grep` or
 `headLines`; a teardown-only tail (cleanup, artifact upload, runner exit)
-says nothing. Read a `crossProject` entry as the failedJobs section says.
+says nothing. Read a `crossProject` entry as the failedJobs section says;
+on GitHub one is a failed check with no readable log, so it is UNCLEAR.
 Each blocking failure is then REAL (the change broke it: a test, type or
 lint failure in touched code), INFRA (unrelated: a runner, network or
 dependency outage, a known flake) or, still UNCLEAR, the gate's.
