@@ -53,7 +53,10 @@ org's `packs/` or a team's `plugin/` folder, since packs publish only through
 `rt skills sync`; the janitor saves a stale pack edit to a local ref and
 publishes nothing), pulls (fast-forward or rebase) at boot, every
 `pullIntervalSec` and before every push, and surfaces a rebase conflict as
-the `team.sync` checklist row instead of resolving it. So a `--scope org` or `--scope team`
+the `team.sync` checklist row instead of resolving it. The one conflict it
+settles itself is a history rewritten upstream: when the clone's commits
+ahead of origin add nothing on top of it, the pull resets the clone to
+origin (`git reset --keep`, after the layout gate). So a `--scope org` or `--scope team`
 write or a `members sync` reaches every member's machine without a hand
 commit, publish, or pull (`docs/home-repo.md`, "Team clones").
 

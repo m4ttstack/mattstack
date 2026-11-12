@@ -87,8 +87,11 @@ export interface SnapshotResult {
   skipped?: SkipReason;
 }
 
+/** A pull that moved HEAD. */
+export type MovedOutcome = "fast-forwarded" | "rebased" | "reset";
+
 export interface PullResult {
-  outcome: "up-to-date" | "fast-forwarded" | "rebased" | "conflict" | "skipped" | "moved";
+  outcome: "up-to-date" | "fast-forwarded" | "rebased" | "reset" | "conflict" | "skipped" | "moved";
   detail: string | null;
   /** Set only on a pull the layout gate held; a caller tells a hold from any other skip by this, never by the sentence. */
   hold?: PullHold;
@@ -207,7 +210,7 @@ export interface SnapshotSpec {
   pull?: {
     intervalSec: number;
     /** Fired after a pull that moved HEAD, outside the git lock. */
-    onPulled?: (outcome: "fast-forwarded" | "rebased") => Promise<void>;
+    onPulled?: (outcome: MovedOutcome) => Promise<void>;
     /** Fired after a pull that found nothing new, outside the git lock, except a push's own pull (`converge:false`). */
     onUpToDate?: () => Promise<void>;
     /** Runs after the fetch with the remote-tracking ref and the checked-out branch; a non-null answer holds the pull at the current commit. */
@@ -510,7 +513,7 @@ export function teamSnapshotSpec(
     probes: Probes;
     ownedRoots: string[];
     readToken?: (p: Probes, remote: string) => Promise<string | null>;
-    onPulled?: (outcome: "fast-forwarded" | "rebased") => Promise<void>;
+    onPulled?: (outcome: MovedOutcome) => Promise<void>;
     onUpToDate?: () => Promise<void>;
     onMoved?: (dataBranch: string) => Promise<void>;
   },
@@ -615,7 +618,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
    * 0` and fires no hook at all. Held here until the push it rode in on
    * settles, which is the next moment the hook can run without delaying it.
    */
-  let pendingConverge: "fast-forwarded" | "rebased" | null = null;
+  let pendingConverge: MovedOutcome | null = null;
   /** Set when a pull clears a conflict: a reset to origin moves the clone outside any pull, so that pull reads up-to-date and would skip the converge. */
   let convergeOwed = false;
 
@@ -625,6 +628,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   let heldBack: string[] = [];
   let pullBlockedBy: string[] = [];
   let loggedBlockedPull: string | null = null;
+  let loggedResetRefusal: string | null = null;
   let lastPullSkipped: string | null = null;
   let layoutHold: PullHold | null = null;
   let loggedHold: string | null = null;
@@ -958,11 +962,11 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       const dataBranch = result.hold.moved;
       await withGitLock(() => runMoveHook(dataBranch));
     }
-    const moved = result.outcome === "fast-forwarded" || result.outcome === "rebased";
+    const moved = result.outcome === "fast-forwarded" || result.outcome === "rebased" || result.outcome === "reset";
     const owed = convergeOwed && result.outcome !== "skipped";
     if (owed) convergeOwed = false;
     if ((moved || owed) && spec.pull.onPulled) {
-      const outcome = moved ? (result.outcome as "fast-forwarded" | "rebased") : "fast-forwarded";
+      const outcome = moved ? (result.outcome as MovedOutcome) : "fast-forwarded";
       if (opts.converge === false) {
         pendingConverge = outcome;
       } else {
@@ -984,7 +988,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
    * Never throws... a broken converge must not fail the pull or the push that
    * drove it.
    */
-  async function runPullHook(outcome: "fast-forwarded" | "rebased"): Promise<void> {
+  async function runPullHook(outcome: MovedOutcome): Promise<void> {
     if (!spec.pull?.onPulled) return;
     try {
       // Joining an in-flight hook rather than starting a second one is safe
@@ -1096,12 +1100,15 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     // Cleared only once local is no longer ahead of origin. A hand rebase on
     // its own does NOT get there: it leaves the replayed commits ahead, and
     // the daemon's push stays suspended meanwhile, so the recovery is
-    // `rt team publish` after the rebase, or resetting the clone to origin.
+    // `rt team publish` after the rebase, or resetting the clone to origin,
+    // which the daemon does itself when the commits ahead add nothing.
     if (conflicted && ahead === 0) {
       clearConflict();
       convergeOwed = true;
     }
-    if (conflicted) return { outcome: "skipped", detail: conflicted.detail };
+    // A saved conflict whose commits add nothing still passes the layout gate
+    // below before the reset, so it never lands on a layout this rt cannot read.
+    if (conflicted && !(await nothingAhead(branch, ahead))) return { outcome: "skipped", detail: conflicted.detail };
     // Asked even with nothing to pull: a clone already sitting on main's pointer (a hand pull, an older rt) is moved only from here.
     if (spec.pull?.gate) {
       let verdict: GateVerdict | null = null;
@@ -1117,6 +1124,9 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
         }
         if (layoutHold !== null) return { outcome: "skipped", detail: holdSentence(layoutHold), hold: layoutHold };
       }
+      // The data-branch move carries unpushed commits across, so a conflicted
+      // clone's stale history must never reach it.
+      if (conflicted && verdict?.kind === "moved") return { outcome: "skipped", detail: conflicted.detail };
       if (verdict) {
         layoutHold = verdict.kind === "above" ? { layout: verdict.layout, reads: ORG_LAYOUT } : { moved: verdict.dataBranch };
         const key = verdict.kind === "above" ? `layout:${verdict.layout}` : `moved:${verdict.dataBranch}`;
@@ -1133,6 +1143,11 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       layoutHold = null;
       loggedHold = null;
       if (!threw) loggedGateError = null;
+    }
+    if (conflicted) {
+      if (!(await resetToOrigin(branch, ahead))) return { outcome: "skipped", detail: conflicted.detail };
+      clearConflict();
+      return { outcome: "reset", detail: null };
     }
     if (behind === 0) return { outcome: "up-to-date", detail: null };
     if (ahead === 0) {
@@ -1158,7 +1173,9 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       deps.log.warn({ id: spec.id, reason }, `${label}: rebase refused; will retry next tick`);
       return { outcome: "skipped", detail: reason };
     }
-    await deps.exec(["git", "rebase", "--abort"], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
+    const abort = await deps.exec(["git", "rebase", "--abort"], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
+    // A failed abort leaves HEAD detached mid-rebase, where a reset would move the wrong ref.
+    if (abort.exitCode === 0 && (await nothingAhead(branch, ahead)) && (await resetToOrigin(branch, ahead))) return { outcome: "reset", detail: null };
     const detail = redactCredentials(rebase.stderr.trim() || "rebase stopped");
     conflicted = { at: deps.now(), detail };
     try {
@@ -1174,6 +1191,48 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     deps.log.warn({ id: spec.id, detail }, `${label}: rebase conflict; still fetching, but not applying pulls or pushing until you ${remedy}`);
     deps.broadcast(`${spec.eventPrefix}:conflict`, { id: spec.id, detail });
     return { outcome: "conflict", detail };
+  }
+
+  function gitHere(args: string[]): Promise<RunResult> {
+    return deps.exec(["git", ...args] as [string, ...string[]], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
+  }
+
+  /**
+   * A history rewritten upstream with the same files (a squash) leaves this
+   * clone holding commits origin replaced. They are safe to drop only
+   * when merging them onto origin yields origin's own tree; any change they
+   * carry, or a merge git cannot settle, keeps them.
+   */
+  async function nothingAhead(branch: string, ahead: number | undefined): Promise<boolean> {
+    if (!ahead) return false;
+    const origin = `refs/remotes/origin/${branch}`;
+    const merged = await gitHere(["merge-tree", "--write-tree", origin, "HEAD"]);
+    if (merged.exitCode !== 0) return false;
+    const originTree = await gitHere(["rev-parse", `${origin}^{tree}`]);
+    if (originTree.exitCode !== 0) return false;
+    const mergedTree = merged.stdout.split("\n")[0]?.trim();
+    return !!mergedTree && mergedTree === originTree.stdout.trim();
+  }
+
+  /**
+   * `--keep` refuses rather than overwrite uncommitted work, but it would drop
+   * a resolved cherry-pick or revert, so any hand operation in progress skips it.
+   */
+  async function resetToOrigin(branch: string, ahead: number | undefined): Promise<boolean> {
+    const gitDir = await resolveGitDir();
+    const busy = ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply"].find((name) => existsSync(join(gitDir, name)));
+    const reset = busy ? null : await gitHere(["reset", "-q", "--keep", `refs/remotes/origin/${branch}`]);
+    if (!reset || reset.exitCode !== 0) {
+      const reason = busy ? `${busy} is in progress` : redactCredentials(reset!.stderr.trim());
+      if (loggedResetRefusal !== reason) {
+        deps.log.warn({ id: spec.id, reason }, `${label}: commits ahead of origin add nothing, but the reset to origin was refused`);
+        loggedResetRefusal = reason;
+      }
+      return false;
+    }
+    loggedResetRefusal = null;
+    deps.log.info({ id: spec.id, ahead }, `${label}: reset to origin; the commits ahead of it added nothing`);
+    return true;
   }
 
   function clearConflict(): void {

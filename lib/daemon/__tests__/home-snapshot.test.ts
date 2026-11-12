@@ -14,7 +14,7 @@ import { rtDir } from "../../rt-paths.ts";
 import { ORG_LAYOUT } from "../../team/org-marker.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import type { Probes } from "../../setup/probes.ts";
-import { homeSnapshotSpec, layoutGate, startHomeSnapshot, startSnapshot, teamScope, teamSnapshotSpec, type HomeSnapshotDeps, type HomeSnapshotSettings, type SnapshotSpec } from "../home-snapshot.ts";
+import { homeSnapshotSpec, layoutGate, startHomeSnapshot, startSnapshot, teamScope, teamSnapshotSpec, type HomeSnapshotDeps, type HomeSnapshotSettings, type MovedOutcome, type SnapshotSpec } from "../home-snapshot.ts";
 import type { GateVerdict } from "../../team/org-layout.ts";
 import { pullBlockedSentence } from "../../team/unpublished-packs.ts";
 
@@ -3548,7 +3548,7 @@ describe("startSnapshot: pull", () => {
     const { repoDir: _r, ...specDeps } = deps;
     const pulled: string[] = [];
     const spec = teamSpecFor();
-    const handle = startSnapshot({ ...spec, pull: { ...spec.pull, onPulled: async (o: "fast-forwarded" | "rebased") => { pulled.push(o); } } }, specDeps);
+    const handle = startSnapshot({ ...spec, pull: { ...spec.pull, onPulled: async (o: MovedOutcome) => { pulled.push(o); } } }, specDeps);
     await handle.ready;
     expect((await handle.pullNow()).outcome).toBe("conflict");
 
@@ -3938,7 +3938,7 @@ describe("startSnapshot: pull", () => {
 
   /** Mirrors the idiom in this describe block. Returns `seen` so each test can reset it past the boot pull. */
   function pullHarness(opts: { behind: number; ahead: number }) {
-    const seen: ("fast-forwarded" | "rebased")[] = [];
+    const seen: MovedOutcome[] = [];
     const upToDate: string[] = [];
     let throwNext = false;
     const { fn } = makeFakeExec([...pullResponders({ behind: opts.behind, ahead: opts.ahead }), ...defaultResponders()]);
@@ -3948,7 +3948,7 @@ describe("startSnapshot: pull", () => {
       ...teamSpecFor(),
       pull: {
         intervalSec: 300,
-        onPulled: async (outcome: "fast-forwarded" | "rebased") => {
+        onPulled: async (outcome: MovedOutcome) => {
           if (throwNext) throw new Error("converge blew up");
           seen.push(outcome);
         },
