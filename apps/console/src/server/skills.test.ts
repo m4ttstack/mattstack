@@ -8,7 +8,7 @@ import {
   RtTimeoutError,
   WRITE_TIMEOUT_MS,
 } from './rt-bin';
-import { mountSkills, type ReadPackFile } from './skills';
+import { CLASSIFY_TIMEOUT_MS, mountSkills, type ReadPackFile } from './skills';
 
 const fakeRt = (result: { code: number; stdout: string; stderr: string }) => {
   const calls: string[][] = [];
@@ -1056,7 +1056,7 @@ describe('skills history route: version-only commits', () => {
     );
     expect(rt.run).toHaveBeenCalledWith(
       expect.arrayContaining(['history-classify']),
-      { timeoutMs: expect.any(Number) }
+      { timeoutMs: CLASSIFY_TIMEOUT_MS }
     );
 
     rt.calls.length = 0;

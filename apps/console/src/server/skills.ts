@@ -595,7 +595,7 @@ const MAX_HISTORY_LIMIT = 100;
 
 /** A cold classify diffs every listed commit; the history waits on it, so it
     gets far less than a read before every commit reads as a real change. */
-const CLASSIFY_TIMEOUT_MS = 10_000;
+export const CLASSIFY_TIMEOUT_MS = 10_000;
 
 /** A restamp of a large pack rewrites every compiled verb at once, so a diff
     across two of them is genuinely big; past this it is cut and says so

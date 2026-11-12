@@ -193,7 +193,11 @@ export function HistorySidebar({ pack }: { pack: string }) {
       (onCompile && waiting !== undefined && staleSkills.length === 0)
     ) {
       if (unsynced > 0) write({ commits: [WORKING] });
-      else if (commits[0]) write({ commits: [commits[0].sha] });
+      else {
+        const opening =
+          commits.find(commit => !commit.versionOnly) ?? commits[0];
+        if (opening) write({ commits: [opening.sha] });
+      }
     }
   }, [
     changesPending,
@@ -218,6 +222,20 @@ export function HistorySidebar({ pack }: { pack: string }) {
       write({ commits: add ? [...picks.slice(-1), sha] : [sha] });
     }
   };
+
+  // A hidden fold still shows the commits a reader must see: both ends of
+  // the diff on screen, the newest commit and any commit not compiled yet.
+  const range = rangeOf(picks, commits);
+  const inView = new Set<string>([
+    ...picks,
+    ...uncompiled,
+    ...(commits[0] ? [commits[0].sha] : []),
+    ...(range
+      ? commits
+          .filter(c => c.shortSha === range.from || c.shortSha === range.to)
+          .map(c => c.sha)
+      : []),
+  ]);
 
   const commitRow = (commit: (typeof commits)[number]) => {
     const i = commits.indexOf(commit);
@@ -372,10 +390,9 @@ export function HistorySidebar({ pack }: { pack: string }) {
             if (row.kind === 'commit') return commitRow(row.commit);
             const key = row.commits[0]!.sha;
             const shown = shownFolds.has(key);
-            // A folded commit that is picked stays in view under its fold.
             const visible = shown
               ? row.commits
-              : row.commits.filter(commit => picks.includes(commit.sha));
+              : row.commits.filter(commit => inView.has(commit.sha));
             return (
               <Fragment key={`fold-${key}`}>
                 <UnstyledButton

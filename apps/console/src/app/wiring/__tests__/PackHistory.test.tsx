@@ -358,6 +358,41 @@ describe('the Changes sidebar: version-only commits', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('keeps the implicit from end of a one-commit diff in view under a hidden fold', () => {
+    at(`?tab=history&pack=acme&commits=${NEWEST.sha}`);
+    renderWithProviders(<HistorySidebar pack="acme" />);
+
+    expect(screen.getByTestId(`fold-${S1.shortSha}`)).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
+    expect(screen.getByTestId(`commit-${S1.shortSha}`)).toBeInTheDocument();
+    expect(
+      screen.queryByTestId(`commit-${S2.shortSha}`)
+    ).not.toBeInTheDocument();
+  });
+
+  it('opens on the newest real commit, and keeps the newest commit in view', async () => {
+    historyCommits.current = [S1, S2, real(MIDDLE), real(OLDEST)];
+    renderWithProviders(<HistorySidebar pack="acme" />);
+
+    await waitFor(() => expect(commitsInUrl()).toBe(MIDDLE.sha));
+    expect(screen.getByTestId(`commit-${S1.shortSha}`)).toHaveTextContent(
+      'newest'
+    );
+  });
+
+  it('keeps a commit not compiled yet in view under a hidden fold', () => {
+    waiting.current = { skills: ['work'], commits: [S3.sha], outside: [] };
+    at(`?tab=history&pack=acme&commits=${NEWEST.sha}`);
+    renderWithProviders(<HistorySidebar pack="acme" />);
+
+    expect(screen.getByTestId(`uncompiled-${S3.shortSha}`)).toBeInTheDocument();
+    expect(
+      screen.queryByTestId(`commit-${S2.shortSha}`)
+    ).not.toBeInTheDocument();
+  });
+
   it('leaves a lone version-only commit as its own row', () => {
     historyCommits.current = [real(NEWEST), S1, real(OLDEST)];
     at(`?tab=history&pack=acme&commits=${NEWEST.sha}`);
