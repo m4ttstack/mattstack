@@ -7,7 +7,7 @@
 
 import { NoAgeKeyError, readSecret } from "../secrets/store.ts";
 import { forgeTokenKey } from "./git-credential.ts";
-import { hostFromRemote } from "../setup/team-settings.ts";
+import { hostFromRemote, readUserIntegrationOverrides } from "../setup/team-settings.ts";
 import type { SecretPresence } from "../setup/validators/accounts.ts";
 import { createRealAgeKeySeam } from "../home/age-key.ts";
 import { createRealSecretsExecSeam } from "../secrets/store.ts";
@@ -112,6 +112,19 @@ export function mayOfferToken(remote: string, confirmedHost: string | null | und
 export function mayOfferGitLabToken(remote: string, confirmedHost: string | null | undefined): boolean {
   const host = hostFromRemote(remote);
   return host !== "github.com" && mayOfferTokenToHost(host, confirmedHost);
+}
+
+/** Why the GitLab token may not go to this remote's host, or null when it may. */
+export function gitlabHostRefusal(remoteUrl: string, confirmedHost: string | null | undefined = readUserIntegrationOverrides().forgeHost): string | null {
+  const host = hostFromRemote(remoteUrl);
+  if (host === null || mayOfferGitLabToken(remoteUrl, confirmedHost)) return null;
+  const refusal = `unsupported: ${host} is not a configured GitLab host`;
+  return host === "github.com" ? refusal : `${refusal} (run: rt setup gitlab connect --host ${host})`;
+}
+
+/** The GitLab refusal for a remote whose stored token is the GitLab one; a GitHub remote's token is gated elsewhere. */
+export function storedTokenRefusal(remote: string, confirmedHost: string | null | undefined): string | null {
+  return forgeTokenKey(remote) === "gitlabToken" ? gitlabHostRefusal(remote, confirmedHost) : null;
 }
 
 /**
