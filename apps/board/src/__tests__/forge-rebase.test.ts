@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { PullRequest } from '@mattstack/glance';
-
 import {
   CannotRebaseError,
   forgeRebase,
@@ -89,12 +88,24 @@ describe('forgeRebase on GitLab', () => {
     expect(await forgeRebase(h.deps)).toEqual({ kind: 'rebased', sha: 'b' });
   });
 
-  test('a null sha before the call counts any later sha as moved once the flag clears', async () => {
-    const h = harness([
-      read({ sha: null }),
-      read({ sha: 'b', rebaseInProgress: false }),
-    ]);
-    expect(await forgeRebase(h.deps)).toEqual({ kind: 'rebased', sha: 'b' });
+  test('a failed read before the call fails without sending the rebase', async () => {
+    const h = harness([new Error('502 Bad Gateway')]);
+    expect(await forgeRebase(h.deps)).toEqual({
+      kind: 'failed',
+      reason: 'could not read the MR before rebasing',
+      conflicts: false,
+    });
+    expect(h.rebases()).toBe(0);
+  });
+
+  test('a null sha before the call fails without sending the rebase', async () => {
+    const h = harness([read({ sha: null }), read({ sha: 'b' })]);
+    expect(await forgeRebase(h.deps)).toEqual({
+      kind: 'failed',
+      reason: 'could not read the MR before rebasing',
+      conflicts: false,
+    });
+    expect(h.rebases()).toBe(0);
   });
 
   test('merge error once settled is failed', async () => {
@@ -162,14 +173,30 @@ describe('forgeRebase on GitLab', () => {
     expect(await forgeRebase(h.deps)).toEqual({ kind: 'cannot' });
   });
 
-  test('a failed read keeps waiting', async () => {
-    const h = harness([
-      read(),
-      new Error('502 Bad Gateway'),
-      read({ divergedCommitsCount: 0 }),
-    ]);
+  test('a failed read keeps waiting and reports the error until a read succeeds', async () => {
+    const seen: Array<string | null> = [];
+    const h = harness(
+      [
+        read(),
+        new Error('502 Bad Gateway'),
+        new Error('503 Service Unavailable'),
+        read({ rebaseInProgress: true }),
+        read({ divergedCommitsCount: 0 }),
+      ],
+      { onReadError: message => seen.push(message) }
+    );
     expect(await forgeRebase(h.deps)).toEqual({ kind: 'current' });
-    expect(h.sleeps()).toBe(1);
+    expect(h.sleeps()).toBe(3);
+    expect(seen).toEqual(['502 Bad Gateway', '503 Service Unavailable', null]);
+  });
+
+  test('a failed first read is not a wait error', async () => {
+    const seen: Array<string | null> = [];
+    const h = harness([new Error('502 Bad Gateway')], {
+      onReadError: message => seen.push(message),
+    });
+    await forgeRebase(h.deps);
+    expect(seen).toEqual([]);
   });
 
   test('abort while waiting is cancelled', async () => {
@@ -218,11 +245,30 @@ describe('forgeRebase on GitHub', () => {
     expect(h.reads()).toBe(2);
   });
 
-  test('an unknown head before the call cannot be compared and is unclear', async () => {
+  test('an unknown head before the call fails without sending the mutation', async () => {
     const h = harness([read({ sha: null }), read({ sha: 'b' })], {
       forge: 'github',
     });
-    expect(await forgeRebase(h.deps)).toEqual({ kind: 'unclear' });
+    expect(await forgeRebase(h.deps)).toEqual({
+      kind: 'failed',
+      reason: 'could not read the MR before rebasing',
+      conflicts: false,
+    });
+    expect(h.rebases()).toBe(0);
+  });
+
+  test('a failed read while waiting for the head is reported and the wait goes on', async () => {
+    const seen: Array<string | null> = [];
+    const h = harness(
+      [
+        read({ sha: 'a' }),
+        new Error('no answer from the daemon'),
+        read({ sha: 'b' }),
+      ],
+      { forge: 'github', onReadError: message => seen.push(message) }
+    );
+    expect(await forgeRebase(h.deps)).toEqual({ kind: 'rebased', sha: 'b' });
+    expect(seen).toEqual(['no answer from the daemon', null]);
   });
 });
 

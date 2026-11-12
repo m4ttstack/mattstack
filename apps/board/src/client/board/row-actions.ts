@@ -211,9 +211,8 @@ const SHELL: ActionGlyph = { kind: 'menu', name: 'shell' };
 const CLAUDE: ActionGlyph = { kind: 'agent' };
 const RESUME: ActionGlyph = { kind: 'menu', name: 'resume' };
 const COMMAND: ActionGlyph = { kind: 'menu', name: 'command' };
-const GITLAB_GLYPH: Record<MrAction, ActionGlyph> = {
+const GITLAB_GLYPH: Record<Exclude<MrAction, 'rebase'>, ActionGlyph> = {
   merge: { kind: 'flag', name: 'conflicts' },
-  rebase: { kind: 'menu', name: 'branch' },
   setAutoMerge: { kind: 'flag', name: 'auto-merge' },
   cancelAutoMerge: { kind: 'flag', name: 'auto-merge' },
 };

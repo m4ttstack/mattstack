@@ -727,10 +727,13 @@ export function Board() {
     doneMessage: (result, mr) => {
       const said =
         result.body?.synced ??
-        result.body?.stopped ??
         (result.body?.cancelled ? 'rebase cancelled' : undefined);
       return said ? `${mrRef(mr)} ${said}` : undefined;
     },
+    stoppedMessage: (result, mr) =>
+      result.body?.stopped
+        ? `couldn't rebase ${mrRef(mr)}: ${result.body.stopped}`
+        : undefined,
     failureMessage: (result, mr) =>
       `couldn't rebase ${mrRef(mr)}${result.text ? `: ${result.text}` : ` (${result.status})`}`,
   });

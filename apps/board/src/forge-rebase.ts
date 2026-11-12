@@ -27,14 +27,21 @@ export interface ForgeRebaseDeps {
   sleep: (ms: number) => Promise<void>;
   signal: AbortSignal;
   pollMs?: number;
+  /** A read during the wait failed (its message), or a read after one did
+      succeed (null). The wait goes on either way. */
+  onReadError?: (message: string | null) => void;
 }
 
 /** rt's REBASE_POLL_MS. */
 const DEFAULT_POLL_MS = 5_000;
 
 const CONFLICT_REASON = 'the branch has conflicts with its target';
+const NO_PRE_READ = 'could not read the MR before rebasing';
 
 export class CannotRebaseError extends Error {}
+
+const messageOf = (err: unknown) =>
+  err instanceof Error ? err.message : String(err);
 
 export async function forgeRebase(
   deps: ForgeRebaseDeps
@@ -42,6 +49,8 @@ export async function forgeRebase(
   if (!deps.canRebase) return { kind: 'cannot' };
   const pollMs = deps.pollMs ?? DEFAULT_POLL_MS;
 
+  // Without the head before the call there is nothing to tell a rebase from
+  // no change, so the rebase is never sent.
   let before: string | null = null;
   try {
     before = (await deps.read()).sha;
@@ -49,12 +58,14 @@ export async function forgeRebase(
     before = null;
   }
   if (deps.signal.aborted) return { kind: 'cancelled' };
+  if (before === null)
+    return { kind: 'failed', reason: NO_PRE_READ, conflicts: false };
 
   try {
     await deps.rebase();
   } catch (err) {
     if (err instanceof CannotRebaseError) return { kind: 'cannot' };
-    const reason = err instanceof Error ? err.message : String(err);
+    const reason = messageOf(err);
     return {
       kind: 'failed',
       reason,
@@ -67,25 +78,37 @@ export async function forgeRebase(
     : waitForFlag(deps, before, pollMs);
 }
 
+/** One read of the wait; null when it failed, which the caller is told
+    about until a read succeeds again. */
+function waitReader(deps: ForgeRebaseDeps) {
+  let failing = false;
+  return async (): Promise<ForgeRebaseRead | null> => {
+    try {
+      const now = await deps.read();
+      if (failing) deps.onReadError?.(null);
+      failing = false;
+      return now;
+    } catch (err) {
+      failing = true;
+      deps.onReadError?.(messageOf(err));
+      return null;
+    }
+  };
+}
+
 async function waitForFlag(
   deps: ForgeRebaseDeps,
-  before: string | null,
+  before: string,
   pollMs: number
 ): Promise<ForgeRebaseResult> {
+  const readOnce = waitReader(deps);
   for (;;) {
     if (deps.signal.aborted) return { kind: 'cancelled' };
-    let now: ForgeRebaseRead | null = null;
-    try {
-      now = await deps.read();
-    } catch {
-      now = null;
-    }
+    const now = await readOnce();
     if (now) {
-      if (now.sha !== null && before !== null && now.sha !== before)
+      if (now.sha !== null && now.sha !== before)
         return { kind: 'rebased', sha: now.sha };
       if (!now.rebaseInProgress) {
-        if (now.sha !== null && before === null)
-          return { kind: 'rebased', sha: now.sha };
         if (now.mergeError)
           return { kind: 'failed', reason: now.mergeError, conflicts: false };
         if (now.conflicts)
@@ -100,23 +123,18 @@ async function waitForFlag(
 }
 
 /** GitHub's mutation returns before the rebase lands and exposes no
-    in-progress flag, so the head moving is the only signal. An unknown head
-    before the call leaves nothing to compare against. */
+    in-progress flag, so the head moving is the only signal. */
 async function waitForHead(
   deps: ForgeRebaseDeps,
-  before: string | null,
+  before: string,
   pollMs: number
 ): Promise<ForgeRebaseResult> {
-  if (before === null) return { kind: 'unclear' };
+  const readOnce = waitReader(deps);
   for (;;) {
     if (deps.signal.aborted) return { kind: 'cancelled' };
-    try {
-      const now = await deps.read();
-      if (now.sha !== null && now.sha !== before)
-        return { kind: 'rebased', sha: now.sha };
-    } catch {
-      // the next read may succeed
-    }
+    const now = await readOnce();
+    if (now && now.sha !== null && now.sha !== before)
+      return { kind: 'rebased', sha: now.sha };
     await deps.sleep(pollMs);
     if (deps.signal.aborted) return { kind: 'cancelled' };
   }

@@ -76,12 +76,14 @@ const github = (host: string, iid: number) =>
   });
 
 /** 7 syncs clean, 9 pauses on a conflict, 8 is a row a restart cut off,
-    30 is a GitHub PR the forge rebases, 31 one whose forge read hangs. */
+    30 is a GitHub PR the forge rebases, 31 one whose forge read hangs,
+    32 one whose forge read fails once the rebase is sent. */
 const CLEAN = 7;
 const ORPHAN = 8;
 const CONFLICT = 9;
 const GH_REBASED = 30;
 const GH_HANGS = 31;
+const GH_READ_FAILS = 32;
 
 const home = mkdtempSync(join(tmpdir(), 'board-rebase-chain-'));
 const gitlab = Bun.serve({
@@ -148,7 +150,12 @@ writeMemory(
 // The server mints its handles off its own state root, the db's folder.
 writeDoctorState(
   mintHandle('doctor', url(ORPHAN), home),
-  { mrUrl: url(ORPHAN), iid: ORPHAN, status: 'forge-rebasing' },
+  {
+    mrUrl: url(ORPHAN),
+    iid: ORPHAN,
+    status: 'forge-rebasing',
+    forge: { forge: 'gitlab', state: 'running' },
+  },
   1,
   db
 );
@@ -159,6 +166,7 @@ const prs = [
   fakePr(host, CONFLICT),
   github(host, GH_REBASED),
   github(host, GH_HANGS),
+  github(host, GH_READ_FAILS),
 ];
 
 const daemonSeen: Array<{ cmd: string; body: Record<string, unknown> }> = [];
@@ -197,6 +205,8 @@ const daemon = Bun.serve({
     if (cmd === 'mr:get') {
       if (iid === GH_HANGS && rebasedOnForge.has(iid))
         return new Promise<Response>(() => {});
+      if (iid === GH_READ_FAILS && rebasedOnForge.has(iid))
+        return Response.json({ ok: false, error: 'daemon read failed' });
       const sha = rebasedOnForge.has(iid) ? 'after' : 'before';
       return Response.json({
         ok: true,
@@ -303,6 +313,22 @@ test('cancel aborts a running forge wait', async () => {
   });
 }, 30_000);
 
+test('a failed read during the forge wait shows on the step, which keeps running', async () => {
+  const pending = rebase(GH_READ_FAILS);
+  const deadline = Date.now() + 10_000;
+  while (row(GH_READ_FAILS)?.forge?.detail !== 'daemon read failed') {
+    if (Date.now() > deadline) throw new Error('the read error never showed');
+    await Bun.sleep(50);
+  }
+  expect(row(GH_READ_FAILS)).toMatchObject({
+    status: 'forge-rebasing',
+    forge: { forge: 'github', state: 'running', detail: 'daemon read failed' },
+  });
+  await post('/rebase/cancel', { mrUrl: url(GH_READ_FAILS) });
+  expect(await (await pending).json()).toEqual({ ok: true, cancelled: true });
+  expect(row(GH_READ_FAILS)?.status).toBe('sync-stopped');
+}, 30_000);
+
 test('a GitHub MR is not refused on rebase mode', async () => {
   const res = await rebase(GH_REBASED);
   expect(res.status).toBe(200);
@@ -335,6 +361,11 @@ test('server start fails an orphaned forge-rebasing row', async () => {
   await fetch(`http://127.0.0.1:${server.port}/data.json`);
   expect(row(ORPHAN)).toMatchObject({
     status: 'sync-stopped',
-    message: 'the board restarted during the rebase',
+    message: 'the board restarted during the rebase; run rebase again',
+    forge: {
+      forge: 'gitlab',
+      state: 'failed',
+      detail: 'the board restarted during the rebase; run rebase again',
+    },
   });
 }, 30_000);

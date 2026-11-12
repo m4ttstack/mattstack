@@ -660,7 +660,8 @@ function abortableSleep(signal: AbortSignal): (ms: number) => Promise<void> {
     answers at once, even while a forge read is still out. */
 async function rebaseOnForge(
   mr: BoardMR,
-  signal: AbortSignal
+  signal: AbortSignal,
+  onReadError: (message: string | null) => void
 ): Promise<ForgeRebaseResult> {
   const failed = (reason: string): ForgeRebaseResult => ({
     kind: 'failed',
@@ -688,7 +689,12 @@ async function rebaseOnForge(
     });
   });
   return Promise.race([
-    forgeRebase({ ...deps, signal, sleep: abortableSleep(signal) }),
+    forgeRebase({
+      ...deps,
+      signal,
+      sleep: abortableSleep(signal),
+      onReadError,
+    }),
     cancelled,
   ]);
 }
@@ -1017,10 +1023,9 @@ function resolveLaunchSkillFor(
   return resolveLaunchSkill(kind, mrUrl, config, packForLaunch(config, tabId));
 }
 
-/** The board tabs a doctor launch on this MR reaches a domain skill from
-    (the "rebase locally" item needs one to rebase in a checkout). Every MR
-    of a project gets the same answer, so `memo` reads each project's pack
-    files once per request. */
+/** The board tabs a doctor launch on this MR reaches a domain skill from.
+    Every MR of a project gets the same answer, so `memo` reads each
+    project's pack files once per request. */
 function doctorTabs(
   webUrl: string | null | undefined,
   memo: Map<string, string[]>
@@ -3286,6 +3291,9 @@ const httpServer = Bun.serve({
               status: 409,
             });
           LOCAL_SYNCS.add(parsed.mrUrl);
+          // The forge wait has no clock, so it can outlast Bun's 60s idle
+          // timeout.
+          server.timeout(req, 0);
           const abort = new AbortController();
           REBASE_ABORTS.set(parsed.mrUrl, abort);
           const endLive = startLiveSync(parsed.mrUrl, repo, mr.sourceBranch);
@@ -3304,7 +3312,20 @@ const httpServer = Bun.serve({
               forge: null as unknown as undefined,
             });
             const end = await runRebaseChain({
-              forge: () => rebaseOnForge(mr, abort.signal),
+              forge: () =>
+                rebaseOnForge(mr, abort.signal, message => {
+                  // A read still out when a cancel ended the chain must not
+                  // reopen the stopped row.
+                  if (abort.signal.aborted) return;
+                  writeDoctorState(statePath, {
+                    status: 'forge-rebasing',
+                    forge: {
+                      forge: forgeWord(mr),
+                      state: 'running',
+                      ...(message ? { detail: message } : {}),
+                    },
+                  });
+                }),
               forgeKind: forgeWord(mr),
               skipForge,
               sync: async () => {

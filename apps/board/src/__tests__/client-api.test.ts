@@ -256,6 +256,47 @@ test('launch flow returns the server result', async () => {
   );
   expect(result).toBe(reply);
 });
+test('launch flow: a 200 that reports a stop fails the toast with that text', async () => {
+  const events: string[] = [];
+  await runLaunchFlow(
+    {
+      post: async () => ({
+        ok: true,
+        status: 200,
+        body: { stopped: 'daemon gone' },
+        text: '',
+      }),
+      setQueued: () => events.push('queued'),
+      rollback: () => events.push('rollback'),
+      addToast: t => events.push(`toast:${t}`),
+      startToast: t => {
+        events.push(`toast:${t}`);
+        return {
+          done: d => events.push(`done:${d}`),
+          fail: f => events.push(`fail:${f}`),
+        };
+      },
+      reload: () => events.push('reload'),
+      verbing: 'rebasing',
+      noun: 'rebase',
+      started: 'doctor called on the conflicts',
+      doneMessage: () => 'should not be used',
+      stoppedMessage: result =>
+        result.body?.stopped
+          ? `couldn't rebase !7: ${result.body.stopped}`
+          : undefined,
+    },
+    { webUrl: 'u', iid: 7 } as never,
+    {}
+  );
+  expect(events).toEqual([
+    'queued',
+    'toast:rebasing for !7…',
+    'rollback',
+    "fail:couldn't rebase !7: daemon gone",
+    'reload',
+  ]);
+});
 test('launch flow: a refused launch drops the claim, fails the toast with the reason and reloads', async () => {
   const events: string[] = [];
   await runLaunchFlow(
