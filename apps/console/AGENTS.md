@@ -32,7 +32,7 @@ shelling out to `rt` and nothing proxied through to another service. The dev ser
 ## Routes and chrome (`src/app/App.tsx`, `src/app/routes.ts`)
 
 Routing is `wouter`, via `useAppRoute()` (`src/app/routes.ts`), which maps the current location to
-a structured `AppRoute` union: `board`, `run`, `slack-gates`, `search`, `packs` (and `old-wiring`, its redirect), `settings`, `settings-embed`,
+a structured `AppRoute` union: `board`, `run`, `slack-gates`, `team`, `search`, `packs` (and `old-wiring`, its redirect), `settings`, `settings-embed`,
 `config`, `not-found`.
 `/settings` is the grouped, filterable page over every registered key (`src/app/settings/`);
 one row at a time opens in place on its Value | Where it's set panel (Value first, and a
@@ -63,6 +63,16 @@ teammate asking to resume a closed one) with Approve and Decline, answering thro
 `POST /api/gates/:id/answer` like any gate (`src/app/gates/SlackGates.tsx`, `GET /api/gates/slack`).
 Its rail entry carries the open count, requests past their 30 minutes drop out client-side, and
 `/gates/<id>` notification links for these gates land there with `?gate=<id>`.
+
+`/team` is where an org owner or admin approves teammates waiting to join (`src/app/team/`,
+`GET /api/team`, `POST /api/team/confirm`). Only teams whose role is `org-owner` or `admin` show,
+plus any whose read failed; with none the rail entry hides and the page shows a short empty state.
+One centred panel per team, behind a segmented switch when there are several: a replied invite is a
+Members row with "Waiting for approval" and the Approve button, which runs the team's one
+`members sync`. The rail entry carries the waiting count, and the Runs page shows a once-per-list
+pill (`WaitingToast`, built on the shared `toast/ToastPill` the Packs page's unsynced toast uses)
+that opens `/team`. The design fixture draws one `org-owner` team with someone waiting and a second
+team whose read fails.
 
 ## Runs domain (`src/app/runs/`, `src/server/runs.ts`)
 

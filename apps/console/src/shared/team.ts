@@ -34,6 +34,5 @@ export interface ConfirmResult {
 export function confirmLabel(invites: TeamInvite[]): string | null {
   const replied = invites.filter(invite => invite.state === 'replied');
   if (replied.length === 0) return null;
-  if (replied.length === 1) return `Add ${replied[0]!.handle}`;
-  return `Add ${replied.length} people`;
+  return replied.length === 1 ? 'Approve' : `Approve ${replied.length}`;
 }

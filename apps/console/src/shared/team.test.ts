@@ -16,14 +16,14 @@ describe('confirmLabel', () => {
       confirmLabel([invite('a', 'invited'), invite('b', 'expired')])
     ).toBeNull();
   });
-  it('names a single replier', () => {
+  it('reads Approve for a single replier', () => {
     expect(
       confirmLabel([invite('alice', 'replied'), invite('b', 'invited')])
-    ).toBe('Add alice');
+    ).toBe('Approve');
   });
   it('counts several repliers', () => {
     expect(
       confirmLabel([invite('alice', 'replied'), invite('bob', 'replied')])
-    ).toBe('Add 2 people');
+    ).toBe('Approve 2');
   });
 });

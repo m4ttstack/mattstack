@@ -137,7 +137,8 @@ async function readOrg(slug: string, runRt: RunRt): Promise<TeamRead> {
 /** Never cached: the page polls and must see a confirm at once. */
 export function teamRoutes({
   runRt = liveRunRt,
-  orgs = listOrgs,
+  // Lazy: routes.ts builds this at import, where a suite's rt-client mock may lack listOrgs.
+  orgs = () => listOrgs(),
   fixture = null,
 }: TeamDeps = {}) {
   return new Hono()
