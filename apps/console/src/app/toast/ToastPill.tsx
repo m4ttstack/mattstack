@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ActionIcon,
   Transition,
@@ -71,6 +71,11 @@ export function ToastPill({
       would otherwise cover. */
   top?: number;
 }) {
+  // The data behind the pill can empty as it hides; the fade keeps the
+  // last words it showed.
+  const shown = useRef({ title, meta });
+  if (mounted) shown.current = { title, meta };
+
   return (
     <Transition mounted={mounted} transition="fade-down" duration={180}>
       {style => (
@@ -84,8 +89,10 @@ export function ToastPill({
         >
           <UnstyledButton className={classes.main} onClick={onReview}>
             <span className={classes.dot} aria-hidden />
-            <span className={classes.title}>{title}</span>
-            {meta ? <span className={classes.meta}>{meta}</span> : null}
+            <span className={classes.title}>{shown.current.title}</span>
+            {shown.current.meta ? (
+              <span className={classes.meta}>{shown.current.meta}</span>
+            ) : null}
             <span className={classes.review}>
               Review
               <Icon name="chevronRight" size={12} />

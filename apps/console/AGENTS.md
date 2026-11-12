@@ -65,8 +65,9 @@ Its rail entry carries the open count, requests past their 30 minutes drop out c
 `/gates/<id>` notification links for these gates land there with `?gate=<id>`.
 
 `/team` is where an org owner or admin approves teammates waiting to join (`src/app/team/`,
-`GET /api/team`, `POST /api/team/confirm`). Only teams whose role is `org-owner` or `admin` show,
-plus any whose read failed; with none the rail entry hides and the page shows a short empty state.
+`GET /api/team`, `POST /api/team/confirm`). Only teams whose role is `org-owner` or `admin` show;
+a team whose read failed shows only beside at least one of those. With none, the rail entry and the
+Runs pill hide and the page shows a short empty state.
 One centred panel per team, behind a segmented switch when there are several: a replied invite is a
 Members row with "Waiting for approval" and the Approve button, which runs the team's one
 `members sync`. The rail entry carries the waiting count, and the Runs page shows a once-per-list

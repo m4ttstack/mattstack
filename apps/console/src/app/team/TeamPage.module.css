@@ -43,7 +43,7 @@
 }
 
 .boardDot[data-peered='false'] {
-  background: var(--tk-border);
+  background: var(--tk-muted);
 }
 
 .none,

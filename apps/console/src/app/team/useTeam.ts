@@ -14,9 +14,11 @@ const ADMIN_ROLES = new Set(['org-owner', 'admin']);
 const NO_TEAMS: TeamRead[] = [];
 
 /** The teams this viewer administers. A failed read carries no role, so it
-    stays: dropping it would hide the one team whose read needs attention. */
+    shows only beside a team that proves the viewer is an org admin. */
 export function adminTeams(teams: TeamRead[]): TeamRead[] {
-  return teams.filter(t => !t.ok || ADMIN_ROLES.has(t.team.role ?? ''));
+  const isAdmin = (t: TeamRead) => t.ok && ADMIN_ROLES.has(t.team.role ?? '');
+  if (!teams.some(isAdmin)) return NO_TEAMS;
+  return teams.filter(t => !t.ok || isAdmin(t));
 }
 
 export function repliedHandles(teams: TeamRead[]) {
@@ -72,9 +74,13 @@ export function useTeam() {
       } catch (err) {
         notifications.error((err as Error).message);
       } finally {
+        // Released after the refetch, so the row cannot be approved twice
+        // while it still shows as waiting.
+        await queryClient
+          .invalidateQueries({ queryKey: TEAM_KEY })
+          .catch(() => undefined);
         inFlight.current = false;
         setConfirming(null);
-        await queryClient.invalidateQueries({ queryKey: TEAM_KEY });
       }
     },
     [queryClient]

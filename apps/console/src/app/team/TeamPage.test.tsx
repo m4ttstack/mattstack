@@ -121,6 +121,34 @@ describe('TeamPage', () => {
     expect(screen.queryByRole('table')).toBeNull();
   });
 
+  it('shows the empty state when the only team failed to read', async () => {
+    renderPage([failed('beta', 'offline')]);
+    expect(await screen.findByText('No teams to manage')).toBeInTheDocument();
+    expect(screen.queryByText('offline')).toBeNull();
+  });
+
+  it('keeps Approve disabled until the refetch after a confirm lands', async () => {
+    confirmPost.mockResolvedValue(
+      ok({ added: ['marsh'], pending: [], warnings: [] })
+    );
+    renderPage([acme()]);
+    const approve = await screen.findByRole('button', { name: 'Approve' });
+    let land: (value: unknown) => void = () => {};
+    teamGet.mockReturnValue(new Promise(r => (land = r)));
+    await userEvent.click(approve);
+
+    expect(await screen.findByText('Added marsh')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled();
+
+    const joined = acme();
+    joined.team.members.push(member('marsh'));
+    joined.team.invites = joined.team.invites.filter(i => i.handle !== 'marsh');
+    await act(async () => land(ok({ teams: [joined] })));
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull()
+    );
+  });
+
   it('posts once on a double click and disables every approve in the team', async () => {
     let finish: (value: unknown) => void = () => {};
     confirmPost.mockReturnValue(new Promise(r => (finish = r)));

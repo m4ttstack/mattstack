@@ -32,8 +32,17 @@ describe('adminTeams', () => {
     expect(kept.map(t => t.slug)).toEqual(['a', 'b']);
   });
 
-  it('keeps a team whose read failed', () => {
-    expect(adminTeams([failed('x', 'boom')]).map(t => t.slug)).toEqual(['x']);
+  it('keeps a failed read beside a team I administer', () => {
+    expect(
+      adminTeams([team('a'), failed('x', 'boom')]).map(t => t.slug)
+    ).toEqual(['a', 'x']);
+  });
+
+  it('drops a failed read when no team proves I administer', () => {
+    expect(adminTeams([failed('x', 'boom')])).toEqual([]);
+    expect(
+      adminTeams([team('c', { role: 'member' }), failed('x', 'boom')])
+    ).toEqual([]);
   });
 });
 

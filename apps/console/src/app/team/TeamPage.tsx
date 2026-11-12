@@ -30,8 +30,8 @@ const PANEL_WIDTH = 1080;
 const PAGE_PAD_X = 40;
 
 const VIEWER_ROLE: Record<string, string> = {
-  'org-owner': "You're an owner of this team",
-  admin: "You're an admin of this team",
+  'org-owner': "You're the org owner",
+  admin: "You're an org admin",
 };
 
 function roleWords(role: string | undefined): string {

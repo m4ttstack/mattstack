@@ -6,7 +6,7 @@ import { screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { TeamRead } from '../../shared/team';
-import { invite, serveTeams, team, teamGet } from './teamTestData';
+import { failed, invite, serveTeams, team, teamGet } from './teamTestData';
 
 vi.mock('../api', async () => (await import('./teamTestData')).apiMock());
 
@@ -29,6 +29,13 @@ afterEach(() => vi.clearAllMocks());
 describe('TeamRailEntry', () => {
   it('is hidden when no team is one I administer', async () => {
     renderEntry([team('a', { role: 'member' })]);
+    await waitFor(() => expect(teamGet).toHaveBeenCalled());
+    await new Promise(r => setTimeout(r, 50));
+    expect(screen.queryByRole('link', { name: /team/i })).toBeNull();
+  });
+
+  it('is hidden when the only other team failed to read', async () => {
+    renderEntry([team('a', { role: 'member' }), failed('b', 'offline')]);
     await waitFor(() => expect(teamGet).toHaveBeenCalled());
     await new Promise(r => setTimeout(r, 50));
     expect(screen.queryByRole('link', { name: /team/i })).toBeNull();
