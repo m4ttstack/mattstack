@@ -13,8 +13,8 @@ echo "ok   mcp-tools-header"
 # The checkout's own rt (cli.ts), never a bare rt: that is whatever rt is installed, and it reads the real ~/.mattstack.
 REPO=$(CDPATH= cd -- "$ROOT/../.." && pwd)
 [ -f "$REPO/cli.ts" ] || { echo "FAIL mcp-tools-reference: no rt checkout at $REPO (expected cli.ts)"; exit 1; }
-TMP=$(mktemp)
-RT_HOME=$(mktemp -d)
+TMP=$(mktemp) || { echo "FAIL mcp-tools-reference: could not make a temp file"; exit 1; }
+RT_HOME=$(mktemp -d) || { echo "FAIL mcp-tools-reference: could not make a temp HOME"; exit 1; }
 trap 'rm -f "$TMP"; [ -n "$RT_HOME" ] && rm -rf "$RT_HOME"' EXIT
 env -i HOME="$RT_HOME" PATH="$PATH" RT_SKIP_SETUP=1 RT_BATCH=1 bun "$REPO/cli.ts" mcp tools --json | bun "$ROOT/scripts/gen-mcp-tools.ts" > "$TMP" || { echo "FAIL mcp-tools-reference: generation failed"; exit 1; }
 if cmp -s "$TMP" "$ROOT/attachments/mcp-tools/reference.md"; then echo "ok   mcp-tools-reference"; exit 0; fi
