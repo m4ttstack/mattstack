@@ -93,7 +93,7 @@
 **Files:**
 - Modify: `apps/board/bin/triage.ts` (imports; the identity comment and `forgeSkip` block at about 175-195; `runTriage` gate at about 247; `nudgeReady` at about 290; `latchToken` and the latch gate at about 367-368)
 - Delete: `apps/board/src/triage/forge-skip.ts` (`git rm`)
-- Modify (comments only): `apps/board/src/triage/edge.ts` (`OwnMrFacts.pipelineId`, `OwnMrFacts.author`), `apps/board/src/triage/run.ts` (`numericPipelineId`, `composeFixClasses` and the `identity` field docs that say "GitLab token username")
+- Modify (comments only): `apps/board/src/triage/seat.ts` (`triageOwns` doc), `apps/board/src/triage/edge.ts` (`OwnMrFacts.pipelineId`, `OwnMrFacts.author`), `apps/board/src/triage/run.ts` (`numericPipelineId`, `composeFixClasses` and the `identity` field docs that say "GitLab token username")
 
 **Interfaces:**
 - Consumes: `triageForgePlan`, `unparsedRedLines` (Tasks 1, 2); `activeTeam` from `@mattstack/rt-client` (its `.username` is the team record's `forgeUsername`).
